@@ -947,7 +947,10 @@ fn misses(tool: &Tool, args: &[String]) -> Result<()> {
             count += 1;
         }
     }
-    println!("{} unsettled", render::plural(count, "candidate miss"));
+    println!(
+        "{} unsettled",
+        crate::text::counted(count, "candidate miss", "candidate misses")
+    );
     Ok(())
 }
 

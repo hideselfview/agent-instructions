@@ -454,7 +454,7 @@ pub fn check_open_misses(inputs: &OpenMisses) -> Result<(String, bool)> {
     }
     text.push_str(&format!(
         "{} unsettled before the check\n",
-        render::plural(count, "candidate miss")
+        crate::text::counted(count, "candidate miss", "candidate misses")
     ));
     Ok((text, failed))
 }

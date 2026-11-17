@@ -405,7 +405,7 @@ fn misses(inputs: &Inputs, conn: &rusqlite::Connection) -> Result<String> {
         cases::add(inputs.root, &name, inputs.project, &patch, &additions)?;
         text.push_str(&format!(
             "landing {landing}: case {name} expects {}\n",
-            render::plural(confirmed.len(), "confirmed miss")
+            crate::text::counted(confirmed.len(), "confirmed miss", "confirmed misses")
         ));
     }
     Ok(text)
