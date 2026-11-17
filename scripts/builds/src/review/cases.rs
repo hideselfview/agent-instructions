@@ -221,6 +221,37 @@ pub fn add(
     Ok(dir)
 }
 
+/// <patch> with only the diffs of the files in <keep>: every commit's mail
+/// header and message stay, and each other file's diff goes. A file's diff
+/// runs from its `diff --git` line to the next one or the next mail.
+pub fn keep_files(patch: &str, keep: &[String]) -> String {
+    let mut out = String::new();
+    let mut kept = true;
+    for line in patch.split_inclusive('\n') {
+        if let Some(rest) = line.strip_prefix("diff --git ") {
+            let rest = rest.trim_end();
+            let path = rest.rsplit_once(" b/").map(|(_, new)| new).unwrap_or(rest);
+            kept = keep.iter().any(|k| k == path);
+        } else if starts_mail(line) {
+            kept = true;
+        }
+        if kept {
+            out.push_str(line);
+        }
+    }
+    out
+}
+
+/// Whether <line> starts a mail of `git format-patch` output: `From`, then a
+/// full commit SHA.
+fn starts_mail(line: &str) -> bool {
+    line.starts_with("From ")
+        && line
+            .split_whitespace()
+            .nth(1)
+            .is_some_and(|sha| sha.len() == 40 && sha.chars().all(|c| c.is_ascii_hexdigit()))
+}
+
 /// The `git format-patch` output of <base>..<head> in <repo_dir>.
 pub fn patch_of(repo_dir: &Path, base: &str, head: &str) -> Result<String> {
     let output = crate::checkout::git(repo_dir)
@@ -411,12 +442,7 @@ pub fn messages_of_patch(patch: &str) -> String {
     let mut in_message = false;
     let mut in_header = false;
     for line in patch.lines() {
-        let starts_mail = line.starts_with("From ")
-            && line
-                .split_whitespace()
-                .nth(1)
-                .is_some_and(|sha| sha.len() == 40 && sha.chars().all(|c| c.is_ascii_hexdigit()));
-        if starts_mail {
+        if starts_mail(line) {
             in_header = true;
             in_message = false;
             continue;

@@ -126,6 +126,11 @@ fn a_landing_becomes_a_case_of_its_specific_findings_the_check_confirms_and_its_
         .map(|l| (l.code.as_str(), l.verdict.as_str()))
         .collect();
     assert_eq!(verdicts, [("bad();", "finding"), (CLEAN, "none")]);
+    assert_eq!(
+        crate::review::files::paths(&case.patch),
+        ["a.rs"],
+        "the case holds only the files of its confirmed findings"
+    );
     // A second run keeps the case and asks no model again.
     let again = propose_in(&fake, &side, &demo.store);
     assert!(again.text.contains("has a case already"), "{}", again.text);
@@ -201,6 +206,12 @@ fn a_confirmed_miss_becomes_a_case_that_expects_it() {
         expected.contains(&("rule-a".to_string(), "b.swift".to_string())),
         "{expected:?}"
     );
+    let miss_case = cases::load(&fake.root)
+        .unwrap()
+        .into_iter()
+        .find(|c| c.expected.iter().any(|e| e.file == "b.swift"))
+        .unwrap();
+    assert_eq!(crate::review::files::paths(&miss_case.patch), ["b.swift"]);
 }
 
 #[test]

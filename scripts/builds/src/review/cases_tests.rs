@@ -386,3 +386,15 @@ fn a_comparison_prints_each_setups_caught_missed_and_wrong_flags_with_tokens_and
         "{text}"
     );
 }
+
+#[test]
+fn a_patch_keeps_only_the_files_named_with_every_commit_message() {
+    let sha = "0".repeat(40);
+    let patch = format!(
+        "From {sha} Mon Sep 17 00:00:00 2001\nSubject: [PATCH] One\n\nWhy.\n---\n a.rs | 1 +\n b.rs | 1 +\n\ndiff --git a/a.rs b/a.rs\n--- a/a.rs\n+++ b/a.rs\n@@ -0,0 +1 @@\n+a\ndiff --git a/b.rs b/b.rs\n--- a/b.rs\n+++ b/b.rs\n@@ -0,0 +1 @@\n+b\n-- \n2.50\n\nFrom {sha} Mon Sep 17 00:00:00 2001\nSubject: [PATCH] Two\n\n---\ndiff --git a/b.rs b/b.rs\n--- a/b.rs\n+++ b/b.rs\n@@ -1 +1 @@\n-b\n+c\n"
+    );
+    let kept = keep_files(&patch, &["a.rs".to_string()]);
+    assert_eq!(files::paths(&kept), ["a.rs"]);
+    assert_eq!(messages_of_patch(&kept), messages_of_patch(&patch));
+    assert!(kept.contains("+a\n") && !kept.contains("+b\n"));
+}

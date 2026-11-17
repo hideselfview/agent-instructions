@@ -226,6 +226,15 @@ fn path_in(diff: &Diff, patch: &str, finding: &Finding) -> Option<String> {
         .find(|path| names_file(path, &finding.file))
 }
 
+/// <patch> and <diff> cut to the files of <paths>, the files that hold a
+/// case's expected findings, so a replay of the case sends each group only
+/// those files. The commit messages stay.
+fn cut(patch: &str, mut diff: Diff, paths: &[String]) -> (String, Diff) {
+    diff.text = cases::keep_files(&diff.text, paths);
+    diff.changed = files::paths(&diff.text);
+    (cases::keep_files(patch, paths), diff)
+}
+
 /// The finding sites a case expects: the finding by rule and file, and its
 /// code as a `finding` site.
 fn expect<'a>(finding: &'a Finding, path: &'a str) -> [Addition<'a>; 2] {
@@ -319,6 +328,14 @@ pub fn propose(inputs: &Inputs) -> Result<Proposed> {
             continue;
         }
         let expected = additions.len() / 2;
+        let paths: Vec<String> = additions
+            .iter()
+            .filter_map(|addition| match addition {
+                Addition::Finding { file, .. } => Some(file.to_string()),
+                _ => None,
+            })
+            .collect();
+        let (patch, diff) = cut(&patch, diff, &paths);
         let clean = clean_lines(&diff, &candidate.findings);
         let lines = clean.len();
         additions.extend(clean.into_iter().map(Addition::Site));
@@ -406,13 +423,16 @@ fn misses(inputs: &Inputs, conn: &rusqlite::Connection) -> Result<String> {
             if additions.is_empty() {
                 continue;
             }
+            let paths: Vec<String> = found.iter().map(|(_, path)| path.clone()).collect();
+            let whole = diff.text.clone();
+            let (text_cut, diff) = cut(&whole, diff, &paths);
             additions.extend(
                 clean_lines(&diff, &findings)
                     .into_iter()
                     .map(Addition::Site),
             );
             let name = case_name(landing, run);
-            cases::add(inputs.root, &name, inputs.project, &diff.text, &additions)?;
+            cases::add(inputs.root, &name, inputs.project, &text_cut, &additions)?;
             text.push_str(&format!(
                 "landing {landing}: case {name} expects {}\n",
                 crate::text::counted(found.len(), "confirmed miss", "confirmed misses")
