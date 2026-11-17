@@ -125,15 +125,16 @@ WHAT AN IMPLEMENTING AGENT DOES
   4. Review its own diff once, against the brief and the matching rules.
   5. Check only what the change touches: the hook, the tests of the changed
      code, and `builds app-build <repo> <branch>` for app changes, which picks
-     the steps, lane and host (BUILDS). builds refuses a whole lane's shots
+     the steps, lane and host (BUILDS). Nobody runs a full test suite or the
+     full CI script locally: CI runs them, and a whole app test suite also
+     opens the app on the person's screen. builds refuses a whole lane's shots
      (mac. or android.) and the steps a `ci-only` line of `.app-build` names.
-     Never run a whole app test suite (it opens the app on the person's screen)
-     or the full CI script. A shots check compares against the findings of the
-     commit the branch started from: read them with `builds shots findings`,
-     never by building that commit, and open the report path it prints, never a
-     checkout's shots/ folder. To run the hook's checks over every file the
-     branch changed, run `builds checks run --since origin/main`, which leaves
-     HEAD, the index and the files on the branch. Never move HEAD to check a
+     A shots check compares against the findings of the commit the branch
+     started from: read them with `builds shots findings`, never by building
+     that commit, and open the report path it prints, never a checkout's
+     shots/ folder. To run the hook's checks over every file the branch
+     changed, run `builds checks run --since origin/main`, which leaves HEAD,
+     the index and the files on the branch. Never move HEAD to check a
      branch: an app build started meanwhile builds what HEAD points at.
   6. Before every commit, including fix commits, reread every app string,
      error, help text, doc and spec line it adds against
@@ -143,7 +144,7 @@ WHAT AN IMPLEMENTING AGENT DOES
      agent runs or that a landing waits on checks wording: the person reviews
      copy by hand, and only the person runs the copy review (`builds review
      copy`), which does.
-  7. Commit.
+  7. Commit through the hook.
   8. Report the SHA, the base and the checks. Leave nothing uncommitted: the
      coordinator runs `builds land` in this worktree, which refuses a
      worktree with uncommitted changes.
@@ -167,10 +168,7 @@ DISPATCH
   - Each brief names its worktree, its items, the rules to read, the
     project's hard limits (the person's checkouts, the keychain, devices,
     cargo through the wrapper, no `git add -A` or stash, no --no-verify), the
-    mode, the model's commit trailer, and "report each commit; don't push
-    main". A quick-mode brief names the one test that proves the change and
-    the clippy command with the hook's feature sets, never "the tests of what
-    you touched".
+    model's commit trailer, and "report each commit; don't push main".
   - Critical work starts first. Critical work is what the person sees in the
     apps (a screen, a bug, a feature the person asked for), builds work that
     blocks or slows the agents, and the cleanups the person marks critical. The
@@ -210,6 +208,8 @@ DISPATCH
   - Disk is a queue limit, never a question for the person: under the floor,
     start nothing new, and start the next work as agents finish and their
     build folders are pruned.
+  - While `builds health` shows load well over the core count, start nothing
+    new.
   - Flaky tests and speed work (profiling, benchmarks, timing a build) never go
     in the work queue. They need a quiet machine: on a loaded one, load hides
     the cause and skews every number, and repeated runs slow every other agent.
@@ -223,25 +223,6 @@ DISPATCH
     needs it; clear it once those agents finish (`builds help`, APP BUILDS).
   - When an agent finishes, land its commits and start the next work in the
     same turn, before writing up anything else.
-
-
-MODES
-
-The person picks the mode and tells the coordinator; each brief names it, and a
-switch means telling every running agent. The pre-commit hook is the same in
-both.
-
-  - Strict: agents commit through the hook and run the tests of what they
-    touched. While `builds health` shows load well over the core count, start
-    nothing new.
-  - Quick: keep 8 agents running, starting new ones at every health check and
-    landing. Before each commit an agent runs clippy with the project's test
-    features (and the apps' test-target compiles for Swift or Kotlin), and runs
-    only the one test that proves a fix. The landing's compile check still
-    checks every landing. At the full-suite run the person sets, a fixer agent
-    runs every suite and CI and fixes each failure with the commit that caused
-    it. The agent checks a test that fails meanwhile on origin/main first; when
-    it fails there too and isn't the agent's, the agent notes it and moves on.
 
 
 REVIEW
