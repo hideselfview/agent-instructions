@@ -1774,25 +1774,25 @@ run `review replay --rules-root` on it.
                               confirmed with a reason of its own, not with
                               one of the generic reasons it confirmed
                               findings with in bulk, such as "real as the
-                              finding says". Each such
-                              finding goes to the model check (--model,
-                              default opus) against its rule's text; the
-                              case is the net change that review read, cut
-                              to the files of the findings the check
-                              confirms with every commit message kept, and
-                              expects each such finding, by
-                              rule and file and as a `finding` site of its
-                              code, and labels as `none` each added line
-                              that no finding of the landing names and that
-                              names one site (24 characters or more, once in
-                              its file). The command writes no case for a
-                              landing whose findings the check all rejects,
-                              and keeps the case of a landing that has one
-                              already without asking a model. The command
-                              also writes a case for each confirmed
-                              candidate miss the same way, over the diff the audit reviewer that
-                              raised it read, which the store keeps, cut to
-                              the files of the misses.
+                              finding says". The model check (--model,
+                              default opus) reads each such finding against
+                              its rule's text. The case is the net change
+                              that review read, with only the files of the
+                              findings the check confirms and every commit
+                              message. The case expects each confirmed
+                              finding by rule and file, and as a `finding`
+                              site of its code, and labels as `none`
+                              each added line that no finding of the landing
+                              names, that has 24 characters or more, and
+                              whose text appears only once in its file. The
+                              command writes no case for a landing whose
+                              findings the check all rejects, and keeps the
+                              case of a landing that has one already without
+                              asking a model. The command also writes a case
+                              for each confirmed candidate miss, over the
+                              diff the audit reviewer that raised it read,
+                              which the store keeps, with only the files of
+                              the misses.
                               Exits 1 when a check gave no answer, and writes
                               no case for that landing
   builds review case add <landing> <finding> --repo-dir DIR --rules-root DIR [--name NAME]
