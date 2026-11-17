@@ -349,6 +349,20 @@ fn stop(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Refuses to <how> (a verb: drop, defer, close) <item> while it is parked:
+/// its worktree holds its commits and files.
+fn require_not_parked(item: &Item, how: &str) -> Result<()> {
+    if item.parked.is_empty() {
+        return Ok(());
+    }
+    let worktrees: Vec<&str> = item.parked.iter().map(|p| p.worktree.as_str()).collect();
+    fail!(
+        "{} is parked in {}, which holds its commits and files; take it there and land the work before you {how} it",
+        item.id,
+        worktrees.join(" and ")
+    );
+}
+
 /// What stands in the way of item <id> leaving the queue without being done:
 /// an open item waits on it, or it is the last item an open question blocks.
 /// Names each and the command that frees it. Unless <work_goes> (a drop,
@@ -363,12 +377,8 @@ fn require_can_leave(lists: &Lists, id: Id, how: &str, work_goes: bool) -> Resul
             id.0
         );
     }
-    if !work_goes && !item.parked.is_empty() {
-        let worktrees: Vec<&str> = item.parked.iter().map(|p| p.worktree.as_str()).collect();
-        fail!(
-            "{id} is parked in {}, which holds its commits and files; take it there and land the work before you {how} it",
-            worktrees.join(" and ")
-        );
+    if !work_goes {
+        require_not_parked(item, how)?;
     }
     lists.require_none_waits_on(RecordWait::Item(id), how)?;
     for question in &lists.questions {
@@ -399,14 +409,8 @@ fn finished(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     let stamp = Stamp::resolve(tool.now, &args, cwd)?;
     store.write(&stamp, &format!("item finished {id}"), |db| {
         let lists = store::read(db)?;
-        if let Some(item) = lists.item(id)
-            && !item.parked.is_empty()
-        {
-            let worktrees: Vec<&str> = item.parked.iter().map(|p| p.worktree.as_str()).collect();
-            fail!(
-                "{id} is parked in {}, which holds its commits and files; take it there and land the work",
-                worktrees.join(" and ")
-            );
+        if let Some(item) = lists.item(id) {
+            require_not_parked(item, "close")?;
         }
         running::end(db, id)?;
         close(db, id, How::Finished(made.clone()), &stamp)
