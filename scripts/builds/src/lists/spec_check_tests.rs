@@ -305,7 +305,7 @@ fn a_conflict_whose_spec_quote_is_not_in_the_spec_is_set_aside_and_refuses_nothi
     assert_eq!(lists.items[0].spec_checks[0].conflicts, 0);
     let checked = b.check();
     assert_eq!(
-        checked.findings[0].check_failed.as_deref(),
+        checked.findings[0].kind.set_aside(),
         Some("spec/demo.md holds no such text")
     );
     assert_eq!(
@@ -380,22 +380,18 @@ pub fn record_one(db: &Connection, repo: &str, item: Id) {
         failure: None,
         findings: vec![
             Finding {
-                kind: FindingKind::Conflict,
-                brief_quote: CONFLICT.to_string(),
-                spec: Some(SpecQuote {
+                kind: FindingKind::Conflict(SpecQuote {
                     file: "spec/demo.md".to_string(),
                     quote: SPEC_TEXT.to_string(),
-                    line: Some(5),
+                    line: Quotes::Found(5),
                 }),
+                brief_quote: CONFLICT.to_string(),
                 why: "w".to_string(),
-                check_failed: None,
             },
             Finding {
-                kind: FindingKind::Unstated,
+                kind: FindingKind::Unstated(Quotes::Found(())),
                 brief_quote: UNSTATED.to_string(),
-                spec: None,
                 why: "w".to_string(),
-                check_failed: None,
             },
         ],
     };

@@ -148,18 +148,50 @@ impl Setup {
     }
 }
 
-/// A conflict or an unstated behavior.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// What builds made of a finding's quotes: <T> when it found every quote,
+/// or why it set the finding aside.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Quotes<T> {
+    Found(T),
+    SetAside(String),
+}
+
+impl Quotes<()> {
+    /// Whether <brief> holds <quote>.
+    fn in_brief(brief: &Brief, quote: &str) -> Quotes<()> {
+        if clause_in(quote, &brief.text) {
+            Quotes::Found(())
+        } else {
+            Quotes::SetAside("the brief holds no such sentence".to_string())
+        }
+    }
+}
+
+/// A conflict, with the spec's text, or an unstated behavior.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum FindingKind {
-    Conflict,
-    Unstated,
+    Conflict(SpecQuote),
+    /// What builds made of the brief's quote.
+    Unstated(Quotes<()>),
 }
 
 impl FindingKind {
-    fn word(self) -> &'static str {
+    fn word(&self) -> &'static str {
         match self {
-            FindingKind::Conflict => "conflict",
-            FindingKind::Unstated => "unstated",
+            FindingKind::Conflict(_) => "conflict",
+            FindingKind::Unstated(_) => "unstated",
+        }
+    }
+
+    /// Why builds set the finding aside, if it did.
+    fn set_aside(&self) -> Option<&str> {
+        match self {
+            FindingKind::Conflict(SpecQuote {
+                line: Quotes::SetAside(why),
+                ..
+            })
+            | FindingKind::Unstated(Quotes::SetAside(why)) => Some(why),
+            _ => None,
         }
     }
 }
@@ -170,20 +202,16 @@ pub struct Finding {
     pub kind: FindingKind,
     /// The brief's sentence.
     pub brief_quote: String,
-    /// For a conflict: the spec file, the spec's text and the line builds
-    /// found it on.
-    pub spec: Option<SpecQuote>,
     pub why: String,
-    /// Why builds set the finding aside; None when it counts.
-    pub check_failed: Option<String>,
 }
 
+/// The spec's text a conflict quotes.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SpecQuote {
     pub file: String,
     pub quote: String,
-    /// None when builds found no such text in the file.
-    pub line: Option<i64>,
+    /// The line of the file where builds found the text.
+    pub line: Quotes<i64>,
 }
 
 /// One reviewer's check of the brief in one target.
@@ -207,11 +235,25 @@ pub struct Checked {
 }
 
 impl Checked {
-    /// The findings of <kind> whose quotes builds found.
-    pub fn counted(&self, kind: FindingKind) -> impl Iterator<Item = &Finding> {
+    /// Each conflict whose quotes builds found, with its spec quote and the
+    /// line builds found the spec's text on.
+    fn conflicts(&self) -> impl Iterator<Item = (&Finding, &SpecQuote, i64)> {
         self.findings
             .iter()
-            .filter(move |f| f.kind == kind && f.check_failed.is_none())
+            .filter_map(|finding| match &finding.kind {
+                FindingKind::Conflict(spec) => match spec.line {
+                    Quotes::Found(line) => Some((finding, spec, line)),
+                    Quotes::SetAside(_) => None,
+                },
+                FindingKind::Unstated(_) => None,
+            })
+    }
+
+    /// Each unstated behavior whose quote builds found.
+    fn unstated(&self) -> impl Iterator<Item = &Finding> {
+        self.findings
+            .iter()
+            .filter(|finding| finding.kind == FindingKind::Unstated(Quotes::Found(())))
     }
 }
 
@@ -345,37 +387,29 @@ fn findings_of(
             .map(str::to_string)
             .ok_or_else(|| format!("an answer entry has no {key}"))
     };
-    let brief_fault = |quote: &str| {
-        (!clause_in(quote, &brief.text)).then(|| "the brief holds no such sentence".to_string())
-    };
     let mut findings = Vec::new();
     for entry in list("conflicts")? {
         let brief_quote = text(&entry, "brief")?;
         let file = text(&entry, "spec_file")?;
         let quote = text(&entry, "spec")?;
-        let mut check_failed = brief_fault(&brief_quote);
-        let mut line = None;
-        if check_failed.is_none() {
-            match spec_line(target, &file, &quote) {
-                Ok(found) => line = Some(found),
-                Err(why) => check_failed = Some(why),
-            }
-        }
+        let line = match Quotes::in_brief(brief, &brief_quote) {
+            Quotes::SetAside(why) => Quotes::SetAside(why),
+            Quotes::Found(()) => match spec_line(target, &file, &quote) {
+                Ok(line) => Quotes::Found(line),
+                Err(why) => Quotes::SetAside(why),
+            },
+        };
         findings.push(Finding {
-            kind: FindingKind::Conflict,
+            kind: FindingKind::Conflict(SpecQuote { file, quote, line }),
             brief_quote,
-            spec: Some(SpecQuote { file, quote, line }),
             why: text(&entry, "why")?,
-            check_failed,
         });
     }
     for entry in list("unstated")? {
         let brief_quote = text(&entry, "brief")?;
         findings.push(Finding {
-            kind: FindingKind::Unstated,
-            check_failed: brief_fault(&brief_quote),
+            kind: FindingKind::Unstated(Quotes::in_brief(brief, &brief_quote)),
             brief_quote,
-            spec: None,
             why: text(&entry, "why")?,
         });
     }
@@ -494,6 +528,14 @@ pub fn record(
             .sql()?;
         }
         for finding in &check.findings {
+            let spec = match &finding.kind {
+                FindingKind::Conflict(spec) => Some(spec),
+                FindingKind::Unstated(_) => None,
+            };
+            let line = spec.and_then(|spec| match spec.line {
+                Quotes::Found(line) => Some(line),
+                Quotes::SetAside(_) => None,
+            });
             db.execute(
                 "INSERT INTO spec_check_finding (check_id, kind, brief_quote, spec_file, spec_line, spec_quote, why, check_failed)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
@@ -501,11 +543,11 @@ pub fn record(
                     id,
                     finding.kind.word(),
                     finding.brief_quote,
-                    finding.spec.as_ref().map(|s| &s.file),
-                    finding.spec.as_ref().and_then(|s| s.line),
-                    finding.spec.as_ref().map(|s| &s.quote),
+                    spec.map(|spec| &spec.file),
+                    line,
+                    spec.map(|spec| &spec.quote),
                     finding.why,
-                    finding.check_failed,
+                    finding.kind.set_aside(),
                 ],
             )
             .sql()?;
@@ -620,13 +662,11 @@ pub fn failures(checked: &[Checked]) -> Option<String> {
 pub fn conflicts(brief: &Brief, checked: &[Checked]) -> Option<String> {
     let mut out = String::new();
     for check in checked {
-        for finding in check.counted(FindingKind::Conflict) {
-            let spec = finding.spec.as_ref().expect("a conflict quotes the spec");
+        for (finding, spec, line) in check.conflicts() {
             out.push_str(&format!(
-                "\n  the brief says: \"{}\"\n  {}:{} (repo {}) says: \"{}\"\n  how they differ: {}\n",
+                "\n  the brief says: \"{}\"\n  {}:{line} (repo {}) says: \"{}\"\n  how they differ: {}\n",
                 finding.brief_quote.trim(),
                 spec.file,
-                spec.line.expect("a counted conflict has its line"),
                 check.target.repo,
                 spec.quote.trim(),
                 finding.why.trim()
@@ -647,7 +687,7 @@ pub fn conflicts(brief: &Brief, checked: &[Checked]) -> Option<String> {
 pub fn notes(checked: &[Checked]) -> Vec<String> {
     let mut notes = Vec::new();
     for check in checked {
-        for finding in check.counted(FindingKind::Unstated) {
+        for finding in check.unstated() {
             notes.push(format!(
                 "the spec of repo {} ({}) states nothing on this behavior of the brief; tell the agent to add it to the spec in its commit: \"{}\"",
                 check.target.repo,
@@ -656,7 +696,7 @@ pub fn notes(checked: &[Checked]) -> Vec<String> {
             ));
         }
         for finding in &check.findings {
-            if let Some(why) = &finding.check_failed {
+            if let Some(why) = finding.kind.set_aside() {
                 notes.push(format!(
                     "the spec check set aside a {} in repo {} because {why}: \"{}\"",
                     finding.kind.word(),
