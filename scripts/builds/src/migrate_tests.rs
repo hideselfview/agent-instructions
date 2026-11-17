@@ -3040,7 +3040,11 @@ fn schema_before_allowed() -> String {
             .find("CREATE TABLE review_allowed")
             .expect("the review_allowed table");
     let end = "STRICT;\n";
-    let stop = last + schema[last..].find(end).expect("it ends") + end.len();
+    let stop = last
+        + schema[last..]
+            .find(end)
+            .expect("the review_allowed table ends with STRICT;")
+        + end.len();
     let mut schema = format!("{}{}", &schema[..start], &schema[stop..]);
     for (now, then) in [
         (

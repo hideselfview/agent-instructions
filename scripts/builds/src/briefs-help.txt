@@ -81,10 +81,10 @@ WRITE ONE BRIEF PER ITEM
   - Open question, only when the code and the rules can't settle a choice:
     the facts, and the alternatives that add no special-case UI. Such an item
     goes no further until the person answers. Dead code (code that nothing
-    outside tests calls) is never an open question: the brief deletes it.
-    The one exception is dead code on main that is the only code doing a
-    behavior the spec states: ask the person whether the behavior stays,
-    and quote the spec's text.
+    outside tests calls) is never an open question: the brief says to delete
+    it. The one exception is dead code on main that is the only code doing a
+    behavior the spec states: ask the person whether the behavior stays, and
+    quote the spec's text.
 
 Group the briefs in commit order and write them to the file you were given. Use
 plain words, with no jargon and no size or effort words ("simple", "small",

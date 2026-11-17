@@ -1401,12 +1401,13 @@ A confirmed finding is open until a later review closes it, until the
 coordinator learns that the finding is wrong and settles it again as dropped
 (`builds review settle N --again --why TEXT`), or until the person allows its
 code to land as it is (`builds review settle N allowed --by-person --why
-TEXT`). A settle again keeps both settles, with who made each and why, and the
-finding counts as dropped from then on. A finding the person allowed stays
-confirmed and counts as a true positive, and --why holds the person's words.
-Only the person allows a finding: the coordinator asks the person first, and no
-agent passes --by-person on its own judgment. builds refuses to settle a closed
-or allowed finding again.
+TEXT`). When the coordinator settles a finding again, the record keeps both
+settles, with who made each and why, and the finding counts as dropped from
+then on. A finding the person allowed stays confirmed and counts as a true
+positive, and --why holds the person's words. Only the person allows a
+finding: the coordinator asks the person first, and no agent passes
+--by-person on its own judgment. builds refuses to settle a closed or allowed
+finding again.
 
 Each branch's change has one review, found by its key (by default the
 branch, such as `branch:work`), which stays open until the change lands. The
