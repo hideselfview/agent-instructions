@@ -8,10 +8,12 @@ digest: >-
   (the view owns it, no table stores it, and a query takes it as a parameter in
   its request), and a pure Rust function of one live query result that
   only shapes how its rows display (coven's `process`). A read that follows
-  changes is one coven live query; any other read is a plain SQL read. Each
-  window of a long list is its own live query bounded by a key at both ends. SQL
+  changes is one coven live query; any other read is a plain SQL read. A long
+  list has one window, a live query of the rows from a sort key with a LIMIT,
+  which core moves and sizes around the rows the app reports on screen, holding
+  only the latest result of the window's query and of its position's. SQL
   decides which rows a screen gets, reads every row a value needs in one
-  statement, and counts across windows. Rust and the apps never keep memory
+  statement, and counts a list's rows. Rust and the apps never keep memory
   between reads (incremental or lazy computation included), run a side pass,
   force a rerun, pick a read path by size, or filter, sort or join rows outside
   SQL, and nothing answers from the rows a screen has loaded. The apps draw the
@@ -31,8 +33,8 @@ A screen shows the rows of its SQL query, and the counts, totals, section
 headers, "N of M", sums and facets that come with them. Rust turns the rows into
 bridge types and the app draws them, with no cache, enrichment or other step
 between the query and the screen. In Rust, a pure function of one query result
-may shape how that result's rows display. A long list shows several windows at a
-time, and each window is its own live query.
+may shape how that result's rows display. A long list keeps one window, a live
+query that core moves and sizes around the rows on screen.
 
 Two kinds of value reach a screen outside its query's rows:
 
@@ -131,7 +133,7 @@ A `process` function never does any of these:
 - Use rows outside the one result.
   - A second statement keyed by values the first one returned is a join: one
     statement reads both.
-- Count across windows. SQL does, in the rows' query or a live query of its own.
+- Count a list's rows. SQL does, in the rows' query or a live query of its own.
 - Keep state between runs, such as memory or a cache.
   - An incremental or lazy computation framework keeps results between runs to
     recompute only what changed. That is memory between reads, so bae never uses
@@ -176,28 +178,47 @@ filter, sort, group, count or sum those rows, and never answer from them
 
 ### Long lists
 
-Each window the screen shows is its own live query, bounded by a sort key at
-both ends:
+A long list has one window, a live query of the rows from one row's sort values
+on, at most a limit of them:
 
 ```sql
-WHERE (sort) >= (:from) AND (sort) < (:until) ORDER BY sort
+WHERE (sort) >= (:from) ORDER BY sort LIMIT :limit
 ```
 
-coven decides which writes rerun a query from its WHERE comparisons, not from
-LIMIT or OFFSET. A bounded window reruns only when a row inside it changes;
-`LIMIT 100` reruns for every change after its start, and `OFFSET` for every
-change at all.
+coven reruns such a statement, once it returns as many rows as its LIMIT, only
+for a write at or before its last row, when every condition holds:
 
-The screen holds two or three windows in a chain, each starting at the key where
-the last one ends, so every row is in exactly one. To add a window, or to jump
-to a position (a scrollbar drag, an end key), the screen reads the key at the
-new edge once with a plain read and subscribes the window from there. Every key
-comes from the screen's request, never from rows Rust kept.
+- The statement is one SELECT with an ORDER BY and a LIMIT, and no OFFSET.
+- Each ORDER BY term is a stored column of one table in the statement (not a
+  subquery, an expression or the right side of a LEFT JOIN), with BINARY
+  collation.
+- The statement returns each ORDER BY column as a result column, before any `*`.
+- The statement has no GROUP BY and no aggregate or window function.
+
+A statement that breaks a condition reruns for every write to what it reads, so
+a list's window statement meets them wherever its order allows. `OFFSET` reruns
+for every change at all.
+
+The app reports the first and last row on screen: when it opens the list, from
+its own height and row height before any row arrives, and again each time the
+person scrolls, resizes or jumps. Core sizes the window to the rows on screen
+plus about one screen above and one below, and moves it when the rows on screen
+come near its edge:
+
+- The new window starts at the sort values of a row the window holds.
+- A jump to a place the window holds no row of (a scrollbar drag, an end key)
+  reads the sort values at that position once, with a plain read by offset.
+
+The window's position is a live count of the rows before its first row. The app
+draws each row at that position plus its place in the window, draws placeholders
+outside the window, and keeps the top row on screen still when rows change above
+it. The app never pages the list itself: it holds no chain of windows and reads
+no key.
 
 ```text
-subscribe({from: null,      until: <key of row 100>})  -- rows 0-99
-subscribe({from: <row 100>, until: <key of row 200>})  -- rows 100-199
-subscribe(SELECT COUNT(*) FROM ...)                    -- the count
+subscribe_list_view(list, first: 0, last: 19)   -- the window and its position
+set_visible(400, 419)                           -- core moves the window
+subscribe_list_count(list)                      -- the count
 ```
 
 ### Shapes that Rust and the apps never use
@@ -209,6 +230,9 @@ subscribe(SELECT COUNT(*) FROM ...)                    -- the count
   - A fast value's watcher holds its query's latest result until the query
     reruns, and nothing else from it ("A fast value computed with a live query's
     values").
+  - A long list's view holds the latest result of its window's query and of its
+    position's query until each reruns, and the rows on screen the app last
+    reported, and nothing else ("Long lists").
 - **A side pass.** No second walk over the rows beside the live query to count
   them or note where groups start.
   - A walk that shapes one result for display is that query's `process`
@@ -222,8 +246,8 @@ subscribe(SELECT COUNT(*) FROM ...)                    -- the count
 - **A live query read once.** A read that takes the first value and stops is a
   plain SQL read.
 - **Choosing or joining rows outside SQL.** No filtering, sorting or windowing
-  that decides which rows a screen gets, no count across windows, and no second
-  statement keyed by values the first one returned.
+  that decides which rows a screen gets, no count of a list's rows, and no
+  second statement keyed by values the first one returned.
   - Rust may shape one result's rows for display in `process`.
   - The apps may not shape rows at all.
 - **Answers from the loaded rows.** No test of whether an id is among the rows
