@@ -146,43 +146,38 @@ fn a_build_that_waits_adds_a_checkout_on_a_host_with_room_and_builds_there() {
 }
 
 #[test]
-fn two_builds_that_wait_at_once_each_get_a_new_checkout() {
+fn two_builds_that_wait_at_once_each_add_a_checkout_of_their_own() {
     let world = World::new("size-race", "m1:app-1\n");
-    let first = take_where(
-        &world.places,
-        &world.ssh,
-        "demo",
-        Lane::Android,
-        Where::Anywhere,
-        0,
-    )
-    .unwrap();
+    // One build holds m1:app-1, and two wait behind it.
+    let dir = world.places.root.join("demo/app-android.queue");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("order"), "1-1\n2-1\n3-1\n").unwrap();
+    let start = std::sync::Barrier::new(2);
     let (said, heard) = channel();
-    let free_a = world.build_on_thread(said.clone());
-    let free_b = world.build_on_thread(said);
-    let deadline = std::time::Instant::now() + Duration::from_secs(20);
-    while world.entries().len() < 3 {
-        assert!(
-            std::time::Instant::now() < deadline,
-            "{:?}",
-            world.entries()
-        );
-        std::thread::sleep(Duration::from_millis(10));
-    }
-    // A build tells the other builds in line that the set changed with
-    // SIGUSR1, and never signals its own process, in which both of these
-    // builds run; the test sends it in place of a build in another process.
-    unsafe { libc::kill(libc::getpid(), libc::SIGUSR1) };
-    let mut took = [
-        heard.recv_timeout(Duration::from_secs(20)).unwrap(),
-        heard.recv_timeout(Duration::from_secs(20)).unwrap(),
-    ];
-    took.sort();
-    assert_eq!(took, ["m1:builds-android-1", "m1:builds-android-2"]);
+    std::thread::scope(|scope| {
+        for _ in 0..2 {
+            let (start, said, at) = (&start, said.clone(), world.at(Lane::Android));
+            scope.spawn(move || {
+                start.wait();
+                said.send(grow(at, 0, Need::Waits).unwrap()).unwrap();
+            });
+        }
+    });
+    let mut added = [heard.recv().unwrap(), heard.recv().unwrap()];
+    added.sort();
+    assert_eq!(
+        added,
+        [
+            Some("m1:builds-android-1".to_string()),
+            Some("m1:builds-android-2".to_string())
+        ]
+    );
     assert_eq!(world.entries().len(), 3);
-    free_a.send(()).unwrap();
-    free_b.send(()).unwrap();
-    first.release();
+    let queue = Queue::of(&world.places, "demo", Lane::Android);
+    assert!(
+        queue.waiting().is_empty(),
+        "the lane has a checkout for each build in line"
+    );
 }
 
 #[test]
