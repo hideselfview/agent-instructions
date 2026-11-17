@@ -69,10 +69,11 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use crate::app_config::{
-    CONFIG, Config, PickKind, Picker, Step, app_checkout_top, check_out, parse_config,
-    run_command_keeping, run_git, show_duration,
+    CONFIG, Config, PickKind, Picker, Step, check_out, parse_config, run_command_keeping, run_git,
+    show_duration,
 };
 use crate::app_remote::{RemoteApp, local_source};
+use crate::app_site::Site;
 use crate::app_timing::{self, RunRecord, StepKind, StepRecord, StepResult, Timer};
 use crate::checkout::Checkout;
 use crate::claim::Claim;
@@ -559,22 +560,8 @@ fn config_at(places: &Places, repo: &str, commit: &str) -> Result<Config> {
     parse_config(&run_git(&source, &["show", &format!("{commit}:{CONFIG}")])?)
 }
 
-/// Where a lane's steps run: in an app checkout on this Mac, or in one on a
-/// host.
-enum Site {
-    Local(std::path::PathBuf),
-    Remote(Box<RemoteApp>),
-}
-
+/// What a lane's build does in its app checkout (app_site.rs).
 impl Site {
-    /// The checkout <entry> of <repo>'s <lane>.
-    fn of(places: &Places, ssh: &Ssh, repo: &str, lane: Lane, entry: &str) -> Result<Site> {
-        Ok(match RemoteApp::find(places, ssh, repo, lane, entry)? {
-            Some(remote) => Site::Remote(Box::new(remote)),
-            None => Site::Local(app_checkout_top(places, repo, entry)?),
-        })
-    }
-
     /// The commit <commit> names, and the commit the checkout is on now.
     fn resolved_and_head(
         &mut self,

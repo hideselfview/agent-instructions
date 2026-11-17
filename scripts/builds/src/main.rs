@@ -6,6 +6,7 @@ mod app_build;
 mod app_config;
 mod app_remote;
 mod app_reset;
+mod app_site;
 mod app_timing;
 mod build_app;
 mod cargo_place;

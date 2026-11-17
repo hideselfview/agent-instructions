@@ -767,13 +767,16 @@ built again.
                               removes it
   builds app-checkout reset <repo> <checkout> [--matching <rev>]
                               put an app checkout on origin/main, holding its
-                              lock (it waits for the build holding it). Only
-                              SIGKILL during a build's switch leaves new files
-                              under the old HEAD, and reset is the way out. It
+                              lock (reset waits for the build holding it). The
+                              checkout is a side worktree here or one on a
+                              host (<host>:<name>), and this Mac sends the
+                              commits to the host's clone. A build that
+                              SIGKILL stops during its switch leaves new files
+                              under the old HEAD, and reset clears them. Reset
                               refuses unless every dirty path is exactly what
-                              origin/main, HEAD or <rev> (the commit the switch
-                              was heading to) holds there, names the paths
-                              that are not, and never throws away work
+                              origin/main, HEAD or <rev> (the commit the
+                              switch was heading to) holds there, names the
+                              paths that are not, and never throws away work
 
 
 HOSTS

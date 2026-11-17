@@ -231,6 +231,47 @@ impl RemoteApp {
         Ok(())
     }
 
+    /// Runs git with <args> in the checkout on the host, with the index file
+    /// <index> when given, and returns what it printed; a failure names the
+    /// host and what git said.
+    pub fn git(&mut self, index: Option<&str>, args: &[&str]) -> Result<String> {
+        let index = index
+            .map(|index| format!("GIT_INDEX_FILE={} ", sh_quote(index)))
+            .unwrap_or_default();
+        let quoted: Vec<String> = args.iter().map(|arg| sh_quote(arg)).collect();
+        self.run_in(
+            &format!("{index}git {}", quoted.join(" ")),
+            &format!("git {}", args.join(" ")),
+        )
+    }
+
+    /// Runs <script> with `sh` in the checkout's folder on the host and
+    /// returns what it printed; a failure names the host and <what>.
+    pub fn run_in(&mut self, script: &str, what: &str) -> Result<String> {
+        let worktree = self.locate()?;
+        self.transport()
+            .capture(&format!("cd {} && {script}", sh_quote(&worktree)), what)
+    }
+
+    /// Sends <sha> from <source> to the host's clone as the ref of a new job,
+    /// so that git there can read it, and returns the job's id; `unsend`
+    /// deletes the ref.
+    pub fn send(&self, source: &Path, sha: &str) -> Result<String> {
+        let id = job_id();
+        self.transport().send(source, &self.repo, sha, &id)?;
+        Ok(id)
+    }
+
+    /// Deletes the ref that `send` made for job <id>.
+    pub fn unsend(&self, id: &str) -> Result<()> {
+        self.transport()
+            .capture(
+                &release_script(&self.repo, None, id),
+                "removing the job's ref",
+            )
+            .map(|_| ())
+    }
+
     /// Removes the checkout from the host, with its build folders there, so
     /// the host gets back the disk space they used. When the host has no such
     /// checkout, `remove` succeeds and does nothing. The caller holds the

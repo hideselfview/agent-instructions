@@ -211,15 +211,19 @@ fn uncommitted(top: &Path) -> Result<(usize, Option<i64>), String> {
 /// The paths `git status` calls dirty in <top>: staged, changed and
 /// untracked alike. An untracked folder shows as each file in it.
 pub fn uncommitted_paths(top: &Path) -> Result<BTreeSet<String>, String> {
-    let status = run(
-        top,
-        &["status", "--porcelain", "-z", "-uall", "--no-renames"],
-    )?;
-    Ok(status
+    Ok(paths_in_status(&run(top, &UNCOMMITTED_STATUS)?))
+}
+
+/// The `git status` arguments whose output `paths_in_status` reads.
+pub const UNCOMMITTED_STATUS: [&str; 5] = ["status", "--porcelain", "-z", "-uall", "--no-renames"];
+
+/// The paths in the output of `git status` with `UNCOMMITTED_STATUS`.
+pub fn paths_in_status(status: &str) -> BTreeSet<String> {
+    status
         .split('\0')
         .filter(|entry| entry.len() > 3)
         .map(|entry| entry[3..].to_string())
-        .collect())
+        .collect()
 }
 
 /// Only HEAD's commit, for a main checkout: its working tree is the person's

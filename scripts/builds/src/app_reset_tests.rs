@@ -1,6 +1,14 @@
 use super::*;
+use crate::host::tests::fake_ssh;
 use crate::lane::Lane;
-use crate::testing::{Scratch, git, repo};
+use crate::testing::{Scratch, git, git_out, repo};
+use std::path::PathBuf;
+
+/// The ssh the tests of checkouts on this Mac pass: none of them reaches a
+/// host.
+fn no_ssh(scratch: &Scratch) -> Ssh {
+    fake_ssh(&scratch.dir.join("bin"), &scratch.dir.join("remote-home"))
+}
 
 /// Registers a mac app checkout side-1 of the repo demo, in a clone whose
 /// origin's main has a second commit (it changes `kept`, deletes `gone`, adds
@@ -67,7 +75,7 @@ fn halfway(scratch: &Scratch) -> (Places, PathBuf, String, String) {
 fn a_checkout_left_halfway_goes_to_origins_main() {
     let scratch = Scratch::new("app-reset-halfway");
     let (places, top, _, new) = halfway(&scratch);
-    cmd_reset(&places, "demo", "side-1", None).unwrap();
+    cmd_reset(&places, &no_ssh(&scratch), "demo", "side-1", None).unwrap();
     assert_eq!(run_git(&top, &["rev-parse", "HEAD"]).unwrap().trim(), new);
     assert_eq!(run_git(&top, &["status", "--porcelain"]).unwrap(), "");
     assert_eq!(std::fs::read_to_string(top.join("kept")).unwrap(), "new\n");
@@ -80,7 +88,8 @@ fn a_real_local_change_stops_the_reset_and_is_named() {
     let (places, top, old, _) = halfway(&scratch);
     std::fs::write(top.join("kept"), "mine\n").unwrap();
     std::fs::write(top.join("notes"), "mine\n").unwrap();
-    let Err(crate::fail::Fail::Message(message)) = cmd_reset(&places, "demo", "side-1", None)
+    let Err(crate::fail::Fail::Message(message)) =
+        cmd_reset(&places, &no_ssh(&scratch), "demo", "side-1", None)
     else {
         panic!("refused")
     };
@@ -109,7 +118,7 @@ fn a_clean_checkout_is_put_on_origins_main_too() {
     let scratch = Scratch::new("app-reset-clean");
     let (places, top, old, new) = halfway(&scratch);
     git(&top, &["checkout", "-q", "--force", "--detach", &old]);
-    cmd_reset(&places, "demo", "side-1", None).unwrap();
+    cmd_reset(&places, &no_ssh(&scratch), "demo", "side-1", None).unwrap();
     assert_eq!(run_git(&top, &["rev-parse", "HEAD"]).unwrap().trim(), new);
 }
 
@@ -120,7 +129,8 @@ fn the_reset_waits_for_the_checkouts_lock() {
     let held = lock::take_checkout(&places, "demo", Lane::Mac, "side-1").unwrap();
     let resetting = std::thread::spawn({
         let places = places.clone();
-        move || cmd_reset(&places, "demo", "side-1", None)
+        let ssh = no_ssh(&scratch);
+        move || cmd_reset(&places, &ssh, "demo", "side-1", None)
     });
     std::thread::sleep(std::time::Duration::from_millis(500));
     assert!(
@@ -137,7 +147,7 @@ fn the_reset_waits_for_the_checkouts_lock() {
 fn a_name_that_is_no_app_checkout_is_refused() {
     let scratch = Scratch::new("app-reset-unknown");
     let (places, _, _, _) = halfway(&scratch);
-    assert!(cmd_reset(&places, "demo", "side-9", None).is_err());
+    assert!(cmd_reset(&places, &no_ssh(&scratch), "demo", "side-9", None).is_err());
 }
 
 #[test]
@@ -156,12 +166,13 @@ fn a_tree_of_an_older_target_resets_only_with_matching_naming_it() {
     git(&top, &["checkout", "-q", "--detach", &old]);
     git(&top, &["checkout", "-q", &middle, "--", "."]);
     git(&top, &["reset", "-q", &old]);
-    let Err(crate::fail::Fail::Message(message)) = cmd_reset(&places, "demo", "side-1", None)
+    let Err(crate::fail::Fail::Message(message)) =
+        cmd_reset(&places, &no_ssh(&scratch), "demo", "side-1", None)
     else {
         panic!("refused")
     };
     assert!(message.contains("kept"), "{message}");
-    cmd_reset(&places, "demo", "side-1", Some(&middle)).unwrap();
+    cmd_reset(&places, &no_ssh(&scratch), "demo", "side-1", Some(&middle)).unwrap();
     assert_eq!(
         run_git(&top, &["rev-parse", "HEAD"]).unwrap().trim(),
         new,
@@ -175,10 +186,154 @@ fn matching_does_not_excuse_a_change_no_commit_holds() {
     let scratch = Scratch::new("app-reset-matching-real");
     let (places, top, old, _) = halfway(&scratch);
     std::fs::write(top.join("kept"), "mine\n").unwrap();
-    let Err(crate::fail::Fail::Message(message)) = cmd_reset(&places, "demo", "side-1", Some(&old))
+    let Err(crate::fail::Fail::Message(message)) =
+        cmd_reset(&places, &no_ssh(&scratch), "demo", "side-1", Some(&old))
     else {
         panic!("refused")
     };
     assert!(message.contains("kept"), "{message}");
     assert_eq!(std::fs::read_to_string(top.join("kept")).unwrap(), "mine\n");
+}
+
+/// Host m1's mac app checkout `m1:mac-1` of the repo demo. This Mac's clone
+/// `~/dev/demo` and the host's own clone share an origin whose main has two
+/// commits: First, and Second, which changes `kept`, deletes `gone` and adds
+/// `added`. The checkout, made by a build of First, has Second's `kept`.
+struct OnHost {
+    places: Places,
+    ssh: Ssh,
+    /// The checkout's folder on the host.
+    top: PathBuf,
+    /// The host's clone.
+    clone: PathBuf,
+    first: String,
+    second: String,
+}
+
+fn on_host(scratch: &Scratch) -> OnHost {
+    let places = scratch.places();
+    let source = places.home.join("dev/demo");
+    repo(&source, "target 1G\n");
+    std::fs::write(source.join("kept"), "old\n").unwrap();
+    std::fs::write(source.join("gone"), "old\n").unwrap();
+    git(&source, &["add", "kept", "gone"]);
+    git(&source, &["commit", "-q", "-m", "First"]);
+    let first = git_out(&source, &["rev-parse", "HEAD"]);
+    let origin = scratch.dir.join("origin.git");
+    git(
+        &scratch.dir,
+        &["init", "-q", "--bare", origin.to_str().unwrap()],
+    );
+    git(
+        &source,
+        &["remote", "add", "origin", origin.to_str().unwrap()],
+    );
+    git(&source, &["push", "-q", "origin", "main"]);
+    let host_home = scratch.dir.join("remote-home");
+    let clone = host_home.join("dev/demo");
+    git(
+        &scratch.dir,
+        &[
+            "clone",
+            "-q",
+            origin.to_str().unwrap(),
+            clone.to_str().unwrap(),
+        ],
+    );
+    let ssh = fake_ssh(&scratch.dir.join("bin"), &host_home);
+    crate::host::add(&places, &ssh, "m1", "user@m1").unwrap();
+    places
+        .write_app_checkouts(
+            "demo",
+            Lane::Mac,
+            &[crate::lane::AppCheckout::by_person("m1:mac-1")],
+        )
+        .unwrap();
+    crate::app_remote::RemoteApp::find(&places, &ssh, "demo", Lane::Mac, "m1:mac-1")
+        .unwrap()
+        .expect("m1:mac-1 is on a host")
+        .switch_to(&source, &first)
+        .unwrap();
+    std::fs::write(source.join("kept"), "new\n").unwrap();
+    std::fs::write(source.join("added"), "new\n").unwrap();
+    std::fs::remove_file(source.join("gone")).unwrap();
+    git(&source, &["add", "-A"]);
+    git(&source, &["commit", "-q", "-m", "Second"]);
+    git(&source, &["push", "-q", "origin", "main"]);
+    let second = git_out(&source, &["rev-parse", "HEAD"]);
+    let top = host_home.join("dev/demo-worktrees/mac-1");
+    std::fs::write(top.join("kept"), "new\n").unwrap();
+    OnHost {
+        places,
+        ssh,
+        top,
+        clone,
+        first,
+        second,
+    }
+}
+
+#[test]
+fn a_hosts_checkout_whose_changes_are_origins_main_goes_there() {
+    let scratch = Scratch::new("app-reset-host");
+    let host = on_host(&scratch);
+    cmd_reset(&host.places, &host.ssh, "demo", "m1:mac-1", None).unwrap();
+    assert_eq!(git_out(&host.top, &["rev-parse", "HEAD"]), host.second);
+    assert_eq!(git_out(&host.top, &["status", "--porcelain"]), "");
+    assert_eq!(
+        std::fs::read_to_string(host.top.join("kept")).unwrap(),
+        "new\n"
+    );
+    assert!(!host.top.join("gone").exists());
+    assert_eq!(
+        git_out(&host.clone, &["for-each-ref", "refs/builds"]),
+        "",
+        "the reset leaves no job ref in the host's clone"
+    );
+}
+
+#[test]
+fn a_real_change_in_a_hosts_checkout_stops_the_reset_and_is_named() {
+    let scratch = Scratch::new("app-reset-host-real-change");
+    let host = on_host(&scratch);
+    std::fs::write(host.top.join("gone"), "mine\n").unwrap();
+    std::fs::write(host.top.join("notes"), "mine\n").unwrap();
+    let Err(crate::fail::Fail::Message(message)) =
+        cmd_reset(&host.places, &host.ssh, "demo", "m1:mac-1", None)
+    else {
+        panic!("refused")
+    };
+    assert!(
+        message.contains("gone") && message.contains("notes"),
+        "{message}"
+    );
+    assert!(
+        !message.contains("kept"),
+        "a path origin/main holds is not named: {message}"
+    );
+    assert_eq!(git_out(&host.top, &["rev-parse", "HEAD"]), host.first);
+    assert_eq!(
+        std::fs::read_to_string(host.top.join("notes")).unwrap(),
+        "mine\n"
+    );
+    assert_eq!(
+        git_out(&host.clone, &["for-each-ref", "refs/builds"]),
+        "",
+        "a refused reset leaves no job ref in the host's clone"
+    );
+}
+
+#[test]
+fn a_hosts_checkout_resets_over_a_tree_matching_names() {
+    let scratch = Scratch::new("app-reset-host-matching");
+    let host = on_host(&scratch);
+    std::fs::write(host.top.join("kept"), "middle\n").unwrap();
+    let source = host.places.home.join("dev/demo");
+    git(&source, &["checkout", "-q", "--detach", &host.first]);
+    std::fs::write(source.join("kept"), "middle\n").unwrap();
+    git(&source, &["commit", "-q", "-am", "Middle"]);
+    let middle = git_out(&source, &["rev-parse", "HEAD"]);
+    assert!(cmd_reset(&host.places, &host.ssh, "demo", "m1:mac-1", None).is_err());
+    cmd_reset(&host.places, &host.ssh, "demo", "m1:mac-1", Some(&middle)).unwrap();
+    assert_eq!(git_out(&host.top, &["rev-parse", "HEAD"]), host.second);
 }

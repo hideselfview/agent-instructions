@@ -360,7 +360,13 @@ pub fn cmd_app_checkout(tool: &Tool, args: &[String]) -> Result<()> {
     };
     if let Some((repo, name, matching)) = reset {
         tool.places.require_volume()?;
-        return crate::app_reset::cmd_reset(&tool.places, repo, name, matching);
+        return crate::app_reset::cmd_reset(
+            &tool.places,
+            &crate::host::Ssh::from_env(),
+            repo,
+            name,
+            matching,
+        );
     }
     let (removing, lane, arg) = match args {
         [word, lane, arg] if word == "remove" => (true, lane, arg),
