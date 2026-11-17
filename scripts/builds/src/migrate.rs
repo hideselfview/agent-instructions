@@ -356,9 +356,11 @@ const DESIGN_DELETED: &str = "CREATE TABLE design_deleted (
 /// move drops them. The move makes `question` again in every store and
 /// clears the reason for blocking nothing (`blocks_nothing`) on each open
 /// question that an open item waits on. Every store gets `builds_cargo_runs`
-/// with each run's start and subcommand: a run recorded before has the start
-/// of the hook run whose check started it and no subcommand. Every store gets
-/// `app_build_runs` with the load of each run's host, which no older run has.
+/// with each run's start and subcommand: the move gives each run that builds
+/// recorded before this move the start of the hook run whose check started
+/// it, and no subcommand. Every store gets `app_build_runs` with the load of
+/// each run's host, and the move gives each run that builds recorded before
+/// this move no load.
 /// The moves run in one transaction, the store
 /// is stamped as today's schema, and it must then equal a fresh database's schema or the transaction rolls back. A
 /// store already at today's stamp, or with no database, is left alone; any

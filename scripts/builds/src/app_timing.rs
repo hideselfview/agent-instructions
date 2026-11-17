@@ -219,8 +219,8 @@ pub fn record(path: &Path, run: &RunRecord) -> Result<()> {
 }
 
 /// Makes `app_build_runs` again as app_timing.sql writes it today, with the
-/// load of each run's host, and copies every run into it with no load: no
-/// run recorded before has one. The statements come from app_timing.sql, so
+/// load of each run's host, and copies every run into it with no load: builds
+/// kept no load for a run before this move. The statements come from app_timing.sql, so
 /// the table equals a fresh database's. migrate.rs runs this with the foreign
 /// keys off, so `app_build_steps` keeps naming the table.
 pub fn move_to_loads(db: &Connection) -> Result<()> {

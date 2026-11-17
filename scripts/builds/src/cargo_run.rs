@@ -171,9 +171,9 @@ pub fn record_run(path: &Path, run: &CargoRun) -> Result<()> {
 }
 
 /// Makes `builds_cargo_runs` again as cargo_run.sql writes it today, with
-/// each run's start and subcommand, and copies every run into it. Each run
-/// recorded before was a hook check's: it starts when its hook run started,
-/// and has no subcommand. The statements come from cargo_run.sql, so the
+/// each run's start and subcommand, and copies every run into it. Before
+/// this move, builds recorded only the runs that hook checks started: the
+/// move gives each the start of its hook run, and no subcommand. The statements come from cargo_run.sql, so the
 /// table equals a fresh database's. migrate.rs runs this with the foreign
 /// keys off.
 pub fn move_to_every_run(db: &Connection) -> Result<()> {
