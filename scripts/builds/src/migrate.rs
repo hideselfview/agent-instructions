@@ -397,15 +397,15 @@ const DESIGN_DELETED: &str = "CREATE TABLE design_deleted (
 /// and refuses a store whose questions and file differ, or whose file is
 /// missing while the store holds a question. Every store gets the tables
 /// of ended runs and spans, with each ended run its write log tells of
-/// (`running::move_to_runs`) and the move's moment as the start of its
-/// spans.
+/// (`running::move_to_runs`) and <now>, the moment install moves it, as the
+/// start of its spans.
 /// The moves run in one transaction, the store
 /// is stamped as today's schema, and it must then equal a fresh database's schema or the transaction rolls back. A
 /// store already at today's stamp, or with no database, is left alone; any
 /// other stamp is refused. Delete this once it has run.
-pub fn migrate_stores(places: &Places) -> Result<()> {
+pub fn migrate_stores(places: &Places, now: i64) -> Result<()> {
     for store in stores(places)? {
-        move_store(places, &store)?;
+        move_store(places, &store, now)?;
     }
     Ok(())
 }
@@ -519,7 +519,7 @@ fn read_effects(file: &Path) -> Result<Option<BTreeMap<Id, Effect>>> {
     Ok(Some(effects))
 }
 
-fn move_store(places: &Places, path: &Path) -> Result<()> {
+fn move_store(places: &Places, path: &Path, now: i64) -> Result<()> {
     if !path.is_file() {
         return Ok(());
     }
@@ -759,10 +759,6 @@ fn move_store(places: &Places, path: &Path) -> Result<()> {
     // Every store from before builds kept the runs of items gets their
     // tables, and the runs that its write log tells of.
     if before(found, BEFORE_RUN_TIMES_STAMP) {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("the clock is after 1970")
-            .as_secs() as i64;
         let recovered = crate::lists::running::move_to_runs(&tx, now)?;
         crate::text::note(format!(
             "{}: builds read {} from the write log and left out {}, since the log does not tell when {}; \

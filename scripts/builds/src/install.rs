@@ -482,13 +482,14 @@ pub fn run_sccache_under_launchd(home: &Path, uid: u32) -> Result<()> {
     Ok(())
 }
 
-/// Moves the stores to this program's schema and puts this program on PATH
-/// with <put>, which returns whether it replaced the installed one. <holder>
+/// Moves the stores to this program's schema, as install does at <now>, and
+/// puts this program on PATH with <put>, which returns whether it replaced the installed one. <holder>
 /// names the builds process whose use of the stores covers this one
 /// (`install_gate::VARIABLE`), if any. Gives <say> each line it has for the
 /// person.
 fn replace_program(
     places: &crate::places::Places,
+    now: i64,
     holder: Option<std::ffi::OsString>,
     put: impl FnOnce() -> Result<bool>,
     say: &mut dyn FnMut(String),
@@ -519,7 +520,7 @@ fn replace_program(
     // program is on PATH, so none writes a store of another schema.
     let closed = installing.close(say)?;
     crate::migrate::migrate_app_files(places)?;
-    crate::migrate::migrate_stores(places)?;
+    crate::migrate::migrate_stores(places, now)?;
     let replaced = put()?;
     drop(closed);
     Ok(replaced)
@@ -533,6 +534,7 @@ pub fn cmd_install(tool: &Tool, args: &[String]) -> Result<()> {
     let home = &tool.places.home;
     let replaced = replace_program(
         &tool.places,
+        tool.now,
         std::env::var_os(crate::install_gate::VARIABLE),
         || put_on_path(home),
         &mut |line| note(line),
@@ -748,6 +750,7 @@ mod tests {
             let put = events.clone();
             replace_program(
                 &places,
+                0,
                 None,
                 move || {
                     put.send(Event::Put).unwrap();
