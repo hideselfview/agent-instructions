@@ -586,10 +586,7 @@ pub fn check_landing_command(tool: &Tool, args: &[String]) -> Result<()> {
         CodeCheck::Branch("HEAD"),
     )?;
     let recorded = record_code_left(&asked.store, &verdict, || {
-        Ok(Stamp {
-            at: tool.now,
-            by: resolve_by(&args, &asked.dir)?,
-        })
+        Stamp::resolve(tool.now, &args, &asked.dir)
     })?;
     print!("{recorded}");
     match refusal(&asked.commits(), &verdict) {
