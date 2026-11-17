@@ -1,7 +1,7 @@
 use super::*;
 use crate::checks::parse;
 use crate::hook_stats::{Change, Outcome, Run};
-use crate::testing::{Scratch, git};
+use crate::testing::{Scratch, git, git_out};
 
 /// A repo with <files> committed, a `.checks` of <checks> (committed too), and
 /// stub programs in tools/ that append their arguments to `log`.
@@ -484,18 +484,6 @@ fn tests_since_an_unknown_rev_runs_every_test_and_says_why() {
         select_tests(&top, &lines, "0123456789abcdef0123456789abcdef01234567").unwrap();
     assert_eq!(names(&picked), ["t-sh", "t-py", "t-all"]);
     assert!(why.unwrap().contains("not in the history"));
-}
-
-/// What `git <args>` prints in <top>.
-fn git_out(top: &Path, args: &[&str]) -> String {
-    let out = std::process::Command::new("git")
-        .arg("-C")
-        .arg(top)
-        .args(args)
-        .output()
-        .unwrap();
-    assert!(out.status.success(), "git {args:?}");
-    String::from_utf8(out.stdout).unwrap()
 }
 
 /// HEAD, the index's entries, the working tree's status and the files'

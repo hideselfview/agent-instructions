@@ -77,6 +77,22 @@ pub fn git(dir: &Path, args: &[&str]) {
     );
 }
 
+/// What `git <args>` prints in <dir>, trimmed; fails the test when git fails.
+pub fn git_out(dir: &Path, args: &[&str]) -> String {
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(dir)
+        .args(args)
+        .output()
+        .expect("git runs");
+    assert!(
+        output.status.success(),
+        "git {args:?}: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8_lossy(&output.stdout).trim().to_string()
+}
+
 /// Writes a host's `builds` into <home>'s ~/.local/bin, where host setup
 /// installs it: a shell script that runs the lines <body>.
 pub fn host_builds(home: &Path, body: &str) {

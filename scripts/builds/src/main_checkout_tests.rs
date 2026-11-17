@@ -1,20 +1,5 @@
 use super::*;
-use crate::testing::Scratch;
-
-fn git_out(dir: &Path, args: &[&str]) -> String {
-    let output = std::process::Command::new("git")
-        .arg("-C")
-        .arg(dir)
-        .args(args)
-        .output()
-        .expect("git runs");
-    assert!(
-        output.status.success(),
-        "git {args:?}: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    String::from_utf8_lossy(&output.stdout).trim().to_string()
-}
+use crate::testing::{Scratch, git_out};
 
 fn identify(dir: &Path) {
     git_out(dir, &["config", "user.name", "t"]);

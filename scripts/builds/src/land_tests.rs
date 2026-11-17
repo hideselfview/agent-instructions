@@ -1,5 +1,5 @@
 use super::*;
-use crate::testing::Scratch;
+use crate::testing::{Scratch, git_out};
 
 /// A fixture: a bare origin and the repo's main checkout, cloned from it,
 /// whose side worktrees the tests add. The repo's `whole` check, a fake
@@ -9,21 +9,6 @@ struct Fixture {
     scratch: Scratch,
     origin: PathBuf,
     main: PathBuf,
-}
-
-fn git_out(dir: &Path, args: &[&str]) -> String {
-    let output = Command::new("git")
-        .arg("-C")
-        .arg(dir)
-        .args(args)
-        .output()
-        .expect("git runs");
-    assert!(
-        output.status.success(),
-        "git {args:?}: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    String::from_utf8_lossy(&output.stdout).trim().to_string()
 }
 
 fn identify(dir: &Path) {
