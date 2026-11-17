@@ -90,3 +90,31 @@ fn a_question_with_no_waiting_item_and_no_reason_is_an_error() {
         "{message}"
     );
 }
+
+#[test]
+fn a_stack_entry_starts_with_who_asked_it_where_it_sits_and_what_it_blocks() {
+    let db = db();
+    let q = question(&db);
+    let blocked = item(&db, vec![Wait::Question(q)]);
+    let lists = read(&db);
+    let entry = &derive::stack_order(&lists)[0];
+    let text = stack_entry(&lists, 1, entry).unwrap();
+    let lines: Vec<&str> = text.lines().collect();
+    assert_eq!(
+        lines,
+        [
+            format!("  1. {q} Which way for number {} [question]", q.0),
+            format!(
+                "       asked by coordinator, {}",
+                local_minute(NOON + i64::from(q.0))
+            ),
+            "       placed by what it unblocks".to_string(),
+            "       blocks 1 (1 through chains):".to_string(),
+            format!(
+                "         {blocked} Do the work numbered {} (priority none; no item waits behind it; opened {})",
+                blocked.0,
+                local_minute(NOON + i64::from(blocked.0))
+            ),
+        ]
+    );
+}

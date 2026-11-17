@@ -318,6 +318,10 @@ h1 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.01em; }
 .l-work > summary .l-wt { font: 400 12px var(--mono); color: var(--muted-2); white-space: nowrap; margin-left: auto; }
 .l-work > :not(summary) { background: var(--bg); border: 1px solid var(--line-soft); border-radius: 8px; padding: 10px 12px; }
 .l-plain { display: flex; flex-direction: column; gap: 8px; }
+/* A question's closed row: its title, then a line each for who asked it, its place and what it blocks. */
+.l-rowmain { display: flex; flex-direction: column; gap: 3px; flex: 1 1 auto; min-width: 0; }
+.l-rowfact { font-size: 12px; font-weight: 400; color: var(--muted); overflow-wrap: anywhere; }
+.l-rowfact .l-list { font-size: 12px; color: var(--text-2); }
 /* A record's id, first in its row. */
 .l-id { font: 400 12px var(--mono); color: var(--muted-2); overflow-wrap: normal; margin-right: 6px; }
 /* How many items a running work of several items holds, where a single item's id sits. */
@@ -1415,28 +1419,42 @@ function renderTags() {
 }
 
 // ---- Waiting on you
-// An item a question blocks directly: its priority, how many items wait
-// behind it and when it opened.
+// An item a question blocks directly: its priority (first, last or none, with
+// the priority's why on hover), how many items wait behind it and when it
+// opened.
 function blockedItem(b) {
-  const facts = [];
-  if (b.priority) facts.push("priority " + b.priority.level + ": " + b.priority.why);
-  facts.push(b.behind ? plural(b.behind, "item waits", "items wait") + " behind it" : "no item waits behind it");
-  return h("li", {}, recLink(b.id, b.title), " (" + facts.join("; ") + "; ", agoSpan(b.opened.at, "opened ", " ago"), ")");
+  const priority = b.priority
+    ? h("span", {title: b.priority.why}, "priority " + b.priority.level)
+    : "priority none";
+  const behind = b.behind ? plural(b.behind, "item waits", "items wait") + " behind it" : "no item waits behind it";
+  return h("li", {}, recLink(b.id, "#" + b.id + " " + b.title), " (", priority, "; " + behind + "; ",
+    agoSpan(b.opened.at, "opened ", " ago"), ")");
 }
-function questionRow(q) {
+// Why a question sits where it does on the stack, as `question list` words it.
+function placeWords(q) {
+  if (!q.placed) return "placed by what it unblocks";
+  return "placed " + q.placed.at + (q.placed.by_person ? " by you" : "") + ": " + q.placed.why;
+}
+// What a question blocks, from the items that wait on it, or why it is on
+// the stack though nothing waits on it.
+function questionBlocks(q) {
   const direct = q.blocks.length;
+  if (!direct) return h("div", {class: "l-rowfact"}, "Blocks nothing: " + q.blocks_nothing);
+  const count = plural(Math.max(q.blocked_count, direct), "item", "items") +
+    (q.blocked_count > direct ? ", " + direct + " directly:" : ":");
+  return h("div", {class: "l-rowfact"}, "Blocks " + count, h("ul", {class: "l-list"}, q.blocks.map(blockedItem)));
+}
+// A question's row shows, closed, who asked it and when, why it sits where it
+// does and what it blocks; opened, it adds its plan and details.
+function questionRow(q) {
   return fold("q:" + q.id, q.id,
-    [h("span", {class: "l-title"}, idChip(q.id), q.title, trailRow(q.id, q.trail))],
+    [h("div", {class: "l-rowmain"},
+      h("span", {class: "l-title"}, idChip(q.id), q.title, trailRow(q.id, q.trail)),
+      h("div", {class: "l-rowfact"}, "Asked by " + openerWord(q.opened.by) + ", " + stamp(q.opened.at) + " · " + placeWords(q)),
+      questionBlocks(q))],
     () => h("div", {class: "l-plain"},
-      direct ? h("div", {class: "l-facts"},
-        fact("Blocks", plural(Math.max(q.blocked_count, direct), "item", "items") +
-          (q.blocked_count > direct ? ", " + direct + " directly:" : ":")),
-        h("ul", {class: "l-list"}, q.blocks.map(blockedItem))) : null,
-      q.blocks_nothing ? fact("Blocks nothing:", q.blocks_nothing) : null,
-      q.placed ? fact("Placed " + q.placed.at + (q.placed.by_person ? " by you:" : ":"), q.placed.why) : null,
       q.plan ? fact("Plan", mono(q.plan.path), " " + q.plan.number) : null,
-      md(q.details),
-      h("span", {class: "l-sub"}, "#" + q.id + " · ", opened(q, "Asked"))),
+      md(q.details)),
     "l-work");
 }
 // Design changes that wait on your review: recorded, not approved, not landed.

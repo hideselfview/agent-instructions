@@ -5,7 +5,7 @@ use std::fmt::Write;
 use crate::fail::Result;
 use crate::lists::derive::{self, ItemState, StackEntry};
 use crate::lists::trail::{trail_line, trail_wanted};
-use crate::lists::{Audience, Item, Level, Lists, QuestionKind, Wait};
+use crate::lists::{Audience, Item, Level, Lists, Question, QuestionKind, Wait};
 use crate::text::local_minute;
 
 pub fn kind_words(kind: QuestionKind) -> &'static str {
@@ -75,7 +75,8 @@ pub fn item_line(lists: &Lists, item: &Item) -> Result<String> {
 
 /// What an entry of the stack blocks, worked out from the open items that
 /// wait on it, as lines: the count, then each item it blocks directly with
-/// its priority, how many items wait behind it and when it opened. When no
+/// its priority (first, last or none), how many items wait behind it and when
+/// it opened. When no
 /// open item waits on the entry, one line gives the reason the entry stays
 /// open. Fails for an entry with neither, which the check refuses.
 pub fn blocks_lines(entry: &StackEntry<'_>) -> Result<Vec<String>> {
@@ -95,14 +96,14 @@ pub fn blocks_lines(entry: &StackEntry<'_>) -> Result<Vec<String>> {
     )];
     for blocked in &entry.blocks {
         let item = blocked.item;
-        let mut facts = Vec::new();
-        if let Some(priority) = &item.priority {
-            facts.push(format!(
+        let mut facts = vec![match &item.priority {
+            Some(priority) => format!(
                 "priority {}: {}",
                 crate::lists::item::level_word(priority.level),
                 priority.why
-            ));
-        }
+            ),
+            None => "priority none".to_string(),
+        }];
         facts.push(match blocked.behind {
             0 => "no item waits behind it".to_string(),
             1 => "1 item waits behind it".to_string(),
@@ -119,32 +120,41 @@ pub fn blocks_lines(entry: &StackEntry<'_>) -> Result<Vec<String>> {
     Ok(lines)
 }
 
-/// An entry of the stack as lines: its place in the order, its title, who
-/// placed it where, its trail, what it blocks.
+/// Why a question sits where it does on the stack: where it was placed, by
+/// whom and why, or that what it unblocks orders it.
+pub fn place_words(question: &Question) -> String {
+    match &question.placed {
+        Some(placed) => {
+            let by = if placed.by_person { " by you" } else { "" };
+            format!("placed {}{by}: {}", placed.at.word(), placed.why)
+        }
+        None => "placed by what it unblocks".to_string(),
+    }
+}
+
+/// An entry of the stack as lines: its place in the order and its title,
+/// then who asked it and when, why it sits where it does, what it blocks,
+/// and its trail.
 pub fn stack_entry(lists: &Lists, number: usize, entry: &StackEntry<'_>) -> Result<String> {
     let q = entry.question;
     let mut out = format!(
-        "{number:>3}. {} {} [{}] opened {} by {}\n",
+        "{number:>3}. {} {} [{}]\n",
         q.id,
         q.title,
-        kind_words(q.kind),
-        local_minute(q.opened.at),
-        q.opened.by
+        kind_words(q.kind)
     );
-    if let Some(placed) = &q.placed {
-        let by = if placed.by_person { " by you" } else { "" };
-        let _ = writeln!(
-            out,
-            "       placed {}{by}: {}",
-            placed.at.word(),
-            placed.why
-        );
+    let _ = writeln!(
+        out,
+        "       asked by {}, {}",
+        q.opened.by,
+        local_minute(q.opened.at)
+    );
+    let _ = writeln!(out, "       {}", place_words(q));
+    for line in blocks_lines(entry)? {
+        let _ = writeln!(out, "       {line}");
     }
     if let Some(trail) = trail_line(lists, q.id)? {
         let _ = writeln!(out, "       {trail}");
-    }
-    for line in blocks_lines(entry)? {
-        let _ = writeln!(out, "       {line}");
     }
     Ok(out)
 }
