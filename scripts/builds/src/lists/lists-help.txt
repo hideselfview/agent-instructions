@@ -95,11 +95,12 @@ The stack is asked from the top, one entry at a time: first the entries placed
 first, in the person's ranked order, then the rest by how many open items each
 unblocks, directly or through chains of open items (ties oldest first), then the
 entries placed last. `question list`, `question show`, `lists show` and the
-dashboard's Waiting on you tab all show this one order. Each of them shows, on
-an entry's first lines (on the dashboard, in the row before anyone opens it),
-who asked the entry and when, why it sits where it does (where someone placed
-it, whether the person did and why, or that the stack orders it by what it
-unblocks), and what it blocks. Each view works out what an entry blocks from the open items
+dashboard's Waiting on you tab all show this one order. Each of them shows
+three facts on an entry's first lines, and the dashboard shows them in the row
+before anyone opens it. The first says who asked the entry and when. The
+second says why the entry sits where it does: whether someone placed it first
+or last, whether that was the person, and the reason they gave, or that the
+stack orders it by what it unblocks. The third says what the entry blocks. Each view works out what an entry blocks from the open items
 that wait on it, every time it shows the entry: each item that waits on the
 entry directly, with the item's priority (first, last or none), how many open
 items wait behind it (on it directly or through chains of open items) and when

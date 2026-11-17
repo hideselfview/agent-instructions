@@ -120,8 +120,8 @@ pub fn blocks_lines(entry: &StackEntry<'_>) -> Result<Vec<String>> {
     Ok(lines)
 }
 
-/// Why a question sits where it does on the stack: where it was placed, by
-/// whom and why, or that the stack orders it by what it unblocks.
+/// Why a question sits where it does on the stack: who placed it where and
+/// why, or that the stack orders it by what it unblocks.
 pub fn place_words(question: &Question) -> String {
     match &question.placed {
         Some(placed) => {
