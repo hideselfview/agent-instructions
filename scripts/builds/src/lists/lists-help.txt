@@ -131,11 +131,11 @@ auto` takes it out of the ranked order.
                       [--from-item N | --origin N] [--first WHY]
                       [--plan PATH --plan-number Qn] [--tag T]...
       Puts an entry on the stack: a question, work only the person can do
-      (your-step), or work held until they start it (held). It needs the
-      entry's effect, one of the words above. It also needs what the entry
-      blocks, open items that gain a wait on it (a running item may be
-      blocked: its agent is held on the answer), or why it is asked though
-      nothing waits; a --blocks item that is unknown or closed is refused.
+      (your-step), or work held until they start it (held). ask needs the
+      entry's effect, one of the words above, and what the entry blocks:
+      open items that gain a wait on it (a running item may be blocked: its
+      agent is held on the answer), or why it is asked though nothing waits.
+      ask refuses a --blocks item that is unknown or closed.
       --first puts it on top of the ranked order, with why. --from-item N closes item N as moved
       to the stack (it was the person's work), every item that waited on N
       waits on the new entry instead, and the entry comes from N, so its trail
