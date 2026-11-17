@@ -603,6 +603,24 @@ impl Site {
         }
     }
 
+    /// The cores and load of the checkout's host now; None, said on stderr,
+    /// when the host does not answer.
+    fn load(&self, places: &Places, ssh: &Ssh) -> Option<crate::host::Load> {
+        match self {
+            Site::Local(_) => Some(crate::host::Load::here()),
+            Site::Remote(remote) => match crate::host::probe(places, ssh, &remote.host) {
+                Ok(probe) => Some(probe.load()),
+                Err(error) => {
+                    note(format!(
+                        "host {} did not say its load, so this run's record has none: {error}",
+                        remote.host.name
+                    ));
+                    None
+                }
+            },
+        }
+    }
+
     /// The commit the checkout is on.
     fn head(&mut self) -> Result<String> {
         match self {
@@ -846,19 +864,22 @@ struct Timing {
 }
 
 /// When a run joined the lane's queue, how long it waited there in all, and
-/// the checkout whose lock it holds, as `lock::Held` keeps them.
+/// the checkout whose lock it holds, as `lock::Held` keeps them, with the
+/// load of the checkout's host when the run took the checkout.
 struct HeldTimes {
     joined_at: i64,
     wait: Duration,
     checkout: String,
+    load: Option<crate::host::Load>,
 }
 
 impl HeldTimes {
-    fn of(held: &lock::Held) -> HeldTimes {
+    fn of(held: &lock::Held, load: Option<crate::host::Load>) -> HeldTimes {
         HeldTimes {
             joined_at: held.joined_at,
             wait: held.waited,
             checkout: held.checkout.clone(),
+            load,
         }
     }
 }
@@ -894,6 +915,7 @@ impl Timing {
                     who: who_asked(),
                     wait_ms: held.wait.as_millis() as u64,
                     passed,
+                    load: held.load,
                     steps: self.steps,
                 },
             )
@@ -993,8 +1015,8 @@ fn build_lane(
     let held = lock::take_where(places, &ssh, repo, lane, allowed, floor_kib)?;
     let mut held = hold_stores(held, &mut timing.stores)?;
     loop {
-        timing.held = Some(HeldTimes::of(&held));
         let mut site = Site::of(places, &ssh, repo, lane, &held.checkout)?;
+        timing.held = Some(HeldTimes::of(&held, site.load(places, &ssh)));
         note(format!("building in {}", held.checkout));
         if std::env::var_os(PREFIXED).is_some() {
             // On both streams: each is read by a thread of its own, and a line

@@ -3,11 +3,13 @@
 //! checkout's guard while the build runs, and pruning the copies it replaced
 //! once it ends.
 //!
-//! When cargo exits after a hook check started it, builds records the run in
-//! the project's database (cargo_run.sql): the host it ran on with that
-//! host's load, how long cargo waited for its file locks (lock_wait.rs), how
-//! long the run took, and the check. When builds cannot write the record, it
-//! says so on stderr, and the run ends as cargo did.
+//! When cargo exits, builds records the run in the project's database
+//! (cargo_run.sql): when it started, cargo's subcommand, the host it ran on
+//! with that host's load, how long cargo waited for its file locks
+//! (lock_wait.rs), how long the run took, and the hook check that started it,
+//! when one did. When builds cannot write the record, it says so on stderr,
+//! and the run ends as cargo did. A host that runs cargo for a job records
+//! nothing there: only this Mac holds the projects' stores.
 
 use std::collections::HashMap;
 use std::io::BufReader;
@@ -61,50 +63,58 @@ pub fn hook_runs(
     let what = || format!("reading {}", path.display());
     let mut statement = conn
         .prepare(
-            "SELECT hook_position, host, cores, load, lock_wait_ms, ms FROM builds_cargo_runs
-             WHERE worktree = ?1 AND hook_started_at = ?2 ORDER BY ms",
+            "SELECT hook_position, started_at, subcommand, host, cores, load, lock_wait_ms, ms
+             FROM builds_cargo_runs WHERE worktree = ?1 AND hook_started_at = ?2 ORDER BY ms",
         )
         .context(what)?;
     let millis = |ms: i64| Duration::from_millis(ms as u64);
     let rows = statement
         .query_map(params![worktree, started_at], |row| {
             let position = row.get::<_, i64>(0)? as u32;
-            Ok(CargoRun {
+            let run = CargoRun {
                 worktree: worktree.to_string(),
-                host: row.get(1)?,
+                started_at: row.get(1)?,
+                subcommand: row.get(2)?,
+                host: row.get(3)?,
                 load: Load {
-                    cores: row.get::<_, i64>(2)? as u32,
-                    one_minute: row.get(3)?,
+                    cores: row.get::<_, i64>(4)? as u32,
+                    one_minute: row.get(5)?,
                 },
-                lock_wait: row.get::<_, Option<i64>>(4)?.map(millis),
-                took: millis(row.get(5)?),
-                hook_check: (started_at, position),
-            })
+                lock_wait: row.get::<_, Option<i64>>(6)?.map(millis),
+                took: millis(row.get(7)?),
+                hook_check: Some((started_at, position)),
+            };
+            Ok((position, run))
         })
         .context(what)?;
     let mut found = HashMap::new();
     // The query sorts the longest run last, so its insert replaces the
     // shorter ones.
     for row in rows {
-        let run = row.context(what)?;
-        found.insert(run.hook_check.1, run);
+        let (position, run) = row.context(what)?;
+        found.insert(position, run);
     }
     Ok(found)
 }
 
-/// One `builds cargo` run that a hook check started, as builds records it
-/// once cargo exits.
+/// One `builds cargo` run, as builds records it once cargo exits.
 #[derive(Clone, Debug, PartialEq)]
 pub struct CargoRun {
     pub worktree: String,
+    /// When `builds cargo` started, seconds since 1970.
+    pub started_at: i64,
+    /// cargo's subcommand (`test`, `nextest run`); None for a run that builds
+    /// recorded before it kept the subcommand.
+    pub subcommand: Option<String>,
     pub host: String,
     /// The host's cores and load when builds picked it.
     pub load: Load,
     /// None when cargo printed to a terminal, which builds does not read.
     pub lock_wait: Option<Duration>,
     pub took: Duration,
-    /// The hook check that started it: its run's start and its position.
-    pub hook_check: (i64, u32),
+    /// The hook check that started it, when one did: its run's start and its
+    /// position.
+    pub hook_check: Option<(i64, u32)>,
 }
 
 /// Writes <run> to the database at <path>, and creates the database with its
@@ -113,21 +123,50 @@ pub fn record_run(path: &Path, run: &CargoRun) -> Result<()> {
     let conn = crate::db::open(path, crate::db::Make::Allowed)?;
     let ms = |took: Duration| took.as_millis() as i64;
     conn.execute(
-        "INSERT INTO builds_cargo_runs (worktree, host, cores, load, lock_wait_ms, ms, hook_started_at, hook_position)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+        "INSERT INTO builds_cargo_runs (worktree, started_at, subcommand, host, cores, load, lock_wait_ms, ms, hook_started_at, hook_position)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
         params![
             run.worktree,
+            run.started_at,
+            run.subcommand,
             run.host,
             run.load.cores,
             run.load.one_minute,
             run.lock_wait.map(ms),
             ms(run.took),
-            run.hook_check.0,
-            run.hook_check.1,
+            run.hook_check.map(|(started_at, _)| started_at),
+            run.hook_check.map(|(_, position)| position),
         ],
     )
     .context(|| format!("writing {}", path.display()))?;
     Ok(())
+}
+
+/// Makes `builds_cargo_runs` again as cargo_run.sql writes it today, with
+/// each run's start and subcommand, and copies every run into it. Each run
+/// recorded before was a hook check's: it starts when its hook run started,
+/// and has no subcommand. The statements come from cargo_run.sql, so the
+/// table equals a fresh database's. migrate.rs runs this with the foreign
+/// keys off.
+pub fn move_to_every_run(db: &Connection) -> Result<()> {
+    use crate::db::Sql;
+    const SQL: &str = include_str!("cargo_run.sql");
+    crate::db::remake_table(
+        db,
+        "builds_cargo_runs",
+        crate::db::statement(SQL, "CREATE TABLE builds_cargo_runs (", "STRICT;"),
+        |db| {
+            db.execute_batch(
+                "INSERT INTO builds_cargo_runs (id, worktree, started_at, host, cores, load, lock_wait_ms, ms, hook_started_at, hook_position)
+    SELECT id, worktree, hook_started_at, host, cores, load, lock_wait_ms, ms, hook_started_at, hook_position FROM builds_cargo_runs_old;",
+            )
+            .sql()
+        },
+        &[
+            crate::db::statement(SQL, "CREATE INDEX idx_builds_cargo_runs_hook", ";"),
+            crate::db::statement(SQL, "CREATE INDEX idx_builds_cargo_runs_started", ";"),
+        ],
+    )
 }
 
 /// Does <checkout> build with incremental compilation? Only main;
@@ -233,6 +272,7 @@ pub fn cmd_cargo(args: &[String]) -> Result<()> {
         Some(other) => fail!("cargo: cargo {other} builds nothing; run it without builds"),
     };
     let began = Instant::now();
+    let started_at = crate::app_timing::now();
     let dir = std::env::current_dir().context(|| "reading the working directory".to_string())?;
     let places = Places::from_env()?;
     let checkout = Checkout::at_keeping_env(&dir)?;
@@ -281,20 +321,21 @@ pub fn cmd_cargo(args: &[String]) -> Result<()> {
         Some(job) => cargo_place::finish(job)?,
     };
     if let Some(checkout) = &checkout {
-        let recorded = hook_check(&env).and_then(|hook_check| match hook_check {
-            None => Ok(()),
-            Some(hook_check) => record_finished(
+        let recorded = hook_check(&env).and_then(|hook_check| {
+            record_finished(
                 &places,
                 checkout,
                 &CargoRun {
                     worktree: checkout.top.display().to_string(),
+                    started_at,
+                    subcommand: Some(subcommand.join(" ")),
                     host,
                     load,
                     lock_wait: exited.lock_wait,
                     took: began.elapsed(),
                     hook_check,
                 },
-            ),
+            )
         });
         if let Err(error) = recorded {
             crate::text::note(format!(
@@ -424,6 +465,16 @@ fn run_here(
     Ok(Exited { code, lock_wait })
 }
 
+/// Writes a row of `builds_cargo_runs` as given, the constraints still
+/// holding: for tests that need a row of a store they build by hand.
+#[cfg(test)]
+pub fn plant(
+    db: &Connection,
+    columns: &[(&str, rusqlite::types::Value)],
+) -> rusqlite::Result<usize> {
+    crate::db::plant_row(db, &["builds_cargo_runs"], "builds_cargo_runs", columns)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -441,6 +492,36 @@ mod tests {
         );
         assert_eq!(hook_check(&|_: &str| None).unwrap(), None);
         assert!(hook_check(&named("soon")).is_err());
+    }
+
+    #[test]
+    fn a_run_no_hook_check_started_is_recorded_with_its_start_and_subcommand() {
+        let scratch = Scratch::new("cargo-run-record");
+        let path = scratch.dir.join(crate::db::DATABASE);
+        let run = CargoRun {
+            worktree: "/d/bae".into(),
+            started_at: 100,
+            subcommand: Some("nextest run".into()),
+            host: "m1".into(),
+            load: Load {
+                cores: 10,
+                one_minute: 4.0,
+            },
+            lock_wait: None,
+            took: Duration::from_secs(30),
+            hook_check: None,
+        };
+        record_run(&path, &run).unwrap();
+        let conn = crate::db::open_reader(&path).unwrap().unwrap();
+        let row: (i64, String, Option<i64>, i64) = conn
+            .query_row(
+                "SELECT started_at, subcommand, hook_started_at, ms FROM builds_cargo_runs",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            )
+            .unwrap();
+        assert_eq!(row, (100, "nextest run".to_string(), None, 30_000));
+        assert!(hook_runs(&conn, "/d/bae", 100, &path).unwrap().is_empty());
     }
 
     fn role(dir: &Path) -> &'static [&'static str] {

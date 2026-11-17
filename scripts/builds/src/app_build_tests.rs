@@ -648,6 +648,10 @@ fn a_finished_lane_run_writes_its_wait_steps_and_checkout_to_its_projects_store(
         joined_at: 1_790_000_000,
         wait: Duration::from_millis(1500),
         checkout: "side-3".to_string(),
+        load: Some(crate::host::Load {
+            cores: 14,
+            one_minute: 20.0,
+        }),
     });
     run_steps(
         &scratch.dir,
@@ -664,9 +668,9 @@ fn a_finished_lane_run_writes_its_wait_steps_and_checkout_to_its_projects_store(
     timing.record(&places, "demo", Lane::Mac, "my-branch", true);
     let path = store.dir.join(app_timing::DATABASE);
     let conn = rusqlite::Connection::open(&path).unwrap();
-    let row: (i64, i64, String, String, bool) = conn
+    let row: (i64, i64, String, String, bool, i64, f64) = conn
         .query_row(
-            "SELECT started_at, wait_ms, checkout, built_ref, passed FROM app_build_runs",
+            "SELECT started_at, wait_ms, checkout, built_ref, passed, cores, load FROM app_build_runs",
             [],
             |row| {
                 Ok((
@@ -675,6 +679,8 @@ fn a_finished_lane_run_writes_its_wait_steps_and_checkout_to_its_projects_store(
                     row.get(2)?,
                     row.get(3)?,
                     row.get(4)?,
+                    row.get(5)?,
+                    row.get(6)?,
                 ))
             },
         )
@@ -686,7 +692,9 @@ fn a_finished_lane_run_writes_its_wait_steps_and_checkout_to_its_projects_store(
             1500,
             "side-3".to_string(),
             "my-branch".to_string(),
-            true
+            true,
+            14,
+            20.0
         )
     );
     let repo = &app_timing::stats(&path, 0).unwrap()[0];

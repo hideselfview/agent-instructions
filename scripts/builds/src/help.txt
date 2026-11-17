@@ -382,19 +382,21 @@ restart the server.
                               BUILDS_CARGO_HOST=<name> picks the host for one
                               command (local is this Mac); a command that must
                               stay here runs here, with a note on stderr.
-                              When cargo exits after a hook check started it
-                              (`builds checks run` puts the check's run start
-                              and position in BUILDS_HOOK_CHECK), builds
-                              records the run in the project's store: its
-                              worktree, the host it ran on with that host's
-                              cores and one-minute load when builds picked it,
-                              how long cargo waited for its file locks (from
-                              each "Blocking waiting for file lock" line it
-                              printed to the next; builds does not measure the
-                              wait when cargo prints to a terminal, which
-                              builds leaves to cargo), its time and the check.
-                              builds records no other run, and nothing for a
-                              repo in no project.
+                              When cargo exits, builds records the run in the
+                              project's store: its worktree, when it started,
+                              cargo's subcommand (`test`, `nextest run`), the
+                              host it ran on with that host's cores and
+                              one-minute load when builds picked it, how long
+                              cargo waited for its file locks (from each
+                              "Blocking waiting for file lock" line it printed
+                              to the next; builds does not measure the wait
+                              when cargo prints to a terminal, which builds
+                              leaves to cargo), its time and, when a hook
+                              check started it, the check (`builds checks run`
+                              puts the check's run start and position in
+                              BUILDS_HOOK_CHECK). builds records nothing for a
+                              repo in no project, and a host that runs cargo
+                              for a job records nothing there.
 
 
 APP BUILDS
@@ -605,10 +607,11 @@ built again.
                               Each
                               lane's run goes to the project's store when it
                               ends: the ref, the claim of the worktree it ran
-                              from, the checkout, its
-                              wait in the queue, and each step's start, wall
-                              time, CPU time and result; the dashboard shows
-                              the last 12 hours
+                              from, the checkout, the cores and one-minute
+                              load of the checkout's host when the run took
+                              the checkout, its wait in the queue, and each
+                              step's start, wall time, CPU time and result;
+                              the dashboard shows the last 12 hours
   builds app-build <repo> --lane mac|android <ref> [<step>...] [--test <lane> <Class>]... [--shots <lane> <prefix>]...
                               one lane's part of the above, in this process.
                               With no step named, only the --test and --shots

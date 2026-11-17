@@ -21,7 +21,14 @@ CREATE TABLE IF NOT EXISTS app_build_runs (
     -- How long the run waited in the lane's queue before it took a
     -- checkout, a wait after a takeover included.
     wait_ms INTEGER NOT NULL CHECK (wait_ms >= 0),
-    passed INTEGER NOT NULL CHECK (passed IN (0, 1))
+    passed INTEGER NOT NULL CHECK (passed IN (0, 1)),
+    -- The cores and the one-minute load average of the host of the checkout,
+    -- when the run took the checkout. Both NULL for a run that builds
+    -- recorded before it kept them, and for a run whose host did not answer
+    -- when builds asked it for its load.
+    cores INTEGER CHECK (cores > 0),
+    load REAL CHECK (load >= 0),
+    CHECK ((cores IS NULL) = (load IS NULL))
 ) STRICT;
 
 CREATE INDEX IF NOT EXISTS idx_app_build_runs_started ON app_build_runs (started_at);

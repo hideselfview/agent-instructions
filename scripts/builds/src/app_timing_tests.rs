@@ -29,11 +29,34 @@ fn run(at: i64, lane: Lane, wait_ms: u64, passed: bool, steps: Vec<StepRecord>) 
         who: Some("agent".to_string()),
         wait_ms,
         passed,
+        load: None,
         steps,
     }
 }
 
 const NOW: i64 = 1_000_000;
+
+#[test]
+fn a_run_keeps_the_load_of_its_checkouts_host() {
+    let scratch = Scratch::new("timing-load");
+    let path = store(&scratch);
+    let mut loaded = run(NOW, Lane::Mac, 0, true, Vec::new());
+    loaded.load = Some(crate::host::Load {
+        cores: 10,
+        one_minute: 25.5,
+    });
+    record(&path, &loaded).unwrap();
+    record(&path, &run(NOW, Lane::Mac, 0, true, Vec::new())).unwrap();
+    let conn = crate::db::open_reader(&path).unwrap().unwrap();
+    let loads: Vec<(Option<i64>, Option<f64>)> = conn
+        .prepare("SELECT cores, load FROM app_build_runs ORDER BY id")
+        .unwrap()
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+        .unwrap()
+        .collect::<rusqlite::Result<_>>()
+        .unwrap();
+    assert_eq!(loads, vec![(Some(10), Some(25.5)), (None, None)]);
+}
 
 #[test]
 fn a_recorded_run_comes_back_in_the_figures_with_its_steps() {

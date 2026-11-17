@@ -278,6 +278,7 @@ fn a_recorded_app_build_run_reaches_the_feeds_hooks_json() {
         who: None,
         wait_ms: 1234,
         passed: true,
+        load: None,
         steps: vec![StepRecord {
             name: "macos".into(),
             kind: StepKind::Step,

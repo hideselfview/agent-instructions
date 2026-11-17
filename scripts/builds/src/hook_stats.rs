@@ -107,7 +107,7 @@ pub enum Outcome {
         /// cargo ran on, with that host's load. `record` writes none: `builds
         /// cargo` records its own run (cargo_run.rs), and reading a run finds
         /// it.
-        cargo: Option<crate::cargo_run::CargoRun>,
+        cargo: Option<Box<crate::cargo_run::CargoRun>>,
     },
     /// The staged files matched none of its paths.
     Skipped,
@@ -729,7 +729,7 @@ fn runs_where(
                         cores: cores as u32,
                         one_minute: load,
                     }),
-                    cargo: cargo.remove(&(position as u32)),
+                    cargo: cargo.remove(&(position as u32)).map(Box::new),
                 },
                 name,
             });

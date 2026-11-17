@@ -95,7 +95,7 @@ pub struct StepRecord {
 }
 
 /// One lane's run, as `record` writes it.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct RunRecord {
     /// When it joined the lane's queue, seconds since 1970.
     pub started_at: i64,
@@ -106,6 +106,9 @@ pub struct RunRecord {
     pub who: Option<String>,
     pub wait_ms: u64,
     pub passed: bool,
+    /// The cores and load of the checkout's host when the run took the
+    /// checkout; None when the host did not answer.
+    pub load: Option<crate::host::Load>,
     pub steps: Vec<StepRecord>,
 }
 
@@ -178,7 +181,7 @@ pub fn record(path: &Path, run: &RunRecord) -> Result<()> {
     let what = || format!("writing {}", path.display());
     let tx = conn.transaction().context(what)?;
     tx.execute(
-        "INSERT INTO app_build_runs (started_at, repo, lane, checkout, built_ref, who, wait_ms, passed) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+        "INSERT INTO app_build_runs (started_at, repo, lane, checkout, built_ref, who, wait_ms, passed, cores, load) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
         params![
             run.started_at,
             run.repo,
@@ -187,7 +190,9 @@ pub fn record(path: &Path, run: &RunRecord) -> Result<()> {
             run.built_ref,
             run.who,
             run.wait_ms as i64,
-            run.passed
+            run.passed,
+            run.load.map(|load| load.cores),
+            run.load.map(|load| load.one_minute)
         ],
     )
     .context(what)?;
@@ -211,6 +216,36 @@ pub fn record(path: &Path, run: &RunRecord) -> Result<()> {
         }
     }
     tx.commit().context(what)
+}
+
+/// Makes `app_build_runs` again as app_timing.sql writes it today, with the
+/// load of each run's host, and copies every run into it with no load: no
+/// run recorded before has one. The statements come from app_timing.sql, so
+/// the table equals a fresh database's. migrate.rs runs this with the foreign
+/// keys off, so `app_build_steps` keeps naming the table.
+pub fn move_to_loads(db: &Connection) -> Result<()> {
+    use crate::db::Sql;
+    crate::db::remake_table(
+        db,
+        "app_build_runs",
+        crate::db::statement(
+            crate::db::APP_TIMING_PART,
+            "CREATE TABLE IF NOT EXISTS app_build_runs",
+            "STRICT;",
+        ),
+        |db| {
+            db.execute_batch(
+                "INSERT INTO app_build_runs (id, started_at, repo, lane, checkout, built_ref, who, wait_ms, passed)
+    SELECT id, started_at, repo, lane, checkout, built_ref, who, wait_ms, passed FROM app_build_runs_old;",
+            )
+            .sql()
+        },
+        &[crate::db::statement(
+            crate::db::APP_TIMING_PART,
+            "CREATE INDEX IF NOT EXISTS idx_app_build_runs_started",
+            ";",
+        )],
+    )
 }
 
 /// One step's figures in one repo and lane.
@@ -398,6 +433,17 @@ pub fn dashboard_json(path: &Path, now: i64) -> serde_json::Value {
             })).collect::<Vec<_>>(),
         }),
     }
+}
+
+/// Writes a row of one of app_timing.rs's tables as given, the constraints
+/// still holding: for tests that need a row of a store they build by hand.
+#[cfg(test)]
+pub fn plant(
+    db: &Connection,
+    table: &str,
+    columns: &[(&str, rusqlite::types::Value)],
+) -> rusqlite::Result<usize> {
+    crate::db::plant_row(db, &["app_build_runs", "app_build_steps"], table, columns)
 }
 
 #[cfg(test)]

@@ -240,9 +240,13 @@ const BEFORE_COUNTED_LINES_STAMP: i64 = 847_323_498;
 /// nothing only while no open item waits on it.
 const BEFORE_BLOCKS_FROM_WAITS_STAMP: i64 = 92_039_681;
 
+/// The stamp of the schema before builds recorded every `builds cargo` run
+/// with its start and subcommand, and the load of each app build run's host.
+const BEFORE_WAITS_STAMP: i64 = 471_804_593;
+
 /// Every stamp a store can carry that `move_store` moves, oldest schema first.
 /// A new move adds the stamp of the schema before it at the end.
-const STAMPS: [i64; 29] = [
+const STAMPS: [i64; 30] = [
     BEFORE_DESIGN_DELETED_STAMP,
     BEFORE_CHECK_TIMES_STAMP,
     BEFORE_DESIGN_TIP_STAMP,
@@ -272,6 +276,7 @@ const STAMPS: [i64; 29] = [
     BEFORE_CLOSED_STAMP,
     BEFORE_COUNTED_LINES_STAMP,
     BEFORE_BLOCKS_FROM_WAITS_STAMP,
+    BEFORE_WAITS_STAMP,
 ];
 
 /// Whether a store stamped <found> comes before the move that follows the
@@ -350,7 +355,10 @@ const DESIGN_DELETED: &str = "CREATE TABLE design_deleted (
 /// review's patch ids left out context lines keeps its old patch ids until the
 /// move drops them. The move makes `question` again in every store and
 /// clears the reason for blocking nothing (`blocks_nothing`) on each open
-/// question that an open item waits on.
+/// question that an open item waits on. Every store gets `builds_cargo_runs`
+/// with each run's start and subcommand: a run recorded before has the start
+/// of the hook run whose check started it and no subcommand. Every store gets
+/// `app_build_runs` with the load of each run's host, which no older run has.
 /// The moves run in one transaction, the store
 /// is stamped as today's schema, and it must then equal a fresh database's schema or the transaction rolls back. A
 /// store already at today's stamp, or with no database, is left alone; any
@@ -633,6 +641,18 @@ fn move_store(places: &Places, path: &Path) -> Result<()> {
     // The move makes `question` again in every store and clears the reason
     // for blocking nothing on each open question that an open item waits on.
     crate::lists::question::move_to_blocks_from_waits(&tx)?;
+    // A store from before builds kept the start and subcommand of each cargo
+    // run has `builds_cargo_runs` with hook checks' runs alone, unless the
+    // move made today's table above; each run starts when its hook run
+    // started.
+    if !before(found, BEFORE_CHECK_STARTS_STAMP) && before(found, BEFORE_WAITS_STAMP) {
+        crate::cargo_run::move_to_every_run(&tx)?;
+    }
+    // A store from before the app-build timings got today's `app_build_runs`
+    // above; every newer one has runs without their host's load.
+    if !before(found, BEFORE_APP_TIMING_STAMP) && before(found, BEFORE_WAITS_STAMP) {
+        crate::app_timing::move_to_loads(&tx)?;
+    }
     tx.pragma_update(None, "user_version", db::stamp()).sql()?;
     let broken: Option<String> = tx
         .query_row("PRAGMA foreign_key_check", [], |row| row.get(0))

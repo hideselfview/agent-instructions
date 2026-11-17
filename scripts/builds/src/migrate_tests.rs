@@ -389,7 +389,7 @@ fn store_before_app_timing(dir: &std::path::Path) -> std::path::PathBuf {
     let path = dir.join(DATABASE);
     let conn = Connection::open(&path).unwrap();
     conn.execute_batch(&without_design_fix(without_canvas(
-        without_blocks_from_waits(db::schema_before_app_timing()),
+        without_blocks_from_waits(without_loads(db::schema_before_app_timing())),
     )))
     .unwrap();
     conn.pragma_update(None, "user_version", BEFORE_APP_TIMING_STAMP)
@@ -419,7 +419,7 @@ fn a_store_from_before_app_timings_gains_their_tables_keeps_its_runs_and_equals_
 fn the_app_timing_stamp_is_the_schema_before_app_timings() {
     assert_eq!(
         db::stamp_of_text(&without_design_fix(without_canvas(
-            without_blocks_from_waits(db::schema_before_app_timing())
+            without_blocks_from_waits(without_loads(db::schema_before_app_timing()))
         ))),
         BEFORE_APP_TIMING_STAMP
     );
@@ -432,7 +432,7 @@ fn store_before_design_session(dir: &std::path::Path) -> std::path::PathBuf {
     let path = dir.join(DATABASE);
     let conn = Connection::open(&path).unwrap();
     conn.execute_batch(&without_design_fix(without_canvas(
-        without_blocks_from_waits(db::schema_before_design_session()),
+        without_blocks_from_waits(without_loads(db::schema_before_design_session())),
     )))
     .unwrap();
     conn.pragma_update(None, "user_version", BEFORE_DESIGN_SESSION_STAMP)
@@ -463,7 +463,7 @@ fn a_store_from_before_design_sessions_gains_their_table_keeps_its_runs_and_equa
 fn the_design_session_stamp_is_the_schema_before_design_sessions() {
     assert_eq!(
         db::stamp_of_text(&without_design_fix(without_canvas(
-            without_blocks_from_waits(db::schema_before_design_session())
+            without_blocks_from_waits(without_loads(db::schema_before_design_session()))
         ))),
         BEFORE_DESIGN_SESSION_STAMP
     );
@@ -476,7 +476,7 @@ fn store_before_shot_findings(dir: &std::path::Path) -> std::path::PathBuf {
     let path = dir.join(DATABASE);
     let conn = Connection::open(&path).unwrap();
     conn.execute_batch(&without_design_fix(without_canvas(
-        without_blocks_from_waits(db::schema_before_shot_findings()),
+        without_blocks_from_waits(without_loads(db::schema_before_shot_findings())),
     )))
     .unwrap();
     conn.pragma_update(None, "user_version", BEFORE_SHOT_FINDINGS_STAMP)
@@ -506,7 +506,7 @@ fn a_store_from_before_shot_findings_gains_their_table_keeps_its_runs_and_equals
 fn the_shot_findings_stamp_is_the_schema_before_shot_findings() {
     assert_eq!(
         db::stamp_of_text(&without_design_fix(without_canvas(
-            without_blocks_from_waits(db::schema_before_shot_findings())
+            without_blocks_from_waits(without_loads(db::schema_before_shot_findings()))
         ))),
         BEFORE_SHOT_FINDINGS_STAMP
     );
@@ -519,7 +519,7 @@ fn store_before_review(dir: &std::path::Path) -> std::path::PathBuf {
     let path = dir.join(DATABASE);
     let conn = Connection::open(&path).unwrap();
     conn.execute_batch(&without_design_fix(without_canvas(
-        without_blocks_from_waits(db::schema_before_review()),
+        without_blocks_from_waits(without_loads(db::schema_before_review())),
     )))
     .unwrap();
     conn.pragma_update(None, "user_version", BEFORE_REVIEW_STAMP)
@@ -557,7 +557,7 @@ fn a_store_from_before_the_review_gains_its_tables_keeps_its_runs_and_equals_a_f
 fn the_review_stamp_is_the_schema_before_the_review() {
     assert_eq!(
         db::stamp_of_text(&without_design_fix(without_canvas(
-            without_blocks_from_waits(db::schema_before_review())
+            without_blocks_from_waits(without_loads(db::schema_before_review()))
         ))),
         BEFORE_REVIEW_STAMP
     );
@@ -1623,7 +1623,7 @@ fn a_store_from_before_changed_lines_moves_and_its_fixed_finding_is_closed() {
 /// hook check started and recorded each `builds cargo` run: without those two
 /// parts, the last of the schema.
 fn without_check_starts(schema: String) -> String {
-    let parts = format!("\n{}\n{}", db::HOOK_CHECK_STARTS_PART, db::CARGO_RUNS_PART);
+    let parts = format!("\n{}\n{HOOK_CARGO_RUNS_PART}", db::HOOK_CHECK_STARTS_PART);
     assert_eq!(
         schema.matches(&parts).count(),
         1,
@@ -2881,7 +2881,7 @@ fn a_store_from_before_ranks_ranks_the_questions_placed_first_newest_asked_on_to
 /// The schema text before `blocks_nothing` could hold a reason only while no
 /// open item waits on the question.
 fn schema_before_blocks_from_waits() -> String {
-    without_blocks_from_waits(db::schema())
+    without_blocks_from_waits(schema_before_waits())
 }
 
 /// <schema> with question.sql's comment on `blocks_nothing` as it read before
@@ -3035,4 +3035,162 @@ fn each_stamp_names_one_schema_and_before_counts_the_stamp_and_older_ones() {
     assert!(before(BEFORE_TAGS_STAMP, BEFORE_TAGS_STAMP));
     assert!(before(BEFORE_REVIEW_STAMP, BEFORE_TAGS_STAMP));
     assert!(!before(BEFORE_ORIGINS_STAMP, BEFORE_TAGS_STAMP));
+}
+
+/// cargo_run.sql as it was before builds recorded every `builds cargo` run.
+const HOOK_CARGO_RUNS_PART: &str = r#"-- The record of the `builds cargo` runs that hook checks started, in
+-- `builds.sqlite` in a project's store folder. cargo_run.rs owns this table
+-- and is the only code that writes it. Each row is what one run observed
+-- when cargo exited: the host cargo ran on, that host's cores and load when
+-- builds picked it, how long cargo waited for its file locks and how long the
+-- run took. hook_stats.rs reads these rows, through cargo_run.rs, to show
+-- where each hook check that ran `builds cargo` ran.
+
+CREATE TABLE builds_cargo_runs (
+    id INTEGER PRIMARY KEY,
+    -- The top folder of the checkout whose files cargo built.
+    worktree TEXT NOT NULL CHECK (worktree <> ''),
+    -- `local` for this Mac, else the host's name.
+    host TEXT NOT NULL CHECK (host <> ''),
+    -- The host's cores and its one-minute load average when builds picked it.
+    cores INTEGER NOT NULL CHECK (cores > 0),
+    load REAL NOT NULL CHECK (load >= 0),
+    -- How long cargo waited for its file locks; NULL when cargo printed to a
+    -- terminal, which builds leaves to cargo and does not read.
+    lock_wait_ms INTEGER CHECK (lock_wait_ms >= 0),
+    -- From the start to cargo's exit.
+    ms INTEGER NOT NULL CHECK (ms >= 0),
+    -- The hook check that started the run: the start of the hook's run (its
+    -- `started_at`) in the same worktree, and the check's position in it.
+    hook_started_at INTEGER NOT NULL CHECK (hook_started_at > 0),
+    hook_position INTEGER NOT NULL CHECK (hook_position >= 0),
+    CHECK (lock_wait_ms <= ms)
+) STRICT;
+
+CREATE INDEX idx_builds_cargo_runs_hook ON builds_cargo_runs (worktree, hook_started_at);
+"#;
+
+/// <schema> as its text read before builds kept the load of each app build
+/// run's host: app_timing.sql's `app_build_runs` without `cores` and `load`.
+/// A schema from before the app-build timings has no such table and comes
+/// back as it was.
+fn without_loads(schema: String) -> String {
+    let (now, then) = (
+        "    passed INTEGER NOT NULL CHECK (passed IN (0, 1)),
+    -- The cores and the one-minute load average of the host of the checkout,
+    -- when the run took the checkout. Both NULL for a run that builds
+    -- recorded before it kept them, and for a run whose host did not answer
+    -- when builds asked it for its load.
+    cores INTEGER CHECK (cores > 0),
+    load REAL CHECK (load >= 0),
+    CHECK ((cores IS NULL) = (load IS NULL))
+) STRICT;",
+        "    passed INTEGER NOT NULL CHECK (passed IN (0, 1))
+) STRICT;",
+    );
+    assert!(schema.matches(now).count() <= 1, "{now}");
+    schema.replacen(now, then, 1)
+}
+
+/// The schema text before builds recorded every `builds cargo` run with its
+/// start and subcommand, and the load of each app build run's host.
+fn schema_before_waits() -> String {
+    let schema = db::schema();
+    assert_eq!(schema.matches(db::CARGO_RUNS_PART).count(), 1);
+    without_loads(schema).replacen(db::CARGO_RUNS_PART, HOOK_CARGO_RUNS_PART, 1)
+}
+
+#[test]
+fn the_waits_stamp_is_the_schema_before_waits() {
+    assert_eq!(
+        db::stamp_of_text(&schema_before_waits()),
+        BEFORE_WAITS_STAMP
+    );
+}
+
+/// A store from before builds recorded every cargo run keeps each hook
+/// check's cargo run, starting when its hook run started and with no
+/// subcommand, and each app build run, with no load, and equals a fresh
+/// schema.
+#[test]
+fn a_store_from_before_waits_keeps_its_cargo_runs_and_app_build_runs() {
+    use crate::lists::fixtures::v;
+    let scratch = Scratch::new("move-waits");
+    let places = scratch.places();
+    let dir = places.lists.join("bae");
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join(DATABASE);
+    {
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(&schema_before_waits()).unwrap();
+        conn.pragma_update(None, "user_version", BEFORE_WAITS_STAMP)
+            .unwrap();
+        crate::cargo_run::plant(
+            &conn,
+            &[
+                ("worktree", v("/d/bae")),
+                ("host", v("m1")),
+                ("cores", v(10)),
+                ("load", rusqlite::types::Value::Real(3.5)),
+                ("ms", v(9000)),
+                ("hook_started_at", v(70)),
+                ("hook_position", v(2)),
+            ],
+        )
+        .unwrap();
+        crate::app_timing::plant(
+            &conn,
+            "app_build_runs",
+            &[
+                ("id", v(4)),
+                ("started_at", v(80)),
+                ("repo", v("bae")),
+                ("lane", v("mac")),
+                ("checkout", v("side-1")),
+                ("built_ref", v("branch")),
+                ("wait_ms", v(500)),
+                ("passed", v(1)),
+            ],
+        )
+        .unwrap();
+        crate::app_timing::plant(
+            &conn,
+            "app_build_steps",
+            &[
+                ("run_id", v(4)),
+                ("position", v(0)),
+                ("name", v("macos")),
+                ("kind", v("step")),
+                ("started_at", v(81)),
+                ("wall_ms", v(1000)),
+                ("cpu_ms", v(900)),
+                ("result", v("passed")),
+            ],
+        )
+        .unwrap();
+    }
+    migrate_stores(&places).unwrap();
+    let conn = db::open_reader(&path)
+        .unwrap()
+        .expect("opens under today's stamp");
+    assert_eq!(
+        db::schema_rows(&conn).unwrap(),
+        db::schema_rows(&db::memory()).unwrap()
+    );
+    let cargo: (i64, Option<String>, i64, i64) = conn
+        .query_row(
+            "SELECT started_at, subcommand, hook_position, ms FROM builds_cargo_runs",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        )
+        .unwrap();
+    assert_eq!(cargo, (70, None, 2, 9000));
+    let app: (i64, i64, Option<i64>, i64) = conn
+        .query_row(
+            "SELECT r.id, r.wait_ms, r.cores, s.wall_ms FROM app_build_runs r JOIN app_build_steps s ON s.run_id = r.id",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        )
+        .unwrap();
+    assert_eq!(app, (4, 500, None, 1000));
 }
