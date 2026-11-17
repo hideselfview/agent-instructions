@@ -1,5 +1,5 @@
 ---
-digest: Every sentence a person reads is plain, literal and active: who does what, in the words for what it does, starting with the verb for a title or task; no figures of speech, borrowed metaphors, coinages, headline grammar, passive voice, dashes as punctuation or marketing adjectives (public website pages that aren't docs are exempt from the last).
+digest: Every sentence a person reads is plain, literal and active: who does what, in the words for what it does, starting with the verb for a title or task; no figures of speech, borrowed metaphors, coinages, headline grammar, passive voice, dashes as punctuation or marketing adjectives (public website pages that aren't docs are exempt from the last). The grammar forms are English's; a translation follows the localization rule.
 paths:
   - '**/*'
 blocking: true
@@ -17,6 +17,13 @@ top, such as a README, a rule or a brief) also follows the editor skill
 (`claude/skills/editor/SKILL.md`), which asks a document to name its reader up
 front, introduce the names it uses and give its sections headers. Where the two
 give different forms below, each says which text it covers.
+
+**English forms.** The grammar forms below are English's, and so are the tics
+they name: active voice with a named subject, a title or button that starts with
+its verb, whole sentences with their articles, no sentence that opens with "It"
+or "This", and no dash as punctuation. Other languages have their own forms. A
+translation follows its project's localization rule, such as bae's
+(`projects/bae-rules/text-people-read/localization-stays-in-sync-with-ui.md`).
 
 **Active.** Name the actor and the action: "bae uploads the cover", not "the
 cover is uploaded"; "Ana removed this Mac", not "this Mac was removed". An item
