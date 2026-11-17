@@ -462,18 +462,12 @@ fn first(at: i64, changed_lines: Option<i64>, groups: &[(&str, &[i64])]) -> reco
     record::FirstReview {
         at,
         changed_lines,
-        calls: groups
+        groups: groups.iter().map(|(group, _)| group.to_string()).collect(),
+        confirmed: groups
             .iter()
-            .map(|(group, ids)| record::FirstCall {
-                group: group.to_string(),
-                confirmed: ids
-                    .iter()
-                    .map(|id| record::Confirmed {
-                        id: *id,
-                        rule: "r".to_string(),
-                        clause: "c".to_string(),
-                    })
-                    .collect(),
+            .flat_map(|(group, ids)| {
+                ids.iter()
+                    .map(|id| finding(*id, 1, group, "r", "a.rs", 1, "x", Some("confirmed")))
             })
             .collect(),
     }
@@ -560,12 +554,20 @@ fn a_first_review_records_its_changed_lines_and_its_groups_confirmed_findings() 
     let (_, later_ids) =
         record::add_run(&db, &later, &[call("words", vec![raised.clone()])]).unwrap();
     record::settle(&db, later_ids[0][0], "confirmed", "real", 8, "me").unwrap();
+    let reviews = record::first_reviews(&db).unwrap();
+    assert_eq!(reviews.len(), 1, "{reviews:?}");
     assert_eq!(
-        record::first_reviews(&db).unwrap(),
-        [first(
+        (reviews[0].at, reviews[0].changed_lines, &reviews[0].groups),
+        (
             NOON,
             Some(40),
-            &[("words", &[ids[0][0]]), ("code", &[])]
-        )]
+            &vec!["words".to_string(), "code".to_string()]
+        )
     );
+    let confirmed: Vec<(i64, &str)> = reviews[0]
+        .confirmed
+        .iter()
+        .map(|finding| (finding.id, finding.group.as_str()))
+        .collect();
+    assert_eq!(confirmed, [(ids[0][0], "words")]);
 }

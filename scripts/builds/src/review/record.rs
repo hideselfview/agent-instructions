@@ -698,92 +698,76 @@ pub fn audited_landings(db: &Connection) -> Result<Vec<i64>> {
 }
 
 /// A branch's first review run: when it ran, how many lines its diff adds and
-/// removes (None for a run from before builds counted them), and each call
-/// that answered, with the findings of it that the coordinator confirmed.
+/// removes (None for a run from before builds counted them), the groups whose
+/// calls answered, and the findings whose last settle is confirmed.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FirstReview {
     pub at: i64,
     pub changed_lines: Option<i64>,
-    pub calls: Vec<FirstCall>,
+    pub groups: Vec<String>,
+    pub confirmed: Vec<Finding>,
 }
 
-/// A call of a first review that answered: its group and the findings of it
-/// that the coordinator confirmed, in the order raised.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct FirstCall {
-    pub group: String,
-    pub confirmed: Vec<Confirmed>,
-}
-
-/// A confirmed finding as a first review's count of it needs it.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Confirmed {
-    pub id: i64,
-    pub rule: String,
-    pub clause: String,
-}
+/// The id of each landing's first review run.
+const FIRST_RUNS: &str = "SELECT MIN(id) FROM review_run WHERE kind = 'review' GROUP BY landing_id";
 
 /// The first review run of each branch, oldest first. A finding counts as its
 /// last settle, so the list leaves out a finding settled again as dropped.
 pub fn first_reviews(db: &Connection) -> Result<Vec<FirstReview>> {
-    let mut statement = db
-        .prepare(
-            "SELECT r.id, r.at, r.changed_lines, c.id, c.group_name, f.id, f.rule, f.clause
-                FROM review_run r
-                LEFT JOIN review_call c ON c.run_id = r.id AND c.failure IS NULL
-                LEFT JOIN review_finding f ON f.call_id = c.id AND f.settled = 'confirmed'
-                    AND f.id NOT IN (SELECT finding_id FROM review_settle_again)
-                WHERE r.id IN (SELECT MIN(id) FROM review_run WHERE kind = 'review' GROUP BY landing_id)
-                ORDER BY r.id, c.id, f.id",
-        )
-        .sql()?;
-    let rows = statement
-        .query_map([], |row| {
-            Ok((
-                row.get::<_, i64>(0)?,
-                row.get::<_, i64>(1)?,
-                row.get::<_, Option<i64>>(2)?,
-                row.get::<_, Option<i64>>(3)?,
-                row.get::<_, Option<String>>(4)?,
-                row.get::<_, Option<i64>>(5)?,
-                row.get::<_, Option<String>>(6)?,
-                row.get::<_, Option<String>>(7)?,
+    let mut reviews: Vec<(i64, FirstReview)> = {
+        let mut statement = db
+            .prepare(&format!(
+                "SELECT id, at, changed_lines FROM review_run WHERE id IN ({FIRST_RUNS}) ORDER BY id"
             ))
-        })
-        .sql()?;
-    let mut reviews: Vec<(i64, FirstReview)> = Vec::new();
-    let mut last_call: Option<i64> = None;
-    for row in rows {
-        let (run, at, changed_lines, call, group, finding, rule, clause) = row.sql()?;
-        if reviews.last().is_none_or(|(id, _)| *id != run) {
-            reviews.push((
-                run,
-                FirstReview {
-                    at,
-                    changed_lines,
-                    calls: Vec::new(),
-                },
-            ));
-            last_call = None;
-        }
-        let (_, review) = reviews.last_mut().expect("pushed above");
-        let (Some(call), Some(group)) = (call, group) else {
-            continue;
-        };
-        if last_call != Some(call) {
-            review.calls.push(FirstCall {
-                group,
-                confirmed: Vec::new(),
-            });
-            last_call = Some(call);
-        }
-        if let (Some(id), Some(rule), Some(clause)) = (finding, rule, clause) {
-            review
-                .calls
-                .last_mut()
-                .expect("pushed above")
-                .confirmed
-                .push(Confirmed { id, rule, clause });
+            .sql()?;
+        let rows = statement
+            .query_map([], |row| {
+                Ok((
+                    row.get(0)?,
+                    FirstReview {
+                        at: row.get(1)?,
+                        changed_lines: row.get(2)?,
+                        groups: Vec::new(),
+                        confirmed: Vec::new(),
+                    },
+                ))
+            })
+            .sql()?;
+        rows.map(|row| row.sql()).collect::<Result<_>>()?
+    };
+    let review_of = |reviews: &[(i64, FirstReview)], run: i64| -> usize {
+        reviews
+            .iter()
+            .position(|(id, _)| *id == run)
+            .expect("each call and finding read here belongs to a first review run")
+    };
+    let groups: Vec<(i64, String)> = {
+        let mut statement = db
+            .prepare(&format!(
+                "SELECT run_id, group_name FROM review_call WHERE failure IS NULL AND run_id IN ({FIRST_RUNS}) ORDER BY id"
+            ))
+            .sql()?;
+        let rows = statement
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+            .sql()?;
+        rows.map(|row| row.sql()).collect::<Result<_>>()?
+    };
+    for (run, group) in groups {
+        let at = review_of(&reviews, run);
+        reviews[at].1.groups.push(group);
+    }
+    let findings: Vec<Finding> = {
+        let sql = format!(
+            "SELECT {FINDING_COLUMNS} {FINDING_FROM} WHERE c.run_id IN ({FIRST_RUNS}) ORDER BY f.id"
+        );
+        let mut statement = db.prepare(&sql).sql()?;
+        let rows = statement.query_map([], finding_from).sql()?;
+        rows.map(|row| row.sql()).collect::<Result<_>>()?
+    };
+    for finding in findings {
+        if finding.settled_as("confirmed") {
+            let at = review_of(&reviews, finding.run_id);
+            reviews[at].1.confirmed.push(finding);
         }
     }
     Ok(reviews.into_iter().map(|(_, review)| review).collect())

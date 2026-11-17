@@ -541,15 +541,19 @@ pub fn first_reviews_report(reviews: &[record::FirstReview]) -> String {
         ));
         let mut groups: Vec<&str> = of_day
             .iter()
-            .flat_map(|(review, _)| review.calls.iter().map(|call| call.group.as_str()))
+            .flat_map(|(review, _)| review.groups.iter().map(String::as_str))
             .collect();
         groups.sort();
         groups.dedup();
         for group in groups {
             let (mut findings, mut group_lines) = (0, 0);
             for (review, lines) in &of_day {
-                if let Some(call) = review.calls.iter().find(|call| call.group == group) {
-                    findings += call.confirmed.len();
+                if review.groups.iter().any(|asked| asked == group) {
+                    findings += review
+                        .confirmed
+                        .iter()
+                        .filter(|finding| finding.group == group)
+                        .count();
                     group_lines += lines;
                 }
             }

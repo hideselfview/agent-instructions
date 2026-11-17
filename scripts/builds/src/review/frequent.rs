@@ -59,7 +59,7 @@ pub fn frequent(reviews: &[&FirstReview], rules: &[Rule]) -> Counted {
     let mut left_out = Vec::new();
     for (age, review) in reviews.iter().enumerate() {
         let weight = 0.5_f64.powf(age as f64 / HALF_LIFE);
-        for finding in review.calls.iter().flat_map(|call| &call.confirmed) {
+        for finding in &review.confirmed {
             let Some(rule) = rules.iter().find(|rule| rule.slug == finding.rule) else {
                 left_out.push(format!(
                     "WHAT REVIEWS CONFIRM MOST OFTEN leaves out finding {}, whose rule {} the rules checkout no longer holds",

@@ -108,24 +108,38 @@ fn a_kind_that_comes_back_on_a_recent_first_review_is_shown_again() {
     assert!(text.contains("Literal."), "{text}");
 }
 
-/// A first review whose one call confirmed <findings>, each a rule and a
-/// clause, numbered from 1.
+/// A first review that confirmed <findings>, each a rule and a clause,
+/// numbered from 1.
 fn review(findings: &[(&str, &str)]) -> FirstReview {
     FirstReview {
         at: 0,
         changed_lines: Some(1),
-        calls: vec![record::FirstCall {
-            group: "g".to_string(),
-            confirmed: findings
-                .iter()
-                .enumerate()
-                .map(|(at, (rule, clause))| record::Confirmed {
-                    id: at as i64 + 1,
-                    rule: rule.to_string(),
-                    clause: clause.to_string(),
-                })
-                .collect(),
-        }],
+        groups: vec!["g".to_string()],
+        confirmed: findings
+            .iter()
+            .enumerate()
+            .map(|(at, (rule, clause))| record::Finding {
+                id: at as i64 + 1,
+                run_id: 1,
+                kind: "review".to_string(),
+                landing_id: Some(1),
+                group: "g".to_string(),
+                rule: rule.to_string(),
+                clause: clause.to_string(),
+                file: "a.rs".to_string(),
+                line: 1,
+                code: "x".to_string(),
+                problem: "p".to_string(),
+                blocking: true,
+                check_failed: None,
+                settled: Some(record::Settled::Once(record::Settle {
+                    how: "confirmed".to_string(),
+                    why: "real".to_string(),
+                    by: "tester".to_string(),
+                })),
+                closed_by: None,
+            })
+            .collect(),
     }
 }
 
