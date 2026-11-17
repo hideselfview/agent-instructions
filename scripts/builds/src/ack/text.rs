@@ -127,7 +127,7 @@ impl Text {
             .collect()
     }
 
-    /// The lines of the sections named <shown>, in the text's order, split
+    /// Splits the lines of the sections named <shown>, in the text's order,
     /// into parts of at most `PART_BYTES` bytes. Each section starts with a
     /// line that names it, and a part that starts inside a section says so
     /// on its first line.

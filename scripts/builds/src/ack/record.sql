@@ -23,7 +23,8 @@ CREATE TABLE ack_version (
     acknowledged_at INTEGER NOT NULL
 ) STRICT, WITHOUT ROWID;
 
--- The hash of each section of a kept version's text, by the section's name.
+-- The hash of each section of the text of a version that builds keeps, by
+-- the section's name.
 CREATE TABLE ack_version_section (
     version TEXT NOT NULL REFERENCES ack_version (version) ON DELETE CASCADE,
     name TEXT NOT NULL CONSTRAINT ack_version_section_name_is_named CHECK (name <> ''),

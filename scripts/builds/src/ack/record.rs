@@ -189,8 +189,8 @@ pub fn reading(db: &Connection, session: &str, who: &str) -> Result<Option<Readi
 /// Records that <who> in <session> acknowledged version <version> at <at>,
 /// whose sections had <sections> (name and hash), in place of its last
 /// acknowledgement, and ends its reading. builds keeps the version with its
-/// sections, and deletes each version that `KEPT_VERSIONS` newer
-/// acknowledged versions now push out.
+/// sections, and deletes each version that is no longer among the
+/// `KEPT_VERSIONS` versions that agents acknowledged most recently.
 pub fn acknowledge(
     db: &Connection,
     session: &str,
@@ -241,9 +241,9 @@ pub fn acknowledge(
 /// Moves the acknowledgements' tables of a store from before builds kept the
 /// versions of the text to today's, inside the move's transaction <tx>, with
 /// foreign keys off. Each version that an acknowledgement names becomes a
-/// kept version with the sections its acknowledgements kept, last
-/// acknowledged at its newest acknowledgement, and the move keeps the
-/// `KEPT_VERSIONS` newest of them. The move deletes every reading in
+/// version that builds keeps, with the sections that its acknowledgements
+/// kept and the time an agent last acknowledged it, and the move keeps the
+/// `KEPT_VERSIONS` versions that agents acknowledged most recently. The move deletes every reading in
 /// progress, since an old reading held every section with the changed ones
 /// first, an order the new tables do not record: each agent that was reading
 /// starts again with `builds ack`.

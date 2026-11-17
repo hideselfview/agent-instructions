@@ -418,8 +418,9 @@ const DESIGN_DELETED: &str = "CREATE TABLE design_deleted (
 /// settles as dropped each finding of the writing group that a branch waits
 /// on and that is on the commit messages or on comment lines
 /// (`review::record::move_to_message_style`). Every store that has the
-/// acknowledgements' tables gets the tables of kept versions, with each
-/// version its acknowledgements name, and of the sections a reading holds,
+/// acknowledgements' tables gets the tables of the versions that builds
+/// keeps, with each version its acknowledgements name, and of the sections a
+/// reading holds,
 /// and loses each acknowledgement's sections and every reading in progress
 /// (`ack::record::move_to_kept_versions`).
 /// The moves run in one transaction, the store

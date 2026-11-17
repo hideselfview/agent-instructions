@@ -172,7 +172,7 @@ impl World {
         .unwrap();
     }
 
-    /// The number of parts the reading `builds ack` starts at <now> holds.
+    /// The number of parts in the reading that `builds ack` starts at <now>.
     fn parts(&self, now: i64) -> usize {
         self.ack(&[], now).unwrap().matches("  builds ack ").count() - 1
     }
