@@ -46,7 +46,7 @@ pub fn check(
     let diff = run::diff_of(worktree, base)?;
     if diff.text.trim().is_empty() {
         return Ok(Checked {
-            text: format!("nothing to check: no changes past {base}\n"),
+            text: format!("there are no changes past {base}, so there is nothing to check\n"),
             clean: true,
         });
     }
