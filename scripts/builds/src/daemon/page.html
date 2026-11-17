@@ -1710,7 +1710,7 @@ function projectAcks() {
 // An agent's row says who acknowledged which version of the text, and when.
 function ackRow(a) {
   return h("div", {class: "l-rowfact"}, a.who + " acknowledged version " + a.version + ", " + stamp(a.at) +
-    (a.ended ? " · more than " + acks.hours + " hours ago, so builds refuses its commands" : ""));
+    (a.ended ? " · more than " + acks.hours + " hours ago, so builds refuses this agent's commands" : ""));
 }
 // The items Queue shows while the reader has chosen no tag.
 function queueEntries() { return lists.items.filter(it => !isRunning(it)); }
