@@ -265,18 +265,11 @@ fn fitting_hosts(
 /// How many app checkouts, of every repo's lanes on the volume, are on
 /// <host>.
 fn checkouts_on(places: &Places, host_name: &str) -> Result<usize> {
-    let entries =
-        std::fs::read_dir(&places.root).context(|| format!("reading {}", places.root.display()))?;
     let mut count = 0;
-    for entry in entries {
-        let entry = entry.context(|| format!("reading {}", places.root.display()))?;
-        let name = entry.file_name().to_string_lossy().into_owned();
-        if places.is_reserved_name(&name) || !entry.path().is_dir() {
-            continue;
-        }
+    for repo in places.repo_folder_names()? {
         for lane in Lane::ALL {
             count += places
-                .app_checkouts_of(&name, lane)?
+                .app_checkouts_of(&repo, lane)?
                 .iter()
                 .filter(|entry| split(entry).is_some_and(|(host, _)| host == host_name))
                 .count();
@@ -431,19 +424,12 @@ fn remove_file(file: &std::path::Path) -> Result<()> {
 
 /// `shrink` for every lane of every repo on the volume, for `builds prune`.
 pub fn shrink_all(places: &Places, ssh: &Ssh, run: Run) -> Result<()> {
-    let entries =
-        std::fs::read_dir(&places.root).context(|| format!("reading {}", places.root.display()))?;
-    for entry in entries {
-        let entry = entry.context(|| format!("reading {}", places.root.display()))?;
-        let name = entry.file_name().to_string_lossy().into_owned();
-        if places.is_reserved_name(&name) || !entry.path().is_dir() {
-            continue;
-        }
+    for repo in places.repo_folder_names()? {
         for lane in Lane::ALL {
             let at = RepoLane {
                 places,
                 ssh,
-                repo: &name,
+                repo: &repo,
                 lane,
             };
             shrink(at, run)?;

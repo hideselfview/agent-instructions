@@ -314,6 +314,22 @@ impl Places {
         Ok(())
     }
 
+    /// The names of the folders at the volume's root that may hold a repo's
+    /// builds: every folder but the volume's own (`is_reserved_name`).
+    pub fn repo_folder_names(&self) -> Result<Vec<String>> {
+        use crate::fail::Context;
+        let what = || format!("reading {}", self.root.display());
+        let mut names = Vec::new();
+        for entry in std::fs::read_dir(&self.root).context(what)? {
+            let entry = entry.context(what)?;
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if !self.is_reserved_name(&name) && entry.path().is_dir() {
+                names.push(name);
+            }
+        }
+        Ok(names)
+    }
+
     /// Is <dir> one of the volume's own folders (DerivedData, caches, the
     /// trash), which a repo can't be named after?
     pub fn is_reserved_name(&self, name: &str) -> bool {
