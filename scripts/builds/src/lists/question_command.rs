@@ -18,7 +18,7 @@ use crate::lists::issue::{GhRunner, real_gh, require_open_issue};
 use crate::lists::item::{ItemDraft, RecordWait, add_item, add_wait, move_waits_to_question};
 use crate::lists::question::{self, Blocked, BlockedMap, NewQuestion, Spot, apply_blocked};
 use crate::lists::record::close;
-use crate::lists::show::{blocks_text, kind_words, stack_entry};
+use crate::lists::show::{blocks_lines, kind_words, stack_entry};
 use crate::lists::store::{self, Store};
 use crate::lists::trail::{self, trail_line, trail_wanted};
 use crate::lists::{
@@ -81,7 +81,7 @@ fn stack_top(lists: &Lists) -> String {
             entry.question.id,
             entry.question.title,
             kind_words(entry.question.kind),
-            blocks_text(entry)
+            blocks_lines(entry).join("\n  ")
         ),
     }
 }

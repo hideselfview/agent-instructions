@@ -89,12 +89,12 @@ pub fn render_item(lists: &Lists, id: Id) -> Result<String> {
         }
     );
     if let Some(priority) = &item.priority {
-        let level = if priority.level == Level::First {
-            "first"
-        } else {
-            "last"
-        };
-        let _ = writeln!(out, "priority {level}: {}", priority.why);
+        let _ = writeln!(
+            out,
+            "priority {}: {}",
+            crate::lists::item::level_word(priority.level),
+            priority.why
+        );
     }
     if let Some(brief) = &item.brief {
         let _ = writeln!(out, "brief: {brief}");

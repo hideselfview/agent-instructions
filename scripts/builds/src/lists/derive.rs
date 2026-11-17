@@ -143,21 +143,26 @@ pub fn item_state(lists: &Lists, item: &Item) -> ItemState {
 pub struct StackEntry<'a> {
     pub question: &'a Question,
     /// The open items that wait on it directly, in queue order.
-    pub blocks: Vec<&'a Item>,
+    pub blocks: Vec<BlockedItem<'a>>,
     /// The open items that wait on it directly or through a chain of open
     /// items.
     pub blocked_count: usize,
 }
 
-fn blocked_through_chains(lists: &Lists, question: &Question) -> (Vec<Id>, BTreeSet<Id>) {
-    let direct: Vec<Id> = lists
-        .items
-        .iter()
-        .filter(|item| item.waits.contains(&Wait::Question(question.id)))
-        .map(|item| item.id)
-        .collect();
-    let mut all: BTreeSet<Id> = direct.iter().copied().collect();
-    let mut frontier = direct.clone();
+/// An open item that waits on a question directly.
+#[derive(Clone, Debug)]
+pub struct BlockedItem<'a> {
+    pub item: &'a Item,
+    /// How many open items wait behind it: on it directly or through a chain
+    /// of open items.
+    pub behind: usize,
+}
+
+/// The open items that wait on any of <ids> directly or through a chain of
+/// open items.
+fn waiting_behind(lists: &Lists, ids: &[Id]) -> BTreeSet<Id> {
+    let mut all = BTreeSet::new();
+    let mut frontier = ids.to_vec();
     while let Some(id) = frontier.pop() {
         for item in &lists.items {
             if item.waits.contains(&Wait::Item(id)) && all.insert(item.id) {
@@ -165,7 +170,7 @@ fn blocked_through_chains(lists: &Lists, question: &Question) -> (Vec<Id>, BTree
             }
         }
     }
-    (direct, all)
+    all
 }
 
 /// The stack in the order in which builds asks the person its questions: the
@@ -178,10 +183,23 @@ pub fn stack_order(lists: &Lists) -> Vec<StackEntry<'_>> {
         .questions
         .iter()
         .map(|question| {
-            let (direct, all) = blocked_through_chains(lists, question);
+            let direct: Vec<&Item> = lists
+                .items
+                .iter()
+                .filter(|item| item.waits.contains(&Wait::Question(question.id)))
+                .collect();
+            let ids: Vec<Id> = direct.iter().map(|item| item.id).collect();
+            let mut all = waiting_behind(lists, &ids);
+            all.extend(&ids);
             StackEntry {
                 question,
-                blocks: direct.iter().filter_map(|id| lists.item(*id)).collect(),
+                blocks: direct
+                    .into_iter()
+                    .map(|item| BlockedItem {
+                        item,
+                        behind: waiting_behind(lists, &[item.id]).len(),
+                    })
+                    .collect(),
                 blocked_count: all.len(),
             }
         })

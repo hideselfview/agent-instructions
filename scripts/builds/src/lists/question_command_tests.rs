@@ -1147,7 +1147,8 @@ fn show_and_list_print_the_stack_and_a_closed_question() {
     let shown = go(&scratch, &tool, &format!("show {q}")).unwrap();
     assert!(
         shown.contains(&format!("1. {q} "))
-            && shown.contains(&format!("blocks 1 (1 through chains): {a}"))
+            && shown.contains("blocks 1 (1 through chains):")
+            && shown.contains(&format!("  {a} Do the work numbered {}", a.0))
             && shown.contains("details"),
         "{shown}"
     );

@@ -39,7 +39,8 @@ pub struct StackView {
     pub title: String,
     pub kind: QuestionKind,
     pub details: String,
-    pub blocks: Vec<Named>,
+    /// The open items that wait on it directly.
+    pub blocks: Vec<BlockedView>,
     pub blocked_count: usize,
     pub blocks_nothing: Option<String>,
     pub placed: Option<Placement>,
@@ -47,6 +48,18 @@ pub struct StackView {
     pub opened: Stamp,
     /// Where it came from (trail.rs).
     pub trail: Trail,
+}
+
+/// An open item that waits on a question directly.
+#[derive(Clone, Debug, Serialize)]
+pub struct BlockedView {
+    pub id: Id,
+    pub title: String,
+    pub priority: Option<Priority>,
+    /// How many open items wait on it directly or through a chain of open
+    /// items.
+    pub behind: usize,
+    pub opened: Stamp,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -201,9 +214,12 @@ impl View {
                         blocks: entry
                             .blocks
                             .iter()
-                            .map(|i| Named {
-                                id: i.id,
-                                title: i.title.clone(),
+                            .map(|blocked| BlockedView {
+                                id: blocked.item.id,
+                                title: blocked.item.title.clone(),
+                                priority: blocked.item.priority.clone(),
+                                behind: blocked.behind,
+                                opened: blocked.item.opened.clone(),
                             })
                             .collect(),
                         blocked_count: entry.blocked_count,

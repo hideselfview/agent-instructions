@@ -73,25 +73,44 @@ pub fn item_line(lists: &Lists, item: &Item) -> Result<String> {
     Ok(line)
 }
 
-/// What an entry of the stack blocks, or why it is asked though it blocks
-/// nothing.
-pub fn blocks_text(entry: &StackEntry<'_>) -> String {
-    match &entry.question.blocks_nothing {
-        Some(why) => format!("blocks nothing: {why}"),
-        None => {
-            let named: Vec<String> = entry
-                .blocks
-                .iter()
-                .map(|i| format!("{} {}", i.id, i.title))
-                .collect();
-            format!(
-                "blocks {} ({} through chains): {}",
-                entry.blocks.len(),
-                entry.blocked_count,
-                named.join("; ")
-            )
-        }
+/// What an entry of the stack blocks, worked out from the open items that
+/// wait on it, as lines: the count, then each item it blocks directly with
+/// its priority, how many items wait behind it and when it opened. When no
+/// open item waits on the entry, one line says why it is asked anyway.
+pub fn blocks_lines(entry: &StackEntry<'_>) -> Vec<String> {
+    if entry.blocks.is_empty() {
+        let why = entry.question.blocks_nothing.as_deref().unwrap_or("?");
+        return vec![format!("blocks nothing: {why}")];
     }
+    let mut lines = vec![format!(
+        "blocks {} ({} through chains):",
+        entry.blocks.len(),
+        entry.blocked_count
+    )];
+    for blocked in &entry.blocks {
+        let item = blocked.item;
+        let mut facts = Vec::new();
+        if let Some(priority) = &item.priority {
+            facts.push(format!(
+                "priority {}: {}",
+                crate::lists::item::level_word(priority.level),
+                priority.why
+            ));
+        }
+        facts.push(match blocked.behind {
+            0 => "no item waits behind it".to_string(),
+            1 => "1 item waits behind it".to_string(),
+            n => format!("{n} items wait behind it"),
+        });
+        facts.push(format!("opened {}", local_minute(item.opened.at)));
+        lines.push(format!(
+            "  {} {} ({})",
+            item.id,
+            item.title,
+            facts.join("; ")
+        ));
+    }
+    lines
 }
 
 /// An entry of the stack as lines: its place in the order, its title, who
@@ -118,7 +137,9 @@ pub fn stack_entry(lists: &Lists, number: usize, entry: &StackEntry<'_>) -> Resu
     if let Some(trail) = trail_line(lists, q.id)? {
         let _ = writeln!(out, "       {trail}");
     }
-    let _ = writeln!(out, "       {}", blocks_text(entry));
+    for line in blocks_lines(entry) {
+        let _ = writeln!(out, "       {line}");
+    }
     Ok(out)
 }
 

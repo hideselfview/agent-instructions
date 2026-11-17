@@ -329,7 +329,8 @@ fn audience_word(audience: Audience) -> &'static str {
     }
 }
 
-fn level_word(level: Level) -> &'static str {
+/// The word for <level>, as `--priority` takes it.
+pub fn level_word(level: Level) -> &'static str {
     match level {
         Level::First => "first",
         Level::Last => "last",

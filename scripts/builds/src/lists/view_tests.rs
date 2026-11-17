@@ -78,7 +78,13 @@ fn the_json_has_the_pages_shape() {
     );
     assert_eq!(
         stack["blocks"],
-        json!([{"id": waiting.0, "title": lists.item(waiting).unwrap().title}])
+        json!([{
+            "id": waiting.0,
+            "title": lists.item(waiting).unwrap().title,
+            "priority": null,
+            "behind": 0,
+            "opened": {"at": NOON + i64::from(waiting.0), "by": "coordinator"},
+        }])
     );
     assert_eq!(stack["blocks_nothing"], Value::Null);
     let item_json = json["items"]

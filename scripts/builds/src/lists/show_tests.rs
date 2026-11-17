@@ -32,7 +32,8 @@ fn the_text_lists_the_stack_then_the_queue() {
         "Waiting on you (1)",
         &format!("  1. {q} Which way for number {} [question]", q.0),
         "placed last by you: later",
-        &format!("blocks 1 (1 through chains): {blocked}"),
+        "blocks 1 (1 through chains):",
+        &format!("  {blocked} Do the work numbered {}", blocked.0),
         "Work (1 ready, 0 running)",
         "First",
         &format!("  {first} [ready]"),
@@ -45,4 +46,34 @@ fn the_text_lists_the_stack_then_the_queue() {
         assert!(text.contains(expected), "missing '{expected}' in:\n{text}");
     }
     assert!(!text.contains(&format!("{gone} [")));
+}
+
+#[test]
+fn a_question_shows_each_item_it_blocks_with_its_priority_what_waits_behind_it_and_when_it_opened()
+{
+    let db = db();
+    let q = question(&db);
+    let blocked = item(&db, vec![Wait::Question(q)]);
+    crate::lists::item::set_priority(
+        &db,
+        blocked,
+        Some(Priority {
+            level: Level::First,
+            why: "the person asked".into(),
+        }),
+    )
+    .unwrap();
+    item(&db, vec![Wait::Item(blocked)]);
+    let text = render(&read(&db), None).unwrap();
+    let opened = local_minute(NOON + i64::from(blocked.0));
+    for expected in [
+        "blocks 1 (2 through chains):".to_string(),
+        format!(
+            "  {blocked} Do the work numbered {} (priority first: the person asked; 1 item waits behind it; opened {opened})",
+            blocked.0
+        ),
+    ] {
+        assert!(text.contains(&expected), "missing '{expected}' in:\n{text}");
+    }
+    assert!(!text.contains("blocks nothing"), "{text}");
 }

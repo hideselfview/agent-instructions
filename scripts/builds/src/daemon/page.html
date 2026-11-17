@@ -1415,6 +1415,14 @@ function renderTags() {
 }
 
 // ---- Waiting on you
+// An item a question blocks directly: its priority, how many items wait
+// behind it and when it opened.
+function blockedItem(b) {
+  const facts = [];
+  if (b.priority) facts.push("priority " + b.priority.level + ": " + b.priority.why);
+  facts.push(b.behind ? plural(b.behind, "item waits", "items wait") + " behind it" : "no item waits behind it");
+  return h("li", {}, recLink(b.id, b.title), " (" + facts.join("; ") + "; ", agoSpan(b.opened.at, "opened ", " ago"), ")");
+}
 function questionRow(q) {
   const direct = q.blocks.length;
   return fold("q:" + q.id, q.id,
@@ -1423,7 +1431,7 @@ function questionRow(q) {
       direct ? h("div", {class: "l-facts"},
         fact("Blocks", plural(Math.max(q.blocked_count, direct), "item", "items") +
           (q.blocked_count > direct ? ", " + direct + " directly:" : ":")),
-        h("ul", {class: "l-list"}, q.blocks.map(b => h("li", {}, recLink(b.id, b.title))))) : null,
+        h("ul", {class: "l-list"}, q.blocks.map(blockedItem))) : null,
       q.blocks_nothing ? fact("Blocks nothing:", q.blocks_nothing) : null,
       q.placed ? fact("Placed " + q.placed.at + (q.placed.by_person ? " by you:" : ":"), q.placed.why) : null,
       q.plan ? fact("Plan", mono(q.plan.path), " " + q.plan.number) : null,

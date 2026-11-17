@@ -195,8 +195,12 @@ fn chains_of_open_items_count_and_each_item_counts_once() {
     let lists = read(&db);
     let entry = &stack_order(&lists)[0];
     assert_eq!(
-        entry.blocks.iter().map(|i| i.id).collect::<Vec<_>>(),
-        vec![direct]
+        entry
+            .blocks
+            .iter()
+            .map(|b| (b.item.id, b.behind))
+            .collect::<Vec<_>>(),
+        vec![(direct, 3)]
     );
     // A closed item in the chain no longer counts.
     close(
