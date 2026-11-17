@@ -27,7 +27,7 @@ pub const VARIABLE: &str = "BUILDS_AGENT";
 pub fn dir(places: &Places) -> Result<PathBuf> {
     let Some(parent) = places.lists.parent() else {
         fail!(
-            "builds keeps the registered agents beside the lists folder, and {} has no parent folder",
+            "builds keeps the agents it registers beside the lists folder, and {} has no parent folder",
             places.lists.display()
         );
     };
@@ -124,14 +124,12 @@ fn chosen(flag: Option<&str>, env: Option<&str>) -> Result<Option<String>> {
 pub fn from_env() -> Result<Option<String>> {
     match std::env::var(VARIABLE) {
         Ok(id) if id.is_empty() => {
-            fail!("{VARIABLE} is set but empty; set it to your builds agent id, or unset it")
+            fail!("{VARIABLE} holds an empty value; set it to your builds agent id, or unset it")
         }
         Ok(id) => Ok(Some(id)),
         Err(std::env::VarError::NotPresent) => Ok(None),
         Err(std::env::VarError::NotUnicode(_)) => {
-            fail!(
-                "{VARIABLE} is set to a value that is not Unicode; set it to your builds agent id"
-            )
+            fail!("{VARIABLE} holds a value that is not Unicode; set it to your builds agent id")
         }
     }
 }
