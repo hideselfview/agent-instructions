@@ -834,9 +834,13 @@ action" with the commands.
                               arm64 macOS), links builds-linker to it there,
                               makes its ~/builds-root, and has
                               that copy run `builds host setup-here` there,
-                              which writes the host's sccache config with
-                              builds' cap and runs its sccache server under
-                              launchd, as `builds install` does here, first
+                              which records that the Mac is a host (the file
+                              `host` beside its lists folder, so `builds
+                              status` there names what a host keeps in place
+                              of the caches folder), writes the host's
+                              sccache config with builds' cap and runs its
+                              sccache server under launchd, as `builds
+                              install` does here, first
                               stopping a server a client started there (it
                               needs the host's user logged in to its desktop,
                               where launchd runs user agents), and records the

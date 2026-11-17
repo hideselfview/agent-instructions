@@ -854,6 +854,7 @@ pub fn cmd_host(tool: &Tool, ssh: &Ssh, args: &[String]) -> Result<()> {
         }
         [word, name] if word == "setup" => crate::host_setup::cmd_setup(tool, ssh, name),
         [word] if word == "setup-here" => {
+            tool.places.mark_host()?;
             crate::install::run_sccache_under_launchd(&tool.places.home, tool.places.uid)
         }
         [word] if word == "speed-here" => crate::host_setup::cmd_speed_here(),

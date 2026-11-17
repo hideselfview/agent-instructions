@@ -434,6 +434,32 @@ fn sccache_lines(out: &mut Vec<String>) {
     }
 }
 
+/// The lines for the volume's DerivedData and caches folders when they are
+/// missing: <derived_data> and <caches> say whether each is there, and <host>
+/// whether this Mac is a host (`Places::is_host`). `builds install`, which
+/// install.sh runs, makes both on the Mac that sends jobs. A host gets its
+/// `builds` from that Mac's install and never runs install.sh: each tool there
+/// keeps its cache in its own folder, sccache in the cache location its line
+/// below gives.
+fn missing_folder_lines(derived_data: bool, caches: bool, host: bool) -> Vec<String> {
+    let mut lines = Vec::new();
+    if !derived_data {
+        lines.push(if host {
+            "DerivedData  (none on a host: install.sh makes it only on the Mac that sends jobs)"
+        } else {
+            "DerivedData  (no folder: run agent-instructions' install.sh)"
+        });
+    }
+    if !caches {
+        lines.push(if host {
+            "caches  (none on a host: each tool keeps its cache in its own folder, and sccache in the cache location below)"
+        } else {
+            "caches  (no folder: run agent-instructions' install.sh)"
+        });
+    }
+    lines.into_iter().map(str::to_string).collect()
+}
+
 /// `volume: 52Gi free of 460Gi`, as `df -h` says them.
 fn volume_line(root: &Path) -> Result<String> {
     let output = Command::new("df")
@@ -534,12 +560,11 @@ pub fn cmd_status(tool: &mut Tool, args: &[String]) -> Result<()> {
             last_write(measured.newest)
         ));
     }
-    if !tool.places.derived_data().is_dir() {
-        out.push("DerivedData  (no folder: run agent-instructions' install.sh)".to_string());
-    }
-    if !tool.places.caches().is_dir() {
-        out.push("caches  (no folder: run agent-instructions' install.sh)".to_string());
-    }
+    out.extend(missing_folder_lines(
+        tool.places.derived_data().is_dir(),
+        tool.places.caches().is_dir(),
+        tool.places.is_host()?,
+    ));
     sccache_lines(&mut out);
     out.push(volume_line(&tool.places.root)?);
     for line in out {
@@ -832,3 +857,7 @@ fn print_json(tool: &mut Tool, with_folders: bool) -> Result<()> {
     );
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "status_tests.rs"]
+mod tests;

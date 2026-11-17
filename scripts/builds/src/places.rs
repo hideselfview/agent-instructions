@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 
 use crate::fail;
-use crate::fail::Result;
+use crate::fail::{Context, Result};
 use crate::lane::{AppCheckout, Lane, Removed};
 
 /// A file in a build folder written this recently may belong to a build
@@ -138,6 +138,36 @@ impl Places {
         self.home.join("Library/Caches/builds/design-systems")
     }
 
+    /// The file `builds host setup-here` writes on a host, beside the lists
+    /// folder: this Mac runs the jobs another Mac sends it, gets its `builds`
+    /// from that Mac's install, and never runs install.sh.
+    fn host_file(&self) -> PathBuf {
+        self.lists.parent().unwrap_or(&self.lists).join("host")
+    }
+
+    /// Records that this Mac is a host (`host_file`).
+    pub fn mark_host(&self) -> Result<()> {
+        let file = self.host_file();
+        if let Some(dir) = file.parent() {
+            std::fs::create_dir_all(dir).context(|| format!("creating {}", dir.display()))?;
+        }
+        std::fs::write(
+            &file,
+            "builds host setup-here wrote this file: this Mac is a host of builds' jobs\n",
+        )
+        .context(|| format!("writing {}", file.display()))
+    }
+
+    /// Is this Mac a host (`host_file`)?
+    pub fn is_host(&self) -> Result<bool> {
+        let file = self.host_file();
+        match std::fs::metadata(&file) {
+            Ok(_) => Ok(true),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+            Err(error) => fail!("reading {}: {error}", file.display()),
+        }
+    }
+
     pub fn derived_data(&self) -> PathBuf {
         self.root.join("DerivedData")
     }
@@ -226,7 +256,6 @@ impl Places {
         lane: Lane,
         checkouts: &[AppCheckout],
     ) -> Result<()> {
-        use crate::fail::Context;
         let file = self.app_checkouts_file(repo, lane);
         if checkouts.is_empty() {
             return match std::fs::remove_file(&file) {
@@ -317,7 +346,6 @@ impl Places {
     /// The names of the folders at the volume's root that may hold a repo's
     /// builds: every folder but the volume's own (`is_reserved_name`).
     pub fn repo_folder_names(&self) -> Result<Vec<String>> {
-        use crate::fail::Context;
         let what = || format!("reading {}", self.root.display());
         let mut names = Vec::new();
         for entry in std::fs::read_dir(&self.root).context(what)? {
