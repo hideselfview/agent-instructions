@@ -351,3 +351,52 @@ fn a_board_deep_in_a_repo_makes_only_its_design_folder_shared() {
     assert_eq!(changes.shared, set(&["web/design/canvas.json"]));
     assert_eq!(changes.outside, set(&["web/src/main.rs", "web/README.md"]));
 }
+
+#[test]
+fn a_double_star_segment_matches_any_number_of_folders() {
+    let g = Globs {
+        sources: vec!["design/system/**".into()],
+        places: vec!["design/**/*.dc.html".into()],
+        ..Globs::default()
+    };
+    let changes = classify(
+        &g,
+        &paths(&[
+            "design/system/components/src/MacRow.js",
+            "design/system/tokens.json",
+            "design/mocks/A.dc.html",
+            "design/B.dc.html",
+            "design/mocks/old/C.dc.html",
+            "design/mocks/notes.md",
+        ]),
+    );
+    assert_eq!(
+        changes.sources,
+        set(&[
+            "design/system/components/src/MacRow.js",
+            "design/system/tokens.json"
+        ])
+    );
+    assert_eq!(
+        changes.places,
+        set(&[
+            "design/mocks/A.dc.html",
+            "design/B.dc.html",
+            "design/mocks/old/C.dc.html"
+        ])
+    );
+    assert_eq!(changes.shared, set(&["design/mocks/notes.md"]));
+    assert!(g.names_place("design/mocks/old/C.dc.html"));
+    assert!(!g.names_place("design/mocks/old/C.html"));
+}
+
+#[test]
+fn a_glob_builds_cannot_match_is_refused() {
+    assert_eq!(glob_fault("design/system/**"), None);
+    assert_eq!(glob_fault("design/**/*.dc.html"), None);
+    assert_eq!(glob_fault("design/system/components/*/"), None);
+    let mixed = glob_fault("design/a**b/*.html").unwrap();
+    assert!(mixed.contains("design/a**b/*.html"), "{mixed}");
+    let folder = glob_fault("design/**/").unwrap();
+    assert!(folder.contains("design/**/"), "{folder}");
+}

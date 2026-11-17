@@ -409,6 +409,14 @@ design-globs`:
                     spec/bae.md#Heading; a spec file alone is no design change.
                     `item take` checks each brief against them too
 
+A glob is /-separated: `*` (any characters) and `?` (one character) stay inside
+one segment, and a segment that is `**` alone matches any number of folders,
+none included (design/system/** matches every file under design/system). A
+glob that ends in / names folders. builds refuses a glob of folders that holds
+**, since a path could then sit in folders of many depths and builds could not
+tell which one is the place, and refuses ** beside other characters in a
+segment.
+
 Other changed files under design/ are shared design files. Commands that read
 git take a worktree DIR and find the project from its repo (or --project).
 You may rebase the commits: builds compares a design change with commits by

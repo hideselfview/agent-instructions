@@ -68,3 +68,20 @@ fn a_glob_is_a_set_and_names_a_repo_of_the_project() {
     );
     assert!(unknown.unwrap_err().to_string().contains("FOREIGN KEY"));
 }
+
+#[test]
+fn a_project_with_a_glob_builds_cannot_match_is_refused() {
+    let globs: Globs = [("bae".to_string(), vec!["design/**/".to_string()])]
+        .into_iter()
+        .collect();
+    let new = NewProject {
+        name: "bae".to_string(),
+        canvas: false,
+        repos: vec!["bae".to_string()],
+        places: globs,
+        sources: Globs::new(),
+        specs: Globs::new(),
+    };
+    let refusal = new.refusal().unwrap();
+    assert!(refusal.contains("design/**/"), "{refusal}");
+}

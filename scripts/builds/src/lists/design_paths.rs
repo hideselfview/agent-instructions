@@ -2,9 +2,13 @@
 //! matched against the globs of the repo's `design_places`.
 //!
 //! A glob is `/`-separated; a segment may hold `*` (any characters but `/`)
-//! and `?` (one character). A glob that ends in `/` names folders: every path
-//! below a folder it matches belongs to that one place, counted once, and the
-//! place is the folder with its trailing `/`. Any other glob names files.
+//! and `?` (one character), and a segment that is `**` alone matches any
+//! number of segments, none included. A glob that ends in `/` names folders:
+//! every path below a folder it matches belongs to that one place, counted
+//! once, and the place is the folder with its trailing `/`. Any other glob
+//! names files. `glob_fault` refuses the globs builds cannot match: `**`
+//! beside other characters in a segment, and `**` in a glob of folders, whose
+//! place would have no one depth.
 //! A changed path that is no place but sits under a directory the globs start
 //! in (`design/`) is a shared design file: it belongs to no board or
 //! component.
@@ -163,13 +167,11 @@ impl Glob {
     /// The place <path> belongs to under this glob.
     fn place(&self, path: &str) -> Option<String> {
         let parts: Vec<&str> = path.split('/').collect();
+        if !self.folder {
+            return segments_match(&self.segments, &parts).then(|| path.to_string());
+        }
         let n = self.segments.len();
-        let fits = if self.folder {
-            parts.len() > n
-        } else {
-            parts.len() == n
-        };
-        if !fits
+        if parts.len() <= n
             || !self
                 .segments
                 .iter()
@@ -178,11 +180,7 @@ impl Glob {
         {
             return None;
         }
-        Some(if self.folder {
-            format!("{}/", parts[..n].join("/"))
-        } else {
-            path.to_string()
-        })
+        Some(format!("{}/", parts[..n].join("/")))
     }
 
     /// Is <path> in this glob's place?
@@ -197,6 +195,9 @@ impl Glob {
             return false;
         }
         let parts: Vec<&str> = key.split('/').filter(|p| !p.is_empty()).collect();
+        if !self.folder {
+            return segments_match(&self.segments, &parts);
+        }
         parts.len() == self.segments.len()
             && self
                 .segments
@@ -226,6 +227,41 @@ impl Glob {
                 .collect::<Vec<_>>()
                 .join("/")
         })
+    }
+}
+
+/// What is wrong with <glob>, which builds cannot match, or None: a segment
+/// that holds `**` beside other characters, or `**` in a glob of folders.
+pub fn glob_fault(glob: &str) -> Option<String> {
+    let parsed = Glob::parse(glob);
+    if parsed
+        .segments
+        .iter()
+        .any(|segment| segment.contains("**") && segment != "**")
+    {
+        return Some(format!(
+            "glob {glob} holds ** beside other characters in a segment; ** matches any number of folders only as a segment of its own"
+        ));
+    }
+    if parsed.folder && parsed.segments.iter().any(|segment| segment == "**") {
+        return Some(format!(
+            "glob {glob} names folders and holds **, so a path could sit in folders of many depths and builds could not tell which one is the place; give each folder's depth with *"
+        ));
+    }
+    None
+}
+
+/// Does <parts>, a path's segments, match the segments <glob>, where a `**`
+/// segment matches any number of segments?
+fn segments_match(glob: &[String], parts: &[&str]) -> bool {
+    match glob.split_first() {
+        None => parts.is_empty(),
+        Some((first, rest)) if first == "**" => {
+            (0..=parts.len()).any(|skip| segments_match(rest, &parts[skip..]))
+        }
+        Some((first, rest)) => parts.split_first().is_some_and(|(part, others)| {
+            segment_matches(first, part) && segments_match(rest, others)
+        }),
     }
 }
 

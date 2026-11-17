@@ -81,7 +81,7 @@ impl GlobKind {
 }
 
 /// What is wrong with <globs> of <kind> for a project of <repos>: a repo not
-/// among them, or an empty glob.
+/// among them, an empty glob, or a glob builds cannot match.
 fn globs_fault(repos: &[String], kind: GlobKind, globs: &Globs) -> Option<String> {
     let what = kind.what();
     for (repo, globs) in globs {
@@ -92,6 +92,12 @@ fn globs_fault(repos: &[String], kind: GlobKind, globs: &Globs) -> Option<String
         }
         if globs.iter().any(|glob| glob.trim().is_empty()) {
             return Some(format!("repo {repo} has an empty glob among its {what}"));
+        }
+        if let Some(fault) = globs
+            .iter()
+            .find_map(|glob| crate::lists::design_paths::glob_fault(glob))
+        {
+            return Some(format!("repo {repo}'s {what}: {fault}"));
         }
     }
     None
