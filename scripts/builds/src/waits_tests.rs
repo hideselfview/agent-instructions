@@ -248,3 +248,16 @@ fn the_dashboard_shows_the_waits_of_today_and_yesterday() {
         ]
     );
 }
+
+#[test]
+fn yesterday_starts_at_its_own_local_midnight() {
+    let day = |text: &str| crate::text::local_start_of(text).unwrap();
+    assert_eq!(
+        start_of_yesterday(day("2026-11-17") + 3600).unwrap(),
+        day("2026-11-16")
+    );
+    assert_eq!(
+        start_of_yesterday(day("2026-11-17")).unwrap(),
+        day("2026-11-16")
+    );
+}

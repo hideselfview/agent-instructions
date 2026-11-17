@@ -199,20 +199,26 @@ pub fn report(project: &str, since: Option<&str>, rows: &[Row]) -> String {
 /// How many local days the dashboard shows: today and yesterday.
 pub const DASHBOARD_DAYS: i64 = 2;
 
+/// Local midnight at the start of the day before the day of <now>. A day with
+/// a clock change is not 24 hours long, so the function finds yesterday's own
+/// midnight rather than subtracting 24 hours from today's.
+fn start_of_yesterday(now: i64) -> Result<i64> {
+    let today = crate::text::local_day(now);
+    let Some(midnight) = crate::text::local_start_of(&today) else {
+        fail!("today, {today}, has no local midnight");
+    };
+    let yesterday = crate::text::local_day(midnight - 1);
+    match crate::text::local_start_of(&yesterday) {
+        Some(start) => Ok(start),
+        None => fail!("yesterday, {yesterday}, has no local midnight"),
+    }
+}
+
 /// The dashboard's JSON for the project store at <path> as of <now>: the
 /// rows of the waits since the start of yesterday, or `{"error"}` when builds
 /// cannot read the database.
 pub fn dashboard_json(path: &Path, now: i64) -> serde_json::Value {
-    let today = crate::text::local_day(now);
-    let since = crate::text::local_start_of(&today).map(|midnight| {
-        // The view starts at yesterday's own midnight, not 24 hours before
-        // today's, because a day with a clock change is not 24 hours long.
-        crate::text::local_start_of(&crate::text::local_day(midnight - 1)).unwrap_or(midnight)
-    });
-    let Some(since) = since else {
-        return serde_json::json!({ "error": format!("today, {today}, has no local midnight") });
-    };
-    match read(path, since) {
+    match start_of_yesterday(now).and_then(|since| read(path, since)) {
         Err(error) => serde_json::json!({ "error": error.text() }),
         Ok(waits) => serde_json::json!({
             "days": DASHBOARD_DAYS,
