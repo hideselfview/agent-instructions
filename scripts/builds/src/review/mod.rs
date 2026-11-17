@@ -4,6 +4,7 @@
 //!
 //! ```text
 //! builds review [run] WORKTREE [BASE] [--landing KEY] [--item N]... [--head SHA] [--rules-root DIR] [--reviewer PROGRAM]
+//! builds review writing WORKTREE [BASE] [--rules-root DIR] [--reviewer PROGRAM]
 //! builds review settle FINDING confirmed|dropped --why TEXT
 //! builds review settle FINDING --again --why TEXT
 //! builds review show LANDING
@@ -34,6 +35,10 @@
 //! review read, for this run and for `builds land`. The run refuses when the
 //! review lacks nothing.
 //!
+//! `writing` asks only the group that holds rule
+//! write-plain-literal-active-sentences over the same net change, prints its
+//! findings and records nothing (`writing.rs`).
+//!
 //! Every call records its setup (its group's model and prompt), its tokens and
 //! its cost. `scores` counts how each setup did from the settled findings, and
 //! `replay --landing` asks again over recorded diffs and counts the replay the
@@ -56,6 +61,7 @@ mod rerun;
 pub mod rules;
 pub mod run;
 mod score;
+mod writing;
 
 use std::path::{Path, PathBuf};
 
@@ -69,7 +75,7 @@ use crate::tool::Tool;
 
 use record::Kind;
 
-const USAGE: &str = "usage: builds review [run] WORKTREE [BASE] [--landing KEY] [--item N]... [--head SHA] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review settle FINDING confirmed|dropped --why TEXT\n       builds review settle FINDING --again --why TEXT\n       builds review show LANDING\n       builds review check-landing DIR --project P SHA... [--landing KEY] [--rules-root DIR]\n       builds review landed DIR --project P SHA... [--landing KEY] [--more-to-land] [--rules-root DIR]\n       builds review groups [--rules-root DIR] [--project P] [--changed PATH]...\n       builds review replay [--case NAME]... [--source REPO] [--model opus|sonnet|haiku] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review replay --landing N... --repo-dir DIR [--group NAME]... [--model opus|sonnet|haiku] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review audit LANDING --repo-dir DIR [--rules-root DIR] [--reviewer PROGRAM]\n       builds review misses\n       builds review rates [--rules-root DIR]\n       builds review scores\n       builds review case add LANDING FINDING --repo-dir DIR --rules-root DIR [--name NAME]\n       builds review case add --rule SLUG --file PATH --commits BASE..HEAD --project P --name NAME --repo-dir DIR --rules-root DIR\n       builds review case add --clean-for SLUG --commits BASE..HEAD --project P --name NAME --repo-dir DIR --rules-root DIR";
+const USAGE: &str = "usage: builds review [run] WORKTREE [BASE] [--landing KEY] [--item N]... [--head SHA] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review writing WORKTREE [BASE] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review settle FINDING confirmed|dropped --why TEXT\n       builds review settle FINDING --again --why TEXT\n       builds review show LANDING\n       builds review check-landing DIR --project P SHA... [--landing KEY] [--rules-root DIR]\n       builds review landed DIR --project P SHA... [--landing KEY] [--more-to-land] [--rules-root DIR]\n       builds review groups [--rules-root DIR] [--project P] [--changed PATH]...\n       builds review replay [--case NAME]... [--source REPO] [--model opus|sonnet|haiku] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review replay --landing N... --repo-dir DIR [--group NAME]... [--model opus|sonnet|haiku] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review audit LANDING --repo-dir DIR [--rules-root DIR] [--reviewer PROGRAM]\n       builds review misses\n       builds review rates [--rules-root DIR]\n       builds review scores\n       builds review case add LANDING FINDING --repo-dir DIR --rules-root DIR [--name NAME]\n       builds review case add --rule SLUG --file PATH --commits BASE..HEAD --project P --name NAME --repo-dir DIR --rules-root DIR\n       builds review case add --clean-for SLUG --commits BASE..HEAD --project P --name NAME --repo-dir DIR --rules-root DIR";
 
 /// The checkout the rules and groups are read from: `--rules-root`, else the
 /// one `install.sh` links at ~/.codex/agent-instructions.
@@ -136,6 +142,7 @@ pub fn cmd_review(tool: &Tool, args: &[String]) -> Result<()> {
         "settle" => settle(tool, rest),
         "show" => show(tool, rest),
         "run" => run_command(tool, rest),
+        "writing" => writing_command(tool, rest),
         "check-landing" => landing::check_landing_command(tool, rest),
         "landed" => landing::landed_command(tool, rest),
         "replay" => replay(tool, rest),
@@ -458,24 +465,63 @@ fn run_command(tool: &Tool, args: &[String]) -> Result<()> {
     }
 }
 
+/// `builds review writing WORKTREE [BASE]`: the writing check, which prints
+/// the findings of the group that holds the writing rule and records
+/// nothing. Exits 1 when the group raised a finding or gave no answer.
+fn writing_command(tool: &Tool, args: &[String]) -> Result<()> {
+    let args = Args::parse(args, &["rules-root", "reviewer"], &[])?;
+    let (worktree, base) = worktree_and_base(&args)?;
+    let checkout = Checkout::find(worktree)?;
+    let Some(project) = project_given(tool, &args, &checkout)? else {
+        fail!(
+            "repo {} is in no project of the lists, so builds does not know whose rules to read; say which with --project",
+            checkout.repo()
+        )
+    };
+    let checked = writing::check(
+        &checkout.top,
+        base,
+        &rules_root(&args)?,
+        &project,
+        &PathBuf::from(args.value("reviewer")?.unwrap_or("claude")),
+    )?;
+    print!("{}", checked.text);
+    if checked.clean {
+        Ok(())
+    } else {
+        Err(Fail::Exit(1))
+    }
+}
+
+/// The worktree and base a review command names: WORKTREE [BASE], with
+/// origin/main the base when it names none.
+fn worktree_and_base(args: &Args) -> Result<(&str, &str)> {
+    match args.positional() {
+        [worktree] => Ok((worktree.as_str(), "origin/main")),
+        [worktree, base] => Ok((worktree.as_str(), base.as_str())),
+        _ => fail!("{USAGE}"),
+    }
+}
+
+/// The project `--project` names, else the project of <checkout>'s repo;
+/// None when the repo is in no project.
+fn project_given(tool: &Tool, args: &Args, checkout: &Checkout) -> Result<Option<String>> {
+    match args.value("project")? {
+        Some(project) => Ok(Some(project.to_string())),
+        None => project_of(&tool.places, checkout),
+    }
+}
+
 /// Runs the review `builds review run` names and returns what it found.
 fn run_review(tool: &Tool, args: &Args) -> Result<Reported> {
-    let (worktree, base) = match args.positional() {
-        [worktree] => (worktree.as_str(), "origin/main"),
-        [worktree, base] => (worktree.as_str(), base.as_str()),
-        _ => fail!("{USAGE}"),
-    };
+    let (worktree, base) = worktree_and_base(args)?;
     let checkout = Checkout::find(worktree)?;
     let worktree = checkout.top.clone();
-    let project = match args.value("project")? {
-        Some(project) => project.to_string(),
-        None => match project_of(&tool.places, &checkout)? {
-            Some(project) => project,
-            None => fail!(
-                "repo {} is in no project of the lists, so there is no store to record a review in; say which with --project",
-                checkout.repo()
-            ),
-        },
+    let Some(project) = project_given(tool, args, &checkout)? else {
+        fail!(
+            "repo {} is in no project of the lists, so there is no store to record a review in; say which with --project",
+            checkout.repo()
+        )
     };
     let store = Store::named(&tool.places, &project)?;
     let key = match args.value("landing")? {

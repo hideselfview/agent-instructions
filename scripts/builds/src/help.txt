@@ -1583,6 +1583,18 @@ agent-instructions and run `review replay --rules-root` on it.
                               it runs it holds a lock file named for the
                               reviewed commit in the store folder's
                               reviews-running, which the dashboard reads
+  builds review writing <worktree> [<base>] [--rules-root DIR] [--reviewer PROGRAM]
+                              ask only the group that holds rule
+                              write-plain-literal-active-sentences over the
+                              worktree's net change past <base> (default
+                              origin/main), the way `builds review` asks each
+                              group, and print its findings. The command
+                              records nothing: no landing, run or finding goes
+                              in the store, and `builds land` still needs the
+                              coordinator's review. An implementing agent runs
+                              it on its branch before it reports, and fixes
+                              what it finds. Exits 1 when the group raised a
+                              finding or gave no answer
   builds review settle <finding> confirmed|dropped --why <text>
                               the coordinator's verdict on a finding, kept with
                               who and when. builds refuses a finding that is

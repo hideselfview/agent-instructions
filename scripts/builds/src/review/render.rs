@@ -1,6 +1,6 @@
 //! What `builds review` prints: the findings by group, then one line of totals.
 
-use crate::review::record::{Call, Finding, Settle, Settled};
+use crate::review::record::{Call, Finding, NewCall, NewFinding, Settle, Settled};
 use crate::text::one_line;
 
 /// A run's calls with their findings, by group.
@@ -12,22 +12,14 @@ pub fn run_report(calls: &[Call], findings: &[Finding]) -> String {
             .filter(|f| f.group == call.group && f.run_id == call.run_id)
             .collect();
         let accepted: Vec<&&Finding> = own.iter().filter(|f| f.counts()).collect();
-        if let Some(why) = &call.failure {
-            out.push_str(&format!(
-                "{} ({}): the review failed: {why}\n",
-                call.group, call.model
-            ));
+        out.push_str(&call_line(
+            &call.group,
+            &call.model,
+            call.failure.as_deref(),
+            accepted.len(),
+        ));
+        if call.failure.is_some() {
             continue;
-        }
-        if accepted.is_empty() {
-            out.push_str(&format!("{} ({}): no findings\n", call.group, call.model));
-        } else {
-            out.push_str(&format!(
-                "{} ({}): {}\n",
-                call.group,
-                call.model,
-                plural(accepted.len(), "finding")
-            ));
         }
         for finding in accepted {
             out.push_str(&finding_text(finding));
@@ -46,22 +38,75 @@ pub fn run_report(calls: &[Call], findings: &[Finding]) -> String {
     out
 }
 
+/// Calls that builds did not record, with their findings by group, then one
+/// line of counts. A finding here has no number, since no store holds it.
+pub fn unrecorded_report(calls: &[NewCall]) -> String {
+    let mut out = String::new();
+    let mut accepted = 0;
+    let mut blocking = 0;
+    let mut dropped = 0;
+    for call in calls {
+        let own: Vec<&NewFinding> = call
+            .findings
+            .iter()
+            .filter(|f| f.check_failed.is_none())
+            .collect();
+        out.push_str(&call_line(
+            &call.group,
+            &call.model,
+            call.failure.as_deref(),
+            own.len(),
+        ));
+        accepted += own.len();
+        blocking += own.iter().filter(|f| f.blocking).count();
+        dropped += call.findings.len() - own.len();
+        for finding in own {
+            out.push_str(&format!(
+                "  finding {}",
+                raised(
+                    finding.blocking,
+                    &finding.rule,
+                    &finding.file,
+                    finding.line,
+                    &finding.clause,
+                    &finding.code,
+                    &finding.problem
+                )
+            ));
+        }
+    }
+    out.push_str(&format!(
+        "{}, {} ({blocking} blocking), {dropped} dropped by builds\n",
+        plural(calls.len(), "group"),
+        plural(accepted, "finding")
+    ));
+    out
+}
+
+/// A call's line above its findings: its group and model, then why it
+/// failed or how many findings it raised.
+fn call_line(group: &str, model: &str, failure: Option<&str>, findings: usize) -> String {
+    match (failure, findings) {
+        (Some(why), _) => format!("{group} ({model}): the review failed: {why}\n"),
+        (None, 0) => format!("{group} ({model}): no findings\n"),
+        (None, count) => format!("{group} ({model}): {}\n", plural(count, "finding")),
+    }
+}
+
 /// A finding, indented under its group.
 pub fn finding_text(finding: &Finding) -> String {
-    let kind = if finding.blocking {
-        "blocking"
-    } else {
-        "reported only"
-    };
     let mut out = format!(
-        "  finding {} ({kind}) {}, {}:{}\n    clause: {}\n    code: {}\n    problem: {}\n",
+        "  finding {} {}",
         finding.id,
-        finding.rule,
-        finding.file,
-        finding.line,
-        one_line(&finding.clause),
-        one_line(&finding.code),
-        one_line(&finding.problem),
+        raised(
+            finding.blocking,
+            &finding.rule,
+            &finding.file,
+            finding.line,
+            &finding.clause,
+            &finding.code,
+            &finding.problem
+        )
     );
     match &finding.settled {
         None => {}
@@ -77,6 +122,30 @@ pub fn finding_text(finding: &Finding) -> String {
         ));
     }
     out
+}
+
+/// What a reviewer raised, after the finding's number: whether it blocks,
+/// its rule and place, then its clause, code and problem.
+fn raised(
+    blocking: bool,
+    rule: &str,
+    file: &str,
+    line: i64,
+    clause: &str,
+    code: &str,
+    problem: &str,
+) -> String {
+    let kind = if blocking {
+        "blocking"
+    } else {
+        "reported only"
+    };
+    format!(
+        "({kind}) {rule}, {file}:{line}\n    clause: {}\n    code: {}\n    problem: {}\n",
+        one_line(clause),
+        one_line(code),
+        one_line(problem),
+    )
 }
 
 /// A settle as one indented line: `<word> <how> by <who>: <why>`.
