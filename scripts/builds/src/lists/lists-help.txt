@@ -217,9 +217,11 @@ runs in (plans are in no commit); an absolute path is itself.
       keeps its project. A parked worktree belongs to its item: take refuses
       another item there and refuses the parked item anywhere else, and
       `builds new`, `prune` and `retire` never hand it out or remove it.
-      park refuses an item parked already, a worktree another item runs or
-      is parked in, and a worktree on another branch of work. `item take` in W
-      moves the item from parked to running; claim W for the agent first.
+      park refuses an item parked elsewhere, a worktree another item runs or
+      is parked in, and a worktree on another branch of work. A park of an
+      item parked in the same worktrees writes nothing and removes the claims
+      a failed park left. `item take` in W moves the item from parked to
+      running; claim W for the agent first.
 
   builds item handoff N --brief P
       Sets a running item's brief for its next agent, in every worktree it

@@ -622,6 +622,40 @@ fn park_args<'a>(id: &'a str, side: &'a str, branch: &'a str) -> Vec<&'a str> {
     vec!["park", id, "--worktree", side, "--branch", branch]
 }
 
+/// When park cannot remove the worktree's claim after it parked the item,
+/// the same park again removes it.
+#[test]
+fn a_park_whose_claim_stayed_finishes_when_run_again() {
+    use std::os::unix::fs::PermissionsExt;
+    let demo = demo("item-park-again");
+    let side = demo.add_side(1, "agent A", "work");
+    let side_arg = side.display().to_string();
+    let checkout = Checkout::find(&side_arg).unwrap();
+    add(&demo, FIVE, &[]).unwrap();
+    let brief = demo.brief("b.md");
+    item(&demo, &take_args(&side_arg, &brief, &["1"], "work")).unwrap();
+    // The claim file stays while its folder refuses to lose a file.
+    let folder = checkout.claim_file().parent().unwrap().to_path_buf();
+    let mode = std::fs::metadata(&folder).unwrap().permissions().mode();
+    std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o555)).unwrap();
+    let failed = item(&demo, &park_args("1", &side_arg, "work"));
+    std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(mode)).unwrap();
+    assert!(refusal(failed).contains("removing"));
+    assert_eq!(
+        open(&demo).items[0].parked.len(),
+        1,
+        "the park was not written"
+    );
+
+    item(&demo, &park_args("1", &side_arg, "work")).unwrap();
+    assert!(
+        crate::claim::Claim::read(&checkout.claim_file())
+            .unwrap()
+            .is_none()
+    );
+    assert_eq!(open(&demo).items[0].parked.len(), 1);
+}
+
 /// A running item parks where it runs: it stops running, its worktree loses
 /// its claim, `next` lists it with the worktree, and health says nothing of
 /// the unclaimed worktree's commits. Taking it there runs it again.
@@ -708,7 +742,10 @@ fn park_and_take_refuse_what_would_split_an_item_from_its_work() {
     assert_eq!(demo.state(), before);
 
     item(&demo, &park_args("2", &two_arg, "other")).unwrap();
-    assert!(refusal(item(&demo, &park_args("2", &two_arg, "other"))).contains("is parked already"));
+    // Parking it there again writes nothing: it only removes claims left.
+    let parked = demo.state();
+    item(&demo, &park_args("2", &two_arg, "other")).unwrap();
+    assert_eq!(demo.state(), parked);
     let other_item = refusal(item(&demo, &park_args("3", &two_arg, "other")));
     assert!(other_item.contains("holds #2"), "{other_item}");
     crate::claim::cmd_claim(

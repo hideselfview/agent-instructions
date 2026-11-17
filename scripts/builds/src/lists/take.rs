@@ -275,7 +275,9 @@ pub fn take(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
 /// (`builds next` names the worktree) until an agent takes it there. A
 /// running item must park where it runs, and stops running. A worktree that
 /// another item runs or is parked in, park refuses. The store's write comes
-/// first, then each worktree's claim goes: no agent works there.
+/// first, then park removes each worktree's claim: no agent works there.
+/// When removing a claim fails, the same park again finds the item parked
+/// in those places and removes the claims that are left.
 pub fn park(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     let args = Args::parse(args, &["worktree", "branch"], &[])?;
     let [id] = args.exactly(1, PARK_USAGE)? else {
@@ -285,9 +287,33 @@ pub fn park(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     let places = places_named(&args, PARK_USAGE)?;
     let store = Store::resolve(&tool.places, &args, cwd)?;
     let stamp = Stamp::resolve(tool.now, &args, cwd)?;
-    store.write(&stamp, &format!("item park {id}"), |db| {
+    let parked_there = store.load()?.item(id).is_some_and(|item| {
+        !item.parked.is_empty()
+            && same_places(
+                &places,
+                item.parked.iter().map(|p| (&p.worktree, &p.branch)),
+            )
+    });
+    if !parked_there {
+        write_park(&store, &stamp, id, &places)?;
+    }
+    for place in &places {
+        if let Some(claim) = crate::claim::unclaim(&place.checkout)? {
+            note(format!("released {} (was {})", place.top, claim.text()));
+        }
+    }
+    note(format!(
+        "{id} is parked in {} and waits in the queue",
+        places_words(places.iter().map(|p| (&p.top, &p.branch)))
+    ));
+    Ok(())
+}
+
+/// Writes open item <id> parked in <places> to <store>, ending its run there.
+fn write_park(store: &Store, stamp: &Stamp, id: Id, places: &[Place]) -> Result<()> {
+    store.write(stamp, &format!("item park {id}"), |db| {
         let lists = &store::read(db)?;
-        require_places_free(lists, &places, &[id])?;
+        require_places_free(lists, places, &[id])?;
         let item = open_item(lists, id)?;
         if !item.parked.is_empty() {
             fail!(
@@ -296,13 +322,13 @@ pub fn park(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
             );
         }
         let running = item.running.iter().map(|r| (&r.worktree, &r.branch));
-        if !item.running.is_empty() && !same_places(&places, running.clone()) {
+        if !item.running.is_empty() && !same_places(places, running.clone()) {
             fail!(
                 "{id} runs in {}; park it there, where its work is",
                 places_words(running)
             );
         }
-        for place in &places {
+        for place in places {
             if let Some(other) = running_in(lists, &place.top)
                 .into_iter()
                 .find(|other| other.id != id)
@@ -325,15 +351,5 @@ pub fn park(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
             })
             .collect();
         parked::park(db, id, &parked)
-    })?;
-    for place in &places {
-        if let Some(claim) = crate::claim::unclaim(&place.checkout)? {
-            note(format!("released {} (was {})", place.top, claim.text()));
-        }
-    }
-    note(format!(
-        "{id} is parked in {} and waits in the queue",
-        places_words(places.iter().map(|p| (&p.top, &p.branch)))
-    ));
-    Ok(())
+    })
 }
