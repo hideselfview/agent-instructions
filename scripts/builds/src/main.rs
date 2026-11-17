@@ -118,31 +118,28 @@ fn main() -> ExitCode {
         print!("{HELP}");
         return ExitCode::from(2);
     };
-    let entered = enter_stores(command, &args);
-    let _use = match entered {
+    let _use = match enter_stores(command, &args) {
         Ok(held) => held,
-        Err(Fail::Message(message)) => {
-            text::note(message);
-            return ExitCode::from(1);
-        }
-        Err(Fail::Exit(code)) => return ExitCode::from(code.clamp(0, 255) as u8),
+        Err(fail) => return exit_code(fail),
     };
     if let Err(fail) = Places::from_env().and_then(|places| ack::gate(&places, command, rest)) {
-        return match fail {
-            Fail::Message(message) => {
-                text::note(message);
-                ExitCode::from(1)
-            }
-            Fail::Exit(code) => ExitCode::from(code.clamp(0, 255) as u8),
-        };
+        return exit_code(fail);
     }
     match run(command, rest) {
         Ok(()) => ExitCode::SUCCESS,
-        Err(Fail::Message(message)) => {
+        Err(fail) => exit_code(fail),
+    }
+}
+
+/// The exit code of a command that failed with <fail>, after saying its
+/// message on stderr.
+fn exit_code(fail: Fail) -> ExitCode {
+    match fail {
+        Fail::Message(message) => {
             text::note(message);
             ExitCode::from(1)
         }
-        Err(Fail::Exit(code)) => ExitCode::from(code.clamp(0, 255) as u8),
+        Fail::Exit(code) => ExitCode::from(code.clamp(0, 255) as u8),
     }
 }
 

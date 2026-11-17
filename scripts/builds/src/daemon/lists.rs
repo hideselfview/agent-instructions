@@ -151,25 +151,24 @@ impl Feed {
             *current = (current.0 + 1, Arc::new(read));
             changed = true;
         }
-        {
-            let mut current = self.hooks.lock().expect("no panic holding it");
-            if **current != hooks {
-                *current = Arc::new(hooks);
-                changed = true;
-            }
-        }
-        {
-            let acks = crate::ack::dashboard_json(&self.places);
-            let mut current = self.acks.lock().expect("no panic holding it");
-            if **current != acks {
-                *current = Arc::new(acks);
-                changed = true;
-            }
-        }
+        changed |= replace_if_changed(&self.hooks, hooks);
+        changed |= replace_if_changed(&self.acks, crate::ack::dashboard_json(&self.places));
         if changed && let Some(listener) = &*self.listener.lock().expect("no panic holding it") {
             listener();
         }
     }
+}
+
+/// Puts <read> in <held> when it differs from what <held> holds, and returns
+/// whether it did. An unchanged value keeps its `Arc`, which tells the page's
+/// streams that nothing changed.
+fn replace_if_changed(held: &Mutex<Arc<String>>, read: String) -> bool {
+    let mut current = held.lock().expect("no panic holding it");
+    if **current == read {
+        return false;
+    }
+    *current = Arc::new(read);
+    true
 }
 
 /// The worktrees of the running items of every project.

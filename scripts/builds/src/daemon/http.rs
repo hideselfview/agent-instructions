@@ -529,22 +529,8 @@ fn events(mut stream: TcpStream, model: &Model) -> std::io::Result<()> {
                     )?;
                 }
             }
-            let hooks = model.hooks_json();
-            if !sent_hooks
-                .as_ref()
-                .is_some_and(|sent| Arc::ptr_eq(sent, &hooks))
-            {
-                write!(stream, "event: hooks\ndata: {hooks}\n\n")?;
-                sent_hooks = Some(hooks);
-            }
-            let acks = model.acks_json();
-            if !sent_acks
-                .as_ref()
-                .is_some_and(|sent| Arc::ptr_eq(sent, &acks))
-            {
-                write!(stream, "event: acks\ndata: {acks}\n\n")?;
-                sent_acks = Some(acks);
-            }
+            send_if_changed(&mut stream, "hooks", model.hooks_json(), &mut sent_hooks)?;
+            send_if_changed(&mut stream, "acks", model.acks_json(), &mut sent_acks)?;
             stream.flush()?;
             if let Some(left) = EVENT_GAP.checked_sub(started.elapsed()) {
                 std::thread::sleep(left);
@@ -554,6 +540,22 @@ fn events(mut stream: TcpStream, model: &Model) -> std::io::Result<()> {
     })();
     model.watch(false);
     sent
+}
+
+/// Writes <data> to <stream> as event <name> unless <sent> holds the same
+/// `Arc`, the one this stream last sent, and keeps <data> in <sent>.
+fn send_if_changed(
+    stream: &mut TcpStream,
+    name: &str,
+    data: Arc<String>,
+    sent: &mut Option<Arc<String>>,
+) -> std::io::Result<()> {
+    if sent.as_ref().is_some_and(|last| Arc::ptr_eq(last, &data)) {
+        return Ok(());
+    }
+    write!(stream, "event: {name}\ndata: {data}\n\n")?;
+    *sent = Some(data);
+    Ok(())
 }
 
 #[cfg(test)]
