@@ -232,7 +232,7 @@ fn short(rev: &str) -> &str {
 /// The base and head of <run>'s net change in <repo>; fails when the repo
 /// does not have both commits.
 pub(super) fn net_change(repo: &Path, run: &RunRow) -> Result<(String, String)> {
-    if commits::exists(repo, &run.base) && commits::exists(repo, &run.head) {
+    if commits::exists(repo, &run.base)? && commits::exists(repo, &run.head)? {
         return Ok((run.base.clone(), run.head.clone()));
     }
     fail!(

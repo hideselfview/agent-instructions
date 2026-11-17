@@ -51,14 +51,17 @@ pub fn in_range(repo: &Path, base: &str, head: &str) -> Result<Vec<String>> {
     )
 }
 
-/// Whether the repo at <repo> has the commit <sha>.
-pub fn exists(repo: &Path, sha: &str) -> bool {
-    git(repo)
+/// Whether the repo at <repo> has the commit <sha>: false when git says it
+/// has no such commit or <repo> is no repo, and an error when git does not
+/// start.
+pub fn exists(repo: &Path, sha: &str) -> Result<bool> {
+    let status = git(repo)
         .args(["cat-file", "-e", &format!("{sha}^{{commit}}")])
         .stdin(Stdio::null())
         .stderr(Stdio::null())
         .status()
-        .is_ok_and(|status| status.success())
+        .context(|| format!("running git cat-file in {}", repo.display()))?;
+    Ok(status.success())
 }
 
 /// The pathspec that leaves the review's test cases (`cases::DIR`) out of

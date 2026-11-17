@@ -825,13 +825,18 @@ fn move_store(places: &Places, path: &Path) -> Result<()> {
     // In a store from before builds counted lines, every review run that read
     // a branch's whole net change gets the count of its changed lines, read
     // from the clone `~/dev/<repo>` of the repo its landing names, when the
-    // clone still holds the run's commits.
+    // clone still holds the run's commits. The move names each run whose
+    // commits the clone lacks, since that run keeps no count.
     if had_review_tables && found != BEFORE_BLOCKS_FROM_WAITS_STAMP {
         crate::review::record::count_changed_lines(&tx, |repo, base, head| {
             let clone = places.home.join(crate::host::clone_path(repo));
-            if !crate::review::commits::exists(&clone, base)
-                || !crate::review::commits::exists(&clone, head)
+            if !crate::review::commits::exists(&clone, base)?
+                || !crate::review::commits::exists(&clone, head)?
             {
+                crate::text::note(format!(
+                    "{} lacks the commits of a review run of {repo} ({base}...{head}), so the run keeps no count of its changed lines",
+                    clone.display()
+                ));
                 return Ok(None);
             }
             let diff = crate::review::run::diff_between(&clone, base, head)?.diff;

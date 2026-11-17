@@ -232,7 +232,7 @@ pub fn diff_since(
     let text_of = |args: &[&str]| commits::git_text(worktree, args);
     let merge_base = text_of(&["merge-base", base, head])?.trim().to_string();
     let head = text_of(&["rev-parse", head])?.trim().to_string();
-    let read = commits::exists(worktree, read_base) && commits::exists(worktree, read_head);
+    let read = commits::exists(worktree, read_base)? && commits::exists(worktree, read_head)?;
     let (tree, whole) = if read {
         merged(worktree, read_base, read_head, &merge_base)?
     } else {

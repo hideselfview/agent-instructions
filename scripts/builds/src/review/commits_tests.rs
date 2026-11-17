@@ -40,3 +40,14 @@ fn the_paths_of_commits_leave_out_an_empty_commit_and_a_bad_rev_fails() {
     );
     assert!(paths(&dir, &["no-such-commit".to_string()]).is_err());
 }
+
+#[test]
+fn exists_says_whether_the_repo_has_the_commit() {
+    let scratch = Scratch::new("review-commits-exists");
+    let dir = scratch.dir.join("repo");
+    repo(&dir, "target 1G\n");
+    let a = commit(&dir, "a.txt", "a\n");
+    assert!(exists(&dir, &a).unwrap());
+    assert!(!exists(&dir, &"0".repeat(40)).unwrap());
+    assert!(!exists(&scratch.dir.join("no-repo"), &a).unwrap());
+}
