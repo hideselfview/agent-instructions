@@ -1,0 +1,338 @@
+diff --git a/bae-people/src/membership.rs b/bae-people/src/membership.rs
+index 7c4d22753b..4d4572097f 100644
+--- a/bae-people/src/membership.rs
++++ b/bae-people/src/membership.rs
+@@ -9,7 +9,7 @@ use rusqlite::{params, Row};
+ mod admin_operations;
+ pub use admin_operations::{InviteError, RefusedInviteDismissError};
+ mod members;
+-pub(crate) use members::{member_columns, member_row, SELF_IS_ADMIN};
++pub(crate) use members::{member_columns, member_row, self_is_admin};
+ 
+ /// Membership's part of the schema: `membership.sql`.
+ pub const SCHEMA: bae_store::SchemaPart =
+diff --git a/bae-people/src/membership/members.rs b/bae-people/src/membership/members.rs
+index d9c3ad0c62..b1627b6f9c 100644
+--- a/bae-people/src/membership/members.rs
++++ b/bae-people/src/membership/members.rs
+@@ -17,26 +17,36 @@ impl Membership {
+     }
+ }
+ 
+-/// Whether the member using this device is an admin.
+-pub(crate) const SELF_IS_ADMIN: &str = "SELECT EXISTS(SELECT 1 FROM coven_members \
+-     WHERE is_self AND NOT removed AND role = 'admin')";
++/// Whether the member using this device is an admin, as SQL.
++macro_rules! self_is_admin {
++    () => {
++        "EXISTS(SELECT 1 FROM coven_members AS s \
++         WHERE s.is_self AND NOT s.removed AND s.role = 'admin')"
++    };
++}
+ 
+ /// The columns [`member_row`] reads of the `coven_members` row `m`: the
+ /// member, with their active devices and their removed or replaced ones as
+-/// JSON arrays in device-id order. A device id is its eight bytes as hex.
++/// JSON arrays in device-id order, and whether the member using this device is
++/// an admin. A device id is its eight bytes as hex.
+ macro_rules! member_columns {
+     () => {
+-        "m.member, m.role, m.is_self, m.signing, m.sealing, m.account, m.access_key_id, \
++        concat!(
++            "m.member, m.role, m.is_self, m.signing, m.sealing, m.account, m.access_key_id, \
+          (SELECT json_group_array(json_array(hex(d.device), d.name, \
+                      json(CASE WHEN d.is_self THEN 'true' ELSE 'false' END)) \
+                      ORDER BY d.device) \
+           FROM coven_devices AS d WHERE d.member = m.member AND d.state = 'active'), \
+          (SELECT json_group_array(json_array(hex(d.device), d.name, d.state) \
+                      ORDER BY d.device) \
+-          FROM coven_devices AS d WHERE d.member = m.member AND d.state <> 'active')"
++          FROM coven_devices AS d WHERE d.member = m.member AND d.state <> 'active'), \
++         ",
++            $crate::membership::self_is_admin!()
++        )
+     };
+ }
+ pub(crate) use member_columns;
++pub(crate) use self_is_admin;
+ 
+ /// The current members in member-id order.
+ const MEMBERS: &str = concat!(
+@@ -47,16 +57,22 @@ const MEMBERS: &str = concat!(
+ 
+ fn membership_on(sql: &SqlReadContext<'_>) -> rusqlite::Result<Members> {
+     let self_is_admin: bool = sql.query_row(SELF_IS_ADMIN, [], |row| row.get(0))?;
+-    let members = sql.query(MEMBERS, [], |row| member_row(row, 0, self_is_admin))?;
++    let members = sql.query(MEMBERS, [], |row| member_row(row, 0))?;
+     Ok(Members { members, self_is_admin })
+ }
+ 
++/// The list's own read of whether the member using this device is an admin.
++const SELF_IS_ADMIN: &str = concat!("SELECT ", self_is_admin!());
++
++/// Whether the member using this device is an admin, as the row whose
++/// [`member_columns`] start at column `first` holds it.
++fn self_is_admin_column(row: &Row<'_>, first: usize) -> rusqlite::Result<bool> {
++    row.get(first + 9)
++}
++
+ /// The member whose [`member_columns`] start at column `first`.
+-pub(crate) fn member_row(
+-    row: &Row<'_>,
+-    first: usize,
+-    self_is_admin: bool,
+-) -> rusqlite::Result<MembershipMember> {
++pub(crate) fn member_row(row: &Row<'_>, first: usize) -> rusqlite::Result<MembershipMember> {
++    let self_is_admin = self_is_admin_column(row, first)?;
+     let is_self: bool = row.get(first + 2)?;
+     let role = match row.get::<_, String>(first + 1)?.as_str() {
+         "admin" => coven::MemberRole::Admin,
+diff --git a/bae-people/src/membership_tests.rs b/bae-people/src/membership_tests.rs
+index d4931b996b..f42db5aaea 100644
+--- a/bae-people/src/membership_tests.rs
++++ b/bae-people/src/membership_tests.rs
+@@ -30,10 +30,10 @@ fn a_members_access_is_an_account_a_key_or_not_yet_recorded() {
+         connection.query_row(
+             &format!(
+                 "SELECT '00000000-0000-4000-8000-000000000001', 'admin', 1, {key}, {key}, \
+-                 ?1, ?2, '[]', '[]'"
++                 ?1, ?2, '[]', '[]', 1"
+             ),
+             [account, access_key_id],
+-            |row| super::members::member_row(row, 0, true),
++            |row| super::members::member_row(row, 0),
+         )
+     };
+     assert_eq!(
+@@ -47,3 +47,29 @@ fn a_members_access_is_an_account_a_key_or_not_yet_recorded() {
+     assert_eq!(read(None, None).unwrap().access, None);
+     assert!(read(Some("ana@example.com"), Some("AKIA1")).is_err());
+ }
++
++/// A member row carries whether this device's person is an admin, and the
++/// member's and their devices' removal flags follow from it.
++#[test]
++fn a_members_removal_flags_follow_the_admin_column_of_their_row() {
++    let connection = rusqlite::Connection::open_in_memory().unwrap();
++    let key = format!("x'58{}'", "66".repeat(31));
++    let read = |self_is_admin: bool| {
++        connection
++            .query_row(
++                &format!(
++                    "SELECT '00000000-0000-4000-8000-000000000001', 'member', 0, {key}, {key}, \
++                     NULL, NULL, '[[\"01\",\"Phone\",false]]', '[]', ?1"
++                ),
++                [self_is_admin],
++                |row| super::members::member_row(row, 0),
++            )
++            .unwrap()
++    };
++    let by_admin = read(true);
++    assert!(by_admin.can_remove);
++    assert!(by_admin.active_devices[0].can_remove);
++    let by_member = read(false);
++    assert!(!by_member.can_remove);
++    assert!(!by_member.active_devices[0].can_remove);
++}
+diff --git a/bae-people/src/people/profiles.rs b/bae-people/src/people/profiles.rs
+index 5ce6b3e155..1414291025 100644
+--- a/bae-people/src/people/profiles.rs
++++ b/bae-people/src/people/profiles.rs
+@@ -3,7 +3,7 @@ use super::profile_request::{
+     ProfileRequestState,
+ };
+ use super::*;
+-use crate::membership::{member_columns, member_row, SELF_IS_ADMIN};
++use crate::membership::{member_columns, member_row};
+ use crate::people::{Avatar, HistorySharing, PeopleView, Person, PersonProfile, ProfileError};
+ use bae_store::read::SortLanguageRead;
+ use bae_util::name_key::SortLanguage;
+@@ -598,14 +598,13 @@ fn people_on(
+     statement: &str,
+     params: impl Params,
+ ) -> rusqlite::Result<Vec<Person>> {
+-    let self_is_admin: bool = sql.query_row(SELF_IS_ADMIN, [], |row| row.get(0))?;
+     sql.query(statement, params, |row| {
+         Ok(Person {
+             profile: match row.get::<_, Option<String>>(0)? {
+                 Some(_) => Some(profile_row(row)?),
+                 None => None,
+             },
+-            membership: member_row(row, PROFILE_COLUMN_COUNT, self_is_admin)?,
++            membership: member_row(row, PROFILE_COLUMN_COUNT)?,
+         })
+     })
+ }
+diff --git a/bae-playback/src/tables/queue_reads.rs b/bae-playback/src/tables/queue_reads.rs
+index 62a20bb7c0..4f16101e27 100644
+--- a/bae-playback/src/tables/queue_reads.rs
++++ b/bae-playback/src/tables/queue_reads.rs
+@@ -54,21 +54,31 @@ fn queue_items_on(sql: &SqlReadContext<'_>, rows: &str) -> Result<Vec<QueueItem>
+ /// The `playback_queue` row as the queue screens read it.
+ struct QueueHead {
+     shuffled: bool,
+-    context: Option<(ContextSource, i64)>,
++    context: Option<QueueContext>,
++}
++
++/// What the queue plays from, beside the title of the source release's album
++/// (`None` when the source is not a release, or the release is gone).
++struct QueueContext {
++    source: ContextSource,
++    source_title: Option<String>,
+ }
+ 
+ fn queue_head_on(sql: &SqlReadContext<'_>) -> Result<QueueHead, DbError> {
+-    type Head = (bool, Option<String>, Option<String>, Option<i64>);
+-    let (shuffled, source_kind, source_release_id, cursor): Head = sql.query_row(
+-        "SELECT shuffled, source_kind, source_release_id, \
+-                CASE shuffled WHEN 1 THEN shuffled_cursor ELSE ordered_cursor END \
+-         FROM playback_queue",
++    type Head = (bool, Option<String>, Option<String>, Option<i64>, Option<String>);
++    let (shuffled, source_kind, source_release_id, cursor, source_title): Head = sql.query_row(
++        "SELECT q.shuffled, q.source_kind, q.source_release_id, \
++                CASE q.shuffled WHEN 1 THEN q.shuffled_cursor ELSE q.ordered_cursor END, \
++                a.title \
++         FROM playback_queue q \
++         LEFT JOIN releases r ON r.id = q.source_release_id \
++         LEFT JOIN albums a ON a.id = r.album_id",
+         [],
+-        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
++        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
+     )?;
+     let context = match (source_kind, cursor) {
+-        (Some(source_kind), Some(cursor)) => Some((
+-            ContextSource::from_columns(&source_kind, source_release_id.clone()).map_err(
++        (Some(source_kind), Some(_cursor)) => Some(QueueContext {
++            source: ContextSource::from_columns(&source_kind, source_release_id.clone()).map_err(
+                 |_unwritten| {
+                     DbError::unreadable(
+                         "playback_queue.source_kind and source_release_id",
+@@ -76,8 +86,8 @@ fn queue_head_on(sql: &SqlReadContext<'_>) -> Result<QueueHead, DbError> {
+                     )
+                 },
+             )?,
+-            cursor,
+-        )),
++            source_title,
++        }),
+         // The table's CHECK keeps the two NULL together.
+         _ => None,
+     };
+@@ -110,23 +120,9 @@ fn queue_value_on(sql: &SqlReadContext<'_>) -> Result<crate::ResolvedQueueSnapsh
+         [],
+         |row| Ok((row.get(0)?, row.get(1)?)),
+     )?;
+-    let context = match head.context {
+-        None => None,
+-        Some((source, _cursor)) => {
+-            let source_title = match &source {
+-                ContextSource::Release(release_id) => sql
+-                    .query_row(
+-                        "SELECT a.title FROM releases r JOIN albums a ON a.id = r.album_id \
+-                         WHERE r.id = ?",
+-                        [release_id],
+-                        |row| row.get(0),
+-                    )
+-                    .optional()?,
+-                ContextSource::Releases | ContextSource::Tracks | ContextSource::Library => None,
+-            };
+-            Some(crate::ResolvedContext { source, source_title })
+-        }
+-    };
++    let context = head.context.map(|QueueContext { source, source_title }| {
++        crate::ResolvedContext { source, source_title }
++    });
+     Ok(crate::ResolvedQueueSnapshot {
+         manual,
+         context,
+diff --git a/bae-playback/src/tables/queue_tests.rs b/bae-playback/src/tables/queue_tests.rs
+index c92e9be8fc..b6a14cc522 100644
+--- a/bae-playback/src/tables/queue_tests.rs
++++ b/bae-playback/src/tables/queue_tests.rs
+@@ -230,10 +230,9 @@ async fn a_play_of_releases_stores_its_kind_and_a_lone_release_its_id() {
+         context_head(&db).await,
+         (Some("release".to_string()), Some(RELEASE_A.to_string()), Some(false), Some(1))
+     );
+-    assert_eq!(
+-        queue_value(&db).await.unwrap().context.unwrap().source,
+-        crate::ContextSource::Release(RELEASE_A.to_string())
+-    );
++    let context = queue_value(&db).await.unwrap().context.unwrap();
++    assert_eq!(context.source, crate::ContextSource::Release(RELEASE_A.to_string()));
++    assert_eq!(context.source_title.as_deref(), Some("Album Title A"));
+ }
+ 
+ /// Deleting every track of the lane in one write takes what it played from
+diff --git a/bae-views/src/release.rs b/bae-views/src/release.rs
+index 3d8a389812..3674958862 100644
+--- a/bae-views/src/release.rs
++++ b/bae-views/src/release.rs
+@@ -86,19 +86,42 @@ pub struct ReleaseDetailProjection {
+     pub context: Option<ReleaseDetailContext>,
+ }
+ 
+-/// The release's detail rows and whether the album is a compilation; `None` when the
+-/// release doesn't exist.
++/// The release's detail rows beside its album's compilation flag and year, in
++/// one statement; `None` when the release doesn't exist.
+ pub(crate) fn find_release_detail_context_on(
+     sql: &SqlReadContext<'_>,
+     release_id: &str,
+ ) -> Result<Option<ReleaseContextRows>, DbError> {
+-    let Some(detail) = build_release_detail_on(sql, release_id)? else {
+-        return Ok(None);
+-    };
+-    let album = find_album_by_id_on(sql, &detail.rows.release().album_id)?;
+-    let is_compilation = album.as_ref().is_some_and(|album| album.is_compilation);
+-    let album_year = album.and_then(|album| album.year);
+-    Ok(Some(ReleaseContextRows { detail, is_compilation, album_year }))
++    Ok(release_detail_rows_on(
++        sql,
++        release_id,
++        &bae_people::people::own_track_stars_sql("track"),
++        &format!(
++            "{}, \
++             (SELECT a.is_compilation FROM albums a WHERE a.id = rel.album_id) \
++                 AS album_is_compilation, \
++             (SELECT a.year FROM albums a WHERE a.id = rel.album_id) AS album_year",
++            release_standing_columns()
++        ),
++        release_context_columns,
++    )?
++    .map(|(rows, ((download, actions), is_compilation, album_year))| ReleaseContextRows {
++        detail: ReleaseDetailRows { rows, download, actions },
++        is_compilation,
++        album_year,
++    }))
++}
++
++/// The columns of [`find_release_detail_context_on`]'s statement beside the
++/// release's rows: its standing and its album's compilation flag and year.
++fn release_context_columns(
++    row: &Row<'_>,
++) -> rusqlite::Result<(ReleaseStanding, bool, Option<i32>)> {
++    Ok((
++        release_standing(row)?,
++        row.get::<_, Option<bool>>("album_is_compilation")?.unwrap_or(false),
++        row.get("album_year")?,
++    ))
+ }
+ 
+ #[derive(Clone, PartialEq)]
+@@ -145,14 +168,7 @@ pub(crate) fn build_release_detail_on(
+     sql: &SqlReadContext<'_>,
+     release_id: &str,
+ ) -> Result<Option<ReleaseDetailRows>, DbError> {
+-    Ok(release_detail_rows_on(
+-        sql,
+-        release_id,
+-        &bae_people::people::own_track_stars_sql("track"),
+-        &release_standing_columns(),
+-        release_standing,
+-    )?
+-    .map(|(rows, (download, actions))| ReleaseDetailRows { rows, download, actions }))
++    Ok(find_release_detail_context_on(sql, release_id)?.map(|context| context.detail))
+ }
+ 
+ /// The detail rows of each release of the album `album_id`, in the album's

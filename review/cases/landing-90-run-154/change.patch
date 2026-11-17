@@ -1,0 +1,199 @@
+From 9b00ef503a0ba07b8fd1425fb5108e8e4193bd3b Mon Sep 17 00:00:00 2001
+From: Dmitry Minkovsky <dminkovsky@gmail.com>
+Date: Mon, 16 Nov 2026 15:04:47 -0500
+Subject: [PATCH] Draw the seek fill as core sends it, with no clamping
+
+Core already sends the playing track's fill from 0 to 1, holding it at 1
+past the stored length. The Mac seek slider worked out its own fraction
+from its value and range, and the bar drawing clamped every fraction it
+drew. The slider now keeps a range of 0 to 1 itself and draws its value,
+and the drawing draws each fraction as it comes. Core's fill no longer
+clamps either: a fill outside 0 to 1 fails a debug assertion there.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ .../bae/Views/Components/ProgressTrack.swift  |  8 +++----
+ .../bae/Views/Components/SeekBarNSView.swift  |  2 --
+ .../bae/bae/Views/Components/SeekSlider.swift | 24 +++++++++++++------
+ bae-playback/src/timeline.rs                  | 12 ++++++----
+ bae-playback/src/timeline_tests.rs            | 10 ++++++++
+ spec/bae.md                                   |  8 ++++---
+ 6 files changed, 44 insertions(+), 20 deletions(-)
+
+diff --git a/bae-macos/bae/bae/Views/Components/ProgressTrack.swift b/bae-macos/bae/bae/Views/Components/ProgressTrack.swift
+index 80af739828..3fb9706b4c 100644
+--- a/bae-macos/bae/bae/Views/Components/ProgressTrack.swift
++++ b/bae-macos/bae/bae/Views/Components/ProgressTrack.swift
+@@ -41,15 +41,15 @@ enum ProgressTrackDrawing {
+     }
+ 
+     /// An accent fill to `fraction` of the track, never narrower than its
+-    /// height; none at zero.
++    /// height; none at zero. The fill draws `fraction` as it comes, with no
++    /// clamping: a fraction outside 0 to 1 is a bug in the code that made it.
+     static func drawFill(in bar: NSRect, fraction: Double, accent: NSColor) {
+         let radius = bar.height / 2
+-        let clamped = CGFloat(min(max(fraction, 0), 1))
+-        guard clamped > 0 else {
++        guard fraction > 0 else {
+             return
+         }
+         var fill = bar
+-        fill.size.width = max(bar.width * clamped, bar.height)
++        fill.size.width = max(bar.width * CGFloat(fraction), bar.height)
+         let fillPath = NSBezierPath(
+             roundedRect: fill,
+             xRadius: radius,
+diff --git a/bae-macos/bae/bae/Views/Components/SeekBarNSView.swift b/bae-macos/bae/bae/Views/Components/SeekBarNSView.swift
+index cd0329e724..b84fab4ee1 100644
+--- a/bae-macos/bae/bae/Views/Components/SeekBarNSView.swift
++++ b/bae-macos/bae/bae/Views/Components/SeekBarNSView.swift
+@@ -114,8 +114,6 @@ final class SeekBarNSView: NSView {
+         elapsedField.translatesAutoresizingMaskIntoConstraints = false
+ 
+         slider = SeekSlider()
+-        slider.minValue = 0
+-        slider.maxValue = 1
+         slider.isContinuous = true
+         slider.setAccessibilityLabel(String(localized: "Position"))
+         slider.translatesAutoresizingMaskIntoConstraints = false
+diff --git a/bae-macos/bae/bae/Views/Components/SeekSlider.swift b/bae-macos/bae/bae/Views/Components/SeekSlider.swift
+index 87edc7de59..bc0c65706a 100644
+--- a/bae-macos/bae/bae/Views/Components/SeekSlider.swift
++++ b/bae-macos/bae/bae/Views/Components/SeekSlider.swift
+@@ -3,7 +3,9 @@ import BaeKit
+ 
+ /// NSSlider subclass that reports drag start/end and jumps to the clicked
+ /// position. `mouseDown` blocks until the user releases, so `isDragging` is
+-/// accurate. Used by `SeekBarNSView`.
++/// accurate. Used by `SeekBarNSView`. Its value is the fill core sends, from
++/// 0 to 1, or where the person drags it to, so the cell draws the value as
++/// it is.
+ class SeekSlider: NSSlider {
+     var accent: NSColor = .controlAccentColor {
+         didSet { needsDisplay = true }
+@@ -25,6 +27,17 @@ class SeekSlider: NSSlider {
+         set {}
+     }
+ 
++    override init(frame frameRect: NSRect) {
++        super.init(frame: frameRect)
++        minValue = 0
++        maxValue = 1
++    }
++
++    @available(*, unavailable)
++    required init?(coder _: NSCoder) {
++        fatalError()
++    }
++
+     override func mouseDown(with event: NSEvent) {
+         // Disabled while the track's length is unknown: there is no position for
+         // a click to seek to.
+@@ -40,9 +53,9 @@ class SeekSlider: NSSlider {
+             if !knobRect.contains(point) {
+                 let barRect = cell.barRect(flipped: isFlipped)
+                 if barRect.width > 0 {
++                    // A click past either end of the bar seeks to that end.
+                     let ratio = Double((point.x - barRect.minX) / barRect.width)
+-                    let value = ratio * (maxValue - minValue) + minValue
+-                    doubleValue = max(minValue, min(maxValue, value))
++                    doubleValue = max(0, min(1, ratio))
+                 }
+             }
+         }
+@@ -73,9 +86,6 @@ final class SlimSeekSliderCell: NSSliderCell {
+         bar.origin.y = rect.midY - trackHeight / 2
+         bar.size.height = trackHeight
+ 
+-        let span = maxValue - minValue
+-        let fraction =
+-            span > 0 ? min(max((doubleValue - minValue) / span, 0), 1) : 0
+         guard let slider = controlView as? SeekSlider else {
+             preconditionFailure("SlimSeekSliderCell belongs to SeekSlider")
+         }
+@@ -89,7 +99,7 @@ final class SlimSeekSliderCell: NSSliderCell {
+         )
+         ProgressTrackDrawing.drawFill(
+             in: bar,
+-            fraction: fraction,
++            fraction: doubleValue,
+             accent: slider.accent
+         )
+     }
+diff --git a/bae-playback/src/timeline.rs b/bae-playback/src/timeline.rs
+index ff963cb917..5aed26a777 100644
+--- a/bae-playback/src/timeline.rs
++++ b/bae-playback/src/timeline.rs
+@@ -125,15 +125,19 @@ impl TrackTimeline {
+         StreamPosition::from_millis(u64::try_from(ms.max(0)).unwrap_or(u64::MAX))
+     }
+ 
+-    /// The seek bar's fill (0.0–1.0) at `position`: zero through the pregap,
+-    /// one at the track's end. Zero throughout when the length is unknown or
+-    /// zero, since there is no end to fill toward.
++    /// The seek bar's fill, from 0 to 1, at `position`: zero through the
++    /// pregap, one at the track's end and past it, where the track's time
++    /// holds at its length. Zero throughout when the length is unknown or
++    /// zero, since there is no end to fill toward. The views draw the fill as
++    /// it comes, so a fill outside 0 to 1 is a bug here.
+     pub fn progress(self, position: StreamPosition) -> f64 {
+         let Some(duration_ms) = self.duration_ms().filter(|ms| *ms > 0) else {
+             return 0.0;
+         };
+         let time = self.track_time(position).as_millis();
+-        (time.max(0) as f64 / duration_ms as f64).clamp(0.0, 1.0)
++        let fill = time.max(0) as f64 / duration_ms as f64;
++        debug_assert!((0.0..=1.0).contains(&fill), "the seek bar's fill {fill} is outside 0 to 1");
++        fill
+     }
+ 
+     /// The stream position a seek bar fill points at — the inverse of
+diff --git a/bae-playback/src/timeline_tests.rs b/bae-playback/src/timeline_tests.rs
+index 22e248090c..0c582e46b1 100644
+--- a/bae-playback/src/timeline_tests.rs
++++ b/bae-playback/src/timeline_tests.rs
+@@ -44,6 +44,16 @@ fn progress_starts_after_pregap() {
+     assert_eq!(t.progress(at(12_000)), 1.0);
+ }
+ 
++/// Decoded audio can run past the declared end. The track's time holds at
++/// its length there, so the fill holds at 1.0 and never passes it: the views
++/// draw the fill as core sends it.
++#[test]
++fn progress_holds_at_one_past_the_declared_end() {
++    let t = timeline(10_000, 2000);
++    assert_eq!(t.progress(at(12_001)), 1.0);
++    assert_eq!(t.progress(at(40_000)), 1.0);
++}
++
+ #[test]
+ fn progress_zero_duration() {
+     assert_eq!(timeline(0, 0).progress(at(0)), 0.0);
+diff --git a/spec/bae.md b/spec/bae.md
+index 11a0f79e7c..e0d49b295c 100644
+--- a/spec/bae.md
++++ b/spec/bae.md
+@@ -5707,14 +5707,16 @@ that it started at a seek; playback wrote each line before that one before it
+ applied the seek. A paused load, such as a restore, starts no line at a seek.
+ The queue is a live subscription of its own. The playing track's position
+ reaches an app only in a `KeyedValueStream` (§10.2), under the track's id: the
+-track-relative position, how far through the track's length it is, and the
+-length. While the track plays here, playback sends a new position each time
++track-relative position, how far through the track's length it is as a
++fraction from 0 to 1, and the length. Past the stored length the fraction
++stays at 1, since the position holds at the length there. While the track plays here, playback sends a new position each time
+ the output has played 8 ms of audio, one display frame at 120 Hz, and at most
+ one for each buffer the output takes from playback. While it plays on a
+ receiver, playback works out where the receiver has reached from its last
+ status every 8 ms. While playback is paused or loading, it sends the position
+ once. The native view draws the latest position each display frame, with no
+-arithmetic of its own. A preview's position reaches an app the same way, in a
++arithmetic of its own, and draws the fraction as it comes, with no clamping.
++A preview's position reaches an app the same way, in a
+ `KeyedValueStream` too. So do the parts of the playing track its buffer holds (§7.6), as
+ fractions of its length under its id. When playback accepts a seek the person
+ made, it reports the target as the track's or the preview's position before it
+-- 
+2.50.1 (Apple Git-155)
+

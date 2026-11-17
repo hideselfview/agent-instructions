@@ -1,0 +1,967 @@
+project = "bae"
+clean_for = []
+
+[[finding]]
+rule = "check-a-fact-once-where-it-can-become-false"
+file = "bae-import/src/tables/watched_folders.rs"
+
+[[site]]
+file = "bae-import/src/tables/watched_folders.rs"
+code = "crate::tables::watched_path::validate_absolute_root(&root)"
+verdict = "finding"
+rule = "check-a-fact-once-where-it-can-become-false"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/FixedQueries.swift"
+code = "hasWatchedFolders: false,"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/handle/import_projection.rs"
+code = "let bae_import::ImportQueueSummary { has_watched_folders, has_groups, narrowing } = summary;"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/types/import/list.rs"
+code = "/// Whether bae watches any folder: with none, the screen shows no list."
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/types/import/list.rs"
+code = "pub has_watched_folders: bool,"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/types/import/triage.rs"
+code = "/// The watched folder where bae's scan found this candidate, as coven's"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/types_tests.rs"
+code = "/// A candidate key whose name isn't UTF-8 shows as its escape."
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/types_tests.rs"
+code = "fn a_candidate_key_whose_name_is_not_utf8_shows_as_its_escape() {"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/watch.rs"
+code = "/// Watch a folder, in whatever spelling the caller had. bae reads a folder"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/watch.rs"
+code = "/// it already watches again, and refuses a folder inside a watched one"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/watch.rs"
+code = "/// with an error that names both folders."
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/watch.rs"
+code = "/// Store `path` as watched and ask the folder-watch coordinator to read"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/watch.rs"
+code = "/// it. When `path` holds watched folders, bae watches `path` in their"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/watch.rs"
+code = "/// place. The write that would watch a folder inside a watched one"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/watch.rs"
+code = "/// refuses that folder and stores nothing."
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/watch_tests.rs"
+code = "// A second spelling of each added folder, which every read of the"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/watch_tests.rs"
+code = "// watched folders refuses as not canonical."
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/watch_tests.rs"
+code = "crate::tables::ImportTables::plant_uncanonical_spelling_in_every_add_for_test(tmp.path()).await;"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/list.rs"
+code = "/// Whether bae watches any folder, whether Found has groups, and the"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/list.rs"
+code = "/// narrowing, which a surface shows beside the list's rows and counts. The"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/list.rs"
+code = "/// summary has its own live query, so the rows a scan writes do not rerun it."
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/list.rs"
+code = "/// Whether bae watches any folder: with none, the surface shows no list."
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/list.rs"
+code = "pub has_watched_folders: bool,"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/import_list/summary.rs"
+code = "//! The reads a surface makes beside a list's windows: whether bae watches"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/import_list/summary.rs"
+code = "//! any folder, whether Found has groups, and what the view narrows by; the tab"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/import_list/summary.rs"
+code = "/// The summary `list` shows beside its rows: whether bae watches any folder,"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/import_list/summary.rs"
+code = "has_watched_folders: super::watched_folders::any_watched_on(sql)?,"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/import_list/summary_tests.rs"
+code = "/// The summary says whether bae watches any folder, so the screen knows to"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/import_list/summary_tests.rs"
+code = "/// show its list, and stops saying so after bae stops watching the last one."
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/import_list/summary_tests.rs"
+code = "async fn the_summary_says_whether_any_folder_is_watched() {"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/import_list/summary_tests.rs"
+code = "let lib = Library::new().await;"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/import_list/summary_tests.rs"
+code = "assert!(lib.shown(view(TriageTab::Pending)).await.summary.has_watched_folders);"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/import_list/summary_tests.rs"
+code = "lib.tables().remove_watched_import_folders(vec![lib.root.clone()], None).await.unwrap();"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/import_list/summary_tests.rs"
+code = "assert!(!lib.shown(view(TriageTab::Pending)).await.summary.has_watched_folders);"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/import_list/summary_tests.rs"
+code = "assert!(whole.summary.has_watched_folders);"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/watched_folders.rs"
+code = "//! overlap: every write that watches a folder refuses one that does"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/watched_folders.rs"
+code = "//! ([`watch_folder_on`] says how). Every folder a scan, a decision or a skip"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/watched_folders.rs"
+code = "//! stores lies under one. Its table is `watched_folders.sql`."
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/watched_folders.rs"
+code = '.map_err(|_refused| DbError::unreadable("a stored watched folder", &root))?;'
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/watched_folders.rs"
+code = "Ok(crate::WatchedFolder::from_path(root))"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/watched_folders.rs"
+code = "/// Whether `folder`, spelled as the store keys it, is a watched folder, read"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/watched_folders.rs"
+code = "/// by the watched folders' key."
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/watched_folders.rs"
+code = "fn is_watched_on(sql: &impl coven::SqlRead, folder: &Path) -> Result<bool, DbError> {"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/watched_folders.rs"
+code = '"SELECT EXISTS (SELECT 1 FROM watched_import_folders WHERE path = ?)",'
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/watched_folders.rs"
+code = "/// Whether bae watches any folder."
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/watched_folders.rs"
+code = "pub(super) fn any_watched_on(sql: &impl coven::SqlRead) -> Result<bool, DbError> {"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/watched_folders.rs"
+code = '.query_row("SELECT EXISTS (SELECT 1 FROM watched_import_folders)", [], |row| row.get(0))?)'
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/watched_folders.rs"
+code = "/// A watched folder other than `folder` that overlaps it: the watched folder"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/watched_folders.rs"
+code = "/// that holds `folder`, or else the first watched folder inside it, in their"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/watched_folders.rs"
+code = "/// order. The read looks up the folders above `folder` by the watched"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/watched_folders.rs"
+code = "/// folders' key and finds the folders below it in the range of paths below"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/watched_folders.rs"
+code = "fn overlapping_watched_folder_on("
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/watched_folders.rs"
+code = ") -> Result<Option<PathBuf>, DbError> {"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/watched_folders.rs"
+code = "if let Some(above) = watched_folder_among_on(sql, folder.ancestors().skip(1))? {"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/watched_folders.rs"
+code = '.query_row(&format!("{BELOW} LIMIT 1"), below_params(folder), |row| {'
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/watched_folders.rs"
+code = "path_column::get(row, 0)"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/watched_folders.rs"
+code = "/// The watched folders inside a folder, not the folder itself, in their"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/watched_folders.rs"
+code = "/// order: those whose key lies in the range of paths below it, given"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/watched_folders.rs"
+code = 'const BELOW: &str = "SELECT path FROM watched_import_folders \'
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/watched_folders.rs"
+code = 'WHERE path >= ?1 AND path < ?2 AND path <> ?3 ORDER BY position";'
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/watched_folders.rs"
+code = "/// The parameters [`BELOW`] reads the watched folders inside `folder` with."
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/watched_folders.rs"
+code = "fn below_params(folder: &Path) -> [Vec<u8>; 3] {"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/watched_folders.rs"
+code = "let (first, past) = crate::tables::watched_path::paths_below(folder);"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/watched_folders.rs"
+code = "[first, past, coven::path_bytes(folder)]"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/watched_folders.rs"
+code = "/// The watched folders inside `folder`, not `folder` itself, in their order."
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/watched_folders.rs"
+code = "fn watched_folders_below_on("
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/watched_folders.rs"
+code = ") -> Result<Vec<PathBuf>, DbError> {"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/watched_folders.rs"
+code = "Ok(sql.query(BELOW, below_params(folder), |row| path_column::get(row, 0))?)"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/watched_folders.rs"
+code = "/// Refuse `folder` when it holds, or lies in, a watched folder. The error"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/watched_folders.rs"
+code = "/// names that watched folder."
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/watched_folders.rs"
+code = "fn refuse_overlap_on(sql: &CovenWrite<'_>, folder: &Path) -> Result<(), crate::ImportError> {"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/watched_folders.rs"
+code = "match overlapping_watched_folder_on(sql, folder)? {"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/watched_folders.rs"
+code = "Err(WatchedFolderRefusal::Overlap { folder: folder.to_path_buf(), watched }.into())"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/watched_folders.rs"
+code = "/// watched now. Each caller checks, in the same write, that `folder`"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/watched_folders.rs"
+code = "/// overlaps no watched folder: the add with [`refuse_overlap_on`], and the"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/watched_folders.rs"
+code = "/// takeover by checking that no watched folder holds `folder` and that the"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/watched_folders.rs"
+code = "/// watched folders inside it are the ones the takeover deleted."
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/watched_folders.rs"
+code = "pub(super) fn watch_folder_on(sql: &CovenWrite<'_>, folder: &Path) -> Result<(), DbError> {"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/watched_folders.rs"
+code = '"INSERT INTO watched_import_folders (path, position) \'
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/watched_folders.rs"
+code = 'SELECT ?, COALESCE(MAX(position) + 1, 0) FROM watched_import_folders",'
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/watched_folders.rs"
+code = "self.store.read(move |sql| is_watched_on(&sql, &path)).await"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/watched_folders.rs"
+code = "let path = path.to_path_buf();"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/watched_folders.rs"
+code = "self.store.read(move |sql| watched_folders_below_on(&sql, &path)).await"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/watched_folders.rs"
+code = "if is_watched_on(sql, &path)? {"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/watched_folders.rs"
+code = "refuse_overlap_on(sql, &path)?;"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/watched_folders.rs"
+code = "watch_folder_on(sql, &path)?;"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/watched_folders.rs"
+code = "/// Plant damage for a test: `folder` stored as watched in a spelling"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/watched_folders.rs"
+code = "/// that is not its canonical one, with a separator after its last name."
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/watched_folders.rs"
+code = "/// The add stores only canonical spellings, so no write stores one; a"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/watched_folders.rs"
+code = "/// damaged store holds one, and every read of the watched folders"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/watched_folders.rs"
+code = "pub(crate) async fn plant_uncanonical_watched_folder_for_test("
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/watched_folders.rs"
+code = "let mut spelling = coven::path_bytes(folder);"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/watched_folders.rs"
+code = "pub(crate) async fn plant_uncanonical_spelling_in_every_add_for_test(directory: &Path) {"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/watched_folders.rs"
+code = '"CREATE TRIGGER uncanonical_spelling_of_each_added_folder \'
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/watched_folders.rs"
+code = 'AFTER INSERT ON watched_import_folders \'
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/watched_folders.rs"
+code = """VALUES (CAST(CAST(NEW.path AS TEXT) || '/' AS BLOB), 99); END;","""
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/watched_folders/removal.rs"
+code = "check_in_place_of(&watched, parent, &roots)?;"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/watched_folders/removal.rs"
+code = "// The write watches `parent` after it deletes the roots"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/watched_folders/removal.rs"
+code = "None => removed.extend(forget_folders_under(sql, &roots)?),"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/watched_folders/removal.rs"
+code = "/// Refuse to watch `parent` in place of `roots` unless they are exactly the"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/watched_folders/removal.rs"
+code = "/// watched folders inside it, with nothing watching it or a folder holding"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/watched_folders_tests.rs"
+code = "/// Two overlapping folders added at once: each add checks for an overlap and"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/watched_folders_tests.rs"
+code = "/// inserts its folder in one write, so bae watches exactly one of them and"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/watched_folders_tests.rs"
+code = "assert_eq!(tables.load_watched_import_folders().await.unwrap().len(), 1);"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/watched_folders_tests.rs"
+code = "/// The read of the watched folders below a folder returns those inside it, in"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/watched_folders_tests.rs"
+code = "/// their order, and never one beside it whose name only begins with its own."
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/watched_folders_tests.rs"
+code = "async fn the_watched_folders_below_a_folder_are_read_by_path() {"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/watched_folders_tests.rs"
+code = "/// The add refuses a folder inside a watched one, and a folder holding one,"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/watched_folders_tests.rs"
+code = "/// naming the watched folder it overlaps, and stores neither."
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/watched_folders_tests.rs"
+code = "async fn the_add_refuses_a_folder_that_overlaps_a_watched_one() {"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/watched_folders_tests.rs"
+code = 'let music = host_root("/music");'
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/watched_folders_tests.rs"
+code = 'let artist = host_root("/music/artist");'
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/watched_folders_tests.rs"
+code = 'let album = host_root("/music/artist/album");'
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/watched_folders_tests.rs"
+code = "tables.add_watched_import_folder(&artist).await.unwrap();"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/watched_folders_tests.rs"
+code = 'for (folder, watched) in [(&album, &artist), (&music, &artist), (&host_root("/"), &artist)] {'
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/watched_folders_tests.rs"
+code = "let error = tables.add_watched_import_folder(folder).await.unwrap_err();"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/watched_folders_tests.rs"
+code = "crate::ImportError::WatchedFolders("
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/watched_folders_tests.rs"
+code = "crate::tables::WatchedFolderRefusal::Overlap { folder: refused, watched: named }"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/watched_folders_tests.rs"
+code = ") if refused == folder && named == watched"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/watched_folders_tests.rs"
+code = "let watched: Vec<_> = tables"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/watched_folders_tests.rs"
+code = ".load_watched_import_folders()"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/watched_folders_tests.rs"
+code = ".map(|folder| folder.path)"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/watched_folders_tests.rs"
+code = "assert_eq!(watched, [artist]);"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/watched_folders_tests.rs"
+code = "/// A folder beside a watched one, whose name only begins with the watched"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/watched_folders_tests.rs"
+code = "/// folder's name, does not overlap it."
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/watched_folders_tests.rs"
+code = "async fn a_folder_whose_name_begins_with_a_watched_ones_does_not_overlap_it() {"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/watched_folders_tests.rs"
+code = 'for folder in ["/music", "/musical", "/music-old"] {'
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/watched_folders_tests.rs"
+code = "tables.add_watched_import_folder(&host_root(folder)).await.unwrap().is_some(),"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/watched_folders_tests.rs"
+code = "/// A stored watched folder not in its canonical spelling is damage no write"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/watched_folders_tests.rs"
+code = "/// stores, and fails the read."
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/watched_folders_tests.rs"
+code = "async fn a_stored_root_not_in_its_canonical_spelling_fails_to_load() {"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/watched_folders_tests.rs"
+code = 'tables.plant_uncanonical_watched_folder_for_test(&host_root("/music")).await.unwrap();'
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/watching/coordinator_tests.rs"
+code = 'assert!(reports[0].1.contains("a stored watched folder holds"), "{reports:?}");'
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/watching/coordinator_tests.rs"
+code = 'assert!(error.to_string().contains("a stored watched folder holds"), "{error}");'
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/watching_tests.rs"
+code = "/// Plant a watched folder in a spelling that is not its canonical one, which"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/watching_tests.rs"
+code = "/// every read of the watched folders refuses."
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/watching_tests.rs"
+code = '.plant_uncanonical_watched_folder_for_test(&root_path("/music/inner"))'
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/watching_tests.rs"
+code = "/// Plant a watched folder in a spelling that is not its canonical one,"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/watching_tests.rs"
+code = "/// which the store's own add never stores, so that reading the watched"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/watching_tests.rs"
+code = "/// folders fails from here on."
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/watching_tests.rs"
+code = '.plant_uncanonical_watched_folder_for_test(&root_path("/music").join("artist"))'
+verdict = "none"
+
+[[site]]
+file = "bae-library/src/manager/fixture_tests.rs"
+code = "assert!(projection.summary.has_watched_folders);"
+verdict = "none"
+
+[[site]]
+file = "bae-library/tests/integration/test_import_service/scan_and_watch.rs"
+code = "/// bae refuses a folder inside a watched folder and stores nothing, and the"
+verdict = "none"
+
+[[site]]
+file = "bae-library/tests/integration/test_import_service/scan_and_watch.rs"
+code = "/// error names both folders, so the person sees which watched folder holds"
+verdict = "none"
+
+[[site]]
+file = "bae-library/tests/integration/test_import_service/scan_and_watch.rs"
+code = "async fn adding_a_folder_inside_a_watched_one_is_refused_naming_both() {"
+verdict = "none"
+
+[[site]]
+file = "bae-library/tests/integration/test_import_service/scan_and_watch.rs"
+code = "f.handle.add_watched_folder(root.clone()).await.unwrap();"
+verdict = "none"
+
+[[site]]
+file = "bae-library/tests/integration/test_import_service/scan_and_watch.rs"
+code = 'wait_for_reads(&f, "the folder is read", &[&root]).await;'
+verdict = "none"
+
+[[site]]
+file = "bae-library/tests/integration/test_import_service/scan_and_watch.rs"
+code = "let error = f.handle.add_watched_folder(album.clone()).await.unwrap_err();"
+verdict = "none"
+
+[[site]]
+file = "bae-library/tests/integration/test_import_service/scan_and_watch.rs"
+code = "bae_import::ImportError::WatchedFolders("
+verdict = "none"
+
+[[site]]
+file = "bae-library/tests/integration/test_import_service/scan_and_watch.rs"
+code = "bae_import::tables::WatchedFolderRefusal::Overlap { folder, watched }"
+verdict = "none"
+
+[[site]]
+file = "bae-library/tests/integration/test_import_service/scan_and_watch.rs"
+code = ") if *folder == album && *watched == root"
+verdict = "none"
+
+[[site]]
+file = "bae-library/tests/integration/test_import_service/scan_and_watch.rs"
+code = "assert_eq!(watched.into_iter().map(|folder| folder.path).collect::<Vec<_>>(), [root]);"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/Fixtures/PreviewData+Import.swift"
+code = "/// The watched folder the import shots read from, as coven's bytes for"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/Fixtures/PreviewData+Import.swift"
+code = "static let importWatchedFolderPath = Data(importRootPath.utf8)"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/Fixtures/PreviewData+Import.swift"
+code = "hasWatchedFolders: true,"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/Fixtures/PreviewData+Import.swift"
+code = "/// Every Import-tab state in one fixture, with one release that bae is"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/Fixtures/PreviewData+ImportList.swift"
+code = "hasWatchedFolders: Bool,"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/Fixtures/PreviewData+ImportList.swift"
+code = "hasWatchedFolders: hasWatchedFolders,"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/Fixtures/PreviewData+ImportTriage.swift"
+code = "hasWatchedFolders: true,"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Services/ImportStore.swift"
+code = "/// Whether bae watches any folder for imports; `nil` until the first"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Services/ImportStore.swift"
+code = "var hasWatchedFolders: Bool? {"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Services/ImportStore.swift"
+code = "summary?.hasWatchedFolders"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Import/Candidates/MacImportSidebarContainer.swift"
+code = "if importStore.hasWatchedFolders != nil {"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Import/ImportView.swift"
+code = "else if let hasWatchedFolders = importStore.hasWatchedFolders {"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/ImportFolderEntryTests.swift"
+code = '@Test("an add that overlaps a watched folder shows both folders")'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/ImportFolderEntryTests.swift"
+code = "func anOverlapShowsBothFolders() async throws {"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/ImportFolderEntryTests.swift"
+code = '"watched folders cannot overlap: /Music/Album conflicts with /Music"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/ImportFolderEntryTests.swift"
+code = "let refusal = BridgeError.Diagnostic("
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/ImportFolderEntryTests.swift"
+code = "category: .watchedFolderOverlap,"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/ImportFolderEntryTests.swift"
+code = "let entry = ImportFolderEntry("
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/ImportFolderEntryTests.swift"
+code = "importer: Importer(addWatchedFolder: { _ in throw refusal }),"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/ImportFolderEntryTests.swift"
+code = "await entry.take(try folder())?.value"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/ImportFolderEntryTests.swift"
+code = "let shown = try #require(uiStore.lastError)"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/ImportFolderEntryTests.swift"
+code = "#expect(shown.line.contains(try #require(refusal.localizedLine)))"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/ImportFolderEntryTests.swift"
+code = "#expect(shown.detail == detail)"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/ImportListScrollCostTests.swift"
+code = "watchedFolderPath: PreviewData.importWatchedFolderPath,"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/ImportListSelectionTests.swift"
+code = "hasWatchedFolders: false,"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/ImportStoreTests.swift"
+code = "#expect(store.hasWatchedFolders == nil)"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/ImportStoreTests.swift"
+code = "#expect(store.hasWatchedFolders == false)"
+verdict = "none"
+
+[[site]]
+file = "spec/bae.md"
+code = "- **A watched folder inside another.** When the person watches a folder that"
+verdict = "none"
+
+[[site]]
+file = "spec/bae.md"
+code = "contains watched folders, bae stops watching those folders and watches the"
+verdict = "none"
+
+[[site]]
+file = "spec/bae.md"
+code = "new folder in their place, in one write. bae stores what it knows about a"
+verdict = "none"
+
+[[site]]
+file = "spec/bae.md"
+code = "folder under the folder's path on disk, so the person's groupings stay."
+verdict = "none"
+
+[[site]]
+file = "spec/bae.md"
+code = "Unwatching the folder that covers a grouping deletes it. The write that"
+verdict = "none"
+
+[[site]]
+file = "spec/bae.md"
+code = "watches a folder checks that no watched folder holds it or lies in it. That"
+verdict = "none"
+
+[[site]]
+file = "spec/bae.md"
+code = "write refuses a folder inside a watched one and stores nothing, and the"
+verdict = "none"
+
+[[site]]
+file = "spec/bae.md"
+code = "error names both folders. No two watched folders ever overlap, so no read"
+verdict = "none"
+
+[[site]]
+file = "spec/bae.md"
+code = "a key sits in it, whether bae watches any folder, whether Found has groups,"
+verdict = "none"
+
+[[site]]
+file = "spec/bae.md"
+code = "and what the view narrows by, Found's filter entries, and what the selected"
+verdict = "none"
+
+[[site]]
+file = "spec/bae.md"
+code = "rows hold and offer. A row carries nothing of the selection: the screen draws each row's"
+verdict = "none"
+
+[[site]]
+file = "spec/bae.md"
+code = "| `watched_import_folders` | watched folders, in order, no two overlapping: the write that watches a folder refuses one that holds or lies in a watched folder (§3.1) |"
+verdict = "none"
+
+[[site]]
+file = "spec/bae.md"
+code = "| `WatchedFolderOverlap` | watches another folder: the one they asked for lies in a watched folder, or holds one that bae started watching while it added theirs, and the detail names both |"
+verdict = "none"

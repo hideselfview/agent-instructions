@@ -1,0 +1,5015 @@
+project = "bae"
+clean_for = []
+
+[[finding]]
+rule = "never-mask-errors-with-defaults"
+file = "bae-people/src/membership/admin_operations.rs"
+
+[[finding]]
+rule = "organize-code-by-domain"
+file = "bae-library/src/manager/config.rs"
+
+[[finding]]
+rule = "write-only-what-is-needed-today"
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+
+[[finding]]
+rule = "reuse-existing-logic-and-types"
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/MembersScreen.kt"
+
+[[finding]]
+rule = "reuse-existing-logic-and-types"
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+
+[[finding]]
+rule = "reactive-screens-read-plain-live-queries"
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/MembersDialogs.kt"
+
+[[finding]]
+rule = "reactive-screens-read-plain-live-queries"
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/PeoplePages.kt"
+
+[[finding]]
+rule = "reactive-screens-read-plain-live-queries"
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/PersonPages.kt"
+
+[[finding]]
+rule = "reactive-screens-read-plain-live-queries"
+file = "bae-macos/bae/bae/Views/Settings/Library/PeopleAndDevicesPage.swift"
+
+[[finding]]
+rule = "localization-stays-in-sync-with-ui"
+file = "bae-macos/bae/bae/Views/Settings/Formats/FormatsSettingsTab.swift"
+
+[[finding]]
+rule = "choose-a-task-s-cancellation-by-what-starts-it"
+file = "bae-macos/bae/bae/Views/Settings/Formats/SavePresetEditor.swift"
+
+[[site]]
+file = "bae-people/src/membership/admin_operations.rs"
+code = 'WHERE o.operation IS NULL OR ({shown}) \'
+verdict = "finding"
+rule = "never-mask-errors-with-defaults"
+
+[[site]]
+file = "bae-library/src/manager/config.rs"
+code = "    fn refuse_taken_name("
+verdict = "finding"
+rule = "organize-code-by-domain"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "        [BridgeAdminChangePlace: (pages: Int, subscription: AnyObject)] = [:]"
+verdict = "finding"
+rule = "write-only-what-is-needed-today"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/MembersScreen.kt"
+code = "    fun watchInvite(inviteId: String) {"
+verdict = "finding"
+rule = "reuse-existing-logic-and-types"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "    public func showInvite(_ inviteId: String) {"
+verdict = "finding"
+rule = "reuse-existing-logic-and-types"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/MembersDialogs.kt"
+code = "?.takeIf { it.id !in dialogs.closedRequests }"
+verdict = "finding"
+rule = "reactive-screens-read-plain-live-queries"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/PeoplePages.kt"
+code = "if (adminChanges.isNotEmpty()) {"
+verdict = "finding"
+rule = "reactive-screens-read-plain-live-queries"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/PersonPages.kt"
+code = "if (adminChanges.isNotEmpty()) {"
+verdict = "finding"
+rule = "reactive-screens-read-plain-live-queries"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Settings/Library/PeopleAndDevicesPage.swift"
+code = """
+store.waitingRequest.flatMap {
+            closedRequests.contains($0.id) ? nil : $0
+        }"""
+verdict = "finding"
+rule = "reactive-screens-read-plain-live-queries"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Settings/Formats/FormatsSettingsTab.swift"
+code = 'String(localized: "Another format is named \(name).")'
+verdict = "finding"
+rule = "localization-stays-in-sync-with-ui"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Settings/Formats/SavePresetEditor.swift"
+code = "        Task {"
+verdict = "finding"
+rule = "choose-a-task-s-cancellation-by-what-starts-it"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/LibrarySessionOpener.swift"
+code = "func getConfig() async throws -> BridgeConfig"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/LibrarySessionOpener.swift"
+code = "extension AppHandle: LibrarySessionHandle {}"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/LibrarySessionOpener.swift"
+code = "let config = try await handle.getConfig()"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "/// The first open invite whose join request waits for a decision,"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "/// other than those whose request the page closed, while the page reads"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "/// it; nil while none does."
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "public private(set) var waitingRequest: BridgeInvite?"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "/// The open invite whose sheet shows, once its read arrives."
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "public private(set) var shownInvite: ShownInvite?"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "/// dismisses its outcome, by the place that shows them, for each place a"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "public private(set) var adminChanges:"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "[BridgeAdminChangePlace: [BridgeAdminChange]] = [:]"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "/// Starts the subscription to the first waiting join request other than"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "/// those of the invites with the ids, handing each value to the store."
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "private let subscribeWaitingRequest:"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "@MainActor (MembershipStore, Set<String>) throws -> AnyObject"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "/// Starts the subscription to the admin changes that show in the place,"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "/// handing each value to the store."
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "private let subscribeAdminChanges:"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "@MainActor (MembershipStore, BridgeAdminChangePlace) throws ->"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "/// Starts the subscription to the open invite with the id, handing each"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "private let subscribeInvite:"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "@MainActor (MembershipStore, String) throws -> AnyObject"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "/// What the page reads of the waiting join requests, while it does."
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "private var waitingRequestSubscription: AnyObject?"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "/// What the pages read of each place's admin changes, with how many"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "private var adminChangeReads:"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "/// What an invite's sheet reads, with the invite id it reads."
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "private var inviteSubscription: (inviteId: String, subscription: AnyObject)?"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "subscribeShown: { store in Self.followShown(handle, store: store) },"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "subscribeWaitingRequest: { store, closed in"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "try Self.followWaitingRequest("
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "try Self.followAdminChanges(handle, store: store, place: place)"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "try Self.followInvite(handle, store: store, inviteId: inviteId)"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "subscribeWaitingRequest:"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "@escaping @MainActor (MembershipStore, Set<String>) throws ->"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "@escaping @MainActor (MembershipStore, BridgeAdminChangePlace)"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "@escaping @MainActor (MembershipStore, String) throws -> AnyObject,"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "self.subscribeWaitingRequest = subscribeWaitingRequest"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "self.subscribeInvite = subscribeInvite"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "self.subscribeAdminChanges = subscribeAdminChanges"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "/// Read the first waiting join request other than those of the invites"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "/// in `closed`, replacing the read of an earlier `closed`. The last"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "/// request read stays until the new read answers."
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "public func showWaitingRequest(closed: Set<String>) {"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "waitingRequestSubscription = try subscribeWaitingRequest("
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "/// End what `showWaitingRequest` reads, once the page closes."
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "public func hideWaitingRequest() {"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "extension MembershipStore {"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "/// The subscriptions to what a screen showing the people reads, which"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "/// hand each value to `store`."
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "private static func followShown("
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "handle.subscribePeople(),"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "onValue: { [weak store] people in store?.people = people },"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "handle.subscribeRequestedProfile(),"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "onValue: { [weak store] requested in"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "store?.requestedProfile = requested"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "handle.subscribeInvites(),"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "onValue: { [weak store] entries in"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "store?.inviteEntries = entries"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "/// The subscription to the admin changes that show in `place`, which"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "/// hands each value to `store`."
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "private static func followAdminChanges("
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "place: BridgeAdminChangePlace"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "try handle.subscribeAdminChanges(place: place),"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "onValue: { [weak store] changes in"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "store?.adminChanges[place] = changes"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "/// Read the admin changes that show in `place` while a page shows them."
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "/// Pages that show the same place share one read."
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "public func showAdminChanges(at place: BridgeAdminChangePlace) {"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "if let read = adminChangeReads[place] {"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "1, try subscribeAdminChanges(self, place)"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "/// End a page's read of the admin changes that show in `place`; the read"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "/// ends with the last page that shows them."
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "public func hideAdminChanges(at place: BridgeAdminChangePlace) {"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "guard let read = adminChangeReads[place] else { return }"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "adminChangeReads[place] = (read.pages - 1, read.subscription)"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "adminChangeReads[place] = nil"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "adminChanges[place] = nil"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "/// The subscription to the open invite with `inviteId`, which hands each"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "private static func followInvite("
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "try handle.subscribeInvite(invite: inviteId),"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "onValue: { [weak store] invite in"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "store?.shownInvite = ShownInvite("
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "/// Read the open invite with the id `inviteId` while its sheet shows."
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "guard inviteSubscription?.inviteId != inviteId else { return }"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "inviteId, try subscribeInvite(self, inviteId)"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "/// End what `showInvite` reads, once the invite's sheet closes."
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "public func hideInvite() {"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "inviteSubscription = nil"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "/// The subscription to the first waiting join request other than those"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "/// of the invites in `closed`, which hands each value to `store`."
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "private static func followWaitingRequest("
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "try handle.subscribeWaitingJoinRequest(closed: Array(closed)),"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "onValue: { [weak store] invite in store?.waitingRequest = invite },"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "/// The subscription to the person with `memberId`, which hands each value"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "private static func followPerson("
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "try handle.subscribePerson(member: memberId),"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "onValue: { [weak store] person in"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "store?.shownPerson = ShownPerson("
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "/// A store showing `invites` and `refusedInvites` and `people` from the"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "/// start, with no subscriptions; a page reading a place's admin"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "/// changes finds that place's in `adminChanges`, and following a"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "/// pairing finds `addDeviceStatus`."
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "public static func stub("
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "invites: [BridgeInvite] = [],"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "refusedInvites: [BridgeRefusedInvite] = [],"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "requestedProfile: BridgeRequestedProfile? = nil,"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "adminChanges: [BridgeAdminChangePlace: [BridgeAdminChange]] = [:],"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "addDeviceStatus: BridgeAddDeviceStatus? = nil"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "let store = MembershipStore("
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "subscribeMembers: { _ in NSObject() },"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "subscribeShown: { _ in [] },"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "subscribePerson: { store, memberId in"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "store.shownPerson = ShownPerson("
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "person: people.first { $0.membership.id == memberId }"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "subscribeWaitingRequest: { _, _ in NSObject() },"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "store.adminChanges[place] = adminChanges[place] ?? []"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "store.shownInvite = ShownInvite("
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "invite: invites.first { $0.id == inviteId }"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "followAddDeviceStatus: { _, apply, _ in"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "if let addDeviceStatus { apply(addDeviceStatus) }"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "holdFrequentSync: { {} }"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "store.selfIsAdmin = selfIsAdmin"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "// The fixture's own person is the one it marks as this device's,"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "// as core would read it."
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "store.people = BridgePeople("
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "own: people.first { $0.membership.isSelf },"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "others: people.filter { !$0.membership.isSelf },"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "people: UInt64(people.count),"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "people.reduce(0) { $0 + $1.membership.activeDevices.count }"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "invites.map { .open(invite: $0) }"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "+ refusedInvites.map { .refused(refused: $0) }"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "store.requestedProfile = requestedProfile"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "/// The invite an invite's sheet shows, with the invite id it asked for: no"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "/// invite once it has ended."
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "public let inviteId: String"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/MembershipStore.swift"
+code = "public let invite: BridgeInvite?"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/ScreenSubscription.swift"
+code = "extension SavePresetSubscription: PulledSubscription {}"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/ScreenSubscription.swift"
+code = "extension OpenInviteSubscription: PulledSubscription {}"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/Store/Config.swift"
+code = "/// The preset the last save, of a track or a release, used: the one a"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/Store/Config.swift"
+code = "public let lastSavePreset: BridgeSavePreset"
+verdict = "none"
+
+[[site]]
+file = "Cargo.toml"
+code = 'coven = { git = "https://github.com/bae-fm/coven", rev = "f11c9b76b632d278f65fde45e6f531081528a9d4" }'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/AppSession.kt"
+code = "import fm.bae.app.playback.SESSION_UP_NEXT_LIMIT"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/AppSession.kt"
+code = "screenSubscriptions += sessionUpNext(scope)"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/AppSession.kt"
+code = "/** The tracks the system media session lists after the current one, in one read. */"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/AppSession.kt"
+code = "private fun sessionUpNext(scope: CoroutineScope) ="
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/AppSession.kt"
+code = "appHandle.subscribeSessionUpNext(SESSION_UP_NEXT_LIMIT.toUInt()).let { pulled(it::next, it::cancel) },"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/AppSession.kt"
+code = "onValue = playback::onSessionUpNext,"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/AppSession.kt"
+code = 'subscriptionFailed("session up next", error)?.let(playback.readFailures::failSessionUpNext)'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/AppSessionHolder.kt"
+code = "val config: BridgeConfig = handle.getConfig()"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/BaeCorePlayer.kt"
+code = "} else if (upcomingShown) {"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/BaeCorePlayer.kt"
+code = "upcoming.open(value.shuffled)"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/BaeCorePlayer.kt"
+code = "fun onSessionUpNext(value: List<BridgeQueueEntry>) {"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/BaeCorePlayer.kt"
+code = "readFailures.sessionUpNextArrived()"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/BaeCorePlayer.kt"
+code = "entries = value.map { it.toMeta() }"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/BaeCorePlayer.kt"
+code = "upcomingTotal = upcoming.total,"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/BaeCorePlayer.kt"
+code = "upcoming = upcoming.entries(),"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/PlaybackReadFailures.kt"
+code = "private var queueValue: DisplayError? = null"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/PlaybackReadFailures.kt"
+code = "private var sessionUpNext: DisplayError? = null"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/PlaybackReadFailures.kt"
+code = "fun failSessionUpNext(error: DisplayError) {"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/PlaybackReadFailures.kt"
+code = "internal fun sessionUpNextArrived() {"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/PlaybackReadFailures.kt"
+code = "private fun showQueue() {"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/PlaybackReadFailures.kt"
+code = "_queue.value = queueValue ?: sessionUpNext"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/playback/QueueFailures.kt"
+code = "val failure by playback.upcoming.failure"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/playback/QueueFailures.kt"
+code = "action = shown.retryAction(onClick = { playback.upcoming.retry() }),"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/AdminChanges.kt"
+code = "import uniffi.bae_bridge.BridgeAdminChangePlace"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/AdminChanges.kt"
+code = "internal data class ShownAdminChanges("
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/AdminChanges.kt"
+code = "val place: BridgeAdminChangePlace,"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/AdminChanges.kt"
+code = "val changes: List<BridgeAdminChange>,"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/AdminChanges.kt"
+code = "internal fun ShownAdminChanges?.at(place: BridgeAdminChangePlace): List<BridgeAdminChange> ="
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/AdminChanges.kt"
+code = "this?.takeIf { it.place == place }?.changes.orEmpty()"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/LibrarySettingsScreen.kt"
+code = "import uniffi.bae_bridge.BridgeAdminChangePlace"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/LibrarySettingsScreen.kt"
+code = "LaunchedEffect(members) { members.watchAdminChanges(BridgeAdminChangePlace.Library) }"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/LibrarySettingsScreen.kt"
+code = "adminChanges = members.adminChanges.at(BridgeAdminChangePlace.Library),"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/MembersDialogs.kt"
+code = "import androidx.compose.runtime.DisposableEffect"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/MembersDialogs.kt"
+code = "import androidx.compose.runtime.LaunchedEffect"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/MembersDialogs.kt"
+code = "val shownId = dialogs.shownInvite"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/MembersDialogs.kt"
+code = "DisposableEffect(model, shownId) {"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/MembersDialogs.kt"
+code = "if (shownId != null) model.watchInvite(shownId)"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/MembersDialogs.kt"
+code = "onDispose { model.stopWatchingInvite() }"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/MembersDialogs.kt"
+code = "?.takeIf { it.inviteId == shownId }"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/MembersDialogs.kt"
+code = "val invite = read.invite"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/MembersDialogs.kt"
+code = "LaunchedEffect(read) { dialogs.shownInvite = null }"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/MembersDialogs.kt"
+code = "storage = model.storage,"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/MembersDialogs.kt"
+code = "onDismiss = { dialogs.shownInvite = null },"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/MembersDialogs.kt"
+code = "LaunchedEffect(model, dialogs.closedRequests) { model.watchWaitingRequest(dialogs.closedRequests) }"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/MembersScreen.kt"
+code = "import uniffi.bae_bridge.BridgeAdminChangePlace"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/MembersScreen.kt"
+code = "internal data class ShownInvite("
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/MembersScreen.kt"
+code = "val invite: BridgeInvite?,"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/MembersScreen.kt"
+code = "* The admin changes this device asked for that show in the place the page reads, each until the person dismisses"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/MembersScreen.kt"
+code = "* its outcome; null while no page reads them."
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/MembersScreen.kt"
+code = "var adminChanges by mutableStateOf<ShownAdminChanges?>(null)"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/MembersScreen.kt"
+code = "* The first open invite whose join request waits for a decision, other than those whose dialog the person closed;"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/MembersScreen.kt"
+code = "var waitingRequest by mutableStateOf<BridgeInvite?>(null)"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/MembersScreen.kt"
+code = "/** The open invite whose dialog shows, once its read answers; null while no invite's dialog shows. */"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/MembersScreen.kt"
+code = "var shownInvite by mutableStateOf<ShownInvite?>(null)"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/MembersScreen.kt"
+code = "private var waitingRequestSubscription: ScreenSubscription<BridgeInvite?>? = null"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/MembersScreen.kt"
+code = "private var inviteSubscription: ScreenSubscription<BridgeInvite?>? = null"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/MembersScreen.kt"
+code = "private var adminChangesSubscription: ScreenSubscription<List<BridgeAdminChange>>? = null"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/MembersScreen.kt"
+code = "private var waitingRequestGeneration = 0"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/MembersScreen.kt"
+code = "private var inviteGeneration = 0"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/MembersScreen.kt"
+code = "private var adminChangesGeneration = 0"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/MembersScreen.kt"
+code = "* Follow the first waiting join request other than those of the invites in [closed], replacing the read of an"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/MembersScreen.kt"
+code = "* earlier [closed]. The last request read stays until the new read answers."
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/MembersScreen.kt"
+code = "val generation = waitingRequestGeneration"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/MembersScreen.kt"
+code = "appHandle.subscribeWaitingJoinRequest(closed.toList())"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/MembersScreen.kt"
+code = 'logger.error("reading the waiting join request failed", e)'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/MembersScreen.kt"
+code = "waitingRequestSubscription ="
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/MembersScreen.kt"
+code = "onValue = { value -> if (generation == waitingRequestGeneration) waitingRequest = value },"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/MembersScreen.kt"
+code = 'logger.error("reading the waiting join request failed", error)'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/MembersScreen.kt"
+code = "if (generation == waitingRequestGeneration) this@MembersModel.error = errors.display(error)"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/MembersScreen.kt"
+code = "/** Follow the admin changes that show in [place] for its page, replacing any read of another place. */"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/MembersScreen.kt"
+code = "fun watchAdminChanges(place: BridgeAdminChangePlace) {"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/MembersScreen.kt"
+code = "val generation = adminChangesGeneration"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/MembersScreen.kt"
+code = "appHandle.subscribeAdminChanges(place)"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/MembersScreen.kt"
+code = """logger.error("reading the library's admin changes failed", e)"""
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/MembersScreen.kt"
+code = "adminChangesSubscription ="
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/MembersScreen.kt"
+code = "if (generation == adminChangesGeneration) adminChanges = ShownAdminChanges(place, value)"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/MembersScreen.kt"
+code = """logger.error("reading the library's admin changes failed", error)"""
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/MembersScreen.kt"
+code = "if (generation == adminChangesGeneration) this@MembersModel.error = errors.display(error)"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/MembersScreen.kt"
+code = "fun stopWatchingAdminChanges() {"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/MembersScreen.kt"
+code = "adminChangesGeneration++"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/MembersScreen.kt"
+code = "adminChangesSubscription?.stop()"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/MembersScreen.kt"
+code = "adminChangesSubscription = null"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/MembersScreen.kt"
+code = "/** Follow the open invite with id [inviteId] for its dialog, replacing any read of another invite. */"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/MembersScreen.kt"
+code = "val generation = inviteGeneration"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/MembersScreen.kt"
+code = "appHandle.subscribeInvite(inviteId)"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/MembersScreen.kt"
+code = 'logger.error("reading an invite failed", e)'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/MembersScreen.kt"
+code = "if (generation == inviteGeneration) shownInvite = ShownInvite(inviteId, value)"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/MembersScreen.kt"
+code = 'logger.error("reading an invite failed", error)'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/MembersScreen.kt"
+code = "if (generation == inviteGeneration) this@MembersModel.error = errors.display(error)"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/MembersScreen.kt"
+code = "fun stopWatchingInvite() {"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/MembersScreen.kt"
+code = "inviteSubscription?.stop()"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/MembersScreen.kt"
+code = "inviteSubscription = null"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/MembersScreen.kt"
+code = "private fun stopWatchingWaitingRequest() {"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/MembersScreen.kt"
+code = "stopWatchingWaitingRequest()"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/MembersScreen.kt"
+code = "// The admin changes of the page that shows: People's, or a person's; the devices page shows none."
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/MembersScreen.kt"
+code = "PeoplePage.People -> BridgeAdminChangePlace.People"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/MembersScreen.kt"
+code = "is PeoplePage.Person -> BridgeAdminChangePlace.Person(requested.memberId)"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/MembersScreen.kt"
+code = "PeoplePage.Devices -> null"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/MembersScreen.kt"
+code = "DisposableEffect(model, adminPlace) {"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/MembersScreen.kt"
+code = "if (adminPlace != null) model.watchAdminChanges(adminPlace)"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/MembersScreen.kt"
+code = "onDispose { model.stopWatchingAdminChanges() }"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/PeopleLoadedPage.kt"
+code = "import uniffi.bae_bridge.BridgeAdminChangePlace"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/PeopleLoadedPage.kt"
+code = "adminChanges = model.adminChanges.at(BridgeAdminChangePlace.People),"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/PeopleLoadedPage.kt"
+code = "adminChanges = model.adminChanges.at(BridgeAdminChangePlace.Person(page.memberId)),"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/PeoplePages.kt"
+code = "item { AdminChangesList(changes = adminChanges, onDismiss = callbacks.onDismissChange) }"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/PersonPages.kt"
+code = "item { AdminChangesList(changes = adminChanges, onDismiss = callbacks.onDismissChange) }"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/BridgeFixtures.kt"
+code = "codec = BridgeSaveCodec.Flac(bitDepth = BridgeSaveBitDepth.SAME_AS_SOURCE),"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/FakeAppHandle.kt"
+code = "import uniffi.bae_bridge.BridgeAdminChangePlace"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/FakeAppHandle.kt"
+code = "import uniffi.bae_bridge.BridgeConfig"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/FakeAppHandle.kt"
+code = "import uniffi.bae_bridge.BridgeSavePresetWrite"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/FakeAppHandle.kt"
+code = "import uniffi.bae_bridge.OpenInviteSubscription"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/FakeAppHandle.kt"
+code = "import uniffi.bae_bridge.SavePresetSubscription"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/FakeAppHandle.kt"
+code = "import uniffi.bae_bridge.SessionUpNextSubscription"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/FakeAppHandle.kt"
+code = 'override fun subscribeSavePreset(id: String): SavePresetSubscription = unfaked("subscribeSavePreset")'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/FakeAppHandle.kt"
+code = 'override suspend fun getConfig(): BridgeConfig = unfaked("getConfig")'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/FakeAppHandle.kt"
+code = "override fun subscribeSessionUpNext(limit: UInt): SessionUpNextSubscription = FakeSessionUpNextSubscription()"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/FakeAppHandle.kt"
+code = 'override suspend fun addSavePreset(preset: BridgeSavePreset): BridgeSavePresetWrite = unfaked("addSavePreset")'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/FakeAppHandle.kt"
+code = 'override suspend fun replaceSavePreset(preset: BridgeSavePreset): BridgeSavePresetWrite = unfaked("replaceSavePreset")'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/FakeAppHandle.kt"
+code = "override suspend fun deleteSavePreset(id: String) {"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/FakeAppHandle.kt"
+code = 'unfaked("deleteSavePreset")'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/FakeAppHandle.kt"
+code = "/** The reads of the waiting join request the app opened, each with the invites it left out, newest last. */"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/FakeAppHandle.kt"
+code = "val waitingRequests = mutableListOf<Pair<List<String>, FakeOpenInviteSubscription>>()"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/FakeAppHandle.kt"
+code = "override fun subscribeWaitingJoinRequest(closed: List<String>): OpenInviteSubscription ="
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/FakeAppHandle.kt"
+code = "FakeOpenInviteSubscription().also { waitingRequests += closed to it }"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/FakeAppHandle.kt"
+code = "/** The reads of one invite the app opened, each with its invite id, newest last. */"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/FakeAppHandle.kt"
+code = "val inviteReads = mutableListOf<Pair<String, FakeOpenInviteSubscription>>()"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/FakeAppHandle.kt"
+code = "override fun subscribeInvite(invite: String): OpenInviteSubscription = FakeOpenInviteSubscription().also { inviteReads += invite to it }"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/FakeAppHandle.kt"
+code = "/** The places whose admin changes the app read, in order. */"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/FakeAppHandle.kt"
+code = "val adminChangePlaces = mutableListOf<BridgeAdminChangePlace>()"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/FakeAppHandle.kt"
+code = "override fun subscribeAdminChanges(place: BridgeAdminChangePlace): AdminChangesSubscription ="
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/FakeAppHandle.kt"
+code = "adminChanges.also { adminChangePlaces += place }"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/FakePulls.kt"
+code = "import uniffi.bae_bridge.BridgeInvite"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/FakePulls.kt"
+code = "import uniffi.bae_bridge.BridgeQueueEntry"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/FakePulls.kt"
+code = "import uniffi.bae_bridge.OpenInviteSubscription"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/FakePulls.kt"
+code = "import uniffi.bae_bridge.SessionUpNextSubscription"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/FakePulls.kt"
+code = "/** One open invite, or none, as a test hands it to the app. */"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/FakePulls.kt"
+code = "internal class FakeOpenInviteSubscription : OpenInviteSubscription(NoHandle) {"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/FakePulls.kt"
+code = "val pulls = PullChannel<BridgeInvite?>()"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/FakePulls.kt"
+code = "override suspend fun next(): BridgeInvite? = pulls.next()"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/FakePulls.kt"
+code = "/** A session up-next list nothing delivers: each pull waits until cancelled. */"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/FakePulls.kt"
+code = "internal class FakeSessionUpNextSubscription : SessionUpNextSubscription(NoHandle) {"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/FakePulls.kt"
+code = "private val pulls = PullChannel<List<BridgeQueueEntry>>()"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/FakePulls.kt"
+code = "override suspend fun next(): List<BridgeQueueEntry> = pulls.next()"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/GetStateCurrentIndexTest.kt"
+code = "player.onSessionUpNext(manual)"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/NowPlayingProjectionTest.kt"
+code = "fun positionKeepsThePlaylistAndAnUpNextChangeReplacesIt() {"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/NowPlayingProjectionTest.kt"
+code = 'player.onSessionUpNext(listOf(entry("up1")))'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/NowPlayingProjectionTest.kt"
+code = 'player.onSessionUpNext(listOf(entry("up2")))'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/PlaybackReadFailureTest.kt"
+code = "assertNull(player.readFailures.queue.value)"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/PlaybackReadFailureTest.kt"
+code = "fun aFailedSessionUpNextReadShowsOnTheQueueUntilItsOwnNextValue() {"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/PlaybackReadFailureTest.kt"
+code = "player.readFailures.failSessionUpNext(failure)"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/PlaybackReadFailureTest.kt"
+code = "assertEquals(failure, player.readFailures.queue.value)"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/PlaybackReadFailureTest.kt"
+code = "player.onSessionUpNext(emptyList())"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/PlaybackReadFailureTest.kt"
+code = "private fun emptyQueue() ="
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/QueueProjectionTest.kt"
+code = "player.showUpcoming().use {"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/QueueProjectionTest.kt"
+code = "shadowOf(Looper.getMainLooper()).idle()"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/QueueProjectionTest.kt"
+code = "val projection = player.queue.value"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/QueueProjectionTest.kt"
+code = 'assertEquals(listOf(entry("m")), projection.manual)'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/QueueProjectionTest.kt"
+code = 'assertEquals(mapOf(0 to entry("c1"), 1 to entry("c2")), projection.context?.upcoming)'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/QueueProjectionTest.kt"
+code = "assertEquals(2, projection.context?.upcomingTotal)"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/QueueProjectionTest.kt"
+code = "assertEquals(BridgePlaybackSourceKind.RELEASE, projection.context?.kind)"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/QueueProjectionTest.kt"
+code = "assertEquals(false, projection.shuffled)"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/QueueUpcomingWindowTest.kt"
+code = "fun theListOpensOnlyWhileTheScreenShowsItAndReadsWhereItHolds() {"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/QueueUpcomingWindowTest.kt"
+code = 'assertEquals("nothing reads the tail while no screen shows it", emptyList<Boolean>(), feed.opened)'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/QueueUpcomingWindowTest.kt"
+code = "assertNull(itemAt(player, 0))"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/QueueUpcomingWindowTest.kt"
+code = "assertEquals(listOf(false), feed.opened)"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/QueueUpcomingWindowTest.kt"
+code = "assertNotNull(itemAt(player, 0))"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/QueueUpcomingWindowTest.kt"
+code = '"closing the screen closes the list",'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/QueueUpcomingWindowTest.kt"
+code = 'assertEquals("e0", itemAt(player, 0))'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/QueueUpcomingWindowTest.kt"
+code = 'feed.show((0 until 300).map { upcomingEntry("f$it") })'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/QueueUpcomingWindowTest.kt"
+code = 'assertEquals("f0", itemAt(player, 0))'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/QueueUpcomingWindowTest.kt"
+code = 'assertEquals("a change opens no list", listOf(false), feed.opened)'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/QueueUpcomingWindowTest.kt"
+code = "assertNull(player.queue.value.context)"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/QueueUpcomingWindowTest.kt"
+code = "player.onQueueValue(queueValue(shuffled = false))"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/QueueUpcomingWindowTest.kt"
+code = 'feed.show(listOf(upcomingEntry("n0")))'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/QueueUpcomingWindowTest.kt"
+code = 'assertEquals("a new context opens the list again", listOf(false, false), feed.opened)'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/QueueUpcomingWindowTest.kt"
+code = 'assertEquals("n0", itemAt(player, 0))'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/QueueUpcomingWindowTest.kt"
+code = "player.onQueueValue(queueValue(shuffled = true))"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/QueueUpcomingWindowTest.kt"
+code = "assertEquals(listOf(false, true), feed.opened)"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/QueueUpcomingWindowTest.kt"
+code = "assertTrue(player.queue.value.shuffled)"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/SeekToMediaItemTest.kt"
+code = "fun seekingPastUpNextSkipsToTheContextEntry() {"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/SeekToMediaItemTest.kt"
+code = "val (player, handle) = player()"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/SeekToMediaItemTest.kt"
+code = 'player.onSessionUpNext(listOf(entry("m"), entry("c")))'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/SeekToMediaItemTest.kt"
+code = "player.onSessionUpNext(manual)"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/SeekToMediaItemTest.kt"
+code = "private fun player(): Pair<BaeCorePlayer, SkipRecordingHandle> {"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/ui/settings/MembersModelTest.kt"
+code = "import uniffi.bae_bridge.BridgeAdminChangePlace"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/ui/settings/MembersModelTest.kt"
+code = "fun theWaitingRequestFollowsTheReadThatLeavesOutTheClosedInvites() {"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/ui/settings/MembersModelTest.kt"
+code = "val stop = model.subscribe()"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/ui/settings/MembersModelTest.kt"
+code = "model.watchWaitingRequest(emptySet())"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/ui/settings/MembersModelTest.kt"
+code = "assertEquals(request, model.waitingRequest)"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/ui/settings/MembersModelTest.kt"
+code = 'model.watchWaitingRequest(setOf("11"))'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/ui/settings/MembersModelTest.kt"
+code = 'assertEquals(listOf(emptyList(), listOf("11")), handle.waitingRequests.map { it.first })'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/ui/settings/MembersModelTest.kt"
+code = 'assertEquals("the last request stays until the new read answers", request, model.waitingRequest)'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/ui/settings/MembersModelTest.kt"
+code = "assertEquals(null, model.waitingRequest)"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/ui/settings/MembersModelTest.kt"
+code = "/** An invite's dialog follows the read keyed by its id; an invite that ended arrives as none. */"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/ui/settings/MembersModelTest.kt"
+code = "fun anInvitesDialogFollowsTheReadKeyedByItsId() {"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/ui/settings/MembersModelTest.kt"
+code = 'assertEquals(listOf("11"), handle.inviteReads.map { it.first })'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/ui/settings/MembersModelTest.kt"
+code = 'assertEquals(ShownInvite("11", invite), model.shownInvite)'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/ui/settings/MembersModelTest.kt"
+code = 'assertEquals(ShownInvite("11", null), model.shownInvite)'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/ui/settings/MembersModelTest.kt"
+code = "model.stopWatchingInvite()"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/ui/settings/MembersModelTest.kt"
+code = "assertEquals(null, model.shownInvite)"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/ui/settings/MembersModelTest.kt"
+code = "/** Each list of invites the model pulls replaces the one it shows. */"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/ui/settings/MembersModelTest.kt"
+code = "fun eachPulledListOfInvitesReplacesTheShownOne() {"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/ui/settings/MembersModelTest.kt"
+code = "assertEquals(listOf<BridgeInviteEntry>(BridgeInviteEntry.Open(invite)), model.inviteEntries)"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/ui/settings/MembersModelTest.kt"
+code = "model.watchAdminChanges(BridgeAdminChangePlace.People)"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/ui/settings/MembersModelTest.kt"
+code = "assertEquals(listOf<BridgeAdminChangePlace>(BridgeAdminChangePlace.People), handle.adminChangePlaces)"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/ui/settings/MembersModelTest.kt"
+code = "assertEquals(listOf(waiting), model.adminChanges.at(BridgeAdminChangePlace.People))"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/ui/settings/MembersModelTest.kt"
+code = "assertEquals(emptyList<BridgeAdminChange>(), model.adminChanges.at(BridgeAdminChangePlace.Library))"
+verdict = "none"
+
+[[site]]
+file = "bae-android/screensubscription/src/main/java/fm/bae/screensubscription/ScreenSubscription.kt"
+code = "* through [ScreenSubscription] or [pullEach]."
+verdict = "none"
+
+[[site]]
+file = "bae-app/src/app_services.rs"
+code = "/// The library's preferences as stored now, as the settings screens read"
+verdict = "none"
+
+[[site]]
+file = "bae-app/src/app_services.rs"
+code = "pub async fn config(&self) -> Result<bae_preferences::Config, bae_store::DbError> {"
+verdict = "none"
+
+[[site]]
+file = "bae-app/src/app_services.rs"
+code = "self.inner.manager.config().await"
+verdict = "none"
+
+[[site]]
+file = "bae-app/src/app_services.rs"
+code = "pub fn subscribe_save_preset("
+verdict = "none"
+
+[[site]]
+file = "bae-app/src/app_services.rs"
+code = ") -> bae_store::live_query::LiveValues<Option<bae_preferences::SavePreset>> {"
+verdict = "none"
+
+[[site]]
+file = "bae-app/src/app_services.rs"
+code = "self.inner.manager.subscribe_save_preset(id)"
+verdict = "none"
+
+[[site]]
+file = "bae-app/src/app_services.rs"
+code = "delegate_async!(manager, add_save_preset => add_save_preset(preset: bae_preferences::SavePreset) -> Result<(), bae_preferences::PreferencesError>);"
+verdict = "none"
+
+[[site]]
+file = "bae-app/src/app_services.rs"
+code = "delegate_async!(manager, replace_save_preset => replace_save_preset(preset: bae_preferences::SavePreset) -> Result<(), bae_preferences::PreferencesError>);"
+verdict = "none"
+
+[[site]]
+file = "bae-app/src/app_services.rs"
+code = "delegate_async!(manager, delete_save_preset => delete_save_preset(id: String) -> Result<(), bae_preferences::PreferencesError>);"
+verdict = "none"
+
+[[site]]
+file = "bae-app/src/app_services.rs"
+code = "delegate_values!(subscribe_admin_changes => subscribe_admin_changes(place: bae_people::admin_change::AdminChangePlace) -> Vec<bae_people::admin_change::AdminChange>);"
+verdict = "none"
+
+[[site]]
+file = "bae-app/src/app_services.rs"
+code = "/// The open invite `invite`, live: none once it has ended."
+verdict = "none"
+
+[[site]]
+file = "bae-app/src/app_services.rs"
+code = "pub fn subscribe_invite("
+verdict = "none"
+
+[[site]]
+file = "bae-app/src/app_services.rs"
+code = "invite: coven::InviteId,"
+verdict = "none"
+
+[[site]]
+file = "bae-app/src/app_services.rs"
+code = "self.inner.manager.values_until_closed(self.inner.views.subscribe_invite(invite))"
+verdict = "none"
+
+[[site]]
+file = "bae-app/src/app_services.rs"
+code = "/// The first of this device's open invites whose join request waits for"
+verdict = "none"
+
+[[site]]
+file = "bae-app/src/app_services.rs"
+code = "/// the admin's decision, other than those in `closed`, live."
+verdict = "none"
+
+[[site]]
+file = "bae-app/src/app_services.rs"
+code = "pub fn subscribe_waiting_join_request("
+verdict = "none"
+
+[[site]]
+file = "bae-app/src/app_services.rs"
+code = "closed: Vec<coven::InviteId>,"
+verdict = "none"
+
+[[site]]
+file = "bae-app/src/app_services.rs"
+code = "self.inner.manager.values_until_closed(self.inner.views.subscribe_waiting_request(closed))"
+verdict = "none"
+
+[[site]]
+file = "bae-app/src/app_services/queue_reads.rs"
+code = "/// `limit` in all. The first value at once, then one after each write that"
+verdict = "none"
+
+[[site]]
+file = "bae-app/src/app_services/queue_reads.rs"
+code = "pub fn subscribe_session_up_next("
+verdict = "none"
+
+[[site]]
+file = "bae-app/src/app_services/queue_reads.rs"
+code = ") -> bae_store::live_query::LiveValues<Vec<bae_playback::QueueItem>> {"
+verdict = "none"
+
+[[site]]
+file = "bae-app/src/app_services/queue_reads.rs"
+code = "let manager = &self.inner.manager;"
+verdict = "none"
+
+[[site]]
+file = "bae-app/src/app_services/queue_reads.rs"
+code = "manager.values_until_closed(manager.subscribe_session_up_next(limit))"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/bridge_utils.rs"
+code = "last_save_preset: BridgeSavePreset::from_core(&config.last_save_preset),"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/from_app.rs"
+code = "pub(crate) fn invite(invite_id: &str) -> Result<coven::InviteId, BridgeError> {"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/from_app.rs"
+code = "Ok(coven::InviteId(invite_id.parse().map_err(BridgeError::config)?))"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/handle/base.rs"
+code = "pub fn subscribe_session_up_next("
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/handle/base.rs"
+code = ") -> std::sync::Arc<crate::SessionUpNextSubscription> {"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/handle/base.rs"
+code = "crate::screens::session_up_next("
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/handle/base.rs"
+code = "self.services.subscribe_session_up_next(u64::from(limit)),"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/handle/config_subscription_tests.rs"
+code = "/// A plain read of the preferences answers what is stored at the time of the"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/handle/config_subscription_tests.rs"
+code = "fn a_plain_read_answers_the_stored_preferences() {"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/handle/config_subscription_tests.rs"
+code = 'let handle = super::super::tests::fresh_bridge_handle("config-read");'
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/handle/config_subscription_tests.rs"
+code = "let runtime = &handle.handle().runtime;"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/handle/config_subscription_tests.rs"
+code = "let first = runtime.block_on(handle.handle().clone().get_config()).unwrap();"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/handle/config_subscription_tests.rs"
+code = "assert!(!first.show_remaining_time);"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/handle/config_subscription_tests.rs"
+code = 'assert_eq!(first.library_id.len(), 36, "{}", first.library_id);'
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/handle/config_subscription_tests.rs"
+code = "runtime.block_on(handle.handle().clone().set_show_remaining_time(true)).unwrap();"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/handle/config_subscription_tests.rs"
+code = "let after = runtime.block_on(handle.handle().clone().get_config()).unwrap();"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/handle/config_subscription_tests.rs"
+code = "assert_eq!(after.library_id, first.library_id);"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/handle/configuration.rs"
+code = "/// The save preset `id`, as the format editor shows it: the first value"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/handle/configuration.rs"
+code = "/// at once, then one after each write that changes it; none once no"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/handle/configuration.rs"
+code = "pub fn subscribe_save_preset("
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/handle/configuration.rs"
+code = ") -> std::sync::Arc<crate::SavePresetSubscription> {"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/handle/configuration.rs"
+code = "crate::screens::save_preset(self.services.subscribe_save_preset(id), self.runtime.clone())"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/handle/configuration.rs"
+code = "/// This device's preferences for the library as stored now, as the"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/handle/configuration.rs"
+code = "/// settings screens show them."
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/handle/configuration.rs"
+code = "fn get_config() -> crate::types::BridgeConfig {"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/handle/configuration.rs"
+code = "Ok(crate::types::BridgeConfig::from_core(&this.services.config().await?))"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/handle/configuration.rs"
+code = "fn add_save_preset(preset: crate::types::BridgeSavePreset) -> crate::types::BridgeSavePresetWrite {"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/handle/configuration.rs"
+code = "crate::types::BridgeSavePresetWrite::of(this.services.add_save_preset(preset.into_core()).await)"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/handle/configuration.rs"
+code = "fn replace_save_preset(preset: crate::types::BridgeSavePreset) -> crate::types::BridgeSavePresetWrite {"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/handle/configuration.rs"
+code = "crate::types::BridgeSavePresetWrite::of("
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/handle/configuration.rs"
+code = "this.services.replace_save_preset(preset.into_core()).await,"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/handle/configuration.rs"
+code = "fn delete_save_preset(id: String) -> () {"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/handle/configuration.rs"
+code = "Ok(this.services.delete_save_preset(id).await?)"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/handle/membership.rs"
+code = "/// The admin changes this device asked for that show in `place`, each"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/handle/membership.rs"
+code = "/// until the person dismisses its outcome."
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/handle/membership.rs"
+code = "pub fn subscribe_admin_changes("
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/handle/membership.rs"
+code = "place: crate::types::BridgeAdminChangePlace,"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/handle/membership.rs"
+code = ") -> Result<Arc<crate::AdminChangesSubscription>, BridgeError> {"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/handle/membership.rs"
+code = "Ok(crate::screens::admin_changes("
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/handle/membership.rs"
+code = "self.services.subscribe_admin_changes(place.into_core()?),"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/handle/membership.rs"
+code = "/// The open invite `invite`, by id, now and after each change: none once"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/handle/membership.rs"
+code = "pub fn subscribe_invite("
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/handle/membership.rs"
+code = "self.services.subscribe_invite(crate::from_app::invite(&invite)?),"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/handle/membership.rs"
+code = "/// The first of this device's open invites whose join request waits for"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/handle/membership.rs"
+code = "/// a decision, leaving out the invites in `closed`, by id: the requests"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/handle/membership.rs"
+code = "/// the person closed. None while no other request waits."
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/handle/membership.rs"
+code = "pub fn subscribe_waiting_join_request("
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/handle/membership.rs"
+code = ".map(|invite| crate::from_app::invite(invite))"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/handle/membership.rs"
+code = ".collect::<Result<_, _>>()?;"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/handle/membership.rs"
+code = "self.services.subscribe_waiting_join_request(closed),"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/handle/membership.rs"
+code = "fn cancel_invite(invite:String)->() {Ok(this.services.cancel_invite(&crate::from_app::invite(&invite)?).await?)}"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/handle/screen_pulls_tests.rs"
+code = 'handle.subscribe_invite("2f1d6a3e-0000-4000-8000-000000000001".to_string()).unwrap();'
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/handle/screen_pulls_tests.rs"
+code = "assert!(pull_until(&handle, || Box::pin(unknown.clone().next()), |_| true).is_none());"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/handle/screen_pulls_tests.rs"
+code = 'handle.subscribe_invite("not an invite id".to_string()),'
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/handle/screen_pulls_tests.rs"
+code = "Err(crate::types::BridgeError::Diagnostic {"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/handle/screen_pulls_tests.rs"
+code = "category: crate::types::BridgeErrorCategory::Config,"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/handle/screen_pulls_tests.rs"
+code = "let waiting = handle.subscribe_waiting_join_request(Vec::new()).unwrap();"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/handle/screen_pulls_tests.rs"
+code = "assert!(pull_until(&handle, || Box::pin(waiting.clone().next()), |_| true).is_none());"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/handle/screen_pulls_tests.rs"
+code = "handle.subscribe_admin_changes(crate::types::BridgeAdminChangePlace::People).unwrap();"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/screens.rs"
+code = "LiveValues<Option<bae_preferences::SavePreset>> => Option<crate::types::BridgeSavePreset>,"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/screens.rs"
+code = "converted by |preset: Option<bae_preferences::SavePreset>| {"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/screens.rs"
+code = "preset.as_ref().map(crate::types::BridgeSavePreset::from_core)"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/screens.rs"
+code = "/// The tracks after the playing one as the system media session lists"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/screens.rs"
+code = "SessionUpNextSubscription:"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/screens.rs"
+code = "LiveValues<Vec<bae_playback::QueueItem>> => Vec<crate::types::BridgeQueueEntry>,"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/screens.rs"
+code = "converted by |items: Vec<bae_playback::QueueItem>| {"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/screens.rs"
+code = "items.into_iter().map(crate::types::BridgeQueueEntry::from_core).collect()"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/screens.rs"
+code = "built by session_up_next"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/screens.rs"
+code = "/// One of this device's open invites, or none."
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/screens.rs"
+code = "LiveValues<Option<bae_views::OpenInvite>> => Option<crate::types::BridgeInvite>,"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/screens.rs"
+code = "converted by |invite: Option<bae_views::OpenInvite>| {"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/screens.rs"
+code = "invite.map(crate::types::BridgeInvite::from_core)"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/types/admin_change.rs"
+code = "#[derive(Debug, Clone, PartialEq, Eq, Hash, uniffi::Enum)]"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/types/admin_change.rs"
+code = "pub enum BridgeAdminChangePlace {"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/types/admin_change.rs"
+code = "Person { member: String },"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/types/admin_change.rs"
+code = "impl BridgeAdminChangePlace {"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/types/admin_change.rs"
+code = "pub(crate) fn into_core("
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/types/admin_change.rs"
+code = ") -> Result<bae_people::admin_change::AdminChangePlace, super::BridgeError> {"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/types/admin_change.rs"
+code = "use bae_people::admin_change::AdminChangePlace;"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/types/admin_change.rs"
+code = "Self::Library => AdminChangePlace::Library,"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/types/admin_change.rs"
+code = "Self::Person { member } => AdminChangePlace::Person(crate::from_app::member(&member)?),"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/types/admin_change.rs"
+code = "Self::People => AdminChangePlace::People,"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/types/configuration/save_format.rs"
+code = "/// How adding or changing one save preset ended."
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/types/configuration/save_format.rs"
+code = "#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/types/configuration/save_format.rs"
+code = "pub enum BridgeSavePresetWrite {"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/types/configuration/save_format.rs"
+code = "impl BridgeSavePresetWrite {"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/types/configuration/save_format.rs"
+code = "written: Result<(), bae_preferences::PreferencesError>,"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/types/configuration/save_format.rs"
+code = ") -> Result<Self, BridgeError> {"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/types/configuration/save_format.rs"
+code = "Ok(()) => Ok(Self::Saved),"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/types/configuration/save_format.rs"
+code = "Err(bae_preferences::PreferencesError::NameTaken(_)) => Ok(Self::NameTaken),"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/types/configuration/save_format.rs"
+code = "Err(error) => Err(error.into()),"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/types/configuration/services.rs"
+code = "pub last_save_preset: BridgeSavePreset,"
+verdict = "none"
+
+[[site]]
+file = "bae-library/src/manager/config.rs"
+code = "/// The library's preferences as stored now, with the library and its"
+verdict = "none"
+
+[[site]]
+file = "bae-library/src/manager/config.rs"
+code = "/// directory, as the settings screens read them."
+verdict = "none"
+
+[[site]]
+file = "bae-library/src/manager/config.rs"
+code = "pub async fn config(&self) -> Result<bae_preferences::Config, bae_store::DbError> {"
+verdict = "none"
+
+[[site]]
+file = "bae-library/src/manager/config.rs"
+code = "bae_preferences::config(&self.store, self.library_path()).await"
+verdict = "none"
+
+[[site]]
+file = "bae-library/src/manager/config.rs"
+code = "self.values_until_closed(bae_preferences::subscribe_config("
+verdict = "none"
+
+[[site]]
+file = "bae-library/src/manager/config.rs"
+code = "pub fn subscribe_save_preset("
+verdict = "none"
+
+[[site]]
+file = "bae-library/src/manager/config.rs"
+code = ") -> bae_store::live_query::LiveValues<Option<bae_preferences::SavePreset>> {"
+verdict = "none"
+
+[[site]]
+file = "bae-library/src/manager/config.rs"
+code = "self.values_until_closed(bae_preferences::subscribe_save_preset(&self.store, id))"
+verdict = "none"
+
+[[site]]
+file = "bae-library/src/manager/config.rs"
+code = "pub async fn add_save_preset("
+verdict = "none"
+
+[[site]]
+file = "bae-library/src/manager/config.rs"
+code = "if prefs.save_presets.iter().any(|stored| stored.id == preset.id) {"
+verdict = "none"
+
+[[site]]
+file = "bae-library/src/manager/config.rs"
+code = "prefs.save_presets.push(preset);"
+verdict = "none"
+
+[[site]]
+file = "bae-library/src/manager/config.rs"
+code = "pub async fn replace_save_preset("
+verdict = "none"
+
+[[site]]
+file = "bae-library/src/manager/config.rs"
+code = ".find(|stored| stored.id == preset.id)"
+verdict = "none"
+
+[[site]]
+file = "bae-library/src/manager/config.rs"
+code = ".ok_or_else(|| Self::no_save_preset(&preset.id))?;"
+verdict = "none"
+
+[[site]]
+file = "bae-library/src/manager/config.rs"
+code = "pub async fn delete_save_preset("
+verdict = "none"
+
+[[site]]
+file = "bae-library/src/manager/config.rs"
+code = ".position(|stored| stored.id == id)"
+verdict = "none"
+
+[[site]]
+file = "bae-library/src/manager/config.rs"
+code = ".ok_or_else(|| Self::no_save_preset(&id))?;"
+verdict = "none"
+
+[[site]]
+file = "bae-library/src/manager/config.rs"
+code = "if !bae_preferences::SavePreset::can_delete(&prefs.save_presets) {"
+verdict = "none"
+
+[[site]]
+file = "bae-library/src/manager/config.rs"
+code = "return Err(bae_preferences::PreferencesError::Invalid("
+verdict = "none"
+
+[[site]]
+file = "bae-library/src/manager/config.rs"
+code = '"at least one export preset must remain".to_string(),'
+verdict = "none"
+
+[[site]]
+file = "bae-library/src/manager/config.rs"
+code = "prefs.save_presets.remove(place);"
+verdict = "none"
+
+[[site]]
+file = "bae-library/src/manager/config.rs"
+code = "if prefs.last_save_preset == id {"
+verdict = "none"
+
+[[site]]
+file = "bae-library/src/manager/config.rs"
+code = "prefs.last_save_preset = prefs.save_presets[0].id.clone();"
+verdict = "none"
+
+[[site]]
+file = "bae-library/src/manager/config.rs"
+code = "/// Refuse `preset` when another stored preset has its name."
+verdict = "none"
+
+[[site]]
+file = "bae-library/src/manager/config.rs"
+code = "preset: &bae_preferences::SavePreset,"
+verdict = "none"
+
+[[site]]
+file = "bae-library/src/manager/config.rs"
+code = "stored: &[bae_preferences::SavePreset],"
+verdict = "none"
+
+[[site]]
+file = "bae-library/src/manager/config.rs"
+code = "if stored.iter().any(|other| other.id != preset.id && other.name == preset.name) {"
+verdict = "none"
+
+[[site]]
+file = "bae-library/src/manager/config.rs"
+code = "return Err(bae_preferences::PreferencesError::NameTaken(preset.name.clone()));"
+verdict = "none"
+
+[[site]]
+file = "bae-library/src/manager/config.rs"
+code = "fn no_save_preset(id: &str) -> bae_preferences::PreferencesError {"
+verdict = "none"
+
+[[site]]
+file = "bae-library/src/manager/config.rs"
+code = 'bae_preferences::PreferencesError::Invalid(format!("no export preset {id}"))'
+verdict = "none"
+
+[[site]]
+file = "bae-library/src/manager/config_tests.rs"
+code = 'assert_eq!(prefs.last_save_preset, "flac");'
+verdict = "none"
+
+[[site]]
+file = "bae-library/src/manager/config_tests.rs"
+code = "async fn the_only_format_left_is_never_deleted() {"
+verdict = "none"
+
+[[site]]
+file = "bae-library/src/manager/config_tests.rs"
+code = '.delete_save_preset("flac".to_string())'
+verdict = "none"
+
+[[site]]
+file = "bae-library/src/manager/config_tests.rs"
+code = "assert_eq!(manager.save_presets().await.unwrap().len(), 1);"
+verdict = "none"
+
+[[site]]
+file = "bae-library/src/manager/config_tests.rs"
+code = ".add_save_preset(bae_preferences::SavePreset {"
+verdict = "none"
+
+[[site]]
+file = "bae-library/src/manager/config_tests.rs"
+code = 'id: "wav-16".to_string(),'
+verdict = "none"
+
+[[site]]
+file = "bae-library/src/manager/config_tests.rs"
+code = 'name: "WAV 16-bit".to_string(),'
+verdict = "none"
+
+[[site]]
+file = "bae-library/src/manager/config_tests.rs"
+code = "codec: bae_preferences::SaveCodec::Wav {"
+verdict = "none"
+
+[[site]]
+file = "bae-library/src/manager/config_tests.rs"
+code = "bit_depth: bae_preferences::SaveBitDepth::Bits16,"
+verdict = "none"
+
+[[site]]
+file = "bae-library/src/manager/config_tests.rs"
+code = "async fn adding_or_changing_a_format_refuses_a_name_another_format_has() {"
+verdict = "none"
+
+[[site]]
+file = "bae-library/src/manager/config_tests.rs"
+code = "let mut mp3 = manager.save_presets().await.unwrap()[1].clone();"
+verdict = "none"
+
+[[site]]
+file = "bae-library/src/manager/config_tests.rs"
+code = 'mp3.name = "FLAC".to_string();'
+verdict = "none"
+
+[[site]]
+file = "bae-library/src/manager/config_tests.rs"
+code = "let replaced = manager.replace_save_preset(mp3.clone()).await;"
+verdict = "none"
+
+[[site]]
+file = "bae-library/src/manager/config_tests.rs"
+code = 'matches!(&replaced, Err(bae_preferences::PreferencesError::NameTaken(name)) if name == "FLAC"),'
+verdict = "none"
+
+[[site]]
+file = "bae-library/src/manager/config_tests.rs"
+code = '.add_save_preset(bae_preferences::SavePreset { id: "other".to_string(), ..mp3.clone() })'
+verdict = "none"
+
+[[site]]
+file = "bae-library/src/manager/config_tests.rs"
+code = 'assert!(matches!(added, Err(bae_preferences::PreferencesError::NameTaken(_))), "{added:?}");'
+verdict = "none"
+
+[[site]]
+file = "bae-library/src/manager/config_tests.rs"
+code = "manager.save_presets().await.unwrap().into_iter().map(|preset| preset.name).collect();"
+verdict = "none"
+
+[[site]]
+file = "bae-library/src/manager/config_tests.rs"
+code = 'mp3.name = "MP3".to_string();'
+verdict = "none"
+
+[[site]]
+file = "bae-library/src/manager/config_tests.rs"
+code = "mp3.codec = bae_preferences::SaveCodec::Mp3 { bitrate_kbps: 192 };"
+verdict = "none"
+
+[[site]]
+file = "bae-library/src/manager/config_tests.rs"
+code = "manager.replace_save_preset(mp3.clone()).await.unwrap();"
+verdict = "none"
+
+[[site]]
+file = "bae-library/src/manager/config_tests.rs"
+code = 'assert_eq!(manager.save_presets().await.unwrap()[1], mp3, "a format keeps its own name");'
+verdict = "none"
+
+[[site]]
+file = "bae-library/src/manager/output_tests.rs"
+code = "manager.replace_save_preset(preset).await.unwrap();"
+verdict = "none"
+
+[[site]]
+file = "bae-library/src/manager/people.rs"
+code = "place: bae_people::admin_change::AdminChangePlace,"
+verdict = "none"
+
+[[site]]
+file = "bae-library/src/manager/people.rs"
+code = "self.membership.subscribe_admin_changes(place)"
+verdict = "none"
+
+[[site]]
+file = "bae-library/src/manager/people_tests.rs"
+code = "manager.subscribe_admin_changes(bae_people::admin_change::AdminChangePlace::Library);"
+verdict = "none"
+
+[[site]]
+file = "bae-library/src/manager/people_tests.rs"
+code = "// A rename shows with the library's name, not on People and devices."
+verdict = "none"
+
+[[site]]
+file = "bae-library/src/manager/people_tests.rs"
+code = "manager.subscribe_admin_changes(bae_people::admin_change::AdminChangePlace::People);"
+verdict = "none"
+
+[[site]]
+file = "bae-library/src/manager/people_tests.rs"
+code = "assert!(people.next().await.unwrap().unwrap().is_empty());"
+verdict = "none"
+
+[[site]]
+file = "bae-library/src/manager/track.rs"
+code = "/// Follow the tracks after the playing one as a system media session"
+verdict = "none"
+
+[[site]]
+file = "bae-library/src/manager/track.rs"
+code = "/// lists them: Up Next, then the context lane's, at most `limit` in all."
+verdict = "none"
+
+[[site]]
+file = "bae-library/src/manager/track.rs"
+code = "pub fn subscribe_session_up_next("
+verdict = "none"
+
+[[site]]
+file = "bae-library/src/manager/track.rs"
+code = ") -> coven::LiveQuery<Vec<bae_playback::QueueItem>, bae_store::DbError> {"
+verdict = "none"
+
+[[site]]
+file = "bae-library/src/manager/track.rs"
+code = "bae_playback::tables::subscribe_session_up_next(&self.store, limit)"
+verdict = "none"
+
+[[site]]
+file = "bae-library/tests/integration/test_admin_changes.rs"
+code = "let mut changes = library"
+verdict = "none"
+
+[[site]]
+file = "bae-library/tests/integration/test_admin_changes.rs"
+code = ".subscribe_admin_changes(bae_people::admin_change::AdminChangePlace::People);"
+verdict = "none"
+
+[[site]]
+file = "bae-library/tests/integration/test_export.rs"
+code = "let presets = manager.save_presets().await.unwrap();"
+verdict = "none"
+
+[[site]]
+file = "bae-library/tests/integration/test_export.rs"
+code = "manager.add_save_preset(sixteen.clone()).await.unwrap();"
+verdict = "none"
+
+[[site]]
+file = "bae-library/tests/integration/test_export.rs"
+code = 'manager.add_save_preset(wav("same", SaveBitDepth::SameAsSource)).await.unwrap();'
+verdict = "none"
+
+[[site]]
+file = "bae-library/tests/integration/test_export.rs"
+code = 'manager.add_save_preset(wav("sixteen", SaveBitDepth::Bits16)).await.unwrap();'
+verdict = "none"
+
+[[site]]
+file = "bae-library/tests/integration/test_people/ratings.rs"
+code = ".subscribe_admin_changes(bae_people::admin_change::AdminChangePlace::People);"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/PreviewData+Configuration.swift"
+code = "lastSavePreset: BridgeSavePreset? = nil,"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/PreviewData+Configuration.swift"
+code = "lastSavePreset: lastSavePreset ?? savePresets[0],"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Services/Outputs.swift"
+code = "let subscribeSavePreset:"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Services/Outputs.swift"
+code = "@Sendable (_ id: String) throws -> SavePresetSubscription"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Services/Outputs.swift"
+code = "/// Delete the save preset with the id."
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Services/Outputs.swift"
+code = "let deleteSavePreset: @Sendable (_ id: String) async throws -> Void"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Services/Outputs.swift"
+code = "@escaping @Sendable (String) throws -> SavePresetSubscription = {"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Services/Outputs.swift"
+code = "_ in throw CancellationError()"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Services/Outputs.swift"
+code = "deleteSavePreset: @escaping @Sendable (String) async throws -> Void = {"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Services/Outputs.swift"
+code = "self.subscribeSavePreset = subscribeSavePreset"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Services/Outputs.swift"
+code = "self.addSavePreset = addSavePreset"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Services/Outputs.swift"
+code = "self.replaceSavePreset = replaceSavePreset"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Services/Outputs.swift"
+code = "self.deleteSavePreset = deleteSavePreset"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Services/Outputs.swift"
+code = "subscribeSavePreset: { handle.subscribeSavePreset(id: $0) },"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Services/Outputs.swift"
+code = "addSavePreset: { try await handle.addSavePreset(preset: $0) },"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Services/Outputs.swift"
+code = "try await handle.replaceSavePreset(preset: $0)"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Services/Outputs.swift"
+code = "deleteSavePreset: { try await handle.deleteSavePreset(id: $0) },"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Components/OutputTarget.swift"
+code = "selectedPresetId: configStore.config.lastSavePreset.id,"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Components/SaveFormatPicker.swift"
+code = "selectedPresetId = configStore.config.lastSavePreset.id"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Library/AlbumDetail/TrackSavePanel.swift"
+code = "selectedPresetId: configStore.config.lastSavePreset.id,"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Settings/Formats/FormatsSettingsTab.swift"
+code = "/// The id of the preset whose edit sheet is open; the sheet reads the"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Settings/Formats/FormatsSettingsTab.swift"
+code = "presets: configStore.config.savePresets,"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Settings/Formats/FormatsSettingsTab.swift"
+code = "onEnded: { editingPreset = nil }"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Settings/Formats/FormatsSettingsTab.swift"
+code = '"." + configStore.config.lastSavePreset.codec.fileExtension'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Settings/Formats/FormatsSettingsTab.swift"
+code = "/// Write a change of a preset's codec or quality, which keeps its name."
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Settings/Formats/FormatsSettingsTab.swift"
+code = "if try await outputs.replaceSavePreset(preset) == .nameTaken {"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Settings/Formats/FormatsSettingsTab.swift"
+code = "set { try await outputs.deleteSavePreset(id) }"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Settings/Formats/FormatsSettingsTab.swift"
+code = "if try await outputs.addSavePreset(preset) == .nameTaken {"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Settings/Formats/FormatsSettingsTab.swift"
+code = "/// Core refused a preset's write because another preset has its name, where"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Settings/Formats/FormatsSettingsTab.swift"
+code = "/// the screen had no field to say so in."
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Settings/Formats/FormatsSettingsTab.swift"
+code = "private struct SavePresetNameTaken: LocalizedError {"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Settings/Formats/FormatsSettingsTab.swift"
+code = "var errorDescription: String? {"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Settings/Formats/FormatsSettingsTab.swift"
+code = "private struct SavePresetSheet: View {"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Settings/Formats/FormatsSettingsTab.swift"
+code = "let presets: [BridgeSavePreset]"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Settings/Formats/FormatsSettingsTab.swift"
+code = "let update: (BridgeSavePreset) -> Void"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Settings/Formats/FormatsSettingsTab.swift"
+code = "@Environment(Outputs.self)"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Settings/Formats/FormatsSettingsTab.swift"
+code = "@Environment(UiStore.self)"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Settings/Formats/FormatsSettingsTab.swift"
+code = "private var read = SavePresetRead()"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Settings/Formats/FormatsSettingsTab.swift"
+code = "// A stack, not a group: it is on screen before the read answers, so"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Settings/Formats/FormatsSettingsTab.swift"
+code = "// its appearance starts the read."
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Settings/Formats/FormatsSettingsTab.swift"
+code = "if let preset = read.preset {"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Settings/Formats/FormatsSettingsTab.swift"
+code = "rename: { try await outputs.replaceSavePreset($0) }"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Settings/Formats/FormatsSettingsTab.swift"
+code = "outputs.subscribeSavePreset(presetId),"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Settings/Formats/FormatsSettingsTab.swift"
+code = "fail: { uiStore.showError($0) }"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Settings/Formats/FormatsSettingsTab.swift"
+code = "uiStore.showError(error)"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Settings/Formats/FormatsSettingsTab.swift"
+code = ".onDisappear { read.close() }"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Settings/Formats/FormatsSettingsTab.swift"
+code = ".onChange(of: read.ended) { _, ended in"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Settings/Formats/FormatsSettingsTab.swift"
+code = "/// One save preset's live read, while its edit sheet shows."
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Settings/Formats/FormatsSettingsTab.swift"
+code = "private final class SavePresetRead {"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Settings/Formats/FormatsSettingsTab.swift"
+code = "/// The preset as the read last answered; nil before it answers and once"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Settings/Formats/FormatsSettingsTab.swift"
+code = "/// no preset has its id."
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Settings/Formats/FormatsSettingsTab.swift"
+code = "private(set) var preset: BridgeSavePreset?"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Settings/Formats/FormatsSettingsTab.swift"
+code = "/// Whether the read answered that no preset has its id."
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Settings/Formats/FormatsSettingsTab.swift"
+code = "private(set) var ended = false"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Settings/Formats/FormatsSettingsTab.swift"
+code = "private var subscription: AnyObject?"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Settings/Formats/FormatsSettingsTab.swift"
+code = "/// Follow `source`, handing a failed read to `fail`."
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Settings/Formats/FormatsSettingsTab.swift"
+code = "_ source: SavePresetSubscription,"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Settings/Formats/FormatsSettingsTab.swift"
+code = "fail: @escaping @MainActor @Sendable (any Error) -> Void"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Settings/Formats/FormatsSettingsTab.swift"
+code = "subscription = ScreenSubscription("
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Settings/Formats/FormatsSettingsTab.swift"
+code = "onValue: { [weak self] preset in"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Settings/Formats/SavePresetEditor.swift"
+code = "/// preset through `update`, and the name through `rename`, so Done only"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Settings/Formats/SavePresetEditor.swift"
+code = "/// Every format, this one included, for the name a format change gives."
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Settings/Formats/SavePresetEditor.swift"
+code = "/// Write the preset with a new name; core answers whether another format"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Settings/Formats/SavePresetEditor.swift"
+code = "@MainActor (BridgeSavePreset) async throws -> BridgeSavePresetWrite"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Settings/Formats/SavePresetEditor.swift"
+code = "/// The name core last refused because another format has it, while the"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Settings/Formats/SavePresetEditor.swift"
+code = "/// field still holds it."
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Settings/Formats/SavePresetEditor.swift"
+code = "private var refusedName: String?"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Settings/Formats/SavePresetEditor.swift"
+code = "/// Core refused the name in the field: another format has it."
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Settings/Formats/SavePresetEditor.swift"
+code = "refusedName == nameDraft"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Settings/Formats/SavePresetEditor.swift"
+code = "switch try await rename(changed) {"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Settings/Formats/SavePresetEditor.swift"
+code = "case .saved: refusedName = nil"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Settings/Formats/SavePresetEditor.swift"
+code = "case .nameTaken: refusedName = changed.name"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Settings/Formats/SavePresetEditor.swift"
+code = "uiStore.showError(error)"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Settings/Library/AdminChangesSection.swift"
+code = "let place: BridgeAdminChangePlace"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Settings/Library/AdminChangesSection.swift"
+code = "let changes = store.adminChanges[place] ?? []"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Settings/Library/InviteCodeSheet.swift"
+code = "/// The invite as its read last answered, once it has answered for this"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Settings/Library/InviteCodeSheet.swift"
+code = "private var read: ShownInvite? {"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Settings/Library/InviteCodeSheet.swift"
+code = "store.shownInvite.flatMap { $0.inviteId == inviteId ? $0 : nil }"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Settings/Library/InviteCodeSheet.swift"
+code = "private var invite: BridgeInvite? { read?.invite }"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Settings/Library/InviteCodeSheet.swift"
+code = "// A stack, not a group: it is on screen before the read answers, so"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Settings/Library/InviteCodeSheet.swift"
+code = "// its appearance starts the read."
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Settings/Library/InviteCodeSheet.swift"
+code = "// An ended invite has nothing left to show: its read answers none."
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Settings/Library/InviteCodeSheet.swift"
+code = ".onChange(of: read != nil && invite == nil) { _, ended in"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Settings/Library/InviteCodeSheet.swift"
+code = ".onAppear { store.showInvite(inviteId) }"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Settings/Library/InviteCodeSheet.swift"
+code = "/// A cancelled invite's read answers none, which closes the sheet."
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Settings/Library/LibrarySettingsTab.swift"
+code = "membership.showAdminChanges(at: .library)"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Settings/Library/LibrarySettingsTab.swift"
+code = "membership.hideAdminChanges(at: .library)"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Settings/Library/PeopleAndDevicesPage.swift"
+code = ".onChange(of: subpage, initial: true) { old, page in"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Settings/Library/PeopleAndDevicesPage.swift"
+code = "if old != page, let place = Self.adminChangePlace(old) {"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Settings/Library/PeopleAndDevicesPage.swift"
+code = "if let place = Self.adminChangePlace(page) {"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Settings/Library/PeopleAndDevicesPage.swift"
+code = "store.showAdminChanges(at: place)"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Settings/Library/PeopleAndDevicesPage.swift"
+code = ".onChange(of: closedRequests, initial: true) { _, closed in"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Settings/Library/PeopleAndDevicesPage.swift"
+code = "store.showWaitingRequest(closed: closed)"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Settings/Library/PeopleAndDevicesPage.swift"
+code = "store.hideWaitingRequest()"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Settings/Library/PeopleAndDevicesPage.swift"
+code = "if let place = Self.adminChangePlace(subpage) {"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Settings/Library/PeopleAndDevicesPage.swift"
+code = "/// The place whose admin changes `page` shows; the devices page shows"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Settings/Library/PeopleAndDevicesPage.swift"
+code = "private static func adminChangePlace(_ page: Subpage)"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Settings/Library/PeopleAndDevicesPage.swift"
+code = "-> BridgeAdminChangePlace?"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Settings/Library/PeopleAndDevicesPage.swift"
+code = "case .person(let memberId): .person(member: memberId)"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Settings/Library/PeopleAndDevicesPage.swift"
+code = "/// The first invite whose request waits for a decision, other than"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Settings/Library/PeopleAndDevicesPage.swift"
+code = "/// those whose sheet the person closed. The read answers for the closed"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeShots/ShotScene+People.swift"
+code = ".person(member: otherMemberId): ["
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/AppServiceSubscriptionFakes.swift"
+code = "/// One open invite or none, as a test hands it to the app."
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/AppServiceSubscriptionFakes.swift"
+code = "final class FakeOpenInvite: OpenInviteSubscription, @unchecked Sendable {"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/AppServiceSubscriptionFakes.swift"
+code = "let values = PullQueue<BridgeInvite?>()"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/AppServiceSubscriptionFakes.swift"
+code = "super.init(noHandle: OpenInviteSubscription.NoHandle())"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/AppServiceSubscriptionFakes.swift"
+code = "required init(unsafeFromHandle handle: UInt64) {"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/AppServiceSubscriptionFakes.swift"
+code = "super.init(unsafeFromHandle: handle)"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/AppServiceSubscriptionFakes.swift"
+code = "override func next() async throws -> BridgeInvite? {"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/AppServiceSubscriptionFakes.swift"
+code = "override func cancel() async throws { values.cancel() }"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/AppServiceSubscriptionTests.swift"
+code = '@Test("each pulled list of invites reaches the membership store")'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/AppServiceSubscriptionTests.swift"
+code = "#expect(store.inviteEntries.isEmpty)"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/AppServiceSubscriptionTests.swift"
+code = "try await Wait.until { store.inviteEntries.isEmpty }"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/AppServiceSubscriptionTests.swift"
+code = '#expect(store.inviteEntries.first?.rowId == "11")'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/AppServiceSubscriptionTests.swift"
+code = '== ["people", "requestedProfile", "invites"]'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/AppServiceSubscriptionTests.swift"
+code = "store.inviteEntries.isEmpty,"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/AppServiceSubscriptionTests.swift"
+code = "store.showAdminChanges(at: .people)"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/AppServiceSubscriptionTests.swift"
+code = 'handle.subscribed.filter { $0.hasPrefix("adminChanges") }'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/AppServiceSubscriptionTests.swift"
+code = '== ["adminChanges library", "adminChanges people"],'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/AppServiceSubscriptionTests.swift"
+code = '"pages that show one place share its read"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/AppServiceSubscriptionTests.swift"
+code = '"the waiting join request leaves out the closed invites and stays until the next read answers"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/AppServiceSubscriptionTests.swift"
+code = "func waitingRequestFollowsTheClosedInvites() async throws {"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/AppServiceSubscriptionTests.swift"
+code = "store.showWaitingRequest(closed: [])"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/AppServiceSubscriptionTests.swift"
+code = 'handle.waitingRequestReads.last?.read.values.deliver(invite(id: "11"))'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/AppServiceSubscriptionTests.swift"
+code = 'try await Wait.until { store.waitingRequest?.id == "11" }'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/AppServiceSubscriptionTests.swift"
+code = 'store.showWaitingRequest(closed: ["11"])'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/AppServiceSubscriptionTests.swift"
+code = '#expect(handle.waitingRequestReads.map(\.closed) == [[], ["11"]])'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/AppServiceSubscriptionTests.swift"
+code = "handle.waitingRequestReads.last?.read.values.deliver(nil)"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/AppServiceSubscriptionTests.swift"
+code = "try await Wait.until { store.waitingRequest == nil }"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/AppServiceSubscriptionTests.swift"
+code = "func shownInviteFollowsItsRead() async throws {"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/AppServiceSubscriptionTests.swift"
+code = '#expect(handle.inviteReads.map(\.inviteId) == ["11"])'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/AppServiceSubscriptionTests.swift"
+code = 'handle.inviteReads.last?.read.values.deliver(invite(id: "11"))'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/AppServiceSubscriptionTests.swift"
+code = 'try await Wait.until { store.shownInvite?.invite?.id == "11" }'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/AppServiceSubscriptionTests.swift"
+code = "handle.inviteReads.last?.read.values.deliver(nil)"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/AppServiceSubscriptionTests.swift"
+code = 'store.shownInvite?.inviteId == "11"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/AppServiceSubscriptionTests.swift"
+code = "&& store.shownInvite?.invite == nil"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/AppServiceSubscriptionTests.swift"
+code = "#expect(store.shownInvite == nil)"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/AppServiceSubscriptionTests.swift"
+code = "lastSavePreset: BridgeSavePreset("
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/AppServiceSubscriptionTests.swift"
+code = "codec: .flac(bitDepth: .sameAsSource)"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/AppServiceSubscriptionTests.swift"
+code = "override func subscribeAdminChanges(place: BridgeAdminChangePlace) throws"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/AppServiceSubscriptionTests.swift"
+code = "-> AdminChangesSubscription"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/AppServiceSubscriptionTests.swift"
+code = 'record("adminChanges \(place)")'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/AppServiceSubscriptionTests.swift"
+code = "private let waitingLock = NSLock()"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/AppServiceSubscriptionTests.swift"
+code = "private var waitingReads: [(closed: [String], read: FakeOpenInvite)] = []"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/AppServiceSubscriptionTests.swift"
+code = "/// The reads of the waiting join request opened so far, each with the"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/AppServiceSubscriptionTests.swift"
+code = "/// invites it leaves out, in order."
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/AppServiceSubscriptionTests.swift"
+code = "var waitingRequestReads: [(closed: [String], read: FakeOpenInvite)] {"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/AppServiceSubscriptionTests.swift"
+code = "waitingLock.withLock { waitingReads }"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/AppServiceSubscriptionTests.swift"
+code = "private var inviteReadList: [(inviteId: String, read: FakeOpenInvite)] = []"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/AppServiceSubscriptionTests.swift"
+code = "/// The reads of one invite opened so far, each with its invite id, in"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/AppServiceSubscriptionTests.swift"
+code = "var inviteReads: [(inviteId: String, read: FakeOpenInvite)] {"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/AppServiceSubscriptionTests.swift"
+code = "waitingLock.withLock { inviteReadList }"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/AppServiceSubscriptionTests.swift"
+code = "override func subscribeInvite(invite: String) throws"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/AppServiceSubscriptionTests.swift"
+code = "waitingLock.recording { inviteReadList.append((invite, read)) }"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/AppServiceSubscriptionTests.swift"
+code = "override func subscribeWaitingJoinRequest(closed: [String]) throws"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/AppServiceSubscriptionTests.swift"
+code = "waitingLock.recording { waitingReads.append((closed.sorted(), read)) }"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/LibrarySessionOpenerTests.swift"
+code = "lastSavePreset: BridgeSavePreset("
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/LibrarySessionOpenerTests.swift"
+code = "codec: .flac(bitDepth: .sameAsSource)"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/LibrarySessionOpenerTests.swift"
+code = "func getConfig() async throws -> BridgeConfig { config }"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/SaveFormatPickerTests.swift"
+code = "lastSavePreset: presets.first { $0.id == lastUsed }"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/SyncStatusStoreTests.swift"
+code = "lastSavePreset: BridgeSavePreset("
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/SyncStatusStoreTests.swift"
+code = "codec: .flac(bitDepth: .sameAsSource)"
+verdict = "none"
+
+[[site]]
+file = "bae-people/src/admin_change.rs"
+code = "#[derive(Clone, Debug, PartialEq, Eq)]"
+verdict = "none"
+
+[[site]]
+file = "bae-people/src/admin_change.rs"
+code = "pub enum AdminChangePlace {"
+verdict = "none"
+
+[[site]]
+file = "bae-people/src/admin_change.rs"
+code = "Person(coven::MemberId),"
+verdict = "none"
+
+[[site]]
+file = "bae-people/src/membership/admin_operations.rs"
+code = "AdminChange, AdminChangeDismissError, AdminChangeKind, AdminChangePlace, AdminChangeState,"
+verdict = "none"
+
+[[site]]
+file = "bae-people/src/membership/admin_operations.rs"
+code = "/// were asked for. A change whose operation coven doesn't list shows in every"
+verdict = "none"
+
+[[site]]
+file = "bae-people/src/membership/admin_operations.rs"
+code = "/// place, so its read fails wherever it would show."
+verdict = "none"
+
+[[site]]
+file = "bae-people/src/membership/admin_operations.rs"
+code = "fn admin_changes_sql(place: &AdminChangePlace) -> String {"
+verdict = "none"
+
+[[site]]
+file = "bae-people/src/membership/admin_operations.rs"
+code = "let shown = match place {"
+verdict = "none"
+
+[[site]]
+file = "bae-people/src/membership/admin_operations.rs"
+code = """AdminChangePlace::Library => "o.kind = 'RenameStore'","""
+verdict = "none"
+
+[[site]]
+file = "bae-people/src/membership/admin_operations.rs"
+code = """AdminChangePlace::Person(_) => "o.kind = 'SetRole' AND a.member = ?1","""
+verdict = "none"
+
+[[site]]
+file = "bae-people/src/membership/admin_operations.rs"
+code = "AdminChangePlace::People => {"
+verdict = "none"
+
+[[site]]
+file = "bae-people/src/membership/admin_operations.rs"
+code = """"o.kind IN ('RemoveMember', 'RemoveDevice', 'Invite', 'ReplaceMemberKeys')""""
+verdict = "none"
+
+[[site]]
+file = "bae-people/src/membership/admin_operations.rs"
+code = '"SELECT a.operation, o.operation IS NOT NULL, o.kind, o.outcome, \'
+verdict = "none"
+
+[[site]]
+file = "bae-people/src/membership/admin_operations.rs"
+code = 'a.member, a.device, a.role, a.name, p.name, d.name \'
+verdict = "none"
+
+[[site]]
+file = "bae-people/src/membership/admin_operations.rs"
+code = 'FROM admin_operations AS a \'
+verdict = "none"
+
+[[site]]
+file = "bae-people/src/membership/admin_operations.rs"
+code = 'LEFT JOIN coven_operations AS o ON o.operation = a.operation \'
+verdict = "none"
+
+[[site]]
+file = "bae-people/src/membership/admin_operations.rs"
+code = 'LEFT JOIN people AS p ON p.id = a.member \'
+verdict = "none"
+
+[[site]]
+file = "bae-people/src/membership/admin_operations.rs"
+code = 'LEFT JOIN coven_devices AS d ON d.device = a.device \'
+verdict = "none"
+
+[[site]]
+file = "bae-people/src/membership/admin_operations.rs"
+code = "sql: &impl coven::SqlRead,"
+verdict = "none"
+
+[[site]]
+file = "bae-people/src/membership/admin_operations.rs"
+code = "place: &AdminChangePlace,"
+verdict = "none"
+
+[[site]]
+file = "bae-people/src/membership/admin_operations.rs"
+code = ") -> rusqlite::Result<Vec<AdminChange>> {"
+verdict = "none"
+
+[[site]]
+file = "bae-people/src/membership/admin_operations.rs"
+code = "let statement = admin_changes_sql(place);"
+verdict = "none"
+
+[[site]]
+file = "bae-people/src/membership/admin_operations.rs"
+code = "let member = match place {"
+verdict = "none"
+
+[[site]]
+file = "bae-people/src/membership/admin_operations.rs"
+code = "AdminChangePlace::Person(member) => Some(*member),"
+verdict = "none"
+
+[[site]]
+file = "bae-people/src/membership/admin_operations.rs"
+code = "AdminChangePlace::Library | AdminChangePlace::People => None,"
+verdict = "none"
+
+[[site]]
+file = "bae-people/src/membership/admin_operations.rs"
+code = "sql.query(&statement, rusqlite::params_from_iter(member.iter()), |row| {"
+verdict = "none"
+
+[[site]]
+file = "bae-people/src/membership/admin_operations.rs"
+code = "place: AdminChangePlace,"
+verdict = "none"
+
+[[site]]
+file = "bae-people/src/membership/admin_operations.rs"
+code = "self.store.subscribe(move |sql| Ok(admin_changes_on(&sql, &place)?))"
+verdict = "none"
+
+[[site]]
+file = "bae-playback/src/tables.rs"
+code = "pub use queue_reads::{subscribe_queue_value, subscribe_session_up_next};"
+verdict = "none"
+
+[[site]]
+file = "bae-playback/src/tables/queue_reads.rs"
+code = "//! with Up Next whole and what the context lane plays from, and the head of"
+verdict = "none"
+
+[[site]]
+file = "bae-playback/src/tables/queue_reads.rs"
+code = "//! what plays next as a system media session lists it. The `queue_upcoming`"
+verdict = "none"
+
+[[site]]
+file = "bae-playback/src/tables/queue_reads.rs"
+code = "//! module reads the context lane's upcoming tracks as a list for the queue"
+verdict = "none"
+
+[[site]]
+file = "bae-playback/src/tables/queue_reads.rs"
+code = "/// Follow the tracks after the playing one as a system media session lists"
+verdict = "none"
+
+[[site]]
+file = "bae-playback/src/tables/queue_reads.rs"
+code = "/// them: Up Next, then the context lane's upcoming tracks in the order it"
+verdict = "none"
+
+[[site]]
+file = "bae-playback/src/tables/queue_reads.rs"
+code = "/// reads in, at most `limit` in all, in one statement. Each lane is read from"
+verdict = "none"
+
+[[site]]
+file = "bae-playback/src/tables/queue_reads.rs"
+code = "pub fn subscribe_session_up_next("
+verdict = "none"
+
+[[site]]
+file = "bae-playback/src/tables/queue_reads.rs"
+code = ") -> coven::LiveQuery<Vec<QueueItem>, bae_store::DbError> {"
+verdict = "none"
+
+[[site]]
+file = "bae-playback/src/tables/queue_reads.rs"
+code = "store.subscribe(move |sql| session_up_next_on(&sql, limit))"
+verdict = "none"
+
+[[site]]
+file = "bae-playback/src/tables/queue_reads.rs"
+code = "/// The rows of the session's up-next list, at most `?1`: Up Next, then the"
+verdict = "none"
+
+[[site]]
+file = "bae-playback/src/tables/queue_reads.rs"
+code = "/// lane's rows past its cursor in the order it reads in. Each part takes at"
+verdict = "none"
+
+[[site]]
+file = "bae-playback/src/tables/queue_reads.rs"
+code = "/// gives the other no cursor and so no rows. The parts are joined in order"
+verdict = "none"
+
+[[site]]
+file = "bae-playback/src/tables/queue_reads.rs"
+code = 'pub(super) const SESSION_UP_NEXT_ROWS: &str = "\'
+verdict = "none"
+
+[[site]]
+file = "bae-playback/src/tables/queue_reads.rs"
+code = 'SELECT entry, lane_track, ROW_NUMBER() OVER (ORDER BY lane, place) AS position \'
+verdict = "none"
+
+[[site]]
+file = "bae-playback/src/tables/queue_reads.rs"
+code = '''SELECT 'm' || entry AS entry, track_id AS lane_track, 0 AS lane, \'''
+verdict = "none"
+
+[[site]]
+file = "bae-playback/src/tables/queue_reads.rs"
+code = 'FROM playback_manual ORDER BY position LIMIT ?1) \'
+verdict = "none"
+
+[[site]]
+file = "bae-playback/src/tables/queue_reads.rs"
+code = '''SELECT 'c' || entry, track_id, 1, ordered FROM playback_context \'''
+verdict = "none"
+
+[[site]]
+file = "bae-playback/src/tables/queue_reads.rs"
+code = 'ORDER BY ordered LIMIT ?1) \'
+verdict = "none"
+
+[[site]]
+file = "bae-playback/src/tables/queue_reads.rs"
+code = '''SELECT 'c' || entry, track_id, 1, shuffled FROM playback_context \'''
+verdict = "none"
+
+[[site]]
+file = "bae-playback/src/tables/queue_reads.rs"
+code = 'WHERE shuffled > (SELECT shuffled_cursor FROM playback_queue WHERE shuffled = 1) \'
+verdict = "none"
+
+[[site]]
+file = "bae-playback/src/tables/queue_reads.rs"
+code = 'ORDER BY shuffled LIMIT ?1) \'
+verdict = "none"
+
+[[site]]
+file = "bae-playback/src/tables/queue_reads.rs"
+code = 'ORDER BY lane, place LIMIT ?1)";'
+verdict = "none"
+
+[[site]]
+file = "bae-playback/src/tables/queue_reads.rs"
+code = "fn session_up_next_on(sql: &SqlReadContext<'_>, limit: u64) -> Result<Vec<QueueItem>, DbError> {"
+verdict = "none"
+
+[[site]]
+file = "bae-playback/src/tables/queue_reads.rs"
+code = "&queue_items_sql(SESSION_UP_NEXT_ROWS),"
+verdict = "none"
+
+[[site]]
+file = "bae-playback/src/tables/queue_reads.rs"
+code = "[i64::try_from(limit).unwrap_or(i64::MAX)],"
+verdict = "none"
+
+[[site]]
+file = "bae-playback/src/tables/queue_reads_tests.rs"
+code = "use crate::tables::{queue_upcoming, ContextFill, ManualPlace, PlaybackQueueTables, ReleaseStart};"
+verdict = "none"
+
+[[site]]
+file = "bae-playback/src/tables/queue_reads_tests.rs"
+code = "/// Play `RELEASE_A`'s `tracks` from the second, shuffled when `shuffled`, and"
+verdict = "none"
+
+[[site]]
+file = "bae-playback/src/tables/queue_reads_tests.rs"
+code = "/// queue the last two by hand."
+verdict = "none"
+
+[[site]]
+file = "bae-playback/src/tables/queue_reads_tests.rs"
+code = "async fn up_next_with_both_lanes(db: &Store, tracks: &[String], shuffled: bool) {"
+verdict = "none"
+
+[[site]]
+file = "bae-playback/src/tables/queue_reads_tests.rs"
+code = "let queue = PlaybackQueueTables::new(db.clone());"
+verdict = "none"
+
+[[site]]
+file = "bae-playback/src/tables/queue_reads_tests.rs"
+code = "queue.set_shuffle(shuffled).await.unwrap();"
+verdict = "none"
+
+[[site]]
+file = "bae-playback/src/tables/queue_reads_tests.rs"
+code = ".fill(ContextFill::Release {"
+verdict = "none"
+
+[[site]]
+file = "bae-playback/src/tables/queue_reads_tests.rs"
+code = "release_id: RELEASE_A.to_string(),"
+verdict = "none"
+
+[[site]]
+file = "bae-playback/src/tables/queue_reads_tests.rs"
+code = "start: ReleaseStart::Track(tracks[1].clone()),"
+verdict = "none"
+
+[[site]]
+file = "bae-playback/src/tables/queue_reads_tests.rs"
+code = "queue.add_manual(tracks[tracks.len() - 2..].to_vec(), ManualPlace::End).await.unwrap();"
+verdict = "none"
+
+[[site]]
+file = "bae-playback/src/tables/queue_reads_tests.rs"
+code = "async fn session_up_next(db: &Store, limit: u64) -> Vec<String> {"
+verdict = "none"
+
+[[site]]
+file = "bae-playback/src/tables/queue_reads_tests.rs"
+code = "let items = db.read(move |sql| session_up_next_on(&sql, limit)).await.unwrap();"
+verdict = "none"
+
+[[site]]
+file = "bae-playback/src/tables/queue_reads_tests.rs"
+code = "items.into_iter().map(|item| item.track_id).collect()"
+verdict = "none"
+
+[[site]]
+file = "bae-playback/src/tables/queue_reads_tests.rs"
+code = "/// The session's list is Up Next, then the context lane's tracks after the"
+verdict = "none"
+
+[[site]]
+file = "bae-playback/src/tables/queue_reads_tests.rs"
+code = "/// playing one in the order the lane reads in, cut at the limit, shuffled or"
+verdict = "none"
+
+[[site]]
+file = "bae-playback/src/tables/queue_reads_tests.rs"
+code = "async fn the_session_lists_up_next_then_the_context_up_to_its_limit() {"
+verdict = "none"
+
+[[site]]
+file = "bae-playback/src/tables/queue_reads_tests.rs"
+code = "for shuffled in [false, true] {"
+verdict = "none"
+
+[[site]]
+file = "bae-playback/src/tables/queue_reads_tests.rs"
+code = "let (db, _tmp, tracks) = release_db(6).await;"
+verdict = "none"
+
+[[site]]
+file = "bae-playback/src/tables/queue_reads_tests.rs"
+code = "up_next_with_both_lanes(&db, &tracks, shuffled).await;"
+verdict = "none"
+
+[[site]]
+file = "bae-playback/src/tables/queue_reads_tests.rs"
+code = "let manual = queue_value(&db).await.unwrap().manual;"
+verdict = "none"
+
+[[site]]
+file = "bae-playback/src/tables/queue_reads_tests.rs"
+code = "let context = queue_upcoming(&db).await.unwrap();"
+verdict = "none"
+
+[[site]]
+file = "bae-playback/src/tables/queue_reads_tests.rs"
+code = "let every: Vec<String> ="
+verdict = "none"
+
+[[site]]
+file = "bae-playback/src/tables/queue_reads_tests.rs"
+code = "manual.iter().chain(&context).map(|item| item.track_id.clone()).collect();"
+verdict = "none"
+
+[[site]]
+file = "bae-playback/src/tables/queue_reads_tests.rs"
+code = "assert_eq!(manual.len(), 2);"
+verdict = "none"
+
+[[site]]
+file = "bae-playback/src/tables/queue_reads_tests.rs"
+code = 'assert!(context.len() >= 4, "the tracks after the playing one: {context:?}");'
+verdict = "none"
+
+[[site]]
+file = "bae-playback/src/tables/queue_reads_tests.rs"
+code = 'assert_eq!(session_up_next(&db, 100).await, every, "shuffled: {shuffled}");'
+verdict = "none"
+
+[[site]]
+file = "bae-playback/src/tables/queue_reads_tests.rs"
+code = 'assert_eq!(session_up_next(&db, 3).await, every[..3], "shuffled: {shuffled}");'
+verdict = "none"
+
+[[site]]
+file = "bae-playback/src/tables/queue_reads_tests.rs"
+code = 'assert_eq!(session_up_next(&db, 1).await, every[..1], "shuffled: {shuffled}");'
+verdict = "none"
+
+[[site]]
+file = "bae-playback/src/tables/queue_reads_tests.rs"
+code = "assert!(session_up_next(&db, 0).await.is_empty());"
+verdict = "none"
+
+[[site]]
+file = "bae-playback/src/tables/queue_tests.rs"
+code = "async fn the_session_up_next_list_is_planned_on_the_indexes() {"
+verdict = "none"
+
+[[site]]
+file = "bae-playback/src/tables/queue_tests.rs"
+code = "let (db, _tmp, _tracks) = release_db(3).await;"
+verdict = "none"
+
+[[site]]
+file = "bae-playback/src/tables/queue_tests.rs"
+code = "super::queue_reads::SESSION_UP_NEXT_ROWS,"
+verdict = "none"
+
+[[site]]
+file = "bae-playback/src/tables/queue_tests.rs"
+code = "vec![rusqlite::types::Value::Integer(100)],"
+verdict = "none"
+
+[[site]]
+file = "bae-playback/src/tables/queue_tests.rs"
+code = '"SCAN playback_manual USING INDEX sqlite_autoindex_playback_manual_1",'
+verdict = "none"
+
+[[site]]
+file = "bae-playback/src/tables/queue_tests.rs"
+code = '"SEARCH playback_context USING INDEX sqlite_autoindex_playback_context_1 (ordered>?)",'
+verdict = "none"
+
+[[site]]
+file = "bae-playback/src/tables/queue_tests.rs"
+code = '"SEARCH playback_context USING INDEX sqlite_autoindex_playback_context_2 (shuffled>?)",'
+verdict = "none"
+
+[[site]]
+file = "bae-playback/src/tables/queue_tests.rs"
+code = 'assert!(rows.contains(walk), "{walk}: {rows}");'
+verdict = "none"
+
+[[site]]
+file = "bae-playback/src/tables/queue_tests.rs"
+code = 'assert!(!rows.contains("SCAN playback_context"), "{rows}");'
+verdict = "none"
+
+[[site]]
+file = "bae-preferences/src/lib.rs"
+code = "config, preferences, subscribe_config, subscribe_preferences, subscribe_save_preset,"
+verdict = "none"
+
+[[site]]
+file = "bae-preferences/src/lib.rs"
+code = "/// Another save preset already has the name a preset was to take, and"
+verdict = "none"
+
+[[site]]
+file = "bae-preferences/src/lib.rs"
+code = '#[error("another export preset is named {0}")]'
+verdict = "none"
+
+[[site]]
+file = "bae-preferences/src/lib.rs"
+code = "Self::Invalid(_) | Self::NameTaken(_) => None,"
+verdict = "none"
+
+[[site]]
+file = "bae-preferences/src/lib.rs"
+code = "Self::Invalid(_) | Self::NameTaken(_) => bae_diagnostics::UiErrorCategory::Config,"
+verdict = "none"
+
+[[site]]
+file = "bae-preferences/src/lib.rs"
+code = "pub last_save_preset: SavePreset,"
+verdict = "none"
+
+[[site]]
+file = "bae-preferences/src/lib.rs"
+code = "let prefs = Preferences::default();"
+verdict = "none"
+
+[[site]]
+file = "bae-preferences/src/lib.rs"
+code = "// The defaults' last-used format is their first, FLAC."
+verdict = "none"
+
+[[site]]
+file = "bae-preferences/src/lib.rs"
+code = "let last_save_preset = prefs.save_presets[0].clone();"
+verdict = "none"
+
+[[site]]
+file = "bae-preferences/src/lib.rs"
+code = "Self { store_id, library_path: library_path.into(), prefs, last_save_preset }"
+verdict = "none"
+
+[[site]]
+file = "bae-preferences/src/row.rs"
+code = "CastTranscodeFormat, Config, DiscogsValidation, IdentificationPreferences, ImportDestination,"
+verdict = "none"
+
+[[site]]
+file = "bae-preferences/src/row.rs"
+code = "/// This device's preferences for the library `store` holds, kept in"
+verdict = "none"
+
+[[site]]
+file = "bae-preferences/src/row.rs"
+code = "/// `library_path`, with the save preset the last save used, as the settings"
+verdict = "none"
+
+[[site]]
+file = "bae-preferences/src/row.rs"
+code = "pub async fn config(store: &Store, library_path: PathBuf) -> Result<Config, DbError> {"
+verdict = "none"
+
+[[site]]
+file = "bae-preferences/src/row.rs"
+code = "store.read(move |sql| Ok(config_on(&sql, store_id, library_path)?)).await"
+verdict = "none"
+
+[[site]]
+file = "bae-preferences/src/row.rs"
+code = "/// Follow [`config`]: the first value at once, then one after each write"
+verdict = "none"
+
+[[site]]
+file = "bae-preferences/src/row.rs"
+code = "pub fn subscribe_config("
+verdict = "none"
+
+[[site]]
+file = "bae-preferences/src/row.rs"
+code = ") -> coven::LiveQuery<Config, bae_store::DbError> {"
+verdict = "none"
+
+[[site]]
+file = "bae-preferences/src/row.rs"
+code = "store.subscribe(move |sql| Ok(config_on(&sql, store_id, library_path.clone())?))"
+verdict = "none"
+
+[[site]]
+file = "bae-preferences/src/row.rs"
+code = "store_id: coven::StoreId,"
+verdict = "none"
+
+[[site]]
+file = "bae-preferences/src/row.rs"
+code = ") -> rusqlite::Result<Config> {"
+verdict = "none"
+
+[[site]]
+file = "bae-preferences/src/row.rs"
+code = "prefs: preferences_on(sql)?,"
+verdict = "none"
+
+[[site]]
+file = "bae-preferences/src/row.rs"
+code = "last_save_preset: sql.query_row("
+verdict = "none"
+
+[[site]]
+file = "bae-preferences/src/row.rs"
+code = '"SELECT s.* FROM preferences AS p \'
+verdict = "none"
+
+[[site]]
+file = "bae-preferences/src/row.rs"
+code = 'JOIN save_preset AS s ON s.id = p.last_save_preset",'
+verdict = "none"
+
+[[site]]
+file = "bae-preferences/src/row.rs"
+code = "/// Follow the save preset `id`: the first value at once, then one after each"
+verdict = "none"
+
+[[site]]
+file = "bae-preferences/src/row.rs"
+code = "/// write that changes it; none once no preset has the id."
+verdict = "none"
+
+[[site]]
+file = "bae-preferences/src/row.rs"
+code = "pub fn subscribe_save_preset("
+verdict = "none"
+
+[[site]]
+file = "bae-preferences/src/row.rs"
+code = ") -> coven::LiveQuery<Option<SavePreset>, bae_store::DbError> {"
+verdict = "none"
+
+[[site]]
+file = "bae-preferences/src/row.rs"
+code = "store.subscribe(move |sql| {"
+verdict = "none"
+
+[[site]]
+file = "bae-preferences/src/row.rs"
+code = '.query("SELECT * FROM save_preset WHERE id = ?1", [id.as_str()], save_preset_row)?'
+verdict = "none"
+
+[[site]]
+file = "bae-preferences/src/row.rs"
+code = 'sql.query("SELECT * FROM save_preset ORDER BY position", [], save_preset_row)'
+verdict = "none"
+
+[[site]]
+file = "bae-preferences/src/row.rs"
+code = "/// One preset as a row of `save_preset` holds it."
+verdict = "none"
+
+[[site]]
+file = "bae-preferences/src/row.rs"
+code = "fn save_preset_row(row: &Row<'_>) -> rusqlite::Result<SavePreset> {"
+verdict = "none"
+
+[[site]]
+file = "bae-preferences/src/row.rs"
+code = 'let id: String = row.get("id")?;'
+verdict = "none"
+
+[[site]]
+file = "bae-preferences/src/row.rs"
+code = 'let codec: String = row.get("codec")?;'
+verdict = "none"
+
+[[site]]
+file = "bae-preferences/src/row.rs"
+code = "let bit_depth = || -> rusqlite::Result<SaveBitDepth> {"
+verdict = "none"
+
+[[site]]
+file = "bae-preferences/src/row.rs"
+code = 'let stored: String = row.get("bit_depth")?;'
+verdict = "none"
+
+[[site]]
+file = "bae-preferences/src/row.rs"
+code = '"same_as_source" => Ok(SaveBitDepth::SameAsSource),'
+verdict = "none"
+
+[[site]]
+file = "bae-preferences/src/row.rs"
+code = '"bits_16" => Ok(SaveBitDepth::Bits16),'
+verdict = "none"
+
+[[site]]
+file = "bae-preferences/src/row.rs"
+code = '_ => Err(invalid(row, "bit_depth", stored)),'
+verdict = "none"
+
+[[site]]
+file = "bae-preferences/src/row.rs"
+code = 'let bitrate_kbps = || row.get::<_, u32>("bitrate_kbps");'
+verdict = "none"
+
+[[site]]
+file = "bae-preferences/src/row.rs"
+code = "codec: match codec.as_str() {"
+verdict = "none"
+
+[[site]]
+file = "bae-preferences/src/row.rs"
+code = '"flac" => SaveCodec::Flac { bit_depth: bit_depth()? },'
+verdict = "none"
+
+[[site]]
+file = "bae-preferences/src/row.rs"
+code = '"wav" => SaveCodec::Wav { bit_depth: bit_depth()? },'
+verdict = "none"
+
+[[site]]
+file = "bae-preferences/src/row.rs"
+code = '"aiff" => SaveCodec::Aiff { bit_depth: bit_depth()? },'
+verdict = "none"
+
+[[site]]
+file = "bae-preferences/src/row.rs"
+code = '"mp3" => SaveCodec::Mp3 { bitrate_kbps: bitrate_kbps()? },'
+verdict = "none"
+
+[[site]]
+file = "bae-preferences/src/row.rs"
+code = '"aac" => SaveCodec::Aac { bitrate_kbps: bitrate_kbps()? },'
+verdict = "none"
+
+[[site]]
+file = "bae-preferences/src/row.rs"
+code = '"opus_ogg" => SaveCodec::OpusOgg { bitrate_kbps: bitrate_kbps()? },'
+verdict = "none"
+
+[[site]]
+file = "bae-preferences/src/row.rs"
+code = '_ => return Err(invalid(row, "codec", codec)),'
+verdict = "none"
+
+[[site]]
+file = "bae-preferences/src/row.sql"
+code = "-- The save presets, in the order the settings list them (§4.6). The settings"
+verdict = "none"
+
+[[site]]
+file = "bae-preferences/src/row.sql"
+code = "-- add, change and delete one at a time."
+verdict = "none"
+
+[[site]]
+file = "bae-preferences/src/row_tests.rs"
+code = "async fn a_preset_is_read_by_its_id_until_it_is_deleted() {"
+verdict = "none"
+
+[[site]]
+file = "bae-preferences/src/row_tests.rs"
+code = 'let mut mp3 = subscribe_save_preset(&db, "mp3".to_string());'
+verdict = "none"
+
+[[site]]
+file = "bae-preferences/src/row_tests.rs"
+code = "let mut next_preset = async || {"
+verdict = "none"
+
+[[site]]
+file = "bae-preferences/src/row_tests.rs"
+code = "tokio::time::timeout(HANG_GUARD, mp3.next())"
+verdict = "none"
+
+[[site]]
+file = "bae-preferences/src/row_tests.rs"
+code = '.expect("the live query delivers")'
+verdict = "none"
+
+[[site]]
+file = "bae-preferences/src/row_tests.rs"
+code = '.expect("the store is open")'
+verdict = "none"
+
+[[site]]
+file = "bae-preferences/src/row_tests.rs"
+code = 'assert_eq!(next_preset().await.map(|preset| preset.name), Some("MP3".to_string()));'
+verdict = "none"
+
+[[site]]
+file = "bae-preferences/src/row_tests.rs"
+code = 'set(&db, |prefs| prefs.save_presets[1].name = "MP3 V0".to_string()).await;'
+verdict = "none"
+
+[[site]]
+file = "bae-preferences/src/row_tests.rs"
+code = 'assert_eq!(next_preset().await.map(|preset| preset.name), Some("MP3 V0".to_string()));'
+verdict = "none"
+
+[[site]]
+file = "bae-preferences/src/row_tests.rs"
+code = "prefs.save_presets.truncate(1);"
+verdict = "none"
+
+[[site]]
+file = "bae-preferences/src/row_tests.rs"
+code = "assert_eq!(next_preset().await, None);"
+verdict = "none"
+
+[[site]]
+file = "bae-preferences/src/row_tests.rs"
+code = "async fn the_config_carries_the_last_used_preset() {"
+verdict = "none"
+
+[[site]]
+file = "bae-preferences/src/row_tests.rs"
+code = 'let first = config(&db, "/library".into()).await.unwrap();'
+verdict = "none"
+
+[[site]]
+file = "bae-preferences/src/row_tests.rs"
+code = 'assert_eq!(first.last_save_preset.id, "flac");'
+verdict = "none"
+
+[[site]]
+file = "bae-preferences/src/row_tests.rs"
+code = "assert_eq!(first.last_save_preset, first.prefs.save_presets[0]);"
+verdict = "none"
+
+[[site]]
+file = "bae-preferences/src/row_tests.rs"
+code = 'set(&db, |prefs| prefs.last_save_preset = "mp3".to_string()).await;'
+verdict = "none"
+
+[[site]]
+file = "bae-preferences/src/row_tests.rs"
+code = 'let changed = config(&db, "/library".into()).await.unwrap();'
+verdict = "none"
+
+[[site]]
+file = "bae-preferences/src/row_tests.rs"
+code = 'assert_eq!(changed.last_save_preset.name, "MP3");'
+verdict = "none"
+
+[[site]]
+file = "bae-preferences/src/row_tests.rs"
+code = "changed.last_save_preset.codec,"
+verdict = "none"
+
+[[site]]
+file = "bae-preferences/src/row_tests.rs"
+code = "SaveCodec::Mp3 { bitrate_kbps: 320 },"
+verdict = "none"
+
+[[site]]
+file = "bae-preferences/src/row_tests.rs"
+code = """"the preset's fields come with it""""
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/invites.rs"
+code = "/// This device's open invites, as rows of the shape [`INVITE_ROWS`] lists:"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/invites.rs"
+code = "/// each with the pending record of its operation unless that record is the"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/invites.rs"
+code = "/// invite's own waiting (the join request at its own path while no request"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/invites.rs"
+code = "/// has arrived, and the admin's decision once one has), and the name its"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/invites.rs"
+code = "/// request shows. A request shows the name a new person typed, or for a"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/invites.rs"
+code = "/// member getting access again the name of their profile. The statements"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/invites.rs"
+code = "/// that use it add their own WHERE and ORDER BY."
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/invites.rs"
+code = "macro_rules! open_invite_rows {"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/invites.rs"
+code = '''"SELECT i.operation AS operation, 'open' AS kind, i.invite AS invite, \'''
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/invites.rs"
+code = 'i.request_member IS NOT NULL AS has_request, \'
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/invites.rs"
+code = 'CASE WHEN i.request_member IS NULL THEN NULL \'
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/invites.rs"
+code = 'ELSE COALESCE(i.joiner_name, person.name) END AS requester, \'
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/invites.rs"
+code = 'pending.record AS record, pending.cause AS cause, NULL AS outcome \'
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/invites.rs"
+code = 'FROM coven_invites AS i \'
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/invites.rs"
+code = 'LEFT JOIN coven_pending AS pending \'
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/invites.rs"
+code = '''ON pending.subject_kind = 'operation' AND pending.operation = i.operation \'''
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/invites.rs"
+code = '''AND NOT (i.stage = 'waiting' \'''
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/invites.rs"
+code = '''AND ((i.request_member IS NULL AND pending.reason_kind = 'missing') \'''
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/invites.rs"
+code = '''OR (i.request_member IS NOT NULL AND pending.reason_kind = 'paused'))) \'''
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/invites.rs"
+code = 'LEFT JOIN people AS person ON person.id = i.request_member "'
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/invites.rs"
+code = "/// this device's open invites, and each invite whose operation ended with a"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/invites.rs"
+code = "/// sharing refusal nobody has dismissed."
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/invites.rs"
+code = "const INVITE_ROWS: &str = concat!("
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/invites.rs"
+code = '''SELECT o.operation, 'refused', NULL, NULL, NULL, NULL, NULL, o.outcome \'''
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/invites.rs"
+code = 'FROM coven_operations AS o \'
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/invites.rs"
+code = '''WHERE o.kind = 'Invite' AND o.outcome_kind = 'sharing_refused' \'''
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/invites.rs"
+code = "/// The open invite whose id, as canonical UUID text, is `?1`, while it is"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/invites.rs"
+code = 'const INVITE_BY_ID: &str = concat!(open_invite_rows!(), "WHERE i.invite_id = ?1");'
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/invites.rs"
+code = "/// The first open invite, in the order coven started their operations, whose"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/invites.rs"
+code = "/// join request waits for the admin's decision, leaving out the invites whose"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/invites.rs"
+code = "/// ids the JSON array `?1` holds."
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/invites.rs"
+code = "const WAITING_REQUEST: &str = concat!("
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/invites.rs"
+code = '''"WHERE i.stage = 'waiting' AND i.request_member IS NOT NULL \'''
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/invites.rs"
+code = 'AND i.invite_id NOT IN (SELECT value FROM json_each(?1)) \'
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/invites.rs"
+code = 'ORDER BY i.operation LIMIT 1"'
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/invites.rs"
+code = "fn conversion(error: Box<dyn std::error::Error + Send + Sync>) -> rusqlite::Error {"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/invites.rs"
+code = "rusqlite::Error::FromSqlConversionFailure(0, rusqlite::types::Type::Blob, error)"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/invites.rs"
+code = "/// Build the [`OpenInvite`] for one row of `open_invite_rows`."
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/invites.rs"
+code = "fn open_invite(row: &rusqlite::Row<'_>) -> rusqlite::Result<OpenInvite> {"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/invites.rs"
+code = 'let operation = coven::OperationId(row.get("operation")?);'
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/invites.rs"
+code = 'let invite = coven::Invite::from_columns(&row.get::<_, Vec<u8>>("invite")?, operation)'
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/invites.rs"
+code = ".map_err(|error| conversion(Box::new(error)))?;"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/invites.rs"
+code = '.get::<_, Option<coven::PendingRecord>>("record")?'
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/invites.rs"
+code = 'record.cause = row.get("cause")?;'
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/invites.rs"
+code = "Ok::<_, rusqlite::Error>(bae_sync_status::PendingWait::of(&record, None))"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/invites.rs"
+code = 'let requester = row.get::<_, Option<String>>("requester")?;'
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/invites.rs"
+code = "// A recovering member's request carries no name; a member with no"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/invites.rs"
+code = "// profile is a row no writer here makes."
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/invites.rs"
+code = 'if row.get::<_, bool>("has_request")? && requester.is_none() {'
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/invites.rs"
+code = 'format!("the member recovering with invite {operation:?} has no name in people").into(),'
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/invites.rs"
+code = "Ok(OpenInvite { invite, held, requester })"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/invites.rs"
+code = '"open" => Ok(InviteEntry::Open(open_invite(row)?)),'
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/invites.rs"
+code = "Ok(InviteEntry::Refused(RefusedInvite {"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/invites.rs"
+code = 'operation: coven::OperationId(row.get("operation")?),'
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/invites.rs"
+code = "/// The open invite `invite`, live: none once it has ended, by approval,"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/invites.rs"
+code = "/// decline, cancel or expiry, or a sharing refusal."
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/invites.rs"
+code = "pub fn subscribe_invite("
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/invites.rs"
+code = "invite: coven::InviteId,"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/invites.rs"
+code = "let invite = invite.0.to_string();"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/invites.rs"
+code = "Ok(sql.query(INVITE_BY_ID, [invite.as_str()], open_invite)?.pop())"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/invites.rs"
+code = "/// The first of this device's open invites, in the order coven started"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/invites.rs"
+code = "/// their operations, whose join request waits for the admin's decision,"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/invites.rs"
+code = "/// leaving out the invites in `closed`: the ones whose request the person"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/invites.rs"
+code = "/// closed. None while no other request waits."
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/invites.rs"
+code = "pub fn subscribe_waiting_request("
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/invites.rs"
+code = "closed: Vec<coven::InviteId>,"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/invites.rs"
+code = "let closed = serde_json::Value::from("
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/invites.rs"
+code = "closed.iter().map(|invite| invite.0.to_string()).collect::<Vec<_>>(),"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/invites.rs"
+code = "Ok(sql.query(WAITING_REQUEST, [closed.as_str()], open_invite)?.pop())"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/invites_tests.rs"
+code = '"CREATE TABLE coven_invites(invite, operation, stage, request_member, joiner_name, invite_id);'
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/invites_tests.rs"
+code = """"INSERT INTO coven_invites VALUES (x'00', ?1, ?2, NULL, NULL, 'invite-' || ?1)","""
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/invites_tests.rs"
+code = """"INSERT INTO coven_invites VALUES (x'00', 8, 'waiting', x'0a', 'Dan', 'invite-8')","""
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/invites_tests.rs"
+code = """"INSERT INTO coven_invites VALUES (x'00', 2, 'waiting', x'0a', 'Dan', 'invite-2')","""
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/invites_tests.rs"
+code = """"INSERT INTO coven_invites VALUES (x'00', 3, 'approving', x'0c', NULL, 'invite-3')","""
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/invites_tests.rs"
+code = "/// An invite whose request has arrived: Dan's, at `stage`."
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/invites_tests.rs"
+code = "fn requested(conn: &rusqlite::Connection, operation: i64, stage: &str) {"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/invites_tests.rs"
+code = """"INSERT INTO coven_invites VALUES (x'00', ?1, ?2, x'0a', 'Dan', 'invite-' || ?1)","""
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/invites_tests.rs"
+code = "rusqlite::params![operation, stage],"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/invites_tests.rs"
+code = "/// The operation of the invite `WAITING_REQUEST` returns, leaving out the"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/invites_tests.rs"
+code = "/// invites whose ids `closed` holds."
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/invites_tests.rs"
+code = "fn waiting_request(conn: &rusqlite::Connection, closed: &[&str]) -> Option<i64> {"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/invites_tests.rs"
+code = "let closed = serde_json::Value::from(closed.to_vec()).to_string();"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/invites_tests.rs"
+code = "conn.prepare(WAITING_REQUEST)"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/invites_tests.rs"
+code = '.query_map([closed], |row| row.get("operation"))'
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/invites_tests.rs"
+code = "fn the_waiting_request_is_the_first_one_the_person_did_not_close() {"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/invites_tests.rs"
+code = 'requested(&conn, 2, "approving");'
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/invites_tests.rs"
+code = 'requested(&conn, 3, "waiting");'
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/invites_tests.rs"
+code = 'requested(&conn, 4, "waiting");'
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/invites_tests.rs"
+code = "assert_eq!(waiting_request(&conn, &[]), Some(3));"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/invites_tests.rs"
+code = 'assert_eq!(waiting_request(&conn, &["invite-3"]), Some(4));'
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/invites_tests.rs"
+code = 'assert_eq!(waiting_request(&conn, &["invite-3", "invite-4"]), None);'
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/invites_tests.rs"
+code = "/// The invite sheet reads its invite by id, and reads none once the invite"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/invites_tests.rs"
+code = "/// has ended and left coven's open invites."
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/invites_tests.rs"
+code = "fn an_invite_is_read_by_its_id_while_it_is_open() {"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/invites_tests.rs"
+code = 'requested(&conn, 2, "waiting");'
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/invites_tests.rs"
+code = "let by_id = |id: &str| -> Option<i64> {"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/invites_tests.rs"
+code = "conn.prepare(INVITE_BY_ID)"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/invites_tests.rs"
+code = '.query_map([id], |row| row.get("operation"))'
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/invites_tests.rs"
+code = 'assert_eq!(by_id("invite-2"), Some(2));'
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/invites_tests.rs"
+code = 'conn.execute("DELETE FROM coven_invites WHERE operation = 2", []).unwrap();'
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/invites_tests.rs"
+code = 'assert_eq!(by_id("invite-2"), None);'
+verdict = "none"
+
+[[site]]
+file = "owner-construction-check.toml"
+code = '"OpenInviteSubscription",'
+verdict = "none"
+
+[[site]]
+file = "owner-construction-check.toml"
+code = '"SessionUpNextSubscription",'
+verdict = "none"
+
+[[site]]
+file = "owner-construction-check.toml"
+code = '"SavePresetSubscription",'
+verdict = "none"
+
+[[site]]
+file = "spec/bae.md"
+code = "formats may write the same thing. The settings add, change and delete one"
+verdict = "none"
+
+[[site]]
+file = "spec/bae.md"
+code = "format at a time, and core refuses an added or changed format whose name"
+verdict = "none"
+
+[[site]]
+file = "spec/bae.md"
+code = "another has; the edit sheet shows that refusal under the name field. Save as… offers every format, for a track"
+verdict = "none"
+
+[[site]]
+file = "spec/bae.md"
+code = "can't be deleted, and its Delete… is off. The settings' read of the"
+verdict = "none"
+
+[[site]]
+file = "spec/bae.md"
+code = "device and approving a request on People and devices. Each place reads only"
+verdict = "none"
+
+[[site]]
+file = "spec/bae.md"
+code = 'list gives. Each shows as what it asks ("Remove Ben",'
+verdict = "none"
+
+[[site]]
+file = "spec/bae.md"
+code = "with *Details* and *Retry*, which reads them again."
+verdict = "none"
+
+[[site]]
+file = "spec/bae.md"
+code = "most 100 in all, each part read from its start through its order. When that"
+verdict = "none"
+
+[[site]]
+file = "spec/bae.md"
+code = "read fails, the queue screen shows its error in place of the rows until the"
+verdict = "none"
+
+[[site]]
+file = "spec/bae.md"
+code = "playback is doing is one (§9.4); so are the settings, one save format by its id for its"
+verdict = "none"
+
+[[site]]
+file = "spec/bae.md"
+code = "files move only on unmetered networks, the members, this device's open invites, one open"
+verdict = "none"
+
+[[site]]
+file = "spec/bae.md"
+code = "invite by its id, which reads none once the invite ends, the first"
+verdict = "none"

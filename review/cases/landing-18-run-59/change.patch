@@ -1,0 +1,3476 @@
+diff --git a/crates/coven-database/src/app_statements_tests.rs b/crates/coven-database/src/app_statements_tests.rs
+index f08d3dc80..c2934385a 100644
+--- a/crates/coven-database/src/app_statements_tests.rs
++++ b/crates/coven-database/src/app_statements_tests.rs
+@@ -48,7 +48,7 @@ async fn a_cached_query_still_records_its_reads() {
+     let mut titles: crate::LiveQuery<_, DbError> = db.subscribe(|sql| {
+         Ok(sql.query("SELECT title FROM notes ORDER BY id", [], |r| r.get::<_, String>(0))?)
+     });
+-    assert!(titles.next().await.expect("the live query answers").unwrap().is_empty());
++    assert!(titles.next_inline().await.expect("the live query answers").unwrap().is_empty());
+     for (id, title) in [("1", "a"), ("2", "b"), ("3", "c")] {
+         db.write(move |sql| {
+             sql.execute("INSERT INTO notes VALUES (?1, ?2)", [id, title])?;
+@@ -57,7 +57,7 @@ async fn a_cached_query_still_records_its_reads() {
+         .await
+         .unwrap();
+         assert_eq!(
+-            titles.next().await.expect("the live query answers").unwrap().last().unwrap(),
++            titles.next_inline().await.expect("the live query answers").unwrap().last().unwrap(),
+             title
+         );
+     }
+diff --git a/crates/coven-database/src/block_on.rs b/crates/coven-database/src/block_on.rs
+new file mode 100644
+index 000000000..2720aa706
+--- /dev/null
++++ b/crates/coven-database/src/block_on.rs
+@@ -0,0 +1,36 @@
++//! Waiting for a future on a thread, with no runtime.
++
++use std::{
++    future::Future,
++    pin::pin,
++    sync::Arc,
++    task::{Context, Poll, Wake, Waker},
++    thread::{self, Thread},
++};
++
++/// Wakes the thread that `block_on` parks.
++struct Unpark(Thread);
++
++impl Wake for Unpark {
++    fn wake(self: Arc<Self>) {
++        self.0.unpark();
++    }
++}
++
++/// Poll `future` on this thread, parking it between wake-ups. It needs no
++/// runtime.
++pub(crate) fn block_on<F: Future>(future: F) -> F::Output {
++    let waker = Waker::from(Arc::new(Unpark(thread::current())));
++    let mut context = Context::from_waker(&waker);
++    let mut future = pin!(future);
++    loop {
++        match future.as_mut().poll(&mut context) {
++            Poll::Ready(output) => return output,
++            Poll::Pending => thread::park(),
++        }
++    }
++}
++
++#[cfg(test)]
++#[path = "block_on_tests.rs"]
++mod tests;
+diff --git a/crates/coven-database/src/block_on_tests.rs b/crates/coven-database/src/block_on_tests.rs
+new file mode 100644
+index 000000000..6c8d33e94
+--- /dev/null
++++ b/crates/coven-database/src/block_on_tests.rs
+@@ -0,0 +1,9 @@
++use super::*;
++
++#[test]
++fn block_on_needs_no_runtime() {
++    let (send, receive) = tokio::sync::oneshot::channel();
++    let sender = std::thread::spawn(move || send.send(7).unwrap());
++    assert_eq!(block_on(receive).unwrap(), 7);
++    sender.join().unwrap();
++}
+diff --git a/crates/coven-database/src/bulk_write_tests.rs b/crates/coven-database/src/bulk_write_tests.rs
+index 9104a37f9..217f2d531 100644
+--- a/crates/coven-database/src/bulk_write_tests.rs
++++ b/crates/coven-database/src/bulk_write_tests.rs
+@@ -58,7 +58,7 @@ fn counting(
+ }
+ 
+ async fn answer(live: &mut crate::LiveQuery<i64, crate::DbError>) -> i64 {
+-    live.next().await.expect("the live query answers").unwrap()
++    live.next_inline().await.expect("the live query answers").unwrap()
+ }
+ 
+ /// With no pre-update hook watching, SQLite empties a table without a
+diff --git a/crates/coven-database/src/cache_progress_tests.rs b/crates/coven-database/src/cache_progress_tests.rs
+index 2e2933f1c..13ec59abf 100644
+--- a/crates/coven-database/src/cache_progress_tests.rs
++++ b/crates/coven-database/src/cache_progress_tests.rs
+@@ -31,7 +31,7 @@ async fn files_pinned_answers_in_request_order() {
+     let absent = coven_foundation::id_source::FileId(uuid::Uuid::from_u128(1));
+     let mut live = db.subscribe_files_pinned::<DbError>(vec![absent, file]);
+     assert_eq!(
+-        live.next().await.expect("the live query answers").unwrap(),
++        live.next_inline().await.expect("the live query answers").unwrap(),
+         vec![None, Some(false)]
+     );
+     assert_eq!(db.files_pinned(vec![file, absent]).await.unwrap(), vec![Some(false), None]);
+@@ -49,10 +49,10 @@ async fn a_live_pin_answer_follows_coven_pins() {
+     complete_uploads(&db).await;
+     let absent = coven_foundation::id_source::FileId(uuid::Uuid::from_u128(1));
+     let mut live = db.subscribe_files_pinned::<DbError>(vec![file, absent]);
+-    assert_eq!(live.next().await.unwrap().unwrap(), [Some(false), None]);
++    assert_eq!(live.next_inline().await.unwrap().unwrap(), [Some(false), None]);
+     let stored = db.file_ref(file).await.unwrap();
+     crate::database::file_database::tests::pin_whole(&db, &stored, "whole").await.unwrap();
+-    assert_eq!(live.next().await.unwrap().unwrap(), [Some(true), None]);
++    assert_eq!(live.next_inline().await.unwrap().unwrap(), [Some(true), None]);
+     assert_eq!(db.files_pinned(vec![file, absent]).await.unwrap(), [Some(true), None]);
+     db.close().await.unwrap();
+ }
+diff --git a/crates/coven-database/src/database.rs b/crates/coven-database/src/database.rs
+index d4853c074..cb1aa3f45 100644
+--- a/crates/coven-database/src/database.rs
++++ b/crates/coven-database/src/database.rs
+@@ -697,31 +697,20 @@ impl Database {
+         E: From<DbError> + CarriesBug + Send + 'static,
+     {
+         let commits = self.observer.subscribe();
+-        // A subscription retains a database only for its active blocking read.
++        // A subscription retains a database only for its active read.
+         // Idle queries and undelivered results cannot keep a closing lock held.
+         let database = Arc::downgrade(&self.inner);
+         let query = Arc::new(query);
+-        let completion = commits.clone();
+-        let bugs = self.bugs.clone();
+         ReconfigurableLiveQuery::new(
+             initial_request,
+-            Arc::new(move |request| {
+-                let database = database.clone();
+-                let query = query.clone();
+-                let completion = completion.clone();
+-                let bugs = bugs.clone();
+-                Box::pin(async move {
+-                    let database = database.upgrade().ok_or(DbError::StoreClosed)?;
+-                    finish_blocking(
+-                        start_call("live query", &bugs, database, move |inner| {
+-                            inner.call(|inner| {
+-                                inner.access.readers.acquire_reader().live_read(
+-                                    &mut |reads, lookups| completion.finish_judging(reads, lookups),
+-                                    move |sql| query(&request, sql),
+-                                )
+-                            })
+-                        })
+-                        .await,
++            Arc::new(move |request, completion| {
++                let database = database.upgrade().ok_or(DbError::StoreClosed)?;
++                let slot = coven_foundation::locks::read_unpoisoned(&database);
++                let inner = slot.as_ref().ok_or(DbError::StoreClosed)?;
++                inner.call(|inner| {
++                    inner.access.readers.acquire_reader().live_read(
++                        &mut |reads, lookups| completion.finish_judging(reads, lookups),
++                        |sql| query(request, sql),
+                     )
+                 })
+             }),
+diff --git a/crates/coven-database/src/database_local_bytes.rs b/crates/coven-database/src/database_local_bytes.rs
+index ca20973fd..0808c6b2d 100644
+--- a/crates/coven-database/src/database_local_bytes.rs
++++ b/crates/coven-database/src/database_local_bytes.rs
+@@ -2,8 +2,9 @@
+ //! the cache keeps with its entries (§17.8, Appendix C.3).
+ 
+ use super::{Database, Mode};
+-use crate::{sqlite::DatabaseConnection, DbError, LiveQuery};
++use crate::{next_result, sqlite::DatabaseConnection, DbError, LiveQuery};
+ use coven_foundation::task::CarriesBug;
++use std::future::Future;
+ 
+ /// One namespace's cache, in bytes on disk.
+ #[derive(Clone, Debug, PartialEq, Eq)]
+@@ -150,7 +151,11 @@ impl Database {
+     pub fn subscribe_local_bytes(&self) -> LocalBytesWatch {
+         let mut changed = self.writer.local_bytes_changes.subscribe();
+         changed.mark_unchanged();
+-        LocalBytesWatch { database: self.clone(), budgets: self.subscribe_cache_budgets(), changed }
++        LocalBytesWatch {
++            database: self.clone(),
++            budgets: Some(Box::pin(next_result(self.subscribe_cache_budgets()))),
++            changed,
++        }
+     }
+ 
+     /// Say that the store's directory changed in a way its database doesn't
+@@ -160,10 +165,23 @@ impl Database {
+     }
+ }
+ 
++type NextBudgets = std::pin::Pin<
++    Box<
++        dyn Future<
++                Output = (
++                    LiveQuery<Vec<NamespaceBytes>, DbError>,
++                    Option<Result<Vec<NamespaceBytes>, DbError>>,
++                ),
++            > + Send,
++    >,
++>;
++
+ /// The measurements of what the store keeps on this device, as they change.
+ pub struct LocalBytesWatch {
+     database: Database,
+-    budgets: LiveQuery<Vec<NamespaceBytes>, DbError>,
++    /// The next result of the budgets query, in flight until it arrives, so
++    /// a cancelled `next` loses nothing. `None` once the query has ended.
++    budgets: Option<NextBudgets>,
+     changed: tokio::sync::watch::Receiver<u64>,
+ }
+ 
+@@ -172,11 +190,18 @@ impl LocalBytesWatch {
+     /// A reader slower than the changes gets one measurement of the state
+     /// now, not one per change. `None` once the store has closed.
+     pub async fn next(&mut self) -> Option<Result<LocalBytes, DbError>> {
++        let running = self.budgets.as_mut()?;
+         tokio::select! {
+-            run = self.budgets.next() => match run? {
+-                Ok(_) => {}
+-                Err(error) => return Some(Err(error)),
+-            },
++            (budgets, run) = running => {
++                if run.is_none() {
++                    self.budgets = None;
++                    return None;
++                }
++                self.budgets = Some(Box::pin(next_result(budgets)));
++                if let Some(Err(error)) = run {
++                    return Some(Err(error));
++                }
++            }
+             changed = self.changed.changed() => changed.ok()?,
+         }
+         Some(self.database.local_bytes().await)
+diff --git a/crates/coven-database/src/database_tests.rs b/crates/coven-database/src/database_tests.rs
+index e9592a7b7..c63b26195 100644
+--- a/crates/coven-database/src/database_tests.rs
++++ b/crates/coven-database/src/database_tests.rs
+@@ -133,13 +133,13 @@ fn calls_whose_runtime_is_shutting_down_return_shutdown() {
+     let store = TestStore::new();
+     let database =
+         runtime.block_on(store.builder(notes_tables(), notes_migrations()).open()).unwrap();
+-    let mut query = database.subscribe(|sql| sql.store_state());
++    let query = database.subscribe(|sql| sql.store_state());
+     drop(runtime);
+     let outlived = tokio::runtime::Builder::new_current_thread().build().unwrap();
+     outlived.block_on(async {
+         let _entered = handle.enter();
+         assert!(matches!(
+-            query.next().await,
++            crate::next_result(query).await.1,
+             Some(Err(DbError::Shutdown(Shutdown {
+                 operation: "live query",
+                 outcome: ShutdownOutcome::NotRun,
+@@ -904,14 +904,14 @@ async fn a_panic_holding_the_live_query_state_fails_the_handle() {
+     let mut query = db.subscribe(|sql| {
+         Ok(sql.query_row("SELECT count(*) FROM notes", [], |r| r.get::<_, i64>(0))?)
+     });
+-    assert_eq!(query.next().await.unwrap().unwrap(), 0);
++    assert_eq!(query.next_inline().await.unwrap().unwrap(), 0);
+     db.observer.test_poison();
+     assert!(matches!(
+         db.read(|_| Ok(())).await,
+         Err(DbError::StoreFailed(bug)) if bug.operation == "the store's live queries"
+     ));
+-    assert!(matches!(query.next().await, Some(Err(DbError::StoreFailed(_)))));
+-    assert!(query.next().await.is_none());
++    assert!(matches!(query.next_inline().await, Some(Err(DbError::StoreFailed(_)))));
++    assert!(query.next_inline().await.is_none());
+ }
+ 
+ /// Sends each bug it hears of, so a test waits for the report.
+diff --git a/crates/coven-database/src/dismissal_tests.rs b/crates/coven-database/src/dismissal_tests.rs
+index 3833d7fcd..bb74e9df2 100644
+--- a/crates/coven-database/src/dismissal_tests.rs
++++ b/crates/coven-database/src/dismissal_tests.rs
+@@ -42,9 +42,9 @@ async fn dismissed_cell_is_removed_on_both_devices_and_after_reopen() {
+     assert_eq!(loss, b.lost_values().await.unwrap());
+     let before = data(&a).await;
+     let mut live = a.subscribe_lost_values::<DbError>();
+-    assert_eq!(live.next().await.expect("the live query answers").unwrap(), loss);
++    assert_eq!(live.next_inline().await.expect("the live query answers").unwrap(), loss);
+     a.dismiss_lost_values(&loss).await.unwrap();
+-    assert!(live.next().await.expect("the live query answers").unwrap().is_empty());
++    assert!(live.next_inline().await.expect("the live query answers").unwrap().is_empty());
+     assert_eq!(count(&a, "_coven_lost"), 0);
+     assert_ne!(data(&a).await, before);
+     let dismissal = records(&a).last().unwrap().clone();
+diff --git a/crates/coven-database/src/download_stream_tests.rs b/crates/coven-database/src/download_stream_tests.rs
+index 65b74c616..3a4432bff 100644
+--- a/crates/coven-database/src/download_stream_tests.rs
++++ b/crates/coven-database/src/download_stream_tests.rs
+@@ -157,7 +157,7 @@ async fn authentication_failure_rolls_back_rows_slot_losses_and_observation() {
+     let b = open(&sb).await;
+     let mut observed: crate::LiveQuery<_, DbError> =
+         b.subscribe(|sql| Ok(sql.query("SELECT title FROM notes", [], |r| r.get::<_, String>(0))?));
+-    assert!(observed.next().await.expect("the live query answers").unwrap().is_empty());
++    assert!(observed.next_inline().await.expect("the live query answers").unwrap().is_empty());
+     sql(&a, "INSERT INTO notes VALUES('one','first',''),('two','second','')").await.unwrap();
+     let record = records(&a).remove(0);
+     let before = crate::tests::data(&b, Audience::Store);
+@@ -174,7 +174,7 @@ async fn authentication_failure_rolls_back_rows_slot_losses_and_observation() {
+     assert!(!observed.is_marked_for_rerun());
+     b.receive_stream(stream(&record), || Ok(())).await.unwrap();
+     assert_eq!(
+-        observed.next().await.expect("the live query answers").unwrap(),
++        observed.next_inline().await.expect("the live query answers").unwrap(),
+         ["first", "second"]
+     );
+ }
+@@ -513,7 +513,7 @@ async fn a_constraint_refused_at_commit_reports_itself_and_keeps_the_handle_usab
+     let write = records(&a).pop().unwrap();
+     let mut observed: crate::LiveQuery<_, DbError> =
+         b.subscribe(|sql| Ok(sql.query("SELECT title FROM notes", [], |r| r.get::<_, String>(0))?));
+-    assert!(observed.next().await.expect("the live query answers").unwrap().is_empty());
++    assert!(observed.next_inline().await.expect("the live query answers").unwrap().is_empty());
+     for streamed in [false, true] {
+         let before = crate::tests::contents(&b);
+         let error = if streamed {
+@@ -531,7 +531,7 @@ async fn a_constraint_refused_at_commit_reports_itself_and_keeps_the_handle_usab
+     sql(&b, "INSERT INTO parents VALUES('absent')").await.unwrap();
+     b.receive(write.into()).await.unwrap();
+     assert_eq!(count(&b, "notes"), 1);
+-    assert_eq!(observed.next().await.expect("the live query answers").unwrap(), ["title"]);
++    assert_eq!(observed.next_inline().await.expect("the live query answers").unwrap(), ["title"]);
+     a.close().await.unwrap();
+     b.close().await.unwrap();
+ }
+diff --git a/crates/coven-database/src/download_tests.rs b/crates/coven-database/src/download_tests.rs
+index 5eb918da9..765813a05 100644
+--- a/crates/coven-database/src/download_tests.rs
++++ b/crates/coven-database/src/download_tests.rs
+@@ -32,7 +32,7 @@ async fn downloaded_writes_share_merge_and_observation_without_uploading() {
+     let mut query: crate::LiveQuery<_, DbError> = receiver.subscribe(|sql| {
+         Ok(sql.query("SELECT title FROM notes ORDER BY id", [], |r| r.get::<_, String>(0))?)
+     });
+-    assert!(query.next().await.expect("the live query answers").unwrap().is_empty());
++    assert!(query.next_inline().await.expect("the live query answers").unwrap().is_empty());
+     sql(&source, "INSERT INTO notes VALUES('n','first','body')").await.unwrap();
+     sql(&source, "UPDATE notes SET title='second'").await.unwrap();
+     let writes = records(&source);
+@@ -45,9 +45,9 @@ async fn downloaded_writes_share_merge_and_observation_without_uploading() {
+     );
+     assert_eq!(count(&receiver, "notes"), 0);
+     assert_eq!(receiver.receive(writes[0].clone().into()).await.unwrap(), ApplyOutcome::Applied);
+-    assert_eq!(query.next().await.expect("the live query answers").unwrap(), ["first"]);
++    assert_eq!(query.next_inline().await.expect("the live query answers").unwrap(), ["first"]);
+     assert_eq!(receiver.receive(writes[1].clone().into()).await.unwrap(), ApplyOutcome::Applied);
+-    assert_eq!(query.next().await.expect("the live query answers").unwrap(), ["second"]);
++    assert_eq!(query.next_inline().await.expect("the live query answers").unwrap(), ["second"]);
+     assert_eq!(
+         receiver.receive(writes[1].clone().into()).await.unwrap(),
+         ApplyOutcome::AlreadyApplied
+diff --git a/crates/coven-database/src/event_capture_tests.rs b/crates/coven-database/src/event_capture_tests.rs
+index 5c81bdc94..6d6fbf1c7 100644
+--- a/crates/coven-database/src/event_capture_tests.rs
++++ b/crates/coven-database/src/event_capture_tests.rs
+@@ -124,23 +124,26 @@ async fn local_table_writes_against_plain_sqlite() {
+         let mut live: crate::LiveQuery<_, DbError> = db.subscribe(|sql| {
+             Ok(sql.query_row("SELECT count(*) FROM queue", [], |r| r.get::<_, i64>(0))?)
+         });
+-        assert_eq!(live.next().await.expect("the live query answers").unwrap(), 0);
++        assert_eq!(live.next_inline().await.expect("the live query answers").unwrap(), 0);
+         let insert: &'static str = Box::leak(fill(rows).into_boxed_str());
+         let started = std::time::Instant::now();
+         crate::write::tests::sql(&db, insert).await.unwrap();
+         let coven_insert = started.elapsed();
+-        assert_eq!(live.next().await.expect("the live query answers").unwrap(), i64::from(rows));
++        assert_eq!(
++            live.next_inline().await.expect("the live query answers").unwrap(),
++            i64::from(rows)
++        );
+         let started = std::time::Instant::now();
+         crate::write::tests::sql(&db, "DELETE FROM queue").await.unwrap();
+         let coven_delete = started.elapsed();
+-        assert_eq!(live.next().await.expect("the live query answers").unwrap(), 0);
++        assert_eq!(live.next_inline().await.expect("the live query answers").unwrap(), 0);
+         drop(live);
+         let mut narrow: crate::LiveQuery<_, DbError> = db.subscribe(|sql| {
+             Ok(sql.query("SELECT position FROM queue WHERE track = 'none'", [], |r| {
+                 r.get::<_, i64>(0)
+             })?)
+         });
+-        assert!(narrow.next().await.expect("the live query answers").unwrap().is_empty());
++        assert!(narrow.next_inline().await.expect("the live query answers").unwrap().is_empty());
+         let started = std::time::Instant::now();
+         crate::write::tests::sql(&db, insert).await.unwrap();
+         let narrowed_insert = started.elapsed();
+diff --git a/crates/coven-database/src/file_cache_tests.rs b/crates/coven-database/src/file_cache_tests.rs
+index b8290c77f..91d2f7563 100644
+--- a/crates/coven-database/src/file_cache_tests.rs
++++ b/crates/coven-database/src/file_cache_tests.rs
+@@ -358,21 +358,23 @@ async fn the_budgets_query_runs_only_for_counter_and_budget_changes() {
+     let file = stored(&db, vec![5; 2 * 64 * 1024]).await;
+     let owner = FileDatabase::new(db.clone());
+     let mut budgets = db.subscribe_cache_budgets::<DbError>();
+-    let first = budgets.next().await.unwrap().unwrap();
++    let first = budgets.next_inline().await.unwrap().unwrap();
+     assert_eq!(first[0].cached, 0);
+     owner.cache_range(&file, 0, 1, FileName::new("chunk").unwrap(), vec![2; 100]).await.unwrap();
+-    assert_eq!(budgets.next().await.unwrap().unwrap()[0].cached, 100);
++    assert_eq!(budgets.next_inline().await.unwrap().unwrap()[0].cached, 100);
+     db.write(|sql| sql.set_cache_budget("files", 50)).await.unwrap();
+-    assert_eq!(budgets.next().await.unwrap().unwrap()[0].budget, 50);
++    assert_eq!(budgets.next_inline().await.unwrap().unwrap()[0].budget, 50);
+     async fn quiet(budgets: &mut crate::LiveQuery<Vec<NamespaceBytes>, DbError>) -> bool {
+-        tokio::time::timeout(std::time::Duration::from_millis(300), budgets.next()).await.is_err()
++        tokio::time::timeout(std::time::Duration::from_millis(300), budgets.next_inline())
++            .await
++            .is_err()
+     }
+     // A read of the cached range updates only its recency.
+     db.write(|sql| sql.set_cache_budget("files", 1 << 30)).await.unwrap();
+-    budgets.next().await.unwrap().unwrap();
++    budgets.next_inline().await.unwrap().unwrap();
+     let header = vec![1; coven_format::file::FILE_HEADER_LEN];
+     owner.cache_range(&file, -1, 1, FileName::new("again").unwrap(), header.clone()).await.unwrap();
+-    assert_eq!(budgets.next().await.unwrap().unwrap()[0].cached, header.len() as u64);
++    assert_eq!(budgets.next_inline().await.unwrap().unwrap()[0].cached, header.len() as u64);
+     assert_eq!(owner.cached(&file, -1).await.unwrap(), Some(header));
+     assert!(quiet(&mut budgets).await, "a read's recency starts no run");
+     db.inspect_writer(|sql| partial(sql, "partial_object", "partial_file", 4096));
+diff --git a/crates/coven-database/src/internal_schema_files_tests.rs b/crates/coven-database/src/internal_schema_files_tests.rs
+index 88815eb0b..1c562b502 100644
+--- a/crates/coven-database/src/internal_schema_files_tests.rs
++++ b/crates/coven-database/src/internal_schema_files_tests.rs
+@@ -56,19 +56,19 @@ async fn a_local_trigger_follows_each_record_this_device_changes() {
+     let store = TestStore::new();
+     let db = open(&store, followed_from_the_start()).await;
+     let mut followed = db.subscribe(changes);
+-    assert!(followed.next().await.unwrap().unwrap().is_empty());
++    assert!(followed.next_inline().await.unwrap().unwrap().is_empty());
+     let first = stage(&db, b"take".to_vec(), true).await.unwrap();
+     let made = ("made".to_owned(), first, false);
+-    assert_eq!(followed.next().await.unwrap().unwrap(), std::slice::from_ref(&made));
++    assert_eq!(followed.next_inline().await.unwrap().unwrap(), std::slice::from_ref(&made));
+     // The upload's completion switches the record to its stored bytes.
+     complete_uploads(&db).await;
+     let stored = ("switched".to_owned(), first, true);
+-    assert_eq!(followed.next().await.unwrap().unwrap(), [made.clone(), stored.clone()]);
++    assert_eq!(followed.next_inline().await.unwrap().unwrap(), [made.clone(), stored.clone()]);
+     // A newer file for row 7 leaves the first with no reference: the same
+     // write makes the new record and deletes the old one.
+     let second = stage(&db, b"retake".to_vec(), false).await.unwrap();
+     assert_eq!(
+-        followed.next().await.unwrap().unwrap(),
++        followed.next_inline().await.unwrap().unwrap(),
+         [made, stored, ("made".to_owned(), second, false), ("deleted".to_owned(), first, true),]
+     );
+     db.close().await.unwrap();
+@@ -87,7 +87,7 @@ async fn a_local_trigger_follows_each_record_another_device_changes() {
+     let ana = open(&ana_store, followed_from_the_start()).await;
+     let ben = open(&ben_store, followed_from_the_start()).await;
+     let mut followed = ben.subscribe(changes);
+-    assert!(followed.next().await.unwrap().unwrap().is_empty());
++    assert!(followed.next_inline().await.unwrap().unwrap().is_empty());
+     // Each of Ana's writes reaches its slot, and then Ben's device.
+     let deliver = |delivered: usize| {
+         let (ana, ben) = (ana.clone(), ben.clone());
+@@ -102,14 +102,14 @@ async fn a_local_trigger_follows_each_record_another_device_changes() {
+     let first = stage(&ana, b"take".to_vec(), true).await.unwrap();
+     deliver(0).await;
+     let made = ("made".to_owned(), first, false);
+-    assert_eq!(followed.next().await.unwrap().unwrap(), std::slice::from_ref(&made));
++    assert_eq!(followed.next_inline().await.unwrap().unwrap(), std::slice::from_ref(&made));
+     complete_uploads(&ana).await;
+     deliver(1).await;
+     let stored = ("switched".to_owned(), first, true);
+-    assert_eq!(followed.next().await.unwrap().unwrap(), [made.clone(), stored.clone()]);
++    assert_eq!(followed.next_inline().await.unwrap().unwrap(), [made.clone(), stored.clone()]);
+     let second = stage(&ana, b"retake".to_vec(), false).await.unwrap();
+     deliver(2).await;
+-    let mut applied = followed.next().await.unwrap().unwrap();
++    let mut applied = followed.next_inline().await.unwrap().unwrap();
+     // One write makes the new record and deletes the old: Ben's device
+     // applies both changes, in an order of its own.
+     applied[2..].sort();
+diff --git a/crates/coven-database/src/internal_schema_pins_tests.rs b/crates/coven-database/src/internal_schema_pins_tests.rs
+index edaed2fb4..f2d4fdafe 100644
+--- a/crates/coven-database/src/internal_schema_pins_tests.rs
++++ b/crates/coven-database/src/internal_schema_pins_tests.rs
+@@ -68,11 +68,11 @@ async fn a_local_trigger_follows_each_pin_as_it_changes() {
+             Ok(sql.query("SELECT file FROM coven_pins", [], |r| r.get::<_, String>(0))?)
+         })
+         .process(Ok);
+-    assert!(pinned.next().await.unwrap().unwrap().is_empty());
+-    assert!(pins.next().await.unwrap().unwrap().is_empty());
++    assert!(pinned.next_inline().await.unwrap().unwrap().is_empty());
++    assert!(pins.next_inline().await.unwrap().unwrap().is_empty());
+     let file = pin_stored(&db).await;
+-    assert_eq!(pinned.next().await.unwrap().unwrap(), ["7"]);
+-    assert_eq!(pins.next().await.unwrap().unwrap(), [file.id().to_string()]);
++    assert_eq!(pinned.next_inline().await.unwrap().unwrap(), ["7"]);
++    assert_eq!(pins.next_inline().await.unwrap().unwrap(), [file.id().to_string()]);
+     assert!(agrees(&db));
+     let writes = pins.runs().writes();
+     let id = file.id();
+@@ -94,8 +94,8 @@ async fn a_local_trigger_follows_each_pin_as_it_changes() {
+     })
+     .await
+     .unwrap();
+-    assert!(pinned.next().await.unwrap().unwrap().is_empty());
+-    assert!(pins.next().await.unwrap().unwrap().is_empty());
++    assert!(pinned.next_inline().await.unwrap().unwrap().is_empty());
++    assert!(pins.next_inline().await.unwrap().unwrap().is_empty());
+     assert_eq!(pins.runs().writes(), writes + 1);
+     assert!(agrees(&db));
+     assert_eq!(local_count(&db, "_coven_cache"), 0);
+diff --git a/crates/coven-database/src/internal_schema_sync_status_tests.rs b/crates/coven-database/src/internal_schema_sync_status_tests.rs
+index abe874a7c..16ffb6f72 100644
+--- a/crates/coven-database/src/internal_schema_sync_status_tests.rs
++++ b/crates/coven-database/src/internal_schema_sync_status_tests.rs
+@@ -33,7 +33,7 @@ async fn a_new_store_reads_no_storage_set_up() {
+         store.builder(notes_tables(), crate::test_utils::notes_migrations()).open().await.unwrap();
+     let mut rows = db.subscribe(row);
+     assert_eq!(
+-        rows.next().await.unwrap().unwrap(),
++        rows.next_inline().await.unwrap().unwrap(),
+         SyncStatusRow {
+             location: RecordedLocation::None,
+             last_pass: None,
+@@ -43,7 +43,7 @@ async fn a_new_store_reads_no_storage_set_up() {
+     );
+     db.record_opened(RecordedLocation::SignedOut("Dropbox".into()), None).await.unwrap();
+     assert_eq!(
+-        rows.next().await.unwrap().unwrap().location,
++        rows.next_inline().await.unwrap().unwrap().location,
+         RecordedLocation::SignedOut("Dropbox".into())
+     );
+     db.close().await.unwrap();
+@@ -101,7 +101,7 @@ async fn a_local_trigger_follows_each_change_of_the_row() {
+             Ok((r.get::<_, String>(0)?, r.get::<_, Option<String>>(1)?))
+         })?)
+     });
+-    assert!(log.next().await.unwrap().unwrap().is_empty());
++    assert!(log.next_inline().await.unwrap().unwrap().is_empty());
+     db.record_opened(connected(), None).await.unwrap();
+     db.record_opened(connected(), None).await.unwrap();
+     db.record_moved(PassMove::Read).await.unwrap();
+@@ -109,9 +109,9 @@ async fn a_local_trigger_follows_each_change_of_the_row() {
+     db.record_moved(PassMove::Claimed).await.unwrap();
+     db.record_pass_end(b"\"Synced\"".to_vec(), None).await.unwrap();
+     db.record_last_pass(b"\"Synced\"".to_vec()).await.unwrap();
+-    let mut seen = log.next().await.unwrap().unwrap();
++    let mut seen = log.next_inline().await.unwrap().unwrap();
+     while seen.len() < 4 {
+-        seen = log.next().await.unwrap().unwrap();
++        seen = log.next_inline().await.unwrap().unwrap();
+     }
+     assert_eq!(
+         seen,
+diff --git a/crates/coven-database/src/internal_schema_upload_queue_tests.rs b/crates/coven-database/src/internal_schema_upload_queue_tests.rs
+index 961a8803d..5376327ae 100644
+--- a/crates/coven-database/src/internal_schema_upload_queue_tests.rs
++++ b/crates/coven-database/src/internal_schema_upload_queue_tests.rs
+@@ -53,10 +53,10 @@ async fn a_local_trigger_follows_each_file_into_and_out_of_the_queue() {
+             Ok((r.get::<_, i64>(0)?, r.get::<_, Option<i64>>(1)?))
+         })?)
+     });
+-    assert_eq!(queued.next().await.unwrap().unwrap(), (0, None));
++    assert_eq!(queued.next_inline().await.unwrap().unwrap(), (0, None));
+     stage(&db, b"take".to_vec(), true).await.unwrap();
+     let first = owner.uploads().await.unwrap()[0].id;
+-    assert_eq!(queued.next().await.unwrap().unwrap(), (1, Some(first)));
++    assert_eq!(queued.next_inline().await.unwrap().unwrap(), (1, Some(first)));
+     assert!(agrees(&db));
+     // A newer file for row 7 leaves the first with no reference, which
+     // deletes its record and takes it out of the queue: one file is queued,
+@@ -66,10 +66,10 @@ async fn a_local_trigger_follows_each_file_into_and_out_of_the_queue() {
+     assert_eq!(uploads.len(), 1);
+     let second = uploads[0].id;
+     assert_ne!(second, first);
+-    assert_eq!(queued.next().await.unwrap().unwrap(), (1, Some(second)));
++    assert_eq!(queued.next_inline().await.unwrap().unwrap(), (1, Some(second)));
+     assert!(agrees(&db));
+     owner.complete_upload(second, ()).await.unwrap();
+-    assert_eq!(queued.next().await.unwrap().unwrap(), (0, None));
++    assert_eq!(queued.next_inline().await.unwrap().unwrap(), (0, None));
+     assert!(agrees(&db));
+     db.close().await.unwrap();
+ }
+diff --git a/crates/coven-database/src/internal_schema_views_tests.rs b/crates/coven-database/src/internal_schema_views_tests.rs
+index d7b068c81..6a4ee2163 100644
+--- a/crates/coven-database/src/internal_schema_views_tests.rs
++++ b/crates/coven-database/src/internal_schema_views_tests.rs
+@@ -323,7 +323,7 @@ async fn coven_upload_pause_says_whether_uploads_are_paused() {
+                 .query_row("SELECT paused FROM coven_upload_pause", [], |r| r.get::<_, bool>(0))?)
+         })
+         .process(Ok);
+-    assert!(!paused.next().await.unwrap().unwrap());
++    assert!(!paused.next_inline().await.unwrap().unwrap());
+     db.write(|sql| {
+         sql.execute("INSERT INTO files(id) VALUES('paused')", [])?;
+         sql.set_uploads_paused(true)?;
+@@ -334,9 +334,9 @@ async fn coven_upload_pause_says_whether_uploads_are_paused() {
+     })
+     .await
+     .unwrap();
+-    assert!(paused.next().await.unwrap().unwrap());
++    assert!(paused.next_inline().await.unwrap().unwrap());
+     assert_eq!(paused.runs().writes(), 1);
+     db.write(|sql| sql.set_uploads_paused(false)).await.unwrap();
+-    assert!(!paused.next().await.unwrap().unwrap());
++    assert!(!paused.next_inline().await.unwrap().unwrap());
+     db.close().await.unwrap();
+ }
+diff --git a/crates/coven-database/src/lib.rs b/crates/coven-database/src/lib.rs
+index b81ad125b..9807be247 100644
+--- a/crates/coven-database/src/lib.rs
++++ b/crates/coven-database/src/lib.rs
+@@ -11,6 +11,7 @@ mod audience_database;
+ mod author_judgement;
+ mod authorization;
+ mod authorship;
++mod block_on;
+ mod change_capture;
+ mod connection_setup;
+ mod coven_functions;
+@@ -45,6 +46,7 @@ mod judge_view;
+ mod live_query;
+ #[cfg(any(test, feature = "test-utils"))]
+ mod live_query_runs;
++mod live_results;
+ mod load_step;
+ mod local_write;
+ mod loss_record;
+@@ -195,6 +197,7 @@ pub use live_query::{
+ };
+ #[cfg(any(test, feature = "test-utils"))]
+ pub use live_query_runs::LiveQueryRuns;
++pub use live_results::next_result;
+ pub use lost::{
+     ChangeSource, Lost, LostCell, LostValue, RemovalRule, Replacement, RowAuthorizationFailure,
+ };
+diff --git a/crates/coven-database/src/lib_tests.rs b/crates/coven-database/src/lib_tests.rs
+index f85c15ea6..960059f7c 100644
+--- a/crates/coven-database/src/lib_tests.rs
++++ b/crates/coven-database/src/lib_tests.rs
+@@ -204,7 +204,7 @@ where
+     T: Clone + PartialEq + Send + 'static,
+     E: From<DbError> + coven_foundation::task::CarriesBug + Send + 'static,
+ {
+-    tokio::time::timeout(HANG_GUARD, query.next())
++    tokio::time::timeout(HANG_GUARD, query.next_inline())
+         .await
+         .expect("the live query answers in time")
+         .expect("the live query is open")
+diff --git a/crates/coven-database/src/live_judging_tests/lookup.rs b/crates/coven-database/src/live_judging_tests/lookup.rs
+index f177ea185..38d6727f1 100644
+--- a/crates/coven-database/src/live_judging_tests/lookup.rs
++++ b/crates/coven-database/src/live_judging_tests/lookup.rs
+@@ -687,7 +687,7 @@ where
+     Q: Clone + PartialEq + Send + Sync + 'static,
+     T: Clone + PartialEq + Send + 'static,
+ {
+-    tokio::time::timeout(HANG_GUARD, query.next())
++    tokio::time::timeout(HANG_GUARD, query.next_inline())
+         .await
+         .expect("query must answer")
+         .expect("the live query answers")
+diff --git a/crates/coven-database/src/live_judging_tests/plan.rs b/crates/coven-database/src/live_judging_tests/plan.rs
+index 3093ef588..bfe8305c4 100644
+--- a/crates/coven-database/src/live_judging_tests/plan.rs
++++ b/crates/coven-database/src/live_judging_tests/plan.rs
+@@ -355,7 +355,7 @@ async fn multiple_statement_errors_remain_live_without_inventing_a_key_range() {
+             write(&db, "UPDATE items SET value=1 WHERE id=9");
+         }
+         assert!(matches!(
+-            tokio::time::timeout(HANG_GUARD, query.next())
++            tokio::time::timeout(HANG_GUARD, query.next_inline())
+                 .await
+                 .unwrap()
+                 .expect("the live query answers"),
+@@ -377,7 +377,7 @@ async fn request_replacement_installs_its_new_range_and_preserves_causes() {
+                 .query_row("SELECT value FROM items WHERE id=?", [id], |r| r.get::<_, String>(0))?)
+         });
+     let requests = query.requests();
+-    let first = query.next().await.expect("the live query answers");
++    let first = query.next_inline().await.expect("the live query answers");
+     assert_eq!(
+         (first.revision, first.cause, first.result.unwrap()),
+         (LiveQueryRevision(0), LiveQueryCause::Request, "one".into())
+@@ -385,7 +385,7 @@ async fn request_replacement_installs_its_new_range_and_preserves_causes() {
+     write(&db, "UPDATE items SET value='outside' WHERE id=3");
+     assert!(!query.is_marked_for_rerun());
+     assert_eq!(requests.set(2).unwrap(), LiveQueryRevision(1));
+-    let second = query.next().await.expect("the live query answers");
++    let second = query.next_inline().await.expect("the live query answers");
+     assert_eq!(
+         (second.revision, second.cause, second.result.unwrap()),
+         (LiveQueryRevision(1), LiveQueryCause::Request, "two".into())
+@@ -395,7 +395,7 @@ async fn request_replacement_installs_its_new_range_and_preserves_causes() {
+     write(&db, "UPDATE items SET value='new range' WHERE id=2");
+     assert!(query.is_marked_for_rerun());
+     assert_eq!(requests.set(1).unwrap(), LiveQueryRevision(2));
+-    let third = query.next().await.expect("the live query answers");
++    let third = query.next_inline().await.expect("the live query answers");
+     assert_eq!(
+         (third.revision, third.cause, third.result.unwrap()),
+         (LiveQueryRevision(2), LiveQueryCause::RequestAndWrite, "old range".into())
+diff --git a/crates/coven-database/src/live_judging_tests/row_scope.rs b/crates/coven-database/src/live_judging_tests/row_scope.rs
+index 99a575b0b..e47c438f0 100644
+--- a/crates/coven-database/src/live_judging_tests/row_scope.rs
++++ b/crates/coven-database/src/live_judging_tests/row_scope.rs
+@@ -668,7 +668,7 @@ async fn one_shot(db: &Database, query: &Generated) -> Rows {
+ }
+ 
+ async fn next_rows(query: &mut LiveQuery<(usize, Rows), crate::DbError>) -> (usize, Rows) {
+-    tokio::time::timeout(HANG_GUARD, query.next())
++    tokio::time::timeout(HANG_GUARD, query.next_inline())
+         .await
+         .expect("query must answer")
+         .expect("the live query answers")
+diff --git a/crates/coven-database/src/live_query.rs b/crates/coven-database/src/live_query.rs
+index b18c8e850..021940cfa 100644
+--- a/crates/coven-database/src/live_query.rs
++++ b/crates/coven-database/src/live_query.rs
+@@ -1,20 +1,23 @@
+ //! Request revisions and cancellation-safe, demand-driven live results.
+ 
++use crate::block_on::block_on;
+ #[cfg(any(test, feature = "test-utils"))]
+ use crate::live_query_runs::LiveQueryRuns;
+ use crate::observation::CommitSubscription;
+ use crate::DbError;
+ use coven_foundation::locks::lock_unpoisoned;
+-use coven_foundation::task::{BugSinkRef, CarriesBug};
++use coven_foundation::task::{caught_sync, BugSinkRef, CarriesBug};
+ use std::{
+-    future::Future,
+-    pin::Pin,
++    future::{poll_fn, Future},
++    pin::pin,
+     sync::{Arc, Mutex},
++    task::Poll,
+ };
+ use tokio::sync::Notify;
+ 
+-type Run<T, E> = Pin<Box<dyn Future<Output = Result<T, E>> + Send>>;
+-type Query<Q, T, E> = Arc<dyn Fn(Q) -> Run<T, E> + Send + Sync>;
++/// One run of the query for a request: it reads on a connection it releases
++/// before returning, and hands its reads to the subscription.
++type Run<Q, T, E> = Arc<dyn Fn(&Q, &CommitSubscription) -> Result<T, E> + Send + Sync>;
+ 
+ /// A request revision assigned by one live query.
+ #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+@@ -107,23 +110,15 @@ impl<Q> Drop for QueryLifetime<Q> {
+     }
+ }
+ 
+-struct Running<Q, T, E> {
+-    request: Q,
+-    revision: LiveQueryRevision,
+-    cause: LiveQueryCause,
+-    run: Run<T, E>,
+-}
+-
+ /// A subscription whose request may be replaced while it runs. Its results
+ /// fail with `E`, the query closure's own error type.
+ pub struct ReconfigurableLiveQuery<Q, T, E> {
+     lifetime: QueryLifetime<Q>,
+-    query: Query<Q, T, E>,
++    run: Run<Q, T, E>,
+     commits: CommitSubscription,
+-    /// Where a bug in a run nobody waits for any more goes (E15).
++    /// Where a bug in a result nobody waits for any more goes (E15).
+     bugs: BugSinkRef,
+     current: Option<(Q, LiveQueryRevision)>,
+-    running: Option<Running<Q, T, E>>,
+     previous: Option<T>,
+     /// The store closed, its handle failed or a run's error carried a bug,
+     /// as a panic's does, and a result said so: the query has ended, and
+@@ -141,7 +136,7 @@ where
+ {
+     pub(crate) fn new(
+         request: Q,
+-        query: Query<Q, T, E>,
++        run: Run<Q, T, E>,
+         commits: CommitSubscription,
+         bugs: BugSinkRef,
+     ) -> Self {
+@@ -155,11 +150,10 @@ where
+                 }),
+                 changed: Notify::new(),
+             })),
+-            query,
++            run,
+             commits,
+             bugs,
+             current: None,
+-            running: None,
+             previous: None,
+             ended: false,
+             #[cfg(any(test, feature = "test-utils"))]
+@@ -178,19 +172,21 @@ where
+     /// queries it changes as it commits, so this answers with no waiting.
+     #[cfg(any(test, feature = "test-utils"))]
+     pub fn is_marked_for_rerun(&self) -> bool {
+-        assert!(
+-            self.current.is_some() && self.running.is_none(),
+-            "probe requires a completed, idle query"
+-        );
++        assert!(self.current.is_some(), "probe requires a completed query");
+         self.commits.state().changed
+     }
+ 
++    /// Where a bug in a result nobody waits for any more goes (E15).
++    pub(crate) fn bugs(&self) -> &BugSinkRef {
++        &self.bugs
++    }
++
+     /// Obtain a cloneable handle for replacing this query's request.
+     pub fn requests(&self) -> LiveQueryRequests<Q> {
+         LiveQueryRequests { state: Arc::clone(&self.lifetime.0) }
+     }
+ 
+-    /// Process each value on a worker after releasing the connection.
++    /// Process each value after its run releases the connection.
+     /// Equality compares processed values; request handles and event metadata remain.
+     pub fn process<P, U>(self, process: P) -> ReconfigurableLiveQuery<Q, U, E>
+     where
+@@ -198,47 +194,36 @@ where
+         P: Fn(T) -> Result<U, E> + Send + Sync + 'static,
+         U: Send + 'static,
+     {
+-        let process = Arc::new(process);
+         let ReconfigurableLiveQuery {
+             lifetime,
+-            query,
++            run,
+             commits,
+             bugs,
+             current,
+-            running,
+             previous: _,
+             ended,
+             #[cfg(any(test, feature = "test-utils"))]
+             runs,
+         } = self;
+-        let next_process = Arc::clone(&process);
+-        let next_bugs = bugs.clone();
+-        let mapped: Query<Q, U, E> = Arc::new(move |request| {
+-            process_run(query(request), Arc::clone(&next_process), next_bugs.clone())
+-        });
+-        let running = running.map(|Running { request, revision, cause, run }| Running {
+-            request,
+-            revision,
+-            cause,
+-            run: process_run(run, Arc::clone(&process), bugs.clone()),
++        let mapped: Run<Q, U, E> = Arc::new(move |request, commits| {
++            let value = run(request, commits)?;
++            caught_sync("process a read", || process(value))
++                .unwrap_or_else(|bug| Err(E::from(DbError::Bug(bug))))
+         });
+         // A new output type has no previous result to compare. Rerun the current
+-        // request if it has already completed so the transformed query answers it.
+-        if running.is_none() {
+-            if let Some(request) = &current {
+-                let mut requests = lock_unpoisoned(&lifetime.0.requests);
+-                if requests.pending.is_none() {
+-                    requests.pending = Some(request.clone());
+-                }
++        // request so the transformed query answers it.
++        if let Some(request) = &current {
++            let mut requests = lock_unpoisoned(&lifetime.0.requests);
++            if requests.pending.is_none() {
++                requests.pending = Some(request.clone());
+             }
+         }
+         ReconfigurableLiveQuery {
+             lifetime,
+-            query: mapped,
++            run: mapped,
+             commits,
+             bugs,
+             current,
+-            running,
+             previous: None,
+             ended,
+             #[cfg(any(test, feature = "test-utils"))]
+@@ -246,100 +231,147 @@ where
+         }
+     }
+ 
+-    /// Return the next result and its request. Cancelling this wait retains the
+-    /// in-flight run, so its request revision is not lost. Once the store is
+-    /// closed, or the handle fails every call, one result reports why and
+-    /// every later call returns `None`. So does a run whose error carries a
+-    /// bug, as one that panicked does with `DbError::Bug`: what it read is
+-    /// unknown, so no commit could tell whether to run it again (E15).
+-    pub async fn next(&mut self) -> Option<ReconfigurableLiveQueryEvent<Q, T, E>>
+-    where
+-        T: Clone + PartialEq,
+-    {
+-        loop {
+-            if self.ended {
+-                return None;
+-            }
+-            if self.running.is_none() {
+-                let commits = self.commits.state();
+-                let failure = commits.error();
+-                let changed = commits.changed;
+-                let request = lock_unpoisoned(&self.lifetime.0.requests).pending.take();
+-                let next = match (request, changed) {
+-                    (Some(request), true) => Some((request, LiveQueryCause::RequestAndWrite)),
+-                    (Some(request), false) => Some((request, LiveQueryCause::Request)),
+-                    (None, true) => Some((
+-                        self.current.as_ref().expect("a previous run read columns").clone(),
+-                        LiveQueryCause::Write,
+-                    )),
+-                    (None, false) if failure.is_some() => Some((
+-                        self.current.as_ref().expect("initial request was answered").clone(),
+-                        LiveQueryCause::Write,
+-                    )),
+-                    (None, false) => None,
+-                };
+-                if let Some(((request, revision), cause)) = next {
+-                    let run: Run<T, E> = if let Some(error) = failure {
+-                        Box::pin(async move { Err(error.into()) })
++    /// Resolves once `next_blocking` has something to do: a commit changed
++    /// what the last run read, a new request came, the handle failed or
++    /// closed, the query ended, or no run has answered yet. Dropping it
++    /// loses nothing, and it needs no runtime.
++    pub fn changed(&self) -> impl Future<Output = ()> + Send + 'static {
++        let mut commits = self.commits.clone();
++        let requests = Arc::clone(&self.lifetime.0);
++        let settled = self.ended || self.current.is_none();
++        async move {
++            loop {
++                let commit = commits.observe();
++                if settled
++                    || commit.changed
++                    || commit.error().is_some()
++                    || lock_unpoisoned(&requests.requests).pending.is_some()
++                {
++                    return;
++                }
++                let mut commit_wait = pin!(commits.changed());
++                let mut request_wait = pin!(requests.changed.notified());
++                poll_fn(|context| {
++                    if commit_wait.as_mut().poll(context).is_ready()
++                        || request_wait.as_mut().poll(context).is_ready()
++                    {
++                        Poll::Ready(())
+                     } else {
+-                        self.commits.begin();
+-                        caught_run((self.query)(request.clone()))
+-                    };
+-                    self.running = Some(Running { request, revision, cause, run });
+-                } else {
+-                    tokio::select! {
+-                        _ = self.lifetime.0.changed.notified() => {},
+-                        _ = self.commits.changed() => {},
++                        Poll::Pending
+                     }
+-                    continue;
+-                }
+-            }
+-            let running = self.running.as_mut().expect("run selected");
+-            let result = running.run.as_mut().await;
+-            let running = self.running.take().expect("finished run");
+-            self.current = Some((running.request.clone(), running.revision));
+-            let equal = match &result {
+-                Ok(value) => self.previous.as_ref() == Some(value),
+-                Err(_) => false,
+-            };
+-            // An error keeps its typed sources, which need have no value
+-            // equality or Clone. A failed run is delivered and breaks the chain
+-            // of equal successful results; it never terminates the subscription.
+-            self.previous = match &result {
+-                Ok(value) => Some(value.clone()),
+-                Err(_) => None,
+-            };
+-            #[cfg(any(test, feature = "test-utils"))]
+-            self.runs.count(running.cause, equal);
+-            if running.cause == LiveQueryCause::Write && equal {
+-                continue;
++                })
++                .await;
+             }
+-            // A failure while the store is closed or the handle failed is the
+-            // last result: answering again would only repeat it. So is a bug,
+-            // after which the query watches nothing more.
+-            let bug = result.as_ref().err().and_then(CarriesBug::bug).is_some();
+-            if bug {
+-                self.commits.stop();
++        }
++    }
++
++    /// Runs the query once if a commit changed what its last run read, a new
++    /// request came, the handle failed or closed, or no run has answered yet.
++    /// Returns `None` when nothing changed, when a write-caused result equals
++    /// the last one (the skip `LiveQueryRuns` counts), and once the query has
++    /// ended. Never parks.
++    pub fn run_changed(&mut self) -> Option<ReconfigurableLiveQueryEvent<Q, T, E>>
++    where
++        T: Clone + PartialEq,
++    {
++        if self.ended {
++            return None;
++        }
++        let commits = self.commits.state();
++        let failure = commits.error();
++        let changed = commits.changed;
++        let request = lock_unpoisoned(&self.lifetime.0.requests).pending.take();
++        let next = match (request, changed) {
++            (Some(request), true) => Some((request, LiveQueryCause::RequestAndWrite)),
++            (Some(request), false) => Some((request, LiveQueryCause::Request)),
++            (None, true) => Some((
++                self.current.as_ref().expect("a previous run read columns").clone(),
++                LiveQueryCause::Write,
++            )),
++            (None, false) if failure.is_some() => Some((
++                self.current.as_ref().expect("initial request was answered").clone(),
++                LiveQueryCause::Write,
++            )),
++            (None, false) => None,
++        };
++        let ((request, revision), cause) = next?;
++        let result = if let Some(error) = failure {
++            Err(error.into())
++        } else {
++            self.commits.begin();
++            caught_sync("live query", || (self.run)(&request, &self.commits))
++                .unwrap_or_else(|bug| Err(E::from(DbError::Bug(bug))))
++        };
++        self.current = Some((request.clone(), revision));
++        let equal = match &result {
++            Ok(value) => self.previous.as_ref() == Some(value),
++            Err(_) => false,
++        };
++        // An error keeps its typed sources, which need have no value
++        // equality or Clone. A failed run is delivered and breaks the chain
++        // of equal successful results; it never terminates the subscription.
++        self.previous = match &result {
++            Ok(value) => Some(value.clone()),
++            Err(_) => None,
++        };
++        #[cfg(any(test, feature = "test-utils"))]
++        self.runs.count(cause, equal);
++        if cause == LiveQueryCause::Write && equal {
++            return None;
++        }
++        // A failure while the store is closed or the handle failed is the
++        // last result: answering again would only repeat it. So is a bug,
++        // after which the query watches nothing more.
++        let bug = result.as_ref().err().and_then(CarriesBug::bug).is_some();
++        if bug {
++            self.commits.stop();
++        }
++        self.ended = bug || (result.is_err() && self.commits.state().error().is_some());
++        Some(ReconfigurableLiveQueryEvent { request, revision, cause, result })
++    }
++
++    /// Whether the store closed, the handle failed or a run's error carried a
++    /// bug, and a result said so: the query answers nothing more.
++    pub fn has_ended(&self) -> bool {
++        self.ended
++    }
++
++    /// Return the next result and its request, as `changed` waits for it:
++    /// this thread parks until a commit or a request calls for a run, and
++    /// then `run_changed` runs the query on it, again if a write-caused
++    /// result equals the last. Once the store is closed, or the handle fails
++    /// every call, one result reports why and every later call returns
++    /// `None`. So does a run whose error carries a bug, as one that panicked
++    /// does with `DbError::Bug`: what it read is unknown, so no commit could
++    /// tell whether to run it again (E15).
++    pub fn next_blocking(&mut self) -> Option<ReconfigurableLiveQueryEvent<Q, T, E>>
++    where
++        T: Clone + PartialEq,
++    {
++        while !self.ended {
++            block_on(self.changed());
++            if let Some(event) = self.run_changed() {
++                return Some(event);
+             }
+-            self.ended = bug || (result.is_err() && self.commits.state().error().is_some());
+-            return Some(ReconfigurableLiveQueryEvent {
+-                request: running.request,
+-                revision: running.revision,
+-                cause: running.cause,
+-                result,
+-            });
+         }
++        None
+     }
+-}
+ 
+-/// `run`, which ends with its `DbError::Bug` if it panics, so `next` never
+-/// polls it again after the panic.
+-fn caught_run<T: Send + 'static, E: From<DbError> + Send + 'static>(run: Run<T, E>) -> Run<T, E> {
+-    Box::pin(async move {
+-        coven_foundation::task::caught("live query", run)
+-            .await
+-            .unwrap_or_else(|bug| Err(E::from(DbError::Bug(bug))))
+-    })
++    /// `next_blocking` for a test on an async executor: `changed().await`,
++    /// then `run_changed` on the executor's thread.
++    #[cfg(any(test, feature = "test-utils"))]
++    pub async fn next_inline(&mut self) -> Option<ReconfigurableLiveQueryEvent<Q, T, E>>
++    where
++        T: Clone + PartialEq,
++    {
++        while !self.ended {
++            self.changed().await;
++            if let Some(event) = self.run_changed() {
++                return Some(event);
++            }
++        }
++        None
++    }
+ }
+ 
+ /// A subscription's results and lifetime; dropping it ends future runs. Its
+@@ -353,15 +385,55 @@ impl<T: Send + 'static, E: From<DbError> + CarriesBug + Send + 'static> LiveQuer
+         Self { inner }
+     }
+ 
+-    /// The first result at once; then only changed results. Errors remain
+-    /// results and don't end the query, except the one reporting that the
+-    /// store closed, the handle failed or a run's error carries a bug, as a
+-    /// panic's does: after it, `None`.
+-    pub async fn next(&mut self) -> Option<Result<T, E>>
++    /// Resolves once `next_blocking` has something to do: a commit changed
++    /// what the last run read, the handle failed or closed, the query ended,
++    /// or no run has answered yet. Dropping it loses nothing, and it needs no
++    /// runtime.
++    pub fn changed(&self) -> impl Future<Output = ()> + Send + 'static {
++        self.inner.changed()
++    }
++
++    /// Runs the query once if a commit changed what its last run read or no
++    /// run has answered yet. Returns `None` when nothing changed, when a
++    /// write-caused result equals the last one, and once the query has ended.
++    /// Never parks.
++    pub fn run_changed(&mut self) -> Option<Result<T, E>>
++    where
++        T: Clone + PartialEq,
++    {
++        Some(self.inner.run_changed()?.result)
++    }
++
++    /// Whether the store closed, the handle failed or a run's error carried a
++    /// bug, and a result said so: the query answers nothing more.
++    pub fn has_ended(&self) -> bool {
++        self.inner.has_ended()
++    }
++
++    /// The first result at once; then only changed results. This thread
++    /// parks until `changed` would resolve, then runs the query on it.
++    /// Errors remain results and don't end the query, except the one
++    /// reporting that the store closed, the handle failed or a run's error
++    /// carries a bug, as a panic's does: after it, `None`.
++    pub fn next_blocking(&mut self) -> Option<Result<T, E>>
+     where
+         T: Clone + PartialEq,
+     {
+-        Some(self.inner.next().await?.result)
++        Some(self.inner.next_blocking()?.result)
++    }
++
++    /// `next_blocking` for a test on an async executor.
++    #[cfg(any(test, feature = "test-utils"))]
++    pub async fn next_inline(&mut self) -> Option<Result<T, E>>
++    where
++        T: Clone + PartialEq,
++    {
++        Some(self.inner.next_inline().await?.result)
++    }
++
++    /// Where a bug in a result nobody waits for any more goes (E15).
++    pub(crate) fn bugs(&self) -> &BugSinkRef {
++        self.inner.bugs()
+     }
+ 
+     /// How often this query has run so far.
+@@ -377,7 +449,7 @@ impl<T: Send + 'static, E: From<DbError> + CarriesBug + Send + 'static> LiveQuer
+         self.inner.is_marked_for_rerun()
+     }
+ 
+-    /// Process each value on a worker after its connection has been released.
++    /// Process each value after its run has released its connection.
+     /// Equality is tested on the processed value.
+     pub fn process<P, U>(self, process: P) -> LiveQuery<U, E>
+     where
+@@ -389,24 +461,6 @@ impl<T: Send + 'static, E: From<DbError> + CarriesBug + Send + 'static> LiveQuer
+     }
+ }
+ 
+-fn process_run<T: Send + 'static, U: Send + 'static, E, P>(
+-    run: Run<T, E>,
+-    process: Arc<P>,
+-    bugs: BugSinkRef,
+-) -> Run<U, E>
+-where
+-    E: From<DbError> + CarriesBug + Send + 'static,
+-    P: Fn(T) -> Result<U, E> + Send + Sync + 'static,
+-{
+-    Box::pin(async move {
+-        let result = run.await;
+-        match result {
+-            Ok(value) => crate::database::process(&bugs, move || process(value)).await,
+-            Err(error) => Err(error),
+-        }
+-    })
+-}
+-
+ #[cfg(test)]
+ #[path = "live_query_tests.rs"]
+ mod tests;
+diff --git a/crates/coven-database/src/live_query_runs_tests.rs b/crates/coven-database/src/live_query_runs_tests.rs
+index ce5033def..d4a228063 100644
+--- a/crates/coven-database/src/live_query_runs_tests.rs
++++ b/crates/coven-database/src/live_query_runs_tests.rs
+@@ -36,7 +36,7 @@ async fn counts_runs_writes_and_equal_results() {
+     write(&db, "UPDATE items SET value = 3 WHERE id = 1");
+     // The run this write causes finds the same result, and returns nothing.
+     tokio::select! {
+-        result = query.next() => panic!("an equal result was returned: {result:?}"),
++        result = query.next_inline() => panic!("an equal result was returned: {result:?}"),
+         read = runs.recv() => read.unwrap(),
+     }
+     write(&db, "UPDATE items SET value = 0 WHERE id = 1");
+diff --git a/crates/coven-database/src/live_query_tests.rs b/crates/coven-database/src/live_query_tests.rs
+index d980f420a..900a9ef45 100644
+--- a/crates/coven-database/src/live_query_tests.rs
++++ b/crates/coven-database/src/live_query_tests.rs
+@@ -19,13 +19,15 @@ async fn reopen_after_drop_waits_only_for_a_subscriptions_active_read() {
+     let entered = Mutex::new(Some(entered));
+     let (release, released) = mpsc::channel();
+     let released = Mutex::new(released);
+-    let mut query = database.subscribe(move |_| {
++    let query = database.subscribe(move |_| {
+         entered.lock().unwrap().take().unwrap().send(()).unwrap();
+         released.lock().unwrap().recv_timeout(HANG_GUARD).unwrap();
+         Ok(17)
+     });
++    let answer = crate::next_result(query);
++    tokio::pin!(answer);
+     tokio::select! {
+-        result = query.next() => panic!("held query returned: {result:?}"),
++        result = &mut answer => panic!("held query returned: {:?}", result.1),
+         result = entry => result.unwrap(),
+     }
+     drop(database);
+@@ -36,14 +38,110 @@ async fn reopen_after_drop_waits_only_for_a_subscriptions_active_read() {
+     crate::tests::until_waiting(&mut reopen, waits).await;
+     release.send(()).unwrap();
+     let reopened = reopen.await.unwrap();
+-    assert_eq!(query.next().await.expect("the live query answers").unwrap(), 17);
+-    assert!(matches!(
+-        query.next().await.expect("the live query answers"),
+-        Err(DbError::StoreClosed)
+-    ));
++    let (query, first) = answer.await;
++    assert_eq!(first.expect("the live query answers").unwrap(), 17);
++    let (_query, closed) = crate::next_result(query).await;
++    assert!(matches!(closed.expect("the live query answers"), Err(DbError::StoreClosed)));
+     reopened.close().await.unwrap();
+ }
+ 
++#[tokio::test]
++async fn run_changed_runs_once_for_a_change_and_returns_none_for_a_skipped_write() {
++    let store = TestStore::new();
++    let db = store.builder(notes_tables(), notes_migrations()).open().await.unwrap();
++    db.commit_writer(|sql| sql.batch("INSERT INTO notes VALUES ('a','Plan','')").unwrap());
++    let mut query: crate::LiveQuery<_, DbError> = db.subscribe(|sql| {
++        Ok(sql.query_row("SELECT count(*) > 0 FROM notes", [], |r| r.get::<_, bool>(0))?)
++    });
++    // No run has answered yet.
++    assert!(query.run_changed().unwrap().unwrap());
++    assert!(query.run_changed().is_none());
++    assert_eq!(query.runs().runs(), 1);
++    // A second row changes what the query read, and not its result.
++    db.commit_writer(|sql| sql.batch("INSERT INTO notes VALUES ('b','Plan','')").unwrap());
++    assert!(query.is_marked_for_rerun());
++    assert!(query.run_changed().is_none());
++    assert_eq!((query.runs().runs(), query.runs().equal()), (2, 1));
++    assert!(!query.is_marked_for_rerun());
++    assert!(query.run_changed().is_none());
++    assert_eq!(query.runs().runs(), 2);
++    db.commit_writer(|sql| sql.batch("DELETE FROM notes").unwrap());
++    assert!(!query.run_changed().unwrap().unwrap());
++    db.close().await.unwrap();
++    assert!(matches!(query.run_changed().unwrap(), Err(DbError::StoreClosed)));
++    assert!(query.has_ended());
++    assert!(query.run_changed().is_none());
++}
++
++/// Whether `changed` has resolved, with no waiting.
++async fn resolved(changed: &mut (impl Future<Output = ()> + Unpin)) -> bool {
++    tokio::select! {
++        biased;
++        () = changed => true,
++        () = std::future::ready(()) => false,
++    }
++}
++
++#[tokio::test]
++async fn changed_resolves_for_a_first_run_a_relevant_commit_a_request_and_the_end() {
++    let store = TestStore::new();
++    let db = store.builder(notes_tables(), notes_migrations()).open().await.unwrap();
++    db.commit_writer(|sql| sql.batch("INSERT INTO notes VALUES ('a','Plan','')").unwrap());
++    let mut query: crate::ReconfigurableLiveQuery<_, _, DbError> =
++        db.subscribe_reconfigurable(1, |request, sql| {
++            Ok(sql.query("SELECT id FROM notes WHERE title='Plan' AND ?1 > 0", [request], |r| {
++                r.get::<_, String>(0)
++            })?)
++        });
++    // No run has answered yet.
++    assert!(resolved(&mut Box::pin(query.changed())).await);
++    assert_eq!(query.next_inline().await.unwrap().result.unwrap(), ["a"]);
++
++    let mut idle = Box::pin(query.changed());
++    assert!(!resolved(&mut idle).await);
++    db.commit_writer(|sql| sql.batch("UPDATE notes SET body='irrelevant'").unwrap());
++    assert!(!resolved(&mut idle).await);
++    db.commit_writer(|sql| sql.batch("INSERT INTO notes VALUES ('b','Plan','')").unwrap());
++    idle.await;
++    assert_eq!(query.next_inline().await.unwrap().result.unwrap(), ["a", "b"]);
++
++    // A request answers without a commit.
++    let mut idle = Box::pin(query.changed());
++    assert!(!resolved(&mut idle).await);
++    query.requests().set(2).unwrap();
++    idle.await;
++    assert_eq!(query.next_inline().await.unwrap().request, 2);
++
++    // A closed store is a result, and the query's end resolves it again.
++    let idle = Box::pin(query.changed());
++    db.close().await.unwrap();
++    idle.await;
++    assert!(matches!(query.next_inline().await.unwrap().result, Err(DbError::StoreClosed)));
++    assert!(resolved(&mut Box::pin(query.changed())).await);
++    assert!(query.next_inline().await.is_none());
++}
++
++#[tokio::test]
++async fn next_blocking_parks_its_thread_until_a_commit_changes_what_the_query_read() {
++    let store = TestStore::new();
++    let db = store.builder(notes_tables(), notes_migrations()).open().await.unwrap();
++    let mut query: crate::LiveQuery<_, DbError> =
++        db.subscribe(|sql| Ok(sql.query("SELECT id FROM notes", [], |r| r.get::<_, String>(0))?));
++    let (waiting, parked) = mpsc::channel();
++    let following = std::thread::spawn(move || {
++        let first = query.next_blocking();
++        waiting.send(()).unwrap();
++        let second = query.next_blocking();
++        (first, second)
++    });
++    parked.recv_timeout(HANG_GUARD).unwrap();
++    db.commit_writer(|sql| sql.batch("INSERT INTO notes VALUES ('a','Plan','')").unwrap());
++    let (first, second) = following.join().unwrap();
++    assert!(first.unwrap().unwrap().is_empty());
++    assert_eq!(second.unwrap().unwrap(), ["a"]);
++    db.close().await.unwrap();
++}
++
+ async fn next_after_equal_run<T: Clone + PartialEq + Send + std::fmt::Debug + 'static>(
+     query: &mut LiveQuery<T, DbError>,
+     equal_finished: tokio::sync::oneshot::Receiver<()>,
+@@ -270,14 +368,14 @@ async fn requests_retain_revisions_causes_and_dynamic_dependencies() {
+             )?)
+         });
+     let requests = query.requests();
+-    let first = query.next().await.expect("the live query answers");
++    let first = query.next_inline().await.expect("the live query answers");
+     assert_eq!(
+         (first.request, first.revision, first.cause, first.result.unwrap()),
+         (false, LiveQueryRevision(0), LiveQueryCause::Request, "same".into())
+     );
+     assert_eq!(requests.set(false).unwrap(), LiveQueryRevision(0));
+     assert_eq!(requests.set(true).unwrap(), LiveQueryRevision(1));
+-    let changed_request = query.next().await.expect("the live query answers");
++    let changed_request = query.next_inline().await.expect("the live query answers");
+     assert_eq!(
+         (
+             changed_request.request,
+@@ -294,7 +392,7 @@ async fn requests_retain_revisions_causes_and_dynamic_dependencies() {
+     assert_eq!(requests.set(false).unwrap(), LiveQueryRevision(2));
+     assert_eq!(requests.clone().set(true).unwrap(), LiveQueryRevision(3));
+     assert_eq!(requests.set(true).unwrap(), LiveQueryRevision(3));
+-    let both = query.next().await.expect("the live query answers");
++    let both = query.next_inline().await.expect("the live query answers");
+     assert_eq!(
+         (both.request, both.revision, both.cause, both.result.unwrap()),
+         (true, LiveQueryRevision(3), LiveQueryCause::RequestAndWrite, "new".into())
+@@ -307,7 +405,7 @@ async fn requests_retain_revisions_causes_and_dynamic_dependencies() {
+ }
+ 
+ #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+-async fn cancelled_next_keeps_its_request_and_inflight_result() {
++async fn requests_set_during_a_run_wait_for_it_and_the_latest_answers_next() {
+     let store = TestStore::new();
+     let db = store.builder(notes_tables(), notes_migrations()).open().await.unwrap();
+     let (entered, entry) = tokio::sync::oneshot::channel();
+@@ -323,17 +421,22 @@ async fn cancelled_next_keeps_its_request_and_inflight_result() {
+             Ok(sql.query_row("SELECT ?1", [request], |r| r.get::<_, i32>(0))?)
+         });
+     let requests = query.requests();
+-    tokio::select! { _ = entry => {}, _ = query.next() => panic!("run should be blocked"), }
++    let running = tokio::task::spawn_blocking(move || {
++        let first = query.next_blocking();
++        (query, first)
++    });
++    entry.await.unwrap();
+     assert_eq!(requests.set(6).unwrap(), LiveQueryRevision(1));
+     assert_eq!(requests.set(7).unwrap(), LiveQueryRevision(2));
+-    let mut query = query.process(|value| Ok(format!("value {value}")));
+     release.send(()).unwrap();
+-    let first = query.next().await.expect("the live query answers");
++    let (query, first) = running.await.unwrap();
++    let first = first.expect("the live query answers");
+     assert_eq!(
+         (first.request, first.revision, first.result.unwrap()),
+-        (5, LiveQueryRevision(0), "value 5".into())
++        (5, LiveQueryRevision(0), 5)
+     );
+-    let second = query.next().await.expect("the live query answers");
++    let mut query = query.process(|value| Ok(format!("value {value}")));
++    let second = query.next_inline().await.expect("the live query answers");
+     assert_eq!(
+         (second.request, second.revision, second.result.unwrap()),
+         (7, LiveQueryRevision(2), "value 7".into())
+@@ -480,7 +583,7 @@ async fn replacement_before_first_run_supersedes_the_initial_request() {
+     let requests = query.requests();
+     assert_eq!(requests.set(1).unwrap(), LiveQueryRevision(1));
+     assert_eq!(requests.set(2).unwrap(), LiveQueryRevision(2));
+-    let event = query.next().await.expect("the live query answers");
++    let event = query.next_inline().await.expect("the live query answers");
+     assert_eq!(
+         (event.request, event.revision, event.cause, event.result.unwrap()),
+         (2, LiveQueryRevision(2), LiveQueryCause::Request, 2)
+@@ -594,17 +697,17 @@ async fn processing_a_completed_query_preserves_a_newer_pending_request() {
+     let mut query: crate::ReconfigurableLiveQuery<_, _, DbError> =
+         db.subscribe_reconfigurable(1, |request, _| Ok(*request));
+     let requests = query.requests();
+-    assert_eq!(query.next().await.expect("the live query answers").result.unwrap(), 1);
++    assert_eq!(query.next_inline().await.expect("the live query answers").result.unwrap(), 1);
+     let revision = requests.set(2).unwrap();
+     let mut query = query.process(|value| Ok(value.to_string()));
+-    let event = query.next().await.expect("the live query answers");
++    let event = query.next_inline().await.expect("the live query answers");
+     assert_eq!(
+         (event.request, event.revision, event.cause, event.result.unwrap()),
+         (2, revision, LiveQueryCause::Request, "2".into())
+     );
+     // With no pending replacement, changing output type answers the current request.
+     let mut query = query.process(|value| Ok(value.len()));
+-    let event = query.next().await.expect("the live query answers");
++    let event = query.next_inline().await.expect("the live query answers");
+     assert_eq!((event.request, event.revision, event.result.unwrap()), (2, revision, 1));
+     drop(query);
+     assert_eq!(requests.set(3), Err(LiveQueryClosed));
+@@ -629,12 +732,12 @@ async fn processing_preserves_query_errors_and_recovers_from_callback_errors() {
+             Ok(value.to_string())
+         });
+     let requests = query.requests();
+-    let event = query.next().await.expect("the live query answers");
++    let event = query.next_inline().await.expect("the live query answers");
+     assert!(matches!(event.result, Err(DbError::Sqlite(rusqlite::Error::QueryReturnedNoRows))));
+     assert_eq!(calls.load(Ordering::SeqCst), 0);
+     for request in [1, 2, 1, 2] {
+         let revision = requests.set(request).unwrap();
+-        let event = query.next().await.expect("the live query answers");
++        let event = query.next_inline().await.expect("the live query answers");
+         assert_eq!(
+             (event.request, event.revision, event.cause),
+             (request, revision, LiveQueryCause::Request)
+@@ -666,14 +769,12 @@ async fn reconfigurable_processing_releases_the_connection_before_its_worker_run
+             released.lock().unwrap().recv_timeout(HANG_GUARD).unwrap();
+             Ok(value.to_string())
+         });
+-    tokio::select! {
+-        result = entry => result.unwrap(),
+-        _ = query.next() => panic!("processing is held"),
+-    }
++    let running = tokio::task::spawn_blocking(move || query.next_blocking());
++    entry.await.unwrap();
+     // Closing waits for active reads, so this would block if processing held its lease.
+     tokio::time::timeout(HANG_GUARD, db.close()).await.unwrap().unwrap();
+     release.send(()).unwrap();
+-    let event = query.next().await.expect("the live query answers");
++    let event = running.await.unwrap().expect("the live query answers");
+     assert_eq!(
+         (event.request, event.revision, event.result.unwrap()),
+         (7, LiveQueryRevision(0), "7".into())
+@@ -750,19 +851,19 @@ async fn a_closed_stores_query_reports_once_then_ends() {
+     let db = store.builder(notes_tables(), notes_migrations()).open().await.unwrap();
+     let mut query = db.subscribe(count_notes);
+     let mut requested = db.subscribe_reconfigurable(0, |_, sql| count_notes(sql));
+-    assert_eq!(query.next().await.unwrap().unwrap(), 0);
+-    assert_eq!(requested.next().await.unwrap().result.unwrap(), 0);
++    assert_eq!(query.next_inline().await.unwrap().unwrap(), 0);
++    assert_eq!(requested.next_inline().await.unwrap().result.unwrap(), 0);
+     db.close().await.unwrap();
+-    assert!(matches!(query.next().await, Some(Err(DbError::StoreClosed))));
+-    assert!(query.next().await.is_none());
+-    assert!(query.next().await.is_none());
++    assert!(matches!(query.next_inline().await, Some(Err(DbError::StoreClosed))));
++    assert!(query.next_inline().await.is_none());
++    assert!(query.next_inline().await.is_none());
+     // A new request doesn't revive it either.
+     requested.requests().set(1).unwrap();
+     assert!(matches!(
+-        requested.next().await.map(|event| event.result),
++        requested.next_inline().await.map(|event| event.result),
+         Some(Err(DbError::StoreClosed))
+     ));
+-    assert!(requested.next().await.is_none());
++    assert!(requested.next_inline().await.is_none());
+ }
+ 
+ /// A handle whose rollback failed: its live queries report that once and end.
+@@ -771,7 +872,7 @@ async fn a_failed_handles_query_reports_once_then_ends() {
+     let store = TestStore::new();
+     let db = store.builder(notes_tables(), notes_migrations()).open().await.unwrap();
+     let mut query = db.subscribe(count_notes);
+-    assert_eq!(query.next().await.unwrap().unwrap(), 0);
++    assert_eq!(query.next_inline().await.unwrap().unwrap(), 0);
+     db.inspect_writer(|writer| writer.refuse_transaction_end(true));
+     assert!(db
+         .write(|sql| -> Result<(), DbError> {
+@@ -780,8 +881,8 @@ async fn a_failed_handles_query_reports_once_then_ends() {
+         })
+         .await
+         .is_err());
+-    assert!(matches!(query.next().await, Some(Err(DbError::RollbackFailed))));
+-    assert!(query.next().await.is_none());
++    assert!(matches!(query.next_inline().await, Some(Err(DbError::RollbackFailed))));
++    assert!(query.next_inline().await.is_none());
+     db.close().await.unwrap();
+ }
+ 
+@@ -796,9 +897,9 @@ async fn a_panicking_query_reports_its_bug_once_then_ends() {
+         assert!(count == 0, "the notes table has {count} rows");
+         Ok(count)
+     });
+-    assert_eq!(query.next().await.unwrap().unwrap(), 0);
++    assert_eq!(query.next_inline().await.unwrap().unwrap(), 0);
+     db.commit_writer(|sql| sql.batch("INSERT INTO notes VALUES ('n','first','')").unwrap());
+-    let ended = query.next().await;
++    let ended = query.next_inline().await;
+     assert!(
+         matches!(
+             &ended,
+@@ -808,7 +909,7 @@ async fn a_panicking_query_reports_its_bug_once_then_ends() {
+         "{ended:?}"
+     );
+     db.commit_writer(|sql| sql.batch("INSERT INTO notes VALUES ('m','second','')").unwrap());
+-    assert!(query.next().await.is_none());
++    assert!(query.next_inline().await.is_none());
+     db.close().await.unwrap();
+ }
+ 
+@@ -824,12 +925,12 @@ async fn a_live_query_delivers_its_closures_own_error_and_goes_on() {
+         1 => Err(AppError::Refused("one note")),
+         count => Ok(count),
+     });
+-    assert_eq!(query.next().await.unwrap().unwrap(), 0);
++    assert_eq!(query.next_inline().await.unwrap().unwrap(), 0);
+     db.commit_writer(|sql| sql.batch("INSERT INTO notes VALUES ('n','first','')").unwrap());
+-    let refused = query.next().await;
++    let refused = query.next_inline().await;
+     assert!(matches!(refused, Some(Err(AppError::Refused("one note")))), "{refused:?}");
+     db.commit_writer(|sql| sql.batch("INSERT INTO notes VALUES ('m','second','')").unwrap());
+-    assert_eq!(query.next().await.unwrap().unwrap(), 2);
++    assert_eq!(query.next_inline().await.unwrap().unwrap(), 2);
+     db.close().await.unwrap();
+ }
+ 
+@@ -845,9 +946,9 @@ async fn a_panicking_query_ends_with_its_bug_in_the_apps_own_error() {
+         assert!(count == 0, "the notes table has {count} rows");
+         Ok::<_, AppError>(count)
+     });
+-    assert_eq!(query.next().await.unwrap().unwrap(), 0);
++    assert_eq!(query.next_inline().await.unwrap().unwrap(), 0);
+     db.commit_writer(|sql| sql.batch("INSERT INTO notes VALUES ('n','first','')").unwrap());
+-    let ended = query.next().await;
++    let ended = query.next_inline().await;
+     assert!(
+         matches!(
+             &ended,
+@@ -857,6 +958,6 @@ async fn a_panicking_query_ends_with_its_bug_in_the_apps_own_error() {
+         "{ended:?}"
+     );
+     db.commit_writer(|sql| sql.batch("INSERT INTO notes VALUES ('m','second','')").unwrap());
+-    assert!(query.next().await.is_none());
++    assert!(query.next_inline().await.is_none());
+     db.close().await.unwrap();
+ }
+diff --git a/crates/coven-database/src/live_results.rs b/crates/coven-database/src/live_results.rs
+new file mode 100644
+index 000000000..956b58e4a
+--- /dev/null
++++ b/crates/coven-database/src/live_results.rs
+@@ -0,0 +1,59 @@
++//! A live query's results for code on an async executor.
++
++use crate::{DbError, LiveQuery};
++use coven_foundation::locks::{into_unpoisoned, lock_unpoisoned};
++use coven_foundation::task::{blocking_completing, CarriesBug};
++use std::sync::{Arc, Mutex};
++
++/// The query's next result, with the query to ask again: it waits for
++/// `changed()` on the executor, runs `run_changed` on tokio's blocking pool,
++/// and waits again when a write-caused result equals the last, so no pool
++/// thread waits. `None` once the query has ended (E15). A pool that has begun
++/// shutting down answers `Some(Err(DbError::Shutdown))`, and a panic outside
++/// the run itself answers `Some(Err(DbError::Bug))`.
++///
++/// Dropping this future loses the query, since the pool's thread holds it; a
++/// run in flight ends on its own thread, and a bug in its result goes to the
++/// store's bug sink (E15).
++pub async fn next_result<T, E>(
++    mut query: LiveQuery<T, E>,
++) -> (LiveQuery<T, E>, Option<Result<T, E>>)
++where
++    T: Clone + PartialEq + Send + 'static,
++    E: From<DbError> + CarriesBug + Send + 'static,
++{
++    loop {
++        if query.has_ended() {
++            return (query, None);
++        }
++        query.changed().await;
++        let bugs = query.bugs().clone();
++        // The slot keeps the query when the pool drops the work unstarted or
++        // the work panics, so either answers with the query.
++        let slot = Arc::new(Mutex::new(query));
++        let held = Arc::clone(&slot);
++        let result = blocking_completing(
++            "live query",
++            bugs,
++            crate::commit_task::bind(move || match lock_unpoisoned(&held).run_changed() {
++                None => Ok(None),
++                Some(result) => result.map(Some),
++            }),
++        )
++        .await;
++        query = match Arc::try_unwrap(slot) {
++            Ok(slot) => into_unpoisoned(slot),
++            Err(_) => unreachable!("the pool has dropped or ended the work"),
++        };
++        match result {
++            Ok(Ok(None)) => {}
++            Ok(Ok(Some(value))) => return (query, Some(Ok(value))),
++            Ok(Err(error)) => return (query, Some(Err(error))),
++            Err(failed) => return (query, Some(Err(E::from(DbError::from(failed))))),
++        }
++    }
++}
++
++#[cfg(test)]
++#[path = "live_results_tests.rs"]
++mod tests;
+diff --git a/crates/coven-database/src/live_results_tests.rs b/crates/coven-database/src/live_results_tests.rs
+new file mode 100644
+index 000000000..4698b5075
+--- /dev/null
++++ b/crates/coven-database/src/live_results_tests.rs
+@@ -0,0 +1,46 @@
++use crate::DbError;
++use crate::{
++    test_utils::{notes_migrations, notes_tables},
++    tests::TestStore,
++};
++
++/// A skipped write leaves no blocking-pool thread waiting: with one blocking
++/// thread, other blocking work still runs while `next_result` waits for the
++/// change after the skip.
++#[test]
++fn next_result_after_a_skipped_write_waits_without_holding_a_pool_thread() {
++    let runtime = tokio::runtime::Builder::new_multi_thread()
++        .worker_threads(2)
++        .max_blocking_threads(1)
++        .enable_all()
++        .build()
++        .unwrap();
++    runtime.block_on(async {
++        let store = TestStore::new();
++        let db = store.builder(notes_tables(), notes_migrations()).open().await.unwrap();
++        db.commit_writer(|sql| sql.batch("INSERT INTO notes VALUES ('a','Plan','')").unwrap());
++        let (ran, mut runs) = tokio::sync::mpsc::unbounded_channel();
++        let query: crate::LiveQuery<_, DbError> = db.subscribe(move |sql| {
++            ran.send(()).unwrap();
++            Ok(sql.query_row("SELECT count(*) > 0 FROM notes", [], |r| r.get::<_, bool>(0))?)
++        });
++        let (query, first) = crate::next_result(query).await;
++        assert!(first.unwrap().unwrap());
++        runs.recv().await.unwrap();
++        let answer = tokio::spawn(crate::next_result(query));
++        db.commit_writer(|sql| sql.batch("INSERT INTO notes VALUES ('b','Plan','')").unwrap());
++        // The run that finds an equal result has started.
++        runs.recv().await.unwrap();
++        // Blocking work queued behind that run starts once it ends, which a
++        // parked thread would prevent.
++        coven_foundation::clock::within(tokio::task::spawn_blocking(|| ()))
++            .await
++            .expect("the pool's one thread is free")
++            .unwrap();
++        assert!(!answer.is_finished(), "an equal result was returned");
++        db.commit_writer(|sql| sql.batch("DELETE FROM notes").unwrap());
++        let (_query, second) = answer.await.unwrap();
++        assert!(!second.unwrap().unwrap());
++        db.close().await.unwrap();
++    });
++}
+diff --git a/crates/coven-database/src/loss_record_tests.rs b/crates/coven-database/src/loss_record_tests.rs
+index db8e19985..719b800c2 100644
+--- a/crates/coven-database/src/loss_record_tests.rs
++++ b/crates/coven-database/src/loss_record_tests.rs
+@@ -222,7 +222,7 @@ async fn corrupt_values_fail_typed_and_live_losses_recover_after_repair() {
+     let store = TestStore::new();
+     let db = store.builder(vec![], vec![]).open().await.unwrap();
+     let mut query = db.subscribe_lost_values();
+-    assert!(query.next().await.expect("the live query answers").unwrap().is_empty());
++    assert!(query.next_inline().await.expect("the live query answers").unwrap().is_empty());
+     let values: BTreeMap<String, ColumnValue<WireValue>> =
+         BTreeMap::from([("title".into(), cell(WireValue::Text("lost".into())))]);
+     let setters = BTreeMap::from([("title".into(), setter(1))]);
+@@ -236,7 +236,7 @@ async fn corrupt_values_fail_typed_and_live_losses_recover_after_repair() {
+         rules,
+     );
+     assert!(matches!(
+-        tokio::time::timeout(HANG_GUARD, query.next())
++        tokio::time::timeout(HANG_GUARD, query.next_inline())
+             .await
+             .unwrap()
+             .expect("the live query answers"),
+@@ -250,7 +250,7 @@ async fn corrupt_values_fail_typed_and_live_losses_recover_after_repair() {
+         .unwrap()
+     });
+     assert_eq!(
+-        tokio::time::timeout(HANG_GUARD, query.next())
++        tokio::time::timeout(HANG_GUARD, query.next_inline())
+             .await
+             .unwrap()
+             .expect("the live query answers")
+@@ -260,11 +260,11 @@ async fn corrupt_values_fail_typed_and_live_losses_recover_after_repair() {
+     );
+     db.commit_writer(|sql| sql.batch("UPDATE _coven_lost SET value=x'ff'").unwrap());
+     assert!(matches!(
+-        query.next().await.expect("the live query answers"),
++        query.next_inline().await.expect("the live query answers"),
+         Err(DbError::DamagedDatabase)
+     ));
+     db.commit_writer(|sql| sql.batch("DELETE FROM _coven_lost").unwrap());
+-    assert!(query.next().await.expect("the live query answers").unwrap().is_empty());
++    assert!(query.next_inline().await.expect("the live query answers").unwrap().is_empty());
+     db.close().await.unwrap();
+ }
+ 
+diff --git a/crates/coven-database/src/members_tests.rs b/crates/coven-database/src/members_tests.rs
+index 5eba43f2c..0633eaef5 100644
+--- a/crates/coven-database/src/members_tests.rs
++++ b/crates/coven-database/src/members_tests.rs
+@@ -163,24 +163,24 @@ async fn subscriptions_start_with_the_committed_value_and_follow_replay() {
+     let mut members = db.subscribe_members::<DbError>();
+     let mut circles = db.subscribe_circles::<DbError>();
+     let mut circle = db.subscribe_circle_members::<DbError>(CircleId(uuid::Uuid::from_u128(7)));
+-    assert!(members.next().await.expect("the live query answers").unwrap().is_empty());
+-    assert!(circles.next().await.expect("the live query answers").unwrap().is_empty());
+-    assert!(circle.next().await.expect("the live query answers").unwrap().is_empty());
++    assert!(members.next_inline().await.expect("the live query answers").unwrap().is_empty());
++    assert!(circles.next_inline().await.expect("the live query answers").unwrap().is_empty());
++    assert!(circle.next_inline().await.expect("the live query answers").unwrap().is_empty());
+     fixture(&db).await;
+-    let next = tokio::time::timeout(HANG_GUARD, members.next())
++    let next = tokio::time::timeout(HANG_GUARD, members.next_inline())
+         .await
+         .unwrap()
+         .expect("the live query answers")
+         .unwrap();
+     assert_eq!(next, db.members().await.unwrap());
+     assert_eq!(next.len(), 2);
+-    let next = tokio::time::timeout(HANG_GUARD, circles.next())
++    let next = tokio::time::timeout(HANG_GUARD, circles.next_inline())
+         .await
+         .unwrap()
+         .expect("the live query answers")
+         .unwrap();
+     assert_eq!(next.len(), 1);
+-    let next = tokio::time::timeout(HANG_GUARD, circle.next())
++    let next = tokio::time::timeout(HANG_GUARD, circle.next_inline())
+         .await
+         .unwrap()
+         .expect("the live query answers")
+@@ -196,7 +196,7 @@ async fn read_failures_reach_callers_and_subscribers() {
+     let db = store.builder(vec![], vec![]).open().await.unwrap();
+     fixture(&db).await;
+     let mut members = db.subscribe_members::<DbError>();
+-    assert_eq!(members.next().await.expect("the live query answers").unwrap().len(), 2);
++    assert_eq!(members.next_inline().await.expect("the live query answers").unwrap().len(), 2);
+     db.inspect_writer(|db| {
+         crate::store_state_tables::tests::damage(
+             db,
+@@ -206,7 +206,7 @@ async fn read_failures_reach_callers_and_subscribers() {
+     assert!(db.members().await.is_err());
+     assert!(db
+         .subscribe_members::<DbError>()
+-        .next()
++        .next_inline()
+         .await
+         .expect("the live query answers")
+         .is_err());
+@@ -306,7 +306,7 @@ async fn the_apps_sql_reads_members_and_devices_former_ones_included() {
+     let store = TestStore::new();
+     let db = store.builder(vec![], vec![]).open().await.unwrap();
+     let mut members = db.subscribe(member_rows);
+-    assert!(members.next().await.expect("the live query answers").unwrap().is_empty());
++    assert!(members.next_inline().await.expect("the live query answers").unwrap().is_empty());
+     fixture(&db).await;
+     let mut expected = vec![
+         (member(1), "admin".to_owned(), false, true),
+@@ -315,7 +315,7 @@ async fn the_apps_sql_reads_members_and_devices_former_ones_included() {
+     ];
+     expected.sort_by_key(|row| row.0.to_string());
+     // Applying the membership reruns the app's query.
+-    let next = tokio::time::timeout(HANG_GUARD, members.next())
++    let next = tokio::time::timeout(HANG_GUARD, members.next_inline())
+         .await
+         .unwrap()
+         .expect("the live query answers")
+diff --git a/crates/coven-database/src/observation.rs b/crates/coven-database/src/observation.rs
+index b1a0b63f1..dbdb0c73b 100644
+--- a/crates/coven-database/src/observation.rs
++++ b/crates/coven-database/src/observation.rs
+@@ -152,6 +152,11 @@ impl CommitSubscription {
+         self.receiver.borrow().clone()
+     }
+ 
++    /// The state now, marked as seen: `changed` then waits for a later one.
++    pub(crate) fn observe(&mut self) -> CommitState {
++        self.receiver.borrow_and_update().clone()
++    }
++
+     pub(crate) async fn changed(&mut self) {
+         self.receiver.changed().await.expect("subscription owns its sender");
+     }
+diff --git a/crates/coven-database/src/pending_tests.rs b/crates/coven-database/src/pending_tests.rs
+index 208c9b49c..a1d49f45b 100644
+--- a/crates/coven-database/src/pending_tests.rs
++++ b/crates/coven-database/src/pending_tests.rs
+@@ -190,7 +190,7 @@ async fn completed_steps_replace_or_clear_the_condition_in_the_same_commit() {
+     db.record_pending(first.clone()).await.unwrap();
+     let mut live = records(&db);
+     assert_eq!(
+-        live.next().await.expect("the live query answers").unwrap(),
++        live.next_inline().await.expect("the live query answers").unwrap(),
+         std::slice::from_ref(&first)
+     );
+     assert_eq!(db.operation(id).await.unwrap().unwrap().last_step, 0);
+@@ -202,7 +202,7 @@ async fn completed_steps_replace_or_clear_the_condition_in_the_same_commit() {
+     .await
+     .unwrap();
+     assert_eq!(
+-        live.next().await.expect("the live query answers").unwrap(),
++        live.next_inline().await.expect("the live query answers").unwrap(),
+         std::slice::from_ref(&next)
+     );
+     assert_eq!(db.operation(id).await.unwrap().unwrap().last_step, 1);
+@@ -217,7 +217,7 @@ async fn completed_steps_replace_or_clear_the_condition_in_the_same_commit() {
+     db.advance_operation(OperationUpdate { id, previous: 1, last_step: 2, data: vec![2] })
+         .await
+         .unwrap();
+-    assert!(live.next().await.expect("the live query answers").unwrap().is_empty());
++    assert!(live.next_inline().await.expect("the live query answers").unwrap().is_empty());
+     assert_eq!(db.operation(id).await.unwrap().unwrap().last_step, 2);
+     db.record_pending(operation_record(id)).await.unwrap();
+     db.finish_operation(id).await.unwrap();
+@@ -240,12 +240,12 @@ async fn losing_a_pending_update_fails_all_calls_and_subscriptions_until_reopen(
+         db.record_pending(pending.clone()).await.unwrap();
+         let mut live = records(&db);
+         assert_eq!(
+-            live.next().await.expect("the live query answers").unwrap(),
++            live.next_inline().await.expect("the live query answers").unwrap(),
+             std::slice::from_ref(&pending)
+         );
+         let mut ordinary =
+             db.subscribe(|sql| Ok(sql.query_row("SELECT 1", [], |r| r.get::<_, i64>(0))?));
+-        assert_eq!(ordinary.next().await.expect("the live query answers").unwrap(), 1);
++        assert_eq!(ordinary.next_inline().await.expect("the live query answers").unwrap(), 1);
+         db.inspect_writer(|sql| {
+             if statement == "COMMIT" {
+                 sql.batch("CREATE TEMP TABLE parent(id INTEGER PRIMARY KEY);
+@@ -262,14 +262,14 @@ async fn losing_a_pending_update_fails_all_calls_and_subscriptions_until_reopen(
+         };
+         let original = cause(failed.unwrap_err());
+         let failures = [
+-            cause(live.next().await.expect("the live query answers").unwrap_err()),
+-            cause(ordinary.next().await.expect("the live query answers").unwrap_err()),
++            cause(live.next_inline().await.expect("the live query answers").unwrap_err()),
++            cause(ordinary.next_inline().await.expect("the live query answers").unwrap_err()),
+             cause(db.pending::<Record>().await.unwrap_err()),
+             cause(db.read(|_| Ok(())).await.unwrap_err()),
+             cause(db.write(|_| Ok(())).await.unwrap_err()),
+             cause(db.applied_migrations().unwrap_err()),
+             cause(db.schema_version().await.unwrap_err()),
+-            cause(records(&db).next().await.expect("the live query answers").unwrap_err()),
++            cause(records(&db).next_inline().await.expect("the live query answers").unwrap_err()),
+         ];
+         assert!(failures.iter().all(|error| std::sync::Arc::ptr_eq(&original, error)));
+         db.close().await.unwrap();
+@@ -299,13 +299,13 @@ async fn losing_a_pending_update_fails_an_already_running_subscription() {
+         Ok(records)
+     });
+     tokio::select! {
+-        result = live.next() => panic!("held query returned: {result:?}"),
++        result = live.next_inline() => panic!("held query returned: {result:?}"),
+         result = entry => result.unwrap(),
+     }
+     let failed = db.record_pending(pending).await;
+     release.send(()).unwrap();
+     let original = cause(failed.unwrap_err());
+-    let observed = cause(live.next().await.expect("the live query answers").unwrap_err());
++    let observed = cause(live.next_inline().await.expect("the live query answers").unwrap_err());
+     assert!(std::sync::Arc::ptr_eq(&original, &observed));
+     db.close().await.unwrap();
+ }
+@@ -466,7 +466,7 @@ async fn a_completed_scan_replaces_exactly_its_own_class_of_records() {
+     db.record_pending(other.clone()).await.unwrap();
+     let mut live = records(&db);
+     assert_eq!(
+-        live.next().await.expect("the live query answers").unwrap(),
++        live.next_inline().await.expect("the live query answers").unwrap(),
+         std::slice::from_ref(&other)
+     );
+     let first = vec![audience("a", Reason::Missing), audience("b", Reason::Missing)];
+@@ -474,7 +474,7 @@ async fn a_completed_scan_replaces_exactly_its_own_class_of_records() {
+     let mut expected = first.clone();
+     expected.push(other.clone());
+     expected.sort_by_key(|r| r.subject.clone());
+-    assert_eq!(live.next().await.expect("the live query answers").unwrap(), expected);
++    assert_eq!(live.next_inline().await.expect("the live query answers").unwrap(), expected);
+     // An unchanged scan commits nothing.
+     db.replace_local_pending(scanned, first).await.unwrap();
+     // A subject that now checks loses its record; a changed reason replaces it.
+@@ -483,14 +483,14 @@ async fn a_completed_scan_replaces_exactly_its_own_class_of_records() {
+     let mut expected = next.clone();
+     expected.push(other.clone());
+     expected.sort_by_key(|r| r.subject.clone());
+-    assert_eq!(live.next().await.expect("the live query answers").unwrap(), expected);
++    assert_eq!(live.next_inline().await.expect("the live query answers").unwrap(), expected);
+     // Records outside the scanned class and duplicate subjects are refused.
+     assert!(db.replace_local_pending(scanned, vec![other.clone()]).await.is_err());
+     let duplicate = audience("c", Reason::Missing);
+     assert!(db.replace_local_pending(scanned, vec![duplicate.clone(), duplicate]).await.is_err());
+     db.replace_local_pending(scanned, Vec::new()).await.unwrap();
+     assert_eq!(
+-        live.next().await.expect("the live query answers").unwrap(),
++        live.next_inline().await.expect("the live query answers").unwrap(),
+         std::slice::from_ref(&other)
+     );
+ }
+@@ -637,7 +637,7 @@ async fn a_records_cause_is_written_with_it_and_cleared_at_open() {
+         })
+     };
+     let mut live: crate::LiveQuery<_, DbError> = follow(&db);
+-    let mut next = async || live.next().await.expect("the live query answers").unwrap();
++    let mut next = async || live.next_inline().await.expect("the live query answers").unwrap();
+     assert_eq!(next().await, vec![]);
+     let failed = Record { cause: Some("disk full".into()), ..record(1) };
+     db.record_pending(failed.clone()).await.unwrap();
+@@ -657,7 +657,7 @@ async fn a_records_cause_is_written_with_it_and_cleared_at_open() {
+     let db = store.builder(vec![], vec![]).open().await.unwrap();
+     assert_eq!(db.pending::<Record>().await.unwrap(), vec![record(1)]);
+     let mut live = follow(&db);
+-    assert_eq!(live.next().await.unwrap().unwrap(), vec![(record(1), None)]);
++    assert_eq!(live.next_inline().await.unwrap().unwrap(), vec![(record(1), None)]);
+ }
+ 
+ /// Fill this domain's tables from the rows of the plan audit's `fixture`
+diff --git a/crates/coven-database/src/pre_update_changes_tests.rs b/crates/coven-database/src/pre_update_changes_tests.rs
+index b943daf8b..a7e7577d2 100644
+--- a/crates/coven-database/src/pre_update_changes_tests.rs
++++ b/crates/coven-database/src/pre_update_changes_tests.rs
+@@ -30,15 +30,18 @@ async fn a_local_tables_columns_still_decide_a_rerun() {
+     let mut tracks: crate::LiveQuery<_, DbError> = db.subscribe(|sql| {
+         Ok(sql.query("SELECT track FROM queue ORDER BY id", [], |r| r.get::<_, String>(0))?)
+     });
+-    assert_eq!(tracks.next().await.expect("the live query answers").unwrap(), ["a", "b"]);
++    assert_eq!(tracks.next_inline().await.expect("the live query answers").unwrap(), ["a", "b"]);
+     sql(&db, "UPDATE queue SET played=1 WHERE id=1").await.unwrap();
+     assert!(!tracks.is_marked_for_rerun());
+     sql(&db, "UPDATE queue SET track='c' WHERE id=2").await.unwrap();
+-    assert_eq!(tracks.next().await.expect("the live query answers").unwrap(), ["a", "c"]);
++    assert_eq!(tracks.next_inline().await.expect("the live query answers").unwrap(), ["a", "c"]);
+     sql(&db, "INSERT INTO queue(id, track) VALUES (3,'d')").await.unwrap();
+-    assert_eq!(tracks.next().await.expect("the live query answers").unwrap(), ["a", "c", "d"]);
++    assert_eq!(
++        tracks.next_inline().await.expect("the live query answers").unwrap(),
++        ["a", "c", "d"]
++    );
+     sql(&db, "DELETE FROM queue WHERE id=1").await.unwrap();
+-    assert_eq!(tracks.next().await.expect("the live query answers").unwrap(), ["c", "d"]);
++    assert_eq!(tracks.next_inline().await.expect("the live query answers").unwrap(), ["c", "d"]);
+     db.close().await.unwrap();
+ }
+ 
+@@ -52,7 +55,7 @@ async fn a_key_scoped_query_of_a_local_table_reruns_only_for_its_row() {
+     let mut first: crate::LiveQuery<_, DbError> = db.subscribe(|sql| {
+         Ok(sql.query("SELECT track FROM queue WHERE id = 1", [], |r| r.get::<_, String>(0))?)
+     });
+-    assert_eq!(first.next().await.expect("the live query answers").unwrap(), ["a"]);
++    assert_eq!(first.next_inline().await.expect("the live query answers").unwrap(), ["a"]);
+     sql(&db, "UPDATE queue SET track='z' WHERE id=2; INSERT INTO queue(id, track) VALUES (3,'d'); DELETE FROM queue WHERE id=3")
+         .await
+         .unwrap();
+@@ -60,9 +63,9 @@ async fn a_key_scoped_query_of_a_local_table_reruns_only_for_its_row() {
+     sql(&db, "UPDATE queue SET id=4 WHERE id=2").await.unwrap();
+     assert!(!first.is_marked_for_rerun());
+     sql(&db, "UPDATE queue SET track='y' WHERE id=1").await.unwrap();
+-    assert_eq!(first.next().await.expect("the live query answers").unwrap(), ["y"]);
++    assert_eq!(first.next_inline().await.expect("the live query answers").unwrap(), ["y"]);
+     sql(&db, "DELETE FROM queue WHERE id=1").await.unwrap();
+-    assert!(first.next().await.expect("the live query answers").unwrap().is_empty());
++    assert!(first.next_inline().await.expect("the live query answers").unwrap().is_empty());
+     db.close().await.unwrap();
+ }
+ 
+@@ -81,7 +84,7 @@ async fn a_write_past_the_row_bound_wakes_every_query_of_the_table() {
+         Ok((run, tracks))
+     });
+     assert_eq!(
+-        first.next().await.expect("the live query answers").unwrap(),
++        first.next_inline().await.expect("the live query answers").unwrap(),
+         (0, vec!["a".to_string()])
+     );
+     let fill = |rows: usize| -> &'static str {
+@@ -99,7 +102,7 @@ async fn a_write_past_the_row_bound_wakes_every_query_of_the_table() {
+     assert!(!first.is_marked_for_rerun());
+     sql(&db, fill(super::ROWS_PER_TABLE + 1)).await.unwrap();
+     assert_eq!(
+-        first.next().await.expect("the live query answers").unwrap(),
++        first.next_inline().await.expect("the live query answers").unwrap(),
+         (1, vec!["a".to_string()])
+     );
+     db.close().await.unwrap();
+@@ -175,14 +178,14 @@ async fn a_commit_after_a_schema_change_reads_the_tables_new_shape() {
+     let mut ratings: crate::LiveQuery<_, DbError> = db.subscribe(|sql| {
+         Ok(sql.query("SELECT rating FROM queue WHERE id = 1", [], |r| r.get::<_, Option<i64>>(0))?)
+     });
+-    assert_eq!(ratings.next().await.expect("the live query answers").unwrap(), [None]);
++    assert_eq!(ratings.next_inline().await.expect("the live query answers").unwrap(), [None]);
+     db.commit_writer(|writer| {
+         writer.batch("UPDATE queue SET rating=5 WHERE id=1").unwrap();
+     });
+     assert!(ratings.is_marked_for_rerun());
+-    assert_eq!(ratings.next().await.expect("the live query answers").unwrap(), [Some(5)]);
++    assert_eq!(ratings.next_inline().await.expect("the live query answers").unwrap(), [Some(5)]);
+     sql(&db, "UPDATE queue SET rating=4 WHERE id=1").await.unwrap();
+     assert!(ratings.is_marked_for_rerun());
+-    assert_eq!(ratings.next().await.expect("the live query answers").unwrap(), [Some(4)]);
++    assert_eq!(ratings.next_inline().await.expect("the live query answers").unwrap(), [Some(4)]);
+     db.close().await.unwrap();
+ }
+diff --git a/crates/coven-database/src/read_tests.rs b/crates/coven-database/src/read_tests.rs
+index 272e3e7f7..de6427c94 100644
+--- a/crates/coven-database/src/read_tests.rs
++++ b/crates/coven-database/src/read_tests.rs
+@@ -207,7 +207,7 @@ async fn a_failed_snapshot_rollback_fails_the_handle_until_reopen() {
+         let mut notes = db.subscribe(|sql| {
+             Ok(sql.query("SELECT title FROM notes", [], |r| r.get::<_, String>(0))?)
+         });
+-        assert!(notes.next().await.expect("the live query answers").unwrap().is_empty());
++        assert!(notes.next_inline().await.expect("the live query answers").unwrap().is_empty());
+         db.inspect_readers(|reader| reader.refuse_transaction_end(true));
+         let error = db
+             .read(move |sql| {
+@@ -228,7 +228,7 @@ async fn a_failed_snapshot_rollback_fails_the_handle_until_reopen() {
+         assert!(rollback_failed(db.read(|_| Ok(())).await));
+         assert!(matches!(db.schema_version().await, Err(DbError::RollbackFailed)));
+         assert!(matches!(db.write(|_| Ok(())).await, Err(DbError::RollbackFailed)));
+-        assert!(rollback_failed(notes.next().await.expect("the live query answers")));
++        assert!(rollback_failed(notes.next_inline().await.expect("the live query answers")));
+         db.close().await.unwrap();
+         let db = open().await.unwrap();
+         assert!(db.read(|_| Ok::<_, DbError>(())).await.is_ok());
+diff --git a/crates/coven-database/src/retry_tests.rs b/crates/coven-database/src/retry_tests.rs
+index f21a0747d..b6128c7d7 100644
+--- a/crates/coven-database/src/retry_tests.rs
++++ b/crates/coven-database/src/retry_tests.rs
+@@ -122,11 +122,11 @@ async fn the_pause_setting_and_queue_survive_reopening_in_one_query() {
+     stage(&db, b"bytes".to_vec(), true).await.unwrap();
+     let owner = FileDatabase::new(db.clone());
+     let mut queue = db.subscribe(|sql| sql.upload_queue());
+-    let first = queue.next().await.expect("the live query answers").unwrap();
++    let first = queue.next_inline().await.expect("the live query answers").unwrap();
+     assert!(!first.paused);
+     assert_eq!(first.uploads.len(), 1);
+     db.write(|sql| sql.set_uploads_paused(true)).await.unwrap();
+-    assert!(queue.next().await.expect("the live query answers").unwrap().paused);
++    assert!(queue.next_inline().await.expect("the live query answers").unwrap().paused);
+     let session = SecretBytes::new(b"session".to_vec());
+     owner
+         .record_session(
+@@ -136,7 +136,7 @@ async fn the_pause_setting_and_queue_survive_reopening_in_one_query() {
+         )
+         .await
+         .unwrap();
+-    let recorded = queue.next().await.expect("the live query answers").unwrap();
++    let recorded = queue.next_inline().await.expect("the live query answers").unwrap();
+     assert_eq!(recorded.uploads[0].session.as_ref().unwrap().as_bytes(), b"session");
+     drop(queue);
+     db.close().await.unwrap();
+diff --git a/crates/coven-database/src/snapshot_load_tests.rs b/crates/coven-database/src/snapshot_load_tests.rs
+index 96a870a3a..55a0e8a6c 100644
+--- a/crates/coven-database/src/snapshot_load_tests.rs
++++ b/crates/coven-database/src/snapshot_load_tests.rs
+@@ -84,7 +84,7 @@ async fn store_at_40_and_circle_at_38_replay_only_the_circles_missing_parts() {
+     let mut query: crate::LiveQuery<_, DbError> = b.subscribe(|db| {
+         Ok(db.query("SELECT value FROM notes ORDER BY audience", [], |r| r.get::<_, i64>(0))?)
+     });
+-    assert!(query.next().await.expect("the live query answers").unwrap().is_empty());
++    assert!(query.next_inline().await.expect("the live query answers").unwrap().is_empty());
+     // Supply the consecutive suffix required by the earlier circle snapshot.
+     b.load_snapshots::<crate::pending::tests::Record, _>(
+         crate::tests::reload(
+@@ -98,7 +98,7 @@ async fn store_at_40_and_circle_at_38_replay_only_the_circles_missing_parts() {
+     )
+     .await
+     .unwrap();
+-    assert_eq!(query.next().await.expect("the live query answers").unwrap(), [40, 40]);
++    assert_eq!(query.next_inline().await.expect("the live query answers").unwrap(), [40, 40]);
+     assert!(!query.is_marked_for_rerun());
+     assert_eq!(count(&b, "store_changes"), 0);
+     assert_eq!(b.applied_slot().await.unwrap(), 40);
+@@ -345,7 +345,7 @@ async fn readers_and_live_queries_observe_only_the_committed_reload() {
+         seen.lock().unwrap().push(values.clone());
+         Ok::<_, DbError>(values)
+     });
+-    assert!(query.next().await.expect("the live query answers").unwrap().is_empty());
++    assert!(query.next_inline().await.expect("the live query answers").unwrap().is_empty());
+     let (started, notice) = tokio::sync::oneshot::channel();
+     let (release, wait) = std::sync::mpsc::channel();
+     let target = b.clone();
+@@ -370,7 +370,7 @@ async fn readers_and_live_queries_observe_only_the_committed_reload() {
+     assert!(!query.is_marked_for_rerun());
+     release.send(()).unwrap();
+     task.await.unwrap().unwrap();
+-    assert_eq!(query.next().await.expect("the live query answers").unwrap(), ["after"]);
++    assert_eq!(query.next_inline().await.expect("the live query answers").unwrap(), ["after"]);
+     assert_eq!(calls.load(Ordering::SeqCst), 2);
+     assert!(!query.is_marked_for_rerun());
+     assert_eq!(*observed.lock().unwrap(), vec![Vec::<String>::new(), vec!["after".to_string()]]);
+diff --git a/crates/coven-database/src/snapshot_writes_tests.rs b/crates/coven-database/src/snapshot_writes_tests.rs
+index 0dc43ba59..8dcb6baa6 100644
+--- a/crates/coven-database/src/snapshot_writes_tests.rs
++++ b/crates/coven-database/src/snapshot_writes_tests.rs
+@@ -39,7 +39,7 @@ async fn waiting_changes_and_their_missing_history_commit_in_one_reload() {
+     let mut query: crate::LiveQuery<_, DbError> = b.subscribe(|db| {
+         Ok(db.query_row("SELECT title FROM notes", [], |r| r.get::<_, String>(0))?)
+     });
+-    assert_eq!(query.next().await.expect("the live query answers").unwrap(), "waiting");
++    assert_eq!(query.next_inline().await.expect("the live query answers").unwrap(), "waiting");
+     assert!(matches!(
+         load_one(&b, id(Audience::Store), snapshot_prefix.clone(), Cursor::new(snapshot.clone()))
+             .await,
+diff --git a/crates/coven-database/src/sqlite_settings_tests.rs b/crates/coven-database/src/sqlite_settings_tests.rs
+index 9785f458d..c7385e7ba 100644
+--- a/crates/coven-database/src/sqlite_settings_tests.rs
++++ b/crates/coven-database/src/sqlite_settings_tests.rs
+@@ -701,7 +701,7 @@ async fn timed_writes(
+         Reading::None => None,
+         Reading::LiveQuery => {
+             let mut query = db.subscribe(read);
+-            Some(tokio::spawn(async move { while let Some(Ok(_)) = query.next().await {} }))
++            Some(tokio::spawn(async move { while let Some(Ok(_)) = query.next_inline().await {} }))
+         }
+         Reading::Unpaused => {
+             let reading = db.clone();
+diff --git a/crates/coven-database/src/sqlite_tests.rs b/crates/coven-database/src/sqlite_tests.rs
+index 17b9cac26..9279a9f79 100644
+--- a/crates/coven-database/src/sqlite_tests.rs
++++ b/crates/coven-database/src/sqlite_tests.rs
+@@ -642,7 +642,7 @@ async fn every_internal_statement_path_is_observed_by_the_transaction() {
+     let mut query: crate::LiveQuery<_, DbError> = db.subscribe(|sql| {
+         Ok(sql.query_row("SELECT value FROM items", [], |r| r.get::<_, String>(0))?)
+     });
+-    assert!(query.next().await.expect("the live query answers").is_err());
++    assert!(query.next_inline().await.expect("the live query answers").is_err());
+     db.commit_writer(|writer| {
+         writer.internal_execute("INSERT INTO items VALUES(1,'execute')", []).unwrap()
+     });
+@@ -881,7 +881,7 @@ async fn a_failed_rollback_fails_every_later_call_until_reopen() {
+         assert!(rollback_failed(db.schema_version().await.unwrap_err()));
+         assert!(matches!(db.read(|_| Ok(())).await.unwrap_err(), DbError::RollbackFailed));
+         assert!(matches!(
+-            notes.next().await.expect("the live query answers").unwrap_err(),
++            notes.next_inline().await.expect("the live query answers").unwrap_err(),
+             DbError::RollbackFailed
+         ));
+         db.close().await.unwrap();
+diff --git a/crates/coven-database/src/stream_capture_tests.rs b/crates/coven-database/src/stream_capture_tests.rs
+index f0950fc24..f73e042bf 100644
+--- a/crates/coven-database/src/stream_capture_tests.rs
++++ b/crates/coven-database/src/stream_capture_tests.rs
+@@ -8,8 +8,8 @@ async fn streamed_commits_observe_without_rowid_and_virtual_tables_and_discard_r
+         .subscribe(|sql| Ok(sql.query("SELECT value FROM items", [], |r| r.get::<_, String>(0))?));
+     let mut search: crate::LiveQuery<_, DbError> = db
+         .subscribe(|sql| Ok(sql.query("SELECT value FROM search", [], |r| r.get::<_, String>(0))?));
+-    assert!(items.next().await.expect("the live query answers").unwrap().is_empty());
+-    assert!(search.next().await.expect("the live query answers").unwrap().is_empty());
++    assert!(items.next_inline().await.expect("the live query answers").unwrap().is_empty());
++    assert!(search.next_inline().await.expect("the live query answers").unwrap().is_empty());
+     db.inspect_writer(|writer| {
+         assert!(writer
+             .stream_transaction::<()>(|writer| {
+@@ -31,14 +31,14 @@ async fn streamed_commits_observe_without_rowid_and_virtual_tables_and_discard_r
+             })
+             .unwrap()
+     });
+-    assert_eq!(items.next().await.expect("the live query answers").unwrap(), ["stored"]);
+-    assert_eq!(search.next().await.expect("the live query answers").unwrap(), ["stored"]);
++    assert_eq!(items.next_inline().await.expect("the live query answers").unwrap(), ["stored"]);
++    assert_eq!(search.next_inline().await.expect("the live query answers").unwrap(), ["stored"]);
+     db.inspect_writer(|writer| {
+         writer
+             .stream_transaction(|writer| writer.batch("DELETE FROM items; DELETE FROM search"))
+             .unwrap()
+     });
+-    assert!(items.next().await.expect("the live query answers").unwrap().is_empty());
+-    assert!(search.next().await.expect("the live query answers").unwrap().is_empty());
++    assert!(items.next_inline().await.expect("the live query answers").unwrap().is_empty());
++    assert!(search.next_inline().await.expect("the live query answers").unwrap().is_empty());
+     db.close().await.unwrap();
+ }
+diff --git a/crates/coven-database/src/test_utils.rs b/crates/coven-database/src/test_utils.rs
+index 6022a8d2b..67387b6bf 100644
+--- a/crates/coven-database/src/test_utils.rs
++++ b/crates/coven-database/src/test_utils.rs
+@@ -65,7 +65,9 @@ pub enum WriteCheckpoint {
+ /// A live query's results as a test follows them: each in the order the
+ /// query reports it, kept as the latest one seen.
+ pub struct Followed<T, E> {
+-    query: crate::LiveQuery<T, E>,
++    /// `None` only while a result is awaited, which a test that gives up
++    /// on it does not come back from.
++    query: Option<crate::LiveQuery<T, E>>,
+     latest: Option<T>,
+ }
+ 
+@@ -76,17 +78,18 @@ where
+ {
+     /// Follow `query` from its first result.
+     pub fn new(query: crate::LiveQuery<T, E>) -> Self {
+-        Self { query, latest: None }
++        Self { query: Some(query), latest: None }
+     }
+ 
+     /// The next result the query reports. Panics on an error result or
+     /// after the query ends, and when none ever comes.
+     pub async fn next(&mut self) -> T {
+-        let next = coven_foundation::clock::within(self.query.next())
++        let query = self.query.take().expect("the live query was awaited and abandoned");
++        let (query, next) = coven_foundation::clock::within(crate::next_result(query))
+             .await
+-            .unwrap_or_else(|| panic!("no result after {:?}", self.latest))
+-            .expect("the live query ended")
+-            .expect("the live query failed");
++            .unwrap_or_else(|| panic!("no result after {:?}", self.latest));
++        self.query = Some(query);
++        let next = next.expect("the live query ended").expect("the live query failed");
+         self.latest = Some(next.clone());
+         next
+     }
+diff --git a/crates/coven-database/src/transfers_in_flight_tests.rs b/crates/coven-database/src/transfers_in_flight_tests.rs
+index 8ef90c377..1487131ee 100644
+--- a/crates/coven-database/src/transfers_in_flight_tests.rs
++++ b/crates/coven-database/src/transfers_in_flight_tests.rs
+@@ -27,7 +27,7 @@ const COUNTS: &str = "SELECT count(*) FILTER (WHERE sending),count(*) FROM coven
+ async fn next<T: Clone + PartialEq + Send + 'static>(
+     query: &mut crate::LiveQuery<T, crate::DbError>,
+ ) -> T {
+-    tokio::time::timeout(HANG_GUARD, query.next())
++    tokio::time::timeout(HANG_GUARD, query.next_inline())
+         .await
+         .expect("the live query answers")
+         .expect("the live query is open")
+@@ -88,13 +88,13 @@ async fn a_live_query_that_reads_no_sending_state_stays_idle() {
+             r.get::<_, i64>(0)
+         })?)
+     });
+-    assert_eq!(queued.next().await.unwrap().unwrap(), 1);
++    assert_eq!(queued.next_inline().await.unwrap().unwrap(), 1);
+     let mut sending_list: crate::LiveQuery<_, DbError> = db.subscribe(|sql| {
+         Ok(sql.query("SELECT file FROM coven_sending", [], |r| r.get::<_, String>(0))?)
+     });
+-    assert!(sending_list.next().await.unwrap().unwrap().is_empty());
++    assert!(sending_list.next_inline().await.unwrap().unwrap().is_empty());
+     let _sending = db.uploads_in_flight().start(uploader, object, vec![file], PROGRESS);
+-    assert_eq!(sending_list.next().await.unwrap().unwrap(), [file.to_string()]);
++    assert_eq!(sending_list.next_inline().await.unwrap().unwrap(), [file.to_string()]);
+     // The start marked the sending query as it committed; it marked this one
+     // too only if this one reads what sending changes.
+     assert!(!queued.is_marked_for_rerun());
+diff --git a/crates/coven-database/src/wal_checkpoints_tests.rs b/crates/coven-database/src/wal_checkpoints_tests.rs
+index a49df538b..05d211fb3 100644
+--- a/crates/coven-database/src/wal_checkpoints_tests.rs
++++ b/crates/coven-database/src/wal_checkpoints_tests.rs
+@@ -139,7 +139,7 @@ async fn coven_checkpoints_the_wal_past_its_threshold() {
+     let mut query: crate::LiveQuery<_, DbError> = db.subscribe(|sql| {
+         Ok(sql.query_row("SELECT count(*) FROM blobs", [], |r| r.get::<_, i64>(0))?)
+     });
+-    let reader = tokio::spawn(async move { while let Some(Ok(_)) = query.next().await {} });
++    let reader = tokio::spawn(async move { while let Some(Ok(_)) = query.next_inline().await {} });
+     tokio::time::timeout(HANG_GUARD, async {
+         let mut started_over = 0;
+         while started_over < 3 {
+@@ -308,7 +308,7 @@ async fn checkpointer_failure(
+     checkpointed(db, &mut tries).await;
+     let failure = tokio::time::timeout(HANG_GUARD, async {
+         loop {
+-            match query.next().await {
++            match query.next_inline().await {
+                 Some(Ok(_)) => (),
+                 Some(Err(error)) => return error,
+                 None => panic!("the query ended without the failure"),
+@@ -317,7 +317,7 @@ async fn checkpointer_failure(
+     })
+     .await
+     .expect("the live query reports the failure");
+-    assert!(query.next().await.is_none(), "the live query ends after the failure");
++    assert!(query.next_inline().await.is_none(), "the live query ends after the failure");
+     assert!(insert(db).await.is_err(), "the failed handle refuses a write");
+     failure
+ }
+diff --git a/crates/coven-database/src/write_apply_tests.rs b/crates/coven-database/src/write_apply_tests.rs
+index 9c2e86a3b..9eef08264 100644
+--- a/crates/coven-database/src/write_apply_tests.rs
++++ b/crates/coven-database/src/write_apply_tests.rs
+@@ -125,7 +125,7 @@ async fn failure_after_every_remote_mutation_rolls_back_rows_metadata_and_notifi
+                 Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?))
+             })?)
+         });
+-        let old_rows = query.next().await.expect("the live query answers").unwrap();
++        let old_rows = query.next_inline().await.expect("the live query answers").unwrap();
+         // Count actual row mutations, including repeated changes to one table,
+         // local trigger effects, losses and the applied slot.
+         db.inspect_writer(|writer| {
+@@ -213,7 +213,7 @@ async fn failure_after_every_remote_mutation_rolls_back_rows_metadata_and_notifi
+             }
+         }
+         assert!(applied, "all mutations must eventually succeed");
+-        let rows = query.next().await.expect("the live query answers").unwrap();
++        let rows = query.next_inline().await.expect("the live query answers").unwrap();
+         assert_eq!(
+             rows,
+             vec![
+@@ -243,7 +243,7 @@ async fn assert_rejected_download(
+     let before = contents(database);
+     let mut query: crate::LiveQuery<_, DbError> = database
+         .subscribe(|sql| Ok(sql.query("SELECT * FROM notes", [], |r| r.get::<_, String>(0))?));
+-    query.next().await.expect("the live query answers").unwrap();
++    query.next_inline().await.expect("the live query answers").unwrap();
+     for _ in 0..2 {
+         let error = database.receive(record.clone()).await.unwrap_err();
+         assert!(
+diff --git a/crates/coven-database/tests/bulk_write_cost.rs b/crates/coven-database/tests/bulk_write_cost.rs
+index 6a2e5f20c..0b9c99573 100644
+--- a/crates/coven-database/tests/bulk_write_cost.rs
++++ b/crates/coven-database/tests/bulk_write_cost.rs
+@@ -58,17 +58,17 @@ async fn clearing_a_local_table_through_a_write_and_a_bulk_write() {
+     let mut live: coven_database::LiveQuery<_, DbError> = db.subscribe(|sql| {
+         Ok(sql.query_row("SELECT count(*) FROM queue", [], |r| r.get::<_, i64>(0))?)
+     });
+-    assert_eq!(live.next().await.unwrap().unwrap(), 0);
++    assert_eq!(live.next_inline().await.unwrap().unwrap(), 0);
+ 
+     let write_fill = write(&db, FILL).await;
+-    assert_eq!(live.next().await.unwrap().unwrap(), i64::from(ROWS));
++    assert_eq!(live.next_inline().await.unwrap().unwrap(), i64::from(ROWS));
+     let write_clear = write(&db, CLEAR).await;
+-    assert_eq!(live.next().await.unwrap().unwrap(), 0);
++    assert_eq!(live.next_inline().await.unwrap().unwrap(), 0);
+ 
+     let bulk_fill = bulk(&db, FILL).await;
+-    assert_eq!(live.next().await.unwrap().unwrap(), i64::from(ROWS));
++    assert_eq!(live.next_inline().await.unwrap().unwrap(), i64::from(ROWS));
+     let bulk_clear = bulk(&db, CLEAR).await;
+-    assert_eq!(live.next().await.unwrap().unwrap(), 0);
++    assert_eq!(live.next_inline().await.unwrap().unwrap(), 0);
+     // What committing alone costs, `F_FULLFSYNC` included on macOS (§3).
+     let commit = bulk(&db, "SELECT 1").await;
+ 
+diff --git a/crates/coven-database/tests/insert_cost.rs b/crates/coven-database/tests/insert_cost.rs
+index cfde60ec3..0b7c36a52 100644
+--- a/crates/coven-database/tests/insert_cost.rs
++++ b/crates/coven-database/tests/insert_cost.rs
+@@ -224,7 +224,7 @@ async fn import(files: bool, live: bool) -> Duration {
+                     read.query(sql, [&album], |r| r.get::<_, coven_database::types::Value>(0))?,
+                 )
+             });
+-            assert!(!query.next().await.unwrap().unwrap().is_empty(), "{sql}");
++            assert!(!query.next_inline().await.unwrap().unwrap().is_empty(), "{sql}");
+             queries.push(query);
+         }
+     }
+@@ -299,14 +299,14 @@ async fn a_joined_live_querys_run_cost() {
+                 read.query(sql, [album], |r| r.get::<_, coven_database::types::Value>(0))?,
+             )
+         });
+-        assert!(!query.next().await.unwrap().result.unwrap().is_empty(), "{sql}");
++        assert!(!query.next_inline().await.unwrap().result.unwrap().is_empty(), "{sql}");
+         let requests = query.requests();
+         let (mut live, mut once) = (Vec::new(), Vec::new());
+         for run in 1..=RUNS {
+             let album = uuid(1, run % 2);
+             requests.set(album.clone()).unwrap();
+             let started = Instant::now();
+-            let answered = query.next().await.unwrap().result.unwrap();
++            let answered = query.next_inline().await.unwrap().result.unwrap();
+             live.push(started.elapsed());
+             let started = Instant::now();
+             let read = db
+diff --git a/crates/coven-sync/src/file_cache_tests.rs b/crates/coven-sync/src/file_cache_tests.rs
+index fa2e6214c..e2a51d1a9 100644
+--- a/crates/coven-sync/src/file_cache_tests.rs
++++ b/crates/coven-sync/src/file_cache_tests.rs
+@@ -393,11 +393,11 @@ async fn pin_progress_reads_committed_coverage() {
+         bytes_total: total,
+     };
+     let mut live = f.database.subscribe_pin_progress::<DbError>(vec![file.clone()]);
+-    assert_eq!(live.next().await.expect("the live query answers").unwrap(), progress(0));
++    assert_eq!(live.next_inline().await.expect("the live query answers").unwrap(), progress(0));
+     // Another reader's verified chunk is coverage the moment it commits.
+     let stream = f.files.open_file_stream(&file, &lease().await).await.unwrap();
+     stream.read_at(CHUNK as u64, 1).await.unwrap();
+-    assert_eq!(live.next().await.expect("the live query answers").unwrap(), progress(CHUNK as u64));
++    assert_eq!(live.next_inline().await.unwrap().unwrap(), progress(CHUNK as u64));
+     // A read that fails authentication commits nothing.
+     f.storage.corrupt_byte(&f.path(&file), 11 + 2 * (CHUNK + 16) + 3).await.unwrap();
+     assert!(matches!(
+@@ -956,7 +956,7 @@ async fn a_pins_download_stops_before_its_next_request_on_a_metered_network() {
+     tokio::select! {
+         result = &mut pin => panic!("the pin went on over a metered network: {result:?}"),
+         () = async {
+-            while listed.next().await.expect("the live query answers").unwrap() != 0 {}
++            while listed.next_inline().await.expect("the live query answers").unwrap() != 0 {}
+         } => {}
+     }
+     until_held(&f, &mut pin).await;
+diff --git a/crates/coven-sync/src/file_upload_failure_tests.rs b/crates/coven-sync/src/file_upload_failure_tests.rs
+index 37e00e101..cabe80522 100644
+--- a/crates/coven-sync/src/file_upload_failure_tests.rs
++++ b/crates/coven-sync/src/file_upload_failure_tests.rs
+@@ -382,7 +382,7 @@ async fn the_worker_retries_a_restored_original_without_an_app_call() {
+     for failures in [1, 2] {
+         tokio::time::timeout(HANG_GUARD, async {
+             while retry(&f).await.is_none_or(|wait| wait.failures < failures) {
+-                uploads.next().await.expect("the live query answers").unwrap();
++                uploads.next_inline().await.expect("the live query answers").unwrap();
+             }
+         })
+         .await
+@@ -398,7 +398,7 @@ async fn the_worker_retries_a_restored_original_without_an_app_call() {
+     clock.set(clock.now() + Duration::from_secs(2));
+     tokio::time::timeout(HANG_GUARD, async {
+         while f.queued(&file).await {
+-            uploads.next().await.expect("the live query answers").unwrap();
++            uploads.next_inline().await.expect("the live query answers").unwrap();
+         }
+     })
+     .await
+@@ -417,7 +417,7 @@ async fn the_worker_retries_sign_in_failure_on_client_swap() {
+     f.set_uploads_paused(false).await;
+     tokio::time::timeout(HANG_GUARD, async {
+         while f.upload_reason(&file).await.is_none() {
+-            pending.next().await.expect("the live query answers").unwrap();
++            pending.next_inline().await.expect("the live query answers").unwrap();
+         }
+     })
+     .await
+@@ -434,7 +434,7 @@ async fn the_worker_retries_sign_in_failure_on_client_swap() {
+         .unwrap();
+     tokio::time::timeout(HANG_GUARD, async {
+         while f.queued(&file).await {
+-            uploads.next().await.expect("the live query answers").unwrap();
++            uploads.next_inline().await.expect("the live query answers").unwrap();
+         }
+     })
+     .await
+diff --git a/crates/coven-sync/src/file_upload_pool_tests.rs b/crates/coven-sync/src/file_upload_pool_tests.rs
+index 3c052c106..c44f57d2a 100644
+--- a/crates/coven-sync/src/file_upload_pool_tests.rs
++++ b/crates/coven-sync/src/file_upload_pool_tests.rs
+@@ -46,7 +46,9 @@ async fn until_creates(f: &Fixture, count: usize) {
+ async fn until_queued(f: &Fixture, count: usize) {
+     let mut queue = f.subscribe_queue();
+     tokio::time::timeout(HANG_GUARD, async {
+-        while queue.next().await.expect("the live query answers").unwrap().files.len() != count {}
++        while queue.next_inline().await.expect("the live query answers").unwrap().files.len()
++            != count
++        {}
+     })
+     .await
+     .unwrap();
+@@ -633,11 +635,12 @@ async fn a_single_request_is_uploading_without_progress_until_completion_retires
+     // The file is being sent, but bytes in flight are not progress: it has
+     // none until storage confirms and completion retires it.
+     let mut uploads = f.subscribe_queue();
+-    let queued = uploads.next().await.expect("the live query answers").unwrap().files.remove(0);
++    let queued =
++        uploads.next_inline().await.expect("the live query answers").unwrap().files.remove(0);
+     assert_eq!((queued.sending, queued.progress), (true, None));
+     release.send(()).unwrap();
+     task.await.unwrap().unwrap();
+-    assert!(uploads.next().await.expect("the live query answers").unwrap().files.is_empty());
++    assert!(uploads.next_inline().await.expect("the live query answers").unwrap().files.is_empty());
+     f.close().await;
+ }
+ 
+@@ -667,7 +670,7 @@ async fn the_worker_s_attempts_are_what_sending_reads() {
+     // The files being sent, how many `sending` counts, and how many are queued.
+     type Outbox = (Vec<String>, i64, i64);
+     let mut until = async |done: &dyn Fn(&Outbox) -> bool| loop {
+-        let answer = tokio::time::timeout(HANG_GUARD, counts.next())
++        let answer = tokio::time::timeout(HANG_GUARD, counts.next_inline())
+             .await
+             .expect("the live query answers")
+             .expect("the live query is open")
+diff --git a/crates/coven-sync/src/file_upload_retry_tests.rs b/crates/coven-sync/src/file_upload_retry_tests.rs
+index d66c247a9..81756ca57 100644
+--- a/crates/coven-sync/src/file_upload_retry_tests.rs
++++ b/crates/coven-sync/src/file_upload_retry_tests.rs
+@@ -159,7 +159,7 @@ async fn the_worker_wakes_for_a_due_retry_without_another_commit() {
+     f.set_uploads_paused(false).await;
+     tokio::time::timeout(HANG_GUARD, async {
+         while retry(&f).await.is_none() {
+-            uploads.next().await.expect("the live query answers").unwrap();
++            uploads.next_inline().await.expect("the live query answers").unwrap();
+         }
+     })
+     .await
+@@ -171,7 +171,7 @@ async fn the_worker_wakes_for_a_due_retry_without_another_commit() {
+     advance(&clock, 1);
+     tokio::time::timeout(HANG_GUARD, async {
+         while f.queued(&file).await {
+-            uploads.next().await.expect("the live query answers").unwrap();
++            uploads.next_inline().await.expect("the live query answers").unwrap();
+         }
+     })
+     .await
+@@ -196,7 +196,9 @@ async fn completed_catch_up_wakes_a_worker_blocked_between_file_sends() {
+     resume.send(()).unwrap();
+     // The first file finishes; the second does not start until a catch-up.
+     tokio::time::timeout(HANG_GUARD, async {
+-        while uploads.next().await.expect("the live query answers").unwrap().files.len() != 1 {}
++        while uploads.next_inline().await.expect("the live query answers").unwrap().files.len() != 1
++        {
++        }
+     })
+     .await
+     .unwrap();
+@@ -220,7 +222,7 @@ async fn completed_catch_up_wakes_a_worker_blocked_between_file_sends() {
+     f.send.set(crate::SequenceStatus::Synced { through: 0 });
+     tokio::time::timeout(HANG_GUARD, async {
+         loop {
+-            uploads.next().await.expect("the live query answers").unwrap();
++            uploads.next_inline().await.expect("the live query answers").unwrap();
+             if !f.queued(&second).await {
+                 break;
+             }
+@@ -626,7 +628,7 @@ async fn the_queue_reads_the_same_after_reopening_offline() {
+     f.reopen().await;
+     assert_eq!(f.queue().await, before);
+     let mut live = f.subscribe_queue();
+-    assert_eq!(live.next().await.expect("the live query answers").unwrap(), viewed);
++    assert_eq!(live.next_inline().await.expect("the live query answers").unwrap(), viewed);
+     f.close().await;
+ }
+ 
+@@ -795,7 +797,7 @@ async fn a_pending_records_cause_arrives_with_it_in_the_view() {
+             |row| Ok((row.get::<_, crate::PendingRecord>(0)?, row.get::<_, Option<String>>(1)?)),
+         )?)
+     });
+-    let mut next = async || viewed.next().await.expect("the live query answers").unwrap();
++    let mut next = async || viewed.next_inline().await.expect("the live query answers").unwrap();
+     assert!(next().await.is_empty());
+     f.storage.set_faults(fail_next(StorageFailure::Network, None)).await;
+     assert_eq!(drained(f.files.inner.drain_uploads().await.unwrap()), 0);
+diff --git a/crates/coven-sync/src/file_upload_tests.rs b/crates/coven-sync/src/file_upload_tests.rs
+index 120f4a681..9d903788d 100644
+--- a/crates/coven-sync/src/file_upload_tests.rs
++++ b/crates/coven-sync/src/file_upload_tests.rs
+@@ -502,7 +502,7 @@ async fn attaching_starts_upload_after_commit_and_checks_changed_originals() {
+     let mut uploads = f.subscribe_queue();
+     tokio::time::timeout(HANG_GUARD, async {
+         loop {
+-            let queue = uploads.next().await.expect("the live query answers");
++            let queue = uploads.next_inline().await.expect("the live query answers");
+             if queue.unwrap().files.is_empty() {
+                 break;
+             }
+diff --git a/crates/coven-sync/src/files_tests.rs b/crates/coven-sync/src/files_tests.rs
+index 82008a549..5bcb5f314 100644
+--- a/crates/coven-sync/src/files_tests.rs
++++ b/crates/coven-sync/src/files_tests.rs
+@@ -833,8 +833,7 @@ async fn a_file_is_on_its_device_only_until_its_upload_completes() {
+         let mut uploads = a.subscribe_queue();
+         a.files.set_storage(Some(a.storage.clone()), std::future::ready(Ok(()))).await.unwrap();
+         tokio::time::timeout(HANG_GUARD, async {
+-            while !uploads.next().await.expect("the live query answers").unwrap().files.is_empty() {
+-            }
++            while !uploads.next_inline().await.unwrap().unwrap().files.is_empty() {}
+         })
+         .await
+         .unwrap();
+diff --git a/crates/coven-sync/src/invite_expiry_tests.rs b/crates/coven-sync/src/invite_expiry_tests.rs
+index b05e50e09..8763512c6 100644
+--- a/crates/coven-sync/src/invite_expiry_tests.rs
++++ b/crates/coven-sync/src/invite_expiry_tests.rs
+@@ -63,7 +63,7 @@ async fn the_expiry_wake_follows_a_clock_set_by_hand() {
+     );
+     let mut open: coven_database::LiveQuery<_, coven_database::DbError> =
+         ana.sync.database.subscribe(|sql| Ok(Invite::list(sql)?.len()));
+-    assert_eq!(open.next().await.unwrap().unwrap(), 1);
++    assert_eq!(open.next_inline().await.unwrap().unwrap(), 1);
+     // The handle waits for the wall clock to reach the expiry; only a setting
+     // at or past it ends that wait.
+     tokio::time::timeout(HANG_GUARD, arming.wait_for(|armed| armed.contains(&invite.expires_at)))
+@@ -73,7 +73,7 @@ async fn the_expiry_wake_follows_a_clock_set_by_hand() {
+     group.clock.set(group.clock.now() - Duration::from_secs(86_400));
+     group.clock.set(invite.expires_at - Duration::from_secs(1));
+     group.clock.set(invite.expires_at);
+-    let ended = tokio::time::timeout(HANG_GUARD, open.next()).await;
++    let ended = tokio::time::timeout(HANG_GUARD, open.next_inline()).await;
+     assert_eq!(ended.expect("the handle woke at the expiry").unwrap().unwrap(), 0);
+     expiry.close().await;
+     ana.sync.database.close().await.unwrap();
+@@ -97,7 +97,7 @@ async fn a_clock_that_cant_wait_for_an_expiry_fails_the_handle() {
+     );
+     let mut open = ana.sync.database.subscribe(|sql| Ok(Invite::list(sql)?.len()));
+     let failure = loop {
+-        match open.next().await.expect("the live query reports the failure") {
++        match open.next_inline().await.expect("the live query reports the failure") {
+             Ok(_) => continue,
+             Err(error) => break error,
+         }
+diff --git a/crates/coven-sync/src/sync_loop_tests.rs b/crates/coven-sync/src/sync_loop_tests.rs
+index 011a2f14f..b81409d5b 100644
+--- a/crates/coven-sync/src/sync_loop_tests.rs
++++ b/crates/coven-sync/src/sync_loop_tests.rs
+@@ -173,12 +173,12 @@ async fn a_pass_end_that_cant_be_written_fails_the_handle() {
+             row.get::<_, Option<LastPass>>(0)
+         })?)
+     });
+-    assert_eq!(status.next().await.unwrap().unwrap(), None);
++    assert_eq!(status.next_inline().await.unwrap().unwrap(), None);
+     ana.sync.database.test_fail_sync_status().await.unwrap();
+     let (ana_codes, _) = codes(&ana, Keychain::in_memory("sync-loop-ana").unwrap());
+     let ana_loop = SyncLoop::new(ana.sync.clone(), ana_codes);
+     ana_loop.start().await.unwrap();
+-    let failed = tokio::time::timeout(HANG_GUARD, status.next())
++    let failed = tokio::time::timeout(HANG_GUARD, status.next_inline())
+         .await
+         .unwrap()
+         .expect("the live query reports the failure");
+diff --git a/crates/coven/src/bootstrap_reset_tests.rs b/crates/coven/src/bootstrap_reset_tests.rs
+index 308670b45..e167bc9bc 100644
+--- a/crates/coven/src/bootstrap_reset_tests.rs
++++ b/crates/coven/src/bootstrap_reset_tests.rs
+@@ -219,7 +219,7 @@ async fn missing_custody_resets_as_a_new_device_and_keeps_the_notice() {
+     assert!(devices.contains(&(reset.new_device, crate::DeviceState::Active)));
+     assert!(devices.contains(&(reset.old_device, crate::DeviceState::Replaced)));
+     let mut notices = handle.subscribe_device_reset();
+-    assert_eq!(notices.next().await.expect("the live query answers").unwrap(), Some(reset));
++    assert_eq!(notices.next_inline().await.expect("the live query answers").unwrap(), Some(reset));
+     handle.close().await.unwrap();
+     let handle = reopen(&f).open(f.directory.id(), |_| ()).await.unwrap();
+     assert_eq!(handle.device_reset().await.unwrap(), Some(reset));
+diff --git a/crates/coven/src/bootstrap_restore_tests.rs b/crates/coven/src/bootstrap_restore_tests.rs
+index 0607cc9d0..5d0be8d0b 100644
+--- a/crates/coven/src/bootstrap_restore_tests.rs
++++ b/crates/coven/src/bootstrap_restore_tests.rs
+@@ -622,7 +622,7 @@ async fn a_restored_handle_moves_files_with_the_builders_transfer_limits() {
+         Ok(sql.query_row("SELECT count(*) FROM coven_uploads", [], |r| r.get::<_, i64>(0))?)
+     });
+     tokio::time::timeout(HANG_GUARD, async {
+-        while uploads.next().await.expect("the live query answers").unwrap() != 0 {}
++        while uploads.next_inline().await.expect("the live query answers").unwrap() != 0 {}
+     })
+     .await
+     .unwrap();
+diff --git a/crates/coven/src/builder_tests.rs b/crates/coven/src/builder_tests.rs
+index abcfd56f8..c95a38eb8 100644
+--- a/crates/coven/src/builder_tests.rs
++++ b/crates/coven/src/builder_tests.rs
+@@ -136,7 +136,7 @@ async fn app_reopening_resumes_operations_and_files_using_one_storage_capability
+         Ok(sql.query_row("SELECT count(*) FROM coven_uploads", [], |r| r.get::<_, i64>(0))?)
+     });
+     tokio::time::timeout(HANG_GUARD, async {
+-        while uploads.next().await.expect("the live query answers").unwrap() != 0 {}
++        while uploads.next_inline().await.expect("the live query answers").unwrap() != 0 {}
+     })
+     .await
+     .unwrap();
+diff --git a/crates/coven/src/coven_tests.rs b/crates/coven/src/coven_tests.rs
+index 7872619d2..9900606ac 100644
+--- a/crates/coven/src/coven_tests.rs
++++ b/crates/coven/src/coven_tests.rs
+@@ -39,14 +39,17 @@ async fn application_lifecycle_two_stores_lock_read_only_live_query_and_reopen()
+     let mut live = a.subscribe(|sql| {
+         Ok(sql.query("SELECT title FROM notes ORDER BY title", [], |r| r.get::<_, String>(0))?)
+     });
+-    assert!(live.next().await.expect("the live query answers").unwrap().is_empty());
++    assert!(live.next_inline().await.expect("the live query answers").unwrap().is_empty());
+     a.write(|sql| {
+         sql.execute("INSERT INTO notes VALUES(?1,?2)", ("a", "Paint colors"))?;
+         Ok::<_, CovenError>(())
+     })
+     .await
+     .unwrap();
+-    assert_eq!(live.next().await.expect("the live query answers").unwrap(), ["Paint colors"]);
++    assert_eq!(
++        live.next_inline().await.expect("the live query answers").unwrap(),
++        ["Paint colors"]
++    );
+     let titles = reader
+         .read(|sql| {
+             Ok::<_, CovenError>(
+@@ -72,7 +75,7 @@ async fn application_lifecycle_two_stores_lock_read_only_live_query_and_reopen()
+     );
+     assert!(a.lost_values().await.unwrap().is_empty());
+     let mut losses = a.subscribe_lost_values();
+-    assert!(losses.next().await.expect("the live query answers").unwrap().is_empty());
++    assert!(losses.next_inline().await.expect("the live query answers").unwrap().is_empty());
+     a.dismiss_lost_values(&[]).await.unwrap();
+     let mut by_id: crate::ReconfigurableLiveQuery<_, _, crate::CovenError> = a
+         .subscribe_reconfigurable("a".to_owned(), |id, sql| {
+@@ -80,11 +83,11 @@ async fn application_lifecycle_two_stores_lock_read_only_live_query_and_reopen()
+         });
+     let requests = by_id.requests();
+     assert_eq!(
+-        by_id.next().await.expect("the live query answers").result.unwrap(),
++        by_id.next_inline().await.expect("the live query answers").result.unwrap(),
+         ["Paint colors"]
+     );
+     let revision = requests.set("missing".into()).unwrap();
+-    let event = by_id.next().await.expect("the live query answers");
++    let event = by_id.next_inline().await.expect("the live query answers");
+     assert_eq!(event.revision, revision);
+     assert!(event.result.unwrap().is_empty());
+     let clone = a.clone();
+@@ -95,7 +98,7 @@ async fn application_lifecycle_two_stores_lock_read_only_live_query_and_reopen()
+     ));
+     assert!(matches!(clone.host_secret("token"), Err(KeyError::StoreClosed)));
+     assert!(matches!(
+-        live.next().await.expect("the live query answers"),
++        live.next_inline().await.expect("the live query answers"),
+         Err(CovenError::Database(DbError::StoreClosed))
+     ));
+     assert!(matches!(
+diff --git a/crates/coven/src/file_tests.rs b/crates/coven/src/file_tests.rs
+index a165cc442..6505ffc65 100644
+--- a/crates/coven/src/file_tests.rs
++++ b/crates/coven/src/file_tests.rs
+@@ -185,7 +185,7 @@ async fn transfer_limits_bound_requests_and_a_changed_limit_applies_to_the_next_
+         let mut uploads: crate::LiveQuery<_, crate::CovenError> = handle.subscribe(|sql| {
+             Ok(sql.query_row("SELECT count(*) FROM coven_uploads", [], |r| r.get::<_, i64>(0))?)
+         });
+-        while uploads.next().await.expect("the live query answers").unwrap() != 0 {}
++        while uploads.next_inline().await.expect("the live query answers").unwrap() != 0 {}
+         // The two in flight finish; each later upload starts under the new limit.
+         assert_eq!(memory.peak_requests(), 1, "remaining files start one at a time");
+         let mut uploaded = Vec::new();
+@@ -521,16 +521,22 @@ async fn uploaded_files_pins_and_read_only_ranges_use_the_composed_owner() {
+     assert_eq!(handle.file_status(&file).await.unwrap(), FileStatus::Available);
+     let mut pins = handle.subscribe_files_pinned(&[staged, absent]);
+     assert_eq!(
+-        pins.next().await.expect("the live query answers").unwrap(),
++        pins.next_inline().await.expect("the live query answers").unwrap(),
+         vec![Some(false), None]
+     );
+     handle.pin(std::slice::from_ref(&file)).await.unwrap();
+-    assert_eq!(pins.next().await.expect("the live query answers").unwrap(), vec![Some(true), None]);
++    assert_eq!(
++        pins.next_inline().await.expect("the live query answers").unwrap(),
++        vec![Some(true), None]
++    );
+     assert_eq!(handle.files_pinned(&files).await.unwrap(), vec![None, Some(true), Some(true)]);
+     // Watching different files is a new subscription with those files.
+     drop(pins);
+     let mut pins = handle.subscribe_files_pinned(&[absent, staged]);
+-    assert_eq!(pins.next().await.expect("the live query answers").unwrap(), vec![None, Some(true)]);
++    assert_eq!(
++        pins.next_inline().await.expect("the live query answers").unwrap(),
++        vec![None, Some(true)]
++    );
+     assert_eq!(handle.file_ref(staged).await.unwrap(), file);
+     let wrong_location = Arc::new(
+         coven_storage::test_utils::MemoryStorage::builder()
+@@ -564,7 +570,7 @@ async fn uploaded_files_pins_and_read_only_ranges_use_the_composed_owner() {
+     assert_eq!(stream.read_at(1234, 37).await.unwrap(), vec![42; 37]);
+     assert!(storage.reads().await.len() > reads, "uncached read-only ranges reach saved storage");
+     assert_eq!(
+-        pins.next().await.expect("the live query answers").unwrap(),
++        pins.next_inline().await.expect("the live query answers").unwrap(),
+         vec![None, Some(false)]
+     );
+     assert_eq!(handle.file_ref(staged).await.unwrap(), file);
+@@ -695,7 +701,7 @@ async fn the_apps_sql_reads_uploads_pins_and_pending_records() {
+     };
+     // Oldest first, as uploads() lists them, both waiting on the pause.
+     assert_eq!(
+-        queued.next().await.expect("the live query answers").unwrap(),
++        queued.next_inline().await.expect("the live query answers").unwrap(),
+         [waiting("take", true), waiting("preview", true)]
+     );
+     let listed: Vec<FileId> =
+@@ -712,7 +718,7 @@ async fn the_apps_sql_reads_uploads_pins_and_pending_records() {
+         )?)
+     };
+     let mut pins = handle.subscribe(pinned);
+-    assert!(pins.next().await.expect("the live query answers").unwrap().is_empty());
++    assert!(pins.next_inline().await.expect("the live query answers").unwrap().is_empty());
+ 
+     // The recording changes while uploads are paused. Once the pause ends,
+     // its move fails and its record says so, and the thumbnail is stored.
+@@ -727,11 +733,11 @@ async fn the_apps_sql_reads_uploads_pins_and_pending_records() {
+         .await;
+     handle.set_uploads_paused(false).await.unwrap();
+     starting.await.unwrap();
+-    while queued.next().await.expect("the live query answers").unwrap()
++    while queued.next_inline().await.expect("the live query answers").unwrap()
+         != [waiting("preview", false)]
+     {}
+     release.send(()).unwrap();
+-    while !queued.next().await.expect("the live query answers").unwrap().is_empty() {}
++    while !queued.next_inline().await.expect("the live query answers").unwrap().is_empty() {}
+     let records = handle.pending().await.unwrap();
+     let record = records
+         .iter()
+@@ -760,9 +766,9 @@ async fn the_apps_sql_reads_uploads_pins_and_pending_records() {
+     // The stored thumbnail is pinned once the app pins it, and unpinned again.
+     let stored = handle.file_ref(preview).await.unwrap();
+     handle.pin(std::slice::from_ref(&stored)).await.unwrap();
+-    let mut listed = pins.next().await.expect("the live query answers").unwrap();
++    let mut listed = pins.next_inline().await.expect("the live query answers").unwrap();
+     while listed.is_empty() {
+-        listed = pins.next().await.expect("the live query answers").unwrap();
++        listed = pins.next_inline().await.expect("the live query answers").unwrap();
+     }
+     assert_eq!(listed, ["preview"]);
+     assert_eq!(handle.files_pinned(&[preview]).await.unwrap(), [Some(true)]);
+@@ -772,11 +778,11 @@ async fn the_apps_sql_reads_uploads_pins_and_pending_records() {
+     assert_eq!(handle.files_pinned(&[preview]).await.unwrap(), [Some(true)]);
+     assert!(handle.clear_cache("missing").await.is_err());
+     handle.unpin(&[stored.id()]).await.unwrap();
+-    assert!(pins.next().await.expect("the live query answers").unwrap().is_empty());
++    assert!(pins.next_inline().await.expect("the live query answers").unwrap().is_empty());
+     // Deleting the row deletes its file's record, so nothing of it stays
+     // pinned.
+     handle.pin(std::slice::from_ref(&stored)).await.unwrap();
+-    assert_eq!(pins.next().await.expect("the live query answers").unwrap(), ["preview"]);
++    assert_eq!(pins.next_inline().await.expect("the live query answers").unwrap(), ["preview"]);
+     let row = thumbnail.clone();
+     handle
+         .write(move |sql| {
+@@ -785,7 +791,7 @@ async fn the_apps_sql_reads_uploads_pins_and_pending_records() {
+         })
+         .await
+         .unwrap();
+-    assert!(pins.next().await.expect("the live query answers").unwrap().is_empty());
++    assert!(pins.next_inline().await.expect("the live query answers").unwrap().is_empty());
+     let listed: i64 = handle
+         .read(move |sql| {
+             Ok::<_, CovenError>(sql.query_row(
+diff --git a/crates/coven/src/handle.rs b/crates/coven/src/handle.rs
+index 43f2eddde..a6badf17d 100644
+--- a/crates/coven/src/handle.rs
++++ b/crates/coven/src/handle.rs
+@@ -362,8 +362,11 @@ impl CovenHandle {
+                 )?
+                 .pop())
+         });
+-        while let Some(listed) = listed.next().await {
+-            match listed? {
++        loop {
++            let (next, answer) = coven_database::next_result(listed).await;
++            listed = next;
++            let Some(answer) = answer else { break };
++            match answer? {
+                 None => return Err(DbError::OperationUnknown(operation).into()),
+                 Some(Some(outcome)) => return Ok(outcome),
+                 Some(None) => {}
+diff --git a/crates/coven/src/handle_delete_tests.rs b/crates/coven/src/handle_delete_tests.rs
+index 6d20e2e60..5a11f353a 100644
+--- a/crates/coven/src/handle_delete_tests.rs
++++ b/crates/coven/src/handle_delete_tests.rs
+@@ -168,7 +168,7 @@ async fn attach(handle: &CovenHandle, id: &str) {
+ 
+ async fn until(work: &mut LiveQuery<UnsentWork, crate::CovenError>, expected: UnsentWork) {
+     tokio::time::timeout(HANG_GUARD, async {
+-        while work.next().await.expect("the live query answers").unwrap() != expected {}
++        while work.next_inline().await.expect("the live query answers").unwrap() != expected {}
+     })
+     .await
+     .unwrap_or_else(|_| panic!("unsent work never reached {expected:?}"));
+@@ -204,17 +204,17 @@ async fn subscribed_unsent_work_follows_each_commit_and_confirmation() {
+     let (_root, _app, handle) = stopped_store_with_files().await;
+     let mut live = handle.subscribe_unsent_work();
+     assert_eq!(
+-        live.next().await.expect("the live query answers").unwrap(),
++        live.next_inline().await.expect("the live query answers").unwrap(),
+         UnsentWork { writes: 0, files: 0 }
+     );
+     insert(&handle, "first").await;
+     assert_eq!(
+-        live.next().await.expect("the live query answers").unwrap(),
++        live.next_inline().await.expect("the live query answers").unwrap(),
+         UnsentWork { writes: 1, files: 0 }
+     );
+     attach(&handle, "photo").await;
+     assert_eq!(
+-        live.next().await.expect("the live query answers").unwrap(),
++        live.next_inline().await.expect("the live query answers").unwrap(),
+         UnsentWork { writes: 2, files: 1 }
+     );
+     handle.set_uploads_paused(false).await.unwrap();
+diff --git a/crates/coven/src/handle_sync_tests.rs b/crates/coven/src/handle_sync_tests.rs
+index 452bf0bc9..c0a9c103a 100644
+--- a/crates/coven/src/handle_sync_tests.rs
++++ b/crates/coven/src/handle_sync_tests.rs
+@@ -277,7 +277,7 @@ async fn an_uploads_retry_after_holds_the_next_pass() {
+     device.handle.set_uploads_paused(false).await.unwrap();
+     // The upload's 429 is its file's record.
+     tokio::time::timeout(HANG_GUARD, async {
+-        while !pending.next().await.expect("the live query answers").unwrap().iter().any(|record| {
++        while !pending.next_inline().await.expect("the live query answers").unwrap().iter().any(|record| {
+             matches!(record.subject, PendingSubject::Upload { .. })
+                 && matches!(record.reason, PendingReason::Storage { failure, .. } if failure == StorageFailure::RateLimited)
+         }) {}
+@@ -322,7 +322,7 @@ async fn a_refused_file_upload_leaves_the_pass_synced_with_its_pending_record()
+     let mut pending = subscribe_records(&device.handle);
+     device.handle.set_uploads_paused(false).await.unwrap();
+     tokio::time::timeout(HANG_GUARD, async {
+-        while !refused(&pending.next().await.expect("the live query answers").unwrap()) {}
++        while !refused(&pending.next_inline().await.expect("the live query answers").unwrap()) {}
+     })
+     .await
+     .unwrap();
+@@ -725,7 +725,7 @@ async fn a_network_report_ends_an_offline_upload_backoff() {
+     let mut pending = subscribe_records(&device.handle);
+     device.handle.set_uploads_paused(false).await.unwrap();
+     tokio::time::timeout(HANG_GUARD, async {
+-        while !offline(&pending.next().await.expect("the live query answers").unwrap()) {}
++        while !offline(&pending.next_inline().await.expect("the live query answers").unwrap()) {}
+     })
+     .await
+     .unwrap();
+@@ -766,7 +766,7 @@ async fn retry_now_ends_an_answered_upload_backoff() {
+     let mut pending = subscribe_records(&device.handle);
+     device.handle.set_uploads_paused(false).await.unwrap();
+     tokio::time::timeout(HANG_GUARD, async {
+-        while !answered(&pending.next().await.expect("the live query answers").unwrap()) {}
++        while !answered(&pending.next_inline().await.expect("the live query answers").unwrap()) {}
+     })
+     .await
+     .unwrap();
+@@ -809,7 +809,7 @@ async fn a_view_record_arrives_with_its_cause() {
+     device.handle.set_uploads_paused(false).await.unwrap();
+     let (record, cause, id) = tokio::time::timeout(HANG_GUARD, async {
+         loop {
+-            let rows = list.next().await.expect("the live query answers").unwrap();
++            let rows = list.next_inline().await.expect("the live query answers").unwrap();
+             if let Some(row) = rows.into_iter().next() {
+                 break row;
+             }
+diff --git a/crates/coven/src/handle_tests.rs b/crates/coven/src/handle_tests.rs
+index c5d1b1f4a..c12b0c53f 100644
+--- a/crates/coven/src/handle_tests.rs
++++ b/crates/coven/src/handle_tests.rs
+@@ -230,7 +230,7 @@ async fn cancelling_the_close_caller_still_closes_all_clones() {
+     let directory = app.create_closed_store("closing", Arc::new(UuidIds)).await.unwrap();
+     let handle = builder(&app).open(directory.id(), |_| ()).await.unwrap();
+     let mut live = handle.subscribe(|_| Ok(()));
+-    live.next().await.expect("the live query answers").unwrap();
++    live.next_inline().await.expect("the live query answers").unwrap();
+     // Polling starts closing; dropping only the caller must not cancel it.
+     {
+         let close = handle.close();
+@@ -242,7 +242,7 @@ async fn cancelling_the_close_caller_still_closes_all_clones() {
+         .await;
+     }
+     assert!(matches!(
+-        tokio::time::timeout(HANG_GUARD, live.next())
++        tokio::time::timeout(HANG_GUARD, live.next_inline())
+             .await
+             .unwrap()
+             .expect("the live query answers"),
+@@ -333,14 +333,14 @@ async fn disconnected_member_and_circle_reads_match_their_subscriptions() {
+     assert_eq!(members.len(), 1);
+     assert!(members[0].is_self && members[0].access.is_none());
+     assert_eq!(
+-        handle.subscribe_members().next().await.expect("the live query answers").unwrap(),
++        handle.subscribe_members().next_inline().await.expect("the live query answers").unwrap(),
+         members
+     );
+     assert!(handle.circles().list().await.unwrap().is_empty());
+     assert!(handle
+         .circles()
+         .subscribe_list()
+-        .next()
++        .next_inline()
+         .await
+         .expect("the live query answers")
+         .unwrap()
+@@ -722,7 +722,7 @@ mod store_rename {
+     use crate::tests::{landed, Network};
+ 
+     async fn name(query: &mut LiveQuery<String, crate::CovenError>) -> String {
+-        tokio::time::timeout(HANG_GUARD, query.next())
++        tokio::time::timeout(HANG_GUARD, query.next_inline())
+             .await
+             .unwrap()
+             .expect("the live query answers")
+@@ -885,8 +885,8 @@ async fn circle_lists_and_members_follow_applied_slots_live() {
+     let bens = crate::tests::circle(&network.devices[1].handle, "Ben's own").await;
+     let mut listed = ana.circles().subscribe_list();
+     let mut gifts_members = ana.circles().subscribe_members(gifts);
+-    assert_eq!(listed.next().await.expect("answers").unwrap().len(), 2);
+-    assert_eq!(gifts_members.next().await.expect("answers").unwrap().len(), 1);
++    assert_eq!(listed.next_inline().await.expect("answers").unwrap().len(), 2);
++    assert_eq!(gifts_members.next_inline().await.expect("answers").unwrap().len(), 1);
+     for who in [&ben, &carol] {
+         crate::tests::landed(ana, ana.circles().add_member(gifts, who).await.unwrap()).await;
+     }
+@@ -906,7 +906,7 @@ async fn circle_lists_and_members_follow_applied_slots_live() {
+     assert_eq!(members.iter().map(|m| m.member).collect::<Vec<_>>(), ids);
+     assert_eq!(members.iter().filter(|m| m.is_self).count(), 1);
+     let live = loop {
+-        let value = gifts_members.next().await.expect("answers").unwrap();
++        let value = gifts_members.next_inline().await.expect("answers").unwrap();
+         if value.len() == 3 {
+             break value;
+         }
+@@ -916,7 +916,7 @@ async fn circle_lists_and_members_follow_applied_slots_live() {
+     crate::tests::landed(ana, ana.remove_member(&carol).await.unwrap()).await;
+     network.sync(0).await;
+     let live = loop {
+-        let value = gifts_members.next().await.expect("answers").unwrap();
++        let value = gifts_members.next_inline().await.expect("answers").unwrap();
+         if value.len() == 2 {
+             break value;
+         }
+@@ -926,7 +926,7 @@ async fn circle_lists_and_members_follow_applied_slots_live() {
+     // Deleting a circle takes it out of the list.
+     crate::tests::landed(ana, ana.circles().delete(garden).await.unwrap()).await;
+     let live = loop {
+-        let value = listed.next().await.expect("answers").unwrap();
++        let value = listed.next_inline().await.expect("answers").unwrap();
+         if value.iter().all(|c| c.id != garden) {
+             break value;
+         }
+diff --git a/crates/coven/src/handle_transfers_tests.rs b/crates/coven/src/handle_transfers_tests.rs
+index 5c39f5388..13bfc3bb4 100644
+--- a/crates/coven/src/handle_transfers_tests.rs
++++ b/crates/coven/src/handle_transfers_tests.rs
+@@ -74,7 +74,7 @@ async fn stored(handle: &CovenHandle, file: &FileRef) -> (FileRef, ObjectPath) {
+     let mut queue: crate::LiveQuery<_, crate::CovenError> = handle.subscribe(|sql| {
+         Ok(sql.query_row("SELECT count(*) FROM coven_uploads", [], |r| r.get::<_, i64>(0))?)
+     });
+-    while queue.next().await.unwrap().unwrap() != 0 {}
++    while queue.next_inline().await.unwrap().unwrap() != 0 {}
+     let file = handle.file_ref(file.id()).await.unwrap();
+     let FilePlace::Cloud { location, .. } = file.place() else {
+         panic!("the upload stored the photo");
+diff --git a/crates/coven/src/handle_uploads_tests.rs b/crates/coven/src/handle_uploads_tests.rs
+index 8bd69e372..e001440d1 100644
+--- a/crates/coven/src/handle_uploads_tests.rs
++++ b/crates/coven/src/handle_uploads_tests.rs
+@@ -120,7 +120,7 @@ async fn upload_failed(device: &Device, failure: StorageFailure) {
+     });
+     tokio::time::timeout(HANG_GUARD, async {
+         while !pending
+-            .next()
++            .next_inline()
+             .await
+             .expect("the live query answers")
+             .unwrap()
+diff --git a/crates/coven/src/lib_tests.rs b/crates/coven/src/lib_tests.rs
+index afa142759..3da1a05b6 100644
+--- a/crates/coven/src/lib_tests.rs
++++ b/crates/coven/src/lib_tests.rs
+@@ -593,7 +593,7 @@ mod pending_records {
+                 r.get::<_, PendingRecord>(0)
+             })?)
+         });
+-        assert!(received.next().await.expect("the live query answers").unwrap().is_empty());
++        assert!(received.next_inline().await.expect("the live query answers").unwrap().is_empty());
+         let owner = &network.devices[0].handle;
+         owner
+             .write(|sql| {
+@@ -617,7 +617,7 @@ mod pending_records {
+             PendingReason::Refused(Refusal::Signature { cause: None }),
+         );
+         assert_eq!(
+-            received.next().await.expect("the live query answers").unwrap(),
++            received.next_inline().await.expect("the live query answers").unwrap(),
+             vec![record.clone()]
+         );
+         let reads = || async {
+diff --git a/crates/coven/src/member_keys_tests.rs b/crates/coven/src/member_keys_tests.rs
+index 543bdd54b..c7425decb 100644
+--- a/crates/coven/src/member_keys_tests.rs
++++ b/crates/coven/src/member_keys_tests.rs
+@@ -37,7 +37,7 @@ async fn member_keys_are_replaced_through_the_public_calls() {
+     assert_eq!(decode_code_info(invite.shown_code()).unwrap().metadata().member, carol);
+     assert_eq!(Some(old.member_keys.public_keys()), *requested.lock().unwrap());
+     let mut members = handle.subscribe_members();
+-    let initial = members.next().await.expect("the live query answers").unwrap();
++    let initial = members.next_inline().await.expect("the live query answers").unwrap();
+     let mine = |list: &[MemberInfo]| list.iter().find(|m| m.id == carol).unwrap().clone();
+     assert_eq!(mine(&initial).keys, old.member_keys.public_keys());
+     // The keychain syncs Carol's code to her other Apple devices.
+@@ -61,7 +61,7 @@ async fn member_keys_are_replaced_through_the_public_calls() {
+     assert_ne!(replaced, old.member_keys.public_keys());
+     assert_eq!(person(), replaced);
+     let current = loop {
+-        let list = members.next().await.expect("the live query answers").unwrap();
++        let list = members.next_inline().await.expect("the live query answers").unwrap();
+         if mine(&list).keys == replaced {
+             break mine(&list);
+         }
+diff --git a/crates/coven/src/test_utils_tests.rs b/crates/coven/src/test_utils_tests.rs
+index 12353e55b..16bcd8065 100644
+--- a/crates/coven/src/test_utils_tests.rs
++++ b/crates/coven/src/test_utils_tests.rs
+@@ -417,7 +417,7 @@ async fn identical_app_files_have_distinct_stored_ciphertext() {
+     let mut uploads: crate::LiveQuery<_, crate::CovenError> = handle.subscribe(|sql| {
+         Ok(sql.query_row("SELECT count(*) FROM coven_uploads", [], |r| r.get::<_, i64>(0))?)
+     });
+-    while uploads.next().await.expect("the live query answers").unwrap() != 0 {}
++    while uploads.next_inline().await.expect("the live query answers").unwrap() != 0 {}
+     assert!(handle.pending().await.unwrap().iter().all(|record| !matches!(
+         record.subject,
+         PendingSubject::Upload { .. } | PendingSubject::Download { .. }
+diff --git a/crates/coven/tests/fixtures/file_network.rs b/crates/coven/tests/fixtures/file_network.rs
+index 3219459b9..93b5070d7 100644
+--- a/crates/coven/tests/fixtures/file_network.rs
++++ b/crates/coven/tests/fixtures/file_network.rs
+@@ -61,7 +61,7 @@ pub(crate) async fn wait_for_empty_queue(handle: &CovenHandle) {
+         Ok(sql.query_row("SELECT count(*) FROM coven_uploads", [], |r| r.get::<_, i64>(0))?)
+     });
+     tokio::time::timeout(HANG_GUARD, async {
+-        while uploads.next().await.expect("the live query answers").unwrap() != 0 {}
++        while uploads.next_inline().await.expect("the live query answers").unwrap() != 0 {}
+     })
+     .await
+     .unwrap();
+diff --git a/crates/coven/tests/restore_cost.rs b/crates/coven/tests/restore_cost.rs
+index 05bc26cf1..82778678f 100644
+--- a/crates/coven/tests/restore_cost.rs
++++ b/crates/coven/tests/restore_cost.rs
+@@ -272,7 +272,7 @@ async fn uploaded(handle: &CovenHandle) {
+     let mut uploads: coven::LiveQuery<_, coven::CovenError> = handle.subscribe(|sql| {
+         Ok(sql.query_row("SELECT count(*) FROM coven_uploads", [], |r| r.get::<_, i64>(0))?)
+     });
+-    while uploads.next().await.expect("the live query answers").unwrap() != 0 {}
++    while uploads.next_inline().await.expect("the live query answers").unwrap() != 0 {}
+ }
+ 
+ async fn edit(handle: &CovenHandle, clock: &GraceClock) {
+diff --git a/owner-construction-check.toml b/owner-construction-check.toml
+index 5edd7f3ce..e6c9c15b8 100644
+--- a/owner-construction-check.toml
++++ b/owner-construction-check.toml
+@@ -1461,6 +1461,14 @@ tables = [
+ # A reconfigurable live query makes the request state its handles share;
+ # dropping the query closes it (api.md E4).
+ "crates/coven-database/src/live_query.rs" = ["ReconfigurableLiveQuery::new"]
++# `next_result` takes a live query to the blocking pool and gives it back
++# with its result, so a caller that waits on one holds the query it got back
++# (api.md E4).
++"crates/coven-database/src/database_local_bytes.rs" = ["LocalBytesWatch::next"]
++# A live query's run goes to the blocking pool and runs to its end even when
++# its caller stops waiting; then its bug goes to the store's sink (E15).
++"crates/coven-database/src/live_results.rs" = ["next_result"]
++"crates/coven-database/src/test_utils.rs" = ["Followed::next"]
+ # Removes an abandoned snapshot staging's records on a blocking task as it
+ # drops; closing the store waits for it (§16.2).
+ "crates/coven-database/src/snapshot_staging.rs" = ["SnapshotStaging::drop"]
+@@ -1758,7 +1766,11 @@ tables = [
+ # Recovery discovery and forgetting scope the installation's keychain to each
+ # store's entries.
+ "crates/coven/src/saved_restore.rs" = ["list", "forget"]
+-"crates/coven/src/handle.rs" = ["CovenHandle::close", "CovenHandle::new"]
++"crates/coven/src/handle.rs" = [
++    "CovenHandle::close",
++    "CovenHandle::new",
++    "CovenHandle::operation_outcome",
++]
+ # Leaving a store runs in a task of its own that finishes even if the app
+ # stops waiting: past its removal's journal it only goes forward (§11.6).
+ # Its record and the store's deletion run on the blocking pool to their end,
+diff --git a/spec/api.md b/spec/api.md
+index 17badc658..f1f26eeec 100644
+--- a/spec/api.md
++++ b/spec/api.md
+@@ -3632,8 +3632,17 @@ let moved = handle
+ - A *live query* runs once, then again whenever a write commits that changes
+   rows it read. Its errors are results and don't end it, except the one saying
+   the store closed or its handle fails every call, and one that carries a bug,
+-  as a run that panicked does (E15): after that one, `next()` returns `None`,
+-  and never repeats it.
++  as a run that panicked does (E15): after that one, `next_blocking()` returns
++  `None`, and never repeats it.
++- A live query's calls block and need no async runtime. `changed()` returns a
++  future that resolves on any executor once a write changed what the query
++  read, a new request came, or the handle failed or closed. `run_changed()`
++  then runs the query once on the calling thread, without waiting.
++  `next_blocking()` parks the calling thread until `changed()` would resolve
++  and runs the query on it. An async app awaits `changed()` and runs
++  `run_changed()` on a blocking thread, which leaves no thread waiting when a
++  write leaves the result equal. The examples below call `next_blocking()` on
++  a blocking thread for brevity; a program with no runtime calls it alone.
+ - A read and a live query fail with their closure's own error type, as a
+   write does (E3): Ana's music app's closures return its `LibraryError`, and
+   its live query of albums delivers one. The type takes coven's `DbError`
+@@ -3898,7 +3907,16 @@ let mut failing: LiveQuery<_, CovenError> = handle.subscribe(|sql| {
+         },
+     )?)
+ });
+-while let Some(rows) = failing.next().await {
++loop {
++    failing.changed().await;
++    let (failing_next, answer) = tokio::task::spawn_blocking(move || {
++        let answer = failing.next_blocking();
++        (failing, answer)
++    })
++    .await
++    .unwrap();
++    failing = failing_next;
++    let Some(rows) = answer else { break };
+     show_failures(rows?);
+ }
+ ```
+@@ -4102,19 +4120,34 @@ where
+     T: Send + 'static,
+     E: From<DbError> + coven::task::CarriesBug + Send + 'static,
+ {
+-    /// The first result at once; after that, waits for a write that changes
+-    /// the result and returns the new one. An error is a result too, and
+-    /// doesn't end the query, except the one saying the store closed, the
+-    /// handle fails every call (`RollbackFailed`, `StatePersistence`,
+-    /// `CheckpointFailed`, `StatisticsFailed`, `WallTimer`, or `StoreFailed`
+-    /// for state a bug may have left wrong), or one that carries a bug, as a
+-    /// run that panicked does (`DbError::Bug`, E15): after it, `None`, so a
+-    /// loop over the query ends.
+-    pub async fn next(&mut self) -> Option<Result<T, E>>
++    /// Resolves once `next_blocking` has something to do: a write changed what
++    /// the last run read, the handle failed or closed, the query ended, or no
++    /// run has answered yet. Any executor can poll it, and dropping it loses
++    /// nothing.
++    pub fn changed(&self) -> impl Future<Output = ()> + Send + 'static;
++
++    /// Runs the query once if a write changed what the last run read or no
++    /// run has answered yet, and never parks. Returns `None` when nothing
++    /// changed, when the new result equals the last, and once the query has
++    /// ended.
++    pub fn run_changed(&mut self) -> Option<Result<T, E>>
++    where
++        T: Clone + PartialEq;
++
++    /// The first result at once; after that, parks this thread until a write
++    /// changes the result, then runs the query on it and returns the new
++    /// result. An error is a result too, and doesn't end the query, except the
++    /// one saying the store closed, the handle fails every call
++    /// (`RollbackFailed`, `StatePersistence`, `CheckpointFailed`,
++    /// `StatisticsFailed`, `WallTimer`, or `StoreFailed` for state a bug may
++    /// have left wrong), or one that carries a bug, as a run that panicked
++    /// does (`DbError::Bug`, E15): after it, `None`, so a loop over the query
++    /// ends.
++    pub fn next_blocking(&mut self) -> Option<Result<T, E>>
+     where
+         T: Clone + PartialEq;
+ 
+-    /// Runs `process` on each result after the connection is released.
++    /// Runs `process` on each result after its run releases the connection.
+     pub fn process<P, U>(self, process: P) -> LiveQuery<U, E>
+     where
+         T: Clone + PartialEq,
+@@ -4126,7 +4159,7 @@ where
+     pub fn runs(&self) -> LiveQueryRuns;
+ 
+     /// Whether a commit since this idle query's last result changes what it
+-    /// reads, so `next` runs it again. A commit marks the queries it changes
++    /// reads, so `next_blocking` runs it again. A commit marks the queries it changes
+     /// as it commits, so this answers at once.
+     #[cfg(feature = "test-utils")]
+     pub fn is_marked_for_rerun(&self) -> bool;
+@@ -4138,7 +4171,7 @@ where
+     T: Send + 'static,
+     E: From<DbError> + coven::task::CarriesBug + Send + 'static,
+ {
+-    /// Process each successful value on a worker after releasing its connection.
++    /// Process each successful value after its run releases the connection.
+     /// Request, revision and cause stay on the event; errors remain results.
+     /// Equality compares processed values. Existing request handles still work.
+     pub fn process<P, U>(self, process: P) -> ReconfigurableLiveQuery<Q, U, E>
+@@ -4155,15 +4188,23 @@ where
+     pub fn runs(&self) -> LiveQueryRuns;
+ 
+     /// Whether a commit since this idle query's last result changes what it
+-    /// reads, so `next` runs it again, answered at once.
++    /// reads, so `next_blocking` runs it again, answered at once.
+     #[cfg(feature = "test-utils")]
+     pub fn is_marked_for_rerun(&self) -> bool;
+ 
+-    /// The next result, with the request and revision that produced it, and
+-    /// whether a new request, a write, or both caused it; `None` after the
+-    /// result saying the store closed or the handle failed, or one carrying
+-    /// a bug, as for `LiveQuery::next`.
+-    pub async fn next(&mut self) -> Option<ReconfigurableLiveQueryEvent<Q, T, E>>
++    /// As `LiveQuery::changed`, and a new request resolves it too.
++    pub fn changed(&self) -> impl Future<Output = ()> + Send + 'static;
++
++    /// As `LiveQuery::run_changed`, returning the event.
++    pub fn run_changed(&mut self) -> Option<ReconfigurableLiveQueryEvent<Q, T, E>>
++    where
++        T: Clone + PartialEq;
++
++    /// As `LiveQuery::next_blocking`: the next result, with the request and
++    /// revision that produced it, and whether a new request, a write, or both
++    /// caused it; `None` after the result saying the store closed or the
++    /// handle failed, or one carrying a bug.
++    pub fn next_blocking(&mut self) -> Option<ReconfigurableLiveQueryEvent<Q, T, E>>
+     where
+         T: Clone + PartialEq;
+ }
+@@ -4385,12 +4426,30 @@ let mut notes: LiveQuery<_, CovenError> = handle.subscribe(|sql| {
+         |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?)),
+     )?)
+ });
+-while let Some(Ok(rows)) = notes.next().await {
++loop {
++    notes.changed().await;
++    let (notes_next, answer) = tokio::task::spawn_blocking(move || {
++        let answer = notes.next_blocking();
++        (notes, answer)
++    })
++    .await
++    .unwrap();
++    notes = notes_next;
++    let Some(Ok(rows)) = answer else { break };
+     show_notes(rows);
+ }
+ 
+ let mut lost = handle.subscribe_lost_values();
+-while let Some(Ok(values)) = lost.next().await {
++loop {
++    lost.changed().await;
++    let (lost_next, answer) = tokio::task::spawn_blocking(move || {
++        let answer = lost.next_blocking();
++        (lost, answer)
++    })
++    .await
++    .unwrap();
++    lost = lost_next;
++    let Some(Ok(values)) = answer else { break };
+     offer_to_restore(values);
+ }
+ ```
+@@ -6454,7 +6513,16 @@ match handle.setup_s3_storage(storage, access_key_id, secret, show_setup_step).a
+ // The sync state, as a live query follows it; the first value is the
+ // current state.
+ let mut status = handle.subscribe_sync_status();
+-while let Some(result) = status.next().await {
++loop {
++    status.changed().await;
++    let (status_next, answer) = tokio::task::spawn_blocking(move || {
++        let answer = status.next_blocking();
++        (status, answer)
++    })
++    .await
++    .unwrap();
++    status = status_next;
++    let Some(result) = answer else { break };
+     let SyncStatus { state, last_synced } = result?;
+     show_sync_line(&state, last_synced);
+ }
+@@ -6954,7 +7022,16 @@ let mut outbox: LiveQuery<_, CovenError> = handle.subscribe(|sql| {
+                   row.get::<_, Option<i64>>(2)?, row.get::<_, Option<i64>>(3)?)),
+     )?)
+ });
+-while let Some(rows) = outbox.next().await {
++loop {
++    outbox.changed().await;
++    let (outbox_next, answer) = tokio::task::spawn_blocking(move || {
++        let answer = outbox.next_blocking();
++        (outbox, answer)
++    })
++    .await
++    .unwrap();
++    outbox = outbox_next;
++    let Some(rows) = answer else { break };
+     let rows = rows?;
+     show_outbox(&rows);
+     if rows.is_empty() {
+@@ -9371,7 +9448,16 @@ let pairing = handle.add_device().await?;
+ show_blurred_qr_code(&pairing.qr_code);
+ offer_to_share(&pairing.shared_code);
+ let mut status = handle.follow_add_device(pairing.id);
+-while let Some(now) = status.next().await {
++loop {
++    status.changed().await;
++    let (status_next, answer) = tokio::task::spawn_blocking(move || {
++        let answer = status.next_blocking();
++        (status, answer)
++    })
++    .await
++    .unwrap();
++    status = status_next;
++    let Some(now) = answer else { break };
+     match now? {
+         Some(AddDeviceStatus::Waiting { request: Some(request) }) => {
+             // "Add Ana's laptop?" with the number the laptop shows.
+@@ -9530,7 +9616,16 @@ let (invite, _, _) = handle
+ 
+ let mut invites = handle.subscribe(Invite::list);
+ let mut sent = false;
+-while let Some(open) = invites.next().await {
++loop {
++    invites.changed().await;
++    let (invites_next, answer) = tokio::task::spawn_blocking(move || {
++        let answer = invites.next_blocking();
++        (invites, answer)
++    })
++    .await
++    .unwrap();
++    invites = invites_next;
++    let Some(open) = answer else { break };
+     let found = open?.into_iter().find(|i| i.id == invite).map(|i| i.stage);
+     match found {
+         // A pass has granted its access and fixed its code.
+@@ -10279,12 +10374,13 @@ pool, and calls that must finish even when their caller stops waiting, such
+ as closing a store, as their own task. A runtime shutting down is not a bug,
+ so such a call ends with a `Shutdown` in its error instead of a panic.
+ 
+-- Ana's music app keeps a live query of its albums. A test of the app opens
+-  the store on its own runtime and ends while the query is still reading.
+-  The query's next read goes to a blocking pool that runs nothing more, and
+-  its `next` returns `Err(CovenError::Database(DbError::Shutdown(Shutdown {
+-  operation: "live query", outcome: ShutdownOutcome::NotRun })))`. Had coven
+-  panicked there, the test process would have aborted.
++- Ana's music app waits for an operation's outcome with `operation_outcome`
++  (E6). A test of the app opens the store on its own runtime and ends while
++  that wait's query is still reading. The query's next read goes to a blocking
++  pool that runs nothing more, and `operation_outcome` fails with a
++  `DbError::Shutdown(Shutdown { operation: "live query", outcome:
++  ShutdownOutcome::NotRun })`. Had coven panicked there, the test process
++  would have aborted.
+ - `Shutdown.outcome` says how far the work got, so whether a write took
+   effect. tokio can't stop a closure on the blocking pool once it has
+   started, so the pool only drops a closure it never ran: `NotRun`, and
+diff --git a/spec/coven.md b/spec/coven.md
+index 57b18b1e0..e1a90a564 100644
+--- a/spec/coven.md
++++ b/spec/coven.md
+@@ -13777,7 +13777,7 @@ built only to be taken apart again, with every field public and no methods, isn'
+ used to pass collaborators; they are passed by name.
+ 
+ **A handle is what an owner hands out on purpose.** A reconfigurable live query
+-(api.md E4) waits for its next result in one call while the app replaces its
++(api.md E4) waits for a change in one call while the app replaces its
+ request from another. The query's `requests()` returns a `LiveQueryRequests`,
+ which shares the query's pending request and the signal that wakes it. Such a
+ value is an owner's *handle*, not to be confused with the store's handle the app

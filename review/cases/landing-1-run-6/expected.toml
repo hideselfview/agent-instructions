@@ -1,0 +1,134 @@
+project = "bae"
+clean_for = []
+
+[[finding]]
+rule = "never-mask-errors-with-defaults"
+file = "bae-records/src/records/release_detail.rs"
+
+[[site]]
+file = "bae-records/src/records/release_detail.rs"
+code = '''
+JOIN coven_devices d ON d.device = coven_file_device(coven.coordinates) \
+     JOIN coven_members m ON m.member = d.member";'''
+verdict = "finding"
+rule = "never-mask-errors-with-defaults"
+
+[[site]]
+file = "bae-records/src/records/release_detail.rs"
+code = "/// The release files on one device only, the registrations of the devices"
+verdict = "none"
+
+[[site]]
+file = "bae-records/src/records/release_detail.rs"
+code = "/// they are on and the members those belong to, as [`unstored_audio_on`] and"
+verdict = "none"
+
+[[site]]
+file = "bae-records/src/records/release_detail.rs"
+code = "/// them: `f`, `coven`, its device `d` and that device's member `m`. Coven"
+verdict = "none"
+
+[[site]]
+file = "bae-records/src/records/release_detail.rs"
+code = "/// applies a write only after it registers the write's device, never drops a"
+verdict = "none"
+
+[[site]]
+file = "bae-records/src/records/release_detail.rs"
+code = "/// registration, and registers each device under a member it never drops, so"
+verdict = "none"
+
+[[site]]
+file = "bae-records/src/records/release_detail.rs"
+code = "/// every file on one device has its device's registration and that device's"
+verdict = "none"
+
+[[site]]
+file = "bae-records/src/records/release_detail.rs"
+code = 'const UNSTORED_COLUMNS: &str = "f.file, d.is_self, d.name, d.state, m.removed AS member_removed";'
+verdict = "none"
+
+[[site]]
+file = "bae-records/src/records/release_detail.rs"
+code = "/// is this one, in which case this device keeps the file's original, and"
+verdict = "none"
+
+[[site]]
+file = "bae-records/src/records/release_detail.rs"
+code = "/// otherwise the device's registration in `coven_devices` and whether that"
+verdict = "none"
+
+[[site]]
+file = "bae-records/src/records/release_detail.rs"
+code = ''''file', f.file, 'is_self', d.is_self, \'''
+verdict = "none"
+
+[[site]]
+file = "bae-records/src/records/release_detail.rs"
+code = """WHERE f.release_id = {release_expr} AND f.content_type GLOB 'audio/*')""""
+verdict = "none"
+
+[[site]]
+file = "bae-records/src/records/release_detail.rs"
+code = "/// is on another device only: a device that is not this one holds it. The"
+verdict = "none"
+
+[[site]]
+file = "bae-records/src/records/release_detail.rs"
+code = "/// release cannot play here until that device moves the file to the cloud."
+verdict = "none"
+
+[[site]]
+file = "bae-records/src/records/release_detail.rs"
+code = "is_self: stored.is_self != 0,"
+verdict = "none"
+
+[[site]]
+file = "bae-records/src/records/release_detail.rs"
+code = "member_removed: stored.member_removed != 0,"
+verdict = "none"
+
+[[site]]
+file = "bae-records/src/records/release_detail.rs"
+code = '&format!("SELECT {UNSTORED_COLUMNS} {UNSTORED_FILES} WHERE f.id = ?1"),'
+verdict = "none"
+
+[[site]]
+file = "bae-records/src/records/release_detail.rs"
+code = "/// Whether the device the file is on is this one."
+verdict = "none"
+
+[[site]]
+file = "bae-records/src/records/release_detail.rs"
+code = "/// A file on this device is this device's original: coven keeps the"
+verdict = "none"
+
+[[site]]
+file = "bae-records/src/records/release_detail.rs"
+code = "/// switch puts the file on another device. A file on another device is"
+verdict = "none"
+
+[[site]]
+file = "bae-records/src/records/release_detail.rs"
+code = "/// on the device coven's registration names."
+verdict = "none"
+
+[[site]]
+file = "bae-records/src/records/release_detail.rs"
+code = "return Ok(DbUnstoredAudio::Original);"
+verdict = "none"
+
+[[site]]
+file = "bae-records/src/records/release_detail.rs"
+code = "other_device(self.name, &self.state, self.member_removed)"
+verdict = "none"
+
+[[site]]
+file = "bae-records/src/records/release_detail.rs"
+code = ".map(DbUnstoredAudio::Elsewhere)"
+verdict = "none"
+
+[[site]]
+file = "bae-records/src/records/release_detail.rs"
+code = 'format!("coven_devices.state of the device release file {} is on", self.file),'
+verdict = "none"

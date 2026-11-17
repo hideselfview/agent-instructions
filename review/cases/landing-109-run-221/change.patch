@@ -1,0 +1,1576 @@
+diff --git a/bae-android/app/src/main/java/fm/bae/app/data/Library.kt b/bae-android/app/src/main/java/fm/bae/app/data/Library.kt
+index 125b498e93..9af35242fe 100644
+--- a/bae-android/app/src/main/java/fm/bae/app/data/Library.kt
++++ b/bae-android/app/src/main/java/fm/bae/app/data/Library.kt
+@@ -6,6 +6,7 @@ import fm.bae.screensubscription.pulled
+ import uniffi.bae_bridge.AppHandleInterface
+ import uniffi.bae_bridge.BridgeAlbumAppearance
+ import uniffi.bae_bridge.BridgeAlbumDetail
++import uniffi.bae_bridge.BridgeAlbumSearchResult
+ import uniffi.bae_bridge.BridgeArtistDetail
+ import uniffi.bae_bridge.BridgeArtistSortCriterion
+ import uniffi.bae_bridge.BridgeArtistSummary
+@@ -18,7 +19,6 @@ import uniffi.bae_bridge.BridgeDownloadOp
+ import uniffi.bae_bridge.BridgeLibraryBrowseSection
+ import uniffi.bae_bridge.BridgeLibrarySearchSnapshot
+ import uniffi.bae_bridge.BridgeList
+-import uniffi.bae_bridge.BridgeListCount
+ import uniffi.bae_bridge.BridgeListPosition
+ import uniffi.bae_bridge.BridgeListRows
+ import uniffi.bae_bridge.BridgeListWindow
+@@ -209,12 +209,11 @@ class Library(
+     /** One live library search, whose text changes on the same live query as the person types. */
+     internal fun librarySearch(): LibrarySearch = BridgeLibrarySearch(handle.subscribeLibrarySearch())
+ 
+-    /**
+-     * How many albums a search for [query] lists, read live: the albums
+-     * [AppHandleInterface.readSearchAlbumPage] pages through.
+-     */
+-    internal fun searchAlbumCount(query: String): PulledSubscription<BridgeListCount> =
+-        handle.subscribeSearchAlbumCount(query).let { pulled(it::next, it::cancel) }
++    /** The albums library search lists for [query] as a media browser lists them, in title order. */
++    internal fun searchAlbumList(query: String): ListReads<BridgeAlbumSearchResult> =
++        listReads(BridgeList.SearchAlbums(query)) { rows ->
++            (rows as? BridgeListRows.SearchAlbums)?.rows ?: error("a search's albums delivered rows of another list")
++        }
+ 
+     /** The album [albumId]'s tracks as a media browser lists them: its main release's, in playing order. */
+     internal fun albumTrackList(albumId: String): ListReads<BridgeBrowseTrack> =
+diff --git a/bae-android/app/src/main/java/fm/bae/app/playback/BaeLibrarySessionCallback.kt b/bae-android/app/src/main/java/fm/bae/app/playback/BaeLibrarySessionCallback.kt
+index 454cd43fb1..4396b89c92 100644
+--- a/bae-android/app/src/main/java/fm/bae/app/playback/BaeLibrarySessionCallback.kt
++++ b/bae-android/app/src/main/java/fm/bae/app/playback/BaeLibrarySessionCallback.kt
+@@ -160,7 +160,7 @@ internal class BaeLibrarySessionCallback(
+     ): ListenableFuture<LibraryResult<ImmutableList<MediaItem>>> =
+         scope.future {
+             queryResult {
+-                val results = tree.search(query, page, pageSize)
++                val results = tree.search(browser, query, page, pageSize)
+                 if (results == null) {
+                     LibraryResult.ofError(SessionError.ERROR_BAD_VALUE)
+                 } else {
+diff --git a/bae-android/app/src/main/java/fm/bae/app/playback/LibraryBrowseTree.kt b/bae-android/app/src/main/java/fm/bae/app/playback/LibraryBrowseTree.kt
+index 6e044363ff..dadb0ec8a7 100644
+--- a/bae-android/app/src/main/java/fm/bae/app/playback/LibraryBrowseTree.kt
++++ b/bae-android/app/src/main/java/fm/bae/app/playback/LibraryBrowseTree.kt
+@@ -103,8 +103,8 @@ internal class LibraryBrowseTree<Owner : Any>(
+     /** The live pages of each retained album's tracks and each retained work's children, by its media id. */
+     private val childPages = mutableMapOf<String, ChildPages<*>>()
+ 
+-    /** Each controller's search: a live count of the albums its phrase lists. */
+-    private val searchesByOwner = mutableMapOf<Owner, LiveCount>()
++    /** Each controller's search: its phrase, with the live count and pages of the albums the phrase lists. */
++    private val searchesByOwner = mutableMapOf<Owner, Search>()
+     private var albums: ListProjection<BridgeAlbumAppearance, BridgeAlbum>? = null
+     private var composers: ListProjection<BridgeComposerSummary, BridgeComposerSummary>? = null
+ 
+@@ -213,20 +213,32 @@ internal class LibraryBrowseTree<Owner : Any>(
+         }
+     }
+ 
+-    /** The albums matching [query] on the page asked for, or null for a page that names nothing. */
++    /**
++     * The albums [owner]'s search for [query] lists on the page asked for, read live from now on, or null for a page
++     * that names nothing or a phrase [owner] is not searching for.
++     */
+     suspend fun search(
++        owner: Owner,
+         query: String,
+         page: Int,
+         pageSize: Int,
+     ): List<MediaItem>? {
+         checkOpen()
+-        if (!BrowsePaging.isPage(page, pageSize)) {
+-            logger.warning("a controller asked for search page $page of size $pageSize, which names no page")
+-            return null
+-        }
+-        return pageAt(page, pageSize) { offset ->
+-            reportingFailure(onQueryError) { handle.readSearchAlbumPage(query, offset.toULong(), pageSize.toULong()) }
+-                .map { nodes.album(it.id, it.title, it.cover) }
++        val search = synchronized(lock) { searchesByOwner[owner] }?.takeIf { it.query == query }
++        return when {
++            !BrowsePaging.isPage(page, pageSize) -> {
++                logger.warning("a controller asked for search page $page of size $pageSize, which names no page")
++                null
++            }
++
++            search == null -> {
++                logger.warning("a controller asked for the results of a phrase it is not searching for")
++                null
++            }
++
++            else -> {
++                pageAt(page, pageSize) { offset -> search.pages.rows(offset, pageSize) }
++            }
+         }
+     }
+ 
+@@ -303,7 +315,8 @@ internal class LibraryBrowseTree<Owner : Any>(
+ 
+     /**
+      * Search [query] for [owner], replacing its last search, and wait for the first count of the
+-     * albums it lists. That count and each later one reach [onResultsChanged].
++     * albums it lists. That count and each later one reach [onResultsChanged], and so does each
++     * change to a page of the albums that [search] read, with the number of albums unknown.
+      */
+     suspend fun subscribeSearch(
+         owner: Owner,
+@@ -311,26 +324,18 @@ internal class LibraryBrowseTree<Owner : Any>(
+         onResultsChanged: (Int) -> Unit,
+     ) {
+         checkOpen()
+-        val search =
+-            LiveCount(
+-                scope,
+-                library.searchAlbumCount(query),
+-                tellsFirst = true,
+-                isCurrent = { read -> synchronized(lock) { searchesByOwner[owner] === read } },
+-                onCount = onResultsChanged,
+-                onError = onQueryError,
+-            )
++        val search = Search(owner, query, onResultsChanged)
+         val (opened, replaced) =
+             synchronized(lock) {
+                 if (closed) false to null else true to searchesByOwner.put(owner, search)
+             }
+         if (!opened) {
+-            search.close(searchInterestEnded())
++            search.pages.close(searchInterestEnded())
+             throw treeClosedError()
+         }
+-        replaced?.close(searchInterestEnded())
+-        search.start()
+-        search.awaitFirst()
++        replaced?.pages?.close(searchInterestEnded())
++        search.pages.start()
++        search.pages.awaitReady()
+         if (!synchronized(lock) { searchesByOwner[owner] === search }) throw searchInterestEnded()
+     }
+ 
+@@ -344,7 +349,7 @@ internal class LibraryBrowseTree<Owner : Any>(
+                         .orEmpty()
+                         .map { it.first } to searchesByOwner.remove(owner)
+                 }
+-            search?.close(searchInterestEnded())
++            search?.pages?.close(searchInterestEnded())
+             parents.forEach { closeParentIfUnused(it) }
+         }
+ 
+@@ -378,7 +383,27 @@ internal class LibraryBrowseTree<Owner : Any>(
+         state.first.second?.close()
+         pages.forEach { it.close() }
+         children.forEach { it.close() }
+-        state.second.forEach { it.close(searchInterestEnded()) }
++        state.second.forEach { it.pages.close(searchInterestEnded()) }
++    }
++
++    /**
++     * [owner]'s search for [query]: the live count and pages of the albums the phrase lists. Each count, the first
++     * too, and each change to a page reach [onResultsChanged] only while the tree holds this search as [owner]'s.
++     */
++    private inner class Search(
++        owner: Owner,
++        val query: String,
++        onResultsChanged: (Int) -> Unit,
++    ) {
++        val pages =
++            ChildPages(
++                scope,
++                library.searchAlbumList(query),
++                { offset, limit -> handle.readSearchAlbumPageWindow(query, offset, limit) },
++                { nodes.album(it.id, it.title, it.cover) },
++                { count, _ -> if (synchronized(lock) { searchesByOwner[owner] === this }) onResultsChanged(count) },
++                onQueryError,
++            )
+     }
+ 
+     private fun albumProjection(): ListProjection<BridgeAlbumAppearance, BridgeAlbum> =
+@@ -426,7 +451,9 @@ internal class LibraryBrowseTree<Owner : Any>(
+         synchronized(lock) {
+             check(!closed)
+             childPages.getOrPut(parentId) {
+-                val onChanged = { count: Int -> notifyParent(parentId, count) }
++                // The tree tells the controller each change to a parent's count, and not the first count, which the
++                // controller's subscription waits for.
++                val onChanged = { count: Int, isFirst: Boolean -> if (!isFirst) notifyParent(parentId, count) }
+                 when (val id = BrowseId.parse(parentId)) {
+                     is BrowseId.Album -> {
+                         ChildPages(
+@@ -453,7 +480,7 @@ internal class LibraryBrowseTree<Owner : Any>(
+                     else -> {
+                         error("$parentId lists no children a page at a time")
+                     }
+-                }
++                }.also { it.start() }
+             }
+         }
+ 
+diff --git a/bae-android/app/src/main/java/fm/bae/app/playback/LiveBrowseProjection.kt b/bae-android/app/src/main/java/fm/bae/app/playback/LiveBrowseProjection.kt
+index 3f6292ca33..51f58a95fb 100644
+--- a/bae-android/app/src/main/java/fm/bae/app/playback/LiveBrowseProjection.kt
++++ b/bae-android/app/src/main/java/fm/bae/app/playback/LiveBrowseProjection.kt
+@@ -55,21 +55,22 @@ internal object BrowsePaging {
+     }
+ }
+ 
+-/** What Media3 takes as a parent's number of children when a change leaves it unknown. */
++/**
++ * What the tree tells Media3 as a parent's number of children, or as a search's number of results, when a change
++ * leaves it unknown.
++ */
+ internal const val UNKNOWN_CHILD_COUNT = Int.MAX_VALUE
+ 
+ /**
+  * A live count that a controller's interest holds open: the albums a search lists, or a browse parent's
+- * children. The tree waits for the read's first count ([awaitFirst]). Each later count reaches [onCount], and
+- * so does the first when [tellsFirst]. A count reaches [onCount] only while [isCurrent] says the tree still
+- * holds this read.
++ * children. The tree waits for the read's first count ([awaitFirst]). Each count reaches [onCount], which says
++ * whether it is the first, only while [isCurrent] says the tree still holds this read.
+  */
+ internal class LiveCount(
+     private val scope: CoroutineScope,
+     private val count: PulledSubscription<BridgeListCount>,
+-    private val tellsFirst: Boolean,
+     private val isCurrent: (LiveCount) -> Boolean,
+-    private val onCount: (Int) -> Unit,
++    private val onCount: (rows: Int, isFirst: Boolean) -> Unit,
+     private val onError: (BridgeException) -> Unit,
+ ) {
+     /** Completes at the read's first count, or fails with its first error or when the tree closes it first. */
+@@ -95,7 +96,7 @@ internal class LiveCount(
+         count.pullEach(
+             onValue = { value ->
+                 val isFirst = !first.isCompleted
+-                if ((tellsFirst || !isFirst) && isCurrent(this@LiveCount)) onCount(value.rows.toInt())
++                if (isCurrent(this@LiveCount)) onCount(value.rows.toInt(), isFirst)
+                 first.complete(Unit)
+             },
+             onError = { error ->
+@@ -107,22 +108,25 @@ internal class LiveCount(
+ }
+ 
+ /**
+- * A browse parent whose children are a database list, such as an album's tracks or a work's children, which a
+- * controller asks for a page at a time by offset. For each page asked for, the tree reads once the window that
+- * holds the page ([pageWindow]) and then reads that window live. The window's first rows answer the request, and
+- * each later delivery tells the tree, through [onChanged], that the parent's children changed. A new request for
+- * the same page replaces its read. The list's live count tells the tree each time the number of children changes.
++ * A database list a controller asks for a page at a time by offset: a browse parent's children, such as an
++ * album's tracks or a work's children, or the albums a search lists. For each page asked for, the tree reads once
++ * the window that holds the page ([pageWindow]) and then reads that window live. The window's first rows answer
++ * the request, and each later delivery tells the tree, through [onChanged], that the list changed, with the number
++ * of rows unknown. A new request for the same page replaces its read. The list's live count tells the tree its
++ * first number of rows and each change to it, and says which is the first.
+  */
+ internal class ChildPages<Row>(
+     private val scope: CoroutineScope,
+     private val reads: ListReads<Row>,
+     private val pageWindow: suspend (offset: ULong, limit: ULong) -> BridgeListWindow?,
+     private val item: (Row) -> MediaItem,
+-    private val onChanged: (itemCount: Int) -> Unit,
++    private val onChanged: (itemCount: Int, isFirstCount: Boolean) -> Unit,
+     private val onError: (BridgeException) -> Unit,
+ ) {
+     private val lock = Any()
+-    private var closed = false
++
++    /** Why the pages closed, which a request that arrives after they closed fails with; null while they are open. */
++    private var closedBy: BrowseUnavailable? = null
+ 
+     /** The live read of each page a controller asked for, by the page's offset and size. */
+     private val pages = mutableMapOf<Pair<Int, Int>, LivePage>()
+@@ -130,11 +134,13 @@ internal class ChildPages<Row>(
+         LiveCount(
+             scope,
+             reads.count(),
+-            tellsFirst = false,
+-            isCurrent = { synchronized(lock) { !closed } },
++            isCurrent = { synchronized(lock) { closedBy == null } },
+             onCount = onChanged,
+             onError = onError,
+-        ).also { it.start() }
++        )
++
++    /** Start reading the list's count, once the tree holds the pages, so that its callbacks find them. */
++    fun start() = count.start()
+ 
+     /** Wait for the list's first count, throwing its error. */
+     suspend fun awaitReady() = count.awaitFirst()
+@@ -146,25 +152,26 @@ internal class ChildPages<Row>(
+     ): List<MediaItem> {
+         val window = reportingFailure(onError) { pageWindow(offset.toULong(), limit.toULong()) } ?: return emptyList()
+         val page = LivePage(window)
+-        val (opened, replaced) =
++        val (refusal, replaced) =
+             synchronized(lock) {
+-                if (closed) false to null else true to pages.put(offset to limit, page)
++                closedBy?.let { it to null } ?: (null to pages.put(offset to limit, page))
+             }
+         replaced?.close(windowEvicted())
+-        if (!opened) throw treeClosedError()
++        if (refusal != null) throw refusal
+         page.start()
+         return page.awaitFirst()
+     }
+ 
+-    suspend fun close() {
++    /** Stop every read; a request waiting on one, and every later request, fails with [reason]. */
++    suspend fun close(reason: BrowseUnavailable = treeClosedError()) {
+         val open =
+             synchronized(lock) {
+-                if (closed) return
+-                closed = true
++                if (closedBy != null) return
++                closedBy = reason
+                 pages.values.toList().also { pages.clear() }
+             }
+-        count.close(treeClosedError())
+-        open.forEach { it.close(treeClosedError()) }
++        count.close(reason)
++        open.forEach { it.close(reason) }
+     }
+ 
+     /** One page's live window: its first rows answer the request, and each later delivery is a change. */
+@@ -184,7 +191,7 @@ internal class ChildPages<Row>(
+                             if (!first.isCompleted) {
+                                 first.complete(delivery.rows.map(item))
+                             } else if (isCurrent()) {
+-                                onChanged(UNKNOWN_CHILD_COUNT)
++                                onChanged(UNKNOWN_CHILD_COUNT, false)
+                             }
+                         },
+                         onError = { error ->
+@@ -203,6 +210,6 @@ internal class ChildPages<Row>(
+             reader?.cancelAndJoin()
+         }
+ 
+-        private fun isCurrent(): Boolean = synchronized(lock) { !closed && pages.values.any { it === this } }
++        private fun isCurrent(): Boolean = synchronized(lock) { closedBy == null && pages.values.any { it === this } }
+     }
+ }
+diff --git a/bae-android/app/src/test/java/fm/bae/app/playback/FakeAppHandle.kt b/bae-android/app/src/test/java/fm/bae/app/playback/FakeAppHandle.kt
+index 9109baee15..7e19f03443 100644
+--- a/bae-android/app/src/test/java/fm/bae/app/playback/FakeAppHandle.kt
++++ b/bae-android/app/src/test/java/fm/bae/app/playback/FakeAppHandle.kt
+@@ -237,6 +237,7 @@ internal open class FakeAppHandle(
+     private val composerPageLists = mutableMapOf<String, FakeComposerPage>()
+     private val albumTrackLists = mutableMapOf<String, FakeList<BridgeBrowseTrack>>()
+     private val workChildLists = mutableMapOf<String, FakeList<BridgeWorkChild>>()
++    private val searchAlbumLists = mutableMapOf<String, FakeList<BridgeAlbumSearchResult>>()
+ 
+     /** The list [list] names, which a test changes and delivers. */
+     fun fakeList(list: BridgeList): FakeList<*> =
+@@ -265,6 +266,10 @@ internal open class FakeAppHandle(
+                 }
+             }
+ 
++            is BridgeList.SearchAlbums -> {
++                searchAlbumList(list.query)
++            }
++
+             is BridgeList.Artists,
+             BridgeList.Downloads,
+             is BridgeList.Upcoming,
+@@ -333,15 +338,19 @@ internal open class FakeAppHandle(
+             is BridgeWorkChild.Release -> child.release.releaseId
+         }
+ 
+-    /** The search album counts the handle opened, oldest first, each answering its phrase's first count when it opens. */
+-    val searchAlbumCounts = mutableListOf<FakeCountSubscription>()
+-
+-    override fun subscribeSearchAlbumCount(query: String): ListCountSubscription =
+-        FakeCountSubscription(query).also { count ->
+-            searchAlbumCounts += count
+-            if (deliverSearchResultsImmediately) {
+-                initialSearchError(query)?.let(count::fail) ?: count.emit(searchResults(query).albums.size)
+-            }
++    /**
++     * The albums a search for [query] lists as the bridge lists them, which a test changes and delivers: the
++     * search's albums, whose count fails with the phrase's search error.
++     */
++    fun searchAlbumList(query: String): FakeList<BridgeAlbumSearchResult> =
++        searchAlbumLists.getOrPut(query) {
++            FakeList(
++                searchResults(query).albums,
++                { it.id },
++                { BridgeListRows.SearchAlbums(it) },
++                deliverImmediately = deliverSearchResultsImmediately,
++                countFailure = initialSearchError(query),
++            )
+         }
+ 
+     /** Reads once, as the database would, the window of the album's tracks that holds the page at [offset]. */
+@@ -358,15 +367,12 @@ internal open class FakeAppHandle(
+         limit: ULong,
+     ): BridgeListWindow? = fakeList(BridgeList.WorkChildren(workId)).pageWindow(offset, limit)
+ 
+-    /** Returns the window of the search's albums from [offset], at most [limit], as the database would. */
+-    override suspend fun readSearchAlbumPage(
++    /** Reads once, as the database would, the window of the search's albums that holds the page at [offset]. */
++    override suspend fun readSearchAlbumPageWindow(
+         query: String,
+         offset: ULong,
+         limit: ULong,
+-    ): List<BridgeAlbumSearchResult> {
+-        initialSearchError(query)?.let { throw it }
+-        return searchResults(query).albums.drop(offset.toInt()).take(limit.toInt())
+-    }
++    ): BridgeListWindow? = fakeList(BridgeList.SearchAlbums(query)).pageWindow(offset, limit)
+ 
+     /** Returns the release's track with that id as a BridgeBrowseTrack, as the database would. */
+     override suspend fun readReleaseTrack(
+diff --git a/bae-android/app/src/test/java/fm/bae/app/playback/FakeList.kt b/bae-android/app/src/test/java/fm/bae/app/playback/FakeList.kt
+index bfa920e2fd..79da3fb470 100644
+--- a/bae-android/app/src/test/java/fm/bae/app/playback/FakeList.kt
++++ b/bae-android/app/src/test/java/fm/bae/app/playback/FakeList.kt
+@@ -33,6 +33,8 @@ internal open class FakeList<Row>(
+     var deliverImmediately: Boolean = true,
+     /** The failure each window answers with instead of its rows. */
+     var windowFailure: BridgeException? = null,
++    /** The failure each count answers with instead of the number of rows. */
++    var countFailure: BridgeException? = null,
+ ) {
+     val windows = mutableListOf<FakeListWindowSubscription>()
+     val counts = mutableListOf<FakeListCountSubscription>()
+@@ -188,7 +190,7 @@ internal class FakeListCountSubscription(
+     }
+ 
+     fun deliver() {
+-        events.trySend(Result.success(list.count()))
++        events.trySend(list.countFailure?.let { Result.failure(it) } ?: Result.success(list.count()))
+     }
+ }
+ 
+@@ -250,27 +252,3 @@ internal class FakeComposerList :
+         idOf = { it.artistId },
+         wrap = { BridgeListRows.Composers(it) },
+     )
+-
+-/** A count read that counts [counted], answered by hand: a test [emit]s each count or [fail]s it. */
+-internal class FakeCountSubscription(
+-    val counted: String,
+-) : ListCountSubscription(NoHandle) {
+-    private val events = Channel<Result<BridgeListCount>>(Channel.UNLIMITED)
+-    var cancelled = false
+-        private set
+-
+-    override suspend fun next(): BridgeListCount = events.receive().getOrThrow()
+-
+-    override suspend fun cancel() {
+-        cancelled = true
+-        events.close(BridgeException.Cancelled())
+-    }
+-
+-    fun emit(count: Int) {
+-        events.trySend(Result.success(BridgeListCount(count.toULong(), count.toULong(), BridgeListCountExtra.None)))
+-    }
+-
+-    fun fail(error: BridgeException) {
+-        events.trySend(Result.failure(error))
+-    }
+-}
+diff --git a/bae-android/app/src/test/java/fm/bae/app/playback/LibraryBrowseTreeTest.kt b/bae-android/app/src/test/java/fm/bae/app/playback/LibraryBrowseTreeTest.kt
+index 565ae21dbf..c2c5c2845a 100644
+--- a/bae-android/app/src/test/java/fm/bae/app/playback/LibraryBrowseTreeTest.kt
++++ b/bae-android/app/src/test/java/fm/bae/app/playback/LibraryBrowseTreeTest.kt
+@@ -265,7 +265,7 @@ class LibraryBrowseTreeTest {
+ 
+             assertNull(tree.children(BrowseId.Albums.mediaId, -1, 20))
+             assertNull(tree.children(BrowseId.Albums.mediaId, 0, 0))
+-            assertNull(tree.search("query", 0, 0))
++            assertNull(tree.search(Any(), "query", 0, 0))
+             assertTrue(handle.albumList.windows.isEmpty())
+             tree.close()
+         }
+@@ -434,9 +434,9 @@ class LibraryBrowseTreeTest {
+             assertEquals(1, notifications)
+         }
+ 
+-    /** A search page is the window the database read returns for its offset, not a slice of a longer list. */
++    /** A search page is the window of the controller's search that holds the page asked for, and none past the end. */
+     @Test
+-    fun aSearchPageIsTheWindowTheReadReturns() =
++    fun aSearchPageIsTheWindowOfThePageAsked() =
+         runBlocking {
+             val handle =
+                 FakeAppHandle(
+@@ -447,13 +447,77 @@ class LibraryBrowseTreeTest {
+                     },
+                 )
+             val tree = tree(handle)
++            val owner = Any()
++            tree.subscribeSearch(owner, "query") {}
+ 
+             assertEquals(
+                 listOf(BrowseId.Album("album-2").mediaId, BrowseId.Album("album-3").mediaId),
+-                tree.search("query", 1, 2)!!.map { it.mediaId },
++                tree.search(owner, "query", 1, 2)!!.map { it.mediaId },
++            )
++            assertTrue(tree.search(owner, "query", 3, 2)!!.isEmpty())
++            assertEquals(
++                listOf(BridgeListWindow.Forward(textKey("album-2"), textKey("album-4"), 2u)),
++                handle.searchAlbumList("query").windows.map { it.window },
++            )
++            tree.close()
++        }
++
++    /** A request for the results of a phrase the controller is not searching for is refused, not read. */
++    @Test
++    fun aSearchPageOfAnotherPhraseIsRefused() =
++        runBlocking {
++            val handle = FakeAppHandle()
++            val tree = tree(handle)
++            val owner = Any()
++
++            assertNull(tree.search(owner, "query", 0, 10))
++            tree.subscribeSearch(owner, "query") {}
++            assertNull(tree.search(owner, "other", 0, 10))
++            assertNull(tree.search(Any(), "query", 0, 10))
++            assertTrue(handle.searchAlbumList("query").windows.isEmpty())
++            tree.close()
++        }
++
++    /**
++     * A change inside a search page the controller asked for tells the controller its search's results changed,
++     * with their number unknown, and the controller's next request for the page reads the renamed album.
++     */
++    @Test
++    fun aChangeInsideASearchPageTellsTheControllerAndTheNextRequestReadsIt() =
++        runBlocking {
++            val handle =
++                FakeAppHandle(
++                    searchResults = {
++                        BridgeFixtures.searchResults(albums = listOf(BridgeFixtures.albumSearchResult(id = "album-0", title = "Old")))
++                    },
++                )
++            val tree = tree(handle)
++            val owner = Any()
++            val notifications = mutableListOf<Int>()
++            tree.subscribeSearch(owner, "query", notifications::add)
++            assertEquals(
++                "Old",
++                tree
++                    .search(owner, "query", 0, 10)!!
++                    .single()
++                    .mediaMetadata.title,
++            )
++
++            val list = handle.searchAlbumList("query")
++            list.rows = listOf(BridgeFixtures.albumSearchResult(id = "album-0", title = "New"))
++            list.windows.single().deliver()
++
++            assertEquals(listOf(1, UNKNOWN_CHILD_COUNT), notifications)
++            assertEquals(
++                "New",
++                tree
++                    .search(owner, "query", 0, 10)!!
++                    .single()
++                    .mediaMetadata.title,
+             )
+-            assertTrue(tree.search("query", 3, 2)!!.isEmpty())
++            assertTrue(list.windows.first().cancelled)
+             tree.close()
++            assertTrue(list.windows.last().cancelled)
+         }
+ 
+     /** A track item is the one track the database read returns, found by its release and track ids. */
+@@ -490,33 +554,46 @@ class LibraryBrowseTreeTest {
+             val notifications = mutableListOf<Int>()
+ 
+             tree.subscribeSearch(Any(), "query", notifications::add)
+-            val count = handle.searchAlbumCounts.single()
+-            assertEquals("query", count.counted)
+             assertEquals(listOf(2), notifications)
+ 
+-            count.emit(5)
++            val list = handle.searchAlbumList("query")
++            list.rows = List(5) { BridgeFixtures.albumSearchResult(id = "album-$it") }
++            list.emitCount()
+             assertEquals(listOf(2, 5), notifications)
+             tree.close()
+-            assertTrue(count.cancelled)
++            assertTrue(list.counts.single().cancelled)
+         }
+ 
+-    /** A controller's next phrase replaces its count read, and a failed first count fails that search. */
++    /** A controller's next phrase replaces its search's reads, and a failed first count fails that search. */
+     @Test
+-    fun aControllersNextSearchReplacesItsCountRead() =
++    fun aControllersNextSearchReplacesItsReads() =
+         runBlocking {
+-            val handle = FakeAppHandle(initialSearchError = { query -> if (query == "second") queryFailure() else null })
++            val handle =
++                FakeAppHandle(
++                    searchResults = { query ->
++                        BridgeFixtures.searchResults(
++                            albums = if (query == "first") listOf(BridgeFixtures.albumSearchResult(id = "album-0")) else emptyList(),
++                        )
++                    },
++                    initialSearchError = { query -> if (query == "second") queryFailure() else null },
++                )
+             val tree = tree(handle)
+             val owner = Any()
+             val notifications = mutableListOf<Int>()
+             tree.subscribeSearch(owner, "first", notifications::add)
++            tree.search(owner, "first", 0, 10)
+ 
+             assertTrue(runCatching { tree.subscribeSearch(owner, "second", notifications::add) }.exceptionOrNull() is BridgeException)
+-            val (first, second) = handle.searchAlbumCounts
+-            assertTrue("the next phrase ends the last one's read", first.cancelled)
+-            second.emit(1)
+-            assertEquals(listOf(0, 1), notifications)
++            val first = handle.searchAlbumList("first")
++            assertTrue("the next phrase ends the last one's count", first.counts.single().cancelled)
++            assertTrue("the next phrase ends the last one's pages", first.windows.single().cancelled)
++            val second = handle.searchAlbumList("second")
++            second.countFailure = null
++            second.rows = List(2) { BridgeFixtures.albumSearchResult(id = "album-$it") }
++            second.emitCount()
++            assertEquals(listOf(1, 2), notifications)
+             tree.close()
+-            assertTrue(second.cancelled)
++            assertTrue(second.counts.single().cancelled)
+         }
+ 
+     @Test
+diff --git a/bae-app/src/app_services.rs b/bae-app/src/app_services.rs
+index 9e9f8cc600..004b5a4b29 100644
+--- a/bae-app/src/app_services.rs
++++ b/bae-app/src/app_services.rs
+@@ -466,6 +466,8 @@ impl AppServices {
+     delegate_view!(album_track_page_window => album_track_page_window(album_id: &str, position: u64, limit: u64) -> Option<bae_store::ListWindow>);
+     delegate_view!(work_child_key_at => work_child_key_at(work_id: &str, position: u64) -> Option<bae_store::list_windows::OrderKey>);
+     delegate_view!(work_child_page_window => work_child_page_window(work_id: &str, position: u64, limit: u64) -> Option<bae_store::ListWindow>);
++    delegate_view!(search_album_key_at => search_album_key_at(query: Option<bae_views::LibrarySearchQuery>, position: u64) -> Option<bae_store::list_windows::OrderKey>);
++    delegate_view!(search_album_page_window => search_album_page_window(query: Option<bae_views::LibrarySearchQuery>, position: u64, limit: u64) -> Option<bae_store::ListWindow>);
+     delegate_view!(artist_search_key_at => artist_search_key_at(query: Option<bae_views::LibrarySearchQuery>, position: u64) -> Option<bae_store::list_windows::OrderKey>);
+     delegate_view!(album_key_at => album_key_at(sort: &[bae_views::AlbumSortCriterion], group_by_artist: bool, position: u64) -> Option<bae_store::list_windows::OrderKey>);
+     delegate_view!(get_album_index => get_album_index(sort: &[bae_views::AlbumSortCriterion], album_id: &str, group_by_artist: bool) -> Option<u64>);
+@@ -597,7 +599,6 @@ impl AppServices {
+     delegate_async!(manager, save_track_suggested_name => save_track_suggested_name(track_id: &str) -> Result<String, bae_library::LibraryError>);
+     #[cfg(desktop)]
+     delegate_async!(manager, apply_release_metadata_user_edit => apply_release_metadata_user_edit(release_id: &str, edit: &bae_import::ReleaseUserEdit) -> Result<(), bae_library::LibraryError>);
+-    delegate_view!(search_album_page => search_album_page(query: &bae_views::LibrarySearchQuery, offset: u64, limit: u64) -> Vec<bae_views::album_detail::AlbumSearchResult>);
+     delegate_view!(find_release_track => find_release_track(release_id: &str, track_id: &str) -> Option<bae_views::album_detail::TrackSearchResult>);
+     delegate_view!(search_library => search_library(query: &bae_views::LibrarySearchQuery) -> bae_views::album_detail::SearchResults);
+     #[cfg(desktop)]
+diff --git a/bae-app/src/app_services/list_reads.rs b/bae-app/src/app_services/list_reads.rs
+index c4af63e882..74da8bc13d 100644
+--- a/bae-app/src/app_services/list_reads.rs
++++ b/bae-app/src/app_services/list_reads.rs
+@@ -175,8 +175,22 @@ impl AppServices {
+         )
+     }
+ 
+-    /// How many albums library search's `query` lists, which a media
+-    /// browser pages through by offset; no query (`None`) lists none.
++    /// One window of the albums library search's `query` lists; no query
++    /// (`None`) lists none.
++    pub fn subscribe_search_album_window(
++        &self,
++        query: Option<bae_views::LibrarySearchQuery>,
++        window: bae_store::ListWindow,
++    ) -> bae_views::LiveListWindow {
++        list_window(
++            &self.inner.manager,
++            self.inner.views.subscribe_search_album_window(query, window),
++            bae_views::album::resolve_search_album_window,
++        )
++    }
++
++    /// How many albums library search's `query` lists; no query (`None`)
++    /// lists none.
+     pub fn subscribe_search_album_count(
+         &self,
+         query: Option<bae_views::LibrarySearchQuery>,
+@@ -184,6 +198,19 @@ impl AppServices {
+         list_rows(&self.inner.manager, self.inner.views.subscribe_search_album_count(query))
+     }
+ 
++    /// How many of the albums library search's `query` lists come before the
++    /// row at `key`.
++    pub fn subscribe_search_album_position(
++        &self,
++        query: Option<bae_views::LibrarySearchQuery>,
++        key: bae_store::list_windows::OrderKey,
++    ) -> bae_views::LiveListPosition {
++        list_position(
++            &self.inner.manager,
++            self.inner.views.subscribe_search_album_position(query, key),
++        )
++    }
++
+     /// One window of the album `album_id`'s tracks.
+     pub fn subscribe_album_track_window(
+         &self,
+diff --git a/bae-bridge/src/handle/base.rs b/bae-bridge/src/handle/base.rs
+index eed8b112dc..2f5109435a 100644
+--- a/bae-bridge/src/handle/base.rs
++++ b/bae-bridge/src/handle/base.rs
+@@ -60,24 +60,23 @@ forward! { async this => {
+             .map_err(BridgeError::from)
+     }
+ 
+-    /// One window of the albums a search finds, read once: at most `limit`
+-    /// albums starting `offset` albums in. A blank query finds nothing.
+-    fn read_search_album_page(
++    /// The window of the albums library search lists for `query`
++    /// (`BridgeList::SearchAlbums`) that holds the `limit` albums from
++    /// `offset`, read once: from the first of them to the album past the
++    /// last. A media browser names a page by its offset and reads the window
++    /// live. None when the search lists fewer albums than `offset`, and for a
++    /// blank query.
++    fn read_search_album_page_window(
+         query: String,
+         offset: u64,
+         limit: u64,
+-    ) -> Vec<crate::types::BridgeAlbumSearchResult> {
+-        let Some(query) = bae_views::LibrarySearchQuery::parse(&query) else {
+-            return Ok(Vec::new());
+-        };
++    ) -> Option<BridgeListWindow> {
+         Ok(this
+             .services
+-            .search_album_page(&query, offset, limit)
++            .search_album_page_window(BridgeList::search_query(&query), offset, limit)
+             .await
+             .map_err(BridgeError::from)?
+-            .into_iter()
+-            .map(crate::types::BridgeAlbumSearchResult::from_core)
+-            .collect())
++            .map(BridgeListWindow::from_core))
+     }
+ 
+     /// The window of the album `album_id`'s tracks (`BridgeList::AlbumTracks`)
+@@ -223,7 +222,12 @@ forward! { async this => {
+                 .map_err(BridgeError::from)?,
+             BridgeList::ArtistSearch { text } => this
+                 .services
+-                .artist_search_key_at(BridgeList::artist_search_query(&text), position)
++                .artist_search_key_at(BridgeList::search_query(&text), position)
++                .await
++                .map_err(BridgeError::from)?,
++            BridgeList::SearchAlbums { query } => this
++                .services
++                .search_album_key_at(BridgeList::search_query(&query), position)
+                 .await
+                 .map_err(BridgeError::from)?,
+             BridgeList::Storage { sort, filter, search } => this
+diff --git a/bae-bridge/src/handle/library_projection.rs b/bae-bridge/src/handle/library_projection.rs
+index f6ce79eb0f..925757713c 100644
+--- a/bae-bridge/src/handle/library_projection.rs
++++ b/bae-bridge/src/handle/library_projection.rs
+@@ -201,7 +201,7 @@ impl BridgeRelease {
+ 
+ mirror_struct! {
+     BridgeAlbumSearchResult = bae_views::album_detail::AlbumSearchResult,
+-    from_core: pub(super) fn,
++    from_core: pub(crate) fn,
+     fields: {
+         id,
+         title,
+diff --git a/bae-bridge/src/handle/subscriptions.rs b/bae-bridge/src/handle/subscriptions.rs
+index dc3316470f..a0fc9a87af 100644
+--- a/bae-bridge/src/handle/subscriptions.rs
++++ b/bae-bridge/src/handle/subscriptions.rs
+@@ -47,7 +47,10 @@ impl AppHandle {
+             ),
+             BridgeList::ArtistSearch { text } => self
+                 .services
+-                .subscribe_artist_search_window(BridgeList::artist_search_query(&text), window),
++                .subscribe_artist_search_window(BridgeList::search_query(&text), window),
++            BridgeList::SearchAlbums { query } => self
++                .services
++                .subscribe_search_album_window(BridgeList::search_query(&query), window),
+         };
+         crate::screens::list_window(live, self.runtime.clone())
+     }
+@@ -76,7 +79,10 @@ impl AppHandle {
+                 self.services.subscribe_storage_count(filter.into_core(), &search)
+             }
+             BridgeList::ArtistSearch { text } => {
+-                self.services.subscribe_artist_search_count(BridgeList::artist_search_query(&text))
++                self.services.subscribe_artist_search_count(BridgeList::search_query(&text))
++            }
++            BridgeList::SearchAlbums { query } => {
++                self.services.subscribe_search_album_count(BridgeList::search_query(&query))
+             }
+         };
+         crate::screens::list_count(live, self.runtime.clone())
+@@ -120,9 +126,12 @@ impl AppHandle {
+                     key,
+                 )
+             }
+-            BridgeList::ArtistSearch { text } => self
+-                .services
+-                .subscribe_artist_search_position(BridgeList::artist_search_query(&text), key),
++            BridgeList::ArtistSearch { text } => {
++                self.services.subscribe_artist_search_position(BridgeList::search_query(&text), key)
++            }
++            BridgeList::SearchAlbums { query } => {
++                self.services.subscribe_search_album_position(BridgeList::search_query(&query), key)
++            }
+         };
+         crate::screens::list_position(live, self.runtime.clone())
+     }
+@@ -157,16 +166,6 @@ impl AppHandle {
+         )
+     }
+ 
+-    /// Read live how many albums a search for `query` lists: the albums
+-    /// `read_search_album_page` pages through. A blank query lists none.
+-    pub fn subscribe_search_album_count(&self, query: String) -> Arc<crate::ListCountSubscription> {
+-        crate::screens::list_count(
+-            self.services
+-                .subscribe_search_album_count(bae_views::LibrarySearchQuery::parse(&query)),
+-            self.runtime.clone(),
+-        )
+-    }
+-
+     /// The album detail view's read, showing nothing until `set_id`.
+     pub fn subscribe_album_detail(&self) -> Arc<crate::AlbumDetailSubscription> {
+         crate::screens::album_detail(self.services.subscribe_album_detail(), self.runtime.clone())
+diff --git a/bae-bridge/src/screens/lists.rs b/bae-bridge/src/screens/lists.rs
+index 9cf377154a..953bd6b32b 100644
+--- a/bae-bridge/src/screens/lists.rs
++++ b/bae-bridge/src/screens/lists.rs
+@@ -88,9 +88,9 @@ impl BridgeList {
+         sort.into_core()
+     }
+ 
+-    /// Parses an artist picker's text into a search query, or returns None
+-    /// when the text is blank.
+-    pub(crate) fn artist_search_query(text: &str) -> Option<bae_views::LibrarySearchQuery> {
++    /// Parses a search's text, an artist picker's or library search's, into
++    /// a search query, or returns None when the text is blank.
++    pub(crate) fn search_query(text: &str) -> Option<bae_views::LibrarySearchQuery> {
+         bae_views::LibrarySearchQuery::parse(text)
+     }
+ }
+@@ -174,6 +174,12 @@ impl BridgeListWindowValue {
+                 bae_views::ListRows::WorkChildren(rows) => BridgeListRows::WorkChildren {
+                     rows: rows.into_iter().map(crate::types::BridgeWorkChild::from_core).collect(),
+                 },
++                bae_views::ListRows::SearchAlbums(rows) => BridgeListRows::SearchAlbums {
++                    rows: rows
++                        .into_iter()
++                        .map(crate::types::BridgeAlbumSearchResult::from_core)
++                        .collect(),
++                },
+                 #[cfg(desktop)]
+                 bae_views::ListRows::Import { items, leading_header } => BridgeListRows::Import {
+                     items: items
+diff --git a/bae-bridge/src/types/live_results.rs b/bae-bridge/src/types/live_results.rs
+index 50d1c8c6cb..4168f3d57b 100644
+--- a/bae-bridge/src/types/live_results.rs
++++ b/bae-bridge/src/types/live_results.rs
+@@ -67,6 +67,10 @@ pub enum BridgeList {
+     Upcoming { shuffled: bool },
+     /// The artists an artist picker's `text` finds; blank text finds none.
+     ArtistSearch { text: String },
++    /// The albums library search lists for `query` as a media browser lists
++    /// them: the first it finds, up to library search's result limit
++    /// (`SEARCH_RESULT_LIMIT`), in title order. A blank query lists none.
++    SearchAlbums { query: String },
+     /// The Storage Manager's releases under `sort` and `filter`, narrowed by
+     /// the library search `search` finds when it is not blank.
+     Storage {
+@@ -121,6 +125,9 @@ pub enum BridgeListRows {
+     WorkChildren {
+         rows: Vec<crate::types::BridgeWorkChild>,
+     },
++    SearchAlbums {
++        rows: Vec<crate::types::BridgeAlbumSearchResult>,
++    },
+     /// The import list's items, and the header of the group the first of
+     /// them is a member of when the window starts inside the group, which
+     /// the window does not hold.
+diff --git a/bae-views/src/album.rs b/bae-views/src/album.rs
+index bcffb711f9..ca27d49fba 100644
+--- a/bae-views/src/album.rs
++++ b/bae-views/src/album.rs
+@@ -1,6 +1,6 @@
+ //! The album views: the album grid, flat or grouped by artist, its
+-//! selection, an album's detail, an album's tracks as a list, and library
+-//! search.
++//! selection, an album's detail, an album's tracks as a list, library
++//! search, and the albums a search lists as a list (`search_albums`).
+ 
+ use super::*;
+ use listing::{
+@@ -12,6 +12,9 @@ pub(crate) use listing::{
+ 
+ mod listing;
+ pub(super) use listing::SQL as LISTING_SQL;
++mod search_albums;
++pub use search_albums::resolve_search_album_window;
++use search_albums::{search_album_order, search_album_rows_on};
+ 
+ impl LibraryViews {
+     /// Search the library for a parsed, non-blank query. The result count is
+@@ -37,47 +40,6 @@ impl LibraryViews {
+         self.store.read(move |sql| search_library_on(&sql, &pattern, limit_i64)).await
+     }
+ 
+-    /// One window of the albums a search finds, in title order: at most `limit`
+-    /// albums starting `offset` albums in, and none past the search's
+-    /// [`crate::SEARCH_RESULT_LIMIT`]. The function reads once instead of
+-    /// following the rows, so it pages by offset.
+-    pub async fn search_album_page(
+-        &self,
+-        query: &crate::LibrarySearchQuery,
+-        offset: u64,
+-        limit: u64,
+-    ) -> Result<Vec<crate::album_detail::AlbumSearchResult>, DbError> {
+-        let pattern = search_pattern(query.as_str());
+-        let offset = i64::try_from(offset).unwrap_or(i64::MAX);
+-        let limit = i64::try_from(limit).unwrap_or(i64::MAX);
+-        let cap = crate::SEARCH_RESULT_LIMIT as i64;
+-        self.store
+-            .read(move |sql| search_albums_on(&sql, &pattern, limit, offset, cap))
+-            .process(|rows| {
+-                Ok(rows
+-                    .into_iter()
+-                    .map(crate::album_detail::AlbumSearchResult::from_raw)
+-                    .collect::<Vec<_>>())
+-            })
+-            .await
+-    }
+-
+-    /// Follow how many albums a search for `query` lists: the albums it
+-    /// finds, up to the [`crate::SEARCH_RESULT_LIMIT`] that
+-    /// [`Self::search_album_page`] pages through. No query (`None`) lists
+-    /// none.
+-    pub fn subscribe_search_album_count(
+-        &self,
+-        query: Option<crate::LibrarySearchQuery>,
+-    ) -> coven::LiveQuery<u64, bae_store::DbError> {
+-        let pattern = query.map(|query| search_pattern(query.as_str()));
+-        let cap = crate::SEARCH_RESULT_LIMIT as i64;
+-        self.store.subscribe(move |sql| match &pattern {
+-            Some(pattern) => search_album_count_on(&sql, pattern, cap),
+-            None => Ok(0),
+-        })
+-    }
+-
+     /// Follow one window of the album `album_id`'s tracks: a range of
+     /// [`album_track_order`] (`list_windows`), which coven reruns for a write
+     /// inside it alone.
+@@ -556,65 +518,6 @@ fn track_hit_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<DbTrackSearchResul
+     })
+ }
+ 
+-/// The albums holding the search `pattern`, in title order, ties going by id:
+-/// the window of at most `limit` starting `offset` albums in, and ending at
+-/// most `cap` albums in.
+-fn search_albums_on(
+-    sql: &SqlReadContext<'_>,
+-    pattern: &str,
+-    limit: i64,
+-    offset: i64,
+-    cap: i64,
+-) -> Result<Vec<DbAlbumSearchResult>, DbError> {
+-    let album_query = format!(
+-        r#"
+-            SELECT a.id, a.title, a.year,
+-                   {primary_release} AS primary_release_id,
+-                   {primary_cover} AS cover_version,
+-                   {artist_names} AS artist_name
+-            FROM (
+-                SELECT a.id, a.title, a.year FROM albums a
+-                WHERE {album_matches}
+-                ORDER BY {title_key}, a.id
+-                LIMIT MAX(MIN(?2, ?4 - ?3), 0) OFFSET ?3
+-            ) a
+-            ORDER BY {title_key}, a.id
+-            "#,
+-        primary_release = album_primary_release_sql(),
+-        primary_cover = bae_records::records::files::cover_version_sql(album_primary_release_sql()),
+-        artist_names = album_credits_json_sql(),
+-        album_matches = album_matches_sql("a.id", "?1"),
+-        title_key = crate::sort_key_sql("a.title"),
+-    );
+-    Ok(sql.query(&album_query, params![pattern, limit, offset, cap], |row| {
+-        Ok(DbAlbumSearchResult {
+-            id: row.get("id")?,
+-            title: row.get("title")?,
+-            year: row.get("year")?,
+-            primary_release_id: row.get("primary_release_id")?,
+-            cover_version: row.get("cover_version")?,
+-            artist_line: credit_line_column(row, "artist_name")?,
+-        })
+-    })?)
+-}
+-
+-/// How many albums hold the search `pattern`, counting at most `cap`: the
+-/// albums [`search_albums_on`] reads with that cap.
+-fn search_album_count_on(
+-    sql: &SqlReadContext<'_>,
+-    pattern: &str,
+-    cap: i64,
+-) -> Result<u64, DbError> {
+-    Ok(sql.query_row(
+-        &format!(
+-            "SELECT COUNT(*) AS count FROM (SELECT 1 FROM albums a WHERE {} LIMIT ?2)",
+-            album_matches_sql("a.id", "?1"),
+-        ),
+-        params![pattern, cap],
+-        |row| count_column::<u64>(row, "count"),
+-    )?)
+-}
+-
+ /// The library rows holding the search `pattern` (see [`search_pattern`]),
+ /// each kind's first `limit` in its order, ties going by id. Each kind finds
+ /// its rows through its search table, then reads what it shows for those
+@@ -624,7 +527,19 @@ fn search_library_on(
+     pattern: &str,
+     limit: i64,
+ ) -> Result<DbLibrarySearchResults, DbError> {
+-    let albums = search_albums_on(sql, pattern, limit, 0, limit)?;
++    let order = search_album_order();
++    let albums = search_album_rows_on(
++        sql,
++        pattern,
++        limit as u64,
++        &order,
++        &order.everything(),
++        limit as u64,
++        0,
++    )?
++    .into_iter()
++    .map(|(album, _)| album)
++    .collect();
+     let tracks = sql.query(
+         &format!(
+             r#"
+@@ -883,10 +798,6 @@ fn album_track_rows_on(
+ #[path = "album/tracks_tests.rs"]
+ mod track_list_tests;
+ 
+-#[cfg(test)]
+-#[path = "album/search_page_tests.rs"]
+-mod search_page_tests;
+-
+ #[cfg(test)]
+ #[path = "album_tests.rs"]
+ mod tests;
+diff --git a/bae-views/src/album/search_albums.rs b/bae-views/src/album/search_albums.rs
+new file mode 100644
+index 0000000000..df3036f5fa
+--- /dev/null
++++ b/bae-views/src/album/search_albums.rs
+@@ -0,0 +1,221 @@
++//! The albums a library search lists: the first albums it finds, in title
++//! order, ties going by id. Library search reads its first albums here, and a
++//! media browser reads the first [`crate::SEARCH_RESULT_LIMIT`] of them as a
++//! list, a page at a time, each page a window bounded by the keys of its
++//! first row and of the row after its last.
++
++use super::*;
++
++impl LibraryViews {
++    /// Follow one window of the albums a search for `query` lists: a range
++    /// of [`search_album_order`] (`list_windows`), which coven reruns for a
++    /// write inside it alone. No query (`None`) lists none; its window
++    /// answers with no rows.
++    pub fn subscribe_search_album_window(
++        &self,
++        query: Option<crate::LibrarySearchQuery>,
++        initial: ListWindow,
++    ) -> coven::ReconfigurableLiveQuery<ListWindow, WindowRead<DbAlbumSearchResult>, DbError> {
++        let pattern = query.map(|query| search_pattern(query.as_str()));
++        let order = search_album_order();
++        let read_order = order.clone();
++        self.store.subscribe_list_window(initial, order, move |sql, seek, limit, offset| {
++            match &pattern {
++                Some(pattern) => {
++                    search_album_rows_on(sql, pattern, LISTED, &read_order, seek, limit, offset)
++                }
++                None => Ok(Vec::new()),
++            }
++        })
++    }
++
++    /// Follow how many albums a search for `query` lists: the albums it
++    /// finds, up to [`crate::SEARCH_RESULT_LIMIT`]. The count runs as a
++    /// separate query from the windows' rows. No query (`None`) lists none.
++    pub fn subscribe_search_album_count(
++        &self,
++        query: Option<crate::LibrarySearchQuery>,
++    ) -> coven::LiveQuery<u64, DbError> {
++        let pattern = query.map(|query| search_pattern(query.as_str()));
++        self.store.subscribe(move |sql| match &pattern {
++            Some(pattern) => search_album_count_on(&sql, pattern),
++            None => Ok(0),
++        })
++    }
++
++    /// Follow how many of the albums a search for `query` lists come before
++    /// the row at a key; the caller changes the key on the same query.
++    pub fn subscribe_search_album_position(
++        &self,
++        query: Option<crate::LibrarySearchQuery>,
++        initial: OrderKey,
++    ) -> coven::ReconfigurableLiveQuery<OrderKey, u64, DbError> {
++        let pattern = query.map(|query| search_pattern(query.as_str()));
++        let order = search_album_order();
++        let cap = bae_store::list_windows::sql_bound(LISTED);
++        self.store.subscribe_reconfigurable(initial, move |key, sql| match &pattern {
++            Some(pattern) => bae_store::list_windows::rows_before_on(
++                &sql,
++                &search_album_from(),
++                None,
++                &[(":pattern", pattern), (":cap", &cap)],
++                &order,
++                key,
++            ),
++            None => Ok(0),
++        })
++    }
++
++    /// The key of the album at `position` of those a search for `query`
++    /// lists, or of the last one when the list ends before it; `None` when
++    /// it lists none.
++    pub async fn search_album_key_at(
++        &self,
++        query: Option<crate::LibrarySearchQuery>,
++        position: u64,
++    ) -> Result<Option<OrderKey>, DbError> {
++        let Some(query) = query else {
++            return Ok(None);
++        };
++        let pattern = search_pattern(query.as_str());
++        let order = search_album_order();
++        self.store
++            .read(move |sql| {
++                key_at(&order, position, &mut |seek, limit, offset| {
++                    search_album_rows_on(&sql, &pattern, LISTED, &order, seek, limit, offset)
++                })
++            })
++            .await
++    }
++
++    /// The window of the albums a search for `query` lists that holds the
++    /// `limit` albums from `position`, read once: a media browser names a
++    /// page by its offset and follows this window live. `None` when the
++    /// search lists fewer albums than `position`, and for no query.
++    pub async fn search_album_page_window(
++        &self,
++        query: Option<crate::LibrarySearchQuery>,
++        position: u64,
++        limit: u64,
++    ) -> Result<Option<ListWindow>, DbError> {
++        let Some(query) = query else {
++            return Ok(None);
++        };
++        let pattern = search_pattern(query.as_str());
++        let order = search_album_order();
++        self.store
++            .read(move |sql| {
++                page_window(&order, position, limit, &mut |seek, limit, offset| {
++                    search_album_rows_on(&sql, &pattern, LISTED, &order, seek, limit, offset)
++                })
++            })
++            .await
++    }
++}
++
++/// One delivery of a window of the albums a search lists.
++pub fn resolve_search_album_window(
++    read: WindowRead<DbAlbumSearchResult>,
++) -> crate::ListWindowValue {
++    crate::ListWindowValue::of(read, |rows| {
++        crate::ListRows::SearchAlbums(
++            rows.into_iter().map(crate::album_detail::AlbumSearchResult::from_raw).collect(),
++        )
++    })
++}
++
++/// How many albums a media browser's search lists.
++const LISTED: u64 = crate::SEARCH_RESULT_LIMIT as u64;
++
++/// The order of the albums a search lists: by title, ties going by id.
++pub(super) fn search_album_order() -> ListOrder {
++    ListOrder::new(vec![
++        SortTerm::ascending(crate::sort_key_sql("a.title")),
++        SortTerm::ascending("a.id"),
++    ])
++}
++
++/// The albums a search lists, as a FROM clause over the alias `a`: the first
++/// `:cap` albums that hold the search pattern `:pattern`, in
++/// [`search_album_order`].
++fn search_album_from() -> String {
++    format!(
++        "FROM (SELECT a.id, a.title, a.year FROM albums a WHERE {matches} \
++               ORDER BY {order} LIMIT :cap) a",
++        matches = album_matches_sql("a.id", ":pattern"),
++        order = search_album_order().clause(),
++    )
++}
++
++/// The albums of the first `cap` that hold the search `pattern` which `seek`
++/// reads in `order`, at most `limit` from `offset`, each with its key. The
++/// statement reads each album's main release, cover and credit line for the
++/// albums the seek returns alone.
++pub(super) fn search_album_rows_on(
++    sql: &SqlReadContext<'_>,
++    pattern: &str,
++    cap: u64,
++    order: &ListOrder,
++    seek: &Seek,
++    limit: u64,
++    offset: u64,
++) -> Result<Vec<Keyed<DbAlbumSearchResult>>, DbError> {
++    let statement = format!(
++        r#"
++        SELECT a.id, a.title, a.year,
++               {primary_release} AS primary_release_id,
++               {primary_cover} AS cover_version,
++               {artist_names} AS artist_name,
++               {keys}
++        FROM (
++            SELECT a.id, a.title, a.year {from}
++            WHERE {condition}
++            ORDER BY {ordering} LIMIT :limit OFFSET :offset
++        ) a
++        ORDER BY {ordering}
++        "#,
++        primary_release = album_primary_release_sql(),
++        primary_cover = bae_records::records::files::cover_version_sql(album_primary_release_sql()),
++        artist_names = album_credits_json_sql(),
++        keys = order.key_columns(),
++        from = search_album_from(),
++        condition = order.condition(seek),
++        ordering = order.ordering(seek),
++    );
++    let cap = bae_store::list_windows::sql_bound(cap);
++    Ok(seek.bound(limit, offset, |params| {
++        let mut params = params.to_vec();
++        params.push((":pattern", &pattern as &dyn rusqlite::ToSql));
++        params.push((":cap", &cap as &dyn rusqlite::ToSql));
++        sql.query(&statement, params.as_slice(), |row| {
++            Ok((
++                DbAlbumSearchResult {
++                    id: row.get("id")?,
++                    title: row.get("title")?,
++                    year: row.get("year")?,
++                    primary_release_id: row.get("primary_release_id")?,
++                    cover_version: row.get("cover_version")?,
++                    artist_line: credit_line_column(row, "artist_name")?,
++                },
++                order.key_of(row)?,
++            ))
++        })
++    })?)
++}
++
++/// How many albums a search for `pattern` lists: those that hold it, counting
++/// at most [`LISTED`]. The count needs no order, so it sorts nothing.
++fn search_album_count_on(sql: &SqlReadContext<'_>, pattern: &str) -> Result<u64, DbError> {
++    Ok(sql.query_row(
++        &format!(
++            "SELECT COUNT(*) AS count FROM (SELECT 1 FROM albums a WHERE {} LIMIT ?2)",
++            album_matches_sql("a.id", "?1"),
++        ),
++        params![pattern, bae_store::list_windows::sql_bound(LISTED)],
++        |row| count_column::<u64>(row, "count"),
++    )?)
++}
++
++#[cfg(test)]
++#[path = "search_albums_tests.rs"]
++mod tests;
+diff --git a/bae-views/src/album/search_albums_tests.rs b/bae-views/src/album/search_albums_tests.rs
+new file mode 100644
+index 0000000000..c9028e6e30
+--- /dev/null
++++ b/bae-views/src/album/search_albums_tests.rs
+@@ -0,0 +1,154 @@
++//! These tests check the albums a search lists as a media browser pages
++//! through them. The browser reads once the window that holds each page,
++//! bounded by the keys of the page's first album and of the album after its
++//! last, and then reads that window live. A live query counts the albums.
++//! Each test writes its library through the records domain's own writes.
++
++use super::*;
++use bae_records::test_fixtures::library::RecordsFixture;
++use bae_records::test_fixtures::test_records;
++use bae_store::test_fixtures::temp_db;
++use bae_util::test_channels::HANG_GUARD;
++
++const SEARCHED_ARTIST: &str = "f3a0e3a4-8c3d-4e6b-9f0b-4a6f3f6a5021";
++const WINDOW_A: &str = "f3a0e3a4-8c3d-4e6b-9f0b-4a6f3f6a5031";
++const WINDOW_B: &str = "f3a0e3a4-8c3d-4e6b-9f0b-4a6f3f6a5032";
++const WINDOW_C: &str = "f3a0e3a4-8c3d-4e6b-9f0b-4a6f3f6a5033";
++
++/// A library with three albums a search for "Window" finds, each with one
++/// release.
++async fn searched_library() -> (LibraryViews, bae_store::Store, tempfile::TempDir) {
++    let (db, tmp) = temp_db(crate::TEST_SCHEMA).await;
++    let mut fixture = RecordsFixture::new().artist(SEARCHED_ARTIST, "Paged Artist");
++    for (id, release, title) in [
++        (WINDOW_A, "f3a0e3a4-8c3d-4e6b-9f0b-4a6f3f6a5061", "Window A"),
++        (WINDOW_B, "f3a0e3a4-8c3d-4e6b-9f0b-4a6f3f6a5062", "Window B"),
++        (WINDOW_C, "f3a0e3a4-8c3d-4e6b-9f0b-4a6f3f6a5063", "Window C"),
++    ] {
++        fixture = fixture.album(id, title, Some(2026), &[SEARCHED_ARTIST]).release(id, release);
++    }
++    fixture.write(&test_records(&db)).await;
++    (LibraryViews::new(db.clone()), db, tmp)
++}
++
++fn window_query() -> Option<crate::LibrarySearchQuery> {
++    crate::LibrarySearchQuery::parse("Window")
++}
++
++/// Each album's title in one delivery of a window of the albums a search
++/// lists.
++fn titles_of(read: WindowRead<DbAlbumSearchResult>) -> Vec<String> {
++    let crate::ListRows::SearchAlbums(rows) = resolve_search_album_window(read).rows else {
++        panic!("a window of a search's albums holds albums");
++    };
++    rows.into_iter().map(|album| album.title).collect()
++}
++
++/// The key of the album at `position` of those the search lists.
++async fn key_of(views: &LibraryViews, position: u64) -> OrderKey {
++    views.search_album_key_at(window_query(), position).await.unwrap().expect("an album there")
++}
++
++/// A page at an offset is the window from its first album to the album
++/// after its last, and holds the search's albums in title order. The last
++/// page's window has no upper bound, and the page past the last album has no
++/// window. No query lists no page.
++#[tokio::test]
++async fn a_search_page_is_the_window_bounded_by_its_albums_keys() {
++    let (views, _db, _tmp) = searched_library().await;
++
++    let first_page =
++        views.search_album_page_window(window_query(), 0, 2).await.unwrap().expect("a page");
++    assert_eq!(
++        first_page,
++        ListWindow::Forward {
++            from: Some(key_of(&views, 0).await),
++            until: Some(key_of(&views, 2).await),
++            limit: 2,
++        }
++    );
++    let mut live = views.subscribe_search_album_window(window_query(), first_page);
++    let read = live.next_inline().await.expect("the query stays open").result.unwrap();
++    assert_eq!(titles_of(read), ["Window A", "Window B"]);
++
++    let last_page =
++        views.search_album_page_window(window_query(), 2, 2).await.unwrap().expect("a page");
++    assert!(matches!(&last_page, ListWindow::Forward { until: None, .. }));
++    let mut live = views.subscribe_search_album_window(window_query(), last_page);
++    let read = live.next_inline().await.expect("the query stays open").result.unwrap();
++    assert_eq!(titles_of(read), ["Window C"]);
++
++    assert_eq!(views.search_album_page_window(window_query(), 3, 2).await.unwrap(), None);
++    assert_eq!(views.search_album_page_window(None, 0, 2).await.unwrap(), None);
++    let mut position =
++        views.subscribe_search_album_position(window_query(), key_of(&views, 1).await);
++    assert_eq!(position.next_inline().await.expect("the query stays open").result.unwrap(), 1);
++}
++
++/// A page's window follows a rename of an album on it, so the next read of
++/// that page shows the album's new name.
++#[tokio::test]
++async fn a_renamed_album_on_a_page_shows_its_new_name_on_the_pages_next_read() {
++    let (views, db, _tmp) = searched_library().await;
++    let page = views.search_album_page_window(window_query(), 0, 2).await.unwrap().expect("a page");
++    let mut live = views.subscribe_search_album_window(window_query(), page);
++    live.next_inline().await.expect("the query stays open").result.unwrap();
++
++    test_records(&db).rename_album_for_test(WINDOW_B, "Window B Renamed").await.unwrap();
++    let read = tokio::time::timeout(HANG_GUARD, live.next_inline()).await.unwrap().unwrap().result;
++    assert_eq!(titles_of(read.unwrap()), ["Window A", "Window B Renamed"]);
++}
++
++/// A search lists at most [`crate::SEARCH_RESULT_LIMIT`] albums: the page
++/// that starts there has no window, and the page before it ends at the
++/// limit.
++#[tokio::test]
++async fn a_search_lists_no_page_past_its_limit() {
++    let (db, _tmp) = temp_db(crate::TEST_SCHEMA).await;
++    let mut fixture = RecordsFixture::new().artist(SEARCHED_ARTIST, "Paged Artist");
++    let listed = crate::SEARCH_RESULT_LIMIT as u64;
++    for at in 0..=listed {
++        let id = format!("f3a0e3a4-8c3d-4e6b-9f0b-{:012}", at);
++        let release = format!("f3a0e3a4-8c3d-4e6b-9f0c-{:012}", at);
++        fixture = fixture
++            .album(&id, &format!("Window {at:03}"), Some(2026), &[SEARCHED_ARTIST])
++            .release(&id, &release);
++    }
++    fixture.write(&test_records(&db)).await;
++    let views = LibraryViews::new(db.clone());
++
++    assert_eq!(views.search_album_page_window(window_query(), listed, 10).await.unwrap(), None);
++    let last = views
++        .search_album_page_window(window_query(), listed - 2, 10)
++        .await
++        .unwrap()
++        .expect("a page");
++    let mut live = views.subscribe_search_album_window(window_query(), last);
++    let read = live.next_inline().await.expect("the query stays open").result.unwrap();
++    assert_eq!(
++        titles_of(read),
++        [format!("Window {:03}", listed - 2), format!("Window {:03}", listed - 1)]
++    );
++    let mut count = views.subscribe_search_album_count(window_query());
++    assert_eq!(count.next_inline().await.expect("the query stays open").unwrap(), listed);
++}
++
++/// The search's album count is a live query of its own, which counts a new
++/// album the search finds. With no query, the count is zero.
++#[tokio::test]
++async fn a_search_counts_its_albums_live() {
++    let (views, db, _tmp) = searched_library().await;
++    let mut count = views.subscribe_search_album_count(window_query());
++    assert_eq!(count.next_inline().await.expect("the query stays open").unwrap(), 3);
++    let (added, added_release) =
++        ("f3a0e3a4-8c3d-4e6b-9f0b-4a6f3f6a5034", "f3a0e3a4-8c3d-4e6b-9f0b-4a6f3f6a5064");
++    RecordsFixture::new()
++        .album(added, "Window D", Some(2026), &[SEARCHED_ARTIST])
++        .release(added, added_release)
++        .write(&test_records(&db))
++        .await;
++    let counted =
++        tokio::time::timeout(HANG_GUARD, count.next_inline()).await.unwrap().unwrap().unwrap();
++    assert_eq!(counted, 4);
++    assert_eq!(views.subscribe_search_album_count(None).next_inline().await.unwrap().unwrap(), 0);
++}
+diff --git a/bae-views/src/album/search_page_tests.rs b/bae-views/src/album/search_page_tests.rs
+deleted file mode 100644
+index 10ad2a78a2..0000000000
+--- a/bae-views/src/album/search_page_tests.rs
++++ /dev/null
+@@ -1,74 +0,0 @@
+-//! These tests check the albums a search lists as a media browser pages
+-//! through them. The browser reads each page once at its offset, and a live
+-//! query counts the albums. Each test writes its library through the records
+-//! domain's own writes.
+-
+-use bae_records::test_fixtures::library::RecordsFixture;
+-use bae_records::test_fixtures::test_records;
+-use bae_store::test_fixtures::temp_db;
+-use bae_util::test_channels::HANG_GUARD;
+-
+-const SEARCHED_ARTIST: &str = "f3a0e3a4-8c3d-4e6b-9f0b-4a6f3f6a5021";
+-
+-/// `search_album_page` returns a search's albums one page at a time, in title
+-/// order; the page past the last album is empty. The search's album count is
+-/// a live query of its own, which counts a new album the search finds. With
+-/// no query, the count is zero.
+-#[tokio::test]
+-async fn a_search_pages_and_counts_its_albums_in_sql() {
+-    let (db, _tmp) = temp_db(crate::TEST_SCHEMA).await;
+-    let mut fixture = RecordsFixture::new().artist(SEARCHED_ARTIST, "Paged Artist");
+-    for (id, release, title) in [
+-        (
+-            "f3a0e3a4-8c3d-4e6b-9f0b-4a6f3f6a5031",
+-            "f3a0e3a4-8c3d-4e6b-9f0b-4a6f3f6a5061",
+-            "Window A",
+-        ),
+-        (
+-            "f3a0e3a4-8c3d-4e6b-9f0b-4a6f3f6a5032",
+-            "f3a0e3a4-8c3d-4e6b-9f0b-4a6f3f6a5062",
+-            "Window B",
+-        ),
+-        (
+-            "f3a0e3a4-8c3d-4e6b-9f0b-4a6f3f6a5033",
+-            "f3a0e3a4-8c3d-4e6b-9f0b-4a6f3f6a5063",
+-            "Window C",
+-        ),
+-    ] {
+-        fixture = fixture.album(id, title, Some(2026), &[SEARCHED_ARTIST]).release(id, release);
+-    }
+-    fixture.write(&test_records(&db)).await;
+-    let views = crate::LibraryViews::new(db.clone());
+-    let query = crate::LibrarySearchQuery::parse("Window").unwrap();
+-    let page = |offset, limit| {
+-        let views = views.clone();
+-        let query = query.clone();
+-        async move {
+-            views
+-                .search_album_page(&query, offset, limit)
+-                .await
+-                .unwrap()
+-                .into_iter()
+-                .map(|album| album.title)
+-                .collect::<Vec<_>>()
+-        }
+-    };
+-
+-    assert_eq!(page(0, 2).await, ["Window A", "Window B"]);
+-    assert_eq!(page(2, 2).await, ["Window C"]);
+-    assert!(page(4, 2).await.is_empty());
+-
+-    let mut count = views.subscribe_search_album_count(Some(query.clone()));
+-    assert_eq!(count.next_inline().await.expect("the query stays open").unwrap(), 3);
+-    let (added, added_release) =
+-        ("f3a0e3a4-8c3d-4e6b-9f0b-4a6f3f6a5034", "f3a0e3a4-8c3d-4e6b-9f0b-4a6f3f6a5064");
+-    RecordsFixture::new()
+-        .album(added, "Window D", Some(2026), &[SEARCHED_ARTIST])
+-        .release(added, added_release)
+-        .write(&test_records(&db))
+-        .await;
+-    let counted =
+-        tokio::time::timeout(HANG_GUARD, count.next_inline()).await.unwrap().unwrap().unwrap();
+-    assert_eq!(counted, 4);
+-    assert_eq!(views.subscribe_search_album_count(None).next_inline().await.unwrap().unwrap(), 0);
+-}
+diff --git a/bae-views/src/browse.rs b/bae-views/src/browse.rs
+index 335de79247..80639c0a37 100644
+--- a/bae-views/src/browse.rs
++++ b/bae-views/src/browse.rs
+@@ -43,6 +43,8 @@ pub enum ListRows {
+     /// A work's children as a media browser lists them: its parts, then the
+     /// releases that perform it.
+     WorkChildren(Vec<crate::album_detail::WorkChild>),
++    /// The albums a library search lists, in title order.
++    SearchAlbums(Vec<crate::album_detail::AlbumSearchResult>),
+     /// The import list's items, and the header of the group the first of
+     /// them is a member of when the window starts inside the group.
+     #[cfg(desktop)]
+diff --git a/spec/bae.md b/spec/bae.md
+index 69dd3eea79..950c2a0943 100644
+--- a/spec/bae.md
++++ b/spec/bae.md
+@@ -4699,13 +4699,13 @@ plays the first track the library search finds, else the first track of the
+ first album it finds that has a track on its main release. The search says
+ which, and nothing plays when it finds neither. Android Auto reads that answer,
+ and each item it opens, once from the database, not through a live query. The
+-database picks the one track an item names and returns only the albums of the
+-page a search shows, so Android Auto never filters or pages through rows it
+-already holds. Each page of an album's tracks or a work's children that
+-Android Auto shows is its own read, bounded by the keys of the page's first row
+-and of the row after its last. The number of rows in each such list, and the
+-number of albums a search lists, come from a count the database takes, never
+-from rows Android Auto holds.
++database picks the one track an item names, so Android Auto never filters rows
++it already holds. Each page of an album's tracks, a work's children or the
++albums a search lists that Android Auto shows is its own live read, bounded by
++the keys of the page's first row and of the row after its last, so Android
++Auto never pages through rows it already holds. The number of rows in each
++such list comes from a count the database takes, never from rows Android Auto
++holds.
+ 
+ Every play (a release, several, a list of tracks, the library shuffled)
+ answers whoever asked with what it did, and the app shows it in words unless
+@@ -5304,8 +5304,11 @@ row up to the row after its last. bae tells the controller each time a row on
+ the page changes and each time the list's count changes, and reads the page
+ again when the controller asks for it again. A search there lists the first 50
+ albums library search finds, in title order. When the controller asks for a
+-page of them, bae reads that page from the database, and bae tells the
+-controller each time the number of those albums changes.
++page of them, bae reads the page's rows live in the same way. bae tells the
++controller each time a row on the page changes and each time the number of
++those albums changes, and reads the page again when the controller asks for it
++again. bae answers a request for a page only for the phrase that controller
++searched for last, and refuses one for any other phrase.
+ A controller that sends one track plays its release from that track; one that
+ sends two or more plays those tracks, in the order sent, as a list of tracks
+ (§7.8).

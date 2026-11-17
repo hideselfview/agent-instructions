@@ -1,0 +1,3924 @@
+project = "bae"
+clean_for = []
+
+[[finding]]
+rule = "report-bugs-without-crashing-crash-only-on-untrustworthy-state"
+file = "bae-macos/bae/bae/Views/Playback/NowPlaying/MacNowPlayingBarContainer.swift"
+
+[[finding]]
+rule = "reuse-existing-logic-and-types"
+file = "bae-android/app/src/main/java/fm/bae/app/widget/WidgetContent.kt"
+
+[[finding]]
+rule = "reactive-screens-read-plain-live-queries"
+file = "bae-android/app/src/main/java/fm/bae/app/data/ChainBrowserPageStore.kt"
+
+[[finding]]
+rule = "reactive-screens-read-plain-live-queries"
+file = "bae-android/app/src/main/java/fm/bae/app/ui/downloads/DownloadsScreen.kt"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Playback/NowPlaying/MacNowPlayingBarContainer.swift"
+code = "uiStore.showError(error)"
+verdict = "finding"
+rule = "report-bugs-without-crashing-crash-only-on-untrustworthy-state"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/widget/WidgetContent.kt"
+code = """
+    data class Track(
+        val title: String,
+        val artist: String,
+        val coverImage: BridgeImageRef?,
+        val isPlaying: Boolean,
+    ) : WidgetContent"""
+verdict = "finding"
+rule = "reuse-existing-logic-and-types"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/data/ChainBrowserPageStore.kt"
+code = "error = PageError(appContext.getString(if (hadRows) loadMoreFailed else loadFailed), value, errors, ::retry)"
+verdict = "finding"
+rule = "reactive-screens-read-plain-live-queries"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/downloads/DownloadsScreen.kt"
+code = "pageError != null && !page.hasRows -> {"
+verdict = "finding"
+rule = "reactive-screens-read-plain-live-queries"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/downloads/DownloadsScreen.kt"
+code = "page.loading && !page.hasRows -> {}"
+verdict = "finding"
+rule = "reactive-screens-read-plain-live-queries"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/RestoreCodeReveal.swift"
+code = "/// The code, held for Copy and Print, shown as core masks it."
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/RestoreCodeReveal.swift"
+code = "case masked(BridgeRestoreCodeShare)"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/RestoreCodeReveal.swift"
+code = "case shown(BridgeRestoreCodeShare)"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/RestoreCodeReveal.swift"
+code = "if case .masked(let share) = state { state = .shown(share) }"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/RestoreCodeReveal.swift"
+code = "if case .shown(let share) = state { state = .masked(share) }"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/Playback.swift"
+code = "public let setVolume: @Sendable (_ volume: Float) async throws -> Void"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/Playback.swift"
+code = "setVolume: @escaping @Sendable (Float) async throws -> Void = { _ in },"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/Playback.swift"
+code = "setVolume: { try await handle.setVolume(volume: $0) },"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Views/RestoreCodeSection.swift"
+code = "case .masked(let share):"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Views/RestoreCodeSection.swift"
+code = "codeRow(share, shown: false)"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Views/RestoreCodeSection.swift"
+code = "codeRow(share, shown: true)"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Views/RestoreCodeSection.swift"
+code = "private func codeRow(_ share: BridgeRestoreCodeShare, shown: Bool)"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Views/RestoreCodeSection.swift"
+code = "// The last group stays whole when the row is too narrow for"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Views/RestoreCodeSection.swift"
+code = 'share.maskedGroups.dropLast().joined(separator: " ")'
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Views/RestoreCodeSection.swift"
+code = "if let last = share.maskedGroups.last {"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Views/RestoreCodeSection.swift"
+code = 'Button("Print…") { onPrint(share.code) }'
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Views/RestoreCodeSection.swift"
+code = "Pasteboard.copy(share.code)"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/AlbumRatingText.kt"
+code = "* Returns the stars to set when the person taps the [tapped] star, or null to clear the rating when the person taps"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/AlbumRatingText.kt"
+code = "* the star they already gave."
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/AppSession.kt"
+code = "* Update the widget on every change of track or of playing. The widget draws what this session's"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/AppSession.kt"
+code = "* player plays ([fm.bae.app.widget.widgetContent]), from the same [BaeCorePlayer.nowPlaying] and"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/AppSession.kt"
+code = "* [BaeCorePlayer.isPlaying] the in-app bar reads. Position ticks don't change these flows, so"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/AppSession.kt"
+code = "* `distinctUntilChanged` updates the widget only when the track or the play state changes."
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/AppSession.kt"
+code = "combine(playback.nowPlaying, playback.isPlaying) { nowPlaying, isPlaying -> nowPlaying to isPlaying }"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/AppSession.kt"
+code = ".collect { NowPlayingWidget().updateAll(appContext) }"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/AppSession.kt"
+code = "* shows no track once no library is open. The holder has already stopped"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/AppSession.kt"
+code = "* offering this session as the current one."
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/AppSessionHolder.kt"
+code = "* The screen the app shows after a failed open of [libraryId]. When core says the"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/AppSessionHolder.kt"
+code = "* device needs a reset, or [offersReset] is true, it is the reset offer,"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/AppSessionHolder.kt"
+code = "* in place of Retry. When a removal stopped partway, it is the screen"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/AppSessionHolder.kt"
+code = "* that finishes the removal. Otherwise it is [open], the library still"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/AppSessionHolder.kt"
+code = "* open when the open was a switch, whose snackbar shows the failure, or"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/AppSessionHolder.kt"
+code = "* else the failure as [shown]. A reset or restore that stopped partway"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/AppSessionHolder.kt"
+code = "* gets no screen here: finishing it begins at once."
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/AppSessionHolder.kt"
+code = "* Whether the app offers Reset from cloud after [failure], a failed open of this library: core says the"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/AppSessionHolder.kt"
+code = "// Core now marks this library as active, so list the libraries again for the switcher."
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/BridgeStarsNumber.kt"
+code = "/** How many stars this is, one to five: bae-bridge declares BridgeStars in order from one star to five, so the"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/BridgeStarsNumber.kt"
+code = "*  ordinal plus one is the count. */"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/FileKindText.kt"
+code = "// What kind of file a release file is, in the person's language. This file names file kinds the same way as the"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/FileKindText.kt"
+code = "// macOS file details view."
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/MissingMainRelease.kt"
+code = "* has at least one, so the first release is the main one. An album with no releases breaks that"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/MissingMainRelease.kt"
+code = "* guarantee, so the caller reports a bug instead of showing another release in its place."
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/MissingMainRelease.kt"
+code = ') : IllegalStateException("album ${detail.album.id} has no releases, so it has no main release")'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/data/BrowserPageStores.kt"
+code = "import fm.bae.app.diagnosticDetail"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/data/BrowserPageStores.kt"
+code = "import uniffi.bae_bridge.BridgeException"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/data/BrowserPageStores.kt"
+code = "* The error for a list read that failed with [failure]. This app words [headline], and core's"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/data/BrowserPageStores.kt"
+code = "* diagnostic stays behind it for the disclosure. Retry calls [onRetry] unless core says that"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/data/BrowserPageStores.kt"
+code = "failure: BridgeException,"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/data/BrowserPageStores.kt"
+code = "failure.diagnosticDetail,"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/data/BrowserPageStores.kt"
+code = "// Core shows nothing for a cancellation, so the notice still offers Retry."
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/data/BrowserPageStores.kt"
+code = "errors.display(failure)?.offersRetry != false,"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/data/ChainBrowserPageStore.kt"
+code = "* The reads of one list, the same for every list: each window of it is a live read of its own, its"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/data/ChainBrowserPageStore.kt"
+code = "* count and the position of a key in it are live reads too, and a jump to a position reads the key there"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/data/ChainBrowserPageStore.kt"
+code = "* reads of their own. The visible range decides which windows the chain keeps; for a range far from the"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/data/ChainBrowserPageStore.kt"
+code = "* chain's rows, the store starts the chain over at the key the list has there."
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/data/ChainBrowserPageStore.kt"
+code = "/** Stop reading [parameter]'s list, unless the caller has activated another list since. */"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/data/ListChain.kt"
+code = "* One delivery of a list window: the rows of the range it answers, with the keys where it meets its neighbours."
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/data/ListChain.kt"
+code = "/** The request this answers; the chain ignores a delivery for a window it has since moved. */"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/data/ListChain.kt"
+code = "* Whether the window has received a delivery; a window moved to a new request keeps its last delivery until"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/data/ListChain.kt"
+code = "* the new one replaces it."
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/data/ListChain.kt"
+code = "* answers for a key, the chain uses the position the caller gave with the key."
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/data/ListChain.kt"
+code = "// The chain ignores a value for a key it has since left."
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/data/ListChain.kt"
+code = "* The windows a list reads, in the order of its rows: each a live read of a range of the order, where"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/data/ListChain.kt"
+code = "* each window ends at the key where the next one starts, so the chain holds every row once. A window owns"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/data/ListChain.kt"
+code = "* its subscription and only its last delivery, which the next delivery replaces whole; [placed] puts those"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/data/ListChain.kt"
+code = "* deliveries end to end from the position of the chain's first row."
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/data/ListChain.kt"
+code = "* Whether the row at [position] is near enough the chain's rows for the chain to grow to it; for a"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/data/ListChain.kt"
+code = "* position farther away, the caller starts the chain over at that position. The last window of the"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/data/ListChain.kt"
+code = "* list, once answered, reaches every position past it."
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/data/ListChain.kt"
+code = "* Replace the windows with one starting at [key] (the list's top when null). The chain uses [position] as"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/data/ListChain.kt"
+code = "* the key's position until the key's count answers."
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/data/ListChain.kt"
+code = "// The chain ignores a value for a window it has since moved or dropped."
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/data/ListChain.kt"
+code = "* Put the windows' last deliveries end to end from the chain's start position. The first window that has"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/data/ListChain.kt"
+code = "* not answered yet stops the placing, except a first window reading upward, whose rows do not start at the"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/data/PlaylistListingStore.kt"
+code = "error = PageError(appContext.getString(R.string.library_load_failed), value, errors, ::retry)"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/data/SessionMessages.kt"
+code = "import kotlinx.coroutines.Job"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/data/SessionMessages.kt"
+code = "launchAction(operation, action)"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/data/SessionMessages.kt"
+code = "* what the person did until then. Leaving the screen that waits does not stop the action."
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/data/SessionMessages.kt"
+code = "suspend fun performAndWait("
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/data/SessionMessages.kt"
+code = "launchAction(operation, action).join()"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/data/SessionMessages.kt"
+code = "private fun launchAction("
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/BaeCorePlayer.kt"
+code = "/** The queue screen shows the context's tail from now on: the upcoming tail reads it in the lane's order, around"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/BaeCorePlayer.kt"
+code = "*  the rows the screen holds with [UpcomingTail.hold], until the returned closer runs. */"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/BaeCorePlayer.kt"
+code = "// handleSetMediaItems. Media3 accepts setMediaItems only when"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/BaeCorePlayer.kt"
+code = "// COMMAND_CHANGE_MEDIA_ITEMS is available, so it is available too; the"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/LibraryBrowseTree.kt"
+code = "import uniffi.bae_bridge.AppHandleInterface"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/LibraryBrowseTree.kt"
+code = "private val handle: AppHandleInterface,"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/LibraryBrowseTree.kt"
+code = "private val library = Library(handle)"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/LibraryBrowseTree.kt"
+code = "reportingFailure(onQueryError) { handle.readAlbumDetail(id.albumId) }?.let {"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/LibraryBrowseTree.kt"
+code = "reportingFailure(onQueryError) { handle.readComposerDetail(id.artistId) }?.let {"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/LibraryBrowseTree.kt"
+code = "reportingFailure(onQueryError) { handle.readWorkDetail(id.workId) }?.let { nodes.work(it.work) }"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/LibraryBrowseTree.kt"
+code = "reportingFailure(onQueryError) { handle.readReleaseTrack(id.releaseId, id.trackId) }"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/LibraryBrowseTree.kt"
+code = "reportingFailure(onQueryError) { handle.readSearchAlbumPage(query, offset.toULong(), pageSize.toULong()) }"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/LibraryBrowseTree.kt"
+code = "val top = reportingFailure(onQueryError) { handle.readSearchTopPlayable(query) }"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/ListProjection.kt"
+code = "* Media3 asks for a page by offset, so the projection reads the key of the row at that offset once and opens"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/ListProjection.kt"
+code = "* a live window from that key. A window stays live while it is among the last"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/LiveBrowseProjection.kt"
+code = "/** Reads the database once for a request, and reports a failure to [onError] before it throws the failure again. */"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/PlaybackService.kt"
+code = "handle = open.appHandle,"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/QueueUpcomingSource.kt"
+code = "* delivery. When the order changes, the list keeps showing the rows of the old order until the new"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/QueueUpcomingSource.kt"
+code = "* order's count and first rows arrive. A failed read ends the list, and the tail keeps its error in [failure] until"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/QueueUpcomingSource.kt"
+code = "* [retry] opens the list again."
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/QueueUpcomingSource.kt"
+code = "/** The reads whose rows the tail shows; null while the list is closed. */"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/QueueUpcomingSource.kt"
+code = "private var shown: OrderReads? = null"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/QueueUpcomingSource.kt"
+code = "* The reads of the order the list changed to, until their count and first rows arrive; [shown] stays until"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/QueueUpcomingSource.kt"
+code = "private var opening: OrderReads? = null"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/QueueUpcomingSource.kt"
+code = "/** The tail's length as the shown count last said it; 0 until it answers. */"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/QueueUpcomingSource.kt"
+code = "val total: Int get() = shown?.total ?: 0"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/QueueUpcomingSource.kt"
+code = "/** The rows the shown chain holds, by index in the tail. */"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/QueueUpcomingSource.kt"
+code = "* Read the tail in `shuffled`'s order. A list open in the other order shows its rows until the new order"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/QueueUpcomingSource.kt"
+code = "if (mutableFailure.value == null) {"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/QueueUpcomingSource.kt"
+code = "if (opening?.shuffled == shuffled) return"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/QueueUpcomingSource.kt"
+code = "if (shown?.shuffled == shuffled) {"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/QueueUpcomingSource.kt"
+code = "if (opening != null) dropOpening()"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/QueueUpcomingSource.kt"
+code = 'val left = checkNotNull(holds[index]) { "released a hold never taken" } - 1'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/QueueUpcomingSource.kt"
+code = "val order = (opening ?: shown)?.shuffled ?: return"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/QueueUpcomingSource.kt"
+code = "/** Open the reads of `shuffled`'s order: the shown ones when none are, else the ones the list changes to. */"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/QueueUpcomingSource.kt"
+code = "private fun start(shuffled: Boolean) {"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/QueueUpcomingSource.kt"
+code = "mutableFailure.value = null"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/QueueUpcomingSource.kt"
+code = "val reads = OrderReads(shuffled)"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/QueueUpcomingSource.kt"
+code = "if (shown == null) shown = reads else opening = reads"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/QueueUpcomingSource.kt"
+code = "private fun dropOpening() {"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/QueueUpcomingSource.kt"
+code = "/** The reads that follow the rows on screen: those the list changes to, else the shown ones. */"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/QueueUpcomingSource.kt"
+code = "private fun following(): OrderReads? = opening ?: shown"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/QueueUpcomingSource.kt"
+code = "val reads = following() ?: return"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/QueueUpcomingSource.kt"
+code = "if (first != null && reads.jump == null) {"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/QueueUpcomingSource.kt"
+code = "/** Start [reads]' chain over at the row the list has at [position], a plain read of its key, not a live one. */"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/QueueUpcomingSource.kt"
+code = "val keyAt = reads.reads.keyAt ?: return"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/QueueUpcomingSource.kt"
+code = "if (!reads.current) return@launch"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/QueueUpcomingSource.kt"
+code = "val known = if (reads.countAnswered) maxOf(reads.total - 1, 0) else position"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/QueueUpcomingSource.kt"
+code = "reads.chain.restart(key, minOf(position, known))"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/QueueUpcomingSource.kt"
+code = "reads.total = count.rows.toInt()"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/QueueUpcomingSource.kt"
+code = "reads.countAnswered = true"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/QueueUpcomingSource.kt"
+code = "private fun changed(reads: OrderReads) {"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/QueueUpcomingSource.kt"
+code = "* [reads] delivered: the shown ones redraw, and the ones the list changes to replace them once their count"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/QueueUpcomingSource.kt"
+code = "* and their chain have both answered."
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/QueueUpcomingSource.kt"
+code = "private fun answered(reads: OrderReads) {"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/QueueUpcomingSource.kt"
+code = "if (reads === opening) {"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/QueueUpcomingSource.kt"
+code = "if (!reads.countAnswered || !reads.chain.hasAnswered) return"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/QueueUpcomingSource.kt"
+code = "/** The reads of the tail in one order: its chain of windows and its count. */"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/QueueUpcomingSource.kt"
+code = "private inner class OrderReads("
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/QueueUpcomingSource.kt"
+code = "val reads = source.reads(shuffled)"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/QueueUpcomingSource.kt"
+code = "val chain = ListChain(scope, reads, BROWSER_PAGE_SIZE, { changed(this) }, { failed(it, this) })"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/QueueUpcomingSource.kt"
+code = "var countAnswered = false"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/QueueUpcomingSource.kt"
+code = "private var countDeliveries: ScreenSubscription<BridgeListCount>? = null"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/QueueUpcomingSource.kt"
+code = "/** Whether the tail still uses these reads: they are the shown ones or the ones the list changes to. */"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/QueueUpcomingSource.kt"
+code = "val current: Boolean get() = this === shown || this === opening"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/QueueUpcomingSource.kt"
+code = "/** Start the count and the chain at the list's top, once the tail holds these reads. */"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/QueueUpcomingSource.kt"
+code = "onValue = { counted(it, this) },"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/QueueUpcomingSource.kt"
+code = "onError = { failed(it, this) },"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/QueueUpcomingSource.kt"
+code = "/** End every read; the rows the chain last held stay. */"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/LibraryLifecycleScreens.kt"
+code = "// When the open fails because the library's data is wrong, the notice names the failed step, says the"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/LibraryLifecycleScreens.kt"
+code = "// data is wrong and offers Reset from cloud."
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/LibraryLifecycleScreens.kt"
+code = "* A library left its store, but deleting this device's files for it failed; this screen offers Retry when"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/LibraryLifecycleScreens.kt"
+code = "* core reports that a second attempt can succeed. The library already left its store, so there is no"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/TrackQueueCommand.kt"
+code = "import fm.bae.app.OpenLibrary"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/TrackQueueCommand.kt"
+code = "* Adds the track [trackId] to Up Next with [command], which [operation] names in the log. The snackbar confirms how"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/TrackQueueCommand.kt"
+code = "internal fun OpenLibrary.runTrackQueueCommand("
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/TrackQueueCommand.kt"
+code = "command: suspend (List<String>) -> UInt,"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/TrackQueueCommand.kt"
+code = 'messages.perform("$operation $trackId") {'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/TrackQueueCommand.kt"
+code = "playback.onTracksAdded(command(listOf(trackId)).toInt())"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/albumdetail/AlbumBarActions.kt"
+code = "import fm.bae.app.ui.components.PageDeletion"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/albumdetail/AlbumBarActions.kt"
+code = "import uniffi.bae_bridge.BridgeAlbum"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/albumdetail/AlbumBarActions.kt"
+code = "deletion: PageDeletion<BridgeAlbum>,"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/albumdetail/AlbumBarActions.kt"
+code = "AlbumOptionsMenu(onSetPrimaryRelease = setPrimary, onDelete = { deletion.ask(detail.album) })"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/albumdetail/AlbumDetailScreen.kt"
+code = "import fm.bae.app.ui.components.PageDeletionShown"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/albumdetail/AlbumDetailScreen.kt"
+code = "import fm.bae.app.ui.components.rememberPageDeletion"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/albumdetail/AlbumDetailScreen.kt"
+code = "import fm.bae.app.ui.runTrackQueueCommand"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/albumdetail/AlbumDetailScreen.kt"
+code = "import uniffi.bae_bridge.BridgeAlbum"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/albumdetail/AlbumDetailScreen.kt"
+code = "/** The menu shows Add to playlist only when the person can make playlists; null hides it. */"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/albumdetail/AlbumDetailScreen.kt"
+code = 'rememberPageDeletion<BridgeAlbum>(session, "delete album $albumId", rememberScreenScope(), onBack) {'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/albumdetail/AlbumDetailScreen.kt"
+code = "session.appHandle.deleteAlbum(albumId)"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/albumdetail/AlbumDetailScreen.kt"
+code = "PageDeletionShown(deletion) { _, onConfirm, onDismiss -> DeleteAlbumDialog(onConfirm, onDismiss) }"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/albumdetail/AlbumDetailScreen.kt"
+code = "* Returns the release the person chose, or else the main release. The screen works it out on each draw instead of"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/albumdetail/AlbumDetailScreen.kt"
+code = "* storing it, so a release list that arrives later needs no correction."
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/albumdetail/AlbumDetailScreen.kt"
+code = 'session.runTrackQueueCommand(trackId, "addNext", session.appHandle::addNext)'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/albumdetail/AlbumDetailScreen.kt"
+code = 'session.runTrackQueueCommand(trackId, "addToQueue", session.appHandle::addToQueue)'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/albumdetail/AlbumOptionsMenu.kt"
+code = "text = { Text(stringResource(R.string.delete_album)) },"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/albumdetail/AlbumRating.kt"
+code = "* taps the stars to rate it; everyone sees who rated it."
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/albumdetail/AlbumRecordLinks.kt"
+code = "* Shows a chip for each catalog that describes the release, in the order core lists them; a tap opens"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/albumdetail/AlbumRecordLinks.kt"
+code = "* the catalog's page for the release. [catalogName] returns the name the chip shows; a test, which has"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/albumdetail/AlbumRecordLinks.kt"
+code = "* no native library, passes its own."
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/albumdetail/AlbumTrackGroups.kt"
+code = "// The header shows the total, so the list shows a side's play time"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/albumdetail/AlbumTrackGroups.kt"
+code = "// only when core sets showsTime on its group."
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/albumdetail/AlbumTrackGroups.kt"
+code = "* Shows a work the track performs under the track's row, lined up with the title: the work's title in the"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/albumdetail/AlbumTrackGroups.kt"
+code = "* accent colour, then its composers. A tap opens the work."
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/albumdetail/AndroidTrackRow.kt"
+code = "import fm.bae.app.ui.components.TrackOptionsMenu"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/albumdetail/AndroidTrackRow.kt"
+code = "/** The menu shows Add to playlist only when the person can make playlists; null hides it. */"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/components/AndroidDialog.kt"
+code = "* opacity, which is the scrim colour laid over the screen. DialogScrim draws nothing itself and runs inside the"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/components/AndroidDialog.kt"
+code = "val window = (LocalView.current.parent as DialogWindowProvider).window"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/components/AndroidDialog.kt"
+code = "window.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/components/AndroidDialog.kt"
+code = "window.setDimAmount(scrim.alpha)"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/components/AndroidNotice.kt"
+code = "// The top row holds the words, the × and the buttons that fit on that line; the column puts any buttons"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/components/AndroidNotice.kt"
+code = "// below the words after the ×."
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/components/AndroidScreen.kt"
+code = "* A screen's bar, as the design draws it: 64 dp on the page's own colour, the back button, whose accessibility label"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/components/AndroidScreen.kt"
+code = "* is [backLabel], then the [title] if the screen has one, and at the end the screen's own [actions]."
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/components/AndroidSegmentedButtons.kt"
+code = "import androidx.compose.ui.semantics.clearAndSetSemantics"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/components/AndroidSegmentedButtons.kt"
+code = "// The column draws the label above the buttons, and TalkBack skips it."
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/components/AndroidSegmentedButtons.kt"
+code = "modifier = Modifier.clearAndSetSemantics {},"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/components/PageDeletion.kt"
+code = "package fm.bae.app.ui.components"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/components/PageDeletion.kt"
+code = "import androidx.compose.foundation.layout.padding"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/components/PageDeletion.kt"
+code = "import androidx.compose.runtime.Composable"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/components/PageDeletion.kt"
+code = "import androidx.compose.runtime.getValue"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/components/PageDeletion.kt"
+code = "import androidx.compose.runtime.mutableStateOf"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/components/PageDeletion.kt"
+code = "import androidx.compose.runtime.remember"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/components/PageDeletion.kt"
+code = "import androidx.compose.runtime.rememberUpdatedState"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/components/PageDeletion.kt"
+code = "import androidx.compose.runtime.setValue"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/components/PageDeletion.kt"
+code = "import androidx.compose.ui.Modifier"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/components/PageDeletion.kt"
+code = "import fm.bae.app.BaeLogger"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/components/PageDeletion.kt"
+code = "import fm.bae.app.DisplayError"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/components/PageDeletion.kt"
+code = "import fm.bae.app.ErrorDisplays"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/components/PageDeletion.kt"
+code = "import fm.bae.app.OpenLibrary"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/components/PageDeletion.kt"
+code = "import fm.bae.app.performBridgeAction"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/components/PageDeletion.kt"
+code = "import fm.bae.app.ui.appearance.ThemeSpace"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/components/PageDeletion.kt"
+code = "import kotlinx.coroutines.CoroutineScope"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/components/PageDeletion.kt"
+code = "import kotlinx.coroutines.launch"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/components/PageDeletion.kt"
+code = 'private val logger = BaeLogger("bae.PageDeletion")'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/components/PageDeletion.kt"
+code = "* Deleting what a page shows: what the open confirmation names, and why the last delete failed."
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/components/PageDeletion.kt"
+code = "* [operation] names the delete in the log. When [delete] succeeds, the holder calls [onDeleted] and"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/components/PageDeletion.kt"
+code = "* the page closes; when it fails, the page stays open and shows the error."
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/components/PageDeletion.kt"
+code = "internal class PageDeletion<Target : Any>("
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/components/PageDeletion.kt"
+code = "private val operation: String,"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/components/PageDeletion.kt"
+code = "private val errors: ErrorDisplays,"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/components/PageDeletion.kt"
+code = "private val scope: CoroutineScope,"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/components/PageDeletion.kt"
+code = "private val delete: suspend () -> Unit,"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/components/PageDeletion.kt"
+code = "private val onDeleted: () -> Unit,"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/components/PageDeletion.kt"
+code = "/** What the confirmation names while it is open; null while it is closed. */"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/components/PageDeletion.kt"
+code = "var confirming by mutableStateOf<Target?>(null)"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/components/PageDeletion.kt"
+code = "var error by mutableStateOf<DisplayError?>(null)"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/components/PageDeletion.kt"
+code = "/** Show the confirmation, naming [target]. */"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/components/PageDeletion.kt"
+code = "fun ask(target: Target) {"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/components/PageDeletion.kt"
+code = "/** Close the confirmation without deleting. */"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/components/PageDeletion.kt"
+code = "/** Close the confirmation and delete. */"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/components/PageDeletion.kt"
+code = "performBridgeAction(logger, operation, errors, { error = it }) {"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/components/PageDeletion.kt"
+code = '* Remembers the deletion that [operation] names (such as "delete playlist <id>"), runs [delete] in'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/components/PageDeletion.kt"
+code = "* [scope] when the person confirms, and calls [onDeleted] when it succeeds."
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/components/PageDeletion.kt"
+code = "internal fun <Target : Any> rememberPageDeletion("
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/components/PageDeletion.kt"
+code = "delete: suspend () -> Unit,"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/components/PageDeletion.kt"
+code = "): PageDeletion<Target> {"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/components/PageDeletion.kt"
+code = "val leave by rememberUpdatedState(onDeleted)"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/components/PageDeletion.kt"
+code = "return remember(operation, session, scope) {"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/components/PageDeletion.kt"
+code = "PageDeletion(operation, session.errors, scope, delete) { leave() }"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/components/PageDeletion.kt"
+code = "* Shows why the last delete failed, under the page's bar, and the [dialog] for what the open"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/components/PageDeletion.kt"
+code = "* confirmation names. The dialog's buttons call the two functions it receives: confirm, then dismiss."
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/components/PageDeletion.kt"
+code = "internal fun <Target : Any> PageDeletionShown("
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/components/PageDeletion.kt"
+code = "deletion: PageDeletion<Target>,"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/components/PageDeletion.kt"
+code = "dialog: @Composable (target: Target, onConfirm: () -> Unit, onDismiss: () -> Unit) -> Unit,"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/components/PageDeletion.kt"
+code = "modifier = Modifier.padding(horizontal = ThemeSpace.edge, vertical = ThemeSpace.related),"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/components/PageDeletion.kt"
+code = "deletion.confirming?.let { dialog(it, deletion::confirm, deletion::dismiss) }"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/components/TrackOptionsMenu.kt"
+code = "package fm.bae.app.ui.components"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/components/TrackOptionsMenu.kt"
+code = "* A track's options button and its menu: Play next, Add to queue, then Add to playlist… when the caller"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/components/TrackOptionsMenu.kt"
+code = "* passes [onAddToPlaylist] (the person can make playlists), and Remove from playlist when the caller"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/components/TrackOptionsMenu.kt"
+code = "* passes [onRemove] (a track in a playlist of the person's own)."
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/downloads/AndroidDownloadRow.kt"
+code = "* The file count and size core stored when the person queued the pin. The row shows them after the library no"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/downloads/DownloadConcurrency.kt"
+code = "import androidx.compose.foundation.layout.Arrangement"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/downloads/DownloadConcurrency.kt"
+code = "import androidx.compose.foundation.layout.Column"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/downloads/DownloadConcurrency.kt"
+code = "import androidx.compose.material3.MaterialTheme"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/downloads/DownloadConcurrency.kt"
+code = "import androidx.compose.material3.Text"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/downloads/DownloadConcurrency.kt"
+code = "import fm.bae.app.ui.appearance.ThemeText"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/downloads/DownloadConcurrency.kt"
+code = "verticalArrangement = Arrangement.spacedBy(ThemeSpace.related),"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/downloads/DownloadConcurrency.kt"
+code = "text = stringResource(R.string.pins_at_once),"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/downloads/DownloadConcurrency.kt"
+code = "style = ThemeText.body.style,"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/downloads/DownloadConcurrency.kt"
+code = "color = MaterialTheme.colorScheme.onSurface,"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/downloads/DownloadConcurrency.kt"
+code = "AndroidSegmentedButtons("
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/downloads/DownloadConcurrency.kt"
+code = "options = options.map { context.countText(it) },"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/downloads/DownloadConcurrency.kt"
+code = "selected = options.indexOf(value),"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/downloads/DownloadConcurrency.kt"
+code = "onSelect = { onSelect(options[it]) },"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/downloads/DownloadsScreen.kt"
+code = "import androidx.compose.foundation.layout.BoxScope"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/downloads/DownloadsScreen.kt"
+code = "hasDownloads = counts?.hasEntries == true,"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/downloads/DownloadsScreen.kt"
+code = "hasFailures = counts?.hasFailures == true,"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/downloads/DownloadsScreen.kt"
+code = "concurrency = config.maxConcurrentDownloads,"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/downloads/DownloadsScreen.kt"
+code = "concurrencyLimit = config.maxConcurrentTransfers,"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/downloads/DownloadsScreen.kt"
+code = 'session.messages.perform("pause or resume downloads") {'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/downloads/DownloadsScreen.kt"
+code = "session.appHandle.setDownloadsPaused(!paused)"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/downloads/DownloadsScreen.kt"
+code = 'onRetry = { session.messages.perform("retry downloads") { session.appHandle.retryDownloads() } },'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/downloads/DownloadsScreen.kt"
+code = "onSelectConcurrency = { option -> setDownloadConcurrency(session, option) },"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/downloads/DownloadsScreen.kt"
+code = "* The Pinning screen's layout: its bar with Retry and Pause or Resume, how many pins fetch at once, then the"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/downloads/DownloadsScreen.kt"
+code = "* [body] under a divider, which fills the rest of the screen."
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/downloads/DownloadsScreen.kt"
+code = "internal fun AndroidStoragePinning("
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/downloads/DownloadsScreen.kt"
+code = "onPauseToggle: () -> Unit,"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/downloads/DownloadsScreen.kt"
+code = "onSelectConcurrency: (UInt) -> Unit,"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/downloads/DownloadsScreen.kt"
+code = "body: @Composable BoxScope.() -> Unit,"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/downloads/DownloadsScreen.kt"
+code = "Column(modifier = Modifier.fillMaxSize()) {"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/downloads/DownloadsScreen.kt"
+code = "hasDownloads = hasDownloads,"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/downloads/DownloadsScreen.kt"
+code = "hasFailures = hasFailures,"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/downloads/DownloadsScreen.kt"
+code = "onPauseToggle = onPauseToggle,"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/downloads/DownloadsScreen.kt"
+code = "DownloadConcurrencySelector(value = concurrency, limit = concurrencyLimit, onSelect = onSelectConcurrency)"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/downloads/DownloadsScreen.kt"
+code = "Box(modifier = Modifier.weight(1f).fillMaxWidth(), content = body)"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/downloads/DownloadsScreen.kt"
+code = "private fun BoxScope.DownloadsBody("
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/downloads/DownloadsScreen.kt"
+code = "val pageError = page.error"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/downloads/DownloadsScreen.kt"
+code = "state is LiveValue.Failed -> {"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/downloads/DownloadsScreen.kt"
+code = "modifier = Modifier.align(Alignment.Center).padding(ThemeSpace.page),"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/downloads/DownloadsScreen.kt"
+code = "error = pageError.error,"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/downloads/DownloadsScreen.kt"
+code = "look = NoticeLook.CENTERED,"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/downloads/DownloadsScreen.kt"
+code = "action = pageError.error.retryAction(onClick = pageError.onRetry),"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/downloads/DownloadsScreen.kt"
+code = "page.totalCount == 0 -> {"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/downloads/DownloadsScreen.kt"
+code = "DownloadsEmpty(modifier = Modifier.align(Alignment.Center))"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/downloads/DownloadsScreen.kt"
+code = "val listState = rememberLazyListState()"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/downloads/DownloadsScreen.kt"
+code = "ReportVisibleDownloads(page, listState)"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/downloads/DownloadsScreen.kt"
+code = "count = page.totalCount,"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/downloads/DownloadsScreen.kt"
+code = "row = { index -> page.rowAt(index) },"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/downloads/DownloadsScreen.kt"
+code = "downloads = session.downloadStore,"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/downloads/DownloadsScreen.kt"
+code = "onCancel = { releaseId ->"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/downloads/DownloadsScreen.kt"
+code = 'session.messages.perform("cancel download") {'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/downloads/DownloadsScreen.kt"
+code = "session.appHandle.cancelDownload(releaseId)"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/downloads/DownloadsScreen.kt"
+code = "onRetry = { releaseId ->"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/downloads/DownloadsScreen.kt"
+code = 'session.messages.perform("retry download") { session.appHandle.retryDownload(releaseId) }'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/library/AddToPlaylist.kt"
+code = "import androidx.compose.foundation.layout.padding"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/library/AddToPlaylist.kt"
+code = "import fm.bae.app.data.PlaylistListingStore"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/library/AddToPlaylist.kt"
+code = "import fm.bae.app.ui.appearance.ThemeSpace"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/library/AddToPlaylist.kt"
+code = "import fm.bae.app.ui.components.AndroidNotice"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/library/AddToPlaylist.kt"
+code = "import fm.bae.app.ui.components.AndroidSpinner"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/library/AddToPlaylist.kt"
+code = "import fm.bae.app.ui.components.retryAction"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/library/AddToPlaylist.kt"
+code = "* Adding a track to a playlist from a track's menu: whether the menu offers it, and the track whose"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/library/AddToPlaylist.kt"
+code = "* sheet of playlists is open, if any. Only the sheet reads [trackId], so opening the sheet redraws"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/library/AddToPlaylist.kt"
+code = "* the sheet and not the page."
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/library/AddToPlaylist.kt"
+code = "private val playlists: PlaylistListingStore,"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/library/AddToPlaylist.kt"
+code = "/** Whether the menu offers Add to playlist: the person can make playlists. */"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/library/AddToPlaylist.kt"
+code = "val offered: Boolean get() = playlists.listing?.canCreate == true"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/library/AddToPlaylist.kt"
+code = "/** The track whose Add to playlist sheet is open. */"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/library/AddToPlaylist.kt"
+code = "var trackId by mutableStateOf<String?>(null)"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/library/AddToPlaylist.kt"
+code = "fun ask(trackId: String) {"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/library/AddToPlaylist.kt"
+code = "/** The Add to playlist state of a page with tracks. The page reads the person's playlists while it is on screen. */"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/library/AddToPlaylist.kt"
+code = "val playlists = rememberPlaylistListing(session)"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/library/AddToPlaylist.kt"
+code = "return remember(playlists) { TrackPlaylistAdd(playlists) }"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/library/AddToPlaylist.kt"
+code = "PlaylistTargets(session, add, trackId)"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/library/AddToPlaylist.kt"
+code = "trackIds = listOf(trackId),"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/library/AddToPlaylist.kt"
+code = "onDismiss = { creating = false },"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/library/AddToPlaylist.kt"
+code = "onCreated = { add.dismiss() },"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/library/AddToPlaylist.kt"
+code = "private fun PlaylistTargets("
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/library/AddToPlaylist.kt"
+code = "val context = LocalContext.current"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/library/AddToPlaylist.kt"
+code = "val playlists = session.browserPages.playlists"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/library/AddToPlaylist.kt"
+code = "val listing = playlists.listing"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/library/AddToPlaylist.kt"
+code = "val loadError = playlists.error"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/library/AddToPlaylist.kt"
+code = "listing.addTargets.forEach { playlist ->"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/library/AddToPlaylist.kt"
+code = "error = loadError.error,"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/library/AddToPlaylist.kt"
+code = "modifier = Modifier.padding(horizontal = ThemeSpace.edge),"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/library/AddToPlaylist.kt"
+code = "action = loadError.error.retryAction(onClick = loadError.onRetry),"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/library/AddToPlaylist.kt"
+code = "modifier = Modifier.padding(horizontal = ThemeSpace.edge, vertical = ThemeSpace.group),"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/library/LibraryHeader.kt"
+code = "// TalkBack reads Selected as the chosen item's state, because the design draws no selected state for a menu item."
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/library/LibraryPageContent.kt"
+code = "/** Shows the centred notice in the list's place when bae could not read the list, with Retry reopening its reads. */"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/library/NewPlaylistDialog.kt"
+code = "* Asks for a playlist's name and who sees it, then makes the playlist with [trackIds], which is empty by"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/library/NewPlaylistDialog.kt"
+code = "* default. Creating it closes"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/library/PlaylistDialogParts.kt"
+code = "/** The choices of who sees a playlist, in the order the dialog shows them; a new playlist starts on the first. */"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/library/PlaylistDialogParts.kt"
+code = "* The dialog of a playlist's name and who sees it, under [title], with a [confirmLabel] button, enabled"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/library/PlaylistDialogParts.kt"
+code = "* while [canConfirm] is true, that calls [onConfirm]. The New playlist and Edit playlist dialogs share it."
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/library/PlaylistEntries.kt"
+code = "import fm.bae.app.ui.components.TrackOptionsMenu"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/library/PlaylistEntries.kt"
+code = "/** The menu shows Add to playlist only when the person can make playlists; null hides it. */"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/library/PlaylistEntries.kt"
+code = "* PlaylistReorder holds the order the page draws while the owner moves an entry: the entry being dragged"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/library/PlaylistEntries.kt"
+code = "* and where it would land, and the order just written, which it keeps until the playlist's query returns it."
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/library/PlaylistEntries.kt"
+code = "* The reorder state of [detail]'s entries, written through [write]; the page keeps a written order until"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/library/PlaylistEntries.kt"
+code = "* the playlist's query returns it."
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/library/PlaylistOptionsMenu.kt"
+code = "package fm.bae.app.ui.library"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/library/PlaylistOptionsMenu.kt"
+code = "import androidx.compose.foundation.layout.Box"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/library/PlaylistOptionsMenu.kt"
+code = "import androidx.compose.material.icons.Icons"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/library/PlaylistOptionsMenu.kt"
+code = "import androidx.compose.material.icons.filled.MoreVert"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/library/PlaylistOptionsMenu.kt"
+code = "import androidx.compose.material3.DropdownMenuItem"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/library/PlaylistOptionsMenu.kt"
+code = "import androidx.compose.material3.Icon"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/library/PlaylistOptionsMenu.kt"
+code = "import androidx.compose.material3.IconButton"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/library/PlaylistOptionsMenu.kt"
+code = "import androidx.compose.material3.Text"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/library/PlaylistOptionsMenu.kt"
+code = "import androidx.compose.runtime.Composable"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/library/PlaylistOptionsMenu.kt"
+code = "import androidx.compose.runtime.getValue"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/library/PlaylistOptionsMenu.kt"
+code = "import androidx.compose.runtime.mutableStateOf"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/library/PlaylistOptionsMenu.kt"
+code = "import androidx.compose.runtime.remember"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/library/PlaylistOptionsMenu.kt"
+code = "import androidx.compose.runtime.setValue"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/library/PlaylistOptionsMenu.kt"
+code = "import androidx.compose.ui.res.stringResource"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/library/PlaylistOptionsMenu.kt"
+code = "import fm.bae.app.ui.components.AndroidButton"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/library/PlaylistOptionsMenu.kt"
+code = "import fm.bae.app.ui.components.AndroidDialog"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/library/PlaylistOptionsMenu.kt"
+code = "import fm.bae.app.ui.components.AndroidMenu"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/library/PlaylistOptionsMenu.kt"
+code = "import fm.bae.app.ui.components.ButtonKind"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/library/PlaylistOptionsMenu.kt"
+code = "import fm.bae.app.ui.components.ButtonTone"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/library/PlaylistOptionsMenu.kt"
+code = "import fm.bae.app.ui.components.DialogParts"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/library/PlaylistOptionsMenu.kt"
+code = "/** The playlist's own actions, at the end of the page's bar: Edit playlist… and Delete playlist…. */"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/library/PlaylistOptionsMenu.kt"
+code = "internal fun PlaylistOptionsMenu("
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/library/PlaylistOptionsMenu.kt"
+code = "var expanded by remember { mutableStateOf(false) }"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/library/PlaylistOptionsMenu.kt"
+code = "IconButton(onClick = { expanded = true }) {"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/library/PlaylistOptionsMenu.kt"
+code = "Icon(imageVector = Icons.Filled.MoreVert, contentDescription = stringResource(R.string.playlist_options))"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/library/PlaylistOptionsMenu.kt"
+code = "AndroidMenu(expanded = expanded, onDismissRequest = { expanded = false }) {"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/library/PlaylistOptionsMenu.kt"
+code = "text = { Text(stringResource(R.string.playlist_edit_menu)) },"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/library/PlaylistOptionsMenu.kt"
+code = "text = { Text(stringResource(R.string.playlist_delete_menu)) },"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/library/PlaylistOptionsMenu.kt"
+code = "* Asks before bae deletes the playlist named [name], and says that bae deletes it from every device and keeps its"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/library/PlaylistOptionsMenu.kt"
+code = "internal fun DeletePlaylistDialog("
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/library/PlaylistOptionsMenu.kt"
+code = "AndroidDialog(onDismissRequest = onDismiss, parts = deletePlaylistParts(name, onConfirm, onDismiss))"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/library/PlaylistOptionsMenu.kt"
+code = "/** What the delete confirmation for the playlist named [name] says and offers. */"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/library/PlaylistOptionsMenu.kt"
+code = "internal fun deletePlaylistParts("
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/library/PlaylistOptionsMenu.kt"
+code = "title = stringResource(R.string.playlist_delete_title, name),"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/library/PlaylistOptionsMenu.kt"
+code = "message = stringResource(R.string.playlist_delete_message),"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/library/PlaylistOptionsMenu.kt"
+code = "AndroidButton(kind = ButtonKind.TEXT, tone = ButtonTone.DESTRUCTIVE, onClick = onConfirm) {"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/library/PlaylistOptionsMenu.kt"
+code = "Text(stringResource(R.string.playlist_delete_confirm))"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/library/PlaylistOptionsMenu.kt"
+code = "AndroidButton(kind = ButtonKind.TEXT, tone = ButtonTone.NEUTRAL, onClick = onDismiss) {"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/library/PlaylistOptionsMenu.kt"
+code = "Text(stringResource(R.string.cancel))"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/library/PlaylistScreen.kt"
+code = "import fm.bae.app.ui.components.PageDeletionShown"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/library/PlaylistScreen.kt"
+code = "import fm.bae.app.ui.components.rememberPageDeletion"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/library/PlaylistScreen.kt"
+code = "import fm.bae.app.ui.runTrackQueueCommand"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/library/PlaylistScreen.kt"
+code = "import uniffi.bae_bridge.BridgePlaylistSummary"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/library/PlaylistScreen.kt"
+code = 'rememberPageDeletion<BridgePlaylistSummary>(session, "delete playlist $playlistId", scope, onBack) {'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/library/PlaylistScreen.kt"
+code = "session.appHandle.deletePlaylist(playlistId)"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/library/PlaylistScreen.kt"
+code = "PlaylistOptionsMenu(onEdit = { editing = true }, onDelete = { deletion.ask(detail.summary) })"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/library/PlaylistScreen.kt"
+code = "PageDeletionShown(deletion) { playlist, onConfirm, onDismiss ->"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/library/PlaylistScreen.kt"
+code = "DeletePlaylistDialog(name = playlist.name, onConfirm = onConfirm, onDismiss = onDismiss)"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/library/PlaylistScreen.kt"
+code = 'session.runTrackQueueCommand(trackId, "addNext", session.appHandle::addNext)'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/library/PlaylistScreen.kt"
+code = 'session.runTrackQueueCommand(trackId, "addToQueue", session.appHandle::addToQueue)'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/onboarding/JoinNameStep.kt"
+code = "// TalkBack reads the label as the field's name. Clearing the hint's semantics keeps TalkBack from"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/onboarding/JoinNameStep.kt"
+code = "// reading the hint, which still shows in the empty field."
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/playback/AndroidFullPlayer.kt"
+code = "import androidx.compose.runtime.rememberCoroutineScope"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/playback/AndroidFullPlayer.kt"
+code = "onSetVolume = { level ->"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/playback/AndroidFullPlayer.kt"
+code = 'session.messages.performAndWait("setVolume") { session.appHandle.setVolume(level) }'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/playback/AndroidFullPlayer.kt"
+code = "onSetVolume: suspend (Float) -> Unit,"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/playback/AndroidFullPlayer.kt"
+code = "val scope = rememberCoroutineScope()"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/playback/AndroidFullPlayer.kt"
+code = "onValueChangeFinished = {"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/playback/AndroidFullPlayer.kt"
+code = "dragVolume?.let { level ->"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/playback/AndroidFullPlayer.kt"
+code = "if (dragVolume == level) dragVolume = null"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/playback/QueueOrder.kt"
+code = "* sent is unanswered, then until the lane's read has the moved row at the index where the drag left it,"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/playback/QueueOrder.kt"
+code = "* or the lane has changed length; a reorder core refused or that failed ends the hold at once, so a move"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/playback/QueueOrder.kt"
+code = "* core did not make never stays on screen."
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/playback/QueueScreen.kt"
+code = "// QueueOrder ignores new queue values during a drag, and replaces both lanes with core's latest rows when it ends."
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/playback/QueueScreen.kt"
+code = "// The context tail can be as long as the library, and core reads only part of it: the lazy list"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/playback/QueueScreen.kt"
+code = "// asks only for the rows it places, each row the lazy list places asks core to keep its index read"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/playback/QueueScreen.kt"
+code = "// until the list removes the row, and a row core has not read shows a placeholder."
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/playback/QueueScreen.kt"
+code = "/** One lane's rows for [queueRows], one row per index. [hold] keeps a row's index read until the returned release"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/playback/QueueScreen.kt"
+code = "// One lane's reorderable rows, keyed by entry id; a row shows a placeholder until core reads the row at that index."
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/LibrarySettingsScreen.kt"
+code = "canRename = members.selfIsAdmin,"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/LibrarySettingsScreen.kt"
+code = "/** Shows why the screen could not read the storage, the name or the people, each with Retry. */"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/MembersScreen.kt"
+code = "* The person whose page is open, once the person subscription answers; Loading while no page of a person is"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/MembersScreen.kt"
+code = "/** Which subscription a people callback belongs to; the model ignores a callback from a replaced subscription. */"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/MembersScreen.kt"
+code = "/** Follow the profile this person asked for. The request ends in the write that makes the profile, and the people"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/MembersScreen.kt"
+code = "*  subscription shows the profile once core writes it. */"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/PeopleLoadedPage.kt"
+code = "* Shows the page that [page] names from the [people] read, and on a person's page shows that person"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/PeopleLoadedPage.kt"
+code = "* from the model's person read."
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/PeopleLoadedPage.kt"
+code = "val shown = (model.person as? PersonRead.Loaded)?.takeIf { it.memberId == page.memberId }?.person"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/RestoreCodeSection.kt"
+code = "import uniffi.bae_bridge.BridgeRestoreCodeShare"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/RestoreCodeSection.kt"
+code = "/** The code, held for Copy and Print and shown as core masks it. */"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/RestoreCodeSection.kt"
+code = "private val generate: suspend () -> BridgeRestoreCodeShare,"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/RestoreCodeSection.kt"
+code = "(state as? RestoreCodeState.Masked)?.let { state = RestoreCodeState.Shown(it.share) }"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/RestoreCodeSection.kt"
+code = "(state as? RestoreCodeState.Shown)?.let { state = RestoreCodeState.Masked(it.share) }"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/RestoreCodeSection.kt"
+code = "CodeBox(share = state.share, shown = false, onToggle = onShow, onPrint = onPrint)"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/RestoreCodeSection.kt"
+code = "CodeBox(share = state.share, shown = true, onToggle = onHide, onPrint = onPrint)"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/RestoreCodeSection.kt"
+code = "share: BridgeRestoreCodeShare,"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/RestoreCodeSection.kt"
+code = "text = share.code.withWordGap(),"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/RestoreCodeSection.kt"
+code = 'text = share.maskedGroups.joinToString(" ").withWordGap(),'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/RestoreCodeSection.kt"
+code = "AndroidButton(kind = ButtonKind.OUTLINED, onClick = { copy(share.code) }) {"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/RestoreCodeSection.kt"
+code = "AndroidButton(kind = ButtonKind.OUTLINED, onClick = { onPrint(share.code) }) {"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/RestoreCodeSection.kt"
+code = "/** A restore code in groups of four, and its masked groups, for the shots; never a library's. */"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/RestoreCodeSection.kt"
+code = "private val PREVIEW_CODE ="
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/RestoreCodeSection.kt"
+code = '"CVR1 ABCD EFGH IJKL MNOP QRST UVWX YZ23 4567 ABCD EFGH IJKL MNOP QRST UVWX YZ23 4567 " +'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/RestoreCodeSection.kt"
+code = '"ABCD EFGH IJKL MNOP QRST",'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/RestoreCodeSection.kt"
+code = 'maskedGroups = listOf("CVR1", "ABCD") + List(19) { "••••" } + "QRST",'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/RestoreCodeSection.kt"
+code = 'qrText = "CVR1-ABCDEFGHIJKLMNOPQRSTUVWXYZ234567ABCDEFGHIJKLMNOPQRSTUVWXYZ234567ABCDEFGHIJKLMNOPQRST",'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/SettingsLibraryModel.kt"
+code = "* and its name. The model keeps a failed read, so Settings shows the error where that read's rows would be; a"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/SettingsLibraryModel.kt"
+code = "* cancelled one shows nothing and leaves the read as it was."
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/SettingsLibraryModel.kt"
+code = "/** Which subscription a name callback belongs to; the model ignores a callback from a replaced subscription. */"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/SyncScreen.kt"
+code = "generate = { session.appHandle.generateRestoreCode() },"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/widget/NowPlayingWidget.kt"
+code = "* it draws what that session's player plays ([widgetContent]). With no library open, it draws no track."
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/widget/NowPlayingWidget.kt"
+code = "val content = widgetContent(session?.playback)"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/widget/NowPlayingWidget.kt"
+code = "val cover = widgetCover(context, (content as? WidgetContent.Track)?.coverImage, session)"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/widget/NowPlayingWidget.kt"
+code = "val track = content as? WidgetContent.Track"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/widget/NowPlayingWidget.kt"
+code = "is WidgetContent.Track -> content.title"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/widget/WidgetContent.kt"
+code = "package fm.bae.app.widget"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/widget/WidgetContent.kt"
+code = "import fm.bae.app.playback.BaeCorePlayer"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/widget/WidgetContent.kt"
+code = "import uniffi.bae_bridge.BridgeImageRef"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/widget/WidgetContent.kt"
+code = "/** What the home-screen widget draws. */"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/widget/WidgetContent.kt"
+code = "internal sealed interface WidgetContent {"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/widget/WidgetContent.kt"
+code = "* The track the open library plays, with a pause button only while [isPlaying]. The widget reads the"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/widget/WidgetContent.kt"
+code = "* cover by [coverImage] from the open library's image store."
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/widget/WidgetContent.kt"
+code = "/** No library is open, or the open library plays nothing. */"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/widget/WidgetContent.kt"
+code = "data object NothingPlaying : WidgetContent"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/widget/WidgetContent.kt"
+code = "* What the widget draws for the open library's [player], null when this process has no library open."
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/widget/WidgetContent.kt"
+code = "* With no library open nothing plays, so the widget shows no track."
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/widget/WidgetContent.kt"
+code = "internal fun widgetContent(player: BaeCorePlayer?): WidgetContent {"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/widget/WidgetContent.kt"
+code = "val nowPlaying = player?.nowPlaying?.value ?: return WidgetContent.NothingPlaying"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/widget/WidgetContent.kt"
+code = "return WidgetContent.Track(nowPlaying.title, nowPlaying.artist, nowPlaying.coverImage, player.isPlaying.value)"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/AlbumRatingTextTest.kt"
+code = "/** These tests check how the album page names who rated an album, and which rating a tap on a star sets or clears. */"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/data/ChainBrowserPageStoreTest.kt"
+code = "// The test adds rows inside the first window's range, so that window holds more rows than its limit."
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/data/ChainBrowserPageStoreTest.kt"
+code = "// The test removes every row of the middle window."
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/data/ChainBrowserPageStoreTest.kt"
+code = "// The store opened the window with one request and changed the request after the first delivery."
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/data/ChainBrowserPageStoreTest.kt"
+code = "/** When core says that reading again cannot fix the failure, such as a damaged database, the store offers no Retry. */"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/data/SyncStatusStoreTest.kt"
+code = "/** When another installation with newer changes uses this device's id, the store shows the unsent edits and files"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/data/SyncStatusStoreTest.kt"
+code = "*  until a later status no longer reports them. */"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/FakeAppHandle.kt"
+code = "private val composerList = FakeComposerList()"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/FakeAppHandle.kt"
+code = "/** Returns the window of the search's albums from [offset], at most [limit], as the database would. */"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/FakeAppHandle.kt"
+code = "override suspend fun setVolume(volume: Float) {"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/FakeAppHandle.kt"
+code = "/** The person subscriptions that `subscribePerson` opened, which a test delivers to. */"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/FakeList.kt"
+code = "* window answers the range of ids it names, and the fake keeps every window and count the handle"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/FakeList.kt"
+code = "* opened so a test can change the list and deliver the change."
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/FakeList.kt"
+code = "/** Whether a window or a count answers as soon as the handle opens it; otherwise a test delivers with [changed]. */"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/FakeList.kt"
+code = "/** Each window the handle asked this subscription to read, starting with the one it opened with. */"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/FakeList.kt"
+code = "/** The composer list as the bridge lists it, with no composers. */"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/FakeList.kt"
+code = "internal class FakeComposerList :"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/FakeList.kt"
+code = "FakeList<BridgeComposerSummary>("
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/LibraryBrowseTreeTest.kt"
+code = "/** An album with no releases has no main release, so the tree reports a bug and throws an error. */"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/LibraryBrowseTreeTest.kt"
+code = "/** The car asks for a page by offset. The tree reads the key of the album at that offset and opens a window from"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/LibraryBrowseTreeTest.kt"
+code = "/** When a write changes the album count, the tree drops the pages it read before and tells the car once. */"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/ListProjectionCloseTest.kt"
+code = 'window = { error("the test reads no window") },'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/ListProjectionCloseTest.kt"
+code = 'position = { error("the test reads no position") },'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/QueueUpcomingWindowTest.kt"
+code = 'assertNull("the playlist does not read rows far down", itemAt(player, 300))'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/QueueUpcomingWindowTest.kt"
+code = 'assertEquals("the screen opens the list a second time", listOf(false, false), feed.opened)'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/QueueUpcomingWindowTest.kt"
+code = "fun aShuffleFlipKeepsTheOldOrdersRowsUntilTheNewOrderAnswers() {"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/QueueUpcomingWindowTest.kt"
+code = "val feed = UpcomingFeed()"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/QueueUpcomingWindowTest.kt"
+code = "val player = playing(feed, total = 5)"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/QueueUpcomingWindowTest.kt"
+code = "feed.holdNewReads = true"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/QueueUpcomingWindowTest.kt"
+code = "player.onQueueValue(queueValue(shuffled = true))"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/QueueUpcomingWindowTest.kt"
+code = "assertEquals(listOf(false, true), feed.opened)"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/QueueUpcomingWindowTest.kt"
+code = 'feed.show((0 until 3).map { upcomingEntry("s$it") })'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/UpcomingFeed.kt"
+code = "*  answers out of those rows, and the list records which order the code under test opened the list in each time. */"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/UpcomingFeed.kt"
+code = "/** Whether a list opened from now on answers nothing until [answerHeld]. */"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/UpcomingFeed.kt"
+code = "var holdNewReads = false"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/UpcomingFeed.kt"
+code = "private val counts = mutableListOf<Channel<BridgeListCount>>()"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/UpcomingFeed.kt"
+code = "private val held = mutableListOf<() -> Unit>()"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/UpcomingFeed.kt"
+code = "/** Answer the reads opened while [holdNewReads] held them, and answer each read opened from now on at once. */"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/UpcomingFeed.kt"
+code = "held.toList().forEach { it() }"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/UpcomingFeed.kt"
+code = "private fun sendCounts() = counts.forEach(::sendCount)"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/UpcomingFeed.kt"
+code = "private fun sendCount(feed: Channel<BridgeListCount>) {"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/UpcomingFeed.kt"
+code = "feed.trySend(BridgeListCount(rows.size.toULong(), BridgeListCountExtra.None))"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/UpcomingFeed.kt"
+code = "/** Run [answer] now, or once [answerHeld] runs while [holdNewReads] holds new reads. */"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/UpcomingFeed.kt"
+code = "private fun answerOrHold(answer: () -> Unit) {"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/UpcomingFeed.kt"
+code = "if (holdNewReads) held.add(answer) else answer()"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/UpcomingFeed.kt"
+code = "val feed = Channel<BridgeListCount>(Channel.UNLIMITED)"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/UpcomingFeed.kt"
+code = "answerOrHold { sendCount(feed) }"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/UpcomingFeed.kt"
+code = "val value = feed.receive()"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/shots/AlbumBoardShots.kt"
+code = '/** "Low Tide Hours" by Mara Quill with the six tracks the boards list, one disc, with [rating] as its rating. */'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/shots/ElementList.kt"
+code = "// Compose gives a node with no traversal index the index 0."
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/shots/ElementList.kt"
+code = "fun inTraversalOrder(nodes: List<SemanticsNode>) = nodes.sortedBy { it.config.getOrNull(SemanticsProperties.TraversalIndex) ?: 0f }"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/shots/ElementList.kt"
+code = "// The list visits a node's children in traversal order, the order TalkBack reads them in, not the order"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/shots/ElementList.kt"
+code = "// Compose draws them in."
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/shots/ElementList.kt"
+code = "inTraversalOrder(node.children).forEach { visit(it, here) }"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/shots/ElementList.kt"
+code = "inTraversalOrder(root.children).forEach { visit(it, null) }"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/shots/ElementList.kt"
+code = "// The tree keeps a bare, childless node where an embedded view sits. The element list puts the view's"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/shots/ElementList.kt"
+code = "// elements at that node, in the view's order. When the tree has no such node, the list puts the view where"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/shots/ElementList.kt"
+code = "// the reading order reaches its box."
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/shots/LibraryFailedShots.kt"
+code = "/** The albums view when bae cannot read its list: the library's header over the centred notice. */"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/shots/PinningBoardShots.kt"
+code = "import fm.bae.app.ui.downloads.AndroidStoragePinning"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/shots/PinningBoardShots.kt"
+code = "hasDownloads = ops.isNotEmpty(),"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/shots/PinningBoardShots.kt"
+code = "onSelectConcurrency = {},"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/shots/PinningBoardShots.kt"
+code = "DownloadsEmpty(modifier = Modifier.align(Alignment.Center))"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/shots/PinningBoardShots.kt"
+code = "listState = rememberLazyListState(),"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/shots/PlaylistBoardShots.kt"
+code = "/** The Edit playlist dialog over the page, showing the playlist's name and who sees it. */"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/shots/PlaylistBoardShots.kt"
+code = "/** The confirmation bae shows before it deletes a playlist. */"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/shots/SettingsSyncShots.kt"
+code = "import uniffi.bae_bridge.BridgeRestoreCodeShare"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/shots/SettingsSyncShots.kt"
+code = "private val RESTORE_CODE ="
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/shots/SettingsSyncShots.kt"
+code = 'code = "CVR1 UJZD EGXD NCF3 2EPF 3DHO DZDO CIS2 JHTL GMXG EDN7 3U55 XTPL PFT7 3MNB",'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/shots/SettingsSyncShots.kt"
+code = 'maskedGroups = listOf("CVR1", "UJZD") + List(12) { "••••" } + "3MNB",'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/shots/SettingsSyncShots.kt"
+code = 'qrText = "CVR1-UJZDEGXDNCF32EPF3DHODZDOCIS2JHTLGMXGEDN73U55XTPLPFT73MNB",'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/shots/SettingsSyncShots.kt"
+code = "private val SHOWN_RESTORE_CODE ="
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/shots/SettingsSyncShots.kt"
+code = "code = SHOWN_RESTORE_CODE_TEXT,"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/shots/SettingsSyncShots.kt"
+code = 'maskedGroups = listOf("CVR1", "UJZD") + List(60) { "••••" } + "B",'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/shots/SettingsSyncShots.kt"
+code = "qrText = SHOWN_RESTORE_CODE_TEXT,"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/shots/SettingsSyncShots.kt"
+code = "private const val SHOWN_RESTORE_CODE_TEXT ="
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/ui/RemovalIncompleteScreenTest.kt"
+code = "/** The screen offers Retry only for a failure that a second attempt can fix. */"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/ui/ResetOfferedScreenTest.kt"
+code = "/** When the open fails because the library's data is wrong, the screen names the failed step, says the data is"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/ui/ResetOfferedScreenTest.kt"
+code = "*  wrong and offers the reset. */"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/ui/albumdetail/AlbumOptionsMenuTest.kt"
+code = "/** The album's menu shows Set as primary release above Delete album only when the caller passes an action for it. */"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/ui/components/PageDeletionTest.kt"
+code = "package fm.bae.app.ui.components"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/ui/components/PageDeletionTest.kt"
+code = "* Delete deletes it and leaves the page, Cancel deletes nothing, and a failed"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/ui/components/PageDeletionTest.kt"
+code = "* delete stays on the page saying why."
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/ui/components/PageDeletionTest.kt"
+code = "class PageDeletionTest {"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/ui/components/PageDeletionTest.kt"
+code = "fun confirmingDeletesAndLeavesThePage() {"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/ui/components/PageDeletionTest.kt"
+code = 'assertEquals("Late night", deletion.confirming)'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/ui/components/PageDeletionTest.kt"
+code = "assertEquals(0, call.deletes)"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/ui/components/PageDeletionTest.kt"
+code = 'val call = Deleting(failure = BridgeException.Diagnostic(BridgeErrorCategory.Internal, "changed after planning"))'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/ui/components/PageDeletionTest.kt"
+code = ") = PageDeletion<String>("
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/ui/components/PageDeletionTest.kt"
+code = 'operation = "delete playlist playlist-id",'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/ui/components/PageDeletionTest.kt"
+code = "/** A delete call that counts its runs and throws [failure] when one is given. */"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/ui/library/EditPlaylistDialogTest.kt"
+code = "/** Save writes the playlist's name and who sees it in one call, and the dialog closes after that write finishes. */"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/ui/playback/ExpandedVolumeRowTest.kt"
+code = "import android.view.View"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/ui/playback/ExpandedVolumeRowTest.kt"
+code = "import android.view.ViewGroup"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/ui/playback/ExpandedVolumeRowTest.kt"
+code = "import android.widget.SeekBar"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/ui/playback/ExpandedVolumeRowTest.kt"
+code = "import androidx.compose.ui.platform.LocalView"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/ui/playback/ExpandedVolumeRowTest.kt"
+code = "import kotlinx.coroutines.CompletableDeferred"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/ui/playback/ExpandedVolumeRowTest.kt"
+code = "import org.robolectric.Shadows.shadowOf"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/ui/playback/ExpandedVolumeRowTest.kt"
+code = "/** The volume row: mute and the slider, which holds a dragged level until its set returns, or for a receiver that takes no volume from bae, a line saying where it is set. */"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/ui/playback/ExpandedVolumeRowTest.kt"
+code = "/** The slider shows the level a drag ended on until its set returns, then the stored level. */"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/ui/playback/ExpandedVolumeRowTest.kt"
+code = "fun aDraggedLevelStaysUntilItsSetReturns() {"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/ui/playback/ExpandedVolumeRowTest.kt"
+code = "val stored = CompletableDeferred<Unit>()"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/ui/playback/ExpandedVolumeRowTest.kt"
+code = "val sets = mutableListOf<Float>()"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/ui/playback/ExpandedVolumeRowTest.kt"
+code = "root = LocalView.current"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/ui/playback/ExpandedVolumeRowTest.kt"
+code = "ExpandedVolumeRow(0.7f, false, {}, {}, { level ->"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/ui/playback/ExpandedVolumeRowTest.kt"
+code = 'val bar = checkNotNull(seekBarIn(root)) { "the volume row draws a seek bar" }'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/ui/playback/ExpandedVolumeRowTest.kt"
+code = "val listener = shadowOf(bar).onSeekBarChangeListener"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/ui/playback/ExpandedVolumeRowTest.kt"
+code = "listener.onStartTrackingTouch(bar)"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/ui/playback/ExpandedVolumeRowTest.kt"
+code = "listener.onProgressChanged(bar, 300, true)"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/ui/playback/ExpandedVolumeRowTest.kt"
+code = "listener.onStopTrackingTouch(bar)"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/ui/playback/ExpandedVolumeRowTest.kt"
+code = "assertEquals(listOf(0.3f), sets)"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/ui/playback/ExpandedVolumeRowTest.kt"
+code = 'assertEquals("the stored level shows once the set returns", 700, bar.progress)'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/ui/playback/ExpandedVolumeRowTest.kt"
+code = "private fun seekBarIn(view: View): SeekBar? ="
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/ui/playback/ExpandedVolumeRowTest.kt"
+code = "is ViewGroup -> (0 until view.childCount).firstNotNullOfOrNull { seekBarIn(view.getChildAt(it)) }"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/ui/playback/PlaybackProgressViewTest.kt"
+code = "/** After a seek, the bar shows the stream's position; core reports the target as the position once it accepts the seek. */"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/ui/playback/QueueOrderTest.kt"
+code = '"a read that does not put the row where the person dropped it keeps the moves",'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/ui/playback/QueueOrderTest.kt"
+code = """assertEquals("the lane shows core's later read once the moved row is in it", listOf("a", "b"), order.manual.map { it.entryId })"""
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/ui/settings/MembersModelTest.kt"
+code = "/** A person's page follows the subscription keyed by their member id; when the person has left, the subscription delivers null. */"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/ui/settings/RestoreCodeSectionTest.kt"
+code = "import uniffi.bae_bridge.BridgeRestoreCodeShare"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/ui/settings/RestoreCodeSectionTest.kt"
+code = 'RestoreCodeSection(needsS3Key = true, location = "S3", generate = { SHARE })'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/ui/settings/RestoreCodeSectionTest.kt"
+code = "fun theMaskedCodeShowsTheGroupsCoreMasked() {"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/ui/settings/RestoreCodeSectionTest.kt"
+code = "CompositionLocalProvider(LocalBugReports provides BugReports()) {"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/ui/settings/RestoreCodeSectionTest.kt"
+code = 'compose.onNodeWithText("CVR1 ABCD •••• •••• •••• •••• •••• •••• 4567", useUnmergedTree = true).assertExists()'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/ui/settings/RestoreCodeSectionTest.kt"
+code = "val pending = CompletableDeferred<BridgeRestoreCodeShare>()"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/ui/settings/RestoreCodeSectionTest.kt"
+code = "val reveal = RestoreCodeReveal(this, generate = { SHARE }, errorDisplay = { null })"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/ui/settings/RestoreCodeSectionTest.kt"
+code = "assertEquals(RestoreCodeState.Shown(SHARE), reveal.state)"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/ui/settings/RestoreCodeSectionTest.kt"
+code = "val first = CompletableDeferred<BridgeRestoreCodeShare>()"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/ui/settings/RestoreCodeSectionTest.kt"
+code = "generate = { if (calls++ == 0) first.await() else NEWER },"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/ui/settings/RestoreCodeSectionTest.kt"
+code = "assertEquals(RestoreCodeState.Masked(NEWER), reveal.state)"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/ui/settings/RestoreCodeSectionTest.kt"
+code = 'maskedGroups = listOf("CVR1", "ABCD", "••••", "••••", "••••", "••••", "••••", "••••", "4567"),'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/ui/settings/RestoreCodeSectionTest.kt"
+code = 'BridgeRestoreCodeShare(code = "CVR1 NEWE R", maskedGroups = listOf("CVR1", "NEWE", "R"), qrText = "CVR1-NEWER")'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/ui/settings/SyncScreenTest.kt"
+code = 'code = "CVR1 ABCD EFGH JKMN",'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/ui/settings/SyncScreenTest.kt"
+code = 'maskedGroups = listOf("CVR1", "ABCD", "••••", "JKMN"),'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/widget/WidgetContentTest.kt"
+code = "package fm.bae.app.widget"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/widget/WidgetContentTest.kt"
+code = "import fm.bae.app.BaeRobolectricTestRunner"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/widget/WidgetContentTest.kt"
+code = "import fm.bae.app.plainCreditText"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/widget/WidgetContentTest.kt"
+code = "import fm.bae.app.playback.AudioFocus"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/widget/WidgetContentTest.kt"
+code = "import fm.bae.app.playback.BaeCorePlayer"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/widget/WidgetContentTest.kt"
+code = "import fm.bae.app.playback.FakeAppHandle"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/widget/WidgetContentTest.kt"
+code = "import fm.bae.app.playback.PlaybackSystem"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/widget/WidgetContentTest.kt"
+code = "import fm.bae.app.playback.applyPlaybackState"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/widget/WidgetContentTest.kt"
+code = "import fm.bae.app.playback.pausedState"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/widget/WidgetContentTest.kt"
+code = "import fm.bae.app.playback.playbackValues"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/widget/WidgetContentTest.kt"
+code = "import fm.bae.app.playback.playingState"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/widget/WidgetContentTest.kt"
+code = "import fm.bae.app.testCoverRef"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/widget/WidgetContentTest.kt"
+code = "import kotlinx.coroutines.CoroutineScope"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/widget/WidgetContentTest.kt"
+code = "import kotlinx.coroutines.Dispatchers"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/widget/WidgetContentTest.kt"
+code = "import kotlinx.coroutines.SupervisorJob"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/widget/WidgetContentTest.kt"
+code = "import org.junit.Assert.assertEquals"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/widget/WidgetContentTest.kt"
+code = "import org.junit.Assert.assertFalse"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/widget/WidgetContentTest.kt"
+code = "import org.junit.runner.RunWith"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/widget/WidgetContentTest.kt"
+code = "import org.robolectric.RuntimeEnvironment"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/widget/WidgetContentTest.kt"
+code = "import org.robolectric.annotation.Config"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/widget/WidgetContentTest.kt"
+code = "import uniffi.bae_bridge.BridgePlaybackValueState"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/widget/WidgetContentTest.kt"
+code = "* The widget draws what the open library's player plays: its track, shown as"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/widget/WidgetContentTest.kt"
+code = "* playing only while the player plays it, and no track when no library is"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/widget/WidgetContentTest.kt"
+code = "* open or the player plays nothing."
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/widget/WidgetContentTest.kt"
+code = "@RunWith(BaeRobolectricTestRunner::class)"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/widget/WidgetContentTest.kt"
+code = "class WidgetContentTest {"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/widget/WidgetContentTest.kt"
+code = "fun aPlayingPlayerShowsItsTrackAsPlaying() {"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/widget/WidgetContentTest.kt"
+code = "widgetContent(playingPlayer()),"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/widget/WidgetContentTest.kt"
+code = "fun aPausedPlayerShowsItsTrackAsStopped() {"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/widget/WidgetContentTest.kt"
+code = "val player = playingPlayer()"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/widget/WidgetContentTest.kt"
+code = 'player.applyPlaybackState(pausedState(trackId = "t1"))'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/widget/WidgetContentTest.kt"
+code = "val content = widgetContent(player) as WidgetContent.Track"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/widget/WidgetContentTest.kt"
+code = "assertFalse(content.isPlaying)"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/widget/WidgetContentTest.kt"
+code = "fun aStoppedPlayerShowsNothingPlaying() {"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/widget/WidgetContentTest.kt"
+code = "player.applyValues(playbackValues(BridgePlaybackValueState.Stopped))"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/widget/WidgetContentTest.kt"
+code = "assertEquals(WidgetContent.NothingPlaying, widgetContent(player))"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/widget/WidgetContentTest.kt"
+code = "fun noOpenLibraryShowsNothingPlaying() {"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/widget/WidgetContentTest.kt"
+code = "assertEquals(WidgetContent.NothingPlaying, widgetContent(player = null))"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/widget/WidgetContentTest.kt"
+code = "private fun playingPlayer(): BaeCorePlayer ="
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/widget/WidgetContentTest.kt"
+code = 'artistNames = "Artist Name",'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/widget/WidgetContentTest.kt"
+code = 'albumTitle = "Album Title",'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/widget/WidgetContentTest.kt"
+code = "private fun player(): BaeCorePlayer {"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/widget/WidgetContentTest.kt"
+code = "val context = RuntimeEnvironment.getApplication()"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/widget/WidgetContentTest.kt"
+code = "applicationLooper = android.os.Looper.getMainLooper(),"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/widget/WidgetContentTest.kt"
+code = "appHandle = FakeAppHandle(),"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/widget/WidgetContentTest.kt"
+code = "system = PlaybackSystem(context, AudioFocus(context), { false }),"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/widget/WidgetContentTest.kt"
+code = "creditLineText = ::plainCreditText,"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/widget/WidgetContentTest.kt"
+code = "scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate),"
+verdict = "none"
+
+[[site]]
+file = "bae-android/toolchain.sh"
+code = "# Every script that builds or checks the Android app sources this file in bash:"
+verdict = "none"
+
+[[site]]
+file = "bae-android/toolchain.sh"
+code = "# the build scripts, the pre-commit hook and CI. The toolchain"
+verdict = "none"
+
+[[site]]
+file = "bae-app/src/app_services.rs"
+code = "/// Set the volume, sent at this call; the future answers once playback has stored it, or why it has not."
+verdict = "none"
+
+[[site]]
+file = "bae-app/src/app_services.rs"
+code = "pub fn playback_set_volume("
+verdict = "none"
+
+[[site]]
+file = "bae-app/src/app_services.rs"
+code = ") -> impl std::future::Future<Output = Result<(), bae_playback::SetVolumeError>> + Send + 'static"
+verdict = "none"
+
+[[site]]
+file = "bae-app/src/app_services.rs"
+code = "self.inner.playback.set_volume(volume)"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/handle/base.rs"
+code = "/// Set the volume a slider's drag ends on, answering once playback has"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/handle/base.rs"
+code = "/// stored it, so the slider can hold the dragged level until then."
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/handle/base.rs"
+code = "pub async fn set_volume(self: std::sync::Arc<Self>, volume: f32) -> Result<(), BridgeError> {"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/handle/base.rs"
+code = "let answer = self.services.playback_set_volume(volume);"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/handle/base.rs"
+code = 'self.run_exported("AppHandle.set_volume", move |_| async move { Ok(answer.await?) }).await'
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/handle/playback_values_tests.rs"
+code = "handle.handle().runtime.block_on(handle.handle().clone().set_volume(0.4)).unwrap();"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/types/bootstrap.rs"
+code = "/// or copy, its groups as the masked code shows them (the hidden ones as"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/types/bootstrap.rs"
+code = "/// dots), and the code for the QR, which holds this device's S3 key."
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/types/bootstrap.rs"
+code = "pub masked_groups: Vec<String>,"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/types/bootstrap.rs"
+code = "Self { code: value.code, masked_groups: value.masked_groups, qr_text: value.qr_text }"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/types/play_outcome.rs"
+code = "fn from(error: bae_playback::SetVolumeError) -> Self {"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/types/play_outcome.rs"
+code = "Self::categorized(error.category(), error)"
+verdict = "none"
+
+[[site]]
+file = "bae-library/src/sync/restore_code.rs"
+code = "/// copy, its groups as the masked code shows them, and the code for the QR."
+verdict = "none"
+
+[[site]]
+file = "bae-library/src/sync/restore_code.rs"
+code = "pub masked_groups: Vec<String>,"
+verdict = "none"
+
+[[site]]
+file = "bae-library/src/sync/restore_code.rs"
+code = "let code = grouped(&code);"
+verdict = "none"
+
+[[site]]
+file = "bae-library/src/sync/restore_code.rs"
+code = "Self { masked_groups: masked_groups(&code), code, qr_text }"
+verdict = "none"
+
+[[site]]
+file = "bae-library/src/sync/restore_code.rs"
+code = "/// How many groups a masked code shows before its hidden ones: the prefix"
+verdict = "none"
+
+[[site]]
+file = "bae-library/src/sync/restore_code.rs"
+code = "/// and the first four characters."
+verdict = "none"
+
+[[site]]
+file = "bae-library/src/sync/restore_code.rs"
+code = "const MASK_SHOWS_FIRST: usize = 2;"
+verdict = "none"
+
+[[site]]
+file = "bae-library/src/sync/restore_code.rs"
+code = "/// What a masked code shows in place of each hidden group."
+verdict = "none"
+
+[[site]]
+file = "bae-library/src/sync/restore_code.rs"
+code = 'const HIDDEN_GROUP: &str = "••••";'
+verdict = "none"
+
+[[site]]
+file = "bae-library/src/sync/restore_code.rs"
+code = "/// The groups of `grouped`, a code in groups of four, as the masked code"
+verdict = "none"
+
+[[site]]
+file = "bae-library/src/sync/restore_code.rs"
+code = "/// shows them: the first two and the last as they are, and each group between"
+verdict = "none"
+
+[[site]]
+file = "bae-library/src/sync/restore_code.rs"
+code = "/// as dots. A person can tell one code from another by them, and nobody can"
+verdict = "none"
+
+[[site]]
+file = "bae-library/src/sync/restore_code.rs"
+code = "/// read the code over their shoulder."
+verdict = "none"
+
+[[site]]
+file = "bae-library/src/sync/restore_code.rs"
+code = "fn masked_groups(grouped: &str) -> Vec<String> {"
+verdict = "none"
+
+[[site]]
+file = "bae-library/src/sync/restore_code.rs"
+code = "let groups: Vec<&str> = grouped.split(' ').collect();"
+verdict = "none"
+
+[[site]]
+file = "bae-library/src/sync/restore_code.rs"
+code = "let last = groups.len() - 1;"
+verdict = "none"
+
+[[site]]
+file = "bae-library/src/sync/restore_code.rs"
+code = "if index < MASK_SHOWS_FIRST || index == last {"
+verdict = "none"
+
+[[site]]
+file = "bae-library/src/sync/restore_code_tests.rs"
+code = "fn a_masked_code_shows_its_first_two_groups_and_its_last() {"
+verdict = "none"
+
+[[site]]
+file = "bae-library/src/sync/restore_code_tests.rs"
+code = 'let share = RestoreCodeShare::new("CVR1-UJZDEGXDNCF32EPF3DHO".to_string(), "qr".to_string());'
+verdict = "none"
+
+[[site]]
+file = "bae-library/src/sync/restore_code_tests.rs"
+code = 'assert_eq!(share.masked_groups, ["CVR1", "UJZD", "••••", "••••", "••••", "3DHO"]);'
+verdict = "none"
+
+[[site]]
+file = "bae-library/src/sync/restore_code_tests.rs"
+code = "fn a_masked_code_of_three_groups_hides_none() {"
+verdict = "none"
+
+[[site]]
+file = "bae-library/src/sync/restore_code_tests.rs"
+code = 'let share = RestoreCodeShare::new("CVR1-UJZDEGXD".to_string(), "qr".to_string());'
+verdict = "none"
+
+[[site]]
+file = "bae-library/src/sync/restore_code_tests.rs"
+code = 'assert_eq!(share.masked_groups, ["CVR1", "UJZD", "EGXD"]);'
+verdict = "none"
+
+[[site]]
+file = "bae-library/tests/integration/test_playback_behavior/queue_and_pregap/queue.rs"
+code = "async fn set_volume_answers_once_the_row_holds_the_level() {"
+verdict = "none"
+
+[[site]]
+file = "bae-library/tests/integration/test_playback_behavior/queue_and_pregap/queue.rs"
+code = "with_fixture(PlaybackTestFixture::new(), async |fixture| {"
+verdict = "none"
+
+[[site]]
+file = "bae-library/tests/integration/test_playback_behavior/queue_and_pregap/queue.rs"
+code = "let (volume, _) = bae_playback::tables::playback_level(fixture.library.store())"
+verdict = "none"
+
+[[site]]
+file = "bae-library/tests/integration/test_playback_behavior/queue_and_pregap/queue.rs"
+code = '.expect("read the stored level");'
+verdict = "none"
+
+[[site]]
+file = "bae-library/tests/integration/test_playback_behavior/service_restart.rs"
+code = 'handle.set_volume(0.5).await.expect("the volume is stored");'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/Fixtures/LibrarySettingsTab+Fixtures.swift"
+code = "PreviewData.restoreCodeShare"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/Fixtures/PreviewData+Settings.swift"
+code = "/// That code as core shares it: grouped, its masked groups, and the"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/Fixtures/PreviewData+Settings.swift"
+code = "static let restoreCodeShare: BridgeRestoreCodeShare = {"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/Fixtures/PreviewData+Settings.swift"
+code = 'let groups = restoreCodeGrouped.split(separator: " ").map(String.init)'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/Fixtures/PreviewData+Settings.swift"
+code = "return BridgeRestoreCodeShare("
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/Fixtures/PreviewData+Settings.swift"
+code = "code: restoreCodeGrouped,"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/Fixtures/PreviewData+Settings.swift"
+code = "maskedGroups: groups.prefix(2)"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/Fixtures/PreviewData+Settings.swift"
+code = '+ Array(repeating: "••••", count: groups.count - 3)'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/Fixtures/PreviewData+Settings.swift"
+code = "generateRestoreCode: { restoreCodeShare },"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Playback/NowPlaying/MacNowPlayingBar.swift"
+code = "let onVolumeChange: (Float) async -> Void"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Playback/NowPlaying/MacNowPlayingBarContainer.swift"
+code = "onVolumeChange: { level in"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Playback/NowPlaying/MacNowPlayingBarContainer.swift"
+code = "try await playback.setVolume(level)"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Playback/NowPlaying/SlimSlider.swift"
+code = "let onChange: (Float) async -> Void"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Playback/NowPlaying/SlimSlider.swift"
+code = "/// The level under the pointer, from the gesture's start until its set returns."
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Playback/NowPlaying/SlimSlider.swift"
+code = "/// Show `level` and set it through `onChange`, until that set returns."
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Playback/NowPlaying/SlimSlider.swift"
+code = "private func set(_ level: Float) {"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Playback/NowPlaying/SlimSlider.swift"
+code = "case .increment: set(min(1, clamped + step))"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Playback/NowPlaying/SlimSlider.swift"
+code = "case .decrement: set(max(0, clamped - step))"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeShots/ShotScene+SyncSettings.swift"
+code = "restoreCode: .shown(PreviewData.restoreCodeShare)"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeShots/ShotScene+SyncSettings.swift"
+code = "PreviewData.restoreCodeShare"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/RestoreCodeRevealTests.swift"
+code = "BridgeRestoreCodeShare(code: code, maskedGroups: [code], qrText: code)"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/RestoreCodeRevealTests.swift"
+code = 'reveal.state == .masked(Self.share("CVR1 SHOWN"))'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/RestoreCodeRevealTests.swift"
+code = 'reveal.state == .masked(Self.share("CVR1 HELD"))'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/RestoreCodeRevealTests.swift"
+code = '#expect(reveal.state == .shown(Self.share("CVR1 HELD")))'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/RestoreCodeRevealTests.swift"
+code = '#expect(reveal.state == .masked(Self.share("CVR1 HELD")))'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/RestoreCodeRevealTests.swift"
+code = 'try await Wait.until { reveal.state == .masked(Self.share("CVR1 NEW")) }'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/RestoreCodeRevealTests.swift"
+code = '#expect(reveal.state == .masked(Self.share("CVR1 NEW")))'
+verdict = "none"
+
+[[site]]
+file = "bae-playback/src/lib.rs"
+code = "PlaybackState, PlaybackTrackInfo, PlaybackTrackSide, QueueEditError, SetVolumeError,"
+verdict = "none"
+
+[[site]]
+file = "bae-playback/src/service/api.rs"
+code = "#[derive(Debug, thiserror::Error)]"
+verdict = "none"
+
+[[site]]
+file = "bae-playback/src/service/api.rs"
+code = "pub enum SetVolumeError {"
+verdict = "none"
+
+[[site]]
+file = "bae-playback/src/service/api.rs"
+code = "/// The level is no number, so it names no volume. A slider never sends"
+verdict = "none"
+
+[[site]]
+file = "bae-playback/src/service/api.rs"
+code = "/// one, so this is a bug of whoever sent it."
+verdict = "none"
+
+[[site]]
+file = "bae-playback/src/service/api.rs"
+code = '#[error("the volume {0} is no number")]'
+verdict = "none"
+
+[[site]]
+file = "bae-playback/src/service/api.rs"
+code = '#[error("the playback service stopped before it answered the volume")]'
+verdict = "none"
+
+[[site]]
+file = "bae-playback/src/service/api.rs"
+code = "Stopped(#[source] oneshot::error::RecvError),"
+verdict = "none"
+
+[[site]]
+file = "bae-playback/src/service/api.rs"
+code = '#[error("the playback service had ended")]'
+verdict = "none"
+
+[[site]]
+file = "bae-playback/src/service/api.rs"
+code = "Ended(#[source] WorkerEnd),"
+verdict = "none"
+
+[[site]]
+file = "bae-playback/src/service/api.rs"
+code = "/// The task that stores what playback is doing ended before it stored"
+verdict = "none"
+
+[[site]]
+file = "bae-playback/src/service/api.rs"
+code = '#[error("playback stopped storing what it does before it stored the volume")]'
+verdict = "none"
+
+[[site]]
+file = "bae-playback/src/service/api.rs"
+code = "pub fn category(&self) -> bae_diagnostics::UiErrorCategory {"
+verdict = "none"
+
+[[site]]
+file = "bae-playback/src/service/api.rs"
+code = "bae_diagnostics::UiErrorCategory::Internal"
+verdict = "none"
+
+[[site]]
+file = "bae-playback/src/service/api.rs"
+code = "/// Set the level, answering once the service has applied it and told it"
+verdict = "none"
+
+[[site]]
+file = "bae-playback/src/service/api.rs"
+code = "/// to the task that stores it."
+verdict = "none"
+
+[[site]]
+file = "bae-playback/src/service/api.rs"
+code = "SetVolume(crate::Volume, oneshot::Sender<()>),"
+verdict = "none"
+
+[[site]]
+file = "bae-playback/src/service/api.rs"
+code = ") -> impl std::future::Future<Output = Result<(), SetVolumeError>> + Send + 'static {"
+verdict = "none"
+
+[[site]]
+file = "bae-playback/src/service/api.rs"
+code = "let mut feed = self.progress_handle.subscribe_all();"
+verdict = "none"
+
+[[site]]
+file = "bae-playback/src/service/api.rs"
+code = "let (reply, answer) = oneshot::channel();"
+verdict = "none"
+
+[[site]]
+file = "bae-playback/src/service/api.rs"
+code = "let sent = match crate::Volume::new(volume) {"
+verdict = "none"
+
+[[site]]
+file = "bae-playback/src/service/api.rs"
+code = ".send(PlaybackCommand::SetVolume(level, reply))"
+verdict = "none"
+
+[[site]]
+file = "bae-playback/src/service/api.rs"
+code = ".map_err(SetVolumeError::Ended),"
+verdict = "none"
+
+[[site]]
+file = "bae-playback/src/service/api.rs"
+code = "None => Err(SetVolumeError::NotANumber(volume)),"
+verdict = "none"
+
+[[site]]
+file = "bae-playback/src/service/api.rs"
+code = "answer.await.map_err(SetVolumeError::Stopped)?;"
+verdict = "none"
+
+[[site]]
+file = "bae-playback/src/service/api.rs"
+code = "// The service told the level before it answered, so its event is"
+verdict = "none"
+
+[[site]]
+file = "bae-playback/src/service/api.rs"
+code = "match feed.recv().await {"
+verdict = "none"
+
+[[site]]
+file = "bae-playback/src/service/api.rs"
+code = "Some(PlaybackProgress::VolumeChanged { volume }) if volume == level.get() => {"
+verdict = "none"
+
+[[site]]
+file = "bae-playback/src/service/api.rs"
+code = "None => return Err(SetVolumeError::NotStored),"
+verdict = "none"
+
+[[site]]
+file = "bae-playback/src/service/command_kind_tests.rs"
+code = "assert!(playback_command_kind(&PlaybackCommand::SetVolume("
+verdict = "none"
+
+[[site]]
+file = "bae-playback/src/service/command_kind_tests.rs"
+code = "crate::Volume::new(0.5).unwrap(),"
+verdict = "none"
+
+[[site]]
+file = "bae-playback/src/service/command_kind_tests.rs"
+code = "PlaybackCommand::SetVolume(crate::Volume::new(0.5).unwrap(), oneshot::channel().0),"
+verdict = "none"
+
+[[site]]
+file = "bae-playback/src/service/commands.rs"
+code = "PlaybackCommand::SetVolume(volume, reply) => {"
+verdict = "none"
+
+[[site]]
+file = "bae-playback/src/service/commands.rs"
+code = "if reply.send(()).is_err() {"
+verdict = "none"
+
+[[site]]
+file = "bae-playback/src/service/mod.rs"
+code = "QueueEditError, SetVolumeError,"
+verdict = "none"
+
+[[site]]
+file = "bae-playback/src/service/runtime_tests.rs"
+code = "let volume = tokio::time::timeout(HANG_GUARD, playback.set_volume(0.5))"
+verdict = "none"
+
+[[site]]
+file = "bae-playback/src/service/runtime_tests.rs"
+code = "let volume = playback.set_volume(0.25);"
+verdict = "none"
+
+[[site]]
+file = "bae-playback/src/service/runtime_tests.rs"
+code = "let (volume, played, ()) = tokio::time::timeout(HANG_GUARD, async {"
+verdict = "none"
+
+[[site]]
+file = "bae-playback/src/service/runtime_tests.rs"
+code = "tokio::join!(volume, played, async { script.allow(2) })"
+verdict = "none"
+
+[[site]]
+file = "spec/bae.md"
+code = "masked: its first two groups and its last, the groups between as dots. Core"
+verdict = "none"
+
+[[site]]
+file = "spec/bae.md"
+code = "masks the code and sends the masked groups beside it, so every app shows the"
+verdict = "none"
+
+[[site]]
+file = "spec/bae.md"
+code = "When shuffle turns on or off, the queue keeps showing the rows of the old order"
+verdict = "none"
+
+[[site]]
+file = "spec/bae.md"
+code = "until the new order's count and first rows arrive, so the list never empties"
+verdict = "none"
+
+[[site]]
+file = "spec/bae.md"
+code = "on, in one write. The slider shows the level the drag ended on until that write"
+verdict = "none"
+
+[[site]]
+file = "spec/bae.md"
+code = "returns, and then shows the stored level. A UPnP renderer that describes no volume control can't take"
+verdict = "none"
+
+[[site]]
+file = "spec/bae.md"
+code = "**The home-screen widget.** Android's now-playing widget shows the track the"
+verdict = "none"
+
+[[site]]
+file = "spec/bae.md"
+code = "open library plays, with Play or Pause and Next, and a tap elsewhere opens the"
+verdict = "none"
+
+[[site]]
+file = "spec/bae.md"
+code = "app. The app updates it on each change of track or of playing, from the values"
+verdict = "none"
+
+[[site]]
+file = "spec/bae.md"
+code = "the in-app player bar shows; nothing about it is saved to a file. With no"
+verdict = "none"
+
+[[site]]
+file = "spec/bae.md"
+code = "library open nothing plays, so the widget shows no track and offers nothing to"
+verdict = "none"

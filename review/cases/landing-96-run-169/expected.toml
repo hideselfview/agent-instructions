@@ -1,0 +1,154 @@
+project = "bae"
+clean_for = []
+
+[[finding]]
+rule = "write-plain-literal-active-sentences"
+file = "bae-macos/test.sh"
+
+[[site]]
+file = "bae-macos/test.sh"
+code = """
+Each scheme takes as long to compile as the other,
+# so a run of the unit tests never compiles the scenes."""
+verdict = "finding"
+rule = "write-plain-literal-active-sentences"
+
+[[site]]
+file = ".app-build"
+code = "# The shot scenes compile in their own scheme and tree, which takes as long to"
+verdict = "none"
+
+[[site]]
+file = ".app-build"
+code = "# compile as the app's, so an app build compiles them only for a change to the"
+verdict = "none"
+
+[[site]]
+file = ".app-build"
+code = "# scenes. bae-shots compiles them for a --shots run, and the `test mac:shots`"
+verdict = "none"
+
+[[site]]
+file = ".app-build"
+code = "# line for a --test run of a scenes' class."
+verdict = "none"
+
+[[site]]
+file = ".app-build"
+code = "on bae-macos/bae/baeShots/ macos-shots-tests"
+verdict = "none"
+
+[[site]]
+file = ".app-build"
+code = "step mac macos-shots-tests ./bae-macos/test.sh --build-only --bundle baeShots"
+verdict = "none"
+
+[[site]]
+file = ".app-build"
+code = "limit macos-shots-tests 20m"
+verdict = "none"
+
+[[site]]
+file = ".app-build"
+code = "test mac:shots ./bae-macos/test.sh --bundle baeShots {class}"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/test.sh"
+code = "# A run builds only the scheme of the bundle it runs: the `bae` scheme (the app,"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/test.sh"
+code = "# baeTests and baeUITests) in the unsigned tree, or with `--bundle baeShots`"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/test.sh"
+code = "# the `baeShots` scheme (the screenshot scenes) in the shots tree"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/test.sh"
+code = "# (scripts/xcode-trees.sh). Each scheme takes as long to compile as the other,"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/test.sh"
+code = "# `--build-only` compiles that scheme and stops, running nothing: the check"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/test.sh"
+code = "# after a change to a bridge shape or Swift code, which `run.sh` alone misses"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/test.sh"
+code = "# because it never builds the test target. `.app-build`'s `macos-tests` step"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/test.sh"
+code = "# compiles the `bae` scheme with it, and its `macos-shots-tests` step the"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/test.sh"
+code = "# `baeShots` scheme, for a change to the scenes."
+verdict = "none"
+
+[[site]]
+file = "bae-macos/test.sh"
+code = "# scenes' bundle instead: `builds app-build --test <Class>` builds and runs a"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/test.sh"
+code = "# class declared under bae-macos/bae/baeShots through it (`.app-build`'s"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/test.sh"
+code = "# `test mac:shots` line), since the `bae` scheme never runs that bundle and the"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/test.sh"
+code = "# `macos-tests` step never builds it."
+verdict = "none"
+
+[[site]]
+file = "bae-macos/test.sh"
+code = 'if [[ "$ACTION" == build-for-testing && $# -ne 0 ]]; then'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/test.sh"
+code = 'echo "--build-only takes no test names" >&2'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/test.sh"
+code = 'if [[ "$BUNDLE_NAME" == baeShots ]]; then'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/test.sh"
+code = "xcodebuild_tests baeShots build-for-testing"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/test.sh"
+code = 'rm -rf "$UI_TEST_RUNNER"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/test.sh"
+code = "xcodebuild_tests baeTests build-for-testing"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/test.sh"
+code = 'codesign --force --sign - "$UI_TEST_RUNNER"'
+verdict = "none"

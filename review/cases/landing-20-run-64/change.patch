@@ -1,0 +1,770 @@
+diff --git a/crates/coven-database/src/app_statements.rs b/crates/coven-database/src/app_statements.rs
+index e0f398e73..a190da54c 100644
+--- a/crates/coven-database/src/app_statements.rs
++++ b/crates/coven-database/src/app_statements.rs
+@@ -94,14 +94,16 @@ impl DatabaseConnection {
+     }
+ 
+     /// End the app statement begun last: each table it read in the scope
+-    /// `plan` gives it for this run, or whole.
++    /// `plan` gives it for this run, which returned `last` as the ORDER BY's
++    /// values of the row the plan's `last_row` names, or whole.
+     pub(super) fn record_app_statement(
+         &self,
+         plan: Option<&sqlive::ScopePlan>,
+         parameters: &[sqlive::SqlValue],
++        last: Option<&[sqlive::SqlValue]>,
+     ) {
+         self.authorization.record_statement(&match plan {
+-            Some(plan) => plan.scopes(parameters),
++            Some(plan) => plan.scopes(parameters, last),
+             None => sqlive::Scopes::default(),
+         });
+     }
+diff --git a/crates/coven-database/src/live_judging_tests.rs b/crates/coven-database/src/live_judging_tests.rs
+index d4d6f0915..362ef0d25 100644
+--- a/crates/coven-database/src/live_judging_tests.rs
++++ b/crates/coven-database/src/live_judging_tests.rs
+@@ -5,6 +5,8 @@
+ 
+ #[path = "live_judging_tests/derived.rs"]
+ mod derived;
++#[path = "live_judging_tests/limit.rs"]
++mod limit;
+ #[path = "live_judging_tests/lookup.rs"]
+ mod lookup;
+ #[path = "live_judging_tests/plan.rs"]
+diff --git a/crates/coven-database/src/live_judging_tests/limit.rs b/crates/coven-database/src/live_judging_tests/limit.rs
+new file mode 100644
+index 000000000..9a4bea91d
+--- /dev/null
++++ b/crates/coven-database/src/live_judging_tests/limit.rs
+@@ -0,0 +1,194 @@
++//! A statement that orders by columns of one table and returns as many rows
++//! as its LIMIT depends only on the rows that sort at or before its last
++//! row, as a list window read as one live query does (§4).
++
++use super::lookup::follows;
++use crate::tests::TestStore;
++use sqlive::SqlValue::{Integer, Text};
++
++const NOTES: &str = "CREATE TABLE notes(id INTEGER PRIMARY KEY, title TEXT, body TEXT);
++INSERT INTO notes VALUES (1,'b',''),(2,'d',''),(3,'f',''),(4,'h',''),(5,'j',''),(6,'l','')";
++
++/// The window from `c` holds d, f and h. A change after h wakes nothing; one
++/// inside the window does, and each rerun ends the window at its new last row.
++#[tokio::test]
++async fn a_full_window_reruns_only_for_rows_up_to_its_last() {
++    let store = TestStore::new();
++    let db = store.schema(vec![], NOTES).await.unwrap();
++    follows(
++        &db,
++        "SELECT title, id, body FROM notes WHERE title >= ?1 ORDER BY title LIMIT ?2",
++        vec![Text(b"c".to_vec()), Integer(3)],
++        &[
++            ("INSERT INTO notes VALUES (7,'k','')", false),
++            ("INSERT INTO notes VALUES (8,'z','')", false),
++            ("UPDATE notes SET body = 'x' WHERE title = 'j'", false),
++            ("INSERT INTO notes VALUES (9,'a','')", false),
++            ("UPDATE notes SET body = 'x' WHERE title = 'f'", true),
++            // The window now holds d, e and f.
++            ("INSERT INTO notes VALUES (10,'e','')", true),
++            ("INSERT INTO notes VALUES (11,'g','')", false),
++            ("UPDATE notes SET body = 'y' WHERE title = 'h'", false),
++            // Deleting e pulls g in: d, f and g.
++            ("DELETE FROM notes WHERE title = 'e'", true),
++            ("UPDATE notes SET body = 'y' WHERE title = 'g'", true),
++            ("UPDATE notes SET body = 'z' WHERE title = 'h'", false),
++            // A row equal to the last one could sort before it.
++            ("INSERT INTO notes VALUES (12,'g','')", true),
++        ],
++    )
++    .await;
++    db.close().await.unwrap();
++}
++
++/// A row that moves into the window from after it, or out of the window,
++/// reruns it.
++#[tokio::test]
++async fn a_row_moving_into_or_out_of_a_full_window_reruns_it() {
++    let store = TestStore::new();
++    let db = store.schema(vec![], NOTES).await.unwrap();
++    follows(
++        &db,
++        "SELECT title, id, body FROM notes WHERE title >= 'c' ORDER BY title LIMIT 3",
++        vec![],
++        &[
++            // From after the window into it: d, e and f.
++            ("UPDATE notes SET title = 'e' WHERE id = 6", true),
++            // Out of the window: e, f and h.
++            ("UPDATE notes SET title = 'y' WHERE id = 2", true),
++            ("UPDATE notes SET body = 'x' WHERE id = 2", false),
++            ("UPDATE notes SET body = 'x' WHERE id = 4", true),
++        ],
++    )
++    .await;
++    db.close().await.unwrap();
++}
++
++/// A window that returned fewer rows than its LIMIT already holds every row
++/// after its start, so a row added anywhere after the start reruns it.
++#[tokio::test]
++async fn a_short_window_reruns_for_a_row_anywhere_after_its_start() {
++    let store = TestStore::new();
++    let db = store.schema(vec![], NOTES).await.unwrap();
++    follows(
++        &db,
++        "SELECT title, id, body FROM notes WHERE title >= 'i' ORDER BY title LIMIT 5",
++        vec![],
++        &[
++            ("INSERT INTO notes VALUES (7,'a','')", false),
++            ("INSERT INTO notes VALUES (8,'z','')", true),
++            ("INSERT INTO notes VALUES (9,'zz','')", true),
++        ],
++    )
++    .await;
++    db.close().await.unwrap();
++}
++
++/// A descending window ends at its smallest row, and sorts NULLs last.
++#[tokio::test]
++async fn a_descending_window_ends_at_its_smallest_row() {
++    let store = TestStore::new();
++    let db = store.schema(vec![], NOTES).await.unwrap();
++    // j, h and f.
++    follows(
++        &db,
++        "SELECT title, id, body FROM notes WHERE title <= 'k' OR title IS NULL ORDER BY title DESC LIMIT 3",
++        vec![],
++        &[
++            ("INSERT INTO notes VALUES (7,'c','')", false),
++            ("INSERT INTO notes VALUES (8,NULL,'')", false),
++            ("UPDATE notes SET body = 'x' WHERE title = 'd'", false),
++            ("UPDATE notes SET body = 'x' WHERE title = 'h'", true),
++            ("INSERT INTO notes VALUES (9,'g','')", true),
++            ("INSERT INTO notes VALUES (10,'k','')", true),
++        ],
++    )
++    .await;
++    db.close().await.unwrap();
++}
++
++/// A window over two columns, whose last row ties with later rows on the
++/// first column, ends at that row's second column. NULLs sort first.
++#[tokio::test]
++async fn a_window_over_two_columns_ends_within_a_tie() {
++    let store = TestStore::new();
++    let db = store
++        .schema(
++            vec![],
++            "CREATE TABLE albums(id INTEGER PRIMARY KEY, year INTEGER, title TEXT);
++INSERT INTO albums VALUES (10,2000,''),(20,2000,''),(30,2005,''),(40,2005,''),(50,2010,'')",
++        )
++        .await
++        .unwrap();
++    // 10, 20 and 30.
++    follows(
++        &db,
++        "SELECT title, year, id FROM albums ORDER BY year, id LIMIT 3",
++        vec![],
++        &[
++            ("INSERT INTO albums VALUES (35,2005,'')", false),
++            ("UPDATE albums SET title = 'x' WHERE id = 40", false),
++            ("UPDATE albums SET title = 'x' WHERE id = 30", true),
++            // 10, 20 and 25.
++            ("INSERT INTO albums VALUES (25,2005,'')", true),
++            ("UPDATE albums SET title = 'y' WHERE id = 30", false),
++            // 5, 10 and 20.
++            ("INSERT INTO albums VALUES (5,NULL,'')", true),
++            ("INSERT INTO albums VALUES (60,2000,'')", false),
++            ("INSERT INTO albums VALUES (15,2000,'')", true),
++        ],
++    )
++    .await;
++    db.close().await.unwrap();
++}
++
++/// A join's lookup reads its partner's rows up to the window's last row: a
++/// track of a release past the window wakes nothing.
++#[tokio::test]
++async fn a_joined_tables_lookup_reads_its_partner_up_to_the_last_row() {
++    let store = TestStore::new();
++    let db = store
++        .schema(
++            vec![],
++            "CREATE TABLE releases(id TEXT NOT NULL PRIMARY KEY, title TEXT);
++CREATE TABLE tracks(id INTEGER PRIMARY KEY, release TEXT, title TEXT);
++INSERT INTO releases VALUES ('r1','a'),('r2','b'),('r3','c');
++INSERT INTO tracks VALUES (1,'r1','one'),(2,'r2','two'),(3,'r3','three')",
++        )
++        .await
++        .unwrap();
++    // a's track and b's.
++    follows(
++        &db,
++        "SELECT t.title, r.title, r.id FROM releases r JOIN tracks t ON t.release = r.id ORDER BY r.title, r.id LIMIT 2",
++        vec![],
++        &[
++            ("INSERT INTO tracks VALUES (4,'r3','four')", false),
++            ("UPDATE tracks SET title = 'tres' WHERE id = 3", false),
++            ("UPDATE tracks SET title = 'dos' WHERE id = 2", true),
++            // a's two tracks.
++            ("INSERT INTO tracks VALUES (5,'r1','five')", true),
++            ("UPDATE tracks SET title = 'two' WHERE id = 2", false),
++        ],
++    )
++    .await;
++    db.close().await.unwrap();
++}
++
++/// An OFFSET, an ORDER BY column the statement doesn't return, and an
++/// ORDER BY expression keep the scope open after the window's start.
++#[tokio::test]
++async fn an_offset_an_unreturned_column_or_an_expression_narrows_nothing_more() {
++    let store = TestStore::new();
++    let db = store.schema(vec![], NOTES).await.unwrap();
++    for sql in [
++        "SELECT title, id FROM notes ORDER BY title LIMIT 2 OFFSET 1",
++        "SELECT id FROM notes ORDER BY title LIMIT 2",
++        "SELECT title, id FROM notes ORDER BY lower(title) LIMIT 2",
++        "SELECT title, id FROM notes ORDER BY title COLLATE NOCASE LIMIT 2",
++    ] {
++        follows(&db, sql, vec![], &[("INSERT INTO notes VALUES (7,'z','')", true)]).await;
++        db.commit_writer(|db| db.batch("DELETE FROM notes WHERE id = 7").unwrap());
++    }
++    db.close().await.unwrap();
++}
+diff --git a/crates/coven-database/src/sqlite.rs b/crates/coven-database/src/sqlite.rs
+index b9e1f02e9..3d8348636 100644
+--- a/crates/coven-database/src/sqlite.rs
++++ b/crates/coven-database/src/sqlite.rs
+@@ -735,20 +735,31 @@ impl DatabaseConnection {
+             let mut statement = self.app_statement(sql)?;
+             let parameters = sqlive::parameters(&self.connection, &statement, params)?;
+             let plan = self.live_scope_plan(sql, &statement)?;
++            // A run that returns as many rows as its LIMIT depends only on the
++            // rows up to its last one (§4).
++            let last_row = plan.as_ref().and_then(|plan| plan.last_row(&parameters));
++            let mut last = None;
+             let result = self.counting_steps(&mut statement, StepsOf::AppRead, |statement| {
+                 let mut rows = statement.query(rusqlite::params_from_iter(&parameters))?;
++                let mut returned = 0;
+                 loop {
+                     let row = {
+                         let _scope = self.authorization.step();
+                         self.authorization.app_result(rows.next())?
+                     };
+                     let Some(row) = row else { return Ok(()) };
++                    returned += 1;
++                    if let Some(last_row) =
++                        last_row.as_ref().filter(|found| found.limit == returned)
++                    {
++                        last = Some(last_row.values(row)?);
++                    }
+                     if !each(row)? {
+                         return Ok(());
+                     }
+                 }
+             });
+-            self.record_app_statement(plan.as_deref(), &parameters);
++            self.record_app_statement(plan.as_deref(), &parameters, last.as_deref());
+             #[cfg(any(test, feature = "test-utils"))]
+             if recorded == Recorded::Yes {
+                 if let Some(log) = self.statement_log.borrow().as_ref() {
+diff --git a/crates/sqlive/src/lib.rs b/crates/sqlive/src/lib.rs
+index 98f72174f..56b48cdc7 100644
+--- a/crates/sqlive/src/lib.rs
++++ b/crates/sqlive/src/lib.rs
+@@ -11,6 +11,7 @@ mod read_capture;
+ mod read_set;
+ mod row_scope;
+ mod scope_lookup;
++mod scope_order;
+ mod scope_plan;
+ mod scope_row;
+ mod scope_subquery;
+@@ -24,6 +25,7 @@ pub use read_capture::{ReadCapture, ReadFrame, WholeViews};
+ pub use read_set::{affected, Answers, ColumnSet, ReadSet, RowChange, TableRead, ROWS_PER_TABLE};
+ pub use row_scope::{RowImage, RowScope, Scopes};
+ pub use scope_lookup::{Judging, Lookup, Lookups, LOOKUP_STEPS};
++pub use scope_order::LastRow;
+ pub use scope_plan::ScopePlan;
+ pub use scope_row::RowCondition;
+ pub use scope_term::Affinity;
+diff --git a/crates/sqlive/src/scope_lookup.rs b/crates/sqlive/src/scope_lookup.rs
+index 83ccd4218..1ac9a9bc9 100644
+--- a/crates/sqlive/src/scope_lookup.rs
++++ b/crates/sqlive/src/scope_lookup.rs
+@@ -32,8 +32,10 @@ pub type Lookups<'a> = dyn FnMut(Judging<'_>) -> rusqlite::Result<bool> + 'a;
+ pub const LOOKUP_STEPS: i32 = 1_000;
+ 
+ /// The scope of each table among `sources`, for a run bound to
+-/// `parameters`.
+-pub(crate) fn scopes(sources: &Sources, parameters: &[Value]) -> Scopes {
++/// `parameters` that returned `last`, the ORDER BY's values of its last row,
++/// when it returned as many rows as its LIMIT. The sources placed after the
++/// sorted one look its rows up within that bound too.
++pub(crate) fn scopes(sources: &Sources, parameters: &[Value], last: Option<&[Value]>) -> Scopes {
+     let parameters: Arc<[Value]> = parameters.into();
+     let mut bound: Vec<Option<RowScope>> = sources.sources.iter().map(|_| None).collect();
+     for &position in &sources.order {
+@@ -63,6 +65,11 @@ pub(crate) fn scopes(sources: &Sources, parameters: &[Value]) -> Scopes {
+                 )),
+             });
+         }
++        if let (Some(sorted), Some(last)) = (&sources.sorted, last) {
++            if sorted.source == position {
++                scope = scope.and(crate::scope_order::sorted_at_or_before(&sorted.terms, last));
++            }
++        }
+         bound[position] = Some(scope);
+     }
+     let mut scopes: BTreeMap<String, RowScope> = BTreeMap::new();
+diff --git a/crates/sqlive/src/scope_order.rs b/crates/sqlive/src/scope_order.rs
+new file mode 100644
+index 000000000..b32af01ba
+--- /dev/null
++++ b/crates/sqlive/src/scope_order.rs
+@@ -0,0 +1,228 @@
++//! A statement that orders by columns of one table and has a LIMIT with no
++//! OFFSET, whose full run depends only on that table's rows up to its last
++//! row (§4).
++//!
++//! When a run returns as many rows as its LIMIT, a row that sorts after its
++//! last row can't enter the result: every row it would add sorts after the
++//! rows already there. So the run's scope for the table also requires a row
++//! to sort at or before the last row, in the ORDER BY's directions, and the
++//! next run sets that bound again from its own last row. A row equal to the
++//! last one could sort before it, so it passes. A run that returned fewer rows
++//! than its LIMIT holds every row its WHERE allows, and keeps its scope.
++//!
++//! coven compares the values as BINARY, as SQLite does for a stored column of
++//! that collation, and takes the last row's values from the result columns
++//! that return them. So each ORDER BY term is a column of one table of the
++//! statement's only SELECT, written as a name with no COLLATE and no NULLS
++//! FIRST or LAST, that the statement returns as a result column. The table
++//! isn't the right side of a LEFT JOIN: there a row added for a left row with
++//! no partner takes out the row of NULLs that stood for it, which sorted
++//! before the last row. The SELECT has no GROUP BY and calls no aggregate or
++//! window function in its result columns, as one result row there comes of
++//! many rows.
++
++use std::cmp::Ordering;
++
++use crate::row_scope::RowScope;
++use crate::scope_plan::{is_name, Planner};
++use crate::scope_term::{operand, Affinity, Operand};
++use crate::sql_value::SqlValue as Value;
++use rusqlite::Connection;
++use sqlite3_parser::ast::{As, Expr, Name, OneSelect, ResultColumn, Select, SortOrder};
++
++/// A statement's order and LIMIT, which a full run's last row bounds.
++pub(crate) struct SortedLimit {
++    /// The source whose rows the order sorts.
++    pub(crate) source: usize,
++    /// The ORDER BY's terms, in order.
++    pub(crate) terms: Vec<SortTerm>,
++    /// The LIMIT's value.
++    limit: Operand,
++}
++
++/// One ORDER BY term: a column of the sorted source.
++pub(crate) struct SortTerm {
++    /// The column, lowercase.
++    pub(crate) column: String,
++    /// Whether it sorts in descending order.
++    pub(crate) descending: bool,
++    /// The result column, from zero, that returns its value.
++    position: usize,
++}
++
++/// Where a run finds the row its scope ends at.
++pub struct LastRow {
++    /// How many rows the run must return for its last row to bound its
++    /// scope: the LIMIT.
++    pub limit: usize,
++    /// The result columns, from zero, that return the ORDER BY's values, in
++    /// its order.
++    positions: Vec<usize>,
++}
++
++impl LastRow {
++    /// The ORDER BY's values in `row`, in its order.
++    pub fn values(&self, row: &rusqlite::Row<'_>) -> rusqlite::Result<Vec<Value>> {
++        self.positions.iter().map(|position| Ok(row.get_ref(*position)?.into())).collect()
++    }
++}
++
++impl SortedLimit {
++    /// Where a run bound to `parameters` finds its last row, or `None` when
++    /// the LIMIT's value is not a positive integer.
++    pub(crate) fn last_row(&self, parameters: &[Value]) -> Option<LastRow> {
++        let Value::Integer(limit) = self.limit.value(parameters) else {
++            return None;
++        };
++        Some(LastRow {
++            limit: usize::try_from(*limit).ok().filter(|limit| *limit > 0)?,
++            positions: self.terms.iter().map(|term| term.position).collect(),
++        })
++    }
++}
++
++/// The order and LIMIT of `select`, the statement whose only core is `core`,
++/// when a full run's last row can bound its scope.
++pub(crate) fn sorted_limit(
++    connection: &Connection,
++    planner: &Planner,
++    select: &Select<'_>,
++    core: usize,
++) -> rusqlite::Result<Option<SortedLimit>> {
++    let (Some(limit), Some(order_by)) = (select.limit, select.order_by) else {
++        return Ok(None);
++    };
++    if limit.offset.is_some() || select.body.compounds.is_some() {
++        return Ok(None);
++    }
++    let OneSelect::Select { columns, group_by: None, having: None, window_clause: None, .. } =
++        &select.body.select
++    else {
++        return Ok(None);
++    };
++    let mut found = Vec::new();
++    for column in columns.iter() {
++        if let ResultColumn::Expr(expr, _) = column {
++            crate::select_syntax::parts(expr, &mut found);
++        }
++    }
++    let many_rows = found.iter().any(|part| {
++        matches!(part, crate::select_syntax::Part::Function(name, window)
++            if *window || planner.aggregates.contains(&name.to_ascii_lowercase()))
++    });
++    if many_rows {
++        return Ok(None);
++    }
++    let Some(limit) = operand(connection, &limit.expr, Affinity::Blob)? else {
++        return Ok(None);
++    };
++    let mut source = None;
++    let mut terms = Vec::new();
++    for term in order_by.iter() {
++        if term.nulls.is_some() {
++            return Ok(None);
++        }
++        let Some((position, item, column)) = result_column(planner, core, columns, &term.expr)
++        else {
++            return Ok(None);
++        };
++        if source.is_some_and(|source| source != item) {
++            return Ok(None);
++        }
++        source = Some(item);
++        terms.push(SortTerm { column, descending: term.order == Some(SortOrder::Desc), position });
++    }
++    let Some(source) = source else {
++        return Ok(None);
++    };
++    let from = &planner.items[source];
++    let sorted = from.core == core
++        && from.source.table.is_some()
++        && from.left_on.is_none()
++        && terms.iter().all(|term| from.columns.affinity(&term.column).is_some());
++    Ok(sorted.then_some(SortedLimit { source, terms, limit }))
++}
++
++/// The result column that returns the ORDER BY term `expr`, and the source
++/// and column, lowercase, whose value it is, when `expr` names a column. A
++/// bare name that a result column is named by means that result column, as
++/// SQLite reads an ORDER BY; any other name means the column it resolves to.
++fn result_column(
++    planner: &Planner,
++    core: usize,
++    columns: &[ResultColumn<'_>],
++    expr: &Expr<'_>,
++) -> Option<(usize, usize, String)> {
++    let bare = match expr {
++        Expr::Id(name) => Some(Name(name.0)),
++        Expr::Name(name) => Some(name.clone()),
++        Expr::Qualified(..) | Expr::DoublyQualified(..) => None,
++        _ => return None,
++    };
++    // coven doesn't know how many columns a `*` adds, so it can't tell the
++    // position of a column after one.
++    let listed: Vec<&Expr<'_>> = columns
++        .iter()
++        .map_while(|column| match column {
++            ResultColumn::Expr(expr, _) => Some(expr),
++            ResultColumn::Star | ResultColumn::TableStar(_) => None,
++        })
++        .collect();
++    let named: Vec<usize> = columns
++        .iter()
++        .enumerate()
++        .filter(|(_, column)| {
++            matches!((column, &bare), (ResultColumn::Expr(_, Some(As::As(alias) | As::Elided(alias))), Some(bare))
++                if Name(alias.0) == *bare)
++        })
++        .map(|(position, _)| position)
++        .collect();
++    let (position, (item, column)) = match named[..] {
++        [] => {
++            let resolved = planner.resolve(core, expr)?;
++            let position = listed.iter().position(|listed| {
++                is_name(listed) && planner.resolve(core, listed).as_ref() == Some(&resolved)
++            })?;
++            (position, resolved)
++        }
++        [position] => {
++            let listed = listed.get(position)?;
++            if !is_name(listed) {
++                return None;
++            }
++            (position, planner.resolve(core, listed)?)
++        }
++        _ => return None,
++    };
++    Some((position, item, column))
++}
++
++/// The rows that sort at or before `last`, the values of a run's last row in
++/// the order `terms`: lexicographically, each term in its direction, NULL
++/// first in ascending order and last in descending, as SQLite sorts. A row
++/// equal to `last` passes.
++pub(crate) fn sorted_at_or_before(terms: &[SortTerm], last: &[Value]) -> RowScope {
++    let mut scope = RowScope::All;
++    for (term, value) in terms.iter().zip(last).rev() {
++        let column = || term.column.clone();
++        let compare = |ordering| RowScope::Compare {
++            column: column(),
++            value: value.clone(),
++            ordering,
++            inclusive: false,
++        };
++        let null = |not| RowScope::Null { column: column(), not };
++        let equal = match value {
++            Value::Null => null(false),
++            _ => compare(Ordering::Equal),
++        };
++        let before = match (term.descending, value) {
++            (false, Value::Null) => RowScope::equal(column(), Vec::new()),
++            (false, _) => null(false).or(compare(Ordering::Less)),
++            (true, Value::Null) => null(true),
++            (true, _) => compare(Ordering::Greater),
++        };
++        scope = before.or(equal.and(scope));
++    }
++    scope
++}
+diff --git a/crates/sqlive/src/scope_plan.rs b/crates/sqlive/src/scope_plan.rs
+index 8d4aa455a..d765394e9 100644
+--- a/crates/sqlive/src/scope_plan.rs
++++ b/crates/sqlive/src/scope_plan.rs
+@@ -25,6 +25,7 @@ use crate::derived::Ctes;
+ use crate::from_item::{read_item, Columns, FromItem};
+ use crate::read_capture::WholeViews;
+ use crate::row_scope::Scopes;
++use crate::scope_order::{sorted_limit, LastRow, SortedLimit};
+ use crate::scope_row::row_term;
+ use crate::scope_subquery::compared_subquery;
+ use crate::scope_term::{term, Affinity, ScopeTerm};
+@@ -59,12 +60,19 @@ impl ScopePlan {
+         Ok(Self { sources: Sources::read(connection, sql, statement, whole)? })
+     }
+ 
++    /// Where a run bound to `parameters` finds the row its scope ends at, or
++    /// `None` when no row of the run bounds it (`scope_order.rs`).
++    pub fn last_row(&self, parameters: &[Value]) -> Option<LastRow> {
++        self.sources.as_ref()?.sorted.as_ref()?.last_row(parameters)
++    }
++
+     /// The scope of each table the statement reads as one of its sources,
+-    /// for a run bound to `parameters`. A table the plan doesn't name
+-    /// depends on every row.
+-    pub fn scopes(&self, parameters: &[Value]) -> Scopes {
++    /// for a run bound to `parameters` that returned `last`, the ORDER BY's
++    /// values of the row `last_row` names, when it returned that many rows. A
++    /// table the plan doesn't name depends on every row.
++    pub fn scopes(&self, parameters: &[Value], last: Option<&[Value]>) -> Scopes {
+         match &self.sources {
+-            Some(sources) => crate::scope_lookup::scopes(sources, parameters),
++            Some(sources) => crate::scope_lookup::scopes(sources, parameters, last),
+             None => Scopes::default(),
+         }
+     }
+@@ -78,6 +86,8 @@ pub(crate) struct Sources {
+     /// The app's views and the CTEs read as sources of their own, by the
+     /// names, lowercase, SQLite reports reads through them by.
+     pub(crate) inlined: BTreeSet<String>,
++    /// The order and LIMIT a full run's last row bounds its source by.
++    pub(crate) sorted: Option<SortedLimit>,
+ }
+ 
+ pub(crate) struct Source {
+@@ -166,8 +176,15 @@ impl Sources {
+             inlined: Vec::new(),
+             whole,
+         };
+-        Ok(read_select(connection, &mut planner, select, None, &Ctes::default())?
+-            .map(|_| planner.ordered()))
++        let Some(cores) = read_select(connection, &mut planner, select, None, &Ctes::default())?
++        else {
++            return Ok(None);
++        };
++        let sorted = match cores[..] {
++            [core] => sorted_limit(connection, &planner, select, core)?,
++            _ => None,
++        };
++        Ok(Some(planner.ordered(sorted)))
+     }
+ }
+ 
+@@ -207,7 +224,7 @@ impl Planner<'_> {
+     /// sources the core's narrowing started from, then those with
+     /// conditions of their own, then views and table functions, which
+     /// nothing narrows but whose values others can take, in FROM order.
+-    fn ordered(mut self) -> Sources {
++    fn ordered(mut self, sorted: Option<SortedLimit>) -> Sources {
+         let mut order: Vec<usize> = Vec::new();
+         let all: Vec<usize> =
+             self.cores.iter().flat_map(|core| core.items.iter().copied()).collect();
+@@ -301,6 +318,7 @@ impl Planner<'_> {
+             sources: self.items.into_iter().map(|item| item.source).collect(),
+             order,
+             inlined: self.inlined.into_iter().collect(),
++            sorted,
+         }
+     }
+ 
+diff --git a/crates/sqlive/src/scope_term.rs b/crates/sqlive/src/scope_term.rs
+index 772450819..0f21d5e18 100644
+--- a/crates/sqlive/src/scope_term.rs
++++ b/crates/sqlive/src/scope_term.rs
+@@ -342,7 +342,7 @@ pub(crate) enum Operand {
+ }
+ 
+ impl Operand {
+-    fn value<'a>(&'a self, parameters: &'a [Value]) -> &'a Value {
++    pub(crate) fn value<'a>(&'a self, parameters: &'a [Value]) -> &'a Value {
+         match self {
+             Self::Constant(value) => value,
+             Self::Parameter(index) => &parameters[*index],
+@@ -597,7 +597,7 @@ fn through_collation<'a>(expr: &'a Expr<'a>) -> &'a Expr<'a> {
+ 
+ /// The value `expr` stands for: a parameter, or a constant spelled in the
+ /// SQL whose type compares as it is with a column of `affinity`.
+-fn operand(
++pub(crate) fn operand(
+     connection: &Connection,
+     expr: &Expr<'_>,
+     affinity: Affinity,
+diff --git a/site/docs/local-data.md b/site/docs/local-data.md
+index 574f63f33..7f9179963 100644
+--- a/site/docs/local-data.md
++++ b/site/docs/local-data.md
+@@ -432,35 +432,52 @@ hover, focus or an open popover, stays in the view and never goes into SQL.
+ A long list's count is never in the same live query as its rows. A count
+ changes with every insert, so a query holding both reruns, and rereads every
+ window it holds, on every write. Subscribe each window the screen shows as its
+-own live query, with that window as its request, and the count as another:
++own live query, with the window's first key as its request, and the count as
++another:
+ 
+ ```rust
+-// A window: the notes from one title up to the next window's first title.
+-let window = |(from, until): &(String, String), sql: SqlReadContext<'_>| {
++// A window: the 100 notes from one title on.
++let window = |from: &String, sql: SqlReadContext<'_>| {
+     Ok(sql.query(
+-        "SELECT id, title FROM notes WHERE title >= ?1 AND title < ?2 ORDER BY title",
+-        [from, until],
++        "SELECT id, title FROM notes WHERE title >= ?1 ORDER BY title LIMIT 100",
++        [from],
+         |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+     )?)
+ };
+-let top = handle.subscribe_reconfigurable((String::new(), second_window_first), window);
+-let next = handle.subscribe_reconfigurable((second_window_first, third_window_first), window);
++let top = handle.subscribe_reconfigurable(String::new(), window);
+ // The count, read by itself.
+ let count = handle.subscribe(|sql| {
+     Ok(sql.query_row("SELECT COUNT(*) FROM notes", [], |row| row.get::<_, i64>(0))?)
+ });
+ ```
+ 
+-A write that adds a row reruns `count`, and only the window whose range holds
+-it.
+-
+-A live query reruns for a write that changes a row its WHERE comparisons take
+-in; its `LIMIT` and `OFFSET` narrow nothing. So bound each window by a key at
+-both ends. `WHERE title > ?1 ... LIMIT 100` reruns for any change after `?1`,
+-and `LIMIT 100 OFFSET 200` for any change at all. The screen holds its windows
+-as a chain whose ranges meet, so each row is in exactly one; a jump to a far
+-position, such as a scrollbar drag, reads the key at that position once and
+-starts a chain there.
++A write that adds a row reruns `count`, and reruns the window only when the
++row sorts at or before the window's last row: when a run returns all 100 rows,
++a note that sorts after the last of them can't enter the window. Each run sets
++that bound again from its own last row, so a note inserted or deleted inside
++the window moves the bound to the window's new last row. A note equal to the
++last row on every ORDER BY column counts as inside, since SQLite could sort it
++before the last row. A run that returns fewer than 100 rows already holds every
++note after its start, and reruns for a change to any of them.
++
++Coven narrows a window to its last row when:
++
++- the statement is one SELECT, with an `ORDER BY` and a `LIMIT` and no
++  `OFFSET`;
++- each `ORDER BY` term names a column of the same table, with no `COLLATE` and
++  no `NULLS FIRST` or `NULLS LAST`, and the column is stored and uses BINARY
++  collation;
++- that table isn't the right side of a `LEFT JOIN`;
++- the statement returns each `ORDER BY` column as a result column listed before
++  any `*`, since coven reads the last row's values from the result;
++- the SELECT has no `GROUP BY` and calls no aggregate or window function in its
++  result columns.
++
++`ORDER BY` terms may be ascending or descending, in any mix. Any other window,
++such as one ordered by an expression or with an `OFFSET`, reruns for a change to
++any row its `WHERE` takes in: `LIMIT 100 OFFSET 200` reruns for any change at
++all. A jump to a far position, such as a scrollbar drag, reads the key at that
++position once and makes it the window's request.
+ 
+ Coven's own state has ready-made live queries with the same results as their
+ one-shot reads: `subscribe_members`, `subscribe_lost_values`,
+diff --git a/spec/coven.md b/spec/coven.md
+index e1a90a564..6ef2e7e64 100644
+--- a/spec/coven.md
++++ b/spec/coven.md
+@@ -675,6 +675,33 @@ statements hold `(year IS NULL) = 0`, which narrows to the albums that have a
+ year, or compare `year IS NULL` between two bounds. An album added in another
+ window's years doesn't rerun this window.
+ 
++A statement with a LIMIT narrows further when a run returns as many rows as its
++LIMIT. Ben's album list shows each window as one live query, `SELECT title, id
++FROM albums WHERE title >= ?1 ORDER BY title LIMIT 100`. A run that returns 100
++rows depends only on the albums that sort at or before its last row: an album
++that sorts after that row would sort after every row the run returned, so it
++can't enter the result. So coven narrows `albums` to the rows whose `title` is
++at most the last row's, and each run sets that bound again from its own last
++row. An album added further down the list doesn't rerun the window. One added
++inside the window does, and so does deleting one, which pulls the next album in.
++A row equal to the last row on every ORDER BY column counts as inside, since
++SQLite could sort it before the last row. A run that returns fewer rows than
++its LIMIT already holds every row its WHERE allows, so its scope stays as the
++WHERE gives it.
++
++The bound compares rows as the ORDER BY does: term by term, each in its own
++direction, with NULL first in ascending order and last in descending. Coven
++reads the last row's values from the result, so each ORDER BY term must be a
++column the statement also returns, listed before any `*`. Each term names a
++column of the same table, stored and BINARY, with no COLLATE and no NULLS FIRST
++or LAST. That table isn't the right side of a LEFT JOIN: there a row added for a
++left row with no partner takes out the row of NULLs that stood for it. The
++statement is one SELECT with no OFFSET, no GROUP BY, and no aggregate or window
++function in its result columns, where one result row comes of many. A join
++that narrows another table by the sorted table's rows takes only the rows up to
++the bound. Any other ORDER BY, such as an expression, and any OFFSET leave the
++scope as the WHERE gives it.
++
+ A condition narrows only where coven compares values as SQLite does. One on a
+ column whose collation isn't BINARY, or on a generated column, doesn't, and nor
+ does one whose value SQLite would convert first, as text compared with an

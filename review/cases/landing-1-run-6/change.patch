@@ -1,0 +1,199 @@
+diff --git a/bae-records/src/records/release_detail.rs b/bae-records/src/records/release_detail.rs
+index fd8e0977e2..02f909f7c4 100644
+--- a/bae-records/src/records/release_detail.rs
++++ b/bae-records/src/records/release_detail.rs
+@@ -246,48 +246,47 @@ fn release_files_column(row: &Row<'_>, column: &str) -> rusqlite::Result<DbRelea
+     })
+ }
+ 
+-/// The release files, the registrations of the devices they are on and the
+-/// members those belong to, as [`unstored_audio_on`] and
++/// The release files on one device only, the registrations of the devices
++/// they are on and the members those belong to, as [`unstored_audio_on`] and
+ /// [`release_file_other_device`](Records::release_file_other_device) read
+-/// them: `f`, `coven`, the file's original `u` on this device when
+-/// `coven_user_files` lists it, its device `d` and that device's member `m`.
++/// them: `f`, `coven`, its device `d` and that device's member `m`. Coven
++/// applies a write only after it registers the write's device, never drops a
++/// registration, and registers each device under a member it never drops, so
++/// every file on one device has its device's registration and that device's
++/// member.
+ const UNSTORED_FILES: &str = "FROM release_files f JOIN coven_files coven ON coven.id = f.file \
+-     LEFT JOIN coven_user_files u ON u.file = f.file \
+-     LEFT JOIN coven_devices d ON d.device = coven_file_device(coven.coordinates) \
+-     LEFT JOIN coven_members m ON m.member = d.member";
++     JOIN coven_devices d ON d.device = coven_file_device(coven.coordinates) \
++     JOIN coven_members m ON m.member = d.member";
+ 
+ /// The columns of one release file on one device only, as an `UnstoredRow`
+ /// reads them.
+-const UNSTORED_COLUMNS: &str = "f.file, u.file IS NOT NULL AS original_here, \
+-     d.is_self, d.name, d.state, m.removed AS member_removed";
++const UNSTORED_COLUMNS: &str = "f.file, d.is_self, d.name, d.state, m.removed AS member_removed";
+ 
+ /// What coven records this device holding for each audio file of the release
+ /// `release_expr` (an SQL expression) that is on one device only, in file
+-/// order, as a JSON array for [`unstored_audio_column`]: its original, when
+-/// `coven_user_files`, which lists exactly this device's originals, lists it;
+-/// otherwise the device it is on, from `coven_devices`, and whether that
+-/// device or its person was removed from the library. The disk is not asked.
++/// order, as a JSON array for [`unstored_audio_column`]: whether that device
++/// is this one, in which case this device keeps the file's original, and
++/// otherwise the device's registration in `coven_devices` and whether that
++/// device or its person was removed from the library. The query does not
++/// read the disk.
+ pub fn unstored_audio_json_sql(release_expr: &str) -> String {
+     format!(
+         "(SELECT json_group_array(json_object( \
+-              'file', f.file, 'original_here', u.file IS NOT NULL, 'is_self', d.is_self, \
++              'file', f.file, 'is_self', d.is_self, \
+               'name', d.name, 'state', d.state, 'member_removed', m.removed) ORDER BY f.id) \
+           {UNSTORED_FILES} \
+-          WHERE f.release_id = {release_expr} AND f.content_type GLOB 'audio/*' \
+-              AND coven_file_device(coven.coordinates) IS NOT NULL)"
++          WHERE f.release_id = {release_expr} AND f.content_type GLOB 'audio/*')"
+     )
+ }
+ 
+ /// Whether an audio file of the release `release_expr` (an SQL expression)
+-/// is on another device only: coven lists no original of it on this device
+-/// and a device that is not this one holds it. The release cannot play here
+-/// until that device moves the file to the cloud.
++/// is on another device only: a device that is not this one holds it. The
++/// release cannot play here until that device moves the file to the cloud.
+ pub fn release_audio_elsewhere_sql(release_expr: &str) -> String {
+     format!(
+         "EXISTS (SELECT 1 {UNSTORED_FILES} \
+                  WHERE f.release_id = {release_expr} AND f.content_type GLOB 'audio/*' \
+-                     AND coven_file_device(coven.coordinates) IS NOT NULL \
+-                     AND u.file IS NULL AND d.is_self = 0)"
++                     AND d.is_self = 0)"
+     )
+ }
+ 
+@@ -300,11 +299,10 @@ pub fn unstored_audio_column(
+     #[derive(serde::Deserialize)]
+     struct Stored {
+         file: String,
+-        original_here: i64,
+-        is_self: Option<i64>,
+-        name: Option<String>,
+-        state: Option<String>,
+-        member_removed: Option<i64>,
++        is_self: i64,
++        name: String,
++        state: String,
++        member_removed: i64,
+     }
+     let stored: Vec<Stored> = bae_store::read::json_column(row, column)?;
+     stored
+@@ -312,11 +310,10 @@ pub fn unstored_audio_column(
+         .map(|stored| {
+             UnstoredRow {
+                 file: stored.file,
+-                original_here: stored.original_here != 0,
+-                is_self: stored.is_self.map(|is_self| is_self != 0),
++                is_self: stored.is_self != 0,
+                 name: stored.name,
+                 state: stored.state,
+-                member_removed: stored.member_removed.map(|removed| removed != 0),
++                member_removed: stored.member_removed != 0,
+             }
+             .into_unstored_audio()
+             .map_err(|error| {
+@@ -346,15 +343,11 @@ fn unstored_row_of_file_on(
+     file_id: &str,
+ ) -> Result<Vec<UnstoredRow>, DbError> {
+     Ok(sql.query(
+-        &format!(
+-            "SELECT {UNSTORED_COLUMNS} {UNSTORED_FILES} \
+-             WHERE f.id = ?1 AND coven_file_device(coven.coordinates) IS NOT NULL"
+-        ),
++        &format!("SELECT {UNSTORED_COLUMNS} {UNSTORED_FILES} WHERE f.id = ?1"),
+         params![file_id],
+         |row| {
+             Ok(UnstoredRow {
+                 file: row.get("file")?,
+-                original_here: row.get("original_here")?,
+                 is_self: row.get("is_self")?,
+                 name: row.get("name")?,
+                 state: row.get("state")?,
+@@ -409,60 +402,30 @@ impl Records {
+ /// One release file on one device only, as [`unstored_audio_on`] reads it.
+ struct UnstoredRow {
+     file: String,
+-    /// Whether `coven_user_files` lists an original of it on this device.
+-    original_here: bool,
+-    /// Whether the device the file is on is this one; `None` when
+-    /// `coven_devices` lists no such device, as for this device until the
+-    /// library connects to storage.
+-    is_self: Option<bool>,
+-    name: Option<String>,
+-    state: Option<String>,
+-    member_removed: Option<bool>,
++    /// Whether the device the file is on is this one.
++    is_self: bool,
++    name: String,
++    state: String,
++    member_removed: bool,
+ }
+ 
+ impl UnstoredRow {
+-    /// Coven lists this device's own originals, keeps every device's
+-    /// registration for good, and a file is on another device only once that
+-    /// device, registered, wrote it: a file on this device with no original,
+-    /// an original for a file on another device, or another device with no
+-    /// registration is coven's own state broken, and the read fails naming
+-    /// the file.
++    /// A file on this device is this device's original: coven keeps the
++    /// original of each of this device's files on it, and forgets it when a
++    /// switch puts the file on another device. A file on another device is
++    /// on the device coven's registration names.
+     fn into_unstored_audio(self) -> Result<DbUnstoredAudio, DbError> {
+-        let broken = || {
+-            DbError::unreadable(
+-                format!(
+-                    "coven's place of release file {}: its original here, its device this one",
+-                    self.file
+-                ),
+-                (self.original_here, self.is_self),
+-            )
+-        };
+-        // This device has no registration until the library connects to
+-        // storage, so its own file can be on a device `coven_devices` doesn't
+-        // list; another device's never is.
+-        match (self.original_here, self.is_self) {
+-            (true, Some(false)) | (false, Some(true) | None) => Err(broken()),
+-            (true, None | Some(true)) => Ok(DbUnstoredAudio::Original),
+-            (false, Some(false)) => Ok(DbUnstoredAudio::Elsewhere(self.other_device()?)),
++        if self.is_self {
++            return Ok(DbUnstoredAudio::Original);
+         }
+-    }
+-
+-    /// The device the file is on, which is not this one.
+-    fn other_device(&self) -> Result<crate::OtherDevice, DbError> {
+-        let (Some(name), Some(state), Some(member_removed)) =
+-            (self.name.clone(), self.state.as_deref(), self.member_removed)
+-        else {
+-            return Err(DbError::unreadable(
+-                format!("coven_devices of the device release file {} is on", self.file),
+-                (&self.name, &self.state, self.member_removed),
+-            ));
+-        };
+-        other_device(name, state, member_removed).ok_or_else(|| {
+-            DbError::unreadable(
+-                format!("coven_devices.state of the device release file {} is on", self.file),
+-                state,
+-            )
+-        })
++        other_device(self.name, &self.state, self.member_removed)
++            .map(DbUnstoredAudio::Elsewhere)
++            .ok_or_else(|| {
++                DbError::unreadable(
++                    format!("coven_devices.state of the device release file {} is on", self.file),
++                    &self.state,
++                )
++            })
+     }
+ }

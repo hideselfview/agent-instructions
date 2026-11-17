@@ -1,0 +1,842 @@
+project = "bae"
+clean_for = []
+
+[[finding]]
+rule = "report-bugs-without-crashing-crash-only-on-untrustworthy-state"
+file = "crates/coven-database/src/store_failure.rs"
+
+[[site]]
+file = "crates/coven-database/src/store_failure.rs"
+code = '.expect("coven fails its handle only with store failures")'
+verdict = "finding"
+rule = "report-bugs-without-crashing-crash-only-on-untrustworthy-state"
+
+[[site]]
+file = "crates/coven-database/src/commit_scope.rs"
+code = "/// The work a commit belongs to: a commit made on a thread running inside"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/commit_scope.rs"
+code = "/// `enter(scope, ..)` belongs to `scope`."
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/commit_scope.rs"
+code = "/// Run `run` with commits made on this thread attributed to `scope`, if any."
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/commit_scope.rs"
+code = "pub(crate) fn enter<R>(scope: Option<CommitScope>, run: impl FnOnce() -> R) -> R {"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/commit_task.rs"
+code = "//! A commit scope that follows a task onto the blocking threads its database"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/commit_task.rs"
+code = "use crate::commit_scope::{self, CommitScope};"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/commit_task.rs"
+code = "use std::future::Future;"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/commit_task.rs"
+code = "static TASK: CommitScope;"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/commit_task.rs"
+code = "/// Run `work` with its database calls' commits attributed to `scope`. The"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/commit_task.rs"
+code = "/// would hold a second, moved copy beside it. Calls started from other"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/commit_task.rs"
+code = "/// tasks, including tasks the work spawns, are outside the scope."
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/commit_task.rs"
+code = "pub fn in_commit_scope<F: Future>(scope: CommitScope, work: F) -> impl Future<Output = F::Output> {"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/commit_task.rs"
+code = "/// Bind a database call to the scope of the task starting it, before it runs"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/commit_task.rs"
+code = "/// on a blocking thread: commits it makes report that scope."
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/commit_task.rs"
+code = "run: impl FnOnce() -> R + Send + 'static,"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/commit_task.rs"
+code = ") -> impl FnOnce() -> R + Send + 'static {"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/commit_task.rs"
+code = "let scope = TASK.try_with(|scope| *scope).ok();"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/commit_task.rs"
+code = '#[cfg(any(test, feature = "test-utils"))]'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/commit_task.rs"
+code = "let run = coven_foundation::test_work::bind(run);"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/commit_task.rs"
+code = "move || commit_scope::enter(scope, run)"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/database.rs"
+code = "use crate::observation::{CommitObserver, HandleFailure, HostFailure, UnrecordedTables};"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/database.rs"
+code = "use crate::store_failure::StoreFailure;"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/database.rs"
+code = "self.observer.fail(HandleFailure::Host(HostFailure::new(StoreFailure::WallTimer(error))));"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/database_builder.rs"
+code = "directory.bugs().clone(),"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/database_call.rs"
+code = "crate::commit_task::bind(move || {"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/internal_schema.rs"
+code = "/// Coven's tables no live query reads: the merge state, authorship, creation,"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/internal_schema.rs"
+code = "/// publication and claim records each write keeps beside its rows. A write records no"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/internal_schema.rs"
+code = "/// change to them, and recording one costs as much as an app row's (§4); a"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/internal_schema.rs"
+code = "/// live query that read one would be a bug coven refuses at once."
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/internal_schema.rs"
+code = "pub(crate) const UNRECORDED: [&str; 23] = ["
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/internal_schema.rs"
+code = '"_coven_authored_admissions",'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/internal_schema.rs"
+code = '"_coven_authored_changes",'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/internal_schema.rs"
+code = '"_coven_authored_parts",'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/internal_schema.rs"
+code = '"_coven_published_creations",'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/internal_schema.rs"
+code = '"_coven_published_dropped",'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/internal_schema.rs"
+code = '"_coven_published_file_refs",'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/internal_schema.rs"
+code = '"_coven_published_losses",'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/internal_schema.rs"
+code = '"_coven_published_rows",'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/internal_schema.rs"
+code = '"_coven_published_writes",'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/internal_schema.rs"
+code = '"_coven_unnamed_writes",'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/internal_schema.rs"
+code = '"_coven_write_evidence",'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/internal_schema.rs"
+code = '"_coven_written_values",'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/internal_schema_scan_reasons_tests.rs"
+code = "crate::observation::CommitObserver::recording_all("
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/internal_schema_scan_reasons_tests.rs"
+code = "coven_foundation::task::HeardBugs::shared(),"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/internal_schema_scan_reasons_tests.rs"
+code = "crate::network_facts::NetworkFacts::new(crate::observation::CommitObserver::recording_all("
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/lib.rs"
+code = "pub use commit_task::in_commit_scope;"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/network_facts.rs"
+code = "use crate::observation::CommitObserver;"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/network_facts.rs"
+code = "self.observer.changed_without_write(&READ_AS);"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/observation.rs"
+code = "use crate::store_failure::StoreFailure;"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/observation.rs"
+code = "/// Tables whose changes no write records for live queries, lowercase."
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/observation.rs"
+code = "pub(crate) struct UnrecordedTables(BTreeSet<String>);"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/observation.rs"
+code = "pub(crate) fn new<'a>(tables: impl IntoIterator<Item = &'a str>) -> Self {"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/observation.rs"
+code = "Self(tables.into_iter().map(str::to_ascii_lowercase).collect())"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/observation.rs"
+code = "/// Whether a write records its changes to `table` (ASCII case-insensitive)."
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/observation.rs"
+code = "pub(crate) fn recorded(&self, table: &str) -> bool {"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/observation.rs"
+code = "!self.0.contains(&table.to_ascii_lowercase())"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/observation.rs"
+code = "/// A failure the host reported, after which every call fails with it."
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/observation.rs"
+code = "pub(crate) fn new(error: impl std::error::Error + Send + Sync + 'static) -> Self {"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/observation.rs"
+code = "pub(crate) fn error(&self) -> &(dyn std::error::Error + Send + Sync + 'static) {"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/observation.rs"
+code = "/// A failure the host reported."
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/observation.rs"
+code = "/// The tables whose changes no write records, which a run may not read."
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/observation.rs"
+code = "failure: Option<HandleFailure>,"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/observation.rs"
+code = "outside: Option<CommitScope>,"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/observation.rs"
+code = "if let Some(read) = reads.iter().find(|read| !self.shared.unrecorded.recorded(&read.table))"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/observation.rs"
+code = "fn unjudged(changes: Vec<RowChange>) -> Self {"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/observation.rs"
+code = "/// A test observer for which every table records its changes."
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/observation.rs"
+code = "pub(crate) fn recording_all(bugs: BugSinkRef) -> Self {"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/observation.rs"
+code = "Self::new(bugs, Arc::new(UnrecordedTables::new([])))"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/observation.rs"
+code = "pub(crate) fn unrecorded(&self) -> &Arc<UnrecordedTables> {"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/observation.rs"
+code = "let subscription = CommitSubscription::new("
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/observation.rs"
+code = "Arc::clone(&self.unrecorded),"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/observation.rs"
+code = "/// Tell live queries that each of `columns`, a (table, column) pair of a"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/observation.rs"
+code = "/// view, changed with no write: each query that read one runs again."
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/observation.rs"
+code = "pub(crate) fn changed_without_write(&self, columns: &[(&str, &str)]) {"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/observation.rs"
+code = ".map(|(table, column)| RowChange {"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/observation.rs"
+code = "column: (*column).into(),"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/observation.rs"
+code = "self.commit(Judged::unjudged(changes), None);"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/observation_tests.rs"
+code = "let other = CommitObserver::recording_all(bugs.clone());"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/observation_tests.rs"
+code = "fn a_run_that_reads_an_unrecorded_table_panics() {"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/observation_tests.rs"
+code = 'CommitObserver::new(HeardBugs::shared(), Arc::new(UnrecordedTables::new(["Hidden"])));'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/observation_tests.rs"
+code = "let read = |table: &str| {"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/observation_tests.rs"
+code = "columns: BTreeSet::new(),"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/observation_tests.rs"
+code = "let subscription = observer.subscribe();"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/observation_tests.rs"
+code = 'subscription.finish(read("shown"));'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/observation_tests.rs"
+code = "let panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/observation_tests.rs"
+code = 'subscription.finish(read("HIDDEN"))'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/observation_tests.rs"
+code = "assert!(panicked.is_err());"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/prerequisite_rows_tests.rs"
+code = "crate::in_commit_scope(attempt, observe(7)).await;"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/prerequisite_rows_tests.rs"
+code = "crate::in_commit_scope(attempt, async { tokio::spawn(observe(7)).await.unwrap() }).await;"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/reserved_names_tests.rs"
+code = "let handle = CommitObserver::recording_all(bugs.clone());"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/sqlite.rs"
+code = "use crate::observation::{CommitObserver, HostFailure};"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/sqlite.rs"
+code = "use crate::store_failure::StoreFailure;"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/sqlite.rs"
+code = "handle.fail(crate::observation::HandleFailure::Host(HostFailure::new("
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/sqlite.rs"
+code = "StoreFailure::State(error.clone()),"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/store_failure.rs"
+code = "//! The failures coven reports to its handle as its host, after which the"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/store_failure.rs"
+code = "//! handle's every call fails."
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/store_failure.rs"
+code = "use crate::observation::HostFailure;"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/store_failure.rs"
+code = "use coven_foundation::clock::WallTimerError;"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/store_failure.rs"
+code = "#[derive(Debug, thiserror::Error)]"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/store_failure.rs"
+code = "pub(crate) enum StoreFailure {"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/store_failure.rs"
+code = """#[error("saving the store's state failed")]"""
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/store_failure.rs"
+code = """#[error("the handle's clock could not wait")]"""
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/store_failure.rs"
+code = "WallTimer(WallTimerError),"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/store_failure.rs"
+code = "/// The error every later call returns."
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/store_failure.rs"
+code = "pub(crate) fn error(&self) -> DbError {"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/store_failure.rs"
+code = "Self::State(cause) => DbError::StatePersistence(Arc::clone(cause)),"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/store_failure.rs"
+code = "Self::WallTimer(cause) => DbError::WallTimer(cause.clone()),"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/store_failure.rs"
+code = "/// The store failure `failure` carries; only coven fails a handle as its host."
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/store_failure.rs"
+code = ".downcast_ref::<StoreFailure>()"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/transaction_capture.rs"
+code = "use crate::observation::{RowChange, UnrecordedTables};"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/transaction_capture.rs"
+code = "unrecorded: Arc<UnrecordedTables>,"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/transaction_capture.rs"
+code = "let unrecorded = Arc::clone("
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/transaction_capture.rs"
+code = "let capture = Self { session, database, supplemental, unrecorded };"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/transaction_capture.rs"
+code = "// SAFETY: the filter reads only its table name and its context, the"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/transaction_capture.rs"
+code = "// tables `capture` holds, which outlive the session; null attaches"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/transaction_capture.rs"
+code = "// every current and subsequently created main table the filter admits."
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/transaction_capture.rs"
+code = "Arc::as_ptr(&capture.unrecorded).cast_mut().cast(),"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/transaction_capture.rs"
+code = 'unsafe extern "C" fn recorded_table('
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/transaction_capture.rs"
+code = "unrecorded: *mut std::ffi::c_void,"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/transaction_capture.rs"
+code = "// SAFETY: the context is the `UnrecordedTables` the capture holds, which"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/transaction_capture.rs"
+code = "// outlives its session."
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/transaction_capture.rs"
+code = "let unrecorded = unsafe { &*unrecorded.cast::<UnrecordedTables>() };"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/transaction_capture.rs"
+code = "table.to_str().map_or(1, |name| std::ffi::c_int::from(unrecorded.recorded(name)))"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/transfer_watch_tests.rs"
+code = "let observer = CommitObserver::recording_all(coven_foundation::task::HeardBugs::shared());"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/transfers_in_flight.rs"
+code = "use crate::observation::CommitObserver;"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/transfers_in_flight.rs"
+code = "self.shared.observer.changed_without_write(self.shared.direction.read_as);"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/transfers_in_flight_tests.rs"
+code = "let handle = crate::observation::CommitObserver::recording_all(bugs.clone());"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-sync/src/sequence_access.rs"
+code = "let result = coven_database::in_commit_scope("
+verdict = "none"
+
+[[site]]
+file = "crates/coven-sync/src/sequence_access.rs"
+code = "self.apply_access(session, ring, member, record.id),"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-sync/src/sequence_files.rs"
+code = "let result = coven_database::in_commit_scope("
+verdict = "none"
+
+[[site]]
+file = "crates/coven-sync/src/sequence_files.rs"
+code = "self.waits.begin_attempt(id),"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-sync/src/sequence_files.rs"
+code = "self.delete_files(session, ring, member, uploaders, scans, id),"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-sync/src/sequence_files.rs"
+code = "let result = coven_database::in_commit_scope(self.waits.begin_attempt(id), async {"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-sync/src/sequence_files.rs"
+code = "// last cleared. Its uploads end before its folders are"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-sync/src/sequence_files.rs"
+code = "for device in uploaders.iter().filter(|device| **device != self.device) {"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-sync/src/sequence_files.rs"
+code = "self.clear_gone_storage(&session, *device).await?;"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-sync/src/sequence_files.rs"
+code = "self.delete_files(&session, &ring, &member, uploaders.clone(), scans, id).await"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-sync/src/sequence_invite_approval.rs"
+code = "let result = coven_database::in_commit_scope("
+verdict = "none"
+
+[[site]]
+file = "crates/coven-sync/src/sequence_invite_approval.rs"
+code = "self.advance_invite(session, ring, member, id, &mut step),"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-sync/src/sequence_member_keys.rs"
+code = "let result = coven_database::in_commit_scope("
+verdict = "none"
+
+[[site]]
+file = "crates/coven-sync/src/sequence_member_keys.rs"
+code = "self.advance_member_keys(session, ring, record.id),"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-sync/src/sequence_operations.rs"
+code = "let result = coven_database::in_commit_scope("
+verdict = "none"
+
+[[site]]
+file = "crates/coven-sync/src/sequence_operations.rs"
+code = "self.advance_administration(session, ring, member, id),"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-sync/src/sequence_reload_operation.rs"
+code = "if let Err(error) = coven_database::in_commit_scope("
+verdict = "none"
+
+[[site]]
+file = "crates/coven-sync/src/sequence_reload_operation.rs"
+code = "self.advance_reload(session, ring, member, record),"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-sync/src/sequence_retention.rs"
+code = "let result = coven_database::in_commit_scope("
+verdict = "none"
+
+[[site]]
+file = "crates/coven-sync/src/sequence_retention.rs"
+code = "self.apply_retention(session, ring, member, record.clone()),"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-sync/src/sequence_retry.rs"
+code = "coven_database::in_commit_scope(self.waits.attempt_scope(id), async {"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-sync/src/sequence_retry.rs"
+code = "let pending = PendingRecord { subject, reason, cause };"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-sync/src/sequence_retry.rs"
+code = "let subject = RetrySubject::Operation(id);"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-sync/src/sequence_retry.rs"
+code = "if pending.retry() == Retry::Automatic {"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-sync/src/sequence_retry.rs"
+code = "let held = crate::RetryWaits::lacks_key(&pending.reason)"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-sync/src/sequence_retry.rs"
+code = ".map(|(audience, key)| crate::write_seal::held(ring, &audience, key).is_some());"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-sync/src/sequence_retry.rs"
+code = "let reason = pending.reason.clone();"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-sync/src/sequence_retry.rs"
+code = "let prior = self.database.retry_wait(subject).await?;"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-sync/src/sequence_retry.rs"
+code = "let wait = self.waits.next(prior.as_ref())?;"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-sync/src/sequence_retry.rs"
+code = "match save(pending, Some(wait)).await {"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-sync/src/sequence_retry.rs"
+code = "self.waits.hold(subject);"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-sync/src/sequence_retry.rs"
+code = "return Err(error.into());"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-sync/src/sequence_retry.rs"
+code = "// The operation has left the step this attempt read."
+verdict = "none"
+
+[[site]]
+file = "crates/coven-sync/src/sequence_retry.rs"
+code = "Ok(false) => return Ok(()),"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-sync/src/sequence_retry.rs"
+code = "self.waits.arm(subject, &wait);"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-sync/src/sequence_retry.rs"
+code = "if !save(pending, None).await? {"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-sync/src/sequence_retry.rs"
+code = "self.waits.forget(subject);"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-sync/src/sequence_retry.rs"
+code = "self.waits.clear_evidence(id);"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-sync/src/sequence_retry_tests.rs"
+code = "coven_database::in_commit_scope(scope, commit(&device, prerequisite)).await;"
+verdict = "none"

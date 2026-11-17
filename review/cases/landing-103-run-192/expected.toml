@@ -1,0 +1,4132 @@
+project = "bae"
+clean_for = []
+
+[[finding]]
+rule = "ui-text-says-each-thing-once-in-gentle-plain-words"
+file = "bae-macos/bae/bae/Views/Settings/DiscogsKeySection.swift"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Settings/DiscogsKeySection.swift"
+code = 'localized: "bae has not checked your key yet"'
+verdict = "finding"
+rule = "ui-text-says-each-thing-once-in-gentle-plain-words"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/ui/settings/CutOffRetryDialog.kt"
+code = "Text(stringResource(if (notGone) R.string.device_cut_off_not_yet else R.string.cancel))"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-ar/strings.xml"
+code = '<string name="delete_album_confirm_body">سيحذف bae كل إصدارات هذا الألبوم نهائيًا من أجهزتك ومن السحابة، ويُبقي الملفات الأصلية في مجلداتك.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-ar/strings.xml"
+code = '<string name="playlist_delete_message">سيحذف bae قائمة التشغيل هذه من كل جهاز. تبقى مقاطعها في المكتبة.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-ar/strings.xml"
+code = '<string name="storage_cache_note">يحتفظ bae هنا بالمقاطع التي شغّلتها من السحابة والأغلفة والصور، ويعيد تنزيلها عندما تشغّلها أو تفتحها.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-ar/strings.xml"
+code = '<string name="storage_delete_before_reset">حذف هذه البيانات</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-ar/strings.xml"
+code = '<string name="storage_delete_before_reset_title">حذف هذه البيانات؟</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-ar/strings.xml"
+code = '<string name="storage_delete_before_reset_body">سيحذف bae %1$s من هذا الهاتف. لا يمكنك استعادة هذه البيانات. تبقى مكتبتك كما هي.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-ar/strings.xml"
+code = '<string name="unpin_confirm_body">سيزيل bae ملفاته من هذا الهاتف الآن. يبقى الإصدار في السحابة ويُبَثّ منها أثناء اتصالك بالإنترنت.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-ar/strings.xml"
+code = '<string name="device_removed_title">إزالة الجهاز</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-ar/strings.xml"
+code = '<string name="device_cut_off_running_body">انتظر حتى ينتهي.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-b+pt+BR/strings.xml"
+code = '<string name="delete_album_confirm_body">O bae vai excluir permanentemente todos os lançamentos deste álbum dos seus dispositivos e da nuvem, e manter os arquivos originais nas suas pastas.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-b+pt+BR/strings.xml"
+code = '<string name="playlist_delete_message">O bae vai excluir esta playlist de todos os dispositivos. As faixas dela continuam na biblioteca.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-b+pt+BR/strings.xml"
+code = '<string name="storage_cache_note">O bae guarda aqui as faixas que você reproduziu da nuvem, as capas e as imagens, e as baixa de novo quando você as reproduz ou abre.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-b+pt+BR/strings.xml"
+code = '<string name="storage_delete_before_reset">Excluir estes dados</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-b+pt+BR/strings.xml"
+code = '<string name="storage_delete_before_reset_title">Excluir estes dados?</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-b+pt+BR/strings.xml"
+code = '<string name="storage_delete_before_reset_body">O bae vai excluir %1$s deste celular. Você não poderá recuperar esses dados. Sua biblioteca continua como está.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-b+pt+BR/strings.xml"
+code = '<string name="device_removed_title">Removendo o dispositivo</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-b+pt+BR/strings.xml"
+code = '<string name="device_cut_off_running_body">Aguarde o término.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-b+pt+PT/strings.xml"
+code = '<string name="delete_album_confirm_body">O bae vai eliminar permanentemente todas as edições deste álbum dos seus dispositivos e da nuvem, e manter os ficheiros originais nas suas pastas.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-b+pt+PT/strings.xml"
+code = '<string name="playlist_delete_message">O bae vai eliminar esta lista de reprodução de todos os dispositivos. As faixas que contém ficam na biblioteca.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-b+pt+PT/strings.xml"
+code = '<string name="storage_cache_note">O bae guarda aqui as faixas que reproduziu a partir da nuvem, as capas e as imagens, e transfere-as novamente quando as reproduz ou abre.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-b+pt+PT/strings.xml"
+code = '<string name="storage_delete_before_reset">Eliminar estes dados</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-b+pt+PT/strings.xml"
+code = '<string name="storage_delete_before_reset_title">Eliminar estes dados?</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-b+pt+PT/strings.xml"
+code = '<string name="storage_delete_before_reset_body">O bae vai eliminar %1$s deste telemóvel. Não pode recuperar estes dados. A sua biblioteca fica como está.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-b+pt+PT/strings.xml"
+code = '<string name="device_removed_title">A remover o dispositivo</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-b+pt+PT/strings.xml"
+code = '<string name="device_cut_off_running_body">Aguarde que termine.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-b+zh+Hans/strings.xml"
+code = '<string name="delete_album_confirm_body">bae 将从你的设备和云端永久删除此专辑的所有版本，并保留你文件夹中的原始文件。</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-b+zh+Hans/strings.xml"
+code = '<string name="playlist_delete_message">bae 将从所有设备中删除此播放列表，其中的曲目仍保留在库中。</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-b+zh+Hans/strings.xml"
+code = '<string name="storage_cache_note">bae 在此保存你从云端播放过的曲目、封面和图片，并在你播放或打开它们时重新下载。</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-b+zh+Hans/strings.xml"
+code = '<string name="storage_delete_before_reset">删除这些数据</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-b+zh+Hans/strings.xml"
+code = '<string name="storage_delete_before_reset_title">删除这些数据？</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-b+zh+Hans/strings.xml"
+code = '<string name="storage_delete_before_reset_body">bae 将从这部手机上删除 %1$s。你无法找回这些数据。你的资料库保持不变。</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-b+zh+Hans/strings.xml"
+code = '<string name="unpin_confirm_body">bae 将立即从这部手机上移除它的文件。该版本会保留在云端，联网时从云端串流播放。</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-b+zh+Hans/strings.xml"
+code = '<string name="device_removed_title">正在移除设备</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-b+zh+Hans/strings.xml"
+code = '<string name="device_cut_off_running_body">请等它结束。</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-b+zh+Hant/strings.xml"
+code = '<string name="delete_album_confirm_body">bae 將從你的裝置和雲端永久刪除此專輯的所有發行，並保留你資料夾中的原始檔案。</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-b+zh+Hant/strings.xml"
+code = '<string name="playlist_delete_message">bae 將從所有裝置中刪除此播放列表，其中的曲目仍保留在資料庫中。</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-b+zh+Hant/strings.xml"
+code = '<string name="storage_cache_note">bae 在此保存你從雲端播放過的曲目、封面和圖片，並在你播放或開啟它們時重新下載。</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-b+zh+Hant/strings.xml"
+code = '<string name="storage_delete_before_reset">刪除這些資料</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-b+zh+Hant/strings.xml"
+code = '<string name="storage_delete_before_reset_title">刪除這些資料？</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-b+zh+Hant/strings.xml"
+code = '<string name="storage_delete_before_reset_body">bae 將從這支手機刪除 %1$s。你無法取回這些資料。你的資料庫保持不變。</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-b+zh+Hant/strings.xml"
+code = '<string name="unpin_confirm_body">bae 將立即從這支手機移除它的檔案。該發行會保留在雲端，連線時從雲端串流播放。</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-b+zh+Hant/strings.xml"
+code = '<string name="device_removed_title">正在移除裝置</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-b+zh+Hant/strings.xml"
+code = '<string name="device_cut_off_running_body">請等它結束。</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-bg/strings.xml"
+code = '<string name="delete_album_confirm_body">bae ще изтрие завинаги всички издания на този албум от вашите устройства и от облака и ще запази оригиналните файлове във вашите папки.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-bg/strings.xml"
+code = '<string name="playlist_delete_message">bae ще изтрие този плейлист от всяко устройство. Песните в него остават в библиотеката.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-bg/strings.xml"
+code = '<string name="storage_cache_note">bae пази тук парчетата, които сте пускали от облака, обложките и снимките, и ги изтегля отново, когато ги пуснете или отворите.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-bg/strings.xml"
+code = '<string name="storage_delete_before_reset">Изтрий тези данни</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-bg/strings.xml"
+code = '<string name="storage_delete_before_reset_title">Да се изтрият ли тези данни?</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-bg/strings.xml"
+code = '<string name="storage_delete_before_reset_body">bae ще изтрие %1$s от този телефон. Не можете да върнете тези данни. Библиотеката ви остава непроменена.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-bg/strings.xml"
+code = '<string name="unpin_confirm_body">bae ще премахне файловете му от този телефон сега. Изданието остава в облака и се възпроизвежда оттам, докато сте онлайн.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-bg/strings.xml"
+code = '<string name="device_removed_title">Премахване на устройството</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-bg/strings.xml"
+code = '<string name="device_cut_off_running_body">Изчакайте да приключи.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-cs/strings.xml"
+code = '<string name="delete_album_confirm_body">bae trvale smaže všechna vydání tohoto alba z vašich zařízení i z cloudu a ponechá původní soubory ve vašich složkách.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-cs/strings.xml"
+code = '<string name="playlist_delete_message">bae smaže tento seznam skladeb ze všech zařízení. Jeho skladby zůstanou v knihovně.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-cs/strings.xml"
+code = '<string name="storage_cache_note">bae tu uchovává skladby, které jste přehráli z cloudu, obálky a obrázky, a znovu je stáhne, když je přehrajete nebo otevřete.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-cs/strings.xml"
+code = '<string name="storage_delete_before_reset">Smazat tato data</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-cs/strings.xml"
+code = '<string name="storage_delete_before_reset_title">Smazat tato data?</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-cs/strings.xml"
+code = '<string name="storage_delete_before_reset_body">bae z tohoto telefonu smaže %1$s. Tato data už nezískáte zpět. Vaše knihovna zůstane tak, jak je.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-cs/strings.xml"
+code = '<string name="unpin_confirm_body">bae hned odstraní jeho soubory z tohoto telefonu. Vydání zůstane v cloudu a dokud jste online, přehrává se odtud.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-cs/strings.xml"
+code = '<string name="device_removed_title">Odebírání zařízení</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-cs/strings.xml"
+code = '<string name="device_cut_off_running_body">Počkejte, až skončí.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-da/strings.xml"
+code = '<string name="delete_album_confirm_body">bae vil slette alle udgivelser af dette album permanent fra dine enheder og fra skyen og beholde de originale filer i dine mapper.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-da/strings.xml"
+code = '<string name="playlist_delete_message">bae vil slette denne afspilningsliste fra alle enheder. Dens numre bliver i biblioteket.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-da/strings.xml"
+code = '<string name="storage_cache_note">bae gemmer numre, du har afspillet fra skyen, covers og billeder her og henter dem igen, når du afspiller eller åbner dem.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-da/strings.xml"
+code = '<string name="storage_delete_before_reset">Slet disse data</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-da/strings.xml"
+code = '<string name="storage_delete_before_reset_title">Slet disse data?</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-da/strings.xml"
+code = '<string name="storage_delete_before_reset_body">bae vil slette %1$s fra denne telefon. Du kan ikke få disse data tilbage. Dit bibliotek forbliver, som det er.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-da/strings.xml"
+code = '<string name="device_removed_title">Fjerner enheden</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-da/strings.xml"
+code = '<string name="device_cut_off_running_body">Vent, til den er færdig.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-de/strings.xml"
+code = '<string name="delete_album_confirm_body">bae wird alle Veröffentlichungen dieses Albums endgültig von deinen Geräten und aus der Cloud löschen und die Originaldateien in deinen Ordnern behalten.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-de/strings.xml"
+code = '<string name="playlist_delete_message">bae wird diese Wiedergabeliste auf allen Geräten löschen. Ihre Titel bleiben in der Bibliothek.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-de/strings.xml"
+code = '<string name="storage_cache_note">bae speichert hier Titel, die du aus der Cloud abgespielt hast, sowie Cover und Bilder, und lädt sie erneut, wenn du sie abspielst oder öffnest.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-de/strings.xml"
+code = '<string name="storage_delete_before_reset">Diese Daten löschen</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-de/strings.xml"
+code = '<string name="storage_delete_before_reset_title">Diese Daten löschen?</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-de/strings.xml"
+code = '<string name="storage_delete_before_reset_body">bae wird %1$s von diesem Smartphone löschen. Du kannst diese Daten nicht zurückholen. Deine Bibliothek bleibt, wie sie ist.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-el/strings.xml"
+code = '<string name="delete_album_confirm_body">Το bae θα διαγράψει οριστικά όλες τις κυκλοφορίες αυτού του άλμπουμ από τις συσκευές σας και από το cloud και θα κρατήσει τα αρχικά αρχεία στους φακέλους σας.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-el/strings.xml"
+code = '<string name="playlist_delete_message">Το bae θα διαγράψει αυτή τη λίστα αναπαραγωγής από κάθε συσκευή. Τα κομμάτια της παραμένουν στη βιβλιοθήκη.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-el/strings.xml"
+code = '<string name="storage_cache_note">Το bae κρατά εδώ τα κομμάτια που παίξατε από το cloud, τα εξώφυλλα και τις εικόνες, και τα κατεβάζει ξανά όταν τα παίζετε ή τα ανοίγετε.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-el/strings.xml"
+code = '<string name="storage_delete_before_reset">Διαγραφή αυτών των δεδομένων</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-el/strings.xml"
+code = '<string name="storage_delete_before_reset_title">Διαγραφή αυτών των δεδομένων;</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-el/strings.xml"
+code = '<string name="storage_delete_before_reset_body">Το bae θα διαγράψει %1$s από αυτό το τηλέφωνο. Δεν μπορείτε να ανακτήσετε αυτά τα δεδομένα. Η βιβλιοθήκη σας μένει ως έχει.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-el/strings.xml"
+code = '<string name="unpin_confirm_body">Το bae θα αφαιρέσει τώρα τα αρχεία της από αυτό το τηλέφωνο. Η κυκλοφορία παραμένει στο cloud και αναπαράγεται από εκεί όσο είστε online.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-el/strings.xml"
+code = '<string name="device_removed_title">Αφαίρεση της συσκευής</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-el/strings.xml"
+code = '<string name="device_cut_off_running_body">Περιμένετε να ολοκληρωθεί.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-es/strings.xml"
+code = '<string name="delete_album_confirm_body">bae eliminará de forma permanente todas las ediciones de este álbum de tus dispositivos y de la nube, y conservará los archivos originales en tus carpetas.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-es/strings.xml"
+code = '<string name="playlist_delete_message">bae eliminará esta lista de reproducción de todos los dispositivos. Sus pistas permanecen en la biblioteca.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-es/strings.xml"
+code = '<string name="storage_cache_note">bae guarda aquí las pistas que reprodujiste desde la nube, las portadas y las imágenes, y las vuelve a descargar cuando las reproduces o las abres.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-es/strings.xml"
+code = '<string name="storage_delete_before_reset">Eliminar estos datos</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-es/strings.xml"
+code = '<string name="storage_delete_before_reset_title">¿Eliminar estos datos?</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-es/strings.xml"
+code = '<string name="storage_delete_before_reset_body">bae eliminará %1$s de este teléfono. No podrás recuperar estos datos. Tu biblioteca se queda como está.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-es/strings.xml"
+code = '<string name="unpin_confirm_body">bae eliminará sus archivos de este teléfono ahora mismo. La edición sigue en la nube y se reproduce desde ahí mientras tengas conexión.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-es/strings.xml"
+code = '<string name="device_removed_title">Quitando el dispositivo</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-es/strings.xml"
+code = '<string name="device_cut_off_running_body">Espera a que termine.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-fi/strings.xml"
+code = '<string name="delete_album_confirm_body">bae poistaa kaikki tämän albumin julkaisut pysyvästi laitteiltasi ja pilvestä ja säilyttää alkuperäiset tiedostot kansioissasi.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-fi/strings.xml"
+code = '<string name="playlist_delete_message">bae poistaa tämän soittolistan jokaiselta laitteelta. Sen kappaleet säilyvät kirjastossa.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-fi/strings.xml"
+code = '<string name="storage_cache_note">bae säilyttää täällä pilvestä toistamasi kappaleet, kansikuvat ja kuvat ja lataa ne uudelleen, kun toistat tai avaat ne.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-fi/strings.xml"
+code = '<string name="storage_delete_before_reset">Poista nämä tiedot</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-fi/strings.xml"
+code = '<string name="storage_delete_before_reset_title">Poistetaanko nämä tiedot?</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-fi/strings.xml"
+code = '<string name="storage_delete_before_reset_body">bae poistaa tästä puhelimesta %1$s. Et saa näitä tietoja takaisin. Kirjastosi pysyy ennallaan.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-fi/strings.xml"
+code = '<string name="device_removed_title">Laitetta poistetaan</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-fi/strings.xml"
+code = '<string name="device_cut_off_running_body">Odota, että se päättyy.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-fr/strings.xml"
+code = '<string name="delete_album_confirm_body">bae supprimera définitivement toutes les éditions de cet album de vos appareils et du cloud, et conservera les fichiers originaux dans vos dossiers.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-fr/strings.xml"
+code = '<string name="playlist_delete_message">bae supprimera cette liste de lecture de tous les appareils. Ses pistes restent dans la bibliothèque.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-fr/strings.xml"
+code = '<string name="storage_cache_note">bae conserve ici les pistes que vous avez lues depuis le cloud, les pochettes et les images, et les télécharge de nouveau quand vous les lisez ou les ouvrez.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-fr/strings.xml"
+code = '<string name="storage_delete_before_reset">Supprimer ces données</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-fr/strings.xml"
+code = '<string name="storage_delete_before_reset_title">Supprimer ces données ?</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-fr/strings.xml"
+code = '<string name="storage_delete_before_reset_body">bae supprimera %1$s de ce téléphone. Vous ne pourrez pas récupérer ces données. Votre bibliothèque reste telle quelle.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-fr/strings.xml"
+code = '<string name="device_removed_title">Suppression de l’appareil</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-fr/strings.xml"
+code = '<string name="device_cut_off_running_body">Attendez qu’elle se termine.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-he/strings.xml"
+code = '<string name="delete_album_confirm_body">bae ימחק לצמיתות את כל המהדורות של האלבום הזה מהמכשירים שלך ומהענן, וישאיר את הקבצים המקוריים בתיקיות שלך.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-he/strings.xml"
+code = '<string name="playlist_delete_message">bae ימחק את רשימת ההשמעה הזו מכל מכשיר. הרצועות שבה נשארות בספרייה.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-he/strings.xml"
+code = '<string name="storage_cache_note">bae שומר כאן רצועות שהשמעת מהענן, עטיפות ותמונות, ומוריד אותן שוב כשאתה משמיע או פותח אותן.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-he/strings.xml"
+code = '<string name="storage_delete_before_reset">מחיקת הנתונים האלה</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-he/strings.xml"
+code = '<string name="storage_delete_before_reset_title">למחוק את הנתונים האלה?</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-he/strings.xml"
+code = '<string name="storage_delete_before_reset_body">bae ימחק %1$s מהטלפון הזה. לא תוכל לקבל את הנתונים האלה בחזרה. הספרייה שלך נשארת כפי שהיא.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-he/strings.xml"
+code = '<string name="unpin_confirm_body">bae יסיר את הקבצים שלה מהטלפון הזה עכשיו. המהדורה נשארת בענן ומוזרמת משם כל עוד יש חיבור לאינטרנט.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-he/strings.xml"
+code = '<string name="device_removed_title">הסרת המכשיר</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-he/strings.xml"
+code = '<string name="device_cut_off_running_body">המתן לסיומה.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-hr/strings.xml"
+code = '<string name="delete_album_confirm_body">bae će trajno izbrisati sva izdanja ovog albuma s vaših uređaja i iz oblaka te zadržati izvorne datoteke u vašim mapama.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-hr/strings.xml"
+code = '<string name="playlist_delete_message">bae će izbrisati ovaj popis za reprodukciju sa svakog uređaja. Njegove pjesme ostaju u fonoteci.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-hr/strings.xml"
+code = '<string name="storage_cache_note">bae ovdje čuva skladbe koje ste reproducirali iz oblaka, omote i slike te ih ponovno preuzima kada ih reproducirate ili otvorite.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-hr/strings.xml"
+code = '<string name="storage_delete_before_reset">Izbriši ove podatke</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-hr/strings.xml"
+code = '<string name="storage_delete_before_reset_title">Izbrisati ove podatke?</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-hr/strings.xml"
+code = '<string name="storage_delete_before_reset_body">bae će izbrisati %1$s s ovog telefona. Te podatke ne možete vratiti. Vaša fonoteka ostaje kakva jest.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-hr/strings.xml"
+code = '<string name="unpin_confirm_body">bae će odmah ukloniti njegove datoteke s ovog telefona. Izdanje ostaje u oblaku i strimuje se odatle dok ste na mreži.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-hr/strings.xml"
+code = '<string name="device_removed_title">Uklanjanje uređaja</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-hr/strings.xml"
+code = '<string name="device_cut_off_running_body">Pričekajte da završi.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-hu/strings.xml"
+code = '<string name="delete_album_confirm_body">A bae véglegesen törli az album összes kiadását az eszközeidről és a felhőből, a mappáidban lévő eredeti fájlokat pedig megtartja.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-hu/strings.xml"
+code = '<string name="playlist_delete_message">A bae minden eszközről törli ezt a lejátszási listát. A benne lévő számok a könyvtárban maradnak.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-hu/strings.xml"
+code = '<string name="storage_cache_note">A bae itt tárolja a felhőből lejátszott számokat, a borítókat és a képeket, és újra letölti őket, amikor lejátszod vagy megnyitod őket.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-hu/strings.xml"
+code = '<string name="storage_delete_before_reset">Ezen adatok törlése</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-hu/strings.xml"
+code = '<string name="storage_delete_before_reset_title">Törlöd ezeket az adatokat?</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-hu/strings.xml"
+code = '<string name="storage_delete_before_reset_body">A bae %1$s adatot töröl erről a telefonról. Ezeket az adatokat nem kaphatod vissza. A könyvtárad változatlan marad.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-hu/strings.xml"
+code = '<string name="unpin_confirm_body">A bae most törli a fájljait erről a telefonról. A kiadás a felhőben marad, és onnan streamelhető, amíg online vagy.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-hu/strings.xml"
+code = '<string name="device_removed_title">Az eszköz eltávolítása</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-hu/strings.xml"
+code = '<string name="device_cut_off_running_body">Várd meg, amíg befejeződik.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-it/strings.xml"
+code = '<string name="delete_album_confirm_body">bae eliminerà definitivamente tutte le pubblicazioni di questo album dai tuoi dispositivi e dal cloud, e manterrà i file originali nelle tue cartelle.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-it/strings.xml"
+code = '<string name="playlist_delete_message">bae eliminerà questa playlist da ogni dispositivo. I suoi brani restano nella libreria.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-it/strings.xml"
+code = '<string name="storage_cache_note">bae conserva qui i brani che hai riprodotto dal cloud, le copertine e le immagini, e li scarica di nuovo quando li riproduci o li apri.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-it/strings.xml"
+code = '<string name="storage_delete_before_reset">Elimina questi dati</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-it/strings.xml"
+code = '<string name="storage_delete_before_reset_title">Eliminare questi dati?</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-it/strings.xml"
+code = '<string name="storage_delete_before_reset_body">bae eliminerà %1$s da questo telefono. Non potrai recuperare questi dati. La tua libreria resta com’è.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-it/strings.xml"
+code = '<string name="device_removed_title">Rimozione del dispositivo</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-it/strings.xml"
+code = '<string name="device_cut_off_running_body">Attendi che finisca.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-ja/strings.xml"
+code = '<string name="delete_album_confirm_body">bae は、このアルバムのすべてのリリースをお使いのデバイスとクラウドから完全に削除し、フォルダ内の元のファイルは残します。</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-ja/strings.xml"
+code = '<string name="playlist_delete_message">bae は、このプレイリストをすべてのデバイスから削除します。プレイリストのトラックはライブラリに残ります。</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-ja/strings.xml"
+code = '<string name="storage_cache_note">bae は、クラウドから再生したトラック、カバー、画像をここに保存し、再生したり開いたりしたときに再びダウンロードします。</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-ja/strings.xml"
+code = '<string name="storage_delete_before_reset">このデータを削除</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-ja/strings.xml"
+code = '<string name="storage_delete_before_reset_title">このデータを削除しますか？</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-ja/strings.xml"
+code = '<string name="storage_delete_before_reset_body">bae はこのスマートフォンから %1$s を削除します。このデータは元に戻せません。ライブラリはそのまま残ります。</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-ja/strings.xml"
+code = '<string name="device_removed_title">デバイスの削除</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-ja/strings.xml"
+code = '<string name="device_cut_off_running_body">終了するまでお待ちください。</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-ko/strings.xml"
+code = '<string name="delete_album_confirm_body">bae가 이 앨범의 모든 릴리스를 내 기기와 클라우드에서 영구적으로 삭제하고, 내 폴더의 원본 파일은 그대로 둡니다.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-ko/strings.xml"
+code = '<string name="playlist_delete_message">bae가 모든 기기에서 이 재생목록을 삭제합니다. 재생목록에 있는 트랙은 라이브러리에 남습니다.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-ko/strings.xml"
+code = '<string name="storage_cache_note">bae는 클라우드에서 재생한 트랙, 커버, 이미지를 여기에 보관하고, 재생하거나 열 때 다시 다운로드합니다.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-ko/strings.xml"
+code = '<string name="storage_delete_before_reset">이 데이터 삭제</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-ko/strings.xml"
+code = '<string name="storage_delete_before_reset_title">이 데이터를 삭제할까요?</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-ko/strings.xml"
+code = '<string name="storage_delete_before_reset_body">bae가 이 휴대전화에서 %1$s을(를) 삭제합니다. 이 데이터는 되돌릴 수 없습니다. 라이브러리는 그대로 유지됩니다.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-ko/strings.xml"
+code = '<string name="unpin_confirm_body">bae가 지금 이 휴대전화에서 이 릴리스의 파일을 제거합니다. 릴리스는 클라우드에 남으며, 온라인일 때 클라우드에서 스트리밍됩니다.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-ko/strings.xml"
+code = '<string name="device_removed_title">기기 제거 중</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-ko/strings.xml"
+code = '<string name="device_cut_off_running_body">요청이 끝날 때까지 기다리세요.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-nb/strings.xml"
+code = '<string name="delete_album_confirm_body">bae vil slette alle utgivelser av dette albumet permanent fra enhetene dine og fra skyen, og beholde originalfilene i mappene dine.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-nb/strings.xml"
+code = '<string name="playlist_delete_message">bae vil slette denne spillelisten fra alle enheter. Sporene i den blir værende i biblioteket.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-nb/strings.xml"
+code = '<string name="storage_cache_note">bae lagrer spor du har spilt av fra skyen, omslag og bilder her, og laster dem ned igjen når du spiller av eller åpner dem.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-nb/strings.xml"
+code = '<string name="storage_delete_before_reset">Slett disse dataene</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-nb/strings.xml"
+code = '<string name="storage_delete_before_reset_title">Slette disse dataene?</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-nb/strings.xml"
+code = '<string name="storage_delete_before_reset_body">bae vil slette %1$s fra denne telefonen. Du kan ikke få disse dataene tilbake. Biblioteket ditt forblir som det er.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-nb/strings.xml"
+code = '<string name="device_removed_title">Fjerner enheten</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-nb/strings.xml"
+code = '<string name="device_cut_off_running_body">Vent til den er ferdig.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-nl/strings.xml"
+code = '<string name="delete_album_confirm_body">bae zal alle releases van dit album definitief van je apparaten en uit de cloud verwijderen, en de originele bestanden in je mappen bewaren.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-nl/strings.xml"
+code = '<string name="playlist_delete_message">bae zal deze afspeellijst van elk apparaat verwijderen. De nummers erin blijven in de bibliotheek.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-nl/strings.xml"
+code = '<string name="storage_cache_note">bae bewaart hier nummers die je vanuit de cloud hebt afgespeeld, hoezen en afbeeldingen, en downloadt ze opnieuw wanneer je ze afspeelt of opent.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-nl/strings.xml"
+code = '<string name="storage_delete_before_reset">Deze gegevens verwijderen</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-nl/strings.xml"
+code = '<string name="storage_delete_before_reset_title">Deze gegevens verwijderen?</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-nl/strings.xml"
+code = '<string name="storage_delete_before_reset_body">bae zal %1$s van deze telefoon verwijderen. Je kunt deze gegevens niet terugkrijgen. Je bibliotheek blijft zoals die is.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-nl/strings.xml"
+code = '<string name="device_removed_title">Het apparaat verwijderen</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-nl/strings.xml"
+code = '<string name="device_cut_off_running_body">Wacht tot het klaar is.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-pl/strings.xml"
+code = '<string name="delete_album_confirm_body">bae trwale usunie wszystkie wydania tego albumu z Twoich urządzeń i z chmury, a oryginalne pliki w Twoich folderach zachowa.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-pl/strings.xml"
+code = '<string name="playlist_delete_message">bae usunie tę playlistę ze wszystkich urządzeń. Jej utwory zostaną w bibliotece.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-pl/strings.xml"
+code = '<string name="storage_cache_note">bae przechowuje tu utwory odtwarzane z chmury, okładki i obrazy oraz pobiera je ponownie, gdy je odtwarzasz lub otwierasz.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-pl/strings.xml"
+code = '<string name="storage_delete_before_reset">Usuń te dane</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-pl/strings.xml"
+code = '<string name="storage_delete_before_reset_title">Usunąć te dane?</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-pl/strings.xml"
+code = '<string name="storage_delete_before_reset_body">bae usunie %1$s z tego telefonu. Nie odzyskasz tych danych. Twoja biblioteka pozostanie bez zmian.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-pl/strings.xml"
+code = '<string name="device_removed_title">Usuwanie urządzenia</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-pl/strings.xml"
+code = '<string name="device_cut_off_running_body">Poczekaj, aż się zakończy.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-ro/strings.xml"
+code = '<string name="delete_album_confirm_body">bae va șterge definitiv toate edițiile acestui album de pe dispozitivele tale și din cloud și va păstra fișierele originale în dosarele tale.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-ro/strings.xml"
+code = '<string name="playlist_delete_message">bae va șterge această listă de redare de pe toate dispozitivele. Piesele din ea rămân în bibliotecă.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-ro/strings.xml"
+code = '<string name="storage_cache_note">bae păstrează aici piesele redate din cloud, copertele și imaginile și le descarcă din nou când le redai sau le deschizi.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-ro/strings.xml"
+code = '<string name="storage_delete_before_reset">Șterge aceste date</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-ro/strings.xml"
+code = '<string name="storage_delete_before_reset_title">Ștergi aceste date?</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-ro/strings.xml"
+code = '<string name="storage_delete_before_reset_body">bae va șterge %1$s de pe acest telefon. Nu poți recupera aceste date. Biblioteca ta rămâne așa cum este.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-ro/strings.xml"
+code = '<string name="unpin_confirm_body">bae va elimina acum fișierele ei de pe acest telefon. Ediția rămâne în cloud și se redă de acolo în flux cât timp ești online.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-ro/strings.xml"
+code = '<string name="device_removed_title">Se elimină dispozitivul</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-ro/strings.xml"
+code = '<string name="device_cut_off_running_body">Așteaptă să se termine.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-sk/strings.xml"
+code = '<string name="delete_album_confirm_body">bae natrvalo odstráni všetky vydania tohto albumu z tvojich zariadení aj z cloudu a ponechá pôvodné súbory v tvojich priečinkoch.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-sk/strings.xml"
+code = '<string name="playlist_delete_message">bae odstráni tento zoznam skladieb zo všetkých zariadení. Jeho skladby zostanú v knižnici.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-sk/strings.xml"
+code = '<string name="storage_cache_note">bae tu uchováva skladby, ktoré si prehral z cloudu, obaly a obrázky, a znova ich stiahne, keď ich prehráš alebo otvoríš.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-sk/strings.xml"
+code = '<string name="storage_delete_before_reset">Odstrániť tieto dáta</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-sk/strings.xml"
+code = '<string name="storage_delete_before_reset_title">Odstrániť tieto dáta?</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-sk/strings.xml"
+code = '<string name="storage_delete_before_reset_body">bae z tohto telefónu odstráni %1$s. Tieto dáta už nezískaš späť. Tvoja knižnica zostane taká, aká je.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-sk/strings.xml"
+code = '<string name="unpin_confirm_body">bae hneď odstráni jeho súbory z tohto telefónu. Vydanie zostane v cloude a bude sa odtiaľ streamovať, kým si online.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-sk/strings.xml"
+code = '<string name="device_removed_title">Odstraňovanie zariadenia</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-sk/strings.xml"
+code = '<string name="device_cut_off_running_body">Počkajte, kým skončí.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-sv/strings.xml"
+code = '<string name="delete_album_confirm_body">bae kommer att radera alla utgåvor av det här albumet permanent från dina enheter och från molnet och behålla originalfilerna i dina mappar.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-sv/strings.xml"
+code = '<string name="playlist_delete_message">bae kommer att radera den här spellistan från alla enheter. Spåren i den finns kvar i biblioteket.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-sv/strings.xml"
+code = '<string name="storage_cache_note">bae sparar spår du spelat från molnet, omslag och bilder här och hämtar dem igen när du spelar eller öppnar dem.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-sv/strings.xml"
+code = '<string name="storage_delete_before_reset">Radera den här datan</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-sv/strings.xml"
+code = '<string name="storage_delete_before_reset_title">Radera den här datan?</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-sv/strings.xml"
+code = '<string name="storage_delete_before_reset_body">bae kommer att radera %1$s från den här telefonen. Du kan inte få tillbaka den här datan. Ditt bibliotek förblir som det är.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-sv/strings.xml"
+code = '<string name="unpin_confirm_body">bae kommer att ta bort dess filer från den här telefonen nu. Utgåvan ligger kvar i molnet och strömmas därifrån medan du är online.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-sv/strings.xml"
+code = '<string name="device_cut_off_running_body">Vänta tills den är klar.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-tr/strings.xml"
+code = '<string name="delete_album_confirm_body">bae, bu albümün tüm yayınlarını cihazlarınızdan ve buluttan kalıcı olarak silecek ve klasörlerinizdeki özgün dosyaları koruyacak.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-tr/strings.xml"
+code = '<string name="playlist_delete_message">bae, bu çalma listesini her cihazdan silecek. İçindeki parçalar kitaplıkta kalır.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-tr/strings.xml"
+code = '<string name="storage_cache_note">bae, buluttan oynattığınız parçaları, kapakları ve resimleri burada tutar ve bunları oynattığınızda ya da açtığınızda yeniden indirir.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-tr/strings.xml"
+code = '<string name="storage_delete_before_reset">Bu verileri sil</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-tr/strings.xml"
+code = '<string name="storage_delete_before_reset_title">Bu veriler silinsin mi?</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-tr/strings.xml"
+code = '<string name="storage_delete_before_reset_body">bae, %1$s veriyi bu telefondan silecek. Bu verileri geri alamazsınız. Kitaplığınız olduğu gibi kalır.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-tr/strings.xml"
+code = '<string name="device_removed_title">Cihaz kaldırılıyor</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-tr/strings.xml"
+code = '<string name="device_cut_off_running_body">Bitmesini bekleyin.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-uk/strings.xml"
+code = '<string name="delete_album_confirm_body">bae остаточно видалить усі релізи цього альбому з ваших пристроїв і з хмари та збереже оригінальні файли у ваших теках.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-uk/strings.xml"
+code = '<string name="playlist_delete_message">bae видалить цей плейлист з усіх пристроїв. Його треки залишаться в бібліотеці.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-uk/strings.xml"
+code = '<string name="storage_cache_note">bae зберігає тут треки, які ви відтворювали з хмари, обкладинки й зображення, і завантажує їх знову, коли ви їх відтворюєте або відкриваєте.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-uk/strings.xml"
+code = '<string name="storage_delete_before_reset">Видалити ці дані</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-uk/strings.xml"
+code = '<string name="storage_delete_before_reset_title">Видалити ці дані?</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-uk/strings.xml"
+code = '<string name="storage_delete_before_reset_body">bae видалить %1$s з цього телефона. Ви не зможете повернути ці дані. Ваша бібліотека залишиться такою, як є.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-uk/strings.xml"
+code = '<string name="unpin_confirm_body">bae одразу видалить його файли з цього телефона. Реліз залишиться в хмарі й відтворюватиметься звідти, поки ви онлайн.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-uk/strings.xml"
+code = '<string name="device_removed_title">Вилучення пристрою</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values-uk/strings.xml"
+code = '<string name="device_cut_off_running_body">Зачекайте, поки він завершиться.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values/strings.xml"
+code = '<string name="delete_album_confirm_body">bae will permanently delete every release of this album from your devices and the cloud, and keep the original files in your folders.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values/strings.xml"
+code = '<string name="playlist_delete_message">bae will delete this playlist from every device. Its tracks stay in the library.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values/strings.xml"
+code = '<string name="storage_cache_note">bae keeps tracks you played from the cloud, covers and pictures here, and downloads them again when you play or open them.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values/strings.xml"
+code = '<string name="storage_delete_before_reset">Delete this data</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values/strings.xml"
+code = '<string name="storage_delete_before_reset_title">Delete this data?</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values/strings.xml"
+code = '<string name="storage_delete_before_reset_body">bae will delete %1$s from this phone. You cannot get this data back. Your library stays as it is.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/res/values/strings.xml"
+code = '<string name="unpin_confirm_body">bae will remove its files from this phone now. The release stays in the cloud and streams while you are online.</string>'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/shots/WelcomeShots.kt"
+code = 'DisplayError("This device cannot sync."),'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/ui/ResetOfferedScreenTest.kt"
+code = 'compose.onNodeWithText("This device cannot sync.").assertIsDisplayed()'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/ui/library/DeletePlaylistDialogTest.kt"
+code = '.onNodeWithText("bae will delete this playlist from every device. Its tracks stay in the library.")'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/ui/settings/SettingsStorageTest.kt"
+code = 'compose.onNodeWithText("Delete this data").assertDoesNotExist()'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/ui/settings/SettingsStorageTest.kt"
+code = 'compose.onNodeWithText("Delete this data").assertExists()'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/ui/settings/SettingsStorageTest.kt"
+code = 'compose.onNode(inDialog("Delete this data?")).assertExists()'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/ui/settings/SettingsStorageTest.kt"
+code = 'inDialog("bae will delete 540 MB from this phone. You cannot get this data back. Your library stays as it is."),'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/ui/settings/SettingsStorageTest.kt"
+code = 'compose.onNodeWithText("Delete this data").performScrollTo().performClick()'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/ui/settings/SettingsStorageTest.kt"
+code = 'compose.onNode(inDialog("Delete this data?")).assertDoesNotExist()'
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/loc/catalog.toml"
+code = 'comment = "Error line shown in the device picker when an AirPlay receiver plays only from the account that set it up. AirPlay is a product name."'
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/loc/catalog.toml"
+code = 'value = "This AirPlay receiver plays only from the account that set it up."'
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/loc/catalog.toml"
+code = 'es = "Este receptor AirPlay solo reproduce desde la cuenta que lo configuró."'
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/loc/catalog.toml"
+code = 'fr = "Ce récepteur AirPlay ne lit que le contenu du compte qui l’a configuré."'
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/loc/catalog.toml"
+code = 'de = "Dieser AirPlay-Empfänger spielt nur von dem Account ab, der ihn eingerichtet hat."'
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/loc/catalog.toml"
+code = 'pt-BR = "Este receptor AirPlay só reproduz da conta que o configurou."'
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/loc/catalog.toml"
+code = 'ja = "このAirPlayレシーバーは、設定したアカウントからのみ再生できます。"'
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/loc/catalog.toml"
+code = 'ko = "이 AirPlay 수신 기기는 설정한 계정에서만 재생됩니다."'
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/loc/catalog.toml"
+code = 'zh-Hans = "此 AirPlay 接收设备仅播放来自设置它的账户的内容。"'
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/loc/catalog.toml"
+code = 'ar = "يشغّل جهاز استقبال AirPlay هذا المحتوى من الحساب الذي أعدّه فقط."'
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/loc/catalog.toml"
+code = 'he = "מקלט ה‑AirPlay הזה מנגן רק מהחשבון שהגדיר אותו."'
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/loc/catalog.toml"
+code = 'uk = "Цей приймач AirPlay відтворює лише з облікового запису, який його налаштував."'
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/loc/catalog.toml"
+code = 'bg = "Този приемник AirPlay възпроизвежда само от акаунта, който го е настроил."'
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/loc/catalog.toml"
+code = 'pl = "Ten odbiornik AirPlay odtwarza tylko z konta, które go skonfigurowało."'
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/loc/catalog.toml"
+code = 'cs = "Tento přijímač AirPlay přehrává jen z účtu, který ho nastavil."'
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/loc/catalog.toml"
+code = 'hr = "Ovaj AirPlay prijamnik reproducira samo s računa koji ga je postavio."'
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/loc/catalog.toml"
+code = 'zh-Hant = "此 AirPlay 接收裝置僅播放來自設定它的帳號的內容。"'
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/loc/catalog.toml"
+code = 'it = "Questo ricevitore AirPlay riproduce solo dall’account che lo ha configurato."'
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/loc/catalog.toml"
+code = 'tr = "Bu AirPlay alıcısı yalnızca onu kuran hesaptan oynatır."'
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/loc/catalog.toml"
+code = 'nl = "Deze AirPlay-ontvanger speelt alleen af van het account dat hem heeft ingesteld."'
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/loc/catalog.toml"
+code = 'sk = "Tento prijímač AirPlay prehráva len z účtu, ktorý ho nastavil."'
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/loc/catalog.toml"
+code = 'hu = "Ez az AirPlay-vevő csak attól a fióktól játszik le, amely beállította."'
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/loc/catalog.toml"
+code = 'ro = "Acest receptor AirPlay redă doar din contul care l-a configurat."'
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/loc/catalog.toml"
+code = 'el = "Αυτός ο δέκτης AirPlay αναπαράγει μόνο από τον λογαριασμό που τον ρύθμισε."'
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/loc/catalog.toml"
+code = 'pt-PT = "Este recetor AirPlay só reproduz da conta que o configurou."'
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/loc/catalog.toml"
+code = 'sv = "Den här AirPlay-mottagaren spelar bara upp från kontot som konfigurerade den."'
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/loc/catalog.toml"
+code = 'da = "Denne AirPlay-modtager afspiller kun fra den konto, der satte den op."'
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/loc/catalog.toml"
+code = 'nb = "Denne AirPlay-mottakeren spiller bare av fra kontoen som satte den opp."'
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/loc/catalog.toml"
+code = 'fi = "Tämä AirPlay-vastaanotin toistaa vain tililtä, joka määritti sen."'
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/loc/catalog.toml"
+code = 'value = "This device cannot sync."'
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/loc/catalog.toml"
+code = 'es = "Este dispositivo no puede sincronizar."'
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/loc/catalog.toml"
+code = 'fr = "Cet appareil ne peut pas se synchroniser."'
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/loc/catalog.toml"
+code = 'de = "Dieses Gerät kann nicht synchronisieren."'
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/loc/catalog.toml"
+code = 'pt-BR = "Este dispositivo não pode sincronizar."'
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/loc/catalog.toml"
+code = 'ko = "이 기기는 동기화할 수 없습니다."'
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/loc/catalog.toml"
+code = 'ar = "لا يمكن لهذا الجهاز المزامنة."'
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/loc/catalog.toml"
+code = 'he = "המכשיר הזה לא יכול להסתנכרן."'
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/loc/catalog.toml"
+code = 'uk = "Цей пристрій не може синхронізуватися."'
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/loc/catalog.toml"
+code = 'bg = "Това устройство не може да се синхронизира."'
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/loc/catalog.toml"
+code = 'pl = "To urządzenie nie może się synchronizować."'
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/loc/catalog.toml"
+code = 'cs = "Toto zařízení se nemůže synchronizovat."'
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/loc/catalog.toml"
+code = 'hr = "Ovaj se uređaj ne može sinkronizirati."'
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/loc/catalog.toml"
+code = 'it = "Questo dispositivo non può sincronizzare."'
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/loc/catalog.toml"
+code = 'tr = "Bu cihaz eşitlenemiyor."'
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/loc/catalog.toml"
+code = 'nl = "Dit apparaat kan niet synchroniseren."'
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/loc/catalog.toml"
+code = 'sk = "Toto zariadenie sa nemôže synchronizovať."'
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/loc/catalog.toml"
+code = 'hu = "Ez az eszköz nem tud szinkronizálni."'
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/loc/catalog.toml"
+code = 'ro = "Acest dispozitiv nu se poate sincroniza."'
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/loc/catalog.toml"
+code = 'el = "Αυτή η συσκευή δεν μπορεί να συγχρονιστεί."'
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/loc/catalog.toml"
+code = 'pt-PT = "Este dispositivo não pode sincronizar."'
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/loc/catalog.toml"
+code = 'sv = "Enheten kan inte synkronisera."'
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/loc/catalog.toml"
+code = 'da = "Denne enhed kan ikke synkronisere."'
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/loc/catalog.toml"
+code = 'nb = "Denne enheten kan ikke synkronisere."'
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/loc/catalog.toml"
+code = 'fi = "Tämä laite ei voi synkronoida."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"bae will permanently delete every release of this album from your devices and the cloud, and keep the original files in your folders." : {'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "سيحذف bae كل إصدارات هذا الألبوم نهائيًا من أجهزتك ومن السحابة، ويُبقي الملفات الأصلية في مجلداتك."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae ще изтрие завинаги всички издания на този албум от вашите устройства и от облака и ще запази оригиналните файлове във вашите папки."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae trvale smaže všechna vydání tohoto alba z vašich zařízení i z cloudu a ponechá původní soubory ve vašich složkách."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae vil slette alle udgivelser af dette album permanent fra dine enheder og fra skyen og beholde de originale filer i dine mapper."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae wird alle Veröffentlichungen dieses Albums endgültig von deinen Geräten und aus der Cloud löschen und die Originaldateien in deinen Ordnern behalten."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Το bae θα διαγράψει οριστικά όλες τις κυκλοφορίες αυτού του άλμπουμ από τις συσκευές σας και από το cloud και θα κρατήσει τα αρχικά αρχεία στους φακέλους σας."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae will permanently delete every release of this album from your devices and the cloud, and keep the original files in your folders."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae eliminará de forma permanente todas las ediciones de este álbum de tus dispositivos y de la nube, y conservará los archivos originales en tus carpetas."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae poistaa kaikki tämän albumin julkaisut pysyvästi laitteiltasi ja pilvestä ja säilyttää alkuperäiset tiedostot kansioissasi."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae supprimera définitivement toutes les éditions de cet album de vos appareils et du cloud, et conservera les fichiers originaux dans vos dossiers."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae ימחק לצמיתות את כל המהדורות של האלבום הזה מהמכשירים שלך ומהענן, וישאיר את הקבצים המקוריים בתיקיות שלך."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae će trajno izbrisati sva izdanja ovog albuma s vaših uređaja i iz oblaka te zadržati izvorne datoteke u vašim mapama."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "A bae véglegesen törli az album összes kiadását az eszközeidről és a felhőből, a mappáidban lévő eredeti fájlokat pedig megtartja."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae eliminerà definitivamente tutte le pubblicazioni di questo album dai tuoi dispositivi e dal cloud, e manterrà i file originali nelle tue cartelle."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae は、このアルバムのすべてのリリースをお使いのデバイスとクラウドから完全に削除し、フォルダ内の元のファイルは残します。"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae가 이 앨범의 모든 릴리스를 내 기기와 클라우드에서 영구적으로 삭제하고, 내 폴더의 원본 파일은 그대로 둡니다."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae vil slette alle utgivelser av dette albumet permanent fra enhetene dine og fra skyen, og beholde originalfilene i mappene dine."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae zal alle releases van dit album definitief van je apparaten en uit de cloud verwijderen, en de originele bestanden in je mappen bewaren."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae trwale usunie wszystkie wydania tego albumu z Twoich urządzeń i z chmury, a oryginalne pliki w Twoich folderach zachowa."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "O bae vai excluir permanentemente todos os lançamentos deste álbum dos seus dispositivos e da nuvem, e manter os arquivos originais nas suas pastas."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "O bae vai eliminar permanentemente todas as edições deste álbum dos seus dispositivos e da nuvem, e manter os ficheiros originais nas suas pastas."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae va șterge definitiv toate edițiile acestui album de pe dispozitivele tale și din cloud și va păstra fișierele originale în dosarele tale."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae natrvalo odstráni všetky vydania tohto albumu z tvojich zariadení aj z cloudu a ponechá pôvodné súbory v tvojich priečinkoch."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae kommer att radera alla utgåvor av det här albumet permanent från dina enheter och från molnet och behålla originalfilerna i dina mappar."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae, bu albümün tüm yayınlarını cihazlarınızdan ve buluttan kalıcı olarak silecek ve klasörlerinizdeki özgün dosyaları koruyacak."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae остаточно видалить усі релізи цього альбому з ваших пристроїв і з хмари та збереже оригінальні файли у ваших теках."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae 将从你的设备和云端永久删除此专辑的所有版本，并保留你文件夹中的原始文件。"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae 將從你的裝置和雲端永久刪除此專輯的所有發行，並保留你資料夾中的原始檔案。"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"bae will permanently delete this release from your devices and the cloud, and keep the original files in your folders." : {'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "سيحذف bae هذا الإصدار نهائيًا من أجهزتك ومن السحابة، ويُبقي الملفات الأصلية في مجلداتك."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae ще изтрие завинаги това издание от вашите устройства и от облака и ще запази оригиналните файлове във вашите папки."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae trvale smaže toto vydání z vašich zařízení i z cloudu a ponechá původní soubory ve vašich složkách."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae vil slette denne udgivelse permanent fra dine enheder og fra skyen og beholde de originale filer i dine mapper."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae wird diese Veröffentlichung endgültig von deinen Geräten und aus der Cloud löschen und die Originaldateien in deinen Ordnern behalten."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Το bae θα διαγράψει οριστικά αυτή την κυκλοφορία από τις συσκευές σας και από το cloud και θα κρατήσει τα αρχικά αρχεία στους φακέλους σας."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae will permanently delete this release from your devices and the cloud, and keep the original files in your folders."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae eliminará de forma permanente esta edición de tus dispositivos y de la nube, y conservará los archivos originales en tus carpetas."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae poistaa tämän julkaisun pysyvästi laitteiltasi ja pilvestä ja säilyttää alkuperäiset tiedostot kansioissasi."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae supprimera définitivement cette édition de vos appareils et du cloud, et conservera les fichiers originaux dans vos dossiers."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae ימחק לצמיתות את המהדורה הזו מהמכשירים שלך ומהענן, וישאיר את הקבצים המקוריים בתיקיות שלך."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae će trajno izbrisati ovo izdanje s vaših uređaja i iz oblaka te zadržati izvorne datoteke u vašim mapama."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "A bae véglegesen törli ezt a kiadást az eszközeidről és a felhőből, a mappáidban lévő eredeti fájlokat pedig megtartja."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae eliminerà definitivamente questa pubblicazione dai tuoi dispositivi e dal cloud, e manterrà i file originali nelle tue cartelle."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae は、このリリースをお使いのデバイスとクラウドから完全に削除し、フォルダ内の元のファイルは残します。"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae가 이 릴리스를 내 기기와 클라우드에서 영구적으로 삭제하고, 내 폴더의 원본 파일은 그대로 둡니다."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae vil slette denne utgivelsen permanent fra enhetene dine og fra skyen, og beholde originalfilene i mappene dine."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae zal deze release definitief van je apparaten en uit de cloud verwijderen, en de originele bestanden in je mappen bewaren."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae trwale usunie to wydanie z Twoich urządzeń i z chmury, a oryginalne pliki w Twoich folderach zachowa."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "O bae vai excluir permanentemente este lançamento dos seus dispositivos e da nuvem, e manter os arquivos originais nas suas pastas."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "O bae vai eliminar permanentemente esta edição dos seus dispositivos e da nuvem, e manter os ficheiros originais nas suas pastas."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae va șterge definitiv această ediție de pe dispozitivele tale și din cloud și va păstra fișierele originale în dosarele tale."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae natrvalo odstráni toto vydanie z tvojich zariadení aj z cloudu a ponechá pôvodné súbory v tvojich priečinkoch."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae kommer att radera den här utgåvan permanent från dina enheter och från molnet och behålla originalfilerna i dina mappar."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae, bu yayını cihazlarınızdan ve buluttan kalıcı olarak silecek ve klasörlerinizdeki özgün dosyaları koruyacak."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae остаточно видалить цей реліз з ваших пристроїв і з хмари та збереже оригінальні файли у ваших теках."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae 将从你的设备和云端永久删除此版本，并保留你文件夹中的原始文件。"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae 將從你的裝置和雲端永久刪除此發行，並保留你資料夾中的原始檔案。"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "انتظر حتى ينتهي."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Изчакайте да приключи."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Počkejte, až skončí."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Vent, til den er færdig."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Warte, bis sie beendet ist."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Περιμένετε να ολοκληρωθεί."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Espera a que termine."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Odota, että se päättyy."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Attendez qu’elle se termine."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "המתן לסיומה."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Pričekajte da završi."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Várd meg, amíg befejeződik."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Attendi che finisca."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "終了するまでお待ちください。"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "요청이 끝날 때까지 기다리세요."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Vent til den er ferdig."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Wacht tot het klaar is."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Poczekaj, aż się zakończy."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Aguarde o término."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Aguarde que termine."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Așteaptă să se termine."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Počkajte, kým skončí."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Vänta tills den är klar."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Bitmesini bekleyin."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Зачекайте, поки він завершиться."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"Removing the device" : {'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "إزالة الجهاز"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Премахване на устройството"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Odebírání zařízení"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Fjerner enheden"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Gerät wird entfernt"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Αφαίρεση της συσκευής"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Quitando el dispositivo"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Laitetta poistetaan"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Suppression de l’appareil"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Uklanjanje uređaja"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Az eszköz eltávolítása"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Rimozione del dispositivo"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Fjerner enheten"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Het apparaat verwijderen"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Usuwanie urządzenia"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Removendo o dispositivo"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "A remover o dispositivo"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Se elimină dispozitivul"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Odstraňovanie zariadenia"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Cihaz kaldırılıyor"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Вилучення пристрою"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"bae looks up each new album as soon as you add it." : {'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "يبحث bae عن كل ألبوم جديد فور إضافتك له."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae търси всеки нов албум веднага щом го добавите."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae vyhledá každé nové album, jakmile ho přidáte."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae slår hvert nyt album op, så snart du tilføjer det."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae sucht jedes neue Album, sobald du es hinzufügst."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Το bae αναζητά κάθε νέο άλμπουμ μόλις το προσθέσετε."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae looks up each new album as soon as you add it."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae busca cada álbum nuevo en cuanto lo añades."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae hakee jokaisen uuden albumin heti, kun lisäät sen."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae recherche chaque nouvel album dès que vous l’ajoutez."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae מחפש כל אלבום חדש ברגע שאתה מוסיף אותו."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae pretražuje svaki novi album čim ga dodate."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "A bae minden új albumot megkeres, amint hozzáadod."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae cerca ogni nuovo album non appena lo aggiungi."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae は、新しいアルバムを追加するとすぐに検索します。"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "새 앨범을 추가하는 즉시 bae가 찾아봅니다."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae slår opp hvert nye album så snart du legger det til."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae zoekt elk nieuw album op zodra je het toevoegt."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae wyszukuje każdy nowy album zaraz po tym, jak go dodasz."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "O bae busca cada álbum novo assim que você o adiciona."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "O bae procura cada álbum novo assim que o adiciona."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae caută fiecare album nou imediat ce îl adaugi."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae vyhľadá každý nový album hneď, ako ho pridáte."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae slår upp varje nytt album så fort du lägger till det."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae, eklediğiniz her yeni albümü hemen arar."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae шукає кожен новий альбом, щойно ви його додаєте."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "你添加新专辑后，bae 会立即查找。"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "你加入新專輯後，bae 會立即查找。"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"bae adds the album to your library once it is sure of the match." : {'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "يضيف bae الألبوم إلى مكتبتك عندما يتأكد من التطابق."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae добавя албума към библиотеката ви, щом е сигурен в съвпадението."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae přidá album do vaší knihovny, jakmile si bude shodou jistý."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae føjer albummet til dit bibliotek, så snart den er sikker på matchet."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae fügt das Album deiner Mediathek hinzu, sobald bae sich bei der Zuordnung sicher ist."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Το bae προσθέτει το άλμπουμ στη βιβλιοθήκη σας μόλις είναι σίγουρο για την αντιστοίχιση."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae adds the album to your library once it is sure of the match."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae añade el álbum a tu biblioteca cuando está seguro de la coincidencia."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae lisää albumin kirjastoosi, kun se on varma osumasta."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae ajoute l’album à votre bibliothèque dès qu’il est sûr de la correspondance."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae מוסיף את האלבום לספרייה שלך כשהוא בטוח בהתאמה."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae dodaje album u vašu fonoteku čim bude siguran u podudaranje."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "A bae hozzáadja az albumot a könyvtáradhoz, amint biztos az egyezésben."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae aggiunge l’album alla tua libreria quando è sicuro della corrispondenza."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae は、一致を確信したらアルバムをライブラリに追加します。"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae가 일치 결과를 확신하면 앨범을 라이브러리에 추가합니다."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae legger albumet til i biblioteket ditt når den er sikker på treffet."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae voegt het album toe aan je bibliotheek zodra bae zeker is van de match."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae dodaje album do biblioteki, gdy jest pewny dopasowania."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "O bae adiciona o álbum à sua biblioteca quando tem certeza da correspondência."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "O bae adiciona o álbum à sua biblioteca quando tem a certeza da correspondência."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae adaugă albumul în biblioteca ta de îndată ce este sigur de potrivire."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae pridá album do vašej knižnice, keď si bude zhodou istý."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae lägger till albumet i ditt bibliotek när den är säker på matchningen."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae, eşleşmeden emin olduğunda albümü kitaplığınıza ekler."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae додає альбом до вашої бібліотеки, щойно певен у збігу."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae 确定匹配后，会将专辑添加到你的资料库。"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae 確定符合後，會將專輯加入你的資料庫。"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"bae will delete your saved key." : {'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "سيحذف bae مفتاحك المحفوظ."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae ще изтрие запазения ви ключ."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae smaže váš uložený klíč."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae vil slette din gemte nøgle."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae wird deinen gespeicherten Schlüssel löschen."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Το bae θα διαγράψει το αποθηκευμένο κλειδί σας."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae will delete your saved key."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae eliminará tu clave guardada."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae poistaa tallennetun avaimesi."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae supprimera votre clé enregistrée."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae ימחק את המפתח השמור שלך."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae će izbrisati vaš spremljeni ključ."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "A bae törli a mentett kulcsodat."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae eliminerà la tua chiave salvata."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae は保存したキーを削除します。"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae가 저장된 키를 삭제합니다."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae vil slette den lagrede nøkkelen din."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae zal je bewaarde sleutel verwijderen."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae usunie Twój zapisany klucz."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "O bae vai excluir sua chave salva."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "O bae vai eliminar a sua chave guardada."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae va șterge cheia ta salvată."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae odstráni váš uložený kľúč."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae kommer att radera din sparade nyckel."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae, kayıtlı anahtarınızı silecek."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae видалить ваш збережений ключ."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae 将删除你已保存的密钥。"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae 將刪除你已儲存的金鑰。"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"bae has not checked your key yet" : {'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "لم يتحقق bae من مفتاحك بعد"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae още не е проверил ключа ви"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae váš klíč ještě neověřil"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae har ikke tjekket din nøgle endnu"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae hat deinen Schlüssel noch nicht geprüft"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Το bae δεν έχει ελέγξει ακόμα το κλειδί σας"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae has not checked your key yet"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae aún no ha comprobado tu clave"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae ei ole vielä tarkistanut avaintasi"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae n’a pas encore vérifié votre clé"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae עדיין לא בדק את המפתח שלך"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae još nije provjerio vaš ključ"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "A bae még nem ellenőrizte a kulcsodat"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae non ha ancora verificato la tua chiave"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae はまだキーを確認していません"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae가 아직 키를 확인하지 않았습니다"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae har ikke sjekket nøkkelen din ennå"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae heeft je sleutel nog niet gecontroleerd"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae nie sprawdził jeszcze Twojego klucza"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "O bae ainda não verificou sua chave"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "O bae ainda não verificou a sua chave"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae nu ți-a verificat încă cheia"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae váš kľúč ešte neoveril"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae har inte kontrollerat din nyckel än"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae anahtarınızı henüz denetlemedi"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae ще не перевірив ваш ключ"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae 尚未检查你的密钥"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae 尚未檢查你的金鑰"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"bae will remove its files from this Mac now. The release stays in the cloud and plays from there while you are online." : {'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "سيزيل bae ملفاته من هذا الـ Mac الآن. يبقى الإصدار في السحابة ويُشغَّل منها أثناء اتصالك بالإنترنت."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae ще премахне файловете му от този Mac сега. Изданието остава в облака и се възпроизвежда оттам, докато сте онлайн."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae hned odstraní jeho soubory z tohoto Macu. Vydání zůstane v cloudu a dokud jste online, přehrává se odtud."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae vil fjerne dens filer fra denne Mac nu. Udgivelsen bliver i skyen og afspilles derfra, mens du er online."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae wird ihre Dateien jetzt von diesem Mac entfernen. Die Veröffentlichung bleibt in der Cloud und wird von dort abgespielt, solange du online bist."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Το bae θα αφαιρέσει τώρα τα αρχεία της από αυτό το Mac. Η κυκλοφορία παραμένει στο cloud και αναπαράγεται από εκεί όσο είστε online."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae will remove its files from this Mac now. The release stays in the cloud and plays from there while you are online."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae eliminará sus archivos de este Mac ahora mismo. La edición sigue en la nube y se reproduce desde ahí mientras tengas conexión."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae poistaa sen tiedostot tästä Macista nyt. Julkaisu pysyy pilvessä, ja sitä toistetaan sieltä, kun olet verkossa."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae supprimera ses fichiers de ce Mac dès maintenant. L’édition reste dans le cloud et est lue depuis celui-ci tant que vous êtes en ligne."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae יסיר את הקבצים שלה מה‑Mac הזה עכשיו. המהדורה נשארת בענן ומתנגנת משם כל עוד יש חיבור לאינטרנט."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae će odmah ukloniti njegove datoteke s ovog Maca. Izdanje ostaje u oblaku i reproducira se odatle dok ste na mreži."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "A bae most törli a fájljait erről a Macről. A kiadás a felhőben marad, és onnan játszható le, amíg online vagy."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae rimuoverà subito i suoi file da questo Mac. La pubblicazione resta nel cloud e viene riprodotta da lì finché sei online."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae は、このリリースのファイルを今すぐこの Mac から削除します。リリースはクラウドに残り、オンラインの間はそこから再生されます。"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae가 지금 이 Mac에서 이 릴리스의 파일을 제거합니다. 릴리스는 클라우드에 남으며, 온라인일 때 클라우드에서 재생됩니다."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae vil fjerne filene fra denne Macen nå. Utgivelsen blir værende i skyen og spilles av derfra mens du er på nett."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae zal de bestanden nu van deze Mac verwijderen. De release blijft in de cloud en wordt daar vandaan afgespeeld zolang je online bent."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae usunie teraz jego pliki z tego Maca. Wydanie pozostanie w chmurze i będzie odtwarzane stamtąd, gdy jesteś online."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "O bae vai remover os arquivos dele deste Mac agora. O lançamento continua na nuvem e é reproduzido de lá enquanto você estiver online."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "O bae vai remover os ficheiros da edição deste Mac agora. A edição continua na nuvem e é reproduzida a partir de lá enquanto estiver online."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae va elimina acum fișierele ei de pe acest Mac. Ediția rămâne în cloud și se redă de acolo cât timp ești online."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae hneď odstráni jeho súbory z tohto Macu. Vydanie zostane v cloude a bude sa odtiaľ prehrávať, kým si online."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae kommer att ta bort dess filer från den här Macen nu. Utgåvan ligger kvar i molnet och spelas upp därifrån medan du är online."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae, dosyalarını şimdi bu Mac’ten kaldıracak. Yayın bulutta kalır ve çevrimiçi olduğunuzda oradan oynatılır."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae одразу видалить його файли з цього Mac. Реліз залишиться в хмарі й відтворюватиметься звідти, поки ви онлайн."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae 将立即从这台 Mac 上移除它的文件。该版本会保留在云端，联网时从云端播放。"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae 將立即從這部 Mac 移除它的檔案。該發行會保留在雲端，連線時從雲端播放。"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"bae will remove their files from this Mac now. The releases stay in the cloud and play from there while you are online." : {'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "سيزيل bae ملفاتها من هذا الـ Mac الآن. تبقى الإصدارات في السحابة وتُشغَّل منها أثناء اتصالك بالإنترنت."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae ще премахне файловете им от този Mac сега. Изданията остават в облака и се възпроизвеждат оттам, докато сте онлайн."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae hned odstraní jejich soubory z tohoto Macu. Vydání zůstanou v cloudu a dokud jste online, přehrávají se odtud."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae vil fjerne deres filer fra denne Mac nu. Udgivelserne bliver i skyen og afspilles derfra, mens du er online."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae wird ihre Dateien jetzt von diesem Mac entfernen. Die Veröffentlichungen bleiben in der Cloud und werden von dort abgespielt, solange du online bist."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Το bae θα αφαιρέσει τώρα τα αρχεία τους από αυτό το Mac. Οι κυκλοφορίες παραμένουν στο cloud και αναπαράγονται από εκεί όσο είστε online."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae will remove their files from this Mac now. The releases stay in the cloud and play from there while you are online."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae eliminará sus archivos de este Mac ahora mismo. Las ediciones siguen en la nube y se reproducen desde ahí mientras tengas conexión."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae poistaa niiden tiedostot tästä Macista nyt. Julkaisut pysyvät pilvessä, ja niitä toistetaan sieltä, kun olet verkossa."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae supprimera leurs fichiers de ce Mac dès maintenant. Les éditions restent dans le cloud et sont lues depuis celui-ci tant que vous êtes en ligne."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae יסיר את הקבצים שלהן מה‑Mac הזה עכשיו. המהדורות נשארות בענן ומתנגנות משם כל עוד יש חיבור לאינטרנט."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae će odmah ukloniti njihove datoteke s ovog Maca. Izdanja ostaju u oblaku i reproduciraju se odatle dok ste na mreži."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "A bae most törli a fájljaikat erről a Macről. A kiadások a felhőben maradnak, és onnan játszhatók le, amíg online vagy."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae rimuoverà subito i loro file da questo Mac. Le pubblicazioni restano nel cloud e vengono riprodotte da lì finché sei online."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae は、これらのリリースのファイルを今すぐこの Mac から削除します。リリースはクラウドに残り、オンラインの間はそこから再生されます。"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae가 지금 이 Mac에서 이 릴리스들의 파일을 제거합니다. 릴리스들은 클라우드에 남으며, 온라인일 때 클라우드에서 재생됩니다."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae vil fjerne filene deres fra denne Macen nå. Utgivelsene blir værende i skyen og spilles av derfra mens du er på nett."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae zal hun bestanden nu van deze Mac verwijderen. De releases blijven in de cloud en worden daar vandaan afgespeeld zolang je online bent."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae usunie teraz ich pliki z tego Maca. Wydania pozostaną w chmurze i będą odtwarzane stamtąd, gdy jesteś online."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "O bae vai remover os arquivos deles deste Mac agora. Os lançamentos continuam na nuvem e são reproduzidos de lá enquanto você estiver online."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "O bae vai remover os ficheiros das edições deste Mac agora. As edições continuam na nuvem e são reproduzidas a partir de lá enquanto estiver online."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae va elimina acum fișierele lor de pe acest Mac. Edițiile rămân în cloud și se redau de acolo cât timp ești online."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae hneď odstráni ich súbory z tohto Macu. Vydania zostanú v cloude a budú sa odtiaľ prehrávať, kým si online."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae kommer att ta bort deras filer från den här Macen nu. Utgåvorna ligger kvar i molnet och spelas upp därifrån medan du är online."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae, bunların dosyalarını şimdi bu Mac’ten kaldıracak. Yayınlar bulutta kalır ve çevrimiçi olduğunuzda oradan oynatılır."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae одразу видалить їхні файли з цього Mac. Релізи залишаться в хмарі й відтворюватимуться звідти, поки ви онлайн."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae 将立即从这台 Mac 上移除它们的文件。这些版本会保留在云端，联网时从云端播放。"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae 將立即從這部 Mac 移除它們的檔案。這些發行會保留在雲端，連線時從雲端播放。"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = """"comment" : "Settings → Storage: the cache section, and the cache's name in the usage legend.","""
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"comment" : "Settings → Storage: the row for the cached files, beside Clear cache.",'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "الملفات المخزنة مؤقتًا"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Кеширани файлове"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Soubory v mezipaměti"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Cachelagrede filer"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Zwischengespeicherte Dateien"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Αρχεία προσωρινής μνήμης"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Cached files"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Archivos en caché"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Välimuistin tiedostot"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Fichiers en cache"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "קבצים במטמון"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Datoteke u predmemoriji"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Gyorsítótárazott fájlok"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "File nella cache"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "キャッシュされたファイル"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Bufrede filer"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Gecachete bestanden"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Pliki w pamięci podręcznej"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Arquivos em cache"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Ficheiros em cache"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Fișiere din cache"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Súbory vo vyrovnávacej pamäti"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Cachelagrade filer"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Önbellekteki dosyalar"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Кешовані файли"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"bae keeps tracks you played from the cloud, covers and pictures here, and downloads them again when you play or open them." : {'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"comment" : "Note under the Cached files row on Settings → Storage.",'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "يحتفظ bae هنا بالمقاطع التي شغّلتها من السحابة والأغلفة والصور، ويعيد تنزيلها عندما تشغّلها أو تفتحها."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae пази тук парчетата, които сте пускали от облака, обложките и снимките, и ги изтегля отново, когато ги пуснете или отворите."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae tu uchovává skladby, které jste přehráli z cloudu, obálky a obrázky, a znovu je stáhne, když je přehrajete nebo otevřete."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae gemmer numre, du har afspillet fra skyen, covers og billeder her og henter dem igen, når du afspiller eller åbner dem."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae speichert hier Titel, die du aus der Cloud abgespielt hast, sowie Cover und Bilder, und lädt sie erneut, wenn du sie abspielst oder öffnest."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Το bae κρατά εδώ τα κομμάτια που παίξατε από το cloud, τα εξώφυλλα και τις εικόνες, και τα κατεβάζει ξανά όταν τα παίζετε ή τα ανοίγετε."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae keeps tracks you played from the cloud, covers and pictures here, and downloads them again when you play or open them."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae guarda aquí las pistas que reprodujiste desde la nube, las portadas y las imágenes, y las vuelve a descargar cuando las reproduces o las abres."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae säilyttää täällä pilvestä toistamasi kappaleet, kansikuvat ja kuvat ja lataa ne uudelleen, kun toistat tai avaat ne."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae conserve ici les pistes que vous avez lues depuis le cloud, les pochettes et les images, et les télécharge de nouveau quand vous les lisez ou les ouvrez."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae שומר כאן רצועות שהשמעת מהענן, עטיפות ותמונות, ומוריד אותן שוב כשאתה משמיע או פותח אותן."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae ovdje čuva skladbe koje ste reproducirali iz oblaka, omote i slike te ih ponovno preuzima kada ih reproducirate ili otvorite."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "A bae itt tárolja a felhőből lejátszott számokat, a borítókat és a képeket, és újra letölti őket, amikor lejátszod vagy megnyitod őket."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae conserva qui i brani che hai riprodotto dal cloud, le copertine e le immagini, e li scarica di nuovo quando li riproduci o li apri."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae は、クラウドから再生したトラック、カバー、画像をここに保存し、再生したり開いたりしたときに再びダウンロードします。"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae는 클라우드에서 재생한 트랙, 커버, 이미지를 여기에 보관하고, 재생하거나 열 때 다시 다운로드합니다."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae lagrer spor du har spilt av fra skyen, omslag og bilder her, og laster dem ned igjen når du spiller av eller åpner dem."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae bewaart hier nummers die je vanuit de cloud hebt afgespeeld, hoezen en afbeeldingen, en downloadt ze opnieuw wanneer je ze afspeelt of opent."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae przechowuje tu utwory odtwarzane z chmury, okładki i obrazy oraz pobiera je ponownie, gdy je odtwarzasz lub otwierasz."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "O bae guarda aqui as faixas que você reproduziu da nuvem, as capas e as imagens, e as baixa de novo quando você as reproduz ou abre."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "O bae guarda aqui as faixas que reproduziu a partir da nuvem, as capas e as imagens, e transfere-as novamente quando as reproduz ou abre."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae păstrează aici piesele redate din cloud, copertele și imaginile și le descarcă din nou când le redai sau le deschizi."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae tu uchováva skladby, ktoré ste prehrali z cloudu, obaly a obrázky, a znova ich stiahne, keď ich prehráte alebo otvoríte."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae sparar spår du spelat från molnet, omslag och bilder här och hämtar dem igen när du spelar eller öppnar dem."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae, buluttan oynattığınız parçaları, kapakları ve resimleri burada tutar ve bunları oynattığınızda ya da açtığınızda yeniden indirir."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae зберігає тут треки, які ви відтворювали з хмари, обкладинки й зображення, і завантажує їх знову, коли ви їх відтворюєте або відкриваєте."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae 在此保存你从云端播放过的曲目、封面和图片，并在你播放或打开它们时重新下载。"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae 在此保存你從雲端播放過的曲目、封面和圖片，並在你播放或開啟它們時重新下載。"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"comment" : "Settings → Storage: row for the library a reset left on this Mac.",'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "المكتبة القديمة"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Старата библиотека"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Stará knihovna"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Alte Bibliothek"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Παλιά βιβλιοθήκη"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Biblioteca antigua"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Vanha kirjasto"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Ancienne bibliothèque"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "הספרייה הישנה"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Stara fonoteka"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Régi könyvtár"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Vecchia libreria"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Oude bibliotheek"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Stara biblioteka"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Biblioteca veche"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Stará knižnica"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Gammalt bibliotek"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Eski kitaplık"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Стара бібліотека"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"Local releases stay in your folders, and bae does not count them here." : {'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "تبقى الإصدارات المحلية في مجلداتك، ولا يحتسبها bae هنا."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Локалните издания остават във вашите папки и bae не ги брои тук."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Místní vydání zůstávají ve vašich složkách a bae je zde nezapočítává."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Lokale udgivelser bliver i dine mapper, og bae tæller dem ikke med her."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Lokale Veröffentlichungen bleiben in deinen Ordnern, und bae zählt sie hier nicht mit."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Οι τοπικές κυκλοφορίες μένουν στους φακέλους σας και το bae δεν τις μετρά εδώ."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Local releases stay in your folders, and bae does not count them here."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Las ediciones locales permanecen en tus carpetas, y bae no las cuenta aquí."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Paikalliset julkaisut pysyvät kansioissasi, eikä bae laske niitä tässä."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Les éditions locales restent dans vos dossiers, et bae ne les compte pas ici."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "מהדורות מקומיות נשארות בתיקיות שלך, ו‑bae לא סופר אותן כאן."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Lokalna izdanja ostaju u vašim mapama, a bae ih ovdje ne broji."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "A helyi kiadások a mappáidban maradnak, és a bae itt nem számolja bele őket."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Le pubblicazioni locali restano nelle tue cartelle, e bae non le conta qui."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "ローカルのリリースはフォルダに残り、bae はここでは数えません。"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "로컬 릴리스는 사용자의 폴더에 그대로 있으며, bae는 여기에 포함하지 않습니다."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Lokale utgivelser blir i mappene dine, og bae teller dem ikke her."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Lokale releases blijven in je mappen, en bae telt ze hier niet mee."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Wydania lokalne zostają w Twoich folderach, a bae ich tu nie liczy."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Lançamentos locais ficam nas suas pastas, e o bae não os conta aqui."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "As edições locais ficam nas suas pastas, e o bae não as conta aqui."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Edițiile locale rămân în folderele tale, iar bae nu le numără aici."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Lokálne vydania zostávajú vo vašich priečinkoch a bae ich tu nepočíta."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Lokala utgåvor ligger kvar i dina mappar, och bae räknar inte med dem här."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Yerel yayınlar klasörlerinizde kalır ve bae onları burada saymaz."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Локальні релізи залишаються у ваших теках, і bae не враховує їх тут."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "本地发行版保留在你的文件夹中，bae 不在此计入它们。"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "本機發行版保留在你的資料夾中，bae 不在此計入它們。"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"Delete the old library?" : {'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"comment" : "Title of the alert asking before deleting the library a reset left.",'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "حذف المكتبة القديمة؟"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Да се изтрие ли старата библиотека?"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Smazat starou knihovnu?"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Slet det gamle bibliotek?"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Alte Bibliothek löschen?"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Διαγραφή της παλιάς βιβλιοθήκης;"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Delete the old library?"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "¿Eliminar la biblioteca antigua?"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Poistetaanko vanha kirjasto?"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Supprimer l’ancienne bibliothèque ?"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "למחוק את הספרייה הישנה?"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Izbrisati staru fonoteku?"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Törlöd a régi könyvtárat?"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Eliminare la vecchia libreria?"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "古いライブラリを削除しますか？"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "이전 라이브러리를 삭제할까요?"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Slette det gamle biblioteket?"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Oude bibliotheek verwijderen?"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Usunąć starą bibliotekę?"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Excluir a biblioteca antiga?"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Eliminar a biblioteca antiga?"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Ștergi biblioteca veche?"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Odstrániť starú knižnicu?"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Radera det gamla biblioteket?"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Eski kitaplık silinsin mi?"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Видалити стару бібліотеку?"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"bae will delete %@ from this Mac. You cannot get this data back. Your library stays as it is." : {'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "سيحذف bae %@ من هذا الـ Mac. لا يمكنك استعادة هذه البيانات. تبقى مكتبتك كما هي."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae ще изтрие %@ от този Mac. Не можете да върнете тези данни. Библиотеката ви остава непроменена."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae z tohoto Macu smaže %@. Tato data už nezískáte zpět. Vaše knihovna zůstane tak, jak je."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae vil slette %@ fra denne Mac. Du kan ikke få disse data tilbage. Dit bibliotek forbliver, som det er."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae wird %@ von diesem Mac löschen. Du kannst diese Daten nicht zurückholen. Deine Bibliothek bleibt, wie sie ist."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Το bae θα διαγράψει %@ από αυτό το Mac. Δεν μπορείτε να ανακτήσετε αυτά τα δεδομένα. Η βιβλιοθήκη σας μένει ως έχει."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae will delete %@ from this Mac. You cannot get this data back. Your library stays as it is."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae eliminará %@ de este Mac. No podrás recuperar estos datos. Tu biblioteca se queda como está."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae poistaa tästä Macista %@. Et saa näitä tietoja takaisin. Kirjastosi pysyy ennallaan."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae supprimera %@ de ce Mac. Vous ne pourrez pas récupérer ces données. Votre bibliothèque reste telle quelle."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae ימחק %@ מה‑Mac הזה. לא תוכל לקבל את הנתונים האלה בחזרה. הספרייה שלך נשארת כפי שהיא."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae će izbrisati %@ s ovog Maca. Te podatke ne možete vratiti. Vaša fonoteka ostaje kakva jest."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "A bae %@ adatot töröl erről a Macről. Ezeket az adatokat nem kaphatod vissza. A könyvtárad változatlan marad."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae eliminerà %@ da questo Mac. Non potrai recuperare questi dati. La tua libreria resta com’è."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae はこの Mac から %@ を削除します。このデータは元に戻せません。ライブラリはそのまま残ります。"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae가 이 Mac에서 %@를 삭제합니다. 이 데이터는 되돌릴 수 없습니다. 라이브러리는 그대로 유지됩니다."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae vil slette %@ fra denne Macen. Du kan ikke få disse dataene tilbake. Biblioteket ditt forblir som det er."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae zal %@ van deze Mac verwijderen. Je kunt deze gegevens niet terugkrijgen. Je bibliotheek blijft zoals die is."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae usunie %@ z tego Maca. Nie odzyskasz tych danych. Twoja biblioteka pozostanie bez zmian."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "O bae vai excluir %@ deste Mac. Você não poderá recuperar esses dados. Sua biblioteca continua como está."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "O bae vai eliminar %@ deste Mac. Não pode recuperar estes dados. A sua biblioteca fica como está."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae va șterge %@ de pe acest Mac. Nu poți recupera aceste date. Biblioteca ta rămâne așa cum este."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae z tohto Macu odstráni %@. Tieto údaje už nezískate späť. Vaša knižnica zostane taká, aká je."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae kommer att radera %@ från den här Macen. Du kan inte få tillbaka den här datan. Ditt bibliotek förblir som det är."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae, %@ veriyi bu Mac’ten silecek. Bu verileri geri alamazsınız. Kitaplığınız olduğu gibi kalır."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae видалить %@ з цього Mac. Ви не зможете повернути ці дані. Ваша бібліотека залишиться такою, як є."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae 将从这台 Mac 上删除 %@。你无法找回这些数据。你的库保持不变。"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae 將從這部 Mac 刪除 %@。你無法取回這些資料。你的資料庫保持不變。"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"bae kept the library as it was on this Mac. Nothing uses it." : {'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"comment" : "Note under the Old library row.",'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "احتفظ bae بالمكتبة كما كانت على هذا الـ Mac. لا شيء يستخدمها."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae запази библиотеката такава, каквато беше на този Mac. Нищо не я използва."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae ponechal knihovnu tak, jak byla na tomto Macu. Nic ji nepoužívá."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae beholdt biblioteket, som det var på denne Mac. Intet bruger det."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae hat die Bibliothek so behalten, wie sie auf diesem Mac war. Nichts verwendet sie."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Το bae κράτησε τη βιβλιοθήκη όπως ήταν σε αυτό το Mac. Τίποτα δεν τη χρησιμοποιεί."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae kept the library as it was on this Mac. Nothing uses it."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae conservó la biblioteca tal como estaba en este Mac. Nada la usa."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae säilytti kirjaston sellaisena kuin se oli tällä Macilla. Mikään ei käytä sitä."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae a conservé la bibliothèque telle qu’elle était sur ce Mac. Rien ne l’utilise."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae שמר את הספרייה כפי שהייתה ב‑Mac הזה. שום דבר לא משתמש בה."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae je zadržao fonoteku kakva je bila na ovom Macu. Ništa je ne koristi."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "A bae megtartotta a könyvtárat úgy, ahogy ezen a Macen volt. Semmi nem használja."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae ha mantenuto la libreria com’era su questo Mac. Nulla la usa."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae は、この Mac にあったときのままライブラリを残しました。どこからも使われていません。"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae가 이 Mac에 있던 그대로 라이브러리를 보관했습니다. 아무것도 사용하지 않습니다."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae beholdt biblioteket slik det var på denne Macen. Ingenting bruker det."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae heeft de bibliotheek bewaard zoals die op deze Mac was. Niets gebruikt deze."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae zachował bibliotekę taką, jaka była na tym Macu. Nic z niej nie korzysta."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "O bae manteve a biblioteca como estava neste Mac. Nada a usa."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "O bae manteve a biblioteca como estava neste Mac. Nada a utiliza."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae a păstrat biblioteca așa cum era pe acest Mac. Nimic nu o folosește."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae ponechal knižnicu tak, ako bola na tomto Macu. Nič ju nepoužíva."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae behöll biblioteket som det var på den här Macen. Ingenting använder det."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae, kitaplığı bu Mac’te olduğu gibi tuttu. Hiçbir şey onu kullanmıyor."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae зберіг бібліотеку такою, якою вона була на цьому Mac. Ніщо її не використовує."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae 保留了这台 Mac 上原来的库。没有任何内容在使用它。"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae 保留了這部 Mac 上原本的資料庫。沒有任何東西在使用它。"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"bae will delete this playlist from every device. Its tracks stay in the library." : {'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"comment" : "Message of the alert that asks before bae deletes a playlist",'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "سيحذف bae قائمة التشغيل هذه من كل جهاز. تبقى مقاطعها في المكتبة."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae ще изтрие този плейлист от всяко устройство. Песните в него остават в библиотеката."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae smaže tento seznam skladeb ze všech zařízení. Jeho skladby zůstanou v knihovně."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae vil slette denne afspilningsliste fra alle enheder. Dens numre bliver i biblioteket."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae wird diese Wiedergabeliste auf allen Geräten löschen. Ihre Titel bleiben in der Bibliothek."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "Το bae θα διαγράψει αυτή τη λίστα αναπαραγωγής από κάθε συσκευή. Τα κομμάτια της παραμένουν στη βιβλιοθήκη."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae will delete this playlist from every device. Its tracks stay in the library."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae eliminará esta lista de reproducción de todos los dispositivos. Sus pistas permanecen en la biblioteca."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae poistaa tämän soittolistan jokaiselta laitteelta. Sen kappaleet säilyvät kirjastossa."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae supprimera cette liste de lecture de tous les appareils. Ses pistes restent dans la bibliothèque."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae ימחק את רשימת ההשמעה הזו מכל מכשיר. הרצועות שבה נשארות בספרייה."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae će izbrisati ovaj popis za reprodukciju sa svakog uređaja. Njegove pjesme ostaju u fonoteci."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "A bae minden eszközről törli ezt a lejátszási listát. A benne lévő számok a könyvtárban maradnak."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae eliminerà questa playlist da ogni dispositivo. I suoi brani restano nella libreria."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae は、このプレイリストをすべてのデバイスから削除します。プレイリストのトラックはライブラリに残ります。"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae가 모든 기기에서 이 재생목록을 삭제합니다. 재생목록에 있는 트랙은 라이브러리에 남습니다."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae vil slette denne spillelisten fra alle enheter. Sporene i den blir værende i biblioteket."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae zal deze afspeellijst van elk apparaat verwijderen. De nummers erin blijven in de bibliotheek."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae usunie tę playlistę ze wszystkich urządzeń. Jej utwory zostaną w bibliotece."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "O bae vai excluir esta playlist de todos os dispositivos. As faixas dela continuam na biblioteca."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "O bae vai eliminar esta lista de reprodução de todos os dispositivos. As faixas que contém ficam na biblioteca."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae va șterge această listă de redare de pe toate dispozitivele. Piesele din ea rămân în bibliotecă."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae odstráni tento zoznam skladieb zo všetkých zariadení. Jeho skladby zostanú v knižnici."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae kommer att radera den här spellistan från alla enheter. Spåren i den finns kvar i biblioteket."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae, bu çalma listesini her cihazdan silecek. İçindeki parçalar kitaplıkta kalır."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae видалить цей плейлист з усіх пристроїв. Його треки залишаться в бібліотеці."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae 将从所有设备中删除此播放列表，其中的曲目仍保留在库中。"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Localizable.xcstrings"
+code = '"value" : "bae 將從所有裝置中刪除此播放列表，其中的曲目仍保留在資料庫中。"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Library/DeleteAlbumConfirmation.swift"
+code = '"bae will permanently delete every release of this album from your devices and the cloud, and keep the original files in your folders."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Library/DeleteAlbumConfirmation.swift"
+code = '"bae will permanently delete this release from your devices and the cloud, and keep the original files in your folders."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Library/Playlists/DeletePlaylistConfirmation.swift"
+code = '"bae will delete this playlist from every device. Its tracks stay in the library."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Settings/ImportSettingsTab.swift"
+code = '"bae looks up each new album as soon as you add it.",'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Settings/ImportSettingsTab.swift"
+code = '"bae adds the album to your library once it is sure of the match.",'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Settings/ImportSettingsTab.swift"
+code = 'message: Text("bae will delete your saved key.")'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Settings/Library/PeopleAndDevicesPage.swift"
+code = 'Text("Removing the device"),'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Settings/Library/PeopleAndDevicesPage.swift"
+code = 'message = Text("Wait for it to end.")'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Settings/Library/PeopleAndDevicesPage.swift"
+code = 'dismiss = Text("Cancel")'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Settings/Library/PeopleAndDevicesPage.swift"
+code = 'dismiss = Text("Not yet")'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Settings/Library/PeopleAndDevicesPage.swift"
+code = "MacAlertButton(dismiss, role: .cancel),"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Settings/Storage/StorageAlerts.swift"
+code = "/// Asks before bae deletes the old library a reset left, which takes `size`"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Settings/Storage/StorageAlerts.swift"
+code = "/// on this Mac. The library in use stays as it is, and nobody can get the"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Settings/Storage/StorageAlerts.swift"
+code = 'Text("Delete the old library?"),'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Settings/Storage/StorageAlerts.swift"
+code = '"bae will delete \(size) from this Mac. You cannot get this data back. Your library stays as it is."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Settings/Storage/StorageSettingsTab.swift"
+code = '"bae keeps tracks you played from the cloud, covers and pictures here, and downloads them again when you play or open them."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Settings/Storage/StorageSettingsTab.swift"
+code = '"bae kept the library as it was on this Mac. Nothing uses it."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Settings/Storage/StorageSettingsTab.swift"
+code = '"Local releases stay in your folders, and bae does not count them here."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Storage/UnpinAsk.swift"
+code = '"bae will remove its files from this Mac now. The release stays in the cloud and plays from there while you are online."'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Storage/UnpinAsk.swift"
+code = '"bae will remove their files from this Mac now. The releases stay in the cloud and play from there while you are online."'
+verdict = "none"
+
+[[site]]
+file = "spec/bae.md"
+code = "to **Try again** after the next sync, or **Not yet**. While a request to one of"
+verdict = "none"
+
+[[site]]
+file = "spec/bae.md"
+code = "syncing with the cloud and to wait for it to end, with **Try again** and"
+verdict = "none"
+
+[[site]]
+file = "spec/bae.md"
+code = "**Cancel**. Another person's device"
+verdict = "none"

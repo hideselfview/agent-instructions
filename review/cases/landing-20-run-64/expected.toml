@@ -1,0 +1,1406 @@
+project = "bae"
+clean_for = []
+
+[[finding]]
+rule = "reuse-existing-logic-and-types"
+file = "crates/sqlive/src/scope_order.rs"
+
+[[site]]
+file = "crates/sqlive/src/scope_order.rs"
+code = """
+    let many_rows = found.iter().any(|part| {
+        matches!(part, crate::select_syntax::Part::Function(name, window)
+            if *window || planner.aggregates.contains(&name.to_ascii_lowercase()))
+    });"""
+verdict = "finding"
+rule = "reuse-existing-logic-and-types"
+
+[[site]]
+file = "crates/coven-database/src/app_statements.rs"
+code = "last: Option<&[sqlive::SqlValue]>,"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/app_statements.rs"
+code = "Some(plan) => plan.scopes(parameters, last),"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_judging_tests.rs"
+code = '#[path = "live_judging_tests/limit.rs"]'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_judging_tests/limit.rs"
+code = "//! A statement that orders by columns of one table and returns as many rows"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_judging_tests/limit.rs"
+code = "//! as its LIMIT depends only on the rows that sort at or before its last"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_judging_tests/limit.rs"
+code = "//! row, as a list window read as one live query does (§4)."
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_judging_tests/limit.rs"
+code = "use super::lookup::follows;"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_judging_tests/limit.rs"
+code = "use crate::tests::TestStore;"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_judging_tests/limit.rs"
+code = "use sqlive::SqlValue::{Integer, Text};"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_judging_tests/limit.rs"
+code = 'const NOTES: &str = "CREATE TABLE notes(id INTEGER PRIMARY KEY, title TEXT, body TEXT);'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_judging_tests/limit.rs"
+code = """INSERT INTO notes VALUES (1,'b',''),(2,'d',''),(3,'f',''),(4,'h',''),(5,'j',''),(6,'l','')";"""
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_judging_tests/limit.rs"
+code = "async fn a_full_window_reruns_only_for_rows_up_to_its_last() {"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_judging_tests/limit.rs"
+code = '"SELECT title, id, body FROM notes WHERE title >= ?1 ORDER BY title LIMIT ?2",'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_judging_tests/limit.rs"
+code = 'vec![Text(b"c".to_vec()), Integer(3)],'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_judging_tests/limit.rs"
+code = """("INSERT INTO notes VALUES (7,'k','')", false),"""
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_judging_tests/limit.rs"
+code = """("INSERT INTO notes VALUES (8,'z','')", false),"""
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_judging_tests/limit.rs"
+code = """("UPDATE notes SET body = 'x' WHERE title = 'j'", false),"""
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_judging_tests/limit.rs"
+code = """("INSERT INTO notes VALUES (9,'a','')", false),"""
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_judging_tests/limit.rs"
+code = """("UPDATE notes SET body = 'x' WHERE title = 'f'", true),"""
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_judging_tests/limit.rs"
+code = "// The window now holds d, e and f."
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_judging_tests/limit.rs"
+code = """("INSERT INTO notes VALUES (10,'e','')", true),"""
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_judging_tests/limit.rs"
+code = """("INSERT INTO notes VALUES (11,'g','')", false),"""
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_judging_tests/limit.rs"
+code = """("UPDATE notes SET body = 'y' WHERE title = 'h'", false),"""
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_judging_tests/limit.rs"
+code = "// Deleting e pulls g in: d, f and g."
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_judging_tests/limit.rs"
+code = """("DELETE FROM notes WHERE title = 'e'", true),"""
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_judging_tests/limit.rs"
+code = """("UPDATE notes SET body = 'y' WHERE title = 'g'", true),"""
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_judging_tests/limit.rs"
+code = """("UPDATE notes SET body = 'z' WHERE title = 'h'", false),"""
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_judging_tests/limit.rs"
+code = "// A row equal to the last one could sort before it."
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_judging_tests/limit.rs"
+code = """("INSERT INTO notes VALUES (12,'g','')", true),"""
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_judging_tests/limit.rs"
+code = "/// A row that moves into the window from after it, or out of the window,"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_judging_tests/limit.rs"
+code = "async fn a_row_moving_into_or_out_of_a_full_window_reruns_it() {"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_judging_tests/limit.rs"
+code = """"SELECT title, id, body FROM notes WHERE title >= 'c' ORDER BY title LIMIT 3","""
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_judging_tests/limit.rs"
+code = "// From after the window into it: d, e and f."
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_judging_tests/limit.rs"
+code = """("UPDATE notes SET title = 'e' WHERE id = 6", true),"""
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_judging_tests/limit.rs"
+code = "// Out of the window: e, f and h."
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_judging_tests/limit.rs"
+code = """("UPDATE notes SET title = 'y' WHERE id = 2", true),"""
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_judging_tests/limit.rs"
+code = """("UPDATE notes SET body = 'x' WHERE id = 2", false),"""
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_judging_tests/limit.rs"
+code = """("UPDATE notes SET body = 'x' WHERE id = 4", true),"""
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_judging_tests/limit.rs"
+code = "/// A window that returned fewer rows than its LIMIT already holds every row"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_judging_tests/limit.rs"
+code = "/// after its start, so a row added anywhere after the start reruns it."
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_judging_tests/limit.rs"
+code = "async fn a_short_window_reruns_for_a_row_anywhere_after_its_start() {"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_judging_tests/limit.rs"
+code = """"SELECT title, id, body FROM notes WHERE title >= 'i' ORDER BY title LIMIT 5","""
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_judging_tests/limit.rs"
+code = """("INSERT INTO notes VALUES (7,'a','')", false),"""
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_judging_tests/limit.rs"
+code = """("INSERT INTO notes VALUES (8,'z','')", true),"""
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_judging_tests/limit.rs"
+code = """("INSERT INTO notes VALUES (9,'zz','')", true),"""
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_judging_tests/limit.rs"
+code = "/// A descending window ends at its smallest row, and sorts NULLs last."
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_judging_tests/limit.rs"
+code = "async fn a_descending_window_ends_at_its_smallest_row() {"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_judging_tests/limit.rs"
+code = """"SELECT title, id, body FROM notes WHERE title <= 'k' OR title IS NULL ORDER BY title DESC LIMIT 3","""
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_judging_tests/limit.rs"
+code = """("INSERT INTO notes VALUES (7,'c','')", false),"""
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_judging_tests/limit.rs"
+code = """("INSERT INTO notes VALUES (8,NULL,'')", false),"""
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_judging_tests/limit.rs"
+code = """("UPDATE notes SET body = 'x' WHERE title = 'd'", false),"""
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_judging_tests/limit.rs"
+code = """("UPDATE notes SET body = 'x' WHERE title = 'h'", true),"""
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_judging_tests/limit.rs"
+code = """("INSERT INTO notes VALUES (9,'g','')", true),"""
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_judging_tests/limit.rs"
+code = """("INSERT INTO notes VALUES (10,'k','')", true),"""
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_judging_tests/limit.rs"
+code = "/// A window over two columns, whose last row ties with later rows on the"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_judging_tests/limit.rs"
+code = "/// first column, ends at that row's second column. NULLs sort first."
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_judging_tests/limit.rs"
+code = "async fn a_window_over_two_columns_ends_within_a_tie() {"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_judging_tests/limit.rs"
+code = '"CREATE TABLE albums(id INTEGER PRIMARY KEY, year INTEGER, title TEXT);'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_judging_tests/limit.rs"
+code = """INSERT INTO albums VALUES (10,2000,''),(20,2000,''),(30,2005,''),(40,2005,''),(50,2010,'')","""
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_judging_tests/limit.rs"
+code = '"SELECT title, year, id FROM albums ORDER BY year, id LIMIT 3",'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_judging_tests/limit.rs"
+code = """("INSERT INTO albums VALUES (35,2005,'')", false),"""
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_judging_tests/limit.rs"
+code = """("UPDATE albums SET title = 'x' WHERE id = 40", false),"""
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_judging_tests/limit.rs"
+code = """("UPDATE albums SET title = 'x' WHERE id = 30", true),"""
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_judging_tests/limit.rs"
+code = """("INSERT INTO albums VALUES (25,2005,'')", true),"""
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_judging_tests/limit.rs"
+code = """("UPDATE albums SET title = 'y' WHERE id = 30", false),"""
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_judging_tests/limit.rs"
+code = """("INSERT INTO albums VALUES (5,NULL,'')", true),"""
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_judging_tests/limit.rs"
+code = """("INSERT INTO albums VALUES (60,2000,'')", false),"""
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_judging_tests/limit.rs"
+code = """("INSERT INTO albums VALUES (15,2000,'')", true),"""
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_judging_tests/limit.rs"
+code = "async fn a_joined_tables_lookup_reads_its_partner_up_to_the_last_row() {"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_judging_tests/limit.rs"
+code = '"CREATE TABLE releases(id TEXT NOT NULL PRIMARY KEY, title TEXT);'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_judging_tests/limit.rs"
+code = "CREATE TABLE tracks(id INTEGER PRIMARY KEY, release TEXT, title TEXT);"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_judging_tests/limit.rs"
+code = "INSERT INTO releases VALUES ('r1','a'),('r2','b'),('r3','c');"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_judging_tests/limit.rs"
+code = """INSERT INTO tracks VALUES (1,'r1','one'),(2,'r2','two'),(3,'r3','three')","""
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_judging_tests/limit.rs"
+code = '"SELECT t.title, r.title, r.id FROM releases r JOIN tracks t ON t.release = r.id ORDER BY r.title, r.id LIMIT 2",'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_judging_tests/limit.rs"
+code = """("INSERT INTO tracks VALUES (4,'r3','four')", false),"""
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_judging_tests/limit.rs"
+code = """("UPDATE tracks SET title = 'tres' WHERE id = 3", false),"""
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_judging_tests/limit.rs"
+code = """("UPDATE tracks SET title = 'dos' WHERE id = 2", true),"""
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_judging_tests/limit.rs"
+code = """("INSERT INTO tracks VALUES (5,'r1','five')", true),"""
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_judging_tests/limit.rs"
+code = """("UPDATE tracks SET title = 'two' WHERE id = 2", false),"""
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_judging_tests/limit.rs"
+code = "/// An OFFSET, an ORDER BY column the statement doesn't return, and an"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_judging_tests/limit.rs"
+code = "/// ORDER BY expression keep the scope open after the window's start."
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_judging_tests/limit.rs"
+code = "async fn an_offset_an_unreturned_column_or_an_expression_narrows_nothing_more() {"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_judging_tests/limit.rs"
+code = '"SELECT title, id FROM notes ORDER BY title LIMIT 2 OFFSET 1",'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_judging_tests/limit.rs"
+code = '"SELECT id FROM notes ORDER BY title LIMIT 2",'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_judging_tests/limit.rs"
+code = '"SELECT title, id FROM notes ORDER BY lower(title) LIMIT 2",'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_judging_tests/limit.rs"
+code = '"SELECT title, id FROM notes ORDER BY title COLLATE NOCASE LIMIT 2",'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_judging_tests/limit.rs"
+code = """follows(&db, sql, vec![], &[("INSERT INTO notes VALUES (7,'z','')", true)]).await;"""
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_judging_tests/limit.rs"
+code = 'db.commit_writer(|db| db.batch("DELETE FROM notes WHERE id = 7").unwrap());'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/sqlite.rs"
+code = "// A run that returns as many rows as its LIMIT depends only on the"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/sqlite.rs"
+code = "// rows up to its last one (§4)."
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/sqlite.rs"
+code = "let last_row = plan.as_ref().and_then(|plan| plan.last_row(&parameters));"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/sqlite.rs"
+code = "last_row.as_ref().filter(|found| found.limit == returned)"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/sqlite.rs"
+code = "last = Some(last_row.values(row)?);"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/sqlite.rs"
+code = "self.record_app_statement(plan.as_deref(), &parameters, last.as_deref());"
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/lib.rs"
+code = "pub use scope_order::LastRow;"
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_lookup.rs"
+code = "/// when it returned as many rows as its LIMIT. The sources placed after the"
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_lookup.rs"
+code = "/// sorted one look its rows up within that bound too."
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_lookup.rs"
+code = "pub(crate) fn scopes(sources: &Sources, parameters: &[Value], last: Option<&[Value]>) -> Scopes {"
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_lookup.rs"
+code = "if let (Some(sorted), Some(last)) = (&sources.sorted, last) {"
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_lookup.rs"
+code = "if sorted.source == position {"
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_lookup.rs"
+code = "scope = scope.and(crate::scope_order::sorted_at_or_before(&sorted.terms, last));"
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_order.rs"
+code = "//! A statement that orders by columns of one table and has a LIMIT with no"
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_order.rs"
+code = "//! OFFSET, whose full run depends only on that table's rows up to its last"
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_order.rs"
+code = "//! When a run returns as many rows as its LIMIT, a row that sorts after its"
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_order.rs"
+code = "//! last row can't enter the result: every row it would add sorts after the"
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_order.rs"
+code = "//! rows already there. So the run's scope for the table also requires a row"
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_order.rs"
+code = "//! to sort at or before the last row, in the ORDER BY's directions, and the"
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_order.rs"
+code = "//! next run sets that bound again from its own last row. A row equal to the"
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_order.rs"
+code = "//! last one could sort before it, so it passes. A run that returned fewer rows"
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_order.rs"
+code = "//! than its LIMIT holds every row its WHERE allows, and keeps its scope."
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_order.rs"
+code = "//! coven compares the values as BINARY, as SQLite does for a stored column of"
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_order.rs"
+code = "//! that collation, and takes the last row's values from the result columns"
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_order.rs"
+code = "//! that return them. So each ORDER BY term is a column of one table of the"
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_order.rs"
+code = "//! statement's only SELECT, written as a name with no COLLATE and no NULLS"
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_order.rs"
+code = "//! FIRST or LAST, that the statement returns as a result column. The table"
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_order.rs"
+code = "use crate::row_scope::RowScope;"
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_order.rs"
+code = "use crate::scope_plan::{is_name, Planner};"
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_order.rs"
+code = "use crate::scope_term::{operand, Affinity, Operand};"
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_order.rs"
+code = "use crate::sql_value::SqlValue as Value;"
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_order.rs"
+code = "use rusqlite::Connection;"
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_order.rs"
+code = "use sqlite3_parser::ast::{As, Expr, Name, OneSelect, ResultColumn, Select, SortOrder};"
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_order.rs"
+code = "/// A statement's order and LIMIT, which a full run's last row bounds."
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_order.rs"
+code = "pub(crate) struct SortedLimit {"
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_order.rs"
+code = "/// The source whose rows the order sorts."
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_order.rs"
+code = "pub(crate) source: usize,"
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_order.rs"
+code = "/// The ORDER BY's terms, in order."
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_order.rs"
+code = "pub(crate) terms: Vec<SortTerm>,"
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_order.rs"
+code = "/// One ORDER BY term: a column of the sorted source."
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_order.rs"
+code = "pub(crate) struct SortTerm {"
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_order.rs"
+code = "/// The column, lowercase."
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_order.rs"
+code = "pub(crate) column: String,"
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_order.rs"
+code = "/// Whether it sorts in descending order."
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_order.rs"
+code = "pub(crate) descending: bool,"
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_order.rs"
+code = "/// The result column, from zero, that returns its value."
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_order.rs"
+code = "/// Where a run finds the row its scope ends at."
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_order.rs"
+code = "/// How many rows the run must return for its last row to bound its"
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_order.rs"
+code = "/// The result columns, from zero, that return the ORDER BY's values, in"
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_order.rs"
+code = "/// The ORDER BY's values in `row`, in its order."
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_order.rs"
+code = "pub fn values(&self, row: &rusqlite::Row<'_>) -> rusqlite::Result<Vec<Value>> {"
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_order.rs"
+code = "self.positions.iter().map(|position| Ok(row.get_ref(*position)?.into())).collect()"
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_order.rs"
+code = "/// Where a run bound to `parameters` finds its last row, or `None` when"
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_order.rs"
+code = "/// the LIMIT's value is not a positive integer."
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_order.rs"
+code = "pub(crate) fn last_row(&self, parameters: &[Value]) -> Option<LastRow> {"
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_order.rs"
+code = "let Value::Integer(limit) = self.limit.value(parameters) else {"
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_order.rs"
+code = "limit: usize::try_from(*limit).ok().filter(|limit| *limit > 0)?,"
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_order.rs"
+code = "positions: self.terms.iter().map(|term| term.position).collect(),"
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_order.rs"
+code = "/// The order and LIMIT of `select`, the statement whose only core is `core`,"
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_order.rs"
+code = "/// when a full run's last row can bound its scope."
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_order.rs"
+code = "pub(crate) fn sorted_limit("
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_order.rs"
+code = "connection: &Connection,"
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_order.rs"
+code = ") -> rusqlite::Result<Option<SortedLimit>> {"
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_order.rs"
+code = "let (Some(limit), Some(order_by)) = (select.limit, select.order_by) else {"
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_order.rs"
+code = "if limit.offset.is_some() || select.body.compounds.is_some() {"
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_order.rs"
+code = "let OneSelect::Select { columns, group_by: None, having: None, window_clause: None, .. } ="
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_order.rs"
+code = "let mut found = Vec::new();"
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_order.rs"
+code = "for column in columns.iter() {"
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_order.rs"
+code = "if let ResultColumn::Expr(expr, _) = column {"
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_order.rs"
+code = "crate::select_syntax::parts(expr, &mut found);"
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_order.rs"
+code = "let Some(limit) = operand(connection, &limit.expr, Affinity::Blob)? else {"
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_order.rs"
+code = "let mut terms = Vec::new();"
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_order.rs"
+code = "for term in order_by.iter() {"
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_order.rs"
+code = "if term.nulls.is_some() {"
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_order.rs"
+code = "let Some((position, item, column)) = result_column(planner, core, columns, &term.expr)"
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_order.rs"
+code = "if source.is_some_and(|source| source != item) {"
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_order.rs"
+code = "terms.push(SortTerm { column, descending: term.order == Some(SortOrder::Desc), position });"
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_order.rs"
+code = "let Some(source) = source else {"
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_order.rs"
+code = "let from = &planner.items[source];"
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_order.rs"
+code = "let sorted = from.core == core"
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_order.rs"
+code = "&& from.source.table.is_some()"
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_order.rs"
+code = "&& from.left_on.is_none()"
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_order.rs"
+code = "&& terms.iter().all(|term| from.columns.affinity(&term.column).is_some());"
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_order.rs"
+code = "Ok(sorted.then_some(SortedLimit { source, terms, limit }))"
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_order.rs"
+code = "/// The result column that returns the ORDER BY term `expr`, and the source"
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_order.rs"
+code = "/// and column, lowercase, whose value it is, when `expr` names a column. A"
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_order.rs"
+code = "columns: &[ResultColumn<'_>],"
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_order.rs"
+code = ") -> Option<(usize, usize, String)> {"
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_order.rs"
+code = "Expr::Id(name) => Some(Name(name.0)),"
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_order.rs"
+code = "Expr::Name(name) => Some(name.clone()),"
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_order.rs"
+code = "Expr::Qualified(..) | Expr::DoublyQualified(..) => None,"
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_order.rs"
+code = "// coven doesn't know how many columns a `*` adds, so it can't tell the"
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_order.rs"
+code = "// position of a column after one."
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_order.rs"
+code = "let listed: Vec<&Expr<'_>> = columns"
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_order.rs"
+code = ".map_while(|column| match column {"
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_order.rs"
+code = "ResultColumn::Expr(expr, _) => Some(expr),"
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_order.rs"
+code = "ResultColumn::Star | ResultColumn::TableStar(_) => None,"
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_order.rs"
+code = "let named: Vec<usize> = columns"
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_order.rs"
+code = "matches!((column, &bare), (ResultColumn::Expr(_, Some(As::As(alias) | As::Elided(alias))), Some(bare))"
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_order.rs"
+code = "if Name(alias.0) == *bare)"
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_order.rs"
+code = ".map(|(position, _)| position)"
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_order.rs"
+code = "let (position, (item, column)) = match named[..] {"
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_order.rs"
+code = "let resolved = planner.resolve(core, expr)?;"
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_order.rs"
+code = "let position = listed.iter().position(|listed| {"
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_order.rs"
+code = "is_name(listed) && planner.resolve(core, listed).as_ref() == Some(&resolved)"
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_order.rs"
+code = "let listed = listed.get(position)?;"
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_order.rs"
+code = "(position, planner.resolve(core, listed)?)"
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_order.rs"
+code = "Some((position, item, column))"
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_order.rs"
+code = "/// The rows that sort at or before `last`, the values of a run's last row in"
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_order.rs"
+code = "/// the order `terms`: lexicographically, each term in its direction, NULL"
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_order.rs"
+code = "/// first in ascending order and last in descending, as SQLite sorts. A row"
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_order.rs"
+code = "/// equal to `last` passes."
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_order.rs"
+code = "pub(crate) fn sorted_at_or_before(terms: &[SortTerm], last: &[Value]) -> RowScope {"
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_order.rs"
+code = "let mut scope = RowScope::All;"
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_order.rs"
+code = "for (term, value) in terms.iter().zip(last).rev() {"
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_order.rs"
+code = "let column = || term.column.clone();"
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_order.rs"
+code = "let compare = |ordering| RowScope::Compare {"
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_order.rs"
+code = "let null = |not| RowScope::Null { column: column(), not };"
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_order.rs"
+code = "let equal = match value {"
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_order.rs"
+code = "Value::Null => null(false),"
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_order.rs"
+code = "_ => compare(Ordering::Equal),"
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_order.rs"
+code = "let before = match (term.descending, value) {"
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_order.rs"
+code = "(false, Value::Null) => RowScope::equal(column(), Vec::new()),"
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_order.rs"
+code = "(false, _) => null(false).or(compare(Ordering::Less)),"
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_order.rs"
+code = "(true, Value::Null) => null(true),"
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_order.rs"
+code = "(true, _) => compare(Ordering::Greater),"
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_order.rs"
+code = "scope = before.or(equal.and(scope));"
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_plan.rs"
+code = "use crate::scope_order::{sorted_limit, LastRow, SortedLimit};"
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_plan.rs"
+code = "/// Where a run bound to `parameters` finds the row its scope ends at, or"
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_plan.rs"
+code = "/// `None` when no row of the run bounds it (`scope_order.rs`)."
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_plan.rs"
+code = "pub fn last_row(&self, parameters: &[Value]) -> Option<LastRow> {"
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_plan.rs"
+code = "self.sources.as_ref()?.sorted.as_ref()?.last_row(parameters)"
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_plan.rs"
+code = "pub fn scopes(&self, parameters: &[Value], last: Option<&[Value]>) -> Scopes {"
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_plan.rs"
+code = "Some(sources) => crate::scope_lookup::scopes(sources, parameters, last),"
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_plan.rs"
+code = "/// The order and LIMIT a full run's last row bounds its source by."
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_plan.rs"
+code = "pub(crate) sorted: Option<SortedLimit>,"
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_plan.rs"
+code = "let Some(cores) = read_select(connection, &mut planner, select, None, &Ctes::default())?"
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_plan.rs"
+code = "let sorted = match cores[..] {"
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_plan.rs"
+code = "[core] => sorted_limit(connection, &planner, select, core)?,"
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_plan.rs"
+code = "Ok(Some(planner.ordered(sorted)))"
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_plan.rs"
+code = "fn ordered(mut self, sorted: Option<SortedLimit>) -> Sources {"
+verdict = "none"
+
+[[site]]
+file = "crates/sqlive/src/scope_term.rs"
+code = "pub(crate) fn value<'a>(&'a self, parameters: &'a [Value]) -> &'a Value {"
+verdict = "none"
+
+[[site]]
+file = "site/docs/local-data.md"
+code = "own live query, with the window's first key as its request, and the count as"
+verdict = "none"
+
+[[site]]
+file = "site/docs/local-data.md"
+code = "// A window: the 100 notes from one title on."
+verdict = "none"
+
+[[site]]
+file = "site/docs/local-data.md"
+code = "let window = |from: &String, sql: SqlReadContext<'_>| {"
+verdict = "none"
+
+[[site]]
+file = "site/docs/local-data.md"
+code = '"SELECT id, title FROM notes WHERE title >= ?1 ORDER BY title LIMIT 100",'
+verdict = "none"
+
+[[site]]
+file = "site/docs/local-data.md"
+code = "let top = handle.subscribe_reconfigurable(String::new(), window);"
+verdict = "none"
+
+[[site]]
+file = "site/docs/local-data.md"
+code = "A write that adds a row reruns `count`, and reruns the window only when the"
+verdict = "none"
+
+[[site]]
+file = "site/docs/local-data.md"
+code = "row sorts at or before the window's last row: when a run returns all 100 rows,"
+verdict = "none"
+
+[[site]]
+file = "site/docs/local-data.md"
+code = "a note that sorts after the last of them can't enter the window. Each run sets"
+verdict = "none"
+
+[[site]]
+file = "site/docs/local-data.md"
+code = "that bound again from its own last row, so a note inserted or deleted inside"
+verdict = "none"
+
+[[site]]
+file = "site/docs/local-data.md"
+code = "the window moves the bound to the window's new last row. A note equal to the"
+verdict = "none"
+
+[[site]]
+file = "site/docs/local-data.md"
+code = "last row on every ORDER BY column counts as inside, since SQLite could sort it"
+verdict = "none"
+
+[[site]]
+file = "site/docs/local-data.md"
+code = "before the last row. A run that returns fewer than 100 rows already holds every"
+verdict = "none"
+
+[[site]]
+file = "site/docs/local-data.md"
+code = "note after its start, and reruns for a change to any of them."
+verdict = "none"
+
+[[site]]
+file = "site/docs/local-data.md"
+code = "- the statement is one SELECT, with an `ORDER BY` and a `LIMIT` and no"
+verdict = "none"
+
+[[site]]
+file = "site/docs/local-data.md"
+code = "- each `ORDER BY` term names a column of the same table, with no `COLLATE` and"
+verdict = "none"
+
+[[site]]
+file = "site/docs/local-data.md"
+code = "no `NULLS FIRST` or `NULLS LAST`, and the column is stored and uses BINARY"
+verdict = "none"
+
+[[site]]
+file = "site/docs/local-data.md"
+code = "- that table isn't the right side of a `LEFT JOIN`;"
+verdict = "none"
+
+[[site]]
+file = "site/docs/local-data.md"
+code = "- the statement returns each `ORDER BY` column as a result column listed before"
+verdict = "none"
+
+[[site]]
+file = "site/docs/local-data.md"
+code = "any `*`, since coven reads the last row's values from the result;"
+verdict = "none"
+
+[[site]]
+file = "site/docs/local-data.md"
+code = "- the SELECT has no `GROUP BY` and calls no aggregate or window function in its"
+verdict = "none"
+
+[[site]]
+file = "site/docs/local-data.md"
+code = "`ORDER BY` terms may be ascending or descending, in any mix. Any other window,"
+verdict = "none"
+
+[[site]]
+file = "site/docs/local-data.md"
+code = "such as one ordered by an expression or with an `OFFSET`, reruns for a change to"
+verdict = "none"
+
+[[site]]
+file = "site/docs/local-data.md"
+code = "any row its `WHERE` takes in: `LIMIT 100 OFFSET 200` reruns for any change at"
+verdict = "none"
+
+[[site]]
+file = "site/docs/local-data.md"
+code = "all. A jump to a far position, such as a scrollbar drag, reads the key at that"
+verdict = "none"
+
+[[site]]
+file = "site/docs/local-data.md"
+code = "position once and makes it the window's request."
+verdict = "none"
+
+[[site]]
+file = "spec/coven.md"
+code = "A statement with a LIMIT narrows further when a run returns as many rows as its"
+verdict = "none"
+
+[[site]]
+file = "spec/coven.md"
+code = "LIMIT. Ben's album list shows each window as one live query, `SELECT title, id"
+verdict = "none"
+
+[[site]]
+file = "spec/coven.md"
+code = "FROM albums WHERE title >= ?1 ORDER BY title LIMIT 100`. A run that returns 100"
+verdict = "none"
+
+[[site]]
+file = "spec/coven.md"
+code = "rows depends only on the albums that sort at or before its last row: an album"
+verdict = "none"
+
+[[site]]
+file = "spec/coven.md"
+code = "that sorts after that row would sort after every row the run returned, so it"
+verdict = "none"
+
+[[site]]
+file = "spec/coven.md"
+code = "can't enter the result. So coven narrows `albums` to the rows whose `title` is"
+verdict = "none"
+
+[[site]]
+file = "spec/coven.md"
+code = "at most the last row's, and each run sets that bound again from its own last"
+verdict = "none"
+
+[[site]]
+file = "spec/coven.md"
+code = "row. An album added further down the list doesn't rerun the window. One added"
+verdict = "none"
+
+[[site]]
+file = "spec/coven.md"
+code = "inside the window does, and so does deleting one, which pulls the next album in."
+verdict = "none"
+
+[[site]]
+file = "spec/coven.md"
+code = "A row equal to the last row on every ORDER BY column counts as inside, since"
+verdict = "none"
+
+[[site]]
+file = "spec/coven.md"
+code = "SQLite could sort it before the last row. A run that returns fewer rows than"
+verdict = "none"
+
+[[site]]
+file = "spec/coven.md"
+code = "its LIMIT already holds every row its WHERE allows, so its scope stays as the"
+verdict = "none"
+
+[[site]]
+file = "spec/coven.md"
+code = "The bound compares rows as the ORDER BY does: term by term, each in its own"
+verdict = "none"
+
+[[site]]
+file = "spec/coven.md"
+code = "direction, with NULL first in ascending order and last in descending. Coven"
+verdict = "none"
+
+[[site]]
+file = "spec/coven.md"
+code = "reads the last row's values from the result, so each ORDER BY term must be a"
+verdict = "none"
+
+[[site]]
+file = "spec/coven.md"
+code = "column the statement also returns, listed before any `*`. Each term names a"
+verdict = "none"
+
+[[site]]
+file = "spec/coven.md"
+code = "column of the same table, stored and BINARY, with no COLLATE and no NULLS FIRST"
+verdict = "none"
+
+[[site]]
+file = "spec/coven.md"
+code = "or LAST. That table isn't the right side of a LEFT JOIN: there a row added for a"
+verdict = "none"
+
+[[site]]
+file = "spec/coven.md"
+code = "left row with no partner takes out the row of NULLs that stood for it. The"
+verdict = "none"
+
+[[site]]
+file = "spec/coven.md"
+code = "function in its result columns, where one result row comes of many. A join"
+verdict = "none"
+
+[[site]]
+file = "spec/coven.md"
+code = "that narrows another table by the sorted table's rows takes only the rows up to"
+verdict = "none"
+
+[[site]]
+file = "spec/coven.md"
+code = "the bound. Any other ORDER BY, such as an expression, and any OFFSET leave the"
+verdict = "none"
+
+[[site]]
+file = "spec/coven.md"
+code = "scope as the WHERE gives it."
+verdict = "none"

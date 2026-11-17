@@ -1,0 +1,4672 @@
+project = "bae"
+clean_for = []
+
+[[finding]]
+rule = "check-a-fact-once-where-it-can-become-false"
+file = "bae-import/src/tables/cover_gallery/walk.rs"
+
+[[finding]]
+rule = "no-self-heal-make-state-correct-or-fail-loud"
+file = "bae-import/src/handle/covers.rs"
+
+[[finding]]
+rule = "organize-code-by-domain"
+file = "owner-construction-check.toml"
+
+[[finding]]
+rule = "ui-iterates-and-renders-nothing-more"
+file = "bae-macos/bae/bae/Views/Import/Confirmation/CoverGalleryView.swift"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/walk.rs"
+code = """release_id.ok_or_else(|| DbError::unreadable("a candidate's gallery cover", what))"""
+verdict = "finding"
+rule = "check-a-fact-once-where-it-can-become-false"
+
+[[site]]
+file = "bae-import/src/handle/covers.rs"
+code = "let link = self.services.tables.candidate_cover_link(&hash).await?;"
+verdict = "finding"
+rule = "no-self-heal-make-state-correct-or-fail-loud"
+
+[[site]]
+file = "owner-construction-check.toml"
+code = 'name = "cover gallery"'
+verdict = "finding"
+rule = "organize-code-by-domain"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Import/Confirmation/CoverGalleryView.swift"
+code = "|| content.focus?.cover.selection == selectedCover"
+verdict = "finding"
+rule = "ui-iterates-and-renders-nothing-more"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/CoverGalleryQuery.swift"
+code = "/// Reads a library release's or a candidate's cover picker through one live"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/CoverGalleryQuery.swift"
+code = "/// query. `setRequest` changes whose covers, which source and which focused"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/CoverGalleryQuery.swift"
+code = "/// cover the query reads, and each value carries the request it answers."
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/CoverGalleryQuery.swift"
+code = "_ owner: BridgeCoverGalleryOwner, _ filter: BridgeCoverFilter,"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/CoverGalleryQuery.swift"
+code = "_ focus: BridgeCoverKey?"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/CoverGalleryQuery.swift"
+code = "BridgeCoverGalleryOwner, BridgeCoverFilter, BridgeCoverKey?"
+verdict = "none"
+
+[[site]]
+file = "BaeKit/Sources/BaeKit/Services/CoverGalleryQuery.swift"
+code = "try subscription.setRequest("
+verdict = "none"
+
+[[site]]
+file = "bae-app/src/app_services/import.rs"
+code = "delegate_async!(import, import_refresh_candidate_covers => refresh_candidate_covers(candidate_key: &bae_import::CandidateKey) -> Result<(), bae_import::ImportError>);"
+verdict = "none"
+
+[[site]]
+file = "bae-app/src/app_services/import.rs"
+code = "/// library release or candidate this subscription names, updated as"
+verdict = "none"
+
+[[site]]
+file = "bae-app/src/app_services/import.rs"
+code = "/// they change. To show another release, candidate or source, set a new"
+verdict = "none"
+
+[[site]]
+file = "bae-app/src/app_services/import.rs"
+code = "/// request on the same read."
+verdict = "none"
+
+[[site]]
+file = "bae-app/src/live_reads.rs"
+code = "/// A live read of the covers a library release's or a candidate's picker"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/handle/desktop.rs"
+code = "/// Fetch what the catalogs the candidate links to offer its cover"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/handle/desktop.rs"
+code = "/// picker and store it in place of the last fetch's. `cover_gallery`"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/handle/desktop.rs"
+code = "fn refresh_candidate_covers(candidate_key: Vec<u8>) -> () {"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/handle/desktop.rs"
+code = ".import_refresh_candidate_covers(&candidate_key.into())"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/handle/desktop.rs"
+code = ".map_err(BridgeError::from)"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/screens/cover_gallery.rs"
+code = "//! A library release's or a candidate's cover picker as the Mac pulls it."
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/screens/cover_gallery.rs"
+code = "BridgeCoverFilter, BridgeCoverGallery, BridgeCoverGalleryOwner, BridgeCoverKey, BridgeError,"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/screens/cover_gallery.rs"
+code = "owner: BridgeCoverGalleryOwner::from_core(request.owner),"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/screens/cover_gallery.rs"
+code = "focus: request.focus.map(BridgeCoverKey::from_core),"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/screens/cover_gallery.rs"
+code = "/// The covers a library release's or a candidate's picker shows under"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/screens/cover_gallery.rs"
+code = "/// one source, and the cover it focuses. The subscription keeps one live"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/screens/cover_gallery.rs"
+code = "/// query while the picker is open, and changes the query's request when"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/screens/cover_gallery.rs"
+code = "/// the person picks another source or focuses another cover. The subscription delivers nothing until `set_request` names a"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/screens/cover_gallery.rs"
+code = "/// release or a candidate."
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/screens/cover_gallery.rs"
+code = "owner: BridgeCoverGalleryOwner,"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/screens/cover_gallery.rs"
+code = "focus: Option<BridgeCoverKey>,"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/screens/cover_gallery.rs"
+code = ".set(Some(bae_import::CoverGalleryRequest {"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/screens/cover_gallery.rs"
+code = "owner: owner.into_core(),"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/screens/cover_gallery.rs"
+code = "filter: filter.into_core(),"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/screens/cover_gallery.rs"
+code = "focus: focus.map(BridgeCoverKey::into_core),"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/types/cover.rs"
+code = "/// Which of the cover picker's sources a read shows."
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/types/cover.rs"
+code = "/// What this device knows of the catalog covers of the release or candidate"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/types/cover.rs"
+code = "/// An image file of the release or the folder, by its name there."
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/types/cover.rs"
+code = "/// What names one cover of a picker: the saved cover, a catalog's image by"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/types/cover.rs"
+code = "/// its address, or an image file by its id."
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/types/cover.rs"
+code = "#[derive(Debug, Clone, PartialEq, Eq, Hash, uniffi::Enum)]"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/types/cover.rs"
+code = "pub enum BridgeCoverKey {"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/types/cover.rs"
+code = "File { file_id: String },"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/types/cover.rs"
+code = "pub(crate) fn from_core(key: bae_import::CoverKey) -> Self {"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/types/cover.rs"
+code = "bae_import::CoverKey::Saved => Self::Saved,"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/types/cover.rs"
+code = "bae_import::CoverKey::Remote(url) => Self::Remote { url },"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/types/cover.rs"
+code = "bae_import::CoverKey::File(file_id) => Self::File { file_id },"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/types/cover.rs"
+code = "pub(crate) fn into_core(self) -> bae_import::CoverKey {"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/types/cover.rs"
+code = "Self::Saved => bae_import::CoverKey::Saved,"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/types/cover.rs"
+code = "Self::Remote { url } => bae_import::CoverKey::Remote(url),"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/types/cover.rs"
+code = "Self::File { file_id } => bae_import::CoverKey::File(file_id),"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/types/cover.rs"
+code = "/// One cover the picker shows: its key, what saving it selects (none for the"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/types/cover.rs"
+code = "/// saved cover), where its image comes from, and its label."
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/types/cover.rs"
+code = "pub key: BridgeCoverKey,"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/types/cover.rs"
+code = "/// The cover a picker focuses: the cover, where it sits among the covers in"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/types/cover.rs"
+code = "/// the order the picker walks them, and the covers before and after it,"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/types/cover.rs"
+code = "/// wrapping around the ends; a picker of one cover has none before or after."
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/types/cover.rs"
+code = "#[derive(Debug, Clone, uniffi::Record)]"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/types/cover.rs"
+code = "pub struct BridgeGalleryFocus {"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/types/cover.rs"
+code = "pub cover: BridgeGalleryCover,"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/types/cover.rs"
+code = "pub previous: Option<BridgeCoverKey>,"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/types/cover.rs"
+code = "pub next: Option<BridgeCoverKey>,"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/types/cover.rs"
+code = "/// A cover picker under one filter: a library release's saved cover, the"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/types/cover.rs"
+code = "/// sections the filter shows, the number of covers in all of them, and the"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/types/cover.rs"
+code = "/// cover it focuses, none while it shows no cover."
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/types/cover.rs"
+code = "pub focus: Option<BridgeGalleryFocus>,"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/types/cover.rs"
+code = "focus: gallery.focus.map(|focus| BridgeGalleryFocus {"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/types/cover.rs"
+code = "cover: BridgeGalleryCover::from_core(focus.cover),"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/types/cover.rs"
+code = "position: focus.position,"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/types/cover.rs"
+code = "previous: focus.previous.map(BridgeCoverKey::from_core),"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/types/cover.rs"
+code = "next: focus.next.map(BridgeCoverKey::from_core),"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/types/cover.rs"
+code = "key: BridgeCoverKey::from_core(cover.key),"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/types/cover.rs"
+code = "/// Whose covers a picker shows."
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/types/cover.rs"
+code = "#[derive(Debug, Clone, uniffi::Enum)]"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/types/cover.rs"
+code = "pub enum BridgeCoverGalleryOwner {"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/types/cover.rs"
+code = "Release { release_id: String },"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/types/cover.rs"
+code = "Candidate { candidate_key: Vec<u8> },"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/types/cover.rs"
+code = "pub(crate) fn from_core(owner: bae_import::CoverGalleryOwner) -> Self {"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/types/cover.rs"
+code = "bae_import::CoverGalleryOwner::Release(release_id) => Self::Release { release_id },"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/types/cover.rs"
+code = "bae_import::CoverGalleryOwner::Candidate(key) => {"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/types/cover.rs"
+code = "Self::Candidate { candidate_key: key.into() }"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/types/cover.rs"
+code = "pub(crate) fn into_core(self) -> bae_import::CoverGalleryOwner {"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/types/cover.rs"
+code = "Self::Release { release_id } => bae_import::CoverGalleryOwner::Release(release_id),"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/types/cover.rs"
+code = "Self::Candidate { candidate_key } => {"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/types/cover.rs"
+code = "bae_import::CoverGalleryOwner::Candidate(candidate_key.into())"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/types/cover.rs"
+code = "/// Whose picker to read, the source it shows, and the cover the person"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/types/cover.rs"
+code = "pub owner: BridgeCoverGalleryOwner,"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/types/cover.rs"
+code = "pub focus: Option<BridgeCoverKey>,"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/cover_art.rs"
+code = "/// store, or an image in a format no cover can be. A cover is one of the"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/cover_art.rs"
+code = "/// folder's images in a cover's format or the artwork its tags hold, as the"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/cover_art.rs"
+code = "/// scan read them, and nothing else."
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/cover_art.rs"
+code = """#[error("{file_id} is an image in a format a cover can't be")]"""
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/cover_art.rs"
+code = "NotACover { file_id: String },"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/covers.rs"
+code = "//! provider images it draws them from. The handle fetches what the catalogs"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/covers.rs"
+code = "//! offer a candidate or a library release and stores it in the cover"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/covers.rs"
+code = "//! tables, which `ImportTables::subscribe_cover_gallery` follows."
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/covers.rs"
+code = "pub async fn refresh_candidate_covers("
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/covers.rs"
+code = ") -> Result<(), crate::ImportError> {"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/covers.rs"
+code = "let candidate = self.require_release_candidate(key).await?;"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/covers.rs"
+code = "let hash = candidate.files.content_hash();"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/covers.rs"
+code = "let covers = self.candidate_covers(key, &hash).await?;"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/covers.rs"
+code = "self.services.tables.replace_candidate_covers(&hash, link, covers).await?;"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/covers.rs"
+code = "let covers = self.release_covers(release_id).await?;"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/covers.rs"
+code = "/// The live read of the covers a candidate's or a library release's"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/covers.rs"
+code = "/// picker shows; see `ImportTables::subscribe_cover_gallery`."
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/covers.rs"
+code = "let state = self.services.tables.load_import_candidate_state(content_hash).await?;"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/covers.rs"
+code = "None => return Ok(None),"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/covers.rs"
+code = "return Ok(Some(self.records_gallery(&album.records()).await?));"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/covers.rs"
+code = "Ok(Some(self.services.catalogs.musicbrainz().pick_gallery_covers(primary, partners).await?))"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/covers.rs"
+code = "Ok(Some(self.records_gallery(&records).await?))"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/covers_tests.rs"
+code = "//! an unlinked candidate, what a fetch stored for the candidate's link, the"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/covers_tests.rs"
+code = "//! folder's images, and a library release's from its records."
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/covers_tests.rs"
+code = "/// The gallery the picker of the candidate at `key` shows under `filter` now."
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/covers_tests.rs"
+code = "async fn candidate_gallery("
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/covers_tests.rs"
+code = "focused_gallery(handle, key, filter, None).await"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/covers_tests.rs"
+code = "/// The gallery the picker of the candidate at `key` shows under `filter`"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/covers_tests.rs"
+code = "/// now, asked to focus the cover `focus` names."
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/covers_tests.rs"
+code = "async fn focused_gallery("
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/covers_tests.rs"
+code = "focus: Option<crate::CoverKey>,"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/covers_tests.rs"
+code = "let asked = crate::CoverGalleryRequest {"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/covers_tests.rs"
+code = "owner: crate::CoverGalleryOwner::Candidate(key.clone()),"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/covers_tests.rs"
+code = "let mut live = handle.subscribe_cover_gallery(Some(asked.clone()));"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/covers_tests.rs"
+code = 'let event = live.next_inline().await.expect("the read runs");'
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/covers_tests.rs"
+code = "if event.request.as_ref() == Some(&asked) {"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/covers_tests.rs"
+code = 'break event.result.unwrap().expect("the live query answers the request");'
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/covers_tests.rs"
+code = "/// Each section the gallery shows: its source, its count and its covers'"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/covers_tests.rs"
+code = "/// names, a catalog's cover by its address."
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/covers_tests.rs"
+code = "fn sections(gallery: &crate::CoverGallery) -> Vec<(crate::CoverSectionSource, u32, Vec<String>)> {"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/covers_tests.rs"
+code = ".map(|item| match (&item.label, &item.image) {"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/covers_tests.rs"
+code = "(crate::GalleryLabel::File(name), _) => name.clone(),"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/covers_tests.rs"
+code = "(_, crate::CoverImageSource::Remote { image }) => image.url.clone(),"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/covers_tests.rs"
+code = """other => panic!("a candidate's gallery holds {other:?}"),"""
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/covers_tests.rs"
+code = "(section.source, section.count, names)"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/covers_tests.rs"
+code = "/// The addresses of the catalogs' covers the candidate's picker offers, in"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/covers_tests.rs"
+code = "async fn offered(handle: &ImportServiceHandle, key: &crate::CandidateKey) -> Vec<String> {"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/covers_tests.rs"
+code = "let gallery = candidate_gallery("
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/covers_tests.rs"
+code = "crate::CoverFilter::Catalog(bae_catalogs::catalog::Catalog::MusicBrainz),"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/covers_tests.rs"
+code = "match sections(&gallery).as_slice() {"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/covers_tests.rs"
+code = "[(crate::CoverSectionSource::Remote, _, urls)] => urls.clone(),"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/covers_tests.rs"
+code = """other => panic!("a catalog's filter shows the remote section alone, not {other:?}"),"""
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/covers_tests.rs"
+code = "/// The candidate's picker counts what each source shows: the folder's image"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/covers_tests.rs"
+code = "/// under all and the release's files, and no catalog cover for a candidate"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/covers_tests.rs"
+code = "async fn a_candidates_picker_counts_what_each_source_shows() {"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/covers_tests.rs"
+code = "use crate::CoverSectionSource::{ReleaseFiles, Remote};"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/covers_tests.rs"
+code = "let (handle, _tmp, key, _) = pane_fixture().await;"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/covers_tests.rs"
+code = "let all = candidate_gallery(&handle, &key, crate::CoverFilter::All).await;"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/covers_tests.rs"
+code = "let files = candidate_gallery(&handle, &key, crate::CoverFilter::ReleaseFiles).await;"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/covers_tests.rs"
+code = "let discogs = candidate_gallery("
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/covers_tests.rs"
+code = "crate::CoverFilter::Catalog(bae_catalogs::catalog::Catalog::Discogs),"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/covers_tests.rs"
+code = "assert_eq!(all.fetch, crate::CoverFetch::NotFetched);"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/covers_tests.rs"
+code = "assert_eq!(all.current, None);"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/covers_tests.rs"
+code = "(sections(&all), all.total),"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/covers_tests.rs"
+code = '(vec![(Remote, 0, vec![]), (ReleaseFiles, 1, vec!["cover.jpg".to_string()])], 1)'
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/covers_tests.rs"
+code = "(sections(&files), files.total),"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/covers_tests.rs"
+code = '(vec![(ReleaseFiles, 1, vec!["cover.jpg".to_string()])], 1)'
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/covers_tests.rs"
+code = "assert_eq!((sections(&discogs), discogs.total), (vec![(Remote, 0, vec![])], 0));"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/covers_tests.rs"
+code = "async fn a_fetch_shows_while_the_link_it_was_fetched_for_stands() {"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/covers_tests.rs"
+code = 'let (handle, _tmp, key, hash) = picked_with_front("fetched-release").await;'
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/covers_tests.rs"
+code = 'assert!(link.is_some(), "the pick linked the candidate");'
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/covers_tests.rs"
+code = "let fetched = bae_catalogs::remote_image::RemoteCover {"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/covers_tests.rs"
+code = "image: bae_catalogs::remote_image::RemoteImageSet::original("
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/covers_tests.rs"
+code = '"https://images.example/fetched.jpg".to_string(),'
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/covers_tests.rs"
+code = "tables.replace_candidate_covers(&hash, link, Some(vec![fetched])).await.unwrap();"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/covers_tests.rs"
+code = 'assert_eq!(offered(&handle, &key).await, ["https://images.example/fetched.jpg".to_string()]);'
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/covers_tests.rs"
+code = "candidate_gallery(&handle, &key, crate::CoverFilter::All).await.fetch,"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/covers_tests.rs"
+code = "crate::CoverFetch::Linked"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/covers_tests.rs"
+code = "handle.unlink_candidate_release(key.clone()).await.unwrap();"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/covers_tests.rs"
+code = "assert_eq!(gallery.fetch, crate::CoverFetch::NotFetched);"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/covers_tests.rs"
+code = "/// A candidate's picker focuses the cover its draft chose, after the"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/covers_tests.rs"
+code = "/// catalogs' covers, unless the request names another cover it shows."
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/covers_tests.rs"
+code = "async fn a_candidates_picker_focuses_its_chosen_cover_unless_asked() {"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/covers_tests.rs"
+code = "use crate::CoverKey::{File, Remote};"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/covers_tests.rs"
+code = 'let (handle, _tmp, key, hash) = picked_with_front("focused-release").await;'
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/covers_tests.rs"
+code = "let cover = |url: &str| bae_catalogs::remote_image::RemoteCover {"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/covers_tests.rs"
+code = "image: bae_catalogs::remote_image::RemoteImageSet::original(url.to_string()),"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/covers_tests.rs"
+code = 'let (front, back) = ("https://images.example/front.jpg", "https://images.example/back.jpg");'
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/covers_tests.rs"
+code = ".replace_candidate_covers(&hash, link, Some(vec![cover(front), cover(back)]))"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/covers_tests.rs"
+code = "let own = focused_gallery(&handle, &key, crate::CoverFilter::All, None).await;"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/covers_tests.rs"
+code = "focused_gallery(&handle, &key, crate::CoverFilter::All, Some(Remote(back.to_string())))"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/covers_tests.rs"
+code = 'let own = own.focus.expect("the picker shows covers");'
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/covers_tests.rs"
+code = "(own.cover.key, own.position, own.previous, own.next),"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/covers_tests.rs"
+code = 'File("cover.jpg".to_string()),'
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/covers_tests.rs"
+code = "Some(Remote(back.to_string())),"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/covers_tests.rs"
+code = "Some(Remote(front.to_string()))"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/covers_tests.rs"
+code = 'let asked = asked.focus.expect("the picker shows covers");'
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/covers_tests.rs"
+code = "assert_eq!((asked.cover.key, asked.position), (Remote(back.to_string()), 1));"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/covers_tests.rs"
+code = "assert_eq!(gallery.fetch, crate::CoverFetch::Linked);"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/edits_tests.rs"
+code = '#[tokio::test(flavor = "multi_thread")]'
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/edits_tests.rs"
+code = "async fn a_folder_image_in_a_format_no_cover_can_be_is_refused() {"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/edits_tests.rs"
+code = "use crate::folder_scanner::{CandidateFile, FileRole, ScannedFile};"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/edits_tests.rs"
+code = "let (parts, db, tmp) = setup_test_import().await;"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/edits_tests.rs"
+code = "let tables = crate::tables::ImportTables::new(db.clone());"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/edits_tests.rs"
+code = 'let (mut candidate, key, _hash) = unscanned_candidate(&tables, &tmp, "Album").await;'
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/edits_tests.rs"
+code = 'let scan_path = candidate.path.join("scan.bmp");'
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/edits_tests.rs"
+code = 'std::fs::write(&scan_path, b"BM").unwrap();'
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/edits_tests.rs"
+code = "let metadata = std::fs::metadata(&scan_path).unwrap();"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/edits_tests.rs"
+code = "let modified_at_ns = crate::folder_scanner::file_modified_at_ns(&scan_path, &metadata).unwrap();"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/edits_tests.rs"
+code = "candidate.files.files.push(CandidateFile {"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/edits_tests.rs"
+code = "role: FileRole::Artwork,"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/edits_tests.rs"
+code = "let hash = candidate.files.content_hash();"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/edits_tests.rs"
+code = "rescan_into(&tables, candidate.clone()).await;"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/edits_tests.rs"
+code = "let fixture = started(parts, db, candidate, key.clone(), tmp).await;"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/edits_tests.rs"
+code = "let handle = fixture.handle;"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/edits_tests.rs"
+code = "handle.select_candidate_file_tags(key.clone()).await.unwrap();"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/edits_tests.rs"
+code = "let before = crate::preparations::stored_preparation(&handle.services.tables, &hash)"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/edits_tests.rs"
+code = '.expect("the candidate is prepared");'
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/edits_tests.rs"
+code = '.set_candidate_cover(&key, crate::CoverSelection::Local("scan.bmp".to_string()))'
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/edits_tests.rs"
+code = "crate::ImportError::Cover(crate::CoverRefusal::NotACover { file_id })"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/edits_tests.rs"
+code = 'if file_id == "scan.bmp"'
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/edits_tests.rs"
+code = "let after = crate::preparations::stored_preparation(&handle.services.tables, &hash)"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/edits_tests.rs"
+code = '.expect("the candidate remains prepared");'
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/edits_tests.rs"
+code = "shut_down(handle).await;"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/edits_tests.rs"
+code = "assert_eq!(after, before);"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/picks_tests.rs"
+code = "let asked = crate::CoverGalleryRequest {"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/picks_tests.rs"
+code = "owner: crate::CoverGalleryOwner::Candidate(crate::CandidateKey::folder(&dir)),"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/picks_tests.rs"
+code = "filter: crate::CoverFilter::Catalog(bae_catalogs::catalog::Catalog::MusicBrainz),"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/picks_tests.rs"
+code = "let mut gallery = fixture.import.subscribe_cover_gallery(Some(asked.clone()));"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/picks_tests.rs"
+code = 'let event = gallery.next_inline().await.expect("the read runs");'
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/picks_tests.rs"
+code = "if event.request.as_ref() == Some(&asked) {"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/picks_tests.rs"
+code = 'break event.result.unwrap().expect("the live query answers the request");'
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/picks_tests.rs"
+code = ".map(|cover| match &cover.image {"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/picks_tests.rs"
+code = "crate::CoverImageSource::Remote { image } => image.url.clone(),"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/handle/picks_tests.rs"
+code = """other => panic!("a catalog's filter shows {other:?}"),"""
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/lib.rs"
+code = "ImportServiceHandle, ImportStart,"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/lib.rs"
+code = "CoverFetch, CoverFilter, CoverGallery, CoverGalleryOwner, CoverGalleryRequest,"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/lib.rs"
+code = "CoverGallerySnapshot, CoverKey, CoverSection, CoverSectionSource, GalleryCover, GalleryFocus,"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables.rs"
+code = "CoverFetch, CoverFilter, CoverGallery, CoverGalleryOwner, CoverGalleryRequest,"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables.rs"
+code = "CoverGallerySnapshot, CoverKey, CoverSection, CoverSectionSource, GalleryCover, GalleryFocus,"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery.rs"
+code = "//! The covers a cover picker offers, as one query reads them from the"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery.rs"
+code = "//! library's tables, filtered by source, each section with its count and the"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery.rs"
+code = "//! whole with its total, and the cover the picker focuses with where it sits"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery.rs"
+code = "//! among them. A library release's picker offers its saved cover,"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery.rs"
+code = "//! the covers its catalogs offered when this device last fetched them, and its"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery.rs"
+code = "//! image files; its tables are `cover_gallery.sql`. A candidate's picker"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery.rs"
+code = "//! offers the covers its link's catalogs offered, and the folder's images a"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery.rs"
+code = "//! cover can be (`cover_gallery/candidate.rs`). Fetching writes the tables,"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery.rs"
+code = "//! and a refetch replaces what they hold."
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery.rs"
+code = "pub(super) const SCHEMA: bae_store::SchemaPart = bae_store::SchemaPart::new(&["
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery.rs"
+code = 'include_str!("cover_gallery.sql"),'
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery.rs"
+code = 'include_str!("cover_gallery/candidate.sql"),'
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery.rs"
+code = "/// What this device knows of the catalog covers of the release or"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery.rs"
+code = "/// candidate a picker shows."
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery.rs"
+code = "fn of_column(linked: Option<bool>) -> Self {"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery.rs"
+code = "None => Self::NotFetched,"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery.rs"
+code = "Some(false) => Self::Unlinked,"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery.rs"
+code = "Some(true) => Self::Linked,"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery.rs"
+code = "/// An image file of the release or the folder, by its name there."
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery.rs"
+code = "/// What names one cover of a picker: the saved cover, a catalog's image by"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery.rs"
+code = "/// its address, or an image file by its id."
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery.rs"
+code = "#[derive(Debug, Clone, PartialEq, Eq, Hash)]"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery.rs"
+code = "/// One cover the picker shows: its key, what saving it selects (none for the"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery.rs"
+code = "/// saved cover), where its image comes from, and its label."
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery.rs"
+code = "/// The cover a picker focuses: the cover, where it sits among the covers in"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery.rs"
+code = "/// the order the picker walks them (the saved cover, then each section's), and"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery.rs"
+code = "/// the covers before and after it, wrapping around the ends. A picker of one"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery.rs"
+code = "/// cover has none before or after it."
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery.rs"
+code = "pub struct GalleryFocus {"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery.rs"
+code = "pub cover: GalleryCover,"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery.rs"
+code = "pub next: Option<CoverKey>,"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery.rs"
+code = "pub focus: Option<GalleryFocus>,"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery.rs"
+code = "/// The release's gallery under one filter, as the statement that binds the"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery.rs"
+code = "/// release as `:release` reads it: its saved cover only under all, catalog"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery.rs"
+code = "/// covers under all or their catalog, image files under all or the release's"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery.rs"
+code = "/// files, each file in name order. The release focuses its saved cover"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery.rs"
+code = "/// unless the request names another."
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery.rs"
+code = "fn release_gallery_sql() -> String {"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery.rs"
+code = "WITH items (rank, pos, kind, key, preferred, item) AS ("
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery.rs"
+code = "SELECT 0, 0, 'saved', NULL, 1, json_object('kind', 'saved', 'version', version)"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery.rs"
+code = "FROM (SELECT {cover_version} AS version)"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery.rs"
+code = "WHERE :filter = 'all' AND version IS NOT NULL"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery.rs"
+code = "SELECT 1, entry.position, 'remote', json_extract(entry.cover, '$.image.url'), 0,"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery.rs"
+code = "json_object('kind', 'remote', 'cover', json(entry.cover))"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery.rs"
+code = "FROM release_cover_entry AS entry"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery.rs"
+code = "WHERE entry.release_id = :release AND :filter IN ('all', entry.source)"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery.rs"
+code = "SELECT 2, ROW_NUMBER() OVER (ORDER BY file.original_filename COLLATE natural_order, file.id),"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery.rs"
+code = "json_object('kind', 'release_file', 'id', file.id, 'name', file.original_filename)"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery.rs"
+code = "FROM release_files AS file"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery.rs"
+code = "WHERE file.release_id = :release AND :filter IN ('all', 'release_files')"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery.rs"
+code = "AND file.content_type IN ({cover_types})"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery.rs"
+code = 'cover_version = bae_records::records::files::cover_version_sql(":release"),'
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery.rs"
+code = 'cover_types = cover_types.join(", "),'
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery.rs"
+code = '"(SELECT fetch.linked FROM release_cover_fetch AS fetch \'
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery.rs"
+code = 'WHERE fetch.release_id = :release)"'
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery.rs"
+code = "/// Whose covers a picker shows."
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery.rs"
+code = "pub enum CoverGalleryOwner {"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery.rs"
+code = "/// A library release, by its id."
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery.rs"
+code = "Candidate(crate::CandidateKey),"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery.rs"
+code = "/// Whose covers a picker shows, the source it shows them from, and the cover"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery.rs"
+code = "/// it focuses: the one `focus` names when it shows it, else its own (a"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery.rs"
+code = "/// release's saved cover, a candidate's chosen cover), else its first."
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery.rs"
+code = "pub owner: CoverGalleryOwner,"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery.rs"
+code = "pub focus: Option<CoverKey>,"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery.rs"
+code = "let (focus_kind, focus_key) = request.focus.as_ref().map(CoverKey::columns).unzip();"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery.rs"
+code = "let focus_key = focus_key.flatten();"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery.rs"
+code = "let filter = request.filter.column();"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery.rs"
+code = "CoverGalleryOwner::Release(release_id) => sql"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery.rs"
+code = ".gallery(Some(release_id)),"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery.rs"
+code = "CoverGalleryOwner::Candidate(key) => sql"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery.rs"
+code = "&candidate::candidate_gallery_sql(),"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery.rs"
+code = "/// Follow the covers that the picker shows for the release or candidate"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery.rs"
+code = "/// and the source `initial` names, or nothing. A new request changes them"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery.rs"
+code = "/// on the same query, and coven reruns the query when a write changes"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery.rs"
+code = "/// the fetched covers, a release's files or saved cover, or a"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery.rs"
+code = "/// candidate's link, draft or folder."
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/candidate.rs"
+code = "//! A candidate's cover picker, read in one statement over the import's"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/candidate.rs"
+code = "//! tables: the covers its link's catalogs offered when this device last"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/candidate.rs"
+code = "//! fetched them for that link, or, before such a fetch, the covers the"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/candidate.rs"
+code = "//! can be. Its tables are `candidate.sql`; fetching writes them, and a"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/candidate.rs"
+code = "//! refetch replaces them."
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/candidate.rs"
+code = "use crate::tables::import_state::{current_at_scan_sql, SCANNED_HASH};"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/candidate.rs"
+code = "use crate::tables::source_releases::offered_covers_sql;"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/candidate.rs"
+code = "/// The link of the candidate whose content hash the expression `hash` names,"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/candidate.rs"
+code = "/// as one JSON value: its kind, catalog and release, its partners and its"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/candidate.rs"
+code = "/// albums. NULL when the candidate is linked to nothing."
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/candidate.rs"
+code = "fn link_sql(hash: &str) -> String {"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/candidate.rs"
+code = '"(SELECT json_array(link.kind, link.source, link.release_id, \'
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/candidate.rs"
+code = '(SELECT json_group_array(json_array(p.source, p.release_id) ORDER BY p.source) \'
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/candidate.rs"
+code = 'FROM import_candidate_release_link_partner AS p \'
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/candidate.rs"
+code = 'WHERE p.content_hash = link.content_hash), \'
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/candidate.rs"
+code = '(SELECT json_group_array(json_array(a.catalog, a.album_id) ORDER BY a.catalog) \'
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/candidate.rs"
+code = 'FROM import_candidate_release_link_album AS a \'
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/candidate.rs"
+code = 'WHERE a.content_hash = link.content_hash)) \'
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/candidate.rs"
+code = 'FROM import_candidate_release_link AS link WHERE link.content_hash = {hash})"'
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/candidate.rs"
+code = "/// The gallery of the candidate the statement binds as `:key`, under the"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/candidate.rs"
+code = "/// filter it binds as `:filter`. The fetched covers show only while the"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/candidate.rs"
+code = "/// the covers its draft's pressing offered show, while its state is the one"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/candidate.rs"
+code = "/// its scanned files hold. Folder images show under all or the release's"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/candidate.rs"
+code = "/// files. The candidate's own cover is the one its draft chose."
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/candidate.rs"
+code = "pub(super) fn candidate_gallery_sql() -> String {"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/candidate.rs"
+code = "SELECT content_hash, watched_folder_path, path FROM scan_candidate WHERE path = :key LIMIT 1"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/candidate.rs"
+code = "SELECT f.content_hash, f.linked FROM candidate_cover_fetch AS f JOIN c USING (content_hash)"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/candidate.rs"
+code = "SELECT CASE cover.kind WHEN 'local' THEN 'file' ELSE cover.kind END,"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/candidate.rs"
+code = "COALESCE(cover.file_id, cover.url)"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/candidate.rs"
+code = "FROM import_candidate_cover AS cover JOIN c USING (content_hash)"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/candidate.rs"
+code = "listed (rank, pos, kind, key, item) AS ("
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/candidate.rs"
+code = "SELECT 1, e.position, 'remote', json_extract(e.cover, '$.image.url'),"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/candidate.rs"
+code = "json_object('kind', 'remote', 'cover', json(e.cover))"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/candidate.rs"
+code = "FROM candidate_cover_entry AS e JOIN fetch USING (content_hash)"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/candidate.rs"
+code = "WHERE :filter IN ('all', e.source)"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/candidate.rs"
+code = "SELECT 1, o.key, 'remote', o.value ->> 'url',"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/candidate.rs"
+code = "json_object('kind', 'offered', 'cover', json(o.value))"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/candidate.rs"
+code = "FROM json_each(CASE WHEN EXISTS (SELECT 1 FROM fetch) THEN '[]'"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/candidate.rs"
+code = "WHEN EXISTS (SELECT 1 FROM import_candidate_state AS state WHERE {current})"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/candidate.rs"
+code = "THEN ({offered}) ELSE '[]' END) AS o"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/candidate.rs"
+code = "WHERE :filter IN ('all', o.value ->> 'source')"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/candidate.rs"
+code = "SELECT 2, f.position, 'file', f.relative_path,"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/candidate.rs"
+code = "json_object('kind', 'folder_file', 'id', f.relative_path, 'path', hex(f.absolute_path),"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/candidate.rs"
+code = "'size', f.size, 'modified_at_ns', f.modified_at_ns)"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/candidate.rs"
+code = "FROM scan_candidate_file AS f"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/candidate.rs"
+code = "JOIN c ON f.watched_folder_path = c.watched_folder_path AND f.candidate_path = c.path"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/candidate.rs"
+code = "WHERE :filter IN ('all', 'release_files')"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/candidate.rs"
+code = "AND f.role = 'artwork' AND bae_supported_cover(f.relative_path)"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/candidate.rs"
+code = "items (rank, pos, kind, key, preferred, item) AS ("
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/candidate.rs"
+code = "SELECT rank, pos, kind, key, EXISTS (SELECT 1 FROM chosen WHERE (chosen.kind, chosen.key) = (listed.kind, listed.key)), item"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/candidate.rs"
+code = 'link = link_sql("c.content_hash"),'
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/candidate.rs"
+code = 'current = current_at_scan_sql("state"),'
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/candidate.rs"
+code = "offered = offered_covers_sql(SCANNED_HASH),"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/candidate.rs"
+code = 'walk = super::walk::walk_sql("(SELECT linked FROM fetch)"),'
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/candidate.rs"
+code = "/// The link of the candidate `content_hash` as a fetch of its covers"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/candidate.rs"
+code = "/// stores it beside them; `None` when it is linked to nothing."
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/candidate.rs"
+code = "pub(crate) async fn candidate_cover_link("
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/candidate.rs"
+code = ") -> Result<Option<String>, DbError> {"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/candidate.rs"
+code = 'Ok(sql.query_row(&format!("SELECT {}", link_sql("?")), [&content_hash], |row| {'
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/candidate.rs"
+code = "/// Store what the catalogs offered the picker of the candidate"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/candidate.rs"
+code = "/// `content_hash`, fetched for `link` (see [`Self::candidate_cover_link`]),"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/candidate.rs"
+code = "/// in the order offered, in place of what the last fetch stored; `None`"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/candidate.rs"
+code = "/// when the candidate is linked to nothing."
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/candidate.rs"
+code = "pub(crate) async fn replace_candidate_covers("
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/candidate.rs"
+code = "covers: Option<Vec<RemoteCover>>,"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/candidate.rs"
+code = ") -> Result<(), DbError> {"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/candidate.rs"
+code = '"DELETE FROM candidate_cover_fetch WHERE content_hash = ?",'
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/candidate.rs"
+code = '"INSERT INTO candidate_cover_fetch (content_hash, link, linked) VALUES (?, ?, ?)",'
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/candidate.rs"
+code = "params![content_hash, link, covers.is_some()],"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/candidate.rs"
+code = "for (position, cover) in covers.iter().flatten().enumerate() {"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/candidate.rs"
+code = '"INSERT INTO candidate_cover_entry (content_hash, position, source, cover) \'
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/candidate.rs"
+code = "serde_json::to_string(cover)"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/candidate.rs"
+code = '.map_err(|error| DbError::encode("a gallery cover", error))?,'
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/candidate.sql"
+code = "-- These tables hold, for each candidate, the covers its link's catalogs"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/candidate.sql"
+code = "-- offered the last time this device fetched them for the cover picker. One"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/candidate.sql"
+code = "-- `candidate_cover_fetch` row per candidate holds the link the fetch read the"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/candidate.sql"
+code = "-- covers for (`candidate_cover_link`'s JSON, NULL for no link) and whether"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/candidate.sql"
+code = "-- the candidate was linked then. A fetch that found it linked adds its covers"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/candidate.sql"
+code = "-- as `candidate_cover_entry` rows, in the order offered, each the stored"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/candidate.sql"
+code = "-- `RemoteCover` as JSON with its catalog beside it for the picker's source"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/candidate.sql"
+code = "-- filter. The picker shows a fetch's covers only while the candidate's link"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/candidate.sql"
+code = "-- later fetch replaces the candidate's rows whole; deleting the candidate's"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/candidate.sql"
+code = "-- state deletes its rows."
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/candidate.sql"
+code = "CREATE TABLE IF NOT EXISTS candidate_cover_fetch ("
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/candidate.sql"
+code = "content_hash TEXT NOT NULL PRIMARY KEY"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/candidate.sql"
+code = "REFERENCES import_candidate_state (content_hash) ON DELETE CASCADE,"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/candidate.sql"
+code = "link         TEXT CHECK (link IS NULL OR json_valid(link)),"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/candidate.sql"
+code = "linked       INTEGER NOT NULL CHECK (linked IN (0, 1))"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/candidate.sql"
+code = "CREATE TABLE IF NOT EXISTS candidate_cover_entry ("
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/candidate.sql"
+code = "content_hash TEXT NOT NULL"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/candidate.sql"
+code = "REFERENCES candidate_cover_fetch (content_hash) ON DELETE CASCADE,"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/candidate.sql"
+code = "position     INTEGER NOT NULL CHECK (position >= 0),"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/candidate.sql"
+code = "source       TEXT NOT NULL CHECK (source IN ('musicbrainz', 'discogs')),"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/candidate.sql"
+code = "cover        TEXT NOT NULL CHECK (json_valid(cover)),"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/candidate.sql"
+code = "PRIMARY KEY (content_hash, position)"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/walk.rs"
+code = "//! The part every picker's statement shares: its covers in the order the"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/walk.rs"
+code = "//! picker walks them, each section's covers and count, the total, and the"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/walk.rs"
+code = "//! cover the picker focuses with its place among them and the covers before"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/walk.rs"
+code = "use crate::folder_scanner::FileVersion;"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/walk.rs"
+code = "use crate::tables::source_releases::OfferedCover;"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/walk.rs"
+code = "/// The rest of a picker's statement, after the statement's own tables end"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/walk.rs"
+code = "/// with `items (rank, pos, kind, key, preferred, item)`: one row for each"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/walk.rs"
+code = "/// cover it shows, its section's rank (0 the saved cover, 1 a catalog's, 2 an"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/walk.rs"
+code = "/// image file), its place in the section, its key's kind and value, whether"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/walk.rs"
+code = "/// it is the owner's own cover, and the cover as an [`ItemJson`]. The"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/walk.rs"
+code = "/// statement binds `:filter`, and the focused cover's key as `:focus_kind`"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/walk.rs"
+code = "/// and `:focus_key` (both NULL for none); `fetched` is the expression for the"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/walk.rs"
+code = "/// fetch's `linked` column."
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/walk.rs"
+code = "/// The picker focuses the cover the request names, else the owner's own"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/walk.rs"
+code = "/// cover, else its first, while it shows any. The covers before and after it"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/walk.rs"
+code = "/// wrap around the ends, and there are none when the picker shows one cover."
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/walk.rs"
+code = "pub(super) fn walk_sql(fetched: &str) -> String {"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/walk.rs"
+code = "// The statement names `walk` twice and `items` once: SQLite expands a"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/walk.rs"
+code = "// common table at each place a statement names it, and refuses a"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/walk.rs"
+code = "// statement whose expansions open too many cursors."
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/walk.rs"
+code = "SELECT *, ROW_NUMBER() OVER (ORDER BY rank, pos) - 1 AS n, COUNT(*) OVER () AS total"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/walk.rs"
+code = "ORDER BY (kind, key) IS (:focus_kind, :focus_key) DESC, preferred DESC, n"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/walk.rs"
+code = ":filter <> 'release_files',"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/walk.rs"
+code = ":filter IN ('all', 'release_files'),"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/walk.rs"
+code = "MAX(CASE WHEN w.rank = 0 THEN w.item END),"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/walk.rs"
+code = "json_group_array(json(w.item) ORDER BY w.n) FILTER (WHERE w.rank = 1),"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/walk.rs"
+code = "COUNT(*) FILTER (WHERE w.rank = 1),"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/walk.rs"
+code = "json_group_array(json(w.item) ORDER BY w.n) FILTER (WHERE w.rank = 2),"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/walk.rs"
+code = "COUNT(*) FILTER (WHERE w.rank = 2),"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/walk.rs"
+code = "CASE WHEN COUNT(w.n) > 0 THEN json_object("
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/walk.rs"
+code = "'item', json(MAX(CASE WHEN w.n = f.n THEN w.item END)),"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/walk.rs"
+code = "'previous', json(MAX(CASE WHEN w.total > 1 AND w.n = (f.n + w.total - 1) % w.total"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/walk.rs"
+code = "THEN json_object('kind', w.kind, 'key', w.key) END)),"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/walk.rs"
+code = "'next', json(MAX(CASE WHEN w.total > 1 AND w.n = (f.n + 1) % w.total"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/walk.rs"
+code = "THEN json_object('kind', w.kind, 'key', w.key) END)))"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/walk.rs"
+code = 'FROM walk AS w LEFT JOIN focused AS f"'
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/walk.rs"
+code = "/// One cover as a picker's statement returns it."
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/walk.rs"
+code = '#[serde(tag = "kind", rename_all = "snake_case")]'
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/walk.rs"
+code = "pub(super) enum ItemJson {"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/walk.rs"
+code = "/// The library release's saved cover, at its version."
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/walk.rs"
+code = "Saved { version: String },"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/walk.rs"
+code = "/// A cover a fetch stored."
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/walk.rs"
+code = "Remote { cover: RemoteCover },"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/walk.rs"
+code = "Offered { cover: OfferedCover },"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/walk.rs"
+code = "/// An image file of the library release."
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/walk.rs"
+code = "ReleaseFile { id: String, name: String },"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/walk.rs"
+code = "/// An image of the candidate's folder, at the version the scan read."
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/walk.rs"
+code = '#[serde(deserialize_with = "path_column::from_hex")]'
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/walk.rs"
+code = "path: std::path::PathBuf,"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/walk.rs"
+code = "/// The key of a cover as a picker's statement returns it."
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/walk.rs"
+code = "/// The focused cover as a picker's statement returns it."
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/walk.rs"
+code = "previous: Option<KeyJson>,"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/walk.rs"
+code = "/// The kind and value a picker's statement compares a cover's key with."
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/walk.rs"
+code = "pub(super) fn columns(&self) -> (&'static str, Option<&str>) {"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/walk.rs"
+code = 'Self::Saved => ("saved", None),'
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/walk.rs"
+code = 'Self::Remote(url) => ("remote", Some(url)),'
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/walk.rs"
+code = 'Self::File(id) => ("file", Some(id)),'
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/walk.rs"
+code = "fn of_json(key: KeyJson) -> Result<Self, DbError> {"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/walk.rs"
+code = "match (key.kind.as_str(), key.key) {"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/walk.rs"
+code = '("saved", None) => Ok(Self::Saved),'
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/walk.rs"
+code = '("remote", Some(url)) => Ok(Self::Remote(url)),'
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/walk.rs"
+code = '("file", Some(id)) => Ok(Self::File(id)),'
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/walk.rs"
+code = """(kind, key) => Err(DbError::unreadable("a gallery cover's key", (kind, key))),"""
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/walk.rs"
+code = "/// The cover this item is in the picker of the library release"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/walk.rs"
+code = "fn cover(self, release_id: Option<&str>) -> Result<GalleryCover, DbError> {"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/walk.rs"
+code = "let release = |what: &str| {"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/walk.rs"
+code = "let remote = |cover: RemoteCover| GalleryCover {"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/walk.rs"
+code = "key: CoverKey::Remote(cover.image.url.clone()),"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/walk.rs"
+code = "selection: Some(CoverSelection::Remote(cover.image.clone(), cover.source)),"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/walk.rs"
+code = "image: CoverImageSource::Remote { image: cover.image },"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/walk.rs"
+code = "label: GalleryLabel::Remote { label: cover.label, source: cover.source },"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/walk.rs"
+code = "Self::Saved { version } => {"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/walk.rs"
+code = 'let release_id = release("saved")?;'
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/walk.rs"
+code = "let image = bae_records::cover_ref(release_id, Some(version))"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/walk.rs"
+code = "image: release_image(release_id, bae_records::GallerySource::Cover(image)),"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/walk.rs"
+code = "label: GalleryLabel::Current,"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/walk.rs"
+code = "Self::Remote { cover } => remote(cover),"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/walk.rs"
+code = "Self::Offered { cover } => remote(cover.cover()?),"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/walk.rs"
+code = "Self::ReleaseFile { id, name } => GalleryCover {"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/walk.rs"
+code = 'release("release_file")?,'
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/walk.rs"
+code = "bae_records::GallerySource::ReleaseFile { file_id: id },"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/walk.rs"
+code = "label: GalleryLabel::File(name),"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/walk.rs"
+code = "Self::FolderFile { id, path, size, modified_at_ns } => GalleryCover {"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/walk.rs"
+code = "image: CoverImageSource::Local { file: FileVersion { path, size, modified_at_ns } },"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/walk.rs"
+code = "label: GalleryLabel::File(id),"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/walk.rs"
+code = "fn release_image(release_id: &str, source: bae_records::GallerySource) -> CoverImageSource {"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/walk.rs"
+code = "CoverImageSource::ReleaseImage { release_id: release_id.to_string(), source }"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/walk.rs"
+code = "/// The covers in a JSON array of [`ItemJson`]s."
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/walk.rs"
+code = "fn covers(json: &str, release_id: Option<&str>) -> Result<Vec<GalleryCover>, DbError> {"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/walk.rs"
+code = "let items: Vec<ItemJson> = serde_json::from_str(json)"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/walk.rs"
+code = """.map_err(|error| DbError::unreadable_json("a picker's covers", json, error))?;"""
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/walk.rs"
+code = "items.into_iter().map(|item| item.cover(release_id)).collect()"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/walk.rs"
+code = "/// The row [`walk_sql`] ends a statement with, as SQLite holds it."
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/walk.rs"
+code = "pub(super) struct GalleryColumns {"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/walk.rs"
+code = "pub(super) fn read(row: &Row<'_>) -> rusqlite::Result<Self> {"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/walk.rs"
+code = "shows_remote: row.get(1)?,"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/walk.rs"
+code = "shows_files: row.get(2)?,"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/walk.rs"
+code = "remote_count: row.get(5)?,"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/walk.rs"
+code = "files_count: row.get(7)?,"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/walk.rs"
+code = "/// The gallery these columns hold, for the picker of the library release"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/walk.rs"
+code = "pub(super) fn gallery(self, release_id: Option<&str>) -> Result<CoverGallery, DbError> {"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/walk.rs"
+code = "let mut sections = Vec::new();"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/walk.rs"
+code = "source: CoverSectionSource::Remote,"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/walk.rs"
+code = "items: covers(&self.remote, release_id)?,"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/walk.rs"
+code = "count: self.remote_count,"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/walk.rs"
+code = "source: CoverSectionSource::ReleaseFiles,"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/walk.rs"
+code = "items: covers(&self.files, release_id)?,"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/walk.rs"
+code = "count: self.files_count,"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/walk.rs"
+code = "serde_json::from_str::<ItemJson>(&json)"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/walk.rs"
+code = """DbError::unreadable_json("a picker's saved cover", &json, error)"""
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/walk.rs"
+code = "let focus: FocusJson = serde_json::from_str(&json).map_err(|error| {"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/walk.rs"
+code = """DbError::unreadable_json("a picker's focused cover", &json, error)"""
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/walk.rs"
+code = "Ok::<_, DbError>(GalleryFocus {"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/walk.rs"
+code = "cover: focus.item.cover(release_id)?,"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/walk.rs"
+code = "position: focus.position,"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/walk.rs"
+code = "previous: focus.previous.map(CoverKey::of_json).transpose()?,"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/walk.rs"
+code = "next: focus.next.map(CoverKey::of_json).transpose()?,"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery/walk.rs"
+code = "fetch: CoverFetch::of_column(self.fetched),"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery_tests.rs"
+code = "owner: CoverGalleryOwner::Release(RELEASE_ID.to_string()),"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery_tests.rs"
+code = "/// The gallery `filter` shows now, focused on the cover `focus` names."
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery_tests.rs"
+code = "focus: Option<CoverKey>,"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery_tests.rs"
+code = "let asked = CoverGalleryRequest { focus, ..request(filter) };"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery_tests.rs"
+code = "let mut gallery = tables.subscribe_cover_gallery(Some(asked.clone()));"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery_tests.rs"
+code = "gallery_until(&mut gallery, &asked, |_| true).await"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery_tests.rs"
+code = "/// Where the gallery's focus is: its cover's key, its place, and the covers"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery_tests.rs"
+code = "/// before and after it."
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery_tests.rs"
+code = "fn focus_of(gallery: &CoverGallery) -> (CoverKey, u32, Option<CoverKey>, Option<CoverKey>) {"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery_tests.rs"
+code = 'let focus = gallery.focus.clone().expect("a gallery with covers focuses one");'
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery_tests.rs"
+code = "(focus.cover.key, focus.position, focus.previous, focus.next)"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery_tests.rs"
+code = "fn remote_key(url: &str) -> CoverKey {"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery_tests.rs"
+code = "CoverKey::Remote(url.to_string())"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery_tests.rs"
+code = "fn file_key(name: &str) -> CoverKey {"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery_tests.rs"
+code = "CoverKey::File(bae_util::test_ids::test_uuid(name))"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery_tests.rs"
+code = "/// With nothing asked, a release's picker focuses its saved cover; the"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery_tests.rs"
+code = "/// covers before and after it wrap around the ends of the walk."
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery_tests.rs"
+code = "async fn a_release_focuses_its_saved_cover_unless_asked() {"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery_tests.rs"
+code = "let gallery = read_focused(&tables, CoverFilter::All, None).await;"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery_tests.rs"
+code = 'Some(file_key("file-back")),'
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery_tests.rs"
+code = 'Some(remote_key("https://caa.example/front"))'
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery_tests.rs"
+code = "async fn the_cover_asked_for_is_focused_where_it_sits() {"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery_tests.rs"
+code = 'read_focused(&tables, CoverFilter::All, Some(remote_key("https://discogs.example/1")))'
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery_tests.rs"
+code = 'let file = read_focused(&tables, CoverFilter::All, Some(file_key("file-art"))).await;'
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery_tests.rs"
+code = 'assert_eq!(focus_of(&file).0, file_key("file-art"));'
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery_tests.rs"
+code = "assert_eq!(focus_of(&file).1, 4);"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery_tests.rs"
+code = "async fn a_hidden_cover_leaves_the_focus_on_the_first() {"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery_tests.rs"
+code = "let discogs = read_focused("
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery_tests.rs"
+code = "CoverFilter::Catalog(Catalog::Discogs),"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery_tests.rs"
+code = 'Some(remote_key("https://discogs.example/2")),'
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery_tests.rs"
+code = "let archive = read_focused(&tables, CoverFilter::Catalog(Catalog::MusicBrainz), None).await;"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery_tests.rs"
+code = 'assert_eq!(focus_of(&archive), (remote_key("https://caa.example/front"), 0, None, None));'
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery_tests.rs"
+code = "/// A picker that shows no cover focuses none."
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery_tests.rs"
+code = "async fn an_empty_picker_focuses_nothing() {"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery_tests.rs"
+code = "let (db, _temp) = live_db(crate::TEST_SCHEMA).await;"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery_tests.rs"
+code = "read_focused(&ImportTables::new(db), CoverFilter::All, Some(CoverKey::Saved)).await;"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/cover_gallery_tests.rs"
+code = "assert_eq!(gallery.focus, None);"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/folder_scans/cover_choice.rs"
+code = "/// scan stored as one of the folder's images, in a format a cover can be"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/folder_scans/cover_choice.rs"
+code = "/// (`bae_supported_cover`), and tag artwork must be what"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/folder_scans/cover_choice.rs"
+code = '"SELECT file.role, bae_supported_cover(file.relative_path) \'
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/folder_scans/cover_choice.rs"
+code = 'FROM scan_candidate AS candidate \'
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/folder_scans/cover_choice.rs"
+code = "|row| Ok((row.get::<_, String>(0)?, row.get::<_, bool>(1)?)),"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/folder_scans/cover_choice.rs"
+code = "let file_id = file_id.clone();"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/folder_scans/cover_choice.rs"
+code = "None => Some(CoverRefusal::NotInFolder { file_id }),"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/folder_scans/cover_choice.rs"
+code = 'Some((role, _)) if role != "artwork" => Some(CoverRefusal::NotAnImage { file_id }),'
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/folder_scans/cover_choice.rs"
+code = "Some((_, false)) => Some(CoverRefusal::NotACover { file_id }),"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/folder_scans/cover_choice.rs"
+code = "Some((_, true)) => None,"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/import_list/pane.rs"
+code = "use crate::tables::source_releases::{claimed_records_of_json, claimed_records_sql};"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/import_list/pane.rs"
+code = "/// beside it: the linked releases' records, its cover, the album an import"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/import_list/pane.rs"
+code = "/// pane shows a link's records only for the current state."
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/import_list/pane_tests/parts.rs"
+code = "//! pane says in lines of their own, and the covers the candidate's picker"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/import_list/pane_tests/parts.rs"
+code = "/// The candidate's picker offers the covers the linked release states, each"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/import_list/pane_tests/parts.rs"
+code = "/// with its downscaled copies smallest first; the picker does not offer the"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/import_list/pane_tests/parts.rs"
+code = "/// group's front, which nothing states, beside a stated one."
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/import_list/pane_tests/parts.rs"
+code = "async fn the_picker_offers_the_covers_the_linked_release_states() {"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/import_list/pane_tests/parts.rs"
+code = "let asked = crate::CoverGalleryRequest {"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/import_list/pane_tests/parts.rs"
+code = "owner: crate::CoverGalleryOwner::Candidate(candidate.key()),"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/import_list/pane_tests/parts.rs"
+code = "filter: crate::CoverFilter::Catalog(Catalog::MusicBrainz),"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/import_list/pane_tests/parts.rs"
+code = "crate::tables::ImportTables::new(db.clone()).subscribe_cover_gallery(Some(asked.clone()));"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/import_list/pane_tests/parts.rs"
+code = 'let event = live.next_inline().await.expect("the read runs");'
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/import_list/pane_tests/parts.rs"
+code = "if event.request.as_ref() == Some(&asked) {"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/import_list/pane_tests/parts.rs"
+code = 'break event.result.unwrap().expect("the live query answers the request");'
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/import_list/pane_tests/parts.rs"
+code = "let image = bae_catalogs::remote_image::RemoteImageSet {"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/import_list/pane_tests/parts.rs"
+code = "downscaled: [250, 500, 1200]"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/import_list/pane_tests/parts.rs"
+code = ".map(|max_edge| bae_catalogs::remote_image::DownscaledCopy {"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/import_list/pane_tests/parts.rs"
+code = 'url: format!("{front}-{max_edge}"),'
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/import_list/pane_tests/parts.rs"
+code = "vec![crate::CoverSection {"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/import_list/pane_tests/parts.rs"
+code = "source: crate::CoverSectionSource::Remote,"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/import_list/pane_tests/parts.rs"
+code = "items: vec![crate::GalleryCover {"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/import_list/pane_tests/parts.rs"
+code = "key: crate::CoverKey::Remote(front.to_string()),"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/import_list/pane_tests/parts.rs"
+code = "selection: Some(crate::CoverSelection::Remote(image.clone(), Catalog::MusicBrainz)),"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/import_list/pane_tests/parts.rs"
+code = "image: crate::CoverImageSource::Remote { image },"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/import_list/pane_tests/parts.rs"
+code = "label: crate::GalleryLabel::Remote {"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/import_list/pane_tests/parts.rs"
+code = "label: bae_catalogs::remote_image::CoverLabel::Lead { release_group: false },"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/import_list/pane_tests/parts.rs"
+code = "source: Catalog::MusicBrainz,"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/source_releases.rs"
+code = "pub(crate) use offered_covers::{offered_covers_sql, OfferedCover};"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/source_releases/offered_covers.rs"
+code = "/// One cover of an [`offered_covers_sql`] column, as the statement writes it."
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/source_releases/offered_covers.rs"
+code = "pub(crate) struct OfferedCover {"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/source_releases/offered_covers.rs"
+code = "/// The cover the statement wrote."
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/source_releases/offered_covers.rs"
+code = "pub(crate) fn cover(self) -> Result<RemoteCover, DbError> {"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/source_releases/offered_covers.rs"
+code = "image: RemoteImageSet::stored(self.url, self.copies),"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/source_releases/offered_covers.rs"
+code = "source: catalog_column(&self.source)?,"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/source_releases/offered_covers.rs"
+code = "standing: CoverStanding::from_column(&self.standing)"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/source_releases/offered_covers.rs"
+code = """.ok_or_else(|| DbError::unreadable("a cover's standing", &self.standing))?,"""
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/source_releases/offered_covers_tests.rs"
+code = "let rows: Vec<OfferedCover> = serde_json::from_str(&json).unwrap();"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/tables/source_releases/offered_covers_tests.rs"
+code = "rows.into_iter().map(|row| row.cover().unwrap()).collect()"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/types/release_edit_display.rs"
+code = "position_text: entry.position.text(),"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/types/release_edit_display_tests.rs"
+code = "vec![bae_records::DbReleaseEditTrack {"
+verdict = "none"
+
+[[site]]
+file = "bae-import/src/types/release_edit_display_tests.rs"
+code = "position: TrackPosition::Flat { number: 1 },"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/Fixtures/CoverGallery+Focus.swift"
+code = "/// The gallery as core focuses it for a request that names `key`: on"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/Fixtures/CoverGallery+Focus.swift"
+code = "/// that cover while the gallery shows it, else on its first cover, with"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/Fixtures/CoverGallery+Focus.swift"
+code = "/// the covers before and after it wrapping around the ends."
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/Fixtures/CoverGallery+Focus.swift"
+code = "func focused(on key: BridgeCoverKey?) -> BridgeCoverGallery {"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/Fixtures/CoverGallery+Focus.swift"
+code = 'let covers = [current].compactMap { $0 } + sections.flatMap(\.items)'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/Fixtures/CoverGallery+Focus.swift"
+code = "let place = covers.firstIndex { $0.key == key } ?? covers.indices.first"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/Fixtures/CoverGallery+Focus.swift"
+code = "gallery.focus = place.map { place in"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/Fixtures/CoverGallery+Focus.swift"
+code = "let lone = covers.count == 1"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/Fixtures/CoverGallery+Focus.swift"
+code = "return BridgeGalleryFocus("
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/Fixtures/CoverGallery+Focus.swift"
+code = "position: UInt32(place),"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/Fixtures/CoverGallery+Focus.swift"
+code = ": covers[(place + covers.count - 1) % covers.count].key,"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/Fixtures/CoverGallery+Focus.swift"
+code = "next: lone ? nil : covers[(place + 1) % covers.count].key"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/Fixtures/CoverGallery+Focus.swift"
+code = "/// A gallery view over `gallery` that moves its focus as core would: each"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/Fixtures/CoverGallery+Focus.swift"
+code = "/// cover the view focuses is a new request, which this view answers with"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/Fixtures/CoverGallery+Focus.swift"
+code = "/// `gallery` focused on it."
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/Fixtures/CoverGallery+Focus.swift"
+code = "struct FocusingCoverGallery: View {"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/Fixtures/CoverGallery+Focus.swift"
+code = "let gallery: BridgeCoverGallery"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/Fixtures/CoverGallery+Focus.swift"
+code = "(CoverGalleryContent, Binding<BridgeCoverKey?>) -> CoverGalleryView"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/Fixtures/CoverGallery+Focus.swift"
+code = "private var focusedCover: BridgeCoverKey?"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/Fixtures/CoverGallery+Focus.swift"
+code = "CoverGalleryContent(gallery.focused(on: focusedCover)),"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/Fixtures/ImportMappingPreview.swift"
+code = "onDropCoverImage: { _ in },"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Cursor.swift"
+code = "/// `current`, `items`, `canCycle` and a lightbox's `place`, and call"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Cursor.swift"
+code = "extension Cursor where Item: LightboxImage {"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Cursor.swift"
+code = "/// The lightbox's place at the cursor: the items before and after the"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Cursor.swift"
+code = "/// current one, wrapping around the ends, and none for a lone item."
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Cursor.swift"
+code = "var place: LightboxPlace<Item> {"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Services/ReleaseEditor.swift"
+code = "/// Release-level mutations and the cover lookups the editor needs."
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Services/ReleaseEditor.swift"
+code = "/// reading one of a release's documents, and the lookups of the covers the"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Services/ReleaseEditor.swift"
+code = "/// catalogs offer a release's or a candidate's picker."
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Services/ReleaseEditor.swift"
+code = "/// Look up what the catalogs the candidate links to offer its cover"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Services/ReleaseEditor.swift"
+code = "/// picker, which core stores for the open picker's live read."
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Services/ReleaseEditor.swift"
+code = "let refreshCandidateCovers:"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Services/ReleaseEditor.swift"
+code = "@Sendable (_ candidateKey: Data) async throws -> Void"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Services/ReleaseEditor.swift"
+code = "@escaping @Sendable (Data) async throws -> Void = { _ in },"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Services/ReleaseEditor.swift"
+code = "self.refreshCandidateCovers = refreshCandidateCovers"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Services/ReleaseEditor.swift"
+code = "refreshCandidateCovers: {"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Services/ReleaseEditor.swift"
+code = "try await handle.refreshCandidateCovers(candidateKey: $0)"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Components/LightboxView.swift"
+code = "/// Where a lightbox stands among its images: the images its strip shows, the"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Components/LightboxView.swift"
+code = "/// one it shows, and the ones before and after it, which whoever shows the"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Components/LightboxView.swift"
+code = "/// lightbox works out. There are none before or after a lone image."
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Components/LightboxView.swift"
+code = "struct LightboxPlace<Item: LightboxImage>: Equatable {"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Components/LightboxView.swift"
+code = "/// Whether the lightbox moves between images."
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Components/LightboxView.swift"
+code = "var canCycle: Bool { next != nil }"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Components/LightboxView.swift"
+code = "let place: LightboxPlace<Item>"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Components/LightboxView.swift"
+code = "/// Show the image `id` names."
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Components/LightboxView.swift"
+code = "let onSelect: (Item.ID) -> Void"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Components/LightboxView.swift"
+code = "image: place.current.image,"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Components/LightboxView.swift"
+code = "current: place.current.id,"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Components/LightboxView.swift"
+code = ".onChange(of: place.current.image) { _, _ in"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Components/LightboxView.swift"
+code = "if let previous = place.previous { onSelect(previous) }"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Components/LightboxView.swift"
+code = "if let next = place.next { onSelect(next) }"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Components/LightboxView.swift"
+code = "Text(verbatim: place.current.label)"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Components/LightboxView.swift"
+code = "Text(verbatim: place.current.sourceLabel)"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Components/MetadataForm/ReleaseEditorView.swift"
+code = "owner: .release(releaseId: session.releaseId),"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Components/ThumbnailStrip.swift"
+code = "/// A horizontal strip of thumbnails that keeps the current item centered; the"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Components/ThumbnailStrip.swift"
+code = "/// caller supplies each item's image view and stroke."
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Components/ThumbnailStrip.swift"
+code = "ForEach(items) { item in"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Components/ThumbnailStrip.swift"
+code = "scrollProxy.scrollTo(current, anchor: .center)"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Components/ThumbnailStrip.swift"
+code = ".onChange(of: current) { _, newId in"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Components/ThumbnailStrip.swift"
+code = "let (color, lineWidth) = stroke(item, item.id == current)"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Import/Candidates/ImportCandidateTableCoordinator.swift"
+code = "displayScale: tableView.window?.backingScaleFactor"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Import/Candidates/ImportCandidateTableView.swift"
+code = "private var coverDecode: Task<Void, Never>?"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Import/Candidates/ImportCandidateTableView.swift"
+code = "/// Draw `entry`, and ask the image store to decode its cover at"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Import/Candidates/ImportCandidateTableView.swift"
+code = "/// `displayScale`, the scale of the window the cell goes on, so the"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Import/Candidates/ImportCandidateTableView.swift"
+code = "/// cover is ready when the cell is on screen. With no scale the row's"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Import/Candidates/ImportCandidateTableView.swift"
+code = "func show(_ entry: ImportListEntry, displayScale: CGFloat?) {"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Import/Candidates/ImportCandidateTableView.swift"
+code = "decodeCover(at: displayScale)"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Import/Candidates/ImportCandidateTableView.swift"
+code = "private func decodeCover(at displayScale: CGFloat?) {"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Import/Candidates/ImportCandidateTableView.swift"
+code = "guard let entry, let cover = entry.coverContent, let displayScale"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Import/Candidates/ImportCandidateTableView.swift"
+code = "let imageStore = entry.environment.imageStore"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Import/Candidates/ImportCandidateTableView.swift"
+code = "pointSize: MacImportRow.coverPointSize,"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Import/Candidates/ImportCandidateTableView.swift"
+code = "displayScale: displayScale"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Import/Candidates/ImportListPinnedHeader.swift"
+code = "cell.show(entry, displayScale: window?.backingScaleFactor)"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Import/Confirmation/ArtworkBrowserState.swift"
+code = "/// layout never moves the focused cover or restarts an artwork lookup."
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Import/Confirmation/ArtworkBrowserState.swift"
+code = "/// What the cover gallery draws, as core's read returns it: the saved cover,"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Import/Confirmation/ArtworkBrowserState.swift"
+code = "/// each source's covers with the number of covers the source holds under the"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Import/Confirmation/ArtworkBrowserState.swift"
+code = "/// filter, the number in all of them, and the focused cover with where it"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Import/Confirmation/ArtworkBrowserState.swift"
+code = "/// sits. A source the filter hides is `nil`, and nothing is focused while the"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Import/Confirmation/ArtworkBrowserState.swift"
+code = "/// gallery shows no cover."
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Import/Confirmation/ArtworkBrowserState.swift"
+code = "/// The cover the gallery focuses, its place among all the gallery's"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Import/Confirmation/ArtworkBrowserState.swift"
+code = "/// covers, and the covers before and after it."
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Import/Confirmation/ArtworkBrowserState.swift"
+code = "var previous: BridgeCoverKey?"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Import/Confirmation/ArtworkBrowserState.swift"
+code = "var next: BridgeCoverKey?"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Import/Confirmation/ArtworkBrowserState.swift"
+code = "/// The covers in the order the lightbox's strip shows them."
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Import/Confirmation/ArtworkBrowserState.swift"
+code = "/// A picker's gallery as core read it."
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Import/Confirmation/ArtworkBrowserState.swift"
+code = "focus = gallery.focus.map {"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Import/Confirmation/ArtworkBrowserState.swift"
+code = "cover: CoverItem(gallery: $0.cover),"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Import/Confirmation/ArtworkBrowserState.swift"
+code = "position: Int($0.position),"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Import/Confirmation/CoverGalleryState.swift"
+code = "/// Holds the gallery that core's live query returns for a library release's"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Import/Confirmation/CoverGalleryState.swift"
+code = "/// or a candidate's picker under the chosen source, and the status of the"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Import/Confirmation/CoverGalleryState.swift"
+code = "/// catalog cover lookup. A lookup, or a change to the covers the picker can"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Import/Confirmation/CoverGalleryState.swift"
+code = "/// show, writes the library, so the query delivers a new value. Changing"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Import/Confirmation/CoverGalleryState.swift"
+code = "/// `filter` or `focusedCover` sets the query's request, and the query says"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Import/Confirmation/CoverGalleryState.swift"
+code = "/// which cover it focuses and where that cover sits."
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Import/Confirmation/CoverGalleryState.swift"
+code = "final class CoverGalleryState {"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Import/Confirmation/CoverGalleryState.swift"
+code = "var focusedCover: BridgeCoverKey? {"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Import/Confirmation/CoverGalleryState.swift"
+code = "guard focusedCover != oldValue else { return }"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Import/Confirmation/CoverGalleryState.swift"
+code = "/// Whose covers the picker shows."
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Import/Confirmation/CoverGalleryState.swift"
+code = "private let owner: BridgeCoverGalleryOwner"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Import/Confirmation/CoverGalleryState.swift"
+code = "owner: BridgeCoverGalleryOwner,"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Import/Confirmation/CoverGalleryState.swift"
+code = "refresh: @escaping () async throws -> Void"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Import/Confirmation/CoverGalleryState.swift"
+code = "/// Follow the owner's picker, then look the catalogs up again."
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Import/Confirmation/CoverGalleryState.swift"
+code = "func open(query: CoverGalleryQuery) async {"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Import/Confirmation/CoverGalleryState.swift"
+code = "guard let query else { return }"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Import/Confirmation/CoverGalleryState.swift"
+code = "try query.setRequest(owner, filter.bridge, focusedCover)"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Import/Confirmation/CoverGalleryState.swift"
+code = "guard let request = snapshot.request, request.owner == owner,"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Import/Confirmation/CoverGalleryState.swift"
+code = "request.filter == filter.bridge, request.focus == focusedCover,"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Import/Confirmation/CoverGalleryState.swift"
+code = "let gallery = snapshot.gallery"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Import/Confirmation/CoverGalleryView.swift"
+code = "/// The view draws the content, filter and focused cover that its caller"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Import/Confirmation/CoverGalleryView.swift"
+code = "/// passes in, and counts or finds nothing. Their owner reads the content for"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Import/Confirmation/CoverGalleryView.swift"
+code = "/// that filter and focus, and the content says which cover is focused and"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Import/Confirmation/CoverGalleryView.swift"
+code = "/// The cover the person focused last, which the content focuses while it"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Import/Confirmation/CoverGalleryView.swift"
+code = "var focusedCover: BridgeCoverKey?"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Import/Confirmation/CoverGalleryView.swift"
+code = "if let focus = content.focus { onSelect(focus.cover) }"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Import/Confirmation/CoverGalleryView.swift"
+code = "content.focus?.cover.selection == nil"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Import/Confirmation/CoverGalleryView.swift"
+code = ".onAppear { browser.layout = initialLayout }"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Import/Confirmation/CoverGalleryView.swift"
+code = "focus(content.focus?.previous)"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Import/Confirmation/CoverGalleryView.swift"
+code = "focus(content.focus?.next)"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Import/Confirmation/CoverGalleryView.swift"
+code = "previous: focus.previous,"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Import/Confirmation/CoverGalleryView.swift"
+code = "onSelect: { focusedCover = $0 },"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Import/Confirmation/CoverGalleryView.swift"
+code = "if content.focus == nil {"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Import/Confirmation/CoverGalleryView.swift"
+code = "Rectangle().fill(Theme.background)"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Import/Confirmation/CoverGalleryView.swift"
+code = "browser.layout == .grid && content.focus != nil"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Import/Confirmation/CoverGalleryView.swift"
+code = "/// Focus the cover `key` names, if any."
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Import/Confirmation/CoverGalleryView.swift"
+code = "private func focus(_ key: BridgeCoverKey?) {"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Import/Confirmation/CoverGalleryView.swift"
+code = "if let key { focusedCover = key }"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Import/Confirmation/CoverGalleryView.swift"
+code = "if content.focus != nil || !remoteItems.isLoading { remoteStatus }"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Import/Confirmation/CoverGalleryView.swift"
+code = "content.focus?.cover.id == item.id"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Import/Confirmation/CoverGalleryView.swift"
+code = "content.focus?.cover.id == item.id ? .isSelected : []"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Import/Confirmation/CoverGalleryView.swift"
+code = "content: focus.cover.image,"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Import/Confirmation/CoverGalleryView.swift"
+code = "Text(verbatim: focus.cover.label)"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Import/Confirmation/CoverGalleryView.swift"
+code = "Text(verbatim: focus.cover.sourceLabel)"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Import/Confirmation/CoverGalleryView.swift"
+code = "self.focus(focus.previous)"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Import/Confirmation/CoverGalleryView.swift"
+code = 'Text("\(focus.position + 1) of \(content.total)")'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Import/Confirmation/CoverGalleryView.swift"
+code = ".disabled(focus.next == nil || isSaving)"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Import/Confirmation/CoverItem.swift"
+code = "/// A cover the picker shows, as core's gallery read returns it, with the text"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Import/Confirmation/CoverItem.swift"
+code = "/// that names it: what the lightbox previews and what saving it selects."
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Import/Confirmation/CoverItem.swift"
+code = "var id: BridgeCoverKey { cover.key }"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Import/Confirmation/CoverItem.swift"
+code = "var selection: BridgeCoverSelection? { cover.selection }"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Import/Confirmation/CoverItem.swift"
+code = "var image: ImageContent { ImageContent(bridge: cover.image) }"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Import/Confirmation/CoverItem.swift"
+code = "let cover: BridgeGalleryCover"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Import/Confirmation/CoverItem.swift"
+code = "/// Makes an item for a cover in a picker, labeled with the text for"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Import/Confirmation/CoverPickerState.swift"
+code = "/// Saving the cover picked, shared by the cover pickers: whether a save runs,"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Import/Confirmation/CoverPickerState.swift"
+code = "/// and why the last one failed."
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Import/Confirmation/CoverSheetView.swift"
+code = "/// Shows the covers that core reads for a library release's or a"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Import/Confirmation/CoverSheetView.swift"
+code = "/// candidate's picker under the source the person picks, and the catalog"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Import/Confirmation/CoverSheetView.swift"
+code = "/// lookup whose covers core stores."
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Import/Confirmation/CoverSheetView.swift"
+code = "let owner: BridgeCoverGalleryOwner"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Import/Confirmation/CoverSheetView.swift"
+code = "/// The cover the owner has now, which the sheet can't pick again; `nil`"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Import/Confirmation/CoverSheetView.swift"
+code = "/// where the gallery shows the saved cover itself."
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Import/Confirmation/CoverSheetView.swift"
+code = "let selectedCover: BridgeCoverSelection?"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Import/Confirmation/CoverSheetView.swift"
+code = "private var covers: CoverGalleryState"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Import/Confirmation/CoverSheetView.swift"
+code = "owner: BridgeCoverGalleryOwner,"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Import/Confirmation/CoverSheetView.swift"
+code = "selectedCover: BridgeCoverSelection? = nil,"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Import/Confirmation/CoverSheetView.swift"
+code = "self.selectedCover = selectedCover"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Import/Confirmation/CoverSheetView.swift"
+code = "initialValue: CoverGalleryState("
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Import/Confirmation/CoverSheetView.swift"
+code = "focusedCover: $covers.focusedCover,"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Import/Confirmation/CoverSheetView.swift"
+code = "selectedCover: selectedCover,"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Import/Confirmation/CoverSheetView.swift"
+code = "await covers.open(query: library.coverGallery())"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Import/ImportView+MainPane.swift"
+code = "onDropCoverImage: { fileId in"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Import/ImportView+MainPane.swift"
+code = "selectCover(.releaseImage(fileId: fileId), for: candidate)"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Import/ImportView+MainPane.swift"
+code = "let lightboxLoad = LightboxImageLoad()"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Import/ImportView+MainPane.swift"
+code = "owner: .candidate(candidateKey: key),"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Import/ImportView+MainPane.swift"
+code = "selectedCover: candidate.cover?.selection,"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Import/ImportView+MainPane.swift"
+code = "lightboxLoad: lightboxLoad,"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Import/ImportView+MainPane.swift"
+code = "try await releaseEditor.refreshCandidateCovers(key)"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Import/ImportView+MainPane.swift"
+code = "try await importer.setCandidateCover(key, selection)"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Import/Mapping/ImportMappingPane.swift"
+code = "let onDropCoverImage: (String) -> Void"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Import/Mapping/ImportMappingPane.swift"
+code = "onDropCoverImage: onDropCoverImage,"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Import/Mapping/ImportMetadataSourceSection.swift"
+code = "let onDropCoverImage: (String) -> Void"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Import/Mapping/ImportMetadataSourceSection.swift"
+code = "onDropCoverImage: onDropCoverImage"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Import/Mapping/MacImportDraft.swift"
+code = "/// Send the folder image dropped on the cover, by its file id, for core"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Import/Mapping/MacImportDraft.swift"
+code = "/// to make the cover or refuse."
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Import/Mapping/MacImportDraft.swift"
+code = "let onDropCoverImage: (String) -> Void"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Import/Mapping/MacImportDraft.swift"
+code = "onDropImage: onDropCoverImage"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Import/Mapping/MacImportDraft.swift"
+code = "/// Send a folder image dropped on the well, by its file id, for core to"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Import/Mapping/MacImportDraft.swift"
+code = "/// make the cover or refuse; `nil` where the well takes no drop."
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Import/Mapping/MacImportDraft.swift"
+code = "let onDropImage: ((String) -> Void)?"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Import/Mapping/MacImportDraft.swift"
+code = "guard let onDropImage, let fileId = fileIds.first else {"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/bae/Views/Library/AlbumDetail/AlbumDetailView.swift"
+code = "owner: .release(releaseId: selectedReleaseId),"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeShots/ShotScene+AlbumCover.swift"
+code = "let content = CoverGalleryContent("
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeShots/ShotScene+AlbumCover.swift"
+code = "linked ? boardCoverGallery() : boardCoverGallery(remotes: [])"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeShots/ShotScene+AlbumCover.swift"
+code = "focusedCover: .constant(nil),"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeShots/ShotScene+AlbumCover.swift"
+code = "/// covers and the image files in its folder, focused on its cover."
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeShots/ShotScene+AlbumCover.swift"
+code = "total: UInt32(1 + remotes.count + files.count),"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeShots/ShotScene+AlbumCover.swift"
+code = "key: .remote(url: image.url),"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeShots/ShotScene+AlbumCover.swift"
+code = "key: .file(fileId: name),"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeShots/ShotScene+AlbumEditor.swift"
+code = "focusedCover: .constant(nil),"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/CoverLabelTextTests.swift"
+code = "coverLabelText(sourceName: sourceName, label: label)"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/CoverLabelTextTests.swift"
+code = 'labelText(.lead(releaseGroup: false)) == "Cover Art Archive"'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/CoverLabelTextTests.swift"
+code = "labelText(.lead(releaseGroup: true))"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/CoverLightboxTests.swift"
+code = "gallery: gallery(remote: [front, booklet], files: [file])"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/CoverLightboxTests.swift"
+code = "onDone: { dismissed = true }"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/CoverLightboxTests.swift"
+code = "gallery: gallery(remote: [front, booklet], files: [])"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/CoverLightboxTests.swift"
+code = "lightboxLoad: LightboxImageLoad(),"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/CoverLightboxTests.swift"
+code = 'let back = remote("Back")'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/CoverLightboxTests.swift"
+code = "extension CoverLightboxTests {"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/CoverLightboxTests.swift"
+code = ") -> BridgeCoverGallery {"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/CoverLightboxTests.swift"
+code = 'items: remote.map(\.cover),'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/CoverLightboxTests.swift"
+code = "count: UInt32(remote.count)"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/CoverLightboxTests.swift"
+code = 'items: files.map(\.cover),'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/CoverLightboxTests.swift"
+code = "count: UInt32(files.count)"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/CoverLightboxTests.swift"
+code = "total: UInt32(remote.count + files.count),"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/CoverLightboxTests.swift"
+code = 'key: .file(fileId: "scan-file"),'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/CoverLightboxTests.swift"
+code = "image: .local(file: file),"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/CoverLightboxTests.swift"
+code = 'label: .file(name: "scans/booklet.png")'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/CoverLightboxTests.swift"
+code = "key: .remote(url: image.url),"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/CoverLightboxTests.swift"
+code = "image: .remote(image: image),"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/CoverPickerEmptyStateTests.swift"
+code = "focusedCover: .constant(nil),"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/CoverPickerEmptyStateTests.swift"
+code = "func refreshOnlyALinkedLookup() {"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/CoverPickerEmptyStateTests.swift"
+code = "#expect(RemoteCoverItems.linked([]).canRefresh)"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/CoverPickerEmptyStateTests.swift"
+code = 'RemoteCoverItems.failed([], failure: DisplayError(line: "failed"))'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/CoverPickerTests.swift"
+code = "owner: .release(releaseId: release.id),"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/CoverPickerTests.swift"
+code = "key: .file(fileId: $0.id),"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/CoverPickerTests.swift"
+code = "total: UInt32(files.count),"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/CoverPickerTests.swift"
+code = "/// Each tile names its source. How the sections look is the"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/CoverPickerTests.swift"
+code = "let remote = try #require(PreviewData.remoteCovers.first)"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/CoverPickerTests.swift"
+code = "let remoteItem = CoverItem("
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/CoverPickerTests.swift"
+code = 'key: .remote(url: "front"),'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/CoverPickerTests.swift"
+code = "selection: remote.coverChoice.selection,"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/CoverPickerTests.swift"
+code = "image: remote.coverChoice.image,"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/CoverPickerTests.swift"
+code = "sourceName: remote.sourceName,"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/CoverPickerTests.swift"
+code = "remoteItem.sourceLabel == bridgeCatalogName(catalog: .musicBrainz)"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/CoverPickerTests.swift"
+code = "let coverFile = try #require("
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/CoverPickerTests.swift"
+code = "PreviewData.bridgeCandidateFiles.coverFiles.first"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/CoverPickerTests.swift"
+code = 'Issue.record("a cover file carries its cover choice")'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/CoverPickerTests.swift"
+code = "let fileItem = CoverItem("
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/CoverPickerTests.swift"
+code = 'key: .file(fileId: "front.png"),'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/CoverPickerTests.swift"
+code = "selection: file.selection,"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/CoverPickerTests.swift"
+code = 'label: .file(name: "front.png")'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/CoverPickerTests.swift"
+code = '#expect(fileItem.sourceLabel == String(localized: "Release files"))'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/ImportMetadataSourceTests.swift"
+code = "onDropCoverImage: { _ in }"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/ImportOnlineBrowserTests.swift"
+code = "onDropCoverImage: { _ in }"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/ImportStoreTests.swift"
+code = "PreviewData.bridgeCandidateFiles.coverFiles.last"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/ImportStoreTests.swift"
+code = "guard case .artwork(let localChoice?) = localArtwork.role else {"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/ImportStoreTests.swift"
+code = 'Issue.record("a cover file carries its cover choice")'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/ImportStoreTests.swift"
+code = "let choices = [remoteCover.coverChoice, localChoice]"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/LibraryArtworkBrowserTests.swift"
+code = "/// Space opens the image the grid focuses, the release's cover, in the"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/LibraryArtworkBrowserTests.swift"
+code = "/// lightbox, and Escape brings the grid back with the keyboard on it,"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/LibraryArtworkBrowserTests.swift"
+code = "/// right arrow focused."
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/LibraryArtworkBrowserTests.swift"
+code = "let delivered = DeliveredFocuses()"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/LibraryArtworkBrowserTests.swift"
+code = "// Space needs the preview, which shows once the first read"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/LibraryArtworkBrowserTests.swift"
+code = "// arrives; the lookup can end before that read."
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/LibraryArtworkBrowserTests.swift"
+code = "try await Wait.until { lookups > 0 && delivered.count > 0 }"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/LibraryArtworkBrowserTests.swift"
+code = "// The arrow asks core to focus the next cover; Return waits"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/LibraryArtworkBrowserTests.swift"
+code = "// for the read that answers."
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/LibraryArtworkBrowserTests.swift"
+code = '.remote(url: "https://images.example/Booklet.png")'
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/LibraryArtworkBrowserTests.swift"
+code = "delivered: DeliveredFocuses? = nil,"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/LibraryArtworkBrowserTests.swift"
+code = "owner: .release(releaseId: releaseId),"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/LibraryArtworkBrowserTests.swift"
+code = ".fixed(gallery, delivered: delivered)"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/LibraryArtworkBrowserTests.swift"
+code = "switch cover.coverChoice.image {"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/LibraryArtworkBrowserTests.swift"
+code = "case .remote(let image): image.url"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/LibraryArtworkBrowserTests.swift"
+code = "return BridgeGalleryCover("
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/LibraryArtworkBrowserTests.swift"
+code = "total: UInt32(covers.count + (saved == nil ? 0 : 1)),"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/LibraryArtworkBrowserTests.swift"
+code = "/// `delivered`, when given, records the focus each value answers."
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/LibraryArtworkBrowserTests.swift"
+code = "_ gallery: BridgeCoverGallery,"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/LibraryArtworkBrowserTests.swift"
+code = "delivered: DeliveredFocuses? = nil"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/LibraryArtworkBrowserTests.swift"
+code = ") -> CoverGalleryQuery {"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/LibraryArtworkBrowserTests.swift"
+code = "setRequest: { owner, filter, focus in"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/LibraryArtworkBrowserTests.swift"
+code = "gallery: gallery.focused(on: focus)"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/LibraryArtworkBrowserTests.swift"
+code = "let snapshot = try await pulls.next()"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/LibraryArtworkBrowserTests.swift"
+code = "delivered?.record(snapshot.request?.focus)"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/LibraryArtworkBrowserTests.swift"
+code = "/// The focus each value of a fixed query answered, in the order the query"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/LibraryArtworkBrowserTests.swift"
+code = "final class DeliveredFocuses: @unchecked Sendable {"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/LibraryArtworkBrowserTests.swift"
+code = "private let lock = NSLock()"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/LibraryArtworkBrowserTests.swift"
+code = "private var focuses: [BridgeCoverKey?] = []"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/LibraryArtworkBrowserTests.swift"
+code = "func record(_ focus: BridgeCoverKey?) {"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/LibraryArtworkBrowserTests.swift"
+code = "lock.withLock { focuses.append(focus) }"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/LibraryArtworkBrowserTests.swift"
+code = "/// How many values the query has delivered."
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/LibraryArtworkBrowserTests.swift"
+code = "lock.withLock { focuses.count }"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/LibraryArtworkBrowserTests.swift"
+code = "/// Whether the query has delivered a value that focuses `key`."
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/LibraryArtworkBrowserTests.swift"
+code = "func delivered(_ key: BridgeCoverKey) -> Bool {"
+verdict = "none"
+
+[[site]]
+file = "bae-macos/bae/baeTests/LibraryArtworkBrowserTests.swift"
+code = "lock.withLock { focuses.contains(key) }"
+verdict = "none"
+
+[[site]]
+file = "bae-records/src/models/query.rs"
+code = "/// A track as the release editor reads its audio: the track, its place on the"
+verdict = "none"
+
+[[site]]
+file = "bae-records/src/models/query.rs"
+code = "/// release, how many audio formats it stores, and its formats' segments in"
+verdict = "none"
+
+[[site]]
+file = "bae-records/src/models/query.rs"
+code = "/// segment order, each with the file it names."
+verdict = "none"
+
+[[site]]
+file = "bae-records/src/models/query.rs"
+code = "pub position: bae_types::mediums::TrackPosition,"
+verdict = "none"
+
+[[site]]
+file = "bae-records/src/records/release.rs"
+code = "/// Each of a release's tracks in release order, with its side's kind and"
+verdict = "none"
+
+[[site]]
+file = "bae-records/src/records/release.rs"
+code = "/// ordinal and its number there, how many audio formats it stores and its"
+verdict = "none"
+
+[[site]]
+file = "bae-records/src/records/release.rs"
+code = "/// formats' segments in segment order as a JSON array, each with its role and"
+verdict = "none"
+
+[[site]]
+file = "bae-records/src/records/release.rs"
+code = "/// the name and stored audio layout of the release file it names."
+verdict = "none"
+
+[[site]]
+file = "bae-records/src/records/release.rs"
+code = "fn release_edit_tracks_sql() -> String {"
+verdict = "none"
+
+[[site]]
+file = "bae-records/src/records/release.rs"
+code = 'SELECT t.*, p.side_kind, p.side_ordinal, p.number AS place_number, \'
+verdict = "none"
+
+[[site]]
+file = "bae-records/src/records/release.rs"
+code = 'FROM tracks t JOIN placed p ON p.id = t.id WHERE t.release_id = ?1 ORDER BY t.position",'
+verdict = "none"
+
+[[site]]
+file = "bae-records/src/records/release.rs"
+code = 'placed = super::release_tracks::placed_tracks_ctes("?1", ""),'
+verdict = "none"
+
+[[site]]
+file = "bae-records/src/records/release.rs"
+code = "Ok(sql.query(&release_edit_tracks_sql(), params![release_id], |row| {"
+verdict = "none"
+
+[[site]]
+file = "bae-records/src/records/release.rs"
+code = "let position = super::release_tracks::track_position_of("
+verdict = "none"
+
+[[site]]
+file = "bae-records/src/records/release.rs"
+code = '&row.get::<_, String>("side_kind")?,'
+verdict = "none"
+
+[[site]]
+file = "bae-records/src/records/release.rs"
+code = 'row.get("side_ordinal")?,'
+verdict = "none"
+
+[[site]]
+file = "bae-records/src/records/release.rs"
+code = 'row.get("place_number")?,'
+verdict = "none"
+
+[[site]]
+file = "bae-records/src/records/release.rs"
+code = '.map_err(|reason| bae_store::read::column_conversion_error(row, "side_kind", reason))?;'
+verdict = "none"
+
+[[site]]
+file = "bae-records/src/records/release_detail_tests.rs"
+code = "/// The track statements, the release editor's among them, place each track where"
+verdict = "none"
+
+[[site]]
+file = "bae-records/src/records/release_detail_tests.rs"
+code = ".read(move |sql| super::release::release_edit_tracks_on(&sql, release))"
+verdict = "none"
+
+[[site]]
+file = "bae-records/src/records/release_detail_tests.rs"
+code = "edited.into_iter().map(|track| (track.track.id, track.position)).collect();"
+verdict = "none"
+
+[[site]]
+file = "bae-records/src/records/release_detail_tests.rs"
+code = "assert_eq!(edited, expected);"
+verdict = "none"
+
+[[site]]
+file = "owner-construction-check.toml"
+code = '"bae-import/src/tables/cover_gallery/",'
+verdict = "none"
+
+[[site]]
+file = "owner-construction-check.toml"
+code = '"candidate_cover_fetch",'
+verdict = "none"
+
+[[site]]
+file = "owner-construction-check.toml"
+code = '"candidate_cover_entry",'
+verdict = "none"
+
+[[site]]
+file = "spec/bae.md"
+code = "hold, is refused when it is saved, and the cover stays as it was. Dropping one"
+verdict = "none"
+
+[[site]]
+file = "spec/bae.md"
+code = "of the folder's images on the pane's cover sends its file to core, which makes"
+verdict = "none"
+
+[[site]]
+file = "spec/bae.md"
+code = "it the cover or refuses it by the same rule. The artists' pictures"
+verdict = "none"
+
+[[site]]
+file = "spec/bae.md"
+code = "the source the person chose (all, the release's files, or one catalog): a"
+verdict = "none"
+
+[[site]]
+file = "spec/bae.md"
+code = "library release's saved cover, shown under all; the covers its catalogs"
+verdict = "none"
+
+[[site]]
+file = "spec/bae.md"
+code = "offered when this device last fetched them; and the images a cover can be"
+verdict = "none"
+
+[[site]]
+file = "spec/bae.md"
+code = "made from, the release's files or the folder's images in a format bae can"
+verdict = "none"
+
+[[site]]
+file = "spec/bae.md"
+code = "store. Each source comes with its count and the whole with its total, so the"
+verdict = "none"
+
+[[site]]
+file = "spec/bae.md"
+code = "section counts come from that read. The same read says which cover the"
+verdict = "none"
+
+[[site]]
+file = "spec/bae.md"
+code = "picker's preview and its lightbox focus: the one the person last moved to,"
+verdict = "none"
+
+[[site]]
+file = "spec/bae.md"
+code = "while the source shows it; otherwise the release's saved cover or the"
+verdict = "none"
+
+[[site]]
+file = "spec/bae.md"
+code = "candidate's chosen cover, while the source shows that; otherwise its first"
+verdict = "none"
+
+[[site]]
+file = "spec/bae.md"
+code = "cover. The read also says where the focused cover sits among them all, for"
+verdict = "none"
+
+[[site]]
+file = "spec/bae.md"
+code = """the preview's "N of M", and which covers come before and after it, for the"""
+verdict = "none"
+
+[[site]]
+file = "spec/bae.md"
+code = "arrows of the preview and the lightbox, wrapping around the ends; a picker"
+verdict = "none"
+
+[[site]]
+file = "spec/bae.md"
+code = "that shows no cover focuses none. Opening the picker, and its"
+verdict = "none"
+
+[[site]]
+file = "spec/bae.md"
+code = "Refresh, fetch the catalogs' covers and store them, replacing what the last"
+verdict = "none"
+
+[[site]]
+file = "spec/bae.md"
+code = "fetch stored on this device (§A.8); that write, a change to the release's"
+verdict = "none"
+
+[[site]]
+file = "spec/bae.md"
+code = "files or saved cover, or the candidate's folder, draft or link, from this or"
+verdict = "none"
+
+[[site]]
+file = "spec/bae.md"
+code = "another device, and the person's choice of another source or another cover"
+verdict = "none"
+
+[[site]]
+file = "spec/bae.md"
+code = "from offers (above). A fetch that fails stores nothing, so the covers stored"
+verdict = "none"
+
+[[site]]
+file = "spec/bae.md"
+code = "stay on screen, and for a release or candidate that names no catalog release,"
+verdict = "none"
+
+[[site]]
+file = "spec/bae.md"
+code = "the fetch stores that it has no catalog covers."
+verdict = "none"
+
+[[site]]
+file = "spec/bae.md"
+code = "| `candidate_cover_fetch` | the candidate a picker fetched covers for, the link it fetched them for, and whether it was linked then; deleting the candidate's state deletes its rows |"
+verdict = "none"
+
+[[site]]
+file = "spec/bae.md"
+code = "| `candidate_cover_entry` | the covers a fetch found for a candidate, in the order offered, each as a stored cover with its catalog beside it for the picker's source filter |"
+verdict = "none"

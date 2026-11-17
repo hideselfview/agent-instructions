@@ -1,0 +1,2347 @@
+project = "bae"
+clean_for = []
+
+[[finding]]
+rule = "report-bugs-without-crashing-crash-only-on-untrustworthy-state"
+file = "crates/coven-database/src/live_results.rs"
+
+[[site]]
+file = "crates/coven-database/src/live_results.rs"
+code = "Ok(slot) => into_unpoisoned(slot),"
+verdict = "finding"
+rule = "report-bugs-without-crashing-crash-only-on-untrustworthy-state"
+
+[[site]]
+file = "crates/coven-database/src/app_statements_tests.rs"
+code = 'assert!(titles.next_inline().await.expect("the live query answers").unwrap().is_empty());'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/app_statements_tests.rs"
+code = 'titles.next_inline().await.expect("the live query answers").unwrap().last().unwrap(),'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/block_on.rs"
+code = "//! Waiting for a future on a thread, with no runtime."
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/block_on.rs"
+code = "task::{Context, Poll, Wake, Waker},"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/block_on.rs"
+code = "/// Wakes the thread that `block_on` parks."
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/block_on.rs"
+code = "fn wake(self: Arc<Self>) {"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/block_on.rs"
+code = "let waker = Waker::from(Arc::new(Unpark(thread::current())));"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/block_on.rs"
+code = "let mut context = Context::from_waker(&waker);"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/block_on.rs"
+code = "let mut future = pin!(future);"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/block_on.rs"
+code = "match future.as_mut().poll(&mut context) {"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/block_on.rs"
+code = "Poll::Ready(output) => return output,"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/block_on.rs"
+code = "Poll::Pending => thread::park(),"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/block_on.rs"
+code = '#[path = "block_on_tests.rs"]'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/block_on_tests.rs"
+code = "fn block_on_needs_no_runtime() {"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/block_on_tests.rs"
+code = "let (send, receive) = tokio::sync::oneshot::channel();"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/block_on_tests.rs"
+code = "let sender = std::thread::spawn(move || send.send(7).unwrap());"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/block_on_tests.rs"
+code = "assert_eq!(block_on(receive).unwrap(), 7);"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/bulk_write_tests.rs"
+code = 'live.next_inline().await.expect("the live query answers").unwrap()'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/cache_progress_tests.rs"
+code = 'live.next_inline().await.expect("the live query answers").unwrap(),'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/cache_progress_tests.rs"
+code = "assert_eq!(live.next_inline().await.unwrap().unwrap(), [Some(false), None]);"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/cache_progress_tests.rs"
+code = "assert_eq!(live.next_inline().await.unwrap().unwrap(), [Some(true), None]);"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/database.rs"
+code = "// A subscription retains a database only for its active read."
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/database.rs"
+code = "Arc::new(move |request, completion| {"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/database.rs"
+code = "let database = database.upgrade().ok_or(DbError::StoreClosed)?;"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/database.rs"
+code = "let slot = coven_foundation::locks::read_unpoisoned(&database);"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/database.rs"
+code = "let inner = slot.as_ref().ok_or(DbError::StoreClosed)?;"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/database.rs"
+code = "inner.access.readers.acquire_reader().live_read("
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/database.rs"
+code = "&mut |reads, lookups| completion.finish_judging(reads, lookups),"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/database.rs"
+code = "|sql| query(request, sql),"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/database_local_bytes.rs"
+code = "use crate::{next_result, sqlite::DatabaseConnection, DbError, LiveQuery};"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/database_local_bytes.rs"
+code = "use std::future::Future;"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/database_local_bytes.rs"
+code = "budgets: Some(Box::pin(next_result(self.subscribe_cache_budgets()))),"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/database_local_bytes.rs"
+code = "type NextBudgets = std::pin::Pin<"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/database_local_bytes.rs"
+code = "LiveQuery<Vec<NamespaceBytes>, DbError>,"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/database_local_bytes.rs"
+code = "Option<Result<Vec<NamespaceBytes>, DbError>>,"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/database_local_bytes.rs"
+code = "budgets: Option<NextBudgets>,"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/database_local_bytes.rs"
+code = "let running = self.budgets.as_mut()?;"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/database_local_bytes.rs"
+code = "(budgets, run) = running => {"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/database_local_bytes.rs"
+code = "self.budgets = Some(Box::pin(next_result(budgets)));"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/database_local_bytes.rs"
+code = "if let Some(Err(error)) = run {"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/database_local_bytes.rs"
+code = "return Some(Err(error));"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/database_tests.rs"
+code = "let query = database.subscribe(|sql| sql.store_state());"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/database_tests.rs"
+code = "crate::next_result(query).await.1,"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/database_tests.rs"
+code = "assert_eq!(query.next_inline().await.unwrap().unwrap(), 0);"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/database_tests.rs"
+code = "assert!(matches!(query.next_inline().await, Some(Err(DbError::StoreFailed(_)))));"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/database_tests.rs"
+code = "assert!(query.next_inline().await.is_none());"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/dismissal_tests.rs"
+code = 'assert_eq!(live.next_inline().await.expect("the live query answers").unwrap(), loss);'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/dismissal_tests.rs"
+code = 'assert!(live.next_inline().await.expect("the live query answers").unwrap().is_empty());'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/download_stream_tests.rs"
+code = 'observed.next_inline().await.expect("the live query answers").unwrap(),'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/download_stream_tests.rs"
+code = 'assert_eq!(observed.next_inline().await.expect("the live query answers").unwrap(), ["title"]);'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/download_tests.rs"
+code = 'assert!(query.next_inline().await.expect("the live query answers").unwrap().is_empty());'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/download_tests.rs"
+code = 'assert_eq!(query.next_inline().await.expect("the live query answers").unwrap(), ["first"]);'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/download_tests.rs"
+code = 'assert_eq!(query.next_inline().await.expect("the live query answers").unwrap(), ["second"]);'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/event_capture_tests.rs"
+code = 'live.next_inline().await.expect("the live query answers").unwrap(),'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/event_capture_tests.rs"
+code = 'assert!(narrow.next_inline().await.expect("the live query answers").unwrap().is_empty());'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/file_cache_tests.rs"
+code = "let first = budgets.next_inline().await.unwrap().unwrap();"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/file_cache_tests.rs"
+code = "assert_eq!(budgets.next_inline().await.unwrap().unwrap()[0].cached, 100);"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/file_cache_tests.rs"
+code = "assert_eq!(budgets.next_inline().await.unwrap().unwrap()[0].budget, 50);"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/file_cache_tests.rs"
+code = "budgets.next_inline().await.unwrap().unwrap();"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/file_cache_tests.rs"
+code = "assert_eq!(budgets.next_inline().await.unwrap().unwrap()[0].cached, header.len() as u64);"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/internal_schema_files_tests.rs"
+code = "followed.next_inline().await.unwrap().unwrap(),"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/internal_schema_files_tests.rs"
+code = "let mut applied = followed.next_inline().await.unwrap().unwrap();"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/internal_schema_pins_tests.rs"
+code = 'assert_eq!(pinned.next_inline().await.unwrap().unwrap(), ["7"]);'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/internal_schema_pins_tests.rs"
+code = "assert_eq!(pins.next_inline().await.unwrap().unwrap(), [file.id().to_string()]);"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/internal_schema_sync_status_tests.rs"
+code = "rows.next_inline().await.unwrap().unwrap(),"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/internal_schema_sync_status_tests.rs"
+code = "rows.next_inline().await.unwrap().unwrap().location,"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/internal_schema_sync_status_tests.rs"
+code = "assert!(log.next_inline().await.unwrap().unwrap().is_empty());"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/internal_schema_sync_status_tests.rs"
+code = "let mut seen = log.next_inline().await.unwrap().unwrap();"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/internal_schema_sync_status_tests.rs"
+code = "seen = log.next_inline().await.unwrap().unwrap();"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/internal_schema_upload_queue_tests.rs"
+code = "assert_eq!(queued.next_inline().await.unwrap().unwrap(), (1, Some(first)));"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/internal_schema_upload_queue_tests.rs"
+code = "assert_eq!(queued.next_inline().await.unwrap().unwrap(), (1, Some(second)));"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/internal_schema_views_tests.rs"
+code = "assert!(paused.next_inline().await.unwrap().unwrap());"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/lib.rs"
+code = "pub use live_results::next_result;"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/lib_tests.rs"
+code = "tokio::time::timeout(HANG_GUARD, query.next_inline())"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_judging_tests/lookup.rs"
+code = "tokio::time::timeout(HANG_GUARD, query.next_inline())"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_judging_tests/plan.rs"
+code = "tokio::time::timeout(HANG_GUARD, query.next_inline())"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_judging_tests/plan.rs"
+code = 'let first = query.next_inline().await.expect("the live query answers");'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_judging_tests/plan.rs"
+code = 'let second = query.next_inline().await.expect("the live query answers");'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_judging_tests/plan.rs"
+code = 'let third = query.next_inline().await.expect("the live query answers");'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_judging_tests/row_scope.rs"
+code = "tokio::time::timeout(HANG_GUARD, query.next_inline())"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query.rs"
+code = "use crate::block_on::block_on;"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query.rs"
+code = "use coven_foundation::task::{caught_sync, BugSinkRef, CarriesBug};"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query.rs"
+code = "future::{poll_fn, Future},"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query.rs"
+code = "/// One run of the query for a request: it reads on a connection it releases"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query.rs"
+code = "/// before returning, and hands its reads to the subscription."
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query.rs"
+code = "type Run<Q, T, E> = Arc<dyn Fn(&Q, &CommitSubscription) -> Result<T, E> + Send + Sync>;"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query.rs"
+code = 'assert!(self.current.is_some(), "probe requires a completed query");'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query.rs"
+code = "/// Process each value after its run releases the connection."
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query.rs"
+code = "let mapped: Run<Q, U, E> = Arc::new(move |request, commits| {"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query.rs"
+code = "let value = run(request, commits)?;"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query.rs"
+code = 'caught_sync("process a read", || process(value))'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query.rs"
+code = "// request so the transformed query answers it."
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query.rs"
+code = "if let Some(request) = &current {"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query.rs"
+code = "let mut requests = lock_unpoisoned(&lifetime.0.requests);"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query.rs"
+code = "if requests.pending.is_none() {"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query.rs"
+code = "requests.pending = Some(request.clone());"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query.rs"
+code = "/// what the last run read, a new request came, the handle failed or"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query.rs"
+code = "/// closed, the query ended, or no run has answered yet. Dropping it"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query.rs"
+code = "/// loses nothing, and it needs no runtime."
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query.rs"
+code = "let mut commits = self.commits.clone();"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query.rs"
+code = "let requests = Arc::clone(&self.lifetime.0);"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query.rs"
+code = "let settled = self.ended || self.current.is_none();"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query.rs"
+code = "let commit = commits.observe();"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query.rs"
+code = "|| commit.error().is_some()"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query.rs"
+code = "|| lock_unpoisoned(&requests.requests).pending.is_some()"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query.rs"
+code = "let mut commit_wait = pin!(commits.changed());"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query.rs"
+code = "let mut request_wait = pin!(requests.changed.notified());"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query.rs"
+code = "if commit_wait.as_mut().poll(context).is_ready()"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query.rs"
+code = "|| request_wait.as_mut().poll(context).is_ready()"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query.rs"
+code = "/// Runs the query once if a commit changed what its last run read, a new"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query.rs"
+code = "/// request came, the handle failed or closed, or no run has answered yet."
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query.rs"
+code = "/// Returns `None` when nothing changed, when a write-caused result equals"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query.rs"
+code = "/// the last one (the skip `LiveQueryRuns` counts), and once the query has"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query.rs"
+code = "pub fn run_changed(&mut self) -> Option<ReconfigurableLiveQueryEvent<Q, T, E>>"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query.rs"
+code = "let commits = self.commits.state();"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query.rs"
+code = "let failure = commits.error();"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query.rs"
+code = "let changed = commits.changed;"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query.rs"
+code = "let request = lock_unpoisoned(&self.lifetime.0.requests).pending.take();"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query.rs"
+code = "let next = match (request, changed) {"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query.rs"
+code = "(Some(request), true) => Some((request, LiveQueryCause::RequestAndWrite)),"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query.rs"
+code = "(Some(request), false) => Some((request, LiveQueryCause::Request)),"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query.rs"
+code = 'self.current.as_ref().expect("a previous run read columns").clone(),'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query.rs"
+code = "(None, false) if failure.is_some() => Some(("
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query.rs"
+code = 'self.current.as_ref().expect("initial request was answered").clone(),'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query.rs"
+code = "let ((request, revision), cause) = next?;"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query.rs"
+code = "let result = if let Some(error) = failure {"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query.rs"
+code = 'caught_sync("live query", || (self.run)(&request, &self.commits))'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query.rs"
+code = "self.current = Some((request.clone(), revision));"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query.rs"
+code = "let equal = match &result {"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query.rs"
+code = "Ok(value) => self.previous.as_ref() == Some(value),"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query.rs"
+code = "// An error keeps its typed sources, which need have no value"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query.rs"
+code = "// equality or Clone. A failed run is delivered and breaks the chain"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query.rs"
+code = "// of equal successful results; it never terminates the subscription."
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query.rs"
+code = "self.previous = match &result {"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query.rs"
+code = "Ok(value) => Some(value.clone()),"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query.rs"
+code = "self.runs.count(cause, equal);"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query.rs"
+code = "if cause == LiveQueryCause::Write && equal {"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query.rs"
+code = "// A failure while the store is closed or the handle failed is the"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query.rs"
+code = "// last result: answering again would only repeat it. So is a bug,"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query.rs"
+code = "// after which the query watches nothing more."
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query.rs"
+code = "let bug = result.as_ref().err().and_then(CarriesBug::bug).is_some();"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query.rs"
+code = "self.ended = bug || (result.is_err() && self.commits.state().error().is_some());"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query.rs"
+code = "Some(ReconfigurableLiveQueryEvent { request, revision, cause, result })"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query.rs"
+code = "/// Return the next result and its request, as `changed` waits for it:"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query.rs"
+code = "/// this thread parks until a commit or a request calls for a run, and"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query.rs"
+code = "/// then `run_changed` runs the query on it, again if a write-caused"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query.rs"
+code = "/// result equals the last. Once the store is closed, or the handle fails"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query.rs"
+code = "/// every call, one result reports why and every later call returns"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query.rs"
+code = "/// `None`. So does a run whose error carries a bug, as one that panicked"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query.rs"
+code = "/// does with `DbError::Bug`: what it read is unknown, so no commit could"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query.rs"
+code = "/// tell whether to run it again (E15)."
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query.rs"
+code = "pub fn next_blocking(&mut self) -> Option<ReconfigurableLiveQueryEvent<Q, T, E>>"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query.rs"
+code = "block_on(self.changed());"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query.rs"
+code = "/// `next_blocking` for a test on an async executor: `changed().await`,"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query.rs"
+code = "/// then `run_changed` on the executor's thread."
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query.rs"
+code = "/// what the last run read, the handle failed or closed, the query ended,"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query.rs"
+code = "/// or no run has answered yet. Dropping it loses nothing, and it needs no"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query.rs"
+code = "/// Runs the query once if a commit changed what its last run read or no"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query.rs"
+code = "/// run has answered yet. Returns `None` when nothing changed, when a"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query.rs"
+code = "/// write-caused result equals the last one, and once the query has ended."
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query.rs"
+code = "pub fn run_changed(&mut self) -> Option<Result<T, E>>"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query.rs"
+code = "Some(self.inner.run_changed()?.result)"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query.rs"
+code = "/// parks until `changed` would resolve, then runs the query on it."
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query.rs"
+code = "/// Errors remain results and don't end the query, except the one"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query.rs"
+code = "/// reporting that the store closed, the handle failed or a run's error"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query.rs"
+code = "/// carries a bug, as a panic's does: after it, `None`."
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query.rs"
+code = "pub fn next_blocking(&mut self) -> Option<Result<T, E>>"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query.rs"
+code = "Some(self.inner.next_blocking()?.result)"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query.rs"
+code = "/// `next_blocking` for a test on an async executor."
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query.rs"
+code = "pub async fn next_inline(&mut self) -> Option<Result<T, E>>"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query.rs"
+code = "Some(self.inner.next_inline().await?.result)"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query.rs"
+code = "/// Process each value after its run has released its connection."
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query_tests.rs"
+code = "let query = database.subscribe(move |_| {"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query_tests.rs"
+code = "let answer = crate::next_result(query);"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query_tests.rs"
+code = 'result = &mut answer => panic!("held query returned: {:?}", result.1),'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query_tests.rs"
+code = "let (query, first) = answer.await;"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query_tests.rs"
+code = 'assert_eq!(first.expect("the live query answers").unwrap(), 17);'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query_tests.rs"
+code = "let (_query, closed) = crate::next_result(query).await;"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query_tests.rs"
+code = 'assert!(matches!(closed.expect("the live query answers"), Err(DbError::StoreClosed)));'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query_tests.rs"
+code = "async fn run_changed_runs_once_for_a_change_and_returns_none_for_a_skipped_write() {"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query_tests.rs"
+code = "let mut query: crate::LiveQuery<_, DbError> = db.subscribe(|sql| {"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query_tests.rs"
+code = 'Ok(sql.query_row("SELECT count(*) > 0 FROM notes", [], |r| r.get::<_, bool>(0))?)'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query_tests.rs"
+code = "assert!(query.run_changed().unwrap().unwrap());"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query_tests.rs"
+code = "assert_eq!(query.runs().runs(), 1);"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query_tests.rs"
+code = "// A second row changes what the query read, and not its result."
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query_tests.rs"
+code = "assert!(query.is_marked_for_rerun());"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query_tests.rs"
+code = "assert_eq!((query.runs().runs(), query.runs().equal()), (2, 1));"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query_tests.rs"
+code = "assert!(!query.is_marked_for_rerun());"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query_tests.rs"
+code = "assert_eq!(query.runs().runs(), 2);"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query_tests.rs"
+code = 'db.commit_writer(|sql| sql.batch("DELETE FROM notes").unwrap());'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query_tests.rs"
+code = "assert!(!query.run_changed().unwrap().unwrap());"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query_tests.rs"
+code = "assert!(matches!(query.run_changed().unwrap(), Err(DbError::StoreClosed)));"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query_tests.rs"
+code = "assert!(query.has_ended());"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query_tests.rs"
+code = "/// Whether `changed` has resolved, with no waiting."
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query_tests.rs"
+code = "async fn resolved(changed: &mut (impl Future<Output = ()> + Unpin)) -> bool {"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query_tests.rs"
+code = "() = std::future::ready(()) => false,"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query_tests.rs"
+code = "async fn changed_resolves_for_a_first_run_a_relevant_commit_a_request_and_the_end() {"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query_tests.rs"
+code = "let mut query: crate::ReconfigurableLiveQuery<_, _, DbError> ="
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query_tests.rs"
+code = "db.subscribe_reconfigurable(1, |request, sql| {"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query_tests.rs"
+code = """Ok(sql.query("SELECT id FROM notes WHERE title='Plan' AND ?1 > 0", [request], |r| {"""
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query_tests.rs"
+code = 'assert_eq!(query.next_inline().await.unwrap().result.unwrap(), ["a"]);'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query_tests.rs"
+code = """db.commit_writer(|sql| sql.batch("UPDATE notes SET body='irrelevant'").unwrap());"""
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query_tests.rs"
+code = 'assert_eq!(query.next_inline().await.unwrap().result.unwrap(), ["a", "b"]);'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query_tests.rs"
+code = "// A request answers without a commit."
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query_tests.rs"
+code = "query.requests().set(2).unwrap();"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query_tests.rs"
+code = "assert_eq!(query.next_inline().await.unwrap().request, 2);"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query_tests.rs"
+code = "let idle = Box::pin(query.changed());"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query_tests.rs"
+code = "assert!(matches!(query.next_inline().await.unwrap().result, Err(DbError::StoreClosed)));"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query_tests.rs"
+code = "async fn next_blocking_parks_its_thread_until_a_commit_changes_what_the_query_read() {"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query_tests.rs"
+code = "let mut query: crate::LiveQuery<_, DbError> ="
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query_tests.rs"
+code = 'db.subscribe(|sql| Ok(sql.query("SELECT id FROM notes", [], |r| r.get::<_, String>(0))?));'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query_tests.rs"
+code = "let (waiting, parked) = mpsc::channel();"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query_tests.rs"
+code = "let following = std::thread::spawn(move || {"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query_tests.rs"
+code = "waiting.send(()).unwrap();"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query_tests.rs"
+code = "let second = query.next_blocking();"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query_tests.rs"
+code = "parked.recv_timeout(HANG_GUARD).unwrap();"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query_tests.rs"
+code = "let (first, second) = following.join().unwrap();"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query_tests.rs"
+code = "assert!(first.unwrap().unwrap().is_empty());"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query_tests.rs"
+code = 'assert_eq!(second.unwrap().unwrap(), ["a"]);'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query_tests.rs"
+code = 'let first = query.next_inline().await.expect("the live query answers");'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query_tests.rs"
+code = 'let changed_request = query.next_inline().await.expect("the live query answers");'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query_tests.rs"
+code = 'let both = query.next_inline().await.expect("the live query answers");'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query_tests.rs"
+code = "async fn requests_set_during_a_run_wait_for_it_and_the_latest_answers_next() {"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query_tests.rs"
+code = "let running = tokio::task::spawn_blocking(move || {"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query_tests.rs"
+code = "let (query, first) = running.await.unwrap();"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query_tests.rs"
+code = 'let first = first.expect("the live query answers");'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query_tests.rs"
+code = "(5, LiveQueryRevision(0), 5)"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query_tests.rs"
+code = 'let mut query = query.process(|value| Ok(format!("value {value}")));'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query_tests.rs"
+code = 'let second = query.next_inline().await.expect("the live query answers");'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query_tests.rs"
+code = 'assert_eq!(query.next_inline().await.expect("the live query answers").result.unwrap(), 1);'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query_tests.rs"
+code = "let running = tokio::task::spawn_blocking(move || query.next_blocking());"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query_tests.rs"
+code = 'let event = running.await.unwrap().expect("the live query answers");'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query_tests.rs"
+code = "assert_eq!(requested.next_inline().await.unwrap().result.unwrap(), 0);"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query_tests.rs"
+code = "assert!(matches!(query.next_inline().await, Some(Err(DbError::StoreClosed))));"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query_tests.rs"
+code = "requested.next_inline().await.map(|event| event.result),"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query_tests.rs"
+code = "assert!(requested.next_inline().await.is_none());"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query_tests.rs"
+code = "assert!(matches!(query.next_inline().await, Some(Err(DbError::RollbackFailed))));"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query_tests.rs"
+code = "let refused = query.next_inline().await;"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_query_tests.rs"
+code = "assert_eq!(query.next_inline().await.unwrap().unwrap(), 2);"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_results.rs"
+code = "//! A live query's results for code on an async executor."
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_results.rs"
+code = "use crate::{DbError, LiveQuery};"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_results.rs"
+code = "use coven_foundation::locks::{into_unpoisoned, lock_unpoisoned};"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_results.rs"
+code = "use coven_foundation::task::{blocking_completing, CarriesBug};"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_results.rs"
+code = "use std::sync::{Arc, Mutex};"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_results.rs"
+code = "/// The query's next result, with the query to ask again: it waits for"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_results.rs"
+code = "/// `changed()` on the executor, runs `run_changed` on tokio's blocking pool,"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_results.rs"
+code = "/// and waits again when a write-caused result equals the last, so no pool"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_results.rs"
+code = "pub async fn next_result<T, E>("
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_results.rs"
+code = "mut query: LiveQuery<T, E>,"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_results.rs"
+code = ") -> (LiveQuery<T, E>, Option<Result<T, E>>)"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_results.rs"
+code = "T: Clone + PartialEq + Send + 'static,"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_results.rs"
+code = "E: From<DbError> + CarriesBug + Send + 'static,"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_results.rs"
+code = "let bugs = query.bugs().clone();"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_results.rs"
+code = "let slot = Arc::new(Mutex::new(query));"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_results.rs"
+code = "let held = Arc::clone(&slot);"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_results.rs"
+code = "let result = blocking_completing("
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_results.rs"
+code = "crate::commit_task::bind(move || match lock_unpoisoned(&held).run_changed() {"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_results.rs"
+code = "Some(result) => result.map(Some),"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_results.rs"
+code = "query = match Arc::try_unwrap(slot) {"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_results.rs"
+code = "Ok(Ok(Some(value))) => return (query, Some(Ok(value))),"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_results.rs"
+code = "Ok(Err(error)) => return (query, Some(Err(error))),"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_results.rs"
+code = '#[path = "live_results_tests.rs"]'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_results_tests.rs"
+code = "test_utils::{notes_migrations, notes_tables},"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_results_tests.rs"
+code = "/// A skipped write leaves no blocking-pool thread waiting: with one blocking"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_results_tests.rs"
+code = "/// thread, other blocking work still runs while `next_result` waits for the"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_results_tests.rs"
+code = "/// change after the skip."
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_results_tests.rs"
+code = "fn next_result_after_a_skipped_write_waits_without_holding_a_pool_thread() {"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_results_tests.rs"
+code = "let runtime = tokio::runtime::Builder::new_multi_thread()"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_results_tests.rs"
+code = ".max_blocking_threads(1)"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_results_tests.rs"
+code = "runtime.block_on(async {"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_results_tests.rs"
+code = "let store = TestStore::new();"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_results_tests.rs"
+code = "let db = store.builder(notes_tables(), notes_migrations()).open().await.unwrap();"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_results_tests.rs"
+code = """db.commit_writer(|sql| sql.batch("INSERT INTO notes VALUES ('a','Plan','')").unwrap());"""
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_results_tests.rs"
+code = "let (ran, mut runs) = tokio::sync::mpsc::unbounded_channel();"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_results_tests.rs"
+code = "let query: crate::LiveQuery<_, DbError> = db.subscribe(move |sql| {"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_results_tests.rs"
+code = 'Ok(sql.query_row("SELECT count(*) > 0 FROM notes", [], |r| r.get::<_, bool>(0))?)'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_results_tests.rs"
+code = "let (query, first) = crate::next_result(query).await;"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_results_tests.rs"
+code = "assert!(first.unwrap().unwrap());"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_results_tests.rs"
+code = "let answer = tokio::spawn(crate::next_result(query));"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_results_tests.rs"
+code = """db.commit_writer(|sql| sql.batch("INSERT INTO notes VALUES ('b','Plan','')").unwrap());"""
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_results_tests.rs"
+code = "// The run that finds an equal result has started."
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_results_tests.rs"
+code = "// Blocking work queued behind that run starts once it ends, which a"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_results_tests.rs"
+code = "// parked thread would prevent."
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_results_tests.rs"
+code = "coven_foundation::clock::within(tokio::task::spawn_blocking(|| ()))"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_results_tests.rs"
+code = """.expect("the pool's one thread is free")"""
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_results_tests.rs"
+code = 'db.commit_writer(|sql| sql.batch("DELETE FROM notes").unwrap());'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_results_tests.rs"
+code = "let (_query, second) = answer.await.unwrap();"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_results_tests.rs"
+code = "assert!(!second.unwrap().unwrap());"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/live_results_tests.rs"
+code = "db.close().await.unwrap();"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/loss_record_tests.rs"
+code = 'query.next_inline().await.expect("the live query answers"),'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/members_tests.rs"
+code = 'assert!(circles.next_inline().await.expect("the live query answers").unwrap().is_empty());'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/members_tests.rs"
+code = 'assert!(circle.next_inline().await.expect("the live query answers").unwrap().is_empty());'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/members_tests.rs"
+code = "let next = tokio::time::timeout(HANG_GUARD, circles.next_inline())"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/members_tests.rs"
+code = "let next = tokio::time::timeout(HANG_GUARD, circle.next_inline())"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/members_tests.rs"
+code = 'assert_eq!(members.next_inline().await.expect("the live query answers").unwrap().len(), 2);'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/observation.rs"
+code = "pub(crate) fn observe(&mut self) -> CommitState {"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/observation.rs"
+code = "self.receiver.borrow_and_update().clone()"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/pending_tests.rs"
+code = 'assert!(live.next_inline().await.expect("the live query answers").unwrap().is_empty());'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/pending_tests.rs"
+code = 'assert_eq!(ordinary.next_inline().await.expect("the live query answers").unwrap(), 1);'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/pending_tests.rs"
+code = 'cause(live.next_inline().await.expect("the live query answers").unwrap_err()),'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/pending_tests.rs"
+code = 'cause(ordinary.next_inline().await.expect("the live query answers").unwrap_err()),'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/pending_tests.rs"
+code = 'cause(records(&db).next_inline().await.expect("the live query answers").unwrap_err()),'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/pending_tests.rs"
+code = 'result = live.next_inline() => panic!("held query returned: {result:?}"),'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/pending_tests.rs"
+code = 'let observed = cause(live.next_inline().await.expect("the live query answers").unwrap_err());'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/pending_tests.rs"
+code = 'let mut next = async || live.next_inline().await.expect("the live query answers").unwrap();'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/pending_tests.rs"
+code = "assert_eq!(live.next_inline().await.unwrap().unwrap(), vec![(record(1), None)]);"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/pre_update_changes_tests.rs"
+code = 'assert_eq!(tracks.next_inline().await.expect("the live query answers").unwrap(), ["a", "b"]);'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/pre_update_changes_tests.rs"
+code = 'assert_eq!(tracks.next_inline().await.expect("the live query answers").unwrap(), ["a", "c"]);'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/pre_update_changes_tests.rs"
+code = 'tracks.next_inline().await.expect("the live query answers").unwrap(),'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/pre_update_changes_tests.rs"
+code = 'assert_eq!(tracks.next_inline().await.expect("the live query answers").unwrap(), ["c", "d"]);'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/pre_update_changes_tests.rs"
+code = 'assert_eq!(first.next_inline().await.expect("the live query answers").unwrap(), ["a"]);'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/pre_update_changes_tests.rs"
+code = 'assert_eq!(first.next_inline().await.expect("the live query answers").unwrap(), ["y"]);'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/pre_update_changes_tests.rs"
+code = 'assert!(first.next_inline().await.expect("the live query answers").unwrap().is_empty());'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/pre_update_changes_tests.rs"
+code = 'assert_eq!(ratings.next_inline().await.expect("the live query answers").unwrap(), [None]);'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/pre_update_changes_tests.rs"
+code = 'assert_eq!(ratings.next_inline().await.expect("the live query answers").unwrap(), [Some(5)]);'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/pre_update_changes_tests.rs"
+code = 'assert_eq!(ratings.next_inline().await.expect("the live query answers").unwrap(), [Some(4)]);'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/read_tests.rs"
+code = 'assert!(notes.next_inline().await.expect("the live query answers").unwrap().is_empty());'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/read_tests.rs"
+code = 'assert!(rollback_failed(notes.next_inline().await.expect("the live query answers")));'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/retry_tests.rs"
+code = 'let first = queue.next_inline().await.expect("the live query answers").unwrap();'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/retry_tests.rs"
+code = 'assert!(queue.next_inline().await.expect("the live query answers").unwrap().paused);'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/retry_tests.rs"
+code = 'let recorded = queue.next_inline().await.expect("the live query answers").unwrap();'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/snapshot_load_tests.rs"
+code = 'assert_eq!(query.next_inline().await.expect("the live query answers").unwrap(), [40, 40]);'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/snapshot_load_tests.rs"
+code = 'assert_eq!(query.next_inline().await.expect("the live query answers").unwrap(), ["after"]);'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/snapshot_writes_tests.rs"
+code = 'assert_eq!(query.next_inline().await.expect("the live query answers").unwrap(), "waiting");'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/sqlite_settings_tests.rs"
+code = "Some(tokio::spawn(async move { while let Some(Ok(_)) = query.next_inline().await {} }))"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/sqlite_tests.rs"
+code = 'assert!(query.next_inline().await.expect("the live query answers").is_err());'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/sqlite_tests.rs"
+code = 'notes.next_inline().await.expect("the live query answers").unwrap_err(),'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/stream_capture_tests.rs"
+code = 'assert_eq!(items.next_inline().await.expect("the live query answers").unwrap(), ["stored"]);'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/stream_capture_tests.rs"
+code = 'assert_eq!(search.next_inline().await.expect("the live query answers").unwrap(), ["stored"]);'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/test_utils.rs"
+code = "query: Option<crate::LiveQuery<T, E>>,"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/test_utils.rs"
+code = "Self { query: Some(query), latest: None }"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/test_utils.rs"
+code = "let (query, next) = coven_foundation::clock::within(crate::next_result(query))"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/test_utils.rs"
+code = '.unwrap_or_else(|| panic!("no result after {:?}", self.latest));'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/test_utils.rs"
+code = "self.query = Some(query);"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/test_utils.rs"
+code = 'let next = next.expect("the live query ended").expect("the live query failed");'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/transfers_in_flight_tests.rs"
+code = "tokio::time::timeout(HANG_GUARD, query.next_inline())"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/transfers_in_flight_tests.rs"
+code = "assert_eq!(queued.next_inline().await.unwrap().unwrap(), 1);"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/transfers_in_flight_tests.rs"
+code = "assert!(sending_list.next_inline().await.unwrap().unwrap().is_empty());"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/transfers_in_flight_tests.rs"
+code = "assert_eq!(sending_list.next_inline().await.unwrap().unwrap(), [file.to_string()]);"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/wal_checkpoints_tests.rs"
+code = "let reader = tokio::spawn(async move { while let Some(Ok(_)) = query.next_inline().await {} });"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/wal_checkpoints_tests.rs"
+code = "match query.next_inline().await {"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/wal_checkpoints_tests.rs"
+code = 'assert!(query.next_inline().await.is_none(), "the live query ends after the failure");'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/write_apply_tests.rs"
+code = 'let old_rows = query.next_inline().await.expect("the live query answers").unwrap();'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/write_apply_tests.rs"
+code = 'let rows = query.next_inline().await.expect("the live query answers").unwrap();'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/src/write_apply_tests.rs"
+code = 'query.next_inline().await.expect("the live query answers").unwrap();'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/tests/insert_cost.rs"
+code = 'assert!(!query.next_inline().await.unwrap().unwrap().is_empty(), "{sql}");'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/tests/insert_cost.rs"
+code = 'assert!(!query.next_inline().await.unwrap().result.unwrap().is_empty(), "{sql}");'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-database/tests/insert_cost.rs"
+code = "let answered = query.next_inline().await.unwrap().result.unwrap();"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-sync/src/file_cache_tests.rs"
+code = 'assert_eq!(live.next_inline().await.expect("the live query answers").unwrap(), progress(0));'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-sync/src/file_cache_tests.rs"
+code = "assert_eq!(live.next_inline().await.unwrap().unwrap(), progress(CHUNK as u64));"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-sync/src/file_cache_tests.rs"
+code = 'while listed.next_inline().await.expect("the live query answers").unwrap() != 0 {}'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-sync/src/file_upload_failure_tests.rs"
+code = 'pending.next_inline().await.expect("the live query answers").unwrap();'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-sync/src/file_upload_pool_tests.rs"
+code = 'while queue.next_inline().await.expect("the live query answers").unwrap().files.len()'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-sync/src/file_upload_pool_tests.rs"
+code = 'uploads.next_inline().await.expect("the live query answers").unwrap().files.remove(0);'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-sync/src/file_upload_pool_tests.rs"
+code = 'assert!(uploads.next_inline().await.expect("the live query answers").unwrap().files.is_empty());'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-sync/src/file_upload_pool_tests.rs"
+code = "let answer = tokio::time::timeout(HANG_GUARD, counts.next_inline())"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-sync/src/file_upload_retry_tests.rs"
+code = 'while uploads.next_inline().await.expect("the live query answers").unwrap().files.len() != 1'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-sync/src/file_upload_retry_tests.rs"
+code = 'assert_eq!(live.next_inline().await.expect("the live query answers").unwrap(), viewed);'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-sync/src/file_upload_retry_tests.rs"
+code = 'let mut next = async || viewed.next_inline().await.expect("the live query answers").unwrap();'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-sync/src/file_upload_tests.rs"
+code = 'let queue = uploads.next_inline().await.expect("the live query answers");'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-sync/src/files_tests.rs"
+code = "while !uploads.next_inline().await.unwrap().unwrap().files.is_empty() {}"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-sync/src/invite_expiry_tests.rs"
+code = "assert_eq!(open.next_inline().await.unwrap().unwrap(), 1);"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-sync/src/invite_expiry_tests.rs"
+code = "let ended = tokio::time::timeout(HANG_GUARD, open.next_inline()).await;"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-sync/src/invite_expiry_tests.rs"
+code = 'match open.next_inline().await.expect("the live query reports the failure") {'
+verdict = "none"
+
+[[site]]
+file = "crates/coven-sync/src/sync_loop_tests.rs"
+code = "assert_eq!(status.next_inline().await.unwrap().unwrap(), None);"
+verdict = "none"
+
+[[site]]
+file = "crates/coven-sync/src/sync_loop_tests.rs"
+code = "let failed = tokio::time::timeout(HANG_GUARD, status.next_inline())"
+verdict = "none"
+
+[[site]]
+file = "crates/coven/src/bootstrap_reset_tests.rs"
+code = 'assert_eq!(notices.next_inline().await.expect("the live query answers").unwrap(), Some(reset));'
+verdict = "none"
+
+[[site]]
+file = "crates/coven/src/bootstrap_restore_tests.rs"
+code = 'while uploads.next_inline().await.expect("the live query answers").unwrap() != 0 {}'
+verdict = "none"
+
+[[site]]
+file = "crates/coven/src/builder_tests.rs"
+code = 'while uploads.next_inline().await.expect("the live query answers").unwrap() != 0 {}'
+verdict = "none"
+
+[[site]]
+file = "crates/coven/src/coven_tests.rs"
+code = 'assert!(live.next_inline().await.expect("the live query answers").unwrap().is_empty());'
+verdict = "none"
+
+[[site]]
+file = "crates/coven/src/coven_tests.rs"
+code = 'live.next_inline().await.expect("the live query answers").unwrap(),'
+verdict = "none"
+
+[[site]]
+file = "crates/coven/src/coven_tests.rs"
+code = 'assert!(losses.next_inline().await.expect("the live query answers").unwrap().is_empty());'
+verdict = "none"
+
+[[site]]
+file = "crates/coven/src/coven_tests.rs"
+code = 'by_id.next_inline().await.expect("the live query answers").result.unwrap(),'
+verdict = "none"
+
+[[site]]
+file = "crates/coven/src/coven_tests.rs"
+code = 'let event = by_id.next_inline().await.expect("the live query answers");'
+verdict = "none"
+
+[[site]]
+file = "crates/coven/src/coven_tests.rs"
+code = 'live.next_inline().await.expect("the live query answers"),'
+verdict = "none"
+
+[[site]]
+file = "crates/coven/src/file_tests.rs"
+code = 'while uploads.next_inline().await.expect("the live query answers").unwrap() != 0 {}'
+verdict = "none"
+
+[[site]]
+file = "crates/coven/src/file_tests.rs"
+code = 'queued.next_inline().await.expect("the live query answers").unwrap(),'
+verdict = "none"
+
+[[site]]
+file = "crates/coven/src/file_tests.rs"
+code = 'while queued.next_inline().await.expect("the live query answers").unwrap()'
+verdict = "none"
+
+[[site]]
+file = "crates/coven/src/file_tests.rs"
+code = 'while !queued.next_inline().await.expect("the live query answers").unwrap().is_empty() {}'
+verdict = "none"
+
+[[site]]
+file = "crates/coven/src/file_tests.rs"
+code = 'let mut listed = pins.next_inline().await.expect("the live query answers").unwrap();'
+verdict = "none"
+
+[[site]]
+file = "crates/coven/src/file_tests.rs"
+code = 'listed = pins.next_inline().await.expect("the live query answers").unwrap();'
+verdict = "none"
+
+[[site]]
+file = "crates/coven/src/file_tests.rs"
+code = 'assert_eq!(pins.next_inline().await.expect("the live query answers").unwrap(), ["preview"]);'
+verdict = "none"
+
+[[site]]
+file = "crates/coven/src/handle.rs"
+code = "let (next, answer) = coven_database::next_result(listed).await;"
+verdict = "none"
+
+[[site]]
+file = "crates/coven/src/handle.rs"
+code = "let Some(answer) = answer else { break };"
+verdict = "none"
+
+[[site]]
+file = "crates/coven/src/handle_delete_tests.rs"
+code = 'while work.next_inline().await.expect("the live query answers").unwrap() != expected {}'
+verdict = "none"
+
+[[site]]
+file = "crates/coven/src/handle_sync_tests.rs"
+code = 'while !pending.next_inline().await.expect("the live query answers").unwrap().iter().any(|record| {'
+verdict = "none"
+
+[[site]]
+file = "crates/coven/src/handle_sync_tests.rs"
+code = 'while !refused(&pending.next_inline().await.expect("the live query answers").unwrap()) {}'
+verdict = "none"
+
+[[site]]
+file = "crates/coven/src/handle_sync_tests.rs"
+code = 'while !offline(&pending.next_inline().await.expect("the live query answers").unwrap()) {}'
+verdict = "none"
+
+[[site]]
+file = "crates/coven/src/handle_sync_tests.rs"
+code = 'while !answered(&pending.next_inline().await.expect("the live query answers").unwrap()) {}'
+verdict = "none"
+
+[[site]]
+file = "crates/coven/src/handle_sync_tests.rs"
+code = 'let rows = list.next_inline().await.expect("the live query answers").unwrap();'
+verdict = "none"
+
+[[site]]
+file = "crates/coven/src/handle_tests.rs"
+code = 'live.next_inline().await.expect("the live query answers").unwrap();'
+verdict = "none"
+
+[[site]]
+file = "crates/coven/src/handle_tests.rs"
+code = "tokio::time::timeout(HANG_GUARD, live.next_inline())"
+verdict = "none"
+
+[[site]]
+file = "crates/coven/src/handle_tests.rs"
+code = 'handle.subscribe_members().next_inline().await.expect("the live query answers").unwrap(),'
+verdict = "none"
+
+[[site]]
+file = "crates/coven/src/handle_tests.rs"
+code = "tokio::time::timeout(HANG_GUARD, query.next_inline())"
+verdict = "none"
+
+[[site]]
+file = "crates/coven/src/handle_tests.rs"
+code = 'assert_eq!(listed.next_inline().await.expect("answers").unwrap().len(), 2);'
+verdict = "none"
+
+[[site]]
+file = "crates/coven/src/handle_tests.rs"
+code = 'assert_eq!(gifts_members.next_inline().await.expect("answers").unwrap().len(), 1);'
+verdict = "none"
+
+[[site]]
+file = "crates/coven/src/handle_tests.rs"
+code = 'let value = listed.next_inline().await.expect("answers").unwrap();'
+verdict = "none"
+
+[[site]]
+file = "crates/coven/src/handle_transfers_tests.rs"
+code = "while queue.next_inline().await.unwrap().unwrap() != 0 {}"
+verdict = "none"
+
+[[site]]
+file = "crates/coven/src/lib_tests.rs"
+code = 'assert!(received.next_inline().await.expect("the live query answers").unwrap().is_empty());'
+verdict = "none"
+
+[[site]]
+file = "crates/coven/src/lib_tests.rs"
+code = 'received.next_inline().await.expect("the live query answers").unwrap(),'
+verdict = "none"
+
+[[site]]
+file = "crates/coven/src/member_keys_tests.rs"
+code = 'let initial = members.next_inline().await.expect("the live query answers").unwrap();'
+verdict = "none"
+
+[[site]]
+file = "crates/coven/src/member_keys_tests.rs"
+code = 'let list = members.next_inline().await.expect("the live query answers").unwrap();'
+verdict = "none"
+
+[[site]]
+file = "crates/coven/src/test_utils_tests.rs"
+code = 'while uploads.next_inline().await.expect("the live query answers").unwrap() != 0 {}'
+verdict = "none"
+
+[[site]]
+file = "crates/coven/tests/fixtures/file_network.rs"
+code = 'while uploads.next_inline().await.expect("the live query answers").unwrap() != 0 {}'
+verdict = "none"
+
+[[site]]
+file = "crates/coven/tests/restore_cost.rs"
+code = 'while uploads.next_inline().await.expect("the live query answers").unwrap() != 0 {}'
+verdict = "none"
+
+[[site]]
+file = "owner-construction-check.toml"
+code = "# `next_result` takes a live query to the blocking pool and gives it back"
+verdict = "none"
+
+[[site]]
+file = "owner-construction-check.toml"
+code = "# with its result, so a caller that waits on one holds the query it got back"
+verdict = "none"
+
+[[site]]
+file = "owner-construction-check.toml"
+code = '"crates/coven-database/src/database_local_bytes.rs" = ["LocalBytesWatch::next"]'
+verdict = "none"
+
+[[site]]
+file = "owner-construction-check.toml"
+code = "# A live query's run goes to the blocking pool and runs to its end even when"
+verdict = "none"
+
+[[site]]
+file = "owner-construction-check.toml"
+code = "# its caller stops waiting; then its bug goes to the store's sink (E15)."
+verdict = "none"
+
+[[site]]
+file = "owner-construction-check.toml"
+code = '"crates/coven-database/src/live_results.rs" = ["next_result"]'
+verdict = "none"
+
+[[site]]
+file = "owner-construction-check.toml"
+code = '"crates/coven-database/src/test_utils.rs" = ["Followed::next"]'
+verdict = "none"
+
+[[site]]
+file = "owner-construction-check.toml"
+code = '"crates/coven/src/handle.rs" = ['
+verdict = "none"
+
+[[site]]
+file = "owner-construction-check.toml"
+code = '"CovenHandle::operation_outcome",'
+verdict = "none"
+
+[[site]]
+file = "spec/api.md"
+code = "as a run that panicked does (E15): after that one, `next_blocking()` returns"
+verdict = "none"
+
+[[site]]
+file = "spec/api.md"
+code = "`None`, and never repeats it."
+verdict = "none"
+
+[[site]]
+file = "spec/api.md"
+code = "future that resolves on any executor once a write changed what the query"
+verdict = "none"
+
+[[site]]
+file = "spec/api.md"
+code = "read, a new request came, or the handle failed or closed. `run_changed()`"
+verdict = "none"
+
+[[site]]
+file = "spec/api.md"
+code = "then runs the query once on the calling thread, without waiting."
+verdict = "none"
+
+[[site]]
+file = "spec/api.md"
+code = "`next_blocking()` parks the calling thread until `changed()` would resolve"
+verdict = "none"
+
+[[site]]
+file = "spec/api.md"
+code = "and runs the query on it. An async app awaits `changed()` and runs"
+verdict = "none"
+
+[[site]]
+file = "spec/api.md"
+code = "`run_changed()` on a blocking thread, which leaves no thread waiting when a"
+verdict = "none"
+
+[[site]]
+file = "spec/api.md"
+code = "write leaves the result equal. The examples below call `next_blocking()` on"
+verdict = "none"
+
+[[site]]
+file = "spec/api.md"
+code = "a blocking thread for brevity; a program with no runtime calls it alone."
+verdict = "none"
+
+[[site]]
+file = "spec/api.md"
+code = "failing.changed().await;"
+verdict = "none"
+
+[[site]]
+file = "spec/api.md"
+code = "let (failing_next, answer) = tokio::task::spawn_blocking(move || {"
+verdict = "none"
+
+[[site]]
+file = "spec/api.md"
+code = "let answer = failing.next_blocking();"
+verdict = "none"
+
+[[site]]
+file = "spec/api.md"
+code = "/// Resolves once `next_blocking` has something to do: a write changed what"
+verdict = "none"
+
+[[site]]
+file = "spec/api.md"
+code = "/// the last run read, the handle failed or closed, the query ended, or no"
+verdict = "none"
+
+[[site]]
+file = "spec/api.md"
+code = "/// run has answered yet. Any executor can poll it, and dropping it loses"
+verdict = "none"
+
+[[site]]
+file = "spec/api.md"
+code = "/// Runs the query once if a write changed what the last run read or no"
+verdict = "none"
+
+[[site]]
+file = "spec/api.md"
+code = "/// run has answered yet, and never parks. Returns `None` when nothing"
+verdict = "none"
+
+[[site]]
+file = "spec/api.md"
+code = "/// changed, when the new result equals the last, and once the query has"
+verdict = "none"
+
+[[site]]
+file = "spec/api.md"
+code = "pub fn run_changed(&mut self) -> Option<Result<T, E>>"
+verdict = "none"
+
+[[site]]
+file = "spec/api.md"
+code = "/// result. An error is a result too, and doesn't end the query, except the"
+verdict = "none"
+
+[[site]]
+file = "spec/api.md"
+code = "/// one saying the store closed, the handle fails every call"
+verdict = "none"
+
+[[site]]
+file = "spec/api.md"
+code = "/// (`RollbackFailed`, `StatePersistence`, `CheckpointFailed`,"
+verdict = "none"
+
+[[site]]
+file = "spec/api.md"
+code = "/// `StatisticsFailed`, `WallTimer`, or `StoreFailed` for state a bug may"
+verdict = "none"
+
+[[site]]
+file = "spec/api.md"
+code = "/// have left wrong), or one that carries a bug, as a run that panicked"
+verdict = "none"
+
+[[site]]
+file = "spec/api.md"
+code = "/// does (`DbError::Bug`, E15): after it, `None`, so a loop over the query"
+verdict = "none"
+
+[[site]]
+file = "spec/api.md"
+code = "pub fn next_blocking(&mut self) -> Option<Result<T, E>>"
+verdict = "none"
+
+[[site]]
+file = "spec/api.md"
+code = "/// Runs `process` on each result after its run releases the connection."
+verdict = "none"
+
+[[site]]
+file = "spec/api.md"
+code = "/// reads, so `next_blocking` runs it again. A commit marks the queries it changes"
+verdict = "none"
+
+[[site]]
+file = "spec/api.md"
+code = "/// Process each successful value after its run releases the connection."
+verdict = "none"
+
+[[site]]
+file = "spec/api.md"
+code = "/// As `LiveQuery::changed`, and a new request resolves it too."
+verdict = "none"
+
+[[site]]
+file = "spec/api.md"
+code = "/// As `LiveQuery::run_changed`, returning the event."
+verdict = "none"
+
+[[site]]
+file = "spec/api.md"
+code = "pub fn run_changed(&mut self) -> Option<ReconfigurableLiveQueryEvent<Q, T, E>>"
+verdict = "none"
+
+[[site]]
+file = "spec/api.md"
+code = "pub fn next_blocking(&mut self) -> Option<ReconfigurableLiveQueryEvent<Q, T, E>>"
+verdict = "none"
+
+[[site]]
+file = "spec/api.md"
+code = "let (notes_next, answer) = tokio::task::spawn_blocking(move || {"
+verdict = "none"
+
+[[site]]
+file = "spec/api.md"
+code = "let answer = notes.next_blocking();"
+verdict = "none"
+
+[[site]]
+file = "spec/api.md"
+code = "let Some(Ok(rows)) = answer else { break };"
+verdict = "none"
+
+[[site]]
+file = "spec/api.md"
+code = "let (lost_next, answer) = tokio::task::spawn_blocking(move || {"
+verdict = "none"
+
+[[site]]
+file = "spec/api.md"
+code = "let answer = lost.next_blocking();"
+verdict = "none"
+
+[[site]]
+file = "spec/api.md"
+code = "let Some(Ok(values)) = answer else { break };"
+verdict = "none"
+
+[[site]]
+file = "spec/api.md"
+code = "let Some(result) = answer else { break };"
+verdict = "none"
+
+[[site]]
+file = "spec/api.md"
+code = "let (outbox_next, answer) = tokio::task::spawn_blocking(move || {"
+verdict = "none"
+
+[[site]]
+file = "spec/api.md"
+code = "let answer = outbox.next_blocking();"
+verdict = "none"
+
+[[site]]
+file = "spec/api.md"
+code = "let Some(now) = answer else { break };"
+verdict = "none"
+
+[[site]]
+file = "spec/api.md"
+code = "invites.changed().await;"
+verdict = "none"
+
+[[site]]
+file = "spec/api.md"
+code = "let (invites_next, answer) = tokio::task::spawn_blocking(move || {"
+verdict = "none"
+
+[[site]]
+file = "spec/api.md"
+code = "let answer = invites.next_blocking();"
+verdict = "none"
+
+[[site]]
+file = "spec/api.md"
+code = "let Some(open) = answer else { break };"
+verdict = "none"
+
+[[site]]
+file = "spec/api.md"
+code = "- Ana's music app waits for an operation's outcome with `operation_outcome`"
+verdict = "none"
+
+[[site]]
+file = "spec/api.md"
+code = "(E6). A test of the app opens the store on its own runtime and ends while"
+verdict = "none"
+
+[[site]]
+file = "spec/api.md"
+code = "that wait's query is still reading. The query's next read goes to a blocking"
+verdict = "none"
+
+[[site]]
+file = "spec/api.md"
+code = "ShutdownOutcome::NotRun })`. Had coven panicked there, the test process"
+verdict = "none"
+
+[[site]]
+file = "spec/coven.md"
+code = "(api.md E4) waits for a change in one call while the app replaces its"
+verdict = "none"

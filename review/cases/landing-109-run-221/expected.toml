@@ -1,0 +1,1827 @@
+project = "bae"
+clean_for = []
+
+[[finding]]
+rule = "write-only-what-is-needed-today"
+file = "bae-android/app/src/main/java/fm/bae/app/playback/LiveBrowseProjection.kt"
+
+[[finding]]
+rule = "reuse-existing-logic-and-types"
+file = "bae-bridge/src/handle/base.rs"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/LiveBrowseProjection.kt"
+code = "if (isCurrent(this@LiveCount)) onCount(value.rows.toInt(), isFirst)"
+verdict = "finding"
+rule = "write-only-what-is-needed-today"
+
+[[site]]
+file = "bae-bridge/src/handle/base.rs"
+code = "fn read_search_album_page_window("
+verdict = "finding"
+rule = "reuse-existing-logic-and-types"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/data/Library.kt"
+code = "import uniffi.bae_bridge.BridgeAlbumSearchResult"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/data/Library.kt"
+code = "/** The albums library search lists for [query] as a media browser lists them, in title order. */"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/data/Library.kt"
+code = "internal fun searchAlbumList(query: String): ListReads<BridgeAlbumSearchResult> ="
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/data/Library.kt"
+code = "listReads(BridgeList.SearchAlbums(query)) { rows ->"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/data/Library.kt"
+code = """(rows as? BridgeListRows.SearchAlbums)?.rows ?: error("a search's albums delivered rows of another list")"""
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/BaeLibrarySessionCallback.kt"
+code = "val results = tree.search(browser, query, page, pageSize)"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/LibraryBrowseTree.kt"
+code = "/** Each controller's search: its phrase, with the live count and pages of the albums the phrase lists. */"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/LibraryBrowseTree.kt"
+code = "private val searchesByOwner = mutableMapOf<Owner, Search>()"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/LibraryBrowseTree.kt"
+code = "* The albums [owner]'s search for [query] lists on the page asked for, read live from now on, or null for a page"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/LibraryBrowseTree.kt"
+code = "* that names nothing or a phrase [owner] is not searching for."
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/LibraryBrowseTree.kt"
+code = "val search = synchronized(lock) { searchesByOwner[owner] }?.takeIf { it.query == query }"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/LibraryBrowseTree.kt"
+code = "!BrowsePaging.isPage(page, pageSize) -> {"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/LibraryBrowseTree.kt"
+code = 'logger.warning("a controller asked for search page $page of size $pageSize, which names no page")'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/LibraryBrowseTree.kt"
+code = 'logger.warning("a controller asked for the results of a phrase it is not searching for")'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/LibraryBrowseTree.kt"
+code = "pageAt(page, pageSize) { offset -> search.pages.rows(offset, pageSize) }"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/LibraryBrowseTree.kt"
+code = "* albums it lists. That count and each later one reach [onResultsChanged], and so does each"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/LibraryBrowseTree.kt"
+code = "* change to a page of the albums that [search] read, with the number of albums unknown."
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/LibraryBrowseTree.kt"
+code = "val search = Search(owner, query, onResultsChanged)"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/LibraryBrowseTree.kt"
+code = "search.pages.close(searchInterestEnded())"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/LibraryBrowseTree.kt"
+code = "replaced?.pages?.close(searchInterestEnded())"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/LibraryBrowseTree.kt"
+code = "search.pages.awaitReady()"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/LibraryBrowseTree.kt"
+code = "search?.pages?.close(searchInterestEnded())"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/LibraryBrowseTree.kt"
+code = "state.second.forEach { it.pages.close(searchInterestEnded()) }"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/LibraryBrowseTree.kt"
+code = "* [owner]'s search for [query]: the live count and pages of the albums the phrase lists. Each count, the first"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/LibraryBrowseTree.kt"
+code = "* too, and each change to a page reach [onResultsChanged] only while the tree holds this search as [owner]'s."
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/LibraryBrowseTree.kt"
+code = "private inner class Search("
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/LibraryBrowseTree.kt"
+code = "onResultsChanged: (Int) -> Unit,"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/LibraryBrowseTree.kt"
+code = "library.searchAlbumList(query),"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/LibraryBrowseTree.kt"
+code = "{ offset, limit -> handle.readSearchAlbumPageWindow(query, offset, limit) },"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/LibraryBrowseTree.kt"
+code = "{ nodes.album(it.id, it.title, it.cover) },"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/LibraryBrowseTree.kt"
+code = "{ count, _ -> if (synchronized(lock) { searchesByOwner[owner] === this }) onResultsChanged(count) },"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/LibraryBrowseTree.kt"
+code = "// The tree tells the controller each change to a parent's count, and not the first count, which the"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/LibraryBrowseTree.kt"
+code = "// controller's subscription waits for."
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/LibraryBrowseTree.kt"
+code = "val onChanged = { count: Int, isFirst: Boolean -> if (!isFirst) notifyParent(parentId, count) }"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/LiveBrowseProjection.kt"
+code = "* What the tree tells Media3 as a parent's number of children, or as a search's number of results, when a change"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/LiveBrowseProjection.kt"
+code = "private val onCount: (rows: Int, isFirst: Boolean) -> Unit,"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/LiveBrowseProjection.kt"
+code = "* A database list a controller asks for a page at a time by offset: a browse parent's children, such as an"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/LiveBrowseProjection.kt"
+code = "* album's tracks or a work's children, or the albums a search lists. For each page asked for, the tree reads once"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/LiveBrowseProjection.kt"
+code = "* the window that holds the page ([pageWindow]) and then reads that window live. The window's first rows answer"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/LiveBrowseProjection.kt"
+code = "* the request, and each later delivery tells the tree, through [onChanged], that the list changed, with the number"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/LiveBrowseProjection.kt"
+code = "* of rows unknown. A new request for the same page replaces its read. The list's live count tells the tree its"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/LiveBrowseProjection.kt"
+code = "* first number of rows and each change to it, and says which is the first."
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/LiveBrowseProjection.kt"
+code = "private val onChanged: (itemCount: Int, isFirstCount: Boolean) -> Unit,"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/LiveBrowseProjection.kt"
+code = "/** Why the pages closed, which a request that arrives after they closed fails with; null while they are open. */"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/LiveBrowseProjection.kt"
+code = "private var closedBy: BrowseUnavailable? = null"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/LiveBrowseProjection.kt"
+code = "isCurrent = { synchronized(lock) { closedBy == null } },"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/LiveBrowseProjection.kt"
+code = "/** Start reading the list's count, once the tree holds the pages, so that its callbacks find them. */"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/LiveBrowseProjection.kt"
+code = "fun start() = count.start()"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/LiveBrowseProjection.kt"
+code = "val (refusal, replaced) ="
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/LiveBrowseProjection.kt"
+code = "closedBy?.let { it to null } ?: (null to pages.put(offset to limit, page))"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/LiveBrowseProjection.kt"
+code = "if (refusal != null) throw refusal"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/LiveBrowseProjection.kt"
+code = "/** Stop every read; a request waiting on one, and every later request, fails with [reason]. */"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/LiveBrowseProjection.kt"
+code = "suspend fun close(reason: BrowseUnavailable = treeClosedError()) {"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/LiveBrowseProjection.kt"
+code = "if (closedBy != null) return"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/LiveBrowseProjection.kt"
+code = "open.forEach { it.close(reason) }"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/LiveBrowseProjection.kt"
+code = "onChanged(UNKNOWN_CHILD_COUNT, false)"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/main/java/fm/bae/app/playback/LiveBrowseProjection.kt"
+code = "private fun isCurrent(): Boolean = synchronized(lock) { closedBy == null && pages.values.any { it === this } }"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/FakeAppHandle.kt"
+code = "private val searchAlbumLists = mutableMapOf<String, FakeList<BridgeAlbumSearchResult>>()"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/FakeAppHandle.kt"
+code = "is BridgeList.SearchAlbums -> {"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/FakeAppHandle.kt"
+code = "searchAlbumList(list.query)"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/FakeAppHandle.kt"
+code = "* The albums a search for [query] lists as the bridge lists them, which a test changes and delivers: the"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/FakeAppHandle.kt"
+code = "* search's albums, whose count fails with the phrase's search error."
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/FakeAppHandle.kt"
+code = "fun searchAlbumList(query: String): FakeList<BridgeAlbumSearchResult> ="
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/FakeAppHandle.kt"
+code = "searchAlbumLists.getOrPut(query) {"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/FakeAppHandle.kt"
+code = "searchResults(query).albums,"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/FakeAppHandle.kt"
+code = "{ BridgeListRows.SearchAlbums(it) },"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/FakeAppHandle.kt"
+code = "deliverImmediately = deliverSearchResultsImmediately,"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/FakeAppHandle.kt"
+code = "countFailure = initialSearchError(query),"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/FakeAppHandle.kt"
+code = "/** Reads once, as the database would, the window of the search's albums that holds the page at [offset]. */"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/FakeAppHandle.kt"
+code = "override suspend fun readSearchAlbumPageWindow("
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/FakeAppHandle.kt"
+code = "): BridgeListWindow? = fakeList(BridgeList.SearchAlbums(query)).pageWindow(offset, limit)"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/FakeList.kt"
+code = "/** The failure each count answers with instead of the number of rows. */"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/FakeList.kt"
+code = "var countFailure: BridgeException? = null,"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/FakeList.kt"
+code = "events.trySend(list.countFailure?.let { Result.failure(it) } ?: Result.success(list.count()))"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/LibraryBrowseTreeTest.kt"
+code = 'assertNull(tree.search(Any(), "query", 0, 0))'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/LibraryBrowseTreeTest.kt"
+code = "fun aSearchPageIsTheWindowOfThePageAsked() ="
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/LibraryBrowseTreeTest.kt"
+code = 'tree.search(owner, "query", 1, 2)!!.map { it.mediaId },'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/LibraryBrowseTreeTest.kt"
+code = 'assertTrue(tree.search(owner, "query", 3, 2)!!.isEmpty())'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/LibraryBrowseTreeTest.kt"
+code = 'listOf(BridgeListWindow.Forward(textKey("album-2"), textKey("album-4"), 2u)),'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/LibraryBrowseTreeTest.kt"
+code = 'handle.searchAlbumList("query").windows.map { it.window },'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/LibraryBrowseTreeTest.kt"
+code = "fun aSearchPageOfAnotherPhraseIsRefused() ="
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/LibraryBrowseTreeTest.kt"
+code = "val handle = FakeAppHandle()"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/LibraryBrowseTreeTest.kt"
+code = 'assertNull(tree.search(owner, "query", 0, 10))'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/LibraryBrowseTreeTest.kt"
+code = 'assertNull(tree.search(owner, "other", 0, 10))'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/LibraryBrowseTreeTest.kt"
+code = 'assertNull(tree.search(Any(), "query", 0, 10))'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/LibraryBrowseTreeTest.kt"
+code = 'assertTrue(handle.searchAlbumList("query").windows.isEmpty())'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/LibraryBrowseTreeTest.kt"
+code = "* A change inside a search page the controller asked for tells the controller its search's results changed,"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/LibraryBrowseTreeTest.kt"
+code = "* with their number unknown, and the controller's next request for the page reads the renamed album."
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/LibraryBrowseTreeTest.kt"
+code = "fun aChangeInsideASearchPageTellsTheControllerAndTheNextRequestReadsIt() ="
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/LibraryBrowseTreeTest.kt"
+code = 'BridgeFixtures.searchResults(albums = listOf(BridgeFixtures.albumSearchResult(id = "album-0", title = "Old")))'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/LibraryBrowseTreeTest.kt"
+code = "val notifications = mutableListOf<Int>()"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/LibraryBrowseTreeTest.kt"
+code = 'tree.subscribeSearch(owner, "query", notifications::add)'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/LibraryBrowseTreeTest.kt"
+code = 'list.rows = listOf(BridgeFixtures.albumSearchResult(id = "album-0", title = "New"))'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/LibraryBrowseTreeTest.kt"
+code = "list.windows.single().deliver()"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/LibraryBrowseTreeTest.kt"
+code = "assertEquals(listOf(1, UNKNOWN_CHILD_COUNT), notifications)"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/LibraryBrowseTreeTest.kt"
+code = "assertTrue(list.windows.first().cancelled)"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/LibraryBrowseTreeTest.kt"
+code = "assertTrue(list.windows.last().cancelled)"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/LibraryBrowseTreeTest.kt"
+code = 'list.rows = List(5) { BridgeFixtures.albumSearchResult(id = "album-$it") }'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/LibraryBrowseTreeTest.kt"
+code = "assertTrue(list.counts.single().cancelled)"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/LibraryBrowseTreeTest.kt"
+code = "/** A controller's next phrase replaces its search's reads, and a failed first count fails that search. */"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/LibraryBrowseTreeTest.kt"
+code = "fun aControllersNextSearchReplacesItsReads() ="
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/LibraryBrowseTreeTest.kt"
+code = "searchResults = { query ->"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/LibraryBrowseTreeTest.kt"
+code = "BridgeFixtures.searchResults("
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/LibraryBrowseTreeTest.kt"
+code = 'albums = if (query == "first") listOf(BridgeFixtures.albumSearchResult(id = "album-0")) else emptyList(),'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/LibraryBrowseTreeTest.kt"
+code = 'initialSearchError = { query -> if (query == "second") queryFailure() else null },'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/LibraryBrowseTreeTest.kt"
+code = 'tree.search(owner, "first", 0, 10)'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/LibraryBrowseTreeTest.kt"
+code = 'val first = handle.searchAlbumList("first")'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/LibraryBrowseTreeTest.kt"
+code = """assertTrue("the next phrase ends the last one's count", first.counts.single().cancelled)"""
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/LibraryBrowseTreeTest.kt"
+code = """assertTrue("the next phrase ends the last one's pages", first.windows.single().cancelled)"""
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/LibraryBrowseTreeTest.kt"
+code = 'val second = handle.searchAlbumList("second")'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/LibraryBrowseTreeTest.kt"
+code = "second.countFailure = null"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/LibraryBrowseTreeTest.kt"
+code = 'second.rows = List(2) { BridgeFixtures.albumSearchResult(id = "album-$it") }'
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/LibraryBrowseTreeTest.kt"
+code = "assertEquals(listOf(1, 2), notifications)"
+verdict = "none"
+
+[[site]]
+file = "bae-android/app/src/test/java/fm/bae/app/playback/LibraryBrowseTreeTest.kt"
+code = "assertTrue(second.counts.single().cancelled)"
+verdict = "none"
+
+[[site]]
+file = "bae-app/src/app_services.rs"
+code = "delegate_view!(search_album_key_at => search_album_key_at(query: Option<bae_views::LibrarySearchQuery>, position: u64) -> Option<bae_store::list_windows::OrderKey>);"
+verdict = "none"
+
+[[site]]
+file = "bae-app/src/app_services.rs"
+code = "delegate_view!(search_album_page_window => search_album_page_window(query: Option<bae_views::LibrarySearchQuery>, position: u64, limit: u64) -> Option<bae_store::ListWindow>);"
+verdict = "none"
+
+[[site]]
+file = "bae-app/src/app_services/list_reads.rs"
+code = "/// One window of the albums library search's `query` lists; no query"
+verdict = "none"
+
+[[site]]
+file = "bae-app/src/app_services/list_reads.rs"
+code = "pub fn subscribe_search_album_window("
+verdict = "none"
+
+[[site]]
+file = "bae-app/src/app_services/list_reads.rs"
+code = "window: bae_store::ListWindow,"
+verdict = "none"
+
+[[site]]
+file = "bae-app/src/app_services/list_reads.rs"
+code = ") -> bae_views::LiveListWindow {"
+verdict = "none"
+
+[[site]]
+file = "bae-app/src/app_services/list_reads.rs"
+code = "self.inner.views.subscribe_search_album_window(query, window),"
+verdict = "none"
+
+[[site]]
+file = "bae-app/src/app_services/list_reads.rs"
+code = "bae_views::album::resolve_search_album_window,"
+verdict = "none"
+
+[[site]]
+file = "bae-app/src/app_services/list_reads.rs"
+code = "/// How many albums library search's `query` lists; no query (`None`)"
+verdict = "none"
+
+[[site]]
+file = "bae-app/src/app_services/list_reads.rs"
+code = "/// How many of the albums library search's `query` lists come before the"
+verdict = "none"
+
+[[site]]
+file = "bae-app/src/app_services/list_reads.rs"
+code = "pub fn subscribe_search_album_position("
+verdict = "none"
+
+[[site]]
+file = "bae-app/src/app_services/list_reads.rs"
+code = "key: bae_store::list_windows::OrderKey,"
+verdict = "none"
+
+[[site]]
+file = "bae-app/src/app_services/list_reads.rs"
+code = ") -> bae_views::LiveListPosition {"
+verdict = "none"
+
+[[site]]
+file = "bae-app/src/app_services/list_reads.rs"
+code = "self.inner.views.subscribe_search_album_position(query, key),"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/handle/base.rs"
+code = "/// The window of the albums library search lists for `query`"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/handle/base.rs"
+code = "/// (`BridgeList::SearchAlbums`) that holds the `limit` albums from"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/handle/base.rs"
+code = "/// `offset`, read once: from the first of them to the album past the"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/handle/base.rs"
+code = "/// last. A media browser names a page by its offset and reads the window"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/handle/base.rs"
+code = "/// live. None when the search lists fewer albums than `offset`, and for a"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/handle/base.rs"
+code = ") -> Option<BridgeListWindow> {"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/handle/base.rs"
+code = ".search_album_page_window(BridgeList::search_query(&query), offset, limit)"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/handle/base.rs"
+code = ".map(BridgeListWindow::from_core))"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/handle/base.rs"
+code = ".artist_search_key_at(BridgeList::search_query(&text), position)"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/handle/base.rs"
+code = ".map_err(BridgeError::from)?,"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/handle/base.rs"
+code = "BridgeList::SearchAlbums { query } => this"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/handle/base.rs"
+code = ".search_album_key_at(BridgeList::search_query(&query), position)"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/handle/library_projection.rs"
+code = "from_core: pub(crate) fn,"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/handle/subscriptions.rs"
+code = ".subscribe_artist_search_window(BridgeList::search_query(&text), window),"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/handle/subscriptions.rs"
+code = "BridgeList::SearchAlbums { query } => self"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/handle/subscriptions.rs"
+code = ".subscribe_search_album_window(BridgeList::search_query(&query), window),"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/handle/subscriptions.rs"
+code = "self.services.subscribe_artist_search_count(BridgeList::search_query(&text))"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/handle/subscriptions.rs"
+code = "self.services.subscribe_search_album_count(BridgeList::search_query(&query))"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/handle/subscriptions.rs"
+code = "BridgeList::ArtistSearch { text } => {"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/handle/subscriptions.rs"
+code = "self.services.subscribe_artist_search_position(BridgeList::search_query(&text), key)"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/handle/subscriptions.rs"
+code = "self.services.subscribe_search_album_position(BridgeList::search_query(&query), key)"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/screens/lists.rs"
+code = "/// Parses a search's text, an artist picker's or library search's, into"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/screens/lists.rs"
+code = "/// a search query, or returns None when the text is blank."
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/screens/lists.rs"
+code = "pub(crate) fn search_query(text: &str) -> Option<bae_views::LibrarySearchQuery> {"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/screens/lists.rs"
+code = "bae_views::ListRows::SearchAlbums(rows) => BridgeListRows::SearchAlbums {"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/screens/lists.rs"
+code = ".map(crate::types::BridgeAlbumSearchResult::from_core)"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/types/live_results.rs"
+code = "/// The albums library search lists for `query` as a media browser lists"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/types/live_results.rs"
+code = "/// them: the first it finds, up to library search's result limit"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/types/live_results.rs"
+code = "/// (`SEARCH_RESULT_LIMIT`), in title order. A blank query lists none."
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/types/live_results.rs"
+code = "SearchAlbums { query: String },"
+verdict = "none"
+
+[[site]]
+file = "bae-bridge/src/types/live_results.rs"
+code = "rows: Vec<crate::types::BridgeAlbumSearchResult>,"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album.rs"
+code = "//! selection, an album's detail, an album's tracks as a list, library"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album.rs"
+code = "//! search, and the albums a search lists as a list (`search_albums`)."
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album.rs"
+code = "pub use search_albums::resolve_search_album_window;"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album.rs"
+code = "use search_albums::{search_album_order, search_album_rows_on};"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album.rs"
+code = "let order = search_album_order();"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album.rs"
+code = "let albums = search_album_rows_on("
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album.rs"
+code = ".map(|(album, _)| album)"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums.rs"
+code = "//! The albums a library search lists: the first albums it finds, in title"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums.rs"
+code = "//! order, ties going by id. Library search reads its first albums here, and a"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums.rs"
+code = "//! media browser reads the first [`crate::SEARCH_RESULT_LIMIT`] of them as a"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums.rs"
+code = "//! list, a page at a time, each page a window bounded by the keys of its"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums.rs"
+code = "//! first row and of the row after its last."
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums.rs"
+code = "/// Follow one window of the albums a search for `query` lists: a range"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums.rs"
+code = "/// of [`search_album_order`] (`list_windows`), which coven reruns for a"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums.rs"
+code = "/// write inside it alone. No query (`None`) lists none; its window"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums.rs"
+code = "/// answers with no rows."
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums.rs"
+code = "pub fn subscribe_search_album_window("
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums.rs"
+code = ") -> coven::ReconfigurableLiveQuery<ListWindow, WindowRead<DbAlbumSearchResult>, DbError> {"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums.rs"
+code = "let read_order = order.clone();"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums.rs"
+code = "self.store.subscribe_list_window(initial, order, move |sql, seek, limit, offset| {"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums.rs"
+code = "search_album_rows_on(sql, pattern, LISTED, &read_order, seek, limit, offset)"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums.rs"
+code = "/// Follow how many albums a search for `query` lists: the albums it"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums.rs"
+code = "/// finds, up to [`crate::SEARCH_RESULT_LIMIT`]. The count runs as a"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums.rs"
+code = "/// separate query from the windows' rows. No query (`None`) lists none."
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums.rs"
+code = "pub fn subscribe_search_album_count("
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums.rs"
+code = ") -> coven::LiveQuery<u64, DbError> {"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums.rs"
+code = "self.store.subscribe(move |sql| match &pattern {"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums.rs"
+code = "Some(pattern) => search_album_count_on(&sql, pattern),"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums.rs"
+code = "/// Follow how many of the albums a search for `query` lists come before"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums.rs"
+code = "/// the row at a key; the caller changes the key on the same query."
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums.rs"
+code = "pub fn subscribe_search_album_position("
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums.rs"
+code = ") -> coven::ReconfigurableLiveQuery<OrderKey, u64, DbError> {"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums.rs"
+code = "let cap = bae_store::list_windows::sql_bound(LISTED);"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums.rs"
+code = "self.store.subscribe_reconfigurable(initial, move |key, sql| match &pattern {"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums.rs"
+code = "Some(pattern) => bae_store::list_windows::rows_before_on("
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums.rs"
+code = '&[(":pattern", pattern), (":cap", &cap)],'
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums.rs"
+code = "/// The key of the album at `position` of those a search for `query`"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums.rs"
+code = "/// lists, or of the last one when the list ends before it; `None` when"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums.rs"
+code = "pub async fn search_album_key_at("
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums.rs"
+code = ") -> Result<Option<OrderKey>, DbError> {"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums.rs"
+code = "key_at(&order, position, &mut |seek, limit, offset| {"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums.rs"
+code = "/// The window of the albums a search for `query` lists that holds the"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums.rs"
+code = "/// `limit` albums from `position`, read once: a media browser names a"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums.rs"
+code = "/// page by its offset and follows this window live. `None` when the"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums.rs"
+code = "/// search lists fewer albums than `position`, and for no query."
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums.rs"
+code = "pub async fn search_album_page_window("
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums.rs"
+code = ") -> Result<Option<ListWindow>, DbError> {"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums.rs"
+code = "page_window(&order, position, limit, &mut |seek, limit, offset| {"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums.rs"
+code = "/// One delivery of a window of the albums a search lists."
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums.rs"
+code = "pub fn resolve_search_album_window("
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums.rs"
+code = "read: WindowRead<DbAlbumSearchResult>,"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums.rs"
+code = ") -> crate::ListWindowValue {"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums.rs"
+code = "crate::ListWindowValue::of(read, |rows| {"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums.rs"
+code = "crate::ListRows::SearchAlbums("
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums.rs"
+code = "rows.into_iter().map(crate::album_detail::AlbumSearchResult::from_raw).collect(),"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums.rs"
+code = "/// How many albums a media browser's search lists."
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums.rs"
+code = "const LISTED: u64 = crate::SEARCH_RESULT_LIMIT as u64;"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums.rs"
+code = "/// The order of the albums a search lists: by title, ties going by id."
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums.rs"
+code = "pub(super) fn search_album_order() -> ListOrder {"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums.rs"
+code = 'SortTerm::ascending(crate::sort_key_sql("a.title")),'
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums.rs"
+code = 'SortTerm::ascending("a.id"),'
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums.rs"
+code = "/// The albums a search lists, as a FROM clause over the alias `a`: the first"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums.rs"
+code = "/// `:cap` albums that hold the search pattern `:pattern`, in"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums.rs"
+code = "/// [`search_album_order`]."
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums.rs"
+code = "fn search_album_from() -> String {"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums.rs"
+code = '"FROM (SELECT a.id, a.title, a.year FROM albums a WHERE {matches} \'
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums.rs"
+code = 'ORDER BY {order} LIMIT :cap) a",'
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums.rs"
+code = 'matches = album_matches_sql("a.id", ":pattern"),'
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums.rs"
+code = "order = search_album_order().clause(),"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums.rs"
+code = "pub(super) fn search_album_rows_on("
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums.rs"
+code = "sql: &SqlReadContext<'_>,"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums.rs"
+code = ") -> Result<Vec<Keyed<DbAlbumSearchResult>>, DbError> {"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums.rs"
+code = "let statement = format!("
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums.rs"
+code = "SELECT a.id, a.title, a.year,"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums.rs"
+code = "{primary_release} AS primary_release_id,"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums.rs"
+code = "{primary_cover} AS cover_version,"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums.rs"
+code = "{artist_names} AS artist_name,"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums.rs"
+code = "SELECT a.id, a.title, a.year {from}"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums.rs"
+code = "ORDER BY {ordering} LIMIT :limit OFFSET :offset"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums.rs"
+code = "primary_release = album_primary_release_sql(),"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums.rs"
+code = "primary_cover = bae_records::records::files::cover_version_sql(album_primary_release_sql()),"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums.rs"
+code = "artist_names = album_credits_json_sql(),"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums.rs"
+code = "keys = order.key_columns(),"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums.rs"
+code = "from = search_album_from(),"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums.rs"
+code = "condition = order.condition(seek),"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums.rs"
+code = "ordering = order.ordering(seek),"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums.rs"
+code = "let cap = bae_store::list_windows::sql_bound(cap);"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums.rs"
+code = "Ok(seek.bound(limit, offset, |params| {"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums.rs"
+code = "let mut params = params.to_vec();"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums.rs"
+code = 'params.push((":pattern", &pattern as &dyn rusqlite::ToSql));'
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums.rs"
+code = 'params.push((":cap", &cap as &dyn rusqlite::ToSql));'
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums.rs"
+code = "sql.query(&statement, params.as_slice(), |row| {"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums.rs"
+code = 'title: row.get("title")?,'
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums.rs"
+code = 'primary_release_id: row.get("primary_release_id")?,'
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums.rs"
+code = 'cover_version: row.get("cover_version")?,'
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums.rs"
+code = 'artist_line: credit_line_column(row, "artist_name")?,'
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums.rs"
+code = "/// How many albums a search for `pattern` lists: those that hold it, counting"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums.rs"
+code = "/// at most [`LISTED`]. The count needs no order, so it sorts nothing."
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums.rs"
+code = "fn search_album_count_on(sql: &SqlReadContext<'_>, pattern: &str) -> Result<u64, DbError> {"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums.rs"
+code = '"SELECT COUNT(*) AS count FROM (SELECT 1 FROM albums a WHERE {} LIMIT ?2)",'
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums.rs"
+code = 'album_matches_sql("a.id", "?1"),'
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums.rs"
+code = "params![pattern, bae_store::list_windows::sql_bound(LISTED)],"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums.rs"
+code = '|row| count_column::<u64>(row, "count"),'
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums.rs"
+code = '#[path = "search_albums_tests.rs"]'
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums_tests.rs"
+code = "//! These tests check the albums a search lists as a media browser pages"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums_tests.rs"
+code = "//! through them. The browser reads once the window that holds each page,"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums_tests.rs"
+code = "//! bounded by the keys of the page's first album and of the album after its"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums_tests.rs"
+code = "//! last, and then reads that window live. A live query counts the albums."
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums_tests.rs"
+code = "//! Each test writes its library through the records domain's own writes."
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums_tests.rs"
+code = "use bae_records::test_fixtures::library::RecordsFixture;"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums_tests.rs"
+code = "use bae_records::test_fixtures::test_records;"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums_tests.rs"
+code = "use bae_store::test_fixtures::temp_db;"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums_tests.rs"
+code = "use bae_util::test_channels::HANG_GUARD;"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums_tests.rs"
+code = 'const SEARCHED_ARTIST: &str = "f3a0e3a4-8c3d-4e6b-9f0b-4a6f3f6a5021";'
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums_tests.rs"
+code = 'const WINDOW_A: &str = "f3a0e3a4-8c3d-4e6b-9f0b-4a6f3f6a5031";'
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums_tests.rs"
+code = 'const WINDOW_B: &str = "f3a0e3a4-8c3d-4e6b-9f0b-4a6f3f6a5032";'
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums_tests.rs"
+code = 'const WINDOW_C: &str = "f3a0e3a4-8c3d-4e6b-9f0b-4a6f3f6a5033";'
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums_tests.rs"
+code = '/// A library with three albums a search for "Window" finds, each with one'
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums_tests.rs"
+code = "async fn searched_library() -> (LibraryViews, bae_store::Store, tempfile::TempDir) {"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums_tests.rs"
+code = "let (db, tmp) = temp_db(crate::TEST_SCHEMA).await;"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums_tests.rs"
+code = "for (id, release, title) in ["
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums_tests.rs"
+code = '(WINDOW_A, "f3a0e3a4-8c3d-4e6b-9f0b-4a6f3f6a5061", "Window A"),'
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums_tests.rs"
+code = '(WINDOW_B, "f3a0e3a4-8c3d-4e6b-9f0b-4a6f3f6a5062", "Window B"),'
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums_tests.rs"
+code = '(WINDOW_C, "f3a0e3a4-8c3d-4e6b-9f0b-4a6f3f6a5063", "Window C"),'
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums_tests.rs"
+code = "fixture = fixture.album(id, title, Some(2026), &[SEARCHED_ARTIST]).release(id, release);"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums_tests.rs"
+code = "(LibraryViews::new(db.clone()), db, tmp)"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums_tests.rs"
+code = "fn window_query() -> Option<crate::LibrarySearchQuery> {"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums_tests.rs"
+code = 'crate::LibrarySearchQuery::parse("Window")'
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums_tests.rs"
+code = "/// Each album's title in one delivery of a window of the albums a search"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums_tests.rs"
+code = "fn titles_of(read: WindowRead<DbAlbumSearchResult>) -> Vec<String> {"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums_tests.rs"
+code = "let crate::ListRows::SearchAlbums(rows) = resolve_search_album_window(read).rows else {"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums_tests.rs"
+code = """panic!("a window of a search's albums holds albums");"""
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums_tests.rs"
+code = "rows.into_iter().map(|album| album.title).collect()"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums_tests.rs"
+code = "/// The key of the album at `position` of those the search lists."
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums_tests.rs"
+code = "async fn key_of(views: &LibraryViews, position: u64) -> OrderKey {"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums_tests.rs"
+code = 'views.search_album_key_at(window_query(), position).await.unwrap().expect("an album there")'
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums_tests.rs"
+code = "/// A page at an offset is the window from its first album to the album"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums_tests.rs"
+code = "/// after its last, and holds the search's albums in title order. The last"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums_tests.rs"
+code = "/// page's window has no upper bound, and the page past the last album has no"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums_tests.rs"
+code = "async fn a_search_page_is_the_window_bounded_by_its_albums_keys() {"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums_tests.rs"
+code = "let (views, _db, _tmp) = searched_library().await;"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums_tests.rs"
+code = 'views.search_album_page_window(window_query(), 0, 2).await.unwrap().expect("a page");'
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums_tests.rs"
+code = "from: Some(key_of(&views, 0).await),"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums_tests.rs"
+code = "until: Some(key_of(&views, 2).await),"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums_tests.rs"
+code = "let mut live = views.subscribe_search_album_window(window_query(), first_page);"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums_tests.rs"
+code = 'assert_eq!(titles_of(read), ["Window A", "Window B"]);'
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums_tests.rs"
+code = 'views.search_album_page_window(window_query(), 2, 2).await.unwrap().expect("a page");'
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums_tests.rs"
+code = "assert!(matches!(&last_page, ListWindow::Forward { until: None, .. }));"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums_tests.rs"
+code = "let mut live = views.subscribe_search_album_window(window_query(), last_page);"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums_tests.rs"
+code = 'assert_eq!(titles_of(read), ["Window C"]);'
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums_tests.rs"
+code = "assert_eq!(views.search_album_page_window(window_query(), 3, 2).await.unwrap(), None);"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums_tests.rs"
+code = "assert_eq!(views.search_album_page_window(None, 0, 2).await.unwrap(), None);"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums_tests.rs"
+code = "views.subscribe_search_album_position(window_query(), key_of(&views, 1).await);"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums_tests.rs"
+code = 'assert_eq!(position.next_inline().await.expect("the query stays open").result.unwrap(), 1);'
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums_tests.rs"
+code = "/// A page's window follows a rename of an album on it, so the next read of"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums_tests.rs"
+code = "/// that page shows the album's new name."
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums_tests.rs"
+code = "async fn a_renamed_album_on_a_page_shows_its_new_name_on_the_pages_next_read() {"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums_tests.rs"
+code = 'let page = views.search_album_page_window(window_query(), 0, 2).await.unwrap().expect("a page");'
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums_tests.rs"
+code = "let mut live = views.subscribe_search_album_window(window_query(), page);"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums_tests.rs"
+code = 'live.next_inline().await.expect("the query stays open").result.unwrap();'
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums_tests.rs"
+code = 'test_records(&db).rename_album_for_test(WINDOW_B, "Window B Renamed").await.unwrap();'
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums_tests.rs"
+code = "let read = tokio::time::timeout(HANG_GUARD, live.next_inline()).await.unwrap().unwrap().result;"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums_tests.rs"
+code = 'assert_eq!(titles_of(read.unwrap()), ["Window A", "Window B Renamed"]);'
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums_tests.rs"
+code = "/// A search lists at most [`crate::SEARCH_RESULT_LIMIT`] albums: the page"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums_tests.rs"
+code = "/// that starts there has no window, and the page before it ends at the"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums_tests.rs"
+code = "async fn a_search_lists_no_page_past_its_limit() {"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums_tests.rs"
+code = "let (db, _tmp) = temp_db(crate::TEST_SCHEMA).await;"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums_tests.rs"
+code = "let listed = crate::SEARCH_RESULT_LIMIT as u64;"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums_tests.rs"
+code = 'let id = format!("f3a0e3a4-8c3d-4e6b-9f0b-{:012}", at);'
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums_tests.rs"
+code = 'let release = format!("f3a0e3a4-8c3d-4e6b-9f0c-{:012}", at);'
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums_tests.rs"
+code = '.album(&id, &format!("Window {at:03}"), Some(2026), &[SEARCHED_ARTIST])'
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums_tests.rs"
+code = ".release(&id, &release);"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums_tests.rs"
+code = "let views = LibraryViews::new(db.clone());"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums_tests.rs"
+code = "assert_eq!(views.search_album_page_window(window_query(), listed, 10).await.unwrap(), None);"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums_tests.rs"
+code = ".search_album_page_window(window_query(), listed - 2, 10)"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums_tests.rs"
+code = "let mut live = views.subscribe_search_album_window(window_query(), last);"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums_tests.rs"
+code = '[format!("Window {:03}", listed - 2), format!("Window {:03}", listed - 1)]'
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums_tests.rs"
+code = 'assert_eq!(count.next_inline().await.expect("the query stays open").unwrap(), listed);'
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums_tests.rs"
+code = "/// The search's album count is a live query of its own, which counts a new"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums_tests.rs"
+code = "/// album the search finds. With no query, the count is zero."
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums_tests.rs"
+code = "async fn a_search_counts_its_albums_live() {"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums_tests.rs"
+code = 'assert_eq!(count.next_inline().await.expect("the query stays open").unwrap(), 3);'
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums_tests.rs"
+code = "let (added, added_release) ="
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums_tests.rs"
+code = '("f3a0e3a4-8c3d-4e6b-9f0b-4a6f3f6a5034", "f3a0e3a4-8c3d-4e6b-9f0b-4a6f3f6a5064");'
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums_tests.rs"
+code = '.album(added, "Window D", Some(2026), &[SEARCHED_ARTIST])'
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums_tests.rs"
+code = ".release(added, added_release)"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums_tests.rs"
+code = ".write(&test_records(&db))"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums_tests.rs"
+code = "tokio::time::timeout(HANG_GUARD, count.next_inline()).await.unwrap().unwrap().unwrap();"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/album/search_albums_tests.rs"
+code = "assert_eq!(views.subscribe_search_album_count(None).next_inline().await.unwrap().unwrap(), 0);"
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/browse.rs"
+code = "/// The albums a library search lists, in title order."
+verdict = "none"
+
+[[site]]
+file = "bae-views/src/browse.rs"
+code = "SearchAlbums(Vec<crate::album_detail::AlbumSearchResult>),"
+verdict = "none"
+
+[[site]]
+file = "spec/bae.md"
+code = "database picks the one track an item names, so Android Auto never filters rows"
+verdict = "none"
+
+[[site]]
+file = "spec/bae.md"
+code = "it already holds. Each page of an album's tracks, a work's children or the"
+verdict = "none"
+
+[[site]]
+file = "spec/bae.md"
+code = "albums a search lists that Android Auto shows is its own live read, bounded by"
+verdict = "none"
+
+[[site]]
+file = "spec/bae.md"
+code = "the keys of the page's first row and of the row after its last, so Android"
+verdict = "none"
+
+[[site]]
+file = "spec/bae.md"
+code = "Auto never pages through rows it already holds. The number of rows in each"
+verdict = "none"
+
+[[site]]
+file = "spec/bae.md"
+code = "such list comes from a count the database takes, never from rows Android Auto"
+verdict = "none"
+
+[[site]]
+file = "spec/bae.md"
+code = "page of them, bae reads the page's rows live in the same way. bae tells the"
+verdict = "none"
+
+[[site]]
+file = "spec/bae.md"
+code = "controller each time a row on the page changes and each time the number of"
+verdict = "none"
+
+[[site]]
+file = "spec/bae.md"
+code = "those albums changes, and reads the page again when the controller asks for it"
+verdict = "none"
+
+[[site]]
+file = "spec/bae.md"
+code = "again. bae answers a request for a page only for the phrase that controller"
+verdict = "none"
+
+[[site]]
+file = "spec/bae.md"
+code = "searched for last, and refuses one for any other phrase."
+verdict = "none"
