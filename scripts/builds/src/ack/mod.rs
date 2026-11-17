@@ -282,7 +282,7 @@ fn start(agent: &Agent, text: &Text, now: i64) -> Result<String> {
     tx.commit().sql()?;
     let names: Vec<&str> = text.sections.iter().map(|s| s.name.as_str()).collect();
     let mut out = format!(
-        "builds asks every agent to read this text in full before it runs any other builds command: {}.\n\nThis is version {version}, in {} parts.\n",
+        "builds asks every agent to read this text in full before it runs any other builds command: {}.\n\nThe text is version {version}, in {} parts.\n",
         names.join(", "),
         parts.len()
     );

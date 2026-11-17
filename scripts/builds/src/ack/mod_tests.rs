@@ -61,7 +61,7 @@ impl World {
     fn read_all(&self, now: i64) -> (String, Vec<String>) {
         let started = self.ack(&[], now).unwrap();
         let version = started
-            .split("This is version ")
+            .split("The text is version ")
             .nth(1)
             .unwrap()
             .split(',')

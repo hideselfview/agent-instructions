@@ -4,9 +4,9 @@ dispatch an agent. A command refuses a step that lacks what it needs, so this
 page states only what no command checks. The project file
 (projects/<project>.md in agent-instructions) names the project's lists,
 worktrees and standing rules. builds refuses an agent's commands until the
-agent has read this page with `builds help`, `builds help lists`, `builds
-help briefs` and the rules, and acknowledged them (`builds ack`; `builds
-help`, ACKNOWLEDGING THE RULES).
+agent has read `builds help`, this page (`builds help workflow`), `builds
+help lists`, `builds help briefs` and the rules, and has acknowledged them
+with `builds ack` (`builds help`, ACKNOWLEDGING THE RULES).
 
 
 ROLES
