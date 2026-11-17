@@ -269,27 +269,8 @@ fn app_checkout_on_host(tool: &Tool, args: &[String]) -> Result<()> {
     let (repo, name) = crate::app_remote::name_in(path)?;
     tool.places.require_volume()?;
     let entry = crate::app_remote::entry_of(host, &name);
-    let mut set = tool.places.app_checkouts_of(&repo, lane)?;
     if removing {
-        if !set.contains(&entry) {
-            fail!(
-                "{entry} is not one of {repo}'s {} app checkouts",
-                lane.word()
-            );
-        }
-        let lock = tool.places.app_lock_file(&repo, lane, &entry);
-        if crate::queue::is_held(&lock)? {
-            fail!("a build holds {entry}'s lock; remove it once that build ends");
-        }
-        set.retain(|other| *other != entry);
-        tool.places.write_app_checkouts(&repo, lane, &set)?;
-        match std::fs::remove_file(&lock) {
-            Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
-                fail!("removing {}: {error}", lock.display())
-            }
-            _ => {}
-        }
-        crate::queue::repoint(&tool.places, &repo, lane);
+        remove_from_lane(tool, &repo, lane, &entry, &entry)?;
         note(format!(
             "removed {entry} from {repo}'s {} app checkouts; ~/dev/{repo}-worktrees/{name} on {host} stays until you remove it there",
             lane.word()
@@ -306,15 +287,10 @@ fn app_checkout_on_host(tool: &Tool, args: &[String]) -> Result<()> {
             other.word()
         );
     }
-    if !set.contains(&entry) {
-        set.push(entry.clone());
-        tool.places.write_app_checkouts(&repo, lane, &set)?;
-        crate::queue::repoint(&tool.places, &repo, lane);
-    }
+    let count = record_in_lane(tool, &repo, lane, &entry)?;
     note(format!(
-        "{entry} is one of {repo}'s {} app checkouts ({} in all, in {}); its first build makes ~/dev/{repo}-worktrees/{name} on {host}",
+        "{entry} is one of {repo}'s {} app checkouts ({count} in all, in {}); its first build makes ~/dev/{repo}-worktrees/{name} on {host}",
         lane.word(),
-        set.len(),
         tool.places.app_checkouts_file(&repo, lane).display()
     ));
     Ok(())
@@ -365,31 +341,9 @@ pub fn cmd_app_checkout(tool: &Tool, args: &[String]) -> Result<()> {
     checkout.require_repo_name(&tool.places)?;
     let repo = checkout.repo();
     let name = checkout.name();
-    let mut set = tool.places.app_checkouts_of(&repo, lane)?;
     if removing {
-        if !set.contains(&name) {
-            fail!(
-                "{} is not one of {repo}'s {} app checkouts",
-                checkout.top.display(),
-                lane.word()
-            );
-        }
-        let lock = tool.places.app_lock_file(&repo, lane, &name);
-        if crate::queue::is_held(&lock)? {
-            fail!(
-                "a build holds {}'s lock; remove it once that build ends",
-                checkout.top.display()
-            );
-        }
-        set.retain(|other| *other != name);
-        tool.places.write_app_checkouts(&repo, lane, &set)?;
-        match std::fs::remove_file(&lock) {
-            Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
-                fail!("removing {}: {error}", lock.display())
-            }
-            _ => {}
-        }
-        crate::queue::repoint(&tool.places, &repo, lane);
+        let shown = checkout.top.display().to_string();
+        remove_from_lane(tool, &repo, lane, &name, &shown)?;
         note(format!(
             "removed {} from {repo}'s {} app checkouts",
             checkout.top.display(),
@@ -408,18 +362,67 @@ pub fn cmd_app_checkout(tool: &Tool, args: &[String]) -> Result<()> {
             other.word()
         );
     }
-    if !set.contains(&name) {
-        set.push(name);
-        tool.places.write_app_checkouts(&repo, lane, &set)?;
-        crate::queue::repoint(&tool.places, &repo, lane);
-    }
+    let count = record_in_lane(tool, &repo, lane, &name)?;
     note(format!(
-        "{} is one of {repo}'s {} app checkouts ({} in all, in {}); the free-space floor keeps the folders its lane builds into",
+        "{} is one of {repo}'s {} app checkouts ({count} in all, in {}); the free-space floor keeps the folders its lane builds into",
         checkout.top.display(),
         lane.word(),
-        set.len(),
         tool.places.app_checkouts_file(&repo, lane).display()
     ));
+    Ok(())
+}
+
+/// Records <entry> as one of <repo>'s <lane> app checkouts that a person
+/// added, under the lane's queue guard: a checkout builds added becomes the
+/// person's, so it stays until a person removes it. Returns how many
+/// checkouts the lane has.
+fn record_in_lane(tool: &Tool, repo: &str, lane: Lane, entry: &str) -> Result<usize> {
+    let queue = crate::queue::Queue::of(&tool.places, repo, lane);
+    let guard = queue.guard()?;
+    let mut set = tool.places.app_checkouts_recorded(repo, lane)?;
+    match set.iter_mut().find(|checkout| checkout.entry == entry) {
+        Some(checkout) => checkout.added_by = crate::lane::AddedBy::Person,
+        None => set.push(crate::lane::AppCheckout::by_person(entry)),
+    }
+    tool.places.write_app_checkouts(repo, lane, &set)?;
+    drop(guard);
+    crate::queue::repoint(&tool.places, repo, lane);
+    Ok(set.len())
+}
+
+/// Takes <entry> (shown to the person as <shown>) out of <repo>'s <lane> app
+/// checkouts and removes its lock, under the lane's queue guard and holding
+/// that lock, so no build takes it meanwhile. Fails while a build holds it.
+fn remove_from_lane(tool: &Tool, repo: &str, lane: Lane, entry: &str, shown: &str) -> Result<()> {
+    let queue = crate::queue::Queue::of(&tool.places, repo, lane);
+    let guard = queue.guard()?;
+    let mut set = tool.places.app_checkouts_recorded(repo, lane)?;
+    if !set.iter().any(|checkout| checkout.entry == entry) {
+        fail!(
+            "{shown} is not one of {repo}'s {} app checkouts",
+            lane.word()
+        );
+    }
+    let dir = tool.places.app_locks_dir(repo, lane);
+    std::fs::create_dir_all(&dir).context(|| format!("creating {}", dir.display()))?;
+    let lock_file = tool.places.app_lock_file(repo, lane, entry);
+    let Some(lock) = crate::queue::try_lock(&lock_file)? else {
+        fail!("a build holds {shown}'s lock; remove it once that build ends");
+    };
+    set.retain(|checkout| checkout.entry != entry);
+    let removed = tool
+        .places
+        .write_app_checkouts(repo, lane, &set)
+        .and_then(|()| match std::fs::remove_file(&lock_file) {
+            Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
+                fail!("removing {}: {error}", lock_file.display())
+            }
+            _ => Ok(()),
+        });
+    unsafe { libc::close(lock) };
+    drop(guard);
+    removed?;
+    crate::queue::repoint(&tool.places, repo, lane);
     Ok(())
 }
 

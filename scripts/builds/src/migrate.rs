@@ -86,7 +86,11 @@ fn migrate_lane(places: &Places, repo: &str, lane: Lane) -> Result<()> {
                 .context(|| format!("linking {} to {}", new_lock.display(), old_lock.display()))?;
         }
         if !places.app_checkouts_file(repo, lane).exists() {
-            places.write_app_checkouts(repo, lane, &[checkout])?;
+            places.write_app_checkouts(
+                repo,
+                lane,
+                &[crate::lane::AppCheckout::by_person(&checkout)],
+            )?;
         }
     }
     let queue = dir.join(lane.queue_dir_name());

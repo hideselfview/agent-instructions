@@ -37,16 +37,25 @@ Every build on this Mac writes to the build volume, and builds owns everything
 on it:
 
   <repo>/<checkout>/    one build root per checkout (main or side-N)
-  <repo>/app-checkouts  the mac lane's app checkouts, one name per line
+  <repo>/app-checkouts  the mac lane's app checkouts, one per line: the name
+                        alone for one a person added, and the name, `builds`,
+                        the time and why for one builds added
+  <repo>/app-checkouts-removed
+                        the checkouts builds removed from the lane in the
+                        last 12 hours, one per line: the time, the name and
+                        why
   <repo>/app.locks/     one lock per app checkout (app.locks/side-N), held by
                         the build that runs there, and beside each lock the
                         record that build keeps (side-N.run): when it joined
-                        the queue, how long it waited, and the step it runs
+                        the queue, how long it waited, and the step it runs;
+                        and when the last build there let the lock go
+                        (side-N.ended)
   <repo>/app.queue/     the builds waiting for the lane's locks: `order` holds
                         one ticket per line, next first, with the holders'
                         tickets at the head (one per app checkout), and each
                         waiting process holds a ticket file
-  <repo>/app-android-checkouts, app-android.locks/, app-android.queue/
+  <repo>/app-android-checkouts, app-android-checkouts-removed,
+  app-android.locks/, app-android.queue/
                         the same for the android lane
   DerivedData/          Xcode's default DerivedData location
   caches/<name>/        the download caches every checkout shares
@@ -350,10 +359,29 @@ a prefix (mac.welcome. for the Mac welcome screens). CI runs the full suites.
 
 App builds (an Xcode app, a Gradle app, a bridge cross-compiled for a platform)
 take 10-20 GB per platform per checkout, so a repo keeps them built only in
-main, for the person's installs and releases, and in its app checkouts:
-long-lived side worktrees, one or more per lane, that the project file names
-and `builds app-checkout` records. Every other side worktree builds host output
-only (for Rust, target, which tests, clippy and the hook use).
+main, for the person's installs and releases, and in its app checkouts, one or
+more per lane: the long-lived ones a person records with `builds app-checkout`
+(side worktrees here, or worktrees on a host), and the ones builds adds on a
+host while builds wait for the lane and removes once no build uses them.
+Every other side worktree builds host output only (for Rust, target, which
+tests, clippy and the hook use).
+
+builds sizes each lane by its queue. A build that joins a lane's queue and has
+to wait adds a checkout `builds-<lane>-<n>` on a host, and so does a build that
+may run only on a host in a lane with no checkout there. builds picks the host
+with the most free cores (its cores less its one-minute load) among those with
+at least one core free, free disk above the floor (BUILDS_FREE_FLOOR_GIB) by
+one checkout of the lane (about 22 GB for mac and 10 GB for android, as
+measured on the M1), and fewer than 6 app checkouts in all; a lane has at most
+4. The new checkout's first build makes it on the host, as for one `builds
+app-checkout --host` records. builds adds checkouts only on hosts, never on
+this Mac. A build that joins a lane's queue, and `builds prune`, remove each
+checkout builds added that no build has used for 60 minutes, with its worktree
+and build folders on the host. A checkout a person added stays until a person
+removes it. builds reads and changes a lane's set of checkouts, and a build
+takes a checkout's lock, only under the lane's queue lock, so two builds never
+add the same checkout and no build takes one that is being removed. `builds
+queue` and the dashboard show when and why builds added or removed each one.
 
 A lane is the part of a repo's app builds that shares no build output with the
 other: in bae the mac lane is Xcode and target-macos, and the android lane is
@@ -452,8 +480,9 @@ fails the step. A mac lane checkout on a host needs Xcode there.
 build-app, `builds lock` and a build that runs a `here` step never take a
 checkout on a host. A build that runs a test class through a line an
 `opens-windows` line names takes only a checkout on a host, never one on this
-Mac, and fails when the lane has none (in bae, the M1's mac lane checkouts run
-the UI tests). A build cannot run both a `here` step and a test class from an
+Mac. When the lane has none, builds adds one on a host as for a build that
+waits, and the build fails when no host can take one (in bae, the M1's mac
+lane checkouts run the UI tests). A build cannot run both a `here` step and a test class from an
 `opens-windows` line; it fails and names one of each. A host runs UI tests only
 with the settings HOSTS names, since nobody is at its screen to type a
 password.
@@ -567,8 +596,10 @@ built again.
                               process group. It is for a command that is no
                               repo's build
   builds queue <repo> [--lane mac|android]
-                              show each lane's holders and who waits, next
-                              first
+                              show each lane's app checkouts, free or with
+                              their holder, when and why builds added each one
+                              it added, the checkouts it removed in the last
+                              12 hours and why, and who waits, next first
   builds queue <repo> top <pid>
                               move that waiter to right behind the builds that
                               hold a lock, in the lane it waits in
@@ -599,7 +630,9 @@ built again.
   builds app-checkout remove mac|android <checkout>
   builds app-checkout remove mac|android --host <host> <path>
                               take it out again; refused while a build holds
-                              its lock
+                              its lock. Adding a checkout that builds added
+                              makes it the person's, so builds no longer
+                              removes it
   builds app-checkout reset <repo> <checkout> [--matching <rev>]
                               put an app checkout on origin/main, holding its
                               lock (it waits for the build holding it). Only
@@ -924,7 +957,10 @@ a toolchain upgrade is fine.
                               its build root there: one whose name matches no
                               checkout of this Mac's clone of its repo, unless
                               a job whose builds process still runs here
-                              claims it.
+                              claims it. Then it removes each app checkout
+                              builds added that no build has used for 60
+                              minutes, with its worktree and build folders on
+                              its host (APP BUILDS).
                               --idle also deletes every folder and DerivedData
                               entry nothing wrote to for that long, outside
                               main's and the app checkouts' own folders unless

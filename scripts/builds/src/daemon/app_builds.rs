@@ -8,6 +8,7 @@ use super::cards::{ItemWait, QueuedBuild};
 use super::model::{CheckoutPage, RepoPage};
 use crate::health::{Holder, LockHealth};
 use crate::holder_run::RunTimes;
+use crate::status::LaneChange;
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct Program {
@@ -54,6 +55,8 @@ pub struct AppBuild {
     /// Is it a checkout on another Mac? Its disk, CPU and memory are not
     /// read from here.
     pub remote: bool,
+    /// When and why builds added it; None for one a person added.
+    pub added_by_builds: Option<LaneChange>,
     pub now: Now,
 }
 
@@ -76,6 +79,8 @@ pub struct AppLane {
     pub checkouts: Vec<AppBuild>,
     /// What waits for a lock of the lane, next first.
     pub waiting: Vec<Waiting>,
+    /// The checkouts builds removed from the lane lately, oldest first.
+    pub removed_by_builds: Vec<LaneChange>,
 }
 
 /// What an `app-build` or `build-app` command line asks for.
@@ -345,6 +350,7 @@ fn local_row(repo: &RepoPage, c: &CheckoutPage, lane: &str) -> AppBuild {
         },
         disk_kib: c.total_kib,
         remote: false,
+        added_by_builds: None,
         now: now_of(repo, holder, programs, c.activity.cpu, c.activity.memory),
     }
 }
@@ -372,6 +378,7 @@ fn remote_row(repo: &RepoPage, lock: &LockHealth) -> AppBuild {
         },
         disk_kib: None,
         remote: true,
+        added_by_builds: None,
         now: now_of(repo, lock.holder.as_ref(), programs, 0.0, 0),
     }
 }
@@ -403,7 +410,8 @@ fn waiting_in(repo: &RepoPage, lane: &str) -> Vec<Waiting> {
 
 /// One lane per app build lane of <repo> that has a checkout, mac first: each
 /// live app checkout here, then each checkout on another Mac (its lock is
-/// the only thing read from here), and the lane's queue.
+/// the only thing read from here), each with when and why builds added it,
+/// the lane's queue, and the checkouts builds removed from it lately.
 pub fn build(repo: &RepoPage) -> Vec<AppLane> {
     let mut found: Vec<AppLane> = Vec::new();
     for lane in crate::lane::Lane::ALL {
@@ -421,11 +429,24 @@ pub fn build(repo: &RepoPage) -> Vec<AppLane> {
                 .filter(|l| l.lane == word && crate::app_remote::split(&l.checkout).is_some())
                 .map(|l| remote_row(repo, l)),
         );
+        let recorded = repo.lanes.iter().find(|recorded| recorded.lane == word);
+        for row in &mut checkouts {
+            row.added_by_builds = recorded.and_then(|recorded| {
+                recorded
+                    .added_by_builds
+                    .iter()
+                    .find(|added| added.checkout == row.checkout)
+                    .cloned()
+            });
+        }
         if !checkouts.is_empty() {
             found.push(AppLane {
                 lane: word.to_string(),
                 checkouts,
                 waiting: waiting_in(repo, word),
+                removed_by_builds: recorded
+                    .map(|recorded| recorded.removed_by_builds.clone())
+                    .unwrap_or_default(),
             });
         }
     }

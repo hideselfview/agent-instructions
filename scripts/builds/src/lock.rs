@@ -36,7 +36,17 @@
 //!
 //! The holder keeps a record of its run beside the lock (holder_run.rs): when
 //! it joined the queue, how long it waited, and the step it runs now
-//! (`Held::runs`).
+//! (`Held::runs`). When it lets the lock go it writes the time beside the lock
+//! too (`<checkout>.ended`), so lane_size.rs knows how long the checkout has
+//! had no build.
+//!
+//! A build reads the lane's set of app checkouts and takes a free lock among
+//! them under the queue's guard (queue.rs `Queue::guard`), and every change to
+//! the set happens under that guard too, so no build takes the lock of a
+//! checkout that a change has just taken out of the set. A build that joins
+//! the queue first lets lane_size.rs remove the checkouts builds added that no
+//! build used for a while, and a build that has to wait lets it add one on a
+//! host.
 //!
 //! Waiters go in the order of queue.rs. A takeover sends the holder SIGUSR2:
 //! it stops its build's group and, once the build has exited, `run_in_group`
@@ -160,8 +170,8 @@ impl Where {
     }
 }
 
-/// One of <repo>'s app locks for a lane, held for the life of this process and
-/// every process it starts, unless released first.
+/// One of <repo>'s app locks for a lane, held until this value is dropped and
+/// every process this one started meanwhile has exited.
 pub struct Held {
     lock: libc::c_int,
     ticket: Ticket,
@@ -210,10 +220,7 @@ impl Held {
     pub fn release(self) {
         // Past its build, a takeover has nothing to stop.
         QUEUED.store(false, Ordering::SeqCst);
-        unsafe {
-            libc::close(self.lock);
-            libc::close(self.ticket.fd);
-        }
+        drop(self);
     }
 
     /// Takes this build out of the queue, then frees the lock, which lets the
@@ -233,28 +240,54 @@ impl Held {
         TAKEN_OVER.store(false, Ordering::SeqCst);
         let waiting = Instant::now();
         let ticket = self.queue.reissue(&self.ticket)?;
+        let queue = self.queue.clone();
+        let places = self.places.clone();
+        let repo = self.repo.clone();
+        let ssh = self.ssh.clone();
+        let (lane, allowed, joined_at, waited) =
+            (self.lane, self.allowed, self.joined_at, self.waited);
+        // Records the end of this use of the checkout and frees its lock and
+        // the old ticket.
+        drop(self);
+        queue.wait_for_turn(&ticket.name)?;
+        let (lock, checkout) = take_free_lock(&places, &ssh, &repo, lane, allowed)?;
+        let held = Held {
+            lock,
+            ticket,
+            queue,
+            checkout,
+            places,
+            repo,
+            lane,
+            ssh,
+            allowed,
+            joined_at,
+            waited: waited + waiting.elapsed(),
+        };
+        held.record(None)?;
+        Ok(held)
+    }
+}
+
+impl Drop for Held {
+    /// Writes when the build let the checkout go, while it still holds the
+    /// lock so that the time never lands on the next build's use, then frees
+    /// the lock and the build's place in the queue.
+    fn drop(&mut self) {
+        let ended = self
+            .places
+            .app_lock_ended_file(&self.repo, self.lane, &self.checkout);
+        if let Err(error) = crate::whole_file::write(&ended, crate::app_timing::now().to_string()) {
+            note(format!(
+                "when this build let {} go was not recorded: {}",
+                self.checkout,
+                error.text()
+            ));
+        }
         unsafe {
             libc::close(self.lock);
             libc::close(self.ticket.fd);
         }
-        self.queue.wait_for_turn(&ticket.name)?;
-        let (lock, checkout) =
-            take_free_lock(&self.places, &self.ssh, &self.repo, self.lane, self.allowed)?;
-        let held = Held {
-            lock,
-            ticket,
-            queue: self.queue,
-            checkout,
-            places: self.places,
-            repo: self.repo,
-            lane: self.lane,
-            ssh: self.ssh,
-            allowed: self.allowed,
-            joined_at: self.joined_at,
-            waited: self.waited + waiting.elapsed(),
-        };
-        held.record(None)?;
-        Ok(held)
     }
 }
 
@@ -324,7 +357,9 @@ fn by_load(loads: &mut Loads, entries: Vec<String>) -> (Vec<String>, Vec<String>
 /// waiting for one to free when the builds ahead
 /// have not yet taken theirs or a stopped build is still going down; returns
 /// it with the checkout's name. The lane's queue lets in as many as there are
-/// locks, so a lock is free within moments.
+/// locks, so a lock is free within moments. The hosts are asked for their
+/// load outside the queue's guard; the set is read again and the lock taken
+/// under it.
 fn take_free_lock(
     places: &Places,
     ssh: &Ssh,
@@ -334,6 +369,7 @@ fn take_free_lock(
 ) -> Result<(libc::c_int, String)> {
     let dir = places.app_locks_dir(repo, lane);
     std::fs::create_dir_all(&dir).context(|| format!("creating {}", dir.display()))?;
+    let queue = Queue::of(places, repo, lane);
     let mut loads = Loads {
         places,
         ssh,
@@ -381,9 +417,13 @@ fn take_free_lock(
                 skipped.join("; ")
             );
         }
-        for checkout in ordered {
-            if let Some(lock) = queue::try_lock(&places.app_lock_file(repo, lane, &checkout))? {
-                return Ok((lock, checkout));
+        {
+            let _guard = queue.guard()?;
+            let set = places.app_checkouts_of(repo, lane)?;
+            for checkout in ordered.into_iter().filter(|entry| set.contains(entry)) {
+                if let Some(lock) = queue::try_lock(&places.app_lock_file(repo, lane, &checkout))? {
+                    return Ok((lock, checkout));
+                }
             }
         }
         std::thread::sleep(Duration::from_millis(50));
@@ -422,27 +462,59 @@ pub fn take_checkout(
 /// Joins <repo>'s queue for <lane> and waits its turn for one of the lane's app
 /// locks on this Mac. Fails for a repo with no such app checkout in the lane.
 pub fn take(places: &Places, repo: &str, lane: Lane) -> Result<Held> {
-    take_in(places, &Ssh::from_env(), repo, lane, Where::Here)
+    take_in(places, &Ssh::from_env(), repo, lane, Where::Here, None)
 }
 
 /// `take` with <allowed>: with `Where::Anywhere`, the checkouts on hosts too,
 /// the one on the less loaded host first; with `Where::Hosts`, only those.
+/// A build that may take a checkout on a host and has to wait adds one on a
+/// host whose free disk stays above <floor_kib> (lane_size.rs).
 pub fn take_where(
     places: &Places,
     ssh: &Ssh,
     repo: &str,
     lane: Lane,
     allowed: Where,
+    floor_kib: u64,
 ) -> Result<Held> {
-    take_in(places, ssh, repo, lane, allowed)
+    let grows = (allowed != Where::Here).then_some(floor_kib);
+    take_in(places, ssh, repo, lane, allowed, grows)
 }
 
-fn take_in(places: &Places, ssh: &Ssh, repo: &str, lane: Lane, allowed: Where) -> Result<Held> {
-    if !places
-        .app_checkouts_of(repo, lane)?
-        .iter()
-        .any(|entry| allowed.allows(entry))
+/// Joins the queue and waits for a lock. <grows> is the free-disk floor of
+/// the hosts when the build may add a checkout on one; None when it never
+/// does.
+fn take_in(
+    places: &Places,
+    ssh: &Ssh,
+    repo: &str,
+    lane: Lane,
+    allowed: Where,
+    grows: Option<u64>,
+) -> Result<Held> {
+    let has_one = |places: &Places| -> Result<bool> {
+        Ok(places
+            .app_checkouts_of(repo, lane)?
+            .iter()
+            .any(|entry| allowed.allows(entry)))
+    };
+    let mut usable = has_one(places)?;
+    if !usable
+        && allowed == Where::Hosts
+        && let Some(floor_kib) = grows
+        && !places.app_checkouts_of(repo, lane)?.is_empty()
     {
+        crate::lane_size::grow(
+            places,
+            ssh,
+            floor_kib,
+            repo,
+            lane,
+            crate::lane_size::Need::OnAHost,
+        )?;
+        usable = has_one(places)?;
+    }
+    if !usable {
         fail!(
             "{repo} has no {} app checkout {}recorded in {}; builds app-checkout records one",
             lane.word(),
@@ -455,6 +527,7 @@ fn take_in(places: &Places, ssh: &Ssh, repo: &str, lane: Lane, allowed: Where) -
     TAKEN_OVER.store(false, Ordering::SeqCst);
     QUEUED.store(true, Ordering::SeqCst);
     let queue = Queue::of(places, repo, lane);
+    crate::lane_size::shrink(places, ssh, repo, lane, crate::prune::Run::Real)?;
     let joined_at = crate::app_timing::now();
     let waiting = Instant::now();
     let (ticket, ahead) = queue.join()?;
@@ -463,6 +536,16 @@ fn take_in(places: &Places, ssh: &Ssh, repo: &str, lane: Lane, allowed: Where) -
             "{ahead} ahead in {repo}'s {} app queue",
             lane.word()
         ));
+        if let Some(floor_kib) = grows {
+            crate::lane_size::grow(
+                places,
+                ssh,
+                floor_kib,
+                repo,
+                lane,
+                crate::lane_size::Need::Waits,
+            )?;
+        }
     }
     queue.wait_for_turn(&ticket.name)?;
     let (lock, checkout) = take_free_lock(places, ssh, repo, lane, allowed)?;

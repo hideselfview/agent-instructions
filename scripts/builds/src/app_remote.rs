@@ -231,6 +231,23 @@ impl RemoteApp {
         Ok(())
     }
 
+    /// Removes the checkout from the host, with its build folders there, so
+    /// its disk comes back; a checkout the host never made is removed already.
+    /// The caller holds the checkout's lock, so no build runs in it. A
+    /// failure names the host and what the removal printed there.
+    pub fn remove(&self) -> std::result::Result<(), String> {
+        let script = REMOVE
+            .replace("@ROOT@", &root_script(&self.host))
+            .replace("@CLONE@", &clone_path(&self.repo))
+            .replace("@REPO@", &self.repo)
+            .replace("@NAME@", &self.name);
+        match self.transport().ask(&script, "removing the app checkout") {
+            Ok(Ok(_)) => Ok(()),
+            Ok(Err(said)) => Err(said),
+            Err(error) => Err(error.text()),
+        }
+    }
+
     /// The command that runs <command> in the checkout on the host and is
     /// stopped as a step here is: a `builds remote step` process.
     pub fn step_command(&mut self, command: &[String]) -> Result<Command> {
@@ -435,6 +452,15 @@ else
   exclude_links
 fi
 echo "worktree=$wt""#;
+
+/// The script that removes the checkout <name> of <repo> on the host: the
+/// worktree from the host's clone, the folder `ENSURE` makes beside it, and
+/// its build folders under the host's builds root.
+const REMOVE: &str = r#"@ROOT@clone="$HOME/@CLONE@"
+wt="$HOME/dev/@REPO@-worktrees/@NAME@"
+if [ -e "$wt/.git" ]; then git -C "$clone" worktree remove --force "$wt" || exit 1; fi
+rm -rf "$wt" "$wt.job" "$BUILDS_ROOT/@REPO@/@NAME@" || exit 1
+if [ -e "$clone/.git" ]; then git -C "$clone" worktree prune; fi"#;
 
 #[cfg(test)]
 #[path = "app_remote_tests.rs"]

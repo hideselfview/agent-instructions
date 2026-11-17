@@ -10,7 +10,11 @@ use std::time::Duration;
 fn held_in(scratch: &Scratch) -> lock::Held {
     let places = scratch.places();
     places
-        .write_app_checkouts("steps", Lane::Mac, &["side-1".to_string()])
+        .write_app_checkouts(
+            "steps",
+            Lane::Mac,
+            &[crate::lane::AppCheckout::by_person("side-1")],
+        )
         .unwrap();
     lock::take(&places, "steps", Lane::Mac).unwrap()
 }
@@ -811,7 +815,11 @@ fn app_build_with_only_a_shots_pick_prints_a_stored_run_and_takes_no_lane() {
     let top = scratch.dir.join("repo");
     let kept = shots_store(&top, &database);
     places
-        .write_app_checkouts("demo", Lane::Mac, &["side-1".to_string()])
+        .write_app_checkouts(
+            "demo",
+            Lane::Mac,
+            &[crate::lane::AppCheckout::by_person("side-1")],
+        )
         .unwrap();
     let marker = places.root.join("demo/side-1");
     std::fs::create_dir_all(&marker).unwrap();
@@ -821,7 +829,12 @@ fn app_build_with_only_a_shots_pick_prints_a_stored_run_and_takes_no_lane() {
     let args = |words: &[&str]| words.iter().map(|w| w.to_string()).collect::<Vec<_>>();
     // Served from the store: no lane process starts (one would run this test
     // program as `builds`, and wait for a lock that does not exist).
-    cmd_app_build(&places, &args(&["demo", "HEAD", "--shots", "mac.a."])).unwrap();
+    cmd_app_build(
+        &places,
+        30 * 1024 * 1024,
+        &args(&["demo", "HEAD", "--shots", "mac.a."]),
+    )
+    .unwrap();
     crate::shot_findings::cmd_shots(
         &places,
         &args(&["findings", "demo", "HEAD", "mac", "mac.a."]),

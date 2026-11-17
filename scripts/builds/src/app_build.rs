@@ -913,9 +913,11 @@ fn who_asked() -> Option<String> {
 
 /// Builds <commit> in <lane>'s app checkout on the lane's lock: <names> are
 /// the lane's steps to run, or all of them when none and no <picks>. The run
-/// and its steps are timed and recorded (app_timing.rs).
+/// and its steps are timed and recorded (app_timing.rs). A lane that adds a
+/// checkout on a host keeps the host's free disk above <floor_kib>.
 fn run_lane(
     places: &Places,
+    floor_kib: u64,
     repo: &str,
     lane: Lane,
     commit: &str,
@@ -923,7 +925,16 @@ fn run_lane(
     picks: &[Pick],
 ) -> Result<()> {
     let mut timing = Timing::start();
-    let result = build_lane(places, repo, lane, commit, names, picks, &mut timing);
+    let result = build_lane(
+        places,
+        floor_kib,
+        repo,
+        lane,
+        commit,
+        names,
+        picks,
+        &mut timing,
+    );
     let passed = result.is_ok();
     timing.record(places, repo, lane, commit, passed);
     result
@@ -948,8 +959,10 @@ fn hold_stores(
     Ok(held)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn build_lane(
     places: &Places,
+    floor_kib: u64,
     repo: &str,
     lane: Lane,
     commit: &str,
@@ -976,7 +989,7 @@ fn build_lane(
             windowed.name
         ));
     }
-    let held = lock::take_where(places, &ssh, repo, lane, allowed)?;
+    let held = lock::take_where(places, &ssh, repo, lane, allowed, floor_kib)?;
     let mut held = hold_stores(held, &mut timing.stores)?;
     loop {
         timing.held = Some(HeldTimes::of(&held));
@@ -1335,7 +1348,9 @@ pub fn requested(argv: &[String]) -> Option<(&str, &str)> {
     }
 }
 
-pub fn cmd_app_build(places: &Places, args: &[String]) -> Result<()> {
+/// `builds app-build`. <floor_kib> is the free-disk floor a host keeps when
+/// a lane adds a checkout there (lane_size.rs).
+pub fn cmd_app_build(places: &Places, floor_kib: u64, args: &[String]) -> Result<()> {
     let [repo, rest @ ..] = args else {
         fail!("{USAGE}");
     };
@@ -1380,7 +1395,7 @@ pub fn cmd_app_build(places: &Places, args: &[String]) -> Result<()> {
         let lane = Lane::parse_or_fail(word)?;
         // A lane's process always says why it ended badly: a bare exit status
         // from a path that noted nothing would reach the parent as no output.
-        return match run_lane(places, repo, lane, commit, &names, &picks) {
+        return match run_lane(places, floor_kib, repo, lane, commit, &names, &picks) {
             Err(Fail::Exit(code)) => {
                 note(format!(
                     "the {} lane's build failed (exit {code})",

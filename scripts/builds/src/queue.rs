@@ -24,7 +24,9 @@
 //! starts a thread on the new predecessor; a thread left on the old one gives
 //! any ticket it gets back at once, and ends when that ticket frees.
 //!
-//! `builds queue <repo>` shows each lane's line, `builds queue <repo> top <pid>`
+//! `builds queue <repo>` shows each lane's checkouts, who holds each, why
+//! builds added or removed one (lane_size.rs), and the lane's line;
+//! `builds queue <repo> top <pid>`
 //! moves a waiter to right behind the holder, and `builds takeover <repo>
 //! [<pid>]` stops the holder's build and puts a waiter ahead of it (lock.rs);
 //! a pid names its lane, and `--lane` names it when there is no pid.
@@ -37,9 +39,10 @@ use std::sync::{Arc, Mutex};
 
 use crate::fail;
 use crate::fail::{Context, Result};
-use crate::lane::Lane;
+use crate::lane::{AddedBy, Lane};
 use crate::places::Places;
 use crate::procs::{self, Processes};
+use crate::text::local_minute;
 
 /// How many tickets this process has made.
 static TICKETS: AtomicU64 = AtomicU64::new(0);
@@ -131,8 +134,9 @@ pub struct Queue {
 }
 
 /// The guard lock, held until dropped. It is not passed to processes this one
-/// starts.
-struct Guard(libc::c_int);
+/// starts. Every change to the order, and every change to the lane's set of
+/// app checkouts and every take of one of its locks, happens under it.
+pub struct Guard(libc::c_int);
 
 impl Drop for Guard {
     fn drop(&mut self) {
@@ -160,14 +164,15 @@ impl Queue {
     /// Where a waiter moved to the top goes: right behind the builds that
     /// hold a lock (at least the first, at most `slots`), so with a lock free
     /// it is among those that may take it.
-    fn behind_holders(&self) -> usize {
+    fn behind_holders(&self) -> Result<usize> {
         let text = std::fs::read_to_string(&self.checkouts_file).unwrap_or_default();
-        let held = text
-            .lines()
-            .filter(|line| !line.is_empty())
-            .filter(|checkout| is_held(&self.lock_path(checkout)).unwrap_or(false))
-            .count();
-        held.clamp(1, self.slots())
+        let mut held = 0;
+        for checkout in crate::lane::parse_set(&text)? {
+            if is_held(&self.lock_path(&checkout.entry))? {
+                held += 1;
+            }
+        }
+        Ok(held.clamp(1, self.slots()))
     }
 
     /// How many builds the lane holds locks for at once: its app checkouts,
@@ -181,7 +186,7 @@ impl Queue {
         self.dir.join(name)
     }
 
-    fn guard(&self) -> Result<Guard> {
+    pub fn guard(&self) -> Result<Guard> {
         std::fs::create_dir_all(&self.dir)
             .context(|| format!("creating {}", self.dir.display()))?;
         let path = self.dir.join(".next");
@@ -393,7 +398,7 @@ impl Queue {
             fail!("{pid} is among the first {slots} in the queue: it holds a lock or is about to");
         }
         let name = order.remove(at);
-        order.insert(self.behind_holders().min(order.len()), name);
+        order.insert(self.behind_holders()?.min(order.len()), name);
         self.write_order(&order)
     }
 }
@@ -693,7 +698,7 @@ pub fn takeover(places: &Places, repo: &str, pid: Option<i32>, lane: Option<Lane
         }
         let name = order.remove(taker);
         if !holding {
-            order.insert(queue.behind_holders().min(order.len()), name);
+            order.insert(queue.behind_holders()?.min(order.len()), name);
             queue.write_order(&order)?;
             None
         } else {
@@ -773,25 +778,43 @@ pub fn cmd_queue(places: &Places, args: &[String]) -> Result<()> {
                     .take(queue.slots())
                     .filter_map(|name| pid_of(name))
                     .collect();
-                for checkout in places.app_checkouts_of(repo, lane)? {
-                    let lock = places.app_lock_file(repo, lane, &checkout);
+                for recorded in places.app_checkouts_recorded(repo, lane)? {
+                    let checkout = &recorded.entry;
+                    let lock = places.app_lock_file(repo, lane, checkout);
                     if !is_held(&lock)? {
-                        continue;
+                        println!("{} {checkout}: free", lane.word());
+                    } else {
+                        let real = std::fs::canonicalize(&lock).unwrap_or(lock.clone());
+                        let holder = first.iter().find(|pid| {
+                            procs::open_files(**pid)
+                                .iter()
+                                .any(|open| *open == real || *open == lock)
+                        });
+                        match holder {
+                            Some(pid) => println!(
+                                "{} {checkout}: holder {pid} {}",
+                                lane.word(),
+                                command_of(*pid)
+                            ),
+                            None => println!("{} {checkout}: held", lane.word()),
+                        }
                     }
-                    let real = std::fs::canonicalize(&lock).unwrap_or(lock.clone());
-                    let holder = first.iter().find(|pid| {
-                        procs::open_files(**pid)
-                            .iter()
-                            .any(|open| *open == real || *open == lock)
-                    });
-                    match holder {
-                        Some(pid) => println!(
-                            "{} {checkout}: holder {pid} {}",
+                    if let AddedBy::Builds { at, why } = &recorded.added_by {
+                        println!(
+                            "{} {checkout}: builds added it at {}: {why}",
                             lane.word(),
-                            command_of(*pid)
-                        ),
-                        None => println!("{} {checkout}: held", lane.word()),
+                            local_minute(*at)
+                        );
                     }
+                }
+                for removed in places.app_checkouts_removed(repo, lane)? {
+                    println!(
+                        "{}: builds removed {} at {}: {}",
+                        lane.word(),
+                        removed.entry,
+                        local_minute(removed.at),
+                        removed.why
+                    );
                 }
                 let waiting = queue.waiting();
                 if waiting.is_empty() {

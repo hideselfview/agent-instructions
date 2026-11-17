@@ -221,11 +221,11 @@ fn a_build_that_runs_here_never_takes_a_checkout_on_a_host() {
     let scratch = Scratch::new("lock-here");
     let places = places_with_host(&scratch, "m1:app-1\n");
     let ssh = ssh_with_load(&scratch.dir.join("ssh"), "0.00");
-    let Err(error) = take_in(&places, &ssh, "demo", Lane::Android, Where::Here) else {
+    let Err(error) = take_in(&places, &ssh, "demo", Lane::Android, Where::Here, None) else {
         panic!("only a host's checkout is recorded");
     };
     assert!(error.text().contains("on this Mac"));
-    let held = take_where(&places, &ssh, "demo", Lane::Android, Where::Anywhere).unwrap();
+    let held = take_where(&places, &ssh, "demo", Lane::Android, Where::Anywhere, 0).unwrap();
     assert_eq!(held.checkout, "m1:app-1");
     held.release();
 }
@@ -234,8 +234,9 @@ fn a_build_that_runs_here_never_takes_a_checkout_on_a_host() {
 fn a_build_that_runs_on_hosts_never_takes_a_checkout_on_this_mac() {
     let scratch = Scratch::new("lock-hosts");
     let places = places_with_host(&scratch, "side-2\n");
-    let ssh = ssh_with_load(&scratch.dir.join("ssh"), "0.00");
-    let Err(error) = take_where(&places, &ssh, "demo", Lane::Android, Where::Hosts) else {
+    // A host with no core free gets no checkout added (lane_size.rs).
+    let busy = ssh_with_load(&scratch.dir.join("busy"), "1000.00");
+    let Err(error) = take_where(&places, &busy, "demo", Lane::Android, Where::Hosts, 0) else {
         panic!("only this Mac's checkout is recorded");
     };
     let text = error.text();
@@ -247,8 +248,7 @@ fn a_build_that_runs_on_hosts_never_takes_a_checkout_on_this_mac() {
     .unwrap();
     // This Mac's load per core is never 1000, so a pick by load alone would
     // take side-2.
-    let busy = ssh_with_load(&scratch.dir.join("busy"), "1000.00");
-    let held = take_where(&places, &busy, "demo", Lane::Android, Where::Hosts).unwrap();
+    let held = take_where(&places, &busy, "demo", Lane::Android, Where::Hosts, 0).unwrap();
     assert_eq!(held.checkout, "m1:app-1");
     held.release();
 }
@@ -299,7 +299,7 @@ fn a_host_that_does_not_answer_is_skipped_and_named_when_it_was_the_only_one() {
     let down = Ssh {
         program: program.display().to_string(),
     };
-    let Err(error) = take_where(&places, &down, "demo", Lane::Android, Where::Anywhere) else {
+    let Err(error) = take_where(&places, &down, "demo", Lane::Android, Where::Anywhere, 0) else {
         panic!("the only checkout is on a host that is down");
     };
     let text = error.text();

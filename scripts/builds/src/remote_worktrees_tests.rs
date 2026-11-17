@@ -182,7 +182,11 @@ fn prune_removes_the_worktrees_on_a_host_that_no_checkout_uses() {
     host_worktree(&home, &clone, "remote-5", Some(&live));
     host_worktree(&home, &clone, "remote-app", None);
     places
-        .write_app_checkouts("demo", Lane::Android, &names(&["m1:remote-app"]))
+        .write_app_checkouts(
+            "demo",
+            Lane::Android,
+            &[crate::lane::AppCheckout::by_person("m1:remote-app")],
+        )
         .unwrap();
     let all = [
         "remote-demo",

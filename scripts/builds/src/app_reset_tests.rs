@@ -54,7 +54,11 @@ fn halfway(scratch: &Scratch) -> (Places, PathBuf, String, String) {
     std::fs::create_dir_all(&root).unwrap();
     std::fs::write(root.join(".checkout"), top.to_str().unwrap()).unwrap();
     places
-        .write_app_checkouts("demo", Lane::Mac, &["side-1".to_string()])
+        .write_app_checkouts(
+            "demo",
+            Lane::Mac,
+            &[crate::lane::AppCheckout::by_person("side-1")],
+        )
         .unwrap();
     (places, top, old, new)
 }

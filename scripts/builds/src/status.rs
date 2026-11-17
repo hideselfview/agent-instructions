@@ -12,7 +12,7 @@ use crate::claim::Claim;
 use crate::fail;
 use crate::fail::Result;
 use crate::install::sccache_config_holds;
-use crate::lane::{Lane, is_lane_file};
+use crate::lane::{AddedBy, Lane, is_lane_file};
 use crate::manifest::{SHARED_CACHES, build_dirs, kept_builds};
 use crate::places::{DERIVED_DATA_CAP_KIB, DiskSpace, FLOOR_IDLE_MINUTES, MACOS_ENTRIES, Places};
 use crate::prune::derived_data;
@@ -579,6 +579,20 @@ pub struct LaneJson {
     pub app_checkouts: Vec<String>,
     /// The lane's locks that exist, one per app checkout.
     pub app_locks: Vec<String>,
+    /// Each of the lane's checkouts that builds added (lane_size.rs): when
+    /// and why.
+    pub added_by_builds: Vec<LaneChange>,
+    /// The checkouts builds removed from the lane lately, oldest first.
+    pub removed_by_builds: Vec<LaneChange>,
+}
+
+/// A checkout builds added to a lane or removed from it, when (seconds since
+/// 1970) and why.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct LaneChange {
+    pub checkout: String,
+    pub at: i64,
+    pub why: String,
 }
 
 #[derive(Serialize)]
@@ -732,7 +746,28 @@ fn checkout_json(tool: &Tool, root: &Root, with_folders: bool) -> Result<Checkou
 pub fn lanes_of(places: &Places, repo: &str) -> Result<Vec<LaneJson>> {
     let mut lanes = Vec::new();
     for lane in Lane::ALL {
-        let app_checkouts = places.app_checkouts_of(repo, lane)?;
+        let recorded = places.app_checkouts_recorded(repo, lane)?;
+        let added_by_builds = recorded
+            .iter()
+            .filter_map(|checkout| match &checkout.added_by {
+                AddedBy::Builds { at, why } => Some(LaneChange {
+                    checkout: checkout.entry.clone(),
+                    at: *at,
+                    why: why.clone(),
+                }),
+                AddedBy::Person => None,
+            })
+            .collect();
+        let removed_by_builds = places
+            .app_checkouts_removed(repo, lane)?
+            .into_iter()
+            .map(|removed| LaneChange {
+                checkout: removed.entry,
+                at: removed.at,
+                why: removed.why,
+            })
+            .collect();
+        let app_checkouts: Vec<String> = recorded.into_iter().map(|c| c.entry).collect();
         let app_locks: Vec<String> = app_checkouts
             .iter()
             .map(|checkout| places.app_lock_file(repo, lane, checkout))
@@ -744,6 +779,8 @@ pub fn lanes_of(places: &Places, repo: &str) -> Result<Vec<LaneJson>> {
                 lane: lane.word(),
                 app_checkouts,
                 app_locks,
+                added_by_builds,
+                removed_by_builds,
             });
         }
     }

@@ -38,6 +38,7 @@ mod install_gate;
 mod install_hook;
 mod land;
 mod lane;
+mod lane_size;
 mod linker;
 mod lists;
 mod lock;
@@ -213,7 +214,13 @@ fn run(command: &str, args: &[String]) -> Result<()> {
         "checks" => return checks_run::cmd_checks(args),
         "install-hook" => return install_hook::cmd_install_hook(args),
         "lock" => return lock::cmd_lock(&Places::from_env()?, args),
-        "app-build" => return app_build::cmd_app_build(&Places::from_env()?, args),
+        "app-build" => {
+            return app_build::cmd_app_build(
+                &Places::from_env()?,
+                Rules::from_env()?.floor_kib,
+                args,
+            );
+        }
         "shots" => return shot_findings::cmd_shots(&Places::from_env()?, args),
         "queue" => return queue::cmd_queue(&Places::from_env()?, args),
         "takeover" => return queue::cmd_takeover(&Places::from_env()?, args),

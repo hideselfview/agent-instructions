@@ -477,7 +477,7 @@ pub fn refusal_finding(refusal: &Refusal) -> crate::health::Advice {
 
 /// Why <probe> keeps <host> from taking a job, or None when it can take one:
 /// it does not answer, its free disk is under <floor_kib>, or it refuses jobs.
-fn passed_over(
+pub fn passed_over(
     host: &Host,
     probe: &std::result::Result<Probe, String>,
     floor_kib: u64,

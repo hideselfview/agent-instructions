@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::fail;
 use crate::fail::Result;
-use crate::lane::Lane;
+use crate::lane::{AppCheckout, Lane, Removed};
 
 /// A file in a build folder written this recently may belong to a build
 /// between two of its steps, holding no lock or open file: the floor, the
@@ -146,11 +146,17 @@ impl Places {
         self.root.join("caches")
     }
 
-    /// The file naming <repo>'s app checkouts in <lane>, one side worktree
-    /// name per line: the side worktrees that keep that lane's app builds warm
-    /// beside main. `builds app-checkout` writes it.
+    /// The file naming <repo>'s app checkouts in <lane>, one per line
+    /// (lane.rs `AppCheckout`): the checkouts that keep that lane's app builds
+    /// warm beside main. `builds app-checkout` and lane_size.rs write it.
     pub fn app_checkouts_file(&self, repo: &str, lane: Lane) -> PathBuf {
         self.root.join(repo).join(lane.checkouts_file_name())
+    }
+
+    /// The record of the checkouts builds removed from <repo>'s <lane> lately
+    /// (lane.rs `Removed`), which lane_size.rs writes.
+    pub fn app_checkouts_removed_file(&self, repo: &str, lane: Lane) -> PathBuf {
+        self.root.join(repo).join(lane.removed_file_name())
     }
 
     /// <lane>'s locks for <repo>: <root>/<repo>/app.locks for the mac lane.
@@ -170,29 +176,49 @@ impl Places {
             .join(format!("{checkout}.run"))
     }
 
+    /// When the last build that held <checkout>'s lock let it go, in seconds
+    /// since 1970 (lock.rs `Held`).
+    pub fn app_lock_ended_file(&self, repo: &str, lane: Lane, checkout: &str) -> PathBuf {
+        self.app_locks_dir(repo, lane)
+            .join(format!("{checkout}.ended"))
+    }
+
     /// What <repo>'s app checkout <checkout> last built (app_build.rs `Built`).
     pub fn app_built_file(&self, repo: &str, checkout: &str) -> PathBuf {
         self.root.join(repo).join(checkout).join(".last-app-build")
     }
 
-    /// <repo>'s app checkouts (side-N) in <lane>, in the order recorded;
-    /// empty when none is.
-    pub fn app_checkouts_of(&self, repo: &str, lane: Lane) -> Result<Vec<String>> {
+    /// <repo>'s app checkouts in <lane>, with who added each, in the order
+    /// recorded; empty when none is.
+    pub fn app_checkouts_recorded(&self, repo: &str, lane: Lane) -> Result<Vec<AppCheckout>> {
         let file = self.app_checkouts_file(repo, lane);
         match std::fs::read_to_string(&file) {
-            Ok(text) => Ok(text
-                .lines()
-                .filter(|line| !line.is_empty())
-                .map(str::to_string)
-                .collect()),
+            Ok(text) => crate::lane::parse_set(&text),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Vec::new()),
             Err(error) => fail!("reading {}: {error}", file.display()),
         }
     }
 
+    /// The entries (`side-N`, `<host>:<name>`) of <repo>'s app checkouts in
+    /// <lane>, in the order recorded; empty when none is.
+    pub fn app_checkouts_of(&self, repo: &str, lane: Lane) -> Result<Vec<String>> {
+        Ok(self
+            .app_checkouts_recorded(repo, lane)?
+            .into_iter()
+            .map(|checkout| checkout.entry)
+            .collect())
+    }
+
     /// Replaces <lane>'s set of app checkouts with <checkouts>, in one rename;
-    /// an empty set removes the file.
-    pub fn write_app_checkouts(&self, repo: &str, lane: Lane, checkouts: &[String]) -> Result<()> {
+    /// an empty set removes the file. Only a holder of the lane's queue guard
+    /// (queue.rs `Queue::guard`) writes it, so no two writes run at once and
+    /// no build takes a checkout the write removes.
+    pub fn write_app_checkouts(
+        &self,
+        repo: &str,
+        lane: Lane,
+        checkouts: &[AppCheckout],
+    ) -> Result<()> {
         use crate::fail::Context;
         let file = self.app_checkouts_file(repo, lane);
         if checkouts.is_empty() {
@@ -205,8 +231,25 @@ impl Places {
         }
         let dir = self.root.join(repo);
         std::fs::create_dir_all(&dir).context(|| format!("creating {}", dir.display()))?;
-        let text: String = checkouts.iter().map(|name| format!("{name}\n")).collect();
+        let text: String = checkouts
+            .iter()
+            .map(|checkout| format!("{}\n", checkout.line()))
+            .collect();
         crate::whole_file::write(&file, text)
+    }
+
+    /// The checkouts builds removed from <repo>'s <lane> lately, oldest first.
+    pub fn app_checkouts_removed(&self, repo: &str, lane: Lane) -> Result<Vec<Removed>> {
+        let file = self.app_checkouts_removed_file(repo, lane);
+        match std::fs::read_to_string(&file) {
+            Ok(text) => text
+                .lines()
+                .filter(|line| !line.is_empty())
+                .map(Removed::parse)
+                .collect(),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Vec::new()),
+            Err(error) => fail!("reading {}: {error}", file.display()),
+        }
     }
 
     /// The lane <checkout> is one of <repo>'s app checkouts of, if it is one.

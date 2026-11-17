@@ -34,7 +34,9 @@ branch, not the worktree, is the unit of work.
     picked by hand.
   - App checkouts keep the app builds built, and agents take turns in them
     through `builds app-build`; every other side worktree builds host Rust
-    output only (`builds help`, APP BUILDS).
+    output only (`builds help`, APP BUILDS). builds adds app checkouts on a
+    host while builds wait for a lane and removes them once no build uses
+    them, so nobody adds one by hand when many builds wait.
   - agent-instructions, which holds builds, works the same way: agents
     commit on a branch in a side worktree from `builds new
     ~/dev/agent-instructions --for <who> --project builds` (`--project bae`

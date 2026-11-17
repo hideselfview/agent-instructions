@@ -760,7 +760,9 @@ pub fn cmd_prune(tool: &Tool, args: &[String]) -> Result<()> {
     // Remove the host worktrees after retire_idle runs, because the jobs of
     // a worktree it retires no longer use that worktree's copies on the
     // hosts.
-    crate::remote_worktrees::prune(&tool.places, &crate::host::Ssh::from_env(), run)?;
+    let ssh = crate::host::Ssh::from_env();
+    crate::remote_worktrees::prune(&tool.places, &ssh, run)?;
+    crate::lane_size::shrink_all(&tool.places, &ssh, run)?;
     let roots = tool.roots()?;
     for root in &roots {
         let Some(checkout) = &root.live else {
