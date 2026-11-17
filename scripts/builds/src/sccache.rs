@@ -135,17 +135,66 @@ fn read_listener(status: Option<i32>, stdout: &str, stderr: &str) -> Result<Opti
 /// A shell script, for a host, that runs the lsof of `listener_args` and
 /// prints its exit status on the line `listener_status=`, each line of its
 /// stdout after `listener=`, and its stderr on the line `listener_said=`.
-/// `parse_listener_lines` reads these lines.
+/// `parse_listener_lines` reads these lines. When lsof found a listener, the
+/// script then prints the server's JSON stats on the line `sccache_stats=`,
+/// which `parse_stats_line` reads: the script asks the server only when it
+/// listens, since asking starts a server when none runs.
 pub fn listener_script() -> String {
     format!(
         r#"listener_err=$(mktemp)
 listener=$(lsof {args} 2>"$listener_err")
-echo "listener_status=$?"
+listener_status=$?
+echo "listener_status=$listener_status"
 printf '%s\n' "$listener" | sed 's/^/listener=/'
 echo "listener_said=$(tr '\n' ' ' <"$listener_err")"
-rm -f "$listener_err""#,
+rm -f "$listener_err"
+if [ "$listener_status" = 0 ]; then printf 'sccache_stats=%s\n' "$({STATS} 2>&1 | tr '\n' ' ')"; fi"#,
         args = listener_args().join(" ")
     )
+}
+
+/// The command that prints the listening server's stats as one line of JSON.
+const STATS: &str = "sccache --show-stats --stats-format json";
+
+/// The max cache size, in bytes, of the server whose JSON stats are on the
+/// `sccache_stats=` line among <text>'s, or None when no such line is there
+/// (no server listened). Fails when the line holds no max cache size.
+pub fn parse_stats_line(text: &str) -> Result<Option<u64>> {
+    text.lines()
+        .find_map(|line| line.strip_prefix("sccache_stats="))
+        .map(parse_max_cache_size)
+        .transpose()
+}
+
+/// The max cache size, in bytes, in the JSON stats <json> that the server
+/// printed. Fails, with what it printed, when the JSON holds none.
+pub fn parse_max_cache_size(json: &str) -> Result<u64> {
+    serde_json::from_str::<serde_json::Value>(json)
+        .ok()
+        .and_then(|stats| stats.get("max_cache_size")?.as_u64())
+        .map_or_else(
+            || fail!("{STATS} printed no max cache size: {}", json.trim()),
+            Ok,
+        )
+}
+
+/// The max cache size, in bytes, that the server listening on sccache's port
+/// runs with. Ask only a server that listens: asking starts one when none
+/// runs. Fails when sccache fails or prints no max cache size.
+pub fn running_max_cache_size() -> Result<u64> {
+    let mut words = STATS.split_whitespace();
+    let output = Command::new(words.next().expect("the command has a program"))
+        .args(words)
+        .output()
+        .context(|| "running sccache --show-stats".to_string())?;
+    if !output.status.success() {
+        fail!(
+            "{STATS} failed ({}): {}",
+            output.status,
+            String::from_utf8_lossy(&[output.stdout, output.stderr].concat()).trim()
+        );
+    }
+    parse_max_cache_size(&String::from_utf8_lossy(&output.stdout))
 }
 
 /// Reads the lines `listener_script` printed among <text>'s.
@@ -587,6 +636,21 @@ pub mod tests {
             parse_listener_lines(&String::from_utf8_lossy(&output.stdout)).unwrap(),
             Some(44790)
         );
+    }
+
+    /// The running server's max cache size comes from its JSON stats; JSON
+    /// without it is an error, never a cap of nothing.
+    #[test]
+    fn reads_the_running_servers_max_cache_size() {
+        assert_eq!(
+            parse_max_cache_size(
+                "{\"stats\":{\"compile_requests\":5},\"cache_size\":10,\"max_cache_size\":32212254720}"
+            )
+            .unwrap(),
+            32212254720
+        );
+        assert!(parse_max_cache_size("{\"stats\":{}}").is_err());
+        assert!(parse_max_cache_size("sccache: error").is_err());
     }
 
     #[test]

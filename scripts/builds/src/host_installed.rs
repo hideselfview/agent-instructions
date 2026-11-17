@@ -29,6 +29,11 @@ pub struct Installed {
     /// (`install::sccache_cap_kib`), which `install::run_sccache_under_launchd`
     /// writes and the server reads when it starts.
     pub sccache_cap: bool,
+    /// The max cache size, in bytes, that the host's listening sccache server
+    /// runs with, which it read from its config when it started; None when no
+    /// server listens. A server that started before builds wrote a new cap
+    /// keeps the old one until it starts again.
+    pub sccache_running_cap: Option<u64>,
     /// The settings that UI tests need on this host, which `builds host
     /// setup` turns on.
     pub ui_tests: crate::ui_test_settings::UiTestSettings,
@@ -73,6 +78,7 @@ pub fn parse_installed(text: &str) -> Result<Installed> {
         _ => fail!("the host's answer has no plist line: {text:?}"),
     };
     let listener = crate::sccache::parse_listener_lines(text)?;
+    let sccache_running_cap = crate::sccache::parse_stats_line(text)?;
     let ui_tests = crate::ui_test_settings::parse(text)?;
     let config: Vec<&str> = text
         .lines()
@@ -95,6 +101,7 @@ pub fn parse_installed(text: &str) -> Result<Installed> {
         },
         sccache_under_launchd: plist && crate::sccache::launchd_serves(job.as_ref(), listener),
         sccache_cap,
+        sccache_running_cap,
         ui_tests,
     })
 }
@@ -159,6 +166,12 @@ pub fn installed_findings(reads: &[HostInstalled]) -> Vec<crate::health::Advice>
             "builds install".to_string(),
         ));
     }
+    if let Some(stale) = stale_running_cap(local) {
+        out.push(crate::health::Advice::run(
+            format!("this Mac's {stale} Restart it with"),
+            "builds install".to_string(),
+        ));
+    }
     for read in reads.iter().filter(|read| read.host != LOCAL) {
         let name = &read.host;
         let installed = match &read.read {
@@ -194,6 +207,12 @@ pub fn installed_findings(reads: &[HostInstalled]) -> Vec<crate::health::Advice>
                     "host {name}'s {} Write builds' cap into the config with",
                     sccache_cap_differs()
                 ),
+                setup.clone(),
+            ));
+        }
+        if let Some(stale) = stale_running_cap(installed) {
+            out.push(crate::health::Advice::run(
+                format!("host {name}'s {stale} Restart it with"),
                 setup,
             ));
         }
@@ -210,6 +229,22 @@ fn sccache_cap_differs() -> String {
         "sccache config does not hold builds' cap of {}, so its sccache server keeps a cache of another size.",
         crate::text::human(crate::install::sccache_cap_kib())
     )
+}
+
+/// What a Mac loses whose config holds builds' cap while its listening
+/// sccache server runs with another, which it read before builds wrote the
+/// cap; None when the server runs with the config's cap, no server listens,
+/// or the config itself differs (`sccache_cap_differs` says so).
+fn stale_running_cap(installed: &Installed) -> Option<String> {
+    let cap = crate::install::sccache_cap_kib() * 1024;
+    let running = installed.sccache_running_cap?;
+    (installed.sccache_cap && running != cap).then(|| {
+        format!(
+            "sccache server runs with a cap of {}, not the {} its config holds, since it started before builds wrote that cap.",
+            crate::text::human_bytes(running),
+            crate::text::human_bytes(cap)
+        )
+    })
 }
 
 #[cfg(test)]

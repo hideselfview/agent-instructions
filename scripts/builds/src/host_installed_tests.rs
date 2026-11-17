@@ -29,17 +29,31 @@ fn answer(builds: &str, plist: &str, listener: &str, job: Option<&str>) -> Strin
         Some(printed) => format!("job=loaded\n{printed}"),
         None => "job=none\n".to_string(),
     };
-    let (status, lsof) = if listener.is_empty() {
-        (1, "listener=\n".to_string())
+    let (status, lsof, stats) = if listener.is_empty() {
+        (1, "listener=\n".to_string(), String::new())
     } else {
         (
             0,
             format!("listener=p{listener}\nlistener=R1\nlistener=csccache\nlistener=f5\n"),
+            stats_line(cap_bytes()),
         )
     };
     format!(
-        "builds={builds}\nplist={plist}\n{config}listener_status={status}\n{lsof}listener_said=\n{UI_TESTS}{job}",
+        "builds={builds}\nplist={plist}\n{config}listener_status={status}\n{lsof}listener_said=\n{stats}{UI_TESTS}{job}",
         config = config_lines(crate::install::sccache_cap_kib())
+    )
+}
+
+/// builds' cap for the sccache cache, in bytes.
+fn cap_bytes() -> u64 {
+    crate::install::sccache_cap_kib() * 1024
+}
+
+/// What `installed_script` prints for a listening server whose max cache size
+/// is <bytes>, cut to the fields that matter.
+fn stats_line(bytes: u64) -> String {
+    format!(
+        "sccache_stats={{\"stats\":{{\"compile_requests\":5}},\"cache_size\":10,\"max_cache_size\":{bytes},\"version\":\"0.13.0\"}}\n"
     )
 }
 
@@ -67,6 +81,7 @@ fn reads_what_a_host_has_installed() {
             builds: Some("ab12".to_string()),
             sccache_under_launchd: true,
             sccache_cap: true,
+            sccache_running_cap: Some(cap_bytes()),
             ui_tests: all_on(),
         }
     );
@@ -76,6 +91,7 @@ fn reads_what_a_host_has_installed() {
             builds: None,
             sccache_under_launchd: false,
             sccache_cap: true,
+            sccache_running_cap: None,
             ui_tests: all_on(),
         }
     );
@@ -186,6 +202,7 @@ fn a_host_whose_sccache_runs_outside_launchd_is_a_finding() {
         builds: Some("ab12".to_string()),
         sccache_under_launchd,
         sccache_cap: true,
+        sccache_running_cap: Some(cap_bytes()),
         ui_tests: all_on(),
     };
     let read = |host: &str, under: bool| HostInstalled {
@@ -247,6 +264,7 @@ fn a_host_whose_sccache_config_does_not_hold_builds_cap_is_a_finding() {
             builds: Some("ab12".to_string()),
             sccache_under_launchd: true,
             sccache_cap,
+            sccache_running_cap: Some(cap_bytes()),
             ui_tests: all_on(),
         }),
     };
@@ -288,4 +306,54 @@ fn a_host_whose_sccache_config_does_not_hold_builds_cap_is_a_finding() {
         .map(|read| read.read.as_ref().unwrap().sccache_cap)
         .collect();
     assert_eq!(caps, [false, true], "only m1's home has a config");
+}
+
+/// A server that runs with another cap than the config's, as one that read
+/// its config before builds wrote the new cap, is a finding: a host's names
+/// `builds host setup`, and this Mac's names `builds install`. A server that
+/// runs with builds' cap, or no listening server, is none.
+#[test]
+fn a_server_whose_running_cap_differs_from_its_config_is_a_finding() {
+    use crate::sccache::tests::RUNNING;
+    let old = 30 * 1024 * 1024 * 1024;
+    let stale = answer("ab12", "present", "2914", Some(RUNNING))
+        .replace(&stats_line(cap_bytes()), &stats_line(old));
+    assert_eq!(
+        parse_installed(&stale).unwrap().sccache_running_cap,
+        Some(old)
+    );
+    let read = |host: &str, running: Option<u64>| HostInstalled {
+        host: host.to_string(),
+        read: Ok(Installed {
+            builds: Some("ab12".to_string()),
+            sccache_under_launchd: true,
+            sccache_cap: true,
+            sccache_running_cap: running,
+            ui_tests: all_on(),
+        }),
+    };
+    assert_eq!(
+        installed_findings(&[read(LOCAL, Some(cap_bytes())), read("m1", None)]),
+        []
+    );
+    let found = installed_findings(&[read(LOCAL, Some(old)), read("m1", Some(old))]);
+    let shown: Vec<(&str, Option<&str>)> = found
+        .iter()
+        .map(|advice| (advice.text.as_str(), advice.command.as_deref()))
+        .collect();
+    assert_eq!(shown.len(), 2, "{shown:?}");
+    assert!(
+        shown[0]
+            .0
+            .starts_with("this Mac's sccache server runs with a cap of 30.0G"),
+        "{shown:?}"
+    );
+    assert_eq!(shown[0].1, Some("builds install"));
+    assert!(
+        shown[1]
+            .0
+            .starts_with("host m1's sccache server runs with a cap of 30.0G"),
+        "{shown:?}"
+    );
+    assert_eq!(shown[1].1, Some("builds host setup m1"));
 }

@@ -427,7 +427,10 @@ TMPDIR and no idle timeout; its cache is caches/sccache, capped in
 both here and on every host, `builds host setup` writes them on a host (whose
 cache is its own ~/Library/Caches/Mozilla.sccache), `builds status` flags a
 config that no longer holds builds' cap, and `builds health` names each Mac
-whose server launchd does not run or whose config does not hold builds' cap.
+whose server launchd does not run, whose config does not hold builds' cap, or
+whose server runs with another cap than its config's: a server reads its
+config when it starts, so one that started before builds wrote a new cap keeps
+the old one until it starts again.
 Never start a server any other way: a server inherits the TMPDIR of the client
 that starts it and fails every compile once that folder is deleted, and the
 Unix-socket mode (SCCACHE_SERVER_UDS) races when clients start at once and
@@ -1222,9 +1225,10 @@ STATUS, HEALTH AND THE DASHBOARD
                               this Mac's (`builds host setup <name>`); a build
                               host, or this Mac, whose sccache server launchd
                               does not run from builds' plist, or whose
-                              sccache config does not hold builds' cap
-                              (`builds host setup <name>`, or `builds install`
-                              here); a
+                              sccache config does not hold builds' cap, or
+                              whose server runs with another cap than its
+                              config's (`builds host setup <name>`, or
+                              `builds install` here); a
                               build host that builds could not ask what it
                               has installed, with what went wrong; cores idle
                               on this Mac or a host, its 5-minute load under
@@ -1987,7 +1991,9 @@ INSTALLING
                               folder already there onto the volume), write the
                               sccache config, run the sccache server under
                               launchd (restarting it only when its settings
-                              changed or another server holds sccache's port,
+                              changed, it runs with another cap than its
+                              config's, or another server holds sccache's
+                              port,
                               and only once the compiles of the server it
                               stops finish, since a restart fails every
                               running compile; `builds install` fails, with

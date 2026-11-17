@@ -419,7 +419,8 @@ const START_LIMIT: Duration = Duration::from_secs(10);
 /// under launchd (`SCCACHE_LABEL`) for user <uid>, whose home is <home>.
 /// `builds install` calls this on this Mac, and `builds host setup` on each
 /// host. When the settings are unchanged and launchd's server is the one
-/// listening on sccache's port, the function changes nothing. Otherwise it
+/// listening on sccache's port, with the cap the config holds, the function
+/// changes nothing. Otherwise it
 /// waits for the compiles of the listening server to finish, stops that
 /// server, whether launchd runs it or a client started it, starts launchd's,
 /// and checks that launchd's server is the one listening. It fails, with what
@@ -452,9 +453,25 @@ pub fn run_sccache_under_launchd(home: &Path, uid: u32) -> Result<()> {
     let service = format!("{domain}/{SCCACHE_LABEL}");
     let job = read_job(&service)?;
     let listener = crate::sccache::listener()?;
-    if !changed && launchd_serves(job.as_ref(), listener) {
+    let serving = launchd_serves(job.as_ref(), listener);
+    // A server reads its config when it starts, so one that started before
+    // the config held this cap still runs with the old one.
+    let running_cap = if serving {
+        Some(crate::sccache::running_max_cache_size()?)
+    } else {
+        None
+    };
+    let cap_bytes = sccache_cap * 1024;
+    if !changed && serving && running_cap == Some(cap_bytes) {
         note("the sccache server already runs under launchd with these settings");
         return Ok(());
+    }
+    if let Some(running) = running_cap.filter(|running| *running != cap_bytes) {
+        note(format!(
+            "the sccache server runs with a cap of {}, not the config's {}, so builds starts it again",
+            crate::text::human_bytes(running),
+            human(sccache_cap)
+        ));
     }
     if let Some(pid) = listener {
         crate::sccache::wait_for_compiles(pid, COMPILES_LIMIT)?;
