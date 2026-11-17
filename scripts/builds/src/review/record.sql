@@ -45,10 +45,10 @@ CREATE TABLE review_run (
     grouping TEXT NOT NULL,
     -- The commit of the rules checkout the run read, empty when it is no repo.
     rules_version TEXT NOT NULL,
-    -- How many lines the review run's diff adds and removes. Null for a replay
-    -- or an audit, and for a review run from before builds counted the lines
-    -- whose commits the repo's clone on this Mac no longer held when builds
-    -- moved the store.
+    -- How many lines the review run's diff adds and removes. The column is
+    -- null for a replay or an audit. The column is also null for a review run
+    -- that builds recorded before builds counted lines, when the repo's clone
+    -- on this Mac no longer held the run's commits as builds moved the store.
     changed_lines INTEGER CONSTRAINT review_run_changed_lines_not_negative CHECK (changed_lines >= 0),
     CONSTRAINT review_run_review_has_a_landing CHECK (kind = 'replay' OR landing_id IS NOT NULL),
     CONSTRAINT review_run_since_only_in_a_review CHECK (since_run IS NULL OR kind = 'review')

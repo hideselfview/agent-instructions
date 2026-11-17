@@ -704,7 +704,7 @@ pub struct FirstReview {
 }
 
 /// The first review run of each branch, oldest first. A finding counts as its
-/// last settle, so one settled again as dropped is left out.
+/// last settle, so the list leaves out a finding settled again as dropped.
 pub fn first_reviews(db: &Connection) -> Result<Vec<FirstReview>> {
     let mut statement = db
         .prepare(
@@ -751,7 +751,8 @@ pub fn first_reviews(db: &Connection) -> Result<Vec<FirstReview>> {
 /// The rule and clause of each confirmed finding on the first review run of
 /// each of the <last> branches opened last, newest branch first. A branch
 /// whose first run has no confirmed finding gives an empty list. A finding
-/// counts as its last settle, so one settled again as dropped is left out.
+/// counts as its last settle, so the list leaves out a finding settled again
+/// as dropped.
 pub fn confirmed_on_first_reviews(
     db: &Connection,
     last: usize,

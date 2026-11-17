@@ -1955,10 +1955,10 @@ fn without_parts(mut schema: String, parts: &[&str]) -> String {
 /// The schema text before builds counted the lines each review run's diff
 /// adds and removes: `review_run` without `changed_lines`.
 fn schema_before_counted_lines() -> String {
-    let column = "    -- How many lines the review run's diff adds and removes. Null for a replay
-    -- or an audit, and for a review run from before builds counted the lines
-    -- whose commits the repo's clone on this Mac no longer held when builds
-    -- moved the store.
+    let column = "    -- How many lines the review run's diff adds and removes. The column is
+    -- null for a replay or an audit. The column is also null for a review run
+    -- that builds recorded before builds counted lines, when the repo's clone
+    -- on this Mac no longer held the run's commits as builds moved the store.
     changed_lines INTEGER CONSTRAINT review_run_changed_lines_not_negative CHECK (changed_lines >= 0),
 ";
     let schema = db::schema();

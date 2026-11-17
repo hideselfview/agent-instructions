@@ -134,6 +134,6 @@ fn newer_first_reviews_count_more() {
     assert_eq!(
         found.len(),
         1,
-        "a kind whose findings weigh under one is not shown: {found:?}"
+        "frequent leaves out a kind whose findings weigh less than one: {found:?}"
     );
 }

@@ -104,7 +104,7 @@ pub fn workflow_section(places: &crate::places::Places, cwd: &Path) -> Result<St
         None => None,
     };
     let Some(project) = project else {
-        return Ok("\n\nWHAT REVIEWS CONFIRM MOST OFTEN\n\nRun `builds help workflow` in a repo of a project with lists, and this\nsection lists the kinds of findings its reviews confirm most often.\n".to_string());
+        return Ok("\n\nWHAT REVIEWS CONFIRM MOST OFTEN\n\nRun `builds help workflow` in a repo of a project with lists, and this\nsection lists the kinds of findings the coordinator confirms most often\non its reviews.\n".to_string());
     };
     let conn = Store::named(places, &project)?.open_existing()?;
     let rules = rules::load(&default_rules_root()?, Some(&project))?;

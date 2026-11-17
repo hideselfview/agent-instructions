@@ -1703,9 +1703,9 @@ agent-instructions and run `review replay --rules-root` on it.
                               findings per 100 changed lines on each branch's
                               first review, which shows whether agents' first
                               drafts improve. A group's rate counts only the
-                              branches whose first review asked it, and a
-                              first review from before builds counted its
-                              changed lines is left out
+                              branches whose first review asked it, and the
+                              rates leave out a first review from before
+                              builds counted its changed lines
   builds review case add <landing> <finding> --repo-dir DIR --rules-root DIR [--name NAME]
                               add the change of a confirmed finding as a case
                               expecting it, written in the review/cases folder
