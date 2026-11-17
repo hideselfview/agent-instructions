@@ -715,8 +715,9 @@ const FIRST_RUNS: &str = "SELECT MIN(id) FROM review_run WHERE kind = 'review' G
 /// last settle, so the list leaves out a finding settled again as dropped.
 /// <db> must not be inside a transaction: the read takes its own.
 pub fn first_reviews(db: &Connection) -> Result<Vec<FirstReview>> {
-    // One read transaction, so the runs, calls and findings come from one
-    // state of the store even when a review records a run meanwhile.
+    // The function reads in one transaction, so the runs, calls and findings
+    // come from one state of the store even when a review records a run
+    // meanwhile.
     let read = db.unchecked_transaction().sql()?;
     let mut reviews: Vec<(i64, FirstReview)> = {
         let mut statement = read
