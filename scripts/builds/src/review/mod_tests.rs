@@ -909,3 +909,28 @@ fn a_review_of_a_given_head_reads_a_copy_and_keeps_what_each_reviewer_was_sent_a
         .unwrap();
     assert_eq!(version, "", "the fake rules folder is no repo");
 }
+
+#[test]
+fn no_group_reviews_the_test_cases() {
+    let demo = demo("review-test-cases");
+    let fake = fake(&demo.scratch.dir);
+    let side = demo.add_side(1, "agent", "work");
+    let case = side.join(cases::DIR).join("one");
+    std::fs::create_dir_all(&case).unwrap();
+    std::fs::write(case.join("old.rs"), "the old code\n").unwrap();
+    crate::testing::git(&side, &["add", "review"]);
+    crate::testing::git(&side, &["commit", "-q", "-m", "Add a case"]);
+    let only_cases = run_review(&demo, &fake, &side, "k");
+    assert!(
+        only_cases.text.contains("nothing to review"),
+        "{}",
+        only_cases.text
+    );
+    assert!(fake.prompts().is_empty());
+    demo.commit(&side, "a.rs");
+    run_review(&demo, &fake, &side, "k");
+    let prompts = fake.prompts();
+    assert_eq!(prompts.len(), 1, "{prompts:?}");
+    assert!(prompts[0].1.contains("+a.rs"));
+    assert!(!prompts[0].1.contains(cases::DIR), "{}", prompts[0].1);
+}

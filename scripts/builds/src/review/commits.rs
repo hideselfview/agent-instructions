@@ -61,8 +61,15 @@ pub fn exists(repo: &Path, sha: &str) -> bool {
         .is_ok_and(|status| status.success())
 }
 
+/// The pathspec that leaves the review's test cases (`cases::DIR`) out of
+/// every diff and list of paths a review reads: a case holds old code on
+/// purpose, so no group reviews it.
+pub fn without_test_cases() -> String {
+    format!(":(exclude){}", crate::review::cases::DIR)
+}
+
 /// Every path a commit of <revs> adds, changes or deletes (both paths of a
-/// rename), each once, in the order first touched.
+/// rename), except the test cases, each once, in the order first touched.
 pub fn paths(repo: &Path, revs: &[String]) -> Result<Vec<String>> {
     if revs.is_empty() {
         return Ok(Vec::new());
@@ -76,6 +83,8 @@ pub fn paths(repo: &Path, revs: &[String]) -> Result<Vec<String>> {
         "--format=",
     ];
     args.extend(shas.iter().map(String::as_str));
+    let without = without_test_cases();
+    args.extend(["--", ".", &without]);
     let mut all: Vec<String> = Vec::new();
     for line in git_text(repo, &args)?.lines() {
         if !line.is_empty() && !all.iter().any(|p| p == line) {

@@ -159,12 +159,22 @@ pub fn diff_of(worktree: &Path, base: &str) -> Result<Diff> {
     diff_between(worktree, base, "HEAD")
 }
 
-/// The change of <head> past <base> (from their common ancestor), in <worktree>'s repo.
+/// The change of <head> past <base> (from their common ancestor), in
+/// <worktree>'s repo, without the test cases (`commits::without_test_cases`).
 pub fn diff_between(worktree: &Path, base: &str, head: &str) -> Result<Diff> {
     let text_of = |args: &[&str]| commits::git_text(worktree, args);
     let merge_base = text_of(&["merge-base", base, head])?.trim().to_string();
     let range = format!("{merge_base}...{head}");
-    let text = text_of(&["diff", "--no-color", "--no-ext-diff", &range])?;
+    let without = commits::without_test_cases();
+    let text = text_of(&[
+        "diff",
+        "--no-color",
+        "--no-ext-diff",
+        &range,
+        "--",
+        ".",
+        &without,
+    ])?;
     let messages = text_of(&[
         "log",
         "--reverse",
@@ -202,7 +212,8 @@ pub fn diff_between(worktree: &Path, base: &str, head: &str) -> Result<Diff> {
 /// differs from the lines the run read. A file the merge cannot write (one
 /// side deleted it, for example) shows its whole net change, and so does every
 /// file when the repo no longer has the commits the run read. The diff's
-/// commit messages are those the earlier change did not hold.
+/// commit messages are those the earlier change did not hold, and the diff
+/// leaves out the test cases (`commits::without_test_cases`).
 pub fn diff_since(
     worktree: &Path,
     read_base: &str,
@@ -219,9 +230,13 @@ pub fn diff_since(
     } else {
         (merge_base.clone(), Vec::new())
     };
-    let mut rest = vec!["--".to_string(), ".".to_string()];
+    let mut rest = vec![
+        "--".to_string(),
+        ".".to_string(),
+        commits::without_test_cases(),
+    ];
     rest.extend(whole.iter().map(|path| format!(":(exclude,literal){path}")));
-    let mut only = vec!["--".to_string()];
+    let mut only = vec!["--".to_string(), commits::without_test_cases()];
     only.extend(whole.iter().map(|path| format!(":(literal){path}")));
     let diff = |from: &str, options: &[&str], paths: &[String]| -> Result<String> {
         let mut args = vec!["diff", "--no-color", "--no-ext-diff"];

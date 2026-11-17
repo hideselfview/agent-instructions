@@ -1504,8 +1504,11 @@ A group runs when at least one of its rules matches a path that a commit of
 the change adds, changes or deletes. Its reviewer reads the full body of every
 rule in the group, the project's always-loaded instructions
 (projects/<project>.md), the diff and the landing's brief, and answers for
-every rule. To test another grouping, change the folders in a worktree of
-agent-instructions and run `review replay --rules-root` on it.
+every rule. No group reviews the test cases in the review/cases folder: a
+case holds old code on purpose, so builds leaves that folder out of every diff
+and list of changed paths that a review or `builds land` reads. To test
+another grouping, change the folders in a worktree of agent-instructions and
+run `review replay --rules-root` on it.
 
   builds land <worktree> [--done N]... [--part N]... [--design N]... <sha>...
                               put the commits on origin/main from the worktree
