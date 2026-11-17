@@ -1,6 +1,6 @@
 //! What `builds review` prints: the findings by group, then one line of totals.
 
-use crate::review::record::{Call, Finding, Settle};
+use crate::review::record::{Call, Finding, Settle, Settled};
 
 /// A run's calls with their findings, by group.
 pub fn run_report(calls: &[Call], findings: &[Finding]) -> String {
@@ -62,16 +62,13 @@ pub fn finding_text(finding: &Finding) -> String {
         one_line(&finding.code),
         one_line(&finding.problem),
     );
-    if let Some(first) = &finding.first_settle {
-        out.push_str(&settle_line("settled", first));
-    }
-    if let Some(settled) = &finding.settled {
-        let word = if finding.first_settle.is_some() {
-            "settled again as"
-        } else {
-            "settled"
-        };
-        out.push_str(&settle_line(word, settled));
+    match &finding.settled {
+        None => {}
+        Some(Settled::Once(settle)) => out.push_str(&settle_line("settled", settle)),
+        Some(Settled::Again { first, second }) => {
+            out.push_str(&settle_line("settled", first));
+            out.push_str(&settle_line("settled again as", second));
+        }
     }
     if let Some(fix) = &finding.fix {
         out.push_str(&format!("    fixed by {}\n", fix.sha));

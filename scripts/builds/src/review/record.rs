@@ -105,16 +105,31 @@ pub struct Finding {
     pub problem: String,
     pub blocking: bool,
     pub check_failed: Option<String>,
-    /// How the coordinator settled it: the second settle when it settled the
-    /// finding again, else the first.
-    pub settled: Option<Settle>,
-    /// The first settle, when the coordinator settled the finding again.
-    pub first_settle: Option<Settle>,
+    /// How the coordinator settled it, once or twice.
+    pub settled: Option<Settled>,
     /// The commit that fixed it, for a confirmed finding.
     pub fix: Option<Commit>,
     /// What builds recorded when it found the code of this confirmed finding
     /// in no line of its branch's change.
     pub code_left: Option<CodeLeft>,
+}
+
+/// The settles of a finding: one, or a first settle and the second that
+/// changed it to dropped.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Settled {
+    Once(Settle),
+    Again { first: Settle, second: Settle },
+}
+
+impl Settled {
+    /// The settle the finding counts as: the second, when there is one.
+    pub fn last(&self) -> &Settle {
+        match self {
+            Settled::Once(settle) => settle,
+            Settled::Again { second, .. } => second,
+        }
+    }
 }
 
 /// How the coordinator settled a finding, and who did.
@@ -145,7 +160,7 @@ impl Finding {
     pub fn settled_as(&self, how: &str) -> bool {
         self.settled
             .as_ref()
-            .is_some_and(|settled| settled.how == how)
+            .is_some_and(|settled| settled.last().how == how)
     }
 }
 
@@ -394,13 +409,14 @@ pub fn settle_again(
             "finding {id} was dropped by builds' own check ({reason}); there is nothing to settle"
         );
     }
-    if finding.first_settle.is_some() {
-        fail!("finding {id} is settled again already, as dropped");
-    }
-    let Some(settled) = &finding.settled else {
-        fail!(
+    let settled = match &finding.settled {
+        None => fail!(
             "finding {id} is not settled; settle it first: builds review settle {id} confirmed|dropped --why TEXT"
-        );
+        ),
+        Some(Settled::Again { .. }) => {
+            fail!("finding {id} is settled again already, as dropped")
+        }
+        Some(Settled::Once(settled)) => settled,
     };
     if settled.how != "confirmed" {
         fail!("finding {id} is settled as {} already", settled.how);
@@ -533,9 +549,10 @@ fn finding_from(row: &rusqlite::Row) -> rusqlite::Result<Finding> {
         why,
         by,
     });
-    let (settled, first_settle) = match again {
-        Some(again) => (Some(again), first),
-        None => (first, None),
+    let settled = match (first, again) {
+        (Some(first), Some(second)) => Some(Settled::Again { first, second }),
+        (Some(first), None) => Some(Settled::Once(first)),
+        (None, _) => None,
     };
     Ok(Finding {
         id: row.get(0)?,
@@ -552,7 +569,6 @@ fn finding_from(row: &rusqlite::Row) -> rusqlite::Result<Finding> {
         blocking: row.get(11)?,
         check_failed: row.get(12)?,
         settled,
-        first_settle,
         fix: fix_sha
             .zip(fix_patch)
             .map(|(sha, patch_id)| Commit { sha, patch_id }),

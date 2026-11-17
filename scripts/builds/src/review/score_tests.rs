@@ -49,12 +49,13 @@ fn finding(
         problem: "p".to_string(),
         blocking: true,
         check_failed: None,
-        settled: settled.map(|how| record::Settle {
-            how: how.to_string(),
-            why: "why".to_string(),
-            by: "tester".to_string(),
+        settled: settled.map(|how| {
+            record::Settled::Once(record::Settle {
+                how: how.to_string(),
+                why: "why".to_string(),
+                by: "tester".to_string(),
+            })
         }),
-        first_settle: None,
         fix: None,
         code_left: None,
     }

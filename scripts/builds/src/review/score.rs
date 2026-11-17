@@ -225,7 +225,7 @@ pub fn count_settled(
     for finding in findings {
         let call = call_of(calls.iter().copied(), finding);
         let tally = scores.group(Setup::of(call)).rule(&finding.rule);
-        match &finding.settled {
+        match finding.settled.as_ref().map(record::Settled::last) {
             Some(settled) if settled.how == "confirmed" => tally.true_pos += 1,
             Some(_) => tally.false_pos += 1,
             None => tally.unsettled += 1,

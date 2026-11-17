@@ -30,7 +30,6 @@ fn finding(kind: &str, rule: &str, file: &str, check_failed: Option<&str>) -> Fi
         blocking: true,
         check_failed: check_failed.map(str::to_string),
         settled: None,
-        first_settle: None,
         fix: None,
         code_left: None,
     }

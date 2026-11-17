@@ -205,12 +205,11 @@ fn settling_again_drops_a_confirmed_finding_and_keeps_both_settles() {
         by: by.to_string(),
     };
     assert_eq!(
-        found.first_settle,
-        Some(settle_of("confirmed", "the code does it", "first"))
-    );
-    assert_eq!(
         found.settled,
-        Some(settle_of("dropped", "another crate calls it", "second"))
+        Some(Settled::Again {
+            first: settle_of("confirmed", "the code does it", "first"),
+            second: settle_of("dropped", "another crate calls it", "second"),
+        })
     );
     assert!(found.settled_as("dropped") && !found.settled_as("confirmed"));
     assert!(
@@ -246,7 +245,7 @@ fn a_finding_with_a_named_fix_cannot_be_settled_again() {
             .contains("a finding with a named fix can't be settled again")
     );
     let found = finding_of(&db, finding).unwrap();
-    assert!(found.settled_as("confirmed") && found.first_settle.is_none());
+    assert!(matches!(found.settled, Some(Settled::Once(_))) && found.settled_as("confirmed"));
 }
 
 #[test]
