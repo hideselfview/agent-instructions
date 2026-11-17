@@ -121,13 +121,20 @@ struct State {
     host_findings: Vec<crate::health::Finding>,
     /// Each host's 1-minute load over the last ten minutes, by host name.
     host_load: HashMap<String, VecDeque<(i64, f64)>>,
-    /// Each repo's branches with commits waiting to land that no worktree
-    /// checks out, by the repo's main checkout, with what the readings found
-    /// of each branch tip; the daemon reads them again when any checkout of
-    /// the repo changes.
-    loose: HashMap<PathBuf, (crate::unlanded::Judged, Vec<crate::unlanded::LooseBranch>)>,
-    /// What reading a repo's branches failed with, by its main checkout.
-    loose_errors: HashMap<PathBuf, String>,
+    /// What the daemon last read of each repo's branches, by the repo's main
+    /// checkout; the daemon reads them again when any checkout of the repo
+    /// changes.
+    loose: HashMap<PathBuf, BranchReading>,
+}
+
+/// What the daemon last read of a repo's branches.
+enum BranchReading {
+    /// The branches with commits waiting to land that no worktree checks
+    /// out, and what the reading found of each branch tip, for the next
+    /// reading to start from.
+    Read(crate::unlanded::Judged, Vec<crate::unlanded::LooseBranch>),
+    /// Why the reading failed.
+    Failed(String),
 }
 
 pub struct Model {
@@ -473,7 +480,6 @@ impl Model {
         {
             let mut state = self.state.lock().expect("no panic holding it");
             state.loose.retain(|main, _| live.contains(main));
-            state.loose_errors.retain(|main, _| live.contains(main));
         }
         let mains: Vec<PathBuf> = live
             .into_iter()
@@ -485,25 +491,25 @@ impl Model {
             })
             .collect();
         for main in mains {
-            let mut judged = self
+            let mut judged = match self
                 .state
                 .lock()
                 .expect("no panic holding it")
                 .loose
                 .remove(&main)
-                .map(|(judged, _)| judged)
-                .unwrap_or_default();
-            let found = crate::unlanded::loose_branches(&main, &mut judged);
-            let mut state = self.state.lock().expect("no panic holding it");
-            match found {
-                Ok(loose) => {
-                    state.loose_errors.remove(&main);
-                    state.loose.insert(main, (judged, loose));
-                }
-                Err(error) => {
-                    state.loose_errors.insert(main, error.text());
-                }
-            }
+            {
+                Some(BranchReading::Read(judged, _)) => judged,
+                Some(BranchReading::Failed(_)) | None => Default::default(),
+            };
+            let reading = match crate::unlanded::loose_branches(&main, &mut judged) {
+                Ok(loose) => BranchReading::Read(judged, loose),
+                Err(error) => BranchReading::Failed(error.text()),
+            };
+            self.state
+                .lock()
+                .expect("no panic holding it")
+                .loose
+                .insert(main, reading);
         }
         // Sizes, from the tracker's index: no disk is walked.
         for root in roots.iter().filter(|r| dirty.sizes.contains(&r.path)) {
@@ -741,11 +747,16 @@ impl Model {
         )?;
         let lists =
             crate::health::lists_findings(&self.places, &loaded, &places, &mut claimed, &held)?;
-        let loose: Vec<crate::unlanded::LooseBranch> = state
-            .loose
-            .values()
-            .flat_map(|(_, loose)| loose.iter().cloned())
-            .collect();
+        let mut loose: Vec<crate::unlanded::LooseBranch> = Vec::new();
+        let mut unread: Vec<crate::health::Finding> = Vec::new();
+        for (main, reading) in &state.loose {
+            match reading {
+                BranchReading::Read(_, branches) => loose.extend(branches.iter().cloned()),
+                BranchReading::Failed(error) => {
+                    unread.push(crate::health::branches_unread(main, error));
+                }
+            }
+        }
         let mut health = assess(
             now,
             disk,
@@ -761,12 +772,7 @@ impl Model {
         health
             .findings
             .extend(crate::main_checkout::findings(&self.places.home, &loaded));
-        health.findings.extend(
-            state
-                .loose_errors
-                .iter()
-                .map(|(main, error)| crate::health::branches_unread(main, error)),
-        );
+        health.findings.extend(unread);
         Ok(health)
     }
 
