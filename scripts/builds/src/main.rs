@@ -296,7 +296,7 @@ fn run(command: &str, args: &[String]) -> Result<()> {
         "host" => host::cmd_host(&tool, &host::Ssh::from_env(), args),
         "remote" => remote::cmd_remote(&tool, &host::Ssh::from_env(), args),
         other => fail!(
-            "unknown command {other} (ack | agent | setup | new | land | review | claim | note | release | retire | app-checkout | status | health | lists | decision | design | question | item | next | area | dashboard | host | remote | prune | cargo | lock | app-build | shots | queue | takeover | build-app | install | checks | install-hook)"
+            "builds has no command {other}. Its commands are ack, agent, setup, new, land, review, claim, note, release, retire, app-checkout, status, health, lists, decision, design, question, item, next, area, dashboard, host, remote, prune, cargo, lock, app-build, shots, queue, takeover, build-app, install, checks and install-hook."
         ),
     }
 }
