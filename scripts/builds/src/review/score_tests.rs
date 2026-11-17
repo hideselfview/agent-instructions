@@ -386,7 +386,7 @@ fn the_store_scores_each_setup_from_settled_findings_and_confirmed_audit_misses(
 }
 
 /// A finding the coordinator settled again as dropped counts as an FP, and a
-/// confirmed finding whose code left its branch stays a TP.
+/// confirmed finding whose code is no longer in its branch's change stays a TP.
 #[test]
 fn a_finding_settled_again_counts_as_dropped_and_one_whose_code_left_as_confirmed() {
     let db = crate::lists::fixtures::db();

@@ -587,7 +587,9 @@ fn settle(tool: &Tool, args: &[String]) -> Result<()> {
         store.write(&stamp, &format!("review settle {id} again"), |db| {
             record::settle_again(db, id, why, stamp.at, &stamp.by)
         })?;
-        println!("finding {id} settled again as {how}; the record keeps its first settle");
+        println!(
+            "You settled finding {id} again, as dropped; the finding keeps its first settle beside the second."
+        );
         return Ok(());
     }
     store.write(&stamp, &format!("review settle {id}"), |db| {

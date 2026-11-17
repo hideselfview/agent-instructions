@@ -24,7 +24,7 @@
 //! on the commit messages is on the commit whose message holds its quote. A
 //! confirmed finding on a changed file that names no fix needs none when
 //! builds finds its quoted code in no line of the branch's change past
-//! origin/main: the commit that held the code left the branch. check-landing
+//! origin/main, as when the agent dropped the commit that added it. check-landing
 //! and `builds review` record such a finding (`CodeCheck`), and from then on
 //! it blocks no landing. A
 //! finding on a commit that an earlier landing pushed belongs to that landing,
@@ -327,7 +327,7 @@ fn assess(
     let pushed = record::pushed_of_landing(db, landing.id)?;
     // The confirmed findings this landing must fix: those on its commits
     // whose fix no earlier push of the branch landed and whose code builds
-    // did not record as gone from the branch.
+    // did not record as no longer in the branch's change.
     let mut owed: Vec<&record::Finding> = Vec::new();
     let mut messages = HashMap::new();
     for finding in confirmed() {
@@ -573,7 +573,8 @@ fn ask(tool: &Tool, args: &Args) -> Result<Asked> {
 }
 
 /// `builds review check-landing DIR --project P SHA...`: records each
-/// confirmed finding whose code left the branch at DIR's HEAD, then says why
+/// confirmed finding whose code is on no line of the change of DIR's HEAD past
+/// origin/main, then says why
 /// the commits can't land, exit 1, or that the review takes them.
 pub fn check_landing_command(tool: &Tool, args: &[String]) -> Result<()> {
     let args = Args::parse(args, &["rules-root"], &[])?;
@@ -621,7 +622,7 @@ pub fn record_code_left(
     let ids: Vec<String> = left.findings.iter().map(i64::to_string).collect();
     store.write(
         &stamp,
-        &format!("review code left {}", ids.join(" ")),
+        &format!("review code not in branch {}", ids.join(" ")),
         |db| {
             for id in &left.findings {
                 record::record_code_left(db, *id, &left.base, &left.head, stamp.at, &stamp.by)?;
@@ -634,7 +635,7 @@ pub fn record_code_left(
         .iter()
         .map(|id| {
             format!(
-                "finding {id}: builds found no line of the branch's change {}..{} that holds its code, so its code left the branch and the finding needs no fix; builds recorded that\n",
+                "finding {id}: builds found its code on no line of the branch's change {}..{}, so the finding needs no fix; builds recorded that\n",
                 short(&left.base),
                 short(&left.head)
             )
@@ -658,8 +659,9 @@ pub fn taken(verdict: &Verdict) -> String {
 /// this recorded it as landed; None when it needed no review, an earlier run
 /// of landed recorded it already, or it lands in parts and has more to land.
 fn record_landed(asked: &Asked, stamp: &Stamp, more: bool) -> Result<Option<i64>> {
-    // check-landing recorded each finding whose code left the branch before
-    // the push, which moved origin/main, so this reads only the records.
+    // Before the push, which moved origin/main, check-landing recorded each
+    // finding whose code is no longer in the branch's change, so this reads
+    // only the records.
     let verdict = judge(
         &asked.conn,
         &asked.repo,

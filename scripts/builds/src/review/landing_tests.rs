@@ -653,8 +653,8 @@ fn commit_text(top: &Path, file: &str, text: &str, message: &str) -> String {
     head(top)
 }
 
-/// Runs `builds review check-landing` on <shas> in <side>, written by
-/// `tester`, and says whether it takes them.
+/// Runs `builds review check-landing` on <shas> in <side> as `tester`, and
+/// says whether it takes them.
 fn check_landing(demo: &Demo, fake: &Fake, side: &Path, shas: &[String]) -> bool {
     let mut words: Vec<String> = vec![side.display().to_string()];
     words.extend(shas.iter().cloned());
@@ -671,9 +671,9 @@ fn check_landing(demo: &Demo, fake: &Fake, side: &Path, shas: &[String]) -> bool
     }
 }
 
-/// A branch whose second commit adds `gallery_count` to a.rs, reviewed, with
-/// the finding on that line confirmed: the demo, its reviewer, the side
-/// worktree, both commits and the finding.
+/// Makes a branch whose second commit adds `gallery_count` to a.rs, reviews
+/// it, confirms the finding on that line, and returns the demo, its reviewer,
+/// the side worktree, both commits and the finding.
 fn confirmed_on_the_second_commit(name: &str) -> (Demo, Fake, PathBuf, String, String, i64) {
     let demo = demo(name);
     let fake = fake(&demo.scratch.dir);
@@ -701,7 +701,11 @@ fn a_confirmed_finding_whose_code_is_still_on_the_branch_still_blocks() {
     assert_eq!(unfinished.unfixed, [finding]);
     assert_eq!(covered.code_left, None);
     assert!(refused(&said).contains("names no fix"), "{said:?}");
-    assert_eq!(findings(&demo)[0].code_left, None, "nothing is recorded");
+    assert_eq!(
+        findings(&demo)[0].code_left,
+        None,
+        "the check records nothing"
+    );
 }
 
 #[test]
@@ -734,7 +738,10 @@ fn a_confirmed_finding_whose_code_left_the_branch_is_recorded_and_blocks_no_land
         (base.trim(), first.as_str(), "tester")
     );
     let shown = render::finding_text(&findings(&demo)[0]);
-    assert!(shown.contains("its code left the branch"), "{shown}");
+    assert!(
+        shown.contains("builds found its code on no line of the branch's change"),
+        "{shown}"
+    );
     // A second check finds the record and writes nothing.
     let before = demo.state();
     assert!(check_landing(&demo, &fake, &side, shas));

@@ -2,8 +2,8 @@
 -- belongs to, each run and the commits it read, each reviewer call, its verdict
 -- for every rule, each finding with how the coordinator settled it, the
 -- commit that fixed a confirmed finding, and each confirmed finding whose
--- code left its branch. record.rs owns these tables and is the only code that
--- writes them.
+-- code is no longer in its branch's change. record.rs owns these tables and is
+-- the only code that writes them.
 
 -- A change under review: every review of it shares this landing, found by its
 -- key, until the change lands. landed_at is when `builds land` pushed the
@@ -175,10 +175,9 @@ CREATE TABLE review_settle_again (
     by TEXT NOT NULL CONSTRAINT review_settle_again_by_says_something CHECK (trim(by) <> '')
 ) STRICT;
 
--- A confirmed finding that names no fix and whose quoted code builds found in
--- no line of its branch's change past origin/main: the commit that held the
--- code left the branch, so the finding needs no fix. base and head are the
--- commits of the change builds read.
+-- A confirmed finding that names no fix and whose quoted code is on no line of
+-- its branch's change past origin/main, so the finding needs no fix. base and
+-- head are the commits of the change that the builds tool read.
 CREATE TABLE review_code_left (
     finding_id INTEGER PRIMARY KEY REFERENCES review_finding (id),
     base TEXT NOT NULL,

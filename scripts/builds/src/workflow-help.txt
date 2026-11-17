@@ -125,9 +125,9 @@ PLAN, BRIEF, EXECUTE, REVIEW
     settles the finding again as dropped (`builds review settle N --again
     --why TEXT`), and the record keeps both settles. When the agent
     drops the commit that held a confirmed finding's code, nobody fixes the
-    finding: `builds review` and `builds land` find that no line of the
-    branch's change holds the code, record that it left the branch, and stop
-    waiting on a fix for it.
+    finding: `builds review` and `builds land` find the code on no line of the
+    branch's change past origin/main, record the finding as needing no fix,
+    and stop waiting on a fix for it.
   - At every step, check the shape against the project's standing rules,
     which a plan's author never loads by touching files; the project file
     names them. A plan that proposes a shape they forbid is rewritten before

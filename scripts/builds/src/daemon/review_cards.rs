@@ -131,9 +131,9 @@ impl Reads {
             return Ok(Some(ItemWait::RulesReview(ReviewWait::Running)));
         }
         let conn = store.open_existing().map_err(Fail::text)?;
-        // The card only reads the store. It counts a finding whose code left
-        // the branch as blocking nothing, as land does when it records the
-        // finding.
+        // The card only reads the store. The card counts a finding whose code
+        // is no longer in the branch's change as blocking nothing, as land does
+        // when it records the finding.
         let check = CodeCheck::Branch("HEAD");
         let wait = match landing::judge(&conn, repo, top, &needs, check).map_err(Fail::text)? {
             Verdict::NotNeeded | Verdict::Takes(_) => return Ok(None),

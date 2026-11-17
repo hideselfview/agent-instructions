@@ -155,7 +155,7 @@ fn a_finding_builds_dropped_cannot_be_settled_and_a_settled_one_cannot_be_settle
         settle(&db, ids[0][0], "dropped", "x", 7, "me")
             .unwrap_err()
             .text()
-            .contains("dropped by builds")
+            .contains("builds' own check dropped finding")
     );
     settle(&db, ids[1][0], "confirmed", "x", 7, "me").unwrap();
     assert!(settle(&db, ids[1][0], "dropped", "y", 8, "me").is_err());
@@ -189,7 +189,7 @@ fn settling_again_drops_a_confirmed_finding_and_keeps_both_settles() {
             .unwrap_err()
             .text()
             .contains("--again"),
-        "a plain second settle names --again"
+        "a second settle without --again fails with an error that names --again"
     );
     settle_again(&db, again, "another crate calls it", 8, "second").unwrap();
     let found = finding_of(&db, again).unwrap();
@@ -236,7 +236,7 @@ fn a_finding_with_a_named_fix_cannot_be_settled_again() {
         settle_again(&db, finding, "wrong", 9, "me")
             .unwrap_err()
             .text()
-            .contains("a finding with a named fix can't be settled again")
+            .contains("builds refuses to settle a finding with a named fix again")
     );
     let found = finding_of(&db, finding).unwrap();
     assert!(matches!(found.settled, Some(Settled::Once(_))) && found.settled_as("confirmed"));

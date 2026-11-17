@@ -75,7 +75,7 @@ pub fn finding_text(finding: &Finding) -> String {
     }
     if let Some(left) = &finding.code_left {
         out.push_str(&format!(
-            "    its code left the branch: builds found no line of {}..{} that holds it ({} ran the check)\n",
+            "    builds found its code on no line of the branch's change {}..{}, so it needs no fix ({} ran the check)\n",
             left.base, left.head, left.by
         ));
     }

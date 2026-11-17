@@ -5,7 +5,7 @@
 //! findings; the coordinator settles a finding as confirmed or dropped, names
 //! the commit that fixed a confirmed one, and may settle a confirmed finding
 //! with no fix again, as dropped. builds records a confirmed finding with no
-//! fix whose code left its branch.
+//! fix whose code is no longer in its branch's change.
 
 use rusqlite::{Connection, OptionalExtension, params};
 
@@ -369,13 +369,11 @@ pub fn settle(db: &Connection, id: i64, how: &str, why: &str, now: i64, by: &str
         fail!("there is no finding {id}");
     };
     if let Some(reason) = check_failed {
-        fail!(
-            "finding {id} was dropped by builds' own check ({reason}); there is nothing to settle"
-        );
+        fail!("builds' own check dropped finding {id} ({reason}); there is nothing to settle");
     }
     if let Some(settled) = settled {
         fail!(
-            "finding {id} is settled already, as {settled}. A confirmed finding that names no fix can be settled again as dropped: builds review settle {id} --again --why TEXT"
+            "finding {id} is settled already, as {settled}. To change a confirmed finding that names no fix to dropped, settle it again: builds review settle {id} --again --why TEXT"
         );
     }
     db.execute(
@@ -395,9 +393,7 @@ pub fn settle_again(db: &Connection, id: i64, why: &str, now: i64, by: &str) -> 
     }
     let finding = finding_of(db, id)?;
     if let Some(reason) = &finding.check_failed {
-        fail!(
-            "finding {id} was dropped by builds' own check ({reason}); there is nothing to settle"
-        );
+        fail!("builds' own check dropped finding {id} ({reason}); there is nothing to settle");
     }
     let settled = match &finding.settled {
         None => fail!(
@@ -413,7 +409,7 @@ pub fn settle_again(db: &Connection, id: i64, why: &str, now: i64, by: &str) -> 
     }
     if let Some(fix) = &finding.fix {
         fail!(
-            "finding {id} names {} as its fix, so it stays confirmed: a finding with a named fix can't be settled again",
+            "finding {id} names {} as its fix, so it stays confirmed: builds refuses to settle a finding with a named fix again",
             fix.sha
         );
     }
@@ -451,7 +447,9 @@ pub fn record_code_left(
         fail!("finding {id} names {} as its fix", fix.sha);
     }
     if finding.code_left.is_some() {
-        fail!("builds recorded already that the code of finding {id} left its branch");
+        fail!(
+            "builds recorded already that the code of finding {id} is on no line of its branch's change"
+        );
     }
     if landed(db, &finding)? {
         fail!("finding {id} belongs to a change that landed already");
@@ -493,7 +491,7 @@ pub fn record_fix(db: &Connection, id: i64, fix: &Commit, now: i64, by: &str) ->
     }
     if let Some(left) = &finding.code_left {
         fail!(
-            "builds found the code of finding {id} in no line of its branch's change ({}..{}): it left the branch, so the finding needs no fix",
+            "builds found the code of finding {id} on no line of its branch's change ({}..{}), so the finding needs no fix",
             left.base,
             left.head
         );

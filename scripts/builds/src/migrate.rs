@@ -215,8 +215,9 @@ const BEFORE_PARKED_STAMP: i64 = 1_709_769_760;
 /// against the product spec.
 const BEFORE_SPEC_CHECK_STAMP: i64 = 1_463_522_731;
 
-/// The stamp of the schema before a finding could be settled again and before
-/// builds recorded confirmed findings whose code left their branch.
+/// The stamp of the schema before the coordinator could settle a finding again
+/// and before builds recorded confirmed findings whose code is no longer in
+/// their branch's change.
 const BEFORE_CODE_LEFT_STAMP: i64 = 1_407_353_448;
 
 /// The table as design.sql writes it.
@@ -266,7 +267,8 @@ const DESIGN_DELETED: &str = "CREATE TABLE design_deleted (
 /// of dropped items' work (no drop has recorded any yet), and every store
 /// gets the empty tables of the spec checks (no take has checked a brief
 /// yet), and every store gets the empty tables of second settles and of
-/// confirmed findings whose code left their branch (no finding has either
+/// confirmed findings whose code is no longer in their branch's change (no
+/// finding has either
 /// yet).
 /// The moves run in one transaction, the store
 /// is stamped as today's schema, and it must then equal a fresh database's schema or the transaction rolls back. A
@@ -669,14 +671,14 @@ fn move_store(places: &Places, path: &Path) -> Result<()> {
         tx.execute_batch(db::PARKED_PART).sql()?;
         tx.execute_batch(db::DROPPED_PART).sql()?;
     }
-    // Only a store from just before a finding could be settled again has the
-    // spec checks' tables.
+    // Only a store from just before the coordinator could settle a finding
+    // again has the spec checks' tables.
     if found != BEFORE_CODE_LEFT_STAMP {
         tx.execute_batch(db::SPEC_CHECK_PART).sql()?;
     }
-    // The review's tables the move made above include the second settles' and
-    // the code-left records' tables; a store that had the review's tables gets
-    // them here.
+    // The review's tables the move made above include the tables of second
+    // settles and of confirmed findings whose code is no longer in their
+    // branch's change; a store that had the review's tables gets them here.
     if had_review_tables {
         let schema = db::schema();
         for table in [

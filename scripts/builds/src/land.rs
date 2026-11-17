@@ -77,8 +77,8 @@
 //! every group that covers a changed path of a reviewed commit has answered,
 //! the coordinator has settled every finding, and each confirmed finding on
 //! the commits has its fix among them, unless builds finds the finding's code
-//! in no line of the branch's change past origin/main, which check-landing
-//! then records. Commits whose paths no group covers need no review. After
+//! on no line of the branch's change past origin/main; check-landing then
+//! records that. Commits whose paths no group covers need no review. After
 //! the push, `builds review landed` records the commits pushed beside the
 //! items and the design change. When commits of the branch still wait to land,
 //! land passes `--more-to-land` to it and the review's landing stays open for
@@ -526,8 +526,9 @@ impl Landing<'_> {
                 return Err(refuse(out, said));
             }
         }
-        // check-landing records each confirmed finding whose code left the
-        // branch, written by the worktree's claim.
+        // check-landing records each confirmed finding whose code is no longer
+        // in the branch's change, under the name on the worktree's claim, which
+        // land passes as --by.
         let mut line = self.review_line("check-landing", project);
         line.extend(["--by".to_string(), by.clone()]);
         let (ok, said) = self.run_line(&line);

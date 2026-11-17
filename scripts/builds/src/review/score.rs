@@ -1,8 +1,9 @@
 //! How well reviews do, counted from what the coordinator settled. A finding
 //! the coordinator confirmed is a true positive (TP) and one it dropped a false
 //! positive (FP). A finding counts as its last settle, so one the coordinator
-//! settled again as dropped is an FP. A confirmed finding whose code left its
-//! branch stays a TP: the code it named was there when the reviewer read it. A
+//! settled again as dropped is an FP. A confirmed finding whose code is no
+//! longer in its branch's change stays a TP: the code it named was there when
+//! the reviewer read it. A
 //! candidate miss that an audit raised (`audit.rs`) and the
 //! coordinator confirmed is a false negative (FN). A rule that a reviewer
 //! answered "none" for, over a diff in which no confirmed miss is in that rule,
@@ -401,7 +402,7 @@ pub fn of_store(db: &Connection) -> Result<StoreScores> {
 }
 
 /// What every report of scores says first: what the counts mean.
-const LEGEND: &str = "TP: a confirmed finding, also one whose code left its branch. FP: a dropped finding, also one settled again as dropped. FN: a candidate miss an audit raised and the coordinator confirmed. TN: a rule answered \"none\" over a diff with no confirmed miss in it. Precision is TP / (TP + FP), recall TP / (TP + FN).\n";
+const LEGEND: &str = "TP: a confirmed finding, also one whose code is no longer in its branch's change. FP: a dropped finding, also one settled again as dropped. FN: a candidate miss an audit raised and the coordinator confirmed. TN: a rule answered \"none\" over a diff with no confirmed miss in it. Precision is TP / (TP + FP), recall TP / (TP + FN).\n";
 
 fn percent(value: Option<f64>) -> String {
     match value {

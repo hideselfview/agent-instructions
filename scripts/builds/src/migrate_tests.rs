@@ -2011,9 +2011,10 @@ fn without_parts(mut schema: String, parts: &[&str]) -> String {
     schema
 }
 
-/// The schema text before a finding could be settled again: without the
-/// second settles' and the code-left records' tables, and with the review's
-/// header as it read then.
+/// The schema text before the coordinator could settle a finding again:
+/// without the tables of second settles and of confirmed findings whose code
+/// is no longer in their branch's change, and with the review's header as it
+/// read then.
 fn schema_before_code_left() -> String {
     let schema = db::schema();
     let start = schema
@@ -2022,15 +2023,15 @@ fn schema_before_code_left() -> String {
     let last = start
         + schema[start..]
             .find("CREATE TABLE review_code_left")
-            .expect("the code-left table");
+            .expect("the review_code_left table");
     let end = "STRICT;\n";
     let stop = last + schema[last..].find(end).expect("it ends") + end.len();
     let schema = format!("{}{}", &schema[..start], &schema[stop..]);
     let (now, then) = (
         "-- for every rule, each finding with how the coordinator settled it, the
 -- commit that fixed a confirmed finding, and each confirmed finding whose
--- code left its branch. record.rs owns these tables and is the only code that
--- writes them.",
+-- code is no longer in its branch's change. record.rs owns these tables and is
+-- the only code that writes them.",
         "-- for every rule, each finding with how the coordinator settled it, and the
 -- commit that fixed a confirmed finding. record.rs owns these tables and is the
 -- only code that writes them.",
@@ -2047,9 +2048,9 @@ fn the_code_left_stamp_is_the_schema_before_code_left() {
     );
 }
 
-/// A store from before a finding could be settled again keeps its runs,
-/// gains the empty tables, equals a fresh schema, and then records a second
-/// settle and a finding whose code left its branch.
+/// A store from before the coordinator could settle a finding again keeps its
+/// runs, gains the empty tables, equals a fresh schema, and then records a
+/// second settle and a finding whose code is no longer in its branch's change.
 #[test]
 fn a_store_from_before_code_left_gains_the_tables_and_records_both() {
     let scratch = Scratch::new("move-code-left");
