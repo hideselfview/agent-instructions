@@ -248,6 +248,43 @@ pub fn move_to_loads(db: &Connection) -> Result<()> {
     )
 }
 
+/// Each app build run's queue wait and each step, of the runs and steps that
+/// started at or after <since>, as waits (waits.rs), whatever their result,
+/// each with the load of the run's host when the run took its checkout.
+pub fn waits(conn: &Connection, since: i64, path: &Path) -> Result<Vec<crate::waits::Wait>> {
+    use crate::waits::{Kind, Wait};
+    let what = || format!("reading {}", path.display());
+    let mut waits = Vec::new();
+    for (kind, sql) in [
+        (
+            Kind::AppBuildQueue,
+            "SELECT started_at, wait_ms, cores, load FROM app_build_runs WHERE started_at >= ?1",
+        ),
+        (
+            Kind::AppBuildStep,
+            "SELECT s.started_at, s.wall_ms, r.cores, r.load
+             FROM app_build_steps s JOIN app_build_runs r ON r.id = s.run_id
+             WHERE s.started_at >= ?1",
+        ),
+    ] {
+        let mut statement = conn.prepare(sql).context(what)?;
+        let rows = statement
+            .query_map([since], |row| {
+                Ok(Wait {
+                    kind,
+                    started_at: row.get(0)?,
+                    ms: row.get::<_, i64>(1)? as u64,
+                    load: crate::hook_stats::load_of(row.get(2)?, row.get(3)?),
+                })
+            })
+            .context(what)?;
+        for row in rows {
+            waits.push(row.context(what)?);
+        }
+    }
+    Ok(waits)
+}
+
 /// One step's figures in one repo and lane.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StepStats {

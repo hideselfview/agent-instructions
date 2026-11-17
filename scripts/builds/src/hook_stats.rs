@@ -725,10 +725,7 @@ fn runs_where(
                     passed,
                     handed: (handed.0 as u32, handed.1 as u32),
                     ms: ms.map(|ms| ms as u64),
-                    started: cores.zip(load).map(|(cores, load)| Load {
-                        cores: cores as u32,
-                        one_minute: load,
-                    }),
+                    started: load_of(cores, load),
                     cargo: cargo.remove(&(position as u32)).map(Box::new),
                 },
                 name,
@@ -737,6 +734,40 @@ fn runs_where(
         runs.push(run);
     }
     Ok(runs)
+}
+
+/// Each hook run that started at or after <since>, passed or not, as a wait
+/// (waits.rs): its whole time, with this Mac's load when its first check
+/// started; no load for a run with no recorded check start.
+pub fn waits(conn: &Connection, since: i64, path: &Path) -> Result<Vec<crate::waits::Wait>> {
+    let what = || format!("reading {}", path.display());
+    let mut statement = conn
+        .prepare(
+            "SELECT r.started_at, r.total_ms, s.cores, s.load FROM hook_runs r
+             LEFT JOIN hook_check_starts s ON s.run_id = r.id
+                 AND s.position = (SELECT MIN(position) FROM hook_check_starts WHERE run_id = r.id)
+             WHERE r.started_at >= ?1",
+        )
+        .context(what)?;
+    let rows = statement
+        .query_map([since], |row| {
+            Ok(crate::waits::Wait {
+                kind: crate::waits::Kind::Hook,
+                started_at: row.get(0)?,
+                ms: row.get::<_, i64>(1)? as u64,
+                load: load_of(row.get(2)?, row.get(3)?),
+            })
+        })
+        .context(what)?;
+    rows.map(|row| row.context(what)).collect()
+}
+
+/// The load that a row's cores and load average make, when the row has both.
+pub(crate) fn load_of(cores: Option<i64>, one_minute: Option<f64>) -> Option<Load> {
+    cores.zip(one_minute).map(|(cores, one_minute)| Load {
+        cores: cores as u32,
+        one_minute,
+    })
 }
 
 /// <ms> as `12.3s`.
@@ -931,6 +962,7 @@ fn project_json(project: &str, path: &Path, now: i64) -> serde_json::Value {
             "project": project,
             "repos": repos.iter().map(|repo| repo_json(repo, path, since)).collect::<Vec<_>>(),
             "app_builds": crate::app_timing::dashboard_json(path, now),
+            "waits": crate::waits::dashboard_json(path, now),
         }),
         Err(error) => serde_json::json!({ "project": project, "error": error.text() }),
     }

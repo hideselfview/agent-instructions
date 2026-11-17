@@ -73,6 +73,7 @@ mod ui_test_settings;
 mod units;
 mod unlanded;
 mod usage;
+mod waits;
 mod warm;
 mod whole_file;
 mod worktree;
@@ -214,6 +215,7 @@ fn run(command: &str, args: &[String]) -> Result<()> {
         // inherits; `cargo` asks git about its checkout without changing it.
         "cargo" => return cargo_run::cmd_cargo(args),
         "checks" => return checks_run::cmd_checks(args),
+        "waits" => return waits::cmd_waits(args),
         "install-hook" => return install_hook::cmd_install_hook(args),
         "lock" => return lock::cmd_lock(&Places::from_env()?, args),
         "app-build" => {

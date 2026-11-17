@@ -1311,6 +1311,65 @@ whenever a matching file is staged.
                               which worktrees share; it overwrites the file
 
 
+WAITS
+
+builds records how long agents wait on four kinds of work. `builds waits`
+prints, and the dashboard's "waited today" figure opens, the time of each kind
+per local day and per band of load per core, with each row's count, median and
+total, so a person can see which kind of work agents wait on longest and how
+load changes each. Every wait counts, whatever its result. The kinds:
+
+  commit hook      each `builds checks run`, passed or failed, from its start
+                   to its last check's end, with this Mac's load when its
+                   first check started (COMMIT CHECKS)
+  test run         each `builds cargo test` and `builds cargo nextest` run
+                   that no hook check started, from the start of `builds
+                   cargo` to cargo's exit, with the load of the host that ran
+                   cargo when builds picked it (CARGO). Days before builds
+                   recorded every `builds cargo` run have no test runs
+  app build queue  each lane run's wait in its lane's queue, a wait after a
+                   takeover included, with the load of the checkout's host
+                   when the run took the checkout (APP BUILDS)
+  app build step   each step of a lane run, its test lines and shots runs
+                   included, with the load its run recorded
+
+Load per core is the one-minute load average over the host's cores, in four
+bands: under 1, 1 to 2, 2 to 4, and 4 and over. A wait whose record holds no
+load counts under "not recorded": a hook run from before builds kept each
+check's starting load, an app build run from before builds kept its host's
+load, or one whose host did not answer.
+
+What the figures can and cannot show about CPU priority, as measured on this
+Mac (14 cores, macOS 27) on 2026-11-17:
+
+  - Every process an agent starts runs at nice 5, so a hook's checks, other
+    agents' tests and app build steps all run at one priority.
+  - A higher nice value gives work no measurable lower priority here: a
+    one-thread job at nice 5 took 1.7s alone and 5 to 6s beside 28 busy
+    threads, whether those threads ran at nice 5 or at nice 15.
+  - Quality of service does: beside the same threads under `taskpolicy -c
+    utility` or `taskpolicy -b`, the job took 1.7s. The lowered work slows in
+    turn: beside other agents' work alone (load about 50 on 14 cores), the
+    job took 2s at the default, 4 to 5s under utility and 8s under
+    background, which also moves work to the efficiency cores and throttles
+    its disk reads.
+  - sccache runs each compile it can cache in its server, at the server's
+    own nice value (0, launchd's default), whatever the nice value of the run
+    that asked for it. Only the programs a run starts itself (the tests,
+    build scripts, the compiles sccache does not cache, clippy's lints) run
+    at the run's own priority.
+
+  builds waits [--project <project>] [--since <YYYY-MM-DD>]
+                              print the time of each kind of wait per local
+                              day and per band of load per core, for the
+                              project of the current checkout unless
+                              --project names one: for each kind and day, a
+                              row for all loads, then a row for each band;
+                              --since counts waits from that local day on.
+                              The dashboard shows the same for today and
+                              yesterday
+
+
 LANDING AND REVIEW
 
 A coordinator puts commits on origin/main by running `builds land` in the

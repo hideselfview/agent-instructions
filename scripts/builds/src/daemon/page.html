@@ -109,6 +109,7 @@ h1 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.01em; }
 .hook-open th { text-align: left; font-weight: 600; color: var(--muted); padding: 3px 10px 3px 0; }
 .hook-open td { padding: 3px 10px 3px 0; border-top: 1px solid var(--line-soft); }
 .hook-open .n { text-align: right; font-variant-numeric: tabular-nums; }
+.hook-open .wt-band td { color: var(--muted-2); }
 .hook-open .ok { color: var(--working); } .hook-open .warn { color: var(--warn); } .hook-open .bad { color: var(--bad); }
 .ho-more { font-size: 12px; color: var(--muted); padding-top: 4px; cursor: pointer; background: transparent; border: 0; text-align: left; font-family: var(--sans); }
 .ho-more:hover { color: var(--text); }
@@ -393,6 +394,7 @@ a.l-ref:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; b
   <div class="conn" id="conn" hidden>Lost the connection to the daemon. This page reconnects by itself.</div>
   <section class="hook-open" id="hook-open" hidden></section>
   <section class="hook-open wait-open" id="wait-open" hidden></section>
+  <section class="hook-open" id="waits-open" hidden></section>
 </header>
 <div id="findings"></div>
 <div id="errors"></div>
@@ -427,6 +429,7 @@ let state = null, streamError = "", connectionDown = false;
 let hooks = null, hooksError = "";
 let openHook = null;           // the repo whose commit hook details are open
 let openWait = null;           // "repo lane" of the lane whose app build times are open
+let openWaits = false;         // whether the time agents waited, by kind, is open
 const showFree = new Set();    // repos whose free worktrees are open
 const openQueue = new Set();   // "repo lane" of each lane whose queue is open
 const openBuild = new Set();   // "repo lane" of each lane whose build form is open
@@ -1201,6 +1204,51 @@ function waitDetails() {
       steps.map(s => stepRow(s, top)), more));
 }
 
+// ---- The time agents waited on each kind of work (waits.rs, in each
+// project's `waits` of the hooks JSON): a figure in the top row with today's
+// total, and a table per project for today and yesterday, per kind, day and
+// band of load per core.
+function waitProjects() {
+  if (!hooks || hooks.error) return [];
+  return hooks.projects.filter(p => p.waits && (p.waits.error || p.waits.rows.length));
+}
+function localDay(date) {
+  const two = n => String(n).padStart(2, "0");
+  return date.getFullYear() + "-" + two(date.getMonth() + 1) + "-" + two(date.getDate());
+}
+function waitsFigure() {
+  const today = localDay(new Date());
+  const total = waitProjects().flatMap(p => p.waits.rows || [])
+    .filter(r => r.day === today && r.band === "all loads").reduce((sum, r) => sum + r.total_ms, 0);
+  const toggle = () => { openWaits = !openWaits; render(); };
+  return h("div", {class: "fig hook line" + (openWaits ? " on" : ""), tabindex: "0", role: "button", "aria-expanded": String(openWaits),
+      title: "The time agents waited today on commit hooks, test runs, app build queues and app build steps, added up. Click for each kind per day and per load per core.",
+      onclick: toggle,
+      onkeydown: e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(); } }},
+    h("div", {class: "row"}, h("span", {class: "h"}, "waited today"), h("span", {class: "v"}, span(total))));
+}
+function waitsRow(r) {
+  const all = r.band === "all loads";
+  return h("tr", {class: all ? "" : "wt-band"}, h("td", {}, all ? r.kind : ""), h("td", {}, all ? r.day : ""), h("td", {}, r.band),
+    h("td", {class: "n"}, String(r.count)), h("td", {class: "n"}, span(r.median_ms)), h("td", {class: "n"}, span(r.total_ms)));
+}
+function waitsDetails() {
+  const box = document.getElementById("waits-open");
+  if (!openWaits) { box.hidden = true; box.replaceChildren(); return; }
+  const projects = waitProjects();
+  box.hidden = false;
+  box.replaceChildren(
+    h("div", {class: "ho-head"}, h("b", {}, "Where agents waited"),
+      h("span", {}, "today and yesterday, per kind of work and per load per core when the work started"),
+      h("button", {type: "button", class: "ho-close", title: "Close", "aria-label": "Close", onclick: () => { openWaits = false; render(); }}, "×")),
+    projects.length ? null : h("div", {class: "l-empty"}, "No wait recorded today or yesterday."),
+    ...projects.map(p => h("div", {}, h("h3", {}, p.project),
+      p.waits.error ? h("div", {class: "bad"}, p.waits.error)
+        : h("table", {}, h("tr", {}, h("th", {}, "Kind"), h("th", {}, "Day"), h("th", {}, "Load per core"),
+            h("th", {class: "n"}, "Count"), h("th", {class: "n"}, "Median"), h("th", {class: "n"}, "Total")),
+          p.waits.rows.map(waitsRow)))));
+}
+
 // What `builds health` lists under "needs action", each finding's text
 // followed by the command it suggests. The disk figure already shows the free
 // space in red under its floor, so the box leaves out the disk finding. The
@@ -1228,9 +1276,10 @@ function render() {
   const timingErrors = [...new Set(waitLanes().map(w => w.error).filter(Boolean))];
   document.getElementById("errors").append(...timingErrors.map(e => h("div", {class: "error"}, "The app build times: " + e)));
   for (const repo of state.repos) for (const {lane} of repo.lanes) buildPanelOf(repo, lane);
-  document.getElementById("top").replaceChildren(loadFigure(state.load, state.hosts.length ? "local" : null), ...state.hosts.map(hostLoadFigure), diskFigure(state.volume));
+  document.getElementById("top").replaceChildren(loadFigure(state.load, state.hosts.length ? "local" : null), ...state.hosts.map(hostLoadFigure), diskFigure(state.volume), waitsFigure());
   hookDetails();
   waitDetails();
+  waitsDetails();
   findingsView(state.health);
   if (lists && !lists.error) renderLists();
   const root = document.getElementById("view");

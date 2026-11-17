@@ -97,6 +97,34 @@ pub fn hook_runs(
     Ok(found)
 }
 
+/// Each `builds cargo test` and `builds cargo nextest` run that started at or
+/// after <since> and that no hook check started, as a wait (waits.rs), with
+/// its host's load when builds picked the host.
+pub fn test_waits(conn: &Connection, since: i64, path: &Path) -> Result<Vec<crate::waits::Wait>> {
+    let what = || format!("reading {}", path.display());
+    let mut statement = conn
+        .prepare(
+            "SELECT started_at, ms, cores, load FROM builds_cargo_runs
+             WHERE started_at >= ?1 AND hook_started_at IS NULL
+                 AND (subcommand = 'test' OR subcommand LIKE 'nextest %')",
+        )
+        .context(what)?;
+    let rows = statement
+        .query_map([since], |row| {
+            Ok(crate::waits::Wait {
+                kind: crate::waits::Kind::TestRun,
+                started_at: row.get(0)?,
+                ms: row.get::<_, i64>(1)? as u64,
+                load: Some(Load {
+                    cores: row.get::<_, i64>(2)? as u32,
+                    one_minute: row.get(3)?,
+                }),
+            })
+        })
+        .context(what)?;
+    rows.map(|row| row.context(what)).collect()
+}
+
 /// One `builds cargo` run, as builds records it once cargo exits.
 #[derive(Clone, Debug, PartialEq)]
 pub struct CargoRun {
