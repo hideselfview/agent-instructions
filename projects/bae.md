@@ -291,20 +291,8 @@ boards, shots and the apps' views fit together is in
   Debug builds keep every level.
 
 - xcodebuild fails with "Couldn't check out revision" or "file not found" on
-  Sparkle when the SwiftPM cache is corrupt.
-
-  - Sparkle is the SwiftPM package whose checkout corrupts most often.
-
-  - Disconnect any VPN first: incomplete fetches corrupt the SwiftPM cache.
-
-  - Then run:
-
-    ```sh
-    rm -rf bae-macos/bae/.build/runApp bae-macos/bae/.build/unsigned \
-      bae-macos/bae/.build/SourcePackages
-    rm -rf ~/Library/Caches/org.swift.swiftpm/repositories/Sparkle*
-    ./bae-macos/run.sh --no-open
-    ```
+  Sparkle when the SwiftPM cache is corrupt. `builds help` (DISK) gives the
+  steps that repair the cache.
 
 - bae-audio finds FFmpeg through `FFMPEG_DIR`, and its tests find FFmpeg's
   libraries through `DYLD_LIBRARY_PATH`.
