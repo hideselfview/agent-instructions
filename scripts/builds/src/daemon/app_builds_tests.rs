@@ -91,10 +91,34 @@ fn process(name: &str) -> ProcessPage {
     }
 }
 
+/// A page of the repo bae with <checkouts>, <locks> and the mac lane's
+/// <queue>, and a record of each lane they name, in which builds added and
+/// removed nothing.
 fn repo(checkouts: Vec<CheckoutPage>, locks: Vec<LockHealth>, queue: Vec<Queued>) -> RepoPage {
+    let lanes = crate::lane::Lane::ALL
+        .into_iter()
+        .map(|lane| crate::status::LaneJson {
+            lane: lane.word(),
+            app_checkouts: checkouts
+                .iter()
+                .filter(|c| c.app_lane == Some(lane.word()))
+                .map(|c| c.name.clone())
+                .chain(
+                    locks
+                        .iter()
+                        .filter(|l| l.lane == lane.word())
+                        .map(|l| l.checkout.clone()),
+                )
+                .collect(),
+            app_locks: Vec::new(),
+            added_by_builds: Vec::new(),
+            removed_by_builds: Vec::new(),
+        })
+        .filter(|recorded| !recorded.app_checkouts.is_empty())
+        .collect();
     RepoPage {
         name: "bae".into(),
-        lanes: Vec::new(),
+        lanes,
         locks,
         queues: vec![LaneQueue {
             repo: "bae".into(),
@@ -149,7 +173,7 @@ fn a_lane_with_a_running_build_says_whose_it_is_and_what_runs() {
             queued("/d/bae-main", "builds build-app bae mac"),
         ],
     );
-    let lanes = build(&page);
+    let lanes = build(&page).unwrap();
     assert_eq!(lanes.len(), 1);
     let lane = &lanes[0].checkouts[0];
     assert_eq!(lane.checked_out, "detached at 9e8d3d5");
@@ -211,7 +235,7 @@ fn a_lock_only_leftover_processes_hold_is_stuck_and_a_running_build_is_not() {
         Vec::new(),
     );
     assert_eq!(
-        build(&stuck)[0].checkouts[0].now,
+        build(&stuck).unwrap()[0].checkouts[0].now,
         Now::Stuck {
             minutes: 37 * 60,
             running: vec!["adb -L tcp:5037".into()]
@@ -225,7 +249,7 @@ fn a_lock_only_leftover_processes_hold_is_stuck_and_a_running_build_is_not() {
         Vec::new(),
     );
     assert!(matches!(
-        build(&building)[0].checkouts[0].now,
+        build(&building).unwrap()[0].checkouts[0].now,
         Now::Building { .. }
     ));
 }
@@ -236,7 +260,7 @@ fn a_free_lock_is_idle_and_the_mac_lane_comes_first() {
     android.git = None;
     let mac = checkout("side-1", Some("mac"), None);
     let page = repo(vec![android, mac], Vec::new(), Vec::new());
-    let lanes = build(&page);
+    let lanes = build(&page).unwrap();
     assert_eq!(
         lanes.iter().map(|l| l.lane.as_str()).collect::<Vec<_>>(),
         vec!["mac", "android"]
@@ -270,6 +294,7 @@ fn branch_built_by(command: &str) -> Option<String> {
     let mut held = lock("side-1", 3, "/d/bae-worktrees/side-5", &[]);
     held.holder.as_mut().unwrap().command = command.into();
     match build(&repo(vec![app], vec![held], vec![]))
+        .unwrap()
         .remove(0)
         .checkouts
         .remove(0)
@@ -503,7 +528,7 @@ fn a_lane_has_a_row_for_each_checkout_here_and_for_each_on_another_mac() {
         vec![remote, lock("side-1", 6, "/d/bae-worktrees/side-5", &[])],
         Vec::new(),
     );
-    let lanes = build(&page);
+    let lanes = build(&page).unwrap();
     assert_eq!(lanes.len(), 1);
     let rows: Vec<(&str, bool)> = lanes[0]
         .checkouts
@@ -543,7 +568,7 @@ fn a_checkout_builds_added_says_why_and_the_lane_lists_what_builds_removed() {
         added_by_builds: vec![change("m1:builds-mac-1", "2 builds waited")],
         removed_by_builds: vec![change("m1:builds-mac-2", "no build used it for 61 minutes")],
     }];
-    let lanes = build(&page);
+    let lanes = build(&page).unwrap();
     let added: Vec<Option<&str>> = lanes[0]
         .checkouts
         .iter()
@@ -551,4 +576,19 @@ fn a_checkout_builds_added_says_why_and_the_lane_lists_what_builds_removed() {
         .collect();
     assert_eq!(added, vec![None, Some("2 builds waited")]);
     assert_eq!(lanes[0].removed_by_builds[0].checkout, "m1:builds-mac-2");
+}
+
+#[test]
+fn a_lane_with_checkouts_and_no_record_fails_the_page() {
+    let mut page = repo(
+        Vec::new(),
+        vec![lock("m1:mac-1", 4, "/d/bae-worktrees/side-5", &[])],
+        Vec::new(),
+    );
+    page.lanes.clear();
+    let Err(error) = build(&page) else {
+        panic!("the page has no record of the mac lane");
+    };
+    let text = error.text();
+    assert!(text.contains("no record of that lane"), "{text}");
 }

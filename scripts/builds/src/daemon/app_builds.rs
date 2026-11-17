@@ -6,6 +6,8 @@ use serde::Serialize;
 
 use super::cards::{ItemWait, QueuedBuild};
 use super::model::{CheckoutPage, RepoPage};
+use crate::fail;
+use crate::fail::Result;
 use crate::health::{Holder, LockHealth};
 use crate::holder_run::RunTimes;
 use crate::status::LaneChange;
@@ -411,8 +413,9 @@ fn waiting_in(repo: &RepoPage, lane: &str) -> Vec<Waiting> {
 /// One lane per app build lane of <repo> that has a checkout, mac first: each
 /// live app checkout here, then each checkout on another Mac (its lock is
 /// the only thing read from here), each with when and why builds added it,
-/// the lane's queue, and the checkouts builds removed from it lately.
-pub fn build(repo: &RepoPage) -> Vec<AppLane> {
+/// the lane's queue, and the checkouts builds removed from it lately. Fails
+/// for a lane with checkouts whose record (`RepoPage::lanes`) the page lacks.
+pub fn build(repo: &RepoPage) -> Result<Vec<AppLane>> {
     let mut found: Vec<AppLane> = Vec::new();
     for lane in crate::lane::Lane::ALL {
         let word = lane.word();
@@ -429,28 +432,30 @@ pub fn build(repo: &RepoPage) -> Vec<AppLane> {
                 .filter(|l| l.lane == word && crate::app_remote::split(&l.checkout).is_some())
                 .map(|l| remote_row(repo, l)),
         );
-        let recorded = repo.lanes.iter().find(|recorded| recorded.lane == word);
+        if checkouts.is_empty() {
+            continue;
+        }
+        let Some(recorded) = repo.lanes.iter().find(|recorded| recorded.lane == word) else {
+            fail!(
+                "the page shows checkouts of {}'s {word} lane, but it read no record of that lane's checkouts",
+                repo.name
+            );
+        };
         for row in &mut checkouts {
-            row.added_by_builds = recorded.and_then(|recorded| {
-                recorded
-                    .added_by_builds
-                    .iter()
-                    .find(|added| added.checkout == row.checkout)
-                    .cloned()
-            });
+            row.added_by_builds = recorded
+                .added_by_builds
+                .iter()
+                .find(|added| added.checkout == row.checkout)
+                .cloned();
         }
-        if !checkouts.is_empty() {
-            found.push(AppLane {
-                lane: word.to_string(),
-                checkouts,
-                waiting: waiting_in(repo, word),
-                removed_by_builds: recorded
-                    .map(|recorded| recorded.removed_by_builds.clone())
-                    .unwrap_or_default(),
-            });
-        }
+        found.push(AppLane {
+            lane: word.to_string(),
+            checkouts,
+            waiting: waiting_in(repo, word),
+            removed_by_builds: recorded.removed_by_builds.clone(),
+        });
     }
-    found
+    Ok(found)
 }
 
 #[cfg(test)]

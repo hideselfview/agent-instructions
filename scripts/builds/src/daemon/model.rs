@@ -1027,7 +1027,7 @@ impl Model {
                 .push(checkout);
         }
         for repo in &mut repos {
-            repo.app_builds = super::app_builds::build(repo);
+            repo.app_builds = super::app_builds::build(repo)?;
             let builds: HashMap<String, super::cards::ItemWait> = repo
                 .checkouts
                 .iter()
