@@ -194,8 +194,9 @@ and keeps the note.
 
 The dashboard gives each side worktree the first state that matches: Parked
 (no claim, and an open item is parked there with its work: `builds item park`,
-`builds help lists`), Waiting on you (the claim's note says so, a running item
-waits on a question or on a design change the person has not approved, or the
+`builds help lists`), Can't read waits (the daemon could not read what a
+running item waits on, and the card says why), Waiting on you (the claim's
+note says so, a running item waits on a question or on a design change the person has not approved, or the
 worktree's commits are a design change the person has not approved), Paused
 (the claim's note has --state held: the card says what its running items wait
 on), Ready to land (commits waiting to land, claimed or not: an unclaimed worktree

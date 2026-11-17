@@ -481,6 +481,54 @@ fn ready_to_land_needs_no_active_shell_no_app_build_and_no_waiting_item() {
     assert!(!keeps_working(Some("working"), true, None));
 }
 
+#[test]
+fn a_worktree_whose_waits_the_daemon_cannot_read_says_so_and_never_working_or_ready_to_land() {
+    for state in ["ready-to-land", "working", "held", "waiting-on-you"] {
+        assert_eq!(
+            card_state(Some(state), true, None),
+            Some("waits-unread"),
+            "{state}"
+        );
+    }
+    assert_eq!(card_state(None, false, None), None, "a main checkout");
+    let card = words(
+        &card(Some("waits-unread"), claim(Some("note")), Some(0)),
+        &running(&[(7, "Reopen a copied library")]),
+        &[],
+    );
+    assert_eq!(card.chip, Some("Can't read waits"));
+    assert_eq!(card.pill, None);
+    assert_eq!(card.note, None);
+}
+
+#[test]
+fn a_worktree_whose_waits_the_daemon_read_takes_its_state_from_the_first() {
+    let item = ItemWait::Item {
+        id: 1,
+        title: "Other".into(),
+    };
+    let answer = ItemWait::Answer {
+        id: 438,
+        title: "Which port?".into(),
+    };
+    let state = |state, waits: &[ItemWait]| card_state(Some(state), false, Some(waits));
+    assert_eq!(state("ready-to-land", &[]), Some("ready-to-land"));
+    assert_eq!(
+        state("ready-to-land", std::slice::from_ref(&item)),
+        Some("working")
+    );
+    assert_eq!(
+        state(
+            "ready-to-land",
+            &[ItemWait::RulesReview(ReviewWait::NotRun)]
+        ),
+        Some("in-review")
+    );
+    assert_eq!(state("working", &[queued_wait(false)]), Some("queued"));
+    assert_eq!(state("working", &[answer, item]), Some("waiting-on-you"));
+    assert_eq!(card_state(None, false, Some(&[])), None, "a main checkout");
+}
+
 fn queued_wait(running: bool) -> ItemWait {
     ItemWait::AppBuild {
         lane: "Mac".into(),

@@ -211,12 +211,44 @@ pub fn ranked(waits: impl IntoIterator<Item = ItemWait>) -> Vec<ItemWait> {
     ranked
 }
 
+/// The state a worktree's card shows. <state> is what its claim and commits
+/// say (model.rs worktree_state), <shell> says whether an agent shell is
+/// active in it, and <waits> is what it waits on as `ranked` orders it, or
+/// None when the daemon could not read what its running items wait on: then
+/// no wait can set the state, and the state is waits-unread. A main
+/// checkout has no state.
+pub fn card_state(
+    state: Option<&'static str>,
+    shell: bool,
+    waits: Option<&[ItemWait]>,
+) -> Option<&'static str> {
+    state?;
+    let Some(waits) = waits else {
+        return Some("waits-unread");
+    };
+    let wait = waits.first();
+    if wait.is_some_and(ItemWait::needs_person) {
+        return Some("waiting-on-you");
+    }
+    let mut state = state;
+    if keeps_working(state, shell, wait) {
+        state = Some("working");
+    }
+    if in_review(state, wait) {
+        state = Some("in-review");
+    }
+    if waits_in_queue(state, wait) {
+        state = Some("queued");
+    }
+    state
+}
+
 /// Does a card in <state> stay Working instead of Ready to land? Ready to
 /// land means commits past origin/main and nothing else going on: no agent
 /// shell active in the worktree (<shell>), no app build of its branch and no
 /// running item that waits on another item or on a design change to land
 /// (<wait>).
-pub fn keeps_working(state: Option<&str>, shell: bool, wait: Option<&ItemWait>) -> bool {
+fn keeps_working(state: Option<&str>, shell: bool, wait: Option<&ItemWait>) -> bool {
     state == Some("ready-to-land")
         && (shell
             || matches!(
@@ -227,14 +259,14 @@ pub fn keeps_working(state: Option<&str>, shell: bool, wait: Option<&ItemWait>) 
 
 /// Is a worktree in <state> in review instead of Ready to land? Its commits
 /// wait to land and the rules review <wait> stands in the way.
-pub fn in_review(state: Option<&str>, wait: Option<&ItemWait>) -> bool {
+fn in_review(state: Option<&str>, wait: Option<&ItemWait>) -> bool {
     state == Some("ready-to-land") && matches!(wait, Some(ItemWait::RulesReview(_)))
 }
 
 /// Does a worktree in <state> wait for an app build that has not started? Its
 /// running item's build waits in a lane's queue, so the card says so in place
 /// of Working.
-pub fn waits_in_queue(state: Option<&str>, wait: Option<&ItemWait>) -> bool {
+fn waits_in_queue(state: Option<&str>, wait: Option<&ItemWait>) -> bool {
     matches!(state, Some("working"))
         && matches!(wait, Some(ItemWait::AppBuild { running: false, .. }))
 }
@@ -354,6 +386,8 @@ pub fn words(checkout: &CheckoutPage, items: &[RunningItem], waits: &[ItemWait])
             _ => (Some("Needs review"), None, String::new()),
         },
         Some("parked") => (Some("Parked"), None, String::new()),
+        // The card's errors say why.
+        Some("waits-unread") => (Some("Can't read waits"), None, String::new()),
         Some("free") => (
             None,
             None,

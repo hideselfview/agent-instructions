@@ -1224,34 +1224,28 @@ impl Model {
                             .active
                             .contains(&format!("{}/{}", repo.name, checkout.name))
                     });
-                    let running = match project
+                    let waits = match project
                         .map(|lists| super::lists::running_waits(lists, &checkout.path))
                         .transpose()
                     {
-                        Ok(running) => running.unwrap_or_default(),
+                        Ok(running) => Some(super::cards::ranked(
+                            running
+                                .unwrap_or_default()
+                                .into_iter()
+                                .chain(design)
+                                .chain(build)
+                                .chain(review),
+                        )),
                         Err(error) => {
                             checkout.errors.push(format!(
                                 "The daemon can't read what this worktree's running items wait on: {error}"
                             ));
-                            Vec::new()
+                            None
                         }
                     };
-                    let waits = super::cards::ranked(
-                        running.into_iter().chain(design).chain(build).chain(review),
-                    );
-                    let wait = waits.first();
-                    if super::cards::keeps_working(checkout.state, shell, wait) {
-                        checkout.state = Some("working");
-                    }
-                    if super::cards::in_review(checkout.state, wait) {
-                        checkout.state = Some("in-review");
-                    }
-                    if super::cards::waits_in_queue(checkout.state, wait) {
-                        checkout.state = Some("queued");
-                    }
-                    if wait.is_some_and(super::cards::ItemWait::needs_person) && !checkout.main {
-                        checkout.state = Some("waiting-on-you");
-                    }
+                    checkout.state =
+                        super::cards::card_state(checkout.state, shell, waits.as_deref());
+                    let waits = waits.unwrap_or_default();
                     // A worktree an item is parked in, with no agent, holds that
                     // item's work: its card shows it parked with the item.
                     let parked = project
@@ -1432,7 +1426,9 @@ fn unclaimed_of(
 ///     free            unclaimed, nothing waiting to land
 ///
 /// The page then turns an unclaimed worktree an open item is parked in into
-/// parked, whatever it holds (lists/parked.rs).
+/// parked, whatever it holds (lists/parked.rs), and a worktree whose running
+/// items' waits the daemon could not read into waits-unread
+/// (cards::card_state).
 pub fn worktree_state(claim: Option<&Claim>, git: Option<&SideGit>) -> &'static str {
     let ahead = git.is_some_and(|g| !g.ahead.is_empty());
     let Some(claim) = claim else {
