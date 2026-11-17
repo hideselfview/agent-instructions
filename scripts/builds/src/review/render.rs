@@ -1,6 +1,7 @@
 //! What `builds review` prints: the findings by group, then one line of totals.
 
 use crate::review::record::{Call, Finding, Settle, Settled};
+use crate::text::one_line;
 
 /// A run's calls with their findings, by group.
 pub fn run_report(calls: &[Call], findings: &[Finding]) -> String {
@@ -107,8 +108,4 @@ pub fn totals(calls: &[Call], findings: &[Finding]) -> String {
 
 pub fn plural(count: usize, word: &str) -> String {
     format!("{count} {word}{}", if count == 1 { "" } else { "s" })
-}
-
-fn one_line(text: &str) -> String {
-    text.split_whitespace().collect::<Vec<_>>().join(" ")
 }

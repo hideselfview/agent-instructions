@@ -171,11 +171,6 @@ pub fn command_of(argv: &[String]) -> String {
     }
 }
 
-/// <text> on one line.
-fn flat(text: &str) -> String {
-    text.split_whitespace().collect::<Vec<_>>().join(" ")
-}
-
 pub fn shown(text: &str) -> String {
     if text.chars().count() > SHOWN {
         format!("{}…", text.chars().take(SHOWN).collect::<String>())
@@ -589,7 +584,7 @@ pub fn judge(
             parent: top.ppid,
             started: top.started,
             worktree,
-            command: flat(rest),
+            command: crate::text::one_line(rest),
             junk,
             cpu_seconds: tree.iter().map(|e| e.cpu_seconds).sum(),
             queued: tree.iter().any(|e| queued.contains(&e.pid)),

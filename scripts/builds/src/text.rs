@@ -63,6 +63,12 @@ pub fn minutes_since(now: i64, then: i64) -> i64 {
     (now - then).max(0) / 60
 }
 
+/// <text> on one line: each run of whitespace, line breaks included, as one
+/// space.
+pub fn one_line(text: &str) -> String {
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
 /// `1 build copy`, `3 build copies`.
 pub fn counted(count: usize, one: &str, many: &str) -> String {
     format!("{count} {}", if count == 1 { one } else { many })

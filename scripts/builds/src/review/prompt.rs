@@ -7,6 +7,7 @@ use serde_json::{Value, json};
 use crate::review::groups::Group;
 use crate::review::record::Finding;
 use crate::review::rules::Rule;
+use crate::text::one_line;
 
 /// The name the group's project-facts verdict goes by.
 pub const PROJECT_FACTS: &str = "project-facts";
@@ -142,10 +143,6 @@ fn change_part(input: &Input) -> String {
         }
     }
     out
-}
-
-fn one_line(text: &str) -> String {
-    text.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 /// How the group's part of a system prompt starts.
