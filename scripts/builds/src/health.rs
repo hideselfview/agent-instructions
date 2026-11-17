@@ -201,6 +201,8 @@ pub struct WorktreeHealth {
     /// The holder of an app lock building for this worktree in the app
     /// checkout (`Holder::builds_for`).
     pub app_build: Option<i32>,
+    /// Its app builds that wait in a lane's queue (`Queued::builds_for`).
+    pub in_line: Vec<InLine>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -230,6 +232,35 @@ pub struct Queued {
     pub command: String,
     /// The checkout its working directory is in.
     pub started_from: Option<String>,
+    /// The commit it builds, when it is a lane's process of a `builds
+    /// app-build` request (`app_build::lane_requested`).
+    pub commit: Option<String>,
+}
+
+/// An app build for a worktree that waits in a lane's queue: the queue's
+/// repo and lane, the waiting process, and its place in line.
+#[derive(Clone, Serialize, Deserialize)]
+pub struct InLine {
+    pub repo: String,
+    pub lane: String,
+    pub pid: i32,
+    /// 1 for the next to take a lock.
+    pub place: usize,
+    /// How many wait in the queue.
+    pub of: usize,
+}
+
+impl Queued {
+    /// Does it build for the worktree <label> at <git>? When it was run from
+    /// there, or it builds a commit of that worktree: its HEAD or one that
+    /// origin/main has no copy of.
+    fn builds_for(&self, label: &str, git: &SideGit) -> bool {
+        self.started_from.as_deref() == Some(label)
+            || self
+                .commit
+                .as_ref()
+                .is_some_and(|commit| git.head.iter().chain(&git.ahead).any(|c| c.full == *commit))
+    }
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -563,6 +594,9 @@ pub fn sample(
                 minutes: minutes_since(now, process.started),
                 command: command_line(process.pid),
                 started_from: started_from(places, process.pid),
+                commit: args(process.pid).and_then(|argv| {
+                    crate::app_build::lane_requested(&argv).map(|(_, commit)| commit.to_string())
+                }),
             })
             .collect();
         queues.push(LaneQueue {
@@ -823,6 +857,24 @@ pub fn assess(
             .filter_map(|lock| lock.holder.as_ref())
             .find(|h| h.builds_for(&label, &git))
             .map(|h| h.pid);
+        let in_line: Vec<InLine> = machine
+            .queues
+            .iter()
+            .flat_map(|queue| {
+                queue
+                    .queue
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, waiting)| waiting.builds_for(&label, &git))
+                    .map(|(at, waiting)| InLine {
+                        repo: queue.repo.clone(),
+                        lane: queue.lane.clone(),
+                        pid: waiting.pid,
+                        place: at + 1,
+                        of: queue.queue.len(),
+                    })
+            })
+            .collect();
         // A held claim is quiet on purpose: its note says why. A worktree
         // whose design change waits on the person's review is waiting on them.
         let held = claim.note_state.as_deref() == Some("held");
@@ -832,6 +884,7 @@ pub fn assess(
             && remote_runs.is_empty()
             && app_builds.is_empty()
             && app_build.is_none()
+            && in_line.is_empty()
             && idle_minutes.is_none_or(|m| m >= QUIET_MINUTES);
         if stalled {
             findings.push(Finding::new(
@@ -857,6 +910,7 @@ pub fn assess(
             remote_runs,
             app_builds,
             app_build,
+            in_line,
         });
     }
     findings.extend(
@@ -1136,9 +1190,22 @@ fn process_summary(building: &[BuildProcess]) -> String {
         .join(", ")
 }
 
+/// <n> as an ordinal: 1st, 2nd, 3rd, 4th, 11th, 21st.
+fn ordinal(n: usize) -> String {
+    let suffix = match (n % 10, n % 100) {
+        (_, 11..=13) => "th",
+        (1, _) => "st",
+        (2, _) => "nd",
+        (3, _) => "rd",
+        _ => "th",
+    };
+    format!("{n}{suffix}")
+}
+
 /// What builds for worktree <w>: its build processes here, its `builds
-/// cargo` runs on other hosts, the `builds app-build` requests for it, and
-/// the app lock's holder building for it.
+/// cargo` runs on other hosts, the `builds app-build` requests for it, the
+/// app lock's holder building for it, and its app builds waiting in a lane's
+/// queue with their places in line.
 fn builds_line(w: &WorktreeHealth) -> String {
     let mut parts = Vec::new();
     if !w.building.is_empty() {
@@ -1158,6 +1225,16 @@ fn builds_line(w: &WorktreeHealth) -> String {
     }
     if let Some(pid) = w.app_build {
         parts.push(format!("building in the app checkout (pid {pid})"));
+    }
+    for waiting in &w.in_line {
+        parts.push(format!(
+            "app build waiting in {}'s {} lane, {} of {} in line (pid {})",
+            waiting.repo,
+            waiting.lane,
+            ordinal(waiting.place),
+            waiting.of,
+            waiting.pid
+        ));
     }
     if parts.is_empty() {
         "no build running".to_string()
@@ -1786,6 +1863,103 @@ mod tests {
             "{shown:?}"
         );
         assert_eq!(judge(vec![run("other")]).findings.len(), 1);
+    }
+
+    /// A claimed worktree with no change for hours is building while an app
+    /// build of one of its commits waits in a lane's queue, wherever the
+    /// build was run from, and health shows its place in line; a queued build
+    /// of another commit leaves it idle.
+    #[test]
+    fn a_quiet_worktree_whose_commit_waits_in_a_lane_queue_is_not_idle() {
+        let now = 1_800_000_000;
+        let commit = |full: &str| Commit {
+            sha: full[..7].to_string(),
+            full: full.to_string(),
+            time: now - 2 * 3600,
+            authored: now - 2 * 3600,
+            subject: "Work".to_string(),
+        };
+        let mine = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        let queued = |pid: i32, commit: &str| Queued {
+            pid,
+            minutes: 3,
+            command: format!("builds app-build demo --lane android {commit}"),
+            started_from: Some("demo/main".to_string()),
+            commit: Some(commit.to_string()),
+        };
+        let judge = |queue: Vec<Queued>| {
+            let machine = Machine {
+                at: now,
+                load: [1.0; 3],
+                cores: 8,
+                builds: Vec::new(),
+                remote_runs: Vec::new(),
+                app_builds: Vec::new(),
+                unread: Vec::new(),
+                commits: Default::default(),
+                sccache: SccacheHealth {
+                    listening: true,
+                    executed: Some(1),
+                    compared: None,
+                    waiting: Vec::new(),
+                },
+                shells: Shells::default(),
+                locks: Vec::new(),
+                queues: vec![LaneQueue {
+                    repo: "demo".to_string(),
+                    lane: "android".to_string(),
+                    queue,
+                }],
+            };
+            let place = Place {
+                label: "demo/side-1".to_string(),
+                repo: "demo".to_string(),
+                top: PathBuf::from("/demo-worktrees/side-1"),
+                root: PathBuf::from("/volume/demo/side-1"),
+            };
+            let claimed = Claimed {
+                place: 0,
+                claim: Claim {
+                    who: "agent 1".to_string(),
+                    since: now - 5 * 3600,
+                    note: None,
+                    note_state: None,
+                },
+                branch: Some("work".to_string()),
+                git: SideGit {
+                    head: Some(commit(mine)),
+                    ahead: vec![commit(mine)],
+                    uncommitted: Some(0),
+                    last_write: None,
+                    error: None,
+                },
+                awaiting_review: false,
+            };
+            assess(
+                now,
+                DiskSpace {
+                    free_kib: 100 << 20,
+                    floor_kib: 30 << 20,
+                    hard_floor_kib: 10 << 20,
+                },
+                machine,
+                &[place],
+                vec![claimed],
+                LeftBehind::default(),
+                Vec::new(),
+            )
+        };
+        let other = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+        let waiting = judge(vec![queued(61, other), queued(62, mine)]);
+        assert!(waiting.findings.is_empty(), "{:?}", waiting.findings);
+        let shown = lines(&waiting);
+        assert!(
+            shown.iter().any(|line| line.ends_with(
+                "; app build waiting in demo's android lane, 2nd of 2 in line (pid 62)"
+            )),
+            "{shown:?}"
+        );
+        assert_eq!(judge(vec![queued(61, other)]).findings.len(), 1);
     }
 
     /// A process whose arguments builds could not read is a finding that

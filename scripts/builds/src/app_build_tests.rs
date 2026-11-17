@@ -931,3 +931,31 @@ fn a_request_names_its_repo_and_ref() {
     );
     assert_eq!(requested(&argv(&["builds", "cargo", "test", "x"])), None);
 }
+
+/// A lane's process names its repo and the commit it builds; a request and
+/// other commands name none.
+#[test]
+fn a_lanes_process_names_its_repo_and_commit() {
+    let argv = |words: &[&str]| words.iter().map(|w| w.to_string()).collect::<Vec<_>>();
+    assert_eq!(
+        lane_requested(&argv(&[
+            "/x/builds",
+            "app-build",
+            "bae",
+            "--lane",
+            "android",
+            "abc123",
+            "android-tests"
+        ])),
+        Some(("bae", "abc123"))
+    );
+    assert_eq!(
+        lane_requested(&argv(&["builds", "app-build", "bae", "work"])),
+        None
+    );
+    assert_eq!(
+        lane_requested(&argv(&["builds", "app-build", "bae", "--lane", "mac"])),
+        None
+    );
+    assert_eq!(lane_requested(&argv(&["builds", "lock", "bae"])), None);
+}

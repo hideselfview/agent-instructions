@@ -1356,6 +1356,21 @@ pub fn run_lanes(
     }
 }
 
+/// Returns the repo and the commit from the command line <argv> of a lane's
+/// process, `builds app-build <repo> --lane <lane> <commit> ...`, which a
+/// request starts for each lane (`run_lanes`) and which waits in that lane's
+/// queue. Returns None for any other command.
+pub fn lane_requested(argv: &[String]) -> Option<(&str, &str)> {
+    match argv {
+        [_, command, repo, flag, _lane, commit, ..]
+            if command == "app-build" && flag == "--lane" && !commit.starts_with('-') =>
+        {
+            Some((repo.as_str(), commit.as_str()))
+        }
+        _ => None,
+    }
+}
+
 /// Returns the repo and the ref (the branch or commit to build) from the
 /// command line <argv> of a running `builds app-build <repo> <ref> ...`
 /// request. Returns None for any other command, for `--list`, and for a

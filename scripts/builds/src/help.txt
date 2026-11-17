@@ -1155,8 +1155,11 @@ STATUS, HEALTH AND THE DASHBOARD
                                 minutes since a change, and builds there,
                                 its `builds cargo` runs whose cargo runs on
                                 another host, the `builds app-build` runs of
-                                its branch, here or on another host, or
-                                builds under an app lock for it
+                                its branch, here or on another host, builds
+                                under an app lock for it, and its app builds
+                                waiting in a lane's queue (run from it, or of
+                                one of its commits), each with its place in
+                                line
                               - each lane's lock holder (the build's top
                                 process when its `builds lock` is gone)
                               - the busy processes on this Mac and every host

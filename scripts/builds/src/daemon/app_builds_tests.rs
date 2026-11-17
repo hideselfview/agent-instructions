@@ -137,6 +137,7 @@ fn queued(from: &str, command: &str) -> Queued {
         minutes: 1,
         command: command.into(),
         started_from: Some(from.into()),
+        commit: None,
     }
 }
 
@@ -426,6 +427,7 @@ fn the_lanes_real_queue_and_command_lines_name_each_waiting_branch() {
             minutes: 20,
             command: commands.iter().find(|(p, _)| p == pid).unwrap().1.clone(),
             started_from: None,
+            commit: None,
         })
         .collect();
     let mut held = lock("side-1", 27, "/d/bae-worktrees/side-16", &[]);
