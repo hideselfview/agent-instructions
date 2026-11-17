@@ -16,47 +16,6 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  bae-macos/test.sh | 47 +++++++++++++++++++++++++++--------------------
  2 files changed, 35 insertions(+), 21 deletions(-)
 
-diff --git a/.app-build b/.app-build
-index f05a0928e0..1a6d96e22e 100644
---- a/.app-build
-+++ b/.app-build
-@@ -13,6 +13,11 @@ on bae-macos/ macos-tests
- on BaeKit/ macos-tests
- on bae-android/ android-bridge android
- on bae-bridge/ macos-tests android-bridge android
-+# The shot scenes compile in their own scheme and tree, which takes as long to
-+# compile as the app's, so an app build compiles them only for a change to the
-+# scenes. bae-shots compiles them for a --shots run, and the `test mac:shots`
-+# line for a --test run of a scenes' class.
-+on bae-macos/bae/baeShots/ macos-shots-tests
- # What a --test or --shots run needs built when the branch changes nothing its
- # lane builds.
- needs mac macos-tests
-@@ -28,6 +33,7 @@ sources android bae-android
- 
- step mac macos ./bae-macos/run.sh --no-open
- step mac macos-tests ./bae-macos/test.sh --build-only
-+step mac macos-shots-tests ./bae-macos/test.sh --build-only --bundle baeShots
- step mac macos-tests-run ./bae-macos/test.sh --run-only
- step mac macos-tests-all ./bae-macos/test.sh
- step android android-bridge ./bae-bridge/build-android.sh --abi arm64-v8a
-@@ -41,6 +47,7 @@ shots android scripts/cargo.sh run -p bae-shots -- run --platform android --sele
- 
- limit macos 20m
- limit macos-tests 20m
-+limit macos-shots-tests 20m
- limit macos-tests-run 10m
- limit android-bridge 15m
- limit android 15m
-@@ -50,7 +57,7 @@ limit mac-window-shots 20m
- limit android-shots 20m
- 
- test mac ./bae-macos/test.sh --run-only {class}
--test mac:shots ./bae-macos/test.sh --run-only --bundle baeShots {class}
-+test mac:shots ./bae-macos/test.sh --bundle baeShots {class}
- test mac:ui ./bae-macos/test.sh --run-only --bundle baeUITests {class}
- # The UI tests launch the app and drive its windows, so builds runs them only
- # on a build host, where no one sits at the screen.
 diff --git a/bae-macos/test.sh b/bae-macos/test.sh
 index 32b1aa0c9e..be9498ba61 100755
 --- a/bae-macos/test.sh

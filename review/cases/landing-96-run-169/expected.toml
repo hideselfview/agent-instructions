@@ -14,46 +14,6 @@ verdict = "finding"
 rule = "write-plain-literal-active-sentences"
 
 [[site]]
-file = ".app-build"
-code = "# The shot scenes compile in their own scheme and tree, which takes as long to"
-verdict = "none"
-
-[[site]]
-file = ".app-build"
-code = "# compile as the app's, so an app build compiles them only for a change to the"
-verdict = "none"
-
-[[site]]
-file = ".app-build"
-code = "# scenes. bae-shots compiles them for a --shots run, and the `test mac:shots`"
-verdict = "none"
-
-[[site]]
-file = ".app-build"
-code = "# line for a --test run of a scenes' class."
-verdict = "none"
-
-[[site]]
-file = ".app-build"
-code = "on bae-macos/bae/baeShots/ macos-shots-tests"
-verdict = "none"
-
-[[site]]
-file = ".app-build"
-code = "step mac macos-shots-tests ./bae-macos/test.sh --build-only --bundle baeShots"
-verdict = "none"
-
-[[site]]
-file = ".app-build"
-code = "limit macos-shots-tests 20m"
-verdict = "none"
-
-[[site]]
-file = ".app-build"
-code = "test mac:shots ./bae-macos/test.sh --bundle baeShots {class}"
-verdict = "none"
-
-[[site]]
 file = "bae-macos/test.sh"
 code = "# A run builds only the scheme of the bundle it runs: the `bae` scheme (the app,"
 verdict = "none"
