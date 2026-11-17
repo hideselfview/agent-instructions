@@ -358,10 +358,10 @@ const DESIGN_DELETED: &str = "CREATE TABLE design_deleted (
 /// the tables of fixes, of the commits each run read, of the commits each push
 /// landed and of findings whose code left their branch. A store from before a
 /// review's patch ids left out context lines keeps its old patch ids until the
-/// move drops them. In every store older than the question's reason for
-/// blocking nothing, the move makes `question` again and clears that reason
-/// (`blocks_nothing`) on each open question that an open item waits on. Every
-/// store gets `builds_cargo_runs`
+/// move drops them. In every store from before a question could give a reason
+/// for blocking nothing only while no open item waits on it, the move makes
+/// `question` again and clears that reason (`blocks_nothing`) on each open
+/// question that an open item waits on. Every store gets `builds_cargo_runs`
 /// with each run's start and subcommand: the move gives each run that builds
 /// recorded before this move the start of the hook run whose check started
 /// it, and no subcommand. Every store gets `app_build_runs` with the load of
