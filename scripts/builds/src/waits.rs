@@ -82,7 +82,7 @@ pub fn band_of(load: Option<Load>) -> Band {
     let Some(load) = load else {
         return Band::NotRecorded;
     };
-    match load.one_minute / f64::from(load.cores.max(1)) {
+    match load.one_minute / f64::from(load.cores) {
         per_core if per_core < 1.0 => Band::Under1,
         per_core if per_core < 2.0 => Band::From1To2,
         per_core if per_core < 4.0 => Band::From2To4,
