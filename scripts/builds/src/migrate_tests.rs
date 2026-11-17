@@ -3053,6 +3053,56 @@ fn a_store_from_before_blocks_from_waits_clears_the_why_of_each_question_an_open
     assert_eq!(waits, 3);
 }
 
+/// The schema text before builds recorded each writing check: without
+/// writing.sql.
+fn schema_before_writing_runs() -> String {
+    let schema = db::schema();
+    let part = format!("\n{}", db::WRITING_PART);
+    assert_eq!(schema.matches(&part).count(), 1);
+    schema.replacen(&part, "", 1)
+}
+
+#[test]
+fn the_writing_runs_stamp_is_the_schema_before_writing_runs() {
+    assert_eq!(
+        db::stamp_of_text(&schema_before_writing_runs()),
+        BEFORE_WRITING_RUNS_STAMP
+    );
+}
+
+/// A store from before builds recorded each writing check keeps its runs,
+/// equals a fresh schema, and then records a writing check.
+#[test]
+fn a_store_from_before_writing_runs_moves_and_records_a_writing_check() {
+    let scratch = Scratch::new("move-writing-runs");
+    let places = scratch.places();
+    let dir = places.lists.join("bae");
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join(DATABASE);
+    {
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(&schema_before_writing_runs()).unwrap();
+        conn.pragma_update(None, "user_version", BEFORE_WRITING_RUNS_STAMP)
+            .unwrap();
+        plant_run(&conn);
+    }
+    migrate_stores(&places, 0).unwrap();
+    let conn = db::open_reader(&path)
+        .unwrap()
+        .expect("opens under today's stamp");
+    assert_eq!(
+        db::schema_rows(&conn).unwrap(),
+        db::schema_rows(&db::memory()).unwrap()
+    );
+    drop(conn);
+    let stats = crate::hook_stats::stats(&path, 0, "bae").unwrap().unwrap();
+    assert_eq!(stats.runs, 1, "the move keeps the old run");
+    let conn = Connection::open(&path).unwrap();
+    conn.pragma_update(None, "foreign_keys", true).unwrap();
+    crate::lists::project::plant(&conn, "repo", &[("name", "bae".to_string().into())]).unwrap();
+    crate::review::writing::add_run(&conn, "bae", "branch:work", "h", 5).unwrap();
+}
+
 /// The schema text before the person could allow a confirmed finding to land:
 /// without `review_allowed`, and with the review's comments as they read then.
 fn schema_before_allowed() -> String {
@@ -3571,7 +3621,7 @@ fn a_store_from_before_waits_keeps_its_cargo_runs_and_app_build_runs() {
 /// the spans in which the worktree's claim note said held or the item waited
 /// on the person: running.sql without its tables of ended runs and spans.
 fn schema_before_run_times() -> String {
-    without_run_times(db::schema())
+    without_run_times(schema_before_writing_runs())
 }
 
 /// <schema> with running.sql as it was before builds kept ended runs and

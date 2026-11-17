@@ -192,12 +192,14 @@ WHAT AN IMPLEMENTING AGENT DOES
      run `builds review writing <worktree>` on the branch. The command has a
      reviewer check the branch's changes past origin/main against
      rules/text-people-read/write-plain-literal-active-sentences.md and the
-     other rules of its review group, prints the findings and records
-     nothing. Fix what it finds in a new commit, and name in the report each
-     finding it judges wrong, with why. In a file where only groups other than
-     the writing group hold open findings, the coordinator's review of the
-     fix does not ask the writing group, so this check is the only one that
-     reads the wording of that fix.
+     other rules of its review group, and prints the findings. Fix what it
+     finds in a new commit, and name in the report each finding it judges
+     wrong, with why. builds runs the check at most twice on a branch between
+     two reviews of it: after the second run, fix what it found and report,
+     and run the check again only after the coordinator's next review. In a
+     file where only groups other than the writing group hold open findings,
+     the coordinator's review of the fix does not ask the writing group, so
+     this check is the only one that reads the wording of that fix.
   8. Report the SHA, the base and the checks. Leave nothing uncommitted: the
      coordinator runs `builds land` in this worktree, which refuses a
      worktree with uncommitted changes.

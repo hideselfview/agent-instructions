@@ -267,9 +267,12 @@ pub const QUESTION_EFFECTS: &str = "question-effects.json";
 /// said held or the item waited on the person.
 const BEFORE_RUN_TIMES_STAMP: i64 = 726_402_770;
 
+/// The stamp of the schema before builds recorded each writing check.
+const BEFORE_WRITING_RUNS_STAMP: i64 = 1_268_800_089;
+
 /// Every stamp a store can carry that `move_store` moves, oldest schema first.
 /// A new move adds the stamp of the schema before it at the end.
-const STAMPS: [i64; 34] = [
+const STAMPS: [i64; 35] = [
     BEFORE_DESIGN_DELETED_STAMP,
     BEFORE_CHECK_TIMES_STAMP,
     BEFORE_DESIGN_TIP_STAMP,
@@ -304,6 +307,7 @@ const STAMPS: [i64; 34] = [
     BEFORE_ACK_STAMP,
     BEFORE_EFFECTS_STAMP,
     BEFORE_RUN_TIMES_STAMP,
+    BEFORE_WRITING_RUNS_STAMP,
 ];
 
 /// Whether a store stamped <found> comes before the move that follows the
@@ -398,7 +402,8 @@ const DESIGN_DELETED: &str = "CREATE TABLE design_deleted (
 /// missing while the store holds a question. Every store gets the tables
 /// of ended runs and spans, with each ended run its write log tells of
 /// (`running::move_to_runs`) and <now>, the moment install moves it, as the
-/// start of its spans.
+/// start of its spans. Every store gets the empty `review_writing_run` table
+/// (builds has recorded no writing check yet).
 /// The moves run in one transaction, the store
 /// is stamped as today's schema, and it must then equal a fresh database's schema or the transaction rolls back. A
 /// store already at today's stamp, or with no database, is left alone; any
@@ -772,6 +777,11 @@ fn move_store(places: &Places, path: &Path, now: i64) -> Result<()> {
                 "they ended"
             }
         ));
+    }
+    // Every store from before builds recorded each writing check gets the
+    // table of writing checks.
+    if before(found, BEFORE_WRITING_RUNS_STAMP) {
+        tx.execute_batch(db::WRITING_PART).sql()?;
     }
     tx.pragma_update(None, "user_version", db::stamp()).sql()?;
     let broken: Option<String> = tx

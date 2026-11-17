@@ -40,8 +40,10 @@
 //! when the review lacks nothing.
 //!
 //! `writing` asks only the group that holds rule
-//! write-plain-literal-active-sentences over the same net change, prints its
-//! findings and records nothing (`writing.rs`).
+//! write-plain-literal-active-sentences over the same net change and prints
+//! its findings. The check records no landing, review run or finding, only
+//! that it ran, and refuses a third run on a branch until the branch's next
+//! review (`writing.rs`).
 //!
 //! Every call records its setup (its group's model and prompt), its tokens and
 //! its cost. `scores` counts how each setup did from the settled findings, and
@@ -68,7 +70,7 @@ mod rerun;
 pub mod rules;
 pub mod run;
 mod score;
-mod writing;
+pub mod writing;
 
 use std::path::{Path, PathBuf};
 
@@ -503,8 +505,9 @@ fn run_command(tool: &Tool, args: &[String]) -> Result<()> {
 }
 
 /// `builds review writing WORKTREE [BASE]`: the writing check, which prints
-/// the findings of the group that holds the writing rule and records
-/// nothing. Exits 1 when the group raised a finding or gave no answer.
+/// the findings of the group that holds the writing rule, records the run
+/// and refuses a third run on the branch until its next review. Exits 1 when
+/// the group raised a finding or gave no answer.
 fn writing_command(tool: &Tool, args: &[String]) -> Result<()> {
     let args = Args::parse(args, &["rules-root", "reviewer"], &[])?;
     let (worktree, base) = worktree_and_base(&args)?;
@@ -515,13 +518,21 @@ fn writing_command(tool: &Tool, args: &[String]) -> Result<()> {
             checkout.repo()
         )
     };
-    let checked = writing::check(
-        &checkout.top,
+    let stamp = Stamp {
+        at: tool.now,
+        by: resolve_by(&args, &checkout.top).or_else(|_| resolve_by(&args, &current_dir()?))?,
+    };
+    let checked = writing::check(&writing::Inputs {
+        store: &Store::named(&tool.places, &project)?,
+        project: &project,
+        repo: &checkout.repo(),
+        worktree: &checkout.top,
         base,
-        &rules_root(&args)?,
-        &project,
-        &PathBuf::from(args.value("reviewer")?.unwrap_or("claude")),
-    )?;
+        key: &default_key(&checkout.top)?,
+        root: &rules_root(&args)?,
+        reviewer: &PathBuf::from(args.value("reviewer")?.unwrap_or("claude")),
+        stamp: &stamp,
+    })?;
     print!("{}", checked.text);
     if checked.clean {
         Ok(())

@@ -250,6 +250,19 @@ pub fn open_landing(db: &Connection, key: &str) -> Result<Option<i64>> {
     .sql()
 }
 
+/// The newest review run of a landing of <key> in <repo>, whether the
+/// landing landed or not; None when no review ran on the key.
+pub fn last_review_run(db: &Connection, repo: &str, key: &str) -> Result<Option<i64>> {
+    db.query_row(
+        "SELECT MAX(review_run.id) FROM review_run
+         JOIN review_landing ON review_landing.id = review_run.landing_id
+         WHERE review_landing.key = ?1 AND review_landing.repo = ?2 AND review_run.kind = 'review'",
+        params![key, repo],
+        |row| row.get(0),
+    )
+    .sql()
+}
+
 pub fn add_landing(db: &Connection, key: &str, repo: &str, now: i64) -> Result<i64> {
     db.execute(
         "INSERT INTO review_landing (key, repo, opened_at) VALUES (?1, ?2, ?3)",

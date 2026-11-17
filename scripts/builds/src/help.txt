@@ -1767,12 +1767,18 @@ run `review replay --rules-root` on it.
                               worktree's net change past <base> (default
                               origin/main), the way `builds review` asks each
                               group, and print its findings. The command
-                              records nothing: no landing, run or finding goes
-                              in the store, and `builds land` still needs the
-                              coordinator's review. An implementing agent runs
-                              it on its branch before every report, and fixes
-                              what it finds. Exits 1 when the group raised a
-                              finding or gave no answer
+                              records no landing, review run or finding, and
+                              `builds land` still needs the coordinator's
+                              review. An
+                              implementing agent runs it on its branch before
+                              every report, and fixes what it finds. builds
+                              records each run whose group answered, and runs
+                              the check at most twice on a branch between two
+                              reviews of it: a third run refuses and says to
+                              fix what the second run found and report. The
+                              coordinator's next review of the branch (`builds
+                              review`) allows two more. Exits 1 when the group
+                              raised a finding or gave no answer
   builds review settle <finding> confirmed|dropped --why <text>
                               the coordinator's verdict on a finding, kept with
                               who and when. builds refuses a finding that is
