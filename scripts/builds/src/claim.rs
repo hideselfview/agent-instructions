@@ -78,8 +78,7 @@ impl Claim {
     }
 
     pub fn write(&self, file: &Path) -> Result<()> {
-        std::fs::write(file, self.line()?)
-            .map_err(|error| fail::Fail::Message(format!("writing {}: {error}", file.display())))
+        crate::whole_file::write(file, self.line()?)
     }
 
     /// The claim file's line.
@@ -150,8 +149,7 @@ pub fn set_project(places: &Places, checkout: &Checkout, project: Option<&str>) 
     {
         fail!("project {project} holds no repo {repo}; builds lists init or add-repo makes it so");
     }
-    std::fs::write(&file, format!("{project}\n"))
-        .map_err(|error| fail::Fail::Message(format!("writing {}: {error}", file.display())))
+    crate::whole_file::write(&file, format!("{project}\n"))
 }
 
 /// Refuses a claim that names no project (<named> is the project the claim
