@@ -1174,7 +1174,7 @@ fn show_and_list_print_the_stack_and_a_closed_question() {
     let shown = go(&scratch, &tool, &format!("show {q}")).unwrap();
     assert!(
         shown.contains(&format!("1. {q} "))
-            && shown.contains("effect: cleanup or wording")
+            && shown.contains("effect: cleanup")
             && shown.contains("blocks 1 (1 through chains):")
             && shown.contains(&format!("  {a} Do the work numbered {}", a.0))
             && shown.contains("details"),
@@ -1184,6 +1184,11 @@ fn show_and_list_print_the_stack_and_a_closed_question() {
     assert!(
         listed.contains(&format!("1. {q} ")) && listed.contains(&format!("2. {other} ")),
         "{listed}"
+    );
+    assert_eq!(
+        listed.lines().count(),
+        2,
+        "one line per question:\n{listed}"
     );
     let r = file(
         &scratch,

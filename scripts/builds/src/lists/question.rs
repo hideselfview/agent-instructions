@@ -69,14 +69,14 @@ impl Effect {
         }
     }
 
-    /// The words every view shows to the person.
+    /// The short label every view shows to the person.
     pub fn words(self) -> &'static str {
         match self {
             Effect::DataLoss => "data loss",
-            Effect::Bug => "a bug you hit",
-            Effect::SlowsAgents => "slows the agents",
+            Effect::Bug => "bug",
+            Effect::SlowsAgents => "slows agents",
             Effect::ProductDesign => "product design",
-            Effect::Cleanup => "cleanup or wording",
+            Effect::Cleanup => "cleanup",
         }
     }
 }

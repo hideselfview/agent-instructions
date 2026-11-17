@@ -92,7 +92,7 @@ fn a_question_with_no_waiting_item_and_no_reason_is_an_error() {
 }
 
 #[test]
-fn a_stack_entry_starts_with_who_asked_it_its_effect_where_it_sits_and_what_it_blocks() {
+fn a_stack_entry_starts_with_who_asked_it_its_effect_and_what_it_blocks() {
     let db = db();
     let q = question(&db);
     let blocked = item(&db, vec![Wait::Question(q)]);
@@ -108,8 +108,7 @@ fn a_stack_entry_starts_with_who_asked_it_its_effect_where_it_sits_and_what_it_b
                 "       asked by coordinator, {}",
                 local_minute(NOON + i64::from(q.0))
             ),
-            "       effect: cleanup or wording".to_string(),
-            "       the stack orders it by what it unblocks and its effect".to_string(),
+            "       effect: cleanup".to_string(),
             "       blocks 1 (1 through chains):".to_string(),
             format!(
                 "         {blocked} Do the work numbered {} (priority none; no item waits behind it; opened {})",
@@ -117,5 +116,41 @@ fn a_stack_entry_starts_with_who_asked_it_its_effect_where_it_sits_and_what_it_b
                 local_minute(NOON + i64::from(blocked.0))
             ),
         ]
+    );
+}
+
+#[test]
+fn a_stack_line_shows_the_effect_what_the_entry_blocks_and_who_asked_it_on_one_line() {
+    let db = db();
+    let q = question(&db);
+    let blocked = item(&db, vec![Wait::Question(q)]);
+    item(&db, vec![Wait::Item(blocked)]);
+    let lists = read(&db);
+    let entry = &derive::stack_order(&lists)[0];
+    assert_eq!(
+        stack_line(&lists, 1, entry).unwrap(),
+        format!(
+            "  1. {q} Which way for number {}  cleanup · blocks 2 · coordinator, {}\n",
+            q.0,
+            local_minute(NOON + i64::from(q.0))
+        )
+    );
+}
+
+#[test]
+fn a_stack_line_leaves_out_why_an_entry_blocks_nothing_and_why_someone_placed_it() {
+    let db = db();
+    let q = question(&db);
+    crate::lists::question::place(&db, q, crate::lists::question::Spot::Last, "later", true)
+        .unwrap();
+    let lists = read(&db);
+    let entry = &derive::stack_order(&lists)[0];
+    assert_eq!(
+        stack_line(&lists, 1, entry).unwrap(),
+        format!(
+            "  1. {q} Which way for number {}  cleanup · coordinator, {}\n",
+            q.0,
+            local_minute(NOON + i64::from(q.0))
+        )
     );
 }

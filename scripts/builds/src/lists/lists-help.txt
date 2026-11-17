@@ -75,18 +75,20 @@ DECISION STACK
 
 `question list`, `question show`, `lists show` and the dashboard's Waiting on
 you tab all show the stack in the one order that EFFECTS AND ORDER OF THE STACK
-gives. Each of them shows four facts on an entry's first lines, and the
-dashboard shows them in the row before anyone opens it. The first says who
-asked the entry and when. The second says the entry's effect. The third says
-why the entry sits where it does: whether someone placed it first or last,
-whether that was the person, and the reason they gave, or that the stack orders
-it by what it unblocks and its effect. The fourth says what the entry blocks.
+gives. `question list` and the dashboard's closed rows show each entry on one
+line: its id and title, its effect, how many open items wait on it (directly
+or through chains of open items) when any do, who asked it and when, and its
+trail. `question list` starts the line with the entry's place in the order.
+`question show`, `lists show` and the opened dashboard row also show what the
+line leaves out. When someone placed the entry first or last, these views say
+whether the person placed it and give the reason. The three views name each
+item that waits on the entry directly, with the item's priority (first, last or
+none), how many open items wait behind it and when it opened. For an entry that
+no open item waits on, they give the reason the entry stays on the stack
+anyway.
 Each view works out what an entry blocks from the open items that wait on it,
-every time it shows the entry: each item that waits on the entry directly, with
-the item's priority (first, last or none), how many open items wait behind it
-(on it directly or through chains of open items) and when it opened. An entry
-that no open item waits on shows the reason it stays on the stack anyway. The
-opened dashboard row adds the entry's plan and details.
+every time it shows the entry. The opened dashboard row and `question show` add
+the entry's plan and details.
 
 To rank the stack as the person orders it, place each entry first, from the
 person's last choice to their first: each `place N first` puts N above every
@@ -164,7 +166,7 @@ auto` takes it out of the ranked order.
 
   builds question show N | builds question list [--tag T]
       One entry with its details and trail (a closed one shows how it left), or
-      the stack in the order it is asked.
+      the stack in the order it is asked, one line per entry.
 
 
 WORK QUEUE

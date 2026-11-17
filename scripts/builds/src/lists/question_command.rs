@@ -18,7 +18,7 @@ use crate::lists::issue::{GhRunner, real_gh, require_open_issue};
 use crate::lists::item::{ItemDraft, RecordWait, add_item, add_wait, move_waits_to_question};
 use crate::lists::question::{self, Blocked, BlockedMap, NewQuestion, Spot, apply_blocked};
 use crate::lists::record::close;
-use crate::lists::show::{blocks_lines, kind_words, stack_entry};
+use crate::lists::show::{blocks_lines, kind_words, stack_entry, stack_line};
 use crate::lists::store::{self, Store};
 use crate::lists::trail::{self, trail_line, trail_wanted};
 use crate::lists::{
@@ -659,8 +659,9 @@ fn show(tool: &Tool, args: &[String], cwd: &Path) -> Result<String> {
     }
 }
 
-/// The stack in the order it is asked; with `--tag T`, only the questions
-/// whose trail has T, each keeping its place in the stack.
+/// The stack in the order it is asked, one line per question; with `--tag
+/// T`, only the questions whose trail has T, each keeping its place in the
+/// stack.
 fn list(tool: &Tool, args: &[String], cwd: &Path) -> Result<String> {
     let args = Args::parse(args, &["tag"], &[])?;
     args.exactly(0, USAGE)?;
@@ -673,7 +674,7 @@ fn list(tool: &Tool, args: &[String], cwd: &Path) -> Result<String> {
     let mut shown = String::new();
     for (n, entry) in stack.iter().enumerate() {
         if trail_wanted(&lists, entry.question.id, wanted)? {
-            shown.push_str(&stack_entry(&lists, n + 1, entry)?);
+            shown.push_str(&stack_line(&lists, n + 1, entry)?);
         }
     }
     if shown.is_empty()
