@@ -1224,20 +1224,21 @@ impl Model {
                             .active
                             .contains(&format!("{}/{}", repo.name, checkout.name))
                     });
-                    let mut waits: Vec<super::cards::ItemWait> = Vec::new();
-                    for wait in project
+                    let running = match project
                         .map(|lists| super::lists::running_waits(lists, &checkout.path))
-                        .unwrap_or_default()
-                        .into_iter()
-                        .chain(design)
-                        .chain(build)
-                        .chain(review)
+                        .transpose()
                     {
-                        if !waits.contains(&wait) {
-                            waits.push(wait);
+                        Ok(running) => running.unwrap_or_default(),
+                        Err(error) => {
+                            checkout.errors.push(format!(
+                                "The daemon can't read what this worktree's running items wait on: {error}"
+                            ));
+                            Vec::new()
                         }
-                    }
-                    waits.sort_by_key(super::cards::ItemWait::rank);
+                    };
+                    let waits = super::cards::ranked(
+                        running.into_iter().chain(design).chain(build).chain(review),
+                    );
                     let wait = waits.first();
                     if super::cards::keeps_working(checkout.state, shell, wait) {
                         checkout.state = Some("working");

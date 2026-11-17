@@ -192,34 +192,50 @@ pub fn running_items(
         .collect()
 }
 
-/// What the running items of <worktree> wait on that is not met, each wait
-/// once, by rank: first what needs the person (a question, a design change to
-/// review), then an item or a design change to land, then a condition.
-pub fn running_waits(lists: &crate::lists::Lists, worktree: &str) -> Vec<super::cards::ItemWait> {
+/// What the running items of <worktree> wait on that is not met, item by
+/// item in list order. Fails when a wait names a record the lists do not
+/// hold.
+pub fn running_waits(
+    lists: &crate::lists::Lists,
+    worktree: &str,
+) -> Result<Vec<super::cards::ItemWait>, String> {
     use super::cards::ItemWait;
     use crate::lists::Wait;
     let mut found: Vec<ItemWait> = Vec::new();
     for item in items_in(lists, worktree) {
         for wait in crate::lists::derive::unmet_waits(lists, item) {
-            let title = |id| lists.locate(id).map(|found| found.title.to_string());
-            let wait = match wait {
-                Wait::Question(id) => title(*id).map(|title| ItemWait::Answer { id: id.0, title }),
-                Wait::Design(id) if crate::lists::derive::wait_on_person(lists, wait) => {
-                    title(*id).map(|title| ItemWait::Review { id: id.0, title })
-                }
-                Wait::Design(id) => title(*id).map(|title| ItemWait::Landing { id: id.0, title }),
-                Wait::Item(id) => title(*id).map(|title| ItemWait::Item { id: id.0, title }),
-                Wait::Condition(text) => Some(ItemWait::Condition(text.clone())),
+            let title = |id: crate::lists::Id| {
+                lists
+                    .locate(id)
+                    .map(|found| found.title.to_string())
+                    .ok_or_else(|| {
+                        format!("{} waits on {id}, which the lists do not hold", item.id)
+                    })
             };
-            if let Some(wait) = wait
-                && !found.contains(&wait)
-            {
-                found.push(wait);
-            }
+            found.push(match wait {
+                Wait::Question(id) => ItemWait::Answer {
+                    id: id.0,
+                    title: title(*id)?,
+                },
+                Wait::Design(id) if crate::lists::derive::wait_on_person(lists, wait) => {
+                    ItemWait::Review {
+                        id: id.0,
+                        title: title(*id)?,
+                    }
+                }
+                Wait::Design(id) => ItemWait::Landing {
+                    id: id.0,
+                    title: title(*id)?,
+                },
+                Wait::Item(id) => ItemWait::Item {
+                    id: id.0,
+                    title: title(*id)?,
+                },
+                Wait::Condition(text) => ItemWait::Condition(text.clone()),
+            });
         }
     }
-    found.sort_by_key(ItemWait::rank);
-    found
+    Ok(found)
 }
 
 /// Open design change <id> of project <project>, as the lists JSON shows it;

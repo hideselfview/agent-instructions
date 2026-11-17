@@ -126,8 +126,8 @@ pub struct QueuedBuild {
 
 impl ItemWait {
     /// What the person has to do comes before another item. A condition comes
-    /// after every other wait, so no state turns on it while another wait
-    /// holds.
+    /// after every other wait: the daemon sets a card's state from its first
+    /// wait, and a condition sets no state.
     pub fn rank(&self) -> u8 {
         match self {
             ItemWait::Answer { .. } => 0,
@@ -196,6 +196,19 @@ impl ItemWait {
             ItemWait::Condition(text) => format!("Waits until {text}"),
         }
     }
+}
+
+/// Returns <waits> in rank order, each wait once; waits of one rank keep the
+/// order <waits> gave them.
+pub fn ranked(waits: impl IntoIterator<Item = ItemWait>) -> Vec<ItemWait> {
+    let mut ranked: Vec<ItemWait> = Vec::new();
+    for wait in waits {
+        if !ranked.contains(&wait) {
+            ranked.push(wait);
+        }
+    }
+    ranked.sort_by_key(ItemWait::rank);
+    ranked
 }
 
 /// Does a card in <state> stay Working instead of Ready to land? Ready to
@@ -287,7 +300,7 @@ fn uncommitted(checkout: &CheckoutPage) -> Option<Uncommitted> {
 
 /// The words of <checkout>, a live checkout that is not an app checkout:
 /// <items> are its running items and <waits> is what the worktree waits on,
-/// by rank, the first being the wait its state turned on.
+/// as `ranked` orders it: the daemon set the card's state from the first.
 pub fn words(checkout: &CheckoutPage, items: &[RunningItem], waits: &[ItemWait]) -> Words {
     let wait = waits.first();
     let uncommitted = uncommitted(checkout);

@@ -389,6 +389,30 @@ fn a_condition_ranks_after_every_other_wait_and_has_no_pill() {
 }
 
 #[test]
+fn ranked_waits_come_once_each_in_rank_order() {
+    let condition = ItemWait::Condition("builds #122 lands".into());
+    let item = |id| ItemWait::Item {
+        id,
+        title: "Other".into(),
+    };
+    let answer = ItemWait::Answer {
+        id: 438,
+        title: "Which port?".into(),
+    };
+    assert_eq!(
+        ranked([
+            condition.clone(),
+            item(2),
+            answer.clone(),
+            condition.clone(),
+            item(1),
+            item(2),
+        ]),
+        [answer, item(2), item(1), condition]
+    );
+}
+
+#[test]
 fn a_branch_with_an_app_build_waits_on_it_and_is_not_ready_to_land() {
     let card = words(
         &card(Some("working"), claim(None), Some(0)),

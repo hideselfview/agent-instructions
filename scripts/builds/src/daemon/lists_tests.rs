@@ -367,7 +367,7 @@ fn a_worktrees_running_items_come_in_list_order_with_their_numbers_and_titles() 
 }
 
 #[test]
-fn a_running_item_waits_on_its_question_before_another_item() {
+fn a_running_items_waits_come_in_the_order_it_lists_them_and_a_lost_record_fails() {
     use crate::lists::Wait;
     let db = db();
     let question = crate::lists::fixtures::question(&db);
@@ -387,7 +387,7 @@ fn a_running_item_waits_on_its_question_before_another_item() {
     .unwrap();
     let lists = read(&db);
     assert_eq!(
-        running_waits(&lists, here),
+        running_waits(&lists, here).unwrap(),
         [
             crate::daemon::cards::ItemWait::Answer {
                 id: question.0,
@@ -399,21 +399,33 @@ fn a_running_item_waits_on_its_question_before_another_item() {
             },
         ]
     );
-    assert!(running_waits(&lists, "/d/bae-worktrees/side-9").is_empty());
+    assert!(
+        running_waits(&lists, "/d/bae-worktrees/side-9")
+            .unwrap()
+            .is_empty()
+    );
+    let mut lost = lists.clone();
+    lost.questions.clear();
+    assert_eq!(
+        running_waits(&lost, here),
+        Err(format!(
+            "{waiting} waits on {question}, which the lists do not hold"
+        ))
+    );
 }
 
 #[test]
-fn the_running_items_wait_on_each_condition_once_after_every_other_wait() {
+fn a_running_items_condition_is_one_of_its_waits() {
     use crate::lists::Wait;
     let db = db();
-    let other = item(&db, vec![]);
-    let condition = || Wait::Condition("builds #122, #121 and #125 land".into());
-    let first = item(&db, vec![condition()]);
-    let second = item(&db, vec![condition(), Wait::Item(other)]);
+    let waiting = item(
+        &db,
+        vec![Wait::Condition("builds #122, #121 and #125 land".into())],
+    );
     let here = "/d/bae-worktrees/side-2";
     crate::lists::running::start(
         &db,
-        &[first, second],
+        &[waiting],
         &[Running {
             worktree: here.into(),
             branch: "b".into(),
@@ -422,16 +434,11 @@ fn the_running_items_wait_on_each_condition_once_after_every_other_wait() {
         }],
     )
     .unwrap();
-    let lists = read(&db);
     assert_eq!(
-        running_waits(&lists, here),
-        [
-            crate::daemon::cards::ItemWait::Item {
-                id: other.0,
-                title: lists.item(other).unwrap().title.clone(),
-            },
-            crate::daemon::cards::ItemWait::Condition("builds #122, #121 and #125 land".into()),
-        ]
+        running_waits(&read(&db), here).unwrap(),
+        [crate::daemon::cards::ItemWait::Condition(
+            "builds #122, #121 and #125 land".into()
+        )]
     );
 }
 
@@ -460,7 +467,7 @@ fn a_running_item_waits_on_the_persons_review_of_a_design_change_until_they_appr
     let lists = read(&db);
     let title = lists.design(change).unwrap().title.clone();
     assert_eq!(
-        running_waits(&lists, here),
+        running_waits(&lists, here).unwrap(),
         [crate::daemon::cards::ItemWait::Review {
             id: change.0,
             title
@@ -477,7 +484,7 @@ fn a_running_item_waits_on_an_approved_design_change_to_land() {
     let lists = read(&db);
     let title = lists.design(change).unwrap().title.clone();
     assert_eq!(
-        running_waits(&lists, here),
+        running_waits(&lists, here).unwrap(),
         [crate::daemon::cards::ItemWait::Landing {
             id: change.0,
             title
