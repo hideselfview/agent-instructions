@@ -267,7 +267,7 @@ fn a_build_skips_and_records_a_host_whose_xcode_cannot_start() {
         err.contains("[mac m1:mac-1] A required plugin failed"),
         "{err}"
     );
-    assert!(err.contains("host m1's Xcode cannot start"), "{err}");
+    assert!(err.contains("on host m1, Xcode cannot start"), "{err}");
     assert!(
         out.contains("[mac m2:mac-1] built in remote-home-2"),
         "{out}"
