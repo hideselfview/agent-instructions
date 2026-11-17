@@ -16,7 +16,7 @@ use crate::review::commits;
 use crate::review::files::{self, FileDiff, Source};
 use crate::review::groups::{Group, Groups};
 use crate::review::prompt::{self, PROJECT_FACTS};
-use crate::review::record::{NewCall, NewExchange, NewFinding};
+use crate::review::record::{NewCall, NewExchange, NewFinding, RunRow};
 use crate::review::rules::{self, Rule};
 
 /// What a review reads besides the diff.
@@ -222,6 +222,36 @@ pub fn diff_since(
         text,
         changed,
     })
+}
+
+/// The diff <run> read, in <worktree>'s repo, from a copy of its head's
+/// files: its whole net change, or how its net change differs from the net
+/// change of the earlier run it names, one of <runs>. <net_change> gives the
+/// base and head of a run's net change in that repo.
+pub fn diff_of_run(
+    worktree: &Path,
+    runs: &[&RunRow],
+    run: &RunRow,
+    net_change: impl Fn(&RunRow) -> Result<(String, String)>,
+) -> Result<Diff> {
+    let (base, head) = net_change(run)?;
+    let mut diff = match run.since {
+        None => diff_between(worktree, &base, &head)?,
+        Some(since) => {
+            let Some(earlier) = runs.iter().find(|r| r.id == since) else {
+                fail!(
+                    "run {} read the difference from run {since}, which is not a run of its landing",
+                    run.id
+                );
+            };
+            let (read_base, read_head) = net_change(earlier)?;
+            diff_since(worktree, &read_base, &read_head, &base, &head)?
+        }
+    };
+    if let Some(source) = &mut diff.source {
+        source.in_place = false;
+    }
+    Ok(diff)
 }
 
 /// The tree of <read_base>..<read_head>'s change merged onto <base>, taking

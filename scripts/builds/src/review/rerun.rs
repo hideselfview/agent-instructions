@@ -23,7 +23,7 @@ use crate::review::commits::{self, Commit};
 use crate::review::prompt;
 use crate::review::record::{self, Call, Finding, Kind, NewRun, RunRow, Verdict};
 use crate::review::render;
-use crate::review::run::{self, Diff, Material};
+use crate::review::run::{self, Material};
 use crate::review::score::{self, Scores};
 
 /// How many of the repo's newest commits are searched for a run's patch ids.
@@ -105,7 +105,10 @@ pub fn replay(inputs: &Inputs) -> Result<Replayed> {
                     .any(|r| r.id == run && r.base == first.base && r.head == first.head)
             };
             let label = format!("landing {landing} run {}", first.id);
-            let diff = match diff_of(&conn, inputs.repo_dir, &runs, first) {
+            let all: Vec<&RunRow> = runs.iter().collect();
+            let diff = match run::diff_of_run(inputs.repo_dir, &all, first, |run| {
+                net_change(&conn, inputs.repo_dir, run)
+            }) {
                 Ok(diff) => diff,
                 Err(why) => {
                     text.push_str(&format!("{label} ({key}): not replayed: {}\n", why.text()));
@@ -229,35 +232,6 @@ pub fn replay(inputs: &Inputs) -> Result<Replayed> {
 
 fn short(rev: &str) -> &str {
     &rev[..rev.len().min(10)]
-}
-
-/// The diff <run>, one of <runs>, read in <repo>: its net change, or how its
-/// net change differs from the net change of the earlier run it names. The
-/// reviewers read a copy of the files at its head.
-fn diff_of(
-    conn: &rusqlite::Connection,
-    repo: &Path,
-    runs: &[RunRow],
-    run: &RunRow,
-) -> Result<Diff> {
-    let (base, head) = net_change(conn, repo, run)?;
-    let mut diff = match run.since {
-        None => run::diff_between(repo, &base, &head)?,
-        Some(since) => {
-            let Some(earlier) = runs.iter().find(|r| r.id == since) else {
-                fail!(
-                    "run {} read the difference from run {since}, which is not a run of its landing",
-                    run.id
-                );
-            };
-            let (read_base, read_head) = net_change(conn, repo, earlier)?;
-            run::diff_since(repo, &read_base, &read_head, &base, &head)?
-        }
-    };
-    if let Some(source) = &mut diff.source {
-        source.in_place = false;
-    }
-    Ok(diff)
 }
 
 /// The base and head of <run>'s net change in <repo>: the run's own when the

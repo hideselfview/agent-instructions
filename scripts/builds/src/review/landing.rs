@@ -290,28 +290,6 @@ impl Coverage {
         }
         found
     }
-
-    /// The diff <run> read, in the repo at <dir>, from a copy of its head's
-    /// files: its whole net change, or how that net change differs from the
-    /// net change of the earlier run it names.
-    pub fn diff_of(&self, dir: &Path, run: &record::RunRow) -> Result<run::Diff> {
-        let mut diff = match run.since {
-            None => run::diff_between(dir, &run.base, &run.head)?,
-            Some(since) => {
-                let Some((earlier, _)) = self.runs.iter().find(|(r, _)| r.id == since) else {
-                    fail!(
-                        "run {} read the difference from run {since}, which is not a run of its review",
-                        run.id
-                    );
-                };
-                run::diff_since(dir, &earlier.base, &earlier.head, &run.base, &run.head)?
-            }
-        };
-        if let Some(source) = &mut diff.source {
-            source.in_place = false;
-        }
-        Ok(diff)
-    }
 }
 
 /// Whether <finding> is on one of the commits of <needs>, in the repo at

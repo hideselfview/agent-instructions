@@ -353,10 +353,13 @@ fn later_asks(
 ) -> Result<Vec<Ask>> {
     let coverage = landing::Coverage::of(conn, landing)?;
     let calls = record::calls_of_landing(conn, landing)?;
+    let read: Vec<&record::RunRow> = coverage.runs.iter().map(|(run, _)| run).collect();
     let mut asks = Vec::new();
     for (run, missing) in coverage.unanswered(&calls) {
         asks.push(Ask {
-            diff: coverage.diff_of(inputs.worktree, run)?,
+            diff: run::diff_of_run(inputs.worktree, &read, run, |run| {
+                Ok((run.base.clone(), run.head.clone()))
+            })?,
             since: run.since,
             commits: coverage.commits_of(run.id)?.to_vec(),
             note: Some(format!(
