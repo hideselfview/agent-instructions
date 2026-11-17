@@ -431,15 +431,18 @@ pub fn check_open_misses(inputs: &OpenMisses) -> Result<(String, bool)> {
     let material = Material::load(inputs.root, inputs.project)?;
     let mut text = String::new();
     let mut failed = false;
-    let mut findings = Vec::new();
+    // A miss is a candidate against the review findings of its own landing.
+    let mut open: Vec<Finding> = Vec::new();
     for landing in record::audited_landings(&conn)? {
-        findings.extend(record::findings_of_landing(&conn, landing)?);
+        let findings = record::findings_of_landing(&conn, landing)?;
+        open.extend(
+            candidate_misses(&findings)
+                .into_iter()
+                .filter(|f| f.settled.is_none())
+                .cloned(),
+        );
     }
     let mut asked: Vec<(&Finding, Diff)> = Vec::new();
-    let open: Vec<&Finding> = candidate_misses(&findings)
-        .into_iter()
-        .filter(|f| f.settled.is_none())
-        .collect();
     for miss in &open {
         match diff_read(&conn, miss) {
             Ok(diff) => asked.push((miss, diff)),

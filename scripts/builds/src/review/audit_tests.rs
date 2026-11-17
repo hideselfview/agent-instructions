@@ -286,3 +286,50 @@ fn a_landing_whose_change_has_not_landed_is_not_audited() {
     .text();
     assert!(refused.contains("has not landed"), "{refused}");
 }
+
+#[test]
+fn an_open_miss_is_checked_although_another_landing_raised_its_rule_and_file() {
+    let demo = demo("review-audit-other-landing");
+    let fake = fake(&demo.scratch.dir);
+    let first = demo.add_side(1, "agent", "first");
+    demo.commit(&first, "a.rs");
+    fake.answer("alpha", &[("rule-a", Some(BAD))]);
+    let raised = review(&ReviewInputs {
+        store: &demo.store,
+        project: "demo",
+        repo: "demo",
+        worktree: &first,
+        base: "main",
+        head: None,
+        key: "first",
+        root: &fake.root,
+        reviewer: &fake.program,
+        stamp: &stamp(),
+        brief: None,
+    })
+    .unwrap()
+    .landing
+    .unwrap();
+    land(&demo, raised, &stamp());
+    fake.answer("alpha", &[("rule-a", None)]);
+    let second = demo.add_side(2, "agent", "second");
+    let landing = landed(&demo, &fake, &second);
+    fake.answer("audit rule-a", &[("rule-a", Some(BAD))]);
+    fake.fail("model-check rule-a");
+    audit_of(&demo, &fake, &second, landing);
+    std::fs::remove_file(fake.dir.join("fail-model-check rule-a")).unwrap();
+    fake.answer_task(
+        "model-check rule-a",
+        serde_json::json!({"verdict": "confirmed", "why": "w"}),
+    );
+    let (text, _) = check_open_misses(&OpenMisses {
+        store: &demo.store,
+        project: "demo",
+        root: &fake.root,
+        reviewer: &fake.program,
+        model: "opus",
+        stamp: &stamp(),
+    })
+    .unwrap();
+    assert!(text.contains("settled confirmed"), "{text}");
+}
