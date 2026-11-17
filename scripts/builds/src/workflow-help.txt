@@ -81,8 +81,8 @@ settings), a bug the person hits, slows the agents, product design, or cleanup
 or wording (nothing the person notices). builds asks the person the entries
 placed first, then the rest by how many open items each unblocks, then by
 effect in that order, then oldest first, and the entries placed last at the
-end. Give each entry the effect its text supports, as DISPATCH
-defines critical work. The queue holds only what agents can do, and `builds
+end. Choose each entry's effect from what its text says, using the
+definition of critical work in DISPATCH. The queue holds only what agents can do, and `builds
 next` lists what is ready. The log holds each answer, and each standing
 choice about how work runs, with why.
 When you make an entry from another record, name that record with `--origin
