@@ -386,15 +386,53 @@ fn a_running_item_waits_on_its_question_before_another_item() {
     )
     .unwrap();
     let lists = read(&db);
-    let title = lists.question(question).unwrap().title.clone();
     assert_eq!(
-        running_wait(&lists, here),
-        Some(crate::daemon::cards::ItemWait::Answer {
-            id: question.0,
-            title
-        })
+        running_waits(&lists, here),
+        [
+            crate::daemon::cards::ItemWait::Answer {
+                id: question.0,
+                title: lists.question(question).unwrap().title.clone(),
+            },
+            crate::daemon::cards::ItemWait::Item {
+                id: other.0,
+                title: lists.item(other).unwrap().title.clone(),
+            },
+        ]
     );
-    assert_eq!(running_wait(&lists, "/d/bae-worktrees/side-9"), None);
+    assert!(running_waits(&lists, "/d/bae-worktrees/side-9").is_empty());
+}
+
+#[test]
+fn the_running_items_wait_on_each_condition_once_after_every_other_wait() {
+    use crate::lists::Wait;
+    let db = db();
+    let other = item(&db, vec![]);
+    let condition = || Wait::Condition("builds #122, #121 and #125 land".into());
+    let first = item(&db, vec![condition()]);
+    let second = item(&db, vec![condition(), Wait::Item(other)]);
+    let here = "/d/bae-worktrees/side-2";
+    crate::lists::running::start(
+        &db,
+        &[first, second],
+        &[Running {
+            worktree: here.into(),
+            branch: "b".into(),
+            brief: "plans/briefs/x.md".into(),
+            since: stamp(NOON),
+        }],
+    )
+    .unwrap();
+    let lists = read(&db);
+    assert_eq!(
+        running_waits(&lists, here),
+        [
+            crate::daemon::cards::ItemWait::Item {
+                id: other.0,
+                title: lists.item(other).unwrap().title.clone(),
+            },
+            crate::daemon::cards::ItemWait::Condition("builds #122, #121 and #125 land".into()),
+        ]
+    );
 }
 
 fn running_on_design(db: &rusqlite::Connection, change: crate::lists::Id) -> &'static str {
@@ -422,11 +460,11 @@ fn a_running_item_waits_on_the_persons_review_of_a_design_change_until_they_appr
     let lists = read(&db);
     let title = lists.design(change).unwrap().title.clone();
     assert_eq!(
-        running_wait(&lists, here),
-        Some(crate::daemon::cards::ItemWait::Review {
+        running_waits(&lists, here),
+        [crate::daemon::cards::ItemWait::Review {
             id: change.0,
             title
-        })
+        }]
     );
 }
 
@@ -439,11 +477,11 @@ fn a_running_item_waits_on_an_approved_design_change_to_land() {
     let lists = read(&db);
     let title = lists.design(change).unwrap().title.clone();
     assert_eq!(
-        running_wait(&lists, here),
-        Some(crate::daemon::cards::ItemWait::Landing {
+        running_waits(&lists, here),
+        [crate::daemon::cards::ItemWait::Landing {
             id: change.0,
             title
-        })
+        }]
     );
 }
 

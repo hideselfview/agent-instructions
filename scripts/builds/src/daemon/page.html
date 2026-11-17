@@ -199,7 +199,8 @@ h1 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.01em; }
 .bar.you { background: var(--you-bg); color: var(--you); }
 /* A worktree whose branch waits in an app build lane's queue. */
 .bar.queued { background: var(--winding-bg); color: var(--winding); }
-/* A worktree whose commits wait on their rules review before they can land. */
+/* A worktree whose commits wait on their rules review before they can land,
+   a parked worktree and a paused one. */
 .bar.inreview { background: var(--winding-bg); color: var(--winding); }
 .wt-card .steps { font: 12px var(--mono); }
 .bar .qplace { font: 500 12px var(--mono); margin-left: 4px; }
@@ -745,14 +746,15 @@ function queuedNote(words) {
 }
 // A worktree's card, one layout for every card: a bar with its state at the
 // left and what it waits on at the right (green for Working, blue for Ready
-// to land, grey for a branch whose rules review is not finished), what builds
-// in it on that bar's second line, its running items (or its note when none
-// runs), the commits waiting to land, and a two-line footer. The daemon words
+// to land, grey for a branch whose rules review is not finished, a parked
+// worktree and a paused one), what builds in it on that bar's second line,
+// its running items, its note (when none runs, or what a paused worktree
+// waits on), the commits waiting to land, and a two-line footer. The daemon words
 // the state, the pill, the note and the uncommitted files (cards.rs).
 function worktreeCard(c) {
   const g = c.git, a = c.activity, building = a.processes.length > 0;
   const words = c.words, chip = words.chip, queued = words.queued;
-  const tone = queued ? " queued" : c.state === "in-review" || c.state === "parked" ? " inreview" : chip === "Ready to land" ? " ready" : chip === "Waiting on you" ? " you" : chip ? " building" : "";
+  const tone = queued ? " queued" : c.state === "in-review" || c.state === "parked" || c.state === "held" ? " inreview" : chip === "Ready to land" ? " ready" : chip === "Waiting on you" ? " you" : chip ? " building" : "";
   return h("article", {class: "wt-card"},
     h("div", {class: "bar" + tone},
       h("span", {class: "grp"}, chip ? h("span", queued ? {class: "state", title: queued.line} : {class: "state"}, chip,

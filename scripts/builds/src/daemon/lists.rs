@@ -192,29 +192,34 @@ pub fn running_items(
         .collect()
 }
 
-/// What the running items of <worktree> wait on that is not met, the first
-/// that needs the person (a question, a design change to review), else an
-/// item or a design change to land.
-pub fn running_wait(lists: &crate::lists::Lists, worktree: &str) -> Option<super::cards::ItemWait> {
+/// What the running items of <worktree> wait on that is not met, each wait
+/// once, by rank: first what needs the person (a question, a design change to
+/// review), then an item or a design change to land, then a condition.
+pub fn running_waits(lists: &crate::lists::Lists, worktree: &str) -> Vec<super::cards::ItemWait> {
     use super::cards::ItemWait;
     use crate::lists::Wait;
     let mut found: Vec<ItemWait> = Vec::new();
     for item in items_in(lists, worktree) {
         for wait in crate::lists::derive::unmet_waits(lists, item) {
             let title = |id| lists.locate(id).map(|found| found.title.to_string());
-            found.extend(match wait {
+            let wait = match wait {
                 Wait::Question(id) => title(*id).map(|title| ItemWait::Answer { id: id.0, title }),
                 Wait::Design(id) if crate::lists::derive::wait_on_person(lists, wait) => {
                     title(*id).map(|title| ItemWait::Review { id: id.0, title })
                 }
                 Wait::Design(id) => title(*id).map(|title| ItemWait::Landing { id: id.0, title }),
                 Wait::Item(id) => title(*id).map(|title| ItemWait::Item { id: id.0, title }),
-                Wait::Condition(_) => None,
-            });
+                Wait::Condition(text) => Some(ItemWait::Condition(text.clone())),
+            };
+            if let Some(wait) = wait
+                && !found.contains(&wait)
+            {
+                found.push(wait);
+            }
         }
     }
     found.sort_by_key(ItemWait::rank);
-    found.into_iter().next()
+    found
 }
 
 /// Open design change <id> of project <project>, as the lists JSON shows it;

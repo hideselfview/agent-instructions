@@ -46,21 +46,21 @@ fn claim(note: Option<&str>) -> Option<Claim> {
 
 #[test]
 fn the_chip_names_only_a_worktree_with_an_agent_or_commits() {
-    let chip = |state| words(&card(Some(state), claim(None), Some(0)), &[], None).chip;
+    let chip = |state| words(&card(Some(state), claim(None), Some(0)), &[], &[]).chip;
     assert_eq!(chip("ready-to-land"), Some("Ready to land"));
     assert_eq!(chip("working"), Some("Working"));
-    assert_eq!(chip("held"), Some("Working"));
+    assert_eq!(chip("held"), Some("Paused"));
     assert_eq!(chip("winding-down"), Some("Working"));
     assert_eq!(chip("waiting-on-you"), Some("Waiting on you"));
     assert_eq!(chip("free"), None);
     let mut main = card(None, None, None);
     main.main = true;
-    assert_eq!(words(&main, &[], None).chip, None);
+    assert_eq!(words(&main, &[], &[]).chip, None);
 }
 
 #[test]
 fn with_no_running_item_the_card_shows_the_agents_note_or_what_the_state_means() {
-    let note = |state, note| words(&card(Some(state), claim(note), Some(0)), &[], None).note;
+    let note = |state, note| words(&card(Some(state), claim(note), Some(0)), &[], &[]).note;
     assert_eq!(
         note("working", Some("Measuring each screen read.")).as_deref(),
         Some("Measuring each screen read.")
@@ -82,7 +82,7 @@ fn with_no_running_item_the_card_shows_the_agents_note_or_what_the_state_means()
         Some("No agent claims this worktree and every commit has landed.")
     );
     assert_eq!(
-        words(&card(Some("ready-to-land"), None, Some(0)), &[], None)
+        words(&card(Some("ready-to-land"), None, Some(0)), &[], &[])
             .note
             .as_deref(),
         Some("Commits wait to land and no agent claims this worktree.")
@@ -90,14 +90,14 @@ fn with_no_running_item_the_card_shows_the_agents_note_or_what_the_state_means()
     let mut main = card(None, None, None);
     main.main = true;
     assert_eq!(
-        words(&main, &[], None).note.as_deref(),
+        words(&main, &[], &[]).note.as_deref(),
         Some("Your checkout. No agent works or builds here.")
     );
 }
 
 #[test]
 fn the_footer_counts_uncommitted_files_and_says_nothing_for_a_clean_tree() {
-    let files = |n| words(&card(Some("working"), claim(None), n), &[], None).uncommitted;
+    let files = |n| words(&card(Some("working"), claim(None), n), &[], &[]).uncommitted;
     let count = |text: &str, title: &str| {
         Some(Uncommitted {
             text: text.to_string(),
@@ -116,7 +116,7 @@ fn the_footer_counts_uncommitted_files_and_says_nothing_for_a_clean_tree() {
     assert_eq!(files(None), None);
     let mut broken = card(Some("working"), claim(None), Some(3));
     broken.git.as_mut().unwrap().error = Some("git failed".into());
-    assert_eq!(words(&broken, &[], None).uncommitted, None);
+    assert_eq!(words(&broken, &[], &[]).uncommitted, None);
 }
 
 fn running(items: &[(u32, &str)]) -> Vec<RunningItem> {
@@ -133,19 +133,13 @@ fn listed(state: &'static str, note: Option<&str>, items: &[(u32, &str)]) -> Wor
     words(
         &card(Some(state), claim(note), Some(0)),
         &running(items),
-        None,
+        &[],
     )
 }
 
 #[test]
 fn the_card_lists_each_running_item_by_number_and_title_and_shows_no_note() {
-    for state in [
-        "working",
-        "waiting-on-you",
-        "held",
-        "winding-down",
-        "ready-to-land",
-    ] {
+    for state in ["working", "waiting-on-you", "winding-down", "ready-to-land"] {
         let card = listed(
             state,
             Some("Measuring each screen read."),
@@ -192,7 +186,7 @@ fn waiting(state: &'static str, wait: ItemWait) -> Words {
     words(
         &card(Some(state), claim(Some("note")), Some(0)),
         &running(&[(7, "Reopen a copied library")]),
-        Some(&wait),
+        &[wait],
     )
 }
 
@@ -282,7 +276,7 @@ fn a_design_branch_no_recorded_change_covers_says_it_waits_on_the_design_session
     let card = words(
         &card(Some("ready-to-land"), claim(Some("note")), Some(0)),
         &[],
-        Some(&ItemWait::Unrecorded),
+        &[ItemWait::Unrecorded],
     );
     assert_eq!(card.chip, Some("Ready to land"));
     assert_eq!(
@@ -307,7 +301,7 @@ fn a_design_branch_with_no_running_item_shows_its_note_and_the_change_in_the_pil
             Some(0),
         ),
         &[],
-        Some(&review),
+        std::slice::from_ref(&review),
     );
     assert!(noted.items.is_empty());
     assert_eq!(noted.note.as_deref(), Some("Drawing the sheet."));
@@ -321,7 +315,7 @@ fn a_design_branch_with_no_running_item_shows_its_note_and_the_change_in_the_pil
     let unnoted = words(
         &card(Some("waiting-on-you"), claim(None), Some(0)),
         &[],
-        Some(&review),
+        std::slice::from_ref(&review),
     );
     assert_eq!(unnoted.note, None, "the pill holds the sentence");
 }
@@ -335,35 +329,63 @@ fn a_card_whose_pill_holds_the_sentence_shows_no_note_without_a_claim_note() {
     let asked = words(
         &card(Some("waiting-on-you"), claim(None), Some(0)),
         &[],
-        Some(&answer),
+        &[answer],
     );
     assert!(asked.pill.is_some());
     assert_eq!(asked.note, None);
     let unrecorded = words(
         &card(Some("ready-to-land"), claim(None), Some(0)),
         &[],
-        Some(&ItemWait::Unrecorded),
+        &[ItemWait::Unrecorded],
     );
     assert_eq!(unrecorded.note, None);
 }
 
 #[test]
-fn a_held_worktree_says_held_in_the_pill_with_its_note_and_shows_no_note() {
-    let card = listed("held", Some("Until the store lands."), &[(3, "Item")]);
-    assert_eq!(card.chip, Some("Working"));
-    assert_eq!(card.pill, pill("Held", "Until the store lands."));
-    let idle = listed("held", Some("Until the store lands."), &[]);
-    assert_eq!(idle.pill, pill("Held", "Until the store lands."));
-    assert_eq!(idle.note, None, "the pill holds the note");
+fn a_held_worktree_says_paused_and_what_its_running_items_wait_on() {
+    let waits = [
+        ItemWait::Item {
+            id: 1320,
+            title: "Store the library id".into(),
+        },
+        ItemWait::Condition("builds #122, #121 and #125 land".into()),
+    ];
+    let card = words(
+        &card(Some("held"), claim(Some("Until the store lands.")), Some(0)),
+        &running(&[(3, "Item")]),
+        &waits,
+    );
+    assert_eq!(card.chip, Some("Paused"));
+    assert_eq!(card.pill, None);
+    assert_eq!(card.items, running(&[(3, "Item")]));
+    assert_eq!(
+        card.note.as_deref(),
+        Some("Waits on #1320: Store the library id. Waits until builds #122, #121 and #125 land")
+    );
+    let noted = listed("held", Some("Until the store lands."), &[(3, "Item")]);
+    assert_eq!(noted.chip, Some("Paused"));
+    assert_eq!(noted.note.as_deref(), Some("Until the store lands."));
     let unnoted = listed("held", None, &[]);
     assert_eq!(
-        unnoted.pill,
-        pill(
-            "Held",
-            "Its agent holds this worktree on purpose and runs no work."
-        )
+        unnoted.note.as_deref(),
+        Some("Its agent holds this worktree on purpose and runs no work.")
     );
-    assert_eq!(unnoted.note, None);
+}
+
+#[test]
+fn a_condition_ranks_after_every_other_wait_and_has_no_pill() {
+    let condition = ItemWait::Condition("builds #122 lands".into());
+    for other in [
+        ItemWait::Item {
+            id: 1,
+            title: "Other".into(),
+        },
+        ItemWait::Unrecorded,
+        ItemWait::RulesReview(ReviewWait::NotRun),
+    ] {
+        assert!(other.rank() < condition.rank(), "{other:?}");
+    }
+    assert_eq!(waiting("working", condition).pill, None);
 }
 
 #[test]
@@ -371,12 +393,12 @@ fn a_branch_with_an_app_build_waits_on_it_and_is_not_ready_to_land() {
     let card = words(
         &card(Some("working"), claim(None), Some(0)),
         &[],
-        Some(&ItemWait::AppBuild {
+        &[ItemWait::AppBuild {
             lane: "Mac".into(),
             running: false,
             how: "place 2 in the queue".into(),
             queued: None,
-        }),
+        }],
     );
     assert_eq!(card.chip, Some("Working"));
     assert_eq!(card.pill, None, "the build has not started");
@@ -465,7 +487,7 @@ fn a_queued_card_names_the_lane_and_carries_its_place_and_what_it_asked() {
     let card = words(
         &card(Some("queued"), claim(None), Some(0)),
         &[],
-        Some(&queued_wait(false)),
+        &[queued_wait(false)],
     );
     assert_eq!(card.chip, Some("Waiting on Mac"));
     assert_eq!(card.pill, None, "the chip says it");
@@ -494,7 +516,7 @@ fn commits_whose_rules_review_is_not_finished_are_in_review_and_the_card_says_wh
         let card = words(
             &card(Some("in-review"), claim(None), Some(0)),
             &running(&[(117, "Item")]),
-            Some(&review(wait)),
+            &[review(wait)],
         );
         (card.chip.unwrap(), card.pill)
     };
@@ -543,7 +565,7 @@ fn a_parked_worktree_says_parked_and_lists_its_item() {
     let said = words(
         &card(Some("parked"), None, Some(2)),
         std::slice::from_ref(&item),
-        None,
+        &[],
     );
     assert_eq!(said.chip, Some("Parked"));
     assert_eq!(said.items, [item]);

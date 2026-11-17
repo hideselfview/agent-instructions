@@ -1224,27 +1224,31 @@ impl Model {
                             .active
                             .contains(&format!("{}/{}", repo.name, checkout.name))
                     });
-                    let wait = project
-                        .and_then(|lists| super::lists::running_wait(lists, &checkout.path))
+                    let mut waits: Vec<super::cards::ItemWait> = Vec::new();
+                    for wait in project
+                        .map(|lists| super::lists::running_waits(lists, &checkout.path))
+                        .unwrap_or_default()
                         .into_iter()
                         .chain(design)
                         .chain(build)
                         .chain(review)
-                        .min_by_key(super::cards::ItemWait::rank);
-                    if super::cards::keeps_working(checkout.state, shell, wait.as_ref()) {
+                    {
+                        if !waits.contains(&wait) {
+                            waits.push(wait);
+                        }
+                    }
+                    waits.sort_by_key(super::cards::ItemWait::rank);
+                    let wait = waits.first();
+                    if super::cards::keeps_working(checkout.state, shell, wait) {
                         checkout.state = Some("working");
                     }
-                    if super::cards::in_review(checkout.state, wait.as_ref()) {
+                    if super::cards::in_review(checkout.state, wait) {
                         checkout.state = Some("in-review");
                     }
-                    if super::cards::waits_in_queue(checkout.state, wait.as_ref()) {
+                    if super::cards::waits_in_queue(checkout.state, wait) {
                         checkout.state = Some("queued");
                     }
-                    if wait
-                        .as_ref()
-                        .is_some_and(super::cards::ItemWait::needs_person)
-                        && !checkout.main
-                    {
+                    if wait.is_some_and(super::cards::ItemWait::needs_person) && !checkout.main {
                         checkout.state = Some("waiting-on-you");
                     }
                     // A worktree an item is parked in, with no agent, holds that
@@ -1262,7 +1266,7 @@ impl Model {
                         }
                         None => items,
                     };
-                    checkout.words = super::cards::words(checkout, &items, wait.as_ref());
+                    checkout.words = super::cards::words(checkout, &items, &waits);
                 }
             }
         }

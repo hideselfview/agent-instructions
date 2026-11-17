@@ -1,7 +1,8 @@
 //! The words on a worktree's card: the chip in its top bar, the pill that
-//! names what the card waits on, the running items it lists (or its note
-//! when none runs), and its uncommitted files. The page draws them; the
-//! times and the commits come from the checkout's own facts.
+//! names what the card waits on, the running items it lists, its note (when
+//! no item runs, or what a held worktree waits on), and its uncommitted
+//! files. The page draws them; the times and the commits come from the
+//! checkout's own facts.
 
 use super::model::CheckoutPage;
 
@@ -31,6 +32,9 @@ pub enum ItemWait {
     /// Commits waiting to land whose rules review `builds land` would not
     /// take yet (review_cards.rs).
     RulesReview(ReviewWait),
+    /// A condition in words, which holds until someone removes it from the
+    /// item.
+    Condition(String),
 }
 
 /// Where the rules review of a branch stands while `builds land` would refuse
@@ -121,7 +125,9 @@ pub struct QueuedBuild {
 }
 
 impl ItemWait {
-    /// What the person has to do comes before another item.
+    /// What the person has to do comes before another item. A condition comes
+    /// after every other wait, so no state turns on it while another wait
+    /// holds.
     pub fn rank(&self) -> u8 {
         match self {
             ItemWait::Answer { .. } => 0,
@@ -130,6 +136,7 @@ impl ItemWait {
             ItemWait::Item { .. } | ItemWait::Landing { .. } => 3,
             ItemWait::Unrecorded => 4,
             ItemWait::RulesReview(_) => 5,
+            ItemWait::Condition(_) => 6,
         }
     }
 
@@ -140,7 +147,7 @@ impl ItemWait {
 
     /// The pill in the card's bar; None for an app build that has not
     /// started and a rules review that has no findings yet, which the chip
-    /// names.
+    /// names, and for a condition, whose words are a sentence.
     fn pill(&self) -> Option<Pill> {
         let text = match self {
             ItemWait::Answer { id, .. } => format!("Answer #{id}"),
@@ -154,6 +161,7 @@ impl ItemWait {
             ItemWait::Item { id, .. } | ItemWait::Landing { id, .. } => format!("After #{id}"),
             ItemWait::Unrecorded => "No design change".to_string(),
             ItemWait::RulesReview(review) => return review.pill(),
+            ItemWait::Condition(_) => return None,
         };
         Some(Pill {
             text,
@@ -185,6 +193,7 @@ impl ItemWait {
                 "Waits on the design session to record its design change.".to_string()
             }
             ItemWait::RulesReview(review) => review.sentence(),
+            ItemWait::Condition(text) => format!("Waits until {text}"),
         }
     }
 }
@@ -242,8 +251,10 @@ pub struct Words {
     pub pill: Option<Pill>,
     /// The items running here, in list order, or the item parked here.
     pub items: Vec<RunningItem>,
-    /// Only when no item runs: the claim note, unless the pill's title holds
-    /// it; with no claim note and no pill, what the worktree waits on or what
+    /// For a held worktree, beside its items: what it waits on, else its
+    /// claim note, else what holding means. For any other worktree, only
+    /// when no item runs: the claim note, unless the pill's title holds it;
+    /// with no claim note and no pill, what the worktree waits on or what
     /// its state means.
     pub note: Option<String>,
     /// The uncommitted files; None for a clean tree, or when the daemon did
@@ -275,8 +286,10 @@ fn uncommitted(checkout: &CheckoutPage) -> Option<Uncommitted> {
 }
 
 /// The words of <checkout>, a live checkout that is not an app checkout:
-/// <items> are its running items and <wait> is what they wait on.
-pub fn words(checkout: &CheckoutPage, items: &[RunningItem], wait: Option<&ItemWait>) -> Words {
+/// <items> are its running items and <waits> is what the worktree waits on,
+/// by rank, the first being the wait its state turned on.
+pub fn words(checkout: &CheckoutPage, items: &[RunningItem], waits: &[ItemWait]) -> Words {
+    let wait = waits.first();
     let uncommitted = uncommitted(checkout);
     if checkout.main {
         return Words {
@@ -345,17 +358,25 @@ pub fn words(checkout: &CheckoutPage, items: &[RunningItem], wait: Option<&ItemW
         ),
         Some("waiting-on-you") => (Some("Waiting on you"), None, "Waits on you.".to_string()),
         Some("held") => {
-            let why = claim_note.clone().unwrap_or_else(|| {
-                "Its agent holds this worktree on purpose and runs no work.".to_string()
-            });
-            (
-                Some("Working"),
-                Some(Pill {
-                    text: "Held".to_string(),
-                    title: why,
-                }),
-                String::new(),
-            )
+            let note = if waits.is_empty() {
+                claim_note.clone().unwrap_or_else(|| {
+                    "Its agent holds this worktree on purpose and runs no work.".to_string()
+                })
+            } else {
+                waits
+                    .iter()
+                    .map(ItemWait::sentence)
+                    .collect::<Vec<_>>()
+                    .join(". ")
+            };
+            return Words {
+                chip: Some("Paused"),
+                pill: None,
+                items: items.to_vec(),
+                note: Some(note),
+                uncommitted,
+                queued: None,
+            };
         }
         Some("winding-down") => (
             Some("Working"),
@@ -368,8 +389,7 @@ pub fn words(checkout: &CheckoutPage, items: &[RunningItem], wait: Option<&ItemW
             "Working; its agent left no note.".to_string(),
         ),
     };
-    // The note never repeats the pill's title: a held worktree's pill holds
-    // its claim note.
+    // The note never repeats the pill's title.
     let note = match (items, &pill) {
         ([], None) => claim_note.or((!said.is_empty()).then_some(said)),
         ([], Some(pill)) => claim_note.filter(|note| *note != pill.title),
