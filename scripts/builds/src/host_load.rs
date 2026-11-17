@@ -18,11 +18,11 @@ const IDLE_SHARE: f64 = 0.75;
 const OVER_SHARE: f64 = 1.25;
 
 /// The lines for <hosts>, each with its probe, while <ready> items are ready
-/// to dispatch: each host over its cores, and each host with idle cores while
-/// items are ready that `builds cargo` can give work to. `host::rank_by_room`
-/// skips a host that does not answer, refuses jobs, is under <floor_kib> of
-/// free disk or has no measured core speed, so agents started for its idle
-/// cores would build elsewhere.
+/// to dispatch: each host that did not answer, each host over its cores, and
+/// each host with idle cores while items are ready that `builds cargo` can
+/// give work to. `host::rank_by_room` skips a host that does not answer,
+/// refuses jobs, is under <floor_kib> of free disk or has no measured core
+/// speed, so agents started for its idle cores would build elsewhere.
 pub fn findings(
     hosts: &[(Host, std::result::Result<Probe, String>)],
     ready: usize,
@@ -30,8 +30,15 @@ pub fn findings(
 ) -> Vec<Advice> {
     let mut found = Vec::new();
     for (host, probe) in hosts {
-        let Ok(answer) = probe else {
-            continue;
+        let answer = match probe {
+            Ok(answer) => answer,
+            Err(error) => {
+                found.push(Advice::said(format!(
+                    "{} did not say its load, so health cannot tell whether its cores are idle or over: {error}",
+                    named(host)
+                )));
+                continue;
+            }
         };
         let five = answer.load[1];
         let cores = f64::from(answer.cores);

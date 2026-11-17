@@ -1229,7 +1229,8 @@ STATUS, HEALTH AND THE DASHBOARD
                               when `builds cargo` can run there (start
                               agents); this Mac or a host over its cores, its
                               5-minute load over five quarters of them (start
-                              nothing new)
+                              nothing new); this Mac or a host that did not
+                              say its load, with what went wrong
   builds dashboard [--port <port>] [--listen <address>]
                               run the daemon until it is killed. It follows
                               the volume, the checkouts and the lists through

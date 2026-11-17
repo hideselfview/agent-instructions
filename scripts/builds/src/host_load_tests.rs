@@ -84,8 +84,8 @@ fn a_host_over_its_cores_asks_to_start_nothing_new() {
 }
 
 /// Idle cores that `builds cargo` never uses ask for no agents: a host that
-/// does not answer, refuses jobs, is under the free-disk floor or has no
-/// measured core speed (`host::rank_by_room` skips each).
+/// refuses jobs, is under the free-disk floor or has no measured core speed
+/// (`host::rank_by_room` skips each).
 #[test]
 fn a_host_that_takes_no_cargo_job_asks_for_no_agents() {
     let refusing = Ok(Probe {
@@ -97,10 +97,26 @@ fn a_host_that_takes_no_cargo_job_asks_for_no_agents() {
         ..loaded(0.0).unwrap()
     });
     let hosts = [
-        (host("gone", Some(1.0)), Err("ssh failed".to_string())),
         (host("refusing", Some(1.0)), refusing),
         (host("full", Some(1.0)), full),
         (host("new", None), loaded(0.0)),
     ];
     assert!(lines(&hosts, 5).is_empty());
+}
+
+/// A host that does not say its load is a finding that names the host and
+/// what went wrong, since health cannot tell whether its cores are idle or
+/// over.
+#[test]
+fn a_host_whose_probe_fails_is_named_with_the_error() {
+    let hosts = [
+        (host(LOCAL, Some(1.0)), loaded(9.0)),
+        (host("m1", Some(0.8)), Err("ssh to u@m1 failed".to_string())),
+    ];
+    assert_eq!(
+        lines(&hosts, 0),
+        [
+            "host m1 did not say its load, so health cannot tell whether its cores are idle or over: ssh to u@m1 failed"
+        ]
+    );
 }
