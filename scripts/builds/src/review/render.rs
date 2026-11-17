@@ -70,13 +70,9 @@ pub fn finding_text(finding: &Finding) -> String {
             out.push_str(&settle_line("settled again as", second));
         }
     }
-    if let Some(fix) = &finding.fix {
-        out.push_str(&format!("    fixed by {}\n", fix.sha));
-    }
-    if let Some(left) = &finding.code_left {
+    if let Some(run) = finding.closed_by {
         out.push_str(&format!(
-            "    builds found its code on no line of the branch's change {}..{}, so it needs no fix ({} ran the check)\n",
-            left.base, left.head, left.by
+            "    closed by run {run}: the code at its place no longer has the problem\n"
         ));
     }
     out

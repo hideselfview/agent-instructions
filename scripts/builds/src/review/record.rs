@@ -4,17 +4,15 @@
 //! holds the net change it read, the last review it read the changes since,
 //! the commits of that net change and one call per group, a call holds a
 //! verdict for every rule and the
-//! findings; the coordinator settles a finding as confirmed or dropped, names
-//! the commit that fixed a confirmed one, and may settle a confirmed finding
-//! with no fix again, as dropped. builds records a confirmed finding with no
-//! fix whose code is no longer in its branch's change.
+//! findings; the coordinator settles a finding as confirmed or dropped, and
+//! may settle an open confirmed finding again, as dropped. A later review run
+//! closes a confirmed finding when the changes it read fix it.
 
 use rusqlite::{Connection, OptionalExtension, params};
 
 use crate::db::Sql;
 use crate::fail;
 use crate::fail::Result;
-use crate::review::commits::Commit;
 
 /// A finding a reviewer raised, as it goes into the store.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -69,6 +67,8 @@ pub struct NewCall {
     /// (rule, `finding` or `none`).
     pub verdicts: Vec<(String, String)>,
     pub findings: Vec<NewFinding>,
+    /// The open confirmed findings the reviewer found the changes fix.
+    pub closes: Vec<i64>,
     /// Every process the call ran.
     pub exchanges: Vec<NewExchange>,
 }
@@ -109,11 +109,9 @@ pub struct Finding {
     pub check_failed: Option<String>,
     /// How the coordinator settled it, once or twice.
     pub settled: Option<Settled>,
-    /// The commit that fixed it, for a confirmed finding.
-    pub fix: Option<Commit>,
-    /// What builds recorded when it found the code of this confirmed finding
-    /// in no line of its branch's change.
-    pub code_left: Option<CodeLeft>,
+    /// The review run that closed it, for a confirmed finding the changes that
+    /// run read fix.
+    pub closed_by: Option<i64>,
 }
 
 /// The settles of a finding: one, or a first settle and the second that
@@ -143,15 +141,6 @@ pub struct Settle {
     pub by: String,
 }
 
-/// The change of a branch in which builds found no line that holds a
-/// confirmed finding's code, and who ran the command that found it.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct CodeLeft {
-    pub base: String,
-    pub head: String,
-    pub by: String,
-}
-
 impl Finding {
     /// Whether builds' own checks accepted it: a finding the coordinator sees.
     pub fn counts(&self) -> bool {
@@ -163,6 +152,15 @@ impl Finding {
         self.settled
             .as_ref()
             .is_some_and(|settled| settled.last().how == how)
+    }
+
+    /// Whether it is an open confirmed finding of a review: confirmed, and no
+    /// review run closed it.
+    pub fn is_open(&self) -> bool {
+        self.kind == "review"
+            && self.counts()
+            && self.settled_as("confirmed")
+            && self.closed_by.is_none()
     }
 }
 
@@ -247,30 +245,6 @@ pub fn record_landed(db: &Connection, landing: i64, run: i64, now: i64) -> Resul
     Ok(())
 }
 
-/// Records <patch_ids>, the commits a push of <landing> put on origin/main.
-/// A commit recorded already keeps its first record.
-pub fn record_pushed(db: &Connection, landing: i64, patch_ids: &[&str], now: i64) -> Result<()> {
-    for patch_id in patch_ids {
-        db.execute(
-            "INSERT OR IGNORE INTO review_pushed (landing_id, patch_id, at) VALUES (?1, ?2, ?3)",
-            params![landing, patch_id, now],
-        )
-        .sql()?;
-    }
-    Ok(())
-}
-
-/// The patch ids of <landing>'s commits that a push put on origin/main.
-pub fn pushed_of_landing(db: &Connection, landing: i64) -> Result<Vec<String>> {
-    let mut statement = db
-        .prepare("SELECT patch_id FROM review_pushed WHERE landing_id = ?1 ORDER BY patch_id")
-        .sql()?;
-    let rows = statement
-        .query_map(params![landing], |row| row.get(0))
-        .sql()?;
-    rows.collect::<rusqlite::Result<Vec<String>>>().sql()
-}
-
 /// A run over a diff, as it goes into the store.
 pub struct NewRun<'a> {
     pub landing: Option<i64>,
@@ -283,9 +257,6 @@ pub struct NewRun<'a> {
     /// For a review run that reads only the changes since the last review,
     /// the run of that last review.
     pub since: Option<i64>,
-    /// The commits of the net change a review read, with their patch ids;
-    /// none for a replay or an audit.
-    pub commits: &'a [Commit],
     /// A hash of the groups' settings and rules the run used.
     pub grouping: &'a str,
     /// The commit of the rules checkout the run read.
@@ -313,8 +284,9 @@ fn keep_text(db: &Connection, text: &str) -> Result<String> {
     Ok(hash)
 }
 
-/// Writes a run with its calls, verdicts and findings. Returns the run's id
-/// and, per call in order, the ids its findings got.
+/// Writes a run with its calls, verdicts and findings, and closes each
+/// finding a call closes. Returns the run's id and, per call in order, the
+/// ids its findings got.
 pub fn add_run(db: &Connection, run: &NewRun, calls: &[NewCall]) -> Result<(i64, Vec<Vec<i64>>)> {
     db.execute(
         "INSERT INTO review_run (landing_id, kind, label, at, base, head, since_run, grouping, rules_version) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
@@ -322,14 +294,8 @@ pub fn add_run(db: &Connection, run: &NewRun, calls: &[NewCall]) -> Result<(i64,
     )
     .sql()?;
     let run_id = db.last_insert_rowid();
-    for (position, commit) in run.commits.iter().enumerate() {
-        db.execute(
-            "INSERT INTO review_commit (run_id, position, sha, patch_id) VALUES (?1, ?2, ?3, ?4)",
-            params![run_id, position as i64, commit.sha, commit.patch_id],
-        )
-        .sql()?;
-    }
     let mut ids = Vec::new();
+    let mut closed: Vec<i64> = Vec::new();
     for call in calls {
         let rules = serde_json::to_string(&call.rules).expect("strings serialize");
         let prompt = keep_text(db, &call.prompt)?;
@@ -365,8 +331,33 @@ pub fn add_run(db: &Connection, run: &NewRun, calls: &[NewCall]) -> Result<(i64,
             finding_ids.push(db.last_insert_rowid());
         }
         ids.push(finding_ids);
+        for finding in &call.closes {
+            if !closed.contains(finding) {
+                close(db, *finding, run_id, run.landing)?;
+                closed.push(*finding);
+            }
+        }
     }
     Ok((run_id, ids))
+}
+
+/// Closes open confirmed finding <id> of <landing>: run <run> read changes
+/// that fix it. A finding of another landing, and one that is not open, is
+/// refused.
+fn close(db: &Connection, id: i64, run: i64, landing: Option<i64>) -> Result<()> {
+    let finding = finding_of(db, id)?;
+    if finding.landing_id != landing || landing.is_none() {
+        fail!("finding {id} is not a finding of the landing run {run} reviews");
+    }
+    if !finding.is_open() {
+        fail!("finding {id} is not an open confirmed finding, so no review closes it");
+    }
+    db.execute(
+        "INSERT INTO review_closed (finding_id, run_id) VALUES (?1, ?2)",
+        params![id, run],
+    )
+    .sql()?;
+    Ok(())
 }
 
 /// Settles finding <id> as `confirmed` or `dropped`. A finding builds dropped
@@ -394,7 +385,7 @@ pub fn settle(db: &Connection, id: i64, how: &str, why: &str, now: i64, by: &str
     }
     if let Some(settled) = settled {
         fail!(
-            "finding {id} is settled already, as {settled}. To change a confirmed finding that names no fix to dropped, settle it again: builds review settle {id} --again --why TEXT"
+            "finding {id} is settled already, as {settled}. To change an open confirmed finding to dropped, settle it again: builds review settle {id} --again --why TEXT"
         );
     }
     db.execute(
@@ -405,8 +396,8 @@ pub fn settle(db: &Connection, id: i64, how: &str, why: &str, now: i64, by: &str
     Ok(())
 }
 
-/// Settles finding <id> again, as dropped: only a confirmed finding that
-/// names no fix changes. The finding keeps its first settle beside the second,
+/// Settles finding <id> again, as dropped: only an open confirmed finding
+/// changes. The finding keeps its first settle beside the second,
 /// and counts as the second from then on.
 pub fn settle_again(db: &Connection, id: i64, why: &str, now: i64, by: &str) -> Result<()> {
     if why.trim().is_empty() {
@@ -428,10 +419,9 @@ pub fn settle_again(db: &Connection, id: i64, why: &str, now: i64, by: &str) -> 
     if settled.how != "confirmed" {
         fail!("finding {id} is settled as {} already", settled.how);
     }
-    if let Some(fix) = &finding.fix {
+    if let Some(run) = finding.closed_by {
         fail!(
-            "finding {id} names {} as its fix, so it stays confirmed: builds refuses to settle a finding with a named fix again",
-            fix.sha
+            "review run {run} closed finding {id}, so it stays confirmed: builds refuses to settle a closed finding again"
         );
     }
     db.execute(
@@ -442,113 +432,14 @@ pub fn settle_again(db: &Connection, id: i64, why: &str, now: i64, by: &str) -> 
     Ok(())
 }
 
-/// Records that builds found the code of confirmed finding <id> in no line of
-/// the change from <base> to <head>, its branch's change past origin/main.
-/// Only a confirmed finding of a review that names no fix, whose change has
-/// not landed and that has no such record yet, takes one.
-pub fn record_code_left(
-    db: &Connection,
-    id: i64,
-    base: &str,
-    head: &str,
-    now: i64,
-    by: &str,
-) -> Result<()> {
-    let finding = finding_of(db, id)?;
-    if finding.kind != "review" {
-        fail!(
-            "finding {id} is from a {}, not a review; only a review's finding blocks a landing",
-            finding.kind
-        );
-    }
-    if !finding.settled_as("confirmed") {
-        fail!("finding {id} is not settled as confirmed, so it needs no fix");
-    }
-    if let Some(fix) = &finding.fix {
-        fail!("finding {id} names {} as its fix", fix.sha);
-    }
-    if finding.code_left.is_some() {
-        fail!(
-            "builds recorded already that the code of finding {id} is on no line of its branch's change"
-        );
-    }
-    if landed(db, &finding)? {
-        fail!("finding {id} belongs to a change that landed already");
-    }
-    db.execute(
-        "INSERT INTO review_code_left (finding_id, base, head, at, by) VALUES (?1, ?2, ?3, ?4, ?5)",
-        params![id, base, head, now, by],
-    )
-    .sql()?;
-    Ok(())
-}
-
-/// Whether the change of <finding>'s landing landed.
-fn landed(db: &Connection, finding: &Finding) -> Result<bool> {
-    db.query_row(
-        "SELECT landed_at IS NOT NULL FROM review_landing WHERE id = ?1",
-        params![finding.landing_id],
-        |row| row.get(0),
-    )
-    .sql()
-}
-
-/// Names commit <sha> as the fix of confirmed finding <id>, replacing the
-/// one named before. Only a confirmed finding of a review whose change has not
-/// landed and whose code did not leave its branch takes a fix, and record_fix
-/// refuses to replace a fix that a push put on origin/main.
-pub fn record_fix(db: &Connection, id: i64, fix: &Commit, now: i64, by: &str) -> Result<()> {
-    let finding = finding_of(db, id)?;
-    if finding.kind != "review" {
-        fail!(
-            "finding {id} is from a {}, not a review; only a review's finding takes a fix",
-            finding.kind
-        );
-    }
-    if !finding.settled_as("confirmed") {
-        fail!(
-            "finding {id} is not settled as confirmed; settle it first: builds review settle {id} confirmed --why TEXT"
-        );
-    }
-    if let Some(left) = &finding.code_left {
-        fail!(
-            "builds found the code of finding {id} on no line of its branch's change ({}..{}), so the finding needs no fix",
-            left.base,
-            left.head
-        );
-    }
-    if landed(db, &finding)? {
-        fail!("finding {id} belongs to a change that landed already");
-    }
-    if let (Some(fixed), Some(landing)) = (&finding.fix, finding.landing_id)
-        && pushed_of_landing(db, landing)?.contains(&fixed.patch_id)
-    {
-        fail!(
-            "commit {} fixes finding {id}, and a push put it on origin/main already, so builds keeps it as the fix",
-            fixed.sha
-        );
-    }
-    db.execute(
-        "INSERT OR REPLACE INTO review_fix (finding_id, sha, patch_id, at, by) VALUES (?1, ?2, ?3, ?4, ?5)",
-        params![id, fix.sha, fix.patch_id, now, by],
-    )
-    .sql()?;
-    Ok(())
-}
-
-const FINDING_COLUMNS: &str = "f.id, c.run_id, r.kind, r.landing_id, c.group_name, f.rule, f.clause, f.file, f.line, f.code, f.problem, f.blocking, f.check_failed, f.settled, f.settled_why, f.settled_by, x.sha, x.patch_id, a.why, a.by, g.base, g.head, g.by";
+const FINDING_COLUMNS: &str = "f.id, c.run_id, r.kind, r.landing_id, c.group_name, f.rule, f.clause, f.file, f.line, f.code, f.problem, f.blocking, f.check_failed, f.settled, f.settled_why, f.settled_by, a.why, a.by, z.run_id";
 
 fn finding_from(row: &rusqlite::Row) -> rusqlite::Result<Finding> {
     let settled: Option<String> = row.get(13)?;
     let why: Option<String> = row.get(14)?;
     let by: Option<String> = row.get(15)?;
-    let fix_sha: Option<String> = row.get(16)?;
-    let fix_patch: Option<String> = row.get(17)?;
-    let again_why: Option<String> = row.get(18)?;
-    let again_by: Option<String> = row.get(19)?;
-    let left_base: Option<String> = row.get(20)?;
-    let left_head: Option<String> = row.get(21)?;
-    let left_by: Option<String> = row.get(22)?;
+    let again_why: Option<String> = row.get(16)?;
+    let again_by: Option<String> = row.get(17)?;
     let first = match (settled, why, by) {
         (Some(how), Some(why), Some(by)) => Some(Settle { how, why, by }),
         _ => None,
@@ -578,17 +469,11 @@ fn finding_from(row: &rusqlite::Row) -> rusqlite::Result<Finding> {
         blocking: row.get(11)?,
         check_failed: row.get(12)?,
         settled,
-        fix: fix_sha
-            .zip(fix_patch)
-            .map(|(sha, patch_id)| Commit { sha, patch_id }),
-        code_left: match (left_base, left_head, left_by) {
-            (Some(base), Some(head), Some(by)) => Some(CodeLeft { base, head, by }),
-            _ => None,
-        },
+        closed_by: row.get(18)?,
     })
 }
 
-const FINDING_FROM: &str = "FROM review_finding f JOIN review_call c ON c.id = f.call_id JOIN review_run r ON r.id = c.run_id LEFT JOIN review_fix x ON x.finding_id = f.id LEFT JOIN review_settle_again a ON a.finding_id = f.id LEFT JOIN review_code_left g ON g.finding_id = f.id";
+const FINDING_FROM: &str = "FROM review_finding f JOIN review_call c ON c.id = f.call_id JOIN review_run r ON r.id = c.run_id LEFT JOIN review_settle_again a ON a.finding_id = f.id LEFT JOIN review_closed z ON z.finding_id = f.id";
 
 /// Every finding of <run>, in the order raised.
 pub fn findings_of_run(db: &Connection, run: i64) -> Result<Vec<Finding>> {
@@ -789,44 +674,6 @@ pub fn runs_of_landing(db: &Connection, landing: i64) -> Result<Vec<RunRow>> {
     rows.map(|row| row.sql()).collect()
 }
 
-/// The landings of <repo>, newest first: open ones when <landed> is false,
-/// landed ones when it is true.
-pub fn landings_of_repo(db: &Connection, repo: &str, landed: bool) -> Result<Vec<LandingRow>> {
-    let mut statement = db
-        .prepare(
-            "SELECT id, key, repo, reviewed_run, landed_run FROM review_landing WHERE repo = ?1 AND (landed_at IS NOT NULL) = ?2 ORDER BY id DESC",
-        )
-        .sql()?;
-    let rows = statement
-        .query_map(params![repo, landed], |row| {
-            Ok(LandingRow {
-                id: row.get(0)?,
-                key: row.get(1)?,
-                repo: row.get(2)?,
-                reviewed_run: row.get(3)?,
-                landed_run: row.get(4)?,
-            })
-        })
-        .sql()?;
-    rows.map(|row| row.sql()).collect()
-}
-
-/// The commits <run> read, in order.
-pub fn commits_of_run(db: &Connection, run: i64) -> Result<Vec<Commit>> {
-    let mut statement = db
-        .prepare("SELECT sha, patch_id FROM review_commit WHERE run_id = ?1 ORDER BY position")
-        .sql()?;
-    let rows = statement
-        .query_map(params![run], |row| {
-            Ok(Commit {
-                sha: row.get(0)?,
-                patch_id: row.get(1)?,
-            })
-        })
-        .sql()?;
-    rows.map(|row| row.sql()).collect()
-}
-
 /// How many landings had a review under the grouping <hash>.
 pub fn landings_under(db: &Connection, hash: &str) -> Result<i64> {
     db.query_row(
@@ -853,7 +700,8 @@ pub fn audited_landings(db: &Connection) -> Result<Vec<i64>> {
 /// fresh database's: `review_landing` is made again with `landed_at` and
 /// `landed_run` in place of `closed_at` (a landing whose review passed landed
 /// with its newest review run, since that review ran after the push), and
-/// `review_commit` and `review_fix` are added empty. migrate.rs runs it with
+/// `review_commit` and `review_fix` are added empty, as they were then
+/// (`BEFORE_CLOSED`). migrate.rs runs it with
 /// the foreign keys off, and the rename runs under `legacy_alter_table`, so
 /// `review_run`'s reference keeps naming `review_landing`.
 pub fn move_to_landing_review(db: &Connection) -> Result<()> {
@@ -861,8 +709,12 @@ pub fn move_to_landing_review(db: &Connection) -> Result<()> {
     let slice = |from: &str, end: &str| crate::db::statement(schema, from, end);
     let landing = slice("CREATE TABLE review_landing", "STRICT;");
     let index = slice("CREATE INDEX review_landing_key", ";");
-    let commit = slice("CREATE TABLE review_commit", "WITHOUT ROWID;");
-    let fix = slice("CREATE TABLE review_fix", "STRICT;");
+    let commit = crate::db::statement(
+        BEFORE_CLOSED,
+        "CREATE TABLE review_commit",
+        "WITHOUT ROWID;",
+    );
+    let fix = crate::db::statement(BEFORE_CLOSED, "CREATE TABLE review_fix", "STRICT;");
     crate::db::remake_table(
         db,
         "review_landing",
@@ -1008,88 +860,73 @@ pub fn move_to_reviewed_run(db: &Connection) -> Result<()> {
     )
 }
 
-/// A row that keeps a patch id: a commit a review read, or a finding's fix.
-enum PatchRow {
-    Read { run: i64, position: i64 },
-    Fix { finding: i64 },
-}
+/// The tables of read commits, fixes, pushed commits and findings whose code
+/// left their branch, as record.sql wrote them before a review closed the
+/// confirmed findings its changes fix. The moves of older stores make them,
+/// and `move_to_closed` drops them.
+pub const BEFORE_CLOSED: &str = "CREATE TABLE review_commit (
+    run_id INTEGER NOT NULL REFERENCES review_run (id),
+    position INTEGER NOT NULL CONSTRAINT review_commit_position_not_negative CHECK (position >= 0),
+    sha TEXT NOT NULL,
+    patch_id TEXT NOT NULL,
+    PRIMARY KEY (run_id, position)
+) STRICT, WITHOUT ROWID;
+CREATE TABLE review_fix (
+    finding_id INTEGER PRIMARY KEY REFERENCES review_finding (id),
+    sha TEXT NOT NULL,
+    patch_id TEXT NOT NULL,
+    at INTEGER NOT NULL,
+    by TEXT NOT NULL CONSTRAINT review_fix_by_says_something CHECK (trim(by) <> '')
+) STRICT;
+CREATE TABLE review_pushed (
+    landing_id INTEGER NOT NULL REFERENCES review_landing (id),
+    patch_id TEXT NOT NULL,
+    at INTEGER NOT NULL,
+    PRIMARY KEY (landing_id, patch_id)
+) STRICT, WITHOUT ROWID;
+CREATE TABLE review_code_left (
+    finding_id INTEGER PRIMARY KEY REFERENCES review_finding (id),
+    base TEXT NOT NULL,
+    head TEXT NOT NULL,
+    at INTEGER NOT NULL,
+    by TEXT NOT NULL CONSTRAINT review_code_left_by_says_something CHECK (trim(by) <> '')
+) STRICT;";
 
-/// Gives every commit a review read and every commit named as a fix the patch
-/// id that builds takes today, of the commit's added and removed lines alone
-/// (commits.rs), in place of the one a store kept before, which covered the
-/// context lines too. <patch_ids> reads commits of the repo a landing names
-/// with their patch ids. A commit it cannot read, a commit it gives no patch
-/// id, and a commit of no landing leave no patch id to match the review by, so
-/// the move fails and migrate.rs leaves the store as it was.
-pub fn move_to_changed_lines(
-    db: &Connection,
-    patch_ids: impl Fn(&str, &[String]) -> Result<Vec<Commit>>,
-) -> Result<()> {
-    let read = |sql: &str,
-                row_of: fn(i64, i64) -> PatchRow|
-     -> Result<Vec<(PatchRow, String, Option<String>)>> {
-        let mut statement = db.prepare(sql).sql()?;
-        let rows = statement
-            .query_map([], |row| {
-                Ok((row_of(row.get(0)?, row.get(1)?), row.get(2)?, row.get(3)?))
-            })
-            .sql()?;
-        rows.map(|row| row.sql()).collect()
-    };
-    let mut rows = read(
-        "SELECT c.run_id, c.position, c.sha, l.repo FROM review_commit c
-            JOIN review_run r ON r.id = c.run_id LEFT JOIN review_landing l ON l.id = r.landing_id",
-        |run, position| PatchRow::Read { run, position },
-    )?;
-    rows.extend(read(
-        "SELECT x.finding_id, 0, x.sha, l.repo FROM review_fix x
-            JOIN review_finding f ON f.id = x.finding_id JOIN review_call k ON k.id = f.call_id
-            JOIN review_run r ON r.id = k.run_id LEFT JOIN review_landing l ON l.id = r.landing_id",
-        |finding, _| PatchRow::Fix { finding },
-    )?);
-    let mut repos: Vec<&str> = Vec::new();
-    for (_, sha, repo) in &rows {
-        let Some(repo) = repo else {
-            fail!(
-                "the store keeps commit {sha} for a review run with no landing, so no repo names it"
-            );
-        };
-        if !repos.contains(&repo.as_str()) {
-            repos.push(repo);
-        }
-    }
-    for repo in repos {
-        let of_repo = || rows.iter().filter(|(_, _, r)| r.as_deref() == Some(repo));
-        let mut shas: Vec<String> = Vec::new();
-        for (_, sha, _) in of_repo() {
-            if !shas.contains(sha) {
-                shas.push(sha.clone());
-            }
-        }
-        let commits = patch_ids(repo, &shas)?;
-        for (row, sha, _) in of_repo() {
-            let Some(commit) = commits.iter().find(|c| &c.sha == sha) else {
-                fail!("commit {sha} of repo {repo} has no patch id: it changes nothing");
-            };
-            match row {
-                PatchRow::Read { run, position } => db.execute(
-                    "UPDATE review_commit SET patch_id = ?3 WHERE run_id = ?1 AND position = ?2",
-                    params![run, position, commit.patch_id],
-                ),
-                PatchRow::Fix { finding } => db.execute(
-                    "UPDATE review_fix SET patch_id = ?2 WHERE finding_id = ?1",
-                    params![finding, commit.patch_id],
-                ),
-            }
-            .sql()?;
-        }
-    }
-    Ok(())
+/// Moves a store's review tables from before a review closed the confirmed
+/// findings its changes fix to today's: the move makes `review_closed`, and
+/// the last review of each landing closes each confirmed finding that names a
+/// fix and each one whose code builds recorded as no longer in its branch's
+/// change. Then it drops the tables of fixes, of the commits each run read, of
+/// the commits each push landed and of findings whose code left their branch.
+/// Run it after `move_to_reviewed_run`, which names each landing's last
+/// review.
+pub fn move_to_closed(db: &Connection) -> Result<()> {
+    let closed = crate::db::statement(
+        crate::db::REVIEW_PART,
+        "CREATE TABLE review_closed",
+        "STRICT;",
+    );
+    db.execute_batch(&format!(
+        "{closed}
+INSERT INTO review_closed (finding_id, run_id)
+    SELECT f.id, l.reviewed_run FROM review_finding f
+        JOIN review_call c ON c.id = f.call_id
+        JOIN review_run r ON r.id = c.run_id
+        JOIN review_landing l ON l.id = r.landing_id
+    WHERE r.kind = 'review' AND l.reviewed_run IS NOT NULL AND f.settled = 'confirmed'
+        AND (f.id IN (SELECT finding_id FROM review_fix)
+            OR f.id IN (SELECT finding_id FROM review_code_left));
+DROP TABLE review_fix;
+DROP TABLE review_code_left;
+DROP TABLE review_commit;
+DROP TABLE review_pushed;"
+    ))
+    .sql()
 }
 
 /// The tables record.rs owns.
 #[cfg(test)]
-const TABLES: [&str; 11] = [
+const TABLES: [&str; 9] = [
     "review_landing",
     "review_run",
     "review_call",
@@ -1097,10 +934,8 @@ const TABLES: [&str; 11] = [
     "review_exchange",
     "review_verdict",
     "review_finding",
-    "review_commit",
-    "review_fix",
     "review_settle_again",
-    "review_code_left",
+    "review_closed",
 ];
 
 /// Writes a row of one of record.rs's tables as given, the constraints still

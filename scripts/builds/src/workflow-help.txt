@@ -103,34 +103,31 @@ PLAN, BRIEF, EXECUTE, REVIEW
     to hold goes to such an agent; its brief says what the coordinator read
     and what stays unknown, and it writes a plan for the faster model to
     execute.
-  - Review: no diff is reviewed more than once. Each change gets one
-    review; the coordinator reads the fixes for its confirmed findings.
-    Before landing a branch, the coordinator runs the rules review on its
-    commits once (`builds review <worktree> --item N`, which gives the
-    reviewers the item's brief), judges each finding against the code and
-    settles it as confirmed or dropped with why (`builds review settle`), and
-    sends each confirmed one back to the agent that made it. The agent fixes
-    it in a new commit. The coordinator reads that commit against its
-    finding, names it (`builds review fixed`) and runs `builds review`
-    again. A review shows the changes since the last review, and nothing
-    else, the fixes included. The coordinator settles what
-    that run finds, and runs `builds land` with the reviewed commits and
-    their fixes in the branch's worktree once the agent is done there
-    (LANDING). `builds land` refuses
-    commits that lack this step (`builds help`, LANDING AND REVIEW). Each
+  - Review: no diff is reviewed more than once. A review shows the changes
+    since the last review, and nothing else. Before landing a branch, the
+    coordinator runs the rules review on it (`builds review <worktree> --item
+    N`, which gives the reviewers the item's brief), judges each finding
+    against the code and settles it as confirmed or dropped with why
+    (`builds review settle`), and sends each confirmed one back to the agent
+    that made it. The agent fixes it in a new commit, and the coordinator
+    runs `builds review` again. That review reads only the changes since the
+    last review, the fixes among them, and closes each open confirmed finding
+    whose problem the code no longer has. The coordinator settles what that
+    run finds, and runs `builds land` in the branch's worktree once the agent
+    is done there, nothing is unreviewed and no confirmed finding is open
+    (LANDING). `builds land` refuses a branch until then (`builds help`,
+    LANDING AND REVIEW). Each
     settle, with its
     `--why`, is the record that scores the reviews: a confirmed finding counts
     as a true positive and a dropped one as a false positive (`builds review
     scores`), and `builds review replay --landing` scores other models and
     prompts against it. So the coordinator settles each finding on what the
     code does, and its why says what makes the finding real or wrong.
-    When it learns later that a confirmed finding with no fix is wrong, it
-    settles the finding again as dropped (`builds review settle N --again
-    --why TEXT`), and the record keeps both settles. When the agent
-    drops the commit that held a confirmed finding's code, nobody fixes the
-    finding: `builds review` and `builds land` find the code on no line of the
-    branch's change past origin/main, record the finding as needing no fix,
-    and stop waiting on a fix for it.
+    When it learns later that an open confirmed finding is wrong, it settles
+    the finding again as dropped (`builds review settle N --again --why
+    TEXT`), and the record keeps both settles. When the agent drops the
+    commit that held a confirmed finding's code, the next review reads that
+    change and closes the finding.
   - At every step, check the shape against the project's standing rules,
     which a plan's author never loads by touching files; the project file
     names them. A plan that proposes a shape they forbid is rewritten before
@@ -162,9 +159,9 @@ WHAT AN IMPLEMENTING AGENT DOES
   6. Before every commit, fix commits included, reread every comment, doc,
      spec line and commit message it adds against
      rules/text-people-read/write-plain-literal-active-sentences.md, and
-     fix what it finds. The coordinator reads a fix commit for a review
-     finding against its finding, and the next run of the review reads it as
-     part of the changes since the last review.
+     fix what it finds. The next run of the review reads a fix commit for a
+     review finding as part of the changes since the last review, and closes
+     the finding when the code no longer has its problem.
   7. Commit, and report the SHA, the base and the checks. Leave nothing
      uncommitted: the coordinator runs `builds land` in this worktree, which
      refuses a worktree with uncommitted changes.
@@ -283,17 +280,15 @@ net change as it is now.
     there.
   - When `builds land` prints `LANDED, NOT RECORDED:`, run the `rerun:`
     command it prints.
-  - No diff is reviewed more than once. Each change gets one review; the
-    coordinator reads the fixes for its confirmed findings. Land the branch
-    with its named fixes once the review's runs have read its net change as
-    it is now. A rebase that keeps every line the branch adds and removes
-    keeps its review, even when the lines around them changed. When the
-    branch changed since the last review (a commit added after the review, a
-    fix, a squash that changed lines, or a conflict's resolution), run
-    `builds review` in the branch's worktree again: a review shows the
-    changes since the last review, and nothing else, never main's own
-    commits that a rebase brings in. Settle the new run's
-    findings and name their fixes as for the first run.
+  - No diff is reviewed more than once. Land the branch once nothing is
+    unreviewed and no confirmed finding is open. A rebase that keeps every
+    line the branch adds and removes keeps its review, even when the lines
+    around them changed. When the branch changed since the last review (a
+    commit added after the review, a fix, a squash that changed lines, or a
+    conflict's resolution), run `builds review` in the branch's worktree
+    again: a review shows the changes since the last review, and nothing
+    else, never main's own commits that a rebase brings in. Settle the new
+    run's findings as for the first run.
   - A CI run on main that fails or stalls is the coordinator's to run down.
   - After each landing, `builds land` fast-forwards the repo's main checkout
     to origin/main, so the person and the agents who read code there see
@@ -348,16 +343,12 @@ other.
      the canvas, which only a Claude session can do. When that session has
      ended, the next design session runs `builds
      land` for the change. `builds design approve N --by-person` is for an
-     approval the person gives in words. When a review fix for one change's
-     commit is in another change's commit, builds land cannot land either
-     change alone: land them in one call, with `--design N` once for each
-     change.
+     approval the person gives in words.
      When a rule group covers a path the commits change, `builds land`
      refuses them until the rules review is finished, as for any branch
      (PLAN, BRIEF, EXECUTE, REVIEW): run `builds review` on them, settle
-     each finding, fix each confirmed one in a new commit, read that commit
-     against its finding, name it with `builds review fixed`, and run
-     `builds review` again, which reads the fixes.
+     each finding, fix each confirmed one in a new commit, and run `builds
+     review` again, which reads the fixes and closes each finding they fix.
 
 In a project that publishes a canvas, the boards and design/mocks/canvas.json
 in the repo are the canvas's source. The published canvas and design system

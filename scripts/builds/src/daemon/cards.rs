@@ -44,8 +44,9 @@ pub enum ReviewWait {
     Running,
     /// This many findings wait for the coordinator to settle them.
     ToSettle(usize),
-    /// This many confirmed findings wait on a commit that fixes them.
-    Unfixed(usize),
+    /// This many confirmed findings are open: they wait for a review that
+    /// closes them.
+    Open(usize),
     /// This many files changed since the last review: `builds review` reads
     /// those changes in a new run.
     Unreviewed(usize),
@@ -58,7 +59,7 @@ impl ReviewWait {
             ReviewWait::NotRun => "Needs review",
             ReviewWait::Running => "Reviewing",
             ReviewWait::ToSettle(_) => "Findings to settle",
-            ReviewWait::Unfixed(_) => "Waiting on fixes",
+            ReviewWait::Open(_) => "Open findings",
             ReviewWait::Unreviewed(_) => "Unreviewed changes",
         }
     }
@@ -67,7 +68,7 @@ impl ReviewWait {
     fn pill(self) -> Option<Pill> {
         let text = match self {
             ReviewWait::NotRun | ReviewWait::Running => return None,
-            ReviewWait::ToSettle(n) | ReviewWait::Unfixed(n) => {
+            ReviewWait::ToSettle(n) | ReviewWait::Open(n) => {
                 crate::text::counted(n, "finding", "findings")
             }
             ReviewWait::Unreviewed(n) => crate::text::counted(n, "file", "files"),
@@ -93,9 +94,9 @@ impl ReviewWait {
                 findings(n, "review"),
                 if n == 1 { "it" } else { "them" }
             ),
-            ReviewWait::Unfixed(n) => format!(
-                "{} on a commit that fixes {}.",
-                findings(n, "confirmed review"),
+            ReviewWait::Open(n) => format!(
+                "{} for a review that closes {}.",
+                findings(n, "open confirmed review"),
                 if n == 1 { "it" } else { "them" }
             ),
             ReviewWait::Unreviewed(1) => "1 file changed since the last review: builds review reads the changes in a new run.".to_string(),

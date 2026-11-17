@@ -6,9 +6,8 @@
 //! builds review [run] WORKTREE [BASE] [--landing KEY] [--item N]... [--head SHA] [--rules-root DIR] [--reviewer PROGRAM]
 //! builds review settle FINDING confirmed|dropped --why TEXT
 //! builds review settle FINDING --again --why TEXT
-//! builds review fixed FINDING SHA
 //! builds review show LANDING
-//! builds review check-landing | landed DIR --project P SHA...
+//! builds review check-landing | landed DIR --project P SHA... [--landing KEY]
 //! builds review groups [--rules-root DIR] [--project P] [--changed PATH]...
 //! builds review replay [--case NAME]... [--source REPO] [--model M] [--rules-root DIR] [--reviewer PROGRAM]
 //! builds review replay --landing N... --repo-dir DIR [--group NAME]... [--model M] [--rules-root DIR] [--reviewer PROGRAM]
@@ -19,20 +18,21 @@
 //!
 //! `run` reviews the worktree's net change past BASE (default `origin/main`)
 //! before it lands. builds review reads no diff more than once. Each change
-//! gets one review; the coordinator reads the fixes for its confirmed
-//! findings. The groups whose rules cover a changed path each get one
+//! gets one review. The groups whose rules cover a changed path each get one
 //! `claude -p`. The run
-//! records the net change it read, with the patch ids of its commits, under
-//! the change's KEY, then says what `builds land` would say of the branch's
-//! commits (`landing.rs`), and exits 1 unless land would take them. The
-//! change's landing names the run of its last review, and a review shows the
-//! changes since the last review, and nothing else (`run::diff_since`): fix
-//! commits are part of them, and main's own commits that a rebase brings in
-//! are not. A run on a KEY reviewed already asks the groups that gave the
-//! review no answer, over the diff they did not answer, and reads the
-//! changes since the last review in a new run, which becomes the last
-//! review. `landing::Coverage` says what the review read, for this run and
-//! for `builds land`. The run refuses when the review lacks nothing.
+//! records the net change it read under the change's KEY, then says what
+//! `builds land` would say of the branch's commits (`landing.rs`), and exits
+//! 1 unless land would take them. The change's landing names the run of its
+//! last review, and a review shows the changes since the last review, and
+//! nothing else (`run::diff_since`): fix commits are part of them, and main's
+//! own commits that a rebase brings in are not. A run on a KEY reviewed
+//! already asks the groups that gave the review no answer, over the diff they
+//! did not answer, and reads the changes since the last review in a new run,
+//! which becomes the last review. Each reviewer also gets the open confirmed
+//! findings of its group's rules, checks the code at each one's place, and
+//! closes each one whose problem is gone. `landing::Coverage` says what the
+//! review read, for this run and for `builds land`. The run refuses when the
+//! review lacks nothing.
 //!
 //! Every call records its setup (its group's model and prompt), its tokens and
 //! its cost. `scores` counts how each setup did from the settled findings, and
@@ -69,7 +69,7 @@ use crate::tool::Tool;
 
 use record::Kind;
 
-const USAGE: &str = "usage: builds review [run] WORKTREE [BASE] [--landing KEY] [--item N]... [--head SHA] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review settle FINDING confirmed|dropped --why TEXT\n       builds review settle FINDING --again --why TEXT\n       builds review fixed FINDING SHA\n       builds review show LANDING\n       builds review check-landing DIR --project P SHA... [--rules-root DIR]\n       builds review landed DIR --project P SHA... [--rules-root DIR] [--roll N] [--reviewer PROGRAM]\n       builds review groups [--rules-root DIR] [--project P] [--changed PATH]...\n       builds review replay [--case NAME]... [--source REPO] [--model opus|sonnet|haiku] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review replay --landing N... --repo-dir DIR [--group NAME]... [--model opus|sonnet|haiku] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review audit LANDING --repo-dir DIR [--rules-root DIR] [--reviewer PROGRAM]\n       builds review misses\n       builds review rates [--rules-root DIR]\n       builds review scores\n       builds review case add LANDING FINDING --repo-dir DIR --rules-root DIR [--name NAME]\n       builds review case add --rule SLUG --file PATH --commits BASE..HEAD --project P --name NAME --repo-dir DIR --rules-root DIR\n       builds review case add --clean-for SLUG --commits BASE..HEAD --project P --name NAME --repo-dir DIR --rules-root DIR";
+const USAGE: &str = "usage: builds review [run] WORKTREE [BASE] [--landing KEY] [--item N]... [--head SHA] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review settle FINDING confirmed|dropped --why TEXT\n       builds review settle FINDING --again --why TEXT\n       builds review show LANDING\n       builds review check-landing DIR --project P SHA... [--landing KEY] [--rules-root DIR]\n       builds review landed DIR --project P SHA... [--landing KEY] [--more-to-land] [--rules-root DIR] [--roll N] [--reviewer PROGRAM]\n       builds review groups [--rules-root DIR] [--project P] [--changed PATH]...\n       builds review replay [--case NAME]... [--source REPO] [--model opus|sonnet|haiku] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review replay --landing N... --repo-dir DIR [--group NAME]... [--model opus|sonnet|haiku] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review audit LANDING --repo-dir DIR [--rules-root DIR] [--reviewer PROGRAM]\n       builds review misses\n       builds review rates [--rules-root DIR]\n       builds review scores\n       builds review case add LANDING FINDING --repo-dir DIR --rules-root DIR [--name NAME]\n       builds review case add --rule SLUG --file PATH --commits BASE..HEAD --project P --name NAME --repo-dir DIR --rules-root DIR\n       builds review case add --clean-for SLUG --commits BASE..HEAD --project P --name NAME --repo-dir DIR --rules-root DIR";
 
 /// The checkout the rules and groups are read from: `--rules-root`, else the
 /// one `install.sh` links at ~/.codex/agent-instructions.
@@ -134,7 +134,6 @@ pub fn cmd_review(tool: &Tool, args: &[String]) -> Result<()> {
     match command.as_str() {
         "groups" => list_groups(rest),
         "settle" => settle(tool, rest),
-        "fixed" => fixed(tool, rest),
         "show" => show(tool, rest),
         "run" => run_command(tool, rest),
         "check-landing" => landing::check_landing_command(tool, rest),
@@ -201,10 +200,7 @@ pub fn review(inputs: &Inputs) -> Result<Reported> {
             refusal: None,
         });
     }
-    let commits = commits::with_patch_ids(
-        inputs.worktree,
-        &commits::in_range(inputs.worktree, &diff.base, &diff.head)?,
-    )?;
+    let shas = commits::in_range(inputs.worktree, &diff.base, &diff.head)?;
     let material = run::Material::load(inputs.root, inputs.project)?;
     if material.group_names(&diff.changed).is_empty() {
         return Ok(Reported {
@@ -220,10 +216,18 @@ pub fn review(inputs: &Inputs) -> Result<Reported> {
             diff,
             since: None,
             last_review: true,
-            commits: commits.clone(),
             note: None,
         }],
-        Some(landing) => later_asks(&conn, inputs, &material, &diff, &commits, landing)?,
+        Some(landing) => later_asks(&conn, inputs, &material, &diff, landing)?,
+    };
+    // The confirmed findings no review closed, which each reviewer checks
+    // against the code as it is now.
+    let open_findings: Vec<record::Finding> = match open {
+        None => Vec::new(),
+        Some(landing) => record::findings_of_landing(&conn, landing)?
+            .into_iter()
+            .filter(record::Finding::is_open)
+            .collect(),
     };
     let mut running: Vec<(String, Running)> = Vec::new();
     let mut answers = Vec::new();
@@ -244,7 +248,20 @@ pub fn review(inputs: &Inputs) -> Result<Reported> {
             &picked,
             &ask.diff,
             inputs.brief.as_ref(),
+            &open_findings,
         ));
+    }
+    // Two runs of one review can each close the same finding: the first
+    // closes it.
+    let mut closed: Vec<i64> = Vec::new();
+    for asked in &mut answers {
+        for call in &mut asked.calls {
+            call.closes.retain(|id| {
+                let first = !closed.contains(id);
+                closed.push(*id);
+                first
+            });
+        }
     }
     let stamp = inputs.stamp;
     let (landing, runs) = inputs
@@ -266,7 +283,6 @@ pub fn review(inputs: &Inputs) -> Result<Reported> {
                         base: &ask.diff.base,
                         head: &ask.diff.head,
                         since: ask.since,
-                        commits: &ask.commits,
                         grouping: &material.grouping,
                         rules_version: &run::rules_version(inputs.root),
                     },
@@ -301,23 +317,26 @@ pub fn review(inputs: &Inputs) -> Result<Reported> {
             ));
         }
         text.push_str(&render::run_report(calls, findings));
+        for finding in &open_findings {
+            if asked.calls.iter().any(|c| c.closes.contains(&finding.id)) {
+                text.push_str(&format!(
+                    "run {run_id} closed finding {} ({}, {}): the code at its place no longer has the problem\n",
+                    finding.id, finding.rule, finding.file
+                ));
+            }
+        }
     }
     // What builds land would say of the branch's commits now.
-    let needs = landing::needs(inputs.worktree, commits.clone(), |paths| {
-        material.group_names(paths)
-    })?;
+    let needs = landing::needs(inputs.worktree, shas, |paths| material.group_names(paths))?;
     let verdict = landing::judge(
         &conn,
-        inputs.repo,
+        inputs.key,
         inputs.worktree,
         &needs,
         landing::CodeCheck::Branch(inputs.head.unwrap_or("HEAD")),
         &|paths| material.group_names(paths),
     )?;
-    text.push_str(&landing::record_code_left(inputs.store, &verdict, || {
-        Ok(stamp.clone())
-    })?);
-    let refusal = landing::refusal(&commits, &verdict);
+    let refusal = landing::refusal(&needs, &verdict);
     if refusal.is_none() {
         text.push_str(&format!("builds land: {}\n", landing::taken(&verdict)));
     }
@@ -328,8 +347,7 @@ pub fn review(inputs: &Inputs) -> Result<Reported> {
     })
 }
 
-/// One run of a review: the diff its reviewers read, the commits of the net
-/// change it read, and the groups it asks.
+/// One run of a review: the diff its reviewers read and the groups it asks.
 struct Ask {
     diff: run::Diff,
     /// The last review whose changes since the diff holds.
@@ -338,14 +356,13 @@ struct Ask {
     /// landing records the run as its last review. A run that asks again the
     /// groups that gave an earlier run no answer reads that run's diff.
     last_review: bool,
-    commits: Vec<commits::Commit>,
     groups: Vec<String>,
     /// What the run asked, for a run of a change that has a review already.
     note: Option<String>,
 }
 
 /// The runs a change whose review <landing> holds gets now, so that the
-/// review reads <diff>, the branch's net change of <commits>: for each diff a
+/// review reads <diff>, the branch's net change: for each diff a
 /// run read, the groups asked over it that gave no answer over it, asked over
 /// that diff again; and, when the changes since the last review touch a path
 /// a group covers, the groups that cover a changed path, asked over those
@@ -356,12 +373,11 @@ fn later_asks(
     inputs: &Inputs,
     material: &run::Material,
     diff: &run::Diff,
-    commits: &[commits::Commit],
     landing: i64,
 ) -> Result<Vec<Ask>> {
     let coverage = landing::Coverage::of(conn, landing)?;
     let calls = record::calls_of_landing(conn, landing)?;
-    let read: Vec<&record::RunRow> = coverage.runs.iter().map(|(run, _)| run).collect();
+    let read: Vec<&record::RunRow> = coverage.runs.iter().collect();
     let mut asks = Vec::new();
     for (run, missing) in coverage.unanswered(&calls) {
         asks.push(Ask {
@@ -370,7 +386,6 @@ fn later_asks(
             })?,
             since: run.since,
             last_review: false,
-            commits: coverage.commits_of(run.id)?.to_vec(),
             note: Some(format!(
                 "asked only the groups that gave run {} no answer, over the diff it read: {}\n",
                 run.id,
@@ -402,7 +417,6 @@ fn later_asks(
             diff: since,
             since: Some(last.id),
             last_review: true,
-            commits: commits.to_vec(),
             groups,
         });
     }
@@ -490,8 +504,9 @@ fn run_review(tool: &Tool, args: &Args) -> Result<Reported> {
     })
 }
 
-/// The branch the worktree is on, else its HEAD.
-fn default_key(worktree: &Path) -> Result<String> {
+/// The key of the change the worktree holds: the branch it is on, else its
+/// HEAD.
+pub fn default_key(worktree: &Path) -> Result<String> {
     let text = |args: &[&str]| -> Option<String> {
         let output = git(worktree).args(args).output().ok()?;
         output
@@ -532,7 +547,8 @@ fn brief_of(store: &Store, args: &Args, worktree: &Path) -> Result<Option<(Strin
 
 /// `builds review settle FINDING confirmed|dropped --why TEXT`, or
 /// `builds review settle FINDING --again --why TEXT`, which changes a
-/// confirmed finding that names no fix to dropped and keeps its first settle.
+/// confirmed finding that no review closed to dropped and keeps its first
+/// settle.
 fn settle(tool: &Tool, args: &[String]) -> Result<()> {
     let args = Args::parse(args, &["why"], &["again"])?;
     let again = args.switch("again");
@@ -560,33 +576,6 @@ fn settle(tool: &Tool, args: &[String]) -> Result<()> {
         record::settle(db, id, how, why, stamp.at, &stamp.by)
     })?;
     println!("finding {id} settled {how}");
-    Ok(())
-}
-
-/// `builds review fixed FINDING SHA`: names commit SHA, of the repo the
-/// command runs in, as the fix of confirmed finding FINDING.
-fn fixed(tool: &Tool, args: &[String]) -> Result<()> {
-    let args = Args::parse(args, &[], &[])?;
-    let [finding, sha] = args.exactly(2, USAGE)? else {
-        unreachable!("exactly two")
-    };
-    let id: i64 = finding
-        .parse()
-        .map_err(|_| Fail::Message(format!("'{finding}' is not a finding number")))?;
-    let (store, _) = store_of(tool, &args)?;
-    let cwd = current_dir()?;
-    let Some(checkout) = Checkout::at(&cwd)? else {
-        fail!("run builds review fixed in a checkout of the repo that holds {sha}");
-    };
-    let fix = landing::fix_commit(&checkout.top, sha)?;
-    let stamp = Stamp::resolve(tool.now, &args, &cwd)?;
-    store.write(&stamp, &format!("review fixed {id}"), |db| {
-        record::record_fix(db, id, &fix, stamp.at, &stamp.by)
-    })?;
-    println!(
-        "commit {} fixes finding {id}. Read it against the finding; the next builds review reads it as part of the branch's net change",
-        short(&fix.sha)
-    );
     Ok(())
 }
 
@@ -630,11 +619,6 @@ fn show(tool: &Tool, args: &[String]) -> Result<()> {
                 short(&head)
             ),
             None => println!("{kind} {run} over {}...{}", short(&base), short(&head)),
-        }
-        let read = record::commits_of_run(&conn, run)?;
-        if !read.is_empty() {
-            let shas: Vec<&str> = read.iter().map(|c| short(&c.sha)).collect();
-            println!("  commits: {}", shas.join(" "));
         }
         print!(
             "{}",

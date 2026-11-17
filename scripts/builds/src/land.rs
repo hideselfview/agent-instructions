@@ -67,24 +67,23 @@
 //! after its hook ran is a tree no hook has seen.
 //!
 //! In a repo of a project, the commits must have been reviewed against the
-//! rules before they land. No diff is reviewed more than once. Each change
-//! gets one review; the coordinator reads the fixes for its confirmed
-//! findings. Land runs `builds review check-landing` after the lists' checks
+//! rules before they land. No diff is reviewed more than once: a review shows
+//! the changes since the last review, and nothing else. Land runs `builds review check-landing` after the lists' checks
 //! and before it fetches anything. check-landing finds the change's review by
-//! the patch id of each commit's added and removed lines: the review whose
-//! runs read one of the commits. It refuses the commits until that review has
-//! read the branch's net change as it is now, so a rebase that keeps every
-//! line the branch adds and removes keeps the review. It also refuses them
-//! until the review is finished: every group that builds asked to review a
-//! diff has answered over it, the coordinator has settled every finding, and
-//! each confirmed finding on the commits has its fix among them, unless
-//! builds finds the finding's code on no line of the branch's change past
-//! origin/main; check-landing then records that. Commits whose paths no
-//! group covers need no review. After the push, `builds review landed`
-//! records the commits pushed beside the items and the design change. When commits of the branch still wait to land,
-//! land passes `--more-to-land` to it and the review's landing stays open for
-//! them; otherwise `builds review landed` records the landing as landed and
-//! starts the audit of a sampled one, which never fails the landing.
+//! the change's key, the branch land started on, which land reads before it
+//! starts and passes as `--landing`. It refuses the commits while anything is
+//! unreviewed: a review shows the changes since the last review, and land
+//! refuses the branch while it changed since the last review on a path a
+//! group covers, so a rebase that keeps every line the branch adds and
+//! removes keeps the review. It also refuses them while a confirmed finding
+//! is open, a group that builds asked to review a diff has not answered over
+//! it, or a finding is not settled. Commits whose paths no group covers need
+//! no review. After the push, `builds review landed` records the landing
+//! beside the items and the design change. When commits of the branch still
+//! wait to land, land passes `--more-to-land` to it and the review's landing
+//! stays open for them; otherwise `builds review landed` records the landing
+//! as landed and starts the audit of a sampled one, which never fails the
+//! landing.
 //!
 //! After the records, land fast-forwards the repo's main checkout to
 //! origin/main (`git merge --ff-only`), so the person and the agents who read
@@ -399,11 +398,15 @@ fn parse(args: &[String], out: &mut dyn Write) -> Result<Request> {
     })
 }
 
-/// The project a landing's records go to, and who they name as having landed.
+/// The project a landing's records go to, who they name as having landed,
+/// and the key of the change under review.
 struct Recording {
     project: String,
     /// The name on the worktree's claim, which land reads before it starts.
     by: String,
+    /// The key `builds review` names the branch's change by, which land
+    /// reads before it starts: after the push the worktree may be detached.
+    key: String,
 }
 
 struct Landing<'a> {
@@ -444,7 +447,7 @@ impl Landing<'_> {
     fn check_lists(&self, out: &mut dyn Write) -> Result<()> {
         let request = &self.request;
         let workdir = self.workdir.display();
-        let Some(Recording { project, by }) = &self.recording else {
+        let Some(Recording { project, key, .. }) = &self.recording else {
             if !request.items.is_empty() || !request.designs.is_empty() {
                 return Err(refuse(
                     out,
@@ -527,12 +530,7 @@ impl Landing<'_> {
                 return Err(refuse(out, said));
             }
         }
-        // check-landing records each confirmed finding whose code is no longer
-        // in the branch's change, under the name on the worktree's claim, which
-        // land passes as --by.
-        let mut line = self.review_line("check-landing", project);
-        line.extend(["--by".to_string(), by.clone()]);
-        let (ok, said) = self.run_line(&line);
+        let (ok, said) = self.run_line(&self.review_line("check-landing", project, key));
         if !ok {
             let _ = writeln!(out, "LANDING REFUSED, land fetched and pushed nothing:");
             return Err(refuse(out, said));
@@ -540,15 +538,17 @@ impl Landing<'_> {
         Ok(())
     }
 
-    /// `builds review <verb>` for the landing's worktree and commits, as given:
-    /// their patch ids find the review that read them.
-    fn review_line(&self, verb: &str, project: &str) -> Vec<String> {
+    /// `builds review <verb>` for the landing's worktree and commits, as
+    /// given, and the change's key, which finds its review.
+    fn review_line(&self, verb: &str, project: &str, key: &str) -> Vec<String> {
         let mut line = vec![
             "review".to_string(),
             verb.to_string(),
             self.workdir.display().to_string(),
             "--project".to_string(),
             project.to_string(),
+            "--landing".to_string(),
+            key.to_string(),
         ];
         line.extend(self.request.shas.iter().cloned());
         line
@@ -560,7 +560,7 @@ impl Landing<'_> {
     /// of the branch still wait to land (<waiting>), `--more-to-land`. Each is idempotent, so a failure prints
     /// the rerun. Says whether every record was written.
     fn record(&self, on_main: &[String], waiting: bool, out: &mut dyn Write) -> bool {
-        let Some(Recording { project, by }) = &self.recording else {
+        let Some(Recording { project, by, key }) = &self.recording else {
             return true;
         };
         let mut all_written = true;
@@ -578,7 +578,7 @@ impl Landing<'_> {
             line.extend(on_main.iter().cloned());
             lines.push(line);
         }
-        let mut review = self.review_line("landed", project);
+        let mut review = self.review_line("landed", project, key);
         if waiting {
             review.push("--more-to-land".to_string());
         }
@@ -1040,7 +1040,8 @@ pub fn land(program: &Path, args: &[String], out: &mut dyn Write) -> Result<()> 
     }
     if !project.is_empty() {
         let by = require_claim(&landing.workdir, out)?;
-        landing.recording = Some(Recording { project, by });
+        let key = crate::review::default_key(&landing.workdir)?;
+        landing.recording = Some(Recording { project, by, key });
     }
     landing.check_lists(out)?;
     let on_main = landing.put_on_main(out)?;

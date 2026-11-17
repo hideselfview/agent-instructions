@@ -321,7 +321,7 @@ pub fn replay_case(
         changed: files::paths(&case.patch),
     };
     let picked = material.groups.pick(&material.rules, &diff.changed);
-    let asked = ask_groups(material, reviewer, &picked, &diff, None);
+    let asked = ask_groups(material, reviewer, &picked, &diff, None, &[]);
     let (calls, repeat) = (asked.calls, asked.repeat);
     let accepted: Vec<&crate::review::record::NewFinding> = calls
         .iter()
@@ -451,7 +451,6 @@ pub fn run_of<'a>(case: &'a Case, at: i64, rules_version: &'a str) -> NewRun<'a>
         base: "",
         head: "",
         since: None,
-        commits: &[],
         grouping: "",
         rules_version,
     }

@@ -402,7 +402,7 @@ pub fn of_store(db: &Connection) -> Result<StoreScores> {
 }
 
 /// What every report of scores says first: what the counts mean.
-const LEGEND: &str = "TP: a confirmed finding, also one whose code is no longer in its branch's change. FP: a dropped finding, also one settled again as dropped. FN: a candidate miss an audit raised and the coordinator confirmed. TN: a rule answered \"none\" over a diff with no confirmed miss in it. Precision is TP / (TP + FP), recall TP / (TP + FN).\n";
+const LEGEND: &str = "TP: a confirmed finding, also one a later review closed. FP: a dropped finding, also one settled again as dropped. FN: a candidate miss an audit raised and the coordinator confirmed. TN: a rule answered \"none\" over a diff with no confirmed miss in it. Precision is TP / (TP + FP), recall TP / (TP + FN).\n";
 
 fn percent(value: Option<f64>) -> String {
     match value {

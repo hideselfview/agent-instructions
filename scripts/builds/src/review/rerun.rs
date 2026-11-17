@@ -5,12 +5,9 @@
 //! reviewers get no brief, since the store does not keep it apart from the
 //! prompt.
 //!
-//! A run's diff is its net change, or how that net change differs from the
-//! net change of the earlier run it names (`run::diff_since`). A net change is
-//! read from the run's base and head when the repo still has both commits.
-//! Otherwise builds reads it from the commits of the repo's history whose
-//! patch ids are those of the run's commits, one after another, so a landed
-//! change whose branch is gone still replays.
+//! A run's diff is its net change, or the changes since the last review it
+//! names (`run::diff_since`), read from the run's base and head; a run whose
+//! commits the repo no longer has does not replay.
 
 use std::path::Path;
 
@@ -19,15 +16,12 @@ use crate::fail::Result;
 use crate::lists::Stamp;
 use crate::lists::store::Store;
 use crate::review::audit::candidate_misses;
-use crate::review::commits::{self, Commit};
+use crate::review::commits;
 use crate::review::prompt;
 use crate::review::record::{self, Call, Finding, Kind, NewRun, RunRow, Verdict};
 use crate::review::render;
 use crate::review::run::{self, Material};
 use crate::review::score::{self, Scores};
-
-/// How many of the repo's newest commits are searched for a run's patch ids.
-const SEARCHED: usize = 1000;
 
 pub struct Inputs<'a> {
     pub store: &'a Store,
@@ -107,7 +101,7 @@ pub fn replay(inputs: &Inputs) -> Result<Replayed> {
             let label = format!("landing {landing} run {}", first.id);
             let all: Vec<&RunRow> = runs.iter().collect();
             let diff = match run::diff_of_run(inputs.repo_dir, &all, first, |run| {
-                net_change(&conn, inputs.repo_dir, run)
+                net_change(inputs.repo_dir, run)
             }) {
                 Ok(diff) => diff,
                 Err(why) => {
@@ -135,7 +129,8 @@ pub fn replay(inputs: &Inputs) -> Result<Replayed> {
                 .flat_map(|(group, members)| prompt::answer_names(group, members))
                 .collect();
             let asks = |rule: &str| asked.iter().any(|a| a == rule);
-            let new_calls = run::ask_groups(&material, inputs.reviewer, &picked, &diff, None).calls;
+            let new_calls =
+                run::ask_groups(&material, inputs.reviewer, &picked, &diff, None, &[]).calls;
             let stamp = inputs.stamp;
             let (run_id, now_calls, now_findings, now_verdicts) =
                 inputs
@@ -151,7 +146,6 @@ pub fn replay(inputs: &Inputs) -> Result<Replayed> {
                                 base: &diff.base,
                                 head: &diff.head,
                                 since: None,
-                                commits: &[],
                                 grouping: &material.grouping,
                                 rules_version: &rules_version,
                             },
@@ -234,37 +228,18 @@ fn short(rev: &str) -> &str {
     &rev[..rev.len().min(10)]
 }
 
-/// The base and head of <run>'s net change in <repo>: the run's own when the
-/// repo has both commits, else those of the commits of <repo>'s history that
-/// carry the patch ids of the run's commits.
-fn net_change(conn: &rusqlite::Connection, repo: &Path, run: &RunRow) -> Result<(String, String)> {
+/// The base and head of <run>'s net change in <repo>; fails when the repo
+/// does not have both commits.
+fn net_change(repo: &Path, run: &RunRow) -> Result<(String, String)> {
     if commits::exists(repo, &run.base) && commits::exists(repo, &run.head) {
         return Ok((run.base.clone(), run.head.clone()));
     }
-    landed(repo, &record::commits_of_run(conn, run.id)?)
-}
-
-/// The base and head of the commits among <repo>'s newest that carry <read>'s
-/// patch ids, in order and one after another.
-fn landed(repo: &Path, read: &[Commit]) -> Result<(String, String)> {
-    if read.is_empty() {
-        fail!(
-            "the repo does not have the run's commits, and the run recorded none to find by patch id"
-        );
-    }
-    let recent = commits::with_patch_ids(repo, &commits::newest(repo, SEARCHED)?)?;
-    let start = recent
-        .windows(read.len())
-        .position(|window| commits::same_change(window, read));
-    match start {
-        Some(start) => Ok((
-            format!("{}^", recent[start].sha),
-            recent[start + read.len() - 1].sha.clone(),
-        )),
-        None => fail!(
-            "the repo does not have the run's commits, and its newest {SEARCHED} commits hold no run of commits with the run's patch ids"
-        ),
-    }
+    fail!(
+        "the repo does not have the commits of run {}, {}...{}",
+        run.id,
+        short(&run.base),
+        short(&run.head)
+    )
 }
 
 #[cfg(test)]

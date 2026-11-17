@@ -16,7 +16,7 @@ use crate::review::commits;
 use crate::review::files::{self, FileDiff, Source};
 use crate::review::groups::{Group, Groups};
 use crate::review::prompt::{self, PROJECT_FACTS};
-use crate::review::record::{NewCall, NewExchange, NewFinding, RunRow};
+use crate::review::record::{Finding, NewCall, NewExchange, NewFinding, RunRow};
 use crate::review::rules::{self, Rule};
 
 /// What a review reads besides the diff.
@@ -316,14 +316,16 @@ struct Unit<'a> {
 /// Asks the reviewers of <picked> and checks what comes back: one per group,
 /// except that a group that lists sites gets one per changed file its rule
 /// covers by either path of a rename, each given that file's diff and its new
-/// text around the hunks. The calls of a group come back as one call with the
-/// findings of all.
+/// text around the hunks. Each call also gets the findings of <open> in its
+/// group's rules, and closes each one whose problem the code no longer has.
+/// The calls of a group come back as one call with the findings of all.
 pub fn ask_groups(
     material: &Material,
     reviewer: &Path,
     picked: &[(&Group, Vec<&Rule>)],
     diff: &Diff,
     brief: Option<&(String, String)>,
+    open: &[Finding],
 ) -> Asked {
     let files = diff.quotes();
     let by_file = files::split(&diff.text);
@@ -381,6 +383,8 @@ pub fn ask_groups(
             ),
             None => (diff.text.as_str(), String::new()),
         };
+        let names = prompt::answer_names(group, unit.members);
+        let given: Vec<&Finding> = open.iter().filter(|f| names.contains(&f.rule)).collect();
         let parts = prompt::build(&prompt::Input {
             group,
             rules: unit.members,
@@ -388,13 +392,15 @@ pub fn ask_groups(
             brief,
             diff: text_diff,
             context: &context,
+            open: &given,
         });
-        let names = prompt::answer_names(group, unit.members);
         let setup = prompt::setup(group, unit.members);
+        let given_ids: Vec<i64> = given.iter().map(|f| f.id).collect();
         let output = call::run(
             reviewer,
             &group.model,
             &names,
+            &given_ids,
             group.enumerate,
             &parts,
             checkout.as_ref().map(|c| c.path.as_path()),
@@ -536,12 +542,13 @@ fn bare_call(group: &Group, members: &[&Rule], failure: Option<String>) -> NewCa
         failure,
         verdicts: Vec::new(),
         findings: Vec::new(),
+        closes: Vec::new(),
         exchanges: Vec::new(),
     }
 }
 
 /// <held> with <more>: tokens added, verdicts joined (`finding` when either
-/// is), findings and sites collected, failures kept.
+/// is), findings, closed findings and sites collected, failures kept.
 fn merge(held: &mut NewCall, more: NewCall) {
     held.exchanges.extend(more.exchanges);
     held.tokens_in += more.tokens_in;
@@ -561,6 +568,11 @@ fn merge(held: &mut NewCall, more: NewCall) {
                 }
             }
             None => held.verdicts.push((rule, verdict)),
+        }
+    }
+    for id in more.closes {
+        if !held.closes.contains(&id) {
+            held.closes.push(id);
         }
     }
     for finding in more.findings {
@@ -611,6 +623,7 @@ fn checked(
         failure: None,
         verdicts: Vec::new(),
         findings: Vec::new(),
+        closes: Vec::new(),
         exchanges: Vec::new(),
     };
     let answer = match output.answer {
@@ -620,6 +633,7 @@ fn checked(
             return call;
         }
     };
+    call.closes = answer.closed;
     call.verdicts = answer.verdicts;
     call.sites = answer.sites;
     for raw in answer.findings {

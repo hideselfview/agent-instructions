@@ -1,9 +1,8 @@
 -- Every review of a change against the rules (`builds review`): the landing it
 -- belongs to, each run with the net change it read, each reviewer call, its verdict
--- for every rule, each finding with how the coordinator settled it, the
--- commit that fixed a confirmed finding, and each confirmed finding whose
--- code is no longer in its branch's change. record.rs owns these tables and is
--- the only code that writes them.
+-- for every rule, each finding with how the coordinator settled it, and the
+-- run that closed a confirmed finding. record.rs owns these tables and is the
+-- only code that writes them.
 
 -- A change under review: every review of it shares this landing, found by its
 -- key, until the change lands. landed_at is when `builds land` pushed the
@@ -141,45 +140,9 @@ CREATE TABLE review_finding (
 ) STRICT;
 CREATE INDEX review_finding_call ON review_finding (call_id);
 
--- The commits of the net change a review run found, in order, each with its
--- patch id: `git patch-id --stable` of the commit's diff without context
--- lines, so the id covers only the lines the commit adds and removes
--- (commits.rs). A commit that changes nothing has no patch id, and the review
--- records no row for it. `builds land` finds the review that a landing's
--- commits belong to by these patch ids, and `review replay` finds a landed
--- change's commits by them once its branch is gone.
-CREATE TABLE review_commit (
-    run_id INTEGER NOT NULL REFERENCES review_run (id),
-    position INTEGER NOT NULL CONSTRAINT review_commit_position_not_negative CHECK (position >= 0),
-    sha TEXT NOT NULL,
-    patch_id TEXT NOT NULL,
-    PRIMARY KEY (run_id, position)
-) STRICT, WITHOUT ROWID;
-
--- The commit that fixes a confirmed finding, and its patch id, which must be
--- among the patch ids of the commits the landing pushes.
-CREATE TABLE review_fix (
-    finding_id INTEGER PRIMARY KEY REFERENCES review_finding (id),
-    sha TEXT NOT NULL,
-    patch_id TEXT NOT NULL,
-    at INTEGER NOT NULL,
-    by TEXT NOT NULL CONSTRAINT review_fix_by_says_something CHECK (trim(by) <> '')
-) STRICT;
-
--- Each commit of a landing that `builds land` pushed, by the patch id of its
--- added and removed lines. A branch lands in parts: until a push leaves its
--- branch nothing to land, its landing stays open and counts as landed only for
--- these commits.
-CREATE TABLE review_pushed (
-    landing_id INTEGER NOT NULL REFERENCES review_landing (id),
-    patch_id TEXT NOT NULL,
-    at INTEGER NOT NULL,
-    PRIMARY KEY (landing_id, patch_id)
-) STRICT, WITHOUT ROWID;
-
--- A second settle: the coordinator changed a confirmed finding that names no
--- fix to dropped. review_finding keeps the first settle, and this row keeps
--- the second, which is how the finding counts from then on.
+-- A second settle: the coordinator changed an open confirmed finding to
+-- dropped. review_finding keeps the first settle, and this row keeps the
+-- second, which is how the finding counts from then on.
 CREATE TABLE review_settle_again (
     finding_id INTEGER PRIMARY KEY REFERENCES review_finding (id),
     why TEXT NOT NULL CONSTRAINT review_settle_again_why_says_something CHECK (trim(why) <> ''),
@@ -187,13 +150,12 @@ CREATE TABLE review_settle_again (
     by TEXT NOT NULL CONSTRAINT review_settle_again_by_says_something CHECK (trim(by) <> '')
 ) STRICT;
 
--- A confirmed finding that names no fix and whose quoted code is on no line of
--- its branch's change past origin/main, so the finding needs no fix. base and
--- head are the commits of the change that the builds tool read.
-CREATE TABLE review_code_left (
+-- A confirmed finding that a later review run closed: the changes that run
+-- read fix it. builds gives each review the open confirmed findings of the
+-- groups it asks, and each reviewer names the ones the changes fix. A
+-- confirmed finding that no run closed and the coordinator did not settle
+-- again as dropped is open, and `builds land` refuses the branch while one is.
+CREATE TABLE review_closed (
     finding_id INTEGER PRIMARY KEY REFERENCES review_finding (id),
-    base TEXT NOT NULL,
-    head TEXT NOT NULL,
-    at INTEGER NOT NULL,
-    by TEXT NOT NULL CONSTRAINT review_code_left_by_says_something CHECK (trim(by) <> '')
+    run_id INTEGER NOT NULL REFERENCES review_run (id)
 ) STRICT;

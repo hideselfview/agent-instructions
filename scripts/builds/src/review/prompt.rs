@@ -1,9 +1,11 @@
 //! What one reviewer is told and how it must answer. The rules, the
-//! project's instructions, the brief and the diff are all in its prompt.
+//! project's instructions, the brief, the diff and the open confirmed
+//! findings of the group's rules are all in its prompt.
 
 use serde_json::{Value, json};
 
 use crate::review::groups::Group;
+use crate::review::record::Finding;
 use crate::review::rules::Rule;
 
 /// The name the group's project-facts verdict goes by.
@@ -22,6 +24,9 @@ pub struct Input<'a> {
     /// The new text of the diff's file around each hunk, when the group
     /// reviews one file per call; empty otherwise.
     pub context: &'a str,
+    /// The open confirmed findings of the group's rules, which the reviewer
+    /// checks against the code as it is now.
+    pub open: &'a [&'a Finding],
 }
 
 /// The verdict names a group answers for: its rules, then project-facts.
@@ -42,6 +47,7 @@ pub fn schema() -> Value {
         "additionalProperties": false,
         "properties": {
             "summary": {"type": "string"},
+            "closed": {"type": "array", "items": {"type": "integer"}},
             "sites": {
                 "type": "array",
                 "items": {
@@ -110,8 +116,9 @@ fn project_part(input: &Input) -> String {
     out
 }
 
-/// What the reviewer reads about the change: the diff, and the new text of
-/// the file around its hunks when the group reads one file at a time.
+/// What the reviewer reads about the change: the diff, the new text of the
+/// file around its hunks when the group reads one file at a time, and the
+/// open confirmed findings.
 fn change_part(input: &Input) -> String {
     let mut out = format!("# Diff\n\n```diff\n{}\n```\n", input.diff.trim_end());
     if !input.context.is_empty() {
@@ -120,7 +127,25 @@ fn change_part(input: &Input) -> String {
             input.context.trim_end()
         ));
     }
+    if !input.open.is_empty() {
+        out.push_str("\n# Open findings\n\nEarlier reviews of the branch raised these findings, and the coordinator confirmed them. Open each file at its place and read the code as it is now. Put the number of each finding whose problem the code no longer has in `closed`.\n");
+        for finding in input.open {
+            out.push_str(&format!(
+                "\n- Finding {} ({}), {}:{}\n  code: {}\n  problem: {}\n",
+                finding.id,
+                finding.rule,
+                finding.file,
+                finding.line,
+                one_line(&finding.code),
+                one_line(&finding.problem)
+            ));
+        }
+    }
     out
+}
+
+fn one_line(text: &str) -> String {
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 /// How the group's part of a system prompt starts.
@@ -165,7 +190,8 @@ pub fn group_part(input: &Input) -> String {
         );
     }
     out.push_str(
-        "- When a site's verdict depends on a function or file outside the diff, open it before judging.\n",
+        "- When a site's verdict depends on a function or file outside the diff, open it before judging.\n\
+         - The message may list open findings that earlier reviews raised. Put the number of each one whose problem the code no longer has in `closed`, and leave the others out.\n",
     );
     if let Some(extra) = &group.instructions {
         out.push_str(&format!("- {extra}\n"));
@@ -206,6 +232,7 @@ pub fn setup(group: &Group, rules: &[&Rule]) -> String {
         brief: None,
         diff: "",
         context: "",
+        open: &[],
     });
     setup_text(SYSTEM, &part, group.passes, group.commit_text)
 }

@@ -278,7 +278,7 @@ pub fn audit(inputs: &Inputs) -> Result<String> {
                 (g, members)
             })
             .collect();
-        run::ask_groups(&material, inputs.reviewer, &picked, &diff, None).calls
+        run::ask_groups(&material, inputs.reviewer, &picked, &diff, None, &[]).calls
     };
     let calls_rules = ask(&per_rule);
     let calls_shuffled = ask(&shuffled);
@@ -302,7 +302,6 @@ pub fn audit(inputs: &Inputs) -> Result<String> {
                             base: &last.base,
                             head: &last.head,
                             since: None,
-                            commits: &[],
                             grouping: &material.grouping,
                             rules_version: &run::rules_version(inputs.root),
                         },

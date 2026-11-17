@@ -204,8 +204,8 @@ when `builds land` would take them as far as the rules review goes; until then
 the card shows the review's progress instead: Needs review (no review read
 these commits, or a group still has to answer: the coordinator runs `builds
 review`), Reviewing (a review of the branch's newest commit runs), Findings to
-settle (with the count), Waiting on fixes (confirmed findings with no fixing
-commit among them) or Unreviewed changes (with the count of files that
+settle (with the count), Open findings (confirmed findings that wait for a
+review that closes them) or Unreviewed changes (with the count of files that
 changed since the last review, which `builds review` reads as a new run of
 the review). A commit waits to land while
 origin/main has no commit with the same change (`git log --cherry-pick
@@ -1292,100 +1292,80 @@ A coordinator puts commits on origin/main by running `builds land` in the
 worktree whose branch holds them, once that branch's agent is done there. In a
 repo of a project with lists, the coordinator reviews every branch against
 agent-instructions' rules with `builds review` before it runs `builds land` on
-the branch. `builds review` reads each diff only once. Each change gets one
-review; the coordinator reads the fixes for its confirmed findings:
+the branch. A review shows the changes since the last review, and nothing
+else:
 
-  1. The coordinator runs `builds review` on the branch's commits once.
+  1. The coordinator runs `builds review` on the branch. The first review
+     reads the branch's whole net change.
   2. It judges each finding against the code and the rule, and settles it as
      confirmed or dropped, with why (`builds review settle`). The settled
      findings stay in the project's store as the record of what reviews catch
      and miss, and every settle feeds the review's scores (`review scores`).
-  3. It has each confirmed finding fixed in a new commit, reads that commit
-     against its finding, and names it (`builds review fixed`).
-  4. The coordinator runs `builds review` again, which reads the fixes as part
-     of the changes since the last review, and settles what that run finds.
-  5. The coordinator lands the branch with its fixes.
+  3. It has each confirmed finding fixed in a new commit.
+  4. The coordinator runs `builds review` again. That review reads only the
+     changes since the last review, the fixes among them, and closes each
+     open confirmed finding whose problem the code no longer has. The
+     coordinator settles what that run finds.
+  5. The coordinator lands the branch once nothing is unreviewed and no
+     confirmed finding is open.
 
-A confirmed finding that names no fix stops blocking a landing in two more ways.
-When the coordinator learns that the finding is wrong, it settles the finding
-again as dropped (`builds review settle N --again --why TEXT`). The
-record keeps both settles, with who made each and why, and the finding counts
-as dropped from then on. builds refuses to settle a finding with a named fix
-again. When an agent drops the commit that held the finding's code, the
-finding needs no fix: `builds review`, `review check-landing` and `builds land`
-look for the quoted code of each confirmed finding on a changed file that
-names no fix in the branch's change past origin/main, and when builds finds
-the code on no line of that change, it records that, with the change's base
-and head commits. The finding then blocks no landing, and nobody names a
-fix for it. A finding on the commit messages still takes the reworded commit
-as its fix.
+A confirmed finding is open until a later review closes it, or until the
+coordinator learns that the finding is wrong and settles it again as dropped
+(`builds review settle N --again --why TEXT`). The record keeps both settles,
+with who made each and why, and the finding counts as dropped from then on.
+builds refuses to settle a closed finding again.
 
-A review shows the changes since the last review, and nothing else. The
-change's landing names its last review: the run whose net change (`git diff`
-from the branch's common ancestor with the base to its head) the review has
-read. The first run of a change (one key) reads the branch's whole net change
-and becomes the last review. A later run asks only what the review lacks: the
-groups that gave no answer (their reviewer failed), over the diff they did
-not answer, and, in a new run that becomes the last review, the changes since
-the last review: the lines the branch adds or removes that it did not then,
-and the lines it no longer changes. Fix commits are part of those changes, so
-the run reads them; the coordinator still settles each finding and names its
-fix. Main's own commits that a rebase brings in are no part of them, so a
+Each branch's change has one review, found by its key (by default the
+branch, such as `branch:work`), which stays open until the change lands. The
+review keeps its last review: the run whose net change (`git diff` from the
+branch's common ancestor with main to its head) the review has read. A later
+run asks only what the review lacks: the groups that gave no answer (their
+reviewer failed), over the diff they did not answer, and, in a new run that
+becomes the last review, the changes since the last review: the lines the
+branch adds or removes that it did not then, and the lines it no longer
+changes. Main's own commits that a rebase brings in are no part of them, so a
 rebase that keeps every line the branch adds and removes leaves nothing to
 read, and a rebase that resolves a conflict differently leaves only the lines
 of the resolution. The run asks the groups that cover a changed path.
 `builds review` refuses the run when the review lacks nothing, naming the
 last review.
 
-builds finds the changes since the last review by merging the net change the
-last review read onto the branch's current common ancestor with the base, in
+builds finds the changes since the last review by replaying the net change
+the last review read onto the branch's current common ancestor with main, in
 a tree of git's own (`git merge-tree`, which checks nothing out), taking the
-lines of that net change where the base changed the same lines, and diffing
-that tree against the branch's head. A file the merge cannot write (one side
+lines of that net change where main changed the same lines, and diffing that
+tree against the branch's head. A file the replay cannot write (one side
 deleted it, for example) shows its whole net change, and so does every file
 when the repo no longer has the commits the last review read. The commit
 messages the run reads are those the last review's net change did not hold.
 
-`builds land` refuses commits that lack this step. It takes them when one
-change's review covers them: nothing on a path a group's rules cover changed
-since the last review (the net change of the worktree's HEAD past
-origin/main against the net change the last review read); every group asked over a diff a run read answered over it;
-every finding is settled; and every confirmed finding on the commits landed
-names a fix among them, or builds recorded that its code is on no line of the
-branch's change. Land checks the branch's net change, not each commit. A
-finding is on each commit that changes its file, and
-a finding on the commit messages is on the commit whose message holds its
-quote. A landing may hold some of the commits and leave the rest for later,
-once the review has read the whole branch's net change: while commits of the
-branch wait to land, the change stays under review, a finding whose fix an
-earlier landing pushed needs no fix again, and a finding on a commit not yet
-landed still takes a fix. A landing whose
-changed paths no group covers needs no review, and neither does a landing in a
-repo of no project with lists: there is nothing to record. A design-only
-landing (`--design N` alone) follows the same rule.
+Each reviewer reads the changes since the last review, and raises findings
+only on lines those changes add or change; builds drops a finding whose code
+is not in them. It may read the whole branch as it is now, for context. It
+also gets each open confirmed finding of its group's rules, with its file,
+line, quoted code and problem, reads the code at that place as it is now, and
+names each one whose problem is gone. builds closes each finding it names,
+with the run that closed it.
 
-Land finds the review of a landing's commits by their changes, not by their
-SHAs. Each run records the commits of the net change it read with their patch
-ids: `git patch-id --stable` of the commit's diff without context lines
-(`--unified=0`, with the other diff options builds fixes), so the id covers
-only the lines the commit adds and removes. A commit that changes nothing has
-none. Land reads the patch ids of the commits the coordinator passes to it,
-and the review whose runs read one of them, or whose confirmed findings name
-one as a fix, is the review that must cover them. A rebase or cherry-pick
-that keeps a commit's added and removed lines keeps its patch id. Land
-matches a fix the same way: `builds review fixed` records the patch id of the
-fixing commit, which must be among the commits landed.
-
-When the branch changed since the last review on a path a group covers (a
-commit added after the review, a fix, a squash that changed lines, or a
-conflict's resolution), land refuses and names those paths. `builds review`
-on the branch reads those changes, and only them, in a new run of the
-change's review; land then takes the branch once the coordinator settles its
-findings and names a fix for each confirmed one, as for the rest. `builds
-review` and land find the changes since the last review with one function,
-so they never disagree. Once a change has landed, `builds review` on the
-branch opens a new change under the same key, and reads the branch's net
-change past origin/main.
+`builds land` refuses a branch until its review takes it: nothing on a path
+a group's rules cover changed since the last review (the net change of the
+worktree's HEAD past origin/main against the net change the last review
+read); every group asked over a diff a run read answered over it; every
+finding is settled; and no confirmed finding is open. Land finds the review
+by the change's key: the branch land started on, which land reads before it
+starts and passes to `review check-landing` and `review landed` as
+`--landing`. When land refuses, it names what is unreviewed (the paths that
+changed since the last review), the groups that gave no answer, the
+unsettled findings and the open ones. A landing may hold some of the
+branch's commits and leave the rest for later, once the review takes the
+whole branch: while commits of the branch wait to land, the change stays
+under review. A landing whose changed paths no group covers needs no review,
+and neither does a landing in a repo of no project with lists: there is
+nothing to record. A design-only landing (`--design N` alone) follows the
+same rule. `builds review` and land find the changes since the last review
+with one function, so they never disagree. Once a change has landed, `builds
+review` on the branch opens a new change under the same key, and reads the
+branch's net change past origin/main.
 
 The rules are grouped in folders, and each group that covers a changed path
 gets one reviewer, a `claude -p` run in a checkout of the reviewed commit with
@@ -1396,11 +1376,10 @@ answers with a verdict for every rule and, per finding, the rule's clause, the
 code with its file and line, and what goes wrong. builds drops a finding whose
 clause is not in the rule or whose code is not in the diff, and records it as
 dropped. Every review goes in the project's store: the change's landing under
-review (found by its key until the change lands), the commits the review read,
-the group, rules, model, prompt, tokens, cost, verdicts, findings, how each was
-settled (both settles of a finding settled again), the commit that fixed each
-confirmed one, and each confirmed finding whose code is no longer in its
-branch's change. A call's prompt is its
+review (found by its key until the change lands) with its last review, the
+net change each run read, the group, rules, model, prompt, tokens, cost,
+verdicts, findings, how each was settled (both settles of a finding settled
+again), and the run that closed each closed one. A call's prompt is its
 system prompt without the project's instructions and the brief (the opening,
 the group's question, how to answer and its rules' text), with its passes,
 whether it reads the commit messages, and the answer schema; builds keeps the
@@ -1448,7 +1427,7 @@ and the coordinator confirmed a false negative (FN), and a rule a reviewer
 answered "none" for, over a diff with no confirmed miss in it, a true negative
 (TN). Precision is TP / (TP + FP) and recall TP / (TP + FN). A finding counts
 as its last settle, so one settled again as dropped is an FP, and a confirmed
-finding whose code is no longer in its branch's change stays a TP.
+finding that a later review closed stays a TP.
 `review scores` prints them per group and rule for each setup. `review replay --landing` asks
 again over the diffs a landing's reviews read, under another model, rules
 checkout or set of groups, and scores the replay against the same settled
@@ -1533,9 +1512,9 @@ agent-instructions and run `review replay --rules-root` on it.
                               (`builds help lists`). In a repo of a
                               project, land runs `review check-landing` before
                               it fetches anything, and a refusal ends the
-                              landing. `review check-landing` records each
-                              confirmed finding whose code is no longer in the
-                              branch's change. Land runs `review landed` after the push,
+                              landing. Land passes the change's key, read
+                              before it starts, to both review commands as
+                              --landing. Land runs `review landed` after the push,
                               beside the records of the items and the design
                               changes, with --more-to-land when commits on the
                               branch still wait to land.
@@ -1580,9 +1559,11 @@ agent-instructions and run `review replay --rules-root` on it.
                               defaults to the worktree's branch
                               (branch:<name>); a key opens a landing under
                               review, which stays open until its change lands.
-                              No diff is reviewed more than once. Each change
-                              gets one review; the coordinator reads the fixes
-                              for its confirmed findings. A run on a key
+                              No diff is reviewed more than once: a review
+                              shows the changes since the last review, and
+                              nothing else, and closes each open confirmed
+                              finding whose problem the code no longer has.
+                              A run on a key
                               reviewed already asks only what the review
                               lacks: the groups that gave no answer, over the
                               diff they did not answer, and, as a new run, the
@@ -1603,55 +1584,33 @@ agent-instructions and run `review replay --rules-root` on it.
                               who and when. builds refuses a finding that is
                               settled already
   builds review settle <finding> --again --why <text>
-                              change a confirmed finding that names no fix to
-                              dropped, and keep the first settle beside the
-                              second
-  builds review fixed <finding> <sha>
-                              name commit <sha>, of the repo the command runs
-                              in, as the fix of confirmed finding <finding>,
-                              with who and when; a later call names another
-                              commit in its place. The coordinator reads the
-                              fix against the finding before it names it, and
-                              the next run of the review reads it as part of
-                              the branch's net change. Refused for a finding
-                              that is not confirmed, that an audit raised,
-                              whose change landed already, whose code is no
-                              longer in the branch's change, or whose fix
-                              landed with a part of the change
+                              change an open confirmed finding to dropped,
+                              and keep the first settle beside the second
   builds review show <landing>
                               the review of a landing under review: its last
-                              review, each run's net change and its commits,
-                              the last review a later run read the changes
-                              since, groups,
-                              findings, how each was
-                              settled (both settles of one settled again),
-                              fixed, or recorded as no longer in the branch's
-                              change, and
-                              the run it landed with
-  builds review check-landing <worktree> --project P <sha>... [--rules-root DIR]
-                              what `builds land` asks before it fetches: records
-                              each confirmed finding with no fix whose code no
-                              line of the worktree's change past origin/main
-                              holds, under the name --by gives, else the name
-                              on the worktree's claim, then says that the commits need no review, or which
-                              change's review takes them, or why the review
-                              does not take them yet (exit 1): no review read
-                              any of them, a group with no answer over a diff
-                              a run read, a branch that changed since the
-                              last review, an unsettled
-                              finding, a confirmed
-                              finding on the commits with no fix or with a
-                              fix outside them
-  builds review landed <worktree> --project P <sha>... [--more-to-land] [--rules-root DIR] [--roll N] [--reviewer PROGRAM]
+                              review, each run's net change, the last review
+                              a later run read the changes since, groups,
+                              findings, how each was settled (both settles of
+                              one settled again) and the run that closed it,
+                              and the run it landed with
+  builds review check-landing <worktree> --project P <sha>... [--landing KEY] [--rules-root DIR]
+                              what `builds land` asks before it fetches: says
+                              that the commits need no review, or that the
+                              review of KEY (default the worktree's branch)
+                              takes them, or why it does not take them yet
+                              (exit 1): no review of KEY is open, a group
+                              with no answer over a diff a run read, a branch
+                              that changed since the last review, an
+                              unsettled finding, an open confirmed finding
+  builds review landed <worktree> --project P <sha>... [--landing KEY] [--more-to-land] [--rules-root DIR] [--roll N] [--reviewer PROGRAM]
                               what `builds land` records after the push: the
-                              commits pushed of the landing under review whose
-                              review takes them, and that landing as landed,
-                              with its review run, unless --more-to-land says
-                              commits of the branch still wait to land, which
-                              keeps it under review; written by --by, else the
-                              worktree's claim. `review landed`
-                              leaves a change it recorded already as it is, so
-                              the rerun that land prints is safe. Once it
+                              open landing of KEY (default the worktree's
+                              branch) as landed, with its last review, unless
+                              --more-to-land says commits of the branch still
+                              wait to land, which keeps it under review;
+                              written by --by, else the worktree's claim. A
+                              key with no open landing has nothing to
+                              record, so the rerun that land prints is safe. Once it
                               records the landing as landed, it decides
                               whether to audit the landing and, when it
                               does, starts `builds review audit` in the
@@ -1690,12 +1649,10 @@ agent-instructions and run `review replay --rules-root` on it.
                               checkout (--rules-root), only the groups --group
                               names when given, every group on --model when
                               given, and no brief. DIR's repo gives each net
-                              change by the run's base and head, or, when it
-                              lacks them, by the commits among its newest 1000
-                              that carry the patch ids of the run's commits,
-                              one after another; a run that read how its net
-                              change differs from an earlier run's replays
-                              that difference.
+                              change by the run's base and head, and a diff
+                              whose commits it lacks is not replayed; a run
+                              that read the changes since the last review
+                              replays those changes.
                               Prints each diff's new findings, then per group
                               and rule the counts of the recorded reviews
                               ("in use") beside the replay's, over the rules

@@ -377,7 +377,7 @@ fn a_project_repo_names_its_work_item_before_anything_moves() {
         calls[calls.len() - 2..],
         [
             format!("item landed {dir} --done 7 --part 8 {a} --by agent A"),
-            format!("review landed {dir} --project bae {a} --by agent A")
+            format!("review landed {dir} --project bae --landing branch:a {a} --by agent A")
         ],
         "every record names the worktree's claim; a --part landing keeps the claim"
     );
@@ -418,7 +418,7 @@ fn a_cherry_picked_landing_records_the_new_commit_on_main_and_releases_the_workt
         calls[calls.len() - 3..],
         [
             format!("item landed {dir} --done 7 {new} --by agent A"),
-            format!("review landed {dir} --project bae {b} --by agent A"),
+            format!("review landed {dir} --project bae --landing branch:b {b} --by agent A"),
             format!("release {dir}")
         ],
         "the items record the commit on main; the review the commit it read"
@@ -447,7 +447,7 @@ fn a_landing_that_leaves_commits_on_the_branch_goes_back_on_it_and_keeps_the_cla
     let dir = one.display();
     assert!(
         calls.contains(&format!(
-            "review landed {dir} --project bae {a} --more-to-land --by agent A"
+            "review landed {dir} --project bae --landing branch:a {a} --more-to-land --by agent A"
         )),
         "the review's landing stays open for the commit that waits: {calls:?}"
     );
@@ -568,7 +568,7 @@ fn design_places_need_the_design_change() {
         [
             format!("item landed {dir} --done 7 {a} --by agent A"),
             format!("design landed 3 {dir} {a} --by agent A"),
-            format!("review landed {dir} --project bae {a} --by agent A"),
+            format!("review landed {dir} --project bae --landing branch:a {a} --by agent A"),
             format!("release {dir}")
         ]
     );
@@ -661,13 +661,13 @@ fn a_design_change_alone_lands_commits_that_are_all_design_files() {
     assert!(calls.contains(&format!("design only {dir} {a}")));
     assert!(calls.contains(&format!("design check 3 {dir} {a}")));
     assert!(calls.contains(&format!(
-        "review check-landing {dir} --project bae {a} --by agent A"
+        "review check-landing {dir} --project bae --landing branch:a {a}"
     )));
     assert_eq!(
         calls[calls.len() - 3..],
         [
             format!("design landed 3 {dir} {a} --by agent A"),
-            format!("review landed {dir} --project bae {a} --by agent A"),
+            format!("review landed {dir} --project bae --landing branch:a {a} --by agent A"),
             format!("release {dir}")
         ],
         "a design landing releases the worktree too"
@@ -717,7 +717,7 @@ fn several_design_changes_land_in_one_call_and_each_is_recorded_as_landed() {
         [
             format!("design landed 3 {dir} {a} --by agent A"),
             format!("design landed 4 {dir} {a} --by agent A"),
-            format!("review landed {dir} --project bae {a} --by agent A"),
+            format!("review landed {dir} --project bae --landing branch:a {a} --by agent A"),
             format!("release {dir}")
         ]
     );
@@ -872,9 +872,11 @@ fn landing_a_commit_already_on_main_says_so_and_records_its_copy() {
         calls[calls.len() - 3..],
         [
             format!("item landed {} --done 7 {a} --by agent A", one.display()),
+            // The first landing left the worktree detached at a.
             format!(
-                "review landed {} --project bae {a} --by agent A",
-                one.display()
+                "review landed {} --project bae --landing detached:{} {a} --by agent A",
+                one.display(),
+                &a[..7]
             ),
             format!("release {}", one.display())
         ]
@@ -959,7 +961,7 @@ fn commits_the_review_does_not_take_are_refused_before_anything_is_fetched() {
     assert_eq!(branch_of(&one).as_deref(), Some("a"));
     assert_eq!(
         calls.last().unwrap(),
-        &format!("review check-landing {dir} --project bae {a} --by agent A")
+        &format!("review check-landing {dir} --project bae --landing branch:a {a}")
     );
 }
 
@@ -972,7 +974,9 @@ fn a_landing_the_review_takes_is_pushed_and_recorded_as_landed_after_the_items()
     assert!(code == 0 && main_of(&f) == a);
     let check = calls
         .iter()
-        .position(|c| c == &format!("review check-landing {dir} --project bae {a} --by agent A"))
+        .position(|c| {
+            c == &format!("review check-landing {dir} --project bae --landing branch:a {a}")
+        })
         .expect("the review is asked before the landing");
     let items = calls
         .iter()
@@ -981,7 +985,7 @@ fn a_landing_the_review_takes_is_pushed_and_recorded_as_landed_after_the_items()
     assert!(items < check);
     assert_eq!(
         calls.last().unwrap(),
-        &format!("review landed {dir} --project bae {a} --by agent A")
+        &format!("review landed {dir} --project bae --landing branch:a {a} --by agent A")
     );
 }
 
@@ -1004,7 +1008,7 @@ fn a_failed_review_record_after_the_push_exits_with_the_rerun() {
     );
     assert!(
         out.contains(&format!(
-            "rerun: builds review landed {} --project bae {a} --by 'agent A'",
+            "rerun: builds review landed {} --project bae --landing branch:a {a} --by 'agent A'",
             one.display()
         )),
         "{out}"

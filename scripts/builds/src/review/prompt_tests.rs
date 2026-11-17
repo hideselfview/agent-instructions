@@ -25,6 +25,7 @@ fn parts_of(group: &Group, rule: &Rule, diff: &str) -> Parts {
         brief: Some(&("plans/b.md".to_string(), "The brief.\n".to_string())),
         diff,
         context: "7: let x = 1;\n",
+        open: &[],
     })
 }
 

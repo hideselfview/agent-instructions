@@ -3,7 +3,6 @@ use crate::lists::fixtures::NOON;
 use crate::lists::item_fixtures::{Demo, demo};
 use crate::review::fakes::{Fake, fake};
 use crate::review::{Inputs as ReviewInputs, review};
-use crate::testing::git as run_git;
 
 fn stamp() -> Stamp {
     Stamp {
@@ -115,40 +114,5 @@ fn a_replay_of_a_landing_scores_its_findings_against_the_settled_ones_beside_the
         !replayed.text.contains("rule-a") && replayed.text.contains("rule-b"),
         "{}",
         replayed.text
-    );
-}
-
-#[test]
-fn a_run_whose_commits_the_repo_lost_is_found_by_its_patch_ids_on_the_history() {
-    let demo = demo("review-rerun-landed");
-    let side = demo.add_side(1, "agent", "work");
-    let first = demo.commit(&side, "a.rs");
-    let second = demo.commit(&side, "b.rs");
-    let read = commits::with_patch_ids(&side, &[first.clone(), second.clone()]).unwrap();
-    // main moves on, so the change lands on another parent with new SHAs.
-    demo.commit(&demo.main, "m.txt");
-    run_git(&demo.main, &["cherry-pick", &first, &second]);
-    let (base, head) = landed(&demo.main, &read).unwrap();
-    let main_head = String::from_utf8(
-        crate::checkout::git(&demo.main)
-            .args(["rev-parse", "HEAD"])
-            .output()
-            .unwrap()
-            .stdout,
-    )
-    .unwrap();
-    assert_eq!(head, main_head.trim());
-    assert_ne!(head, second, "the cherry-picks are new commits");
-    let diff = run::diff_between(&demo.main, &base, &head).unwrap();
-    assert_eq!(diff.changed, ["a.rs", "b.rs"]);
-    let unknown = [Commit {
-        sha: "0".repeat(40),
-        patch_id: "f".repeat(40),
-    }];
-    assert!(
-        landed(&demo.main, &unknown)
-            .unwrap_err()
-            .text()
-            .contains("no run of commits with the run's patch ids")
     );
 }

@@ -47,27 +47,34 @@ fn verdict_of(demo: &Demo, fake: &Fake, side: &Path, shas: &[String]) -> (Verdic
     let asked = asked(demo, fake, side, shas);
     let verdict = judge(
         &asked.conn,
-        "demo",
+        &asked.key,
         side,
         &asked.needs,
         CodeCheck::Branch("HEAD"),
         &|paths| asked.material.group_names(paths),
     )
     .unwrap();
-    let words = refusal(&asked.commits(), &verdict);
+    let words = refusal(&asked.needs, &verdict);
     (verdict, words)
 }
 
 fn asked(demo: &Demo, fake: &Fake, side: &Path, shas: &[String]) -> Asked {
+    asked_as(demo, fake, side, shas, "branch:work")
+}
+
+/// What `builds land` asks of <shas> in <side> for the change <key>.
+fn asked_as(demo: &Demo, fake: &Fake, side: &Path, shas: &[String], key: &str) -> Asked {
     let mut words: Vec<String> = vec![side.display().to_string()];
     words.extend(shas.iter().cloned());
     words.extend([
         "--project".to_string(),
         "demo".to_string(),
+        "--landing".to_string(),
+        key.to_string(),
         "--rules-root".to_string(),
         fake.root.display().to_string(),
     ]);
-    let args = Args::parse(&words, &["project", "rules-root"], &[]).unwrap();
+    let args = Args::parse(&words, &["project", "landing", "rules-root"], &[]).unwrap();
     ask_of(&demo.tool, &args)
 }
 
@@ -90,14 +97,16 @@ fn settle(demo: &Demo, finding: i64, how: &str) {
         .unwrap();
 }
 
-fn fix(demo: &Demo, side: &Path, finding: i64, sha: &str) {
-    let commit = fix_commit(side, sha).unwrap();
-    let stamp = stamp();
-    demo.store
-        .write(&stamp, "fixed", |db| {
-            record::record_fix(db, finding, &commit, stamp.at, "tester")
-        })
-        .unwrap();
+/// What the reviewer of group alpha answers: no finding for rule-a, and
+/// <closed> closed.
+fn closes(fake: &Fake, closed: &[i64]) {
+    fake.answer_task(
+        "alpha",
+        serde_json::json!({
+            "rules": [{"rule": "rule-a", "verdict": "none", "findings": []}],
+            "closed": closed,
+        }),
+    );
 }
 
 fn refused(verdict: &(Verdict, Option<String>)) -> &str {
@@ -114,7 +123,7 @@ fn commits_no_review_read_are_refused_and_commits_no_group_covers_need_none() {
     assert_eq!(asked.0, Verdict::NoRun);
     let words = refused(&asked);
     assert!(
-        words.contains("no review read the commits this lands") && words.contains(ONE_REVIEW),
+        words.contains("no review of this change is open") && words.contains(ONE_REVIEW),
         "{words}"
     );
     let notes = demo.commit(&side, "notes.txt");
@@ -146,7 +155,7 @@ fn an_unsettled_finding_is_refused_and_a_settled_review_takes_the_commits() {
 }
 
 #[test]
-fn a_fix_commit_is_read_by_a_new_run_once_and_lands_with_the_reviewed_commits() {
+fn a_fix_commit_is_read_by_a_new_run_once_which_closes_the_finding_it_fixes() {
     let demo = demo("landing-fix");
     let fake = fake(&demo.scratch.dir);
     let side = demo.add_side(1, "agent", "work");
@@ -156,21 +165,22 @@ fn a_fix_commit_is_read_by_a_new_run_once_and_lands_with_the_reviewed_commits() 
     let finding = findings(&demo)[0].id;
     settle(&demo, finding, "confirmed");
     let asked = verdict_of(&demo, &fake, &side, std::slice::from_ref(&a));
-    assert!(refused(&asked).contains("names no fix"), "{asked:?}");
+    let Verdict::Unfinished(_, unfinished) = &asked.0 else {
+        panic!("{asked:?}")
+    };
+    assert_eq!(unfinished.open[0].id, finding);
+    assert!(
+        refused(&asked).contains("1 confirmed finding is open"),
+        "{asked:?}"
+    );
     let b = demo.commit(&side, "b.rs");
-    fix(&demo, &side, finding, &b);
     let asked = verdict_of(&demo, &fake, &side, &[a.clone(), b.clone()]);
     assert!(
         refused(&asked).contains("the branch changed since the last review, run"),
         "{asked:?}"
     );
-    let asked = verdict_of(&demo, &fake, &side, std::slice::from_ref(&a));
-    assert!(
-        refused(&asked).contains("not among the commits this lands"),
-        "{asked:?}"
-    );
     fake.prompts();
-    fake.answer("alpha", &[("rule-a", None)]);
+    closes(&fake, &[finding]);
     let reported = review_of(&demo, &fake, &side);
     let prompts = fake.prompts();
     assert_eq!(prompts.len(), 1, "{}", reported.text);
@@ -199,6 +209,39 @@ fn a_fix_commit_is_read_by_a_new_run_once_and_lands_with_the_reviewed_commits() 
     assert!(fake.prompts().is_empty());
     let asked = verdict_of(&demo, &fake, &side, &[a, b]);
     assert!(matches!(asked.0, Verdict::Takes(_)), "{asked:?}");
+}
+
+#[test]
+fn a_rebase_reads_nothing_and_leaves_an_open_finding_open() {
+    let demo = demo("landing-rebase-open");
+    let fake = fake(&demo.scratch.dir);
+    commit_text(&demo.main, "f.rs", &ten_lines(&[]), "Add f");
+    crate::testing::git(&demo.main, &["push", "-q", "origin", "main"]);
+    let side = demo.add_side(1, "agent", "work");
+    commit_text(&side, "f.rs", &ten_lines(&[(2, "two-branch")]), "Change f");
+    alpha_finds(&fake, &[("f.rs", "two-branch")]);
+    review_of(&demo, &fake, &side);
+    let finding = findings(&demo)[0].id;
+    settle(&demo, finding, "confirmed");
+    commit_text(
+        &demo.main,
+        "f.rs",
+        &ten_lines(&[(9, "nine-main")]),
+        "Change f on main",
+    );
+    crate::testing::git(&demo.main, &["push", "-q", "origin", "main"]);
+    crate::testing::git(&side, &["rebase", "-q", "origin/main"]);
+    let rebased = head(&side);
+    fake.prompts();
+    let asked = verdict_of(&demo, &fake, &side, std::slice::from_ref(&rebased));
+    let Verdict::Unfinished(_, unfinished) = &asked.0 else {
+        panic!("{asked:?}")
+    };
+    assert!(unfinished.unreviewed.is_empty(), "{asked:?}");
+    assert_eq!(unfinished.open[0].id, finding);
+    assert!(!check_landing(&demo, &fake, &side, &[rebased]));
+    assert!(fake.prompts().is_empty(), "nothing read the rebased branch");
+    assert!(findings(&demo)[0].is_open());
 }
 
 #[test]
@@ -304,12 +347,18 @@ fn a_cherry_pick_onto_a_moved_main_keeps_the_review_and_landed_records_it_once()
     crate::testing::git(&other, &["cherry-pick", &a]);
     let picked = head(&other);
     assert_ne!(picked, a);
-    let asked_picked = asked(&demo, &fake, &other, std::slice::from_ref(&picked));
+    let asked_picked = asked_as(
+        &demo,
+        &fake,
+        &other,
+        std::slice::from_ref(&picked),
+        "branch:work",
+    );
     let conn = demo.store.open_existing().unwrap();
     assert!(matches!(
         judge(
             &conn,
-            "demo",
+            "branch:work",
             &other,
             &asked_picked.needs,
             CodeCheck::Branch("HEAD"),
@@ -321,7 +370,7 @@ fn a_cherry_pick_onto_a_moved_main_keeps_the_review_and_landed_records_it_once()
     drop(conn);
     let landing = record_landed(&asked_picked, &stamp(), false).unwrap();
     assert!(landing.is_some());
-    // Recording again finds the landed run and records nothing more.
+    // Recording again finds no open landing and records nothing more.
     assert_eq!(record_landed(&asked_picked, &stamp(), false).unwrap(), None);
     let conn = demo.store.open_existing().unwrap();
     assert!(
@@ -426,7 +475,7 @@ fn alpha_finds(fake: &Fake, found: &[(&str, &str)]) {
 }
 
 #[test]
-fn a_branch_lands_in_two_parts_each_with_the_fixes_of_its_own_findings() {
+fn a_branch_lands_in_two_parts_once_a_review_closed_its_findings() {
     let demo = demo("landing-parts");
     let fake = fake(&demo.scratch.dir);
     let side = demo.add_side(1, "agent", "work");
@@ -442,58 +491,34 @@ fn a_branch_lands_in_two_parts_each_with_the_fixes_of_its_own_findings() {
     for finding in &found {
         settle(&demo, finding.id, "confirmed");
     }
-    // The fix of the finding on a.rs changes a.rs.
     std::fs::write(side.join("a.rs"), "fixed\n").unwrap();
     crate::testing::git(&side, &["commit", "-q", "-a", "-m", "Fix a"]);
     let fa = head(&side);
-    fix(&demo, &side, found[0].id, &fa);
-    // A reworded commit keeps its patch id, so the test names b itself as the
-    // fix of the finding on b's message.
-    fix(&demo, &side, found[1].id, &b);
-    fake.answer("alpha", &[("rule-a", None)]);
+    // The review closes the finding on a.rs; the one on b's message stays open,
+    // and keeps every part of the branch from landing.
+    closes(&fake, &[found[0].id]);
     review_of(&demo, &fake, &side);
-    // a without its fix waits on it.
-    let alone = verdict_of(&demo, &fake, &side, &[a.clone(), b.clone()]);
+    let part = verdict_of(&demo, &fake, &side, &[a.clone(), fa.clone()]);
     assert!(
-        refused(&alone).contains("not among the commits this lands"),
-        "{alone:?}"
+        refused(&part).contains("1 confirmed finding is open"),
+        "{part:?}"
     );
-    // Part one: the finding on b's message is not on these commits.
+    let stamp = stamp();
+    demo.store
+        .write(&stamp, "settle again", |db| {
+            record::settle_again(db, found[1].id, "the line says enough", stamp.at, "tester")
+        })
+        .unwrap();
     let first = asked(&demo, &fake, &side, &[a, fa]);
-    let conn = demo.store.open_existing().unwrap();
-    let verdict = judge(
-        &conn,
-        "demo",
-        &side,
-        &first.needs,
-        CodeCheck::Branch("HEAD"),
-        &|paths| first.material.group_names(paths),
-    )
-    .unwrap();
-    drop(conn);
-    assert!(matches!(verdict, Verdict::Takes(_)), "{verdict:?}");
     assert_eq!(
-        record_landed(&first, &stamp(), true).unwrap(),
+        record_landed(&first, &stamp, true).unwrap(),
         None,
         "b waits to land, so the landing stays open"
     );
-    // Part two: the finding on a.rs belongs to part one.
     let second = verdict_of(&demo, &fake, &side, std::slice::from_ref(&b));
     assert!(matches!(second.0, Verdict::Takes(_)), "{second:?}");
     let second = asked(&demo, &fake, &side, &[b]);
-    assert!(record_landed(&second, &stamp(), false).unwrap().is_some());
-}
-
-/// Names <sha> as the fix of <finding>, and returns why the store refused.
-fn fix_refused(demo: &Demo, side: &Path, finding: i64, sha: &str) -> String {
-    let commit = fix_commit(side, sha).unwrap();
-    let stamp = stamp();
-    demo.store
-        .write(&stamp, "fixed", |db| {
-            record::record_fix(db, finding, &commit, stamp.at, "tester")
-        })
-        .unwrap_err()
-        .text()
+    assert!(record_landed(&second, &stamp, false).unwrap().is_some());
 }
 
 /// The commit HEAD names in <side>.
@@ -505,85 +530,6 @@ fn head(side: &Path) -> String {
     .unwrap()
     .trim()
     .to_string()
-}
-
-#[test]
-fn a_finding_on_a_commit_a_part_landing_left_takes_its_fix_after_the_part_lands() {
-    let demo = demo("landing-part-fix");
-    let fake = fake(&demo.scratch.dir);
-    let side = demo.add_side(1, "agent", "work");
-    let a = commit_with(&side, "a.rs", "Add a");
-    let b = commit_with(&side, "b.rs", "Add b");
-    alpha_finds(&fake, &[("a.rs", "a.rs"), ("b.rs", "b.rs")]);
-    review_of(&demo, &fake, &side);
-    let found = findings(&demo);
-    assert_eq!(found.len(), 2, "{found:?}");
-    for finding in &found {
-        settle(&demo, finding.id, "confirmed");
-    }
-    let (on_a, on_b) = if found[0].file == "a.rs" {
-        (found[0].id, found[1].id)
-    } else {
-        (found[1].id, found[0].id)
-    };
-    std::fs::write(side.join("a.rs"), "fixed\n").unwrap();
-    crate::testing::git(&side, &["commit", "-q", "-a", "-m", "Fix a"]);
-    let fa = head(&side);
-    fix(&demo, &side, on_a, &fa);
-    let first = asked(&demo, &fake, &side, &[a, fa]);
-    assert_eq!(record_landed(&first, &stamp(), true).unwrap(), None);
-    // The part did not land b, so the store now takes a fix for the finding
-    // on b.
-    std::fs::write(side.join("b.rs"), "fixed\n").unwrap();
-    crate::testing::git(&side, &["commit", "-q", "-a", "-m", "Fix b"]);
-    let fb = head(&side);
-    fix(&demo, &side, on_b, &fb);
-    // The fix that landed stays.
-    let refused = fix_refused(&demo, &side, on_a, &fb);
-    assert!(
-        refused.contains("a push put it on origin/main already"),
-        "{refused}"
-    );
-    fake.answer("alpha", &[("rule-a", None)]);
-    review_of(&demo, &fake, &side);
-    let second = verdict_of(&demo, &fake, &side, &[b.clone(), fb.clone()]);
-    assert!(matches!(second.0, Verdict::Takes(_)), "{second:?}");
-    let second = asked(&demo, &fake, &side, &[b, fb.clone()]);
-    assert!(record_landed(&second, &stamp(), false).unwrap().is_some());
-    let refused = fix_refused(&demo, &side, on_b, &fb);
-    assert!(
-        refused.contains("belongs to a change that landed already"),
-        "{refused}"
-    );
-}
-
-#[test]
-fn a_finding_on_the_message_of_a_commit_an_earlier_landing_pushed_needs_no_fix_here() {
-    let demo = demo("landing-pushed-message");
-    let fake = fake(&demo.scratch.dir);
-    let side = demo.add_side(1, "agent", "work");
-    let a = commit_with(&side, "a.rs", "Add a with a vague line");
-    review_of(&demo, &fake, &side);
-    let first = asked(&demo, &fake, &side, std::slice::from_ref(&a));
-    assert!(record_landed(&first, &stamp(), false).unwrap().is_some());
-    // A cherry-pick put a on main, so a later review of the branch reads it
-    // again beside the new commit.
-    let b = commit_with(&side, "b.rs", "Add b");
-    alpha_finds(&fake, &[(files::COMMIT_MESSAGE, "a vague line")]);
-    review_of(&demo, &fake, &side);
-    let found = findings(&demo);
-    assert_eq!(found.len(), 1, "{found:?}");
-    settle(&demo, found[0].id, "confirmed");
-    let asked = verdict_of(&demo, &fake, &side, std::slice::from_ref(&b));
-    assert!(matches!(asked.0, Verdict::Takes(_)), "{asked:?}");
-    let both = verdict_of(&demo, &fake, &side, &[a, b]);
-    assert!(
-        refused(&both).contains(&format!(
-            "finding {} is confirmed and names no fix",
-            found[0].id
-        )),
-        "{both:?}"
-    );
 }
 
 #[test]
@@ -648,9 +594,15 @@ fn check_landing(demo: &Demo, fake: &Fake, side: &Path, shas: &[String]) -> bool
     let mut words: Vec<String> = vec![side.display().to_string()];
     words.extend(shas.iter().cloned());
     words.extend(
-        ["--project", "demo", "--by", "tester", "--rules-root"]
-            .iter()
-            .map(|w| w.to_string()),
+        [
+            "--project",
+            "demo",
+            "--landing",
+            "branch:work",
+            "--rules-root",
+        ]
+        .iter()
+        .map(|w| w.to_string()),
     );
     words.push(fake.root.display().to_string());
     match check_landing_command(&demo.tool, &words) {
@@ -678,71 +630,40 @@ fn confirmed_on_the_second_commit(name: &str) -> (Demo, Fake, PathBuf, String, S
 }
 
 #[test]
-fn a_confirmed_finding_whose_code_is_still_on_the_branch_still_blocks() {
-    let (demo, fake, side, first, second, finding) =
-        confirmed_on_the_second_commit("landing-code-stays");
+fn land_refuses_while_a_confirmed_finding_is_open() {
+    let (demo, fake, side, first, second, finding) = confirmed_on_the_second_commit("landing-open");
     let shas = [first, second];
     assert!(!check_landing(&demo, &fake, &side, &shas));
     let said = verdict_of(&demo, &fake, &side, &shas);
-    let Verdict::Unfinished(covered, unfinished) = &said.0 else {
+    let Verdict::Unfinished(_, unfinished) = &said.0 else {
         panic!("{said:?}")
     };
-    assert_eq!(unfinished.unfixed, [finding]);
-    assert_eq!(covered.code_left, None);
-    assert!(refused(&said).contains("names no fix"), "{said:?}");
-    assert_eq!(
-        findings(&demo)[0].code_left,
-        None,
-        "the check records nothing"
+    assert_eq!(unfinished.open.len(), 1);
+    assert_eq!(unfinished.open[0].id, finding);
+    assert!(unfinished.unreviewed.is_empty());
+    assert!(
+        refused(&said).contains("1 confirmed finding is open"),
+        "{said:?}"
     );
 }
 
 #[test]
-fn a_confirmed_finding_whose_code_left_the_branch_is_recorded_and_blocks_no_landing() {
-    let (demo, fake, side, first, _, finding) = confirmed_on_the_second_commit("landing-code-left");
-    // The agent drops the commit that added the code, which changes the
-    // branch's net change.
+fn a_review_of_a_dropped_commit_closes_its_finding_and_the_branch_lands() {
+    let (demo, fake, side, first, _, finding) = confirmed_on_the_second_commit("landing-dropped");
+    // The agent drops the commit that added the code.
     crate::testing::git(&side, &["reset", "-q", "--hard", &first]);
     let shas = std::slice::from_ref(&first);
     let said = verdict_of(&demo, &fake, &side, shas);
-    let Verdict::Unfinished(covered, unfinished) = &said.0 else {
+    let Verdict::Unfinished(_, unfinished) = &said.0 else {
         panic!("{said:?}")
     };
-    assert_eq!(
-        covered.code_left.as_ref().map(|l| l.findings.clone()),
-        Some(vec![finding])
-    );
-    assert_eq!(unfinished.unfixed, Vec::<i64>::new());
     assert_eq!(unfinished.unreviewed, ["a.rs"]);
-    assert!(!check_landing(&demo, &fake, &side, shas));
-    fake.answer("alpha", &[("rule-a", None)]);
+    assert_eq!(unfinished.open[0].id, finding);
+    closes(&fake, &[finding]);
     review_of(&demo, &fake, &side);
     assert!(check_landing(&demo, &fake, &side, shas));
-    let recorded = findings(&demo)[0].code_left.clone().expect("recorded");
-    let base = crate::checkout::git_text(
-        crate::checkout::git(&side).args(["rev-parse", "origin/main"]),
-        "read origin/main",
-    )
-    .unwrap();
-    assert_eq!(
-        (
-            recorded.base.as_str(),
-            recorded.head.as_str(),
-            recorded.by.as_str()
-        ),
-        (base.trim(), first.as_str(), "tester")
-    );
     let shown = render::finding_text(&findings(&demo)[0]);
-    assert!(
-        shown.contains("builds found its code on no line of the branch's change"),
-        "{shown}"
-    );
-    // A second check finds the record and writes nothing.
-    let before = demo.state();
-    assert!(check_landing(&demo, &fake, &side, shas));
-    assert_eq!(demo.state(), before);
-    // Nobody names a fix for it, and the landing records it as landed.
-    assert!(fix_refused(&demo, &side, finding, &first).contains("needs no fix"));
+    assert!(shown.contains("closed by run"), "{shown}");
     let asked = asked(&demo, &fake, &side, shas);
     assert!(record_landed(&asked, &stamp(), false).unwrap().is_some());
 }

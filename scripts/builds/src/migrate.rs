@@ -21,7 +21,7 @@ use rusqlite::{Connection, OptionalExtension};
 
 use crate::db::{self, DATABASE, Sql};
 use crate::fail;
-use crate::fail::{Context, Fail, Result};
+use crate::fail::{Context, Result};
 use crate::lane::Lane;
 use crate::places::Places;
 use crate::queue::is_held;
@@ -228,6 +228,10 @@ const BEFORE_NET_CHANGE_STAMP: i64 = 1_962_601_340;
 /// review.
 const BEFORE_REVIEWED_RUN_STAMP: i64 = 1_758_057_444;
 
+/// The stamp of the schema before a review closed the confirmed findings its
+/// changes fix, in place of fix commits that a coordinator named.
+const BEFORE_CLOSED_STAMP: i64 = 1_421_793_655;
+
 /// The table as design.sql writes it.
 const DESIGN_DELETED: &str = "CREATE TABLE design_deleted (
     design_id INTEGER NOT NULL REFERENCES design (id) ON DELETE CASCADE,
@@ -282,14 +286,21 @@ const DESIGN_DELETED: &str = "CREATE TABLE design_deleted (
 /// is none for every run (each read a whole net change), and every store whose
 /// review tables are older than today's gets `review_landing` with the run of
 /// each landing's last review: its newest review run that read the branch's
-/// net change (merge-base...head) no earlier run of it read.
+/// net change (merge-base...head) no earlier run of it read, and every store
+/// whose review tables are older than today's gets the empty `review_closed`,
+/// where each landing's last review closes each confirmed finding that named
+/// a fix commit or whose code builds found no longer in its branch, and loses
+/// the tables of fixes, of the commits each run read, of the commits each push
+/// landed and of findings whose code left their branch. A store from before a
+/// review's patch ids left out context lines keeps its old patch ids until the
+/// move drops them.
 /// The moves run in one transaction, the store
 /// is stamped as today's schema, and it must then equal a fresh database's schema or the transaction rolls back. A
 /// store already at today's stamp, or with no database, is left alone; any
 /// other stamp is refused. Delete this once it has run.
 pub fn migrate_stores(places: &Places) -> Result<()> {
     for store in stores(places)? {
-        move_store(places, &store)?;
+        move_store(&store)?;
     }
     Ok(())
 }
@@ -371,7 +382,7 @@ fn design_fix() -> String {
     db::statement(&db::schema(), "CREATE TABLE design_fix", "STRICT;").to_string()
 }
 
-fn move_store(places: &Places, path: &Path) -> Result<()> {
+fn move_store(path: &Path) -> Result<()> {
     if !path.is_file() {
         return Ok(());
     }
@@ -410,11 +421,12 @@ fn move_store(places: &Places, path: &Path) -> Result<()> {
         BEFORE_CODE_LEFT_STAMP,
         BEFORE_NET_CHANGE_STAMP,
         BEFORE_REVIEWED_RUN_STAMP,
+        BEFORE_CLOSED_STAMP,
     ]
     .contains(&found)
     {
         fail!(
-            "{} carries stamp {found}, which this builds does not know how to move (it knows {BEFORE_DESIGN_DELETED_STAMP}, {BEFORE_CHECK_TIMES_STAMP}, {BEFORE_DESIGN_TIP_STAMP}, {BEFORE_APP_TIMING_STAMP}, {BEFORE_DESIGN_SESSION_STAMP}, {BEFORE_SHOT_FINDINGS_STAMP}, {BEFORE_REVIEW_STAMP}, {BEFORE_CARGO_RUNS_STAMP}, {BEFORE_DESIGN_FIX_STAMP}, {BEFORE_LANDING_REVIEW_STAMP}, {BEFORE_SCORED_CALLS_STAMP}, {BEFORE_TAGS_STAMP}, {BEFORE_CARGO_RUNS_REMOVED_STAMP}, {BEFORE_ORIGINS_STAMP}, {BEFORE_FINISHED_STAMP}, {BEFORE_CHANGED_LINES_STAMP}, {BEFORE_CHECK_STARTS_STAMP}, {BEFORE_CANVAS_STAMP}, {BEFORE_DESIGN_DROP_STAMP}, {BEFORE_PUSHED_STAMP}, {BEFORE_RANKS_STAMP}, {BEFORE_PARKED_STAMP}, {BEFORE_SPEC_CHECK_STAMP}, {BEFORE_CODE_LEFT_STAMP}, {BEFORE_NET_CHANGE_STAMP} and {BEFORE_REVIEWED_RUN_STAMP}, and today's {})",
+            "{} carries stamp {found}, which this builds does not know how to move (it knows {BEFORE_DESIGN_DELETED_STAMP}, {BEFORE_CHECK_TIMES_STAMP}, {BEFORE_DESIGN_TIP_STAMP}, {BEFORE_APP_TIMING_STAMP}, {BEFORE_DESIGN_SESSION_STAMP}, {BEFORE_SHOT_FINDINGS_STAMP}, {BEFORE_REVIEW_STAMP}, {BEFORE_CARGO_RUNS_STAMP}, {BEFORE_DESIGN_FIX_STAMP}, {BEFORE_LANDING_REVIEW_STAMP}, {BEFORE_SCORED_CALLS_STAMP}, {BEFORE_TAGS_STAMP}, {BEFORE_CARGO_RUNS_REMOVED_STAMP}, {BEFORE_ORIGINS_STAMP}, {BEFORE_FINISHED_STAMP}, {BEFORE_CHANGED_LINES_STAMP}, {BEFORE_CHECK_STARTS_STAMP}, {BEFORE_CANVAS_STAMP}, {BEFORE_DESIGN_DROP_STAMP}, {BEFORE_PUSHED_STAMP}, {BEFORE_RANKS_STAMP}, {BEFORE_PARKED_STAMP}, {BEFORE_SPEC_CHECK_STAMP}, {BEFORE_CODE_LEFT_STAMP}, {BEFORE_NET_CHANGE_STAMP}, {BEFORE_REVIEWED_RUN_STAMP} and {BEFORE_CLOSED_STAMP}, and today's {})",
             path.display(),
             db::stamp()
         );
@@ -441,6 +453,7 @@ fn move_store(places: &Places, path: &Path) -> Result<()> {
         BEFORE_CODE_LEFT_STAMP,
         BEFORE_NET_CHANGE_STAMP,
         BEFORE_REVIEWED_RUN_STAMP,
+        BEFORE_CLOSED_STAMP,
     ]
     .contains(&found);
     // Off for the moves, so a table made again keeps the references to it as
@@ -469,6 +482,7 @@ fn move_store(places: &Places, path: &Path) -> Result<()> {
         BEFORE_CODE_LEFT_STAMP,
         BEFORE_NET_CHANGE_STAMP,
         BEFORE_REVIEWED_RUN_STAMP,
+        BEFORE_CLOSED_STAMP,
     ]
     .contains(&found)
     {
@@ -551,6 +565,7 @@ fn move_store(places: &Places, path: &Path) -> Result<()> {
         BEFORE_CODE_LEFT_STAMP,
         BEFORE_NET_CHANGE_STAMP,
         BEFORE_REVIEWED_RUN_STAMP,
+        BEFORE_CLOSED_STAMP,
     ]
     .contains(&found)
     {
@@ -574,6 +589,7 @@ fn move_store(places: &Places, path: &Path) -> Result<()> {
         BEFORE_CODE_LEFT_STAMP,
         BEFORE_NET_CHANGE_STAMP,
         BEFORE_REVIEWED_RUN_STAMP,
+        BEFORE_CLOSED_STAMP,
     ]
     .contains(&found)
     {
@@ -591,45 +607,11 @@ fn move_store(places: &Places, path: &Path) -> Result<()> {
         BEFORE_CODE_LEFT_STAMP,
         BEFORE_NET_CHANGE_STAMP,
         BEFORE_REVIEWED_RUN_STAMP,
+        BEFORE_CLOSED_STAMP,
     ]
     .contains(&found)
     {
         crate::lists::record::remake_closing(&tx)?;
-    }
-    // Every store this moves from before a review's patch ids left out
-    // context lines holds patch ids taken with them; the move takes each
-    // again without them. A store from after has today's patch ids.
-    if ![
-        BEFORE_CHECK_STARTS_STAMP,
-        BEFORE_CANVAS_STAMP,
-        BEFORE_DESIGN_DROP_STAMP,
-        BEFORE_PUSHED_STAMP,
-        BEFORE_RANKS_STAMP,
-        BEFORE_PARKED_STAMP,
-        BEFORE_SPEC_CHECK_STAMP,
-        BEFORE_CODE_LEFT_STAMP,
-        BEFORE_NET_CHANGE_STAMP,
-        BEFORE_REVIEWED_RUN_STAMP,
-    ]
-    .contains(&found)
-    {
-        crate::review::record::move_to_changed_lines(&tx, |repo, shas| {
-            let clone = places.home.join(crate::host::clone_path(repo));
-            crate::review::commits::with_patch_ids(&clone, shas).map_err(|why| {
-                Fail::Message(format!(
-                    "reading the commits of {repo} from {}: {}",
-                    clone.display(),
-                    why.text()
-                ))
-            })
-        })
-        .map_err(|why| {
-            Fail::Message(format!(
-                "{} keeps patch ids this move could not read again, so the move leaves it as it was: {}",
-                path.display(),
-                why.text()
-            ))
-        })?;
     }
     // A store stamped just before a project said whether it publishes a
     // canvas, or after, already has the `hook_check_starts` and
@@ -644,6 +626,7 @@ fn move_store(places: &Places, path: &Path) -> Result<()> {
         BEFORE_CODE_LEFT_STAMP,
         BEFORE_NET_CHANGE_STAMP,
         BEFORE_REVIEWED_RUN_STAMP,
+        BEFORE_CLOSED_STAMP,
     ]
     .contains(&found)
     {
@@ -661,6 +644,7 @@ fn move_store(places: &Places, path: &Path) -> Result<()> {
         BEFORE_CODE_LEFT_STAMP,
         BEFORE_NET_CHANGE_STAMP,
         BEFORE_REVIEWED_RUN_STAMP,
+        BEFORE_CLOSED_STAMP,
     ]
     .contains(&found)
     {
@@ -677,11 +661,12 @@ fn move_store(places: &Places, path: &Path) -> Result<()> {
             BEFORE_CODE_LEFT_STAMP,
             BEFORE_NET_CHANGE_STAMP,
             BEFORE_REVIEWED_RUN_STAMP,
+            BEFORE_CLOSED_STAMP,
         ]
         .contains(&found)
     {
         tx.execute_batch(db::statement(
-            &db::schema(),
+            crate::review::record::BEFORE_CLOSED,
             "CREATE TABLE review_pushed",
             "WITHOUT ROWID;",
         ))
@@ -695,6 +680,7 @@ fn move_store(places: &Places, path: &Path) -> Result<()> {
         BEFORE_CODE_LEFT_STAMP,
         BEFORE_NET_CHANGE_STAMP,
         BEFORE_REVIEWED_RUN_STAMP,
+        BEFORE_CLOSED_STAMP,
     ]
     .contains(&found)
     {
@@ -707,6 +693,7 @@ fn move_store(places: &Places, path: &Path) -> Result<()> {
         BEFORE_CODE_LEFT_STAMP,
         BEFORE_NET_CHANGE_STAMP,
         BEFORE_REVIEWED_RUN_STAMP,
+        BEFORE_CLOSED_STAMP,
     ]
     .contains(&found)
     {
@@ -719,6 +706,7 @@ fn move_store(places: &Places, path: &Path) -> Result<()> {
         BEFORE_CODE_LEFT_STAMP,
         BEFORE_NET_CHANGE_STAMP,
         BEFORE_REVIEWED_RUN_STAMP,
+        BEFORE_CLOSED_STAMP,
     ]
     .contains(&found)
     {
@@ -728,26 +716,45 @@ fn move_store(places: &Places, path: &Path) -> Result<()> {
     // settles and of confirmed findings whose code is no longer in their
     // branch's change; a store that had the review's tables gets them here,
     // except a store from after builds recorded them, which has them already.
-    if had_review_tables && ![BEFORE_NET_CHANGE_STAMP, BEFORE_REVIEWED_RUN_STAMP].contains(&found) {
+    if had_review_tables
+        && ![
+            BEFORE_NET_CHANGE_STAMP,
+            BEFORE_REVIEWED_RUN_STAMP,
+            BEFORE_CLOSED_STAMP,
+        ]
+        .contains(&found)
+    {
         let schema = db::schema();
-        for table in [
+        tx.execute_batch(db::statement(
+            &schema,
             "CREATE TABLE review_settle_again",
+            "STRICT;",
+        ))
+        .sql()?;
+        tx.execute_batch(db::statement(
+            crate::review::record::BEFORE_CLOSED,
             "CREATE TABLE review_code_left",
-        ] {
-            tx.execute_batch(db::statement(&schema, table, "STRICT;"))
-                .sql()?;
-        }
+            "STRICT;",
+        ))
+        .sql()?;
     }
     // A store that had the review's tables from before net changes has runs
     // that each read a whole net change; one that got the tables above has
     // today's `review_run`.
-    if had_review_tables && found != BEFORE_REVIEWED_RUN_STAMP {
+    if had_review_tables && ![BEFORE_REVIEWED_RUN_STAMP, BEFORE_CLOSED_STAMP].contains(&found) {
         crate::review::record::move_to_net_change(&tx)?;
     }
-    // A store that had the review's tables gets the last review of each
-    // landing; one that got the tables above has no landing.
-    if had_review_tables {
+    // A store that had the review's tables from before landings named their
+    // last review gets the last review of each landing; one that got the
+    // tables above has no landing.
+    if had_review_tables && found != BEFORE_CLOSED_STAMP {
         crate::review::record::move_to_reviewed_run(&tx)?;
+    }
+    // A store that had the review's tables has the tables of fixes and of read
+    // and pushed commits: the last review of each landing closes each
+    // confirmed finding with a fix, and the move drops those tables.
+    if had_review_tables {
+        crate::review::record::move_to_closed(&tx)?;
     }
     tx.pragma_update(None, "user_version", db::stamp()).sql()?;
     let broken: Option<String> = tx

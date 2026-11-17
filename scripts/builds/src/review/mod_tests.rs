@@ -167,24 +167,32 @@ fn a_change_gets_one_review_and_a_second_run_is_refused() {
             && !again.contains("did not read"),
         "{again}"
     );
-    // A fix commit is part of the net change: a new run reads it, and only
-    // it, once.
-    let fix = demo.commit(&side, "fix.rs");
-    let commit = landing::fix_commit(&side, &fix).unwrap();
-    let stamp = stamp();
-    demo.store
-        .write(&stamp, "fixed", |db| {
-            record::record_fix(db, finding, &commit, stamp.at, "tester")
-        })
-        .unwrap();
-    fake.answer("alpha", &[("rule-a", None)]);
+    // A fix commit is part of the changes since the last review: a new run
+    // reads it, and only it, once, and closes the finding it fixes.
+    demo.commit(&side, "fix.rs");
+    closes(&fake, &[finding]);
     let read = run_review(&demo, &fake, &side, "k");
     let prompts = fake.prompts();
     assert_eq!(prompts.len(), 1, "{}", read.text);
     assert!(
-        prompts[0].1.contains("+fix.rs") && !prompts[0].1.contains("+a.rs"),
+        prompts[0].1.contains("+fix.rs")
+            && !prompts[0].1.contains("+a.rs")
+            && prompts[0]
+                .1
+                .contains(&format!("Finding {finding} (rule-a), a.rs:1")),
         "{}",
         prompts[0].1
+    );
+    assert!(
+        read.text.contains(&format!("closed finding {finding}")),
+        "{}",
+        read.text
+    );
+    assert!(read.refusal.is_none(), "{:?}", read.refusal);
+    assert!(
+        findings_of(&demo, first.landing.unwrap())[0]
+            .closed_by
+            .is_some()
     );
     let again = try_review(&demo, &fake, &side, "k").unwrap_err().text();
     assert!(fake.prompts().is_empty());
@@ -196,6 +204,43 @@ fn a_change_gets_one_review_and_a_second_run_is_refused() {
             .len(),
         2
     );
+}
+
+/// What the reviewer of group alpha answers: no finding for rule-a, and
+/// <closed> closed.
+fn closes(fake: &Fake, closed: &[i64]) {
+    fake.answer_task(
+        "alpha",
+        serde_json::json!({
+            "rules": [{"rule": "rule-a", "verdict": "none", "findings": []}],
+            "closed": closed,
+        }),
+    );
+}
+
+/// The reviewer reads only the changes since the last review, and builds
+/// drops a finding whose code is on a line outside them.
+#[test]
+fn a_finding_on_a_line_outside_the_changes_since_the_last_review_is_dropped() {
+    let demo = demo("review-outside");
+    let fake = fake(&demo.scratch.dir);
+    let side = demo.add_side(1, "agent", "work");
+    demo.commit(&side, "a.rs");
+    let first = run_review(&demo, &fake, &side, "k");
+    demo.commit(&side, "c.rs");
+    fake.answer("alpha", &[("rule-a", Some(BAD))]);
+    let later = run_review(&demo, &fake, &side, "k");
+    let found = findings_of(&demo, first.landing.unwrap());
+    assert_eq!(found.len(), 1, "{}", later.text);
+    assert!(
+        found[0]
+            .check_failed
+            .as_deref()
+            .is_some_and(|why| why.contains("the diff has no file a.rs")),
+        "{:?}",
+        found[0]
+    );
+    assert!(later.refusal.is_none(), "{:?}", later.refusal);
 }
 
 /// Writes <text> to f.rs in <top>, commits it with <message>, and returns
@@ -325,7 +370,6 @@ fn a_run_that_read_a_stretch_of_commits_is_not_the_last_review() {
                     base: &changed,
                     head: &g,
                     since: None,
-                    commits: &[landing::fix_commit(&side, &g)?],
                     grouping: "g",
                     rules_version: "",
                 },
@@ -493,7 +537,6 @@ fn every_review_command_fails_for_a_project_with_no_store() {
         vec!["check-landing", &main, "HEAD"],
         vec!["landed", &main, "HEAD"],
         vec!["settle", "1", "confirmed", "--why", "real"],
-        vec!["fixed", "1", "HEAD"],
         vec!["show", "1"],
         vec!["misses"],
         vec!["rates"],

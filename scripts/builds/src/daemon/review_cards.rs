@@ -12,7 +12,7 @@ use std::time::{Duration, Instant};
 use super::cards::{ItemWait, ReviewWait};
 use crate::fail::Fail;
 use crate::lists::store::Store;
-use crate::review::commits::{self, Commit};
+use crate::review::commits;
 use crate::review::landing::{self, CodeCheck, Need, Verdict};
 use crate::review::run::Material;
 use crate::side_git;
@@ -24,8 +24,8 @@ const RULES_FOR: Duration = Duration::from_secs(10);
 /// A worktree and its commits (full hashes, oldest first).
 type ReadKey = (PathBuf, Vec<String>);
 
-/// The commits of a worktree with their patch ids, and the paths each changes.
-type Read = Option<(Vec<Commit>, Vec<Vec<String>>)>;
+/// The paths each commit of a worktree changes.
+type Read = Option<Vec<Vec<String>>>;
 
 /// A project's rules as `Material::load` last read them, and when; None when
 /// `Material::load` failed.
@@ -64,12 +64,7 @@ impl Reads {
         }
         // A worktree that stops existing or a failed git read says nothing;
         // the next page build asks again.
-        let read = commits::with_patch_ids(top, shas)
-            .and_then(|with| {
-                let paths = commits::paths_of_each(top, &with)?;
-                Ok((with, paths))
-            })
-            .ok();
+        let read = commits::paths_of_each(top, shas).ok();
         if known.len() > 256 {
             known.clear();
         }
@@ -83,7 +78,7 @@ impl Reads {
     fn needs(
         &self,
         project: &str,
-        commits: &[Commit],
+        shas: &[String],
         paths: &[Vec<String>],
     ) -> Option<(Vec<Need>, Arc<Material>)> {
         let root = self.root.as_ref()?;
@@ -101,11 +96,11 @@ impl Reads {
             );
         }
         let material = rules.get(project)?.1.clone()?;
-        let needs = commits
+        let needs = shas
             .iter()
             .zip(paths)
-            .map(|(commit, paths)| Need {
-                commit: commit.clone(),
+            .map(|(sha, paths)| Need {
+                sha: sha.clone(),
                 paths: paths.clone(),
                 groups: material.group_names(paths),
             })
@@ -113,15 +108,14 @@ impl Reads {
         Some((needs, material))
     }
 
-    /// Where the review of <top>'s commits stands, for a worktree of <repo>
-    /// whose project's store is <store> and whose commits not on origin/main
+    /// Where the review of <top>'s commits stands, for a worktree whose
+    /// project's store is <store> and whose commits not on origin/main
     /// are <ahead> (newest first); None when land would take them as far as
     /// the review goes, or when they need no review. Fails, saying why, when
     /// it can't open or read the store.
     pub fn standing(
         &self,
         store: &Store,
-        repo: &str,
         top: &Path,
         ahead: &[side_git::Commit],
     ) -> Result<Option<ItemWait>, String> {
@@ -129,10 +123,10 @@ impl Reads {
             return Ok(None);
         };
         let shas: Vec<String> = ahead.iter().rev().map(|c| c.full.clone()).collect();
-        let Some((commits, paths)) = self.commits(top, &shas) else {
+        let Some(paths) = self.commits(top, &shas) else {
             return Ok(None);
         };
-        let Some((needs, material)) = self.needs(&store.project, &commits, &paths) else {
+        let Some((needs, material)) = self.needs(&store.project, &shas, &paths) else {
             return Ok(None);
         };
         if needs.iter().all(|n| n.groups.is_empty()) {
@@ -142,12 +136,10 @@ impl Reads {
             return Ok(Some(ItemWait::RulesReview(ReviewWait::Running)));
         }
         let conn = store.open_existing().map_err(Fail::text)?;
-        // The card only reads the store. The card counts a finding whose code
-        // is no longer in the branch's change as blocking nothing, as land does
-        // when it records the finding.
+        let key = crate::review::default_key(top).map_err(Fail::text)?;
         let check = CodeCheck::Branch("HEAD");
         let groups_for = |paths: &[String]| material.group_names(paths);
-        let wait = match landing::judge(&conn, repo, top, &needs, check, &groups_for)
+        let wait = match landing::judge(&conn, &key, top, &needs, check, &groups_for)
             .map_err(Fail::text)?
         {
             Verdict::NotNeeded | Verdict::Takes(_) => return Ok(None),
@@ -161,9 +153,7 @@ impl Reads {
             Verdict::Unfinished(_, unfinished) if !unfinished.unreviewed.is_empty() => {
                 ReviewWait::Unreviewed(unfinished.unreviewed.len())
             }
-            Verdict::Unfinished(_, unfinished) => {
-                ReviewWait::Unfixed(unfinished.unfixed.len() + unfinished.fixed_elsewhere.len())
-            }
+            Verdict::Unfinished(_, unfinished) => ReviewWait::Open(unfinished.open.len()),
         };
         Ok(Some(ItemWait::RulesReview(wait)))
     }

@@ -1547,15 +1547,11 @@ fn store_before_changed_lines(dir: &std::path::Path, read: &str, fix: &str) -> s
             ("rules_version", v("")),
         ],
     );
-    plant(
-        "review_commit",
-        &[
-            ("run_id", v(10)),
-            ("position", v(0)),
-            ("sha", v(read)),
-            ("patch_id", v("stale")),
-        ],
-    );
+    conn.execute(
+        "INSERT INTO review_commit (run_id, position, sha, patch_id) VALUES (10, 0, ?1, 'stale')",
+        [read],
+    )
+    .unwrap();
     plant(
         "review_text",
         &[("hash", v("p")), ("text", v("the prompt"))],
@@ -1593,45 +1589,22 @@ fn store_before_changed_lines(dir: &std::path::Path, read: &str, fix: &str) -> s
             ("settled_by", v("coordinator")),
         ],
     );
-    plant(
-        "review_fix",
-        &[
-            ("finding_id", v(30)),
-            ("sha", v(fix)),
-            ("patch_id", v("stale")),
-            ("at", v(8)),
-            ("by", v("coordinator")),
-        ],
-    );
+    conn.execute(
+        "INSERT INTO review_fix (finding_id, sha, patch_id, at, by) VALUES (30, ?1, 'stale', 8, 'coordinator')",
+        [fix],
+    )
+    .unwrap();
     path
 }
 
-/// The clone `~/dev/demo` under <places>' home with two commits past its
-/// start: the one a review read and the one that fixed its finding.
-fn demo_clone(places: &Places) -> (String, String) {
-    let dir = places.home.join("dev/demo");
-    crate::testing::repo(&dir, "target 1G\n");
-    let mut shas = Vec::new();
-    for (file, text) in [("f.txt", "read\n"), ("g.txt", "fix\n")] {
-        std::fs::write(dir.join(file), text).unwrap();
-        crate::testing::git(&dir, &["add", file]);
-        crate::testing::git(&dir, &["commit", "-q", "-m", file]);
-        shas.push(
-            crate::review::commits::in_range(&dir, "HEAD~1", "HEAD")
-                .unwrap()
-                .remove(0),
-        );
-    }
-    (shas[0].clone(), shas[1].clone())
-}
-
+/// A store from before a review's patch ids left out context lines moves
+/// without reading its commits again: the move drops the commits each run read
+/// and the fixes, and the last review closes the finding that named a fix.
 #[test]
-fn a_store_from_before_changed_lines_keeps_each_review_commit_and_fix_with_its_patch_id_read_again()
-{
+fn a_store_from_before_changed_lines_moves_and_its_fixed_finding_is_closed() {
     let scratch = Scratch::new("move-changed-lines");
     let places = scratch.places();
-    let (read, fix) = demo_clone(&places);
-    let path = store_before_changed_lines(&places.lists.join("demo"), &read, &fix);
+    let path = store_before_changed_lines(&places.lists.join("demo"), "read", "fix");
     migrate_stores(&places).unwrap();
     let conn = db::open_reader(&path)
         .unwrap()
@@ -1640,40 +1613,8 @@ fn a_store_from_before_changed_lines_keeps_each_review_commit_and_fix_with_its_p
         db::schema_rows(&conn).unwrap(),
         db::schema_rows(&db::memory()).unwrap()
     );
-    let today = crate::review::commits::with_patch_ids(
-        &places.home.join("dev/demo"),
-        &[read.clone(), fix.clone()],
-    )
-    .unwrap();
-    assert_eq!(
-        crate::review::record::commits_of_run(&conn, 10).unwrap(),
-        today[..1]
-    );
     let finding = crate::review::record::finding_of(&conn, 30).unwrap();
-    assert_eq!(finding.fix.as_ref(), Some(&today[1]));
-}
-
-#[test]
-fn a_store_whose_reviewed_commit_the_clone_lacks_is_left_as_it_was() {
-    let scratch = Scratch::new("move-changed-lines-lost");
-    let places = scratch.places();
-    let (_, fix) = demo_clone(&places);
-    let lost = "0".repeat(40);
-    let path = store_before_changed_lines(&places.lists.join("demo"), &lost, &fix);
-    let refused = migrate_stores(&places).unwrap_err().text();
-    assert!(
-        refused.contains("the move leaves it as it was") && refused.contains("dev/demo"),
-        "{refused}"
-    );
-    let conn = Connection::open(&path).unwrap();
-    assert_eq!(
-        db::stamp_of(&conn, &path).unwrap(),
-        BEFORE_CHANGED_LINES_STAMP
-    );
-    let kept: String = conn
-        .query_row("SELECT patch_id FROM review_fix", [], |row| row.get(0))
-        .unwrap();
-    assert_eq!(kept, "stale");
+    assert_eq!(finding.closed_by, Some(10));
 }
 
 /// <schema> as its text read before builds kept this Mac's load when each
@@ -2011,6 +1952,163 @@ fn without_parts(mut schema: String, parts: &[&str]) -> String {
     schema
 }
 
+/// The schema text before a review closed the confirmed findings its changes
+/// fix: the tables of fixes and of read and pushed commits, and of findings
+/// whose code left their branch, in place of `review_closed`, and the review's
+/// comments as they read then.
+fn schema_before_closed() -> String {
+    let mut schema = db::schema();
+    for (now, then) in [
+        (
+            "-- Every review of a change against the rules (`builds review`): the landing it
+-- belongs to, each run with the net change it read, each reviewer call, its verdict
+-- for every rule, each finding with how the coordinator settled it, and the
+-- run that closed a confirmed finding. record.rs owns these tables and is the
+-- only code that writes them.",
+            "-- Every review of a change against the rules (`builds review`): the landing it
+-- belongs to, each run with the net change it read, each reviewer call, its verdict
+-- for every rule, each finding with how the coordinator settled it, the
+-- commit that fixed a confirmed finding, and each confirmed finding whose
+-- code is no longer in its branch's change. record.rs owns these tables and is
+-- the only code that writes them.",
+        ),
+        (
+            "CREATE INDEX review_finding_call ON review_finding (call_id);
+
+-- A second settle: the coordinator changed an open confirmed finding to
+-- dropped. review_finding keeps the first settle, and this row keeps the
+-- second, which is how the finding counts from then on.
+",
+            "CREATE INDEX review_finding_call ON review_finding (call_id);
+
+-- The commits of the net change a review run found, in order, each with its
+-- patch id: `git patch-id --stable` of the commit's diff without context
+-- lines, so the id covers only the lines the commit adds and removes
+-- (commits.rs). A commit that changes nothing has no patch id, and the review
+-- records no row for it. `builds land` finds the review that a landing's
+-- commits belong to by these patch ids, and `review replay` finds a landed
+-- change's commits by them once its branch is gone.
+CREATE TABLE review_commit (
+    run_id INTEGER NOT NULL REFERENCES review_run (id),
+    position INTEGER NOT NULL CONSTRAINT review_commit_position_not_negative CHECK (position >= 0),
+    sha TEXT NOT NULL,
+    patch_id TEXT NOT NULL,
+    PRIMARY KEY (run_id, position)
+) STRICT, WITHOUT ROWID;
+
+-- The commit that fixes a confirmed finding, and its patch id, which must be
+-- among the patch ids of the commits the landing pushes.
+CREATE TABLE review_fix (
+    finding_id INTEGER PRIMARY KEY REFERENCES review_finding (id),
+    sha TEXT NOT NULL,
+    patch_id TEXT NOT NULL,
+    at INTEGER NOT NULL,
+    by TEXT NOT NULL CONSTRAINT review_fix_by_says_something CHECK (trim(by) <> '')
+) STRICT;
+
+-- Each commit of a landing that `builds land` pushed, by the patch id of its
+-- added and removed lines. A branch lands in parts: until a push leaves its
+-- branch nothing to land, its landing stays open and counts as landed only for
+-- these commits.
+CREATE TABLE review_pushed (
+    landing_id INTEGER NOT NULL REFERENCES review_landing (id),
+    patch_id TEXT NOT NULL,
+    at INTEGER NOT NULL,
+    PRIMARY KEY (landing_id, patch_id)
+) STRICT, WITHOUT ROWID;
+
+-- A second settle: the coordinator changed a confirmed finding that names no
+-- fix to dropped. review_finding keeps the first settle, and this row keeps
+-- the second, which is how the finding counts from then on.
+",
+        ),
+        (
+            "-- A confirmed finding that a later review run closed: the changes that run
+-- read fix it. builds gives each review the open confirmed findings of the
+-- groups it asks, and each reviewer names the ones the changes fix. A
+-- confirmed finding that no run closed and the coordinator did not settle
+-- again as dropped is open, and `builds land` refuses the branch while one is.
+CREATE TABLE review_closed (
+    finding_id INTEGER PRIMARY KEY REFERENCES review_finding (id),
+    run_id INTEGER NOT NULL REFERENCES review_run (id)
+) STRICT;
+",
+            "-- A confirmed finding that names no fix and whose quoted code is on no line of
+-- its branch's change past origin/main, so the finding needs no fix. base and
+-- head are the commits of the change that the builds tool read.
+CREATE TABLE review_code_left (
+    finding_id INTEGER PRIMARY KEY REFERENCES review_finding (id),
+    base TEXT NOT NULL,
+    head TEXT NOT NULL,
+    at INTEGER NOT NULL,
+    by TEXT NOT NULL CONSTRAINT review_code_left_by_says_something CHECK (trim(by) <> '')
+) STRICT;
+",
+        ),
+    ] {
+        assert_eq!(schema.matches(now).count(), 1, "{now}");
+        schema = schema.replacen(now, then, 1);
+    }
+    schema
+}
+
+#[test]
+fn the_closed_stamp_is_the_schema_before_closed_findings() {
+    assert_eq!(
+        db::stamp_of_text(&schema_before_closed()),
+        BEFORE_CLOSED_STAMP
+    );
+}
+
+/// A store from before a review closed the findings its changes fix moves
+/// with each confirmed finding that named a fix, or whose code left its
+/// branch, closed by its landing's last review, and the rest open.
+#[test]
+fn a_store_from_before_closed_findings_closes_the_fixed_ones_with_the_last_review() {
+    let scratch = Scratch::new("move-closed");
+    let places = scratch.places();
+    let dir = places.lists.join("bae");
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join(DATABASE);
+    {
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(&schema_before_closed()).unwrap();
+        conn.pragma_update(None, "user_version", BEFORE_CLOSED_STAMP)
+            .unwrap();
+        crate::lists::project::plant(&conn, "repo", &[("name", "bae".to_string().into())]).unwrap();
+        conn.execute_batch(
+            "INSERT INTO review_landing (id, key, repo, opened_at) VALUES (1, 'k', 'bae', 5);
+            INSERT INTO review_run (id, landing_id, kind, at, base, head, grouping, rules_version) VALUES (7, 1, 'review', 6, 'm', 'h', 'g', '');
+            UPDATE review_landing SET reviewed_run = 7;
+            INSERT INTO review_text (hash, text) VALUES ('p', 'prompt');
+            INSERT INTO review_call (id, run_id, group_name, model, prompt, rules, tokens_in, tokens_out, tokens_cached, tokens_written) VALUES (1, 7, 'alpha', 'sonnet', 'p', '[]', 0, 0, 0, 0);
+            INSERT INTO review_finding (id, call_id, rule, clause, file, line, code, problem, blocking, settled, settled_why, settled_at, settled_by)
+                VALUES (1, 1, 'r', 'c', 'a.rs', 1, 'x', 'p', 1, 'confirmed', 'real', 6, 'me'),
+                    (2, 1, 'r', 'c', 'a.rs', 2, 'y', 'p', 1, 'confirmed', 'real', 6, 'me'),
+                    (3, 1, 'r', 'c', 'a.rs', 3, 'z', 'p', 1, 'confirmed', 'real', 6, 'me');
+            INSERT INTO review_fix (finding_id, sha, patch_id, at, by) VALUES (1, 's', 'p', 7, 'me');
+            INSERT INTO review_code_left (finding_id, base, head, at, by) VALUES (2, 'm', 'h', 7, 'me');
+            INSERT INTO review_commit (run_id, position, sha, patch_id) VALUES (7, 0, 'h', 'p');
+            INSERT INTO review_pushed (landing_id, patch_id, at) VALUES (1, 'p', 8);",
+        )
+        .unwrap();
+    }
+    migrate_stores(&places).unwrap();
+    let conn = db::open_reader(&path)
+        .unwrap()
+        .expect("opens under today's stamp");
+    assert_eq!(
+        db::schema_rows(&conn).unwrap(),
+        db::schema_rows(&db::memory()).unwrap()
+    );
+    let closed: Vec<Option<i64>> = crate::review::record::findings_of_landing(&conn, 1)
+        .unwrap()
+        .iter()
+        .map(|f| f.closed_by)
+        .collect();
+    assert_eq!(closed, [Some(7), Some(7), None]);
+}
+
 /// The schema text before each landing named the run of its last review:
 /// `review_landing` without `reviewed_run`.
 fn schema_before_reviewed_run() -> String {
@@ -2020,7 +2118,7 @@ fn schema_before_reviewed_run() -> String {
     -- it records here in the same write.
     reviewed_run INTEGER REFERENCES review_run (id),
 ";
-    let schema = db::schema();
+    let schema = schema_before_closed();
     assert_eq!(schema.matches(column).count(), 1, "{column}");
     schema.replacen(column, "", 1)
 }
@@ -2229,10 +2327,9 @@ fn the_code_left_stamp_is_the_schema_before_code_left() {
 }
 
 /// A store from before the coordinator could settle a finding again keeps its
-/// runs, gains the empty tables, equals a fresh schema, and then records a
-/// second settle and a finding whose code is no longer in its branch's change.
+/// runs, equals a fresh schema, and then records a second settle.
 #[test]
-fn a_store_from_before_code_left_gains_the_tables_and_records_both() {
+fn a_store_from_before_code_left_moves_and_records_a_second_settle() {
     let scratch = Scratch::new("move-code-left");
     let places = scratch.places();
     let dir = places.lists.join("bae");
@@ -2284,6 +2381,7 @@ fn a_store_from_before_code_left_gains_the_tables_and_records_both() {
         failure: None,
         verdicts: vec![("r".to_string(), "finding".to_string())],
         findings: vec![finding("wrong"), finding("gone")],
+        closes: Vec::new(),
         exchanges: Vec::new(),
     };
     let run = crate::review::record::NewRun {
@@ -2294,7 +2392,6 @@ fn a_store_from_before_code_left_gains_the_tables_and_records_both() {
         base: "b",
         head: "h",
         since: None,
-        commits: &[],
         grouping: "g",
         rules_version: "",
     };
@@ -2303,7 +2400,6 @@ fn a_store_from_before_code_left_gains_the_tables_and_records_both() {
         crate::review::record::settle(&conn, *id, "confirmed", "real", 7, "me").unwrap();
     }
     crate::review::record::settle_again(&conn, ids[0][0], "wrong", 8, "me").unwrap();
-    crate::review::record::record_code_left(&conn, ids[0][1], "b", "h", 8, "me").unwrap();
 }
 
 /// The schema text before builds recorded each check of a brief against the
@@ -2536,10 +2632,10 @@ pub fn store_before_pushed(dir: &std::path::Path) -> std::path::PathBuf {
     path
 }
 
-/// A store from before `review_pushed` keeps its runs, gains the empty table
-/// and equals a fresh schema.
+/// A store from before `review_pushed` keeps its runs and equals a fresh
+/// schema.
 #[test]
-fn a_store_from_before_pushed_commits_keeps_its_runs_and_gains_the_table() {
+fn a_store_from_before_pushed_commits_keeps_its_runs() {
     let scratch = Scratch::new("move-pushed");
     let places = scratch.places();
     let path = store_before_pushed(&places.lists.join("bae"));

@@ -23,9 +23,7 @@ fn ahead(side: &Path) -> Vec<side_git::Commit> {
 }
 
 fn standing(reads: &Reads, demo: &Demo, side: &Path) -> Option<ItemWait> {
-    reads
-        .standing(&demo.store, "demo", side, &ahead(side))
-        .unwrap()
+    reads.standing(&demo.store, side, &ahead(side)).unwrap()
 }
 
 fn review(demo: &Demo, root: &Path, program: &Path, side: &Path, key: &str) {
@@ -105,7 +103,7 @@ fn a_card_follows_the_review_from_none_to_findings_to_fixes_and_says_nothing_onc
     crate::review::cmd_review(&demo.tool, &settle).unwrap();
     assert_eq!(
         standing(&reads, &demo, &side),
-        Some(ItemWait::RulesReview(ReviewWait::Unfixed(1)))
+        Some(ItemWait::RulesReview(ReviewWait::Open(1)))
     );
     // A branch whose review found nothing is ready to land.
     let clean = demo.add_side(2, "agent", "clean");
@@ -131,7 +129,7 @@ fn a_card_whose_project_has_no_store_says_so_and_never_that_land_takes_its_commi
     demo.commit(&side, "a.rs");
     let ghost = Store::named(&demo.tool.places, "ghost").unwrap();
     assert_eq!(
-        reads.standing(&ghost, "demo", &side, &ahead(&side)),
+        reads.standing(&ghost, &side, &ahead(&side)),
         Err("there is no store for project ghost".to_string())
     );
 }

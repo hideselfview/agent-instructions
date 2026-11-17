@@ -1,11 +1,5 @@
-//! What a change is to the review's record and to `builds land`: its commits,
-//! each with its patch id, which `git patch-id --stable` takes of the commit's
-//! diff without context lines, so the id covers only the lines the commit adds
-//! and removes. A rebase or a cherry-pick that keeps those lines keeps the
-//! patch id while the SHA changes, even when the lines around them changed, so
-//! `builds land` finds the review that read the same changes, not the same
-//! SHAs. A conflict's resolution that changes an added or removed line gives
-//! the commit another patch id.
+//! The git reads a review makes of a branch's commits: their range, the paths
+//! they change, and whether the repo has a commit.
 
 use std::path::Path;
 use std::process::Stdio;
@@ -13,18 +7,6 @@ use std::process::Stdio;
 use crate::checkout::git;
 use crate::fail;
 use crate::fail::{Context, Result};
-
-/// A commit and the patch id of its added and removed lines.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Commit {
-    pub sha: String,
-    pub patch_id: String,
-}
-
-/// Whether two changes are the same: the same patch ids in the same order.
-pub fn same_change(a: &[Commit], b: &[Commit]) -> bool {
-    a.len() == b.len() && a.iter().zip(b).all(|(x, y)| x.patch_id == y.patch_id)
-}
 
 /// What <args> prints in <repo>, or why it failed.
 pub fn git_text(repo: &Path, args: &[&str]) -> Result<String> {
@@ -58,11 +40,6 @@ fn full_shas(repo: &Path, revs: &[String]) -> Result<Vec<String>> {
         .collect()
 }
 
-/// The message of commit <sha>.
-pub fn message(repo: &Path, sha: &str) -> Result<String> {
-    git_text(repo, &["show", "-s", "--format=%B", sha])
-}
-
 /// The commits past <base> up to <head>, oldest first.
 pub fn in_range(repo: &Path, base: &str, head: &str) -> Result<Vec<String>> {
     Ok(
@@ -81,87 +58,6 @@ pub fn exists(repo: &Path, sha: &str) -> bool {
         .stderr(Stdio::null())
         .status()
         .is_ok_and(|status| status.success())
-}
-
-/// The newest <count> commits of the repo's HEAD, oldest first.
-pub fn newest(repo: &Path, count: usize) -> Result<Vec<String>> {
-    Ok(git_text(
-        repo,
-        &[
-            "rev-list",
-            "--reverse",
-            &format!("--max-count={count}"),
-            "HEAD",
-        ],
-    )?
-    .lines()
-    .map(str::to_string)
-    .collect())
-}
-
-/// Each of <revs> with the patch id of its added and removed lines, in the
-/// order given. A commit that changes nothing (and a merge, whose change `git
-/// log -p` does not show) has no patch id, and the list leaves it out.
-pub fn with_patch_ids(repo: &Path, revs: &[String]) -> Result<Vec<Commit>> {
-    if revs.is_empty() {
-        return Ok(Vec::new());
-    }
-    let shas = full_shas(repo, revs)?;
-    // This function fixes the diff options instead of taking them from the
-    // repo's config, so builds reads the same patch id for a commit every
-    // time. `--unified=0` leaves out the context lines, and `git patch-id`
-    // ignores the line numbers in the hunk headers, so lines that moved or
-    // changed around the change leave its patch id as it was.
-    let mut log = git(repo);
-    log.args([
-        "log",
-        "--no-walk=unsorted",
-        "-p",
-        "--unified=0",
-        "--no-color",
-        "--no-ext-diff",
-        "--no-renames",
-        "--diff-algorithm=myers",
-        "--format=commit %H",
-    ])
-    .args(&shas)
-    .stdin(Stdio::null())
-    .stdout(Stdio::piped())
-    .stderr(Stdio::null());
-    let mut log = log.spawn().context(|| "running git log".to_string())?;
-    let diffs = log.stdout.take().expect("stdout is piped");
-    let output = git(repo)
-        .args(["patch-id", "--stable"])
-        .stdin(Stdio::from(diffs))
-        .stderr(Stdio::piped())
-        .output()
-        .context(|| "running git patch-id".to_string())?;
-    let logged = log.wait().context(|| "running git log".to_string())?;
-    if !logged.success() {
-        fail!("git log of {} failed in {}", shas.join(" "), repo.display());
-    }
-    if !output.status.success() {
-        fail!(
-            "git patch-id failed in {}: {}",
-            repo.display(),
-            String::from_utf8_lossy(&output.stderr).trim()
-        );
-    }
-    let text = String::from_utf8_lossy(&output.stdout);
-    let ids: Vec<(&str, &str)> = text
-        .lines()
-        .filter_map(|line| line.split_once(' '))
-        .map(|(patch, sha)| (sha, patch))
-        .collect();
-    Ok(shas
-        .iter()
-        .filter_map(|sha| {
-            ids.iter().find(|(s, _)| s == sha).map(|(_, patch)| Commit {
-                sha: sha.clone(),
-                patch_id: patch.to_string(),
-            })
-        })
-        .collect())
 }
 
 /// Every path a commit of <revs> adds, changes or deletes (both paths of a
@@ -188,11 +84,10 @@ pub fn paths(repo: &Path, revs: &[String]) -> Result<Vec<String>> {
     Ok(all)
 }
 
-/// The paths each of <commits> adds, changes or deletes, in the order given.
-pub fn paths_of_each(repo: &Path, commits: &[Commit]) -> Result<Vec<Vec<String>>> {
-    commits
-        .iter()
-        .map(|commit| paths(repo, std::slice::from_ref(&commit.sha)))
+/// The paths each of <shas> adds, changes or deletes, in the order given.
+pub fn paths_of_each(repo: &Path, shas: &[String]) -> Result<Vec<Vec<String>>> {
+    shas.iter()
+        .map(|sha| paths(repo, std::slice::from_ref(sha)))
         .collect()
 }
 

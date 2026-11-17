@@ -28,6 +28,9 @@ pub struct Answer {
     pub findings: Vec<Raw>,
     /// For a group that lists the sites it judges: its summary and sites, as JSON.
     pub sites: Option<String>,
+    /// The open findings the reviewer was given whose problem the code no
+    /// longer has.
+    pub closed: Vec<i64>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -168,11 +171,13 @@ fn body_of(value: &Value) -> Result<Value, String> {
 }
 
 /// Runs a group's reviewer and reads its answer: verdicts per rule, or, for a
-/// group that lists sites, a summary and a verdict per site.
+/// group that lists sites, a summary and a verdict per site, and the open
+/// findings it closes, each one of <given>.
 pub fn run(
     program: &Path,
     model: &str,
     names: &[String],
+    given: &[i64],
     enumerate: bool,
     parts: &prompt::Parts,
     checkout: Option<&Path>,
@@ -185,10 +190,10 @@ pub fn run(
         &parts.message,
         checkout,
     );
-    output_of(invoked, names, enumerate)
+    output_of(invoked, names, given, enumerate)
 }
 
-fn output_of(invoked: Invoked, names: &[String], enumerate: bool) -> Output {
+fn output_of(invoked: Invoked, names: &[String], given: &[i64], enumerate: bool) -> Output {
     let output = match &invoked.body {
         Ok(body) => body.to_string(),
         Err(why) => format!("no answer: {why}"),
@@ -197,11 +202,13 @@ fn output_of(invoked: Invoked, names: &[String], enumerate: bool) -> Output {
         output,
         usage: invoked.usage,
         answer: invoked.body.and_then(|body| {
-            if enumerate {
-                sites_of(&body, names)
+            let mut answer = if enumerate {
+                sites_of(&body, names)?
             } else {
-                answer_of(&body, names)
-            }
+                answer_of(&body, names)?
+            };
+            answer.closed = closed_of(&body, given)?;
+            Ok(answer)
         }),
     }
 }
@@ -209,7 +216,33 @@ fn output_of(invoked: Invoked, names: &[String], enumerate: bool) -> Output {
 /// Reads the answer of <text>, the JSON `claude -p` printed.
 #[cfg(test)]
 pub fn parse(text: &str, names: &[String]) -> Output {
-    output_of(envelope(text), names, false)
+    output_of(envelope(text), names, &[], false)
+}
+
+/// The open findings the answer closes: none when it names none, and each
+/// one of <given>, the findings the reviewer was given.
+fn closed_of(body: &Value, given: &[i64]) -> Result<Vec<i64>, String> {
+    let Some(listed) = body.get("closed") else {
+        return Ok(Vec::new());
+    };
+    let listed = listed
+        .as_array()
+        .ok_or("the answer's closed is not a list")?;
+    let mut closed = Vec::new();
+    for id in listed {
+        let id = id
+            .as_i64()
+            .ok_or("the answer's closed holds something other than a finding number")?;
+        if !given.contains(&id) {
+            return Err(format!(
+                "the answer closes finding {id}, which the reviewer was not given"
+            ));
+        }
+        if !closed.contains(&id) {
+            closed.push(id);
+        }
+    }
+    Ok(closed)
 }
 
 fn answer_of(body: &Value, names: &[String]) -> Result<Answer, String> {
@@ -269,6 +302,7 @@ fn answer_of(body: &Value, names: &[String]) -> Result<Answer, String> {
         verdicts,
         findings,
         sites: None,
+        closed: Vec::new(),
     })
 }
 
@@ -330,6 +364,7 @@ fn sites_of(body: &Value, names: &[String]) -> Result<Answer, String> {
         verdicts,
         findings,
         sites: Some(json!({"summary": summary, "sites": sites}).to_string()),
+        closed: Vec::new(),
     })
 }
 

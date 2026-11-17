@@ -1194,7 +1194,6 @@ impl Model {
                                     .and_then(|store| {
                                         self.review_reads.standing(
                                             &store,
-                                            &repo.name,
                                             Path::new(&checkout.path),
                                             &git.ahead,
                                         )
