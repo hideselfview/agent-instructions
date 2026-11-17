@@ -185,7 +185,7 @@ pub fn refusal(what: &str, top: &Path, held: &Held) -> String {
 
 /// A local branch that holds commits origin/main lacks while no worktree
 /// checks it out: work nothing in builds shows unless an open item names it.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug)]
 pub struct LooseBranch {
     pub repo: String,
     /// The repo's main checkout.
