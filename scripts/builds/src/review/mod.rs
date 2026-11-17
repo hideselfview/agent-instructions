@@ -645,7 +645,7 @@ fn settle(tool: &Tool, args: &[String]) -> Result<()> {
     };
     match (how == "allowed", by_person) {
         (true, false) => fail!(
-            "allowing a finding to land is the person's: pass --by-person once they have said to land finding {finding} as it is, with their words in --why, never on your own judgment"
+            "only the person can allow a finding to land: pass --by-person once they have said to land finding {finding} as it is, with their words in --why, never on your own judgment"
         ),
         (false, true) => fail!("--by-person goes with allowed: {USAGE}"),
         _ => {}

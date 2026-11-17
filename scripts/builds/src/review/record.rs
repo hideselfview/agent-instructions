@@ -192,15 +192,16 @@ impl Finding {
             None => Some(format!(
                 "finding {id} is not settled; settle it first: builds review settle {id} confirmed|dropped --why TEXT"
             )),
-            Some(Settled::Again { .. }) => {
-                Some(format!("finding {id} is settled again already, as dropped"))
-            }
+            Some(Settled::Again { .. }) => Some(format!(
+                "the coordinator settled finding {id} again already, as dropped"
+            )),
             Some(Settled::Allowed { .. }) => Some(format!(
                 "the person allowed finding {id} to land already, so it stays confirmed"
             )),
-            Some(Settled::Once(settle)) if settle.how != "confirmed" => {
-                Some(format!("finding {id} is settled as {} already", settle.how))
-            }
+            Some(Settled::Once(settle)) if settle.how != "confirmed" => Some(format!(
+                "the coordinator settled finding {id} as {} already",
+                settle.how
+            )),
             Some(Settled::Once(_)) => self
                 .closed_by
                 .map(|run| format!("review run {run} closed finding {id}, so it stays confirmed")),

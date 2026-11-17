@@ -171,7 +171,7 @@ fn settling_again_drops_a_confirmed_finding_and_keeps_both_settles() {
         settle_again(&db, again, "once more", 9, "third")
             .unwrap_err()
             .text()
-            .contains("settled again already")
+            .contains("again already")
     );
 }
 
@@ -263,7 +263,7 @@ fn the_person_allows_an_open_confirmed_finding_which_stays_confirmed_and_is_no_l
         allow(&db, dropped, "the person: land it", 8, "me")
             .unwrap_err()
             .text()
-            .contains("settled as dropped")
+            .contains("as dropped already")
     );
     settle(&db, allowed, "confirmed", "real", 7, "me").unwrap();
     assert!(allow(&db, allowed, "  ", 8, "me").is_err());
