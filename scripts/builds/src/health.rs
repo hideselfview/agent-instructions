@@ -252,14 +252,13 @@ pub struct InLine {
 
 impl Queued {
     /// Does it build for the worktree <label> at <git>? When it was run from
-    /// there, or it builds a commit of that worktree: its HEAD or one that
-    /// origin/main has no copy of.
+    /// there, or it builds a commit of that worktree's own (`SideGit::owns`).
     fn builds_for(&self, label: &str, git: &SideGit) -> bool {
         self.started_from.as_deref() == Some(label)
             || self
                 .commit
-                .as_ref()
-                .is_some_and(|commit| git.head.iter().chain(&git.ahead).any(|c| c.full == *commit))
+                .as_deref()
+                .is_some_and(|commit| git.owns(commit))
     }
 }
 
@@ -317,11 +316,7 @@ impl Holder {
     /// `builds lock` was killed and a process of its build holds the lock.
     fn builds_for(&self, label: &str, git: &SideGit) -> bool {
         self.started_from.as_deref() == Some(label)
-            || (self.app_head.is_some()
-                && git
-                    .ahead
-                    .iter()
-                    .any(|c| Some(&c.full) == self.app_head.as_ref()))
+            || self.app_head.as_deref().is_some_and(|head| git.owns(head))
     }
 }
 

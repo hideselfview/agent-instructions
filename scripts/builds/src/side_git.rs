@@ -36,6 +36,14 @@ pub struct SideGit {
 }
 
 impl SideGit {
+    /// Is <full>, a full commit hash, one of this worktree's own commits:
+    /// one on its HEAD that origin/main has no copy of? A commit origin/main
+    /// has, such as HEAD right after a landing, belongs to every worktree
+    /// based on it, so it tells no worktree apart.
+    pub fn owns(&self, full: &str) -> bool {
+        self.ahead.iter().any(|commit| commit.full == full)
+    }
+
     /// The newer of HEAD's commit time and the newest uncommitted write: the
     /// worktree's last activity.
     pub fn activity(&self) -> Option<i64> {
