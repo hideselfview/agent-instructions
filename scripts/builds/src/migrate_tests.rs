@@ -3053,6 +3053,176 @@ fn a_store_from_before_blocks_from_waits_clears_the_why_of_each_question_an_open
     assert_eq!(waits, 3);
 }
 
+/// ack/record.sql as it was before builds kept an agent's acknowledgement of
+/// each repo's text apart: one acknowledgement per agent.
+const BEFORE_ACK_PER_REPO_ACK_PART: &str = r#"-- `builds ack` records that an agent read the text builds asks every agent to
+-- read before it runs a builds command. builds names an agent by its Claude
+-- Code session and the id Claude Code gives the agent (`agent`; agent.rs): the
+-- agents a session dispatches share its session id, so the agent id tells
+-- them apart.
+
+-- Each agent's last acknowledgement: the version of the text it read and when.
+CREATE TABLE ack (
+    session TEXT NOT NULL CONSTRAINT ack_session_is_named CHECK (session <> ''),
+    agent TEXT NOT NULL CONSTRAINT ack_agent_is_named CHECK (agent <> ''),
+    version TEXT NOT NULL CONSTRAINT ack_version_is_named CHECK (version <> ''),
+    at INTEGER NOT NULL,
+    PRIMARY KEY (session, agent)
+) STRICT, WITHOUT ROWID;
+
+-- The versions of the text that agents acknowledged most recently, so that
+-- the reading of an agent whose last acknowledged version is here holds only
+-- the sections that changed since. builds keeps `KEPT_VERSIONS` of them
+-- (record.rs) and deletes the rest, so an `ack` row may name a version this
+-- table no longer holds.
+CREATE TABLE ack_version (
+    version TEXT PRIMARY KEY CONSTRAINT ack_version_version_is_named CHECK (version <> ''),
+    -- When an agent last acknowledged this version.
+    acknowledged_at INTEGER NOT NULL
+) STRICT, WITHOUT ROWID;
+
+-- The hash of each section of the text of a version that builds keeps, by
+-- the section's name.
+CREATE TABLE ack_version_section (
+    version TEXT NOT NULL REFERENCES ack_version (version) ON DELETE CASCADE,
+    name TEXT NOT NULL CONSTRAINT ack_version_section_name_is_named CHECK (name <> ''),
+    hash TEXT NOT NULL CONSTRAINT ack_version_section_hash_is_named CHECK (hash <> ''),
+    PRIMARY KEY (version, name)
+) STRICT, WITHOUT ROWID;
+
+-- The reading an agent started with `builds ack`: the version it reads. The
+-- agent's next `builds ack` replaces it, and its acknowledgement deletes it.
+CREATE TABLE ack_reading (
+    session TEXT NOT NULL CONSTRAINT ack_reading_session_is_named CHECK (session <> ''),
+    agent TEXT NOT NULL CONSTRAINT ack_reading_agent_is_named CHECK (agent <> ''),
+    version TEXT NOT NULL CONSTRAINT ack_reading_version_is_named CHECK (version <> ''),
+    started_at INTEGER NOT NULL,
+    PRIMARY KEY (session, agent)
+) STRICT, WITHOUT ROWID;
+
+-- The sections a reading holds, by name, in the order its parts show them:
+-- every section of the text, or only those that changed since the version
+-- the agent last acknowledged.
+CREATE TABLE ack_reading_section (
+    session TEXT NOT NULL,
+    agent TEXT NOT NULL,
+    position INTEGER NOT NULL CONSTRAINT ack_reading_section_position_counts_from_one CHECK (position >= 1),
+    name TEXT NOT NULL CONSTRAINT ack_reading_section_name_is_named CHECK (name <> ''),
+    PRIMARY KEY (session, agent, position),
+    UNIQUE (session, agent, name),
+    FOREIGN KEY (session, agent) REFERENCES ack_reading (session, agent) ON DELETE CASCADE
+) STRICT, WITHOUT ROWID;
+
+-- The check words of each part of a reading, in the order the part shows
+-- them. The acknowledgement must give every one of them, in order.
+CREATE TABLE ack_word (
+    session TEXT NOT NULL,
+    agent TEXT NOT NULL,
+    part INTEGER NOT NULL CONSTRAINT ack_word_part_counts_from_one CHECK (part >= 1),
+    position INTEGER NOT NULL CONSTRAINT ack_word_position_counts_from_one CHECK (position >= 1),
+    word TEXT NOT NULL CONSTRAINT ack_word_is_a_word CHECK (word <> '' AND word NOT GLOB '*[^a-z]*'),
+    PRIMARY KEY (session, agent, part, position),
+    FOREIGN KEY (session, agent) REFERENCES ack_reading (session, agent) ON DELETE CASCADE
+) STRICT, WITHOUT ROWID;
+"#;
+
+/// The schema text before builds kept an agent's acknowledgement of each
+/// repo's text apart.
+fn schema_before_ack_per_repo() -> String {
+    let schema = db::schema();
+    assert_eq!(schema.matches(db::ACK_PART).count(), 1);
+    schema.replacen(db::ACK_PART, BEFORE_ACK_PER_REPO_ACK_PART, 1)
+}
+
+#[test]
+fn the_ack_per_repo_stamp_is_the_schema_before_ack_per_repo() {
+    assert_eq!(
+        db::stamp_of_text(&schema_before_ack_per_repo()),
+        BEFORE_ACK_PER_REPO_STAMP
+    );
+}
+
+/// A store from before builds kept each repo's acknowledgement apart loses
+/// every acknowledgement, keeps the versions it kept and the readings, equals
+/// a fresh schema, and then records an acknowledgement of each repo's text.
+#[test]
+fn a_store_from_before_ack_per_repo_loses_its_acknowledgements_and_keeps_its_versions_and_readings()
+{
+    use crate::ack::record;
+    let scratch = Scratch::new("move-ack-per-repo");
+    let places = scratch.places();
+    let dir = places.lists.join("bae");
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join(DATABASE);
+    {
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(&schema_before_ack_per_repo()).unwrap();
+        conn.pragma_update(None, "user_version", BEFORE_ACK_PER_REPO_STAMP)
+            .unwrap();
+        let v = |value: &str| rusqlite::types::Value::from(value.to_string());
+        record::plant(
+            &conn,
+            "ack",
+            &[
+                ("session", v("s1")),
+                ("agent", v("a1")),
+                ("version", v("v1")),
+                ("at", 10.into()),
+            ],
+        )
+        .unwrap();
+        record::plant(
+            &conn,
+            "ack_version",
+            &[("version", v("v1")), ("acknowledged_at", 10.into())],
+        )
+        .unwrap();
+        record::plant(
+            &conn,
+            "ack_version_section",
+            &[
+                ("version", v("v1")),
+                ("name", v("builds help")),
+                ("hash", v("aa")),
+            ],
+        )
+        .unwrap();
+        record::start_reading(
+            &conn,
+            "s1",
+            "a2",
+            "v2",
+            40,
+            &["builds help".to_string()],
+            &[vec!["kama".to_string()]],
+        )
+        .unwrap();
+    }
+    migrate_stores(&places, 0).unwrap();
+    let conn = db::open(&path, db::Make::Never).unwrap();
+    assert_eq!(
+        db::schema_rows(&conn).unwrap(),
+        db::schema_rows(&db::memory()).unwrap()
+    );
+    let acks: i64 = conn
+        .query_row("SELECT COUNT(*) FROM ack", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(acks, 0);
+    assert_eq!(
+        record::kept_sections(&conn, "v1").unwrap(),
+        Some(vec![("builds help".to_string(), "aa".to_string())])
+    );
+    let reading = record::reading(&conn, "s1", "a2").unwrap().unwrap();
+    assert_eq!(reading.words, vec![vec!["kama".to_string()]]);
+    record::acknowledge(&conn, "s1", "a1", Some("bae"), "v3", 50, &[]).unwrap();
+    record::acknowledge(&conn, "s1", "a1", Some("coven"), "v4", 60, &[]).unwrap();
+    assert!(
+        record::last(&conn, "s1", "a1", Some("bae"))
+            .unwrap()
+            .is_some()
+    );
+}
+
 /// review/writing.sql, the table of writing check runs that builds kept until
 /// the copy review replaced the writing check.
 const WRITING_PART: &str = r#"-- Each row records one run of the writing check (`builds review writing`)
@@ -3118,7 +3288,7 @@ fn schema_before_copy_review() -> String {
         assert_eq!(review.matches(now).count(), 1, "{now}");
         review = review.replacen(now, then, 1);
     }
-    let schema = db::schema();
+    let schema = schema_before_ack_per_repo();
     assert_eq!(schema.matches(db::REVIEW_PART).count(), 1);
     format!(
         "{}\n{WRITING_PART}",
@@ -3471,8 +3641,8 @@ CREATE TABLE ack_word (
 /// id.
 fn schema_before_agent_ids() -> String {
     let schema = schema_before_copy_review();
-    assert_eq!(schema.matches(db::ACK_PART).count(), 1);
-    schema.replacen(db::ACK_PART, BEFORE_AGENT_IDS_ACK_PART, 1)
+    assert_eq!(schema.matches(BEFORE_ACK_PER_REPO_ACK_PART).count(), 1);
+    schema.replacen(BEFORE_ACK_PER_REPO_ACK_PART, BEFORE_AGENT_IDS_ACK_PART, 1)
 }
 
 #[test]
@@ -3520,7 +3690,7 @@ fn a_store_from_before_agent_ids_loses_its_acknowledgements_and_records_one() {
         crate::ack::record::reading(&conn, "s1", "agent").unwrap(),
         None
     );
-    crate::ack::record::acknowledge(&conn, "s1", "a1", "v3", 50, &[]).unwrap();
+    crate::ack::record::acknowledge(&conn, "s1", "a1", None, "v3", 50, &[]).unwrap();
 }
 
 /// The schema text before the person could allow a confirmed finding to land:
@@ -3867,7 +4037,7 @@ fn a_store_from_before_acknowledgements_gains_the_tables_and_records_one() {
         .query_row("SELECT blocks_nothing FROM question", [], |row| row.get(0))
         .unwrap();
     assert_eq!(why.as_deref(), Some("asked anyway"));
-    crate::ack::record::acknowledge(&conn, "s1", "agent", "v1", 20, &[]).unwrap();
+    crate::ack::record::acknowledge(&conn, "s1", "agent", None, "v1", 20, &[]).unwrap();
 }
 
 #[test]

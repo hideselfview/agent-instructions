@@ -58,7 +58,7 @@ fn a_reading_keeps_its_sections_and_each_parts_words_until_the_next_reading_repl
 #[test]
 fn an_acknowledgement_replaces_the_last_one_keeps_its_version_and_ends_the_reading() {
     let db = crate::db::memory();
-    acknowledge(&db, "s1", "agent", "v1", 5, &[]).unwrap();
+    acknowledge(&db, "s1", "agent", None, "v1", 5, &[]).unwrap();
     start_reading(
         &db,
         "s1",
@@ -69,9 +69,9 @@ fn an_acknowledgement_replaces_the_last_one_keeps_its_version_and_ends_the_readi
         &words(&[&["ka"]]),
     )
     .unwrap();
-    acknowledge(&db, "s1", "agent", "v2", 12, &sections()).unwrap();
+    acknowledge(&db, "s1", "agent", None, "v2", 12, &sections()).unwrap();
     assert_eq!(
-        last(&db, "s1", "agent").unwrap(),
+        last(&db, "s1", "agent", None).unwrap(),
         Some(Ack {
             version: "v2".to_string(),
             at: 12,
@@ -86,12 +86,21 @@ fn an_acknowledgement_replaces_the_last_one_keeps_its_version_and_ends_the_readi
 #[test]
 fn builds_keeps_only_the_versions_agents_acknowledged_last() {
     let db = crate::db::memory();
-    acknowledge(&db, "s1", "agent", "v0", 0, &sections()).unwrap();
+    acknowledge(&db, "s1", "agent", None, "v0", 0, &sections()).unwrap();
     for n in 1..KEPT_VERSIONS {
-        acknowledge(&db, "s1", "other", &format!("v{n}"), n, &sections()).unwrap();
+        acknowledge(&db, "s1", "other", None, &format!("v{n}"), n, &sections()).unwrap();
     }
-    acknowledge(&db, "s2", "again", "v0", KEPT_VERSIONS, &sections()).unwrap();
-    acknowledge(&db, "s1", "other", "new", KEPT_VERSIONS + 1, &sections()).unwrap();
+    acknowledge(&db, "s2", "again", None, "v0", KEPT_VERSIONS, &sections()).unwrap();
+    acknowledge(
+        &db,
+        "s1",
+        "other",
+        None,
+        "new",
+        KEPT_VERSIONS + 1,
+        &sections(),
+    )
+    .unwrap();
     assert_eq!(kept_sections(&db, "v1").unwrap(), None);
     assert!(kept_sections(&db, "v0").unwrap().is_some());
     assert!(kept_sections(&db, "new").unwrap().is_some());
@@ -108,8 +117,8 @@ fn builds_keeps_only_the_versions_agents_acknowledged_last() {
 #[test]
 fn forgetting_an_agent_deletes_its_acknowledgement_and_reading_only() {
     let db = crate::db::memory();
-    acknowledge(&db, "s1", "a1", "v1", 5, &[]).unwrap();
-    acknowledge(&db, "s1", "a2", "v1", 6, &[]).unwrap();
+    acknowledge(&db, "s1", "a1", None, "v1", 5, &[]).unwrap();
+    acknowledge(&db, "s1", "a2", None, "v1", 6, &[]).unwrap();
     start_reading(
         &db,
         "s1",
@@ -121,9 +130,9 @@ fn forgetting_an_agent_deletes_its_acknowledgement_and_reading_only() {
     )
     .unwrap();
     forget(&db, "s1", "a1").unwrap();
-    assert_eq!(last(&db, "s1", "a1").unwrap(), None);
+    assert_eq!(last(&db, "s1", "a1", None).unwrap(), None);
     assert_eq!(reading(&db, "s1", "a1").unwrap(), None);
-    assert!(last(&db, "s1", "a2").unwrap().is_some());
+    assert!(last(&db, "s1", "a2", None).unwrap().is_some());
 }
 
 #[test]
@@ -141,4 +150,26 @@ fn a_check_word_holds_only_lowercase_letters() {
         )
         .is_err()
     );
+}
+
+#[test]
+fn an_agent_keeps_one_acknowledgement_of_each_repos_text_and_a_compaction_clears_them_all() {
+    let db = crate::db::memory();
+    acknowledge(&db, "s1", "a1", Some("bae"), "bae1", 5, &[]).unwrap();
+    acknowledge(&db, "s1", "a1", Some("coven"), "coven1", 6, &[]).unwrap();
+    acknowledge(&db, "s1", "a1", None, "none1", 7, &[]).unwrap();
+    acknowledge(&db, "s1", "a1", Some("bae"), "bae2", 8, &[]).unwrap();
+    acknowledge(&db, "s1", "a1", None, "none2", 9, &[]).unwrap();
+    let of = |repo: Option<&str>| last(&db, "s1", "a1", repo).unwrap().unwrap();
+    assert_eq!(of(Some("bae")).version, "bae2");
+    assert_eq!(of(Some("coven")).version, "coven1");
+    assert_eq!(of(None).version, "none2");
+    let rows: i64 = db
+        .query_row("SELECT COUNT(*) FROM ack", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(rows, 3);
+    forget(&db, "s1", "a1").unwrap();
+    for repo in [Some("bae"), Some("coven"), None] {
+        assert_eq!(last(&db, "s1", "a1", repo).unwrap(), None);
+    }
 }

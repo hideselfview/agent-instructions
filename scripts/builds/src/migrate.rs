@@ -283,9 +283,13 @@ const BEFORE_AGENT_IDS_STAMP: i64 = 280_014_316;
 /// review of its own, which `builds review` never runs.
 const BEFORE_COPY_REVIEW_STAMP: i64 = 2_122_037_992;
 
+/// The stamp of the schema before builds kept an agent's acknowledgement of
+/// each repo's text apart.
+const BEFORE_ACK_PER_REPO_STAMP: i64 = 1_591_868_490;
+
 /// Every stamp a store can carry that `move_store` moves, oldest schema first.
 /// A new move adds the stamp of the schema before it at the end.
-const STAMPS: [i64; 38] = [
+const STAMPS: [i64; 39] = [
     BEFORE_DESIGN_DELETED_STAMP,
     BEFORE_CHECK_TIMES_STAMP,
     BEFORE_DESIGN_TIP_STAMP,
@@ -324,6 +328,7 @@ const STAMPS: [i64; 38] = [
     BEFORE_MESSAGE_STYLE_STAMP,
     BEFORE_AGENT_IDS_STAMP,
     BEFORE_COPY_REVIEW_STAMP,
+    BEFORE_ACK_PER_REPO_STAMP,
 ];
 
 /// Whether a store stamped <found> comes before the move that follows the
@@ -430,7 +435,10 @@ const DESIGN_DELETED: &str = "CREATE TABLE design_deleted (
 /// and every store that had the review's tables gets `review_run` and
 /// `review_finding` again, with every row, and the person's settle as dropped
 /// of each finding about wording that a branch waits on
-/// (`review::record::move_to_copy_review`).
+/// (`review::record::move_to_copy_review`). Every store that has the
+/// acknowledgements' table of one acknowledgement per agent gets today's,
+/// empty, which keeps an agent's acknowledgement of each repo's text apart
+/// (`ack::record::move_to_ack_per_repo`).
 /// The moves run in one transaction, the store
 /// is stamped as today's schema, and it must then equal a fresh database's schema or the transaction rolls back. A
 /// store already at today's stamp, or with no database, is left alone; any
@@ -838,6 +846,12 @@ fn move_store(places: &Places, path: &Path, now: i64) -> Result<()> {
             path.display(),
             crate::text::counted(settled, "finding", "findings")
         ));
+    }
+    // A store from before builds named each agent by its id got today's
+    // acknowledgements' tables above. Every newer store holds one
+    // acknowledgement per agent, and gets today's table, empty.
+    if !before(found, BEFORE_AGENT_IDS_STAMP) && before(found, BEFORE_ACK_PER_REPO_STAMP) {
+        crate::ack::record::move_to_ack_per_repo(&tx)?;
     }
     tx.pragma_update(None, "user_version", db::stamp()).sql()?;
     let broken: Option<String> = tx

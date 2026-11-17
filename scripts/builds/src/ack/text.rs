@@ -44,6 +44,10 @@ impl Section {
 /// The whole text, its sections in the order builds lists them.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Text {
+    /// The repo whose CLAUDE.md the text holds, or None when it holds no
+    /// repo's CLAUDE.md. builds keeps an agent's acknowledgement of each
+    /// repo's text apart (record.rs).
+    pub repo: Option<String>,
     pub sections: Vec<Section>,
 }
 
@@ -56,6 +60,7 @@ impl Text {
     /// and under the project's `projects/<project>-rules/`).
     pub fn read(places: &Places, project: &str, checkout: Option<&Checkout>) -> Result<Text> {
         let mut sections = Vec::new();
+        let mut repo = None;
         let home = read_if_there(&places.home.join(".claude/CLAUDE.md"))?;
         if let Some(text) = &home {
             sections.push(Section {
@@ -71,6 +76,7 @@ impl Text {
                 name: format!("the CLAUDE.md of repo {}", checkout.repo()),
                 text,
             });
+            repo = Some(checkout.repo());
         }
         sections.push(Section {
             name: "builds help workflow".to_string(),
@@ -89,7 +95,7 @@ impl Text {
                 });
             }
         }
-        Ok(Text { sections })
+        Ok(Text { repo, sections })
     }
 
     /// The version: the hash of every section's name and text, in order.

@@ -10,7 +10,7 @@ use crate::fail::Result;
 /// most recently.
 pub const KEPT_VERSIONS: i64 = 20;
 
-/// An agent's last acknowledgement, as the gate reads it.
+/// An agent's last acknowledgement of one text, as the gate reads it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Ack {
     pub version: String,
@@ -29,11 +29,18 @@ pub struct Reading {
     pub words: Vec<Vec<String>>,
 }
 
-/// The last acknowledgement of <agent> in <session>.
-pub fn last(db: &Connection, session: &str, agent: &str) -> Result<Option<Ack>> {
+/// The last acknowledgement by <agent> in <session> of the text that holds
+/// the CLAUDE.md of <repo>, or of the text that holds no repo's CLAUDE.md
+/// when <repo> is None.
+pub fn last(
+    db: &Connection,
+    session: &str,
+    agent: &str,
+    repo: Option<&str>,
+) -> Result<Option<Ack>> {
     db.query_row(
-        "SELECT version, at FROM ack WHERE session = ?1 AND agent = ?2",
-        params![session, agent],
+        "SELECT version, at FROM ack WHERE session = ?1 AND agent = ?2 AND repo IS ?3",
+        params![session, agent, repo],
         |row| {
             Ok(Ack {
                 version: row.get(0)?,
@@ -161,27 +168,30 @@ pub fn reading(db: &Connection, session: &str, agent: &str) -> Result<Option<Rea
     }))
 }
 
-/// Records that <agent> in <session> acknowledged version <version> at <at>,
-/// whose sections had <sections> (name and hash), in place of its last
-/// acknowledgement, and ends its reading. builds keeps the version with its
+/// Records that <agent> in <session> acknowledged version <version> at <at>
+/// of the text that holds the CLAUDE.md of <repo> (None: of no repo), whose
+/// sections had <sections> (name and hash), in place of its last
+/// acknowledgement of that text, and ends its reading. The agent's
+/// acknowledgements of other texts stay. builds keeps the version with its
 /// sections, and deletes each version that is no longer among the
 /// `KEPT_VERSIONS` versions that agents acknowledged most recently.
 pub fn acknowledge(
     db: &Connection,
     session: &str,
     agent: &str,
+    repo: Option<&str>,
     version: &str,
     at: i64,
     sections: &[(String, String)],
 ) -> Result<()> {
     db.execute(
-        "DELETE FROM ack WHERE session = ?1 AND agent = ?2",
-        params![session, agent],
+        "DELETE FROM ack WHERE session = ?1 AND agent = ?2 AND repo IS ?3",
+        params![session, agent, repo],
     )
     .sql()?;
     db.execute(
-        "INSERT INTO ack (session, agent, version, at) VALUES (?1, ?2, ?3, ?4)",
-        params![session, agent, version, at],
+        "INSERT INTO ack (session, agent, repo, version, at) VALUES (?1, ?2, ?3, ?4, ?5)",
+        params![session, agent, repo, version, at],
     )
     .sql()?;
     db.execute(
@@ -213,7 +223,7 @@ pub fn acknowledge(
     Ok(())
 }
 
-/// Deletes the acknowledgement and the reading of agent <agent> of
+/// Deletes every acknowledgement and the reading of agent <agent> of
 /// <session>, after Claude Code compacted that agent.
 pub fn forget(db: &Connection, session: &str, agent: &str) -> Result<()> {
     db.execute(
@@ -243,6 +253,58 @@ pub fn move_to_agent_ids(tx: &Connection) -> Result<()> {
     .sql()?;
     tx.execute_batch(crate::db::ACK_PART).sql()?;
     Ok(())
+}
+
+/// Moves the acknowledgements' table of a store from before builds kept an
+/// agent's acknowledgement of each repo's text apart to today's, inside the
+/// move's transaction <tx>: the move drops the old table, whose rows name no
+/// repo, and makes today's empty, so every agent reads the text of each repo
+/// it works in once. The versions builds keeps and the readings stay.
+pub fn move_to_ack_per_repo(tx: &Connection) -> Result<()> {
+    let schema = crate::db::schema();
+    tx.execute_batch("DROP TABLE ack;").sql()?;
+    tx.execute_batch(crate::db::statement(
+        &schema,
+        "CREATE TABLE ack (",
+        "STRICT;",
+    ))
+    .sql()?;
+    tx.execute_batch(crate::db::statement(
+        &schema,
+        "CREATE UNIQUE INDEX ack_of_repo ",
+        ";",
+    ))
+    .sql()?;
+    tx.execute_batch(crate::db::statement(
+        &schema,
+        "CREATE UNIQUE INDEX ack_of_no_repo ",
+        ";",
+    ))
+    .sql()?;
+    Ok(())
+}
+
+/// Writes a row of record.rs's table <table> as given, the constraints still
+/// holding: for a test of a store move that needs a row of an older shape.
+#[cfg(test)]
+pub fn plant(
+    db: &Connection,
+    table: &str,
+    columns: &[(&str, rusqlite::types::Value)],
+) -> rusqlite::Result<usize> {
+    crate::db::plant_row(
+        db,
+        &[
+            "ack",
+            "ack_version",
+            "ack_version_section",
+            "ack_reading",
+            "ack_reading_section",
+            "ack_word",
+        ],
+        table,
+        columns,
+    )
 }
 
 #[cfg(test)]

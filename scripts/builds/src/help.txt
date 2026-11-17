@@ -41,18 +41,23 @@ help workflow` (without its WHAT REVIEWS CONFIRM MOST OFTEN section, which
 changes with each settled finding), the overview that opens `builds help
 lists`, and the rules of agent-instructions whose paths cover every file
 (those under rules/ and under the project's projects/<project>-rules/). An
-edit of any of them changes the text's version. The rest of this help, and of
-`builds help lists` and `builds help briefs`, is for looking up what a command
-does.
+edit of any of them changes the text's version. Each repo's text holds that
+repo's CLAUDE.md, so builds keeps an agent's acknowledgement of each repo's
+text apart: an agent that acknowledged the texts of bae and coven runs
+commands in either repo without reading again, until that repo's text
+changes, 12 hours pass or Claude Code compacts the agent. The rest of this
+help, and of `builds help lists` and `builds help briefs`, is for looking up
+what a command does.
 
   builds ack [--agent ID] [--project P]
       Start a reading: say the text's version and how many parts it comes
       in, and draw new check words for every part. builds keeps the
       sections of the 20 versions of the text that agents acknowledged most
-      recently. When builds keeps the version the agent last acknowledged,
-      and the agent acknowledged it at most 12 hours ago, the reading holds
-      only the sections that changed since, each in full, and says which
-      ones changed. Otherwise the reading holds the whole text.
+      recently. When builds keeps the version of this repo's text that the
+      agent last acknowledged, and the agent acknowledged it at most 12
+      hours ago, the reading holds only the sections that changed since,
+      each in full, and says which ones changed. Otherwise the reading holds
+      the whole text.
   builds ack PART [--agent ID] [--project P]
       Print part PART of the reading. Each part shows three check words, on
       lines of their own, at its start, its middle and its end. Reading a
@@ -64,10 +69,10 @@ does.
   builds ack --compacted
       Claude Code's SessionStart hook runs this after Claude Code compacts
       an agent (claude/settings.json in agent-instructions). builds deletes
-      that agent's acknowledgement and reading in every project's store, and
-      tells the agent its id again, so the agent reads the text again before
-      its next builds command and every other agent keeps its
-      acknowledgement. builds refuses an agent no hook registered, and
+      every acknowledgement and the reading of that agent in every project's
+      store, and tells the agent its id again, so the agent reads the text
+      again before its next builds command and every other agent keeps its
+      acknowledgements. builds refuses an agent no hook registered, and
       deletes nothing.
   builds agent start
       Claude Code's SessionStart hook (when a session starts, resumes,
@@ -92,11 +97,11 @@ before a `--`, or sets BUILDS_AGENT=ID in front of a script that runs builds
 no id, or an id no hook registered in the session, and says where the agent
 finds its id. builds keeps the acknowledgement in the store of the project
 whose repo the command runs in, else of the project --project names. builds
-refuses an agent whose acknowledgement there is missing, is of another
-version, or is more than 12 hours old, and names what changed since the
-agent's last acknowledgement. A builds command that passed lets the builds
-commands it runs pass too, such as a commit hook's checks or the install
-after a landing.
+refuses an agent whose acknowledgement there of the repo's text is missing,
+is of another version, or is more than 12 hours old, and names what changed
+since the agent's last acknowledgement of that text. A builds command that
+passed lets the builds commands it runs pass too, such as a commit hook's
+checks or the install after a landing.
 
 
 BUILD VOLUME

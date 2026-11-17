@@ -99,6 +99,7 @@ fn long_text() -> Text {
             .join("\n"),
     };
     Text {
+        repo: None,
         sections: vec![section("first", 600), section("second", 50)],
     }
 }

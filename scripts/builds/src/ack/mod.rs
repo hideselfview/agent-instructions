@@ -12,11 +12,14 @@
 //! agent (agent.rs).
 //!
 //! builds keeps the acknowledgement in the store of the project whose repo
-//! the command runs in, else of the project `--project` names. builds refuses
-//! an agent whose acknowledgement there is missing, is of another version of
-//! the text, or is more than `HOURS` hours old. After Claude Code compacts an
-//! agent, its SessionStart hook runs `builds ack --compacted`, which deletes
-//! that agent's acknowledgements (`compacted`).
+//! the command runs in, else of the project `--project` names. The text holds
+//! the CLAUDE.md of the repo the command runs in, so builds keeps an agent's
+//! acknowledgement of each repo's text apart, and an agent that works in two
+//! repos of a project reads each repo's text once. builds refuses an agent
+//! whose acknowledgement of the text there is missing, is of another version
+//! of the text, or is more than `HOURS` hours old. After Claude Code compacts
+//! an agent, its SessionStart hook runs `builds ack --compacted`, which
+//! deletes every acknowledgement of that agent (`compacted`).
 
 pub mod agent;
 pub mod record;
@@ -184,16 +187,17 @@ impl Agent {
         Text::read(places, &self.store.project, self.checkout.as_ref())
     }
 
-    fn last(&self) -> Result<Option<record::Ack>> {
+    /// The agent's last acknowledgement of <text>.
+    fn last(&self, text: &Text) -> Result<Option<record::Ack>> {
         match db::open_reader(&self.store.database())? {
-            Some(db) => record::last(&db, &self.session, &self.id),
+            Some(db) => record::last(&db, &self.session, &self.id, text.repo.as_deref()),
             None => Ok(None),
         }
     }
 
     /// What the agent's reading of <text> at <now> holds.
     fn scope(&self, text: &Text, now: i64) -> Result<Scope> {
-        let Some(ack) = self.last()? else {
+        let Some(ack) = self.last(text)? else {
             return Ok(Scope::Whole(Whole::NotAcknowledged));
         };
         if now - ack.at > HOURS * 3600 {
@@ -281,9 +285,12 @@ fn check(
     let who = agent.name();
     let why = match agent.scope(&text, now)? {
         Scope::Whole(Whole::Current) => return Ok(()),
-        Scope::Whole(Whole::NotAcknowledged) => {
-            format!("{who} has not acknowledged it in this Claude Code session")
-        }
+        Scope::Whole(Whole::NotAcknowledged) => match &text.repo {
+            Some(repo) => format!(
+                "{who} has not acknowledged the text that holds the CLAUDE.md of repo {repo} in this Claude Code session"
+            ),
+            None => format!("{who} has not acknowledged it in this Claude Code session"),
+        },
         Scope::Whole(Whole::TooOld(ack)) => format!(
             "{who} acknowledged it at {}, more than {HOURS} hours ago, so `builds ack` shows the whole text",
             local_minute(ack.at)
@@ -494,7 +501,15 @@ fn acknowledge(
     let tx = db
         .transaction_with_behavior(TransactionBehavior::Immediate)
         .sql()?;
-    record::acknowledge(&tx, &agent.session, &agent.id, version, now, &text.hashes())?;
+    record::acknowledge(
+        &tx,
+        &agent.session,
+        &agent.id,
+        text.repo.as_deref(),
+        version,
+        now,
+        &text.hashes(),
+    )?;
     tx.commit().sql()?;
     Ok(format!(
         "builds: {} acknowledged version {version}. The acknowledgement holds for {HOURS} hours, until the text changes or Claude Code compacts this agent.\n",
@@ -523,10 +538,10 @@ fn wrong_parts(expected: &[Vec<String>], given: &[String]) -> Vec<usize> {
 }
 
 /// What `builds ack --compacted` does with the input <hook> Claude Code's
-/// SessionStart hook passes after it compacts an agent: deletes that agent's
-/// acknowledgement and reading in every store, and returns the hook's output,
-/// which tells the agent its id again. The input names the agent
-/// (`agent_id`, absent when the main agent compacted). Fails, deleting
+/// SessionStart hook passes after it compacts an agent: deletes every
+/// acknowledgement and the reading of that agent in every store, and returns
+/// the hook's output, which tells the agent its id again. The input names the
+/// agent (`agent_id`, absent when the main agent compacted). Fails, deleting
 /// nothing, for an agent no hook registered.
 fn compacted(places: &Places, hook: agent::HookInput) -> Result<String> {
     if hook.hook_event_name != "SessionStart" || hook.source.as_deref() != Some("compact") {
@@ -554,7 +569,7 @@ fn compacted(places: &Places, hook: agent::HookInput) -> Result<String> {
     Ok(agent::hook_output(
         "SessionStart",
         &format!(
-            "Claude Code compacted your context, so builds ended your acknowledgement of the text every agent reads. {} Run `builds ack --agent {id}` before your next builds command.",
+            "Claude Code compacted your context, so builds ended your acknowledgements of the text every agent reads. {} Run `builds ack --agent {id}` before your next builds command.",
             agent::told(id)
         ),
     ))

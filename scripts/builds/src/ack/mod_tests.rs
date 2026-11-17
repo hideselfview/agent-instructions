@@ -1,7 +1,7 @@
 use super::*;
 use crate::lists::fixtures::{NOON, make_store_named};
 use crate::testing::{Scratch, repo};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 const SESSION_ID: &str = "session-1";
 
@@ -9,12 +9,14 @@ const SESSION_ID: &str = "session-1";
 const AGENT: &str = "a1";
 
 /// A scratch home with one rule for every file and a ~/.claude/CLAUDE.md,
-/// project bae's store, a checkout of repo bae claimed by `agent`, and agent
-/// `AGENT` registered in session `SESSION_ID`.
+/// project bae's store of repos bae and coven, a checkout of repo bae with no
+/// CLAUDE.md and one of repo coven with its own, each claimed by `agent`, and
+/// agent `AGENT` registered in session `SESSION_ID`.
 struct World {
     scratch: Scratch,
     places: Places,
     checkout: PathBuf,
+    coven: PathBuf,
 }
 
 fn world(name: &str) -> World {
@@ -31,16 +33,21 @@ fn world(name: &str) -> World {
     std::os::unix::fs::symlink(&root, places.home.join(".codex/agent-instructions")).unwrap();
     std::fs::create_dir_all(places.home.join(".claude")).unwrap();
     std::fs::write(places.home.join(".claude/CLAUDE.md"), "Global rules.\n").unwrap();
-    make_store_named(&places, "bae", &["bae"]);
+    make_store_named(&places, "bae", &["bae", "coven"]);
     let checkout = scratch.dir.join("bae");
-    repo(&checkout, "target 1\n");
-    let found = Checkout::at(&checkout).unwrap().unwrap();
-    crate::claim::write_claim(&found, "agent", NOON, None, None).unwrap();
+    let coven = scratch.dir.join("coven");
+    for top in [&checkout, &coven] {
+        repo(top, "target 1\n");
+        let found = Checkout::at(top).unwrap().unwrap();
+        crate::claim::write_claim(&found, "agent", NOON, None, None).unwrap();
+    }
+    std::fs::write(coven.join("CLAUDE.md"), "Coven rules.\n").unwrap();
     agent::register(&places, SESSION_ID, AGENT).unwrap();
     World {
         scratch,
         places,
         checkout,
+        coven,
     }
 }
 
@@ -57,16 +64,14 @@ impl World {
     }
 
     fn ack_as(&self, agent: &str, args: &[&str], now: i64) -> Result<String> {
+        self.ack_in(&self.checkout, agent, args, now)
+    }
+
+    /// `builds ack <args>` as <agent> runs it in <cwd>.
+    fn ack_in(&self, cwd: &Path, agent: &str, args: &[&str], now: i64) -> Result<String> {
         let args: Vec<String> = args.iter().map(|arg| arg.to_string()).collect();
         let args = Args::parse(&args, &[], &["compacted"])?;
-        ack(
-            &self.places,
-            SESSION_ID,
-            Some(agent),
-            &args,
-            &self.checkout,
-            now,
-        )
+        ack(&self.places, SESSION_ID, Some(agent), &args, cwd, now)
     }
 
     fn check(&self, now: i64) -> Result<()> {
@@ -74,20 +79,24 @@ impl World {
     }
 
     fn check_as(&self, agent: &str, now: i64) -> Result<()> {
-        check(
-            &self.places,
-            SESSION_ID,
-            Some(agent),
-            None,
-            &self.checkout,
-            now,
-        )
+        self.check_in(&self.checkout, agent, now)
+    }
+
+    /// The gate for a command <agent> runs in <cwd>.
+    fn check_in(&self, cwd: &Path, agent: &str, now: i64) -> Result<()> {
+        check(&self.places, SESSION_ID, Some(agent), None, cwd, now)
     }
 
     /// Reads every part as <agent> does and returns the version and every
     /// check word, in order.
     fn read_all_as(&self, agent: &str, now: i64) -> (String, Vec<String>) {
-        let started = self.ack_as(agent, &[], now).unwrap();
+        self.read_all_in(&self.checkout, agent, now)
+    }
+
+    /// Reads every part as <agent> does in <cwd> and returns the version and
+    /// every check word, in order.
+    fn read_all_in(&self, cwd: &Path, agent: &str, now: i64) -> (String, Vec<String>) {
+        let started = self.ack_in(cwd, agent, &[], now).unwrap();
         let version = started
             .split("The text is version ")
             .nth(1)
@@ -99,7 +108,7 @@ impl World {
         let count = started.matches("  builds ack ").count() - 1;
         let mut words = Vec::new();
         for part in 1..=count {
-            let shown = self.ack_as(agent, &[&part.to_string()], now).unwrap();
+            let shown = self.ack_in(cwd, agent, &[&part.to_string()], now).unwrap();
             for line in shown.lines() {
                 if let Some((_, word)) = line.split_once(&format!("IN PART {part}: ")) {
                     words.push(word.to_string());
@@ -118,10 +127,15 @@ impl World {
     }
 
     fn acknowledge_as(&self, agent: &str, now: i64) {
-        let (version, words) = self.read_all_as(agent, now);
+        self.acknowledge_in(&self.checkout, agent, now);
+    }
+
+    /// Reads every part as <agent> does in <cwd>, and acknowledges the text.
+    fn acknowledge_in(&self, cwd: &Path, agent: &str, now: i64) {
+        let (version, words) = self.read_all_in(cwd, agent, now);
         let mut args = vec![version.as_str()];
         args.extend(words.iter().map(String::as_str));
-        self.ack_as(agent, &args, now).unwrap();
+        self.ack_in(cwd, agent, &args, now).unwrap();
     }
 
     /// What `builds ack --compacted` returns for the SessionStart input of a
@@ -266,7 +280,16 @@ fn a_reader_whose_version_builds_no_longer_keeps_reads_the_whole_text() {
         )
         .unwrap();
         for n in 0..record::KEPT_VERSIONS {
-            record::acknowledge(&db, "s2", "other", &format!("v{n}"), NOON + n + 1, &[]).unwrap();
+            record::acknowledge(
+                &db,
+                "s2",
+                "other",
+                None,
+                &format!("v{n}"),
+                NOON + n + 1,
+                &[],
+            )
+            .unwrap();
         }
     }
     world.edit_rule("Write plain, literal sentences.");
@@ -334,6 +357,57 @@ fn a_compaction_of_one_agent_clears_its_acknowledgement_and_leaves_the_others() 
     );
     assert!(message(world.check_as("a2", NOON + 60)).contains("agent a2 has not acknowledged"));
     world.check(NOON + 60).unwrap();
+}
+
+#[test]
+fn an_agent_that_acknowledged_two_repos_texts_runs_commands_in_either_without_reading_again() {
+    let world = world("ack-two-repos");
+    world.acknowledge(NOON);
+    let refusal = message(world.check_in(&world.coven, AGENT, NOON + 60));
+    assert!(
+        refusal.contains(
+            "agent a1 has not acknowledged the text that holds the CLAUDE.md of repo coven in this Claude Code session"
+        ),
+        "{refusal}"
+    );
+    world.acknowledge_in(&world.coven, AGENT, NOON + 60);
+    world.check(NOON + 120).unwrap();
+    world.check_in(&world.coven, AGENT, NOON + 120).unwrap();
+}
+
+#[test]
+fn an_edit_of_one_repos_claude_md_asks_again_only_in_that_repo_and_shows_only_that_file() {
+    let world = world("ack-two-repos-edited");
+    world.acknowledge(NOON);
+    world.acknowledge_in(&world.coven, AGENT, NOON);
+    std::fs::write(world.coven.join("CLAUDE.md"), "Coven rules, edited.\n").unwrap();
+    world.check(NOON + 60).unwrap();
+    let refusal = message(world.check_in(&world.coven, AGENT, NOON + 60));
+    assert!(
+        refusal.contains("the CLAUDE.md of repo coven changed"),
+        "{refusal}"
+    );
+    let started = world.ack_in(&world.coven, AGENT, &[], NOON + 60).unwrap();
+    assert!(
+        started.contains("1 of the text's 5 sections changed: the CLAUDE.md of repo coven"),
+        "{started}"
+    );
+    world.acknowledge_in(&world.coven, AGENT, NOON + 60);
+    world.check_in(&world.coven, AGENT, NOON + 120).unwrap();
+    world.check(NOON + 120).unwrap();
+}
+
+#[test]
+fn a_compaction_clears_the_acknowledgement_of_every_repos_text() {
+    let world = world("ack-two-repos-compacted");
+    world.acknowledge(NOON);
+    world.acknowledge_in(&world.coven, AGENT, NOON);
+    world.compact(Some(AGENT)).unwrap();
+    assert!(message(world.check(NOON + 60)).contains("agent a1 has not acknowledged"));
+    assert!(
+        message(world.check_in(&world.coven, AGENT, NOON + 60))
+            .contains("agent a1 has not acknowledged")
+    );
 }
 
 #[test]
