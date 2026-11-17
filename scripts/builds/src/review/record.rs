@@ -295,7 +295,6 @@ pub fn add_run(db: &Connection, run: &NewRun, calls: &[NewCall]) -> Result<(i64,
     .sql()?;
     let run_id = db.last_insert_rowid();
     let mut ids = Vec::new();
-    let mut closed: Vec<i64> = Vec::new();
     for call in calls {
         let rules = serde_json::to_string(&call.rules).expect("strings serialize");
         let prompt = keep_text(db, &call.prompt)?;
@@ -332,10 +331,7 @@ pub fn add_run(db: &Connection, run: &NewRun, calls: &[NewCall]) -> Result<(i64,
         }
         ids.push(finding_ids);
         for finding in &call.closes {
-            if !closed.contains(finding) {
-                close(db, *finding, run_id, run.landing)?;
-                closed.push(*finding);
-            }
+            close(db, *finding, run_id, run.landing)?;
         }
     }
     Ok((run_id, ids))
