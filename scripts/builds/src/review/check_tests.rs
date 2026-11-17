@@ -35,3 +35,9 @@ fn code_is_checked_against_the_named_file_across_lines() {
     );
     assert!(code_in(&files, "src/a.rs", "").is_err());
 }
+
+#[test]
+fn the_changed_lines_are_the_lines_the_hunks_add_and_remove() {
+    assert_eq!(changed_lines(DIFF), 6);
+    assert_eq!(changed_lines(""), 0);
+}

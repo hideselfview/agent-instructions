@@ -1698,7 +1698,14 @@ agent-instructions and run `review replay --rules-root` on it.
                               unsettled findings, precision and recall, then
                               the same per rule; then what audits and
                               replays cost. A call made before builds
-                              recorded cost counts as "cost not recorded"
+                              recorded cost counts as "cost not recorded".
+                              Last, per day and per group, the confirmed
+                              findings per 100 changed lines on each branch's
+                              first review, which shows whether agents' first
+                              drafts improve. A group's rate counts only the
+                              branches whose first review asked it, and a
+                              first review from before builds counted its
+                              changed lines is left out
   builds review case add <landing> <finding> --repo-dir DIR --rules-root DIR [--name NAME]
                               add the change of a confirmed finding as a case
                               expecting it, written in the review/cases folder

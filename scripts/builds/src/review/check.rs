@@ -53,6 +53,23 @@ pub fn parse_diff(diff: &str) -> Vec<DiffFile> {
     files
 }
 
+/// How many lines the hunks of <diff> add and remove, leaving out each file's
+/// header lines.
+pub fn changed_lines(diff: &str) -> i64 {
+    let mut in_hunk = false;
+    let mut changed = 0;
+    for line in diff.lines() {
+        if line.starts_with("diff --git ") {
+            in_hunk = false;
+        } else if line.starts_with("@@") {
+            in_hunk = true;
+        } else if in_hunk && (line.starts_with('+') || line.starts_with('-')) {
+            changed += 1;
+        }
+    }
+    changed
+}
+
 /// Whether the path <path> is the file <file> a finding names: the whole
 /// path, or its end when the reviewer named a shorter one.
 pub fn names_file(path: &str, file: &str) -> bool {

@@ -361,6 +361,7 @@ pub struct StoreScores {
     pub review_runs: usize,
     pub audits: Spend,
     pub replays: Spend,
+    pub first_reviews: Vec<record::FirstReview>,
 }
 
 /// Counts every review in the store from how its findings and its audits'
@@ -392,6 +393,7 @@ pub fn of_store(db: &Connection) -> Result<StoreScores> {
         scores.landings += 1;
         scores.review_runs += runs.iter().filter(|r| r.kind == "review").count();
     }
+    scores.first_reviews = record::first_reviews(db)?;
     for call in record::calls_of_kind(db, Kind::Audit)? {
         scores.audits.add(&call);
     }
@@ -506,6 +508,71 @@ pub fn store_report(project: &str, scores: &StoreScores) -> String {
     }
     out.push_str(&format!("\naudits: {}\n", spend_text(&scores.audits)));
     out.push_str(&format!("replays: {}\n", spend_text(&scores.replays)));
+    out.push_str(&first_reviews_report(&scores.first_reviews));
+    out
+}
+
+/// Confirmed findings per 100 changed lines on each branch's first review,
+/// by the day the review ran and by group. A group's rate on a day counts
+/// only the branches whose first review asked it. A finding the coordinator
+/// has not settled yet counts nowhere.
+pub fn first_reviews_report(reviews: &[record::FirstReview]) -> String {
+    let mut out = String::from(
+        "\nfirst reviews: confirmed findings per 100 changed lines on each branch's first review, by day and group\n",
+    );
+    let counted: Vec<&record::FirstReview> = reviews
+        .iter()
+        .filter(|review| review.changed_lines.is_some())
+        .collect();
+    let mut days: Vec<String> = counted
+        .iter()
+        .map(|review| crate::text::local_day(review.at))
+        .collect();
+    days.dedup();
+    for day in days {
+        let of_day: Vec<&&record::FirstReview> = counted
+            .iter()
+            .filter(|review| crate::text::local_day(review.at) == day)
+            .collect();
+        let lines: i64 = of_day
+            .iter()
+            .filter_map(|review| review.changed_lines)
+            .sum();
+        out.push_str(&format!(
+            "  {day}: {}, {lines} changed lines\n",
+            crate::text::counted(of_day.len(), "branch", "branches")
+        ));
+        let mut groups: Vec<&str> = of_day
+            .iter()
+            .flat_map(|review| review.groups.iter().map(|(group, _)| group.as_str()))
+            .collect();
+        groups.sort();
+        groups.dedup();
+        for group in groups {
+            let (mut findings, mut group_lines) = (0, 0);
+            for review in &of_day {
+                if let Some((_, confirmed)) = review.groups.iter().find(|(g, _)| g == group) {
+                    findings += confirmed;
+                    group_lines += review.changed_lines.unwrap_or(0);
+                }
+            }
+            let rate = match group_lines {
+                0 => "n/a".to_string(),
+                _ => format!("{:.2}", findings as f64 * 100.0 / group_lines as f64),
+            };
+            out.push_str(&format!(
+                "    {group}: {rate} ({} over {group_lines} lines)\n",
+                crate::text::counted(findings, "finding", "findings")
+            ));
+        }
+    }
+    let uncounted = reviews.len() - counted.len();
+    if uncounted > 0 {
+        out.push_str(&format!(
+            "  left out: {} that builds ran before it counted changed lines\n",
+            crate::text::counted(uncounted, "first review", "first reviews")
+        ));
+    }
     out
 }
 

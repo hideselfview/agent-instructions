@@ -309,6 +309,7 @@ pub fn review(inputs: &Inputs) -> Result<Reported> {
                         since: ask.since,
                         grouping: &material.grouping,
                         rules_version: &run::rules_version(inputs.root),
+                        changed_lines: Some(check::changed_lines(&ask.diff.text)),
                     },
                     &asked.calls,
                 )?;

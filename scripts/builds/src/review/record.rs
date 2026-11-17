@@ -260,6 +260,9 @@ pub struct NewRun<'a> {
     pub grouping: &'a str,
     /// The commit of the rules checkout the run read.
     pub rules_version: &'a str,
+    /// How many lines a review run's diff adds and removes; None for a replay
+    /// or an audit.
+    pub changed_lines: Option<i64>,
 }
 
 /// The hash <text> is kept under: its FNV-1a hash and its length.
@@ -288,8 +291,8 @@ fn keep_text(db: &Connection, text: &str) -> Result<String> {
 /// ids its findings got.
 pub fn add_run(db: &Connection, run: &NewRun, calls: &[NewCall]) -> Result<(i64, Vec<Vec<i64>>)> {
     db.execute(
-        "INSERT INTO review_run (landing_id, kind, label, at, base, head, since_run, grouping, rules_version) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-        params![run.landing, run.kind.word(), run.label, run.at, run.base, run.head, run.since, run.grouping, run.rules_version],
+        "INSERT INTO review_run (landing_id, kind, label, at, base, head, since_run, grouping, rules_version, changed_lines) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+        params![run.landing, run.kind.word(), run.label, run.at, run.base, run.head, run.since, run.grouping, run.rules_version, run.changed_lines],
     )
     .sql()?;
     let run_id = db.last_insert_rowid();
@@ -690,6 +693,61 @@ pub fn audited_landings(db: &Connection) -> Result<Vec<i64>> {
     rows.map(|row| row.sql()).collect()
 }
 
+/// A branch's first review run: when it ran, how many lines its diff adds and
+/// removes (None for a run from before builds counted them), and each group
+/// that answered, with how many of its findings the coordinator confirmed.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FirstReview {
+    pub at: i64,
+    pub changed_lines: Option<i64>,
+    pub groups: Vec<(String, usize)>,
+}
+
+/// The first review run of each branch, oldest first. A finding counts as its
+/// last settle, so one settled again as dropped is left out.
+pub fn first_reviews(db: &Connection) -> Result<Vec<FirstReview>> {
+    let mut statement = db
+        .prepare(
+            "SELECT r.id, r.at, r.changed_lines, c.group_name,
+                    (SELECT COUNT(*) FROM review_finding f WHERE f.call_id = c.id
+                        AND f.settled = 'confirmed'
+                        AND f.id NOT IN (SELECT finding_id FROM review_settle_again))
+                FROM review_run r JOIN review_call c ON c.run_id = r.id
+                WHERE r.id IN (SELECT MIN(id) FROM review_run WHERE kind = 'review' GROUP BY landing_id)
+                    AND c.failure IS NULL
+                ORDER BY r.id, c.id",
+        )
+        .sql()?;
+    let rows = statement
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, i64>(1)?,
+                row.get::<_, Option<i64>>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, i64>(4)?,
+            ))
+        })
+        .sql()?;
+    let mut reviews: Vec<(i64, FirstReview)> = Vec::new();
+    for row in rows {
+        let (run, at, changed_lines, group, confirmed) = row.sql()?;
+        if reviews.last().is_none_or(|(id, _)| *id != run) {
+            reviews.push((
+                run,
+                FirstReview {
+                    at,
+                    changed_lines,
+                    groups: Vec::new(),
+                },
+            ));
+        }
+        let (_, review) = reviews.last_mut().expect("pushed above");
+        review.groups.push((group, confirmed as usize));
+    }
+    Ok(reviews.into_iter().map(|(_, review)| review).collect())
+}
+
 /// The rule and clause of each confirmed finding on the first review run of
 /// each of the <last> branches opened last, newest branch first. A branch
 /// whose first run has no confirmed finding gives an empty list. A finding
@@ -931,6 +989,68 @@ CREATE TABLE review_code_left (
     at INTEGER NOT NULL,
     by TEXT NOT NULL CONSTRAINT review_code_left_by_says_something CHECK (trim(by) <> '')
 ) STRICT;";
+
+/// Moves a store's `review_run` from before builds counted the lines each
+/// review run's diff adds and removes to today's, with the statements taken
+/// from record.sql so the result equals a fresh database's: every run keeps
+/// its row, with no count. migrate.rs runs it with the foreign keys off, and
+/// the rename runs under `legacy_alter_table`, so the tables that point at
+/// `review_run` keep naming it.
+pub fn move_to_counted_lines(db: &Connection) -> Result<()> {
+    let schema = crate::db::REVIEW_PART;
+    let slice = |from: &str, end: &str| crate::db::statement(schema, from, end);
+    let run = slice("CREATE TABLE review_run", "STRICT;");
+    let index = slice("CREATE INDEX review_run_landing", ";");
+    crate::db::remake_table(
+        db,
+        "review_run",
+        run,
+        |db| {
+            db.execute_batch(
+                "INSERT INTO review_run (id, landing_id, kind, label, at, base, head, since_run, grouping, rules_version)
+    SELECT id, landing_id, kind, label, at, base, head, since_run, grouping, rules_version FROM review_run_old;",
+            )
+            .sql()
+        },
+        &[index],
+    )
+}
+
+/// Gives each review run that read a branch's whole net change and has no
+/// count of its changed lines the count <count> gives for the repo its
+/// landing names and the run's base and head. <count> gives None when the
+/// repo no longer holds the commits, and the run keeps no count.
+pub fn count_changed_lines(
+    db: &Connection,
+    count: impl Fn(&str, &str, &str) -> Result<Option<i64>>,
+) -> Result<()> {
+    let runs: Vec<(i64, String, String, String)> = {
+        let mut statement = db
+            .prepare(
+                "SELECT r.id, l.repo, r.base, r.head FROM review_run r
+                    JOIN review_landing l ON l.id = r.landing_id
+                    WHERE r.kind = 'review' AND r.since_run IS NULL AND r.changed_lines IS NULL
+                    ORDER BY r.id",
+            )
+            .sql()?;
+        let rows = statement
+            .query_map([], |row| {
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+            })
+            .sql()?;
+        rows.map(|row| row.sql()).collect::<Result<_>>()?
+    };
+    for (id, repo, base, head) in runs {
+        if let Some(lines) = count(&repo, &base, &head)? {
+            db.execute(
+                "UPDATE review_run SET changed_lines = ?2 WHERE id = ?1",
+                params![id, lines],
+            )
+            .sql()?;
+        }
+    }
+    Ok(())
+}
 
 /// Moves a store's review tables from before a review closed the confirmed
 /// findings its changes fix to today's: the move makes `review_closed`, and

@@ -58,6 +58,7 @@ fn run<'a>(landing: Option<i64>, at: i64, base: &'a str, head: &'a str) -> NewRu
         since: None,
         grouping: "g",
         rules_version: "",
+        changed_lines: None,
     }
 }
 

@@ -1952,12 +1952,118 @@ fn without_parts(mut schema: String, parts: &[&str]) -> String {
     schema
 }
 
+/// The schema text before builds counted the lines each review run's diff
+/// adds and removes: `review_run` without `changed_lines`.
+fn schema_before_counted_lines() -> String {
+    let column = "    -- How many lines the review run's diff adds and removes. Null for a replay
+    -- or an audit, and for a review run from before builds counted the lines
+    -- whose commits the repo's clone on this Mac no longer held when builds
+    -- moved the store.
+    changed_lines INTEGER CONSTRAINT review_run_changed_lines_not_negative CHECK (changed_lines >= 0),
+";
+    let schema = db::schema();
+    assert_eq!(schema.matches(column).count(), 1, "{column}");
+    schema.replacen(column, "", 1)
+}
+
+#[test]
+fn the_counted_lines_stamp_is_the_schema_before_counted_lines() {
+    assert_eq!(
+        db::stamp_of_text(&schema_before_counted_lines()),
+        BEFORE_COUNTED_LINES_STAMP
+    );
+}
+
+/// A store from before builds counted each review run's changed lines moves
+/// with the count of each run that read a branch's whole net change, read
+/// from the clone of its repo, and no count for a run whose commits the
+/// clone lacks or that read only the changes since the last review.
+#[test]
+fn a_store_from_before_counted_lines_counts_the_lines_git_still_holds() {
+    let scratch = Scratch::new("move-counted-lines");
+    let places = scratch.places();
+    let clone = places.home.join(crate::host::clone_path("bae"));
+    crate::testing::repo(&clone, "");
+    std::fs::write(clone.join("a.txt"), "one\ntwo\n").unwrap();
+    crate::testing::git(&clone, &["add", "a.txt"]);
+    crate::testing::git(&clone, &["commit", "-q", "-m", "Add a"]);
+    let sha = |rev: &str| {
+        crate::review::commits::git_text(&clone, &["rev-parse", rev])
+            .unwrap()
+            .trim()
+            .to_string()
+    };
+    let (base, head) = (sha("HEAD~1"), sha("HEAD"));
+    let dir = places.lists.join("bae");
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join(DATABASE);
+    {
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(&schema_before_counted_lines()).unwrap();
+        conn.pragma_update(None, "user_version", BEFORE_COUNTED_LINES_STAMP)
+            .unwrap();
+        crate::lists::project::plant(&conn, "repo", &[("name", "bae".to_string().into())]).unwrap();
+        let plant = |table: &str, columns: &[(&str, rusqlite::types::Value)]| {
+            crate::review::record::plant(&conn, table, columns).unwrap();
+        };
+        let text = |s: &str| -> rusqlite::types::Value { s.to_string().into() };
+        for (id, key) in [(1_i64, "k"), (2, "gone")] {
+            plant(
+                "review_landing",
+                &[
+                    ("id", id.into()),
+                    ("key", text(key)),
+                    ("repo", text("bae")),
+                    ("opened_at", 5_i64.into()),
+                ],
+            );
+        }
+        let missing = "0".repeat(40);
+        for (id, landing, base, since) in [
+            (7_i64, 1_i64, base.as_str(), None),
+            (8, 1, base.as_str(), Some(7_i64)),
+            (9, 2, missing.as_str(), None),
+        ] {
+            plant(
+                "review_run",
+                &[
+                    ("id", id.into()),
+                    ("landing_id", landing.into()),
+                    ("kind", text("review")),
+                    ("at", 6_i64.into()),
+                    ("base", text(base)),
+                    ("head", text(&head)),
+                    ("since_run", since.into()),
+                    ("grouping", text("g")),
+                    ("rules_version", text("")),
+                ],
+            );
+        }
+    }
+    migrate_stores(&places).unwrap();
+    let conn = db::open_reader(&path)
+        .unwrap()
+        .expect("opens under today's stamp");
+    assert_eq!(
+        db::schema_rows(&conn).unwrap(),
+        db::schema_rows(&db::memory()).unwrap()
+    );
+    let counts: Vec<Option<i64>> = conn
+        .prepare("SELECT changed_lines FROM review_run ORDER BY id")
+        .unwrap()
+        .query_map([], |row| row.get::<_, Option<i64>>(0))
+        .unwrap()
+        .map(|row| row.unwrap())
+        .collect();
+    assert_eq!(counts, [Some(2), None, None]);
+}
+
 /// The schema text before a review closed the confirmed findings its changes
 /// fix: the tables of fixes and of read and pushed commits, and of findings
 /// whose code left their branch, in place of `review_closed`, and the review's
 /// comments as they read then.
 fn schema_before_closed() -> String {
-    let mut schema = db::schema();
+    let mut schema = schema_before_counted_lines();
     for (now, then) in [
         (
             "-- Every review of a change against the rules (`builds review`): the landing it
@@ -2394,6 +2500,7 @@ fn a_store_from_before_code_left_moves_and_records_a_second_settle() {
         since: None,
         grouping: "g",
         rules_version: "",
+        changed_lines: None,
     };
     let (_, ids) = crate::review::record::add_run(&conn, &run, &[call]).unwrap();
     for id in &ids[0] {

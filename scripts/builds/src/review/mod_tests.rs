@@ -372,6 +372,7 @@ fn a_run_that_read_a_stretch_of_commits_is_not_the_last_review() {
                     since: None,
                     grouping: "g",
                     rules_version: "",
+                    changed_lines: None,
                 },
                 &[],
             )

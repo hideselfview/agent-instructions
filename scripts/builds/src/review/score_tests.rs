@@ -428,6 +428,7 @@ fn a_finding_settled_again_counts_as_dropped_and_a_closed_one_as_confirmed() {
         since: None,
         grouping: "g",
         rules_version: "",
+        changed_lines: None,
     };
     let (_, ids) = record::add_run(&db, &new_run, std::slice::from_ref(&call)).unwrap();
     let (wrong, gone) = (ids[0][0], ids[0][1]);
@@ -455,5 +456,101 @@ fn a_finding_settled_again_counts_as_dropped_and_a_closed_one_as_confirmed() {
     assert_eq!(
         tally_of(&scores.reviews, "words", "r"),
         tally(1, 1, 0, 0, 0)
+    );
+}
+
+fn first(at: i64, changed_lines: Option<i64>, groups: &[(&str, usize)]) -> record::FirstReview {
+    record::FirstReview {
+        at,
+        changed_lines,
+        groups: groups.iter().map(|(g, n)| (g.to_string(), *n)).collect(),
+    }
+}
+
+#[test]
+fn first_reviews_show_confirmed_findings_per_100_changed_lines_by_day_and_group() {
+    const DAY: i64 = 24 * 60 * 60;
+    let text = first_reviews_report(&[
+        first(NOON, Some(200), &[("words", 3), ("code", 1)]),
+        first(NOON + 60, Some(300), &[("words", 2)]),
+        first(NOON + DAY, Some(50), &[("words", 0)]),
+        first(NOON + DAY, None, &[("words", 9)]),
+    ]);
+    let today = crate::text::local_day(NOON);
+    let tomorrow = crate::text::local_day(NOON + DAY);
+    let expected = format!(
+        "  {today}: 2 branches, 500 changed lines\n    code: 0.50 (1 finding over 200 lines)\n    words: 1.00 (5 findings over 500 lines)\n  {tomorrow}: 1 branch, 50 changed lines\n    words: 0.00 (0 findings over 50 lines)\n"
+    );
+    assert!(text.contains(&expected), "{text}");
+    assert!(
+        text.contains("left out: 1 first review that builds ran before it counted changed lines"),
+        "{text}"
+    );
+}
+
+#[test]
+fn a_first_review_records_its_changed_lines_and_its_groups_confirmed_findings() {
+    let db = crate::lists::fixtures::db();
+    let repo: String = db
+        .query_row("SELECT name FROM repo LIMIT 1", [], |row| row.get(0))
+        .unwrap();
+    let landing = record::add_landing(&db, "k", &repo, 5).unwrap();
+    let raised = record::NewFinding {
+        rule: "r".to_string(),
+        clause: "c".to_string(),
+        file: "a.rs".to_string(),
+        line: 1,
+        code: "x".to_string(),
+        problem: "p".to_string(),
+        blocking: true,
+        check_failed: None,
+    };
+    let call = |group: &str, findings: Vec<record::NewFinding>| record::NewCall {
+        group: group.to_string(),
+        model: "sonnet".to_string(),
+        prompt: "the prompt".to_string(),
+        rules: vec!["r".to_string()],
+        tokens_in: 0,
+        tokens_out: 0,
+        tokens_cached: 0,
+        tokens_written: 0,
+        cost_microdollars: 0,
+        sites: None,
+        failure: None,
+        verdicts: Vec::new(),
+        findings,
+        closes: Vec::new(),
+        exchanges: Vec::new(),
+    };
+    let new_run = record::NewRun {
+        landing: Some(landing),
+        kind: Kind::Review,
+        label: None,
+        at: NOON,
+        base: "b",
+        head: "h",
+        since: None,
+        grouping: "g",
+        rules_version: "",
+        changed_lines: Some(40),
+    };
+    let calls = [
+        call("words", vec![raised.clone(), raised.clone()]),
+        call("code", Vec::new()),
+    ];
+    let (_, ids) = record::add_run(&db, &new_run, &calls).unwrap();
+    record::settle(&db, ids[0][0], "confirmed", "real", 7, "me").unwrap();
+    record::settle(&db, ids[0][1], "dropped", "wrong", 7, "me").unwrap();
+    let later = record::NewRun {
+        head: "h2",
+        changed_lines: Some(5),
+        ..new_run
+    };
+    let (_, later_ids) =
+        record::add_run(&db, &later, &[call("words", vec![raised.clone()])]).unwrap();
+    record::settle(&db, later_ids[0][0], "confirmed", "real", 8, "me").unwrap();
+    assert_eq!(
+        record::first_reviews(&db).unwrap(),
+        [first(NOON, Some(40), &[("words", 1), ("code", 0)])]
     );
 }

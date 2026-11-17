@@ -148,6 +148,7 @@ pub fn replay(inputs: &Inputs) -> Result<Replayed> {
                                 since: None,
                                 grouping: &material.grouping,
                                 rules_version: &rules_version,
+                                changed_lines: None,
                             },
                             &new_calls,
                         )?;
