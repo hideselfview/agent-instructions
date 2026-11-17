@@ -41,18 +41,27 @@ pub fn require_brief(base: &Path, brief: &str) -> Result<()> {
 /// itself, a relative one is under the main checkout of <cwd>'s repo. Only a
 /// relative brief needs a checkout.
 pub fn require_brief_from(cwd: &Path, brief: &str) -> Result<()> {
-    brief_file(cwd, brief).map(|_| ())
+    require_brief(&base_of(cwd, brief)?, brief)
 }
 
-/// The file of <brief>, which exists, as `require_brief_from` finds it.
-pub fn brief_file(cwd: &Path, brief: &str) -> Result<std::path::PathBuf> {
-    let base = if Path::new(brief).is_absolute() {
-        std::path::PathBuf::from("/")
+/// The folder <brief> is looked for under, as `require_brief_from` says.
+fn base_of(cwd: &Path, brief: &str) -> Result<std::path::PathBuf> {
+    if Path::new(brief).is_absolute() {
+        Ok(std::path::PathBuf::from("/"))
     } else {
-        brief_base(cwd)?
-    };
-    require_brief(&base, brief)?;
-    Ok(base.join(brief.split('#').next().unwrap_or("")))
+        brief_base(cwd)
+    }
+}
+
+/// The file of <brief>, found as `require_brief_from` finds it. The function
+/// checks only that the brief names a file; whoever reads the file learns
+/// whether it exists.
+pub fn brief_file(cwd: &Path, brief: &str) -> Result<std::path::PathBuf> {
+    let path = brief.split('#').next().unwrap_or("");
+    if path.is_empty() {
+        fail!("brief '{brief}' names no file");
+    }
+    Ok(base_of(cwd, brief)?.join(path))
 }
 
 /// The briefs of <drafts> exist (see `require_brief_from`).

@@ -22,7 +22,7 @@ use serde_json::{Value, json};
 use crate::checkout::{git, git_text, parallel_map};
 use crate::db::Sql;
 use crate::fail;
-use crate::fail::{Context, Result};
+use crate::fail::Result;
 use crate::lists::design_paths::Globs;
 use crate::lists::{Id, Kind, Lists, Stamp};
 use crate::review::call::Usage;
@@ -96,12 +96,19 @@ pub struct Brief {
 }
 
 impl Brief {
+    /// The brief <name> from <file>; fails naming the file when it does not
+    /// exist.
     pub fn read(name: &str, file: &Path) -> Result<Brief> {
-        Ok(Brief {
-            name: name.to_string(),
-            text: std::fs::read_to_string(file)
-                .context(|| format!("reading the brief {}", file.display()))?,
-        })
+        match std::fs::read_to_string(file) {
+            Ok(text) => Ok(Brief {
+                name: name.to_string(),
+                text,
+            }),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                fail!("brief {name} does not exist: no file {}", file.display())
+            }
+            Err(error) => fail!("reading the brief {}: {error}", file.display()),
+        }
     }
 
     /// The section the name gives after `#`, if any.
