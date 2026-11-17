@@ -1,5 +1,5 @@
 ---
-digest: Correct, well-tested code can still be dead weight; a mechanism is justified only if deleting it breaks an outcome a user would notice - check by stubbing it out and running the full suite, not by its own passing tests.
+digest: Correct, well-tested code can still be dead weight; a mechanism is justified only if deleting it breaks an outcome a user would notice - check by stubbing it out and running the tests of the code that uses it, not by its own passing tests.
 paths:
   - '**/*.rs'
   - '**/*.swift'
@@ -27,7 +27,7 @@ unverified, and the missing test of an outside outcome is itself the finding.
 ### Stub it out and see what breaks
 
 Remove the mechanism, or stub it (return a constant, make the call do nothing),
-and run the full suite:
+and run the tests of the code that uses it:
 
 - Only its own unit tests break, or nothing outside its file: it is orphaned.
 - A behavioral, integration or end-to-end assertion about a real outcome breaks:
