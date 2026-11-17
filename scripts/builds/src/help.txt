@@ -1328,11 +1328,15 @@ run whose net change (`git diff` from the branch's common ancestor with main
 to its head) the review has read. A later run asks only what the review lacks: the groups that gave no answer (their
 reviewer failed), over the diff they did not answer, and, in a new run that
 becomes the last review, the changes since the last review: the lines the
-branch adds or removes that it did not then, and the lines it no longer
-changes. Main's own commits that a rebase brings in are no part of them, so a
+branch adds or removes that it did not then, the lines it no longer changes,
+and the commit messages it did not then hold. Main's own commits that a rebase brings in are no part of them, so a
 rebase that keeps every line the branch adds and removes leaves nothing to
 read, and a rebase that resolves a conflict differently leaves only the lines
-of the resolution. The run asks the groups that cover a changed path.
+of the resolution. The run asks the groups that cover a changed path, and,
+when a commit message changed, each group that reads commit messages
+(commit_text) and whose rules cover a path the branch changes. So after an
+agent rewords a message and changes no file, the run reads only the changed
+messages and closes each finding on COMMIT_MESSAGE that they fix.
 `builds review` refuses the run when the review lacks nothing, naming the
 last review.
 
@@ -1371,12 +1375,14 @@ with the run that closed it.
 `builds land` refuses a branch until its review takes it: nothing on a path
 a group's rules cover changed since the last review (the net change of the
 worktree's HEAD past origin/main against the net change the last review
-read); every group asked over a diff a run read answered over it; every
+read), and no commit message that a group reads changed since then; every
+group asked over a diff a run read answered over it; every
 finding is settled; and no confirmed finding is open. Land finds the review
 by the change's key: the branch land started on, which land reads before it
 starts and passes to `review check-landing` and `review landed` as
 `--landing`. When land refuses, it names what is unreviewed (the paths that
-changed since the last review), the groups that gave no answer, the
+changed since the last review, and COMMIT_MESSAGE when a message changed),
+the groups that gave no answer, the
 unsettled findings and the open ones. A landing may hold some of the
 branch's commits and leave the rest for later, once the review takes the
 whole branch: while commits of the branch wait to land, the change stays

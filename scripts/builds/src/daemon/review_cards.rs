@@ -143,23 +143,21 @@ impl Reads {
         let conn = store.open_existing().map_err(Fail::text)?;
         let key = crate::review::default_key(top).map_err(Fail::text)?;
         let check = CodeCheck::Branch("HEAD");
-        let groups_for = |paths: &[String]| material.group_names(paths);
-        let wait = match landing::judge(&conn, &key, top, &needs, check, &groups_for)
-            .map_err(Fail::text)?
-        {
-            Verdict::NotNeeded | Verdict::Takes(_) => return Ok(None),
-            Verdict::NoRun => ReviewWait::NotRun,
-            Verdict::Unfinished(_, unfinished) if !unfinished.unsettled.is_empty() => {
-                ReviewWait::ToSettle(unfinished.unsettled.len())
-            }
-            Verdict::Unfinished(_, unfinished) if !unfinished.unanswered.is_empty() => {
-                ReviewWait::NotRun
-            }
-            Verdict::Unfinished(_, unfinished) if !unfinished.unreviewed.is_empty() => {
-                ReviewWait::Unreviewed(unfinished.unreviewed.len())
-            }
-            Verdict::Unfinished(_, unfinished) => ReviewWait::Open(unfinished.open.len()),
-        };
+        let wait =
+            match landing::judge(&conn, &key, top, &needs, check, &material).map_err(Fail::text)? {
+                Verdict::NotNeeded | Verdict::Takes(_) => return Ok(None),
+                Verdict::NoRun => ReviewWait::NotRun,
+                Verdict::Unfinished(_, unfinished) if !unfinished.unsettled.is_empty() => {
+                    ReviewWait::ToSettle(unfinished.unsettled.len())
+                }
+                Verdict::Unfinished(_, unfinished) if !unfinished.unanswered.is_empty() => {
+                    ReviewWait::NotRun
+                }
+                Verdict::Unfinished(_, unfinished) if !unfinished.unreviewed.is_empty() => {
+                    ReviewWait::Unreviewed(unfinished.unreviewed.len())
+                }
+                Verdict::Unfinished(_, unfinished) => ReviewWait::Open(unfinished.open.len()),
+            };
         Ok(Some(ItemWait::RulesReview(wait)))
     }
 }

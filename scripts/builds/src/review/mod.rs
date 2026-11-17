@@ -25,11 +25,11 @@
 //! `builds land` would say of the branch's commits (`landing.rs`), and exits
 //! 1 unless land would take them. The change's landing names the run of its
 //! last review, and a review shows the changes since the last review, and
-//! nothing else (`run::diff_since`): fix commits are part of them, and main's
-//! own commits that a rebase brings in are not. A run on a KEY reviewed
-//! already asks the groups that gave the review no answer, over the diff they
-//! did not answer, and reads the changes since the last review in a new run,
-//! which becomes the last review. Each reviewer also gets the open confirmed
+//! nothing else (`run::diff_since`): fix commits and reworded commit messages
+//! are part of them, and main's own commits that a rebase brings in are not.
+//! A run on a KEY reviewed already asks the groups that gave the review no
+//! answer, over the diff they did not answer, and reads the changes since the
+//! last review in a new run, which becomes the last review. Each reviewer also gets the open confirmed
 //! findings of its group's rules, checks the code at each one's place, and
 //! closes each one whose problem is gone. Only the groups that hold open
 //! findings in a file read that file, and every group that covers any other
@@ -267,12 +267,7 @@ pub fn review(inputs: &Inputs) -> Result<Reported> {
             let file = running_file(&inputs.store.dir, &ask.diff.head);
             running.push((ask.diff.head.clone(), Running::start(file)?));
         }
-        let picked: Vec<_> = material
-            .groups
-            .pick(&material.rules, &ask.diff.changed)
-            .into_iter()
-            .filter(|(group, _)| ask.groups.contains(&group.name))
-            .collect();
+        let picked = material.groups.named(&material.rules, &ask.groups);
         answers.push(run::ask_groups(
             &material,
             inputs.reviewer,
@@ -373,7 +368,7 @@ pub fn review(inputs: &Inputs) -> Result<Reported> {
         inputs.worktree,
         &needs,
         landing::CodeCheck::Branch(inputs.head.unwrap_or("HEAD")),
-        &|paths| material.group_names(paths),
+        &material,
     )?;
     let refusal = landing::refusal(&needs, &verdict);
     if refusal.is_none() {
@@ -405,9 +400,10 @@ struct Ask {
 /// review reads <diff>, the branch's net change: for each diff a
 /// run read, the groups asked over it that gave no answer over it, asked over
 /// that diff again; and, when the changes since the last review touch a path
-/// a group covers, the groups that cover a changed path, asked over those
-/// changes (`run::diff_since`). No reviewer reads a diff twice. Fails with why
-/// builds review reviews no change twice when the review lacks nothing.
+/// a group covers or a commit message, the groups that cover a changed path
+/// and the groups that read the changed messages, asked over those changes
+/// (`run::diff_since`). No reviewer reads a diff twice. Fails with why builds
+/// review reviews no change twice when the review lacks nothing.
 fn later_asks(
     conn: &rusqlite::Connection,
     inputs: &Inputs,
@@ -445,7 +441,12 @@ fn later_asks(
     if let (Some(source), Some(read)) = (&mut since.source, &diff.source) {
         source.in_place = read.in_place;
     }
-    let groups = material.group_names(&since.changed);
+    let mut groups = material.group_names(&since.changed);
+    for group in material.commit_text_groups(&since, &diff.changed) {
+        if !groups.contains(&group) {
+            groups.push(group);
+        }
+    }
     if !groups.is_empty() {
         asks.push(Ask {
             note: Some(format!(
@@ -462,7 +463,7 @@ fn later_asks(
     }
     if asks.is_empty() {
         fail!(
-            "{}\nrun {} of review landing {landing} ({}) is the last review, over {}...{}; every group answered, and nothing changed since the last review on a path a group's rules cover, so builds review does not review it again.\nbuilds review show {landing} lists the review and its findings.",
+            "{}\nrun {} of review landing {landing} ({}) is the last review, over {}...{}; every group answered, and nothing changed since the last review on a path a group's rules cover or in a commit message a group reads, so builds review does not review it again.\nbuilds review show {landing} lists the review and its findings.",
             landing::ONE_REVIEW,
             last.id,
             inputs.key,

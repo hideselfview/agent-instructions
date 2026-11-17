@@ -42,6 +42,29 @@ pub fn rule_file(root: &Path, dir: &str, slug: &str, glob: &str, blocking: bool,
     .unwrap();
 }
 
+/// Adds group writing, whose rule-w covers every .rs file and whose reviewer
+/// reads one file per call and the commit messages, and has that reviewer
+/// answer no findings.
+pub fn commit_text_group(fake: &Fake) {
+    std::fs::create_dir_all(fake.root.join("rules/writing")).unwrap();
+    rule_file(
+        &fake.root,
+        "writing",
+        "rule-w",
+        "**/*.rs",
+        true,
+        "**Rule W.** Write plain sentences.",
+    );
+    group_file(
+        &fake.root,
+        "writing",
+        "writing",
+        "opus",
+        "enumerate = true\nsites = \"is a sentence\"\ncommit_text = true\n",
+    );
+    fake.answer_task("writing", serde_json::json!({"summary": "s", "sites": []}));
+}
+
 pub fn fake(scratch: &Path) -> Fake {
     let root = scratch.join("instructions");
     let dir = scratch.join("reviewer");

@@ -184,19 +184,37 @@ impl Groups {
         rules: &'a [Rule],
         changed: &[String],
     ) -> Vec<(&'a Group, Vec<&'a Rule>)> {
-        let mut picked = Vec::new();
-        for group in &self.groups {
+        self.with_members(rules)
+            .filter(|(_, members)| members.iter().any(|rule| rule.matches(changed)))
+            .collect()
+    }
+
+    /// The groups whose names are in <names>, each with its reviewable rules
+    /// that exist in <rules> (the project's).
+    pub fn named<'a>(
+        &'a self,
+        rules: &'a [Rule],
+        names: &[String],
+    ) -> Vec<(&'a Group, Vec<&'a Rule>)> {
+        self.with_members(rules)
+            .filter(|(group, _)| names.contains(&group.name))
+            .collect()
+    }
+
+    /// Every group with its reviewable rules that exist in <rules>.
+    fn with_members<'a>(
+        &'a self,
+        rules: &'a [Rule],
+    ) -> impl Iterator<Item = (&'a Group, Vec<&'a Rule>)> {
+        self.groups.iter().map(|group| {
             let members: Vec<&Rule> = group
                 .rules
                 .iter()
                 .filter_map(|slug| rules.iter().find(|r| &r.slug == slug))
                 .filter(|rule| rule.reviewable)
                 .collect();
-            if members.iter().any(|rule| rule.matches(changed)) {
-                picked.push((group, members));
-            }
-        }
-        picked
+            (group, members)
+        })
     }
 }
 

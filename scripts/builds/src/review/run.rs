@@ -57,6 +57,22 @@ impl Material {
             .collect()
     }
 
+    /// The names of the groups that read the commit messages of <since>, the
+    /// changes since the last review of a branch whose commits change
+    /// <branch>: each group that reads commit messages and whose rules cover
+    /// a path of <branch>. The list is empty when <since> holds no message.
+    pub fn commit_text_groups(&self, since: &Diff, branch: &[String]) -> Vec<String> {
+        if files::commit_message_file(&since.messages).is_none() {
+            return Vec::new();
+        }
+        self.groups
+            .pick(&self.rules, branch)
+            .into_iter()
+            .filter(|(group, _)| group.commit_text)
+            .map(|(group, _)| group.name.clone())
+            .collect()
+    }
+
     /// The same material with every group asked in <model>.
     pub fn with_model(mut self, model: &str) -> Material {
         for group in &mut self.groups.groups {

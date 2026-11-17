@@ -11,10 +11,11 @@
 //! branch as `builds review` names it. The review reads each diff only once.
 //! Each change gets one review, the open landing of its key. check-landing
 //! takes the commits when nothing is unreviewed and no confirmed finding is
-//! open: nothing on a path a group's rules cover changed since the last
-//! review (`run::diff_since`, which `builds review` reads as its next run),
-//! every group asked over a diff a run read answered over it (`Coverage`,
-//! which `builds review` uses too), and the coordinator settled every finding.
+//! open: nothing on a path a group's rules cover, and no commit message a
+//! group reads, changed since the last review (`run::diff_since`, which
+//! `builds review` reads as its next run), every group asked over a diff a
+//! run read answered over it (`Coverage`, which `builds review` uses too),
+//! and the coordinator settled every finding.
 //! A confirmed finding stays open until a later review closes it, because the
 //! changes that review read fix it, or the coordinator settles it again as
 //! dropped. A rebase that keeps every line the branch adds and removes leaves
@@ -38,6 +39,7 @@ use crate::lists::Stamp;
 use crate::lists::args::Args;
 use crate::lists::store::{Store, resolve_by};
 use crate::review::commits;
+use crate::review::files;
 use crate::review::record::{self, LandingRow};
 use crate::review::render;
 use crate::review::run::{self, Material};
@@ -104,7 +106,9 @@ pub struct Unfinished {
     /// Groups that the review asked over a diff a run read and that gave no
     /// answer over it.
     pub unanswered: Vec<String>,
-    /// The paths a group's rules cover that changed since the last review.
+    /// The paths a group's rules cover that changed since the last review,
+    /// and `files::COMMIT_MESSAGE` when a commit message that a group reads
+    /// changed since then.
     pub unreviewed: Vec<String>,
     /// Findings nobody settled.
     pub unsettled: Vec<record::Finding>,
@@ -221,13 +225,13 @@ impl Coverage {
 }
 
 /// What the review of <landing> lacks, in the repo at <dir>, reading the
-/// branch as <check> says and picking the groups of a path with <groups_for>.
+/// branch as <check> says, against the groups and rules of <material>.
 fn assess(
     db: &Connection,
     dir: &Path,
     landing: &LandingRow,
     check: CodeCheck,
-    groups_for: &dyn Fn(&[String]) -> Vec<String>,
+    material: &Material,
 ) -> Result<(Covered, Unfinished)> {
     let coverage = Coverage::of(db, landing)?;
     let last = &coverage.last_review;
@@ -243,11 +247,18 @@ fn assess(
     }
     if let CodeCheck::Branch(head) = check {
         let since = run::diff_since(dir, &last.base, &last.head, BRANCH_BASE, head)?;
+        let branch = commits::paths(dir, &commits::in_range(dir, &since.base, &since.head)?)?;
+        let messages_unread = !material.commit_text_groups(&since, &branch).is_empty();
         unfinished.unreviewed = since
             .changed
             .into_iter()
-            .filter(|path| !groups_for(std::slice::from_ref(path)).is_empty())
+            .filter(|path| !material.group_names(std::slice::from_ref(path)).is_empty())
             .collect();
+        if messages_unread {
+            unfinished
+                .unreviewed
+                .push(files::COMMIT_MESSAGE.to_string());
+        }
     }
     unfinished.unsettled = findings
         .iter()
@@ -264,15 +275,15 @@ fn assess(
 
 /// Whether the review lets the commits of <needs>, read from the checkout at
 /// <dir>, land: the open review of <key> must take them. <check> says whether
-/// to read the branch's net change, and <groups_for> picks the groups whose
-/// rules cover a path.
+/// to read the branch's net change, and <material> holds the groups and the
+/// rules that say which group reads a path or a commit message.
 pub fn judge(
     db: &Connection,
     key: &str,
     dir: &Path,
     needs: &[Need],
     check: CodeCheck,
-    groups_for: &dyn Fn(&[String]) -> Vec<String>,
+    material: &Material,
 ) -> Result<Verdict> {
     if needs.iter().all(|n| n.groups.is_empty()) {
         return Ok(Verdict::NotNeeded);
@@ -281,7 +292,7 @@ pub fn judge(
         return Ok(Verdict::NoRun);
     };
     let landing = record::landing(db, open)?;
-    let (covered, unfinished) = assess(db, dir, &landing, check, groups_for)?;
+    let (covered, unfinished) = assess(db, dir, &landing, check, material)?;
     if unfinished.is_empty() {
         Ok(Verdict::Takes(covered))
     } else {
@@ -420,7 +431,7 @@ pub fn check_landing_command(tool: &Tool, args: &[String]) -> Result<()> {
         &asked.dir,
         &asked.needs,
         CodeCheck::Branch("HEAD"),
-        &|paths| asked.material.group_names(paths),
+        &asked.material,
     )?;
     match refusal(&asked.needs, &verdict) {
         Some(why) => {
@@ -459,7 +470,7 @@ fn record_landed(asked: &Asked, stamp: &Stamp, more: bool) -> Result<Option<i64>
         &asked.dir,
         &asked.needs,
         CodeCheck::Records,
-        &|paths| asked.material.group_names(paths),
+        &asked.material,
     )?;
     let covered = match &verdict {
         Verdict::NotNeeded => return Ok(None),

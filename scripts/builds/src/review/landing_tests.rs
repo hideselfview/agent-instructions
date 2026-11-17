@@ -1,7 +1,7 @@
 use super::*;
 use crate::lists::fixtures::NOON;
 use crate::lists::item_fixtures::{Demo, demo};
-use crate::review::fakes::{Fake, Raised, fake, ten_lines};
+use crate::review::fakes::{Fake, Raised, commit_text_group, fake, ten_lines};
 use crate::review::files;
 use crate::review::{Inputs, review};
 
@@ -51,7 +51,7 @@ fn verdict_of(demo: &Demo, fake: &Fake, side: &Path, shas: &[String]) -> (Verdic
         side,
         &asked.needs,
         CodeCheck::Branch("HEAD"),
-        &|paths| asked.material.group_names(paths),
+        &asked.material,
     )
     .unwrap();
     let words = refusal(&asked.needs, &verdict);
@@ -362,7 +362,7 @@ fn a_cherry_pick_onto_a_moved_main_keeps_the_review_and_landed_records_it_once()
             &other,
             &asked_picked.needs,
             CodeCheck::Branch("HEAD"),
-            &|paths| asked_picked.material.group_names(paths),
+            &asked_picked.material,
         )
         .unwrap(),
         Verdict::Takes(_)
@@ -627,6 +627,26 @@ fn confirmed_on_the_second_commit(name: &str) -> (Demo, Fake, PathBuf, String, S
     assert_eq!(found.len(), 1, "{found:?}");
     settle(&demo, found[0].id, "confirmed");
     (demo, fake, side, first, second, found[0].id)
+}
+
+#[test]
+fn land_refuses_a_reworded_message_until_a_review_reads_it() {
+    let demo = demo("landing-reworded");
+    let fake = fake(&demo.scratch.dir);
+    commit_text_group(&fake);
+    let side = demo.add_side(1, "agent", "work");
+    commit_with(&side, "a.rs", "Add a");
+    review_of(&demo, &fake, &side);
+    crate::testing::git(&side, &["commit", "-q", "--amend", "-m", "Add the file a"]);
+    let reworded = [head(&side)];
+    let said = verdict_of(&demo, &fake, &side, &reworded);
+    let Verdict::Unfinished(_, unfinished) = &said.0 else {
+        panic!("{said:?}")
+    };
+    assert_eq!(unfinished.unreviewed, [files::COMMIT_MESSAGE], "{said:?}");
+    review_of(&demo, &fake, &side);
+    let said = verdict_of(&demo, &fake, &side, &reworded);
+    assert!(matches!(said.0, Verdict::Takes(_)), "{said:?}");
 }
 
 #[test]

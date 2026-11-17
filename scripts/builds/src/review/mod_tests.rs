@@ -1,7 +1,9 @@
 use super::*;
 use crate::lists::fixtures::NOON;
 use crate::lists::item_fixtures::{Demo, demo};
-use crate::review::fakes::{Fake, Raised, fake, group_file, rule_file, ten_lines};
+use crate::review::fakes::{
+    Fake, Raised, commit_text_group, fake, group_file, rule_file, ten_lines,
+};
 
 fn stamp() -> Stamp {
     Stamp {
@@ -578,6 +580,85 @@ fn each_group_reads_only_the_files_where_it_holds_findings_and_both_run_in_one_r
         .collect();
     groups.sort();
     assert_eq!(groups, ["alpha", "writing"]);
+}
+
+/// Makes a demo whose branch commits b.rs, then a.rs with the message "Add a
+/// with a vague line". Group writing reads the commit messages, and its first
+/// review raises a finding on that message, which the test settles as
+/// confirmed. Returns the demo, its reviewer, the side worktree and the
+/// finding.
+fn found_in_a_message(name: &str) -> (Demo, Fake, PathBuf, i64) {
+    let demo = demo(name);
+    let fake = fake(&demo.scratch.dir);
+    commit_text_group(&fake);
+    let side = demo.add_side(1, "agent", "work");
+    demo.commit(&side, "b.rs");
+    std::fs::write(side.join("a.rs"), "a.rs").unwrap();
+    crate::testing::git(&side, &["add", "a.rs"]);
+    crate::testing::git(&side, &["commit", "-q", "-m", "Add a with a vague line"]);
+    fake.answer_task(
+        "writing",
+        serde_json::json!({"summary": "s", "sites": [{
+            "file": files::COMMIT_MESSAGE, "line": 1, "code": "a vague line",
+            "verdict": "finding", "clause": "Write plain sentences.", "problem": "p"
+        }]}),
+    );
+    let landing = run_review(&demo, &fake, &side, "k").landing.unwrap();
+    let found = findings_of(&demo, landing);
+    assert_eq!(found.len(), 1, "{found:?}");
+    settle_as(&demo, found[0].id, "confirmed", "real");
+    fake.prompts();
+    (demo, fake, side, found[0].id)
+}
+
+#[test]
+fn a_review_of_a_reworded_message_reads_only_the_changed_messages_and_closes_the_finding() {
+    let (demo, fake, side, finding) = found_in_a_message("review-reworded");
+    crate::testing::git(&side, &["commit", "-q", "--amend", "-m", "Add a"]);
+    fake.answer_task(
+        "writing",
+        serde_json::json!({"summary": "s", "sites": [], "closed": [finding]}),
+    );
+    let read = run_review(&demo, &fake, &side, "k");
+    let prompts = fake.prompts();
+    assert_eq!(prompts.len(), 1, "{}", read.text);
+    let (group, prompt) = &prompts[0];
+    assert_eq!(group, "writing");
+    assert!(
+        prompt.contains("diff --git a/COMMIT_MESSAGE")
+            && prompt.contains("+Add a\n")
+            && !prompt.contains("+Add a with a vague line")
+            && !prompt.contains("+b.rs")
+            && !prompt.contains("diff --git a/a.rs"),
+        "{prompt}"
+    );
+    assert!(
+        read.text.contains(&format!("closed finding {finding}")),
+        "{}",
+        read.text
+    );
+    assert!(read.refusal.is_none(), "{:?}", read.refusal);
+    let again = try_review(&demo, &fake, &side, "k").unwrap_err().text();
+    assert!(fake.prompts().is_empty());
+    assert!(again.contains(landing::ONE_REVIEW), "{again}");
+}
+
+#[test]
+fn a_commit_amended_with_its_own_message_and_files_is_no_change_to_review() {
+    let (demo, fake, side, _) = found_in_a_message("review-amended");
+    crate::testing::git(
+        &side,
+        &[
+            "commit",
+            "-q",
+            "--amend",
+            "--no-edit",
+            "--date=2000-01-01T00:00:00",
+        ],
+    );
+    let refused = try_review(&demo, &fake, &side, "k").unwrap_err().text();
+    assert!(fake.prompts().is_empty());
+    assert!(refused.contains(landing::ONE_REVIEW), "{refused}");
 }
 
 #[test]
