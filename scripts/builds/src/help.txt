@@ -1342,10 +1342,11 @@ as on a first review. The groups run at the same time, in the same run. For
 example, the writing group (Text people read) holds findings in a.rs and b.rs,
 and the errors group (Errors and invalid state) holds one in c.rs. After the
 fix, the writing group reads only a.rs and b.rs, and the errors group reads
-only c.rs. So a wording fix in a file where only the writing group holds
-findings runs only the writing group. The review then misses a passive
-sentence that a code fix adds to a file where only a code group holds
-findings; the agent's writing check (`builds review writing`) finds it before
+only c.rs. So when a fix changes only the wording of a file where only the
+writing group holds findings, builds asks only the writing group. When a fix
+of the errors group's finding in c.rs adds a passive sentence to c.rs, the
+review does not ask the writing group about c.rs, and misses the sentence; the
+implementing agent's writing check (`builds review writing`) finds it before
 the agent reports. The run's report names each group that did not read a file,
 with the files it did not read. builds does not ask a group that reads none of
 the changed files.

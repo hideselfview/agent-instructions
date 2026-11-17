@@ -176,10 +176,10 @@ WHAT AN IMPLEMENTING AGENT DOES
      rules/text-people-read/write-plain-literal-active-sentences.md and the
      other rules of its review group, prints the findings and records
      nothing. Fix what it finds in a new commit, and name in the report each
-     finding it judges wrong, with why. In a file where only a code group
-     holds open findings, the coordinator's review of the fix does not ask
-     the writing group, so this check is the only one that reads the
-     wording of that fix.
+     finding it judges wrong, with why. In a file where only groups other than
+     the writing group hold open findings, the coordinator's review of the
+     fix does not ask the writing group, so this check is the only one that
+     reads the wording of that fix.
   8. Report the SHA, the base and the checks. Leave nothing uncommitted: the
      coordinator runs `builds land` in this worktree, which refuses a
      worktree with uncommitted changes.
