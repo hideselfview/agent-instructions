@@ -138,7 +138,6 @@ fn review(findings: &[(&str, &str)]) -> FirstReview {
                     by: "tester".to_string(),
                 })),
                 closed_by: None,
-                allowed: None,
             })
             .collect(),
     }

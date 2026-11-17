@@ -115,17 +115,18 @@ pub fn finding_text(finding: &Finding) -> String {
             out.push_str(&settle_line("settled", first));
             out.push_str(&settle_line("settled again as", second));
         }
+        Some(Settled::Allowed { confirmed, allowed }) => {
+            out.push_str(&settle_line("settled", confirmed));
+            out.push_str(&format!(
+                "    the person allowed it to land, and {} recorded their words: {}\n",
+                allowed.by,
+                one_line(&allowed.why)
+            ));
+        }
     }
     if let Some(run) = finding.closed_by {
         out.push_str(&format!(
             "    closed by run {run}: the code at its place no longer has the problem\n"
-        ));
-    }
-    if let Some(allowed) = &finding.allowed {
-        out.push_str(&format!(
-            "    the person allowed it to land, and {} recorded their words: {}\n",
-            allowed.by,
-            one_line(&allowed.why)
         ));
     }
     out

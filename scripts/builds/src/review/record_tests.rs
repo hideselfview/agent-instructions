@@ -220,7 +220,7 @@ fn a_later_run_closes_an_open_confirmed_finding_once_and_a_closed_one_stays_conf
         settle_again(&db, finding, "wrong", 9, "me")
             .unwrap_err()
             .text()
-            .contains("builds refuses to settle a closed finding again")
+            .contains("closed finding")
     );
     assert!(
         allow(&db, finding, "the person: land it", 9, "me")
@@ -270,10 +270,17 @@ fn the_person_allows_an_open_confirmed_finding_which_stays_confirmed_and_is_no_l
     allow(&db, allowed, "the person: land it", 8, "me").unwrap();
     let found = finding_of(&db, allowed).unwrap();
     assert_eq!(
-        found.allowed,
-        Some(Allowed {
-            why: "the person: land it".to_string(),
-            by: "me".to_string(),
+        found.settled,
+        Some(Settled::Allowed {
+            confirmed: Settle {
+                how: "confirmed".to_string(),
+                why: "real".to_string(),
+                by: "me".to_string(),
+            },
+            allowed: Allowed {
+                why: "the person: land it".to_string(),
+                by: "me".to_string(),
+            },
         })
     );
     assert!(!found.is_open() && found.settled_as("confirmed"));

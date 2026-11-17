@@ -783,7 +783,10 @@ fn only_by_person_allows_a_confirmed_finding_to_land() {
     settle(&demo.tool, &words(&["allowed", "--by-person"])).unwrap();
     let found = &findings_of(&demo, landing)[0];
     assert!(!found.is_open() && found.settled_as("confirmed"));
-    assert_eq!(found.allowed.as_ref().unwrap().why, "the person: land it");
+    let Some(record::Settled::Allowed { allowed, .. }) = &found.settled else {
+        panic!("{:?}", found.settled)
+    };
+    assert_eq!(allowed.why, "the person: land it");
 }
 
 #[test]

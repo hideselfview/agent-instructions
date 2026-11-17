@@ -57,7 +57,6 @@ fn finding(
             })
         }),
         closed_by: None,
-        allowed: None,
     }
 }
 
