@@ -196,9 +196,6 @@ pub fn report(project: &str, since: Option<&str>, rows: &[Row]) -> String {
     out
 }
 
-/// How many local days the dashboard shows: today and yesterday.
-pub const DASHBOARD_DAYS: i64 = 2;
-
 /// Local midnight at the start of the day before the day of <now>. A day with
 /// a clock change is not 24 hours long, so the function finds yesterday's own
 /// midnight rather than subtracting 24 hours from today's.
@@ -221,7 +218,6 @@ pub fn dashboard_json(path: &Path, now: i64) -> serde_json::Value {
     match start_of_yesterday(now).and_then(|since| read(path, since)) {
         Err(error) => serde_json::json!({ "error": error.text() }),
         Ok(waits) => serde_json::json!({
-            "days": DASHBOARD_DAYS,
             "rows": rows(waits, &crate::text::local_day).iter().map(|row| serde_json::json!({
                 "kind": row.kind.word(),
                 "day": row.day,
