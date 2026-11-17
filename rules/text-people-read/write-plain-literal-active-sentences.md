@@ -26,10 +26,15 @@ translation follows its project's localization rule, such as bae's
 (`projects/bae-rules/text-people-read/localization-stays-in-sync-with-ui.md`).
 
 **Active.** Name the actor and the action: "bae uploads the cover", not "the
-cover is uploaded"; "Ana removed this Mac", not "this Mac was removed". An item
-or plan title, a task, a button or a menu item starts with its verb: "Rebuild
-the dashboard to match its board", "Scan device…". A document's section header
-instead names what the section holds ("Crates and apps").
+cover is uploaded"; "Ana removed this Mac", not "this Mac was removed". A past
+participle that leaves out who acted is passive too, whether the sentence tells
+of an action or a state, and with or without a form of "be" before it: "the
+release is matched", "tracks added by mistake" and "the key, saved on this Mac"
+each hide who acted. Name the actor: "bae matched the release", "tracks you
+added by mistake", "the key bae saved on this Mac". An item or plan title, a
+task, a button or a menu item starts with its verb: "Rebuild the dashboard to
+match its board", "Scan device…". A document's section header instead names what
+the section holds ("Crates and apps").
 
 **Literal.** Use the words for what happens. Figures of speech make the reader
 translate: "reads like", "short-circuits", "hydrate", "the flywheel". So do
