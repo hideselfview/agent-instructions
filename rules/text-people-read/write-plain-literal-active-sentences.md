@@ -18,8 +18,8 @@ top, such as a README, a rule or a brief) also follows the editor skill
 front, introduce the names it uses and give its sections headers. Where the two
 give different forms below, each says which text it covers.
 
-**English forms.** The grammar forms below are English's, and so are the tics
-they name: active voice with a named subject, a title or button that starts with
+**English forms.** The grammar forms below, and the habits they forbid, are
+English's: active voice with a named subject, a title or button that starts with
 its verb, whole sentences with their articles, no sentence that opens with "It"
 or "This", and no dash as punctuation. Other languages have their own forms. A
 translation follows its project's localization rule, such as bae's

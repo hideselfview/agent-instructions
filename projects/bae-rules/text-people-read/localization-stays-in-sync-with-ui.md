@@ -1,5 +1,5 @@
 ---
-digest: A change that adds, removes or rewords user-facing text updates the string catalogs (key and every locale's translation) in the same change. The locale never crosses the bridge. A translation says what the English says the way that language's apps say it, never in the English sentence's shape.
+digest: A change that adds, removes or rewords user-facing text updates the string catalogs (key and every locale's translation) in the same change. The locale never crosses the bridge. A translation says what the English says the way that language's apps say it, never in the English sentence's structure.
 paths:
   - bae-macos/**/*.swift
   - bae-ios/**/*.swift
@@ -52,9 +52,9 @@ Each kind of change has its own catalog work:
 ### Each translation follows its own language
 
 A translation says what the English says, the way that language's apps normally
-say it, never in the English sentence's shape. The plain-writing rule's grammar
-forms, such as a named subject or a button that starts with its verb, are
-English's. Every language keeps plain words, no figures of speech, no marketing
-words and no emoji, and translates each of bae's own terms the same way every
-time. Review never flags a translation for not following the English sentence's
-structure.
+say it, never in the English sentence's structure. The plain-writing rule's
+grammar forms, such as a named subject or a button that starts with its verb,
+are English's. Every language keeps plain words, no figures of speech, no
+marketing words and no emoji, and translates each of bae's own terms the same
+way every time. Review never flags a translation for not following the English
+sentence's structure.
