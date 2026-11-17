@@ -14,6 +14,7 @@ fn group(name: &str, enumerate: bool) -> Group {
         sites: enumerate.then(|| "handles rows a query returned".to_string()),
         commit_text: false,
         skips_comments: false,
+        copy: false,
         passes: 1,
     }
 }

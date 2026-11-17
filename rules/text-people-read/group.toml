@@ -1,5 +1,6 @@
 name = "Text people read"
-question = "Is every sentence a person reads plain, literal and active, said once, punctuated without dashes, spelled as the product spells its names and translated into every locale, in app strings, notifications, errors, titles, help text, docs, the spec, briefs and rules?"
+question = "Is every sentence a person reads plain, literal and active, said once, punctuated without dashes, and spelled as the product spells its names, in app strings, notifications, errors, titles, help text, docs, the spec, briefs and rules?"
+copy = true
 enumerate = true
 skips_comments = true
 sites = "is a sentence a person reads outside a code comment: each string and each documentation sentence the diff adds or changes"

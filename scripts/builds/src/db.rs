@@ -4,8 +4,7 @@
 //! design changes' recording sessions (`lists/design_session.sql`), the shot
 //! findings, the review's tables, the `builds cargo` runs
 //! (`cargo_run.sql`), the spec checks (`lists/spec_check.sql`), the agents'
-//! acknowledgements (`ack/record.sql`) and the writing check's runs
-//! (`review/writing.sql`). This module does all opening:
+//! acknowledgements (`ack/record.sql`). This module does all opening:
 //! the pragmas, the schema made whole in the first transaction of a new file,
 //! and the stamp.
 //!
@@ -85,19 +84,14 @@ pub const SPEC_CHECK_PART: &str = include_str!("lists/spec_check.sql");
 /// (ack/record.sql); the schema holds it after the spec checks' part.
 pub const ACK_PART: &str = include_str!("ack/record.sql");
 
-/// The runs of the writing check (review/writing.sql), the last part of the
-/// schema.
-pub const WRITING_PART: &str = include_str!("review/writing.sql");
-
 /// The whole schema: the lists' tables, then the hook stats', then the
 /// app-build timings', then the design changes' recording sessions', then the
 /// stored shot findings, then the review's, then the hook checks' starting
 /// loads, then the cargo runs', then the parked items', then the dropped
-/// items' work, then the spec checks', then the acknowledgements',
-/// then the writing check runs'.
+/// items' work, then the spec checks', then the acknowledgements'.
 pub fn schema() -> String {
     format!(
-        "{}\n{REVIEW_PART}\n{HOOK_CHECK_STARTS_PART}\n{CARGO_RUNS_PART}\n{PARKED_PART}\n{DROPPED_PART}\n{SPEC_CHECK_PART}\n{ACK_PART}\n{WRITING_PART}",
+        "{}\n{REVIEW_PART}\n{HOOK_CHECK_STARTS_PART}\n{CARGO_RUNS_PART}\n{PARKED_PART}\n{DROPPED_PART}\n{SPEC_CHECK_PART}\n{ACK_PART}",
         schema_before_review()
     )
 }

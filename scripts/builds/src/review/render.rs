@@ -1,6 +1,6 @@
 //! What `builds review` prints: the findings by group, then one line of totals.
 
-use crate::review::record::{Call, Finding, NewCall, NewFinding, Settle, Settled};
+use crate::review::record::{Call, Finding, Settle, Settled};
 use crate::text::one_line;
 
 /// A run's calls with their findings, by group.
@@ -35,51 +35,6 @@ pub fn run_report(calls: &[Call], findings: &[Finding]) -> String {
     }
     out.push_str(&totals(calls, findings));
     out.push('\n');
-    out
-}
-
-/// Calls that builds did not record, with their findings by group, then one
-/// line of counts. A finding here has no number, since no store holds it.
-pub fn unrecorded_report(calls: &[NewCall]) -> String {
-    let mut out = String::new();
-    let mut accepted = 0;
-    let mut blocking = 0;
-    let mut dropped = 0;
-    for call in calls {
-        let own: Vec<&NewFinding> = call
-            .findings
-            .iter()
-            .filter(|f| f.check_failed.is_none())
-            .collect();
-        out.push_str(&call_line(
-            &call.group,
-            &call.model,
-            call.failure.as_deref(),
-            own.len(),
-        ));
-        accepted += own.len();
-        blocking += own.iter().filter(|f| f.blocking).count();
-        dropped += call.findings.len() - own.len();
-        for finding in own {
-            out.push_str(&format!(
-                "  finding {}",
-                raised(
-                    finding.blocking,
-                    &finding.rule,
-                    &finding.file,
-                    finding.line,
-                    &finding.clause,
-                    &finding.code,
-                    &finding.problem
-                )
-            ));
-        }
-    }
-    out.push_str(&format!(
-        "{}, {} ({blocking} blocking), {dropped} dropped by builds\n",
-        plural(calls.len(), "group"),
-        plural(accepted, "finding")
-    ));
     out
 }
 

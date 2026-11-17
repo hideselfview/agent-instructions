@@ -12,11 +12,14 @@ errors, help text, item and plan titles, PR descriptions, docs, the spec,
 briefs, rules, and replies in chat. This rule outranks every other writing rule.
 
 **Comments and commit messages.** The rule does not cover code comments (doc and
-line comments in a source file) or commit messages: a review judges neither on
-its wording or grammar. Other rules still judge what a comment or a commit
-message says, such as whether it is accurate
-(committed-text-describes-the-current-state,
-every-change-agrees-with-its-product-spec).
+line comments in a source file) or commit messages.
+
+**Who checks it.** `builds review` judges no text on its word choice, grammar or
+style: it never asks this rule or the other rules in its folder. The person
+reviews copy, and may run the copy review (`builds review copy`), which asks
+these rules. A review still judges whether text is accurate, under rules such as
+committed-text-describes-the-current-state and
+every-change-agrees-with-its-product-spec.
 
 Short text (app strings, titles, buttons, messages) has no room to set up
 context, so it follows the forms here. A document (prose a reader reads from the

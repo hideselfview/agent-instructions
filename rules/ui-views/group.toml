@@ -1,2 +1,2 @@
 name = "UI views"
-question = "Does the UI only list and draw what the core gives it, with the bridge only translating types and fast-changing values drawn by native views?"
+question = "Does the UI only list and draw what the core gives it, with the bridge only translating types and fast-changing values drawn by native views, and every string the UI shows in its catalogs, in every locale?"

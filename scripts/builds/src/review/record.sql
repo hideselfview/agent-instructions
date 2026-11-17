@@ -2,8 +2,9 @@
 -- belongs to, each run with the net change it read, each reviewer call, its verdict
 -- for every rule, each finding with how the coordinator settled it, the run
 -- that closed a confirmed finding, and each confirmed finding the person
--- allowed to land. record.rs owns these tables and is the only code that
--- writes them.
+-- allowed to land. The tables also hold each copy review (`builds review
+-- copy`): a run that no landing holds, with its calls and findings. record.rs
+-- owns these tables and is the only code that writes them.
 
 -- A change under review: every review of it shares this landing, found by its
 -- key, until the change lands. landed_at is when `builds land` pushed the
@@ -25,15 +26,17 @@ CREATE TABLE review_landing (
 ) STRICT;
 CREATE INDEX review_landing_key ON review_landing (key);
 
--- One run over a diff: a landing's review, a replay of a test case, or an audit
--- of a landing that landed. A review run's base and head are the branch's net
+-- One run over a diff: a landing's review, a replay of a test case, an audit
+-- of a landing that landed, or a copy review of a branch (`builds review
+-- copy`), which no landing holds. A review run's base and head are the branch's net
 -- change as the run found it: the common ancestor with the base it reviews
 -- against, and the branch's head.
 CREATE TABLE review_run (
     id INTEGER PRIMARY KEY,
     landing_id INTEGER REFERENCES review_landing (id),
-    kind TEXT NOT NULL CONSTRAINT review_run_kind_known CHECK (kind IN ('review', 'replay', 'audit')),
-    -- The case a replay ran, or what an audit audits.
+    kind TEXT NOT NULL CONSTRAINT review_run_kind_known CHECK (kind IN ('review', 'replay', 'audit', 'copy')),
+    -- The case a replay ran, what an audit audits, or the key of the branch a
+    -- copy review read.
     label TEXT,
     at INTEGER NOT NULL,
     base TEXT NOT NULL,
@@ -47,11 +50,11 @@ CREATE TABLE review_run (
     -- The commit of the rules checkout the run read, empty when it is no repo.
     rules_version TEXT NOT NULL,
     -- How many lines the review run's diff adds and removes. The column is
-    -- null for a replay or an audit. The column is also null for a review run
+    -- null for a replay, an audit or a copy review. The column is also null for a review run
     -- that builds recorded before builds counted lines, when the repo's clone
     -- on this Mac no longer held the run's commits as builds moved the store.
     changed_lines INTEGER CONSTRAINT review_run_changed_lines_not_negative CHECK (changed_lines >= 0),
-    CONSTRAINT review_run_review_has_a_landing CHECK (kind = 'replay' OR landing_id IS NOT NULL),
+    CONSTRAINT review_run_review_has_a_landing CHECK (kind IN ('replay', 'copy') OR landing_id IS NOT NULL),
     CONSTRAINT review_run_since_only_in_a_review CHECK (since_run IS NULL OR kind = 'review')
 ) STRICT;
 CREATE INDEX review_run_landing ON review_run (landing_id);
@@ -133,9 +136,9 @@ CREATE TABLE review_finding (
     problem TEXT NOT NULL,
     blocking INTEGER NOT NULL CONSTRAINT review_finding_blocking_is_a_flag CHECK (blocking IN (0, 1)),
     -- Why builds dropped it: its clause is not in the rule, it is on the
-    -- commit messages and its group reads none, its code is not in the diff,
-    -- or its code sits only on comment lines and its rule's group judges no
-    -- code comment.
+    -- commit messages and its group reads none, its code is on no line the
+    -- diff adds or removes, or its code sits only on comment lines and its
+    -- rule's group judges no code comment.
     check_failed TEXT,
     settled TEXT CONSTRAINT review_finding_settled_known CHECK (settled IN ('confirmed', 'dropped')),
     settled_why TEXT,

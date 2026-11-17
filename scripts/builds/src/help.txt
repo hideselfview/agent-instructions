@@ -1445,10 +1445,14 @@ group that reads commit messages (commit_text) and whose rules cover a path the
 branch changes. A reviewer reads the commit messages as one more file, named
 COMMIT_MESSAGE. Only groups whose rules judge what a message says read the
 messages (in agent-instructions, the group Commits and repo contents, whose
-rules ask whether the text is accurate). The writing group (Text people read)
-reads no commit message and judges no code comment, so when an agent rewords a
-message or a comment, the review never waits on the writing group. `builds
-review` refuses the run when the review lacks nothing, naming the last review.
+rules ask whether the text is accurate). `builds review` refuses the run when
+the review lacks nothing, naming the last review.
+
+`builds review` checks code and whether text is accurate, never word choice,
+grammar or style: it never asks a copy group (copy, below), whose rules judge
+wording. In agent-instructions the copy group is Text people read. The person
+reviews copy by hand, and may run the copy review (`builds review copy`),
+which asks only the copy groups. No landing waits on the copy review.
 
 builds finds the changes since the last review by replaying the net change
 the last review read onto the branch's current common ancestor with main, in
@@ -1500,7 +1504,8 @@ code with its file and line, and what goes wrong. builds drops a finding whose
 clause is not in the rule, that is on COMMIT_MESSAGE when its group reads no
 commit message, whose code is on no line the diff adds or removes, or whose
 code sits only on comment lines when the group of its rule judges no code
-comment (skips_comments), and records it as dropped with that reason. A comment line
+comment (skips_comments), and records it as dropped with that reason. A
+comment line
 is a line whose first characters past its indent are a comment's mark in the
 file's language: `//`, `/*` or `*/` in Rust, Swift, Kotlin and C# (and `*` in
 a block comment of all but Rust), `#` in Python, shell and TOML, and `--` in
@@ -1599,6 +1604,10 @@ checks this, and so does builds' test. The group.toml fields are top-level keys:
                 true when the group's rules judge no code comment: builds
                 drops a finding of such a rule whose code sits only on
                 comment lines
+  copy          true when the group's rules judge word choice, grammar and
+                style: only the copy review (`builds review copy`) asks the
+                group, and `builds review`, its audits and its replays never
+                do
   passes        how many times each call is made, default 1; the findings of
                 all are kept, and the later calls read the first one's prompt
                 from the cache
@@ -1713,27 +1722,17 @@ run `review replay --rules-root` on it.
                               it runs it holds a lock file named for the
                               reviewed commit in the store folder's
                               reviews-running, which the dashboard reads
-  builds review writing <worktree> [<base>] [--rules-root DIR] [--reviewer PROGRAM]
-                              ask only the group that holds rule
-                              write-plain-literal-active-sentences over the
-                              worktree's net change past <base> (default
-                              origin/main), the way `builds review` asks each
-                              group, and print its findings. The group reads
-                              no commit message and judges no code comment:
-                              the check judges app strings, errors, help
-                              text, docs, the spec, briefs and rules. The
-                              command records no landing, review run or
-                              finding, and `builds land` still needs the
-                              coordinator's review. An implementing agent
-                              runs it on its branch before every report, and
-                              fixes what it finds. builds records each run whose group
-                              answered, allows the check at most twice on a
-                              branch between two reviews of it, and refuses a
-                              third run with a message to fix what the second
-                              run found and report. The coordinator's next
-                              review of the branch (`builds review`) allows
-                              two more. Exits 1 when the group raised a
-                              finding or gave no answer
+  builds review copy <worktree> [<base>] [--rules-root DIR] [--reviewer PROGRAM]
+                              the copy review: ask only the copy groups whose
+                              rules cover a changed path over the worktree's
+                              net change past <base> (default origin/main),
+                              the way `builds review` asks each group, record
+                              the run, its calls and its findings in the
+                              project's store under the branch's key, and
+                              print the findings. The person runs it by hand;
+                              no landing waits on it, and nothing else runs
+                              it. Exits 1 when a group raised a finding or
+                              gave no answer
   builds review settle <finding> confirmed|dropped --why <text>
                               the coordinator's verdict on a finding, kept with
                               who and when. builds refuses a finding that is

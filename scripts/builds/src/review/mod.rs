@@ -4,7 +4,7 @@
 //!
 //! ```text
 //! builds review [run] WORKTREE [BASE] [--landing KEY] [--item N]... [--head SHA] [--rules-root DIR] [--reviewer PROGRAM]
-//! builds review writing WORKTREE [BASE] [--rules-root DIR] [--reviewer PROGRAM]
+//! builds review copy WORKTREE [BASE] [--rules-root DIR] [--reviewer PROGRAM]
 //! builds review settle FINDING confirmed|dropped --why TEXT
 //! builds review settle FINDING --again --why TEXT
 //! builds review settle FINDING allowed --by-person --why TEXT
@@ -39,11 +39,10 @@
 //! what the review read, for this run and for `builds land`. The run refuses
 //! when the review lacks nothing.
 //!
-//! `writing` asks only the group that holds rule
-//! write-plain-literal-active-sentences over the same net change and prints
-//! its findings. The check records no landing, review run or finding, only
-//! that it ran, and refuses a third run on a branch until the branch's next
-//! review (`writing.rs`).
+//! `run` asks no copy group (`groups::Group::copy`), whose rules judge word
+//! choice, grammar and style. `copy` asks only those, over the worktree's net
+//! change, records the run and its findings, and prints them (`copy.rs`). The
+//! person runs it by hand; no landing waits on it.
 //!
 //! Every call records its setup (its group's model and prompt), its tokens and
 //! its cost. `scores` counts how each setup did from the settled findings, and
@@ -55,6 +54,7 @@ pub mod call;
 mod cases;
 pub mod check;
 pub mod commits;
+pub mod copy;
 #[cfg(test)]
 pub mod fakes;
 mod files;
@@ -70,7 +70,6 @@ mod rerun;
 pub mod rules;
 pub mod run;
 mod score;
-pub mod writing;
 
 use std::path::{Path, PathBuf};
 
@@ -84,7 +83,7 @@ use crate::tool::Tool;
 
 use record::Kind;
 
-const USAGE: &str = "usage: builds review [run] WORKTREE [BASE] [--landing KEY] [--item N]... [--head SHA] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review writing WORKTREE [BASE] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review settle FINDING confirmed|dropped --why TEXT\n       builds review settle FINDING --again --why TEXT\n       builds review settle FINDING allowed --by-person --why TEXT\n       builds review show LANDING\n       builds review check-landing DIR --project P SHA... [--landing KEY] [--rules-root DIR]\n       builds review landed DIR --project P SHA... [--landing KEY] [--more-to-land] [--rules-root DIR]\n       builds review groups [--rules-root DIR] [--project P] [--changed PATH]...\n       builds review replay [--case NAME]... [--source REPO] [--model opus|sonnet|haiku] [--rules-root DIR] [--compare] [--reviewer PROGRAM]\n       builds review replay --landing N... --repo-dir DIR [--group NAME]... [--model opus|sonnet|haiku] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review audit LANDING --repo-dir DIR [--rules-root DIR] [--reviewer PROGRAM]\n       builds review misses [--check [--model opus|sonnet|haiku] [--rules-root DIR] [--reviewer PROGRAM]]\n       builds review rates [--rules-root DIR]\n       builds review scores\n       builds review case propose --repo-dir DIR --rules-root DIR [--per-group N] [--model opus|sonnet|haiku] [--reviewer PROGRAM]\n       builds review case add LANDING FINDING --repo-dir DIR --rules-root DIR [--name NAME]\n       builds review case add --rule SLUG --file PATH --commits BASE..HEAD --project P --name NAME --repo-dir DIR --rules-root DIR\n       builds review case add --clean-for SLUG --commits BASE..HEAD --project P --name NAME --repo-dir DIR --rules-root DIR";
+const USAGE: &str = "usage: builds review [run] WORKTREE [BASE] [--landing KEY] [--item N]... [--head SHA] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review copy WORKTREE [BASE] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review settle FINDING confirmed|dropped --why TEXT\n       builds review settle FINDING --again --why TEXT\n       builds review settle FINDING allowed --by-person --why TEXT\n       builds review show LANDING\n       builds review check-landing DIR --project P SHA... [--landing KEY] [--rules-root DIR]\n       builds review landed DIR --project P SHA... [--landing KEY] [--more-to-land] [--rules-root DIR]\n       builds review groups [--rules-root DIR] [--project P] [--changed PATH]...\n       builds review replay [--case NAME]... [--source REPO] [--model opus|sonnet|haiku] [--rules-root DIR] [--compare] [--reviewer PROGRAM]\n       builds review replay --landing N... --repo-dir DIR [--group NAME]... [--model opus|sonnet|haiku] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review audit LANDING --repo-dir DIR [--rules-root DIR] [--reviewer PROGRAM]\n       builds review misses [--check [--model opus|sonnet|haiku] [--rules-root DIR] [--reviewer PROGRAM]]\n       builds review rates [--rules-root DIR]\n       builds review scores\n       builds review case propose --repo-dir DIR --rules-root DIR [--per-group N] [--model opus|sonnet|haiku] [--reviewer PROGRAM]\n       builds review case add LANDING FINDING --repo-dir DIR --rules-root DIR [--name NAME]\n       builds review case add --rule SLUG --file PATH --commits BASE..HEAD --project P --name NAME --repo-dir DIR --rules-root DIR\n       builds review case add --clean-for SLUG --commits BASE..HEAD --project P --name NAME --repo-dir DIR --rules-root DIR";
 
 /// The checkout the rules and groups are read from: `--rules-root`, else the
 /// one `install.sh` links at ~/.codex/agent-instructions.
@@ -172,7 +171,7 @@ pub fn cmd_review(tool: &Tool, args: &[String]) -> Result<()> {
         "settle" => settle(tool, rest),
         "show" => show(tool, rest),
         "run" => run_command(tool, rest),
-        "writing" => writing_command(tool, rest),
+        "copy" => copy_command(tool, rest),
         "check-landing" => landing::check_landing_command(tool, rest),
         "landed" => landing::landed_command(tool, rest),
         "replay" => replay(tool, rest),
@@ -504,31 +503,30 @@ fn run_command(tool: &Tool, args: &[String]) -> Result<()> {
     }
 }
 
-/// `builds review writing WORKTREE [BASE]`: the writing check, which prints
-/// the findings of the group that holds the writing rule, records the run
-/// and refuses a third run on the branch until its next review. Exits 1 when
-/// the group raised a finding or gave no answer.
-fn writing_command(tool: &Tool, args: &[String]) -> Result<()> {
+/// `builds review copy WORKTREE [BASE]`: the copy review, which asks the
+/// copy groups over the worktree's net change past BASE, records the run and
+/// prints its findings. Exits 1 when a group raised a finding or gave no
+/// answer.
+fn copy_command(tool: &Tool, args: &[String]) -> Result<()> {
     let args = Args::parse(args, &["rules-root", "reviewer"], &[])?;
     let (worktree, base) = worktree_and_base(&args)?;
     let checkout = Checkout::find(worktree)?;
     let Some(project) = project_given(tool, &args, &checkout)? else {
         fail!(
-            "repo {} is in no project of the lists, so builds does not know whose rules to read; say which with --project",
+            "repo {} is in no project of the lists, so builds does not know whose rules to read or which store records the review; say which with --project",
             checkout.repo()
         )
     };
     let stamp = Stamp {
         at: tool.now,
-        by: resolve_by(&args, &checkout.top)?,
+        by: resolve_by(&args, &checkout.top).or_else(|_| resolve_by(&args, &current_dir()?))?,
     };
-    let checked = writing::check(&writing::Inputs {
+    let checked = copy::check(&copy::Inputs {
         store: &Store::named(&tool.places, &project)?,
         project: &project,
-        repo: &checkout.repo(),
         worktree: &checkout.top,
         base,
-        key: &default_key(&checkout.top)?,
+        label: &default_key(&checkout.top)?,
         root: &rules_root(&args)?,
         reviewer: &PathBuf::from(args.value("reviewer")?.unwrap_or("claude")),
         stamp: &stamp,
@@ -1133,7 +1131,8 @@ fn list_groups(args: &[String]) -> Result<()> {
 }
 
 fn print_group<'a>(group: &groups::Group, slugs: impl Iterator<Item = &'a str>) {
-    println!("{} ({}): {}", group.name, group.model, group.question);
+    let kind = if group.copy { ", copy review only" } else { "" };
+    println!("{} ({}{kind}): {}", group.name, group.model, group.question);
     for slug in slugs {
         println!("  {slug}");
     }

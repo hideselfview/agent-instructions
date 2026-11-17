@@ -136,18 +136,9 @@ WHAT AN IMPLEMENTING AGENT DOES
      error, help text, doc and spec line it adds against
      rules/text-people-read/write-plain-literal-active-sentences.md, and
      fix what it finds. That rule does not cover code comments or commit
-     messages: reread those for whether they are accurate.
-  7. Commit. Before every report, the first one and each one after a fix,
-     run `builds review writing <worktree>` on the branch. The command has a
-     reviewer check the branch's changes past origin/main against
-     rules/text-people-read/write-plain-literal-active-sentences.md and the
-     other rules of its review group, and prints the findings. The check
-     reads no commit message and judges no code comment. Fix what it
-     finds in a new commit, and name in the report each finding it judges
-     wrong, with why. builds runs the check at most twice on a branch between
-     two reviews of it: after the second run, fix what it found and report,
-     and run the check again only after the coordinator's next review. This
-     check is the only one that reads the wording of some fixes (REVIEW).
+     messages: reread those for whether they are accurate. No review checks
+     wording: the person reviews copy by hand.
+  7. Commit.
   8. Report the SHA, the base and the checks. Leave nothing uncommitted: the
      coordinator runs `builds land` in this worktree, which refuses a
      worktree with uncommitted changes.
@@ -255,7 +246,9 @@ agent-instructions' rules with `builds review` before it lands the branch, and
 `builds land` refuses the branch until the review finishes. builds splits the
 rules into groups and runs one reviewer per group that covers a changed path. A
 review shows the changes since the last review, and nothing else: builds never
-sends a reviewer the same diff twice.
+sends a reviewer the same diff twice. The review checks code and whether text
+is accurate, never word choice, grammar or style: the person reviews copy by
+hand, and the copy review (`builds review copy`) is theirs to run.
 
   1. The coordinator runs `builds review <worktree> --item N` on the branch,
      which gives the reviewers the item's brief. The first review reads the
@@ -275,15 +268,10 @@ In a later run, only the groups that hold open findings in a file read that
 file, and every group that covers any other changed file reads that file, as
 on a first review. The groups run at the same time, in the same run, and
 builds asks no group that reads none of the changed files. For example, the
-writing group (Text people read) holds findings in a.rs and b.rs, and the
+necessary-code group (Necessary code) holds findings in a.rs and b.rs, and the
 errors group (Errors and invalid state) holds one in c.rs. After the fix, the
-writing group reads only a.rs and b.rs, and the errors group reads only c.rs.
-So when a fix changes only the wording of a file where only the writing group
-holds findings, builds asks only the writing group. When a fix of the errors
-group's finding in c.rs adds a passive sentence to c.rs, the review does not
-ask the writing group about c.rs and misses the sentence: the implementing
-agent's writing check (`builds review writing`) finds it before the agent
-reports. The run's report names each group that did not read a file, with the
+necessary-code group reads only a.rs and b.rs, and the errors group reads only
+c.rs. The run's report names each group that did not read a file, with the
 files it did not read.
 
 The changes since the last review are the lines the branch adds or removes that

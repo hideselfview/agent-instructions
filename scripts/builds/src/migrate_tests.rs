@@ -3053,6 +3053,162 @@ fn a_store_from_before_blocks_from_waits_clears_the_why_of_each_question_an_open
     assert_eq!(waits, 3);
 }
 
+/// review/writing.sql, the table of writing check runs that builds kept until
+/// the copy review replaced the writing check.
+const WRITING_PART: &str = r#"-- Each row records one run of the writing check (`builds review writing`)
+-- that its group answered: the change's key and repo, and the newest review
+-- run of a landing with that key when the check ran. builds allows two such
+-- runs on a key between two reviews of it. writing.rs owns this table and is
+-- the only code that writes it.
+CREATE TABLE review_writing_run (
+    id INTEGER PRIMARY KEY,
+    key TEXT NOT NULL CONSTRAINT review_writing_run_key_says_something CHECK (trim(key) <> ''),
+    repo TEXT NOT NULL REFERENCES repo (name),
+    -- The column is null when no review had run on the key.
+    reviewed_run INTEGER REFERENCES review_run (id),
+    at INTEGER NOT NULL
+) STRICT;
+CREATE INDEX review_writing_run_key ON review_writing_run (key);
+"#;
+
+/// The schema text before builds made the wording check a copy review of its
+/// own: record.sql as it read then, and writing.sql after the
+/// acknowledgements' part.
+fn schema_before_copy_review() -> String {
+    let mut review = db::REVIEW_PART.to_string();
+    for (now, then) in [
+        (
+            "-- allowed to land. The tables also hold each copy review (`builds review
+-- copy`): a run that no landing holds, with its calls and findings. record.rs
+-- owns these tables and is the only code that writes them.",
+            "-- allowed to land. record.rs owns these tables and is the only code that
+-- writes them.",
+        ),
+        (
+            "-- One run over a diff: a landing's review, a replay of a test case, an audit
+-- of a landing that landed, or a copy review of a branch (`builds review
+-- copy`), which no landing holds. A review run's base and head are the branch's net",
+            "-- One run over a diff: a landing's review, a replay of a test case, or an audit
+-- of a landing that landed. A review run's base and head are the branch's net",
+        ),
+        (
+            "CHECK (kind IN ('review', 'replay', 'audit', 'copy')),
+    -- The case a replay ran, what an audit audits, or the key of the branch a
+    -- copy review read.",
+            "CHECK (kind IN ('review', 'replay', 'audit')),
+    -- The case a replay ran, or what an audit audits.",
+        ),
+        (
+            "    -- null for a replay, an audit or a copy review. The column is also null for a review run",
+            "    -- null for a replay or an audit. The column is also null for a review run",
+        ),
+        (
+            "CHECK (kind IN ('replay', 'copy') OR landing_id IS NOT NULL),",
+            "CHECK (kind = 'replay' OR landing_id IS NOT NULL),",
+        ),
+        (
+            "    -- commit messages and its group reads none, its code is on no line the
+    -- diff adds or removes, or its code sits only on comment lines and its
+    -- rule's group judges no code comment.",
+            "    -- commit messages and its group reads none, its code is not in the diff,
+    -- or its code sits only on comment lines and its rule's group judges no
+    -- code comment.",
+        ),
+    ] {
+        assert_eq!(review.matches(now).count(), 1, "{now}");
+        review = review.replacen(now, then, 1);
+    }
+    let schema = db::schema();
+    assert_eq!(schema.matches(db::REVIEW_PART).count(), 1);
+    format!(
+        "{}\n{WRITING_PART}",
+        schema.replacen(db::REVIEW_PART, &review, 1)
+    )
+}
+
+#[test]
+fn the_copy_review_stamp_is_the_schema_before_copy_review() {
+    assert_eq!(
+        db::stamp_of_text(&schema_before_copy_review()),
+        BEFORE_COPY_REVIEW_STAMP
+    );
+}
+
+/// A store from before the copy review loses the writing check's runs, keeps
+/// its review runs, equals a fresh schema, and the move settles as dropped,
+/// by the person, each finding about wording that a branch waits on, and no
+/// other finding.
+#[test]
+fn a_store_from_before_copy_review_settles_the_open_wording_findings() {
+    use crate::review::record::{self, Kind, NewRun, Settled};
+    let scratch = Scratch::new("move-copy-review");
+    let places = scratch.places();
+    let dir = places.lists.join("bae");
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join(DATABASE);
+    let diff = "diff --git a/a.rs b/a.rs\n--- /dev/null\n+++ b/a.rs\n@@ -0,0 +1 @@\n+let s = \"Cover uploaded\";\n";
+    let ids = {
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(&schema_before_copy_review()).unwrap();
+        conn.pragma_update(None, "user_version", BEFORE_COPY_REVIEW_STAMP)
+            .unwrap();
+        crate::lists::project::plant(&conn, "repo", &[("name", "bae".to_string().into())]).unwrap();
+        conn.execute(
+            "INSERT INTO review_writing_run (key, repo, reviewed_run, at) VALUES ('branch:work', 'bae', NULL, 4)",
+            [],
+        )
+        .unwrap();
+        let landing = record::add_landing(&conn, "branch:work", "bae", 5).unwrap();
+        let run = NewRun {
+            landing: Some(landing),
+            kind: Kind::Review { changed_lines: 1 },
+            label: None,
+            at: 6,
+            base: "b",
+            head: "h",
+            since: None,
+            grouping: "g",
+            rules_version: "",
+        };
+        let mut writing = call_of("Text people read", diff, &[("a.rs", "Cover uploaded")]);
+        writing.findings.push(writing.findings[0].clone());
+        writing.findings[0].rule = "write-plain-literal-active-sentences".to_string();
+        writing.findings[1].rule = "no-dash-as-sentence-punctuation".to_string();
+        let mut views = call_of("UI views", diff, &[("a.rs", "Cover uploaded")]);
+        views.findings[0].rule = "localization-stays-in-sync-with-ui".to_string();
+        let (_, ids) = record::add_run(&conn, &run, &[writing, views]).unwrap();
+        record::settle(&conn, ids[0][1], "confirmed", "real", 7, "coordinator").unwrap();
+        ids
+    };
+    migrate_stores(&places, 900).unwrap();
+    let conn = db::open_reader(&path)
+        .unwrap()
+        .expect("opens under today's stamp");
+    assert_eq!(
+        db::schema_rows(&conn).unwrap(),
+        db::schema_rows(&db::memory()).unwrap()
+    );
+    let settled = |id: i64| record::finding_of(&conn, id).unwrap().settled;
+    let person = || record::Settle {
+        how: "dropped".to_string(),
+        why: record::COPY_REVIEW_WHY.to_string(),
+        by: "person".to_string(),
+    };
+    assert_eq!(settled(ids[0][0]), Some(Settled::Once(person())));
+    assert_eq!(
+        settled(ids[0][1]),
+        Some(Settled::Again {
+            first: record::Settle {
+                how: "confirmed".to_string(),
+                why: "real".to_string(),
+                by: "coordinator".to_string(),
+            },
+            second: person(),
+        })
+    );
+    assert_eq!(settled(ids[1][0]), None, "localization judges accuracy");
+}
+
 /// The schema text before builds dropped the writing group's findings on
 /// code comments and commit messages: record.sql's `check_failed` with the
 /// comment it had then.
@@ -3217,7 +3373,7 @@ fn a_store_from_before_message_style_settles_the_open_message_and_comment_findin
 /// writing.sql.
 fn schema_before_writing_runs() -> String {
     let schema = schema_before_message_style();
-    let part = format!("\n{}", db::WRITING_PART);
+    let part = format!("\n{WRITING_PART}");
     assert_eq!(schema.matches(&part).count(), 1);
     schema.replacen(&part, "", 1)
 }
@@ -3230,10 +3386,10 @@ fn the_writing_runs_stamp_is_the_schema_before_writing_runs() {
     );
 }
 
-/// A store from before builds recorded each writing check keeps its runs,
-/// equals a fresh schema, and then records a writing check.
+/// A store from before builds recorded each writing check keeps its runs and
+/// equals a fresh schema.
 #[test]
-fn a_store_from_before_writing_runs_moves_and_records_a_writing_check() {
+fn a_store_from_before_writing_runs_moves_and_keeps_its_runs() {
     let scratch = Scratch::new("move-writing-runs");
     let places = scratch.places();
     let dir = places.lists.join("bae");
@@ -3257,10 +3413,6 @@ fn a_store_from_before_writing_runs_moves_and_records_a_writing_check() {
     drop(conn);
     let stats = crate::hook_stats::stats(&path, 0, "bae").unwrap().unwrap();
     assert_eq!(stats.runs, 1, "the move keeps the old run");
-    let conn = Connection::open(&path).unwrap();
-    conn.pragma_update(None, "foreign_keys", true).unwrap();
-    crate::lists::project::plant(&conn, "repo", &[("name", "bae".to_string().into())]).unwrap();
-    crate::review::writing::add_run(&conn, "bae", "branch:work", 5).unwrap();
 }
 
 /// ack/record.sql as it was before builds named each agent by its Claude Code
@@ -3318,7 +3470,7 @@ CREATE TABLE ack_word (
 /// The schema text before builds named each agent by its Claude Code agent
 /// id.
 fn schema_before_agent_ids() -> String {
-    let schema = db::schema();
+    let schema = schema_before_copy_review();
     assert_eq!(schema.matches(db::ACK_PART).count(), 1);
     schema.replacen(db::ACK_PART, BEFORE_AGENT_IDS_ACK_PART, 1)
 }

@@ -88,6 +88,29 @@ pub fn style_group(fake: &Fake, sites: serde_json::Value) {
     fake.answer_task("style", serde_json::json!({"summary": "s", "sites": sites}));
 }
 
+/// Adds group copy, a copy group (`Group::copy`) whose rule-c covers every
+/// .rs file and whose reviewer reads one file per call and judges no code
+/// comment, and has that reviewer judge <sites>.
+pub fn copy_group(fake: &Fake, sites: serde_json::Value) {
+    std::fs::create_dir_all(fake.root.join("rules/copy")).unwrap();
+    rule_file(
+        &fake.root,
+        "copy",
+        "rule-c",
+        "**/*.rs",
+        true,
+        "**Rule C.** Write plain sentences.",
+    );
+    group_file(
+        &fake.root,
+        "copy",
+        "copy",
+        "opus",
+        "enumerate = true\nsites = \"is a sentence\"\nskips_comments = true\ncopy = true\n",
+    );
+    fake.answer_task("copy", serde_json::json!({"summary": "s", "sites": sites}));
+}
+
 /// A finding site of rule-s, as the style group's reviewer words it.
 pub fn style_site(file: &str, code: &str) -> serde_json::Value {
     serde_json::json!({

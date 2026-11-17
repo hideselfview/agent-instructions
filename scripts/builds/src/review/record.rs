@@ -81,6 +81,8 @@ pub enum Kind {
     },
     Replay,
     Audit,
+    /// A copy review of a branch (`builds review copy`).
+    Copy,
 }
 
 impl Kind {
@@ -89,6 +91,7 @@ impl Kind {
             Kind::Review { .. } => "review",
             Kind::Replay => "replay",
             Kind::Audit => "audit",
+            Kind::Copy => "copy",
         }
     }
 }
@@ -98,7 +101,7 @@ impl Kind {
 pub struct Finding {
     pub id: i64,
     pub run_id: i64,
-    /// `review`, `replay` or `audit`.
+    /// `review`, `replay`, `audit` or `copy`.
     pub kind: String,
     pub landing_id: Option<i64>,
     pub group: String,
@@ -250,19 +253,6 @@ pub fn open_landing(db: &Connection, key: &str) -> Result<Option<i64>> {
     .sql()
 }
 
-/// The newest review run of a landing of <key> in <repo>, whether the
-/// landing landed or not; None when no review ran on the key.
-pub fn last_review_run(db: &Connection, repo: &str, key: &str) -> Result<Option<i64>> {
-    db.query_row(
-        "SELECT MAX(review_run.id) FROM review_run
-         JOIN review_landing ON review_landing.id = review_run.landing_id
-         WHERE review_landing.key = ?1 AND review_landing.repo = ?2 AND review_run.kind = 'review'",
-        params![key, repo],
-        |row| row.get(0),
-    )
-    .sql()
-}
-
 pub fn add_landing(db: &Connection, key: &str, repo: &str, now: i64) -> Result<i64> {
     db.execute(
         "INSERT INTO review_landing (key, repo, opened_at) VALUES (?1, ?2, ?3)",
@@ -348,7 +338,7 @@ fn keep_text(db: &Connection, text: &str) -> Result<String> {
 pub fn add_run(db: &Connection, run: &NewRun, calls: &[NewCall]) -> Result<(i64, Vec<Vec<i64>>)> {
     let changed_lines = match run.kind {
         Kind::Review { changed_lines } => Some(changed_lines),
-        Kind::Replay | Kind::Audit => None,
+        Kind::Replay | Kind::Audit | Kind::Copy => None,
     };
     db.execute(
         "INSERT INTO review_run (landing_id, kind, label, at, base, head, since_run, grouping, rules_version, changed_lines) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
@@ -1175,21 +1165,7 @@ pub const MESSAGE_STYLE_WHY: &str = "The person: \"we don't read the commit mess
 /// with the foreign keys off, after the moves that make `review_settle_again`
 /// and `review_allowed`. Returns how many findings the move settled.
 pub fn move_to_message_style(db: &Connection, now: i64) -> Result<usize> {
-    let schema = crate::db::REVIEW_PART;
-    let slice = |from: &str, end: &str| crate::db::statement(schema, from, end);
-    crate::db::remake_table(
-        db,
-        "review_finding",
-        slice("CREATE TABLE review_finding", "STRICT;"),
-        |db| {
-            db.execute_batch(
-                "INSERT INTO review_finding (id, call_id, rule, clause, file, line, code, problem, blocking, check_failed, settled, settled_why, settled_at, settled_by)
-    SELECT id, call_id, rule, clause, file, line, code, problem, blocking, check_failed, settled, settled_why, settled_at, settled_by FROM review_finding_old;",
-            )
-            .sql()
-        },
-        &[slice("CREATE INDEX review_finding_call", ";")],
-    )?;
+    remake_findings(db)?;
     let found: Vec<Finding> = {
         let sql = format!(
             "SELECT {FINDING_COLUMNS} {FINDING_FROM} WHERE r.kind = 'review' AND c.group_name = ?1 AND f.check_failed IS NULL ORDER BY f.id"
@@ -1240,6 +1216,88 @@ fn on_messages_or_comments(db: &Connection, finding: &Finding) -> Result<bool> {
         &finding.file,
         &finding.code,
     ))
+}
+
+/// Makes `review_finding` again with the statements of record.sql, so the
+/// table equals a fresh database's: every finding keeps its row.
+fn remake_findings(db: &Connection) -> Result<()> {
+    let schema = crate::db::REVIEW_PART;
+    let slice = |from: &str, end: &str| crate::db::statement(schema, from, end);
+    crate::db::remake_table(
+        db,
+        "review_finding",
+        slice("CREATE TABLE review_finding", "STRICT;"),
+        |db| {
+            db.execute_batch(
+                "INSERT INTO review_finding (id, call_id, rule, clause, file, line, code, problem, blocking, check_failed, settled, settled_why, settled_at, settled_by)
+    SELECT id, call_id, rule, clause, file, line, code, problem, blocking, check_failed, settled, settled_why, settled_at, settled_by FROM review_finding_old;",
+            )
+            .sql()
+        },
+        &[slice("CREATE INDEX review_finding_call", ";")],
+    )
+}
+
+/// The rules about wording, which `builds review` no longer asks: only the
+/// copy review (`builds review copy`) does.
+const WORDING_RULES: [&str; 4] = [
+    "write-plain-literal-active-sentences",
+    "ui-text-says-each-thing-once-in-gentle-plain-words",
+    "no-dash-as-sentence-punctuation",
+    "spell-bae-and-disc-id-one-way",
+];
+
+/// The person's words that `move_to_copy_review` settles each finding with.
+pub const COPY_REVIEW_WHY: &str = "The person: \"we need separate copy and code reviews. all the text reviews happen manually, not part of this code review stuff. in the code reviews that builds is doing here, we are not checking for word usage and grammar and tics and stuff but accuracy.\"";
+
+/// Moves the review's tables to the schema where a run may be a copy review
+/// and a finding's reasons for a drop name lines the diff does not add or
+/// remove: `review_run` and `review_finding` again, with the statements of
+/// record.sql and every row. Then the move settles each finding of a review
+/// that a branch waits on and whose rule is about wording (`WORDING_RULES`):
+/// an unsettled one as dropped, and an open confirmed one again as dropped,
+/// by the person, with their words (`COPY_REVIEW_WHY`). migrate.rs runs it
+/// with the foreign keys off, after the moves that make `review_settle_again`
+/// and `review_allowed`. Returns how many findings the move settled.
+pub fn move_to_copy_review(db: &Connection, now: i64) -> Result<usize> {
+    let schema = crate::db::REVIEW_PART;
+    let slice = |from: &str, end: &str| crate::db::statement(schema, from, end);
+    crate::db::remake_table(
+        db,
+        "review_run",
+        slice("CREATE TABLE review_run", "STRICT;"),
+        |db| {
+            db.execute_batch(
+                "INSERT INTO review_run (id, landing_id, kind, label, at, base, head, since_run, grouping, rules_version, changed_lines)
+    SELECT id, landing_id, kind, label, at, base, head, since_run, grouping, rules_version, changed_lines FROM review_run_old;",
+            )
+            .sql()
+        },
+        &[slice("CREATE INDEX review_run_landing", ";")],
+    )?;
+    remake_findings(db)?;
+    let found: Vec<Finding> = {
+        let sql = format!(
+            "SELECT {FINDING_COLUMNS} {FINDING_FROM} WHERE r.kind = 'review' AND f.check_failed IS NULL ORDER BY f.id"
+        );
+        let mut statement = db.prepare(&sql).sql()?;
+        let rows = statement.query_map([], finding_from).sql()?;
+        rows.map(|row| row.sql()).collect::<Result<_>>()?
+    };
+    let mut settled = 0;
+    for finding in found {
+        if !WORDING_RULES.contains(&finding.rule.as_str())
+            || !(finding.settled.is_none() || finding.is_open())
+        {
+            continue;
+        }
+        match finding.settled {
+            None => settle(db, finding.id, "dropped", COPY_REVIEW_WHY, now, "person")?,
+            Some(_) => settle_again(db, finding.id, COPY_REVIEW_WHY, now, "person")?,
+        }
+        settled += 1;
+    }
+    Ok(settled)
 }
 
 /// The tables record.rs owns.

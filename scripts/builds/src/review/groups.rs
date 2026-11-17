@@ -62,6 +62,11 @@ pub struct Group {
     /// (`check::only_on_comment_lines`).
     #[serde(default)]
     pub skips_comments: bool,
+    /// Whether the group reviews copy: its rules judge word choice, grammar
+    /// and style. Only the copy review (`builds review copy`) asks such a
+    /// group; `builds review`, its audits and its replays never do.
+    #[serde(default)]
+    pub copy: bool,
     /// How many times each call is made; the findings of all are kept. The
     /// later calls of one prompt read the first one's prompt from the cache.
     #[serde(default = "one")]
@@ -175,29 +180,60 @@ impl Groups {
         faults
     }
 
-    /// The groups a change to <changed> runs, each with its rules that exist
-    /// in <rules> (the project's): a group runs when at least one of those
-    /// rules is reviewable and covers a changed path.
+    /// The groups a review of a change to <changed> runs, each with its rules
+    /// that exist in <rules> (the project's): a group that reviews no copy
+    /// runs when at least one of those rules is reviewable and covers a
+    /// changed path.
     pub fn pick<'a>(
         &'a self,
         rules: &'a [Rule],
         changed: &[String],
     ) -> Vec<(&'a Group, Vec<&'a Rule>)> {
+        self.covering(rules, changed, false)
+    }
+
+    /// The copy groups (`Group::copy`) a copy review of a change to
+    /// <changed> runs, picked as `pick` picks the others.
+    pub fn pick_copy<'a>(
+        &'a self,
+        rules: &'a [Rule],
+        changed: &[String],
+    ) -> Vec<(&'a Group, Vec<&'a Rule>)> {
+        self.covering(rules, changed, true)
+    }
+
+    /// The groups whose `copy` is <copy> and whose reviewable rules of
+    /// <rules> cover one of <changed>, each with those rules.
+    fn covering<'a>(
+        &'a self,
+        rules: &'a [Rule],
+        changed: &[String],
+        copy: bool,
+    ) -> Vec<(&'a Group, Vec<&'a Rule>)> {
         self.with_members(rules)
-            .filter(|(_, members)| members.iter().any(|rule| rule.matches(changed)))
+            .filter(|(group, members)| {
+                group.copy == copy && members.iter().any(|rule| rule.matches(changed))
+            })
             .collect()
     }
 
-    /// The groups whose names are in <names>, each with its reviewable rules
-    /// that exist in <rules> (the project's).
+    /// The groups that review no copy whose names are in <names>, each with
+    /// its reviewable rules that exist in <rules> (the project's).
     pub fn named<'a>(
         &'a self,
         rules: &'a [Rule],
         names: &[String],
     ) -> Vec<(&'a Group, Vec<&'a Rule>)> {
         self.with_members(rules)
-            .filter(|(group, _)| names.contains(&group.name))
+            .filter(|(group, _)| !group.copy && names.contains(&group.name))
             .collect()
+    }
+
+    /// Whether rule <slug> is in a copy group (`Group::copy`).
+    pub fn in_copy_group(&self, slug: &str) -> bool {
+        self.groups
+            .iter()
+            .any(|group| group.copy && group.rules.iter().any(|rule| rule == slug))
     }
 
     /// Every group with its reviewable rules that exist in <rules>.

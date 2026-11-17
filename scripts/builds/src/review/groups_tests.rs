@@ -137,3 +137,48 @@ fn groups_load_from_their_folders_with_the_rules_of_both_trees() {
     std::fs::write(root.join("projects/p-rules/g/a.md"), "dup\n").unwrap();
     assert!(rules::load(&root, None).is_err());
 }
+
+/// The rules about wording are in a copy group, so a review of any change
+/// asks none of them, and the copy review asks them. Localization judges
+/// whether the catalogs hold every string, so a review asks it.
+#[test]
+fn a_review_of_the_checkout_runs_no_wording_rule() {
+    let root = checkout();
+    let groups = Groups::load(&root).unwrap();
+    let rules = rules::load(&root, Some("bae")).unwrap();
+    let wording = [
+        "write-plain-literal-active-sentences",
+        "ui-text-says-each-thing-once-in-gentle-plain-words",
+        "no-dash-as-sentence-punctuation",
+        "spell-bae-and-disc-id-one-way",
+    ];
+    for slug in wording {
+        assert!(groups.in_copy_group(slug), "{slug}");
+    }
+    assert!(!groups.in_copy_group("localization-stays-in-sync-with-ui"));
+    let changed = vec![
+        "bae-macos/bae/Views/Welcome.swift".to_string(),
+        "spec/bae.md".to_string(),
+        "bae-android/app/src/main/res/values/strings.xml".to_string(),
+    ];
+    let asked: Vec<&str> = groups
+        .pick(&rules, &changed)
+        .into_iter()
+        .flat_map(|(_, members)| members.into_iter().map(|rule| rule.slug.as_str()))
+        .collect();
+    assert!(
+        asked.contains(&"localization-stays-in-sync-with-ui"),
+        "{asked:?}"
+    );
+    for slug in wording {
+        assert!(!asked.contains(&slug), "{slug}");
+    }
+    let copy: Vec<&str> = groups
+        .pick_copy(&rules, &changed)
+        .into_iter()
+        .flat_map(|(_, members)| members.into_iter().map(|rule| rule.slug.as_str()))
+        .collect();
+    for slug in wording {
+        assert!(copy.contains(&slug), "{slug}: {copy:?}");
+    }
+}

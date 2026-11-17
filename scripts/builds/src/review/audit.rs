@@ -79,6 +79,7 @@ fn synthetic(name: String, model: &str, question: &str, rules: &[&Rule]) -> Grou
         sites: None,
         commit_text: false,
         skips_comments: false,
+        copy: false,
         passes: 1,
     }
 }
@@ -262,7 +263,9 @@ pub fn audit(inputs: &Inputs) -> Result<String> {
     let matched: Vec<&Rule> = material
         .rules
         .iter()
-        .filter(|r| r.reviewable && r.matches(&diff.changed))
+        .filter(|r| {
+            r.reviewable && !material.groups.in_copy_group(&r.slug) && r.matches(&diff.changed)
+        })
         .collect();
     if matched.is_empty() {
         return Ok("no rule covers the changed paths: nothing to audit\n".to_string());
