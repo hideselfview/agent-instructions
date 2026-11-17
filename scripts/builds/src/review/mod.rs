@@ -15,7 +15,7 @@
 //! builds review audit LANDING --repo-dir DIR
 //! builds review misses [--check --repo-dir DIR]
 //! builds review rates | scores
-//! builds review case add ...
+//! builds review case propose | add ...
 //! ```
 //!
 //! `run` reviews the worktree's net change past BASE (default `origin/main`)
@@ -60,6 +60,7 @@ pub mod groups;
 pub mod landing;
 mod model_check;
 mod prompt;
+mod propose;
 pub mod record;
 mod render;
 mod rerun;
@@ -80,7 +81,7 @@ use crate::tool::Tool;
 
 use record::Kind;
 
-const USAGE: &str = "usage: builds review [run] WORKTREE [BASE] [--landing KEY] [--item N]... [--head SHA] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review writing WORKTREE [BASE] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review settle FINDING confirmed|dropped --why TEXT\n       builds review settle FINDING --again --why TEXT\n       builds review show LANDING\n       builds review check-landing DIR --project P SHA... [--landing KEY] [--rules-root DIR]\n       builds review landed DIR --project P SHA... [--landing KEY] [--more-to-land] [--rules-root DIR]\n       builds review groups [--rules-root DIR] [--project P] [--changed PATH]...\n       builds review replay [--case NAME]... [--source REPO] [--model opus|sonnet|haiku] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review replay --landing N... --repo-dir DIR [--group NAME]... [--model opus|sonnet|haiku] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review audit LANDING --repo-dir DIR [--rules-root DIR] [--reviewer PROGRAM]\n       builds review misses [--check --repo-dir DIR [--model opus|sonnet|haiku] [--rules-root DIR] [--reviewer PROGRAM]]\n       builds review rates [--rules-root DIR]\n       builds review scores\n       builds review case add LANDING FINDING --repo-dir DIR --rules-root DIR [--name NAME]\n       builds review case add --rule SLUG --file PATH --commits BASE..HEAD --project P --name NAME --repo-dir DIR --rules-root DIR\n       builds review case add --clean-for SLUG --commits BASE..HEAD --project P --name NAME --repo-dir DIR --rules-root DIR";
+const USAGE: &str = "usage: builds review [run] WORKTREE [BASE] [--landing KEY] [--item N]... [--head SHA] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review writing WORKTREE [BASE] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review settle FINDING confirmed|dropped --why TEXT\n       builds review settle FINDING --again --why TEXT\n       builds review show LANDING\n       builds review check-landing DIR --project P SHA... [--landing KEY] [--rules-root DIR]\n       builds review landed DIR --project P SHA... [--landing KEY] [--more-to-land] [--rules-root DIR]\n       builds review groups [--rules-root DIR] [--project P] [--changed PATH]...\n       builds review replay [--case NAME]... [--source REPO] [--model opus|sonnet|haiku] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review replay --landing N... --repo-dir DIR [--group NAME]... [--model opus|sonnet|haiku] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review audit LANDING --repo-dir DIR [--rules-root DIR] [--reviewer PROGRAM]\n       builds review misses [--check --repo-dir DIR [--model opus|sonnet|haiku] [--rules-root DIR] [--reviewer PROGRAM]]\n       builds review rates [--rules-root DIR]\n       builds review scores\n       builds review case propose --repo-dir DIR --rules-root DIR [--per-group N] [--model opus|sonnet|haiku] [--reviewer PROGRAM]\n       builds review case add LANDING FINDING --repo-dir DIR --rules-root DIR [--name NAME]\n       builds review case add --rule SLUG --file PATH --commits BASE..HEAD --project P --name NAME --repo-dir DIR --rules-root DIR\n       builds review case add --clean-for SLUG --commits BASE..HEAD --project P --name NAME --repo-dir DIR --rules-root DIR";
 
 /// The checkout the rules and groups are read from: `--rules-root`, else the
 /// one `install.sh` links at ~/.codex/agent-instructions.
@@ -976,8 +977,10 @@ fn case_command(tool: &Tool, args: &[String]) -> Result<()> {
     let Some((sub, rest)) = args.split_first() else {
         fail!("{USAGE}")
     };
-    if sub != "add" {
-        fail!("unknown review case command {sub}\n{USAGE}");
+    match sub.as_str() {
+        "add" => {}
+        "propose" => return propose::propose_command(tool, rest),
+        _ => fail!("unknown review case command {sub}\n{USAGE}"),
     }
     let args = Args::parse(
         rest,
@@ -996,20 +999,7 @@ fn case_command(tool: &Tool, args: &[String]) -> Result<()> {
         fail!("name the agent-instructions worktree to write the case in with --rules-root");
     };
     let repo_dir = PathBuf::from(args.require("repo-dir")?);
-    let patch_of = |base: &str, head: &str| -> Result<String> {
-        let output = git(&repo_dir)
-            .args(["format-patch", "--stdout", &format!("{base}..{head}")])
-            .output()
-            .context(|| "running git format-patch".to_string())?;
-        if !output.status.success() {
-            fail!(
-                "git format-patch {base}..{head} failed in {}: {}",
-                repo_dir.display(),
-                String::from_utf8_lossy(&output.stderr).trim()
-            );
-        }
-        Ok(String::from_utf8_lossy(&output.stdout).into_owned())
-    };
+    let patch_of = |base: &str, head: &str| cases::patch_of(&repo_dir, base, head);
     let (project, patch, addition, default_name) = match args.positional() {
         [landing, finding] => {
             let (store, conn) = store_of(tool, &args)?;
@@ -1074,7 +1064,7 @@ fn case_command(tool: &Tool, args: &[String]) -> Result<()> {
         Some(file) => cases::Addition::Finding { rule: &rule, file },
         None => cases::Addition::Clean { rule: &rule },
     };
-    let dir = cases::add(Path::new(root), &name, &project, &patch, addition)?;
+    let dir = cases::add(Path::new(root), &name, &project, &patch, &[addition])?;
     println!("case {name} written in {}; commit it", dir.display());
     Ok(())
 }

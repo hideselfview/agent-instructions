@@ -21,10 +21,10 @@ fn adding_a_case_writes_its_patch_and_findings_and_refuses_another_change_under_
         "one",
         "demo",
         PATCH,
-        Addition::Finding {
+        &[Addition::Finding {
             rule: "rule-a",
             file: "a.rs",
-        },
+        }],
     )
     .unwrap();
     add(
@@ -32,10 +32,10 @@ fn adding_a_case_writes_its_patch_and_findings_and_refuses_another_change_under_
         "one",
         "demo",
         PATCH,
-        Addition::Finding {
+        &[Addition::Finding {
             rule: "rule-b",
             file: "a.rs",
-        },
+        }],
     )
     .unwrap();
     add(
@@ -43,10 +43,10 @@ fn adding_a_case_writes_its_patch_and_findings_and_refuses_another_change_under_
         "one",
         "demo",
         PATCH,
-        Addition::Finding {
+        &[Addition::Finding {
             rule: "rule-b",
             file: "a.rs",
-        },
+        }],
     )
     .unwrap();
     let cases = load(&root).unwrap();
@@ -58,7 +58,7 @@ fn adding_a_case_writes_its_patch_and_findings_and_refuses_another_change_under_
         "quiet",
         "demo",
         PATCH,
-        Addition::Clean { rule: "rule-a" },
+        &[Addition::Clean { rule: "rule-a" }],
     )
     .unwrap();
     let quiet = load(&root)
@@ -74,10 +74,10 @@ fn adding_a_case_writes_its_patch_and_findings_and_refuses_another_change_under_
         "one",
         "demo",
         &other,
-        Addition::Finding {
+        &[Addition::Finding {
             rule: "rule-a",
             file: "a.rs",
-        },
+        }],
     )
     .unwrap_err()
     .text();
@@ -87,10 +87,10 @@ fn adding_a_case_writes_its_patch_and_findings_and_refuses_another_change_under_
         "two",
         "demo",
         PATCH,
-        Addition::Finding {
+        &[Addition::Finding {
             rule: "rule-a",
             file: "z.rs",
-        },
+        }],
     )
     .unwrap_err()
     .text();
@@ -129,10 +129,10 @@ fn a_replay_counts_the_expected_findings_found_and_the_false_blocking_ones() {
         "hit",
         "demo",
         PATCH,
-        Addition::Finding {
+        &[Addition::Finding {
             rule: "rule-a",
             file: "a.rs",
-        },
+        }],
     )
     .unwrap();
     let case = load(&fake.root).unwrap().remove(0);
@@ -192,10 +192,10 @@ fn a_failed_call_in_a_replay_is_counted_and_named() {
         "hit",
         "demo",
         PATCH,
-        Addition::Finding {
+        &[Addition::Finding {
             rule: "rule-a",
             file: "a.rs",
-        },
+        }],
     )
     .unwrap();
     let case = load(&fake.root).unwrap().remove(0);
@@ -316,4 +316,30 @@ fn site_labels_score_recall_wrong_findings_and_unlabelled_ones_per_rule() {
         }])
         .contains("recall 100%")
     );
+}
+
+#[test]
+fn a_case_takes_site_labels_and_a_finding_in_the_commit_messages() {
+    let scratch = Scratch::new("case-add-sites");
+    let root = scratch.dir.join("root");
+    let site = label("a.rs", "a.rs", "none", None);
+    let patch = PATCH.replace("From 1234 ", &format!("From {} ", "0".repeat(40)));
+    add(
+        &root,
+        "one",
+        "demo",
+        &patch,
+        &[
+            Addition::Finding {
+                rule: "rule-a",
+                file: crate::review::files::COMMIT_MESSAGE,
+            },
+            Addition::Site(site.clone()),
+            Addition::Site(site.clone()),
+        ],
+    )
+    .unwrap();
+    let case = load(&root).unwrap().remove(0);
+    assert_eq!(case.expected[0].file, "COMMIT_MESSAGE");
+    assert_eq!(case.labels, [site]);
 }

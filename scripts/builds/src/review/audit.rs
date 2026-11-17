@@ -385,7 +385,9 @@ pub fn settle_misses(
         })?;
     }
     if settles.iter().any(|(_, how, _)| *how == "confirmed") {
-        text.push_str("A confirmed miss becomes a case (builds review case add) and a fix item.\n");
+        text.push_str(
+            "A confirmed miss becomes a case (builds review case propose) and a fix item.\n",
+        );
     }
     Ok((text, failed))
 }

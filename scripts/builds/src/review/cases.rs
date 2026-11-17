@@ -98,9 +98,8 @@ pub fn load(root: &Path) -> Result<Vec<Case>> {
                 expected_path.display()
             );
         }
-        let paths: Vec<String> = parse_diff(&patch).into_iter().map(|f| f.path).collect();
         for expect in &file.finding {
-            if !paths.iter().any(|p| p == &expect.file) {
+            if !changes(&patch, &expect.file) {
                 fail!(
                     "{} expects a finding in {}, which the patch does not change",
                     expected_path.display(),
@@ -120,30 +119,43 @@ pub fn load(root: &Path) -> Result<Vec<Case>> {
     Ok(cases)
 }
 
+/// Whether <patch> changes <file>: a file of its diff, or its commit
+/// messages, which a reviewer reads as the file `COMMIT_MESSAGE`.
+fn changes(patch: &str, file: &str) -> bool {
+    if file == files::COMMIT_MESSAGE {
+        return !messages_of_patch(patch).trim().is_empty();
+    }
+    parse_diff(patch).iter().any(|f| f.path == file)
+}
+
 /// What a case gains.
 pub enum Addition<'a> {
     /// A finding the change must produce.
     Finding { rule: &'a str, file: &'a str },
     /// A rule that must raise no blocking finding on the change.
     Clean { rule: &'a str },
+    /// The true verdict of one site of the change.
+    Site(SiteLabel),
 }
 
-/// Adds <addition> to the case <name> of <root>, making it from <patch> when
+/// Adds <additions> to the case <name> of <root>, making it from <patch> when
 /// it is new; an existing case must hold the same patch.
 pub fn add(
     root: &Path,
     name: &str,
     project: &str,
     patch: &str,
-    addition: Addition,
+    additions: &[Addition],
 ) -> Result<PathBuf> {
     if name.is_empty() || name.contains('/') || name.starts_with('.') {
         fail!("'{name}' is not a case name: it is a folder name");
     }
-    if let Addition::Finding { file, .. } = addition
-        && !parse_diff(patch).iter().any(|f| f.path == file)
-    {
-        fail!("the patch does not change {file}");
+    for addition in additions {
+        if let Addition::Finding { file, .. } = addition
+            && !changes(patch, file)
+        {
+            fail!("the patch does not change {file}");
+        }
     }
     let dir = root.join(DIR).join(name);
     let patch_path = dir.join(PATCH);
@@ -170,19 +182,35 @@ pub fn add(
             site: Vec::new(),
         }
     };
-    match addition {
-        Addition::Finding { rule, file } => {
-            let new = Expect {
-                rule: rule.to_string(),
-                file: file.to_string(),
-            };
-            if !expected.finding.contains(&new) {
-                expected.finding.push(new);
+    for addition in additions {
+        match addition {
+            Addition::Finding { rule, file } => {
+                let new = Expect {
+                    rule: rule.to_string(),
+                    file: file.to_string(),
+                };
+                if !expected.finding.contains(&new) {
+                    expected.finding.push(new);
+                }
             }
-        }
-        Addition::Clean { rule } => {
-            if !expected.clean_for.iter().any(|r| r == rule) {
-                expected.clean_for.push(rule.to_string());
+            Addition::Clean { rule } => {
+                if !expected.clean_for.iter().any(|r| r == rule) {
+                    expected.clean_for.push(rule.to_string());
+                }
+            }
+            Addition::Site(label) => {
+                // A site has one true verdict: a finding there replaces a
+                // `none` label of the same code.
+                if label.verdict == "finding" {
+                    expected.site.retain(|held| {
+                        held.verdict != "none"
+                            || !same_file(&held.file, &label.file)
+                            || !same_code(&held.code, &label.code)
+                    });
+                }
+                if !expected.site.contains(label) {
+                    expected.site.push(label.clone());
+                }
             }
         }
     }
@@ -190,6 +218,22 @@ pub fn add(
     std::fs::write(&expected_path, text)
         .context(|| format!("writing {}", expected_path.display()))?;
     Ok(dir)
+}
+
+/// The `git format-patch` output of <base>..<head> in <repo_dir>.
+pub fn patch_of(repo_dir: &Path, base: &str, head: &str) -> Result<String> {
+    let output = crate::checkout::git(repo_dir)
+        .args(["format-patch", "--stdout", &format!("{base}..{head}")])
+        .output()
+        .context(|| "running git format-patch".to_string())?;
+    if !output.status.success() {
+        fail!(
+            "git format-patch {base}..{head} failed in {}: {}",
+            repo_dir.display(),
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
 /// What a grouping did on one case.
