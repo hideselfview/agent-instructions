@@ -4,7 +4,7 @@
 //! day and per band of load per core, with counts, medians and totals, and
 //! the dashboard shows the same for today and yesterday. Each owner reads its
 //! own rows (hook_stats.rs, cargo_run.rs, app_timing.rs); this module groups
-//! them and computes nothing it stores.
+//! them and stores nothing.
 //!
 //! Every wait counts, whatever its result: an agent waits as long for a hook
 //! that fails as for one that passes.
@@ -205,8 +205,8 @@ pub const DASHBOARD_DAYS: i64 = 2;
 pub fn dashboard_json(path: &Path, now: i64) -> serde_json::Value {
     let today = crate::text::local_day(now);
     let since = crate::text::local_start_of(&today).map(|midnight| {
-        // The day before today's midnight, by its own midnight: a day with a
-        // clock change is not 24 hours long.
+        // The view starts at yesterday's own midnight, not 24 hours before
+        // today's, because a day with a clock change is not 24 hours long.
         crate::text::local_start_of(&crate::text::local_day(midnight - 1)).unwrap_or(midnight)
     });
     let Some(since) = since else {
