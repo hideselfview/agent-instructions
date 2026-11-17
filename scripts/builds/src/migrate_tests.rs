@@ -142,7 +142,9 @@ fn plant_run(conn: &Connection) {
 /// The schema's text before `design_tip`: today's without that table and the
 /// comment above it.
 fn schema_before_design_tip() -> String {
-    let schema = without_design_fix(without_canvas(without_blocks_from_waits(db::schema_before_app_timing())));
+    let schema = without_design_fix(without_canvas(without_blocks_from_waits(
+        db::schema_before_app_timing(),
+    )));
     let from = schema
         .find("\n-- The last commit of the range")
         .expect("the table's comment");
