@@ -520,3 +520,35 @@ fn a_lane_has_a_row_for_each_checkout_here_and_for_each_on_another_mac() {
     assert!(matches!(&m1.now, Now::Building { programs, .. } if programs[0].name == "xcodebuild"));
     assert_eq!(lanes[0].checkouts[1].now, Now::Idle);
 }
+
+#[test]
+fn a_checkout_builds_added_says_why_and_the_lane_lists_what_builds_removed() {
+    let mut page = repo(
+        Vec::new(),
+        vec![
+            lock("m1:mac-1", 4, "/d/bae-worktrees/side-5", &[]),
+            lock("m1:builds-mac-1", 2, "/d/bae-worktrees/side-6", &[]),
+        ],
+        Vec::new(),
+    );
+    let change = |checkout: &str, why: &str| crate::status::LaneChange {
+        checkout: checkout.into(),
+        at: 1_763_337_600,
+        why: why.into(),
+    };
+    page.lanes = vec![crate::status::LaneJson {
+        lane: "mac",
+        app_checkouts: vec!["m1:mac-1".into(), "m1:builds-mac-1".into()],
+        app_locks: Vec::new(),
+        added_by_builds: vec![change("m1:builds-mac-1", "2 builds waited")],
+        removed_by_builds: vec![change("m1:builds-mac-2", "no build used it for 61 minutes")],
+    }];
+    let lanes = build(&page);
+    let added: Vec<Option<&str>> = lanes[0]
+        .checkouts
+        .iter()
+        .map(|c| c.added_by_builds.as_ref().map(|added| added.why.as_str()))
+        .collect();
+    assert_eq!(added, vec![None, Some("2 builds waited")]);
+    assert_eq!(lanes[0].removed_by_builds[0].checkout, "m1:builds-mac-2");
+}

@@ -1184,3 +1184,33 @@ fn app_build_with_no_step_named_builds_both_lanes_and_runs_each_class_and_shots_
     assert_eq!(count("end one"), 3, "{log:?}\n{said}");
     assert_eq!(count("end droid"), 3, "{log:?}\n{said}");
 }
+
+#[test]
+fn queue_shows_every_checkout_and_why_builds_added_or_removed_one() {
+    let volume = Volume::new("lane-why");
+    std::fs::write(
+        volume.dir.join("volume/demo/app-checkouts"),
+        "side-1\nm1:builds-mac-1 builds 1763337600 2 builds waited for the mac lane's 1 checkout\n",
+    )
+    .unwrap();
+    std::fs::write(
+        volume.dir.join("volume/demo/app-checkouts-removed"),
+        "1763341200 m1:builds-mac-2 no build used it for 61 minutes\n",
+    )
+    .unwrap();
+    let shown = String::from_utf8(volume.run(&["queue", "demo"]).stdout).unwrap();
+    assert!(
+        shown.contains("mac side-1: free\n") && shown.contains("mac m1:builds-mac-1: free\n"),
+        "{shown}"
+    );
+    assert!(
+        shown.contains("mac m1:builds-mac-1: builds added it at ")
+            && shown.contains(": 2 builds waited for the mac lane's 1 checkout\n"),
+        "{shown}"
+    );
+    assert!(
+        shown.contains("mac: builds removed m1:builds-mac-2 at ")
+            && shown.contains(": no build used it for 61 minutes\n"),
+        "{shown}"
+    );
+}
