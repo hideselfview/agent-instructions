@@ -439,10 +439,11 @@ fn raise(fake: &Fake, group: &str, rule: &str, clause: &str, files: &[&str]) {
     );
 }
 
-/// A demo whose branch adds a.rs, b.rs and c.rs, which group writing covers
-/// beside group alpha, after a first review in which writing raised a finding
-/// in each of <writing> and alpha one in each of <alpha>, all confirmed.
-/// Returns the landing last.
+/// Makes a demo whose branch adds a.rs, b.rs and c.rs. Groups writing and
+/// alpha both cover these files. A first review raises a writing finding in
+/// each of <writing> and an alpha finding in each of <alpha>, and the test
+/// settles every finding as confirmed. The last item of the result is the
+/// review's landing.
 fn found_in(name: &str, writing: &[&str], alpha: &[&str]) -> (Demo, Fake, PathBuf, i64) {
     let demo = demo(name);
     let fake = fake(&demo.scratch.dir);
