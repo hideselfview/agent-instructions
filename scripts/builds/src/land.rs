@@ -67,17 +67,17 @@
 //! after its hook ran is a tree no hook has seen.
 //!
 //! In a repo of a project, the commits must have been reviewed against the
-//! rules before they land. No diff is reviewed more than once: a review shows
-//! the changes since the last review, and nothing else. Land runs `builds review check-landing` after the lists' checks
-//! and before it fetches anything. check-landing finds the change's review by
-//! the change's key, the branch land started on, which land reads before it
-//! starts and passes as `--landing`. It refuses the commits while anything is
-//! unreviewed: a review shows the changes since the last review, and land
-//! refuses the branch while it changed since the last review on a path a
-//! group covers, so a rebase that keeps every line the branch adds and
-//! removes keeps the review. It also refuses them while a confirmed finding
-//! is open, a group that builds asked to review a diff has not answered over
-//! it, or a finding is not settled. Commits whose paths no group covers need
+//! rules before they land. `builds review` never sends a reviewer the same
+//! diff twice: a review shows the changes since the last review, and nothing
+//! else. Land runs `builds review check-landing` after the lists' checks and
+//! before it fetches anything. check-landing finds the change's review by the
+//! change's key, the branch land started on, which land reads before it starts
+//! and passes as `--landing`. check-landing refuses the branch while it has
+//! changed since the last review on a path a group covers, so a rebase that
+//! keeps every line the branch adds and removes keeps the review.
+//! check-landing also refuses the branch while a confirmed finding is open, a
+//! group that builds asked to review a diff has not answered over it, or a
+//! finding is not settled. Commits whose paths no group covers need
 //! no review. After the push, `builds review landed` records the landing
 //! beside the items and the design change. When commits of the branch still
 //! wait to land, land passes `--more-to-land` to it and the review's landing

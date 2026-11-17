@@ -23,9 +23,9 @@
 //!
 //! `landed` records the landing as landed with its last review, unless commits
 //! of the branch still wait to land (`--more-to-land`), which keeps it open.
-//! `landed` then decides whether to audit it (`audit.rs`) and, when the sample picks
-//! it, starts `builds review audit` in the background. A key with no open
-//! landing has nothing to record, so `landed` can run again.
+//! `landed` then decides whether to audit it (`audit.rs`) and, when the
+//! sample picks it, starts `builds review audit` in the background. A key
+//! with no open landing has nothing to record, so `landed` can run again.
 
 use std::path::{Path, PathBuf};
 
@@ -46,7 +46,7 @@ use crate::tool::Tool;
 const USAGE: &str = "builds review check-landing|landed DIR --project P SHA... [--landing KEY] [--rules-root DIR] [--more-to-land]";
 
 /// What every refusal and every refused run says first.
-pub const ONE_REVIEW: &str = "No diff is reviewed more than once. Each change gets one review: a review shows the changes since the last review, and nothing else.";
+pub const ONE_REVIEW: &str = "builds review never sends a reviewer the same diff twice. Each change gets one review: a review shows the changes since the last review, and nothing else.";
 
 /// A commit to land, the paths it changes, and the groups whose rules cover
 /// one of them.

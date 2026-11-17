@@ -350,7 +350,8 @@ pub fn review(inputs: &Inputs) -> Result<Reported> {
 /// One run of a review: the diff its reviewers read and the groups it asks.
 struct Ask {
     diff: run::Diff,
-    /// The last review whose changes since the diff holds.
+    /// The run of the last review, when the diff holds the changes since that
+    /// run; None for a diff of the whole net change.
     since: Option<i64>,
     /// Whether the run reads the branch's net change as it is now, so the
     /// landing records the run as its last review. A run that asks again the

@@ -1,10 +1,9 @@
 //! What reviews wrote down, in the tables of `record.sql`: this file is the
 //! only code that writes them. A change under review keeps one landing, found
 //! by its key, until it lands, and names the run of its last review; a run
-//! holds the net change it read, the last review it read the changes since,
-//! the commits of that net change and one call per group, a call holds a
-//! verdict for every rule and the
-//! findings; the coordinator settles a finding as confirmed or dropped, and
+//! holds the net change it read, the run of the last review when it read only
+//! the changes since that run, and one call per group; a call holds a verdict
+//! for every rule and the findings; the coordinator settles a finding as confirmed or dropped, and
 //! may settle an open confirmed finding again, as dropped. A later review run
 //! closes a confirmed finding when the changes it read fix it.
 
@@ -215,8 +214,8 @@ pub fn add_landing(db: &Connection, key: &str, repo: &str, now: i64) -> Result<i
 }
 
 /// Records <run> as the last review of <landing>: the next review shows the
-/// changes since the net change <run> read. A landing whose change landed is
-/// refused.
+/// changes since the net change <run> read. record_reviewed refuses a
+/// landing whose change landed.
 pub fn record_reviewed(db: &Connection, landing: i64, run: i64) -> Result<()> {
     let changed = db
         .execute(
@@ -231,7 +230,7 @@ pub fn record_reviewed(db: &Connection, landing: i64, run: i64) -> Result<()> {
 }
 
 /// Records that <landing>'s change landed, with <run> the run that covered
-/// the commits pushed. A landing recorded as landed already is refused.
+/// the commits pushed. record_landed refuses a landing that landed already.
 pub fn record_landed(db: &Connection, landing: i64, run: i64, now: i64) -> Result<()> {
     let changed = db
         .execute(
@@ -338,8 +337,8 @@ pub fn add_run(db: &Connection, run: &NewRun, calls: &[NewCall]) -> Result<(i64,
 }
 
 /// Closes open confirmed finding <id> of <landing>: run <run> read changes
-/// that fix it. A finding of another landing, and one that is not open, is
-/// refused.
+/// that fix it. close refuses a finding of another landing and one that is
+/// not open.
 fn close(db: &Connection, id: i64, run: i64, landing: Option<i64>) -> Result<()> {
     let finding = finding_of(db, id)?;
     if finding.landing_id != landing || landing.is_none() {
@@ -633,8 +632,8 @@ pub struct RunRow {
     pub kind: String,
     pub base: String,
     pub head: String,
-    /// The last review whose changes since a review run read; None for a run
-    /// that read the whole net change.
+    /// The run of the last review, when this review run read only the changes
+    /// since that run; None for a run that read the whole net change.
     pub since: Option<i64>,
     pub grouping: String,
     /// The commit of the rules checkout the run read.
@@ -696,9 +695,8 @@ pub fn audited_landings(db: &Connection) -> Result<Vec<i64>> {
 /// fresh database's: `review_landing` is made again with `landed_at` and
 /// `landed_run` in place of `closed_at` (a landing whose review passed landed
 /// with its newest review run, since that review ran after the push), and
-/// `review_commit` and `review_fix` are added empty, as they were then
-/// (`BEFORE_CLOSED`). migrate.rs runs it with
-/// the foreign keys off, and the rename runs under `legacy_alter_table`, so
+/// the move adds `review_commit` and `review_fix` empty, as they were then
+/// (`BEFORE_CLOSED`). migrate.rs runs it with the foreign keys off, and the rename runs under `legacy_alter_table`, so
 /// `review_run`'s reference keeps naming `review_landing`.
 pub fn move_to_landing_review(db: &Connection) -> Result<()> {
     let schema = crate::db::REVIEW_PART;
@@ -816,13 +814,14 @@ pub fn move_to_net_change(db: &Connection) -> Result<()> {
 
 /// Moves a store's `review_landing` from before each landing named the run of
 /// its last review to today's, with the statements taken from record.sql so
-/// the result equals a fresh database's. The last review of each landing is
-/// its newest review run that read a branch's net change (merge-base...head)
-/// no earlier run of the landing read: its first run, or a run that read the
-/// changes since an earlier review. A run that asked again the groups that
-/// gave an earlier run no answer read that run's net change again, and a run
-/// from before builds read the changes since the last review read only a
-/// stretch of commits, so neither is the last review. migrate.rs runs it with
+/// the result equals a fresh database's. The move picks as each landing's last
+/// review the newest of two kinds of review run: the landing's first run, and
+/// a run that read the changes since an earlier review. The move skips a run
+/// whose base, head and earlier review an older run of the landing shares:
+/// such a run asked the groups that gave the older run no answer, over the
+/// same diff. The move also skips every other later run with no earlier
+/// review. Before builds read the changes since the last review, such a run
+/// read only a stretch of the branch's commits. migrate.rs runs the move with
 /// the foreign keys off, and the rename runs under `legacy_alter_table`, so
 /// `review_run`'s reference keeps naming `review_landing`.
 pub fn move_to_reviewed_run(db: &Connection) -> Result<()> {
@@ -892,7 +891,7 @@ CREATE TABLE review_code_left (
 /// findings its changes fix to today's: the move makes `review_closed`, and
 /// the last review of each landing closes each confirmed finding that names a
 /// fix and each one whose code builds recorded as no longer in its branch's
-/// change. Then it drops the tables of fixes, of the commits each run read, of
+/// change. Then the move drops the tables of fixes, of the commits each run read, of
 /// the commits each push landed and of findings whose code left their branch.
 /// Run it after `move_to_reviewed_run`, which names each landing's last
 /// review.

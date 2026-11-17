@@ -547,8 +547,9 @@ fn bare_call(group: &Group, members: &[&Rule], failure: Option<String>) -> NewCa
     }
 }
 
-/// <held> with <more>: tokens added, verdicts joined (`finding` when either
-/// is), findings, closed findings and sites collected, failures kept.
+/// <held> with <more>: merge adds the tokens, joins the verdicts (`finding`
+/// when either is), collects the findings, closed findings and sites, and
+/// keeps the failures.
 fn merge(held: &mut NewCall, more: NewCall) {
     held.exchanges.extend(more.exchanges);
     held.tokens_in += more.tokens_in;

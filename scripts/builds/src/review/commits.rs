@@ -1,5 +1,6 @@
-//! The git reads a review makes of a branch's commits: their range, the paths
-//! they change, and whether the repo has a commit.
+//! The git commands a review runs on a branch's commits: they list the
+//! commits of a range, list the paths those commits change, and say whether
+//! the repo has a commit.
 
 use std::path::Path;
 use std::process::Stdio;

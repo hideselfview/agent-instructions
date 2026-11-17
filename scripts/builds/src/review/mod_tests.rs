@@ -336,9 +336,9 @@ fn a_rebase_whose_conflict_resolution_changes_lines_reads_only_those_lines() {
     assert!(refused.contains(landing::ONE_REVIEW), "{refused}");
 }
 
-/// A run from before builds read the changes since the last review read a
-/// stretch of the branch's commits, and the landing does not count it as its
-/// last review.
+/// Before builds read the changes since the last review, a later run of a
+/// review read only a stretch of the branch's commits. The landing does not
+/// count such a run as its last review.
 #[test]
 fn a_run_that_read_a_stretch_of_commits_is_not_the_last_review() {
     let demo = demo("review-stretch");

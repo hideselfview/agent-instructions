@@ -103,13 +103,13 @@ PLAN, BRIEF, EXECUTE, REVIEW
     to hold goes to such an agent; its brief says what the coordinator read
     and what stays unknown, and it writes a plan for the faster model to
     execute.
-  - Review: no diff is reviewed more than once. A review shows the changes
-    since the last review, and nothing else. Before landing a branch, the
-    coordinator runs the rules review on it (`builds review <worktree> --item
-    N`, which gives the reviewers the item's brief), judges each finding
-    against the code and settles it as confirmed or dropped with why
-    (`builds review settle`), and sends each confirmed one back to the agent
-    that made it. The agent fixes it in a new commit, and the coordinator
+  - Review: `builds review` never sends a reviewer the same diff twice. A
+    review shows the changes since the last review, and nothing else. Before
+    landing a branch, the coordinator runs the rules review on it (`builds
+    review <worktree> --item N`, which gives the reviewers the item's brief),
+    judges each finding against the code and settles it as confirmed or
+    dropped with why (`builds review settle`), and sends each confirmed one
+    back to the agent that made it. The agent fixes it in a new commit, and the coordinator
     runs `builds review` again. That review reads only the changes since the
     last review, the fixes among them, and closes each open confirmed finding
     whose problem the code no longer has. The coordinator settles what that
@@ -280,15 +280,15 @@ net change as it is now.
     there.
   - When `builds land` prints `LANDED, NOT RECORDED:`, run the `rerun:`
     command it prints.
-  - No diff is reviewed more than once. Land the branch once nothing is
-    unreviewed and no confirmed finding is open. A rebase that keeps every
-    line the branch adds and removes keeps its review, even when the lines
-    around them changed. When the branch changed since the last review (a
-    commit added after the review, a fix, a squash that changed lines, or a
-    conflict's resolution), run `builds review` in the branch's worktree
-    again: a review shows the changes since the last review, and nothing
-    else, never main's own commits that a rebase brings in. Settle the new
-    run's findings as for the first run.
+  - `builds review` never sends a reviewer the same diff twice. Land the
+    branch once nothing is unreviewed and no confirmed finding is open. A
+    rebase that keeps every line the branch adds and removes keeps its
+    review, even when the lines around them changed. When the branch changed
+    since the last review (a commit added after the review, a fix, a squash
+    that changed lines, or a conflict's resolution), run `builds review` in
+    the branch's worktree again: a review shows the changes since the last
+    review, and nothing else, never main's own commits that a rebase brings
+    in. Settle the new run's findings as for the first run.
   - A CI run on main that fails or stalls is the coordinator's to run down.
   - After each landing, `builds land` fast-forwards the repo's main checkout
     to origin/main, so the person and the agents who read code there see

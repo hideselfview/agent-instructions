@@ -5,8 +5,8 @@ description: Review a branch against the rules with `builds review` before it la
 
 # Review a branch against the rules before it lands
 
-No diff is reviewed more than once: a review shows the changes since the last
-review, and nothing else.
+`builds review` never sends a reviewer the same diff twice: a review shows the
+changes since the last review, and nothing else.
 
 `builds land` refuses a branch in a repo of a project with lists while it has
 unreviewed changes or an open confirmed finding. Commits whose changed paths no

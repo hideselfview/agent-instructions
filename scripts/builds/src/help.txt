@@ -1297,11 +1297,12 @@ else:
 
   1. The coordinator runs `builds review` on the branch. The first review
      reads the branch's whole net change.
-  2. It judges each finding against the code and the rule, and settles it as
-     confirmed or dropped, with why (`builds review settle`). The settled
-     findings stay in the project's store as the record of what reviews catch
-     and miss, and every settle feeds the review's scores (`review scores`).
-  3. It has each confirmed finding fixed in a new commit.
+  2. The coordinator judges each finding against the code and the rule, and
+     settles it as confirmed or dropped, with why (`builds review settle`).
+     The settled findings stay in the project's store as the record of what
+     reviews catch and miss, and every settle feeds the review's scores
+     (`review scores`).
+  3. The coordinator has each confirmed finding fixed in a new commit.
   4. The coordinator runs `builds review` again. That review reads only the
      changes since the last review, the fixes among them, and closes each
      open confirmed finding whose problem the code no longer has. The
@@ -1317,9 +1318,9 @@ builds refuses to settle a closed finding again.
 
 Each branch's change has one review, found by its key (by default the
 branch, such as `branch:work`), which stays open until the change lands. The
-review keeps its last review: the run whose net change (`git diff` from the
-branch's common ancestor with main to its head) the review has read. A later
-run asks only what the review lacks: the groups that gave no answer (their
+review is a series of runs. builds records which run is the last review: the
+run whose net change (`git diff` from the branch's common ancestor with main
+to its head) the review has read. A later run asks only what the review lacks: the groups that gave no answer (their
 reviewer failed), over the diff they did not answer, and, in a new run that
 becomes the last review, the changes since the last review: the lines the
 branch adds or removes that it did not then, and the lines it no longer
@@ -1341,10 +1342,10 @@ messages the run reads are those the last review's net change did not hold.
 
 Each reviewer reads the changes since the last review, and raises findings
 only on lines those changes add or change; builds drops a finding whose code
-is not in them. It may read the whole branch as it is now, for context. It
-also gets each open confirmed finding of its group's rules, with its file,
-line, quoted code and problem, reads the code at that place as it is now, and
-names each one whose problem is gone. builds closes each finding it names,
+is not in them. The reviewer may read the whole branch as it is now, for
+context. The reviewer also gets each open confirmed finding of its group's
+rules, with its file, line, quoted code and problem, reads the code at that
+place as it is now, and names each one whose problem is gone. builds closes each finding it names,
 with the run that closed it.
 
 `builds land` refuses a branch until its review takes it: nothing on a path
@@ -1559,9 +1560,9 @@ agent-instructions and run `review replay --rules-root` on it.
                               defaults to the worktree's branch
                               (branch:<name>); a key opens a landing under
                               review, which stays open until its change lands.
-                              No diff is reviewed more than once: a review
-                              shows the changes since the last review, and
-                              nothing else, and closes each open confirmed
+                              builds review never sends a reviewer the same
+                              diff twice: a review shows the changes since
+                              the last review, and nothing else, and closes each open confirmed
                               finding whose problem the code no longer has.
                               A run on a key
                               reviewed already asks only what the review
@@ -1588,8 +1589,9 @@ agent-instructions and run `review replay --rules-root` on it.
                               and keep the first settle beside the second
   builds review show <landing>
                               the review of a landing under review: its last
-                              review, each run's net change, the last review
-                              a later run read the changes since, groups,
+                              review, each run's net change, for each later
+                              run the run whose net change it read the
+                              changes since, groups,
                               findings, how each was settled (both settles of
                               one settled again) and the run that closed it,
                               and the run it landed with

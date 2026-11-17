@@ -28,8 +28,8 @@ pub struct Answer {
     pub findings: Vec<Raw>,
     /// For a group that lists the sites it judges: its summary and sites, as JSON.
     pub sites: Option<String>,
-    /// The open findings the reviewer was given whose problem the code no
-    /// longer has.
+    /// The open findings the prompt listed whose problem the code no longer
+    /// has.
     pub closed: Vec<i64>,
 }
 
@@ -220,7 +220,7 @@ pub fn parse(text: &str, names: &[String]) -> Output {
 }
 
 /// The open findings the answer closes: none when it names none, and each
-/// one of <given>, the findings the reviewer was given.
+/// one of <given>, the findings the prompt listed.
 fn closed_of(body: &Value, given: &[i64]) -> Result<Vec<i64>, String> {
     let Some(listed) = body.get("closed") else {
         return Ok(Vec::new());
@@ -235,7 +235,7 @@ fn closed_of(body: &Value, given: &[i64]) -> Result<Vec<i64>, String> {
             .ok_or("the answer's closed holds something other than a finding number")?;
         if !given.contains(&id) {
             return Err(format!(
-                "the answer closes finding {id}, which the reviewer was not given"
+                "the answer closes finding {id}, which the prompt did not list"
             ));
         }
         if !closed.contains(&id) {
