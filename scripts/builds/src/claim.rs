@@ -311,11 +311,8 @@ pub fn cmd_release(places: &Places, args: &[String]) -> Result<()> {
 /// the worktree for work origin/main lacks; `cmd_release` and each other
 /// caller check that first.
 pub fn forget(checkout: &Checkout) -> Result<Option<Claim>> {
-    let file = checkout.claim_file();
-    let claim = Claim::read(&file)?;
     remove_if_present(&checkout.project_file())?;
-    remove_if_present(&file)?;
-    Ok(claim)
+    unclaim(checkout)
 }
 
 /// Removes <checkout>'s claim and keeps its project file, and returns the
