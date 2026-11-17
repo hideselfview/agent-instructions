@@ -490,17 +490,18 @@ fn run_picked(
         if planned.line.kind != Kind::Fix {
             continue;
         }
-        let before: Vec<(String, Option<Vec<u8>>)> = planned
-            .files
-            .iter()
-            .map(|file| (file.clone(), std::fs::read(top.join(file)).ok()))
-            .collect();
+        let mut before: Vec<(String, Option<Vec<u8>>)> = Vec::new();
+        for file in &planned.files {
+            before.push((file.clone(), contents(top, file)?));
+        }
         let load = Load::here();
         let mut ran = execute(top, planned, false, hook_check.as_deref())?;
-        let changed: Vec<&(String, Option<Vec<u8>>)> = before
-            .iter()
-            .filter(|(file, was)| std::fs::read(top.join(file)).ok() != *was)
-            .collect();
+        let mut changed: Vec<&(String, Option<Vec<u8>>)> = Vec::new();
+        for entry in &before {
+            if contents(top, &entry.0)? != entry.1 {
+                changed.push(entry);
+            }
+        }
         match fixes {
             Fixes::Stage => {
                 let names: Vec<&str> = changed.iter().map(|(file, _)| file.as_str()).collect();
@@ -575,6 +576,17 @@ fn run_picked(
         Ok(())
     } else {
         Err(Fail::Message(format!("failed: {}", failed.join(", "))))
+    }
+}
+
+/// The bytes of <file> under <top>, or None when there is no such file.
+/// Fails, naming the file, when it cannot be read.
+fn contents(top: &Path, file: &str) -> Result<Option<Vec<u8>>> {
+    let path = top.join(file);
+    match std::fs::read(&path) {
+        Ok(bytes) => Ok(Some(bytes)),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => fail!("reading {}: {error}", path.display()),
     }
 }
 

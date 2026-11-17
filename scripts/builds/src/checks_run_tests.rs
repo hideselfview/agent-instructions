@@ -628,3 +628,13 @@ fn the_hook_worktree_is_none_for_a_range_run() {
     let args: Vec<String> = ["run", "--since"].iter().map(|a| a.to_string()).collect();
     assert_eq!(run_worktree(&args), None);
 }
+
+#[test]
+fn a_file_a_fix_hands_that_cannot_be_read_fails_naming_it_and_a_missing_one_is_none() {
+    let scratch = Scratch::new("run-unreadable");
+    let top = repo(&scratch, "fix fmt *.txt tools/ok.sh {files}\n");
+    std::fs::create_dir_all(top.join("a.txt")).unwrap();
+    let error = contents(&top, "a.txt").unwrap_err().text();
+    assert!(error.contains("a.txt"), "{error}");
+    assert_eq!(contents(&top, "gone.txt").unwrap(), None);
+}
