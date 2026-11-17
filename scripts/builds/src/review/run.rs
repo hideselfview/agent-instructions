@@ -347,16 +347,46 @@ struct Unit<'a> {
     file: Option<FileDiff>,
 }
 
-/// The files of <diff> that group <at> of <picked> reads on a first review
+/// The units of group <at>, <group> with <members>, over <diff> as a first
+/// review asks them: a group that lists sites gets one per changed file its
+/// rules cover by either path of a rename, and one for the commit messages
+/// when it reads them; any other group gets one for the whole diff.
+fn units_of<'a>(
+    group: &'a Group,
+    members: &'a [&'a Rule],
+    at: usize,
+    diff: &Diff,
+) -> Vec<Unit<'a>> {
+    let unit = |file| Unit {
+        group,
+        members,
+        diff: at,
+        file,
+    };
+    if !group.enumerate {
+        return vec![unit(None)];
+    }
+    let mut units: Vec<Unit> = files::split(&diff.text)
+        .into_iter()
+        .filter(|file| members.iter().any(|rule| rule.matches(&file.paths())))
+        .map(|file| unit(Some(file)))
+        .collect();
+    if let (true, Some((file, _))) = (
+        group.commit_text,
+        files::commit_message_file(&diff.messages),
+    ) {
+        units.push(unit(Some(file)));
+    }
+    units
+}
+
+/// The files that group <at> of <picked> reads on a first review, <first>,
 /// but not now: each file where other groups of <picked> hold findings of
-/// <open> and it holds none. On a first review a group that lists sites reads
-/// each file its rules cover, and the commit messages as the file
-/// `files::COMMIT_MESSAGE` when it reads commit messages; any other group
-/// reads the whole diff.
+/// <open> and it holds none.
 fn not_read(
     picked: &[(&Group, Vec<&Rule>)],
     at: usize,
-    diff: &Diff,
+    first: &[FileDiff],
     open: &[Finding],
 ) -> Vec<String> {
     let holds = |(group, members): &(&Group, Vec<&Rule>), paths: &[String]| {
@@ -366,27 +396,14 @@ fn not_read(
                 && paths.iter().any(|path| names_file(path, &finding.file))
         })
     };
-    let held_by_others =
-        |paths: &[String]| !holds(&picked[at], paths) && picked.iter().any(|p| holds(p, paths));
-    let (group, members) = &picked[at];
-    let mut dropped: Vec<String> = files::split(&diff.text)
-        .into_iter()
+    first
+        .iter()
         .filter(|file| {
             let paths = file.paths();
-            (!group.enumerate || members.iter().any(|rule| rule.matches(&paths)))
-                && held_by_others(&paths)
+            !holds(&picked[at], &paths) && picked.iter().any(|p| holds(p, &paths))
         })
-        .map(|file| file.path)
-        .collect();
-    let message = [files::COMMIT_MESSAGE.to_string()];
-    if group.enumerate
-        && group.commit_text
-        && !diff.messages.trim().is_empty()
-        && held_by_others(&message)
-    {
-        dropped.push(files::COMMIT_MESSAGE.to_string());
-    }
-    dropped
+        .map(|file| file.path.clone())
+        .collect()
 }
 
 /// Asks the reviewers of <picked> and checks what comes back: one per group,
@@ -406,8 +423,27 @@ pub fn ask_groups(
     brief: Option<&(String, String)>,
     open: &[Finding],
 ) -> Asked {
-    let not_read: Vec<Vec<String>> = (0..picked.len())
-        .map(|at| not_read(picked, at, diff, open))
+    // The units a first review asks, and the files of each group's units that
+    // it does not read now. A unit of the whole diff reads every file of it.
+    let whole = files::split(&diff.text);
+    let first: Vec<Vec<Unit>> = picked
+        .iter()
+        .enumerate()
+        .map(|(at, (group, members))| units_of(group, members, at, diff))
+        .collect();
+    let not_read: Vec<Vec<String>> = first
+        .iter()
+        .enumerate()
+        .map(|(at, units)| {
+            let read: Vec<FileDiff> = units
+                .iter()
+                .flat_map(|unit| match &unit.file {
+                    Some(file) => vec![file.clone()],
+                    None => whole.clone(),
+                })
+                .collect();
+            not_read(picked, at, &read, open)
+        })
         .collect();
     // Each group's diff: <diff> without the files the group does not read.
     let diffs: Vec<Diff> = not_read.iter().map(|paths| diff.without(paths)).collect();
@@ -429,41 +465,15 @@ pub fn ask_groups(
         }
         None => None,
     };
-    let mut units: Vec<Unit> = Vec::new();
-    for (at, (group, members)) in picked.iter().enumerate() {
-        let read = &diffs[at];
-        if group.enumerate {
-            for file in files::split(&read.text) {
-                let paths = file.paths();
-                if members.iter().any(|rule| rule.matches(&paths)) {
-                    units.push(Unit {
-                        group,
-                        members,
-                        diff: at,
-                        file: Some(file),
-                    });
-                }
-            }
-            if let (true, Some((file, _))) = (
-                group.commit_text,
-                files::commit_message_file(&read.messages),
-            ) {
-                units.push(Unit {
-                    group,
-                    members,
-                    diff: at,
-                    file: Some(file),
-                });
-            }
-        } else if not_read[at].is_empty() || !read.text.trim().is_empty() {
-            units.push(Unit {
-                group,
-                members,
-                diff: at,
-                file: None,
-            });
-        }
-    }
+    // builds does not ask a unit whose files its group does not read now.
+    let units: Vec<Unit> = first
+        .into_iter()
+        .flatten()
+        .filter(|unit| match &unit.file {
+            Some(file) => !not_read[unit.diff].contains(&file.path),
+            None => not_read[unit.diff].is_empty() || !diffs[unit.diff].text.trim().is_empty(),
+        })
+        .collect();
     let one = |unit: &Unit, pass: usize| {
         let group = unit.group;
         let read = &diffs[unit.diff];
