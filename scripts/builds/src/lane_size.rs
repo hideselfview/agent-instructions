@@ -318,17 +318,12 @@ pub fn shrink(at: RepoLane, run: Run) -> Result<()> {
         let AddedBy::Builds { at: added_at, .. } = checkout.added_by else {
             continue;
         };
-        let dir = places.app_locks_dir(repo, lane);
-        std::fs::create_dir_all(&dir).context(|| format!("creating {}", dir.display()))?;
         let entry = checkout.entry;
-        let lock_file = places.app_lock_file(repo, lane, &entry);
-        let Some(lock) = queue::try_lock(&lock_file)? else {
+        let Some(lock) = lock_checkout(places, repo, lane, &entry)? else {
             // A build holds it.
             continue;
         };
-        let removed = remove_if_idle(at, &entry, Idle { added_at, now }, run);
-        unsafe { libc::close(lock) };
-        removed?;
+        remove_if_idle(at, &lock, Idle { added_at, now }, run)?;
     }
     Ok(())
 }
@@ -341,9 +336,10 @@ struct Idle {
     now: i64,
 }
 
-/// `shrink` for one checkout of <at>'s lane, <entry>, whose lock the caller
+/// `shrink` for the checkout of <at>'s lane whose lock <lock> the caller
 /// holds.
-fn remove_if_idle(at: RepoLane, entry: &str, times: Idle, run: Run) -> Result<()> {
+fn remove_if_idle(at: RepoLane, lock: &CheckoutLock, times: Idle, run: Run) -> Result<()> {
+    let entry = lock.entry.as_str();
     let RepoLane {
         places,
         ssh,
@@ -370,34 +366,87 @@ fn remove_if_idle(at: RepoLane, entry: &str, times: Idle, run: Run) -> Result<()
         note(format!("kept {shown}, which {why}: {said}"));
         return Ok(());
     }
+    let removal = Removed {
+        at: now,
+        entry: entry.to_string(),
+        why: why.clone(),
+    };
+    take_out(places, repo, lane, lock, Some(removal))?;
+    note(format!(
+        "removed {shown} and its worktree and build folders on the host: {why}"
+    ));
+    Ok(())
+}
+
+/// The lock of one app checkout, which this process holds until the value
+/// is dropped.
+pub struct CheckoutLock {
+    fd: libc::c_int,
+    entry: String,
+}
+
+impl Drop for CheckoutLock {
+    fn drop(&mut self) {
+        unsafe { libc::close(self.fd) };
+    }
+}
+
+/// Takes the lock of <repo>'s <lane> app checkout <entry>, making the lane's
+/// lock folder when it has none; None while a build holds the lock.
+pub fn lock_checkout(
+    places: &Places,
+    repo: &str,
+    lane: Lane,
+    entry: &str,
+) -> Result<Option<CheckoutLock>> {
+    let dir = places.app_locks_dir(repo, lane);
+    std::fs::create_dir_all(&dir).context(|| format!("creating {}", dir.display()))?;
+    Ok(
+        queue::try_lock(&places.app_lock_file(repo, lane, entry))?.map(|fd| CheckoutLock {
+            fd,
+            entry: entry.to_string(),
+        }),
+    )
+}
+
+/// Takes the checkout that <lock> locks out of <repo>'s <lane> set, under the
+/// lane's queue guard, and deletes its lock file and the records beside it
+/// (its last holder's run and when that holder let it go). With <removal>,
+/// builds removed the checkout, which it added on a host: the lane's removal
+/// record gets the line, and the folder here that holds the checkout's copied
+/// results goes too. Then it tells the builds in the lane's queue to read the
+/// set again. Fails when the checkout is not in the set.
+pub fn take_out(
+    places: &Places,
+    repo: &str,
+    lane: Lane,
+    lock: &CheckoutLock,
+    removal: Option<Removed>,
+) -> Result<()> {
+    let entry = lock.entry.as_str();
     let queue = Queue::of(places, repo, lane);
-    {
-        let _guard = queue.guard()?;
-        let mut set = places.app_checkouts_recorded(repo, lane)?;
-        set.retain(|checkout| checkout.entry != entry);
-        places.write_app_checkouts(repo, lane, &set)?;
+    let guard = queue.guard()?;
+    let mut set = places.app_checkouts_recorded(repo, lane)?;
+    if !set.iter().any(|checkout| checkout.entry == entry) {
+        fail!(
+            "{entry} is not one of {repo}'s {} app checkouts",
+            lane.word()
+        );
+    }
+    set.retain(|checkout| checkout.entry != entry);
+    places.write_app_checkouts(repo, lane, &set)?;
+    if let Some(removal) = removal {
         let mut removals: Vec<Removed> = places
             .app_checkouts_removed(repo, lane)?
             .into_iter()
-            .filter(|removal| removal.at > now - REMOVED_KEPT_SECONDS)
+            .filter(|kept| kept.at > removal.at - REMOVED_KEPT_SECONDS)
             .collect();
-        removals.push(Removed {
-            at: now,
-            entry: entry.to_string(),
-            why: why.clone(),
-        });
+        removals.push(removal);
         let text: String = removals
             .iter()
             .map(|removal| format!("{}\n", removal.line()))
             .collect();
         crate::whole_file::write(&places.app_checkouts_removed_file(repo, lane), text)?;
-        for file in [
-            places.app_lock_file(repo, lane, entry),
-            places.app_lock_run_file(repo, lane, entry),
-            places.app_lock_ended_file(repo, lane, entry),
-        ] {
-            remove_file(&file)?;
-        }
         let folder = places.root.join(repo).join(entry);
         match std::fs::remove_dir_all(&folder) {
             Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
@@ -406,20 +455,21 @@ fn remove_if_idle(at: RepoLane, entry: &str, times: Idle, run: Run) -> Result<()
             _ => {}
         }
     }
-    queue::repoint(places, repo, lane);
-    note(format!(
-        "removed {shown} and its worktree and build folders on the host: {why}"
-    ));
-    Ok(())
-}
-
-fn remove_file(file: &std::path::Path) -> Result<()> {
-    match std::fs::remove_file(file) {
-        Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
-            fail!("removing {}: {error}", file.display())
+    for file in [
+        places.app_lock_file(repo, lane, entry),
+        places.app_lock_run_file(repo, lane, entry),
+        places.app_lock_ended_file(repo, lane, entry),
+    ] {
+        match std::fs::remove_file(&file) {
+            Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
+                fail!("removing {}: {error}", file.display())
+            }
+            _ => {}
         }
-        _ => Ok(()),
     }
+    drop(guard);
+    queue::repoint(places, repo, lane);
+    Ok(())
 }
 
 /// `shrink` for every lane of every repo on the volume, for `builds prune`.
