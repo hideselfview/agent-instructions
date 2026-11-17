@@ -202,6 +202,12 @@ pub fn group_part(input: &Input) -> String {
         "- When a site's verdict depends on a function or file outside the diff, open it before judging.\n\
          - The message may list open findings that earlier reviews raised. Put the number of each one whose problem the code no longer has in `closed`, and leave the others out.\n",
     );
+    if group.commit_text {
+        out.push_str(&format!(
+            "- The diff holds the change's commit messages as one more added file, {}. That file is no file of the repository.\n",
+            crate::review::files::COMMIT_MESSAGE
+        ));
+    }
     if let Some(extra) = &group.instructions {
         out.push_str(&format!("- {extra}\n"));
     }

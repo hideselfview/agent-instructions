@@ -34,4 +34,4 @@ grammar requires, such as the dash Ukrainian writes for an omitted "is" ("Тек
 
 The general rule
 (`rules/text-people-read/write-plain-literal-active-sentences.md`) bans the same
-dashes in all other text, such as code comments, docs and commit messages.
+dashes in the other text it covers, such as help text and docs.

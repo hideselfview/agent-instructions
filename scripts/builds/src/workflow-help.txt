@@ -182,17 +182,20 @@ WHAT AN IMPLEMENTING AGENT DOES
      against the findings of the commit the branch started from: read them
      with `builds shots findings`, never by building that commit, and open
      the report path it prints, never a checkout's shots/ folder.
-  6. Before every commit, fix commits included, reread every comment, doc,
-     spec line and commit message it adds against
+  6. Before every commit, fix commits included, reread every app string,
+     error, help text, doc and spec line it adds against
      rules/text-people-read/write-plain-literal-active-sentences.md, and
-     fix what it finds. The next run of the review reads a fix commit for a
-     review finding as part of the changes since the last review, and closes
-     the finding when the code no longer has its problem.
+     fix what it finds. That rule does not cover code comments or commit
+     messages: reread those for whether they are accurate. The next run of
+     the review reads a fix commit for a review finding as part of the
+     changes since the last review, and closes the finding when the code no
+     longer has its problem.
   7. Commit. Before every report, the first one and each one after a fix,
      run `builds review writing <worktree>` on the branch. The command has a
      reviewer check the branch's changes past origin/main against
      rules/text-people-read/write-plain-literal-active-sentences.md and the
-     other rules of its review group, and prints the findings. Fix what it
+     other rules of its review group, and prints the findings. The check
+     reads no commit message and judges no code comment. Fix what it
      finds in a new commit, and name in the report each finding it judges
      wrong, with why. builds runs the check at most twice on a branch between
      two reviews of it: after the second run, fix what it found and report,

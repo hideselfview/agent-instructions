@@ -11,7 +11,9 @@ use crate::checkout::{git, parallel_map};
 use crate::fail;
 use crate::fail::{Context, Result};
 use crate::review::call;
-use crate::review::check::{DiffFile, clause_in, code_in, names_file, parse_diff};
+use crate::review::check::{
+    DiffFile, clause_in, code_in, names_file, only_on_comment_lines, parse_diff,
+};
 use crate::review::commits;
 use crate::review::files::{self, FileDiff, Source};
 use crate::review::groups::{Group, Groups};
@@ -73,6 +75,17 @@ impl Material {
             .collect()
     }
 
+    /// Whether the group that holds rule <slug> judges no code comment
+    /// (`Group::skips_comments`). The rule's own group answers, so a finding
+    /// of the rule counts the same whichever group asked for it, as in an
+    /// audit.
+    pub fn skips_comments(&self, slug: &str) -> bool {
+        self.groups
+            .groups
+            .iter()
+            .any(|group| group.skips_comments && group.rules.iter().any(|rule| rule == slug))
+    }
+
     /// The same material with every group asked in <model>.
     pub fn with_model(mut self, model: &str) -> Material {
         for group in &mut self.groups.groups {
@@ -126,6 +139,20 @@ impl Diff {
             files.push(quotes);
         }
         files
+    }
+
+    /// The diff's text as <group> reads it in one call: with the commit
+    /// messages as one more file, `files::COMMIT_MESSAGE`, when the group
+    /// reads them.
+    pub fn text_for(&self, group: &Group) -> String {
+        let mut text = self.text.clone();
+        if let (true, Some((file, _))) = (
+            group.commit_text,
+            files::commit_message_file(&self.messages),
+        ) {
+            text.push_str(&file.text);
+        }
+        text
     }
 
     /// The diff without the files whose paths are in <dropped>, and without
@@ -391,7 +418,8 @@ struct Unit<'a> {
 /// The units of group <at>, <group> with <members>, over <diff> as a first
 /// review asks them: a group that lists sites gets one per changed file its
 /// rules cover by either path of a rename, and one for the commit messages
-/// when it reads them; any other group gets one for the whole diff.
+/// when it reads them; any other group gets one for the whole diff, with the
+/// commit messages when it reads them (`Diff::text_for`).
 fn units_of<'a>(
     group: &'a Group,
     members: &'a [&'a Rule],
@@ -465,8 +493,8 @@ pub fn ask_groups(
     open: &[Finding],
 ) -> Asked {
     // The units a first review asks, and the files of each group's units that
-    // it does not read now. A unit of the whole diff reads every file of it.
-    let whole = files::split(&diff.text);
+    // it does not read now. A unit of the whole diff reads every file of it,
+    // and the commit messages when its group reads them.
     let first: Vec<Vec<Unit>> = picked
         .iter()
         .enumerate()
@@ -480,7 +508,7 @@ pub fn ask_groups(
                 .iter()
                 .flat_map(|unit| match &unit.file {
                     Some(file) => vec![file.clone()],
-                    None => whole.clone(),
+                    None => files::split(&diff.text_for(unit.group)),
                 })
                 .collect();
             not_read(picked, at, &read, open)
@@ -512,7 +540,10 @@ pub fn ask_groups(
         .flatten()
         .filter(|unit| match &unit.file {
             Some(file) => !not_read[unit.diff].contains(&file.path),
-            None => not_read[unit.diff].is_empty() || !diffs[unit.diff].text.trim().is_empty(),
+            None => {
+                not_read[unit.diff].is_empty()
+                    || !diffs[unit.diff].text_for(unit.group).trim().is_empty()
+            }
         })
         .collect();
     let one = |unit: &Unit, pass: usize| {
@@ -520,10 +551,10 @@ pub fn ask_groups(
         let read = &diffs[unit.diff];
         let (text_diff, context) = match &unit.file {
             Some(file) => (
-                file.text.as_str(),
+                file.text.clone(),
                 files::context(read.source.as_ref(), &file.path, &file.text),
             ),
-            None => (read.text.as_str(), String::new()),
+            None => (read.text_for(group), String::new()),
         };
         let names = prompt::answer_names(group, unit.members);
         let given: Vec<&Finding> = open.iter().filter(|f| names.contains(&f.rule)).collect();
@@ -532,7 +563,7 @@ pub fn ask_groups(
             rules: unit.members,
             project_text: &material.project_text,
             brief,
-            diff: text_diff,
+            diff: &text_diff,
             context: &context,
             open: &given,
         });
@@ -564,9 +595,9 @@ pub fn ask_groups(
             tokens_written: output.usage.tokens_written,
         };
         let mut call = checked(
+            material,
             group,
             unit.members,
-            &material.project_text,
             &quotes[unit.diff],
             &names,
             setup,
@@ -754,13 +785,16 @@ fn merge(held: &mut NewCall, more: NewCall) {
     };
 }
 
-/// The call as the store holds it: findings whose clause or code is not
-/// there are kept with the reason they were dropped.
+/// The call as the store holds it: builds keeps with the reason it dropped
+/// it each finding whose clause is not in its rule, that is on the commit
+/// messages when <group> does not read them, whose code is not in <quotes>, or
+/// whose code sits only on comment lines when its rule's group judges no code
+/// comment.
 fn checked(
+    material: &Material,
     group: &Group,
     members: &[&Rule],
-    project_text: &str,
-    files: &[DiffFile],
+    quotes: &[DiffFile],
     names: &[String],
     setup: String,
     output: call::Output,
@@ -794,7 +828,7 @@ fn checked(
     call.sites = answer.sites;
     for raw in answer.findings {
         let (rule_text, blocking) = if raw.rule == PROJECT_FACTS {
-            (project_text, false)
+            (material.project_text.as_str(), false)
         } else {
             let rule = members
                 .iter()
@@ -804,8 +838,23 @@ fn checked(
         };
         let check_failed = if !clause_in(&raw.clause, rule_text) {
             Some("its clause is not in the rule's text".to_string())
+        } else if raw.file == files::COMMIT_MESSAGE && !group.commit_text {
+            Some(format!(
+                "it is on the commit messages ({}), which group {} does not read",
+                files::COMMIT_MESSAGE,
+                group.name
+            ))
+        } else if let Err(why) = code_in(quotes, &raw.file, &raw.code) {
+            Some(why)
+        } else if material.skips_comments(&raw.rule)
+            && only_on_comment_lines(quotes, &raw.file, &raw.code)
+        {
+            Some(format!(
+                "its code is only comment lines, and the group of rule {} judges no code comment",
+                raw.rule
+            ))
         } else {
-            code_in(files, &raw.file, &raw.code).err()
+            None
         };
         call.findings.push(NewFinding {
             rule: raw.rule,

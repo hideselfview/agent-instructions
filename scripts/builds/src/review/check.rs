@@ -1,6 +1,8 @@
 //! builds' own check of a finding's two quotes: the clause must be in the
 //! rule's text, and the code must be in the diff, in the file the finding
 //! names. A finding that fails either is dropped and recorded as dropped.
+//! The check also tells whether the code sits only on comment lines, for the
+//! groups whose rules judge no code comment (`groups::Group::skips_comments`).
 
 /// <text> with every run of whitespace as one space, and without the markdown
 /// marks (`*`, backtick) a quote may have lost or kept.
@@ -99,6 +101,80 @@ pub fn code_in(files: &[DiffFile], file: &str, code: &str) -> Result<(), String>
     } else {
         Err(format!("its code is not in the diff of {file}"))
     }
+}
+
+/// Whether <line>, a line of the file at <path>, is a comment line: its
+/// first characters past its indent are the mark of a line comment, or the
+/// start, middle or end of a block comment, in the file's language. builds
+/// knows the comments of Rust, Swift, Kotlin and C# (`//`, `/*`, `*/`, and
+/// for all but Rust a block comment's middle line `*`), of Python, shell and
+/// TOML (`#`) and of SQL (`--`), by the file's extension. A line of any other
+/// file, such as Markdown, is no comment line. In Rust a line that starts
+/// with `* ` multiplies or dereferences, so a Rust line is a comment line
+/// only by its slashes.
+pub fn is_comment_line(path: &str, line: &str) -> bool {
+    let text = line.trim_start();
+    let slashes = text.starts_with("//") || text.starts_with("/*") || text.starts_with("*/");
+    let extension = std::path::Path::new(path)
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .unwrap_or("");
+    match extension {
+        "rs" => slashes,
+        "swift" | "kt" | "kts" | "cs" => slashes || text == "*" || text.starts_with("* "),
+        "py" | "sh" | "bash" | "zsh" | "toml" => text.starts_with('#'),
+        "sql" => text.starts_with("--"),
+        _ => false,
+    }
+}
+
+/// Whether <code> sits only on comment lines of the diff's lines of <file>
+/// (`is_comment_line`), matched by `names_file`. builds finds each run of
+/// lines whose text holds the quote and starts on the line where the quote
+/// starts, and every line of every such run that is not blank must be a
+/// comment line. A quote builds finds nowhere sits on no comment line.
+pub fn only_on_comment_lines(files: &[DiffFile], file: &str, code: &str) -> bool {
+    let wanted = squash(code);
+    if wanted.is_empty() {
+        return false;
+    }
+    let joined = |lines: &[String]| -> String {
+        let words: Vec<&str> = lines
+            .iter()
+            .map(String::as_str)
+            .filter(|line| !line.is_empty())
+            .collect();
+        words.join(" ")
+    };
+    let mut found = false;
+    for named in files.iter().filter(|f| names_file(&f.path, file)) {
+        let lines: Vec<String> = named.lines.iter().map(|line| squash(line)).collect();
+        for start in 0..lines.len() {
+            for end in start..lines.len() {
+                let text = joined(&lines[start..=end]);
+                if text.contains(&wanted) {
+                    // The run starts where the quote starts when the lines
+                    // after its first one do not hold the quote alone.
+                    if !joined(&lines[start + 1..=end]).contains(&wanted) {
+                        found = true;
+                        let comments = named.lines[start..=end].iter().all(|line| {
+                            line.trim().is_empty() || is_comment_line(&named.path, line)
+                        });
+                        if !comments {
+                            return false;
+                        }
+                    }
+                    break;
+                }
+                // A run that holds the quote past this length holds it
+                // without its first line.
+                if text.len() > wanted.len() + lines[start].len() + 1 {
+                    break;
+                }
+            }
+        }
+    }
+    found
 }
 
 #[cfg(test)]

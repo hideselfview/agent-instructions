@@ -78,6 +78,7 @@ fn synthetic(name: String, model: &str, question: &str, rules: &[&Rule]) -> Grou
         enumerate: false,
         sites: None,
         commit_text: false,
+        skips_comments: false,
         passes: 1,
     }
 }

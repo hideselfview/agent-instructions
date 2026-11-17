@@ -1,7 +1,9 @@
 use super::*;
 use crate::lists::fixtures::NOON;
 use crate::lists::item_fixtures::{Demo, demo};
-use crate::review::fakes::{Fake, Raised, commit_text_group, fake, ten_lines};
+use crate::review::fakes::{
+    Fake, Raised, commit_text_group, fake, group_file, style_group, style_site, ten_lines,
+};
 use crate::review::files;
 use crate::review::{Inputs, review};
 
@@ -478,6 +480,13 @@ fn alpha_finds(fake: &Fake, found: &[(&str, &str)]) {
 fn a_branch_lands_in_two_parts_once_a_review_closed_its_findings() {
     let demo = demo("landing-parts");
     let fake = fake(&demo.scratch.dir);
+    group_file(
+        &fake.root,
+        "alpha",
+        "alpha",
+        "sonnet",
+        "commit_text = true\n",
+    );
     let side = demo.add_side(1, "agent", "work");
     let a = commit_with(&side, "a.rs", "Add a");
     let b = commit_with(&side, "b.rs", "Add b with a vague line");
@@ -645,6 +654,55 @@ fn land_refuses_a_reworded_message_until_a_review_reads_it() {
     };
     assert_eq!(unfinished.unreviewed, [files::COMMIT_MESSAGE], "{said:?}");
     review_of(&demo, &fake, &side);
+    let said = verdict_of(&demo, &fake, &side, &reworded);
+    assert!(matches!(said.0, Verdict::Takes(_)), "{said:?}");
+}
+
+/// Group style judges no commit message, and group alpha reads them: builds
+/// drops the style group's finding on a message, and a reworded message
+/// waits only for alpha's answer.
+#[test]
+fn a_reworded_message_raises_no_style_finding_and_lands_once_alpha_answers() {
+    let demo = demo("landing-message-style");
+    let fake = fake(&demo.scratch.dir);
+    group_file(
+        &fake.root,
+        "alpha",
+        "alpha",
+        "sonnet",
+        "commit_text = true\n",
+    );
+    style_group(
+        &fake,
+        serde_json::json!([style_site(files::COMMIT_MESSAGE, "a vague line")]),
+    );
+    let side = demo.add_side(1, "agent", "work");
+    commit_with(&side, "a.rs", "Add a with a vague line");
+    review_of(&demo, &fake, &side);
+    let found = findings(&demo);
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert_eq!(
+        found[0].check_failed.as_deref(),
+        Some("it is on the commit messages (COMMIT_MESSAGE), which group style does not read")
+    );
+    fake.prompts();
+    crate::testing::git(&side, &["commit", "-q", "--amend", "-m", "Add the file a"]);
+    let reworded = [head(&side)];
+    let said = verdict_of(&demo, &fake, &side, &reworded);
+    let Verdict::Unfinished(_, unfinished) = &said.0 else {
+        panic!("{said:?}")
+    };
+    assert_eq!(unfinished.unreviewed, [files::COMMIT_MESSAGE], "{said:?}");
+    review_of(&demo, &fake, &side);
+    let prompts = fake.prompts();
+    let groups: Vec<&str> = prompts.iter().map(|(group, _)| group.as_str()).collect();
+    assert_eq!(groups, ["alpha"]);
+    assert!(
+        prompts[0].1.contains("diff --git a/COMMIT_MESSAGE")
+            && prompts[0].1.contains("+Add the file a"),
+        "{}",
+        prompts[0].1
+    );
     let said = verdict_of(&demo, &fake, &side, &reworded);
     assert!(matches!(said.0, Verdict::Takes(_)), "{said:?}");
 }

@@ -1,5 +1,6 @@
 name = "Text people read"
-question = "Is every sentence a person reads plain, literal and active, said once, punctuated without dashes, spelled as the product spells its names and translated into every locale, in app strings, notifications, errors, titles, commit messages, docs and code comments?"
+question = "Is every sentence a person reads plain, literal and active, said once, punctuated without dashes, spelled as the product spells its names and translated into every locale, in app strings, notifications, errors, titles, help text, docs, the spec, briefs and rules?"
 enumerate = true
-commit_text = true
-sites = "is a sentence a person reads: each string, comment, doc comment and documentation sentence the diff adds or changes, and each sentence of the commit messages (the file COMMIT_MESSAGE)"
+skips_comments = true
+sites = "is a sentence a person reads outside a code comment: each string and each documentation sentence the diff adds or changes"
+instructions = "These rules judge no code comment (a doc or line comment in a source file) and no commit message: list no site on a comment line, and raise no finding on one."

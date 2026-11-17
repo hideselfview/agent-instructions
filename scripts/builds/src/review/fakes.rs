@@ -65,6 +65,37 @@ pub fn commit_text_group(fake: &Fake) {
     fake.answer_task("writing", serde_json::json!({"summary": "s", "sites": []}));
 }
 
+/// Adds group style, whose rule-s covers every .rs file and whose reviewer
+/// reads one file per call, judges no code comment and reads no commit
+/// message, and has that reviewer judge <sites>.
+pub fn style_group(fake: &Fake, sites: serde_json::Value) {
+    std::fs::create_dir_all(fake.root.join("rules/style")).unwrap();
+    rule_file(
+        &fake.root,
+        "style",
+        "rule-s",
+        "**/*.rs",
+        true,
+        "**Rule S.** Write plain sentences.",
+    );
+    group_file(
+        &fake.root,
+        "style",
+        "style",
+        "opus",
+        "enumerate = true\nsites = \"is a sentence\"\nskips_comments = true\n",
+    );
+    fake.answer_task("style", serde_json::json!({"summary": "s", "sites": sites}));
+}
+
+/// A finding site of rule-s, as the style group's reviewer words it.
+pub fn style_site(file: &str, code: &str) -> serde_json::Value {
+    serde_json::json!({
+        "file": file, "line": 1, "kind": "sentence", "code": code, "verdict": "finding",
+        "rule": "rule-s", "clause": "Write plain sentences.", "problem": "The sentence is not plain."
+    })
+}
+
 pub fn fake(scratch: &Path) -> Fake {
     let root = scratch.join("instructions");
     let dir = scratch.join("reviewer");

@@ -2,7 +2,8 @@ use super::*;
 use crate::lists::fixtures::NOON;
 use crate::lists::item_fixtures::{Demo, demo};
 use crate::review::fakes::{
-    Fake, Raised, commit_text_group, fake, group_file, rule_file, ten_lines,
+    Fake, Raised, commit_text_group, fake, group_file, rule_file, style_group, style_site,
+    ten_lines,
 };
 
 fn stamp() -> Stamp {
@@ -580,6 +581,67 @@ fn each_group_reads_only_the_files_where_it_holds_findings_and_both_run_in_one_r
         .collect();
     groups.sort();
     assert_eq!(groups, ["alpha", "writing"]);
+}
+
+/// Group style judges no code comment, and group alpha judges comments too:
+/// builds drops the style group's finding on a comment line with its reason,
+/// and keeps its finding on a string and alpha's finding on the comment.
+#[test]
+fn a_style_finding_on_a_comment_line_is_dropped_and_an_accuracy_finding_there_stays() {
+    let demo = demo("review-comment-style");
+    let fake = fake(&demo.scratch.dir);
+    style_group(
+        &fake,
+        serde_json::json!([
+            style_site("a.rs", "the cover is uploaded"),
+            style_site("a.rs", "\"Cover uploaded\""),
+        ]),
+    );
+    let side = demo.add_side(1, "agent", "work");
+    std::fs::write(
+        side.join("a.rs"),
+        "/// Sends the cover:\n/// the cover is uploaded\nfn send() -> &'static str {\n    \"Cover uploaded\"\n}\n",
+    )
+    .unwrap();
+    crate::testing::git(&side, &["add", "a.rs"]);
+    crate::testing::git(&side, &["commit", "-q", "-m", "Add a"]);
+    fake.answer(
+        "alpha",
+        &[(
+            "rule-a",
+            Some((
+                BAD.0,
+                "a.rs",
+                2,
+                "the cover is uploaded",
+                "The comment is wrong.",
+            )),
+        )],
+    );
+    let landing = run_review(&demo, &fake, &side, "k").landing.unwrap();
+    let found: Vec<(String, String, Option<String>)> = findings_of(&demo, landing)
+        .into_iter()
+        .map(|f| (f.group, f.code, f.check_failed))
+        .collect();
+    assert_eq!(
+        found,
+        [
+            (
+                "alpha".to_string(),
+                "the cover is uploaded".to_string(),
+                None
+            ),
+            (
+                "style".to_string(),
+                "the cover is uploaded".to_string(),
+                Some(
+                    "its code is only comment lines, and the group of rule rule-s judges no code comment"
+                        .to_string()
+                )
+            ),
+            ("style".to_string(), "\"Cover uploaded\"".to_string(), None),
+        ]
+    );
 }
 
 /// Makes a demo whose branch commits b.rs, then a.rs with the message "Add a

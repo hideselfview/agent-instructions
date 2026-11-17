@@ -47,3 +47,51 @@ fn a_diff_header_names_the_new_path() {
     assert_eq!(new_path("diff --git a/x.rs b/y.rs\n"), Some("y.rs"));
     assert_eq!(new_path("+let x = 1;"), None);
 }
+
+#[test]
+fn each_language_marks_its_comment_lines() {
+    for (path, line) in [
+        ("a.rs", "    /// Sends the cover."),
+        ("a.rs", "// a note"),
+        ("a.swift", "  /// Sends the cover."),
+        ("a.kt", " * Sends the cover."),
+        ("a.kt", " */"),
+        ("a.cs", "/// <summary>Sends</summary>"),
+        ("a.py", "    # a note"),
+        ("scripts/a.sh", "# a note"),
+        ("Cargo.toml", "# a note"),
+        ("a.sql", "-- a note"),
+    ] {
+        assert!(is_comment_line(path, line), "{path}: {line}");
+    }
+    for (path, line) in [
+        ("a.rs", "    *count += 1;"),
+        ("a.rs", "    * factor"),
+        ("a.rs", "let url = \"http://x\"; // a note"),
+        ("a.py", "x = 1  # a note"),
+        ("a.sql", "SELECT 1;"),
+        ("README.md", "# A heading"),
+        ("a.md", "* a list item"),
+    ] {
+        assert!(!is_comment_line(path, line), "{path}: {line}");
+    }
+}
+
+const COMMENTED: &str = "diff --git a/a.rs b/a.rs\n--- a/a.rs\n+++ b/a.rs\n@@ -0,0 +1,6 @@\n+/// Sends the cover\n+/// to the store.\n+fn send() -> &'static str {\n+    // the cover\n+    \"the cover\"\n+}\n";
+
+#[test]
+fn a_quote_is_on_comment_lines_only_when_every_place_it_sits_is_a_comment() {
+    let files = parse_diff(COMMENTED);
+    assert!(only_on_comment_lines(&files, "a.rs", "Sends the cover"));
+    assert!(only_on_comment_lines(
+        &files,
+        "a.rs",
+        "Sends the cover\n/// to the store."
+    ));
+    assert!(only_on_comment_lines(&files, "a.rs", "/// to the store."));
+    // "the cover" sits on a comment line and in a string.
+    assert!(!only_on_comment_lines(&files, "a.rs", "the cover"));
+    assert!(!only_on_comment_lines(&files, "a.rs", "fn send()"));
+    assert!(!only_on_comment_lines(&files, "a.rs", "not in the diff"));
+    assert!(!only_on_comment_lines(&files, "b.rs", "Sends the cover"));
+}

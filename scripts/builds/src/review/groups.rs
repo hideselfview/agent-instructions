@@ -57,6 +57,11 @@ pub struct Group {
     /// Whether the commit messages of the change are read as one more file.
     #[serde(default)]
     pub commit_text: bool,
+    /// Whether the group's rules judge no code comment, so builds drops a
+    /// finding of one of them whose code sits only on comment lines
+    /// (`check::only_on_comment_lines`).
+    #[serde(default)]
+    pub skips_comments: bool,
     /// How many times each call is made; the findings of all are kept. The
     /// later calls of one prompt read the first one's prompt from the cache.
     #[serde(default = "one")]
@@ -139,12 +144,6 @@ impl Groups {
             if !group.enumerate && group.sites.is_some() {
                 faults.push(format!(
                     "group {} says what a site is but does not list sites (`enumerate`)",
-                    group.name
-                ));
-            }
-            if group.commit_text && !group.enumerate {
-                faults.push(format!(
-                    "group {} reads commit messages but does not list sites (`enumerate`)",
                     group.name
                 ));
             }

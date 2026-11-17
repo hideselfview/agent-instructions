@@ -1481,6 +1481,11 @@ when a commit message changed, each group that reads commit messages
 agent rewords a message and changes no file, the run reads only the changed
 messages and closes each finding on the commit messages that they fix. A
 reviewer reads the commit messages as one more file, named COMMIT_MESSAGE.
+Only groups whose rules judge what a message says read the messages (in
+agent-instructions, Commits and repo contents, whose rules ask whether the
+text is accurate). The writing group (Text people read) reads no commit
+message and judges no code comment, so a reworded message or comment never
+waits on the writing group.
 `builds review` refuses the run when the review lacks nothing, naming the
 last review.
 
@@ -1545,8 +1550,14 @@ rules, the project's projects/<project>.md, the brief of the first --item that
 has one; its message holds the diff. It
 answers with a verdict for every rule and, per finding, the rule's clause, the
 code with its file and line, and what goes wrong. builds drops a finding whose
-clause is not in the rule or whose code is not in the diff, and records it as
-dropped. Every review goes in the project's store: the change's landing under
+clause is not in the rule, that is on COMMIT_MESSAGE when its group reads no
+commit message, whose code is not in the diff, or whose code sits only on
+comment lines when the group of its rule judges no code comment
+(skips_comments), and records it as dropped with that reason. A comment line
+is a line whose first characters past its indent are a comment's mark in the
+file's language: `//`, `/*` or `*/` in Rust, Swift, Kotlin and C# (and `*` in
+a block comment of all but Rust), `#` in Python, shell and TOML, and `--` in
+SQL. Every review goes in the project's store: the change's landing under
 review (found by its key until the change lands) with its last review, the
 net change each run read, the group, rules, model, prompt, tokens, cost,
 verdicts, findings, how each was settled (both settles of a finding settled
@@ -1635,7 +1646,12 @@ checks this, and so does builds' test. The group.toml fields are top-level keys:
   sites         what a site is, for an enumerate group: the end of "every site
                 in the diff that ..."
   commit_text   true when the commit messages of the change are read as one
-                more file named COMMIT_MESSAGE (an enumerate group)
+                more file named COMMIT_MESSAGE: one more call for an enumerate
+                group, and the end of the diff for any other
+  skips_comments
+                true when the group's rules judge no code comment: builds
+                drops a finding of such a rule whose code sits only on
+                comment lines
   passes        how many times each call is made, default 1; the findings of
                 all are kept, and the later calls read the first one's prompt
                 from the cache
@@ -1766,12 +1782,15 @@ run `review replay --rules-root` on it.
                               write-plain-literal-active-sentences over the
                               worktree's net change past <base> (default
                               origin/main), the way `builds review` asks each
-                              group, and print its findings. The command
-                              records no landing, review run or finding, and
-                              `builds land` still needs the coordinator's
-                              review. An implementing agent runs it on its
-                              branch before every report, and fixes what it
-                              finds. builds records each run whose group
+                              group, and print its findings. The group reads
+                              no commit message and judges no code comment:
+                              the check judges app strings, errors, help
+                              text, docs, the spec, briefs and rules. The
+                              command records no landing, review run or
+                              finding, and `builds land` still needs the
+                              coordinator's review. An implementing agent
+                              runs it on its branch before every report, and
+                              fixes what it finds. builds records each run whose group
                               answered, allows the check at most twice on a
                               branch between two reviews of it, and refuses a
                               third run with a message to fix what the second

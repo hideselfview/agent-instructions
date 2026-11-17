@@ -1,5 +1,5 @@
 ---
-digest: Every sentence a person reads is plain, literal and active: who does what, in the words for what it does, starting with the verb for a title or task; no figures of speech, borrowed metaphors, coinages, headline grammar, passive voice, dashes as punctuation or marketing adjectives (public website pages that aren't docs are exempt from the last). The grammar forms are English's; a translation follows the localization rule.
+digest: Every sentence a person reads, outside code comments and commit messages, is plain, literal and active: who does what, in the words for what it does, starting with the verb for a title or task; no figures of speech, borrowed metaphors, coinages, headline grammar, passive voice, dashes as punctuation or marketing adjectives (public website pages that aren't docs are exempt from the last). The grammar forms are English's; a translation follows the localization rule.
 paths:
   - '**/*'
 blocking: true
@@ -8,8 +8,15 @@ blocking: true
 ## Write plain, literal, active sentences
 
 This is the first rule for any text a person reads: app strings, notifications,
-errors, item and plan titles, commit messages, PR descriptions, docs, comments,
-and replies in chat. It outranks every other writing rule.
+errors, help text, item and plan titles, PR descriptions, docs, the spec,
+briefs, rules, and replies in chat. It outranks every other writing rule.
+
+**Comments and commit messages.** The rule does not cover code comments (doc and
+line comments in a source file) or commit messages: a review judges neither on
+its wording or grammar. Other rules still judge what a comment or a commit
+message says, such as whether it is accurate
+(committed-text-describes-the-current-state,
+every-change-agrees-with-its-product-spec).
 
 Short text (app strings, titles, buttons, messages) has no room to set up
 context, so it follows the forms here. A document (prose a reader reads from the
@@ -61,10 +68,10 @@ about: "This Mac is offline. Your changes stay here until it reconnects." The
 same goes for "This" and "That" standing alone as a subject.
 
 **No dash as sentence punctuation.** No em dash (—), and no en dash or hyphen
-with spaces around it ( – ), anywhere: app text, commit messages, docs and code
-comments. Write what the dash stood for: a pause or an aside is a comma, a
-second thought is a new sentence, and a definition or a list that follows takes
-a colon.
+with spaces around it ( – ), anywhere the rule covers: app text, help text and
+docs. Write what the dash stood for: a pause or an aside is a comma, a second
+thought is a new sentence, and a definition or a list that follows takes a
+colon.
 
 - ✗ "Fix the queue – it dropped held items" → ✓ "Fix the queue, which dropped
   held items"
