@@ -137,7 +137,8 @@ pub struct CodeLeft {
 /// What a covering review still lacks.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Unfinished {
-    /// Groups asked over a diff a run read that gave no answer over it.
+    /// Groups that the review asked over a diff a run read and that gave no
+    /// answer over it.
     pub unanswered: Vec<String>,
     /// The paths a group's rules cover where the branch's net change differs
     /// from the net change the review's last run read.

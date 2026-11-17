@@ -21,9 +21,9 @@ changed paths no rule group covers need no review. Review each branch this way:
     the other flags.
   - It ends with what `builds land` would say of these commits, and exits 1
     unless land would take them.
-  - A second run of the same change is refused while the branch's net change
-    stays as the review read it. When a group gave no answer (its reviewer
-    failed), a second run asks only those groups, over the same diff.
+  - `builds review` refuses a second run of the same change while the branch's
+    net change stays as the review read it. When a group gave no answer (its
+    reviewer failed), a second run asks only those groups, over the same diff.
 - Read each finding against the code and the rule clause it quotes, and settle
   it with `builds review settle <finding> confirmed|dropped --why <text>`.
   - The settled findings are the record of what reviews catch and miss: say in

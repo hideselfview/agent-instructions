@@ -111,11 +111,12 @@ PLAN, BRIEF, EXECUTE, REVIEW
     settles it as confirmed or dropped with why (`builds review settle`), and
     sends each confirmed one back to the agent that made it. The agent fixes
     it in a new commit. The coordinator reads that commit against its
-    finding, names it (`builds review fixed`), runs `builds review` again,
-    which reads only how the branch's net change differs from the one the
-    review read, fixes included, settles what that run finds, and runs
-    `builds land` with the reviewed commits and their fixes in the branch's
-    worktree once the agent is done there (LANDING). `builds land` refuses
+    finding, names it (`builds review fixed`) and runs `builds review`
+    again. That run reads only how the branch's net change differs from the
+    one the review read, the fixes included. The coordinator settles what
+    that run finds, and runs `builds land` with the reviewed commits and
+    their fixes in the branch's worktree once the agent is done there
+    (LANDING). `builds land` refuses
     commits that lack this step (`builds help`, LANDING AND REVIEW). Each
     settle, with its
     `--why`, is the record that scores the reviews: a confirmed finding counts

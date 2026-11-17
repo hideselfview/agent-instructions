@@ -27,8 +27,8 @@ type ReadKey = (PathBuf, Vec<String>);
 /// The commits of a worktree with their patch ids, and the paths each changes.
 type Read = Option<(Vec<Commit>, Vec<Vec<String>>)>;
 
-/// A project's rules as last read, and when; None when they could not be
-/// read.
+/// A project's rules as `Material::load` last read them, and when; None when
+/// `Material::load` failed.
 type Rules = (Instant, Option<Arc<Material>>);
 
 /// What git said of each worktree's commits, kept until they differ, and the

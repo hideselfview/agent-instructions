@@ -919,8 +919,9 @@ fn copy_scored_calls(db: &Connection) -> Result<()> {
 /// Moves a store's `review_run` from before a later review run read only how
 /// the branch's net change differs from the net change an earlier run read to
 /// today's, with the statements taken from record.sql so the result equals a
-/// fresh database's: every run keeps its rows and reads as one that read the
-/// whole net change from its base to its head. migrate.rs runs it with the
+/// fresh database's: every run keeps its rows, and the move sets `since_run`
+/// to null for each, so builds counts each run as one that read the whole net
+/// change from its base to its head. migrate.rs runs it with the
 /// foreign keys off, and the rename runs under `legacy_alter_table`, so the
 /// tables that point at `review_run` keep naming it.
 pub fn move_to_net_change(db: &Connection) -> Result<()> {

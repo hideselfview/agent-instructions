@@ -18,9 +18,10 @@
 //! ```
 //!
 //! `run` reviews the worktree's net change past BASE (default `origin/main`)
-//! before it lands. No diff is reviewed more than once. Each change gets one
-//! review; the coordinator reads the fixes for its confirmed findings. The
-//! groups whose rules cover a changed path each get one `claude -p`. The run
+//! before it lands. builds review reads no diff more than once. Each change
+//! gets one review; the coordinator reads the fixes for its confirmed
+//! findings. The groups whose rules cover a changed path each get one
+//! `claude -p`. The run
 //! records the net change it read, with the patch ids of its commits, under
 //! the change's KEY, then says what `builds land` would say of the branch's
 //! commits (`landing.rs`), and exits 1 unless land would take them. A KEY
@@ -576,7 +577,7 @@ fn fixed(tool: &Tool, args: &[String]) -> Result<()> {
         record::record_fix(db, id, &fix, stamp.at, &stamp.by)
     })?;
     println!(
-        "finding {id} is fixed by {}. Read it against the finding; the next builds review reads it as part of the branch's net change",
+        "commit {} fixes finding {id}. Read it against the finding; the next builds review reads it as part of the branch's net change",
         short(&fix.sha)
     );
     Ok(())

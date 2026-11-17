@@ -11,9 +11,9 @@ pub struct Fake {
     pub program: PathBuf,
 }
 
-/// The text of a file of ten lines, "one" to "ten", with line <at> (from 1)
-/// replaced by <line> for each pair of <changes>: the file the tests of a
-/// rebase change on main and on a branch.
+/// Returns ten lines, "one" to "ten", and puts <line> at line <at> (counting
+/// from 1) for each pair in <changes>. The rebase tests change this file on
+/// main and on a branch.
 pub fn ten_lines(changes: &[(usize, &str)]) -> String {
     let mut lines = vec![
         "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten",

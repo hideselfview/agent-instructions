@@ -69,18 +69,19 @@
 //! In a repo of a project, the commits must have been reviewed against the
 //! rules before they land. No diff is reviewed more than once. Each change
 //! gets one review; the coordinator reads the fixes for its confirmed
-//! findings. `builds review check-landing`, run after the lists' checks and
-//! before anything is fetched, refuses unless a change's review (the one whose
-//! runs read one of the commits, found by the patch id of its added and
-//! removed lines) has read the branch's net change as it is now, so a rebase
-//! that keeps every line the branch adds and removes counts, and the review is
-//! finished: every group asked over a diff a run read has answered, the
-//! coordinator has settled every finding, and each confirmed finding on the
-//! commits has its fix among them, unless builds finds the finding's code on
-//! no line of the branch's change past origin/main; check-landing then records
-//! that. Commits whose paths no group covers need no review. After
-//! the push, `builds review landed` records the commits pushed beside the
-//! items and the design change. When commits of the branch still wait to land,
+//! findings. Land runs `builds review check-landing` after the lists' checks
+//! and before it fetches anything. check-landing finds the change's review by
+//! the patch id of each commit's added and removed lines: the review whose
+//! runs read one of the commits. It refuses the commits until that review has
+//! read the branch's net change as it is now, so a rebase that keeps every
+//! line the branch adds and removes keeps the review. It also refuses them
+//! until the review is finished: every group that builds asked to review a
+//! diff has answered over it, the coordinator has settled every finding, and
+//! each confirmed finding on the commits has its fix among them, unless
+//! builds finds the finding's code on no line of the branch's change past
+//! origin/main; check-landing then records that. Commits whose paths no
+//! group covers need no review. After the push, `builds review landed`
+//! records the commits pushed beside the items and the design change. When commits of the branch still wait to land,
 //! land passes `--more-to-land` to it and the review's landing stays open for
 //! them; otherwise `builds review landed` records the landing as landed and
 //! starts the audit of a sampled one, which never fails the landing.
