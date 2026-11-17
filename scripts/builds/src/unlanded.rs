@@ -225,12 +225,17 @@ pub fn loose_branches(main: &Path, judged: &mut Judged) -> Result<Vec<LooseBranc
         ]),
         "list the branches",
     )?;
-    let branches: Vec<(String, String)> = listed
-        .lines()
-        .filter_map(|line| line.split_once('\0'))
-        .filter(|(branch, _)| !checked_out.contains(*branch))
-        .map(|(branch, sha)| (branch.to_string(), sha.to_string()))
-        .collect();
+    let mut branches: Vec<(String, String)> = Vec::new();
+    for line in listed.lines() {
+        let Some((branch, sha)) = line.split_once('\0') else {
+            fail!(
+                "git for-each-ref printed {line:?}, with no NUL between the branch and its commit"
+            );
+        };
+        if !checked_out.contains(branch) {
+            branches.push((branch.to_string(), sha.to_string()));
+        }
+    }
     let unjudged: Vec<&(String, String)> = branches
         .iter()
         .filter(|(_, sha)| !judged.0.contains_key(&(sha.clone(), tip.clone())))
