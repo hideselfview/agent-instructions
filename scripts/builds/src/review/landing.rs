@@ -466,10 +466,10 @@ fn record_landed(asked: &Asked, stamp: &Stamp, more: bool) -> Result<Option<i64>
         Verdict::NoRun => {
             // A rerun after the landing was recorded finds no open review,
             // and so does a key other than the one check-landing judged.
-            eprintln!(
-                "builds: review landed: no review of {} is open, so builds records no landing",
+            crate::text::note(format!(
+                "review landed: no review of {} is open, so builds records no landing",
                 asked.key
-            );
+            ));
             return Ok(None);
         }
         Verdict::Takes(covered) => covered,
