@@ -33,15 +33,18 @@ it does in every repo (LANDING AND REVIEW). To try an edit to builds before
 
 ACKNOWLEDGING THE RULES
 
-builds refuses every command an agent runs, except `help` and `ack`, until
-the agent has read the text every agent reads before it works and has
-acknowledged it with `builds ack`. The text is this help, `builds help
-workflow` (without its WHAT REVIEWS CONFIRM MOST OFTEN section, which changes
-with each settled finding), `builds help lists`, `builds help briefs`, the
-rules of agent-instructions whose paths cover every file (those under rules/
-and under the project's projects/<project>-rules/), ~/.claude/CLAUDE.md, and
-the CLAUDE.md of the repo the command runs in. Its version is a hash of all
-of it, so an edit of any of them changes the version.
+builds refuses every command an agent runs, except `help`, `ack`, `install`
+and `dashboard`, until the agent has read the text every agent reads before
+it works and has acknowledged it with `builds ack`. The gate reads a store,
+and install moves each store to its program's schema, so the gate lets
+install and the dashboard, which install restarts, run before any store
+carries that schema. The text is this help, `builds help workflow` (without
+its WHAT REVIEWS CONFIRM MOST OFTEN section, which changes with each settled
+finding), `builds help lists`, `builds help briefs`, the rules of
+agent-instructions whose paths cover every file (those under rules/ and under
+the project's projects/<project>-rules/), ~/.claude/CLAUDE.md, and the
+CLAUDE.md of the repo the command runs in. Its version is a hash of all of
+it, so an edit of any of them changes the version.
 
   builds ack [--by WHO] [--project P]
       Start a reading: say the text's version and how many parts it comes

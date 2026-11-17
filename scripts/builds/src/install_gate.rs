@@ -67,6 +67,11 @@ use crate::places::Places;
 /// The variable that names the process whose use covers a builds command.
 pub const VARIABLE: &str = "BUILDS_USE";
 
+/// The commands that take no use of the stores: install, which closes the
+/// gates and moves the stores, the dashboard, which install restarts, and
+/// the help.
+pub const STORELESS: [&str; 5] = ["install", "dashboard", "help", "-h", "--help"];
+
 /// Runs the program at this program's path with this process's arguments in
 /// its place; returns only when it cannot, with the error that says why.
 pub fn run_again() -> Fail {

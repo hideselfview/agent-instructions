@@ -143,11 +143,6 @@ fn exit_code(fail: Fail) -> ExitCode {
     }
 }
 
-/// The commands that take no use of the stores (install_gate.rs): install,
-/// which closes the gates, the dashboard, which install restarts, and the
-/// help.
-const UNGATED: [&str; 5] = ["install", "dashboard", "help", "-h", "--help"];
-
 /// Whether `builds <command> <rest>` holds a use of the stores for its life
 /// (install_gate.rs): it writes a store after long work, with what it measured
 /// since it started. Every other command writes in short transactions, or
@@ -189,7 +184,9 @@ fn holds_for_life(command: &str, rest: &[String]) -> bool {
 /// program's path in its place, with the same arguments: install replaced the
 /// program it started from.
 fn enter_stores(command: &str, args: &[String]) -> Result<Option<install_gate::Use>> {
-    if UNGATED.contains(&command) || std::env::var_os(install_gate::VARIABLE).is_some() {
+    if install_gate::STORELESS.contains(&command)
+        || std::env::var_os(install_gate::VARIABLE).is_some()
+    {
         return Ok(None);
     }
     let places = Places::from_env()?;

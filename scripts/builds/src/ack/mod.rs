@@ -30,6 +30,7 @@ use crate::claim::Claim;
 use crate::db::{self, Make, Sql};
 use crate::fail;
 use crate::fail::{Context, Result};
+use crate::install_gate;
 use crate::lists::args::{Args, current_dir};
 use crate::lists::store::{Store, project_of, stores};
 use crate::places::Places;
@@ -47,16 +48,20 @@ pub const PASSED: &str = "BUILDS_ACKNOWLEDGED";
 /// How many hours an acknowledgement holds.
 pub const HOURS: i64 = 12;
 
-/// The commands the gate lets every agent run.
-const ALWAYS_ALLOWED: [&str; 4] = ["help", "-h", "--help", "ack"];
-
 const USAGE: &str = "usage: builds ack [--by WHO] [--project P]\n       builds ack PART [--by WHO] [--project P]\n       builds ack VERSION WORD... [--by WHO] [--project P]\n       builds ack --compacted";
 
 /// Refuses `builds <command> <args>` when an agent runs it without a current
-/// acknowledgement. Passes the person's commands, `help` and `ack`, and the
-/// commands a builds command that passed runs.
+/// acknowledgement. Passes the person's commands, `ack`, which records the
+/// acknowledgement, and the commands a builds command that passed runs. The
+/// gate also passes the commands that take no use of the stores
+/// (`install_gate::STORELESS`): the gate reads a store, and install must run
+/// while the stores still carry an older schema, because install moves them
+/// to its own.
 pub fn gate(places: &Places, command: &str, args: &[String]) -> Result<()> {
-    if ALWAYS_ALLOWED.contains(&command) || std::env::var_os(PASSED).is_some() {
+    if command == "ack"
+        || install_gate::STORELESS.contains(&command)
+        || std::env::var_os(PASSED).is_some()
+    {
         return Ok(());
     }
     let Some(session) = session() else {
