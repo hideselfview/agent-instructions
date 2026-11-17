@@ -122,7 +122,7 @@ fn each_part_stays_under_the_limit_and_the_parts_hold_every_line() {
 }
 
 #[test]
-fn the_parts_hold_only_the_sections_named() {
+fn the_parts_hold_only_the_sections_the_caller_names() {
     let parts = long_text().parts(&["second".to_string()]);
     assert_eq!(parts.len(), 1);
     assert_eq!(parts[0][0], "===== second (section 1 of 1) =====");

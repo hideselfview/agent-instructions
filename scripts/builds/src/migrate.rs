@@ -814,8 +814,9 @@ fn move_store(places: &Places, path: &Path, now: i64) -> Result<()> {
             crate::text::counted(settled, "writing finding", "writing findings")
         ));
     }
-    // A store from before the acknowledgements got today's tables above; every
-    // newer one keeps each acknowledgement's sections and no version.
+    // A store from before the acknowledgements got today's tables above. Every
+    // newer store holds each acknowledgement's sections and no version, and
+    // the move turns those sections into the versions that builds keeps.
     if !before(found, BEFORE_ACK_STAMP) && before(found, BEFORE_KEPT_VERSIONS_STAMP) {
         crate::ack::record::move_to_kept_versions(&tx)?;
     }
