@@ -202,3 +202,17 @@ fn a_confirmed_miss_becomes_a_case_that_expects_it() {
         "{expected:?}"
     );
 }
+
+#[test]
+fn a_landing_whose_commits_the_repo_lost_is_not_sampled() {
+    let demo = demo("review-propose-lost");
+    let fake = fake(&demo.scratch.dir);
+    let side = demo.add_side(1, "agent", "work");
+    landed(&demo, &fake, &side, GENERIC[0]);
+    run_git(&side, &["reset", "-q", "--hard", "main"]);
+    run_git(&side, &["reflog", "expire", "--expire=now", "--all"]);
+    run_git(&side, &["gc", "-q", "--prune=now"]);
+    let proposed = propose_in(&fake, &side, &demo.store);
+    assert!(!proposed.text.contains("landing 1"), "{}", proposed.text);
+    assert!(fake.prompts().is_empty());
+}

@@ -106,9 +106,9 @@ fn specific(finding: &Finding) -> bool {
     })
 }
 
-/// The landed changes of <repo> in <db> that have a specific finding, newest
-/// first.
-fn candidates(db: &rusqlite::Connection, repo: &str) -> Result<Vec<Candidate>> {
+/// The landed changes of <repo> in <db> that have a specific finding and
+/// whose first review's commits <repo_dir> still holds, newest first.
+fn candidates(db: &rusqlite::Connection, repo: &str, repo_dir: &Path) -> Result<Vec<Candidate>> {
     let mut out = Vec::new();
     for landing in record::all_landings(db)?.into_iter().rev() {
         if landing.repo != repo || landing.landed_run.is_none() {
@@ -121,6 +121,9 @@ fn candidates(db: &rusqlite::Connection, repo: &str) -> Result<Vec<Candidate>> {
         else {
             continue;
         };
+        if net_change(repo_dir, first).is_err() {
+            continue;
+        }
         let over: Vec<i64> = runs
             .iter()
             .filter(|r| r.kind == "review" && r.same_diff(first))
@@ -254,7 +257,7 @@ pub fn propose(inputs: &Inputs) -> Result<Proposed> {
         .into_iter()
         .map(|c| c.name)
         .collect();
-    let all = candidates(&conn, &repo)?;
+    let all = candidates(&conn, &repo, inputs.repo_dir)?;
     let mut text = String::new();
     let mut failed = false;
     let mut cost = 0;
