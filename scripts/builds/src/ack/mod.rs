@@ -15,8 +15,9 @@
 //! the command runs in, else of the project `--project` names. builds refuses
 //! an agent whose acknowledgement there is missing, is of another version of
 //! the text, or is more than `HOURS` hours old. After Claude Code compacts a
-//! session, its SessionStart hook runs `builds ack --compacted`, and that
-//! command deletes the session's acknowledgements.
+//! session or one of its agents, its SessionStart hook runs `builds ack
+//! --compacted`, which deletes no acknowledgement and fails, saying why
+//! (`compacted`).
 
 pub mod record;
 pub mod text;
@@ -202,9 +203,7 @@ fn check(
     let text = agent.text(places)?;
     let who = &agent.who;
     let why = match agent.last()? {
-        None => format!(
-            "{who} has not acknowledged it in this Claude Code session since the session started or Claude Code last compacted it"
-        ),
+        None => format!("{who} has not acknowledged it in this Claude Code session"),
         Some(ack) if ack.version != text.version() => format!(
             "the text changed since {who} acknowledged it at {}: {} changed, and `builds ack` shows those sections first",
             local_minute(ack.at),
@@ -229,8 +228,7 @@ pub fn cmd_ack(places: &Places, args: &[String]) -> Result<()> {
         let mut input = String::new();
         std::io::Read::read_to_string(&mut std::io::stdin(), &mut input)
             .context(|| "reading the hook's input".to_string())?;
-        print!("{}", compacted(places, &input)?);
-        return Ok(());
+        return Err(compacted(&input));
     }
     let Some(session) = session() else {
         fail!(
@@ -404,7 +402,7 @@ fn acknowledge(
     )?;
     tx.commit().sql()?;
     Ok(format!(
-        "builds: {} acknowledged version {version}. The acknowledgement holds for {HOURS} hours, until the text changes or Claude Code compacts this session.\n",
+        "builds: {} acknowledged version {version}. The acknowledgement holds for {HOURS} hours, or until the text changes.\n",
         agent.who
     ))
 }
@@ -430,31 +428,35 @@ fn wrong_parts(expected: &[Vec<String>], given: &[String]) -> Vec<usize> {
 }
 
 /// What `builds ack --compacted` does with the input Claude Code's
-/// SessionStart hook passes after a compaction: deletes the session's
-/// acknowledgements and readings in every store, and returns what the hook
-/// tells the session.
-fn compacted(places: &Places, input: &str) -> Result<String> {
+/// SessionStart hook passes after a compaction: it deletes no
+/// acknowledgement and returns the failure that says why. The input names the
+/// agent that compacted (`agent_id`, absent when the session's main agent
+/// compacted), but an agent's shell holds only the session id, which every
+/// agent of the session shares, so builds cannot tell which acknowledgement
+/// is that agent's, and deleting all of the session's would make every other
+/// agent read the text again.
+fn compacted(input: &str) -> fail::Fail {
     #[derive(serde::Deserialize)]
     struct HookInput {
         session_id: String,
+        agent_id: Option<String>,
     }
-    let hook: HookInput = serde_json::from_str(input).map_err(|error| {
-        fail::Fail::Message(format!(
-            "the hook's input is not Claude Code's SessionStart input: {error}"
-        ))
-    })?;
-    for store in stores(places)? {
-        let mut db = db::open(&store.database(), Make::Never)?;
-        let tx = db
-            .transaction_with_behavior(TransactionBehavior::Immediate)
-            .sql()?;
-        record::forget_session(&tx, &hook.session_id)?;
-        tx.commit().sql()?;
-    }
-    Ok(
-        "builds: the compaction ended this session's acknowledgement of the text every agent reads. builds refuses your next builds command until you run `builds ack`, read every part it lists in full, and acknowledge them.\n"
-            .to_string(),
-    )
+    let hook: HookInput = match serde_json::from_str(input) {
+        Ok(hook) => hook,
+        Err(error) => {
+            return fail::Fail::Message(format!(
+                "the hook's input is not Claude Code's SessionStart input: {error}"
+            ));
+        }
+    };
+    let compacted = match &hook.agent_id {
+        Some(agent) => format!("agent {agent}"),
+        None => "the main agent".to_string(),
+    };
+    fail::Fail::Message(format!(
+        "builds deleted no acknowledgement: Claude Code compacted {compacted} of session {}, and builds cannot tell which acknowledgement is that agent's. Claude Code names the agent in this hook's input, but gives an agent's shell only the session id ({SESSION}), which the session and every agent it dispatches share, so builds keeps each acknowledgement under the session and a name. The agent keeps its acknowledgement until the text changes or {HOURS} hours pass; it reads the text again with `builds ack`.",
+        hook.session_id
+    ))
 }
 
 /// Every project's acknowledgements as the dashboard reads them: each

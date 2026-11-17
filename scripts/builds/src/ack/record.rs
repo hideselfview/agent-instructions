@@ -180,19 +180,6 @@ pub fn acknowledge(
     Ok(())
 }
 
-/// Deletes every acknowledgement and reading of <session>, after Claude Code
-/// compacted it.
-pub fn forget_session(db: &Connection, session: &str) -> Result<()> {
-    db.execute("DELETE FROM ack WHERE session = ?1", params![session])
-        .sql()?;
-    db.execute(
-        "DELETE FROM ack_reading WHERE session = ?1",
-        params![session],
-    )
-    .sql()?;
-    Ok(())
-}
-
 /// Every agent's last acknowledgement, newest first.
 pub fn all(db: &Connection) -> Result<Vec<AgentAck>> {
     let mut statement = db

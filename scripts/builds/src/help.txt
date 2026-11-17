@@ -59,9 +59,13 @@ does.
       acknowledgement and names the parts to read again.
   builds ack --compacted
       Claude Code's SessionStart hook runs this after Claude Code compacts a
-      session (claude/settings.json in agent-instructions). builds deletes
-      the session's acknowledgements and refuses the session's next builds
-      command until the session acknowledges the text again.
+      session or one of its agents (claude/settings.json in
+      agent-instructions). builds deletes no acknowledgement and fails,
+      saying why: the hook's input names the agent that compacted, but
+      Claude Code gives an agent's shell only the session id, which the
+      session and every agent it dispatches share, so builds cannot tell
+      which acknowledgement is that agent's. The agent keeps its
+      acknowledgement until the text changes or 12 hours pass.
 
 builds never refuses the person's own commands: it tells an agent's command by
 the Claude Code session id in its environment, which the person's terminal

@@ -183,16 +183,27 @@ fn an_edit_of_a_rule_refuses_the_agent_naming_the_rule_and_its_reading_shows_it_
 }
 
 #[test]
-fn a_compaction_ends_the_sessions_acknowledgements() {
+fn a_compaction_of_one_agent_leaves_every_acknowledgement_and_fails_saying_why() {
     let world = world("ack-compacted");
     world.acknowledge(NOON);
-    let told = compacted(
-        &world.places,
-        &format!(r#"{{"session_id": "{SESSION_ID}", "source": "compact"}}"#),
-    )
-    .unwrap();
-    assert!(told.contains("builds ack"), "{told}");
-    assert!(message(world.check(NOON + 60)).contains("has not acknowledged"));
+    let refusal = message::<()>(Err(compacted(&format!(
+        r#"{{"session_id": "{SESSION_ID}", "source": "compact", "agent_id": "a1", "agent_type": "general-purpose"}}"#
+    ))));
+    assert!(refusal.contains("deleted no acknowledgement"), "{refusal}");
+    assert!(refusal.contains("agent a1"), "{refusal}");
+    world.check(NOON + 60).unwrap();
+}
+
+#[test]
+fn a_compaction_with_no_agent_id_deletes_nothing_and_fails_saying_why() {
+    let world = world("ack-compacted-session");
+    world.acknowledge(NOON);
+    let refusal = message::<()>(Err(compacted(&format!(
+        r#"{{"session_id": "{SESSION_ID}", "source": "compact"}}"#
+    ))));
+    assert!(refusal.contains("deleted no acknowledgement"), "{refusal}");
+    assert!(refusal.contains("main agent"), "{refusal}");
+    world.check(NOON + 60).unwrap();
 }
 
 #[test]

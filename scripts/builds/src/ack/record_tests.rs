@@ -69,20 +69,6 @@ fn the_last_who_is_the_newest_acknowledgement_or_reading_of_the_session() {
 }
 
 #[test]
-fn forgetting_a_session_deletes_its_acknowledgements_and_readings_only() {
-    let db = crate::db::memory();
-    acknowledge(&db, "s1", "coordinator", "v1", 5, &sections()).unwrap();
-    acknowledge(&db, "s1", "agent", "v1", 6, &[]).unwrap();
-    start_reading(&db, "s1", "agent", "v1", 8, &words(&[&["ka"]])).unwrap();
-    acknowledge(&db, "s2", "elsewhere", "v1", 9, &[]).unwrap();
-    forget_session(&db, "s1").unwrap();
-    assert_eq!(last(&db, "s1", "agent").unwrap(), None);
-    assert_eq!(last(&db, "s1", "coordinator").unwrap(), None);
-    assert_eq!(reading(&db, "s1", "agent").unwrap(), None);
-    assert!(last(&db, "s2", "elsewhere").unwrap().is_some());
-}
-
-#[test]
 fn a_check_word_holds_only_lowercase_letters() {
     let db = crate::db::memory();
     assert!(start_reading(&db, "s1", "agent", "v1", 8, &words(&[&["Ka1"]])).is_err());
