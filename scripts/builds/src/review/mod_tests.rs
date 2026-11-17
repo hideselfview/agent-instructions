@@ -279,6 +279,42 @@ fn reviewed_f(name: &str) -> (Demo, Fake, PathBuf, Reported) {
     (demo, fake, side, first)
 }
 
+/// A later run reads the changes since the last review: the fix's line, with
+/// the lines around it, one of which the first run read. builds drops the
+/// finding on that line and keeps the one on the fix's line.
+#[test]
+fn a_later_runs_finding_on_a_line_the_fix_did_not_change_is_dropped() {
+    let (demo, fake, side, first) = reviewed_f("review-unchanged-line");
+    commit_f(
+        &side,
+        &ten_lines(&[(2, "two-branch"), (8, "eight-branch"), (9, "nine-fix")]),
+        "Fix f",
+    );
+    let found = |code: &str| serde_json::json!({"clause": BAD.0, "file": "f.rs", "line": 1, "code": code, "problem": "bad"});
+    fake.answer_task(
+        "alpha",
+        serde_json::json!({"rules": [{"rule": "rule-a", "verdict": "finding", "findings": [found("eight-branch"), found("nine-fix")]}]}),
+    );
+    run_review(&demo, &fake, &side, "k");
+    let checked: Vec<(String, Option<String>)> = findings_of(&demo, first.landing.unwrap())
+        .into_iter()
+        .map(|f| (f.code, f.check_failed))
+        .collect();
+    assert_eq!(
+        checked,
+        [
+            (
+                "eight-branch".to_string(),
+                Some(
+                    "its code sits only on lines of f.rs around the diff's changes, which the diff does not add or remove"
+                        .to_string()
+                )
+            ),
+            ("nine-fix".to_string(), None),
+        ]
+    );
+}
+
 #[test]
 fn a_rebase_that_changes_no_line_of_the_branch_reads_nothing() {
     let (demo, fake, side, _) = reviewed_f("review-rebase-same");

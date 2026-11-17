@@ -162,16 +162,14 @@ pub fn commit_message_file(messages: &str) -> Option<(FileDiff, crate::review::c
         text.push_str(line);
         text.push('\n');
     }
+    let quotes = crate::review::check::parse_diff(&text).pop()?;
     Some((
         FileDiff {
             path: COMMIT_MESSAGE.to_string(),
             renamed_from: None,
             text,
         },
-        crate::review::check::DiffFile {
-            path: COMMIT_MESSAGE.to_string(),
-            lines: lines.iter().map(|l| l.to_string()).collect(),
-        },
+        quotes,
     ))
 }
 

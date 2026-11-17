@@ -60,7 +60,14 @@ fn commit_messages_become_one_added_file_with_quotes_to_check_against() {
         file.text
             .contains("@@ -0,0 +1,3 @@\n+First line\n+\n+Body line\n")
     );
-    assert_eq!(quotes.lines, vec!["First line", "", "Body line"]);
+    let texts: Vec<&str> = quotes.lines.iter().map(|line| line.text.as_str()).collect();
+    assert_eq!(texts, ["First line", "", "Body line"]);
+    assert!(
+        quotes
+            .lines
+            .iter()
+            .all(crate::review::check::DiffLine::changed)
+    );
     assert!(commit_message_file("  \n").is_none());
 }
 

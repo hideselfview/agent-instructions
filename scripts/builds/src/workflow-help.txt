@@ -288,7 +288,9 @@ files it did not read.
 
 The changes since the last review are the lines the branch adds or removes that
 it did not add or remove at the last review, the lines it no longer changes,
-and the commit messages it did not hold at the last review. Run `builds review`
+and the commit messages it did not hold at the last review. A reviewer judges
+only those lines, and builds drops a finding on any other line, so a later run
+never flags a line that the fix did not change. Run `builds review`
 in the branch's worktree again whenever the branch changed since the last
 review: a commit the agent added after the last review, a fix, a squash that
 changed lines, a conflict's resolution or a message the agent reworded. Main's

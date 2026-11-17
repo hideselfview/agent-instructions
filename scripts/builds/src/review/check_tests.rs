@@ -16,9 +16,20 @@ fn the_diff_is_split_by_file_and_each_line_loses_its_mark() {
     let files = parse_diff(DIFF);
     let paths: Vec<&str> = files.iter().map(|f| f.path.as_str()).collect();
     assert_eq!(paths, ["src/a.rs", "b.txt"]);
-    assert_eq!(files[0].lines[0], "fn keep() {}");
+    let line = |text: &str, kind| DiffLine {
+        text: text.to_string(),
+        kind,
+    };
+    assert_eq!(files[0].lines[0], line("fn keep() {}", LineKind::Context));
+    assert_eq!(files[0].lines[1], line("fn old() {}", LineKind::Removed));
     // A removed line that looks like a diff header stays a line.
-    assert_eq!(files[1].lines, ["diff --git a/x b/x", "text"]);
+    assert_eq!(
+        files[1].lines,
+        [
+            line("diff --git a/x b/x", LineKind::Removed),
+            line("text", LineKind::Added)
+        ]
+    );
 }
 
 #[test]
@@ -34,6 +45,18 @@ fn code_is_checked_against_the_named_file_across_lines() {
             .contains("no file")
     );
     assert!(code_in(&files, "src/a.rs", "").is_err());
+    assert!(
+        code_in(&files, "src/a.rs", "fn old() {}").is_ok(),
+        "a removed line"
+    );
+}
+
+#[test]
+fn code_only_on_the_lines_around_the_changes_is_refused() {
+    let files = parse_diff(DIFF);
+    let refused = code_in(&files, "src/a.rs", "fn keep() {}").unwrap_err();
+    assert!(refused.contains("around the diff's changes"), "{refused}");
+    assert!(code_in(&files, "src/a.rs", "fn keep() {}\nfn old() {}").is_ok());
 }
 
 #[test]

@@ -1460,9 +1460,10 @@ when the repo no longer has the commits the last review read. The commit
 messages the run reads are those the last review's net change did not hold.
 
 Each reviewer reads the changes since the last review, and raises findings
-only on lines those changes add or change; builds drops a finding whose code
-is not in them. The reviewer may read the whole branch as it is now, for
-context. The reviewer also gets each open confirmed finding of its group's
+only on lines those changes add or remove. builds drops a finding whose code
+sits only on the lines around them, which the diff shows for context: a later
+run never flags a line that the fix did not change. The reviewer may read the
+whole branch as it is now, for context. The reviewer also gets each open confirmed finding of its group's
 rules, with its file, line, quoted code and problem, reads the code at that
 place as it is now, and names each one whose problem is gone. builds closes each finding it names,
 with the run that closed it.
@@ -1497,9 +1498,9 @@ has one; its message holds the diff. It
 answers with a verdict for every rule and, per finding, the rule's clause, the
 code with its file and line, and what goes wrong. builds drops a finding whose
 clause is not in the rule, that is on COMMIT_MESSAGE when its group reads no
-commit message, whose code is not in the diff, or whose code sits only on
-comment lines when the group of its rule judges no code comment
-(skips_comments), and records it as dropped with that reason. A comment line
+commit message, whose code is on no line the diff adds or removes, or whose
+code sits only on comment lines when the group of its rule judges no code
+comment (skips_comments), and records it as dropped with that reason. A comment line
 is a line whose first characters past its indent are a comment's mark in the
 file's language: `//`, `/*` or `*/` in Rust, Swift, Kotlin and C# (and `*` in
 a block comment of all but Rust), `#` in Python, shell and TOML, and `--` in
