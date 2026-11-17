@@ -15,9 +15,11 @@ READ FIRST
   - `builds help workflow`.
   - The product spec's text on every behavior your items touch (bae:
     spec/bae.md; coven: spec/coven.md and spec/api.md). Search it by the
-    behavior's words and read each whole section. The spec records what the
-    person decided: a brief follows it and points at it, and a choice that
-    would change it goes to the person as a question, not into the brief.
+    behavior's words and read each whole section. The spec is a draft that
+    the coding rules outrank: a brief points at it and follows it where no
+    rule forbids what it states. A contradiction, or a choice that would
+    change what the spec says, goes to the person as a question, not into
+    the brief.
     `builds item take` checks each brief against the spec before an agent
     starts, and refuses a brief that states a behavior otherwise than the
     spec does.

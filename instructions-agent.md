@@ -51,9 +51,11 @@ and read them.
 
 **Read the product spec before you plan, brief or build.** Before you write a
 plan or a brief, settle a choice, or change a behavior, search the project's
-spec for that behavior and read the whole section. The spec records what the
-person decided, so a rule or a fact never overrides it: changing what it says is
-the person's decision
+spec for that behavior and read the whole section. The spec is a draft that
+records what the user has said so far, and parts of it are wrong: never treat
+its text as a decision they made. The coding rules outrank it. When the spec
+contradicts a rule, the code or what you build, ask the user, say which text
+looks wrong and why, and offer the edit; edit the spec only after they agree
 (`rules/commits-and-repo-contents/every-change-agrees-with-its-product-spec.md`).
 
 **Read macOS's unified log with `/usr/bin/log`.** In zsh, `log` is a shell

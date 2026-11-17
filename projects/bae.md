@@ -164,10 +164,16 @@ share.
 
 ### Every commit keeps the spec current
 
-`spec/bae.md` states what bae does. Every commit checks whether it changes or
-adds anything the spec states or should state (behavior, a schema or sync shape,
-a user-visible rule), and if it does, edits the spec in the same commit. A
-commit without its spec edit is unfinished.
+`spec/bae.md` states what bae does. The spec is a draft, and the coding rules
+outrank it. Every commit checks whether it changes or adds anything the spec
+states or should state (behavior, a schema or sync shape, a user-visible rule),
+and if it does, edits the spec in the same commit. A commit without its spec
+edit is unfinished.
+
+When the spec contradicts a rule, the code or what a change builds, ask the
+person, say which text looks wrong and why, and offer the edit. Edit that text
+only after they agree
+(`rules/commits-and-repo-contents/every-change-agrees-with-its-product-spec.md`).
 
 ### Changing a table
 

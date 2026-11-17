@@ -285,7 +285,7 @@ fn check_spec(
     if let Some(conflicts) = spec_check::conflicts(brief, &checked) {
         match decided {
             None => fail!(
-                "{conflicts}\nThe spec records what the person decided, so builds took nothing. Ask the person about each conflict. Once they decide, record the choice as a decision or question, then take the items again with --spec-decided N, or change the brief to agree with the spec.\n{listed}"
+                "{conflicts}\nThe person decides each conflict between a brief and the spec, so builds took nothing. Ask the person about each conflict, and say which text looks wrong and why: the spec is a draft that the coding rules outrank. Once they decide, record the choice as a decision or question, then take the items again with --spec-decided N, or change the brief when the brief is wrong.\n{listed}"
             ),
             Some((id, _)) => note(format!(
                 "{conflicts}the person decided these conflicts in {id}, so the take goes on"
