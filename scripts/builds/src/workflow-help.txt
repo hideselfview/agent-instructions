@@ -136,8 +136,10 @@ WHAT AN IMPLEMENTING AGENT DOES
      error, help text, doc and spec line it adds against
      rules/text-people-read/write-plain-literal-active-sentences.md, and
      fix what it finds. That rule does not cover code comments or commit
-     messages: reread those for whether they are accurate. No review checks
-     wording: the person reviews copy by hand.
+     messages: reread those for whether they are accurate. No review that an
+     agent runs or that a landing waits on checks wording: the person reviews
+     copy by hand, and only the person runs the copy review (`builds review
+     copy`), which does.
   7. Commit.
   8. Report the SHA, the base and the checks. Leave nothing uncommitted: the
      coordinator runs `builds land` in this worktree, which refuses a
