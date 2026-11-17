@@ -576,23 +576,32 @@ pub fn sample(
             .and_then(|locks_dir| locks_dir.parent())
             .map(|repo_dir| crate::queue::Queue::in_repo_dir(repo_dir, *lane).waiting())
             .unwrap_or_default();
-        let queue = in_line
-            .into_iter()
-            .filter_map(|pid| {
-                processes
-                    .list
-                    .iter()
-                    .find(|p| p.pid == pid && p.name == "builds")
-            })
-            .map(|process| Queued {
+        let mut queue = Vec::new();
+        for process in in_line.into_iter().filter_map(|pid| {
+            processes
+                .list
+                .iter()
+                .find(|p| p.pid == pid && p.name == "builds")
+        }) {
+            let commit = match live_args(process.pid) {
+                Ok(argv) => argv
+                    .and_then(|argv| crate::app_build::lane_requested(&argv).map(str::to_string)),
+                Err(error) => {
+                    unread.push(format!(
+                        "{error}, so health cannot tell which commit it waits to build in {repo}'s {} lane",
+                        lane.word()
+                    ));
+                    None
+                }
+            };
+            queue.push(Queued {
                 pid: process.pid,
                 minutes: minutes_since(now, process.started),
                 command: command_line(process.pid),
                 started_from: started_from(places, process.pid),
-                commit: args(process.pid)
-                    .and_then(|argv| crate::app_build::lane_requested(&argv).map(str::to_string)),
-            })
-            .collect();
+                commit,
+            });
+        }
         queues.push(LaneQueue {
             repo: repo.clone(),
             lane: lane.word().to_string(),
