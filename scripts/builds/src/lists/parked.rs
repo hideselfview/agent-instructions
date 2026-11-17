@@ -15,7 +15,7 @@ use crate::fail;
 use crate::fail::Result;
 use crate::health::Advice;
 use crate::lists::item::{self, Item};
-use crate::lists::running::side_worktree_split;
+use crate::lists::running::require_side_worktree;
 use crate::lists::store::Loaded;
 use crate::lists::{Id, Lists, Stamp};
 
@@ -43,12 +43,7 @@ pub fn park(db: &Connection, id: Id, places: &[Parked]) -> Result<()> {
     )
     .sql()?;
     for place in places {
-        let Some((parent, repo, checkout)) = side_worktree_split(&place.worktree) else {
-            fail!(
-                "{} is not a side worktree (<parent>/<repo>-worktrees/side-N)",
-                place.worktree
-            );
-        };
+        let (parent, repo, checkout) = require_side_worktree(&place.worktree)?;
         db.execute(
             "INSERT INTO parked_place (item_id, repo, parent, checkout, branch) VALUES (?1, ?2, ?3, ?4, ?5)",
             params![id, repo, parent, checkout, place.branch],

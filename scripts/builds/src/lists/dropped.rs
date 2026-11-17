@@ -18,7 +18,7 @@ use crate::db::Sql;
 use crate::fail;
 use crate::fail::Result;
 use crate::lists::Id;
-use crate::lists::running::side_worktree_split;
+use crate::lists::running::require_side_worktree;
 use crate::side_git::Commit;
 
 /// What one worktree of a dropped item held.
@@ -45,9 +45,7 @@ pub struct DroppedCommit {
 /// The main checkout of the repo of side worktree <worktree>, by the path's
 /// shape: <parent>/<repo>.
 fn main_of(worktree: &str) -> Result<(String, PathBuf)> {
-    let Some((parent, repo, _)) = side_worktree_split(worktree) else {
-        fail!("{worktree} is not a side worktree (<parent>/<repo>-worktrees/side-N)");
-    };
+    let (parent, repo, _) = require_side_worktree(worktree)?;
     let main = Path::new(&parent).join(&repo);
     Ok((repo, main))
 }

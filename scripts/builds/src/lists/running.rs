@@ -55,6 +55,15 @@ pub fn side_worktree_split(path: &str) -> Option<(String, String, String)> {
     Some((parent.to_string(), repo.to_string(), checkout.to_string()))
 }
 
+/// `side_worktree_split` of <path>, or a refusal that names the shape a
+/// side worktree path has.
+pub fn require_side_worktree(path: &str) -> Result<(String, String, String)> {
+    match side_worktree_split(path) {
+        Some(parts) => Ok(parts),
+        None => fail!("{path} is not a side worktree (<parent>/<repo>-worktrees/side-N)"),
+    }
+}
+
 /// The repo and checkout name of a side worktree path.
 pub fn side_worktree_parts(path: &str) -> Option<(String, String)> {
     side_worktree_split(path).map(|(_, repo, checkout)| (repo, checkout))
@@ -74,12 +83,7 @@ pub fn start(db: &Connection, ids: &[Id], places: &[Running]) -> Result<()> {
         )
         .sql()?;
         for place in places {
-            let Some((parent, repo, checkout)) = side_worktree_split(&place.worktree) else {
-                fail!(
-                    "{} is not a side worktree (<parent>/<repo>-worktrees/side-N)",
-                    place.worktree
-                );
-            };
+            let (parent, repo, checkout) = require_side_worktree(&place.worktree)?;
             db.execute(
                 "INSERT INTO running_place (item_id, repo, parent, checkout, branch) VALUES (?1, ?2, ?3, ?4, ?5)",
                 params![id, repo, parent, checkout, place.branch],
