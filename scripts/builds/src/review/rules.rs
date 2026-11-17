@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 
 use crate::fail;
 use crate::fail::{Context, Result};
+use crate::glob::{Question, segments_match};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Rule {
@@ -110,34 +111,12 @@ fn parse_paths(front: &str) -> Option<Vec<String>> {
     None
 }
 
-/// Gitignore-style match: `**/` is any number of directories (or none), `**`
-/// anything, `*` and `?` stay inside one path segment.
+/// Gitignore-style match: a `**` segment is any number of directories (or
+/// none), and `*` and `?` stay inside one path segment (glob.rs).
 pub fn glob_matches(glob: &str, path: &str) -> bool {
-    fn go(glob: &[u8], path: &[u8]) -> bool {
-        match glob {
-            [] => path.is_empty(),
-            [b'*', b'*', b'/', rest @ ..] => {
-                if go(rest, path) {
-                    return true;
-                }
-                (0..path.len()).any(|i| path[i] == b'/' && go(rest, &path[i + 1..]))
-            }
-            [b'*', b'*', rest @ ..] => (0..=path.len()).any(|i| go(rest, &path[i..])),
-            [b'*', rest @ ..] => {
-                let segment = path.iter().position(|&b| b == b'/').unwrap_or(path.len());
-                (0..=segment).any(|i| go(rest, &path[i..]))
-            }
-            [b'?', rest @ ..] => match path.split_first() {
-                Some((&c, tail)) if c != b'/' => go(rest, tail),
-                _ => false,
-            },
-            [c, rest @ ..] => match path.split_first() {
-                Some((p, tail)) if p == c => go(rest, tail),
-                _ => false,
-            },
-        }
-    }
-    go(glob.as_bytes(), path.as_bytes())
+    let pattern: Vec<&str> = glob.split('/').collect();
+    let path: Vec<&str> = path.split('/').collect();
+    segments_match(&pattern, &path, Question::Wildcard)
 }
 
 /// Every rule of a checkout: the `.md` files under `rules/`, then those under

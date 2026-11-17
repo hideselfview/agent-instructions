@@ -1,9 +1,11 @@
 //! Matching `/`-separated globs against repo-relative paths, for the commit
-//! checks' paths (checks.rs) and the design globs (lists/design_paths.rs). A
+//! checks' paths (checks.rs), the design globs (lists/design_paths.rs) and the
+//! rules' paths (review/rules.rs). A
 //! segment that is `**` alone matches any number of path segments, none
 //! included; `*` matches any characters inside one segment. Whether `?`
 //! matches one character or only itself is the caller's: the design globs
-//! read it as a wildcard, and the commit checks' paths as a plain character.
+//! and the rules' paths read it as a wildcard, and the commit checks' paths
+//! as a plain character.
 
 /// What `?` means in a glob's segments.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

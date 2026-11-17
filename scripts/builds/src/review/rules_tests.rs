@@ -39,4 +39,8 @@ fn globs_follow_gitignore_style() {
     assert!(glob_matches("visible-ios/**", "visible-ios/App/a.swift"));
     assert!(glob_matches("bae-store/src/**/*.rs", "bae-store/src/a.rs"));
     assert!(!glob_matches("src/*.rs", "src/a/b.rs"));
+    assert!(glob_matches("**/build.gradle*", "app/build.gradle.kts"));
+    assert!(glob_matches("**/hooks/**", "a/hooks/b/pre-commit"));
+    assert!(glob_matches("src/a?.rs", "src/ab.rs"));
+    assert!(!glob_matches("src?a.rs", "src/a.rs"));
 }
