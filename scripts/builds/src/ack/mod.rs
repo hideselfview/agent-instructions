@@ -174,7 +174,7 @@ impl Agent {
 
     /// The sections that changed since the agent's last acknowledgement,
     /// which its reading shows first: none when it has no acknowledgement or
-    /// acknowledged today's text.
+    /// acknowledged the current version of the text.
     fn changed(&self, text: &Text) -> Result<Vec<String>> {
         Ok(match self.last()? {
             Some(ack) if ack.version != text.version() => text.changed_since(&ack.sections),
@@ -185,7 +185,7 @@ impl Agent {
 
 /// Refuses the agent of <session> that runs a command in <cwd> with `--by`
 /// <by> and `--project` <project> at <now>, unless its acknowledgement is of
-/// today's text and at most `HOURS` hours old.
+/// the current version of the text and at most `HOURS` hours old.
 fn check(
     places: &Places,
     session: &str,
@@ -199,7 +199,7 @@ fn check(
     let who = &agent.who;
     let why = match agent.last()? {
         None => format!(
-            "{who} has not acknowledged it in this Claude Code session since the session started or was last compacted"
+            "{who} has not acknowledged it in this Claude Code session since the session started or Claude Code last compacted it"
         ),
         Some(ack) if ack.version != text.version() => format!(
             "the text changed since {who} acknowledged it at {}: {} changed, and `builds ack` shows those sections first",

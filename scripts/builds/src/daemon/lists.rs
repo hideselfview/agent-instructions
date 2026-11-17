@@ -140,7 +140,7 @@ impl Feed {
 
     /// Reads the stores whose version moved, the hook runs and the
     /// acknowledgements again; when any of them differs from the last read,
-    /// the listener is called, and the version moves when the stores differ.
+    /// it calls the listener, and it moves the version when the stores differ.
     fn read(&self) {
         let previous = self.current.lock().expect("no panic holding it").1.clone();
         let (read, stores_changed) = reload(&self.places, &previous);

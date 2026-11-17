@@ -1,8 +1,8 @@
 //! The text builds asks every agent to read before it runs a builds command:
-//! the four helps, the rules whose paths cover every file, ~/.claude/CLAUDE.md
-//! and the CLAUDE.md of the repo the agent works in. builds reads the rules
-//! and the CLAUDE.md files from disk each time, so an edit of any of them
-//! changes the text's version.
+//! the four help texts, the rules whose paths cover every file,
+//! ~/.claude/CLAUDE.md and the CLAUDE.md of the repo the agent works in.
+//! builds reads the rules and the CLAUDE.md files from disk each time, so an
+//! edit of any of them changes the text's version.
 //!
 //! `builds ack` prints the text in parts of at most `PART_BYTES` bytes each,
 //! with check words at the start, middle and end of each part. Claude Code
@@ -46,7 +46,7 @@ pub struct Text {
 
 impl Text {
     /// The text for an agent whose work is in <project>, in the checkout at
-    /// <top> when it works in one: the helps, the rules of the
+    /// <top> when it works in one: the help texts, the rules of the
     /// agent-instructions checkout that install.sh links whose paths cover
     /// every file (those under `rules/` and under the project's
     /// `projects/<project>-rules/`), ~/.claude/CLAUDE.md, and the checkout's

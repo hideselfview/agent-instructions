@@ -54,13 +54,13 @@ of it, so an edit of any of them changes the version.
       part again shows the same words.
   builds ack VERSION WORD... [--by WHO] [--project P]
       Acknowledge version VERSION, giving every check word of every part,
-      in order. A missing or wrong word refuses the acknowledgement and
-      names the parts to read again.
+      in order. When a word is missing or wrong, builds refuses the
+      acknowledgement and names the parts to read again.
   builds ack --compacted
-      Claude Code's SessionStart hook runs this after it compacts a session
-      (claude/settings.json in agent-instructions): it deletes the session's
-      acknowledgements, so the session's next builds command is refused
-      until it acknowledges the text again.
+      Claude Code's SessionStart hook runs this after Claude Code compacts a
+      session (claude/settings.json in agent-instructions). builds deletes
+      the session's acknowledgements and refuses the session's next builds
+      command until the session acknowledges the text again.
 
 builds tells an agent's command from the person's by the Claude Code session
 id in its environment (CLAUDE_CODE_SESSION_ID), which the person's terminal

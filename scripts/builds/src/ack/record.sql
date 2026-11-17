@@ -1,10 +1,10 @@
--- The acknowledgements of the text builds asks every agent to read before it
--- runs a builds command (`builds ack`). builds names an agent by its Claude
+-- `builds ack` records that an agent read the text builds asks every agent to
+-- read before it runs a builds command. builds names an agent by its Claude
 -- Code session and its name (`who`): the agents a session dispatches share its
 -- session id, so the name tells them apart.
 
 -- Each agent's last acknowledgement: the version of the text it read and when.
--- The compaction of a session deletes the session's rows.
+-- After Claude Code compacts a session, builds deletes the session's rows.
 CREATE TABLE ack (
     session TEXT NOT NULL CONSTRAINT ack_session_is_named CHECK (session <> ''),
     who TEXT NOT NULL CONSTRAINT ack_who_is_named CHECK (who <> ''),
