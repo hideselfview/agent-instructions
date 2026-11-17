@@ -5,7 +5,8 @@ digest: >-
   times a second (keyed latest-value streams, which carry a value in Rust's
   memory or one a Rust watcher computes from it and a live query's latest
   result, and never a plain query result), state that exists only on screen
-  (kept by the view), and a pure Rust function of one live query result that
+  (the view owns it, no table stores it, and a query takes it as a parameter in
+  its request), and a pure Rust function of one live query result that
   only shapes how its rows display (coven's `process`). A read that follows
   changes is one coven live query; any other read is a plain SQL read. Each
   window of a long list is its own live query bounded by a key at both ends. SQL
@@ -47,9 +48,10 @@ Two kinds of value reach a screen outside its query's rows:
     however often it changes.
 - State that exists only on screen (hover, focus, the selected rows, an open
   popover or menu, a drag in progress, the text typed in a search or input
-  field) stays in the view that controls it and never goes into SQL. A query
-  that depends on it, such as a search, gets it in the request, and an action on
-  the selected rows gets their ids in the request.
+  field) stays in the view that controls it. The view owns the state, and no
+  table stores it. A query that depends on it takes it as a parameter in its
+  request, such as a search's text in a WHERE filter, and an action on the
+  selected rows gets their ids in the request.
   - A drag or a click that writes stays in progress until its write returns. The
     view keeps drawing the moved row or the new value until then, and then draws
     the query's rows, so the screen never jumps back to the old order or value.
