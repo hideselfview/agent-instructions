@@ -1389,26 +1389,6 @@ load counts under "not recorded": a hook run from before builds kept each
 check's starting load, an app build run from before builds kept its host's
 load, or one whose host did not answer.
 
-An agent measured CPU priority on this Mac (14 cores, macOS 27) on
-2026-11-17, and found what the figures can and cannot show:
-
-  - Every process an agent starts runs at nice 5, so a hook's checks, other
-    agents' tests and app build steps all run at one priority.
-  - A higher nice value gives work no measurable lower priority here: a
-    one-thread job at nice 5 took 1.7s alone and 5 to 6s beside 28 busy
-    threads, whether those threads ran at nice 5 or at nice 15.
-  - Quality of service does: beside the same threads under `taskpolicy -c
-    utility` or `taskpolicy -b`, the job took 1.7s. A job under a lower
-    quality of service runs slower itself: while only other agents' work ran
-    (load about 50 on 14 cores), without the 28 threads, the job took 2s at
-    the default, 4 to 5s under utility and 8s under background, which also
-    moves work to the efficiency cores and throttles its disk reads.
-  - sccache runs each compile it can cache in its server, at the server's
-    own nice value (0, launchd's default), whatever the nice value of the run
-    that asked for it. Only the programs a run starts itself (the tests,
-    build scripts, the compiles sccache does not cache, clippy's lints) run
-    at the run's own priority.
-
   builds waits [--project <project>] [--since <YYYY-MM-DD>]
                               print the time of each kind of wait per local
                               day and per band of load per core, for the
