@@ -170,8 +170,8 @@ impl Where {
     }
 }
 
-/// One of <repo>'s app locks for a lane, held until this value is dropped and
-/// every process this one started meanwhile has exited.
+/// One of <repo>'s app locks for a lane, held until its owner drops this value
+/// and every process this one started meanwhile has exited.
 pub struct Held {
     lock: libc::c_int,
     ticket: Ticket,
@@ -271,15 +271,15 @@ impl Held {
 
 impl Drop for Held {
     /// Writes when the build let the checkout go, while it still holds the
-    /// lock so that the time never lands on the next build's use, then frees
-    /// the lock and the build's place in the queue.
+    /// lock so that the next build's use of the checkout never gets this
+    /// time, then frees the lock and the build's place in the queue.
     fn drop(&mut self) {
         let ended = self
             .places
             .app_lock_ended_file(&self.repo, self.lane, &self.checkout);
         if let Err(error) = crate::whole_file::write(&ended, crate::app_timing::now().to_string()) {
             note(format!(
-                "when this build let {} go was not recorded: {}",
+                "could not record when this build let {} go: {}",
                 self.checkout,
                 error.text()
             ));
@@ -357,9 +357,9 @@ fn by_load(loads: &mut Loads, entries: Vec<String>) -> (Vec<String>, Vec<String>
 /// waiting for one to free when the builds ahead
 /// have not yet taken theirs or a stopped build is still going down; returns
 /// it with the checkout's name. The lane's queue lets in as many as there are
-/// locks, so a lock is free within moments. The hosts are asked for their
-/// load outside the queue's guard; the set is read again and the lock taken
-/// under it.
+/// locks, so a lock is free within moments. The build asks the hosts for
+/// their load outside the queue's guard, then reads the set again and takes
+/// the lock under the guard.
 fn take_free_lock(
     places: &Places,
     ssh: &Ssh,

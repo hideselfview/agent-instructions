@@ -57,9 +57,9 @@ on it:
   <repo>/app-android-checkouts, app-android-checkouts-removed,
   app-android.locks/, app-android.queue/
                         the same for the android lane
-  .app-hosts/<host>     taken by each addition of an app checkout on the host
-                        while it counts the host's checkouts and adds one, so
-                        two lanes never pass the cap of checkouts on a host
+  .app-hosts/<host>     a lock builds holds while it counts the host's app
+                        checkouts and adds one there, so builds of two lanes
+                        never pass the cap of checkouts on a host together
   DerivedData/          Xcode's default DerivedData location
   caches/<name>/        the download caches every checkout shares
   .trash/               folders being deleted in the background
@@ -364,26 +364,28 @@ App builds (an Xcode app, a Gradle app, a bridge cross-compiled for a platform)
 take 10-20 GB per platform per checkout, so a repo keeps them built only in
 main, for the person's installs and releases, and in its app checkouts, one or
 more per lane: the long-lived ones a person records with `builds app-checkout`
-(side worktrees here, or worktrees on a host), and the ones builds adds on a
-host while builds wait for the lane and removes once no build uses them.
+(side worktrees here, or worktrees on a host), and the ones the builds tool
+adds on a host while other builds wait for the lane and removes once no build
+uses them.
 Every other side worktree builds host output only (for Rust, target, which
 tests, clippy and the hook use).
 
-builds sizes each lane by its queue. A build that joins a lane's queue and has
-to wait adds a checkout `builds-<lane>-<n>` on a host, and so does a build that
-may run only on a host in a lane with no checkout there. builds picks the host
-with the most free cores (its cores less its one-minute load) among those with
-at least one core free, free disk above the floor (BUILDS_FREE_FLOOR_GIB) by
-one checkout of the lane (about 22 GB for mac and 10 GB for android, as
-measured on the M1), and fewer than 6 app checkouts in all; a lane has at most
-4. The new checkout's first build makes it on the host, as for one `builds
+The builds tool adds checkouts to a lane while other builds wait in its queue,
+and removes the ones it added that no build uses. A build that joins a lane's
+queue and has to wait adds a checkout `builds-<lane>-<n>` on a host, and so
+does a build that may run only on a host in a lane with no checkout there.
+builds picks the host with the most free cores (its cores less its one-minute
+load) among those with at least one core free, free disk above the floor
+(BUILDS_FREE_FLOOR_GIB) by one checkout of the lane (about 22 GB for mac and 10
+GB for android, as measured on the M1), and fewer than 6 app checkouts in all;
+a lane has at most 4. The new checkout's first build makes it on the host, as for one `builds
 app-checkout --host` records. builds adds checkouts only on hosts, never on
 this Mac. A build that joins a lane's queue, and `builds prune`, remove each
 checkout builds added that no build has used for 60 minutes, with its worktree
 and build folders on the host. A checkout a person added stays until a person
 removes it. builds reads and changes a lane's set of checkouts, and a build
 takes a checkout's lock, only under the lane's queue lock, so two builds never
-add the same checkout and no build takes one that is being removed. `builds
+add the same checkout and no build takes one that builds is removing. `builds
 queue` and the dashboard show when and why builds added or removed each one.
 
 A lane is the part of a repo's app builds that shares no build output with the

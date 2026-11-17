@@ -232,9 +232,10 @@ impl RemoteApp {
     }
 
     /// Removes the checkout from the host, with its build folders there, so
-    /// its disk comes back; a checkout the host never made is removed already.
-    /// The caller holds the checkout's lock, so no build runs in it. A
-    /// failure names the host and what the removal printed there.
+    /// the host gets back the disk space they used. When the host has no such
+    /// checkout, `remove` succeeds and does nothing. The caller holds the
+    /// checkout's lock, so no build runs in it. A failure names the host and
+    /// what the removal printed there.
     pub fn remove(&self) -> std::result::Result<(), String> {
         let script = REMOVE
             .replace("@ROOT@", &root_script(&self.host))

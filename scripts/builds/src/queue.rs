@@ -144,8 +144,8 @@ impl Drop for Guard {
     }
 }
 
-/// The lock on the file <path>, made with its folder when missing, waiting
-/// until no other process holds it.
+/// Takes the lock on <path>, creating the file and its folder when they are
+/// missing, and waits until no other process holds it.
 pub fn guard_at(path: &Path) -> Result<Guard> {
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir).context(|| format!("creating {}", dir.display()))?;

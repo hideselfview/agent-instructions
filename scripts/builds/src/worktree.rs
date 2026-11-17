@@ -373,9 +373,9 @@ pub fn cmd_app_checkout(tool: &Tool, args: &[String]) -> Result<()> {
 }
 
 /// Records <entry> as one of <repo>'s <lane> app checkouts that a person
-/// added, under the lane's queue guard: a checkout builds added becomes the
-/// person's, so it stays until a person removes it. Returns how many
-/// checkouts the lane has.
+/// added, under the lane's queue guard. When the builds tool added the
+/// checkout, the person now owns it, so it stays until a person removes it.
+/// Returns how many checkouts the lane has.
 fn record_in_lane(tool: &Tool, repo: &str, lane: Lane, entry: &str) -> Result<usize> {
     let queue = crate::queue::Queue::of(&tool.places, repo, lane);
     let guard = queue.guard()?;

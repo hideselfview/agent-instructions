@@ -24,13 +24,13 @@
 //! Every read and change of the set that decides which checkouts there are
 //! happens under the lane's queue guard (queue.rs `Queue::guard`), as does
 //! every build's take of a lock (lock.rs), so two builds never add the same
-//! checkout and no build takes one that is being removed. An addition on a
+//! checkout and no build takes one that `shrink` is removing. An addition on a
 //! host also holds the host's guard (`Places::app_host_guard_file`) while it
 //! counts the host's checkouts across repos and lanes and writes its own, so
 //! builds of two lanes never pass `HOST_CAP` together. A build takes the
 //! lane's guard first and the host's second, and nothing takes them the other
-//! way round. The hosts are asked for their load and disk before either guard
-//! is taken, since asking takes a second or more, and the set is read again
+//! way round. A build asks the hosts for their load and disk before it takes
+//! either guard, since asking takes a second or more, and reads the set again
 //! under the lane's guard.
 
 use crate::app_remote::{RemoteApp, entry_of, split};
@@ -94,10 +94,10 @@ pub struct RepoLane<'a> {
 /// Why a build asks for a checkout.
 #[derive(Clone, Copy, Debug)]
 pub enum Need {
-    /// It joined the queue and waits behind the builds that hold the lane's
-    /// locks. builds adds a checkout while any build waits.
+    /// The build joined the queue and waits behind the builds that hold the
+    /// lane's locks. builds adds a checkout while any build waits.
     Waits,
-    /// It may run only on a host, and the lane has no checkout on one.
+    /// The build may run only on a host, and the lane has no checkout on one.
     OnAHost,
 }
 
@@ -131,8 +131,9 @@ pub fn grow(at: RepoLane, floor_kib: u64, need: Need) -> Result<Option<String>> 
     let order = queue.order();
     let reason = match need {
         Need::Waits => {
-            // Not only this build: of two that wait, the one that adds first
-            // may add the checkout the other is let in for.
+            // This counts every waiting build, not only this one: of two that
+            // wait, the first to add may add the checkout that the queue then
+            // gives to the other.
             let slots = set.len();
             if order.len() <= slots {
                 return Ok(None);
@@ -281,7 +282,7 @@ fn checkouts_on(places: &Places, host_name: &str) -> Result<usize> {
 /// When a build last used <entry>, a checkout of <at>'s lane that builds
 /// added at <added_at>: the latest of that time, when the last build let its
 /// lock go, and the times in its last holder's record of its run (for a build
-/// that was killed before it could write when it let go). Seconds since 1970.
+/// that stopped before it could write when it let go). Seconds since 1970.
 fn last_use(at: RepoLane, entry: &str, added_at: i64) -> Result<i64> {
     let RepoLane {
         places, repo, lane, ..
@@ -308,7 +309,7 @@ fn last_use(at: RepoLane, entry: &str, added_at: i64) -> Result<i64> {
 /// Removes each checkout of <at>'s lane that builds added and no build has
 /// used for `IDLE_MINUTES`, or with <run> dry, says which it would remove. A
 /// checkout whose host does not answer, or whose removal there fails, stays
-/// in the set, said, and goes the next time.
+/// in the set, builds prints why, and the next `shrink` removes it.
 pub fn shrink(at: RepoLane, run: Run) -> Result<()> {
     let RepoLane {
         places, repo, lane, ..
@@ -363,7 +364,7 @@ fn remove_if_idle(at: RepoLane, lock: &CheckoutLock, times: Idle, run: Run) -> R
         Err(error) => Err(error.text()),
     };
     if let Err(said) = removed_there {
-        note(format!("kept {shown}, which {why}: {said}"));
+        note(format!("kept {shown}, though {why}: {said}"));
         return Ok(());
     }
     let removal = Removed {

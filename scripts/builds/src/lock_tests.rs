@@ -234,7 +234,7 @@ fn a_build_that_runs_here_never_takes_a_checkout_on_a_host() {
 fn a_build_that_runs_on_hosts_never_takes_a_checkout_on_this_mac() {
     let scratch = Scratch::new("lock-hosts");
     let places = places_with_host(&scratch, "side-2\n");
-    // A host with no core free gets no checkout added (lane_size.rs).
+    // builds adds no checkout on a host with no core free (lane_size.rs).
     let busy = ssh_with_load(&scratch.dir.join("busy"), "1000.00");
     let Err(error) = take_where(&places, &busy, "demo", Lane::Android, Where::Hosts, 0) else {
         panic!("only this Mac's checkout is recorded");

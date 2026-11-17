@@ -809,17 +809,18 @@ function laneQueue(repo, al) {
     openQueue.has(key) ? queueList(repo, al.lane) : null,
     here && openBuild.has(key) ? buildPanelOf(repo, al.lane).el : null];
 }
-// When and why builds added or removed a checkout of a lane.
-function laneChange(verb, change) {
-  return verb + " by builds " + when(new Date(change.at * 1000)) + ": " + change.why;
+// When and why builds added or removed a checkout of a lane, as a sentence:
+// "builds added this checkout at 14:32 because 2 builds waited".
+function laneChange(did, change) {
+  return "builds " + did + " at " + when(new Date(change.at * 1000)) + " because " + change.why;
 }
 // An app build lane: nobody owns its checkouts and builds take turns, so it
 // shows, for each checkout, who builds now and what runs, then the builds
 // waiting for a checkout of the lane. Every lane has a row for each
-// checkout, one or several, and lists its queue. A checkout builds added
-// says when and why, and the checkouts builds removed lately follow the
-// rows. The daemon decides whether a held lock still belongs to a running
-// build (app_builds.rs).
+// checkout, one or several, and lists its queue. The row of a checkout that
+// builds added shows when and why builds added it, and a list of the
+// checkouts builds removed lately follows the rows. The daemon decides
+// whether a held lock still belongs to a running build (app_builds.rs).
 function laneCard(repo, al, waits) {
   const lane = capitalWord(al.lane);
   const building = al.checkouts.some(c => c.now.state === "building");
@@ -831,10 +832,10 @@ function laneCard(repo, al, waits) {
     al.checkouts.map(ab => h("div", {class: "lane-now lane-co" + (ab.now.state === "stuck" ? " stuck" : "")},
       h("div", {class: "co"}, h("span", {class: "br", title: ab.now.state === "building" && ab.now.branch ? ab.now.branch : ab.checked_out}, ab.checkout),
         ab.remote ? null : h("span", {class: "disk"}, ab.disk_kib === null ? "…" : size(ab.disk_kib))),
-      ab.added_by_builds ? h("div", {class: "lane-why"}, laneChange("Added", ab.added_by_builds)) : null,
+      ab.added_by_builds ? h("div", {class: "lane-why"}, laneChange("added this checkout", ab.added_by_builds)) : null,
       checkoutNow(ab))),
     al.removed_by_builds.length ? h("div", {class: "lane-removed"}, al.removed_by_builds.map(r =>
-      h("div", {class: "lane-why"}, r.checkout + ": " + laneChange("removed", r)))) : null,
+      h("div", {class: "lane-why"}, laneChange("removed " + r.checkout, r)))) : null,
     q[0],
     h("ol", {class: "lane-wait"}, al.waiting.map((w, i) => h("li", {},
       h("span", {class: "qp"}, String(i + 1)), h("span", {class: "qb"}, w.branch),

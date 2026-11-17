@@ -912,7 +912,7 @@ fn who_asked() -> Option<String> {
 }
 
 /// Builds what <request> asks for in <lane>'s app checkout on the lane's
-/// lock. The run and its steps are timed and recorded (app_timing.rs). A
+/// lock, and times the run and its steps and records them (app_timing.rs). A
 /// lane that adds a checkout on a host keeps the host's free disk above
 /// <floor_kib>.
 fn run_lane(
