@@ -132,7 +132,10 @@ CREATE TABLE review_finding (
     code TEXT NOT NULL,
     problem TEXT NOT NULL,
     blocking INTEGER NOT NULL CONSTRAINT review_finding_blocking_is_a_flag CHECK (blocking IN (0, 1)),
-    -- Why builds dropped it: its clause is not in the rule or its code is not in the diff.
+    -- Why builds dropped it: its clause is not in the rule, it is on the
+    -- commit messages and its group reads none, its code is not in the diff,
+    -- or its code sits only on comment lines and its rule's group judges no
+    -- code comment.
     check_failed TEXT,
     settled TEXT CONSTRAINT review_finding_settled_known CHECK (settled IN ('confirmed', 'dropped')),
     settled_why TEXT,

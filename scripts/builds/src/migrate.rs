@@ -270,9 +270,13 @@ const BEFORE_RUN_TIMES_STAMP: i64 = 726_402_770;
 /// The stamp of the schema before builds recorded each writing check.
 const BEFORE_WRITING_RUNS_STAMP: i64 = 1_268_800_089;
 
+/// The stamp of the schema before builds dropped the writing group's findings
+/// on code comments and commit messages.
+const BEFORE_MESSAGE_STYLE_STAMP: i64 = 369_927_263;
+
 /// Every stamp a store can carry that `move_store` moves, oldest schema first.
 /// A new move adds the stamp of the schema before it at the end.
-const STAMPS: [i64; 35] = [
+const STAMPS: [i64; 36] = [
     BEFORE_DESIGN_DELETED_STAMP,
     BEFORE_CHECK_TIMES_STAMP,
     BEFORE_DESIGN_TIP_STAMP,
@@ -308,6 +312,7 @@ const STAMPS: [i64; 35] = [
     BEFORE_EFFECTS_STAMP,
     BEFORE_RUN_TIMES_STAMP,
     BEFORE_WRITING_RUNS_STAMP,
+    BEFORE_MESSAGE_STYLE_STAMP,
 ];
 
 /// Whether a store stamped <found> comes before the move that follows the
@@ -403,7 +408,11 @@ const DESIGN_DELETED: &str = "CREATE TABLE design_deleted (
 /// of ended runs and spans, with each ended run its write log tells of
 /// (`running::move_to_runs`) and <now>, the moment install moves it, as the
 /// start of its spans. Every store gets the empty `review_writing_run` table
-/// (builds has recorded no writing check yet).
+/// (builds has recorded no writing check yet). Every store that had the
+/// review's tables gets `review_finding` again, with every row, and the person
+/// settles as dropped each finding of the writing group that a branch waits
+/// on and that is on the commit messages or on comment lines
+/// (`review::record::move_to_message_style`).
 /// The moves run in one transaction, the store
 /// is stamped as today's schema, and it must then equal a fresh database's schema or the transaction rolls back. A
 /// store already at today's stamp, or with no database, is left alone; any
@@ -782,6 +791,18 @@ fn move_store(places: &Places, path: &Path, now: i64) -> Result<()> {
     // table of writing checks.
     if before(found, BEFORE_WRITING_RUNS_STAMP) {
         tx.execute_batch(db::WRITING_PART).sql()?;
+    }
+    // Every store that had the review's tables gets `review_finding` with
+    // today's reasons for a drop, and the person's settle of each writing
+    // finding on a commit message or a comment that a branch waits on; one
+    // that got the tables above has no finding.
+    if had_review_tables && before(found, BEFORE_MESSAGE_STYLE_STAMP) {
+        let settled = crate::review::record::move_to_message_style(&tx, now)?;
+        crate::text::note(format!(
+            "{}: the person settled {} on a commit message or a comment as dropped",
+            path.display(),
+            crate::text::counted(settled, "writing finding", "writing findings")
+        ));
     }
     tx.pragma_update(None, "user_version", db::stamp()).sql()?;
     let broken: Option<String> = tx

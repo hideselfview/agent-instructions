@@ -3053,10 +3053,170 @@ fn a_store_from_before_blocks_from_waits_clears_the_why_of_each_question_an_open
     assert_eq!(waits, 3);
 }
 
+/// The schema text before builds dropped the writing group's findings on
+/// code comments and commit messages: record.sql's `check_failed` with the
+/// comment it had then.
+fn schema_before_message_style() -> String {
+    let (now, then) = (
+        "    -- Why builds dropped it: its clause is not in the rule, it is on the
+    -- commit messages and its group reads none, its code is not in the diff,
+    -- or its code sits only on comment lines and its rule's group judges no
+    -- code comment.
+",
+        "    -- Why builds dropped it: its clause is not in the rule or its code is not in the diff.
+",
+    );
+    let schema = db::schema();
+    assert_eq!(schema.matches(now).count(), 1, "{now}");
+    schema.replacen(now, then, 1)
+}
+
+#[test]
+fn the_message_style_stamp_is_the_schema_before_message_style() {
+    assert_eq!(
+        db::stamp_of_text(&schema_before_message_style()),
+        BEFORE_MESSAGE_STYLE_STAMP
+    );
+}
+
+/// A call of <group> that was sent <diff> and raised a finding on <code> in
+/// <file> for each pair of <found>.
+fn call_of(group: &str, diff: &str, found: &[(&str, &str)]) -> crate::review::record::NewCall {
+    use crate::review::record::{NewCall, NewExchange, NewFinding};
+    NewCall {
+        group: group.to_string(),
+        model: "opus".to_string(),
+        prompt: format!("the prompt of {group}"),
+        rules: vec!["r".to_string()],
+        tokens_in: 0,
+        tokens_out: 0,
+        tokens_cached: 0,
+        tokens_written: 0,
+        cost_microdollars: 0,
+        sites: None,
+        failure: None,
+        verdicts: vec![("r".to_string(), "finding".to_string())],
+        findings: found
+            .iter()
+            .map(|(file, code)| NewFinding {
+                rule: "r".to_string(),
+                clause: "c".to_string(),
+                file: file.to_string(),
+                line: 1,
+                code: code.to_string(),
+                problem: "p".to_string(),
+                blocking: true,
+                check_failed: None,
+            })
+            .collect(),
+        closes: Vec::new(),
+        exchanges: vec![NewExchange {
+            model: "opus".to_string(),
+            unit: "a.rs".to_string(),
+            pass: 0,
+            system: "s".to_string(),
+            message: format!("# Diff\n\n```diff\n{diff}\n```\n"),
+            output: "{}".to_string(),
+            tokens_in: 0,
+            tokens_out: 0,
+            tokens_cached: 0,
+            tokens_written: 0,
+        }],
+    }
+}
+
+/// A store from before builds dropped the writing group's findings on
+/// comments and messages: the move settles as dropped, by the person, each
+/// writing finding that a branch waits on and that is on the commit messages
+/// or on comment lines, and leaves the rest as they were.
+#[test]
+fn a_store_from_before_message_style_settles_the_open_message_and_comment_findings() {
+    use crate::review::record::{self, Kind, NewRun, Settled};
+    let scratch = Scratch::new("move-message-style");
+    let places = scratch.places();
+    let dir = places.lists.join("bae");
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join(DATABASE);
+    let diff = "diff --git a/a.rs b/a.rs\n--- /dev/null\n+++ b/a.rs\n@@ -0,0 +1,3 @@\n+/// the cover is uploaded\n+fn send() -> &'static str {\n+    \"Cover uploaded\"\n";
+    let ids = {
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(&schema_before_message_style()).unwrap();
+        conn.pragma_update(None, "user_version", BEFORE_MESSAGE_STYLE_STAMP)
+            .unwrap();
+        crate::lists::project::plant(&conn, "repo", &[("name", "bae".to_string().into())]).unwrap();
+        let landing = record::add_landing(&conn, "branch:work", "bae", 5).unwrap();
+        let run = NewRun {
+            landing: Some(landing),
+            kind: Kind::Review { changed_lines: 3 },
+            label: None,
+            at: 6,
+            base: "b",
+            head: "h",
+            since: None,
+            grouping: "g",
+            rules_version: "",
+        };
+        let writing = call_of(
+            "Text people read",
+            diff,
+            &[
+                ("COMMIT_MESSAGE", "a vague line"),
+                ("a.rs", "the cover is uploaded"),
+                ("a.rs", "\"Cover uploaded\""),
+                ("COMMIT_MESSAGE", "another line"),
+            ],
+        );
+        let alpha = call_of("alpha", diff, &[("a.rs", "the cover is uploaded")]);
+        let (_, ids) = record::add_run(&conn, &run, &[writing, alpha]).unwrap();
+        for (id, how) in [
+            (ids[0][1], "confirmed"),
+            (ids[0][2], "confirmed"),
+            (ids[0][3], "confirmed"),
+        ] {
+            record::settle(&conn, id, how, "real", 7, "coordinator").unwrap();
+        }
+        record::allow(&conn, ids[0][3], "the person: land it", 8, "coordinator").unwrap();
+        ids
+    };
+    migrate_stores(&places, 900).unwrap();
+    let conn = db::open_reader(&path)
+        .unwrap()
+        .expect("opens under today's stamp");
+    assert_eq!(
+        db::schema_rows(&conn).unwrap(),
+        db::schema_rows(&db::memory()).unwrap()
+    );
+    let settled = |id: i64| record::finding_of(&conn, id).unwrap().settled;
+    let person = |how: &str| record::Settle {
+        how: how.to_string(),
+        why: record::MESSAGE_STYLE_WHY.to_string(),
+        by: "person".to_string(),
+    };
+    let coordinator = || record::Settle {
+        how: "confirmed".to_string(),
+        why: "real".to_string(),
+        by: "coordinator".to_string(),
+    };
+    assert_eq!(settled(ids[0][0]), Some(Settled::Once(person("dropped"))));
+    assert_eq!(
+        settled(ids[0][1]),
+        Some(Settled::Again {
+            first: coordinator(),
+            second: person("dropped")
+        })
+    );
+    assert_eq!(settled(ids[0][2]), Some(Settled::Once(coordinator())));
+    assert!(
+        matches!(settled(ids[0][3]), Some(Settled::Allowed { .. })),
+        "the person allowed the finding already, so no branch waits on it"
+    );
+    assert_eq!(settled(ids[1][0]), None, "alpha judges comments");
+}
+
 /// The schema text before builds recorded each writing check: without
 /// writing.sql.
 fn schema_before_writing_runs() -> String {
-    let schema = db::schema();
+    let schema = schema_before_message_style();
     let part = format!("\n{}", db::WRITING_PART);
     assert_eq!(schema.matches(&part).count(), 1);
     schema.replacen(&part, "", 1)

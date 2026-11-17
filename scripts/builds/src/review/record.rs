@@ -1157,6 +1157,84 @@ DROP TABLE review_pushed;"
     .sql()
 }
 
+/// The group whose findings `move_to_message_style` settles: the group of the
+/// writing rules, which judges no code comment and reads no commit message.
+const STYLE_GROUP: &str = "Text people read";
+
+/// The person's words that `move_to_message_style` settles each finding with.
+pub const MESSAGE_STYLE_WHY: &str = "The person: \"we don't read the commit message, period\" and \"i care if comments are accurate, i don't care about the lexicon/grammatical styles, same with commit messages\"";
+
+/// Moves `review_finding` to the schema that names every reason builds drops
+/// a finding for, with the statements taken from record.sql so the result
+/// equals a fresh database's: every finding keeps its row. Then the move
+/// settles each finding of the writing group (`STYLE_GROUP`) that a branch
+/// waits on and that is on the commit messages or whose code sits only on
+/// comment lines of the diff its call was sent (`check::only_on_comment_lines`):
+/// an unsettled one as dropped, and an open confirmed one again as dropped,
+/// by the person, with their words (`MESSAGE_STYLE_WHY`). migrate.rs runs it
+/// with the foreign keys off, after the moves that make `review_settle_again`
+/// and `review_allowed`. Returns how many findings the move settled.
+pub fn move_to_message_style(db: &Connection, now: i64) -> Result<usize> {
+    let schema = crate::db::REVIEW_PART;
+    let slice = |from: &str, end: &str| crate::db::statement(schema, from, end);
+    crate::db::remake_table(
+        db,
+        "review_finding",
+        slice("CREATE TABLE review_finding", "STRICT;"),
+        |db| {
+            db.execute_batch(
+                "INSERT INTO review_finding (id, call_id, rule, clause, file, line, code, problem, blocking, check_failed, settled, settled_why, settled_at, settled_by)
+    SELECT id, call_id, rule, clause, file, line, code, problem, blocking, check_failed, settled, settled_why, settled_at, settled_by FROM review_finding_old;",
+            )
+            .sql()
+        },
+        &[slice("CREATE INDEX review_finding_call", ";")],
+    )?;
+    let found: Vec<Finding> = {
+        let sql = format!(
+            "SELECT {FINDING_COLUMNS} {FINDING_FROM} WHERE r.kind = 'review' AND c.group_name = ?1 AND f.check_failed IS NULL ORDER BY f.id"
+        );
+        let mut statement = db.prepare(&sql).sql()?;
+        let rows = statement
+            .query_map(params![STYLE_GROUP], finding_from)
+            .sql()?;
+        rows.map(|row| row.sql()).collect::<Result<_>>()?
+    };
+    let mut settled = 0;
+    for finding in found {
+        if !(finding.settled.is_none() || finding.is_open())
+            || !on_messages_or_comments(db, &finding)?
+        {
+            continue;
+        }
+        match finding.settled {
+            None => settle(db, finding.id, "dropped", MESSAGE_STYLE_WHY, now, "person")?,
+            Some(_) => settle_again(db, finding.id, MESSAGE_STYLE_WHY, now, "person")?,
+        }
+        settled += 1;
+    }
+    Ok(settled)
+}
+
+/// Whether <finding> is on the commit messages, or its code sits only on
+/// comment lines of the diffs builds sent its call.
+fn on_messages_or_comments(db: &Connection, finding: &Finding) -> Result<bool> {
+    if finding.file == super::files::COMMIT_MESSAGE {
+        return Ok(true);
+    }
+    let mut quotes = Vec::new();
+    for message in messages_of_call(db, finding.run_id, &finding.group)? {
+        if let Some(diff) = super::prompt::diff_of_message(&message) {
+            quotes.extend(super::check::parse_diff(diff));
+        }
+    }
+    Ok(super::check::only_on_comment_lines(
+        &quotes,
+        &finding.file,
+        &finding.code,
+    ))
+}
+
 /// The tables record.rs owns.
 #[cfg(test)]
 const TABLES: [&str; 9] = [
