@@ -372,11 +372,13 @@ pub fn record_one(db: &Connection, repo: &str, item: Id) {
         system: "s".to_string(),
         message: "m".to_string(),
         output: "{}".to_string(),
-        tokens_in: 1,
-        tokens_out: 1,
-        tokens_cached: 0,
-        tokens_written: 0,
-        cost_microdollars: 5,
+        usage: Usage {
+            tokens_in: 1,
+            tokens_out: 1,
+            tokens_cached: 0,
+            tokens_written: 0,
+            cost_microdollars: 5,
+        },
         failure: None,
         findings: vec![
             Finding {

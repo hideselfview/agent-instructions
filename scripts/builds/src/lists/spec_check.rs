@@ -25,6 +25,7 @@ use crate::fail;
 use crate::fail::{Context, Result};
 use crate::lists::design_paths::Globs;
 use crate::lists::{Id, Kind, Lists, Stamp};
+use crate::review::call::Usage;
 use crate::review::check::{clause_in, squash};
 
 /// The rule whose text the reviewer follows and whose group's model it runs.
@@ -224,11 +225,7 @@ pub struct Checked {
     pub message: String,
     /// The reviewer's JSON answer, or why it gave none.
     pub output: String,
-    pub tokens_in: i64,
-    pub tokens_out: i64,
-    pub tokens_cached: i64,
-    pub tokens_written: i64,
-    pub cost_microdollars: i64,
+    pub usage: Usage,
     /// Why the check gave no usable answer.
     pub failure: Option<String>,
     pub findings: Vec<Finding>,
@@ -359,11 +356,7 @@ fn check(program: &Path, setup: &Setup, brief: &Brief, target: &Target) -> Check
         system,
         message,
         output,
-        tokens_in: invoked.tokens_in,
-        tokens_out: invoked.tokens_out,
-        tokens_cached: invoked.tokens_cached,
-        tokens_written: invoked.tokens_written,
-        cost_microdollars: invoked.cost_microdollars,
+        usage: invoked.usage,
         failure,
         findings,
     }
@@ -508,11 +501,11 @@ pub fn record(
                 check.system,
                 check.message,
                 check.output,
-                check.tokens_in,
-                check.tokens_out,
-                check.tokens_cached,
-                check.tokens_written,
-                check.cost_microdollars,
+                check.usage.tokens_in,
+                check.usage.tokens_out,
+                check.usage.tokens_cached,
+                check.usage.tokens_written,
+                check.usage.cost_microdollars,
                 check.failure,
                 decided.map(|(id, _)| id),
                 decided.map(|(_, kind)| kind.word()),

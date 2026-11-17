@@ -34,20 +34,14 @@ pub struct Answer {
 pub struct Output {
     /// The reviewer's JSON answer as printed, or why there was none.
     pub output: String,
-    pub tokens_in: i64,
-    pub tokens_out: i64,
-    pub tokens_cached: i64,
-    pub tokens_written: i64,
-    /// What `claude -p` reported the process cost, in millionths of a US
-    /// dollar.
-    pub cost_microdollars: i64,
+    pub usage: Usage,
     /// The answer, or why there is none.
     pub answer: Result<Answer, String>,
 }
 
-/// What `claude -p` printed: the tokens it used and its answer in the schema.
-#[derive(Clone, Debug, PartialEq)]
-pub struct Invoked {
+/// The tokens one `claude -p` process used and what it cost.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Usage {
     /// All input tokens: uncached, read from the cache and written to it.
     pub tokens_in: i64,
     pub tokens_out: i64,
@@ -56,6 +50,12 @@ pub struct Invoked {
     /// `total_cost_usd` in millionths of a US dollar: what the process cost;
     /// 0 when it printed no cost, as a process that failed does.
     pub cost_microdollars: i64,
+}
+
+/// What `claude -p` printed: the tokens it used and its answer in the schema.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Invoked {
+    pub usage: Usage,
     pub body: Result<Value, String>,
 }
 
@@ -94,11 +94,7 @@ pub fn invoke(
         }
     }
     let failed = |why: String| Invoked {
-        tokens_in: 0,
-        tokens_out: 0,
-        tokens_cached: 0,
-        tokens_written: 0,
-        cost_microdollars: 0,
+        usage: Usage::default(),
         body: Err(why),
     };
     let mut child = match command.spawn() {
@@ -134,11 +130,7 @@ pub fn invoke(
 pub fn envelope(text: &str) -> Invoked {
     let Ok(value) = serde_json::from_str::<Value>(text) else {
         return Invoked {
-            tokens_in: 0,
-            tokens_out: 0,
-            tokens_cached: 0,
-            tokens_written: 0,
-            cost_microdollars: 0,
+            usage: Usage::default(),
             body: Err("the reviewer printed no JSON".to_string()),
         };
     };
@@ -149,12 +141,14 @@ pub fn envelope(text: &str) -> Invoked {
     let tokens_out = count("output_tokens");
     let body = body_of(&value);
     Invoked {
-        tokens_in,
-        tokens_out,
-        tokens_cached: count("cache_read_input_tokens"),
-        tokens_written: count("cache_creation_input_tokens"),
-        cost_microdollars: (value["total_cost_usd"].as_f64().unwrap_or(0.0) * 1_000_000.0).round()
-            as i64,
+        usage: Usage {
+            tokens_in,
+            tokens_out,
+            tokens_cached: count("cache_read_input_tokens"),
+            tokens_written: count("cache_creation_input_tokens"),
+            cost_microdollars: (value["total_cost_usd"].as_f64().unwrap_or(0.0) * 1_000_000.0)
+                .round() as i64,
+        },
         body,
     }
 }
@@ -201,11 +195,7 @@ fn output_of(invoked: Invoked, names: &[String], enumerate: bool) -> Output {
     };
     Output {
         output,
-        tokens_in: invoked.tokens_in,
-        tokens_out: invoked.tokens_out,
-        tokens_cached: invoked.tokens_cached,
-        tokens_written: invoked.tokens_written,
-        cost_microdollars: invoked.cost_microdollars,
+        usage: invoked.usage,
         answer: invoked.body.and_then(|body| {
             if enumerate {
                 sites_of(&body, names)
