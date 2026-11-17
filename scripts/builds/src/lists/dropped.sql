@@ -1,6 +1,7 @@
--- The work an item held when the person dropped it (`builds item drop`):
--- for each worktree it ran or was parked in, the branch, the commits on it
--- that origin/main lacked, and the files that were not committed. The drop
+-- These tables record the work an item held when the person dropped it
+-- (`builds item drop`): for each worktree it ran or parked in, the branch,
+-- the commits on it that origin/main lacked, and the files nobody had
+-- committed. The drop
 -- deletes the branch and discards the files, so these tables record what the
 -- drop removed; the commits stay in git until it removes unreachable objects.
 -- dropped.rs owns these tables and is the only code that writes them.

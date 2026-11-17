@@ -30,8 +30,8 @@ pub struct Parked {
     pub since: Stamp,
 }
 
-/// Parks open item <id> in <places>, all at the moment the first of them
-/// says.
+/// Parks open item <id> in <places>, stamped with the `since` of the first
+/// place.
 pub fn park(db: &Connection, id: Id, places: &[Parked]) -> Result<()> {
     let Some(first) = places.first() else {
         fail!("an item parks in at least one worktree")

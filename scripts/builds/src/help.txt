@@ -1075,7 +1075,7 @@ STATUS, HEALTH AND THE DASHBOARD
                               person does first);
                               a local branch with commits waiting to land
                               that no worktree checks out and no open item of
-                              any project names in a running place (`builds
+                              any project runs in or is parked on (`builds
                               new <repo> --resume <branch>`);
                               a claimed worktree with no change and no build
                               for an hour (counted from its claim, if later); a lists store that fails its check;

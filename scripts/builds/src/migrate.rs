@@ -608,7 +608,7 @@ fn move_store(places: &Places, path: &Path) -> Result<()> {
         ))
         .sql()?;
     }
-    // Only a store from just before an item could be parked has a rank on
+    // Only a store from just before builds could park an item has a rank on
     // its placements.
     if found != BEFORE_PARKED_STAMP {
         crate::lists::question::move_to_ranks(&tx)?;

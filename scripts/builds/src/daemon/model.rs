@@ -472,10 +472,10 @@ impl Model {
                 facts.git = git;
             }
         }
-        // Each repo's branches, when a checkout of the repo changed: a
-        // branch moves in the common git dir, which every checkout's
-        // events cover. A repo whose main checkout is gone has no branches
-        // to list.
+        // The daemon reads each repo's branches again when any checkout of
+        // the repo changed, since branches live in the repo's shared git
+        // folder and the file events of every checkout include it. A repo
+        // whose main checkout is gone has no branches to list.
         let live = crate::health::mains_of(&roots);
         {
             let mut state = self.state.lock().expect("no panic holding it");

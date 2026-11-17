@@ -1,7 +1,7 @@
 //! `builds item take`: an agent starts work on items, and `builds item park`:
 //! an item keeps its work in a worktree with no agent while it waits in the
-//! queue. The agent is the worktree's claim, read when asked and never
-//! stored. The command checks the worktrees, branches and brief in git and
+//! queue. The worktree's claim names the agent; the command reads the claim
+//! when it needs the agent and never stores it. The command checks the worktrees, branches and brief in git and
 //! the file system before it takes the store's lock, and checks what
 //! depends on the lists after it takes the lock. Work
 //! that spans repos names one worktree and branch per repo (`--worktree W
@@ -174,7 +174,7 @@ pub fn take(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     let design_session = match args.value("as")? {
         None => false,
         Some("design-session") => true,
-        Some(other) => fail!("--as takes design-session, got '{other}'"),
+        Some(other) => fail!("--as takes design-session, not '{other}'"),
     };
     let brief = args.require("brief")?.to_string();
     let held = args.value("held")?.map(str::to_string);
@@ -190,7 +190,7 @@ pub fn take(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
         match &place.claim {
             Some(claim) if !claim.who.is_empty() => agents.push(claim.who.clone()),
             _ => fail!(
-                "{} has no claim, and the claim is what names the agent: `builds claim {} WHO` first",
+                "{} has no claim, and the claim is what names the agent: run `builds claim {} WHO` first",
                 place.top,
                 place.top
             ),
@@ -299,7 +299,11 @@ pub fn park(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     }
     for place in &places {
         if let Some(claim) = crate::claim::unclaim(&place.checkout)? {
-            note(format!("released {} (was {})", place.top, claim.text()));
+            note(format!(
+                "removed the claim on {}: {}",
+                place.top,
+                claim.text()
+            ));
         }
     }
     note(format!(
