@@ -344,18 +344,21 @@ fn a_stop_signals_only_the_process_group_of_the_run_it_stops() {
     )
     .unwrap();
     let wt = wt.display().to_string();
-    let said = transport
+    transport
         .capture(&stop_script(&wt, "this-run"), "stopping the command")
         .unwrap();
-    assert_eq!(said.trim(), NOT_STARTED);
     assert!(
         earlier.try_wait().unwrap().is_none(),
         "a stop of another run signals nothing"
     );
-    let said = transport
+    assert_eq!(
+        std::fs::read_to_string(format!("{wt}.job/stop")).unwrap(),
+        "this-run\n",
+        "the stop records its run for the run script to read"
+    );
+    transport
         .capture(&stop_script(&wt, "earlier-run"), "stopping the command")
         .unwrap();
-    assert_eq!(said.trim(), "");
     use std::os::unix::process::ExitStatusExt;
     assert_eq!(earlier.wait().unwrap().signal(), Some(libc::SIGTERM));
 }
