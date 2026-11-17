@@ -133,10 +133,10 @@ PLAN, BRIEF, EXECUTE, REVIEW
     the finding again as dropped (`builds review settle N --again --why
     TEXT`), and the record keeps both settles. When the agent drops the
     commit that held a confirmed finding's code, the next review reads that
-    change and closes the finding. A branch that adds code nothing outside
-    tests calls does not land: the coordinator confirms the review's finding
-    on that code, and the agent deletes the code or adds its caller. Only
-    the person lets a confirmed finding's code land as it is: the
+    change and closes the finding. A branch that adds code that nothing
+    outside tests calls does not land: the coordinator confirms the review's
+    finding on that code, and the agent deletes the code or adds its caller.
+    Only the person lets a confirmed finding's code land as it is: the
     coordinator asks the person, and once they say so, records their words
     (`builds review settle N allowed --by-person --why TEXT`). No agent
     passes --by-person on its own judgment.

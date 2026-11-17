@@ -732,7 +732,7 @@ fn a_confirmed_finding_the_person_allowed_blocks_no_landing() {
     assert!(
         shown.contains("settled confirmed by tester: judged")
             && shown.contains(
-                "allowed to land by the person, recorded by tester: the person: land it as it is"
+                "the person allowed it to land, and tester recorded their words: the person: land it as it is"
             ),
         "{shown}"
     );

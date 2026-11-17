@@ -123,7 +123,7 @@ pub fn finding_text(finding: &Finding) -> String {
     }
     if let Some(allowed) = &finding.allowed {
         out.push_str(&format!(
-            "    allowed to land by the person, recorded by {}: {}\n",
+            "    the person allowed it to land, and {} recorded their words: {}\n",
             allowed.by,
             one_line(&allowed.why)
         ));
