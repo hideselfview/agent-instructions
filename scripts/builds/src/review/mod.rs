@@ -931,21 +931,14 @@ fn misses(tool: &Tool, args: &[String]) -> Result<()> {
         return audit::check_misses_command(tool, &args);
     }
     let (_, conn) = store_of(tool, &args)?;
-    let mut count = 0;
-    for landing in record::audited_landings(&conn)? {
-        let findings = record::findings_of_landing(&conn, landing)?;
-        for finding in audit::candidate_misses(&findings)
-            .into_iter()
-            .filter(|f| f.settled.is_none())
-        {
-            println!("landing {landing}:");
-            print!("{}", render::finding_text(finding));
-            count += 1;
-        }
+    let open = audit::open_misses(&conn)?;
+    for (landing, finding) in &open {
+        println!("landing {landing}:");
+        print!("{}", render::finding_text(finding));
     }
     println!(
         "{} unsettled",
-        crate::text::counted(count, "candidate miss", "candidate misses")
+        crate::text::counted(open.len(), "candidate miss", "candidate misses")
     );
     Ok(())
 }

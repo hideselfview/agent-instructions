@@ -111,9 +111,7 @@ impl FileDiff {
 pub fn split(diff: &str) -> Vec<FileDiff> {
     let mut files: Vec<FileDiff> = Vec::new();
     for line in diff.split_inclusive('\n') {
-        if let Some(rest) = line.strip_prefix("diff --git ") {
-            let rest = rest.trim_end();
-            let path = rest.rsplit_once(" b/").map(|(_, new)| new).unwrap_or(rest);
+        if let Some(path) = crate::review::check::new_path(line) {
             files.push(FileDiff {
                 path: path.to_string(),
                 renamed_from: None,

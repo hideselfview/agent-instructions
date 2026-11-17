@@ -402,6 +402,22 @@ pub struct OpenMisses<'a> {
     pub stamp: &'a Stamp,
 }
 
+/// The candidate misses nobody has settled, each with its landing. A miss is
+/// a candidate against the review findings of its own landing.
+pub fn open_misses(db: &Connection) -> Result<Vec<(i64, Finding)>> {
+    let mut open = Vec::new();
+    for landing in record::audited_landings(db)? {
+        let findings = record::findings_of_landing(db, landing)?;
+        open.extend(
+            candidate_misses(&findings)
+                .into_iter()
+                .filter(|f| f.settled.is_none())
+                .map(|f| (landing, f.clone())),
+        );
+    }
+    Ok(open)
+}
+
 /// The diff the audit reviewer that raised <miss> read, from the message the
 /// store keeps; the commits it read may be gone from every repo.
 pub(super) fn diff_read(db: &Connection, miss: &Finding) -> std::result::Result<Diff, String> {
@@ -429,19 +445,9 @@ pub fn check_open_misses(inputs: &OpenMisses) -> Result<(String, bool)> {
     let material = Material::load(inputs.root, inputs.project)?;
     let mut text = String::new();
     let mut failed = false;
-    // A miss is a candidate against the review findings of its own landing.
-    let mut open: Vec<Finding> = Vec::new();
-    for landing in record::audited_landings(&conn)? {
-        let findings = record::findings_of_landing(&conn, landing)?;
-        open.extend(
-            candidate_misses(&findings)
-                .into_iter()
-                .filter(|f| f.settled.is_none())
-                .cloned(),
-        );
-    }
+    let open = open_misses(&conn)?;
     let mut asked: Vec<(&Finding, Diff)> = Vec::new();
-    for miss in &open {
+    for (_, miss) in &open {
         match diff_read(&conn, miss) {
             Ok(diff) => asked.push((miss, diff)),
             Err(why) => {

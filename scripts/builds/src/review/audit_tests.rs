@@ -177,6 +177,12 @@ fn an_audit_records_two_runs_names_the_misses_and_feeds_the_miss_rate() {
     let conn = db::open_reader(&demo.store.database()).unwrap().unwrap();
     let group_of_rule = |rule: &str| (rule == "rule-a").then(|| "alpha".to_string());
     assert_eq!(rates(&conn, &group_of_rule).unwrap()[0].misses, 0);
+    let open: Vec<i64> = open_misses(&conn)
+        .unwrap()
+        .iter()
+        .map(|(at, _)| *at)
+        .collect();
+    assert_eq!(open, [landing]);
     drop(conn);
     // The check of the open misses settles the one the audit left.
     std::fs::remove_file(fake.dir.join("fail-model-check rule-a")).unwrap();

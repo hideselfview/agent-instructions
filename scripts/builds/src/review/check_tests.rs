@@ -41,3 +41,9 @@ fn the_changed_lines_are_the_lines_the_hunks_add_and_remove() {
     assert_eq!(changed_lines(DIFF), 6);
     assert_eq!(changed_lines(""), 0);
 }
+
+#[test]
+fn a_diff_header_names_the_new_path() {
+    assert_eq!(new_path("diff --git a/x.rs b/y.rs\n"), Some("y.rs"));
+    assert_eq!(new_path("+let x = 1;"), None);
+}

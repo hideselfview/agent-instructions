@@ -23,14 +23,19 @@ pub struct DiffFile {
     pub lines: Vec<String>,
 }
 
+/// The new path a `diff --git a/<old> b/<new>` line names: the text after its
+/// last ` b/`; None for any other line.
+pub fn new_path(line: &str) -> Option<&str> {
+    let rest = line.strip_prefix("diff --git ")?.trim_end();
+    Some(rest.rsplit_once(" b/").map(|(_, new)| new).unwrap_or(rest))
+}
+
 pub fn parse_diff(diff: &str) -> Vec<DiffFile> {
     let mut files: Vec<DiffFile> = Vec::new();
     let mut in_hunk = false;
     for line in diff.lines() {
         if !in_hunk || line.starts_with("diff --git ") {
-            if let Some(rest) = line.strip_prefix("diff --git ") {
-                // `a/<old> b/<new>`: the new path follows the last ` b/`.
-                let path = rest.rsplit_once(" b/").map(|(_, new)| new).unwrap_or(rest);
+            if let Some(path) = new_path(line) {
                 files.push(DiffFile {
                     path: path.to_string(),
                     lines: Vec::new(),
