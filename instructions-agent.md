@@ -10,6 +10,12 @@ build, land or dispatch an agent, read `builds help workflow`.
 
 # How to design and judge work
 
+**Start from what it should do.** Before you design, brief, build or judge
+anything, write in one plain sentence what it should do, from what the user
+wants, never from how the existing code works. Build to that sentence and check
+the result against it. A brief opens with the sentence, and a design that needs
+special cases the sentence doesn't name is wrong.
+
 **Revealing structure is the objective.** Find the structure the system really
 has and model it: pick the design that shows it over one that hides it, even
 when the other is easier. Adding structure that isn't there (a speculative
