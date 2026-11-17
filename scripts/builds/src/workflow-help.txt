@@ -133,7 +133,13 @@ PLAN, BRIEF, EXECUTE, REVIEW
     the finding again as dropped (`builds review settle N --again --why
     TEXT`), and the record keeps both settles. When the agent drops the
     commit that held a confirmed finding's code, the next review reads that
-    change and closes the finding.
+    change and closes the finding. A branch that adds code nothing outside
+    tests calls does not land: the coordinator confirms the review's finding
+    on that code, and the agent deletes the code or adds its caller. Only
+    the person lets a confirmed finding's code land as it is: the
+    coordinator asks the person, and once they say so, records their words
+    (`builds review settle N allowed --by-person --why TEXT`). No agent
+    passes --by-person on its own judgment.
   - At every step, check the shape against the project's standing rules,
     which a plan's author never loads by touching files; the project file
     names them. A plan that proposes a shape they forbid is rewritten before
@@ -236,6 +242,15 @@ DISPATCH
     it to the spec in its commit.
   - Read-only agents (planners, audits) read origin/main through `git show`
     and `git grep`, never a checkout.
+  - Dead code, code that nothing outside tests calls, is never a question
+    for the person. Whoever finds dead code deletes it in the work they do.
+    When the dead code is outside that work, as with an audit's findings,
+    the finder adds a queue item at once that deletes it, never a stack
+    entry. Dead code on main that is the only code doing a behavior the spec
+    states is the one exception: put a question on the stack that quotes
+    the spec's text, and the person decides whether to build the code's
+    caller or delete the code and the spec's text
+    (rules/necessary-code/write-only-what-is-needed-today.md, Dead code).
   - Disk is a queue limit, never a question for the person: under the floor,
     start nothing new, and start the next work as agents finish and their
     build folders are pruned.

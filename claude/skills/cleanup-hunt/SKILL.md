@@ -164,7 +164,8 @@ For each batch, report:
 - the change in line count, counted from git objects
 - the checks you ran
 - the cuts you declined, with reasons
-- findings that need an owner's decision
+- findings that need an owner's decision; dead code is never one of them
+  (`write-only-what-is-needed-today.md`, Dead code)
 
 Keep the list of declined cuts across batches, so the next pass doesn't argue
 them again.

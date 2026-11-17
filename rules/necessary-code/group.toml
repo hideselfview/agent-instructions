@@ -1,2 +1,2 @@
 name = "Necessary code"
-question = "Is the change needed today, with no code for a future case, no mechanism that changes no outcome, no special-case UI for an edge case, and every caller of a changed shape updated in the same commit?"
+question = "Is the change needed today, with no code that nothing outside tests calls, no code for a future case, no mechanism that changes no outcome, no special-case UI for an edge case, and every caller of a changed shape updated in the same commit?"

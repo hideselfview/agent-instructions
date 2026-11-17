@@ -1,5 +1,5 @@
 ---
-digest: Before any change, ask whether it is needed and what could make it unneeded. Model today's logic, never a shape for a future change (no Vec for a future second item). Delete dead code at its root, with the chain it orphans; never-varying parameters and unread fields go, and fields that modeled the dead case become required. In Rust, delete unused code or restrict it with `#[cfg]`, never `#[allow(dead_code)]`.
+digest: Before any change, ask whether it is needed and what could make it unneeded. Model today's logic, never a shape for a future change (no Vec for a future second item). Code nothing outside tests calls is dead; whoever finds it deletes it or queues its deletion and never asks the person, and a commit never adds it without its caller. Delete dead code at its root, with the chain it orphans; never-varying parameters and unread fields go, and fields that modeled the dead case become required. In Rust, delete unused code or restrict it with `#[cfg]`, never `#[allow(dead_code)]`.
 paths:
   - '**/*.rs'
   - '**/*.swift'
@@ -26,6 +26,23 @@ the later change widens `Option` to `Vec` when it arrives, while a shape that is
 wrong today burdens every reader, test and review until then.
 
 ### Dead code
+
+Code that nothing outside tests calls is dead. Whoever finds dead code deletes
+it, and never asks the person whether to keep it:
+
+- When the dead code is in the work you are doing, delete it in that work.
+- When it is outside that work, add an item to the work queue at once that
+  deletes it.
+
+A commit must not add code that nothing outside tests calls: the code lands with
+its caller, or not at all. Review raises a finding on such code, and
+`builds land` refuses the branch while the finding is open. Only the person can
+let such code land.
+
+When dead code on main is the only code that does a behavior the spec states,
+ask the person whether the behavior stays, and quote the spec's text. When it
+stays, build the code's caller; when it goes, delete the code and the spec's
+text.
 
 Delete dead code at its root, not around it: a filter or guard in the consumer
 keeps the dead code alive. After the deletion, fields that existed only for the
