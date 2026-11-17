@@ -121,14 +121,14 @@ pub fn blocks_lines(entry: &StackEntry<'_>) -> Result<Vec<String>> {
 }
 
 /// Why a question sits where it does on the stack: where it was placed, by
-/// whom and why, or that what it unblocks orders it.
+/// whom and why, or that the stack orders it by what it unblocks.
 pub fn place_words(question: &Question) -> String {
     match &question.placed {
         Some(placed) => {
             let by = if placed.by_person { " by you" } else { "" };
             format!("placed {}{by}: {}", placed.at.word(), placed.why)
         }
-        None => "placed by what it unblocks".to_string(),
+        None => "the stack orders it by what it unblocks".to_string(),
     }
 }
 

@@ -108,7 +108,7 @@ fn a_stack_entry_starts_with_who_asked_it_where_it_sits_and_what_it_blocks() {
                 "       asked by coordinator, {}",
                 local_minute(NOON + i64::from(q.0))
             ),
-            "       placed by what it unblocks".to_string(),
+            "       the stack orders it by what it unblocks".to_string(),
             "       blocks 1 (1 through chains):".to_string(),
             format!(
                 "         {blocked} Do the work numbered {} (priority none; no item waits behind it; opened {})",
