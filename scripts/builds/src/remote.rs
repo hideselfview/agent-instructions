@@ -427,9 +427,10 @@ echo "worktree=$wt""#,
     )
 }
 
-/// Runs <command> in <worktree> as a process group of its own, whose leader's
-/// pid goes in the claim folder for `stop_script`, and exits with the
-/// command's exit status as soon as the command ends.
+/// Runs <command> in <worktree> as a process group of its own, and exits with
+/// the command's exit status as soon as the command ends. The script writes
+/// the group leader's pid and <run> to `pid` in the claim folder for
+/// `stop_script`.
 ///
 /// ssh returns only once nothing on the host holds its output open, and a
 /// command can leave processes behind that do (a build daemon, a simulator's
@@ -462,7 +463,7 @@ err=$!
 exec 3>"$job/out" 4>"$job/err"
 ( exec {words} < /dev/null >&3 2>&4 3>&- 4>&- ) &
 pid=$!
-echo $pid > "$job/pid"
+echo "$pid "{run} > "$job/pid"
 wait $pid 2>/dev/null
 status=$?
 if kill -0 -- "-$pid" 2>/dev/null; then
@@ -481,14 +482,30 @@ exit $status"#,
         wt = sh_quote(worktree),
         words = words.join(" "),
         end = sh_quote(&format!("builds-end-of-run-{run}")),
+        run = sh_quote(run),
         host = host.name,
     )
 }
 
-fn stop_script(worktree: &str) -> String {
+/// What `stop_script` prints when run <run> has not started its command.
+const NOT_STARTED: &str = "not-started";
+
+/// Stops the command of run <run> in <worktree>: signals the process group
+/// whose leader's pid `run_script` wrote beside <run>. The claim folder of an
+/// app checkout outlives each step, so its `pid` may still name an earlier
+/// step, whose pid the host may since have given to another process. When
+/// `pid` names another run, or is missing, the script signals nothing and
+/// prints `NOT_STARTED`.
+fn stop_script(worktree: &str, run: &str) -> String {
     format!(
-        r#"pid=$(cat {wt}.job/pid) && kill -TERM -- "-$pid""#,
-        wt = sh_quote(worktree)
+        r#"pidfile={wt}.job/pid
+written=
+if [ -e "$pidfile" ]; then written=$(cat "$pidfile") || exit 1; fi
+set -- $written
+if [ "$2" != {run} ]; then echo {NOT_STARTED}; exit 0; fi
+kill -TERM -- "-$1""#,
+        wt = sh_quote(worktree),
+        run = sh_quote(run),
     )
 }
 
@@ -507,6 +524,9 @@ pub fn release_script(repo: &str, worktree: Option<&str>, id: &str) -> String {
 
 /// Runs the job's command on the host, passing its output through, and
 /// returns its exit status. A stop signal stops the command on the host. When
+/// the stop comes before the command starts, builds asks the host again on
+/// each turn of the wait, until the command has started or the run has ended.
+/// When
 /// <time_locks> is set (the command is cargo), builds reads the command's
 /// stderr as it passes through, and this function also returns how long
 /// cargo waited for its file locks (lock_wait.rs).
@@ -518,8 +538,9 @@ pub fn run_command(
     time_locks: bool,
 ) -> Result<(i32, Option<Duration>)> {
     use std::os::unix::process::{CommandExt, ExitStatusExt};
+    let run = job_id();
     let mut child = transport
-        .command(&run_script(transport.host, worktree, command, &job_id()))
+        .command(&run_script(transport.host, worktree, command, &run))
         .stdin(Stdio::null())
         .stderr(if time_locks {
             Stdio::piped()
@@ -537,6 +558,7 @@ pub fn run_command(
         .map(|stderr| crate::lock_wait::relay(stderr, std::io::stderr()));
     let waited = || relay.map(|relay| relay.join().expect("the relay does not panic"));
     let mut stopped = false;
+    let mut signalled = false;
     let status = loop {
         if let Some(status) = child
             .try_wait()
@@ -544,11 +566,16 @@ pub fn run_command(
         {
             break status;
         }
-        if stop.load(Ordering::SeqCst) && !stopped {
+        if stop.load(Ordering::SeqCst) && !signalled {
             stopped = true;
-            if let Err(error) = transport.capture(&stop_script(worktree), "stopping the command") {
-                note(error.text());
-            }
+            signalled =
+                match transport.capture(&stop_script(worktree, &run), "stopping the command") {
+                    Ok(said) => said.trim() != NOT_STARTED,
+                    Err(error) => {
+                        note(error.text());
+                        true
+                    }
+                };
         }
         std::thread::sleep(Duration::from_millis(50));
     };

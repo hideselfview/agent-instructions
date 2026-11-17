@@ -316,6 +316,87 @@ fn a_stop_signal_stops_the_command_on_the_host() {
     assert_eq!(refs(&s.home.join("dev/demo")), "");
 }
 
+/// A process in a process group of its own, as an earlier step's command
+/// was, whose pid an app checkout's claim folder still names.
+fn earlier_step() -> std::process::Child {
+    use std::os::unix::process::CommandExt;
+    Command::new("sleep")
+        .arg("60")
+        .process_group(0)
+        .spawn()
+        .unwrap()
+}
+
+#[test]
+fn a_stop_signals_only_the_process_group_of_the_run_it_stops() {
+    let s = setup("remote-stop-run");
+    let places = s.scratch.places();
+    let wt = app_checkout(&s);
+    let transport = Transport {
+        places: &places,
+        ssh: &s.ssh,
+        host: &s.host,
+    };
+    let mut earlier = earlier_step();
+    std::fs::write(
+        format!("{}.job/pid", wt.display()),
+        format!("{} earlier-run\n", earlier.id()),
+    )
+    .unwrap();
+    let wt = wt.display().to_string();
+    let said = transport
+        .capture(&stop_script(&wt, "this-run"), "stopping the command")
+        .unwrap();
+    assert_eq!(said.trim(), NOT_STARTED);
+    assert!(
+        earlier.try_wait().unwrap().is_none(),
+        "a stop of another run signals nothing"
+    );
+    let said = transport
+        .capture(&stop_script(&wt, "earlier-run"), "stopping the command")
+        .unwrap();
+    assert_eq!(said.trim(), "");
+    use std::os::unix::process::ExitStatusExt;
+    assert_eq!(earlier.wait().unwrap().signal(), Some(libc::SIGTERM));
+}
+
+#[test]
+fn a_stop_before_the_step_writes_its_pid_waits_for_it_and_spares_the_earlier_steps_pid() {
+    let s = setup("remote-stop-early");
+    let places = s.scratch.places();
+    let wt = app_checkout(&s);
+    let transport = Transport {
+        places: &places,
+        ssh: &s.ssh,
+        host: &s.host,
+    };
+    let mut earlier = earlier_step();
+    std::fs::write(
+        format!("{}.job/pid", wt.display()),
+        format!("{} earlier-run\n", earlier.id()),
+    )
+    .unwrap();
+    let started = std::time::Instant::now();
+    // The stop comes before the step starts.
+    let ran = run_command(
+        &transport,
+        &AtomicBool::new(true),
+        &wt.display().to_string(),
+        &args(&["sleep", "10"]),
+        false,
+    );
+    let took = started.elapsed();
+    let spared = earlier.try_wait().unwrap().is_none();
+    let _ = earlier.kill();
+    let _ = earlier.wait();
+    assert_eq!(ran.unwrap(), (STOPPED_EXIT, None));
+    assert!(spared, "the stop signals only this run's command");
+    assert!(
+        took < Duration::from_secs(5),
+        "the stop stops the step: {took:?}"
+    );
+}
+
 /// Commits a post-checkout hook to the source repo and refreshes the host's
 /// clone, as a repo with `scripts/hooks/post-checkout` has.
 fn add_hook(s: &Setup, body: &str) {
