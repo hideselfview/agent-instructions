@@ -182,7 +182,7 @@ WHAT AN IMPLEMENTING AGENT DOES
      against the findings of the commit the branch started from: read them
      with `builds shots findings`, never by building that commit, and open
      the report path it prints, never a checkout's shots/ folder.
-  6. Before every commit, fix commits included, reread every app string,
+  6. Before every commit, including fix commits, reread every app string,
      error, help text, doc and spec line it adds against
      rules/text-people-read/write-plain-literal-active-sentences.md, and
      fix what it finds. That rule does not cover code comments or commit

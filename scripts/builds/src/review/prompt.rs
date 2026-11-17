@@ -204,7 +204,7 @@ pub fn group_part(input: &Input) -> String {
     );
     if group.commit_text {
         out.push_str(&format!(
-            "- The diff holds the change's commit messages as one more added file, {}. The repository holds no such file.\n",
+            "- The diff holds the change's commit messages as one more file that the diff adds, {}. The repository holds no such file.\n",
             crate::review::files::COMMIT_MESSAGE
         ));
     }

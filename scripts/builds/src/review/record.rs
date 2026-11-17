@@ -1217,16 +1217,23 @@ pub fn move_to_message_style(db: &Connection, now: i64) -> Result<usize> {
 }
 
 /// Whether <finding> is on the commit messages, or its code sits only on
-/// comment lines of the diffs builds sent its call.
+/// comment lines of the diffs builds sent its call. Fails, naming the call,
+/// when a message builds sent the call holds no diff.
 fn on_messages_or_comments(db: &Connection, finding: &Finding) -> Result<bool> {
     if finding.file == super::files::COMMIT_MESSAGE {
         return Ok(true);
     }
     let mut quotes = Vec::new();
     for message in messages_of_call(db, finding.run_id, &finding.group)? {
-        if let Some(diff) = super::prompt::diff_of_message(&message) {
-            quotes.extend(super::check::parse_diff(diff));
-        }
+        let Some(diff) = super::prompt::diff_of_message(&message) else {
+            fail!(
+                "the call of group {} in review run {} holds a message with no diff, so the move cannot tell whether finding {} sits on comment lines",
+                finding.group,
+                finding.run_id,
+                finding.id
+            );
+        };
+        quotes.extend(super::check::parse_diff(diff));
     }
     Ok(super::check::only_on_comment_lines(
         &quotes,
