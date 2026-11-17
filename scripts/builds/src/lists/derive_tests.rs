@@ -410,7 +410,7 @@ fn times_add_up_an_items_runs_and_spans_and_a_branch_counts_its_items_runs_once(
     )
     .unwrap();
     let lists = read(&db);
-    let times = item_times(&lists, &lists.items[0], None).unwrap();
+    let times = item_times(&lists, &lists.items[0], None).unwrap().unwrap();
     assert_eq!(
         times,
         Times {
@@ -432,7 +432,7 @@ fn times_add_up_an_items_runs_and_spans_and_a_branch_counts_its_items_runs_once(
             spans_from: None,
         }
     );
-    let branch = &branch_times(&lists)[&("bae".to_string(), "work".to_string())];
+    let branch = &branch_times(&lists).unwrap()[&("bae".to_string(), "work".to_string())];
     assert_eq!(
         (branch.runs, branch.ran, branch.landed),
         (3, times.ran, None)
@@ -446,9 +446,43 @@ fn times_add_up_an_items_runs_and_spans_and_a_branch_counts_its_items_runs_once(
     )
     .unwrap();
     let lists = read(&db);
-    let branch = &branch_times(&lists)[&("bae".to_string(), "work".to_string())];
+    let branch = &branch_times(&lists).unwrap()[&("bae".to_string(), "work".to_string())];
     assert_eq!(
         (branch.ran.at(NOON + 9999), branch.landed),
         (1300, Some(NOON + 2000))
     );
+}
+
+#[test]
+fn a_span_that_lies_in_none_of_its_items_runs_is_an_error() {
+    use crate::lists::fixtures::v;
+    let db = db();
+    let id = item(&db, vec![]);
+    run_in(&db, id, "/d/bae-worktrees/side-1", "work", NOON);
+    crate::lists::running::end(&db, id, Ended::Stopped, &stamp(NOON + 100)).unwrap();
+    crate::lists::running::plant(
+        &db,
+        "item_span",
+        &[
+            ("item_id", v(id.0)),
+            ("kind", v("held")),
+            ("since_at", v(NOON + 200)),
+            ("ended_at", v(NOON + 300)),
+        ],
+    )
+    .unwrap();
+    let lists = read(&db);
+    let fault = format!(
+        "item {id} has a held span from {} that lies in none of its runs",
+        NOON + 200
+    );
+    let message = |result: Result<_>| match result {
+        Err(crate::fail::Fail::Message(message)) => message,
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(
+        message(item_times(&lists, &lists.items[0], None).map(|_| ())),
+        fault
+    );
+    assert_eq!(message(branch_times(&lists).map(|_| ())), fault);
 }

@@ -8,6 +8,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde::Serialize;
 
+use crate::fail;
+use crate::fail::Result;
 use crate::lists::{
     Audience, Closed, Decision, DesignChange, Ended, How, Id, Item, Kind, Level, Lists, Located,
     Position, Question, Record, Span, SpanKind, Standing, Wait, day, side_worktree_parts,
@@ -402,8 +404,10 @@ struct Ran<'a> {
 }
 
 /// The runs of <item>, ended ones first, then the one that goes on. <closed>
-/// is how the item closed, None while it is open.
-fn runs_of<'a>(item: &'a Item, closed: Option<&How>) -> Vec<Ran<'a>> {
+/// is how the item closed, None while it is open. Fails naming a span that
+/// lies in none of the item's runs: builds opens a span only while its item
+/// runs and ends it no later than the run.
+fn runs_of<'a>(item: &'a Item, closed: Option<&How>) -> Result<Vec<Ran<'a>>> {
     let landing = matches!(closed, Some(How::Landed(_)));
     let mut runs: Vec<Ran> = item
         .runs
@@ -437,12 +441,25 @@ fn runs_of<'a>(item: &'a Item, closed: Option<&How>) -> Vec<Ran<'a>> {
         });
     }
     for span in &item.spans {
-        let within = runs.iter_mut().rev().find(|run| run.since <= span.since);
-        if let Some(run) = within {
-            run.spans.push(span);
+        let within = runs.iter_mut().find(|run| {
+            run.since <= span.since
+                && match (run.ended, span.ended) {
+                    (None, _) => true,
+                    (Some(run_end), Some(span_end)) => span_end <= run_end,
+                    (Some(_), None) => false,
+                }
+        });
+        match within {
+            Some(run) => run.spans.push(span),
+            None => fail!(
+                "item {} has a {} span from {} that lies in none of its runs",
+                item.id,
+                span.kind.word(),
+                span.since
+            ),
         }
     }
-    runs
+    Ok(runs)
 }
 
 /// What <runs> add up to, with <spans_from> the store's
@@ -473,17 +490,17 @@ fn times_of(runs: &[&Ran], spans_from: Option<i64>) -> Option<Times> {
 }
 
 /// What the runs of <item> add up to; None when it never ran. <closed> is
-/// how it closed, None while it is open.
-pub fn item_times(lists: &Lists, item: &Item, closed: Option<&How>) -> Option<Times> {
-    let runs = runs_of(item, closed);
-    times_of(&runs.iter().collect::<Vec<_>>(), lists.spans_from)
+/// how it closed, None while it is open. Fails as `runs_of` does.
+pub fn item_times(lists: &Lists, item: &Item, closed: Option<&How>) -> Result<Option<Times>> {
+    let runs = runs_of(item, closed)?;
+    Ok(times_of(&runs.iter().collect::<Vec<_>>(), lists.spans_from))
 }
 
 /// What the runs on each branch add up to, by repo and branch: the runs of
 /// every item, open or closed, in a worktree of the repo on the branch. A
 /// run that a store move read from the write log names no branch, and no
-/// branch counts it.
-pub fn branch_times(lists: &Lists) -> BTreeMap<(String, String), Times> {
+/// branch counts it. Fails as `runs_of` does.
+pub fn branch_times(lists: &Lists) -> Result<BTreeMap<(String, String), Times>> {
     let open = lists.items.iter().map(|item| (item, None));
     let closed = lists
         .closed
@@ -492,20 +509,20 @@ pub fn branch_times(lists: &Lists) -> BTreeMap<(String, String), Times> {
             Record::Item(item) => Some((item, Some(&closed.how))),
             _ => None,
         });
-    let runs: Vec<Ran> = open
-        .chain(closed)
-        .flat_map(|(item, how)| runs_of(item, how))
-        .collect();
+    let mut runs: Vec<Ran> = Vec::new();
+    for (item, how) in open.chain(closed) {
+        runs.extend(runs_of(item, how)?);
+    }
     let mut by_branch: BTreeMap<(String, String), Vec<&Ran>> = BTreeMap::new();
     for run in &runs {
         for branch in &run.branches {
             by_branch.entry(branch.clone()).or_default().push(run);
         }
     }
-    by_branch
+    Ok(by_branch
         .into_iter()
         .filter_map(|(branch, runs)| Some((branch, times_of(&runs, lists.spans_from)?)))
-        .collect()
+        .collect())
 }
 
 #[cfg(test)]

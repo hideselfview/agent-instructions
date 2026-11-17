@@ -245,7 +245,7 @@ impl View {
                 .collect::<Result<_>>()?,
             areas: lists.areas.clone(),
             items: {
-                let branches = derive::branch_times(lists);
+                let branches = derive::branch_times(lists)?;
                 lists
                     .items
                     .iter()
@@ -329,7 +329,7 @@ fn item_view(
             .collect(),
         parked: item.parked.clone(),
         landed: item.landed.clone(),
-        times: derive::item_times(lists, item, None),
+        times: derive::item_times(lists, item, None)?,
         notes: item.notes.clone(),
         opened: item.opened.clone(),
         trail: trail(lists, item.id)?,

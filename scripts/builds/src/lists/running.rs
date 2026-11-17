@@ -100,7 +100,7 @@ pub enum SpanKind {
 
 impl SpanKind {
     /// The word the database holds.
-    fn word(self) -> &'static str {
+    pub fn word(self) -> &'static str {
         match self {
             SpanKind::Held => "held",
             SpanKind::Waiting => "waiting",

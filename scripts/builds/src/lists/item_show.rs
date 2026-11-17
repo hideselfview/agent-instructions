@@ -127,23 +127,23 @@ fn item_and_closing(lists: &Lists, id: Id) -> Result<(&Item, Option<&Closed>)> {
 /// store records that time.
 pub fn times_text(lists: &Lists, ids: &[Id], now: i64) -> Result<String> {
     let mut lines: Vec<(String, Option<Times>)> = Vec::new();
-    let item_line = |item: &Item, closed: Option<&How>, indent: &str| {
-        let times = item_times(lists, item, closed);
+    let item_line = |item: &Item, closed: Option<&How>, indent: &str| -> Result<_> {
+        let times = item_times(lists, item, closed)?;
         let words = times
             .as_ref()
             .map_or("no run recorded".to_string(), |times| {
                 times_words(times, now)
             });
-        (
+        Ok((
             format!("{indent}{} {}: {words}", item.id, item.title),
             times,
-        )
+        ))
     };
     if ids.is_empty() {
         let recent = now - FLOW_DAYS as i64 * 86400;
         lines.push(("running".to_string(), None));
         for item in lists.items.iter().filter(|item| !item.running.is_empty()) {
-            lines.push(item_line(item, None, "  "));
+            lines.push(item_line(item, None, "  ")?);
         }
         lines.push((format!("landed in the last {FLOW_DAYS} days"), None));
         for closed in &lists.closed {
@@ -151,11 +151,11 @@ pub fn times_text(lists: &Lists, ids: &[Id], now: i64) -> Result<String> {
                 && matches!(closed.how, How::Landed(_))
                 && closed.closed.at >= recent
             {
-                lines.push(item_line(item, Some(&closed.how), "  "));
+                lines.push(item_line(item, Some(&closed.how), "  ")?);
             }
         }
         lines.push(("branches".to_string(), None));
-        for ((repo, branch), times) in branch_times(lists) {
+        for ((repo, branch), times) in branch_times(lists)? {
             if times.ran.since.is_some() || times.landed.is_some_and(|landed| landed >= recent) {
                 let line = format!("  {repo} {branch}: {}", times_words(&times, now));
                 lines.push((line, Some(times)));
@@ -164,7 +164,7 @@ pub fn times_text(lists: &Lists, ids: &[Id], now: i64) -> Result<String> {
     }
     for id in ids {
         let (item, closed) = item_and_closing(lists, *id)?;
-        lines.push(item_line(item, closed.map(|closed| &closed.how), ""));
+        lines.push(item_line(item, closed.map(|closed| &closed.how), "")?);
     }
     let mut out = String::new();
     for (line, _) in &lines {
@@ -265,7 +265,7 @@ pub fn render_item(lists: &Lists, id: Id, now: i64) -> Result<String> {
     for check in &item.spec_checks {
         let _ = writeln!(out, "{}", crate::lists::spec_check::line(check));
     }
-    if let Some(times) = item_times(lists, item, closed.map(|closed| &closed.how)) {
+    if let Some(times) = item_times(lists, item, closed.map(|closed| &closed.how))? {
         let _ = match times.spans_from {
             Some(from) => writeln!(
                 out,
