@@ -34,7 +34,7 @@ fn answer(builds: &str, plist: &str, listener: &str, job: Option<&str>) -> Strin
     } else {
         (
             0,
-            format!("listener=p{listener}\nlistener=R1\nlistener=f5\n"),
+            format!("listener=p{listener}\nlistener=R1\nlistener=csccache\nlistener=f5\n"),
         )
     };
     format!(

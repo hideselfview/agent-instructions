@@ -17,68 +17,96 @@ pub const PORT: u16 = 4226;
 const POLL: Duration = Duration::from_millis(250);
 
 /// The arguments of the lsof that prints, for each process listening on
-/// sccache's port, its pid and its parent's pid.
+/// sccache's port, its pid, its parent's pid and its command's name.
 fn listener_args() -> [String; 4] {
     [
         "-nP".to_string(),
         format!("-iTCP:{PORT}"),
         "-sTCP:LISTEN".to_string(),
-        "-FpR".to_string(),
+        "-FpRc".to_string(),
     ]
 }
 
-/// A process listening on sccache's port, and its parent.
+/// The pid of launchd, the parent of each process it starts.
+const LAUNCHD: u32 = 1;
+
+/// A process listening on sccache's port, its parent and its command.
 struct Listener {
     pid: u32,
     parent: u32,
+    command: String,
 }
 
 /// Reads the processes that the lsof of `listener_args` printed. lsof prints
-/// a `p` line with each pid, an `R` line with its parent's pid, and an `f`
-/// line for each listening socket the process holds. Returns None when a
-/// line is not one of these or a pid has no parent.
+/// a `p` line with each pid, then an `R` line with its parent's pid, a `c`
+/// line with its command's name, and an `f` line for each listening socket
+/// the process holds. Returns None when a line is not one of these, or a pid
+/// lacks its parent or its command.
 fn parse_listeners(stdout: &str) -> Option<Vec<Listener>> {
-    let mut listeners = Vec::new();
-    let mut pid = None;
+    struct Read {
+        pid: u32,
+        parent: Option<u32>,
+        command: Option<String>,
+    }
+    let mut read: Vec<Read> = Vec::new();
     for line in stdout.lines().filter(|line| !line.is_empty()) {
         if let Some(value) = line.strip_prefix('p') {
-            if pid.is_some() {
-                return None;
-            }
-            pid = Some(value.parse().ok()?);
-        } else if let Some(value) = line.strip_prefix('R') {
-            listeners.push(Listener {
-                pid: pid.take()?,
-                parent: value.parse().ok()?,
+            read.push(Read {
+                pid: value.parse().ok()?,
+                parent: None,
+                command: None,
             });
+        } else if let Some(value) = line.strip_prefix('R') {
+            read.last_mut()?.parent = Some(value.parse().ok()?);
+        } else if let Some(value) = line.strip_prefix('c') {
+            read.last_mut()?.command = Some(value.to_string());
         } else if !line.starts_with('f') {
             return None;
         }
     }
-    pid.is_none().then_some(listeners)
+    read.into_iter()
+        .map(|process| {
+            Some(Listener {
+                pid: process.pid,
+                parent: process.parent?,
+                command: process.command?,
+            })
+        })
+        .collect()
 }
 
 /// The pid of the sccache server among <listeners>. The server runs each
 /// compile as a child process, and each child holds the server's listening
 /// socket, so lsof lists the server and its compiles. The server is the one
-/// listener whose parent does not listen. Fails when lsof lists no such
-/// listener or several.
+/// listener whose parent does not listen. When lsof lists several such
+/// servers, as when a client started a server of its own beside launchd's
+/// for a moment, fails naming each, which launchd started and which it did
+/// not.
 fn server(listeners: &[Listener]) -> Result<u32> {
-    let servers: Vec<u32> = listeners
+    let servers: Vec<&Listener> = listeners
         .iter()
         .filter(|listener| !listeners.iter().any(|other| other.pid == listener.parent))
-        .map(|listener| listener.pid)
         .collect();
     match servers[..] {
-        [pid] => Ok(pid),
+        [server] => Ok(server.pid),
         _ => fail!(
-            "builds reads the sccache server as the one process on port {PORT} whose parent does not listen there, but lsof lists {} such processes among pids {}",
+            "{} sccache servers listen on port {PORT}: {}",
             servers.len(),
-            listeners
+            servers
                 .iter()
-                .map(|listener| listener.pid.to_string())
+                .map(|server| if server.parent == LAUNCHD {
+                    format!(
+                        "pid {} ({}), which launchd started",
+                        server.pid, server.command
+                    )
+                } else {
+                    format!(
+                        "pid {} ({}), which pid {} started and launchd did not",
+                        server.pid, server.command, server.parent
+                    )
+                })
                 .collect::<Vec<_>>()
-                .join(" ")
+                .join("; ")
         ),
     }
 }
@@ -469,7 +497,7 @@ pub mod tests {
     #[test]
     fn reads_what_lsof_said_about_the_port() {
         assert_eq!(
-            read_listener(Some(0), "p2914\nR1\nf12\n", "").unwrap(),
+            read_listener(Some(0), "p2914\nR1\ncsccache\nf12\n", "").unwrap(),
             Some(2914)
         );
         assert_eq!(read_listener(Some(1), "", "").unwrap(), None);
@@ -483,8 +511,7 @@ pub mod tests {
         assert!(failed(None, "", "").contains("no exit status"));
         assert!(failed(Some(0), "garbage", "").contains("garbage"));
         assert!(failed(Some(0), "p2914\n", "").contains("p2914"));
-        let printed =
-            "x=1\nlistener_status=0\nlistener=p2914\nlistener=R1\nlistener=f12\nlistener_said=\n";
+        let printed = "x=1\nlistener_status=0\nlistener=p2914\nlistener=R1\nlistener=csccache\nlistener=f12\nlistener_said=\n";
         assert_eq!(parse_listener_lines(printed).unwrap(), Some(2914));
         assert_eq!(
             parse_listener_lines("listener_status=1\nlistener=\nlistener_said=\n").unwrap(),
@@ -499,22 +526,49 @@ pub mod tests {
 
     /// What lsof prints while the server (pid 44790) runs two compiles, which
     /// hold its listening socket too.
-    const COMPILING: &str = "p71743\nR44790\nf5\np44790\nR1\nf5\np71754\nR44790\nf5\n";
+    const COMPILING: &str =
+        "p71743\nR44790\ncclang\nf5\np44790\nR1\ncsccache\nf5\np71754\nR44790\ncclang\nf5\n";
 
     #[test]
     fn reads_the_server_among_its_compiles() {
         assert_eq!(read_listener(Some(0), COMPILING, "").unwrap(), Some(44790));
         assert_eq!(
-            read_listener(Some(0), "p600\nR500\nf5\np500\nR400\nf5\n", "").unwrap(),
+            read_listener(
+                Some(0),
+                "p600\nR500\ncclang\nf5\np500\nR400\ncsccache\nf5\n",
+                ""
+            )
+            .unwrap(),
             Some(500),
             "a client's server, whose parent is the client"
         );
-        let Err(crate::fail::Fail::Message(message)) =
-            read_listener(Some(0), "p500\nR1\nf5\np600\nR1\nf5\n", "")
-        else {
+    }
+
+    /// A second server beside launchd's is named apart from a failure of
+    /// lsof: the message names both servers, says which one launchd started,
+    /// and names the parent of the one it did not.
+    #[test]
+    fn names_a_second_server_beside_launchds() {
+        let Err(crate::fail::Fail::Message(message)) = read_listener(
+            Some(0),
+            "p2914\nR1\ncsccache\nf12\np92600\nR9100\ncsccache\nf5\n",
+            "",
+        ) else {
             panic!("expected a failure");
         };
-        assert!(message.contains("500 600"), "{message}");
+        assert!(!message.contains("lsof"), "{message}");
+        assert!(
+            message.contains("2 sccache servers listen on port 4226"),
+            "{message}"
+        );
+        assert!(
+            message.contains("pid 2914 (sccache), which launchd started"),
+            "{message}"
+        );
+        assert!(
+            message.contains("pid 92600 (sccache), which pid 9100 started and launchd did not"),
+            "{message}"
+        );
     }
 
     #[test]
