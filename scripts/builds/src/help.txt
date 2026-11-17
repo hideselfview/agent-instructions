@@ -31,6 +31,52 @@ it does in every repo (LANDING AND REVIEW). To try an edit to builds before
 (scripts/builds/target/debug/builds).
 
 
+ACKNOWLEDGING THE RULES
+
+builds refuses every command an agent runs, except `help` and `ack`, until
+the agent has read the text every agent reads before it works and has
+acknowledged it with `builds ack`. The text is this help, `builds help
+workflow` (without its WHAT REVIEWS CONFIRM MOST OFTEN section, which changes
+with each settled finding), `builds help lists`, `builds help briefs`, the
+rules of agent-instructions whose paths cover every file (those under rules/
+and under the project's projects/<project>-rules/), ~/.claude/CLAUDE.md, and
+the CLAUDE.md of the repo the command runs in. Its version is a hash of all
+of it, so an edit of any of them changes the version.
+
+  builds ack [--by WHO] [--project P]
+      Start a reading: say the text's version and how many parts it comes
+      in, each under 20 KB so that Claude Code shows it whole, and draw new
+      check words for every part. The sections that changed since the
+      agent's last acknowledgement come first.
+  builds ack PART [--by WHO] [--project P]
+      Print part PART of the reading. Each part shows three check words, on
+      lines of their own, at its start, its middle and its end. Reading a
+      part again shows the same words.
+  builds ack VERSION WORD... [--by WHO] [--project P]
+      Acknowledge version VERSION, giving every check word of every part,
+      in order. A missing or wrong word refuses the acknowledgement and
+      names the parts to read again.
+  builds ack --compacted
+      Claude Code's SessionStart hook runs this after it compacts a session
+      (claude/settings.json in agent-instructions): it deletes the session's
+      acknowledgements, so the session's next builds command is refused
+      until it acknowledges the text again.
+
+builds tells an agent's command from the person's by the Claude Code session
+id in its environment (CLAUDE_CODE_SESSION_ID), which the person's terminal
+lacks, so builds never refuses the person's own commands. The agents a
+session dispatches share its session id, so builds names an agent by the
+session and a name: --by WHO, else the claim of the worktree the command
+runs in, else the name the session last acknowledged or started a reading
+under. builds keeps the acknowledgement in the store of the project whose
+repo the command runs in, else of the project --project names. builds
+refuses an agent whose acknowledgement there is missing, is of another
+version, or is more than 12 hours old, and names what changed since the
+agent's last acknowledgement. A builds command that passed lets the builds
+commands it runs pass too (BUILDS_ACKNOWLEDGED), such as a commit hook's
+checks or the install after a landing.
+
+
 BUILD VOLUME
 
 Every build on this Mac writes to the build volume, and builds owns everything

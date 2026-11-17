@@ -1,6 +1,7 @@
 //! builds: owns this machine's build volume, /Volumes/Builds, and everything
 //! on it. `builds help` says what it does; src/help.txt is that text.
 
+mod ack;
 mod app_build;
 mod app_config;
 mod app_remote;
@@ -126,6 +127,15 @@ fn main() -> ExitCode {
         }
         Err(Fail::Exit(code)) => return ExitCode::from(code.clamp(0, 255) as u8),
     };
+    if let Err(fail) = Places::from_env().and_then(|places| ack::gate(&places, command, rest)) {
+        return match fail {
+            Fail::Message(message) => {
+                text::note(message);
+                ExitCode::from(1)
+            }
+            Fail::Exit(code) => ExitCode::from(code.clamp(0, 255) as u8),
+        };
+    }
     match run(command, rest) {
         Ok(()) => ExitCode::SUCCESS,
         Err(Fail::Message(message)) => {
@@ -226,6 +236,7 @@ fn run(command: &str, args: &[String]) -> Result<()> {
             );
         }
         "shots" => return shot_findings::cmd_shots(&Places::from_env()?, args),
+        "ack" => return ack::cmd_ack(&Places::from_env()?, args),
         "queue" => return queue::cmd_queue(&Places::from_env()?, args),
         "takeover" => return queue::cmd_takeover(&Places::from_env()?, args),
         "-h" | "--help" | "help" => {
@@ -279,7 +290,7 @@ fn run(command: &str, args: &[String]) -> Result<()> {
         "host" => host::cmd_host(&tool, &host::Ssh::from_env(), args),
         "remote" => remote::cmd_remote(&tool, &host::Ssh::from_env(), args),
         other => fail!(
-            "unknown command {other} (setup | new | land | review | claim | note | release | retire | app-checkout | status | health | lists | decision | design | question | item | next | area | dashboard | host | remote | prune | cargo | lock | app-build | shots | queue | takeover | build-app | install | checks | install-hook)"
+            "unknown command {other} (ack | setup | new | land | review | claim | note | release | retire | app-checkout | status | health | lists | decision | design | question | item | next | area | dashboard | host | remote | prune | cargo | lock | app-build | shots | queue | takeover | build-app | install | checks | install-hook)"
         ),
     }
 }

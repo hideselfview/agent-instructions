@@ -3,7 +3,8 @@
 //! and `hook_check_starts.sql`), the app-build timings (`app_timing.sql`), the
 //! design changes' recording sessions (`lists/design_session.sql`), the shot
 //! findings, the review's tables, the `builds cargo` runs
-//! (`cargo_run.sql`) and the spec checks (`lists/spec_check.sql`). This module does all opening:
+//! (`cargo_run.sql`), the spec checks (`lists/spec_check.sql`) and the agents'
+//! acknowledgements (`ack/record.sql`). This module does all opening:
 //! the pragmas, the schema made whole in the first transaction of a new file,
 //! and the stamp.
 //!
@@ -79,14 +80,18 @@ pub const DROPPED_PART: &str = include_str!("lists/dropped.sql");
 /// last part of the schema.
 pub const SPEC_CHECK_PART: &str = include_str!("lists/spec_check.sql");
 
+/// The agents' acknowledgements of the text builds asks them to read
+/// (ack/record.sql), the last part of the schema.
+pub const ACK_PART: &str = include_str!("ack/record.sql");
+
 /// The whole schema: the lists' tables, then the hook stats', then the
 /// app-build timings', then the design changes' recording sessions', then the
 /// stored shot findings, then the review's, then the hook checks' starting
 /// loads, then the cargo runs', then the parked items', then the dropped
-/// items' work, then the spec checks'.
+/// items' work, then the spec checks', then the acknowledgements'.
 pub fn schema() -> String {
     format!(
-        "{}\n{REVIEW_PART}\n{HOOK_CHECK_STARTS_PART}\n{CARGO_RUNS_PART}\n{PARKED_PART}\n{DROPPED_PART}\n{SPEC_CHECK_PART}",
+        "{}\n{REVIEW_PART}\n{HOOK_CHECK_STARTS_PART}\n{CARGO_RUNS_PART}\n{PARKED_PART}\n{DROPPED_PART}\n{SPEC_CHECK_PART}\n{ACK_PART}",
         schema_before_review()
     )
 }
@@ -154,7 +159,7 @@ PRAGMA legacy_alter_table = OFF;",
     .sql()
 }
 
-/// The stamp of the schema text: its FNV-1a hash, folded into `user_version`'s
+/// The stamp of the schema text: its FNV-1a hash (`text::fnv1a`), folded into `user_version`'s
 /// positive range and kept off 0 (no schema) and 1 (which a hook-stats-only
 /// database once carried).
 pub fn stamp() -> i64 {
@@ -164,12 +169,7 @@ pub fn stamp() -> i64 {
 /// The stamp of a schema whose text is <text>. `stamp` takes it of today's
 /// schema, and the tests take it of each older schema the moves know.
 pub fn stamp_of_text(text: &str) -> i64 {
-    let mut hash: u32 = 0x811c_9dc5;
-    for byte in text.bytes() {
-        hash ^= u32::from(byte);
-        hash = hash.wrapping_mul(0x0100_0193);
-    }
-    i64::from(hash % (i32::MAX as u32 - 2)) + 2
+    i64::from(crate::text::fnv1a(text) % (i32::MAX as u32 - 2)) + 2
 }
 
 fn configure(conn: &Connection, path: &Path) -> Result<()> {

@@ -240,6 +240,17 @@ pub fn file_end(path: &Path, cap: u64) -> std::io::Result<(String, bool)> {
     Ok((text, cut))
 }
 
+/// The 32-bit FNV-1a hash of <text>: the stamp of a schema (db.rs) and the
+/// version of the text agents acknowledge (ack/text.rs).
+pub fn fnv1a(text: &str) -> u32 {
+    let mut hash: u32 = 0x811c_9dc5;
+    for byte in text.bytes() {
+        hash ^= u32::from(byte);
+        hash = hash.wrapping_mul(0x0100_0193);
+    }
+    hash
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

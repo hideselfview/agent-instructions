@@ -109,7 +109,8 @@ impl Demo {
         let mut command = Command::new(BUILDS);
         command
             .env("BUILDS_ROOT", self.volume())
-            .env("HOME", self.dir.join("home"));
+            .env("HOME", self.dir.join("home"))
+            .env_remove("CLAUDE_CODE_SESSION_ID");
         command
     }
 

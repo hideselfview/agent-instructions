@@ -10,6 +10,7 @@ fn builds_cargo_records_use_and_prune_deletes_only_what_nothing_uses() {
     let output = Command::new("bash")
         .arg(script)
         .env("BUILDS_BIN", env!("CARGO_BIN_EXE_builds"))
+        .env_remove("CLAUDE_CODE_SESSION_ID")
         .output()
         .unwrap();
     let said = String::from_utf8_lossy(&output.stderr);

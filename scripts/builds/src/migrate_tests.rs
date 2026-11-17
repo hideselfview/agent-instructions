@@ -2878,6 +2878,12 @@ fn a_store_from_before_ranks_ranks_the_questions_placed_first_newest_asked_on_to
     );
 }
 
+/// The schema text before builds kept the agents' acknowledgements: without
+/// their tables.
+fn schema_before_ack() -> String {
+    without_parts(db::schema(), &[db::ACK_PART])
+}
+
 /// The schema text before `blocks_nothing` could hold a reason only while no
 /// open item waits on the question.
 fn schema_before_blocks_from_waits() -> String {
@@ -3031,7 +3037,7 @@ fn a_store_from_before_blocks_from_waits_clears_the_why_of_each_question_an_open
 /// The schema text before the person could allow a confirmed finding to land:
 /// without `review_allowed`, and with the review's comments as they read then.
 fn schema_before_allowed() -> String {
-    let schema = db::schema();
+    let schema = schema_before_ack();
     let start = schema
         .find("\n-- An open confirmed finding that the person allowed")
         .expect("the allowed findings' comment");
@@ -3149,6 +3155,63 @@ fn a_store_from_before_allowed_moves_and_records_an_allowed_finding() {
     let (_, ids) = crate::review::record::add_run(&conn, &run, &[call]).unwrap();
     crate::review::record::settle(&conn, ids[0][0], "confirmed", "real", 7, "me").unwrap();
     crate::review::record::allow(&conn, ids[0][0], "the person: land it", 8, "me").unwrap();
+}
+
+#[test]
+fn the_ack_stamp_is_the_schema_before_acknowledgements() {
+    assert_eq!(db::stamp_of_text(&schema_before_ack()), BEFORE_ACK_STAMP);
+}
+
+/// A store from before the acknowledgements keeps its questions, gains the
+/// empty tables, equals a fresh schema, and then records an acknowledgement.
+#[test]
+fn a_store_from_before_acknowledgements_gains_the_tables_and_records_one() {
+    use crate::lists::fixtures::v;
+    let scratch = Scratch::new("move-ack");
+    let places = scratch.places();
+    let dir = places.lists.join("bae");
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join(DATABASE);
+    {
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(&schema_before_ack()).unwrap();
+        conn.pragma_update(None, "user_version", BEFORE_ACK_STAMP)
+            .unwrap();
+        crate::lists::record::plant(
+            &conn,
+            "record",
+            &[
+                ("id", v(1)),
+                ("kind", v("question")),
+                ("opened_at", v(10)),
+                ("opened_by", v("tester")),
+            ],
+        )
+        .unwrap();
+        crate::lists::question::plant(
+            &conn,
+            "question",
+            &[
+                ("id", v(1)),
+                ("title", v("A question")),
+                ("details", v("d")),
+                ("kind", v("question")),
+                ("blocks_nothing", v("asked anyway")),
+            ],
+        )
+        .unwrap();
+    }
+    migrate_stores(&places).unwrap();
+    let conn = db::open(&path, db::Make::Never).unwrap();
+    assert_eq!(
+        db::schema_rows(&conn).unwrap(),
+        db::schema_rows(&db::memory()).unwrap()
+    );
+    let why: Option<String> = conn
+        .query_row("SELECT blocks_nothing FROM question", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(why.as_deref(), Some("asked anyway"));
+    crate::ack::record::acknowledge(&conn, "s1", "agent", "v1", 20, &[]).unwrap();
 }
 
 #[test]

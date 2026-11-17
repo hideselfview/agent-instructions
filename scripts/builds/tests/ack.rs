@@ -1,0 +1,46 @@
+//! The gate on a whole `builds` run: an agent's command (one with a Claude
+//! Code session id) waits for its acknowledgement, and the person's does not.
+
+use std::path::PathBuf;
+use std::process::{Command, Output};
+
+const BUILDS: &str = env!("CARGO_BIN_EXE_builds");
+
+fn builds(dir: &PathBuf, session: Option<&str>, args: &[&str]) -> Output {
+    let mut command = Command::new(BUILDS);
+    command
+        .current_dir(dir)
+        .env("BUILDS_ROOT", dir.join("volume"))
+        .env("HOME", dir.join("home"))
+        .env("BUILDS_LISTS", dir.join("lists"))
+        .env_remove("CLAUDE_CODE_SESSION_ID")
+        .env_remove("BUILDS_ACKNOWLEDGED")
+        .args(args);
+    if let Some(session) = session {
+        command.env("CLAUDE_CODE_SESSION_ID", session);
+    }
+    command.output().unwrap()
+}
+
+#[test]
+fn an_agents_command_waits_for_its_acknowledgement_and_the_persons_runs() {
+    let dir = std::fs::canonicalize(std::env::temp_dir())
+        .unwrap()
+        .join(format!("builds-test-ack-gate-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join("volume")).unwrap();
+    std::fs::create_dir_all(dir.join("home")).unwrap();
+
+    let person = builds(&dir, None, &["du", "home"]);
+    assert!(person.status.success(), "{person:?}");
+
+    let agent = builds(&dir, Some("s1"), &["du", "home"]);
+    assert!(!agent.status.success());
+    let said = String::from_utf8_lossy(&agent.stderr);
+    assert!(said.contains("acknowledgement"), "{said}");
+
+    let help = builds(&dir, Some("s1"), &["help"]);
+    assert!(help.status.success(), "{help:?}");
+
+    std::fs::remove_dir_all(&dir).unwrap();
+}

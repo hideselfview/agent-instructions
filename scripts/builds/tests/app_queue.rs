@@ -57,6 +57,7 @@ impl Volume {
         command
             .env("BUILDS_ROOT", self.dir.join("volume"))
             .env("HOME", self.dir.join("home"))
+            .env_remove("CLAUDE_CODE_SESSION_ID")
             .env("QUEUE_TEST_DIR", &self.dir);
         command
     }

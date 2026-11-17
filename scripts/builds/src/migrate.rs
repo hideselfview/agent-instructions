@@ -248,9 +248,13 @@ const BEFORE_WAITS_STAMP: i64 = 471_804_593;
 /// to land.
 const BEFORE_ALLOWED_STAMP: i64 = 1_783_029_906;
 
+/// The stamp of the schema before builds kept the agents' acknowledgements of
+/// the text it asks them to read.
+const BEFORE_ACK_STAMP: i64 = 1_699_272_218;
+
 /// Every stamp a store can carry that `move_store` moves, oldest schema first.
 /// A new move adds the stamp of the schema before it at the end.
-const STAMPS: [i64; 31] = [
+const STAMPS: [i64; 32] = [
     BEFORE_DESIGN_DELETED_STAMP,
     BEFORE_CHECK_TIMES_STAMP,
     BEFORE_DESIGN_TIP_STAMP,
@@ -282,6 +286,7 @@ const STAMPS: [i64; 31] = [
     BEFORE_BLOCKS_FROM_WAITS_STAMP,
     BEFORE_WAITS_STAMP,
     BEFORE_ALLOWED_STAMP,
+    BEFORE_ACK_STAMP,
 ];
 
 /// Whether a store stamped <found> comes before the move that follows the
@@ -367,7 +372,9 @@ const DESIGN_DELETED: &str = "CREATE TABLE design_deleted (
 /// it, and no subcommand. Every store gets `app_build_runs` with the load of
 /// each run's host, and the move gives each run that builds recorded before
 /// this move no load. Every store gets the empty `review_allowed` table (the
-/// person has allowed no finding to land yet).
+/// person has allowed no finding to land yet). Every store gets the empty
+/// tables of the agents' acknowledgements (no agent has acknowledged the
+/// text yet).
 /// The moves run in one transaction, the store
 /// is stamped as today's schema, and it must then equal a fresh database's schema or the transaction rolls back. A
 /// store already at today's stamp, or with no database, is left alone; any
@@ -675,6 +682,11 @@ fn move_store(places: &Places, path: &Path) -> Result<()> {
             "STRICT;",
         ))
         .sql()?;
+    }
+    // Every store from before the acknowledgements gets their empty tables:
+    // no agent has acknowledged the text yet.
+    if before(found, BEFORE_ACK_STAMP) {
+        tx.execute_batch(db::ACK_PART).sql()?;
     }
     tx.pragma_update(None, "user_version", db::stamp()).sql()?;
     let broken: Option<String> = tx
