@@ -229,7 +229,16 @@ fn run(command: &str, args: &[String]) -> Result<()> {
         "-h" | "--help" | "help" => {
             match args {
                 [topic] if topic == "lists" => print!("{LISTS_HELP}"),
-                [topic] if topic == "workflow" => print!("{WORKFLOW_HELP}"),
+                [topic] if topic == "workflow" => {
+                    print!("{WORKFLOW_HELP}");
+                    print!(
+                        "{}",
+                        review::workflow_section(
+                            &Places::from_env()?,
+                            &lists::args::current_dir()?
+                        )?
+                    );
+                }
                 [topic] if topic == "briefs" => print!("{BRIEFS_HELP}"),
                 _ => print!("{HELP}"),
             }

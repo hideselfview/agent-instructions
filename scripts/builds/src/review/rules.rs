@@ -49,6 +49,17 @@ impl Rule {
         }
     }
 
+    /// The text after the front matter, which a person reads.
+    pub fn body(&self) -> &str {
+        match front_matter(&self.text) {
+            Some(front) => {
+                let after = &self.text["---\n".len() + front.len() + "\n---".len()..];
+                after.split_once('\n').map_or("", |(_, body)| body)
+            }
+            None => &self.text,
+        }
+    }
+
     /// Whether the rule covers at least one of <changed>.
     pub fn matches(&self, changed: &[String]) -> bool {
         match &self.paths {

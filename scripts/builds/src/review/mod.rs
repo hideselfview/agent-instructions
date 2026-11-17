@@ -52,6 +52,7 @@ pub mod commits;
 #[cfg(test)]
 pub mod fakes;
 mod files;
+mod frequent;
 pub mod groups;
 pub mod landing;
 mod prompt;
@@ -92,6 +93,22 @@ pub fn default_rules_root() -> Result<PathBuf> {
         Some(home) => Ok(PathBuf::from(home).join(".codex/agent-instructions")),
         None => fail!("HOME is not set; name the checkout with --rules-root"),
     }
+}
+
+/// The section `builds help workflow` ends with: the kinds of findings the
+/// coordinator confirmed most often on the first reviews of the recent
+/// branches of the project that holds <cwd>'s repo (`frequent.rs`).
+pub fn workflow_section(places: &crate::places::Places, cwd: &Path) -> Result<String> {
+    let project = match Checkout::at(cwd)? {
+        Some(checkout) => project_of(places, &checkout)?,
+        None => None,
+    };
+    let Some(project) = project else {
+        return Ok("\n\nWHAT REVIEWS CONFIRM MOST OFTEN\n\nRun `builds help workflow` in a repo of a project with lists, and this\nsection lists the kinds of findings its reviews confirm most often.\n".to_string());
+    };
+    let conn = Store::named(places, &project)?.open_existing()?;
+    let rules = rules::load(&default_rules_root()?, Some(&project))?;
+    frequent::section(&conn, &project, &rules)
 }
 
 /// The file a review of the commits up to <head> holds locked while it runs,

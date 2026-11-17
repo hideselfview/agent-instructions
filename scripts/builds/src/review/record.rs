@@ -690,6 +690,51 @@ pub fn audited_landings(db: &Connection) -> Result<Vec<i64>> {
     rows.map(|row| row.sql()).collect()
 }
 
+/// The rule and clause of each confirmed finding on the first review run of
+/// each of the <last> branches opened last, newest branch first. A branch
+/// whose first run has no confirmed finding gives an empty list. A finding
+/// counts as its last settle, so one settled again as dropped is left out.
+pub fn confirmed_on_first_reviews(
+    db: &Connection,
+    last: usize,
+) -> Result<Vec<Vec<(String, String)>>> {
+    let mut statement = db
+        .prepare(
+            "SELECT r.id, f.rule, f.clause
+                FROM (SELECT MIN(id) AS id FROM review_run WHERE kind = 'review'
+                    GROUP BY landing_id ORDER BY id DESC LIMIT ?1) r
+                LEFT JOIN review_call c ON c.run_id = r.id
+                LEFT JOIN review_finding f ON f.call_id = c.id AND f.settled = 'confirmed'
+                    AND f.id NOT IN (SELECT finding_id FROM review_settle_again)
+                ORDER BY r.id DESC, f.id",
+        )
+        .sql()?;
+    let rows = statement
+        .query_map(params![last as i64], |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, Option<String>>(1)?,
+                row.get::<_, Option<String>>(2)?,
+            ))
+        })
+        .sql()?;
+    let mut reviews: Vec<(i64, Vec<(String, String)>)> = Vec::new();
+    for row in rows {
+        let (run, rule, clause) = row.sql()?;
+        if reviews.last().is_none_or(|(id, _)| *id != run) {
+            reviews.push((run, Vec::new()));
+        }
+        if let (Some(rule), Some(clause)) = (rule, clause) {
+            reviews
+                .last_mut()
+                .expect("pushed above")
+                .1
+                .push((rule, clause));
+        }
+    }
+    Ok(reviews.into_iter().map(|(_, findings)| findings).collect())
+}
+
 /// Moves a store's review tables from before reviews ran before landing to
 /// today's, with the statements taken from record.sql so the result equals a
 /// fresh database's: `review_landing` is made again with `landed_at` and
