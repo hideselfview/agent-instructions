@@ -450,6 +450,7 @@ pub fn run_of<'a>(case: &'a Case, at: i64, rules_version: &'a str) -> NewRun<'a>
         at,
         base: "",
         head: "",
+        since: None,
         commits: &[],
         grouping: "",
         rules_version,

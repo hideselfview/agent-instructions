@@ -8,13 +8,12 @@ description: Review a branch against the rules with `builds review` before it la
 No diff is reviewed more than once. Each change gets one review; the coordinator
 reads the fixes for its confirmed findings.
 
-`builds land` refuses commits in a repo of a project with lists unless each is
-one a finished review read or the named fix of one of its confirmed findings on
-a changed file. Commits whose changed paths no rule group covers need no review.
-Review each branch this way:
+`builds land` refuses commits in a repo of a project with lists unless a
+finished review has read the branch's net change as it is now. Commits whose
+changed paths no rule group covers need no review. Review each branch this way:
 
 - Run `builds review <worktree> [<base>] --item N` once, when the branch's work
-  is done, to review the worktree's commits past `<base>` (default
+  is done, to review the worktree's net change past `<base>` (default
   `origin/main`).
   - It runs one reviewer per group of rules (a folder of `rules/` each, in
     agent-instructions) and prints the findings by group, then a total line.
@@ -22,9 +21,9 @@ Review each branch this way:
     the other flags.
   - It ends with what `builds land` would say of these commits, and exits 1
     unless land would take them.
-  - A second run of the same change is refused. The one exception: when a group
-    gave no answer (its reviewer failed), a second run asks only those groups,
-    over the same diff.
+  - A second run of the same change is refused while the branch's net change
+    stays as the review read it. When a group gave no answer (its reviewer
+    failed), a second run asks only those groups, over the same diff.
 - Read each finding against the code and the rule clause it quotes, and settle
   it with `builds review settle <finding> confirmed|dropped --why <text>`.
   - The settled findings are the record of what reviews catch and miss: say in
@@ -36,23 +35,23 @@ Review each branch this way:
     against the same settled findings. Settle on what the code does, so the
     scores show what each rule catches and what it raises wrongly.
 - Have each confirmed finding fixed in a new commit.
-  - builds does not review the fix: read it yourself against its finding, and
-    send it back when it does not fix the finding or breaks a rule.
+  - Read the fix yourself against its finding, and send it back when it does not
+    fix the finding or breaks a rule.
   - Name it with `builds review fixed <finding> <sha>`, run in a checkout of the
     repo.
-- Run `builds land` with the reviewed commits and their named fixes in the
-  branch's own worktree, once its agent is done there.
-  - Land matches commits by a patch id of their added and removed lines alone,
-    so a rebase or cherry-pick that keeps those lines still counts, even when
-    the lines around them changed.
-  - A commit added after the review, a squash, or a commit whose added or
-    removed lines a rebase changed is new work, which land refuses, even when a
-    finding on its message names it as its fix. Run `builds review` in the
-    branch's worktree again: it reads those commits, and only those, as a new
-    run of the review. Settle that run's findings and name their fixes as for
-    the first run.
-- Run `builds review show <landing>` to list a change's review, the commits it
-  read, its findings, and how each was settled and fixed.
+- Run `builds review` in the branch's worktree again once the fixes are in, or
+  whenever land says the branch's net change differs from the one the review
+  read last (a commit added after the review, a squash that changed lines, or a
+  conflict's resolution).
+  - As a new run of the review, it reads only how the branch's net change
+    differs from the one the review's last run read, fix commits included, and
+    never main's commits that a rebase brings in. A rebase that keeps every line
+    the branch adds and removes leaves nothing to read.
+  - Settle that run's findings and name their fixes as for the first run.
+- Run `builds land` with the branch's commits in its own worktree, once its
+  agent is done there.
+- Run `builds review show <landing>` to list a change's review, each run's net
+  change, its findings, and how each was settled and fixed.
   - A review's key defaults to the worktree's branch, such as `branch:work`.
 
 Don't run one reviewer per rule yourself: `builds review` groups the rules.

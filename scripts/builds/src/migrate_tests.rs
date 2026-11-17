@@ -2011,12 +2011,120 @@ fn without_parts(mut schema: String, parts: &[&str]) -> String {
     schema
 }
 
+/// The schema text before a later review run read only how the branch's net
+/// change differs from the net change an earlier run read: `review_run`
+/// without `since_run`, and the review's comments as they read then.
+fn schema_before_net_change() -> String {
+    let mut schema = db::schema();
+    for (now, then) in [
+        (
+            "-- belongs to, each run with the net change it read, each reviewer call, its verdict",
+            "-- belongs to, each run and the commits it read, each reviewer call, its verdict",
+        ),
+        (
+            "-- of a landing that landed. A review run's base and head are the branch's net
+-- change as the run found it: the common ancestor with the base it reviews
+-- against, and the branch's head.
+",
+            "-- of a landing that landed.
+",
+        ),
+        (
+            "    -- For a review run that read only how the net change from base to head
+    -- differs from the net change an earlier run of its review read, that
+    -- earlier run; null for a run that read the whole net change.
+    since_run INTEGER REFERENCES review_run (id),
+",
+            "",
+        ),
+        (
+            "    CONSTRAINT review_run_review_has_a_landing CHECK (kind = 'replay' OR landing_id IS NOT NULL),
+    CONSTRAINT review_run_since_only_in_a_review CHECK (since_run IS NULL OR kind = 'review')
+",
+            "    CONSTRAINT review_run_review_has_a_landing CHECK (kind = 'replay' OR landing_id IS NOT NULL)
+",
+        ),
+        (
+            "-- The commits of the net change a review run found, in order, each with its
+-- patch id: `git patch-id --stable` of the commit's diff without context
+-- lines, so the id covers only the lines the commit adds and removes
+-- (commits.rs). A commit that changes nothing has no patch id, and the review
+-- records no row for it. `builds land` finds the review that a landing's
+-- commits belong to by these patch ids, and `review replay` finds a landed
+-- change's commits by them once its branch is gone.",
+            "-- The commits a review read, in order, each with its patch id: `git patch-id
+-- --stable` of the commit's diff without context lines, so the id covers only
+-- the lines the commit adds and removes (commits.rs). A commit that changes
+-- nothing has no patch id, and the review records no row for it. `builds land`
+-- matches the commits it lands to a run by these patch ids, so a rebase or a
+-- cherry-pick that keeps each commit's added and removed lines keeps its
+-- review.",
+        ),
+    ] {
+        assert_eq!(schema.matches(now).count(), 1, "{now}");
+        schema = schema.replacen(now, then, 1);
+    }
+    schema
+}
+
+#[test]
+fn the_net_change_stamp_is_the_schema_before_net_changes() {
+    assert_eq!(
+        db::stamp_of_text(&schema_before_net_change()),
+        BEFORE_NET_CHANGE_STAMP
+    );
+}
+
+/// A store from before a later review run read only the difference between
+/// net changes keeps each run, as one that read a whole net change, and
+/// equals a fresh schema.
+#[test]
+fn a_store_from_before_net_changes_keeps_its_runs_each_reading_a_whole_net_change() {
+    let scratch = Scratch::new("move-net-change");
+    let places = scratch.places();
+    let dir = places.lists.join("bae");
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join(DATABASE);
+    {
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(&schema_before_net_change()).unwrap();
+        conn.pragma_update(None, "user_version", BEFORE_NET_CHANGE_STAMP)
+            .unwrap();
+        crate::lists::project::plant(&conn, "repo", &[("name", "bae".to_string().into())]).unwrap();
+        let landing = crate::review::record::add_landing(&conn, "k", "bae", 5).unwrap();
+        conn.execute(
+            "INSERT INTO review_run (id, landing_id, kind, at, base, head, grouping, rules_version) VALUES (7, ?1, 'review', 6, 'b', 'h', 'g', '')",
+            [landing],
+        )
+        .unwrap();
+    }
+    migrate_stores(&places).unwrap();
+    let conn = db::open_reader(&path)
+        .unwrap()
+        .expect("opens under today's stamp");
+    assert_eq!(
+        db::schema_rows(&conn).unwrap(),
+        db::schema_rows(&db::memory()).unwrap()
+    );
+    let runs = crate::review::record::runs_of_landing(&conn, 1).unwrap();
+    assert_eq!(runs.len(), 1);
+    assert_eq!(
+        (
+            runs[0].id,
+            runs[0].base.as_str(),
+            runs[0].head.as_str(),
+            runs[0].since
+        ),
+        (7, "b", "h", None)
+    );
+}
+
 /// The schema text before the coordinator could settle a finding again:
 /// without the tables of second settles and of confirmed findings whose code
 /// is no longer in their branch's change, and with the review's header as it
 /// read then.
 fn schema_before_code_left() -> String {
-    let schema = db::schema();
+    let schema = schema_before_net_change();
     let start = schema
         .find("\n-- A second settle: the coordinator")
         .expect("the second settles' comment");
@@ -2113,6 +2221,7 @@ fn a_store_from_before_code_left_gains_the_tables_and_records_both() {
         at: 6,
         base: "b",
         head: "h",
+        since: None,
         commits: &[],
         grouping: "g",
         rules_version: "",

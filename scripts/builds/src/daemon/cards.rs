@@ -46,8 +46,9 @@ pub enum ReviewWait {
     ToSettle(usize),
     /// This many confirmed findings wait on a commit that fixes them.
     Unfixed(usize),
-    /// This many commits are neither ones the review read nor named fixes of
-    /// findings on a changed file: `builds review` reviews them in a new run.
+    /// The branch's net change differs in this many files from the net change
+    /// the review read last: `builds review` reads that difference in a new
+    /// run.
     Unreviewed(usize),
 }
 
@@ -59,7 +60,7 @@ impl ReviewWait {
             ReviewWait::Running => "Reviewing",
             ReviewWait::ToSettle(_) => "Findings to settle",
             ReviewWait::Unfixed(_) => "Waiting on fixes",
-            ReviewWait::Unreviewed(_) => "Unreviewed commits",
+            ReviewWait::Unreviewed(_) => "Unreviewed changes",
         }
     }
 
@@ -70,7 +71,7 @@ impl ReviewWait {
             ReviewWait::ToSettle(n) | ReviewWait::Unfixed(n) => {
                 crate::text::counted(n, "finding", "findings")
             }
-            ReviewWait::Unreviewed(n) => crate::text::counted(n, "commit", "commits"),
+            ReviewWait::Unreviewed(n) => crate::text::counted(n, "file", "files"),
         };
         Some(Pill {
             text,
@@ -98,9 +99,9 @@ impl ReviewWait {
                 findings(n, "confirmed review"),
                 if n == 1 { "it" } else { "them" }
             ),
-            ReviewWait::Unreviewed(1) => "The review did not read 1 commit, and no finding names it as a fix: builds review reviews it in a new run.".to_string(),
+            ReviewWait::Unreviewed(1) => "The branch's change differs in 1 file from the change the review read: builds review reads that difference in a new run.".to_string(),
             ReviewWait::Unreviewed(n) => format!(
-                "The review did not read {n} commits, and no finding names them as fixes: builds review reviews them in a new run."
+                "The branch's change differs in {n} files from the change the review read: builds review reads that difference in a new run."
             ),
         }
     }

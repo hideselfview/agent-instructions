@@ -75,6 +75,7 @@ fn run(id: i64, kind: &str, head: &str) -> RunRow {
         kind: kind.to_string(),
         base: "b".to_string(),
         head: head.to_string(),
+        since: None,
         grouping: "g".to_string(),
         rules_version: "abc".to_string(),
     }
@@ -424,6 +425,7 @@ fn a_finding_settled_again_counts_as_dropped_and_one_whose_code_left_as_confirme
         at: 6,
         base: "b",
         head: "h",
+        since: None,
         commits: &[],
         grouping: "g",
         rules_version: "",

@@ -113,7 +113,8 @@ fn a_card_follows_the_review_from_none_to_findings_to_fixes_and_says_nothing_onc
     fake.answer("alpha", &[("rule-a", None)]);
     review(&demo, &fake.root, &fake.program, &clean, "branch:clean");
     assert_eq!(standing(&reads, &demo, &clean), None);
-    // A commit added after its review is new work, which lands on its own.
+    // A commit added after its review changes the branch's net change in one
+    // file, which a new run of the review reads.
     demo.commit(&clean, "c.rs");
     assert_eq!(
         standing(&reads, &demo, &clean),

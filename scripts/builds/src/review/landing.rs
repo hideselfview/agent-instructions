@@ -9,34 +9,33 @@
 //! DIR is the worktree builds land runs in, and the SHAs are the commits its
 //! caller passed to `builds land`. The review reads each diff only once. Each
 //! change gets one review; the coordinator reads the fixes for its confirmed
-//! findings. So check-landing takes a landing's commits when one change's
-//! review covers them: each commit whose paths a group's rules cover is either
-//! one the review read, matched by the patch id of its added and removed lines
-//! (`commits.rs`) so that a rebase or a cherry-pick that keeps those lines
-//! keeps its review, or the fix the coordinator named for one of the review's
-//! confirmed findings on a changed file (`Coverage`, which `builds review`
-//! uses too). A fix of a finding on the commit messages is a reviewed commit
-//! with a new message, so the review covers it only when a run read its added
-//! and removed lines. Every group that covers a path a reviewed commit
-//! changes must have answered over it, the coordinator must have settled every
-//! finding, and every confirmed finding on the commits landed must name a fix
-//! among them. A finding is on a commit that changes its file, and a finding
-//! on the commit messages is on the commit whose message holds its quote. A
-//! confirmed finding on a changed file that names no fix needs none when
-//! builds finds its quoted code in no line of the branch's change past
-//! origin/main, as when the agent dropped the commit that added it. check-landing
-//! and `builds review` record such a finding (`CodeCheck`), and from then on
-//! it blocks no landing. A
-//! finding on a commit that an earlier landing pushed belongs to that landing,
-//! so a branch can land in parts. A commit that the review did not read and
-//! that no finding on a changed file names as its fix waits for `builds
-//! review`, which reads it as a new run of the review. A landing whose changed
-//! paths no group covers needs no review.
+//! findings. A change's review is the one whose runs read one of the
+//! commits, matched by the patch id of its added and removed lines
+//! (`commits.rs`), or name one as a fix. check-landing takes the commits when
+//! the review's runs have read the branch's net change as it is now: the net
+//! change of DIR's HEAD past origin/main differs from the net change the
+//! review's last run read on no path a group's rules cover (`run::diff_since`,
+//! which `builds review` reads as its next run). So a rebase that keeps every
+//! line the branch adds and removes keeps the review, and so does a cherry-pick
+//! of the reviewed commits onto a moved main. land checks the net change, not
+//! each commit. Every group asked over a diff a run read must have answered
+//! over it (`Coverage`, which `builds review` uses too), the coordinator must
+//! have settled every finding, and every confirmed finding on the commits
+//! landed must name a fix among them. A finding is on a commit that changes
+//! its file, and a finding on the commit messages is on the commit whose
+//! message holds its quote. A confirmed finding on a changed file that names
+//! no fix needs none when builds finds its quoted code in no line of the
+//! branch's change past origin/main, as when the agent dropped the commit that
+//! added it. check-landing and `builds review` record such a finding
+//! (`CodeCheck`), and from then on it blocks no landing. A finding on a commit
+//! that an earlier landing pushed belongs to that landing, so a branch can land
+//! in parts. A landing whose changed paths no group covers needs no review.
 //!
 //! `landed` records the commits pushed. A branch lands in parts: while its
 //! commits still wait to land (`--more-to-land`), its landing stays open, so
-//! a later review of the branch reads only the commits no run read and a
-//! finding on a commit not yet landed still takes a fix. A finding whose fix a
+//! a later review of the branch reads only how its net change differs from
+//! the one the review read last, and a finding on a commit not yet landed
+//! still takes a fix. A finding whose fix a
 //! push landed needs no fix in a later part. The push that leaves the branch
 //! nothing to land records the landing as landed with the change's review
 //! run, then decides whether to audit it (`audit.rs`) and, when the sample
@@ -109,15 +108,17 @@ pub struct Covered {
     pub code_left: Option<CodeLeft>,
 }
 
-/// Where `judge` looks for the quoted code of a confirmed finding on a changed
-/// file that names no fix.
+/// What `judge` reads besides the records: the branch's net change, or
+/// nothing.
 #[derive(Clone, Copy, Debug)]
 pub enum CodeCheck<'a> {
-    /// Only in the records: `review landed` runs after the push, which moved
-    /// origin/main.
+    /// Only the records: `review landed` runs after the push, which moved
+    /// origin/main, and check-landing read the branch before the push.
     Records,
-    /// In the change of this commit past origin/main too: a finding whose code
-    /// no line of that change holds needs no fix.
+    /// The net change of this commit past origin/main too: whether it differs
+    /// from the net change the review read last, and whether it still holds
+    /// the quoted code of each confirmed finding on a changed file that names
+    /// no fix. A finding whose code no line of that change holds needs no fix.
     Branch(&'a str),
 }
 
@@ -136,12 +137,11 @@ pub struct CodeLeft {
 /// What a covering review still lacks.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Unfinished {
-    /// Groups that cover a path a reviewed commit changes and gave no answer
-    /// over it.
+    /// Groups asked over a diff a run read that gave no answer over it.
     pub unanswered: Vec<String>,
-    /// Commits the review did not read that no confirmed finding on a changed
-    /// file names as its fix.
-    pub unreviewed: Vec<Commit>,
+    /// The paths a group's rules cover where the branch's net change differs
+    /// from the net change the review's last run read.
+    pub unreviewed: Vec<String>,
     /// Findings nobody settled.
     pub unsettled: Vec<record::Finding>,
     /// Confirmed findings on the commits that name no fix.
@@ -186,9 +186,8 @@ fn shas(commits: &[Commit]) -> String {
         .join(" ")
 }
 
-/// The review runs of <landing>, oldest first, each with the commits it read.
-/// A change has one; a store from before that rule may hold more, and a run
-/// that asks only the groups that gave no answer reads the review's commits.
+/// The review runs of <landing>, oldest first, each with the commits of the
+/// net change it read.
 pub fn review_runs(db: &Connection, landing: i64) -> Result<Vec<(record::RunRow, Vec<Commit>)>> {
     let mut runs = Vec::new();
     for run in record::runs_of_landing(db, landing)? {
@@ -201,14 +200,14 @@ pub fn review_runs(db: &Connection, landing: i64) -> Result<Vec<(record::RunRow,
 }
 
 /// What a change's review read, and the commits it names as fixes. `builds
-/// review` and `builds land` both decide from it which commits need a new run
-/// of the review, so the two never disagree.
+/// review` and `builds land` both decide from it what the review has yet to
+/// read, so the two never disagree.
 pub struct Coverage {
-    /// The review runs, oldest first, each with the commits it read.
+    /// The review runs, oldest first, each with the commits of the net change
+    /// it read.
     pub runs: Vec<(record::RunRow, Vec<Commit>)>,
-    /// The patch id of each confirmed finding's named fix, and whether the
-    /// finding is on the commit messages.
-    fixes: Vec<(String, bool)>,
+    /// The patch id of each confirmed finding's named fix.
+    fixes: Vec<String>,
 }
 
 impl Coverage {
@@ -217,10 +216,7 @@ impl Coverage {
         let fixes = record::findings_of_landing(db, landing)?
             .into_iter()
             .filter(|f| f.kind == "review" && f.counts() && f.settled_as("confirmed"))
-            .filter_map(|f| {
-                let on_message = f.file == files::COMMIT_MESSAGE;
-                f.fix.map(|fix| (fix.patch_id, on_message))
-            })
+            .filter_map(|f| f.fix.map(|fix| fix.patch_id))
             .collect();
         Ok(Coverage {
             runs: review_runs(db, landing)?,
@@ -228,32 +224,93 @@ impl Coverage {
         })
     }
 
-    /// The runs that read <commit>'s added and removed lines.
-    pub fn runs_reading(&self, commit: &Commit) -> Vec<i64> {
+    /// Whether <commit> belongs to this review: a run read its added and
+    /// removed lines as part of a net change, or a confirmed finding names it
+    /// as its fix.
+    fn knows(&self, commit: &Commit) -> bool {
         self.runs
             .iter()
-            .filter(|(_, read)| read.iter().any(|c| c.patch_id == commit.patch_id))
-            .map(|(run, _)| run.id)
-            .collect()
+            .any(|(_, read)| read.iter().any(|c| c.patch_id == commit.patch_id))
+            || self.fixes.contains(&commit.patch_id)
     }
 
-    /// Whether a new run of the review must read <commit>: no run read its
-    /// added and removed lines, and no confirmed finding on a changed file
-    /// names it as its fix. A fix of a finding on the commit messages is a reviewed commit
-    /// with a new message, so it needs a review when a rebase changed the
-    /// lines it adds or removes, as any reviewed commit does.
-    pub fn needs_review(&self, commit: &Commit) -> bool {
-        self.runs_reading(commit).is_empty()
-            && !self
-                .fixes
+    /// The runs that read a diff no earlier run read, oldest first. A run that
+    /// asks only the groups that gave an earlier run no answer reads that
+    /// run's diff again.
+    fn first_reads(&self) -> impl Iterator<Item = &record::RunRow> {
+        self.runs.iter().enumerate().filter_map(|(at, (run, _))| {
+            (!self.runs[..at]
                 .iter()
-                .any(|(fix, on_message)| !on_message && *fix == commit.patch_id)
+                .any(|(earlier, _)| earlier.same_diff(run)))
+            .then_some(run)
+        })
     }
 
-    /// Whether a run read <commit> or a confirmed finding names it as its fix.
-    fn knows(&self, commit: &Commit) -> bool {
-        !self.runs_reading(commit).is_empty()
-            || self.fixes.iter().any(|(fix, _)| *fix == commit.patch_id)
+    /// The run whose net change the review read last: the newest run that
+    /// read a diff no earlier run read.
+    pub fn last_read(&self) -> Option<&record::RunRow> {
+        self.first_reads().last()
+    }
+
+    /// The commits of the net change <run> read.
+    pub fn commits_of(&self, run: i64) -> &[Commit] {
+        self.runs
+            .iter()
+            .find(|(r, _)| r.id == run)
+            .map(|(_, read)| read.as_slice())
+            .unwrap_or_default()
+    }
+
+    /// For each diff a run read whose groups did not all answer over it, the
+    /// first run that read it and the groups asked over it that no run of
+    /// that diff answered for, oldest first. <calls> are the review's calls.
+    pub fn unanswered(&self, calls: &[record::Call]) -> Vec<(&record::RunRow, Vec<String>)> {
+        let mut found = Vec::new();
+        for first in self.first_reads() {
+            let over: Vec<&record::Call> = calls
+                .iter()
+                .filter(|c| {
+                    self.runs
+                        .iter()
+                        .any(|(run, _)| run.id == c.run_id && run.same_diff(first))
+                })
+                .collect();
+            let mut missing: Vec<String> = Vec::new();
+            for call in &over {
+                let answered = over
+                    .iter()
+                    .any(|c| c.group == call.group && c.failure.is_none());
+                if !answered && !missing.contains(&call.group) {
+                    missing.push(call.group.clone());
+                }
+            }
+            if !missing.is_empty() {
+                found.push((first, missing));
+            }
+        }
+        found
+    }
+
+    /// The diff <run> read, in the repo at <dir>, from a copy of its head's
+    /// files: its whole net change, or how that net change differs from the
+    /// net change of the earlier run it names.
+    pub fn diff_of(&self, dir: &Path, run: &record::RunRow) -> Result<run::Diff> {
+        let mut diff = match run.since {
+            None => run::diff_between(dir, &run.base, &run.head)?,
+            Some(since) => {
+                let Some((earlier, _)) = self.runs.iter().find(|(r, _)| r.id == since) else {
+                    fail!(
+                        "run {} read the difference from run {since}, which is not a run of its review",
+                        run.id
+                    );
+                };
+                run::diff_since(dir, &earlier.base, &earlier.head, &run.base, &run.head)?
+            }
+        };
+        if let Some(source) = &mut diff.source {
+            source.in_place = false;
+        }
+        Ok(diff)
     }
 }
 
@@ -296,15 +353,16 @@ fn on_commits(
 }
 
 /// What <landing>'s review says of <needs>, commits of the repo at <dir>,
-/// looking for the code of confirmed findings with no fix as <check> says;
-/// None when its review neither read nor names as a fix any of the commits
-/// that need one.
+/// reading the branch as <check> says and picking the groups of a path with
+/// <groups_for>; None when its review neither read nor names as a fix any of
+/// the commits that need one.
 fn assess(
     db: &Connection,
     dir: &Path,
     landing: &LandingRow,
     needs: &[Need],
     check: CodeCheck,
+    groups_for: &dyn Fn(&[String]) -> Vec<String>,
 ) -> Result<Option<(Covered, Unfinished)>> {
     let covered_paths = || needs.iter().filter(|n| !n.groups.is_empty());
     let coverage = Coverage::of(db, landing.id)?;
@@ -312,13 +370,9 @@ fn assess(
         return Ok(None);
     }
     let runs = &coverage.runs;
-    let Some(newest) = runs.last().map(|(run, _)| run.id) else {
+    let Some(last) = coverage.last_read() else {
         return Ok(None);
     };
-    let answers: Vec<record::Call> = record::calls_of_landing(db, landing.id)?
-        .into_iter()
-        .filter(|c| c.failure.is_none())
-        .collect();
     let findings: Vec<record::Finding> = record::findings_of_landing(db, landing.id)?
         .into_iter()
         .filter(|f| f.kind == "review" && f.counts())
@@ -352,24 +406,21 @@ fn assess(
         }
     }
     let mut unfinished = Unfinished::default();
-    for need in covered_paths() {
-        if coverage.needs_review(&need.commit) {
-            unfinished.unreviewed.push(need.commit.clone());
-            continue;
-        }
-        let runs = coverage.runs_reading(&need.commit);
-        if runs.is_empty() {
-            // A named fix that no run read: no group answers over it.
-            continue;
-        }
-        for group in &need.groups {
-            let answered = answers
-                .iter()
-                .any(|c| &c.group == group && runs.contains(&c.run_id));
-            if !answered && !unfinished.unanswered.contains(group) {
-                unfinished.unanswered.push(group.clone());
+    let calls = record::calls_of_landing(db, landing.id)?;
+    for (_, groups) in coverage.unanswered(&calls) {
+        for group in groups {
+            if !unfinished.unanswered.contains(&group) {
+                unfinished.unanswered.push(group);
             }
         }
+    }
+    if let CodeCheck::Branch(head) = check {
+        let since = run::diff_since(dir, &last.base, &last.head, BRANCH_BASE, head)?;
+        unfinished.unreviewed = since
+            .changed
+            .into_iter()
+            .filter(|path| !groups_for(std::slice::from_ref(path)).is_empty())
+            .collect();
     }
     let patches: Vec<&str> = needs.iter().map(|n| n.commit.patch_id.as_str()).collect();
     unfinished.unsettled = findings
@@ -413,7 +464,7 @@ fn assess(
         .collect();
     let covered = Covered {
         landing: landing.clone(),
-        run: landing.landed_run.unwrap_or(newest),
+        run: landing.landed_run.unwrap_or(last.id),
         code_left,
     };
     Ok(Some((covered, unfinished)))
@@ -426,20 +477,22 @@ fn assess(
 /// the newest open change whose review read one of them says what it lacks.
 /// A change that landed already covers them only when its review takes them
 /// all, as its records say, so `landed` can run again after the push. <check>
-/// says where to look for the code of a confirmed finding with no fix.
+/// says whether to read the branch's net change, and <groups_for> picks the
+/// groups whose rules cover a path.
 pub fn judge(
     db: &Connection,
     repo: &str,
     dir: &Path,
     needs: &[Need],
     check: CodeCheck,
+    groups_for: &dyn Fn(&[String]) -> Vec<String>,
 ) -> Result<Verdict> {
     if needs.iter().all(|n| n.groups.is_empty()) {
         return Ok(Verdict::NotNeeded);
     }
     let mut lacking: Option<(Covered, Unfinished)> = None;
     for landing in record::landings_of_repo(db, repo, false)? {
-        if let Some((covered, unfinished)) = assess(db, dir, &landing, needs, check)? {
+        if let Some((covered, unfinished)) = assess(db, dir, &landing, needs, check, groups_for)? {
             if unfinished.is_empty() {
                 return Ok(Verdict::Takes(covered));
             }
@@ -450,7 +503,8 @@ pub fn judge(
         return Ok(Verdict::Unfinished(covered, unfinished));
     }
     for landing in record::landings_of_repo(db, repo, true)? {
-        if let Some((covered, unfinished)) = assess(db, dir, &landing, needs, CodeCheck::Records)?
+        if let Some((covered, unfinished)) =
+            assess(db, dir, &landing, needs, CodeCheck::Records, groups_for)?
             && unfinished.is_empty()
         {
             return Ok(Verdict::Takes(covered));
@@ -480,7 +534,7 @@ pub fn refusal(commits: &[Commit], verdict: &Verdict) -> Option<String> {
     );
     for group in &unfinished.unanswered {
         text.push_str(&format!(
-            "group {group} covers a path a reviewed commit changes and gave no answer over it\n"
+            "group {group} gave no answer over a diff the review read\n"
         ));
     }
     if !unfinished.unanswered.is_empty() {
@@ -489,14 +543,13 @@ pub fn refusal(commits: &[Commit], verdict: &Verdict) -> Option<String> {
         );
     }
     if !unfinished.unreviewed.is_empty() {
-        for commit in &unfinished.unreviewed {
-            text.push_str(&format!(
-                "commit {} is not one the review read, and no confirmed finding on a changed file names it as its fix\n",
-                short(&commit.sha)
-            ));
-        }
         text.push_str(&format!(
-            "{ONE_REVIEW} No run of the review read a commit added after the review, or one whose added or removed lines a rebase changed. Run builds review in the branch's worktree: it reads those commits as a new run of the review. A commit that fixes a confirmed finding on a changed file needs no review: read it against the finding and name it with builds review fixed <finding> <sha>. A commit named as the fix of a finding on its message needs a review when no run read its added and removed lines.\n"
+            "the branch's net change differs from the net change run {} read in {}\n",
+            covered.run,
+            unfinished.unreviewed.join(", ")
+        ));
+        text.push_str(&format!(
+            "{ONE_REVIEW} Run builds review in the branch's worktree: as a new run of the review, it reads only how the branch's net change differs from the one the review read last, fix commits included. A rebase that keeps every line the branch adds and removes leaves nothing to read.\n"
         ));
     }
     if !unfinished.unsettled.is_empty() {
@@ -539,6 +592,7 @@ struct Asked {
     dir: PathBuf,
     needs: Vec<Need>,
     root: PathBuf,
+    material: Material,
 }
 
 impl Asked {
@@ -569,6 +623,7 @@ fn ask(tool: &Tool, args: &Args) -> Result<Asked> {
         dir: checkout.top.clone(),
         needs,
         root,
+        material,
     })
 }
 
@@ -585,6 +640,7 @@ pub fn check_landing_command(tool: &Tool, args: &[String]) -> Result<()> {
         &asked.dir,
         &asked.needs,
         CodeCheck::Branch("HEAD"),
+        &|paths| asked.material.group_names(paths),
     )?;
     let recorded = record_code_left(&asked.store, &verdict, || {
         Stamp::resolve(tool.now, &args, &asked.dir)
@@ -647,7 +703,7 @@ pub fn record_code_left(
 pub fn taken(verdict: &Verdict) -> String {
     match verdict {
         Verdict::Takes(covered) => format!(
-            "review landing {} ({}), reviewed by run {}, takes these commits: a run of the review read each one, or the coordinator named it as the fix of a confirmed finding on a changed file, and the coordinator settled every finding",
+            "review landing {} ({}), reviewed by run {}, takes these commits: its runs read the branch's net change as it is now, and the coordinator settled every finding",
             covered.landing.id, covered.landing.key, covered.run
         ),
         _ => "no group's rules cover the changed paths: the landing needs no review".to_string(),
@@ -668,6 +724,7 @@ fn record_landed(asked: &Asked, stamp: &Stamp, more: bool) -> Result<Option<i64>
         &asked.dir,
         &asked.needs,
         CodeCheck::Records,
+        &|paths| asked.material.group_names(paths),
     )?;
     if let Some(why) = refusal(&asked.commits(), &verdict) {
         fail!("the review does not take these commits:\n{why}")

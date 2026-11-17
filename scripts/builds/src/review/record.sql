@@ -1,5 +1,5 @@
 -- Every review of a change against the rules (`builds review`): the landing it
--- belongs to, each run and the commits it read, each reviewer call, its verdict
+-- belongs to, each run with the net change it read, each reviewer call, its verdict
 -- for every rule, each finding with how the coordinator settled it, the
 -- commit that fixed a confirmed finding, and each confirmed finding whose
 -- code is no longer in its branch's change. record.rs owns these tables and is
@@ -21,7 +21,9 @@ CREATE TABLE review_landing (
 CREATE INDEX review_landing_key ON review_landing (key);
 
 -- One run over a diff: a landing's review, a replay of a test case, or an audit
--- of a landing that landed.
+-- of a landing that landed. A review run's base and head are the branch's net
+-- change as the run found it: the common ancestor with the base it reviews
+-- against, and the branch's head.
 CREATE TABLE review_run (
     id INTEGER PRIMARY KEY,
     landing_id INTEGER REFERENCES review_landing (id),
@@ -31,11 +33,16 @@ CREATE TABLE review_run (
     at INTEGER NOT NULL,
     base TEXT NOT NULL,
     head TEXT NOT NULL,
+    -- For a review run that read only how the net change from base to head
+    -- differs from the net change an earlier run of its review read, that
+    -- earlier run; null for a run that read the whole net change.
+    since_run INTEGER REFERENCES review_run (id),
     -- A hash of the groups file the run used, so a change of grouping shows in the record.
     grouping TEXT NOT NULL,
     -- The commit of the rules checkout the run read, empty when it is no repo.
     rules_version TEXT NOT NULL,
-    CONSTRAINT review_run_review_has_a_landing CHECK (kind = 'replay' OR landing_id IS NOT NULL)
+    CONSTRAINT review_run_review_has_a_landing CHECK (kind = 'replay' OR landing_id IS NOT NULL),
+    CONSTRAINT review_run_since_only_in_a_review CHECK (since_run IS NULL OR kind = 'review')
 ) STRICT;
 CREATE INDEX review_run_landing ON review_run (landing_id);
 
@@ -129,13 +136,13 @@ CREATE TABLE review_finding (
 ) STRICT;
 CREATE INDEX review_finding_call ON review_finding (call_id);
 
--- The commits a review read, in order, each with its patch id: `git patch-id
--- --stable` of the commit's diff without context lines, so the id covers only
--- the lines the commit adds and removes (commits.rs). A commit that changes
--- nothing has no patch id, and the review records no row for it. `builds land`
--- matches the commits it lands to a run by these patch ids, so a rebase or a
--- cherry-pick that keeps each commit's added and removed lines keeps its
--- review.
+-- The commits of the net change a review run found, in order, each with its
+-- patch id: `git patch-id --stable` of the commit's diff without context
+-- lines, so the id covers only the lines the commit adds and removes
+-- (commits.rs). A commit that changes nothing has no patch id, and the review
+-- records no row for it. `builds land` finds the review that a landing's
+-- commits belong to by these patch ids, and `review replay` finds a landed
+-- change's commits by them once its branch is gone.
 CREATE TABLE review_commit (
     run_id INTEGER NOT NULL REFERENCES review_run (id),
     position INTEGER NOT NULL CONSTRAINT review_commit_position_not_negative CHECK (position >= 0),

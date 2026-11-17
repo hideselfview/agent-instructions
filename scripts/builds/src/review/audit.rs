@@ -301,6 +301,7 @@ pub fn audit(inputs: &Inputs) -> Result<String> {
                             at: stamp.at,
                             base: &last.base,
                             head: &last.head,
+                            since: None,
                             commits: &[],
                             grouping: &material.grouping,
                             rules_version: &run::rules_version(inputs.root),

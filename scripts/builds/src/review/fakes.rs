@@ -11,6 +11,19 @@ pub struct Fake {
     pub program: PathBuf,
 }
 
+/// The text of a file of ten lines, "one" to "ten", with line <at> (from 1)
+/// replaced by <line> for each pair of <changes>: the file the tests of a
+/// rebase change on main and on a branch.
+pub fn ten_lines(changes: &[(usize, &str)]) -> String {
+    let mut lines = vec![
+        "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten",
+    ];
+    for (at, line) in changes {
+        lines[at - 1] = line;
+    }
+    format!("{}\n", lines.join("\n"))
+}
+
 /// Writes the `group.toml` of folder <dir>, with <extra> lines after the model.
 pub fn group_file(root: &Path, dir: &str, name: &str, model: &str, extra: &str) {
     std::fs::write(

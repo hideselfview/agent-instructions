@@ -523,10 +523,10 @@ fn commits_whose_rules_review_is_not_finished_are_in_review_and_the_card_says_wh
     assert_eq!(
         said(ReviewWait::Unreviewed(2)),
         (
-            "Unreviewed commits",
+            "Unreviewed changes",
             pill(
-                "2 commits",
-                "The review did not read 2 commits, and no finding names them as fixes: builds review reviews them in a new run."
+                "2 files",
+                "The branch's change differs in 2 files from the change the review read: builds review reads that difference in a new run."
             )
         )
     );

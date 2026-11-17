@@ -5,10 +5,12 @@
 //! reviewers get no brief, since the store does not keep it apart from the
 //! prompt.
 //!
-//! A run's diff is read from its base and head when the repo still has both
-//! commits. Otherwise it is read from the commits of the repo's history whose
-//! patch ids are the run's, one after another, so a landed change whose branch
-//! is gone still replays.
+//! A run's diff is its net change, or how that net change differs from the
+//! net change of the earlier run it names (`run::diff_since`). A net change is
+//! read from the run's base and head when the repo still has both commits.
+//! Otherwise builds reads it from the commits of the repo's history whose
+//! patch ids are those of the run's commits, one after another, so a landed
+//! change whose branch is gone still replays.
 
 use std::path::Path;
 
@@ -19,7 +21,7 @@ use crate::lists::store::Store;
 use crate::review::audit::candidate_misses;
 use crate::review::commits::{self, Commit};
 use crate::review::prompt;
-use crate::review::record::{self, Call, Finding, Kind, NewRun, Verdict};
+use crate::review::record::{self, Call, Finding, Kind, NewRun, RunRow, Verdict};
 use crate::review::render;
 use crate::review::run::{self, Diff, Material};
 use crate::review::score::{self, Scores};
@@ -78,11 +80,10 @@ pub fn replay(inputs: &Inputs) -> Result<Replayed> {
             .into_iter()
             .filter(|f| f.settled.is_some())
             .collect();
-        let mut diffs: Vec<(&str, &str)> = Vec::new();
+        let mut diffs: Vec<&RunRow> = Vec::new();
         for run in runs.iter().filter(|r| r.kind == "review") {
-            let diff = (run.base.as_str(), run.head.as_str());
-            if !diffs.contains(&diff) {
-                diffs.push(diff);
+            if !diffs.iter().any(|d| d.same_diff(run)) {
+                diffs.push(run);
             }
         }
         if diffs.is_empty() {
@@ -90,21 +91,21 @@ pub fn replay(inputs: &Inputs) -> Result<Replayed> {
                 "landing {landing} ({key}) has no review to replay\n"
             ));
         }
-        for (base, head) in diffs {
+        for first in diffs {
             // The review runs over this diff: one, or more when a run asked
             // only the groups that gave the first no answer.
             let over: Vec<i64> = runs
                 .iter()
-                .filter(|r| r.kind == "review" && r.base == base && r.head == head)
+                .filter(|r| r.kind == "review" && r.same_diff(first))
                 .map(|r| r.id)
                 .collect();
+            // An audit reads the net change of the run its landing landed with.
             let on_diff = |run: i64| {
                 runs.iter()
-                    .any(|r| r.id == run && r.base == base && r.head == head)
+                    .any(|r| r.id == run && r.base == first.base && r.head == first.head)
             };
-            let label = format!("landing {landing} run {}", over[0]);
-            let read = record::commits_of_run(&conn, over[0])?;
-            let diff = match diff_of(inputs.repo_dir, base, head, &read) {
+            let label = format!("landing {landing} run {}", first.id);
+            let diff = match diff_of(&conn, inputs.repo_dir, &runs, first) {
                 Ok(diff) => diff,
                 Err(why) => {
                     text.push_str(&format!("{label} ({key}): not replayed: {}\n", why.text()));
@@ -146,6 +147,7 @@ pub fn replay(inputs: &Inputs) -> Result<Replayed> {
                                 at: stamp.at,
                                 base: &diff.base,
                                 head: &diff.head,
+                                since: None,
                                 commits: &[],
                                 grouping: &material.grouping,
                                 rules_version: &rules_version,
@@ -229,20 +231,43 @@ fn short(rev: &str) -> &str {
     &rev[..rev.len().min(10)]
 }
 
-/// The diff a run read: <base>...<head> in <repo> when it has both commits,
-/// else the commits of <repo>'s history that carry <read>'s patch ids. The
+/// The diff <run>, one of <runs>, read in <repo>: its net change, or how its
+/// net change differs from the net change of the earlier run it names. The
 /// reviewers read a copy of the files at its head.
-fn diff_of(repo: &Path, base: &str, head: &str, read: &[Commit]) -> Result<Diff> {
-    let (base, head) = if commits::exists(repo, base) && commits::exists(repo, head) {
-        (base.to_string(), head.to_string())
-    } else {
-        landed(repo, read)?
+fn diff_of(
+    conn: &rusqlite::Connection,
+    repo: &Path,
+    runs: &[RunRow],
+    run: &RunRow,
+) -> Result<Diff> {
+    let (base, head) = net_change(conn, repo, run)?;
+    let mut diff = match run.since {
+        None => run::diff_between(repo, &base, &head)?,
+        Some(since) => {
+            let Some(earlier) = runs.iter().find(|r| r.id == since) else {
+                fail!(
+                    "run {} read the difference from run {since}, which is not a run of its landing",
+                    run.id
+                );
+            };
+            let (read_base, read_head) = net_change(conn, repo, earlier)?;
+            run::diff_since(repo, &read_base, &read_head, &base, &head)?
+        }
     };
-    let mut diff = run::diff_between(repo, &base, &head)?;
     if let Some(source) = &mut diff.source {
         source.in_place = false;
     }
     Ok(diff)
+}
+
+/// The base and head of <run>'s net change in <repo>: the run's own when the
+/// repo has both commits, else those of the commits of <repo>'s history that
+/// carry the patch ids of the run's commits.
+fn net_change(conn: &rusqlite::Connection, repo: &Path, run: &RunRow) -> Result<(String, String)> {
+    if commits::exists(repo, &run.base) && commits::exists(repo, &run.head) {
+        return Ok((run.base.clone(), run.head.clone()));
+    }
+    landed(repo, &record::commits_of_run(conn, run.id)?)
 }
 
 /// The base and head of the commits among <repo>'s newest that carry <read>'s

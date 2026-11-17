@@ -1,7 +1,8 @@
 //! What reviews wrote down, in the tables of `record.sql`: this file is the
 //! only code that writes them. A change under review keeps one landing, found
-//! by its key, until it lands; a run holds the commits it read
-//! and one call per group, a call holds a verdict for every rule and the
+//! by its key, until it lands; a run holds the net change it read, the
+//! earlier run whose net change it read the difference from, the commits of
+//! that net change and one call per group, a call holds a verdict for every rule and the
 //! findings; the coordinator settles a finding as confirmed or dropped, names
 //! the commit that fixed a confirmed one, and may settle a confirmed finding
 //! with no fix again, as dropped. builds records a confirmed finding with no
@@ -262,8 +263,11 @@ pub struct NewRun<'a> {
     pub at: i64,
     pub base: &'a str,
     pub head: &'a str,
-    /// The commits a review read, with their patch ids; none for a replay or
-    /// an audit.
+    /// For a review run that reads only how the net change from base to head
+    /// differs from the net change an earlier run read, that earlier run.
+    pub since: Option<i64>,
+    /// The commits of the net change a review read, with their patch ids;
+    /// none for a replay or an audit.
     pub commits: &'a [Commit],
     /// A hash of the groups' settings and rules the run used.
     pub grouping: &'a str,
@@ -296,8 +300,8 @@ fn keep_text(db: &Connection, text: &str) -> Result<String> {
 /// and, per call in order, the ids its findings got.
 pub fn add_run(db: &Connection, run: &NewRun, calls: &[NewCall]) -> Result<(i64, Vec<Vec<i64>>)> {
     db.execute(
-        "INSERT INTO review_run (landing_id, kind, label, at, base, head, grouping, rules_version) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-        params![run.landing, run.kind.word(), run.label, run.at, run.base, run.head, run.grouping, run.rules_version],
+        "INSERT INTO review_run (landing_id, kind, label, at, base, head, since_run, grouping, rules_version) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+        params![run.landing, run.kind.word(), run.label, run.at, run.base, run.head, run.since, run.grouping, run.rules_version],
     )
     .sql()?;
     let run_id = db.last_insert_rowid();
@@ -727,15 +731,26 @@ pub struct RunRow {
     pub kind: String,
     pub base: String,
     pub head: String,
+    /// The earlier run whose net change a review run read the difference
+    /// from; None for a run that read the whole net change.
+    pub since: Option<i64>,
     pub grouping: String,
     /// The commit of the rules checkout the run read.
     pub rules_version: String,
 }
 
+impl RunRow {
+    /// Whether this run and <other> read the same diff: the same net change,
+    /// read whole or as the difference from the same earlier run's.
+    pub fn same_diff(&self, other: &RunRow) -> bool {
+        self.base == other.base && self.head == other.head && self.since == other.since
+    }
+}
+
 /// The runs of <landing>.
 pub fn runs_of_landing(db: &Connection, landing: i64) -> Result<Vec<RunRow>> {
     let mut statement = db
-        .prepare("SELECT id, kind, base, head, grouping, rules_version FROM review_run WHERE landing_id = ?1 ORDER BY id")
+        .prepare("SELECT id, kind, base, head, since_run, grouping, rules_version FROM review_run WHERE landing_id = ?1 ORDER BY id")
         .sql()?;
     let rows = statement
         .query_map(params![landing], |row| {
@@ -744,8 +759,9 @@ pub fn runs_of_landing(db: &Connection, landing: i64) -> Result<Vec<RunRow>> {
                 kind: row.get(1)?,
                 base: row.get(2)?,
                 head: row.get(3)?,
-                grouping: row.get(4)?,
-                rules_version: row.get(5)?,
+                since: row.get(4)?,
+                grouping: row.get(5)?,
+                rules_version: row.get(6)?,
             })
         })
         .sql()?;
@@ -898,6 +914,33 @@ fn copy_scored_calls(db: &Connection) -> Result<()> {
         .sql()?;
     }
     Ok(())
+}
+
+/// Moves a store's `review_run` from before a later review run read only how
+/// the branch's net change differs from the net change an earlier run read to
+/// today's, with the statements taken from record.sql so the result equals a
+/// fresh database's: every run keeps its rows and reads as one that read the
+/// whole net change from its base to its head. migrate.rs runs it with the
+/// foreign keys off, and the rename runs under `legacy_alter_table`, so the
+/// tables that point at `review_run` keep naming it.
+pub fn move_to_net_change(db: &Connection) -> Result<()> {
+    let schema = crate::db::REVIEW_PART;
+    let slice = |from: &str, end: &str| crate::db::statement(schema, from, end);
+    let run = slice("CREATE TABLE review_run", "STRICT;");
+    let index = slice("CREATE INDEX review_run_landing", ";");
+    crate::db::remake_table(
+        db,
+        "review_run",
+        run,
+        |db| {
+            db.execute_batch(
+                "INSERT INTO review_run (id, landing_id, kind, label, at, base, head, since_run, grouping, rules_version)
+    SELECT id, landing_id, kind, label, at, base, head, NULL, grouping, rules_version FROM review_run_old;",
+            )
+            .sql()
+        },
+        &[index],
+    )
 }
 
 /// A row that keeps a patch id: a commit a review read, or a finding's fix.

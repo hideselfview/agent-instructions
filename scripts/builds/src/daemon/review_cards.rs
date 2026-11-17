@@ -6,7 +6,7 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use super::cards::{ItemWait, ReviewWait};
@@ -27,13 +27,17 @@ type ReadKey = (PathBuf, Vec<String>);
 /// The commits of a worktree with their patch ids, and the paths each changes.
 type Read = Option<(Vec<Commit>, Vec<Vec<String>>)>;
 
+/// A project's rules as last read, and when; None when they could not be
+/// read.
+type Rules = (Instant, Option<Arc<Material>>);
+
 /// What git said of each worktree's commits, kept until they differ, and the
 /// rules of each project as last read.
 pub struct Reads {
     /// The rules checkout; None when HOME is not set.
     root: Option<PathBuf>,
     commits: Mutex<HashMap<ReadKey, Read>>,
-    rules: Mutex<HashMap<String, (Instant, Option<Material>)>>,
+    rules: Mutex<HashMap<String, Rules>>,
 }
 
 impl Default for Reads {
@@ -74,9 +78,14 @@ impl Reads {
     }
 
     /// Each of <commits>, which change <paths>, with the names of
-    /// <project>'s groups whose rules cover a path it changes; None when the
-    /// rules can't be read.
-    fn needs(&self, project: &str, commits: &[Commit], paths: &[Vec<String>]) -> Option<Vec<Need>> {
+    /// <project>'s groups whose rules cover a path it changes, and the rules
+    /// it read them from; None when the rules can't be read.
+    fn needs(
+        &self,
+        project: &str,
+        commits: &[Commit],
+        paths: &[Vec<String>],
+    ) -> Option<(Vec<Need>, Arc<Material>)> {
         let root = self.root.as_ref()?;
         let mut rules = self.rules.lock().expect("no panic holding it");
         let fresh = rules
@@ -85,21 +94,23 @@ impl Reads {
         if !fresh {
             rules.insert(
                 project.to_string(),
-                (Instant::now(), Material::load(root, project).ok()),
+                (
+                    Instant::now(),
+                    Material::load(root, project).ok().map(Arc::new),
+                ),
             );
         }
-        let material = rules.get(project)?.1.as_ref()?;
-        Some(
-            commits
-                .iter()
-                .zip(paths)
-                .map(|(commit, paths)| Need {
-                    commit: commit.clone(),
-                    paths: paths.clone(),
-                    groups: material.group_names(paths),
-                })
-                .collect(),
-        )
+        let material = rules.get(project)?.1.clone()?;
+        let needs = commits
+            .iter()
+            .zip(paths)
+            .map(|(commit, paths)| Need {
+                commit: commit.clone(),
+                paths: paths.clone(),
+                groups: material.group_names(paths),
+            })
+            .collect();
+        Some((needs, material))
     }
 
     /// Where the review of <top>'s commits stands, for a worktree of <repo>
@@ -121,7 +132,7 @@ impl Reads {
         let Some((commits, paths)) = self.commits(top, &shas) else {
             return Ok(None);
         };
-        let Some(needs) = self.needs(&store.project, &commits, &paths) else {
+        let Some((needs, material)) = self.needs(&store.project, &commits, &paths) else {
             return Ok(None);
         };
         if needs.iter().all(|n| n.groups.is_empty()) {
@@ -135,7 +146,10 @@ impl Reads {
         // is no longer in the branch's change as blocking nothing, as land does
         // when it records the finding.
         let check = CodeCheck::Branch("HEAD");
-        let wait = match landing::judge(&conn, repo, top, &needs, check).map_err(Fail::text)? {
+        let groups_for = |paths: &[String]| material.group_names(paths);
+        let wait = match landing::judge(&conn, repo, top, &needs, check, &groups_for)
+            .map_err(Fail::text)?
+        {
             Verdict::NotNeeded | Verdict::Takes(_) => return Ok(None),
             Verdict::NoRun => ReviewWait::NotRun,
             Verdict::Unfinished(_, unfinished) if !unfinished.unsettled.is_empty() => {

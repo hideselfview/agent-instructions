@@ -70,15 +70,15 @@
 //! rules before they land. No diff is reviewed more than once. Each change
 //! gets one review; the coordinator reads the fixes for its confirmed
 //! findings. `builds review check-landing`, run after the lists' checks and
-//! before anything is fetched, refuses unless each commit is one a change's
-//! review read (by the patch id of its added and removed lines, so a rebase or
-//! cherry-pick that keeps those lines counts) or the named fix of one of that
-//! review's confirmed findings on a changed file, and the review is finished:
-//! every group that covers a changed path of a reviewed commit has answered,
-//! the coordinator has settled every finding, and each confirmed finding on
-//! the commits has its fix among them, unless builds finds the finding's code
-//! on no line of the branch's change past origin/main; check-landing then
-//! records that. Commits whose paths no group covers need no review. After
+//! before anything is fetched, refuses unless a change's review (the one whose
+//! runs read one of the commits, found by the patch id of its added and
+//! removed lines) has read the branch's net change as it is now, so a rebase
+//! that keeps every line the branch adds and removes counts, and the review is
+//! finished: every group asked over a diff a run read has answered, the
+//! coordinator has settled every finding, and each confirmed finding on the
+//! commits has its fix among them, unless builds finds the finding's code on
+//! no line of the branch's change past origin/main; check-landing then records
+//! that. Commits whose paths no group covers need no review. After
 //! the push, `builds review landed` records the commits pushed beside the
 //! items and the design change. When commits of the branch still wait to land,
 //! land passes `--more-to-land` to it and the review's landing stays open for
@@ -540,7 +540,7 @@ impl Landing<'_> {
     }
 
     /// `builds review <verb>` for the landing's worktree and commits, as given:
-    /// the review read those commits, and their patch ids are what it matches.
+    /// their patch ids find the review that read them.
     fn review_line(&self, verb: &str, project: &str) -> Vec<String> {
         let mut line = vec![
             "review".to_string(),

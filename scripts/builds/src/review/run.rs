@@ -86,8 +86,9 @@ pub struct Diff {
     pub base: String,
     pub head: String,
     pub text: String,
-    /// Every path a commit of the change changes (`commits::paths`), the
-    /// paths `builds land` picks groups by.
+    /// The paths builds picks groups by: every path a commit of the change
+    /// changes (`commits::paths`), or, for a diff since the net change an
+    /// earlier run read (`diff_since`), every path where the two differ.
     pub changed: Vec<String>,
 }
 
@@ -111,22 +112,7 @@ pub fn diff_of(worktree: &Path, base: &str) -> Result<Diff> {
 
 /// The change of <head> past <base> (from their common ancestor), in <worktree>'s repo.
 pub fn diff_between(worktree: &Path, base: &str, head: &str) -> Result<Diff> {
-    let text_of = |args: &[&str]| -> Result<String> {
-        let output = git(worktree)
-            .args(args)
-            .stdin(Stdio::null())
-            .output()
-            .context(|| format!("running git {}", args.join(" ")))?;
-        if !output.status.success() {
-            fail!(
-                "git {} failed in {}: {}",
-                args.join(" "),
-                worktree.display(),
-                String::from_utf8_lossy(&output.stderr).trim()
-            );
-        }
-        Ok(String::from_utf8_lossy(&output.stdout).into_owned())
-    };
+    let text_of = |args: &[&str]| commits::git_text(worktree, args);
     let merge_base = text_of(&["merge-base", base, head])?.trim().to_string();
     let range = format!("{merge_base}...{head}");
     let text = text_of(&["diff", "--no-color", "--no-ext-diff", &range])?;
@@ -150,6 +136,142 @@ pub fn diff_between(worktree: &Path, base: &str, head: &str) -> Result<Diff> {
         text,
         changed,
     })
+}
+
+/// How the net change of <head> past <base> (from their common ancestor), in
+/// <worktree>'s repo, differs from the net change from <read_base> to
+/// <read_head>, which an earlier run read: the lines the branch now adds or
+/// removes that it did not then, and the lines it no longer changes.
+///
+/// builds merges the net change the run read onto the common ancestor in a
+/// tree of git's own (`git merge-tree`, which checks nothing out), taking
+/// that change's lines where the ancestor changed the same lines, and diffs
+/// that tree against <head>. So the commits a rebase brings in from the
+/// base are no part of the result, a rebase that keeps every added and removed
+/// line gives an empty diff, and a conflict's resolution shows only where it
+/// differs from the lines the run read. A file the merge cannot write (one
+/// side deleted it, for example) shows its whole net change, and so does every
+/// file when the repo no longer has the commits the run read. The diff's
+/// commit messages are those the earlier change did not hold.
+pub fn diff_since(
+    worktree: &Path,
+    read_base: &str,
+    read_head: &str,
+    base: &str,
+    head: &str,
+) -> Result<Diff> {
+    let text_of = |args: &[&str]| commits::git_text(worktree, args);
+    let merge_base = text_of(&["merge-base", base, head])?.trim().to_string();
+    let head = text_of(&["rev-parse", head])?.trim().to_string();
+    let read = commits::exists(worktree, read_base) && commits::exists(worktree, read_head);
+    let (tree, whole) = if read {
+        merged(worktree, read_base, read_head, &merge_base)?
+    } else {
+        (merge_base.clone(), Vec::new())
+    };
+    let mut rest = vec!["--".to_string(), ".".to_string()];
+    rest.extend(whole.iter().map(|path| format!(":(exclude,literal){path}")));
+    let mut only = vec!["--".to_string()];
+    only.extend(whole.iter().map(|path| format!(":(literal){path}")));
+    let diff = |from: &str, options: &[&str], paths: &[String]| -> Result<String> {
+        let mut args = vec!["diff", "--no-color", "--no-ext-diff"];
+        args.extend(options);
+        args.extend([from, head.as_str()]);
+        args.extend(paths.iter().map(String::as_str));
+        text_of(&args)
+    };
+    let names = ["--name-only", "--no-renames"];
+    let mut text = diff(&tree, &[], &rest)?;
+    let mut changed: Vec<String> = diff(&tree, &names, &rest)?
+        .lines()
+        .map(str::to_string)
+        .collect();
+    if !whole.is_empty() {
+        text.push_str(&diff(&merge_base, &[], &only)?);
+        changed.extend(
+            diff(&merge_base, &names, &only)?
+                .lines()
+                .map(str::to_string),
+        );
+    }
+    let messages_of = |range: &str| -> Result<Vec<String>> {
+        Ok(text_of(&["log", "--reverse", "--format=%B%x00", range])?
+            .split('\0')
+            .map(|message| message.trim_start_matches('\n').to_string())
+            .filter(|message| !message.trim().is_empty())
+            .collect())
+    };
+    let earlier = if read {
+        messages_of(&format!("{read_base}..{read_head}"))?
+    } else {
+        Vec::new()
+    };
+    let messages: Vec<String> = messages_of(&format!("{merge_base}..{head}"))?
+        .into_iter()
+        .filter(|message| !earlier.contains(message))
+        .collect();
+    Ok(Diff {
+        messages: messages.join("\n"),
+        source: Some(Source {
+            repo: worktree.to_path_buf(),
+            rev: head.clone(),
+            in_place: true,
+        }),
+        base: merge_base,
+        head,
+        text,
+        changed,
+    })
+}
+
+/// The tree of <read_base>..<read_head>'s change merged onto <base>, taking
+/// that change's lines where both changed the same lines, and the paths the
+/// merge could not write.
+fn merged(
+    worktree: &Path,
+    read_base: &str,
+    read_head: &str,
+    base: &str,
+) -> Result<(String, Vec<String>)> {
+    let merge_base = format!("--merge-base={read_base}");
+    let args = [
+        "merge-tree",
+        "--write-tree",
+        "-z",
+        "--name-only",
+        "--no-messages",
+        "-Xtheirs",
+        &merge_base,
+        base,
+        read_head,
+    ];
+    let output = git(worktree)
+        .args(args)
+        .stdin(Stdio::null())
+        .output()
+        .context(|| format!("running git {}", args.join(" ")))?;
+    // git merge-tree exits 1 when it wrote the tree with paths it could not
+    // merge, and with another status when it wrote no tree.
+    if !matches!(output.status.code(), Some(0 | 1)) {
+        fail!(
+            "git {} failed in {}: {}",
+            args.join(" "),
+            worktree.display(),
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
+    }
+    let text = String::from_utf8_lossy(&output.stdout);
+    let mut fields = text.split('\0').filter(|field| !field.is_empty());
+    let Some(tree) = fields.next() else {
+        fail!("git {} printed no tree", args.join(" "));
+    };
+    let mut failed: Vec<String> = Vec::new();
+    for path in fields {
+        if !failed.iter().any(|p| p == path) {
+            failed.push(path.to_string());
+        }
+    }
+    Ok((tree.to_string(), failed))
 }
 
 /// One reviewer's work: a group, and for a group that lists sites the one

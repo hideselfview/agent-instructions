@@ -3,9 +3,9 @@
 //! diff without context lines, so the id covers only the lines the commit adds
 //! and removes. A rebase or a cherry-pick that keeps those lines keeps the
 //! patch id while the SHA changes, even when the lines around them changed, so
-//! `builds land` matches a landing to the review that read the same changes,
-//! not the same SHAs. A conflict's resolution that changes an added or removed
-//! line gives the commit another patch id.
+//! `builds land` finds the review that read the same changes, not the same
+//! SHAs. A conflict's resolution that changes an added or removed line gives
+//! the commit another patch id.
 
 use std::path::Path;
 use std::process::Stdio;
@@ -27,7 +27,7 @@ pub fn same_change(a: &[Commit], b: &[Commit]) -> bool {
 }
 
 /// What <args> prints in <repo>, or why it failed.
-fn git_text(repo: &Path, args: &[&str]) -> Result<String> {
+pub fn git_text(repo: &Path, args: &[&str]) -> Result<String> {
     let output = git(repo)
         .args(args)
         .stdin(Stdio::null())

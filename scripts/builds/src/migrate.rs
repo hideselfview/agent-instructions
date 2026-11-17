@@ -220,6 +220,10 @@ const BEFORE_SPEC_CHECK_STAMP: i64 = 1_463_522_731;
 /// their branch's change.
 const BEFORE_CODE_LEFT_STAMP: i64 = 1_407_353_448;
 
+/// The stamp of the schema before a later review run read only how the
+/// branch's net change differs from the net change an earlier run read.
+const BEFORE_NET_CHANGE_STAMP: i64 = 1_962_601_340;
+
 /// The table as design.sql writes it.
 const DESIGN_DELETED: &str = "CREATE TABLE design_deleted (
     design_id INTEGER NOT NULL REFERENCES design (id) ON DELETE CASCADE,
@@ -269,7 +273,9 @@ const DESIGN_DELETED: &str = "CREATE TABLE design_deleted (
 /// yet), and every store gets the empty tables of second settles and of
 /// confirmed findings whose code is no longer in their branch's change (no
 /// finding has either
-/// yet).
+/// yet), and every store whose review tables are older than today's gets
+/// `review_run` with the earlier run each run read the difference from, which
+/// is none for every run (each read a whole net change).
 /// The moves run in one transaction, the store
 /// is stamped as today's schema, and it must then equal a fresh database's schema or the transaction rolls back. A
 /// store already at today's stamp, or with no database, is left alone; any
@@ -395,11 +401,12 @@ fn move_store(places: &Places, path: &Path) -> Result<()> {
         BEFORE_PARKED_STAMP,
         BEFORE_SPEC_CHECK_STAMP,
         BEFORE_CODE_LEFT_STAMP,
+        BEFORE_NET_CHANGE_STAMP,
     ]
     .contains(&found)
     {
         fail!(
-            "{} carries stamp {found}, which this builds does not know how to move (it knows {BEFORE_DESIGN_DELETED_STAMP}, {BEFORE_CHECK_TIMES_STAMP}, {BEFORE_DESIGN_TIP_STAMP}, {BEFORE_APP_TIMING_STAMP}, {BEFORE_DESIGN_SESSION_STAMP}, {BEFORE_SHOT_FINDINGS_STAMP}, {BEFORE_REVIEW_STAMP}, {BEFORE_CARGO_RUNS_STAMP}, {BEFORE_DESIGN_FIX_STAMP}, {BEFORE_LANDING_REVIEW_STAMP}, {BEFORE_SCORED_CALLS_STAMP}, {BEFORE_TAGS_STAMP}, {BEFORE_CARGO_RUNS_REMOVED_STAMP}, {BEFORE_ORIGINS_STAMP}, {BEFORE_FINISHED_STAMP}, {BEFORE_CHANGED_LINES_STAMP}, {BEFORE_CHECK_STARTS_STAMP}, {BEFORE_CANVAS_STAMP}, {BEFORE_DESIGN_DROP_STAMP}, {BEFORE_PUSHED_STAMP}, {BEFORE_RANKS_STAMP}, {BEFORE_PARKED_STAMP}, {BEFORE_SPEC_CHECK_STAMP} and {BEFORE_CODE_LEFT_STAMP}, and today's {})",
+            "{} carries stamp {found}, which this builds does not know how to move (it knows {BEFORE_DESIGN_DELETED_STAMP}, {BEFORE_CHECK_TIMES_STAMP}, {BEFORE_DESIGN_TIP_STAMP}, {BEFORE_APP_TIMING_STAMP}, {BEFORE_DESIGN_SESSION_STAMP}, {BEFORE_SHOT_FINDINGS_STAMP}, {BEFORE_REVIEW_STAMP}, {BEFORE_CARGO_RUNS_STAMP}, {BEFORE_DESIGN_FIX_STAMP}, {BEFORE_LANDING_REVIEW_STAMP}, {BEFORE_SCORED_CALLS_STAMP}, {BEFORE_TAGS_STAMP}, {BEFORE_CARGO_RUNS_REMOVED_STAMP}, {BEFORE_ORIGINS_STAMP}, {BEFORE_FINISHED_STAMP}, {BEFORE_CHANGED_LINES_STAMP}, {BEFORE_CHECK_STARTS_STAMP}, {BEFORE_CANVAS_STAMP}, {BEFORE_DESIGN_DROP_STAMP}, {BEFORE_PUSHED_STAMP}, {BEFORE_RANKS_STAMP}, {BEFORE_PARKED_STAMP}, {BEFORE_SPEC_CHECK_STAMP}, {BEFORE_CODE_LEFT_STAMP} and {BEFORE_NET_CHANGE_STAMP}, and today's {})",
             path.display(),
             db::stamp()
         );
@@ -424,6 +431,7 @@ fn move_store(places: &Places, path: &Path) -> Result<()> {
         BEFORE_PARKED_STAMP,
         BEFORE_SPEC_CHECK_STAMP,
         BEFORE_CODE_LEFT_STAMP,
+        BEFORE_NET_CHANGE_STAMP,
     ]
     .contains(&found);
     // Off for the moves, so a table made again keeps the references to it as
@@ -450,6 +458,7 @@ fn move_store(places: &Places, path: &Path) -> Result<()> {
         BEFORE_PARKED_STAMP,
         BEFORE_SPEC_CHECK_STAMP,
         BEFORE_CODE_LEFT_STAMP,
+        BEFORE_NET_CHANGE_STAMP,
     ]
     .contains(&found)
     {
@@ -530,6 +539,7 @@ fn move_store(places: &Places, path: &Path) -> Result<()> {
         BEFORE_PARKED_STAMP,
         BEFORE_SPEC_CHECK_STAMP,
         BEFORE_CODE_LEFT_STAMP,
+        BEFORE_NET_CHANGE_STAMP,
     ]
     .contains(&found)
     {
@@ -551,6 +561,7 @@ fn move_store(places: &Places, path: &Path) -> Result<()> {
         BEFORE_PARKED_STAMP,
         BEFORE_SPEC_CHECK_STAMP,
         BEFORE_CODE_LEFT_STAMP,
+        BEFORE_NET_CHANGE_STAMP,
     ]
     .contains(&found)
     {
@@ -566,6 +577,7 @@ fn move_store(places: &Places, path: &Path) -> Result<()> {
         BEFORE_PARKED_STAMP,
         BEFORE_SPEC_CHECK_STAMP,
         BEFORE_CODE_LEFT_STAMP,
+        BEFORE_NET_CHANGE_STAMP,
     ]
     .contains(&found)
     {
@@ -583,6 +595,7 @@ fn move_store(places: &Places, path: &Path) -> Result<()> {
         BEFORE_PARKED_STAMP,
         BEFORE_SPEC_CHECK_STAMP,
         BEFORE_CODE_LEFT_STAMP,
+        BEFORE_NET_CHANGE_STAMP,
     ]
     .contains(&found)
     {
@@ -615,6 +628,7 @@ fn move_store(places: &Places, path: &Path) -> Result<()> {
         BEFORE_PARKED_STAMP,
         BEFORE_SPEC_CHECK_STAMP,
         BEFORE_CODE_LEFT_STAMP,
+        BEFORE_NET_CHANGE_STAMP,
     ]
     .contains(&found)
     {
@@ -630,6 +644,7 @@ fn move_store(places: &Places, path: &Path) -> Result<()> {
         BEFORE_PARKED_STAMP,
         BEFORE_SPEC_CHECK_STAMP,
         BEFORE_CODE_LEFT_STAMP,
+        BEFORE_NET_CHANGE_STAMP,
     ]
     .contains(&found)
     {
@@ -644,6 +659,7 @@ fn move_store(places: &Places, path: &Path) -> Result<()> {
             BEFORE_PARKED_STAMP,
             BEFORE_SPEC_CHECK_STAMP,
             BEFORE_CODE_LEFT_STAMP,
+            BEFORE_NET_CHANGE_STAMP,
         ]
         .contains(&found)
     {
@@ -660,6 +676,7 @@ fn move_store(places: &Places, path: &Path) -> Result<()> {
         BEFORE_PARKED_STAMP,
         BEFORE_SPEC_CHECK_STAMP,
         BEFORE_CODE_LEFT_STAMP,
+        BEFORE_NET_CHANGE_STAMP,
     ]
     .contains(&found)
     {
@@ -667,19 +684,26 @@ fn move_store(places: &Places, path: &Path) -> Result<()> {
     }
     // Only a store from just before builds checked briefs against the spec,
     // or after, has the parked and dropped items' tables.
-    if ![BEFORE_SPEC_CHECK_STAMP, BEFORE_CODE_LEFT_STAMP].contains(&found) {
+    if ![
+        BEFORE_SPEC_CHECK_STAMP,
+        BEFORE_CODE_LEFT_STAMP,
+        BEFORE_NET_CHANGE_STAMP,
+    ]
+    .contains(&found)
+    {
         tx.execute_batch(db::PARKED_PART).sql()?;
         tx.execute_batch(db::DROPPED_PART).sql()?;
     }
     // Only a store from just before the coordinator could settle a finding
-    // again has the spec checks' tables.
-    if found != BEFORE_CODE_LEFT_STAMP {
+    // again, or after, has the spec checks' tables.
+    if ![BEFORE_CODE_LEFT_STAMP, BEFORE_NET_CHANGE_STAMP].contains(&found) {
         tx.execute_batch(db::SPEC_CHECK_PART).sql()?;
     }
     // The review's tables the move made above include the tables of second
     // settles and of confirmed findings whose code is no longer in their
-    // branch's change; a store that had the review's tables gets them here.
-    if had_review_tables {
+    // branch's change; a store that had the review's tables gets them here,
+    // except a store from after builds recorded them, which has them already.
+    if had_review_tables && found != BEFORE_NET_CHANGE_STAMP {
         let schema = db::schema();
         for table in [
             "CREATE TABLE review_settle_again",
@@ -688,6 +712,11 @@ fn move_store(places: &Places, path: &Path) -> Result<()> {
             tx.execute_batch(db::statement(&schema, table, "STRICT;"))
                 .sql()?;
         }
+    }
+    // A store that had the review's tables has runs that each read a whole
+    // net change; one that got the tables above has today's `review_run`.
+    if had_review_tables {
+        crate::review::record::move_to_net_change(&tx)?;
     }
     tx.pragma_update(None, "user_version", db::stamp()).sql()?;
     let broken: Option<String> = tx
