@@ -1350,10 +1350,10 @@ An agent measured CPU priority on this Mac (14 cores, macOS 27) on
     threads, whether those threads ran at nice 5 or at nice 15.
   - Quality of service does: beside the same threads under `taskpolicy -c
     utility` or `taskpolicy -b`, the job took 1.7s. A job under a lower
-    quality of service runs slower itself: beside other agents' work alone
-    (load about 50 on 14 cores), the job took 2s at the default, 4 to 5s
-    under utility and 8s under background, which also moves work to the
-    efficiency cores and throttles its disk reads.
+    quality of service runs slower itself: while only other agents' work ran
+    (load about 50 on 14 cores), without the 28 threads, the job took 2s at
+    the default, 4 to 5s under utility and 8s under background, which also
+    moves work to the efficiency cores and throttles its disk reads.
   - sccache runs each compile it can cache in its server, at the server's
     own nice value (0, launchd's default), whatever the nice value of the run
     that asked for it. Only the programs a run starts itself (the tests,
