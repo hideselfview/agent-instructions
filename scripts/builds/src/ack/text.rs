@@ -227,7 +227,8 @@ pub fn show_part(
 }
 
 /// A part's `WORDS_PER_PART` new check words, drawn from the system's random
-/// source: each three syllables of a consonant and a vowel.
+/// source. Each word has three syllables, and each syllable is a consonant
+/// and then a vowel.
 pub fn new_words() -> Result<Vec<String>> {
     use std::io::Read;
     const CONSONANTS: &[u8] = b"bdfgklmnprstvz";
