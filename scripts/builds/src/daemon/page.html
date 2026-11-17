@@ -427,6 +427,7 @@ const ORDER = ["waiting-on-you", "waits-unread", "ready-to-land", "in-review", "
 const LISTS_HIDDEN_KEY = "builds-dashboard-lists-hidden";
 let state = null, streamError = "", connectionDown = false;
 let hooks = null, hooksError = "";
+let acks = null;               // each agent's last acknowledgement (ack/mod.rs)
 let openHook = null;           // the repo whose commit hook details are open
 let openWait = null;           // "repo lane" of the lane whose app build times are open
 let openWaits = false;         // whether the time agents waited, by kind, is open
@@ -1692,7 +1693,24 @@ function runningItems() {
     h("div", {class: "l-works"}, ready.map(workRow)))});
   if (drawn.length) out.push({key: "drawn", data: drawn, make: () => section("Design changes being drawn", drawn.length,
     h("div", {class: "l-works"}, drawn.map(designRow)))});
-  return out.length ? out : [empty(tagFilter ? "Nothing tagged " + tagFilter + " is running." : "Nothing is running.")];
+  const shown = out.length ? out : [empty(tagFilter ? "Nothing tagged " + tagFilter + " is running." : "Nothing is running.")];
+  const agents = projectAcks();
+  if (agents.length) shown.push({key: "acks", data: agents, make: () => section("Agents’ acknowledgements", agents.length,
+    h("div", {class: "l-works"}, agents.map(ackRow)))});
+  return shown;
+}
+// The chosen project's acknowledgements, newest first, each marked when it is
+// older than the hours an acknowledgement holds.
+function projectAcks() {
+  const own = acks && !acks.error && acks.projects.find(p => p.project === lists.project);
+  if (!own || !own.acks) return [];
+  const now = Date.now() / 1000;
+  return own.acks.map(a => ({...a, ended: now - a.at > acks.hours * 3600}));
+}
+// An agent's row says who acknowledged which version of the text, and when.
+function ackRow(a) {
+  return h("div", {class: "l-rowfact"}, a.who + " acknowledged version " + a.version + ", " + stamp(a.at) +
+    (a.ended ? " · more than " + acks.hours + " hours ago, so builds refuses its commands" : ""));
 }
 // The items Queue shows while the reader has chosen no tag.
 function queueEntries() { return lists.items.filter(it => !isRunning(it)); }
@@ -1942,6 +1960,19 @@ fetch("/api/hooks").then(async reply => {
   const body = await reply.json();
   if (!hooks) setHooks(body);
 }).catch(() => { /* the `hooks` event shows them once the daemon sends it */ });
+
+// ---- Each agent's last acknowledgement, from the `acks` event (ack/mod.rs)
+// and /api/acks on load; the Running tab lists them. ----
+function setAcks(next) {
+  acks = next;
+  if (lists && !lists.error) renderLists();
+}
+events.addEventListener("acks", e => setAcks(JSON.parse(e.data)));
+fetch("/api/acks").then(async reply => {
+  if (!reply.ok) throw new Error("the daemon answered " + reply.status);
+  const body = await reply.json();
+  if (!acks) setAcks(body);
+}).catch(() => { /* the `acks` event shows them once the daemon sends it */ });
 setInterval(tick, 1000);
 render();
 </script>

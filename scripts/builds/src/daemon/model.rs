@@ -900,6 +900,12 @@ impl Model {
         self.lists.hooks()
     }
 
+    /// The agents' acknowledgements' JSON the page reads; the same `Arc`
+    /// comes back until they change.
+    pub fn acks_json(&self) -> Arc<String> {
+        self.lists.acks()
+    }
+
     /// The review page of open design change <id>, drawn now; None when no
     /// open design change has that id.
     pub fn design_page(&self, project: &str, id: u32) -> Option<crate::fail::Result<String>> {

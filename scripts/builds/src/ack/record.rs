@@ -189,6 +189,26 @@ pub fn forget_session(db: &Connection, session: &str) -> Result<usize> {
     Ok(deleted)
 }
 
+/// Every agent's last acknowledgement, newest first, without the sections.
+pub fn all(db: &Connection) -> Result<Vec<Ack>> {
+    let mut statement = db
+        .prepare("SELECT session, who, version, at FROM ack ORDER BY at DESC, who")
+        .sql()?;
+    statement
+        .query_map([], |row| {
+            Ok(Ack {
+                session: row.get(0)?,
+                who: row.get(1)?,
+                version: row.get(2)?,
+                at: row.get(3)?,
+                sections: Vec::new(),
+            })
+        })
+        .sql()?
+        .collect::<rusqlite::Result<Vec<Ack>>>()
+        .sql()
+}
+
 #[cfg(test)]
 #[path = "record_tests.rs"]
 mod tests;

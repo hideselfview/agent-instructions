@@ -453,6 +453,43 @@ fn compacted(places: &Places, input: &str) -> Result<String> {
     )
 }
 
+/// Every project's acknowledgements as the dashboard reads them: each
+/// agent's name, session, version and time, and the hours an
+/// acknowledgement holds, from which the page tells which ones ended.
+pub fn dashboard_json(places: &Places) -> String {
+    let value = match stores(places) {
+        Ok(stores) => {
+            let projects: Vec<serde_json::Value> = stores
+                .iter()
+                .map(|store| {
+                    let read = db::open_reader(&store.database()).and_then(|db| match db {
+                        Some(db) => record::all(&db),
+                        None => Ok(Vec::new()),
+                    });
+                    match read {
+                        Ok(acks) => serde_json::json!({
+                            "project": store.project,
+                            "acks": acks.iter().map(|ack| serde_json::json!({
+                                "who": ack.who,
+                                "session": ack.session,
+                                "version": ack.version,
+                                "at": ack.at,
+                            })).collect::<Vec<_>>(),
+                        }),
+                        Err(error) => serde_json::json!({
+                            "project": store.project,
+                            "error": error.text(),
+                        }),
+                    }
+                })
+                .collect();
+            serde_json::json!({ "hours": HOURS, "projects": projects })
+        }
+        Err(error) => serde_json::json!({ "error": error.text() }),
+    };
+    value.to_string()
+}
+
 #[cfg(test)]
 #[path = "mod_tests.rs"]
 mod tests;

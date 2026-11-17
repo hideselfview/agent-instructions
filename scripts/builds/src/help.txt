@@ -74,7 +74,8 @@ refuses an agent whose acknowledgement there is missing, is of another
 version, or is more than 12 hours old, and names what changed since the
 agent's last acknowledgement. A builds command that passed lets the builds
 commands it runs pass too (BUILDS_ACKNOWLEDGED), such as a commit hook's
-checks or the install after a landing.
+checks or the install after a landing. The dashboard's Running tab lists each
+agent's last acknowledgement in the project.
 
 
 BUILD VOLUME

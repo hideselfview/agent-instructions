@@ -29,6 +29,9 @@ pub struct Feed {
     current: Mutex<(u64, Arc<Snapshot>)>,
     /// The hook runs' JSON (hook_stats.rs) as the last read built it.
     hooks: Mutex<Arc<String>>,
+    /// The agents' acknowledgements' JSON (ack/mod.rs) as the last read
+    /// built it.
+    acks: Mutex<Arc<String>>,
     /// The time the hook runs' 12-hour window ends at, in seconds since
     /// 1970; the wall clock, except in a test that sets it.
     clock: Box<dyn Fn() -> i64 + Send + Sync>,
@@ -65,6 +68,7 @@ impl Feed {
                 &places,
                 clock(),
             ))),
+            acks: Mutex::new(Arc::new(crate::ack::dashboard_json(&places))),
             clock,
             places,
             dirty: AtomicBool::new(false),
@@ -113,6 +117,12 @@ impl Feed {
         self.hooks.lock().expect("no panic holding it").clone()
     }
 
+    /// The agents' acknowledgements' JSON as the last read built it. The
+    /// same `Arc` comes back until a read finds them changed.
+    pub fn acks(&self) -> Arc<String> {
+        self.acks.lock().expect("no panic holding it").clone()
+    }
+
     fn read_loop(self: Arc<Self>) {
         loop {
             {
@@ -128,9 +138,9 @@ impl Feed {
         }
     }
 
-    /// Reads the stores whose version moved and the hook runs again; when
-    /// either differs from the last read, the listener is called, and the
-    /// version moves when the stores differ.
+    /// Reads the stores whose version moved, the hook runs and the
+    /// acknowledgements again; when any of them differs from the last read,
+    /// the listener is called, and the version moves when the stores differ.
     fn read(&self) {
         let previous = self.current.lock().expect("no panic holding it").1.clone();
         let (read, stores_changed) = reload(&self.places, &previous);
@@ -145,6 +155,14 @@ impl Feed {
             let mut current = self.hooks.lock().expect("no panic holding it");
             if **current != hooks {
                 *current = Arc::new(hooks);
+                changed = true;
+            }
+        }
+        {
+            let acks = crate::ack::dashboard_json(&self.places);
+            let mut current = self.acks.lock().expect("no panic holding it");
+            if **current != acks {
+                *current = Arc::new(acks);
                 changed = true;
             }
         }

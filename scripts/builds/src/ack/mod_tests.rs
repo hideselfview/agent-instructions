@@ -247,3 +247,14 @@ fn the_gate_reads_by_and_project_before_the_end_of_the_flags() {
     assert_eq!(flag(&args, "by"), Some("me"));
     assert_eq!(flag(&args, "project"), None);
 }
+
+#[test]
+fn the_dashboard_lists_each_agents_last_acknowledgement() {
+    let world = world("ack-dashboard");
+    world.acknowledge(NOON);
+    let json: serde_json::Value = serde_json::from_str(&dashboard_json(&world.places)).unwrap();
+    assert_eq!(json["hours"], HOURS);
+    let acks = &json["projects"][0]["acks"];
+    assert_eq!(acks[0]["who"], "agent");
+    assert_eq!(acks[0]["at"], NOON);
+}
