@@ -154,14 +154,9 @@ pub fn section(db: &Connection, project: &str, rules: &[Rule]) -> Result<String>
     ));
     for kind in kinds {
         out.push_str(&format!(
-            "  {}, {} {}: {}\n",
+            "  {}, {}: {}\n",
             kind.rule,
-            kind.findings,
-            if kind.findings == 1 {
-                "finding"
-            } else {
-                "findings"
-            },
+            crate::text::counted(kind.findings, "finding", "findings"),
             kind.text
         ));
     }
