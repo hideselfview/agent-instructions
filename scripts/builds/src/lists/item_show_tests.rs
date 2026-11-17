@@ -268,7 +268,7 @@ fn times_say_how_long_each_item_and_branch_ran_and_was_held_or_waited() {
         .unwrap();
     let lists = demo.store.load().unwrap();
     let from = format!(
-        "builds has recorded held and waiting time only since {}",
+        "builds has recorded paused and waiting time only since {}",
         at(500)
     );
     assert_eq!(

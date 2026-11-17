@@ -1674,7 +1674,7 @@ function totalNow(total) {
 function timesWords(t) {
   return "ran " + duration(totalNow(t.ran)) + " in " + t.runs + (t.runs === 1 ? " run" : " runs") +
     " from " + stamp(t.first) + "; paused " + duration(totalNow(t.held)) + "; waited on you " + duration(totalNow(t.waiting)) +
-    (t.spans_from === null ? "" : " (builds has recorded held and waiting time only since " + stamp(t.spans_from) + ")");
+    (t.spans_from === null ? "" : " (builds has recorded paused and waiting time only since " + stamp(t.spans_from) + ")");
 }
 // A running work is one line: its title with its worktree and the time its
 // branch has run beside it; opened, what is happening now and its items,

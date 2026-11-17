@@ -91,7 +91,7 @@ pub fn times_words(times: &Times, now: i64) -> String {
 /// for times whose first run started before <from>.
 fn spans_from_words(from: i64) -> String {
     format!(
-        "builds has recorded held and waiting time only since {}",
+        "builds has recorded paused and waiting time only since {}",
         local_minute(from)
     )
 }
