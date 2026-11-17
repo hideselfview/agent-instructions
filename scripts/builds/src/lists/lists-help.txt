@@ -199,6 +199,7 @@ runs in (plans are in no commit); an absolute path is itself.
 
   builds item take N [M...] --worktree W --branch B [--worktree W2 --branch B2]
                     --brief P [--as design-session] [--held WHY]
+                    [--spec-decided N] [--rules-root DIR] [--reviewer PROGRAM]
       Marks the items running. W is a claimed side worktree of a project repo
       (the claim names the agent; the item stores none) and B a branch of it.
       Work that spans repos names one worktree and branch per repo, the nth
@@ -209,6 +210,24 @@ runs in (plans are in no commit); an absolute path is itself.
       an item that waits on an open question, item, design change or
       condition (and only such an item), and notes each worktree held with WHY
       in the same write: work kept for an answer, with no agent running.
+      Before the items start, take checks brief P against the product spec of
+      each W whose repo has spec files (`lists design-globs --spec-files`),
+      with a reviewer that runs in W with read-only tools, as `builds review`
+      runs one (LANDING AND REVIEW in `builds help`). The reviewer lists each
+      sentence of P that states a behavior the spec states otherwise (a
+      conflict) or doesn't state (unstated). A conflict refuses the take, and
+      the refusal quotes the brief's sentence and the spec's text with its file
+      and line: the person decides each conflict. Once they have, take the
+      items again with --spec-decided N, the decision or question that records
+      their choice, and take records N on the check. take prints each unstated
+      behavior and takes the items: the coordinator tells the agent to add it
+      to the spec. A check that gives no usable answer refuses the take. take
+      records every check in the project's store, and `item show` lists the
+      checks of each item. A take in a project with no spec files for W's repo
+      runs no check and refuses --spec-decided. --rules-root names the
+      agent-instructions checkout that holds the spec rule (default
+      ~/.codex/agent-instructions), and --reviewer the program run in place of
+      claude.
 
   builds item park N --worktree W --branch B [--worktree W2 --branch B2]
       The item keeps its work in W on B with no agent, and waits in the queue
@@ -347,7 +366,8 @@ design-globs`:
                     components whose drawing changes
   --spec-files      the spec files: each section (by heading) a design
                     change's commits touch is a place, written
-                    spec/bae.md#Heading; a spec file alone is no design change
+                    spec/bae.md#Heading; a spec file alone is no design change.
+                    `item take` checks each brief against them too
 
 Other changed files under design/ are shared design files. Commands that read
 git take a worktree DIR and find the project from its repo (or --project).

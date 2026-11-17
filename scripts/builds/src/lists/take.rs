@@ -8,6 +8,13 @@
 //! --branch B` repeated, the nth branch for the nth worktree); the items run
 //! or park in all of them. Taking a parked item moves it to running in the
 //! worktrees it is parked in.
+//!
+//! Before the take's write, take checks the brief against the product spec
+//! of each named worktree's repo that has spec files (spec_check.rs) and
+//! records each check in its own write. A conflict refuses the take unless
+//! `--spec-decided` names the decision or question that records the person's
+//! choice on it; take prints each behavior the spec doesn't state and takes
+//! the items.
 
 use std::path::Path;
 
@@ -16,18 +23,19 @@ use crate::claim::Claim;
 use crate::fail;
 use crate::fail::Result;
 use crate::lists::args::Args;
-use crate::lists::draft::require_brief_from;
+use crate::lists::draft::brief_file;
 use crate::lists::held::waits_on_open;
 use crate::lists::item::open_item;
 use crate::lists::item_command::blocking_words;
 use crate::lists::parked::{self, Parked, parked_in};
 use crate::lists::running::{Running, end, running_in, start};
+use crate::lists::spec_check::{self, Brief, Setup};
 use crate::lists::store::{self, Store};
-use crate::lists::{Audience, Id, Lists, Stamp};
+use crate::lists::{Audience, Id, Kind, Lists, Stamp};
 use crate::text::note;
 use crate::tool::Tool;
 
-const USAGE: &str = "builds item take N [M...] --worktree W --branch B [--worktree W2 --branch B2] --brief P [--as design-session] [--held WHY]";
+const USAGE: &str = "builds item take N [M...] --worktree W --branch B [--worktree W2 --branch B2] --brief P [--as design-session] [--held WHY] [--spec-decided N] [--rules-root DIR] [--reviewer PROGRAM]";
 const PARK_USAGE: &str = "builds item park N --worktree W --branch B [--worktree W2 --branch B2]";
 
 /// One worktree an item runs or parks in: checked, with its branch and the
@@ -156,8 +164,152 @@ fn require_places_free(lists: &Lists, places: &[Place], ids: &[Id]) -> Result<()
     Ok(())
 }
 
+/// Refuses <ids> that cannot run in <places>: an item that runs already, one
+/// parked elsewhere, one of the other audience than <design_session> says,
+/// and one that waits on something not met, or, when <held>, one that waits
+/// on nothing open.
+fn require_takeable(
+    lists: &Lists,
+    places: &[Place],
+    ids: &[Id],
+    design_session: bool,
+    held: bool,
+) -> Result<()> {
+    require_places_free(lists, places, ids)?;
+    for id in ids {
+        let item = open_item(lists, *id)?;
+        if let Some(running) = item.running.first() {
+            fail!(
+                "{id} already runs in {} on {}; `builds item stop {} --why WHY` first",
+                running.worktree,
+                running.branch,
+                id.0
+            );
+        }
+        let parked = item.parked.iter().map(|p| (&p.worktree, &p.branch));
+        if !item.parked.is_empty() && !same_places(places, parked.clone()) {
+            fail!(
+                "{id} is parked in {}; take it there, where its work is",
+                places_words(parked)
+            );
+        }
+        match (item.r#for, design_session) {
+            (Audience::DesignSession, false) => {
+                fail!("{id} is the design session's; take it with --as design-session")
+            }
+            (Audience::Coordinator, true) => fail!(
+                "{id} is the coordinator's; --as design-session takes only the design session's items"
+            ),
+            _ => {}
+        }
+        if held {
+            if !waits_on_open(lists, item) {
+                fail!(
+                    "{id} waits on nothing open, so there is nothing to hold it for; take it without --held"
+                );
+            }
+            continue;
+        }
+        let blocking = blocking_words(lists, item);
+        if !blocking.is_empty() {
+            fail!(
+                "{id} waits on {}; it can be taken once they are met",
+                blocking.join("; ")
+            );
+        }
+    }
+    Ok(())
+}
+
+/// Checks <brief> against the product spec of each of <places>' repos that
+/// has spec files in <lists>, records each check, and fails the take when a
+/// check failed or found a conflict that `--spec-decided` does not settle.
+/// Prints what the checks found that does not stop the take.
+fn check_spec(
+    store: &Store,
+    stamp: &Stamp,
+    lists: &Lists,
+    places: &[Place],
+    ids: &[Id],
+    brief: &Brief,
+    args: &Args,
+) -> Result<()> {
+    let decided: Option<(Id, Kind)> = match args.value("spec-decided")? {
+        Some(text) => Some(spec_check::decided_ref(lists, text)?),
+        None => None,
+    };
+    let worktrees: Vec<(String, std::path::PathBuf)> = places
+        .iter()
+        .map(|place| (place.checkout.repo(), place.checkout.top.clone()))
+        .collect();
+    let targets = spec_check::targets(lists, &worktrees)?;
+    if targets.is_empty() {
+        let repos: Vec<&str> = worktrees.iter().map(|(repo, _)| repo.as_str()).collect();
+        if decided.is_some() {
+            fail!(
+                "--spec-decided names the person's choice on a spec conflict, and project {} names no spec files for {}, so no spec check runs",
+                lists.project,
+                repos.join(" or ")
+            );
+        }
+        note(format!(
+            "no spec check: project {} names no spec files for {}",
+            lists.project,
+            repos.join(" or ")
+        ));
+        return Ok(());
+    }
+    let root = match args.value("rules-root")? {
+        Some(root) => std::path::PathBuf::from(root),
+        None => crate::review::default_rules_root()?,
+    };
+    let setup = Setup::load(&root)?;
+    let reviewer = std::path::PathBuf::from(args.value("reviewer")?.unwrap_or("claude"));
+    let checked = spec_check::check_all(&reviewer, &setup, brief, &targets);
+    let check_ids = store.write(stamp, &format!("spec check of {}", brief.name), |db| {
+        spec_check::record(db, stamp, brief, ids, &checked, decided)
+    })?;
+    let shown: Vec<String> = check_ids.iter().map(|id| id.to_string()).collect();
+    let first = ids.first().expect("a take names an item");
+    let listed = format!(
+        "builds item show {} lists spec check {}",
+        first.0,
+        shown.join(", ")
+    );
+    if let Some(failures) = spec_check::failures(&checked) {
+        fail!("{failures}\n{listed}");
+    }
+    for line in spec_check::notes(&checked) {
+        note(line);
+    }
+    if let Some(conflicts) = spec_check::conflicts(brief, &checked) {
+        match decided {
+            None => fail!(
+                "{conflicts}\nThe spec records what the person decided, so builds took nothing. Ask the person about each conflict. Once they decide, record the choice as a decision or question, then take the items again with --spec-decided N, or change the brief to agree with the spec.\n{listed}"
+            ),
+            Some((id, _)) => note(format!(
+                "{conflicts}the person decided these conflicts in {id}, so the take goes on"
+            )),
+        }
+    }
+    Ok(())
+}
+
 pub fn take(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
-    let args = Args::parse(args, &["worktree", "branch", "brief", "as", "held"], &[])?;
+    let args = Args::parse(
+        args,
+        &[
+            "worktree",
+            "branch",
+            "brief",
+            "as",
+            "held",
+            "spec-decided",
+            "rules-root",
+            "reviewer",
+        ],
+        &[],
+    )?;
     if args.positional().is_empty() {
         fail!("usage: {USAGE}");
     }
@@ -196,66 +348,56 @@ pub fn take(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
             ),
         }
     }
-    require_brief_from(cwd, &brief)?;
+    let read_brief = Brief::read(&brief, &brief_file(cwd, &brief)?)?;
 
     let store = Store::resolve(&tool.places, &args, cwd)?;
     let stamp = Stamp::resolve(tool.now, &args, cwd)?;
-    store.write(&stamp, &format!("item take {}", ids.iter().map(|i| i.0.to_string()).collect::<Vec<_>>().join(" ")), |db| {
-        let lists = &store::read(db)?;
-        require_places_free(lists, &places, &ids)?;
-        for id in &ids {
-            let item = open_item(lists, *id)?;
-            if let Some(running) = item.running.first() {
-                fail!("{id} already runs in {} on {}; `builds item stop {} --why WHY` first", running.worktree, running.branch, id.0);
+    // The spec check runs a reviewer for minutes, so take refuses what the
+    // store refuses before the check, and again under the store's lock.
+    let lists = store.load()?;
+    require_takeable(&lists, &places, &ids, design_session, held.is_some())?;
+    check_spec(&store, &stamp, &lists, &places, &ids, &read_brief, &args)?;
+    store.write(
+        &stamp,
+        &format!(
+            "item take {}",
+            ids.iter()
+                .map(|i| i.0.to_string())
+                .collect::<Vec<_>>()
+                .join(" ")
+        ),
+        |db| {
+            let lists = &store::read(db)?;
+            require_takeable(lists, &places, &ids, design_session, held.is_some())?;
+            let running: Vec<Running> = places
+                .iter()
+                .map(|place| Running {
+                    worktree: place.top.clone(),
+                    branch: place.branch.clone(),
+                    brief: brief.clone(),
+                    since: stamp.clone(),
+                })
+                .collect();
+            for id in &ids {
+                parked::end(db, *id)?;
             }
-            let parked = item.parked.iter().map(|p| (&p.worktree, &p.branch));
-            if !item.parked.is_empty() && !same_places(&places, parked.clone()) {
-                fail!("{id} is parked in {}; take it there, where its work is", places_words(parked));
-            }
-            match (item.r#for, design_session) {
-                (Audience::DesignSession, false) => fail!("{id} is the design session's; take it with --as design-session"),
-                (Audience::Coordinator, true) => fail!("{id} is the coordinator's; --as design-session takes only the design session's items"),
-                _ => {}
-            }
-            if held.is_some() {
-                if !waits_on_open(lists, item) {
-                    fail!("{id} waits on nothing open, so there is nothing to hold it for; take it without --held");
+            start(db, &ids, &running)?;
+            // Last, so a refusal above leaves the claims as they were.
+            if let Some(why) = &held {
+                for place in &places {
+                    let file = place.checkout.claim_file();
+                    let claim = Claim::read(&file)?.expect("read above");
+                    Claim {
+                        note: Some(why.clone()),
+                        note_state: Some("held".into()),
+                        ..claim
+                    }
+                    .write(&file)?;
                 }
-                continue;
             }
-            let blocking = blocking_words(lists, item);
-            if !blocking.is_empty() {
-                fail!("{id} waits on {}; it can be taken once they are met", blocking.join("; "));
-            }
-        }
-        let running: Vec<Running> = places
-            .iter()
-            .map(|place| Running {
-                worktree: place.top.clone(),
-                branch: place.branch.clone(),
-                brief: brief.clone(),
-                since: stamp.clone(),
-            })
-            .collect();
-        for id in &ids {
-            parked::end(db, *id)?;
-        }
-        start(db, &ids, &running)?;
-        // Last, so a refusal above leaves the claims as they were.
-        if let Some(why) = &held {
-            for place in &places {
-                let file = place.checkout.claim_file();
-                let claim = Claim::read(&file)?.expect("read above");
-                Claim {
-                    note: Some(why.clone()),
-                    note_state: Some("held".into()),
-                    ..claim
-                }
-                .write(&file)?;
-            }
-        }
-        Ok(())
-    })?;
+            Ok(())
+        },
+    )?;
     let named: Vec<String> = ids.iter().map(|id| id.to_string()).collect();
     let wheres: Vec<String> = places
         .iter()

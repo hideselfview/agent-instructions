@@ -6,8 +6,8 @@
 //! re-exported. Each owner holds its types, its tables (the `.sql` file beside
 //! it) and every write to them: `record` (ids, stamps, closing), `project`,
 //! `area`, `item` with `running`, `parked`, `landing` and `dropped`, `question`, `decision`,
-//! `design`, `tag` (the tags of questions and items), `store` (the write
-//! log). `trail` reads where each question and item came from. Their commands
+//! `design`, `tag` (the tags of questions and items), `spec_check` (the
+//! checks of briefs against the product spec), `store` (the write log). `trail` reads where each question and item came from. Their commands
 //! are `command`,
 //! `item_command`, `question_command`, `decision_command` and
 //! `design_command`. `store` also holds the database's opening, the write
@@ -47,6 +47,7 @@ pub mod question_command;
 pub mod record;
 pub mod running;
 pub mod show;
+pub mod spec_check;
 pub mod store;
 pub mod tag;
 mod take;

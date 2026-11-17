@@ -88,7 +88,8 @@ PLAN, BRIEF, EXECUTE, REVIEW
     or settling a choice an agent raises, the coordinator reads the spec's
     text on each behavior the change touches, and the brief points at it.
     A rule never overrides the spec: a change to what the spec says is the
-    person's decision. `builds help briefs` is
+    person's decision. `builds item take` checks the brief against the spec
+    before the agent starts (DISPATCH). `builds help briefs` is
     the instructions for a planner agent that writes briefs.
   - Execute: an agent that carries out a brief or a plan the strongest model
     settled runs a faster, cheaper model. Name that model on every such
@@ -195,6 +196,13 @@ DISPATCH
     a worktree by hand only when it holds nothing origin/main lacks (release
     refuses the rest). `builds item list --running` shows what runs after a
     compact.
+  - `builds item take` checks the brief against the product spec before it
+    marks the items running. When the check finds a conflict, take refuses
+    and quotes the brief's sentence and the spec's text: put the conflict on
+    the decision stack, or fix the brief to agree with the spec. Once the
+    person decides, take the items again with --spec-decided N, the decision
+    or question that records the choice. When take prints a behavior the
+    spec doesn't state, tell the agent to add it to the spec in its commit.
   - Read-only agents (planners, audits) read origin/main through `git show`
     and `git grep`, never a checkout.
   - Disk is a queue limit, never a question for the person: under the floor,

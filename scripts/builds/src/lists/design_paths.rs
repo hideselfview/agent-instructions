@@ -60,6 +60,11 @@ impl Globs {
     pub fn names_place(&self, key: &str) -> bool {
         self.places.iter().any(|glob| Glob::parse(glob).names(key))
     }
+
+    /// Does <path> name one of these globs' spec files?
+    pub fn names_spec_file(&self, path: &str) -> bool {
+        self.spec.iter().any(|glob| Glob::parse(glob).matches(path))
+    }
 }
 
 /// What a place is, read from how its key is written.

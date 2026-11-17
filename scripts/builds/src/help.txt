@@ -1360,6 +1360,24 @@ records the same, with the commit of the rules checkout it read. A rule's `block
 findings blocking in the reviewer's prompt and the report; every finding,
 blocking or not, must be settled before the commits land.
 
+Before an agent starts on a brief, `builds item take` checks the brief against
+the product spec with the same reviewer runner, in each worktree the take names
+whose repo has spec files (`builds lists design-globs --spec-files`). The
+reviewer runs the model of the group that holds the rule
+every-change-agrees-with-its-product-spec, and its system prompt holds that
+rule's text. The reviewer quotes each sentence of the brief that states a
+behavior the spec states otherwise (a conflict), with the spec file and the
+spec's text, and each sentence that states a behavior the spec doesn't state
+(unstated). builds
+looks for each quote in the brief and in the spec file, finds the line the
+spec's text starts on, and sets aside a finding whose quote it does not find. A
+conflict refuses the take unless --spec-decided names the decision or question
+that records the person's choice; take prints each unstated behavior and takes
+the items. take records every check in the project's store: the brief's text,
+the spec files and the commit they were read at, the model, prompt, answer,
+tokens and cost, each finding, and the --spec-decided record (`builds help
+lists`, item take).
+
 Every review command but `review groups` reads or writes a project's store:
 the one --project names, else the project of the worktree or current
 directory; `review replay` of cases writes each case's project's store. When

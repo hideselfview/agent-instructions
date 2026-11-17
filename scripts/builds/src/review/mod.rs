@@ -38,20 +38,20 @@
 //! same way (`score.rs`).
 
 mod audit;
-mod call;
+pub mod call;
 mod cases;
-mod check;
+pub mod check;
 pub mod commits;
 #[cfg(test)]
 pub mod fakes;
 mod files;
-mod groups;
+pub mod groups;
 pub mod landing;
 mod prompt;
 pub mod record;
 mod render;
 mod rerun;
-mod rules;
+pub mod rules;
 pub mod run;
 mod score;
 

@@ -18,6 +18,9 @@ READ FIRST
     behavior's words and read each whole section. The spec records what the
     person decided: a brief follows it and points at it, and a choice that
     would change it goes to the person as a question, not into the brief.
+    `builds item take` checks each brief against the spec before an agent
+    starts, and refuses a brief that states a behavior otherwise than the
+    spec does.
   - Every rule file the matching-rules script lists for the files your items
     touch:
       ~/.codex/agent-instructions/scripts/rules_review/matching_rules.py \
@@ -60,7 +63,9 @@ WRITE ONE BRIEF PER ITEM
     Android emulator.
   - Spec: the spec text that states each behavior the change touches, with
     file and line, and the sections to edit in the same commit, or "none"
-    with why.
+    with why. Name each behavior the spec doesn't state yet, so the agent
+    adds it to the spec in its commit; the take's check prints each one it
+    finds.
   - Locales: say which new user-visible strings go into every locale.
   - Model: a faster, cheaper model executes. Only a software plan too large
     for the coordinator to hold goes to the strongest model, which writes a

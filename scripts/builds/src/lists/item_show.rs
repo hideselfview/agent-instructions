@@ -132,6 +132,9 @@ pub fn render_item(lists: &Lists, id: Id) -> Result<String> {
             let _ = writeln!(out, "  not committed: {}", work.files.join(", "));
         }
     }
+    for check in &item.spec_checks {
+        let _ = writeln!(out, "{}", crate::lists::spec_check::line(check));
+    }
     for part in &item.landed {
         let _ = writeln!(
             out,

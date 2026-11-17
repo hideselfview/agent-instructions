@@ -41,10 +41,18 @@ pub fn require_brief(base: &Path, brief: &str) -> Result<()> {
 /// itself, a relative one is under the main checkout of <cwd>'s repo. Only a
 /// relative brief needs a checkout.
 pub fn require_brief_from(cwd: &Path, brief: &str) -> Result<()> {
-    if Path::new(brief).is_absolute() {
-        return require_brief(Path::new("/"), brief);
-    }
-    require_brief(&brief_base(cwd)?, brief)
+    brief_file(cwd, brief).map(|_| ())
+}
+
+/// The file of <brief>, which exists, as `require_brief_from` finds it.
+pub fn brief_file(cwd: &Path, brief: &str) -> Result<std::path::PathBuf> {
+    let base = if Path::new(brief).is_absolute() {
+        std::path::PathBuf::from("/")
+    } else {
+        brief_base(cwd)?
+    };
+    require_brief(&base, brief)?;
+    Ok(base.join(brief.split('#').next().unwrap_or("")))
 }
 
 /// The briefs of <drafts> exist (see `require_brief_from`).

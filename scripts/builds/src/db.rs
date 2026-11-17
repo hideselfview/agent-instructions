@@ -2,8 +2,8 @@
 //! lists (every table of `lists/*.sql`), the hook-run stats (`hook_stats.sql`
 //! and `hook_check_starts.sql`), the app-build timings (`app_timing.sql`), the
 //! design changes' recording sessions (`lists/design_session.sql`), the shot
-//! findings, the review's tables and the `builds cargo` runs
-//! (`cargo_run.sql`). This module does all opening:
+//! findings, the review's tables, the `builds cargo` runs
+//! (`cargo_run.sql`) and the spec checks (`lists/spec_check.sql`). This module does all opening:
 //! the pragmas, the schema made whole in the first transaction of a new file,
 //! and the stamp.
 //!
@@ -71,18 +71,22 @@ pub const CARGO_RUNS_PART: &str = include_str!("cargo_run.sql");
 /// schema holds it after the cargo runs' part.
 pub const PARKED_PART: &str = include_str!("lists/parked.sql");
 
-/// The work an item held when the person dropped it (lists/dropped.sql), the
-/// last part of the schema.
+/// The work an item held when the person dropped it (lists/dropped.sql); the
+/// schema holds it after the parked items' part.
 pub const DROPPED_PART: &str = include_str!("lists/dropped.sql");
+
+/// The checks of briefs against the product spec (lists/spec_check.sql), the
+/// last part of the schema.
+pub const SPEC_CHECK_PART: &str = include_str!("lists/spec_check.sql");
 
 /// The whole schema: the lists' tables, then the hook stats', then the
 /// app-build timings', then the design changes' recording sessions', then the
 /// stored shot findings, then the review's, then the hook checks' starting
 /// loads, then the cargo runs', then the parked items', then the dropped
-/// items' work.
+/// items' work, then the spec checks'.
 pub fn schema() -> String {
     format!(
-        "{}\n{REVIEW_PART}\n{HOOK_CHECK_STARTS_PART}\n{CARGO_RUNS_PART}\n{PARKED_PART}\n{DROPPED_PART}",
+        "{}\n{REVIEW_PART}\n{HOOK_CHECK_STARTS_PART}\n{CARGO_RUNS_PART}\n{PARKED_PART}\n{DROPPED_PART}\n{SPEC_CHECK_PART}",
         schema_before_review()
     )
 }

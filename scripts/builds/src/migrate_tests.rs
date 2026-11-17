@@ -1997,11 +1997,9 @@ fn a_store_from_before_check_starts_keeps_its_runs_and_gains_the_tables() {
     assert_eq!(stats.runs, 1, "the move keeps the old run");
 }
 
-/// The schema text before an item could hold a worktree parked or record
-/// its dropped work: without the parked and dropped items' tables.
-fn schema_before_parked() -> String {
-    let mut schema = db::schema();
-    for part in [db::PARKED_PART, db::DROPPED_PART] {
+/// <schema> without each of <parts>, which it holds once each.
+fn without_parts(mut schema: String, parts: &[&str]) -> String {
+    for part in parts {
         let part = format!("\n{part}");
         assert_eq!(
             schema.matches(&part).count(),
@@ -2011,6 +2009,109 @@ fn schema_before_parked() -> String {
         schema = schema.replacen(&part, "", 1);
     }
     schema
+}
+
+/// The schema text before builds recorded each check of a brief against the
+/// product spec: without the spec checks' tables.
+fn schema_before_spec_check() -> String {
+    without_parts(db::schema(), &[db::SPEC_CHECK_PART])
+}
+
+/// The schema text before an item could hold a worktree parked or record
+/// its dropped work: without the parked and dropped items' tables.
+fn schema_before_parked() -> String {
+    without_parts(
+        schema_before_spec_check(),
+        &[db::PARKED_PART, db::DROPPED_PART],
+    )
+}
+
+#[test]
+fn the_spec_check_stamp_is_the_schema_before_spec_checks() {
+    assert_eq!(
+        db::stamp_of_text(&schema_before_spec_check()),
+        BEFORE_SPEC_CHECK_STAMP
+    );
+}
+
+/// A store from before spec checks keeps its parked item, gains the empty
+/// tables, equals a fresh schema, and then records a check of the item's
+/// brief.
+#[test]
+fn a_store_from_before_spec_checks_gains_the_tables_and_records_a_check() {
+    use crate::lists::fixtures::v;
+    let scratch = Scratch::new("move-spec-check");
+    let places = scratch.places();
+    let dir = places.lists.join("bae");
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join(DATABASE);
+    {
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(&schema_before_spec_check()).unwrap();
+        conn.pragma_update(None, "user_version", BEFORE_SPEC_CHECK_STAMP)
+            .unwrap();
+        crate::lists::project::plant(
+            &conn,
+            "project",
+            &[("singleton", v(1)), ("name", v("bae")), ("canvas", v(1))],
+        )
+        .unwrap();
+        crate::lists::project::plant(&conn, "repo", &[("name", v("bae"))]).unwrap();
+        crate::lists::area::plant(&conn, &[("name", v("Alpha")), ("position", v(0))]).unwrap();
+        crate::lists::record::plant(
+            &conn,
+            "record",
+            &[
+                ("id", v(1)),
+                ("kind", v("item")),
+                ("opened_at", v(5)),
+                ("opened_by", v("tester")),
+            ],
+        )
+        .unwrap();
+        crate::lists::item::plant(
+            &conn,
+            "item",
+            &[
+                ("id", v(1)),
+                ("title", v("Do the first thing now")),
+                ("area", v("Alpha")),
+                ("details", v("d")),
+                ("audience", v("coordinator")),
+            ],
+        )
+        .unwrap();
+        conn.pragma_update(None, "foreign_keys", true).unwrap();
+        crate::lists::parked::park(
+            &conn,
+            crate::lists::Id(1),
+            &[crate::lists::parked::Parked {
+                worktree: "/d/bae-worktrees/side-2".to_string(),
+                branch: "work".to_string(),
+                since: crate::lists::Stamp {
+                    at: 7,
+                    by: "tester".to_string(),
+                },
+            }],
+        )
+        .unwrap();
+    }
+    migrate_stores(&places).unwrap();
+    let conn = db::open_reader(&path)
+        .unwrap()
+        .expect("opens under today's stamp");
+    assert_eq!(
+        db::schema_rows(&conn).unwrap(),
+        db::schema_rows(&db::memory()).unwrap()
+    );
+    drop(conn);
+    let conn = Connection::open(&path).unwrap();
+    conn.pragma_update(None, "foreign_keys", true).unwrap();
+    let parked: i64 = conn
+        .query_row("SELECT COUNT(*) FROM parked", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(parked, 1, "the move keeps the parked item");
+    crate::lists::spec_check::tests::record_one(&conn, "bae", crate::lists::Id(1));
 }
 
 #[test]
