@@ -82,10 +82,7 @@ fn a_question_with_no_waiting_item_and_no_reason_is_an_error() {
     let db = db();
     let q = question(&db);
     blocks_something(&db, q);
-    let message = match render(&read(&db), None).unwrap_err() {
-        crate::fail::Fail::Message(message) => message,
-        crate::fail::Fail::Exit(code) => panic!("exit {code}"),
-    };
+    let message = render(&read(&db), None).unwrap_err().text();
     assert!(
         message.contains(&format!(
             "question {q} blocks no open item and gives no reason"
