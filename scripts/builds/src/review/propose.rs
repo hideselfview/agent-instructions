@@ -17,7 +17,7 @@ use crate::lists::args::{Args, current_dir};
 use crate::lists::store::Store;
 use crate::review::audit::{candidate_misses, diff_read};
 use crate::review::cases::{self, Addition, SiteLabel, same_code, same_file};
-use crate::review::check::{code_in, names_file, parse_diff, squash};
+use crate::review::check::{code_in, names_file, squash};
 use crate::review::files;
 use crate::review::model_check;
 use crate::review::record::{self, Finding, RunRow};
@@ -81,6 +81,10 @@ pub struct Proposed {
 struct Candidate {
     landing: i64,
     first: RunRow,
+    /// The base and head of the first review's net change, which the repo
+    /// holds.
+    base: String,
+    head: String,
     /// The confirmed findings of the first review's diff, settled with a
     /// reason of their own.
     specific: Vec<Finding>,
@@ -107,9 +111,16 @@ fn specific(finding: &Finding) -> bool {
 }
 
 /// The landed changes of <repo> in <db> that have a specific finding and
-/// whose first review's commits <repo_dir> still holds, newest first.
-fn candidates(db: &rusqlite::Connection, repo: &str, repo_dir: &Path) -> Result<Vec<Candidate>> {
+/// whose first review's commits <repo_dir> still holds, newest first, and a
+/// line for each landed change with a specific finding whose commits the repo
+/// lost, which gives no case.
+fn candidates(
+    db: &rusqlite::Connection,
+    repo: &str,
+    repo_dir: &Path,
+) -> Result<(Vec<Candidate>, String)> {
     let mut out = Vec::new();
+    let mut lost = String::new();
     for landing in record::all_landings(db)?.into_iter().rev() {
         if landing.repo != repo || landing.landed_run.is_none() {
             continue;
@@ -121,9 +132,6 @@ fn candidates(db: &rusqlite::Connection, repo: &str, repo_dir: &Path) -> Result<
         else {
             continue;
         };
-        if net_change(repo_dir, first).is_err() {
-            continue;
-        }
         let over: Vec<i64> = runs
             .iter()
             .filter(|r| r.kind == "review" && r.same_diff(first))
@@ -136,16 +144,26 @@ fn candidates(db: &rusqlite::Connection, repo: &str, repo_dir: &Path) -> Result<
             .filter(|f| specific(f))
             .cloned()
             .collect();
-        if !specific.is_empty() {
-            out.push(Candidate {
+        if specific.is_empty() {
+            continue;
+        }
+        match net_change(repo_dir, first) {
+            Ok((base, head)) => out.push(Candidate {
                 landing: landing.id,
                 first: first.clone(),
+                base,
+                head,
                 specific,
                 findings,
-            });
+            }),
+            Err(why) => lost.push_str(&format!(
+                "landing {}: no case: {}\n",
+                landing.id,
+                why.text()
+            )),
         }
     }
-    Ok(out)
+    Ok((out, lost))
 }
 
 /// For each group that raised a specific finding, in name order, the newest
@@ -213,17 +231,18 @@ fn clean_lines(diff: &Diff, findings: &[Finding]) -> Vec<SiteLabel> {
     labels
 }
 
-/// The path of the file <finding> names, as <patch> names it; None when the
-/// finding's code is not in <diff>.
-fn path_in(diff: &Diff, patch: &str, finding: &Finding) -> Option<String> {
-    code_in(&diff.quotes(), &finding.file, &finding.code).ok()?;
+/// The path of the file <finding> names, as <patch> names it; or why the
+/// case cannot expect the finding: its code is not in <diff>, or <patch> has
+/// no such file.
+fn path_in(diff: &Diff, patch: &str, finding: &Finding) -> std::result::Result<String, String> {
+    code_in(&diff.quotes(), &finding.file, &finding.code)?;
     if finding.file == files::COMMIT_MESSAGE {
-        return Some(finding.file.clone());
+        return Ok(finding.file.clone());
     }
-    parse_diff(patch)
+    files::paths(patch)
         .into_iter()
-        .map(|f| f.path)
         .find(|path| names_file(path, &finding.file))
+        .ok_or_else(|| format!("the patch has no file {}", finding.file))
 }
 
 /// <patch> and <diff> cut to the files of <paths>, the files that hold a
@@ -266,8 +285,8 @@ pub fn propose(inputs: &Inputs) -> Result<Proposed> {
         .into_iter()
         .map(|c| c.name)
         .collect();
-    let all = candidates(&conn, &repo, inputs.repo_dir)?;
-    let mut text = String::new();
+    let (all, lost) = candidates(&conn, &repo, inputs.repo_dir)?;
+    let mut text = lost;
     let mut failed = false;
     let mut cost = 0;
     for i in sample(&all, inputs.per_group) {
@@ -280,26 +299,24 @@ pub fn propose(inputs: &Inputs) -> Result<Proposed> {
             ));
             continue;
         }
-        let Some((patch, diff)) = change_of(
-            inputs.repo_dir,
-            &candidate.first,
-            &mut text,
-            candidate.landing,
-        )?
-        else {
-            continue;
-        };
-        let asked: Vec<(&Finding, String)> = candidate
-            .specific
-            .iter()
-            .filter_map(|f| path_in(&diff, &patch, f).map(|path| (f, path)))
-            .collect();
+        let patch = cases::patch_of(inputs.repo_dir, &candidate.base, &candidate.head)?;
+        let diff = run::diff_between(inputs.repo_dir, &candidate.base, &candidate.head)?;
+        text.push_str(&format!("landing {}:\n", candidate.landing));
+        let mut asked: Vec<(&Finding, String)> = Vec::new();
+        for finding in &candidate.specific {
+            match path_in(&diff, &patch, finding) {
+                Ok(path) => asked.push((finding, path)),
+                Err(why) => text.push_str(&format!(
+                    "  finding {} ({} in {}): the case leaves it out: {why}\n",
+                    finding.id, finding.rule, finding.file
+                )),
+            }
+        }
         let checked = parallel_map(&asked, |(finding, _)| {
             model_check::check(inputs.reviewer, inputs.model, &material, finding, &diff)
         });
         let mut additions: Vec<Addition> = Vec::new();
         let mut case_failed = false;
-        text.push_str(&format!("landing {}:\n", candidate.landing));
         for ((finding, path), checked) in asked.iter().zip(&checked) {
             cost += checked.usage.cost_microdollars;
             let head = format!(
@@ -355,26 +372,6 @@ pub fn propose(inputs: &Inputs) -> Result<Proposed> {
     Ok(Proposed { text, failed })
 }
 
-/// The patch and diff of <run>'s net change in <repo_dir>, or None with why
-/// in <text> when the repo lacks its commits.
-fn change_of(
-    repo_dir: &Path,
-    run: &RunRow,
-    text: &mut String,
-    landing: i64,
-) -> Result<Option<(String, Diff)>> {
-    let (base, head) = match net_change(repo_dir, run) {
-        Ok(change) => change,
-        Err(why) => {
-            text.push_str(&format!("landing {landing}: no case: {}\n", why.text()));
-            return Ok(None);
-        }
-    };
-    let patch = cases::patch_of(repo_dir, &base, &head)?;
-    let diff = run::diff_between(repo_dir, &base, &head)?;
-    Ok(Some((patch, diff)))
-}
-
 /// Writes a case for each confirmed candidate miss, over the diff the audit
 /// reviewer that raised it read, which the store keeps. Returns what to
 /// print.
@@ -409,9 +406,9 @@ fn misses(inputs: &Inputs, conn: &rusqlite::Connection) -> Result<String> {
             let mut found: Vec<(&Finding, String)> = Vec::new();
             for miss in &of_run {
                 match path_in(&diff, &diff.text, miss) {
-                    Some(path) => found.push((miss, path)),
-                    None => text.push_str(&format!(
-                        "landing {landing}: miss {} quotes code that is not in the diff\n",
+                    Ok(path) => found.push((miss, path)),
+                    Err(why) => text.push_str(&format!(
+                        "landing {landing}: the case leaves out miss {}: {why}\n",
                         miss.id
                     )),
                 }

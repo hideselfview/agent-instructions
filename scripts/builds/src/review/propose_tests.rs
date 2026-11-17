@@ -215,7 +215,7 @@ fn a_confirmed_miss_becomes_a_case_that_expects_it() {
 }
 
 #[test]
-fn a_landing_whose_commits_the_repo_lost_is_not_sampled() {
+fn a_landing_whose_commits_the_repo_lost_gives_no_case_and_says_why() {
     let demo = demo("review-propose-lost");
     let fake = fake(&demo.scratch.dir);
     let side = demo.add_side(1, "agent", "work");
@@ -224,6 +224,31 @@ fn a_landing_whose_commits_the_repo_lost_is_not_sampled() {
     run_git(&side, &["reflog", "expire", "--expire=now", "--all"]);
     run_git(&side, &["gc", "-q", "--prune=now"]);
     let proposed = propose_in(&fake, &side, &demo.store);
-    assert!(!proposed.text.contains("landing 1"), "{}", proposed.text);
+    assert!(
+        proposed
+            .text
+            .contains("landing 1: no case: the repo does not have the commits of run"),
+        "{}",
+        proposed.text
+    );
     assert!(fake.prompts().is_empty());
+}
+
+#[test]
+fn a_finding_whose_code_is_not_in_the_change_is_named_and_left_out() {
+    let demo = demo("review-propose-code-gone");
+    let fake = fake(&demo.scratch.dir);
+    let side = demo.add_side(1, "agent", "work");
+    landed(&demo, &fake, &side, "other() repeats the call above");
+    let conn = demo.store.open_existing().unwrap();
+    let mut findings = record::findings_of_landing(&conn, 1).unwrap();
+    drop(conn);
+    let b = findings.iter_mut().find(|f| f.rule == "rule-b").unwrap();
+    b.code = "not in it".to_string();
+    let diff = run::diff_between(&side, "main", "HEAD").unwrap();
+    let patch = cases::patch_of(&side, &diff.base, &diff.head).unwrap();
+    assert_eq!(
+        path_in(&diff, &patch, b),
+        Err("its code is not in the diff of b.swift".to_string())
+    );
 }
