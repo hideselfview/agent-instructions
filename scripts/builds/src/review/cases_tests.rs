@@ -343,3 +343,46 @@ fn a_case_takes_site_labels_and_a_finding_in_the_commit_messages() {
     assert_eq!(case.expected[0].file, "COMMIT_MESSAGE");
     assert_eq!(case.labels, [site]);
 }
+
+#[test]
+fn a_comparison_prints_each_setups_caught_missed_and_wrong_flags_with_tokens_and_cost() {
+    let scratch = Scratch::new("case-compare");
+    let fake = fake(&scratch.dir);
+    let case = Case {
+        name: "n".to_string(),
+        project: "demo".to_string(),
+        patch: PATCH.to_string(),
+        clean_for: Vec::new(),
+        expected: vec![Expect {
+            rule: "rule-a".to_string(),
+            file: "a.rs".to_string(),
+        }],
+        labels: vec![label("a.rs", "a.rs", "none", None)],
+    };
+    fake.answer("alpha", &[("rule-a", None)]);
+    let current = replay_case(&material(&fake), &fake.program, &case, None);
+    fake.answer("alpha", &[("rule-a", Some(BAD))]);
+    let named = replay_case(
+        &material(&fake).with_model("haiku"),
+        &fake.program,
+        &case,
+        None,
+    );
+    let text = comparison(&[current], &[named], "haiku");
+    assert!(
+        text.contains(
+            "current setup: caught 0 of 1, missed 1, wrong flags 0, 100 tokens in, 10 out, $0.01\n"
+        ),
+        "{text}"
+    );
+    assert!(
+        text.contains(
+            "haiku: caught 1 of 1, missed 0, wrong flags 1, 100 tokens in, 10 out, $0.01\n"
+        ),
+        "{text}"
+    );
+    assert!(
+        text.contains("n: current setup caught 0 of 1, 0 wrong; haiku caught 1 of 1, 1 wrong\n"),
+        "{text}"
+    );
+}

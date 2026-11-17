@@ -10,7 +10,7 @@
 //! builds review show LANDING
 //! builds review check-landing | landed DIR --project P SHA... [--landing KEY]
 //! builds review groups [--rules-root DIR] [--project P] [--changed PATH]...
-//! builds review replay [--case NAME]... [--source REPO] [--model M] [--rules-root DIR] [--reviewer PROGRAM]
+//! builds review replay [--case NAME]... [--source REPO] [--model M] [--rules-root DIR] [--compare] [--reviewer PROGRAM]
 //! builds review replay --landing N... --repo-dir DIR [--group NAME]... [--model M] [--rules-root DIR] [--reviewer PROGRAM]
 //! builds review audit LANDING --repo-dir DIR
 //! builds review misses [--check --repo-dir DIR]
@@ -81,7 +81,7 @@ use crate::tool::Tool;
 
 use record::Kind;
 
-const USAGE: &str = "usage: builds review [run] WORKTREE [BASE] [--landing KEY] [--item N]... [--head SHA] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review writing WORKTREE [BASE] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review settle FINDING confirmed|dropped --why TEXT\n       builds review settle FINDING --again --why TEXT\n       builds review show LANDING\n       builds review check-landing DIR --project P SHA... [--landing KEY] [--rules-root DIR]\n       builds review landed DIR --project P SHA... [--landing KEY] [--more-to-land] [--rules-root DIR]\n       builds review groups [--rules-root DIR] [--project P] [--changed PATH]...\n       builds review replay [--case NAME]... [--source REPO] [--model opus|sonnet|haiku] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review replay --landing N... --repo-dir DIR [--group NAME]... [--model opus|sonnet|haiku] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review audit LANDING --repo-dir DIR [--rules-root DIR] [--reviewer PROGRAM]\n       builds review misses [--check --repo-dir DIR [--model opus|sonnet|haiku] [--rules-root DIR] [--reviewer PROGRAM]]\n       builds review rates [--rules-root DIR]\n       builds review scores\n       builds review case propose --repo-dir DIR --rules-root DIR [--per-group N] [--model opus|sonnet|haiku] [--reviewer PROGRAM]\n       builds review case add LANDING FINDING --repo-dir DIR --rules-root DIR [--name NAME]\n       builds review case add --rule SLUG --file PATH --commits BASE..HEAD --project P --name NAME --repo-dir DIR --rules-root DIR\n       builds review case add --clean-for SLUG --commits BASE..HEAD --project P --name NAME --repo-dir DIR --rules-root DIR";
+const USAGE: &str = "usage: builds review [run] WORKTREE [BASE] [--landing KEY] [--item N]... [--head SHA] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review writing WORKTREE [BASE] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review settle FINDING confirmed|dropped --why TEXT\n       builds review settle FINDING --again --why TEXT\n       builds review show LANDING\n       builds review check-landing DIR --project P SHA... [--landing KEY] [--rules-root DIR]\n       builds review landed DIR --project P SHA... [--landing KEY] [--more-to-land] [--rules-root DIR]\n       builds review groups [--rules-root DIR] [--project P] [--changed PATH]...\n       builds review replay [--case NAME]... [--source REPO] [--model opus|sonnet|haiku] [--rules-root DIR] [--compare] [--reviewer PROGRAM]\n       builds review replay --landing N... --repo-dir DIR [--group NAME]... [--model opus|sonnet|haiku] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review audit LANDING --repo-dir DIR [--rules-root DIR] [--reviewer PROGRAM]\n       builds review misses [--check --repo-dir DIR [--model opus|sonnet|haiku] [--rules-root DIR] [--reviewer PROGRAM]]\n       builds review rates [--rules-root DIR]\n       builds review scores\n       builds review case propose --repo-dir DIR --rules-root DIR [--per-group N] [--model opus|sonnet|haiku] [--reviewer PROGRAM]\n       builds review case add LANDING FINDING --repo-dir DIR --rules-root DIR [--name NAME]\n       builds review case add --rule SLUG --file PATH --commits BASE..HEAD --project P --name NAME --repo-dir DIR --rules-root DIR\n       builds review case add --clean-for SLUG --commits BASE..HEAD --project P --name NAME --repo-dir DIR --rules-root DIR";
 
 /// The checkout the rules and groups are read from: `--rules-root`, else the
 /// one `install.sh` links at ~/.codex/agent-instructions.
@@ -731,7 +731,7 @@ fn replay(tool: &Tool, args: &[String]) -> Result<()> {
             "repo-dir",
             "group",
         ],
-        &[],
+        &["compare"],
     )?;
     args.exactly(0, USAGE)?;
     if let Some(model) = args.value("model")?
@@ -740,6 +740,9 @@ fn replay(tool: &Tool, args: &[String]) -> Result<()> {
         fail!("--model is opus, sonnet or haiku, not {model}");
     }
     if !args.values("landing").is_empty() {
+        if args.switch("compare") {
+            fail!("--compare goes with the cases, not --landing\n{USAGE}");
+        }
         return replay_landings(tool, &args);
     }
     if args.value("repo-dir")?.is_some() || !args.values("group").is_empty() {
@@ -773,26 +776,37 @@ fn replay(tool: &Tool, args: &[String]) -> Result<()> {
         .collect::<Result<Vec<Store>>>()?;
     let cwd = current_dir()?;
     let stamp = Stamp::resolve(tool.now, &args, &cwd)?;
-    let rules_version = run::rules_version(&root);
-    let results = cases::replay_all(
-        &root,
-        &all,
-        &reviewer,
-        source.as_deref(),
-        args.value("model")?,
-    )?;
-    for ((case, result), store) in all.iter().zip(&results).zip(&stores) {
-        store.write(&stamp, &format!("review replay {}", case.name), |db| {
-            record::add_run(
-                db,
-                &cases::run_of(case, stamp.at, &rules_version),
-                &result.calls,
-            )
-            .map(|_| ())
-        })?;
+    // Runs the cases under the rules and groups of <root>, every group in
+    // <model> when given, and records each case's run.
+    let replay_under = |root: &Path, model: Option<&str>| -> Result<Vec<cases::CaseResult>> {
+        let rules_version = run::rules_version(root);
+        let results = cases::replay_all(root, &all, &reviewer, source.as_deref(), model)?;
+        for ((case, result), store) in all.iter().zip(&results).zip(&stores) {
+            store.write(&stamp, &format!("review replay {}", case.name), |db| {
+                record::add_run(
+                    db,
+                    &cases::run_of(case, stamp.at, &rules_version),
+                    &result.calls,
+                )
+                .map(|_| ())
+            })?;
+        }
+        Ok(results)
+    };
+    let results = replay_under(&root, args.value("model")?)?;
+    let mut failed = cases::totals(&results).failed_calls > 0;
+    if args.switch("compare") {
+        let current = replay_under(&default_rules_root()?, None)?;
+        failed |= cases::totals(&current).failed_calls > 0;
+        let name = match args.value("model")? {
+            Some(model) => format!("{model}, rules of {}", root.display()),
+            None => format!("rules of {}", root.display()),
+        };
+        print!("{}", cases::comparison(&current, &results, &name));
+    } else {
+        print!("{}", cases::report(&results));
     }
-    print!("{}", cases::report(&results));
-    if cases::totals(&results).failed_calls > 0 {
+    if failed {
         return Err(Fail::Exit(1));
     }
     Ok(())

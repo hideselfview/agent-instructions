@@ -1675,7 +1675,7 @@ agent-instructions and run `review replay --rules-root` on it.
                               names no group folder; with --changed, list instead the
                               groups a change to those paths runs, over
                               project P's rules (none: every project's)
-  builds review replay [--case NAME]... [--source REPO] [--model <model>] [--rules-root DIR] [--reviewer PROGRAM]
+  builds review replay [--case NAME]... [--source REPO] [--model <model>] [--rules-root DIR] [--compare] [--reviewer PROGRAM]
                               run the grouping of the checkout (--rules-root)
                               over every case in its review/cases folder (a
                               change as `git format-patch` output, and
@@ -1690,7 +1690,15 @@ agent-instructions and run `review replay --rules-root` on it.
                               replayed case goes in its project's store.
                               --source REPO gives each reviewer the commit a
                               case came from, and --model runs every group on
-                              one of opus, sonnet and haiku
+                              one of opus, sonnet and haiku. --compare also
+                              runs the cases under the current setup (the
+                              groups, rules and models of the checkout
+                              install.sh links at ~/.codex/agent-instructions)
+                              and prints, for each case and then for each
+                              setup, the problems caught (expected findings
+                              raised) and missed, the wrong flags (blocking
+                              findings on a rule a case keeps quiet, and
+                              findings on a `none` site), tokens and cost
   builds review replay --landing N... --repo-dir DIR [--group NAME]... [--model <model>] [--rules-root DIR] [--reviewer PROGRAM]
                               ask again over each diff the reviews of landing
                               N read, with the groups and rules of the

@@ -12,6 +12,7 @@ use crate::fail::{Context, Result};
 use crate::review::check::{parse_diff, squash};
 use crate::review::files::{self, Source};
 use crate::review::record::{Kind, NewCall, NewRun};
+use crate::review::render;
 use crate::review::run::{Diff, Material, Tokens, ask_groups};
 
 pub const DIR: &str = "review/cases";
@@ -335,6 +336,12 @@ fn score_sites(
 }
 
 impl CaseResult {
+    /// Blocking findings on a rule the case keeps quiet, and findings on a
+    /// `none` site.
+    pub fn wrong_flags(&self) -> usize {
+        self.false_blocking + self.sites.iter().map(|s| s.wrong).sum::<usize>()
+    }
+
     pub fn tokens(&self) -> (i64, i64) {
         (
             self.calls.iter().map(|c| c.tokens_in).sum(),
@@ -601,6 +608,48 @@ fn site_report(results: &[CaseResult]) -> String {
             out.push_str(&line(&format!("  rule {}", s.rule), s));
         }
     }
+    out
+}
+
+/// What one setup did over the test set: problems caught and missed, wrong
+/// flags (blocking findings on a rule a case keeps quiet, and findings on a
+/// `none` site), tokens and cost.
+fn setup_line(name: &str, results: &[CaseResult]) -> String {
+    let t = totals(results);
+    format!(
+        "{name}: caught {} of {}, missed {}, wrong flags {}, {} tokens in, {} out, ${:.2}{}\n",
+        t.found,
+        t.expected,
+        t.expected - t.found,
+        results.iter().map(CaseResult::wrong_flags).sum::<usize>(),
+        t.tokens_in,
+        t.tokens_out,
+        t.cost_microdollars as f64 / 1_000_000.0,
+        match t.failed_calls {
+            0 => String::new(),
+            n => format!(", {} failed", render::plural(n, "call")),
+        }
+    )
+}
+
+/// The test set under the current setup beside <named> under the setup
+/// <name> names: each case, then each setup's totals.
+pub fn comparison(current: &[CaseResult], named: &[CaseResult], name: &str) -> String {
+    let mut out = String::new();
+    for (a, b) in current.iter().zip(named) {
+        out.push_str(&format!(
+            "{}: current setup caught {} of {}, {} wrong; {name} caught {} of {}, {} wrong\n",
+            a.name,
+            a.found,
+            a.expected,
+            a.wrong_flags(),
+            b.found,
+            b.expected,
+            b.wrong_flags()
+        ));
+    }
+    out.push_str(&setup_line("current setup", current));
+    out.push_str(&setup_line(name, named));
     out
 }
 
