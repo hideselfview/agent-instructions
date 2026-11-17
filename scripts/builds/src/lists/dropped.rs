@@ -174,12 +174,9 @@ pub fn read_all(db: &Connection) -> Result<BTreeMap<Id, Vec<DroppedWork>>> {
         .sql()?;
     for row in rows {
         let (id, repo, commit) = row.sql()?;
-        if let Some(work) = all
-            .get_mut(&id)
-            .and_then(|works| works.iter_mut().find(|w| w.repo == repo))
-        {
-            work.commits.push(commit);
-        }
+        place_of(&mut all, id, &repo, "dropped_commit")?
+            .commits
+            .push(commit);
     }
     let mut statement = db
         .prepare("SELECT item_id, repo, path FROM dropped_file ORDER BY item_id, repo, path")
@@ -195,14 +192,31 @@ pub fn read_all(db: &Connection) -> Result<BTreeMap<Id, Vec<DroppedWork>>> {
         .sql()?;
     for row in rows {
         let (id, repo, path) = row.sql()?;
-        if let Some(work) = all
-            .get_mut(&id)
-            .and_then(|works| works.iter_mut().find(|w| w.repo == repo))
-        {
-            work.files.push(path);
-        }
+        place_of(&mut all, id, &repo, "dropped_file")?
+            .files
+            .push(path);
     }
     Ok(all)
+}
+
+/// The work of <all> that item <id> held in <repo>, for a row of <table>;
+/// fails when there is none, since the table's rows belong to a
+/// `dropped_place` row.
+fn place_of<'a>(
+    all: &'a mut BTreeMap<Id, Vec<DroppedWork>>,
+    id: Id,
+    repo: &str,
+    table: &str,
+) -> Result<&'a mut DroppedWork> {
+    match all
+        .get_mut(&id)
+        .and_then(|works| works.iter_mut().find(|w| w.repo == repo))
+    {
+        Some(work) => Ok(work),
+        None => {
+            fail!("a {table} row of {id} names repo {repo}, where {id} has no dropped_place row")
+        }
+    }
 }
 
 /// Throws <work> away: detaches its worktree at origin/main, discarding the
@@ -245,4 +259,28 @@ pub fn discard(work: &DroppedWork) -> Result<()> {
 
 fn forget_claim(checkout: &Checkout) -> Result<()> {
     crate::claim::forget(checkout).map(|_| ())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A dropped_commit row whose item has no dropped_place row in its repo
+    /// is a broken record, which read_all names instead of leaving out.
+    #[test]
+    fn read_all_fails_on_a_commit_with_no_place() {
+        let db = crate::lists::fixtures::db();
+        let id = crate::lists::fixtures::item(&db, vec![]);
+        db.execute_batch("PRAGMA foreign_keys = OFF").unwrap();
+        db.execute(
+            "INSERT INTO dropped_commit (item_id, repo, position, sha, subject) VALUES (?1, 'demo', 0, ?2, 's')",
+            params![id, "a".repeat(40)],
+        )
+        .unwrap();
+        let said = match read_all(&db) {
+            Err(crate::fail::Fail::Message(message)) => message,
+            other => panic!("{other:?}"),
+        };
+        assert!(said.contains("no dropped_place row"), "{said}");
+    }
 }
