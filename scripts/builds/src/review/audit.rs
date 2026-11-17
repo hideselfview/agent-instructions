@@ -438,8 +438,8 @@ pub(super) fn diff_read(db: &Connection, miss: &Finding) -> std::result::Result<
 
 /// Settles every candidate miss nobody has settled, as an audit settles the
 /// misses it raises (`settle_misses`), over the diff the audit reviewer that
-/// raised it read. Returns what to print, and whether a diff could not be
-/// read or a check gave no answer.
+/// raised it read. Returns what to print, and whether builds found no stored
+/// diff for a miss or a check gave no answer.
 pub fn check_open_misses(inputs: &OpenMisses) -> Result<(String, bool)> {
     let conn = inputs.store.open_existing()?;
     let material = Material::load(inputs.root, inputs.project)?;
@@ -478,9 +478,9 @@ pub fn check_open_misses(inputs: &OpenMisses) -> Result<(String, bool)> {
     Ok((text, failed))
 }
 
-/// `builds review misses --check [--model M]`: settles every
-/// candidate miss nobody has settled with the model check, and exits 1 when a
-/// diff could not be read or a check gave no answer.
+/// `builds review misses --check [--model M]`: settles every candidate miss
+/// nobody has settled with the model check, and exits 1 when builds found no
+/// stored diff for a miss or a check gave no answer.
 pub(super) fn check_misses_command(tool: &crate::tool::Tool, args: &Args) -> Result<()> {
     let model = args.value("model")?.unwrap_or(model_check::MODEL);
     if !["opus", "sonnet", "haiku"].contains(&model) {

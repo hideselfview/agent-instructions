@@ -107,8 +107,8 @@ pub struct Diff {
     pub changed: Vec<String>,
 }
 
-/// A diff builds read from a repo, with the commits of the net change it
-/// read it for: their common ancestor with the base, and the head. A diff
+/// A diff that builds read from a repo, with the two commits of its net
+/// change: the head, and the common ancestor of the head and the base. A diff
 /// read back from a reviewer's stored message, or from a test case's patch,
 /// has no such commits, and is a `Diff` alone.
 pub struct NetChange {
