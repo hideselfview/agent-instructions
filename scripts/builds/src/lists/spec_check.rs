@@ -149,8 +149,7 @@ impl Setup {
 }
 
 /// A conflict or an unstated behavior.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FindingKind {
     Conflict,
     Unstated,
