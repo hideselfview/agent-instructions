@@ -614,6 +614,17 @@ fn edit(tool: &Tool, args: &[String], cwd: &Path, words: &str) -> Result<String>
     Ok(format!("edited question {id}\n{}\n", stack_top(&lists)?))
 }
 
+/// Gives open question <id> of <store> the effect <effect>, as `question
+/// edit N --effect E` does. The dashboard's effect control writes through
+/// this function.
+pub fn set_effect(store: &Store, id: Id, effect: Effect, stamp: &Stamp) -> Result<()> {
+    let words = format!("question edit {} --effect {}", id.0, effect.word());
+    store.write(stamp, &words, |db| {
+        open_question(&store::read(db)?, id)?;
+        question::edit(db, id, None, None, Some(effect), None)
+    })
+}
+
 fn show(tool: &Tool, args: &[String], cwd: &Path) -> Result<String> {
     let args = Args::parse(args, &[], &[])?;
     let id = question_id(&args)?;

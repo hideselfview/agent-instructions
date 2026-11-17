@@ -306,6 +306,8 @@ h1 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.01em; }
 .l-controls label { display: inline-flex; align-items: baseline; gap: 6px; }
 .l-controls select { font: 500 12px var(--sans); color: var(--text); background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 2px 6px; }
 .l-controls select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.l-effect select { font: 500 12px var(--sans); color: var(--text); background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 2px 6px; margin-left: 4px; }
+.l-effect select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 /* A row's trail: the tags of the records on it, then each record from the first to the row's own, on one line. */
 .l-trail { display: inline-block; max-width: 100%; margin-left: 4px; vertical-align: bottom; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font: 500 11px var(--sans); color: var(--muted); }
 .l-trail a.l-ref { color: var(--muted); }
@@ -1315,7 +1317,9 @@ events.addEventListener("failure", e => { streamError = "state: " + JSON.parse(e
 
 // ---- The lists sidebar. It only shows what the daemon sends (the `lists`
 // event, and /api/lists on load); every change to the lists goes through the
-// `builds` commands. ----
+// `builds` commands, except a question's effect, which the person changes in
+// the question's row and the daemon writes as `builds question edit --effect`
+// does. ----
 const TAB_KEY = "builds-dashboard-lists-tab";
 const PROJECT_KEY = "builds-dashboard-lists-project";
 const OPEN_KEY = "builds-dashboard-lists-open";
@@ -1523,8 +1527,48 @@ function questionBlocks(q) {
     (q.blocked_count > direct ? ", " + direct + " directly:" : ":");
   return h("div", {class: "l-rowfact"}, "Blocks " + count, h("ul", {class: "l-list"}, q.blocks.map(blockedItem)));
 }
+// The effect each question's control shows while the daemon writes the one
+// the person chose, by project and question id. An entry stays until the
+// lists show that effect, or until the write fails, so the control never shows
+// the old effect again in between.
+const effectWrites = new Map();
+async function writeEffect(q, select) {
+  const key = lists.project + ":" + q.id;
+  effectWrites.set(key, select.value);
+  select.disabled = true;
+  try {
+    const reply = await fetch("/api/question-effect", {method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({project: lists.project, id: q.id, effect: select.value})});
+    if (!reply.ok) {
+      const body = await reply.json().catch(() => ({}));
+      throw new Error(body.error || reply.status);
+    }
+    streamError = "";
+  } catch (e) {
+    effectWrites.delete(key);
+    select.value = q.effect;
+    select.disabled = false;
+    streamError = "effect: " + e.message;
+  }
+  render();
+}
+// The control that changes a question's effect, in its opened row; the page
+// served at another address shows the effect alone.
+function effectControl(q) {
+  const key = lists.project + ":" + q.id;
+  if (effectWrites.get(key) === q.effect) effectWrites.delete(key);
+  if (!here) return fact("Effect", EFFECT_WORDS[q.effect] + " · change: " + ONLY_HERE.toLowerCase());
+  const writing = effectWrites.get(key);
+  const select = h("select", {"aria-label": "Effect of #" + q.id},
+    Object.entries(EFFECT_WORDS).map(([word, words]) => h("option", {value: word}, words)));
+  select.value = writing || q.effect;
+  select.disabled = writing !== undefined;
+  select.addEventListener("change", () => writeEffect(q, select));
+  return h("div", {class: "l-fact l-effect"}, h("span", {class: "k"}, "Effect"), select);
+}
 // A question's row shows, closed, who asked it and when, its effect, why it
-// sits where it does and what it blocks; opened, it adds its plan and details.
+// sits where it does and what it blocks; opened, it adds the control that
+// changes its effect, its plan and its details.
 function questionRow(q) {
   return fold("q:" + q.id, q.id,
     [h("div", {class: "l-rowmain"},
@@ -1533,6 +1577,7 @@ function questionRow(q) {
         " · effect: " + EFFECT_WORDS[q.effect] + " · " + placeWords(q)),
       questionBlocks(q))],
     () => h("div", {class: "l-plain"},
+      effectControl(q),
       q.plan ? fact("Plan", mono(q.plan.path), " " + q.plan.number) : null,
       md(q.details)),
     "l-work");

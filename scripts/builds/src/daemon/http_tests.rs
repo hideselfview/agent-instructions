@@ -671,3 +671,45 @@ fn a_peer_that_is_not_loopback_changes_nothing_on_any_route_that_changes_state()
         Some(("demo", 3))
     );
 }
+
+#[test]
+fn the_effect_control_works_only_from_the_page_at_this_mac() {
+    use crate::lists::fixtures::{NOON, make_store, question, stamp};
+    let s = server_with("http-effect", |_, places| {
+        make_store(places, &["bae"])
+            .write(&stamp(NOON), "question ask", |db| Ok(question(db)))
+            .unwrap();
+    });
+    let effect = || {
+        let store = crate::lists::store::Store::named(&s.model.places, "demo").unwrap();
+        store
+            .load()
+            .unwrap()
+            .question(crate::lists::Id(1))
+            .unwrap()
+            .effect
+    };
+    let local = format!("127.0.0.1:{}", s.port);
+    let this_mac = format!("http://{local}");
+    let also = format!("{ALSO}:{}", s.port);
+    let body = r#"{"project": "demo", "id": 1, "effect": "bug"}"#;
+    let (status, reply) = s.post_to(
+        "/api/question-effect",
+        &also,
+        Some(&format!("http://{also}")),
+        body,
+    );
+    assert_eq!(status, 403, "{reply}");
+    assert_eq!(effect(), crate::lists::Effect::Cleanup);
+    let (status, reply) = s.post_to(
+        "/api/question-effect",
+        &local,
+        Some(&this_mac),
+        r#"{"project": "demo", "id": 1, "effect": "worse"}"#,
+    );
+    assert_eq!(status, 500, "{reply}");
+    assert!(reply.contains("the effect is one of"), "{reply}");
+    let (status, reply) = s.post_to("/api/question-effect", &local, Some(&this_mac), body);
+    assert_eq!((status, reply.as_str()), (200, "{}"));
+    assert_eq!(effect(), crate::lists::Effect::Bug);
+}
