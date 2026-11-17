@@ -87,7 +87,13 @@ use places::{Places, Rules};
 use tool::Tool;
 
 const HELP: &str = include_str!("help.txt");
-const LISTS_HELP: &str = include_str!("lists/lists-help.txt");
+/// `builds help lists`: what the lists are and who writes them, then each
+/// command.
+const LISTS_HELP: &str = concat!(
+    include_str!("lists/lists-overview.txt"),
+    "\n\n",
+    include_str!("lists/lists-help.txt")
+);
 const WORKFLOW_HELP: &str = include_str!("workflow-help.txt");
 const BRIEFS_HELP: &str = include_str!("briefs-help.txt");
 

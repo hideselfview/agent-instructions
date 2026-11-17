@@ -1,47 +1,27 @@
-builds lists: a project's lists, kept in a store outside every repo.
-
-A project is a set of repos that share lists (bae holds bae and coven). Its
-lists are:
-
-  decision stack  what waits on the person: questions, work only they can
-                  do, and work held until they start it (builds question)
-  work queue      what the coordinator and its agents can do (builds item,
-                  builds next, builds area)
-  decision log    every decision, with who made it and why (builds decision)
-  design changes  product design changes (a board or a design-system
-                  component, not a software plan) that wait on the person's
-                  review or to land (builds design)
+STORE AND WRITES
 
 The store is ~/Library/Application Support/builds/lists/<project>/, or
 $BUILDS_LISTS/<project>/: builds.sqlite, one SQLite database, which also holds
 the hook's run records, the review records and the app build records. It is
-outside every repo, so no commit can carry it. Nothing edits it by hand: every
-change is a command, and every command refuses a step that lacks what it needs.
+outside every repo, so no commit can carry it.
 
-Every record (a question, an item, a decision or a design change) has an id
-from one counter per project, printed #N. Commands take ids as bare numbers
-(`builds item take 12`), because an unquoted #12 is a comment in the shell.
+The records builds land writes after its push (`item landed`, `design landed`,
+`review landed`) take the claim of the worktree they name in place of the
+writer that WHO WRITES WHAT names, wherever they run; builds land reads that
+claim before it starts and passes it to each as --by. The project comes from
+`--project P`, else from the repo of the folder the command runs in; the
+command refuses a repo in no project or in two. Long text comes from a file
+(--details-file F; `-` is standard input), and a compound write takes one JSON
+request (--request F); the command refuses a request that does not parse or
+holds a field the command does not take, and names the field that is wrong.
+Each write prints what it did and what follows, such as the stack's new top and
+what it blocks, or the items an answer made ready.
 
-Every write records who wrote it: `--by WHO` when given, else the claim of the
-worktree the command runs in; with neither, the command is refused ("say who
-you are with --by"). The records builds land writes after its push (`item
-landed`, `design landed`, `review landed`) take the claim of the worktree they
-name instead, wherever they run; builds land reads that claim before it starts
-and passes it to each as --by. The project comes from `--project P`, else from
-the repo of the folder the command runs in; the command refuses a repo in no
-project or in two. Long text comes from a file (--details-file F; `-` is
-standard input), and a compound write takes one JSON request (--request F); the
-command refuses a request that does not parse or holds a field the command does
-not take, and names the field that is wrong. Each write prints what it did and
-what follows, such as the stack's new top and what it blocks, or the items an
-answer made ready.
-
-A question or an item may name its origin (`--origin N`), the record it came
-from: a question, an item, a decision or a design change. An item that a
-decision or a design change makes comes from it, and a question that `question
-ask --from-item N` creates comes from item N. A record can't come from itself,
-and a chain of origins can't loop. A record's trail is its chain of origins
-from the first record to it. builds prints a trail as the tags of the records
+A question or an item may name its origin (`--origin N`): a question, an
+item, a decision or a design change. An item that a decision or a design
+change makes comes from it, and a question that `question ask --from-item N`
+creates comes from item N. A record can't come from itself, and a chain of
+origins can't loop. builds prints a trail as the tags of the records
 on it, then each record's number, with the title of the record it came from,
 such as `screen-reads audit → #3 → #50 Read each chained screen value at once →
 #51`.
@@ -92,33 +72,20 @@ item titles of five to seven words, and git, files and GitHub.
 
 DECISION STACK
 
-Every entry names its effect: what the entry affects for the person. The
-effects come from the workflow's definition of critical work (`builds help
-workflow`, DISPATCH):
-
-  data-loss       data loss: the person could lose music, edits or settings
-  bug             a bug the person hits: something in the apps works wrong
-  slows-agents    slows the agents: builds or other tooling
-  product-design  product design: behavior or a screen the person sees
-  cleanup         cleanup or wording: nothing the person notices
-
-The stack is asked from the top, one entry at a time: first the entries placed
-first, in the person's ranked order, then the rest by how many open items each
-unblocks, directly or through chains of open items, then by effect in the
-order above, then oldest first, and last the entries placed last, in the same
-order among themselves. `question list`, `question show`, `lists show` and the
-dashboard's Waiting on you tab all show this one order. Each of them shows
-four facts on an entry's first lines, and the dashboard shows them in the row
-before anyone opens it. The first says who asked the entry and when. The
-second says the entry's effect. The third says why the entry sits where it
-does: whether someone placed it first or last, whether that was the person,
-and the reason they gave, or that the stack orders it by what it unblocks
-and its effect. The fourth says what the entry blocks. Each view works out what an entry blocks from the open items
-that wait on it, every time it shows the entry: each item that waits on the
-entry directly, with the item's priority (first, last or none), how many open
-items wait behind it (on it directly or through chains of open items) and when
-it opened. An entry that no open item waits on shows the reason it stays on
-the stack anyway. The opened dashboard row adds the entry's plan and details.
+`question list`, `question show`, `lists show` and the dashboard's Waiting on
+you tab all show the stack in the one order that EFFECTS AND ORDER OF THE STACK
+gives. Each of them shows four facts on an entry's first lines, and the
+dashboard shows them in the row before anyone opens it. The first says who
+asked the entry and when. The second says the entry's effect. The third says
+why the entry sits where it does: whether someone placed it first or last,
+whether that was the person, and the reason they gave, or that the stack orders
+it by what it unblocks and its effect. The fourth says what the entry blocks.
+Each view works out what an entry blocks from the open items that wait on it,
+every time it shows the entry: each item that waits on the entry directly, with
+the item's priority (first, last or none), how many open items wait behind it
+(on it directly or through chains of open items) and when it opened. An entry
+that no open item waits on shows the reason it stays on the stack anyway. The
+opened dashboard row adds the entry's plan and details.
 
 To rank the stack as the person orders it, place each entry first, from the
 person's last choice to their first: each `place N first` puts N above every

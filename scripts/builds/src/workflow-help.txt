@@ -3,10 +3,11 @@ a coordinator runs agents. Read it before you make a worktree, build, land or
 dispatch an agent. A command refuses a step that lacks what it needs, so this
 page states only what no command checks. The project file
 (projects/<project>.md in agent-instructions) names the project's lists,
-worktrees and standing rules. builds refuses an agent's commands until the
-agent has read `builds help`, this page (`builds help workflow`), `builds
-help lists`, `builds help briefs` and the rules, and has acknowledged them
-with `builds ack` (`builds help`, ACKNOWLEDGING THE RULES).
+worktrees and standing rules. The lists hold what waits on the person and what
+agents can do (`builds help lists`). builds refuses an agent's commands until
+the agent has read `builds help`, this page (`builds help workflow`), `builds
+help lists`, `builds help briefs` and the rules, and has acknowledged them with
+`builds ack` (`builds help`, ACKNOWLEDGING THE RULES).
 
 
 ROLES
@@ -69,26 +70,6 @@ branch, not the worktree, is the unit of work.
 Each checkout builds into its own folders on /Volumes/Builds. Never set
 CARGO_TARGET_DIR or another CARGO_* variable on a command: the path is part of
 sccache's key (`builds help`, BUILD FOLDERS).
-
-
-LISTS
-
-A project's decision stack, work queue, decision log and design changes are in
-the builds store (`builds help lists`). The stack holds what waits on the
-person; a plan's open questions go there. Each entry names its effect: data
-loss (the person could lose music, edits or settings), a bug the person hits,
-slows the agents (builds or other tooling that slows the agents' work),
-product design, or cleanup or wording (nothing the person notices). builds
-asks the person first the entries that someone placed first with `builds
-question place`, then the rest by how many open items each unblocks, then by
-effect in that order, then oldest first, and last the entries that someone
-placed last. Choose each entry's effect from what its text says, using the
-definition of critical work in DISPATCH. The queue holds only what agents can
-do, and `builds next` lists what is ready. The log holds each answer, and
-each standing choice about how work runs, with why.
-When you make an entry from another record, name that record with `--origin
-N`, so the entry's trail shows where the entry came from. Put an audit's tag
-only on the first entry of a trail: every later entry's trail has the tag.
 
 
 PLAN, BRIEF, EXECUTE, REVIEW
