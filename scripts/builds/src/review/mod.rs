@@ -520,7 +520,7 @@ fn writing_command(tool: &Tool, args: &[String]) -> Result<()> {
     };
     let stamp = Stamp {
         at: tool.now,
-        by: resolve_by(&args, &checkout.top).or_else(|_| resolve_by(&args, &current_dir()?))?,
+        by: resolve_by(&args, &checkout.top)?,
     };
     let checked = writing::check(&writing::Inputs {
         store: &Store::named(&tool.places, &project)?,
