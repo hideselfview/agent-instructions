@@ -78,7 +78,7 @@ use crate::fail;
 use crate::fail::{Context, Fail, Result};
 use crate::lists::Stamp;
 use crate::lists::args::{Args, current_dir};
-use crate::lists::store::{Store, project_of, resolve_by};
+use crate::lists::store::{Store, project_of};
 use crate::tool::Tool;
 
 use record::Kind;
@@ -518,10 +518,7 @@ fn copy_command(tool: &Tool, args: &[String]) -> Result<()> {
             checkout.repo()
         )
     };
-    let stamp = Stamp {
-        at: tool.now,
-        by: resolve_by(&args, &checkout.top)?,
-    };
+    let stamp = Stamp::resolve(tool.now, &args, &checkout.top)?;
     let checked = copy::check(&copy::Inputs {
         store: &Store::named(&tool.places, &project)?,
         project: &project,
@@ -575,10 +572,7 @@ fn run_review(tool: &Tool, args: &Args) -> Result<Reported> {
         Some(key) => key.to_string(),
         None => default_key(&worktree)?,
     };
-    let stamp = Stamp {
-        at: tool.now,
-        by: resolve_by(args, &worktree)?,
-    };
+    let stamp = Stamp::resolve(tool.now, args, &worktree)?;
     let brief = brief_of(&store, args, &worktree)?;
     let root = rules_root(args)?;
     let reviewer = PathBuf::from(args.value("reviewer")?.unwrap_or("claude"));
