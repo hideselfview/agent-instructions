@@ -1,8 +1,8 @@
 //! `builds review case propose`: builds the test set of the review from the
 //! landings in the store. For a sample of landed changes across groups, each
 //! proposed case is the net change the landing's first review read. Its
-//! expected findings are the review's confirmed findings whose settle gives a
-//! reason of its own (not one of `GENERIC`), each of which a second model
+//! expected findings are the findings the coordinator confirmed with a reason
+//! of its own (not one of `GENERIC`), each of which a second model
 //! confirms against its rule's text (`model_check.rs`) before the case joins
 //! the set. Its clean lines are the added lines no reviewer flagged, labelled
 //! `none`. Each confirmed candidate miss of an audit becomes a case over the
