@@ -239,7 +239,7 @@ fn an_edit_of_a_rule_refuses_the_agent_naming_the_rule_and_its_reading_holds_onl
     );
     let started = world.ack(&[], NOON + 60).unwrap();
     assert!(
-        started.contains("1 of the text's 6 sections changed: rules/text/plain.md"),
+        started.contains("1 of the text's 4 sections changed: rules/text/plain.md"),
         "{started}"
     );
     let only = world.ack(&["1"], NOON + 60).unwrap();
