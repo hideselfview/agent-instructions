@@ -133,3 +133,22 @@ fn a_card_whose_project_has_no_store_says_so_and_never_that_land_takes_its_commi
         Err("there is no store for project ghost".to_string())
     );
 }
+
+#[test]
+fn a_card_whose_commits_git_cannot_read_says_why_and_asks_git_again_next_time() {
+    let demo = demo("review-cards-unread");
+    let fake = fake(&demo.scratch.dir);
+    let reads = Reads::with_root(Some(fake.root.clone()));
+    let side = demo.add_side(1, "agent", "work");
+    demo.commit(&side, "a.rs");
+    let mut missing = ahead(&side);
+    missing[0].full = "0".repeat(40);
+    for _ in 0..2 {
+        let said = reads.standing(&demo.store, &side, &missing).unwrap_err();
+        assert!(said.contains("reading the paths the commits of"), "{said}");
+    }
+    assert!(
+        reads.commits.lock().unwrap().is_empty(),
+        "the failure is not kept"
+    );
+}

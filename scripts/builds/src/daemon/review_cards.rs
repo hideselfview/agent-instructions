@@ -25,7 +25,7 @@ const RULES_FOR: Duration = Duration::from_secs(10);
 type ReadKey = (PathBuf, Vec<String>);
 
 /// The paths each commit of a worktree changes.
-type Read = Option<Vec<Vec<String>>>;
+type Read = Vec<Vec<String>>;
 
 /// A project's rules as `Material::load` last read them, and when; None when
 /// `Material::load` failed.
@@ -56,20 +56,27 @@ impl Reads {
         }
     }
 
-    fn commits(&self, top: &Path, shas: &[String]) -> Read {
+    /// The paths each of <shas> changes in <top>, or why git could not read
+    /// them. Only a read that succeeded is kept, so the next page build asks
+    /// git again after a failure.
+    fn commits(&self, top: &Path, shas: &[String]) -> Result<Read, String> {
         let key = (top.to_path_buf(), shas.to_vec());
         let mut known = self.commits.lock().expect("no panic holding it");
         if let Some(found) = known.get(&key) {
-            return found.clone();
+            return Ok(found.clone());
         }
-        // A worktree that stops existing or a failed git read says nothing;
-        // the next page build asks again.
-        let read = commits::paths_of_each(top, shas).ok();
+        let read = commits::paths_of_each(top, shas).map_err(|why| {
+            format!(
+                "reading the paths the commits of {} change: {}",
+                top.display(),
+                why.text()
+            )
+        })?;
         if known.len() > 256 {
             known.clear();
         }
         known.insert(key, read.clone());
-        read
+        Ok(read)
     }
 
     /// Each of <commits>, which change <paths>, with the names of
@@ -112,7 +119,7 @@ impl Reads {
     /// project's store is <store> and whose commits not on origin/main
     /// are <ahead> (newest first); None when land would take them as far as
     /// the review goes, or when they need no review. Fails, saying why, when
-    /// it can't open or read the store.
+    /// git cannot read the commits or builds cannot open or read the store.
     pub fn standing(
         &self,
         store: &Store,
@@ -123,9 +130,7 @@ impl Reads {
             return Ok(None);
         };
         let shas: Vec<String> = ahead.iter().rev().map(|c| c.full.clone()).collect();
-        let Some(paths) = self.commits(top, &shas) else {
-            return Ok(None);
-        };
+        let paths = self.commits(top, &shas)?;
         let Some((needs, material)) = self.needs(&store.project, &shas, &paths) else {
             return Ok(None);
         };
