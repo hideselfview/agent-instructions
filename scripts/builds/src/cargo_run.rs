@@ -523,7 +523,7 @@ mod tests {
     }
 
     #[test]
-    fn a_run_no_hook_check_started_is_recorded_with_its_start_and_subcommand() {
+    fn builds_records_a_run_no_hook_check_started_with_its_start_and_subcommand() {
         let scratch = Scratch::new("cargo-run-record");
         let path = scratch.dir.join(crate::db::DATABASE);
         let run = CargoRun {
