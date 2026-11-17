@@ -68,6 +68,10 @@ WRITE ONE BRIEF PER ITEM
     with why. Name each behavior the spec doesn't state yet, so the agent
     adds it to the spec in its commit; `builds item take` prints each one
     it finds.
+  - Names and comments: tell the agent to use the code's existing names,
+    to coin no new terms, and to write few comments in tests. Most review
+    findings are on the writing rule, and its reviewer raises a finding on
+    each sentence that uses a new term.
   - Locales: say which new user-visible strings go into every locale.
   - Model: a faster, cheaper model executes. Only a software plan too large
     for the coordinator to hold goes to the strongest model, which writes a
