@@ -1430,79 +1430,29 @@ LANDING AND REVIEW
 
 A coordinator puts commits on origin/main by running `builds land` in the
 worktree whose branch holds them, once that branch's agent is done there. In a
-repo of a project with lists, the coordinator reviews every branch against
-agent-instructions' rules with `builds review` before it runs `builds land` on
-the branch. A review shows the changes since the last review, and nothing
-else:
+repo of a project with lists, the coordinator first reviews the branch against
+agent-instructions' rules with `builds review`. `builds help workflow`
+(REVIEW) says how the coordinator reviews a branch and settles each finding,
+which files each group reads in a later run, and how long a confirmed finding
+stays open.
 
-  1. The coordinator runs `builds review` on the branch. The first review
-     reads the branch's whole net change.
-  2. The coordinator judges each finding against the code and the rule, and
-     settles it as confirmed or dropped, with why (`builds review settle`).
-     The settled findings stay in the project's store as the record of what
-     reviews catch and miss, and every settle feeds the review's scores
-     (`review scores`).
-  3. The coordinator has each confirmed finding fixed in a new commit.
-  4. The coordinator runs `builds review` again. That review reads only the
-     changes since the last review, the fixes among them, and closes each
-     open confirmed finding whose problem the code no longer has. Only the
-     groups that hold open findings in a file read that file, and
-     every group that covers any other changed file reads that file. The
-     coordinator settles what that run finds.
-  5. The coordinator lands the branch once nothing is unreviewed and no
-     confirmed finding is open.
-
-A confirmed finding is open until a later review closes it, until the
-coordinator learns that the finding is wrong and settles it again as dropped
-(`builds review settle N --again --why TEXT`), or until the person allows its
-code to land as it is (`builds review settle N allowed --by-person --why
-TEXT`). When the coordinator settles a finding again, the record keeps both
-settles, with who made each and why, and the finding counts as dropped from
-then on. A finding the person allowed stays confirmed and counts as a true
-positive, and --why holds the person's words. Only the person allows a
-finding: the coordinator asks the person first, and no agent passes
---by-person on its own judgment. builds refuses to settle a closed or allowed
-finding again.
-
-Each branch's change has one review, found by its key (by default the
-branch, such as `branch:work`), which stays open until the change lands. The
-review is a series of runs. builds records which run is the last review: the
-run whose net change (`git diff` from the branch's common ancestor with main
-to its head) the review has read. A later run asks only what the review lacks: the groups that gave no answer (their
-reviewer failed), over the diff they did not answer, and, in a new run that
-becomes the last review, the changes since the last review: the lines the
-branch adds or removes that it did not then, the lines it no longer changes,
-and the commit messages it did not then hold. Main's own commits that a rebase brings in are no part of them, so a
-rebase that keeps every line the branch adds and removes leaves nothing to
-read, and a rebase that resolves a conflict differently leaves only the lines
-of the resolution. The run asks the groups that cover a changed path, and,
-when a commit message changed, each group that reads commit messages
-(commit_text) and whose rules cover a path the branch changes. So after an
-agent rewords a message and changes no file, the run reads only the changed
-messages and closes each finding on the commit messages that they fix. A
+Each branch's change has one review, found by its key (by default the branch,
+such as `branch:work`), which stays open until the change lands. The review is
+a series of runs. builds records which run is the last review: the run whose
+net change (`git diff` from the branch's common ancestor with main to its head)
+the review has read. A later run asks only what the review lacks: the groups
+that gave no answer (their reviewer failed), over the diff they did not answer,
+and, in a new run that becomes the last review, the changes since the last
+review (`builds help workflow`, REVIEW). The run asks the groups that cover a
+changed path, and, when a commit message changed, each group that reads commit
+messages (commit_text) and whose rules cover a path the branch changes. A
 reviewer reads the commit messages as one more file, named COMMIT_MESSAGE.
 Only groups whose rules judge what a message says read the messages (in
 agent-instructions, the group Commits and repo contents, whose rules ask
-whether the text is accurate). The writing group (Text people read) reads no commit
-message and judges no code comment, so when an agent rewords a message or a
-comment, the review never waits on the writing group.
-`builds review` refuses the run when the review lacks nothing, naming the
-last review.
-
-When groups hold open findings in a file, only those groups read that file in
-a later run. Every group that covers any other changed file reads that file,
-as on a first review. The groups run at the same time, in the same run. For
-example, the writing group (Text people read) holds findings in a.rs and b.rs,
-and the errors group (Errors and invalid state) holds one in c.rs. After the
-fix, the writing group reads only a.rs and b.rs, and the errors group reads
-only c.rs. So when a fix changes only the wording of a file where only the
-writing group holds findings, builds asks only the writing group. When a fix
-of the errors group's finding in c.rs adds a passive sentence to c.rs, the
-review does not ask the writing group about c.rs, and misses the sentence; the
-implementing agent's writing check (`builds review writing`) finds it before
-the agent reports. The run's report names each group that did not read a file,
-with the files it did not read. builds does not ask a group that reads none of
-the changed files.
+whether the text is accurate). The writing group (Text people read) reads no
+commit message and judges no code comment, so when an agent rewords a message
+or a comment, the review never waits on the writing group. `builds review`
+refuses the run when the review lacks nothing, naming the last review.
 
 builds finds the changes since the last review by replaying the net change
 the last review read onto the branch's current common ancestor with main, in
@@ -1754,20 +1704,9 @@ run `review replay --rules-root` on it.
                               defaults to the worktree's branch
                               (branch:<name>); a key opens a landing under
                               review, which stays open until its change lands.
-                              builds review never sends a reviewer the same
-                              diff twice: a review shows the changes since
-                              the last review, and nothing else, and closes each open confirmed
-                              finding whose problem the code no longer has.
-                              A run on a key
-                              reviewed already asks only what the review
-                              lacks: the groups that gave no answer, over the
-                              diff they did not answer, and, as a new run, the
-                              changes since the last review, and nothing
-                              else; builds refuses the run when the review
-                              lacks nothing. In a later run, only the groups
-                              that hold open findings in a file read that
-                              file, and every group that covers any other
-                              changed file reads that file.
+                              A run on a key reviewed already asks only what
+                              the review lacks (above); builds refuses the
+                              run when the review lacks nothing.
                               --head SHA reviews the commits up to SHA from a
                               copy of their files, not the worktree. Prints
                               the findings by group and a total line, then
