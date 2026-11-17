@@ -462,10 +462,20 @@ fn record_landed(asked: &Asked, stamp: &Stamp, more: bool) -> Result<Option<i64>
         &|paths| asked.material.group_names(paths),
     )?;
     let covered = match &verdict {
-        Verdict::NotNeeded | Verdict::NoRun => return Ok(None),
+        Verdict::NotNeeded => return Ok(None),
+        Verdict::NoRun => {
+            // A rerun after the landing was recorded finds no open review,
+            // and so does a key other than the one check-landing judged.
+            eprintln!(
+                "builds: review landed: no review of {} is open, so builds records no landing",
+                asked.key
+            );
+            return Ok(None);
+        }
         Verdict::Takes(covered) => covered,
         Verdict::Unfinished(..) => {
-            let why = refusal(&asked.needs, &verdict).unwrap_or_default();
+            let why = refusal(&asked.needs, &verdict)
+                .expect("a verdict that does not take the commits says why");
             fail!("the review does not take these commits:\n{why}")
         }
     };
