@@ -8,7 +8,7 @@
 //! 1-minute average rises and falls with each build's steps.
 
 use crate::health::Advice;
-use crate::host::{Host, LOCAL, Probe};
+use crate::host::{Host, Probe};
 use crate::lists::store::Loaded;
 
 /// Cores sit idle on a host whose 5-minute load is under this share of its
@@ -35,7 +35,7 @@ pub fn findings(
             Err(error) => {
                 found.push(Advice::said(format!(
                     "{} did not say its load, so health cannot tell whether its cores are idle or over: {error}",
-                    named(host)
+                    crate::host::place(&host.name)
                 )));
                 continue;
             }
@@ -46,7 +46,7 @@ pub fn findings(
         if five > OVER_SHARE * cores {
             found.push(Advice::said(format!(
                 "{} is over its cores: {load}; start nothing new",
-                named(host)
+                crate::host::place(&host.name)
             )));
         } else if ready > 0
             && five < IDLE_SHARE * cores
@@ -55,21 +55,12 @@ pub fn findings(
         {
             found.push(Advice::said(format!(
                 "cores idle on {} while {}: {load}; start agents",
-                named(host),
+                crate::host::place(&host.name),
                 crate::text::counted(ready, "item is ready", "items are ready")
             )));
         }
     }
     found
-}
-
-/// How a finding names <host>.
-fn named(host: &Host) -> String {
-    if host.name == LOCAL {
-        "this Mac".to_string()
-    } else {
-        format!("host {}", host.name)
-    }
 }
 
 /// The items ready to dispatch (`builds next`) in every project whose store

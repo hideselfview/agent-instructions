@@ -1,6 +1,6 @@
 use super::*;
 use crate::host::tests::fake_ssh;
-use crate::host::{hosts_file, record_refusal, refusals};
+use crate::host::{LOCAL, hosts_file, record_refusal, refusals};
 use crate::host_installed::Installed;
 use crate::testing::Scratch;
 

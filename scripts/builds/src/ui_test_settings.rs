@@ -17,7 +17,7 @@ use std::process::Command;
 use crate::fail;
 use crate::fail::{Context, Fail, Result};
 use crate::health::Advice;
-use crate::host::{self, Host, LOCAL, Refusal, Refused, Ssh, sh_quote};
+use crate::host::{self, Host, Refusal, Refused, Ssh, sh_quote};
 use crate::host_installed::HostInstalled;
 use crate::places::Places;
 use crate::text::{local_minute, note};
@@ -171,15 +171,6 @@ pub fn read(places: &Places, ssh: &Ssh, host: &Host) -> Result<UiTestSettings> {
     parse(&transport.capture(SCRIPT, "checking the settings that UI tests need")?)
 }
 
-/// `host m1`, or `this Mac` for this Mac.
-fn place(name: &str) -> String {
-    if name == LOCAL {
-        "this Mac".to_string()
-    } else {
-        format!("host {name}")
-    }
-}
-
 /// Runs <script> on <host> with this terminal as its input and output, so
 /// sudo there can ask the person for the password.
 fn run_at_terminal(ssh: &Ssh, host: &Host, script: &str) -> Result<()> {
@@ -197,9 +188,9 @@ fn run_at_terminal(ssh: &Ssh, host: &Host, script: &str) -> Result<()> {
     };
     let status = command
         .status()
-        .context(|| format!("running sudo on {}", place(&host.name)))?;
+        .context(|| format!("running sudo on {}", host::place(&host.name)))?;
     if !status.success() {
-        fail!("sudo on {} failed ({status})", place(&host.name));
+        fail!("sudo on {} failed ({status})", host::place(&host.name));
     }
     Ok(())
 }
@@ -230,7 +221,7 @@ fn set_up_with(
     read: &mut dyn FnMut() -> Result<UiTestSettings>,
     run: &mut dyn FnMut(&str) -> Result<()>,
 ) -> Result<String> {
-    let place = place(name);
+    let place = host::place(name);
     let before = read()?;
     let said = if before.missing.is_empty() {
         "has the settings that UI tests need".to_string()
@@ -304,7 +295,7 @@ pub fn findings(refusals: &[Refusal], reads: &[HostInstalled]) -> Vec<Advice> {
 /// The line for host <name>, with its record of timing out when it has one
 /// and its settings when builds could read them.
 pub fn finding(name: &str, refusal: Option<&Refusal>, settings: Option<&UiTestSettings>) -> Advice {
-    let place = place(name);
+    let place = host::place(name);
     let setup = format!("builds host setup {name}");
     let lacking = settings.filter(|settings| !settings.missing.is_empty());
     let Some(refusal) = refusal else {

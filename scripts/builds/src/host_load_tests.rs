@@ -1,4 +1,5 @@
 use super::*;
+use crate::host::LOCAL;
 
 fn host(name: &str, speed: Option<f64>) -> Host {
     Host {

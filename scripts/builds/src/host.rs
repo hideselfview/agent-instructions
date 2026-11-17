@@ -114,6 +114,15 @@ pub fn sh_quote(text: &str) -> String {
     format!("'{}'", text.replace('\'', "'\\''"))
 }
 
+/// `host m1`, or `this Mac` for this Mac: how a line names host <name>.
+pub fn place(name: &str) -> String {
+    if name == LOCAL {
+        "this Mac".to_string()
+    } else {
+        format!("host {name}")
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Host {
     pub name: String,
