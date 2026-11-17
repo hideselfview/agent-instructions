@@ -4,7 +4,7 @@
 //!
 //! ```text
 //! builds review [run] WORKTREE [BASE] [--landing KEY] [--item N]... [--head SHA] [--rules-root DIR] [--reviewer PROGRAM]
-//! builds review settle FINDING confirmed|dropped --why TEXT
+//! builds review settle FINDING confirmed|dropped --why TEXT [--again]
 //! builds review fixed FINDING SHA
 //! builds review show LANDING
 //! builds review check-landing | landed DIR --project P SHA...
@@ -67,7 +67,7 @@ use crate::tool::Tool;
 
 use record::Kind;
 
-const USAGE: &str = "usage: builds review [run] WORKTREE [BASE] [--landing KEY] [--item N]... [--head SHA] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review settle FINDING confirmed|dropped --why TEXT\n       builds review fixed FINDING SHA\n       builds review show LANDING\n       builds review check-landing DIR --project P SHA... [--rules-root DIR]\n       builds review landed DIR --project P SHA... [--rules-root DIR] [--roll N] [--reviewer PROGRAM]\n       builds review groups [--rules-root DIR] [--project P] [--changed PATH]...\n       builds review replay [--case NAME]... [--source REPO] [--model opus|sonnet|haiku] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review replay --landing N... --repo-dir DIR [--group NAME]... [--model opus|sonnet|haiku] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review audit LANDING --repo-dir DIR [--rules-root DIR] [--reviewer PROGRAM]\n       builds review misses\n       builds review rates [--rules-root DIR]\n       builds review scores\n       builds review case add LANDING FINDING --repo-dir DIR --rules-root DIR [--name NAME]\n       builds review case add --rule SLUG --file PATH --commits BASE..HEAD --project P --name NAME --repo-dir DIR --rules-root DIR\n       builds review case add --clean-for SLUG --commits BASE..HEAD --project P --name NAME --repo-dir DIR --rules-root DIR";
+const USAGE: &str = "usage: builds review [run] WORKTREE [BASE] [--landing KEY] [--item N]... [--head SHA] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review settle FINDING confirmed|dropped --why TEXT [--again]\n       builds review fixed FINDING SHA\n       builds review show LANDING\n       builds review check-landing DIR --project P SHA... [--rules-root DIR]\n       builds review landed DIR --project P SHA... [--rules-root DIR] [--roll N] [--reviewer PROGRAM]\n       builds review groups [--rules-root DIR] [--project P] [--changed PATH]...\n       builds review replay [--case NAME]... [--source REPO] [--model opus|sonnet|haiku] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review replay --landing N... --repo-dir DIR [--group NAME]... [--model opus|sonnet|haiku] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review audit LANDING --repo-dir DIR [--rules-root DIR] [--reviewer PROGRAM]\n       builds review misses\n       builds review rates [--rules-root DIR]\n       builds review scores\n       builds review case add LANDING FINDING --repo-dir DIR --rules-root DIR [--name NAME]\n       builds review case add --rule SLUG --file PATH --commits BASE..HEAD --project P --name NAME --repo-dir DIR --rules-root DIR\n       builds review case add --clean-for SLUG --commits BASE..HEAD --project P --name NAME --repo-dir DIR --rules-root DIR";
 
 /// The checkout the rules and groups are read from: `--rules-root`, else the
 /// one `install.sh` links at ~/.codex/agent-instructions.
@@ -303,7 +303,16 @@ pub fn review(inputs: &Inputs) -> Result<Reported> {
     let needs = landing::needs(inputs.worktree, commits.clone(), |paths| {
         material.group_names(paths)
     })?;
-    let verdict = landing::judge(&conn, inputs.repo, inputs.worktree, &needs)?;
+    let verdict = landing::judge(
+        &conn,
+        inputs.repo,
+        inputs.worktree,
+        &needs,
+        landing::CodeCheck::Branch(inputs.head.unwrap_or("HEAD")),
+    )?;
+    text.push_str(&landing::record_code_left(inputs.store, &verdict, || {
+        Ok(stamp.clone())
+    })?);
     let refusal = landing::refusal(&commits, &verdict);
     if refusal.is_none() {
         text.push_str(&format!("builds land: {}\n", landing::taken(&verdict)));
@@ -556,9 +565,11 @@ fn brief_of(store: &Store, args: &Args, worktree: &Path) -> Result<Option<(Strin
     Ok(None)
 }
 
-/// `builds review settle FINDING confirmed|dropped --why TEXT`.
+/// `builds review settle FINDING confirmed|dropped --why TEXT [--again]`:
+/// with `--again`, changes a confirmed finding that names no fix to dropped
+/// and keeps its first settle.
 fn settle(tool: &Tool, args: &[String]) -> Result<()> {
-    let args = Args::parse(args, &["why"], &[])?;
+    let args = Args::parse(args, &["why"], &["again"])?;
     let [finding, how] = args.exactly(2, USAGE)? else {
         unreachable!("exactly two")
     };
@@ -568,6 +579,13 @@ fn settle(tool: &Tool, args: &[String]) -> Result<()> {
     let why = args.why()?;
     let (store, _) = store_of(tool, &args)?;
     let stamp = Stamp::resolve(tool.now, &args, &current_dir()?)?;
+    if args.switch("again") {
+        store.write(&stamp, &format!("review settle {id} again"), |db| {
+            record::settle_again(db, id, how, why, stamp.at, &stamp.by)
+        })?;
+        println!("finding {id} settled again as {how}; the record keeps its first settle");
+        return Ok(());
+    }
     store.write(&stamp, &format!("review settle {id}"), |db| {
         record::settle(db, id, how, why, stamp.at, &stamp.by)
     })?;
@@ -949,7 +967,7 @@ fn case_command(tool: &Tool, args: &[String]) -> Result<()> {
             if found.landing_id != Some(landing) {
                 fail!("finding {finding} is not in landing {landing}");
             }
-            if !matches!(&found.settled, Some((how, _)) if how == "confirmed") {
+            if !found.settled_as("confirmed") {
                 fail!(
                     "finding {finding} is not settled as confirmed; only a confirmed finding becomes a case"
                 );

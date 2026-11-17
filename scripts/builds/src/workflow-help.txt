@@ -121,6 +121,13 @@ PLAN, BRIEF, EXECUTE, REVIEW
     scores`), and `builds review replay --landing` scores other models and
     prompts against it. So the coordinator settles each finding on what the
     code does, and its why says what makes the finding real or wrong.
+    When it learns later that a confirmed finding with no fix is wrong, it
+    settles the finding again as dropped (`builds review settle N dropped
+    --why TEXT --again`), and the record keeps both settles. When the agent
+    drops the commit that held a confirmed finding's code, nobody fixes the
+    finding: `builds review` and `builds land` find that no line of the
+    branch's change holds the code, record that it left the branch, and stop
+    waiting on a fix for it.
   - At every step, check the shape against the project's standing rules,
     which a plan's author never loads by touching files; the project file
     names them. A plan that proposes a shape they forbid is rewritten before

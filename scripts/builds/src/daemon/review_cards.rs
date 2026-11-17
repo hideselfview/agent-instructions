@@ -13,7 +13,7 @@ use super::cards::{ItemWait, ReviewWait};
 use crate::fail::Fail;
 use crate::lists::store::Store;
 use crate::review::commits::{self, Commit};
-use crate::review::landing::{self, Need, Verdict};
+use crate::review::landing::{self, CodeCheck, Need, Verdict};
 use crate::review::run::Material;
 use crate::side_git;
 
@@ -131,7 +131,11 @@ impl Reads {
             return Ok(Some(ItemWait::RulesReview(ReviewWait::Running)));
         }
         let conn = store.open_existing().map_err(Fail::text)?;
-        let wait = match landing::judge(&conn, repo, top, &needs).map_err(Fail::text)? {
+        // The card only reads the store. It counts a finding whose code left
+        // the branch as blocking nothing, as land does when it records the
+        // finding.
+        let check = CodeCheck::Branch("HEAD");
+        let wait = match landing::judge(&conn, repo, top, &needs, check).map_err(Fail::text)? {
             Verdict::NotNeeded | Verdict::Takes(_) => return Ok(None),
             Verdict::NoRun => ReviewWait::NotRun,
             Verdict::Unfinished(_, unfinished) if !unfinished.unsettled.is_empty() => {

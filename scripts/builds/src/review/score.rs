@@ -1,6 +1,9 @@
 //! How well reviews do, counted from what the coordinator settled. A finding
 //! the coordinator confirmed is a true positive (TP) and one it dropped a false
-//! positive (FP). A candidate miss that an audit raised (`audit.rs`) and the
+//! positive (FP). A finding counts as its last settle, so one the coordinator
+//! settled again as dropped is an FP. A confirmed finding whose code left its
+//! branch stays a TP: the code it named was there when the reviewer read it. A
+//! candidate miss that an audit raised (`audit.rs`) and the
 //! coordinator confirmed is a false negative (FN). A rule that a reviewer
 //! answered "none" for, over a diff in which no confirmed miss is in that rule,
 //! is a true negative (TN). Precision is TP / (TP + FP), recall TP / (TP + FN).
@@ -223,7 +226,7 @@ pub fn count_settled(
         let call = call_of(calls.iter().copied(), finding);
         let tally = scores.group(Setup::of(call)).rule(&finding.rule);
         match &finding.settled {
-            Some((how, _)) if how == "confirmed" => tally.true_pos += 1,
+            Some(settled) if settled.how == "confirmed" => tally.true_pos += 1,
             Some(_) => tally.false_pos += 1,
             None => tally.unsettled += 1,
         }
@@ -398,7 +401,7 @@ pub fn of_store(db: &Connection) -> Result<StoreScores> {
 }
 
 /// What every report of scores says first: what the counts mean.
-const LEGEND: &str = "TP: a confirmed finding. FP: a dropped finding. FN: a candidate miss an audit raised and the coordinator confirmed. TN: a rule answered \"none\" over a diff with no confirmed miss in it. Precision is TP / (TP + FP), recall TP / (TP + FN).\n";
+const LEGEND: &str = "TP: a confirmed finding, also one whose code left its branch. FP: a dropped finding, also one settled again as dropped. FN: a candidate miss an audit raised and the coordinator confirmed. TN: a rule answered \"none\" over a diff with no confirmed miss in it. Precision is TP / (TP + FP), recall TP / (TP + FN).\n";
 
 fn percent(value: Option<f64>) -> String {
     match value {

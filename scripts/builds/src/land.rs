@@ -76,7 +76,9 @@
 //! review's confirmed findings on a changed file, and the review is finished:
 //! every group that covers a changed path of a reviewed commit has answered,
 //! the coordinator has settled every finding, and each confirmed finding on
-//! the commits has its fix among them. Commits whose paths no group covers need no review. After
+//! the commits has its fix among them, unless builds finds the finding's code
+//! in no line of the branch's change past origin/main, which check-landing
+//! then records. Commits whose paths no group covers need no review. After
 //! the push, `builds review landed` records the commits pushed beside the
 //! items and the design change. When commits of the branch still wait to land,
 //! land passes `--more-to-land` to it and the review's landing stays open for
@@ -441,7 +443,7 @@ impl Landing<'_> {
     fn check_lists(&self, out: &mut dyn Write) -> Result<()> {
         let request = &self.request;
         let workdir = self.workdir.display();
-        let Some(Recording { project, .. }) = &self.recording else {
+        let Some(Recording { project, by }) = &self.recording else {
             if !request.items.is_empty() || !request.designs.is_empty() {
                 return Err(refuse(
                     out,
@@ -524,7 +526,11 @@ impl Landing<'_> {
                 return Err(refuse(out, said));
             }
         }
-        let (ok, said) = self.run_line(&self.review_line("check-landing", project));
+        // check-landing records each confirmed finding whose code left the
+        // branch, written by the worktree's claim.
+        let mut line = self.review_line("check-landing", project);
+        line.extend(["--by".to_string(), by.clone()]);
+        let (ok, said) = self.run_line(&line);
         if !ok {
             let _ = writeln!(out, "LANDING REFUSED, land fetched and pushed nothing:");
             return Err(refuse(out, said));

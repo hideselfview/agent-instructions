@@ -1305,6 +1305,20 @@ review; the coordinator reads the fixes for its confirmed findings:
      names it (`builds review fixed`).
   4. It lands the reviewed commits with their fixes.
 
+A confirmed finding that names no fix stops blocking a landing in two more ways.
+When the coordinator learns that the finding is wrong, it settles the finding
+again as dropped (`builds review settle N dropped --why TEXT --again`). The
+record keeps both settles, with who made each and why, and the finding counts
+as dropped from then on. A finding with a named fix can't be settled again.
+When an agent drops the commit that held the finding's code, the finding needs
+no fix: `builds review`, `review check-landing` and `builds land` look for the
+quoted code of each confirmed finding on a changed file that names no fix in
+the branch's change past origin/main, and when no line of that change holds
+it, builds records that the finding's code left the branch, with the change's
+base and head commits. The finding then blocks no landing, and nobody names a
+fix for it. A finding on the commit messages still takes the reworded commit
+as its fix.
+
 `builds review` reads no diff twice. A later run of a change (one key) asks
 only what its review lacks: the groups that gave no answer (their reviewer
 failed), over the diff they did not answer, and, as a new run of the review,
@@ -1319,7 +1333,8 @@ change's review covers them: each commit whose paths a group covers is either
 one the review read, and every such group answered over it, or the commit
 named as the fix of one of the review's confirmed findings on a changed file;
 every finding is settled; and every confirmed finding on the commits landed
-names a fix among them. A finding is on each commit that changes its file, and
+names a fix among them, or builds recorded that its code left the branch. A
+finding is on each commit that changes its file, and
 a finding on the commit messages is on the commit whose message holds its
 quote. A landing may hold some of the reviewed commits and leave the rest for
 later: while commits of the branch wait to land, the change stays under
@@ -1366,7 +1381,8 @@ clause is not in the rule or whose code is not in the diff, and records it as
 dropped. Every review goes in the project's store: the change's landing under
 review (found by its key until the change lands), the commits the review read,
 the group, rules, model, prompt, tokens, cost, verdicts, findings, how each was
-settled and the commit that fixed each confirmed one. A call's prompt is its
+settled (both settles of a finding settled again), the commit that fixed each
+confirmed one, and each confirmed finding whose code left its branch. A call's prompt is its
 system prompt without the project's instructions and the brief (the opening,
 the group's question, how to answer and its rules' text), with its passes,
 whether it reads the commit messages, and the answer schema; builds keeps the
@@ -1412,7 +1428,9 @@ The settled findings score the reviews. A confirmed finding is a true positive
 (TP), a dropped finding a false positive (FP), a candidate miss an audit raised
 and the coordinator confirmed a false negative (FN), and a rule a reviewer
 answered "none" for, over a diff with no confirmed miss in it, a true negative
-(TN). Precision is TP / (TP + FP) and recall TP / (TP + FN). `review scores`
+(TN). Precision is TP / (TP + FP) and recall TP / (TP + FN). A finding counts
+as its last settle, so one settled again as dropped is an FP, and a confirmed
+finding whose code left its branch stays a TP. `review scores`
 prints them per group and rule for each setup. `review replay --landing` asks
 again over the diffs a landing's reviews read, under another model, rules
 checkout or set of groups, and scores the replay against the same settled
@@ -1496,8 +1514,9 @@ agent-instructions and run `review replay --rules-root` on it.
                               that are all design files take --design alone
                               (`builds help lists`). In a repo of a
                               project, land runs `review check-landing` before
-                              it fetches anything, and a refusal ends the
-                              landing; it runs `review landed` after the push,
+                              it fetches anything, which records each
+                              confirmed finding whose code left the branch,
+                              and a refusal ends the landing; it runs `review landed` after the push,
                               beside the records of the items and the design
                               changes, with --more-to-land when commits on the
                               branch still wait to land.
@@ -1560,9 +1579,12 @@ agent-instructions and run `review replay --rules-root` on it.
                               it runs it holds a lock file named for the
                               reviewed commit in the store folder's
                               reviews-running, which the dashboard reads
-  builds review settle <finding> confirmed|dropped --why <text>
+  builds review settle <finding> confirmed|dropped --why <text> [--again]
                               the coordinator's verdict on a finding, kept with
-                              who and when
+                              who and when. A settled finding is refused, except
+                              that --again changes a confirmed finding that
+                              names no fix to dropped and keeps the first
+                              settle beside the second
   builds review fixed <finding> <sha>
                               name commit <sha>, of the repo the command runs
                               in, as the fix of confirmed finding <finding>,
@@ -1572,15 +1594,21 @@ agent-instructions and run `review replay --rules-root` on it.
                               finding before it names it, and land takes it
                               with the reviewed commits. Refused for a finding
                               that is not confirmed, that an audit raised,
-                              whose change landed already, or whose fix
-                              landed with a part of the change
+                              whose change landed already, whose code left
+                              the branch, or whose fix landed with a part of
+                              the change
   builds review show <landing>
                               the review of a landing under review: the
                               commits it read, groups, findings, how each was
-                              settled and fixed, and the run it landed with
+                              settled (both settles of one settled again),
+                              fixed, or recorded as gone from the branch, and
+                              the run it landed with
   builds review check-landing <worktree> --project P <sha>... [--rules-root DIR]
-                              what `builds land` asks before it fetches: says
-                              that the commits need no review, or which
+                              what `builds land` asks before it fetches: records
+                              each confirmed finding with no fix whose code no
+                              line of the worktree's change past origin/main
+                              holds (written by --by, else the worktree's
+                              claim), then says that the commits need no review, or which
                               change's review takes them, or why the review
                               does not take them yet (exit 1): no review read
                               any of them, a group with no answer over a

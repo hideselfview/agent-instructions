@@ -2011,10 +2011,123 @@ fn without_parts(mut schema: String, parts: &[&str]) -> String {
     schema
 }
 
+/// The schema text before a finding could be settled again: without the
+/// second settles' and the code-left records' tables, and with the review's
+/// header as it read then.
+fn schema_before_code_left() -> String {
+    let schema = db::schema();
+    let start = schema
+        .find("\n-- A second settle: the coordinator")
+        .expect("the second settles' comment");
+    let last = start
+        + schema[start..]
+            .find("CREATE TABLE review_code_left")
+            .expect("the code-left table");
+    let end = "STRICT;\n";
+    let stop = last + schema[last..].find(end).expect("it ends") + end.len();
+    let schema = format!("{}{}", &schema[..start], &schema[stop..]);
+    let (now, then) = (
+        "-- for every rule, each finding with how the coordinator settled it, the
+-- commit that fixed a confirmed finding, and each confirmed finding whose
+-- code left its branch. record.rs owns these tables and is the only code that
+-- writes them.",
+        "-- for every rule, each finding with how the coordinator settled it, and the
+-- commit that fixed a confirmed finding. record.rs owns these tables and is the
+-- only code that writes them.",
+    );
+    assert_eq!(schema.matches(now).count(), 1, "{now}");
+    schema.replacen(now, then, 1)
+}
+
+#[test]
+fn the_code_left_stamp_is_the_schema_before_code_left() {
+    assert_eq!(
+        db::stamp_of_text(&schema_before_code_left()),
+        BEFORE_CODE_LEFT_STAMP
+    );
+}
+
+/// A store from before a finding could be settled again keeps its runs,
+/// gains the empty tables, equals a fresh schema, and then records a second
+/// settle and a finding whose code left its branch.
+#[test]
+fn a_store_from_before_code_left_gains_the_tables_and_records_both() {
+    let scratch = Scratch::new("move-code-left");
+    let places = scratch.places();
+    let dir = places.lists.join("bae");
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join(DATABASE);
+    {
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(&schema_before_code_left()).unwrap();
+        conn.pragma_update(None, "user_version", BEFORE_CODE_LEFT_STAMP)
+            .unwrap();
+        plant_run(&conn);
+    }
+    migrate_stores(&places).unwrap();
+    let conn = db::open_reader(&path)
+        .unwrap()
+        .expect("opens under today's stamp");
+    assert_eq!(
+        db::schema_rows(&conn).unwrap(),
+        db::schema_rows(&db::memory()).unwrap()
+    );
+    drop(conn);
+    let stats = crate::hook_stats::stats(&path, 0, "bae").unwrap().unwrap();
+    assert_eq!(stats.runs, 1, "the move keeps the old run");
+    let conn = Connection::open(&path).unwrap();
+    conn.pragma_update(None, "foreign_keys", true).unwrap();
+    crate::lists::project::plant(&conn, "repo", &[("name", "bae".to_string().into())]).unwrap();
+    let landing = crate::review::record::add_landing(&conn, "k", "bae", 5).unwrap();
+    let finding = |code: &str| crate::review::record::NewFinding {
+        rule: "r".to_string(),
+        clause: "c".to_string(),
+        file: "a.rs".to_string(),
+        line: 1,
+        code: code.to_string(),
+        problem: "p".to_string(),
+        blocking: true,
+        check_failed: None,
+    };
+    let call = crate::review::record::NewCall {
+        group: "g".to_string(),
+        model: "sonnet".to_string(),
+        prompt: "the prompt".to_string(),
+        rules: vec!["r".to_string()],
+        tokens_in: 0,
+        tokens_out: 0,
+        tokens_cached: 0,
+        tokens_written: 0,
+        cost_microdollars: 0,
+        sites: None,
+        failure: None,
+        verdicts: vec![("r".to_string(), "finding".to_string())],
+        findings: vec![finding("wrong"), finding("gone")],
+        exchanges: Vec::new(),
+    };
+    let run = crate::review::record::NewRun {
+        landing: Some(landing),
+        kind: crate::review::record::Kind::Review,
+        label: None,
+        at: 6,
+        base: "b",
+        head: "h",
+        commits: &[],
+        grouping: "g",
+        rules_version: "",
+    };
+    let (_, ids) = crate::review::record::add_run(&conn, &run, &[call]).unwrap();
+    for id in &ids[0] {
+        crate::review::record::settle(&conn, *id, "confirmed", "real", 7, "me").unwrap();
+    }
+    crate::review::record::settle_again(&conn, ids[0][0], "dropped", "wrong", 8, "me").unwrap();
+    crate::review::record::record_code_left(&conn, ids[0][1], "b", "h", 8, "me").unwrap();
+}
+
 /// The schema text before builds recorded each check of a brief against the
 /// product spec: without the spec checks' tables.
 fn schema_before_spec_check() -> String {
-    without_parts(db::schema(), &[db::SPEC_CHECK_PART])
+    without_parts(schema_before_code_left(), &[db::SPEC_CHECK_PART])
 }
 
 /// The schema text before an item could hold a worktree parked or record

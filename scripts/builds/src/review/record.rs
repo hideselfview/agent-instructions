@@ -2,8 +2,10 @@
 //! only code that writes them. A change under review keeps one landing, found
 //! by its key, until it lands; a run holds the commits it read
 //! and one call per group, a call holds a verdict for every rule and the
-//! findings; the coordinator settles a finding as confirmed or dropped, and
-//! names the commit that fixed a confirmed one.
+//! findings; the coordinator settles a finding as confirmed or dropped, names
+//! the commit that fixed a confirmed one, and may settle a confirmed finding
+//! with no fix again, as dropped. builds records a confirmed finding with no
+//! fix whose code left its branch.
 
 use rusqlite::{Connection, OptionalExtension, params};
 
@@ -103,10 +105,34 @@ pub struct Finding {
     pub problem: String,
     pub blocking: bool,
     pub check_failed: Option<String>,
-    /// (`confirmed` or `dropped`, why).
-    pub settled: Option<(String, String)>,
+    /// How the coordinator settled it: the second settle when it settled the
+    /// finding again, else the first.
+    pub settled: Option<Settle>,
+    /// The first settle, when the coordinator settled the finding again.
+    pub first_settle: Option<Settle>,
     /// The commit that fixed it, for a confirmed finding.
     pub fix: Option<Commit>,
+    /// What builds recorded when it found the code of this confirmed finding
+    /// in no line of its branch's change.
+    pub code_left: Option<CodeLeft>,
+}
+
+/// How the coordinator settled a finding, and who did.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Settle {
+    /// `confirmed` or `dropped`.
+    pub how: String,
+    pub why: String,
+    pub by: String,
+}
+
+/// The change of a branch in which builds found no line that holds a
+/// confirmed finding's code, and who ran the command that found it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CodeLeft {
+    pub base: String,
+    pub head: String,
+    pub by: String,
 }
 
 impl Finding {
@@ -117,7 +143,9 @@ impl Finding {
 
     /// Whether the coordinator settled it as <how>.
     pub fn settled_as(&self, how: &str) -> bool {
-        matches!(&self.settled, Some((settled, _)) if settled == how)
+        self.settled
+            .as_ref()
+            .is_some_and(|settled| settled.how == how)
     }
 }
 
@@ -331,7 +359,9 @@ pub fn settle(db: &Connection, id: i64, how: &str, why: &str, now: i64, by: &str
         );
     }
     if let Some(settled) = settled {
-        fail!("finding {id} is settled already, as {settled}");
+        fail!(
+            "finding {id} is settled already, as {settled}. A confirmed finding that names no fix can be settled again as dropped: builds review settle {id} dropped --why TEXT --again"
+        );
     }
     db.execute(
         "UPDATE review_finding SET settled = ?2, settled_why = ?3, settled_at = ?4, settled_by = ?5 WHERE id = ?1",
@@ -341,10 +371,107 @@ pub fn settle(db: &Connection, id: i64, how: &str, why: &str, now: i64, by: &str
     Ok(())
 }
 
+/// Settles finding <id> again, as <how>: only a confirmed finding that names
+/// no fix changes, and only to `dropped`. The finding keeps its first settle
+/// beside the second, and counts as the second from then on.
+pub fn settle_again(
+    db: &Connection,
+    id: i64,
+    how: &str,
+    why: &str,
+    now: i64,
+    by: &str,
+) -> Result<()> {
+    if how != "dropped" {
+        fail!("a second settle changes a confirmed finding to dropped, not to {how}");
+    }
+    if why.trim().is_empty() {
+        fail!("--why says nothing");
+    }
+    let finding = finding_of(db, id)?;
+    if let Some(reason) = &finding.check_failed {
+        fail!(
+            "finding {id} was dropped by builds' own check ({reason}); there is nothing to settle"
+        );
+    }
+    if finding.first_settle.is_some() {
+        fail!("finding {id} is settled again already, as dropped");
+    }
+    let Some(settled) = &finding.settled else {
+        fail!(
+            "finding {id} is not settled; settle it first: builds review settle {id} confirmed|dropped --why TEXT"
+        );
+    };
+    if settled.how != "confirmed" {
+        fail!("finding {id} is settled as {} already", settled.how);
+    }
+    if let Some(fix) = &finding.fix {
+        fail!(
+            "finding {id} names {} as its fix, so it stays confirmed: a finding with a named fix can't be settled again",
+            fix.sha
+        );
+    }
+    db.execute(
+        "INSERT INTO review_settle_again (finding_id, why, at, by) VALUES (?1, ?2, ?3, ?4)",
+        params![id, why, now, by],
+    )
+    .sql()?;
+    Ok(())
+}
+
+/// Records that builds found the code of confirmed finding <id> in no line of
+/// the change from <base> to <head>, its branch's change past origin/main.
+/// Only a confirmed finding of a review that names no fix, whose change has
+/// not landed and that has no such record yet, takes one.
+pub fn record_code_left(
+    db: &Connection,
+    id: i64,
+    base: &str,
+    head: &str,
+    now: i64,
+    by: &str,
+) -> Result<()> {
+    let finding = finding_of(db, id)?;
+    if finding.kind != "review" {
+        fail!(
+            "finding {id} is from a {}, not a review; only a review's finding blocks a landing",
+            finding.kind
+        );
+    }
+    if !finding.settled_as("confirmed") {
+        fail!("finding {id} is not settled as confirmed, so it needs no fix");
+    }
+    if let Some(fix) = &finding.fix {
+        fail!("finding {id} names {} as its fix", fix.sha);
+    }
+    if finding.code_left.is_some() {
+        fail!("builds recorded already that the code of finding {id} left its branch");
+    }
+    if landed(db, &finding)? {
+        fail!("finding {id} belongs to a change that landed already");
+    }
+    db.execute(
+        "INSERT INTO review_code_left (finding_id, base, head, at, by) VALUES (?1, ?2, ?3, ?4, ?5)",
+        params![id, base, head, now, by],
+    )
+    .sql()?;
+    Ok(())
+}
+
+/// Whether the change of <finding>'s landing landed.
+fn landed(db: &Connection, finding: &Finding) -> Result<bool> {
+    db.query_row(
+        "SELECT landed_at IS NOT NULL FROM review_landing WHERE id = ?1",
+        params![finding.landing_id],
+        |row| row.get(0),
+    )
+    .sql()
+}
+
 /// Names commit <sha> as the fix of confirmed finding <id>, replacing the
 /// one named before. Only a confirmed finding of a review whose change has not
-/// landed takes a fix, and record_fix refuses to replace a fix that a push
-/// put on origin/main.
+/// landed and whose code did not leave its branch takes a fix, and record_fix
+/// refuses to replace a fix that a push put on origin/main.
 pub fn record_fix(db: &Connection, id: i64, fix: &Commit, now: i64, by: &str) -> Result<()> {
     let finding = finding_of(db, id)?;
     if finding.kind != "review" {
@@ -358,14 +485,14 @@ pub fn record_fix(db: &Connection, id: i64, fix: &Commit, now: i64, by: &str) ->
             "finding {id} is not settled as confirmed; settle it first: builds review settle {id} confirmed --why TEXT"
         );
     }
-    let landed: bool = db
-        .query_row(
-            "SELECT landed_at IS NOT NULL FROM review_landing WHERE id = ?1",
-            params![finding.landing_id],
-            |row| row.get(0),
-        )
-        .sql()?;
-    if landed {
+    if let Some(left) = &finding.code_left {
+        fail!(
+            "builds found the code of finding {id} in no line of its branch's change ({}..{}): it left the branch, so the finding needs no fix",
+            left.base,
+            left.head
+        );
+    }
+    if landed(db, &finding)? {
         fail!("finding {id} belongs to a change that landed already");
     }
     if let (Some(fixed), Some(landing)) = (&finding.fix, finding.landing_id)
@@ -384,13 +511,32 @@ pub fn record_fix(db: &Connection, id: i64, fix: &Commit, now: i64, by: &str) ->
     Ok(())
 }
 
-const FINDING_COLUMNS: &str = "f.id, c.run_id, r.kind, r.landing_id, c.group_name, f.rule, f.clause, f.file, f.line, f.code, f.problem, f.blocking, f.check_failed, f.settled, f.settled_why, x.sha, x.patch_id";
+const FINDING_COLUMNS: &str = "f.id, c.run_id, r.kind, r.landing_id, c.group_name, f.rule, f.clause, f.file, f.line, f.code, f.problem, f.blocking, f.check_failed, f.settled, f.settled_why, f.settled_by, x.sha, x.patch_id, a.why, a.by, g.base, g.head, g.by";
 
 fn finding_from(row: &rusqlite::Row) -> rusqlite::Result<Finding> {
     let settled: Option<String> = row.get(13)?;
     let why: Option<String> = row.get(14)?;
-    let fix_sha: Option<String> = row.get(15)?;
-    let fix_patch: Option<String> = row.get(16)?;
+    let by: Option<String> = row.get(15)?;
+    let fix_sha: Option<String> = row.get(16)?;
+    let fix_patch: Option<String> = row.get(17)?;
+    let again_why: Option<String> = row.get(18)?;
+    let again_by: Option<String> = row.get(19)?;
+    let left_base: Option<String> = row.get(20)?;
+    let left_head: Option<String> = row.get(21)?;
+    let left_by: Option<String> = row.get(22)?;
+    let first = match (settled, why, by) {
+        (Some(how), Some(why), Some(by)) => Some(Settle { how, why, by }),
+        _ => None,
+    };
+    let again = again_why.zip(again_by).map(|(why, by)| Settle {
+        how: "dropped".to_string(),
+        why,
+        by,
+    });
+    let (settled, first_settle) = match again {
+        Some(again) => (Some(again), first),
+        None => (first, None),
+    };
     Ok(Finding {
         id: row.get(0)?,
         run_id: row.get(1)?,
@@ -405,14 +551,19 @@ fn finding_from(row: &rusqlite::Row) -> rusqlite::Result<Finding> {
         problem: row.get(10)?,
         blocking: row.get(11)?,
         check_failed: row.get(12)?,
-        settled: settled.zip(why),
+        settled,
+        first_settle,
         fix: fix_sha
             .zip(fix_patch)
             .map(|(sha, patch_id)| Commit { sha, patch_id }),
+        code_left: match (left_base, left_head, left_by) {
+            (Some(base), Some(head), Some(by)) => Some(CodeLeft { base, head, by }),
+            _ => None,
+        },
     })
 }
 
-const FINDING_FROM: &str = "FROM review_finding f JOIN review_call c ON c.id = f.call_id JOIN review_run r ON r.id = c.run_id LEFT JOIN review_fix x ON x.finding_id = f.id";
+const FINDING_FROM: &str = "FROM review_finding f JOIN review_call c ON c.id = f.call_id JOIN review_run r ON r.id = c.run_id LEFT JOIN review_fix x ON x.finding_id = f.id LEFT JOIN review_settle_again a ON a.finding_id = f.id LEFT JOIN review_code_left g ON g.finding_id = f.id";
 
 /// Every finding of <run>, in the order raised.
 pub fn findings_of_run(db: &Connection, run: i64) -> Result<Vec<Finding>> {
@@ -826,7 +977,7 @@ pub fn move_to_changed_lines(
 
 /// The tables record.rs owns.
 #[cfg(test)]
-const TABLES: [&str; 9] = [
+const TABLES: [&str; 11] = [
     "review_landing",
     "review_run",
     "review_call",
@@ -836,6 +987,8 @@ const TABLES: [&str; 9] = [
     "review_finding",
     "review_commit",
     "review_fix",
+    "review_settle_again",
+    "review_code_left",
 ];
 
 /// Writes a row of one of record.rs's tables as given, the constraints still

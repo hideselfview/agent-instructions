@@ -45,7 +45,14 @@ fn review_past(demo: &Demo, fake: &Fake, side: &Path, base: &str) -> super::supe
 /// words.
 fn verdict_of(demo: &Demo, fake: &Fake, side: &Path, shas: &[String]) -> (Verdict, Option<String>) {
     let asked = asked(demo, fake, side, shas);
-    let verdict = judge(&asked.conn, "demo", side, &asked.needs).unwrap();
+    let verdict = judge(
+        &asked.conn,
+        "demo",
+        side,
+        &asked.needs,
+        CodeCheck::Branch("HEAD"),
+    )
+    .unwrap();
     let words = refusal(&asked.commits(), &verdict);
     (verdict, words)
 }
@@ -248,7 +255,14 @@ fn a_cherry_pick_onto_a_moved_main_keeps_the_review_and_landed_records_it_once()
     let asked_picked = asked(&demo, &fake, &other, std::slice::from_ref(&picked));
     let conn = demo.store.open_existing().unwrap();
     assert!(matches!(
-        judge(&conn, "demo", &other, &asked_picked.needs).unwrap(),
+        judge(
+            &conn,
+            "demo",
+            &other,
+            &asked_picked.needs,
+            CodeCheck::Branch("HEAD")
+        )
+        .unwrap(),
         Verdict::Takes(_)
     ));
     drop(conn);
@@ -391,7 +405,14 @@ fn a_branch_lands_in_two_parts_each_with_the_fixes_of_its_own_findings() {
     // Part one: the finding on b's message is not on these commits.
     let first = asked(&demo, &fake, &side, &[a, fa]);
     let conn = demo.store.open_existing().unwrap();
-    let verdict = judge(&conn, "demo", &side, &first.needs).unwrap();
+    let verdict = judge(
+        &conn,
+        "demo",
+        &side,
+        &first.needs,
+        CodeCheck::Branch("HEAD"),
+    )
+    .unwrap();
     drop(conn);
     assert!(matches!(verdict, Verdict::Takes(_)), "{verdict:?}");
     assert_eq!(
@@ -621,4 +642,133 @@ fn a_group_whose_files_a_later_commit_changed_back_answers_no_findings() {
     assert!(reported.refusal.is_none(), "{:?}", reported.refusal);
     let asked = verdict_of(&demo, &fake, &side, &[changed, changed_back]);
     assert!(matches!(asked.0, Verdict::Takes(_)), "{asked:?}");
+}
+
+/// Writes <text> to <file> in <top>, commits it with <message>, and returns
+/// the commit.
+fn commit_text(top: &Path, file: &str, text: &str, message: &str) -> String {
+    std::fs::write(top.join(file), text).unwrap();
+    crate::testing::git(top, &["add", file]);
+    crate::testing::git(top, &["commit", "-q", "-m", message]);
+    head(top)
+}
+
+/// Runs `builds review check-landing` on <shas> in <side>, written by
+/// `tester`, and says whether it takes them.
+fn check_landing(demo: &Demo, fake: &Fake, side: &Path, shas: &[String]) -> bool {
+    let mut words: Vec<String> = vec![side.display().to_string()];
+    words.extend(shas.iter().cloned());
+    words.extend(
+        ["--project", "demo", "--by", "tester", "--rules-root"]
+            .iter()
+            .map(|w| w.to_string()),
+    );
+    words.push(fake.root.display().to_string());
+    match check_landing_command(&demo.tool, &words) {
+        Ok(()) => true,
+        Err(Fail::Exit(1)) => false,
+        Err(other) => panic!("check-landing failed: {}", other.text()),
+    }
+}
+
+/// A branch whose second commit adds `gallery_count` to a.rs, reviewed, with
+/// the finding on that line confirmed: the demo, its reviewer, the side
+/// worktree, both commits and the finding.
+fn confirmed_on_the_second_commit(name: &str) -> (Demo, Fake, PathBuf, String, String, i64) {
+    let demo = demo(name);
+    let fake = fake(&demo.scratch.dir);
+    let side = demo.add_side(1, "agent", "work");
+    let first = commit_text(&side, "a.rs", "keep\n", "Add a");
+    let second = commit_text(&side, "a.rs", "keep\ngallery_count\n", "Count the gallery");
+    alpha_finds(&fake, &[("a.rs", "gallery_count")]);
+    review_of(&demo, &fake, &side);
+    let found = findings(&demo);
+    assert_eq!(found.len(), 1, "{found:?}");
+    settle(&demo, found[0].id, "confirmed");
+    (demo, fake, side, first, second, found[0].id)
+}
+
+#[test]
+fn a_confirmed_finding_whose_code_is_still_on_the_branch_still_blocks() {
+    let (demo, fake, side, first, second, finding) =
+        confirmed_on_the_second_commit("landing-code-stays");
+    let shas = [first, second];
+    assert!(!check_landing(&demo, &fake, &side, &shas));
+    let said = verdict_of(&demo, &fake, &side, &shas);
+    let Verdict::Unfinished(covered, unfinished) = &said.0 else {
+        panic!("{said:?}")
+    };
+    assert_eq!(unfinished.unfixed, [finding]);
+    assert_eq!(covered.code_left, None);
+    assert!(refused(&said).contains("names no fix"), "{said:?}");
+    assert_eq!(findings(&demo)[0].code_left, None, "nothing is recorded");
+}
+
+#[test]
+fn a_confirmed_finding_whose_code_left_the_branch_is_recorded_and_blocks_no_landing() {
+    let (demo, fake, side, first, _, finding) = confirmed_on_the_second_commit("landing-code-left");
+    // The agent drops the commit that added the code.
+    crate::testing::git(&side, &["reset", "-q", "--hard", &first]);
+    let shas = std::slice::from_ref(&first);
+    let said = verdict_of(&demo, &fake, &side, shas);
+    let Verdict::Takes(covered) = &said.0 else {
+        panic!("{said:?}")
+    };
+    assert_eq!(
+        covered.code_left.as_ref().map(|l| l.findings.clone()),
+        Some(vec![finding])
+    );
+    assert!(check_landing(&demo, &fake, &side, shas));
+    let recorded = findings(&demo)[0].code_left.clone().expect("recorded");
+    let base = crate::checkout::git_text(
+        crate::checkout::git(&side).args(["rev-parse", "origin/main"]),
+        "read origin/main",
+    )
+    .unwrap();
+    assert_eq!(
+        (
+            recorded.base.as_str(),
+            recorded.head.as_str(),
+            recorded.by.as_str()
+        ),
+        (base.trim(), first.as_str(), "tester")
+    );
+    let shown = render::finding_text(&findings(&demo)[0]);
+    assert!(shown.contains("its code left the branch"), "{shown}");
+    // A second check finds the record and writes nothing.
+    let before = demo.state();
+    assert!(check_landing(&demo, &fake, &side, shas));
+    assert_eq!(demo.state(), before);
+    // Nobody names a fix for it, and the landing records it as landed.
+    assert!(fix_refused(&demo, &side, finding, &first).contains("needs no fix"));
+    let asked = asked(&demo, &fake, &side, shas);
+    assert!(record_landed(&asked, &stamp(), false).unwrap().is_some());
+}
+
+#[test]
+fn a_confirmed_finding_settled_again_as_dropped_blocks_no_landing() {
+    let (demo, fake, side, first, second, finding) =
+        confirmed_on_the_second_commit("landing-settle-again");
+    let shas = [first, second];
+    assert!(!check_landing(&demo, &fake, &side, &shas));
+    let stamp = stamp();
+    demo.store
+        .write(&stamp, "settle again", |db| {
+            record::settle_again(
+                db,
+                finding,
+                "dropped",
+                "the count is used",
+                stamp.at,
+                "tester",
+            )
+        })
+        .unwrap();
+    assert!(check_landing(&demo, &fake, &side, &shas));
+    let shown = render::finding_text(&findings(&demo)[0]);
+    assert!(
+        shown.contains("settled confirmed by tester: judged")
+            && shown.contains("settled again as dropped by tester: the count is used"),
+        "{shown}"
+    );
 }

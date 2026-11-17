@@ -157,7 +157,7 @@ pub fn rates(db: &Connection, group_of_rule: &dyn Fn(&str) -> Option<String>) ->
         let calls: Vec<Call> = record::calls_of_landing(db, landing)?;
         let missed: Vec<String> = candidate_misses(&findings)
             .into_iter()
-            .filter(|f| matches!(&f.settled, Some((how, _)) if how == "confirmed"))
+            .filter(|f| f.settled_as("confirmed"))
             .filter_map(|f| group_of_rule(&f.rule))
             .collect();
         let mut ran: Vec<&str> = Vec::new();

@@ -22,6 +22,11 @@
 //! finding, and every confirmed finding on the commits landed must name a fix
 //! among them. A finding is on a commit that changes its file, and a finding
 //! on the commit messages is on the commit whose message holds its quote. A
+//! confirmed finding on a changed file that names no fix needs none when
+//! builds finds its quoted code in no line of the branch's change past
+//! origin/main: the commit that held the code left the branch. check-landing
+//! and `builds review` record such a finding (`CodeCheck`), and from then on
+//! it blocks no landing. A
 //! finding on a commit that an earlier landing pushed belongs to that landing,
 //! so a branch can land in parts. A commit that the review did not read and
 //! that no finding on a changed file names as its fix waits for `builds
@@ -55,7 +60,7 @@ use crate::review::commits::{self, Commit};
 use crate::review::files;
 use crate::review::record::{self, LandingRow};
 use crate::review::render;
-use crate::review::run::Material;
+use crate::review::run::{self, Material};
 use crate::tool::Tool;
 
 const USAGE: &str =
@@ -97,6 +102,35 @@ pub fn needs(
 pub struct Covered {
     pub landing: LandingRow,
     pub run: i64,
+    /// The confirmed findings with no fix whose code builds found in no line
+    /// of the branch's change, not yet recorded. The verdict counts them as
+    /// recorded, so a command that acts on it records them first
+    /// (`record_code_left`).
+    pub code_left: Option<CodeLeft>,
+}
+
+/// Where `judge` looks for the quoted code of a confirmed finding on a changed
+/// file that names no fix.
+#[derive(Clone, Copy, Debug)]
+pub enum CodeCheck<'a> {
+    /// Only in the records: `review landed` runs after the push, which moved
+    /// origin/main.
+    Records,
+    /// In the change of this commit past origin/main too: a finding whose code
+    /// no line of that change holds needs no fix.
+    Branch(&'a str),
+}
+
+/// The base builds reads a branch's change from.
+const BRANCH_BASE: &str = "origin/main";
+
+/// Confirmed findings with no fix whose quoted code builds found in no line of
+/// the change from <base> to <head>.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CodeLeft {
+    pub findings: Vec<i64>,
+    pub base: String,
+    pub head: String,
 }
 
 /// What a covering review still lacks.
@@ -261,14 +295,16 @@ fn on_commits(
         .any(|held| needs.iter().any(|n| n.commit.patch_id == held.patch_id)))
 }
 
-/// What <landing>'s review says of <needs>, commits of the repo at <dir>; None
-/// when its review neither read nor names as a fix any of the commits that
-/// need one.
+/// What <landing>'s review says of <needs>, commits of the repo at <dir>,
+/// looking for the code of confirmed findings with no fix as <check> says;
+/// None when its review neither read nor names as a fix any of the commits
+/// that need one.
 fn assess(
     db: &Connection,
     dir: &Path,
     landing: &LandingRow,
     needs: &[Need],
+    check: CodeCheck,
 ) -> Result<Option<(Covered, Unfinished)>> {
     let covered_paths = || needs.iter().filter(|n| !n.groups.is_empty());
     let coverage = Coverage::of(db, landing.id)?;
@@ -290,7 +326,8 @@ fn assess(
     let confirmed = || findings.iter().filter(|f| f.settled_as("confirmed"));
     let pushed = record::pushed_of_landing(db, landing.id)?;
     // The confirmed findings this landing must fix: those on its commits
-    // whose fix no earlier push of the branch landed.
+    // whose fix no earlier push of the branch landed and whose code builds
+    // did not record as gone from the branch.
     let mut owed: Vec<&record::Finding> = Vec::new();
     let mut messages = HashMap::new();
     for finding in confirmed() {
@@ -298,6 +335,7 @@ fn assess(
             .fix
             .as_ref()
             .is_some_and(|fix| pushed.contains(&fix.patch_id))
+            || finding.code_left.is_some()
         {
             continue;
         }
@@ -339,10 +377,32 @@ fn assess(
         .filter(|f| f.settled.is_none())
         .cloned()
         .collect();
-    unfinished.unfixed = owed
+    let unfixed: Vec<&&record::Finding> = owed.iter().filter(|f| f.fix.is_none()).collect();
+    let code_left = match check {
+        CodeCheck::Branch(head) if unfixed.iter().any(|f| f.file != files::COMMIT_MESSAGE) => {
+            let change = run::diff_between(dir, BRANCH_BASE, head)?;
+            let quotes = change.quotes();
+            let findings: Vec<i64> = unfixed
+                .iter()
+                .filter(|f| {
+                    f.file != files::COMMIT_MESSAGE
+                        && check::code_in(&quotes, &f.file, &f.code).is_err()
+                })
+                .map(|f| f.id)
+                .collect();
+            (!findings.is_empty()).then_some(CodeLeft {
+                findings,
+                base: change.base,
+                head: change.head,
+            })
+        }
+        _ => None,
+    };
+    let left = |id: i64| code_left.as_ref().is_some_and(|l| l.findings.contains(&id));
+    unfinished.unfixed = unfixed
         .iter()
-        .filter(|f| f.fix.is_none())
         .map(|f| f.id)
+        .filter(|id| !left(*id))
         .collect();
     unfinished.fixed_elsewhere = owed
         .iter()
@@ -354,6 +414,7 @@ fn assess(
     let covered = Covered {
         landing: landing.clone(),
         run: landing.landed_run.unwrap_or(newest),
+        code_left,
     };
     Ok(Some((covered, unfinished)))
 }
@@ -364,14 +425,21 @@ fn assess(
 /// The newest open change whose review takes them covers them; failing that,
 /// the newest open change whose review read one of them says what it lacks.
 /// A change that landed already covers them only when its review takes them
-/// all, so `landed` can run again after the push.
-pub fn judge(db: &Connection, repo: &str, dir: &Path, needs: &[Need]) -> Result<Verdict> {
+/// all, as its records say, so `landed` can run again after the push. <check>
+/// says where to look for the code of a confirmed finding with no fix.
+pub fn judge(
+    db: &Connection,
+    repo: &str,
+    dir: &Path,
+    needs: &[Need],
+    check: CodeCheck,
+) -> Result<Verdict> {
     if needs.iter().all(|n| n.groups.is_empty()) {
         return Ok(Verdict::NotNeeded);
     }
     let mut lacking: Option<(Covered, Unfinished)> = None;
     for landing in record::landings_of_repo(db, repo, false)? {
-        if let Some((covered, unfinished)) = assess(db, dir, &landing, needs)? {
+        if let Some((covered, unfinished)) = assess(db, dir, &landing, needs, check)? {
             if unfinished.is_empty() {
                 return Ok(Verdict::Takes(covered));
             }
@@ -382,7 +450,7 @@ pub fn judge(db: &Connection, repo: &str, dir: &Path, needs: &[Need]) -> Result<
         return Ok(Verdict::Unfinished(covered, unfinished));
     }
     for landing in record::landings_of_repo(db, repo, true)? {
-        if let Some((covered, unfinished)) = assess(db, dir, &landing, needs)?
+        if let Some((covered, unfinished)) = assess(db, dir, &landing, needs, CodeCheck::Records)?
             && unfinished.is_empty()
         {
             return Ok(Verdict::Takes(covered));
@@ -450,7 +518,7 @@ pub fn refusal(commits: &[Commit], verdict: &Verdict) -> Option<String> {
     }
     for id in &unfinished.unfixed {
         text.push_str(&format!(
-            "finding {id} is confirmed and names no fix: fix it in a new commit, read the fix against the finding, and name it with builds review fixed {id} <sha>\n"
+            "finding {id} is confirmed and names no fix: fix it in a new commit, read the fix against the finding, and name it with builds review fixed {id} <sha>. When the finding is wrong, settle it again: builds review settle {id} dropped --why TEXT --again\n"
         ));
     }
     for (id, sha) in &unfinished.fixed_elsewhere {
@@ -504,12 +572,26 @@ fn ask(tool: &Tool, args: &Args) -> Result<Asked> {
     })
 }
 
-/// `builds review check-landing DIR --project P SHA...`: says why the commits
-/// can't land, exit 1, or that the review takes them.
+/// `builds review check-landing DIR --project P SHA...`: records each
+/// confirmed finding whose code left the branch at DIR's HEAD, then says why
+/// the commits can't land, exit 1, or that the review takes them.
 pub fn check_landing_command(tool: &Tool, args: &[String]) -> Result<()> {
     let args = Args::parse(args, &["rules-root"], &[])?;
     let asked = ask(tool, &args)?;
-    let verdict = judge(&asked.conn, &asked.repo, &asked.dir, &asked.needs)?;
+    let verdict = judge(
+        &asked.conn,
+        &asked.repo,
+        &asked.dir,
+        &asked.needs,
+        CodeCheck::Branch("HEAD"),
+    )?;
+    let recorded = record_code_left(&asked.store, &verdict, || {
+        Ok(Stamp {
+            at: tool.now,
+            by: resolve_by(&args, &asked.dir)?,
+        })
+    })?;
+    print!("{recorded}");
     match refusal(&asked.commits(), &verdict) {
         Some(why) => {
             print!("{why}");
@@ -520,6 +602,47 @@ pub fn check_landing_command(tool: &Tool, args: &[String]) -> Result<()> {
             Ok(())
         }
     }
+}
+
+/// Records each confirmed finding that <verdict> found with its code gone from
+/// the branch, so that the verdict holds, and returns a line for each; empty
+/// when it found none. <stamp> gives who runs the command, and runs only when
+/// there is something to record.
+pub fn record_code_left(
+    store: &Store,
+    verdict: &Verdict,
+    stamp: impl FnOnce() -> Result<Stamp>,
+) -> Result<String> {
+    let covered = match verdict {
+        Verdict::Takes(covered) | Verdict::Unfinished(covered, _) => covered,
+        Verdict::NotNeeded | Verdict::NoRun => return Ok(String::new()),
+    };
+    let Some(left) = &covered.code_left else {
+        return Ok(String::new());
+    };
+    let stamp = stamp()?;
+    let ids: Vec<String> = left.findings.iter().map(i64::to_string).collect();
+    store.write(
+        &stamp,
+        &format!("review code left {}", ids.join(" ")),
+        |db| {
+            for id in &left.findings {
+                record::record_code_left(db, *id, &left.base, &left.head, stamp.at, &stamp.by)?;
+            }
+            Ok(())
+        },
+    )?;
+    Ok(left
+        .findings
+        .iter()
+        .map(|id| {
+            format!(
+                "finding {id}: builds found no line of the branch's change {}..{} that holds its code, so its code left the branch and the finding needs no fix; builds recorded that\n",
+                short(&left.base),
+                short(&left.head)
+            )
+        })
+        .collect())
 }
 
 /// What a verdict that lets the commits land says of them.
@@ -538,7 +661,15 @@ pub fn taken(verdict: &Verdict) -> String {
 /// this recorded it as landed; None when it needed no review, an earlier run
 /// of landed recorded it already, or it lands in parts and has more to land.
 fn record_landed(asked: &Asked, stamp: &Stamp, more: bool) -> Result<Option<i64>> {
-    let verdict = judge(&asked.conn, &asked.repo, &asked.dir, &asked.needs)?;
+    // check-landing recorded each finding whose code left the branch before
+    // the push, which moved origin/main, so this reads only the records.
+    let verdict = judge(
+        &asked.conn,
+        &asked.repo,
+        &asked.dir,
+        &asked.needs,
+        CodeCheck::Records,
+    )?;
     if let Some(why) = refusal(&asked.commits(), &verdict) {
         fail!("the review does not take these commits:\n{why}")
     }

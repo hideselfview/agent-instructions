@@ -49,8 +49,14 @@ fn finding(
         problem: "p".to_string(),
         blocking: true,
         check_failed: None,
-        settled: settled.map(|how| (how.to_string(), "why".to_string())),
+        settled: settled.map(|how| record::Settle {
+            how: how.to_string(),
+            why: "why".to_string(),
+            by: "tester".to_string(),
+        }),
+        first_settle: None,
         fix: None,
+        code_left: None,
     }
 }
 
@@ -376,4 +382,61 @@ fn the_store_scores_each_setup_from_settled_findings_and_confirmed_audit_misses(
     );
     assert!(report.contains("sonnet, prompt "), "{report}");
     assert!(report.contains("audits: "), "{report}");
+}
+
+/// A finding the coordinator settled again as dropped counts as an FP, and a
+/// confirmed finding whose code left its branch stays a TP.
+#[test]
+fn a_finding_settled_again_counts_as_dropped_and_one_whose_code_left_as_confirmed() {
+    let db = crate::lists::fixtures::db();
+    let landing = record::add_landing(&db, "k", "bae", 5).unwrap();
+    let raised = |code: &str| record::NewFinding {
+        rule: "r".to_string(),
+        clause: "c".to_string(),
+        file: "a.rs".to_string(),
+        line: 1,
+        code: code.to_string(),
+        problem: "p".to_string(),
+        blocking: true,
+        check_failed: None,
+    };
+    let call = record::NewCall {
+        group: "words".to_string(),
+        model: "sonnet".to_string(),
+        prompt: "the prompt".to_string(),
+        rules: vec!["r".to_string()],
+        tokens_in: 0,
+        tokens_out: 0,
+        tokens_cached: 0,
+        tokens_written: 0,
+        cost_microdollars: 0,
+        sites: None,
+        failure: None,
+        verdicts: vec![("r".to_string(), "finding".to_string())],
+        findings: vec![raised("wrong"), raised("gone")],
+        exchanges: Vec::new(),
+    };
+    let new_run = record::NewRun {
+        landing: Some(landing),
+        kind: Kind::Review,
+        label: None,
+        at: 6,
+        base: "b",
+        head: "h",
+        commits: &[],
+        grouping: "g",
+        rules_version: "",
+    };
+    let (_, ids) = record::add_run(&db, &new_run, &[call]).unwrap();
+    let (wrong, gone) = (ids[0][0], ids[0][1]);
+    for id in [wrong, gone] {
+        record::settle(&db, id, "confirmed", "real", 7, "me").unwrap();
+    }
+    record::settle_again(&db, wrong, "dropped", "another crate uses it", 8, "me").unwrap();
+    record::record_code_left(&db, gone, "b", "h", 8, "me").unwrap();
+    let scores = of_store(&db).unwrap();
+    assert_eq!(
+        tally_of(&scores.reviews, "words", "r"),
+        tally(1, 1, 0, 0, 0)
+    );
 }

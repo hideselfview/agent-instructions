@@ -1,6 +1,6 @@
 //! What `builds review` prints: the findings by group, then one line of totals.
 
-use crate::review::record::{Call, Finding};
+use crate::review::record::{Call, Finding, Settle};
 
 /// A run's calls with their findings, by group.
 pub fn run_report(calls: &[Call], findings: &[Finding]) -> String {
@@ -62,13 +62,37 @@ pub fn finding_text(finding: &Finding) -> String {
         one_line(&finding.code),
         one_line(&finding.problem),
     );
-    if let Some((how, why)) = &finding.settled {
-        out.push_str(&format!("    settled {how}: {}\n", one_line(why)));
+    if let Some(first) = &finding.first_settle {
+        out.push_str(&settle_line("settled", first));
+    }
+    if let Some(settled) = &finding.settled {
+        let word = if finding.first_settle.is_some() {
+            "settled again as"
+        } else {
+            "settled"
+        };
+        out.push_str(&settle_line(word, settled));
     }
     if let Some(fix) = &finding.fix {
         out.push_str(&format!("    fixed by {}\n", fix.sha));
     }
+    if let Some(left) = &finding.code_left {
+        out.push_str(&format!(
+            "    its code left the branch: builds found no line of {}..{} that holds it ({} ran the check)\n",
+            left.base, left.head, left.by
+        ));
+    }
     out
+}
+
+/// A settle as one indented line: `<word> <how> by <who>: <why>`.
+fn settle_line(word: &str, settle: &Settle) -> String {
+    format!(
+        "    {word} {} by {}: {}\n",
+        settle.how,
+        settle.by,
+        one_line(&settle.why)
+    )
 }
 
 /// `3 groups, 2 findings (1 blocking), 1 dropped by builds, 1200 tokens in, 80 out`.

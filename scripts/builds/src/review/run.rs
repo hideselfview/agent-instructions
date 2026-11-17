@@ -91,6 +91,18 @@ pub struct Diff {
     pub changed: Vec<String>,
 }
 
+impl Diff {
+    /// The lines builds looks for a finding's quoted code in: each changed
+    /// file's, and the commit messages' as one more file.
+    pub fn quotes(&self) -> Vec<DiffFile> {
+        let mut files = parse_diff(&self.text);
+        if let Some((_, quotes)) = files::commit_message_file(&self.messages) {
+            files.push(quotes);
+        }
+        files
+    }
+}
+
 /// The change of the worktree's HEAD past <base> (from their common
 /// ancestor).
 pub fn diff_of(worktree: &Path, base: &str) -> Result<Diff> {
@@ -160,12 +172,9 @@ pub fn ask_groups(
     diff: &Diff,
     brief: Option<&(String, String)>,
 ) -> Asked {
-    let mut files = parse_diff(&diff.text);
+    let files = diff.quotes();
     let by_file = files::split(&diff.text);
     let message = files::commit_message_file(&diff.messages);
-    if let Some((_, quotes)) = &message {
-        files.push(quotes.clone());
-    }
     // The reviewers read the repository at the commit under review.
     let checkout = match diff.source.as_ref().map(files::Source::checkout) {
         Some(Ok(checkout)) => Some(checkout),

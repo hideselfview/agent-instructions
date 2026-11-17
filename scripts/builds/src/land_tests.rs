@@ -660,7 +660,9 @@ fn a_design_change_alone_lands_commits_that_are_all_design_files() {
     assert!(code == 0 && main_of(&f) == a);
     assert!(calls.contains(&format!("design only {dir} {a}")));
     assert!(calls.contains(&format!("design check 3 {dir} {a}")));
-    assert!(calls.contains(&format!("review check-landing {dir} --project bae {a}")));
+    assert!(calls.contains(&format!(
+        "review check-landing {dir} --project bae {a} --by agent A"
+    )));
     assert_eq!(
         calls[calls.len() - 3..],
         [
@@ -957,7 +959,7 @@ fn commits_the_review_does_not_take_are_refused_before_anything_is_fetched() {
     assert_eq!(branch_of(&one).as_deref(), Some("a"));
     assert_eq!(
         calls.last().unwrap(),
-        &format!("review check-landing {dir} --project bae {a}")
+        &format!("review check-landing {dir} --project bae {a} --by agent A")
     );
 }
 
@@ -970,7 +972,7 @@ fn a_landing_the_review_takes_is_pushed_and_recorded_as_landed_after_the_items()
     assert!(code == 0 && main_of(&f) == a);
     let check = calls
         .iter()
-        .position(|c| c == &format!("review check-landing {dir} --project bae {a}"))
+        .position(|c| c == &format!("review check-landing {dir} --project bae {a} --by agent A"))
         .expect("the review is asked before the landing");
     let items = calls
         .iter()

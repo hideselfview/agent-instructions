@@ -1,8 +1,9 @@
 -- Every review of a change against the rules (`builds review`): the landing it
 -- belongs to, each run and the commits it read, each reviewer call, its verdict
--- for every rule, each finding with how the coordinator settled it, and the
--- commit that fixed a confirmed finding. record.rs owns these tables and is the
--- only code that writes them.
+-- for every rule, each finding with how the coordinator settled it, the
+-- commit that fixed a confirmed finding, and each confirmed finding whose
+-- code left its branch. record.rs owns these tables and is the only code that
+-- writes them.
 
 -- A change under review: every review of it shares this landing, found by its
 -- key, until the change lands. landed_at is when `builds land` pushed the
@@ -163,3 +164,25 @@ CREATE TABLE review_pushed (
     at INTEGER NOT NULL,
     PRIMARY KEY (landing_id, patch_id)
 ) STRICT, WITHOUT ROWID;
+
+-- A second settle: the coordinator changed a confirmed finding that names no
+-- fix to dropped. review_finding keeps the first settle, and this row keeps
+-- the second, which is how the finding counts from then on.
+CREATE TABLE review_settle_again (
+    finding_id INTEGER PRIMARY KEY REFERENCES review_finding (id),
+    why TEXT NOT NULL CONSTRAINT review_settle_again_why_says_something CHECK (trim(why) <> ''),
+    at INTEGER NOT NULL,
+    by TEXT NOT NULL CONSTRAINT review_settle_again_by_says_something CHECK (trim(by) <> '')
+) STRICT;
+
+-- A confirmed finding that names no fix and whose quoted code builds found in
+-- no line of its branch's change past origin/main: the commit that held the
+-- code left the branch, so the finding needs no fix. base and head are the
+-- commits of the change builds read.
+CREATE TABLE review_code_left (
+    finding_id INTEGER PRIMARY KEY REFERENCES review_finding (id),
+    base TEXT NOT NULL,
+    head TEXT NOT NULL,
+    at INTEGER NOT NULL,
+    by TEXT NOT NULL CONSTRAINT review_code_left_by_says_something CHECK (trim(by) <> '')
+) STRICT;
