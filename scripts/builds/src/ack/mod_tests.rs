@@ -112,18 +112,15 @@ fn an_agent_that_read_every_part_and_gave_every_word_passes() {
 fn a_wrong_or_missing_word_is_refused_naming_its_part() {
     let world = world("ack-wrong-word");
     let (version, mut words) = world.read_all(NOON);
-    assert!(
-        words.len() >= 3 * 9,
-        "the help texts alone fill several parts"
-    );
-    words[4] = "wrongword".to_string();
+    assert!(words.len() >= 3 * 2, "the workflow alone fills two parts");
+    words[1] = "wrongword".to_string();
     words.truncate(words.len() - 1);
     let mut args = vec![version.as_str()];
     args.extend(words.iter().map(String::as_str));
     let last = words.len() / 3 + 1;
     let refusal = message(world.ack(&args, NOON));
     assert!(
-        refusal.contains(&format!("part 2, {last} are missing or wrong")),
+        refusal.contains(&format!("part 1, {last} are missing or wrong")),
         "{refusal}"
     );
     assert!(message(world.check(NOON)).contains("has not acknowledged"));

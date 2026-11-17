@@ -1,6 +1,7 @@
 //! The text builds asks every agent to read before it runs a builds command:
-//! the four help texts, the rules whose paths cover every file,
-//! ~/.claude/CLAUDE.md and the CLAUDE.md of the repo the agent works in.
+//! ~/.claude/CLAUDE.md, the CLAUDE.md of the repo the agent works in, the
+//! workflow help, the overview that opens the lists help, and the rules whose
+//! paths cover every file.
 //! builds reads the rules and the CLAUDE.md files from disk each time, so an
 //! edit of any of them changes the text's version.
 //!
@@ -47,39 +48,13 @@ pub struct Text {
 
 impl Text {
     /// The text for an agent whose work is in <project>, in <checkout> when
-    /// it works in one: the help texts, the rules of the
-    /// agent-instructions checkout that install.sh links whose paths cover
-    /// every file (those under `rules/` and under the project's
-    /// `projects/<project>-rules/`), ~/.claude/CLAUDE.md, and the checkout's
-    /// CLAUDE.md when it differs from ~/.claude/CLAUDE.md.
+    /// it works in one: ~/.claude/CLAUDE.md, the checkout's CLAUDE.md when it
+    /// differs from ~/.claude/CLAUDE.md, the workflow help, the lists
+    /// overview, and the rules of the agent-instructions checkout that
+    /// install.sh links whose paths cover every file (those under `rules/`
+    /// and under the project's `projects/<project>-rules/`).
     pub fn read(places: &Places, project: &str, checkout: Option<&Checkout>) -> Result<Text> {
-        let mut sections = vec![
-            Section {
-                name: "builds help".to_string(),
-                text: crate::HELP.to_string(),
-            },
-            Section {
-                name: "builds help workflow".to_string(),
-                text: crate::WORKFLOW_HELP.to_string(),
-            },
-            Section {
-                name: "builds help lists".to_string(),
-                text: crate::LISTS_HELP.to_string(),
-            },
-            Section {
-                name: "builds help briefs".to_string(),
-                text: crate::BRIEFS_HELP.to_string(),
-            },
-        ];
-        let root = crate::review::installed_rules_root(&places.home);
-        for rule in rules::load(&root, Some(project))? {
-            if covers_every_file(&rule) {
-                sections.push(Section {
-                    name: rule.path.clone(),
-                    text: rule.text,
-                });
-            }
-        }
+        let mut sections = Vec::new();
         let home = read_if_there(&places.home.join(".claude/CLAUDE.md"))?;
         if let Some(text) = &home {
             sections.push(Section {
@@ -95,6 +70,23 @@ impl Text {
                 name: format!("the CLAUDE.md of repo {}", checkout.repo()),
                 text,
             });
+        }
+        sections.push(Section {
+            name: "builds help workflow".to_string(),
+            text: crate::WORKFLOW_HELP.to_string(),
+        });
+        sections.push(Section {
+            name: "builds help lists overview".to_string(),
+            text: crate::LISTS_OVERVIEW.to_string(),
+        });
+        let root = crate::review::installed_rules_root(&places.home);
+        for rule in rules::load(&root, Some(project))? {
+            if covers_every_file(&rule) {
+                sections.push(Section {
+                    name: rule.path.clone(),
+                    text: rule.text,
+                });
+            }
         }
         Ok(Text { sections })
     }

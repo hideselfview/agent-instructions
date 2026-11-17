@@ -39,7 +39,7 @@ fn names(text: &Text) -> Vec<String> {
 }
 
 #[test]
-fn the_text_holds_the_helps_the_rules_for_every_file_and_both_claude_files() {
+fn the_text_holds_both_claude_files_the_workflow_the_lists_overview_and_the_rules_for_every_file() {
     let scratch = Scratch::new("ack-text");
     let places = home(&scratch);
     let checkout = scratch.dir.join("bae");
@@ -49,14 +49,12 @@ fn the_text_holds_the_helps_the_rules_for_every_file_and_both_claude_files() {
     assert_eq!(
         names(&text),
         vec![
-            "builds help",
-            "builds help workflow",
-            "builds help lists",
-            "builds help briefs",
-            "rules/text/plain.md",
-            "projects/bae-rules/screen/no-notes.md",
             "~/.claude/CLAUDE.md",
             "the CLAUDE.md of repo bae",
+            "builds help workflow",
+            "builds help lists overview",
+            "rules/text/plain.md",
+            "projects/bae-rules/screen/no-notes.md",
         ]
     );
     let builds = Text::read(&places, "builds", None).unwrap();
@@ -71,7 +69,7 @@ fn a_repo_whose_claude_file_is_the_global_one_adds_no_section() {
     repo(&checkout, "target 1\n");
     write(&checkout.join("CLAUDE.md"), "Global rules.\n");
     let text = Text::read(&places, "builds", Checkout::at(&checkout).unwrap().as_ref()).unwrap();
-    assert_eq!(names(&text).last().unwrap(), "~/.claude/CLAUDE.md");
+    assert_eq!(names(&text)[1], "builds help workflow");
 }
 
 #[test]

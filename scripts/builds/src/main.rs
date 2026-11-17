@@ -87,8 +87,9 @@ use places::{Places, Rules};
 use tool::Tool;
 
 const HELP: &str = include_str!("help.txt");
-/// `builds help lists`: what the lists are and who writes them, then each
-/// command.
+/// What the lists are and who writes them, which every agent reads.
+const LISTS_OVERVIEW: &str = include_str!("lists/lists-overview.txt");
+/// `builds help lists`: the overview, then each command.
 const LISTS_HELP: &str = concat!(
     include_str!("lists/lists-overview.txt"),
     "\n\n",

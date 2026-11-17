@@ -35,24 +35,20 @@ ACKNOWLEDGING THE RULES
 
 builds refuses every command an agent runs, except `help`, `ack`, `install`
 and `dashboard`, until the agent has read the text every agent reads before
-it works and has acknowledged it with `builds ack`. builds reads the
-acknowledgement from a project's store. `builds install` migrates each
-store to the schema the new builds expects, and builds cannot read an
-acknowledgement from a store until install has migrated it, so builds lets
-install and the dashboard, which install restarts, run first. The text
-is this help, `builds help workflow` (without its WHAT REVIEWS CONFIRM MOST
-OFTEN section, which changes with each settled finding), `builds help
-lists`, `builds help briefs`, the rules of agent-instructions whose paths
-cover every file (those under rules/ and under the project's
-projects/<project>-rules/), ~/.claude/CLAUDE.md, and the CLAUDE.md of the
-repo the command runs in. Its version is a hash of all of it, so an edit of
-any of them changes the version.
+it works and has acknowledged it with `builds ack`. The text is
+~/.claude/CLAUDE.md, the CLAUDE.md of the repo the command runs in, `builds
+help workflow` (without its WHAT REVIEWS CONFIRM MOST OFTEN section, which
+changes with each settled finding), the overview that opens `builds help
+lists`, and the rules of agent-instructions whose paths cover every file
+(those under rules/ and under the project's projects/<project>-rules/). An
+edit of any of them changes the text's version. The rest of this help, and of
+`builds help lists` and `builds help briefs`, is for looking up what a command
+does.
 
   builds ack [--by WHO] [--project P]
       Start a reading: say the text's version and how many parts it comes
-      in, each under 20 KB so that Claude Code shows it whole, and draw new
-      check words for every part. The sections that changed since the
-      agent's last acknowledgement come first.
+      in, and draw new check words for every part. The sections that
+      changed since the agent's last acknowledgement come first.
   builds ack PART [--by WHO] [--project P]
       Print part PART of the reading. Each part shows three check words, on
       lines of their own, at its start, its middle and its end. Reading a
@@ -67,20 +63,18 @@ any of them changes the version.
       the session's acknowledgements and refuses the session's next builds
       command until the session acknowledges the text again.
 
-builds tells an agent's command from the person's by the Claude Code session
-id in its environment (CLAUDE_CODE_SESSION_ID), which the person's terminal
-lacks, so builds never refuses the person's own commands. The agents a
-session dispatches share its session id, so builds names an agent by the
-session and a name: --by WHO, else the claim of the worktree the command
-runs in, else the name the session last acknowledged or started a reading
-under. builds keeps the acknowledgement in the store of the project whose
-repo the command runs in, else of the project --project names. builds
-refuses an agent whose acknowledgement there is missing, is of another
-version, or is more than 12 hours old, and names what changed since the
-agent's last acknowledgement. A builds command that passed lets the builds
-commands it runs pass too (BUILDS_ACKNOWLEDGED), such as a commit hook's
-checks or the install after a landing. The dashboard's Running tab lists each
-agent's last acknowledgement in the project.
+builds never refuses the person's own commands: it tells an agent's command by
+the Claude Code session id in its environment, which the person's terminal
+lacks. builds names an agent by its session and a name: --by WHO, else the
+claim of the worktree the command runs in, else the name the session last
+acknowledged or started a reading under. builds keeps the acknowledgement in
+the store of the project whose repo the command runs in, else of the project
+--project names. builds refuses an agent whose acknowledgement there is
+missing, is of another version, or is more than 12 hours old, and names what
+changed since the agent's last acknowledgement. A builds command that passed
+lets the builds commands it runs pass too, such as a commit hook's checks or
+the install after a landing. The dashboard's Running tab lists each agent's
+last acknowledgement in the project.
 
 
 BUILD VOLUME
