@@ -106,7 +106,7 @@ fn long_text() -> Text {
 #[test]
 fn each_part_stays_under_the_limit_and_the_parts_hold_every_line() {
     let text = long_text();
-    let parts = text.parts(&[]);
+    let parts = text.parts(&["first".to_string(), "second".to_string()]);
     assert!(parts.len() > 1);
     for part in &parts {
         let bytes: usize = part.iter().map(|line| line.len() + 1).sum();
@@ -122,9 +122,10 @@ fn each_part_stays_under_the_limit_and_the_parts_hold_every_line() {
 }
 
 #[test]
-fn the_changed_sections_come_first() {
+fn the_parts_hold_only_the_sections_named() {
     let parts = long_text().parts(&["second".to_string()]);
-    assert_eq!(parts[0][0], "===== second (section 1 of 2) =====");
+    assert_eq!(parts.len(), 1);
+    assert_eq!(parts[0][0], "===== second (section 1 of 1) =====");
 }
 
 #[test]

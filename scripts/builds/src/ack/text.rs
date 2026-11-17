@@ -33,8 +33,9 @@ pub struct Section {
 }
 
 impl Section {
-    /// The hash of the section's text, which an acknowledgement keeps so
-    /// that a later refusal names the sections that changed.
+    /// The hash of the section's text, which builds keeps with each version
+    /// an agent acknowledged, so that a later reading holds only the
+    /// sections that changed.
     pub fn hash(&self) -> String {
         format!("{:08x}", crate::text::fnv1a(&self.text))
     }
@@ -126,20 +127,21 @@ impl Text {
             .collect()
     }
 
-    /// The text's lines split into parts of at most `PART_BYTES` bytes, the
-    /// sections named <first> before the rest. Each section starts with a
+    /// The lines of the sections named <shown>, in the text's order, split
+    /// into parts of at most `PART_BYTES` bytes. Each section starts with a
     /// line that names it, and a part that starts inside a section says so
     /// on its first line.
-    pub fn parts(&self, first: &[String]) -> Vec<Vec<String>> {
-        let (changed, rest): (Vec<&Section>, Vec<&Section>) = self
+    pub fn parts(&self, shown: &[String]) -> Vec<Vec<String>> {
+        let sections: Vec<&Section> = self
             .sections
             .iter()
-            .partition(|section| first.contains(&section.name));
-        let count = self.sections.len();
+            .filter(|section| shown.contains(&section.name))
+            .collect();
+        let count = sections.len();
         let mut parts: Vec<Vec<String>> = Vec::new();
         let mut lines: Vec<String> = Vec::new();
         let mut bytes = 0;
-        for (index, section) in changed.into_iter().chain(rest).enumerate() {
+        for (index, section) in sections.into_iter().enumerate() {
             let heading = format!(
                 "===== {} (section {} of {count}) =====",
                 section.name,

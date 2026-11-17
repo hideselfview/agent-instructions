@@ -177,14 +177,58 @@ impl Agent {
         }
     }
 
-    /// The sections that changed since the agent's last acknowledgement,
-    /// which its reading shows first: none when it has no acknowledgement or
-    /// acknowledged the current version of the text.
-    fn changed(&self, text: &Text) -> Result<Vec<String>> {
-        Ok(match self.last()? {
-            Some(ack) if ack.version != text.version() => text.changed_since(&ack.sections),
-            _ => Vec::new(),
+    /// What the agent's reading of <text> at <now> holds.
+    fn scope(&self, text: &Text, now: i64) -> Result<Scope> {
+        let Some(ack) = self.last()? else {
+            return Ok(Scope::Whole);
+        };
+        if ack.version == text.version() || now - ack.at > HOURS * 3600 {
+            return Ok(Scope::Whole);
+        }
+        let kept = match db::open_reader(&self.store.database())? {
+            Some(db) => record::kept_sections(&db, &ack.version)?,
+            None => None,
+        };
+        let Some(kept) = kept else {
+            return Ok(Scope::Whole);
+        };
+        let sections = text.changed_since(&kept);
+        // When only the order of the sections changed, or a section left the
+        // text, no section has text to read again, and the reading holds the
+        // whole text, since a reading of no parts has no check words to give.
+        if sections.is_empty() {
+            return Ok(Scope::Whole);
+        }
+        Ok(Scope::Changed {
+            since: ack,
+            sections,
         })
+    }
+}
+
+/// What a reading holds.
+enum Scope {
+    /// Every section of the text: the agent has no acknowledgement, or
+    /// acknowledged the current version, or acknowledged more than `HOURS`
+    /// hours ago, or acknowledged a version builds no longer keeps, or no
+    /// section's text changed since.
+    Whole,
+    /// Only <sections>, those that changed since the agent's last
+    /// acknowledgement <since>, of a version builds keeps.
+    Changed {
+        since: record::Ack,
+        sections: Vec<String>,
+    },
+}
+
+impl Scope {
+    /// The names of the sections a reading of <text> holds, in the text's
+    /// order.
+    fn sections(&self, text: &Text) -> Vec<String> {
+        match self {
+            Scope::Whole => text.sections.iter().map(|s| s.name.clone()).collect(),
+            Scope::Changed { sections, .. } => sections.clone(),
+        }
     }
 }
 
@@ -204,15 +248,22 @@ fn check(
     let who = &agent.who;
     let why = match agent.last()? {
         None => format!("{who} has not acknowledged it in this Claude Code session"),
-        Some(ack) if ack.version != text.version() => format!(
-            "the text changed since {who} acknowledged it at {}: {} changed, and `builds ack` shows those sections first",
-            local_minute(ack.at),
-            text.changed_since(&ack.sections).join(", ")
-        ),
         Some(ack) if now - ack.at > HOURS * 3600 => format!(
-            "{who} acknowledged it at {}, more than {HOURS} hours ago",
+            "{who} acknowledged it at {}, more than {HOURS} hours ago, and `builds ack` shows the whole text",
             local_minute(ack.at)
         ),
+        Some(ack) if ack.version != text.version() => match agent.scope(&text, now)? {
+            Scope::Changed { sections, .. } => format!(
+                "the text changed since {who} acknowledged it at {}: {} changed, and `builds ack` shows only those sections",
+                local_minute(ack.at),
+                sections.join(", ")
+            ),
+            Scope::Whole => format!(
+                "the text changed since {who} acknowledged version {} at {}, and builds no longer keeps that version, so `builds ack` shows the whole text",
+                ack.version,
+                local_minute(ack.at)
+            ),
+        },
         Some(_) => return Ok(()),
     };
     fail!(
@@ -266,11 +317,12 @@ fn ack(places: &Places, session: &str, args: &Args, cwd: &Path, now: i64) -> Res
     }
 }
 
-/// Starts a reading: draws each part's check words and says how to read the
-/// parts and acknowledge them.
+/// Starts a reading: picks the sections it holds, draws each part's check
+/// words and says how to read the parts and acknowledge them.
 fn start(agent: &Agent, text: &Text, now: i64) -> Result<String> {
-    let changed = agent.changed(text)?;
-    let parts = text.parts(&changed);
+    let scope = agent.scope(text, now)?;
+    let shown = scope.sections(text);
+    let parts = text.parts(&shown);
     let mut words = Vec::new();
     for _ in &parts {
         words.push(new_words()?);
@@ -280,7 +332,15 @@ fn start(agent: &Agent, text: &Text, now: i64) -> Result<String> {
     let tx = db
         .transaction_with_behavior(TransactionBehavior::Immediate)
         .sql()?;
-    record::start_reading(&tx, &agent.session, &agent.who, &version, now, &words)?;
+    record::start_reading(
+        &tx,
+        &agent.session,
+        &agent.who,
+        &version,
+        now,
+        &shown,
+        &words,
+    )?;
     tx.commit().sql()?;
     let names: Vec<&str> = text.sections.iter().map(|s| s.name.as_str()).collect();
     let mut out = format!(
@@ -288,11 +348,15 @@ fn start(agent: &Agent, text: &Text, now: i64) -> Result<String> {
         names.join(", "),
         parts.len()
     );
-    if !changed.is_empty() {
+    if let Scope::Changed { since, sections } = &scope {
         out += &format!(
-            "Since {}'s last acknowledgement, {} changed; the reading shows them first.\n",
+            "Since {} acknowledged version {} at {}, {} of the text's {} sections changed: {}. The reading holds only those sections, each in full.\n",
             agent.who,
-            changed.join(", ")
+            since.version,
+            local_minute(since.at),
+            sections.len(),
+            text.sections.len(),
+            sections.join(", ")
         );
     }
     out += &format!(
@@ -335,7 +399,7 @@ fn reading_of(agent: &Agent, text: &Text) -> Result<record::Reading> {
 /// Part <part> of the agent's reading.
 fn part_of(agent: &Agent, text: &Text, part: &str) -> Result<String> {
     let reading = reading_of(agent, text)?;
-    let parts = text.parts(&agent.changed(text)?);
+    let parts = text.parts(&reading.sections);
     let count = parts.len();
     let number = match part.parse::<usize>() {
         Ok(number) if (1..=count).contains(&number) => number,

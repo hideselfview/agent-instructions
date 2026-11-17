@@ -47,8 +47,12 @@ does.
 
   builds ack [--by WHO] [--project P]
       Start a reading: say the text's version and how many parts it comes
-      in, and draw new check words for every part. The sections that
-      changed since the agent's last acknowledgement come first.
+      in, and draw new check words for every part. builds keeps the
+      sections of the 20 versions of the text that agents acknowledged most
+      recently. When builds keeps the version the agent last acknowledged,
+      and the agent acknowledged it at most 12 hours ago, the reading holds
+      only the sections that changed since, each in full, and says which
+      ones changed. Otherwise the reading holds the whole text.
   builds ack PART [--by WHO] [--project P]
       Print part PART of the reading. Each part shows three check words, on
       lines of their own, at its start, its middle and its end. Reading a

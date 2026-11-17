@@ -160,26 +160,82 @@ fn an_acknowledgement_older_than_twelve_hours_is_refused() {
     assert!(refusal.contains("more than 12 hours ago"), "{refusal}");
 }
 
+impl World {
+    /// Edits the rule for every file, so the text gets a new version.
+    fn edit_rule(&self, body: &str) {
+        std::fs::write(
+            self.scratch
+                .dir
+                .join("agent-instructions/rules/text/plain.md"),
+            format!("---\npaths:\n  - '**/*'\n---\n\n{body}\n"),
+        )
+        .unwrap();
+    }
+
+    /// The number of parts the reading `builds ack` starts at <now> holds.
+    fn parts(&self, now: i64) -> usize {
+        self.ack(&[], now).unwrap().matches("  builds ack ").count() - 1
+    }
+}
+
 #[test]
-fn an_edit_of_a_rule_refuses_the_agent_naming_the_rule_and_its_reading_shows_it_first() {
+fn an_edit_of_a_rule_refuses_the_agent_naming_the_rule_and_its_reading_holds_only_that_rule() {
     let world = world("ack-edited");
     world.acknowledge(NOON);
-    std::fs::write(
-        world
-            .scratch
-            .dir
-            .join("agent-instructions/rules/text/plain.md"),
-        "---\npaths:\n  - '**/*'\n---\n\nWrite plain, literal sentences.\n",
-    )
-    .unwrap();
+    world.edit_rule("Write plain, literal sentences.");
     let refusal = message(world.check(NOON + 60));
-    assert!(refusal.contains("rules/text/plain.md changed"), "{refusal}");
-    world.ack(&[], NOON + 60).unwrap();
-    let first = world.ack(&["1"], NOON + 60).unwrap();
     assert!(
-        first.contains("===== rules/text/plain.md (section 1 of"),
-        "{first}"
+        refusal.contains("rules/text/plain.md changed, and `builds ack` shows only those sections"),
+        "{refusal}"
     );
+    let started = world.ack(&[], NOON + 60).unwrap();
+    assert!(
+        started.contains("1 of the text's 6 sections changed: rules/text/plain.md"),
+        "{started}"
+    );
+    let only = world.ack(&["1"], NOON + 60).unwrap();
+    assert!(
+        only.contains("===== rules/text/plain.md (section 1 of 1) ====="),
+        "{only}"
+    );
+    assert!(only.contains("part 1 of 1"), "{only}");
+    world.acknowledge(NOON + 60);
+    world.check(NOON + 120).unwrap();
+}
+
+#[test]
+fn a_reader_whose_version_builds_no_longer_keeps_reads_the_whole_text() {
+    let world = world("ack-not-kept");
+    world.acknowledge(NOON);
+    let whole = world.parts(NOON);
+    {
+        let checkout = Checkout::at(&world.checkout).unwrap().unwrap();
+        let store = project_of(&world.places, &checkout).unwrap().unwrap();
+        let db = db::open(
+            &Store::named(&world.places, &store).unwrap().database(),
+            Make::Never,
+        )
+        .unwrap();
+        for n in 0..record::KEPT_VERSIONS {
+            record::acknowledge(&db, "s2", "other", &format!("v{n}"), NOON + n + 1, &[]).unwrap();
+        }
+    }
+    world.edit_rule("Write plain, literal sentences.");
+    let refusal = message(world.check(NOON + 60));
+    assert!(
+        refusal.contains("builds no longer keeps that version"),
+        "{refusal}"
+    );
+    assert_eq!(world.parts(NOON + 60), whole);
+}
+
+#[test]
+fn a_reader_whose_acknowledgement_is_older_than_twelve_hours_reads_the_whole_text() {
+    let world = world("ack-old-whole");
+    world.acknowledge(NOON);
+    let whole = world.parts(NOON);
+    world.edit_rule("Write plain, literal sentences.");
+    assert_eq!(world.parts(NOON + HOURS * 3600 + 1), whole);
 }
 
 #[test]

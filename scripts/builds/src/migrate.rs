@@ -274,9 +274,13 @@ const BEFORE_WRITING_RUNS_STAMP: i64 = 1_268_800_089;
 /// on code comments and commit messages.
 const BEFORE_MESSAGE_STYLE_STAMP: i64 = 369_927_263;
 
+/// The stamp of the schema before builds kept the versions of the text that
+/// agents acknowledged, and before a reading recorded the sections it holds.
+const BEFORE_KEPT_VERSIONS_STAMP: i64 = 280_014_316;
+
 /// Every stamp a store can carry that `move_store` moves, oldest schema first.
 /// A new move adds the stamp of the schema before it at the end.
-const STAMPS: [i64; 36] = [
+const STAMPS: [i64; 37] = [
     BEFORE_DESIGN_DELETED_STAMP,
     BEFORE_CHECK_TIMES_STAMP,
     BEFORE_DESIGN_TIP_STAMP,
@@ -313,6 +317,7 @@ const STAMPS: [i64; 36] = [
     BEFORE_RUN_TIMES_STAMP,
     BEFORE_WRITING_RUNS_STAMP,
     BEFORE_MESSAGE_STYLE_STAMP,
+    BEFORE_KEPT_VERSIONS_STAMP,
 ];
 
 /// Whether a store stamped <found> comes before the move that follows the
@@ -412,7 +417,11 @@ const DESIGN_DELETED: &str = "CREATE TABLE design_deleted (
 /// review's tables gets `review_finding` again, with every row, and the person
 /// settles as dropped each finding of the writing group that a branch waits
 /// on and that is on the commit messages or on comment lines
-/// (`review::record::move_to_message_style`).
+/// (`review::record::move_to_message_style`). Every store that has the
+/// acknowledgements' tables gets the tables of kept versions, with each
+/// version its acknowledgements name, and of the sections a reading holds,
+/// and loses each acknowledgement's sections and every reading in progress
+/// (`ack::record::move_to_kept_versions`).
 /// The moves run in one transaction, the store
 /// is stamped as today's schema, and it must then equal a fresh database's schema or the transaction rolls back. A
 /// store already at today's stamp, or with no database, is left alone; any
@@ -803,6 +812,11 @@ fn move_store(places: &Places, path: &Path, now: i64) -> Result<()> {
             path.display(),
             crate::text::counted(settled, "writing finding", "writing findings")
         ));
+    }
+    // A store from before the acknowledgements got today's tables above; every
+    // newer one keeps each acknowledgement's sections and no version.
+    if !before(found, BEFORE_ACK_STAMP) && before(found, BEFORE_KEPT_VERSIONS_STAMP) {
+        crate::ack::record::move_to_kept_versions(&tx)?;
     }
     tx.pragma_update(None, "user_version", db::stamp()).sql()?;
     let broken: Option<String> = tx
