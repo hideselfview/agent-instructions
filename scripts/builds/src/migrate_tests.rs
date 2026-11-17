@@ -2190,6 +2190,8 @@ fn the_closed_stamp_is_the_schema_before_closed_findings() {
 /// branch, closed by its landing's last review, and the rest open.
 #[test]
 fn a_store_from_before_closed_findings_closes_the_fixed_ones_with_the_last_review() {
+    use crate::lists::fixtures::v;
+    use crate::review::record;
     let scratch = Scratch::new("move-closed");
     let places = scratch.places();
     let dir = places.lists.join("bae");
@@ -2201,17 +2203,73 @@ fn a_store_from_before_closed_findings_closes_the_fixed_ones_with_the_last_revie
         conn.pragma_update(None, "user_version", BEFORE_CLOSED_STAMP)
             .unwrap();
         crate::lists::project::plant(&conn, "repo", &[("name", "bae".to_string().into())]).unwrap();
+        let landing = record::add_landing(&conn, "k", "bae", 5).unwrap();
+        record::plant(
+            &conn,
+            "review_run",
+            &[
+                ("id", v(7)),
+                ("landing_id", v(landing)),
+                ("kind", v("review")),
+                ("at", v(6)),
+                ("base", v("m")),
+                ("head", v("h")),
+                ("grouping", v("g")),
+                ("rules_version", v("")),
+            ],
+        )
+        .unwrap();
+        record::record_reviewed(&conn, landing, 7).unwrap();
+        record::plant(
+            &conn,
+            "review_text",
+            &[("hash", v("p")), ("text", v("prompt"))],
+        )
+        .unwrap();
+        record::plant(
+            &conn,
+            "review_call",
+            &[
+                ("id", v(1)),
+                ("run_id", v(7)),
+                ("group_name", v("alpha")),
+                ("model", v("sonnet")),
+                ("prompt", v("p")),
+                ("rules", v("[]")),
+                ("tokens_in", v(0)),
+                ("tokens_out", v(0)),
+                ("tokens_cached", v(0)),
+                ("tokens_written", v(0)),
+            ],
+        )
+        .unwrap();
+        for (id, code) in [(1, "x"), (2, "y"), (3, "z")] {
+            record::plant(
+                &conn,
+                "review_finding",
+                &[
+                    ("id", v(id)),
+                    ("call_id", v(1)),
+                    ("rule", v("r")),
+                    ("clause", v("c")),
+                    ("file", v("a.rs")),
+                    ("line", v(id)),
+                    ("code", v(code)),
+                    ("problem", v("p")),
+                    ("blocking", v(1)),
+                    ("settled", v("confirmed")),
+                    ("settled_why", v("real")),
+                    ("settled_at", v(6)),
+                    ("settled_by", v("me")),
+                ],
+            )
+            .unwrap();
+        }
+        // The tables of fixes, of code that left its branch, of the commits
+        // each run read and of the commits each push landed are gone from
+        // today's schema, so no module owns them.
         conn.execute_batch(
-            "INSERT INTO review_landing (id, key, repo, opened_at) VALUES (1, 'k', 'bae', 5);
-            INSERT INTO review_run (id, landing_id, kind, at, base, head, grouping, rules_version) VALUES (7, 1, 'review', 6, 'm', 'h', 'g', '');
-            UPDATE review_landing SET reviewed_run = 7;
-            INSERT INTO review_text (hash, text) VALUES ('p', 'prompt');
-            INSERT INTO review_call (id, run_id, group_name, model, prompt, rules, tokens_in, tokens_out, tokens_cached, tokens_written) VALUES (1, 7, 'alpha', 'sonnet', 'p', '[]', 0, 0, 0, 0);
-            INSERT INTO review_finding (id, call_id, rule, clause, file, line, code, problem, blocking, settled, settled_why, settled_at, settled_by)
-                VALUES (1, 1, 'r', 'c', 'a.rs', 1, 'x', 'p', 1, 'confirmed', 'real', 6, 'me'),
-                    (2, 1, 'r', 'c', 'a.rs', 2, 'y', 'p', 1, 'confirmed', 'real', 6, 'me'),
-                    (3, 1, 'r', 'c', 'a.rs', 3, 'z', 'p', 1, 'confirmed', 'real', 6, 'me');
-            INSERT INTO review_fix (finding_id, sha, patch_id, at, by) VALUES (1, 's', 'p', 7, 'me');
+            "INSERT INTO review_fix (finding_id, sha, patch_id, at, by) VALUES (1, 's', 'p', 7, 'me');
             INSERT INTO review_code_left (finding_id, base, head, at, by) VALUES (2, 'm', 'h', 7, 'me');
             INSERT INTO review_commit (run_id, position, sha, patch_id) VALUES (7, 0, 'h', 'p');
             INSERT INTO review_pushed (landing_id, patch_id, at) VALUES (1, 'p', 8);",
@@ -2262,6 +2320,7 @@ fn the_reviewed_run_stamp_is_the_schema_before_reviewed_runs() {
 /// that gave an earlier run no answer.
 #[test]
 fn a_store_from_before_reviewed_runs_names_each_landings_last_review() {
+    use crate::lists::fixtures::v;
     let scratch = Scratch::new("move-reviewed-run");
     let places = scratch.places();
     let dir = places.lists.join("bae");
@@ -2283,9 +2342,20 @@ fn a_store_from_before_reviewed_runs_names_each_landings_last_review() {
             (11, second, "m", "h1", None),
             (12, second, "h1", "h2", None),
         ] {
-            conn.execute(
-                "INSERT INTO review_run (id, landing_id, kind, at, base, head, since_run, grouping, rules_version) VALUES (?1, ?2, 'review', 6, ?3, ?4, ?5, 'g', '')",
-                rusqlite::params![id, landing, base, head, since],
+            crate::review::record::plant(
+                &conn,
+                "review_run",
+                &[
+                    ("id", v(id)),
+                    ("landing_id", v(landing)),
+                    ("kind", v("review")),
+                    ("at", v(6)),
+                    ("base", v(base)),
+                    ("head", v(head)),
+                    ("since_run", v(since)),
+                    ("grouping", v("g")),
+                    ("rules_version", v("")),
+                ],
             )
             .unwrap();
         }
@@ -2375,6 +2445,7 @@ fn the_net_change_stamp_is_the_schema_before_net_changes() {
 /// equals a fresh schema.
 #[test]
 fn a_store_from_before_net_changes_keeps_its_runs_each_reading_a_whole_net_change() {
+    use crate::lists::fixtures::v;
     let scratch = Scratch::new("move-net-change");
     let places = scratch.places();
     let dir = places.lists.join("bae");
@@ -2387,9 +2458,19 @@ fn a_store_from_before_net_changes_keeps_its_runs_each_reading_a_whole_net_chang
             .unwrap();
         crate::lists::project::plant(&conn, "repo", &[("name", "bae".to_string().into())]).unwrap();
         let landing = crate::review::record::add_landing(&conn, "k", "bae", 5).unwrap();
-        conn.execute(
-            "INSERT INTO review_run (id, landing_id, kind, at, base, head, grouping, rules_version) VALUES (7, ?1, 'review', 6, 'b', 'h', 'g', '')",
-            [landing],
+        crate::review::record::plant(
+            &conn,
+            "review_run",
+            &[
+                ("id", v(7)),
+                ("landing_id", v(landing)),
+                ("kind", v("review")),
+                ("at", v(6)),
+                ("base", v("b")),
+                ("head", v("h")),
+                ("grouping", v("g")),
+                ("rules_version", v("")),
+            ],
         )
         .unwrap();
     }
@@ -3658,6 +3739,8 @@ fn the_kept_versions_stamp_is_the_schema_before_agent_ids() {
 /// acknowledgement.
 #[test]
 fn a_store_from_before_agent_ids_loses_its_acknowledgements_and_records_one() {
+    use crate::ack::record;
+    use crate::lists::fixtures::v;
     let scratch = Scratch::new("move-agent-ids");
     let places = scratch.places();
     let dir = places.lists.join("bae");
@@ -3668,11 +3751,45 @@ fn a_store_from_before_agent_ids_loses_its_acknowledgements_and_records_one() {
         conn.execute_batch(&schema_before_agent_ids()).unwrap();
         conn.pragma_update(None, "user_version", BEFORE_AGENT_IDS_STAMP)
             .unwrap();
-        conn.execute_batch(
-            "INSERT INTO ack (session, who, version, at) VALUES ('s1', 'agent', 'v1', 10);
-             INSERT INTO ack_section (session, who, name, hash) VALUES ('s1', 'agent', 'builds help', 'aa');
-             INSERT INTO ack_reading (session, who, version, started_at) VALUES ('s1', 'agent', 'v2', 40);
-             INSERT INTO ack_word (session, who, part, position, word) VALUES ('s1', 'agent', 1, 1, 'kama');",
+        record::plant(
+            &conn,
+            "ack",
+            &[
+                ("session", v("s1")),
+                ("who", v("agent")),
+                ("version", v("v1")),
+                ("at", v(10)),
+            ],
+        )
+        .unwrap();
+        // Today's schema has no table of each acknowledgement's sections, so
+        // no module owns it.
+        conn.execute(
+            "INSERT INTO ack_section (session, who, name, hash) VALUES ('s1', 'agent', 'builds help', 'aa')",
+            [],
+        )
+        .unwrap();
+        record::plant(
+            &conn,
+            "ack_reading",
+            &[
+                ("session", v("s1")),
+                ("who", v("agent")),
+                ("version", v("v2")),
+                ("started_at", v(40)),
+            ],
+        )
+        .unwrap();
+        record::plant(
+            &conn,
+            "ack_word",
+            &[
+                ("session", v("s1")),
+                ("who", v("agent")),
+                ("part", v(1)),
+                ("position", v(1)),
+                ("word", v("kama")),
+            ],
         )
         .unwrap();
     }
@@ -3686,11 +3803,8 @@ fn a_store_from_before_agent_ids_loses_its_acknowledgements_and_records_one() {
         .query_row("SELECT COUNT(*) FROM ack", [], |row| row.get(0))
         .unwrap();
     assert_eq!(acks, 0);
-    assert_eq!(
-        crate::ack::record::reading(&conn, "s1", "agent").unwrap(),
-        None
-    );
-    crate::ack::record::acknowledge(&conn, "s1", "a1", None, "v3", 50, &[]).unwrap();
+    assert_eq!(record::reading(&conn, "s1", "agent").unwrap(), None);
+    record::acknowledge(&conn, "s1", "a1", None, "v3", 50, &[]).unwrap();
 }
 
 /// The schema text before the person could allow a confirmed finding to land:
