@@ -1592,7 +1592,7 @@ agent-instructions and run `review replay --rules-root` on it.
                               records nothing: no landing, run or finding goes
                               in the store, and `builds land` still needs the
                               coordinator's review. An implementing agent runs
-                              it on its branch before it reports, and fixes
+                              it on its branch before every report, and fixes
                               what it finds. Exits 1 when the group raised a
                               finding or gave no answer
   builds review settle <finding> confirmed|dropped --why <text>

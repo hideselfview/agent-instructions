@@ -165,11 +165,12 @@ WHAT AN IMPLEMENTING AGENT DOES
      fix what it finds. The next run of the review reads a fix commit for a
      review finding as part of the changes since the last review, and closes
      the finding when the code no longer has its problem.
-  7. Commit, then run `builds review writing <worktree>` on the branch. The
-     command asks the group that holds rule
-     write-plain-literal-active-sentences over the branch's net change past
-     origin/main, prints the findings and records nothing. Fix what it finds
-     in a new commit.
+  7. Commit. Before every report, the first one and each one after a fix,
+     run `builds review writing <worktree>` on the branch. The command asks
+     the group that holds rule write-plain-literal-active-sentences over the
+     branch's net change past origin/main, prints the findings and records
+     nothing. Fix what it finds in a new commit, and name in the report each
+     finding it judges wrong, with why.
   8. Report the SHA, the base and the checks. Leave nothing uncommitted: the
      coordinator runs `builds land` in this worktree, which refuses a
      worktree with uncommitted changes.
