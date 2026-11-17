@@ -971,6 +971,57 @@ fn a_refused_drop_leaves_the_work_where_it_was() {
     assert_eq!(checkout.branch().unwrap().as_deref(), Some("work"));
 }
 
+/// Drop refuses an item that shares its worktree with another running item,
+/// since the work there is that item's too: the branch, its commits and the
+/// claim stay. Once `item stop` ends the item's run, drop closes it and
+/// leaves the worktree to the other item.
+#[test]
+fn drop_refuses_an_item_whose_worktree_runs_another_item() {
+    let demo = demo("item-drop-shared");
+    let side = demo.add_side(1, "agent A", "work");
+    let side_arg = side.display().to_string();
+    let brief = demo.brief("b.md");
+    add(&demo, FIVE, &[]).unwrap();
+    add(&demo, "Do the second thing now", &[]).unwrap();
+    item(&demo, &take_args(&side_arg, &brief, &["1", "2"], "work")).unwrap();
+    let sha = demo.commit(&side, "unlanded");
+    let before = demo.state();
+
+    let said = refusal(item(&demo, &["drop", "1", "--why", "not wanted"]));
+    assert!(
+        said.contains("#2 \"Do the second thing now\"")
+            && said.contains("builds item stop 1 --why WHY"),
+        "{said}"
+    );
+    assert_eq!(demo.state(), before, "a refused drop changed the store");
+    let checkout = Checkout::find(&side_arg).unwrap();
+    assert_eq!(checkout.branch().unwrap().as_deref(), Some("work"));
+    assert!(
+        crate::claim::Claim::read(&checkout.claim_file())
+            .unwrap()
+            .is_some(),
+        "a refused drop removed the claim"
+    );
+
+    item(&demo, &["stop", "1", "--why", "not wanted"]).unwrap();
+    item(&demo, &["drop", "1", "--why", "not wanted"]).unwrap();
+    assert_eq!(checkout.branch().unwrap().as_deref(), Some("work"));
+    assert_eq!(
+        crate::side_git::waiting_to_land(&side, "HEAD").unwrap()[0].full,
+        sha,
+        "the drop threw away the other item's commit"
+    );
+    assert!(
+        crate::claim::Claim::read(&checkout.claim_file())
+            .unwrap()
+            .is_some(),
+        "the drop removed the claim of the other item's agent"
+    );
+    let lists = open(&demo);
+    assert_eq!(lists.items.len(), 1);
+    assert_eq!(lists.items[0].running[0].worktree, side_arg);
+}
+
 /// Runs release on <side>, which the test expects release to refuse, and
 /// returns what release said.
 fn release_refused(demo: &Demo, side: &std::path::Path) -> String {

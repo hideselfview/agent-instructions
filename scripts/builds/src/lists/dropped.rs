@@ -1,11 +1,12 @@
 //! The work an item held when the person dropped it. Dropping an item that
-//! runs or is parked throws its work away (`builds item drop`): the drop
-//! records each worktree's branch, the commits on it and on HEAD that
-//! origin/main lacks and the files that were not committed, and after the
-//! store's write commits, it detaches the worktree at origin/main, discards
-//! its changes, deletes the branch and removes the worktree's claim. Each
-//! git step does nothing to work already thrown away, so the person can run
-//! a drop that git failed again.
+//! runs or is parked alone in its worktrees throws its work away (`builds
+//! item drop`), and drop refuses an item that shares a worktree with another
+//! open item (`require_alone`). The drop records each worktree's branch, the
+//! commits on it and on HEAD that origin/main lacks and the files that were
+//! not committed, and after the store's write commits, it detaches the
+//! worktree at origin/main, discards its changes, deletes the branch and
+//! removes the worktree's claim. Each git step does nothing to work already
+//! thrown away, so the person can run a drop that git failed again.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -17,8 +18,8 @@ use crate::checkout::{Checkout, git, git_text};
 use crate::db::Sql;
 use crate::fail;
 use crate::fail::Result;
-use crate::lists::Id;
-use crate::lists::running::require_side_worktree;
+use crate::lists::running::{require_side_worktree, running_in};
+use crate::lists::{Id, Lists};
 use crate::side_git::Commit;
 
 /// What one worktree of a dropped item held.
@@ -105,6 +106,50 @@ pub fn read(worktree: &str, branch: &str) -> Result<DroppedWork> {
             .collect(),
         files,
     })
+}
+
+/// Refuses to drop item <id> of project <project> while another open item of
+/// <every> (each project's lists) runs or is parked in one of <worktrees>:
+/// the work there is that item's too, and the drop would throw it away and
+/// remove the claim of that item's agent. `item stop` ends the item's run
+/// and leaves the work to the other items, and a drop of an item that runs
+/// nowhere throws nothing away.
+pub fn require_alone<'a>(
+    every: impl IntoIterator<Item = &'a Lists>,
+    project: &str,
+    id: Id,
+    worktrees: &[&str],
+) -> Result<()> {
+    let mut others: Vec<String> = Vec::new();
+    for lists in every {
+        for worktree in worktrees {
+            let parked = crate::lists::parked::parked_in(lists, worktree);
+            for item in running_in(lists, worktree).into_iter().chain(parked) {
+                if lists.project == project && item.id == id {
+                    continue;
+                }
+                let words = if lists.project == project {
+                    format!("{} \"{}\"", item.id, item.title)
+                } else {
+                    format!(
+                        "{} \"{}\" of project {}",
+                        item.id, item.title, lists.project
+                    )
+                };
+                if !others.contains(&words) {
+                    others.push(words);
+                }
+            }
+        }
+    }
+    if others.is_empty() {
+        return Ok(());
+    }
+    fail!(
+        "{id} shares its worktree with {}, so dropping it would throw away their work and remove their agent's claim. Stop {id} first (`builds item stop {} --why WHY`), which leaves the work to them, then drop it",
+        others.join(", "),
+        id.0
+    );
 }
 
 /// Records <works> as what closed item <id> held when the person dropped it.

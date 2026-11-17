@@ -264,7 +264,11 @@ runs in (plans are in no commit); an absolute path is itself.
       message names them and the `item wait --off` that frees each), or when
       it is the last item an open question blocks. defer also refuses an item
       that runs or is parked, and needs an open GitHub issue. The person drops
-      an item to throw its work away. For each worktree the item runs or is
+      an item to throw its work away. drop refuses an item while another open
+      item of any project runs or is parked in one of its worktrees, since the
+      work there is that item's too: `builds item stop N` ends the item's run
+      and leaves the work to the other items, and a drop of an item that runs
+      nowhere throws nothing away. For each worktree the item runs or is
       parked in, drop first closes the item and records on it the branch,
       the commits on it and on HEAD that origin/main lacks and the files not
       committed, in one store write that saves all of it or none. Then drop

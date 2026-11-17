@@ -419,8 +419,10 @@ fn finished(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     Ok(())
 }
 
-/// `item drop N --why WHY`: closes the item as dropped. When it runs or is
-/// parked, the drop throws its work away: one store write closes the item
+/// `item drop N --why WHY`: closes the item as dropped. drop refuses an item
+/// while another open item of any project runs or is parked in one of its
+/// worktrees (`dropped::require_alone`). When the item runs or is parked
+/// alone, the drop throws its work away: one store write closes the item
 /// and records each worktree's branch, the commits origin/main lacks and the
 /// files not committed, and then the drop detaches each worktree at
 /// origin/main, discards its changes, deletes the branch and removes its
@@ -448,10 +450,28 @@ fn drop_item(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
         ));
         return Ok(());
     }
+    // In a repo two projects hold, an item of either project may run in any
+    // of its worktrees, so drop reads the other projects' items too.
+    let other_projects: Vec<Lists> = store::every_lists(&tool.places)?
+        .into_iter()
+        .filter(|lists| lists.project != store.project)
+        .collect();
     let works = store.write(&stamp, &format!("item drop {id}"), |db| {
         let lists = store::read(db)?;
         require_can_leave(&lists, id, "drop", true)?;
         let item = open_item(&lists, id)?;
+        let worktrees: Vec<&str> = item
+            .running
+            .iter()
+            .map(|r| r.worktree.as_str())
+            .chain(item.parked.iter().map(|p| p.worktree.as_str()))
+            .collect();
+        dropped::require_alone(
+            other_projects.iter().chain([&lists]),
+            &store.project,
+            id,
+            &worktrees,
+        )?;
         let places = item
             .running
             .iter()
