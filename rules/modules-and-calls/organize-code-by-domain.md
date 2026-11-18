@@ -6,6 +6,7 @@ paths:
   - '**/*.kt'
   - '**/*.ts'
   - '**/*.tsx'
+  - '**/*.js'
   - '**/*.sql'
 blocking: false
 ---

@@ -5,6 +5,7 @@ paths:
   - '**/*.kt'
   - '**/*.cs'
   - '**/*.tsx'
+  - '**/*.js'
   - bae-bridge/**/*.rs
   - visible-bridge/**/*.rs
 blocking: false

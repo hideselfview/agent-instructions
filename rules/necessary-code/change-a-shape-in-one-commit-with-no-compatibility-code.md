@@ -7,6 +7,7 @@ paths:
   - '**/*.cs'
   - '**/*.ts'
   - '**/*.tsx'
+  - '**/*.js'
   - '**/*.sql'
 blocking: false
 ---
