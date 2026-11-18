@@ -291,7 +291,7 @@ fn design_store(scratch: &Scratch, places: &crate::places::Places) {
                 db,
                 &wt.display().to_string(),
                 &[],
-                vec![ReviewSection {
+                Some(ReviewSection {
                     heading: "The change".into(),
                     words: "what it shows".into(),
                     boards: vec![
@@ -306,7 +306,7 @@ fn design_store(scratch: &Scratch, places: &crate::places::Places) {
                             theme: Theme::Dark,
                         },
                     ],
-                }],
+                }),
             );
             crate::lists::fixtures::design_tipped(db, id, &tip);
             Ok(())

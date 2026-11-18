@@ -212,7 +212,7 @@ pub fn design_drawn(
     db: &Connection,
     worktree: &str,
     boards: &[(&str, &str)],
-    review: Vec<ReviewSection>,
+    review: Option<ReviewSection>,
 ) -> Id {
     let id = design(db);
     let mut change = read(db).design(id).unwrap().clone();

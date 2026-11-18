@@ -81,7 +81,7 @@ pub struct ReviewBoard {
     pub theme: Theme,
 }
 
-/// One heading of a review page, the words under it, and the boards.
+/// The heading of a review page, the words under it, and the boards.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ReviewSection {
@@ -117,8 +117,9 @@ pub struct DesignChange {
     /// The board files the change deletes: they need no answer or link, and
     /// the review page names them without a drawing.
     pub deleted: BTreeSet<String>,
-    /// How the review page reads: its headings, words and boards, in order.
-    pub review: Vec<ReviewSection>,
+    /// How the review page reads: its heading, words and boards. None for a
+    /// change recorded as a fix or a decision, which has no page.
+    pub review: Option<ReviewSection>,
     /// Why shared design files changed and no drawing did.
     pub no_app_place: Option<String>,
     /// What lets the change land: the person's review (`design approve`),
@@ -195,7 +196,7 @@ pub struct DesignRequest {
     pub range: String,
     pub places: BTreeMap<String, PlaceAnswer>,
     pub boards: BTreeMap<String, Board>,
-    pub review: Option<Vec<ReviewSection>>,
+    pub review: Option<ReviewSection>,
     pub no_app_place: Option<String>,
     /// What settles the change: the person's review when the request gives
     /// neither a fix nor a decision.
@@ -224,7 +225,7 @@ struct RequestFields {
     /// boards, which the dashboard draws from the range's last commit. Required
     /// to record; an amend that gives it replaces the page, one that doesn't
     /// keeps it. Every board place of the change must be on it.
-    pub review: Option<Vec<ReviewSection>>,
+    pub review: Option<ReviewSection>,
     /// Why shared design files changed and no drawing did.
     pub no_app_place: Option<String>,
     /// What the change fixes when it changes no design: boards made to follow
@@ -410,14 +411,14 @@ fn resolve(
         .collect();
     design.places.retain(|path, _| !dropped.contains(path));
     design.boards.retain(|path, _| !dropped.contains(path));
-    for section in &mut design.review {
+    if let Some(section) = &mut design.review {
         section.boards.retain(|b| !dropped.contains(&b.board));
     }
     design.deleted = changes.deleted.clone();
     design.places.extend(resolutions);
     design.boards.extend(request.boards.clone());
     if let Some(review) = &request.review {
-        design.review = review.clone();
+        design.review = Some(review.clone());
     }
     let unresolved: Vec<&str> = changed
         .iter()
@@ -490,45 +491,33 @@ fn resolve(
     Ok(new_items)
 }
 
-/// A review page has one section, and a section's words are short: the person
-/// reads every design change on it.
-const MAX_SECTIONS: usize = 1;
+/// The most words under a review page's heading: the person reads every
+/// design change on it.
 const MAX_SECTION_WORDS: usize = 25;
 
-/// A review page's own rules: it has one section with a heading and at most
-/// `MAX_SECTION_WORDS` words, and every board on it is a board file. (That a board is one of the repo's board places and
-/// exists in the worktree is the command's, which reads git and the files.)
-fn check_review(review: &[ReviewSection]) -> Result<()> {
-    if review.is_empty() {
-        fail!("`review` has no section; a review page has at least one heading");
+/// A review page's own rules: its heading has text, its words are at most
+/// `MAX_SECTION_WORDS`, and every board on it is a board file. (That a board is
+/// one of the repo's board places and exists in the worktree is the command's,
+/// which reads git and the files.)
+fn check_review(section: &ReviewSection) -> Result<()> {
+    if section.heading.trim().is_empty() {
+        fail!("`review` has an empty heading");
     }
-    if review.len() > MAX_SECTIONS {
+    let words = section.words.split_whitespace().count();
+    if words > MAX_SECTION_WORDS {
         fail!(
-            "`review` has {} sections; a review page has one section, so record one design change per concern",
-            review.len()
+            "the words of the review page are {words} words; they are at most {MAX_SECTION_WORDS}"
         );
     }
-    for section in review {
-        if section.heading.trim().is_empty() {
-            fail!("a section of `review` has an empty heading");
+    for board in &section.boards {
+        if PlaceKind::of(&board.board) != PlaceKind::Board {
+            fail!("`review` names {}, which is no board file", board.board);
         }
-        let words = section.words.split_whitespace().count();
-        if words > MAX_SECTION_WORDS {
+        if board.caption.trim().is_empty() {
             fail!(
-                "the words of section \"{}\" are {words} words; a section's words are at most {MAX_SECTION_WORDS}",
-                section.heading
+                "the board {} on the review page has an empty caption",
+                board.board
             );
-        }
-        for board in &section.boards {
-            if PlaceKind::of(&board.board) != PlaceKind::Board {
-                fail!("`review` names {}, which is no board file", board.board);
-            }
-            if board.caption.trim().is_empty() {
-                fail!(
-                    "the board {} on the review page has an empty caption",
-                    board.board
-                );
-            }
         }
     }
     Ok(())
@@ -650,16 +639,16 @@ pub fn save(db: &Connection, design: &DesignChange) -> Result<()> {
         )
         .sql()?;
     }
-    for (position, section) in design.review.iter().enumerate() {
+    if let Some(section) = &design.review {
         db.execute(
-            "INSERT INTO review_section (design_id, position, heading, words) VALUES (?1, ?2, ?3, ?4)",
-            params![design.id, position as i64, section.heading, section.words],
+            "INSERT INTO review_section (design_id, heading, words) VALUES (?1, ?2, ?3)",
+            params![design.id, section.heading, section.words],
         )
         .sql()?;
         for (at, board) in section.boards.iter().enumerate() {
             db.execute(
-                "INSERT INTO review_board (design_id, section, position, board, caption, theme) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-                params![design.id, position as i64, at as i64, board.board, board.caption, board.theme.word()],
+                "INSERT INTO review_board (design_id, position, board, caption, theme) VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![design.id, at as i64, board.board, board.caption, board.theme.word()],
             )
             .sql()?;
         }
@@ -1278,7 +1267,7 @@ fn describe(lists: &Lists, design: &DesignChange, closed: Option<&Closed>) -> Re
     if let Some(tip) = &design.tip {
         let _ = writeln!(out, "  drawn at {tip}");
     }
-    for section in &design.review {
+    if let Some(section) = &design.review {
         let _ = writeln!(out, "  review: {}", section.heading);
         for board in &section.boards {
             let _ = writeln!(
@@ -1439,11 +1428,9 @@ pub fn read(
         let (design, path) = row.sql()?;
         deleted.entry(design).or_default().insert(path);
     }
-    let mut review: BTreeMap<Id, Vec<ReviewSection>> = BTreeMap::new();
+    let mut review: BTreeMap<Id, ReviewSection> = BTreeMap::new();
     let mut statement = db
-        .prepare(
-            "SELECT design_id, heading, words FROM review_section ORDER BY design_id, position",
-        )
+        .prepare("SELECT design_id, heading, words FROM review_section")
         .sql()?;
     for row in statement
         .query_map([], |row| {
@@ -1456,28 +1443,30 @@ pub fn read(
         .sql()?
     {
         let (design, heading, words) = row.sql()?;
-        review.entry(design).or_default().push(ReviewSection {
-            heading,
-            words,
-            boards: Vec::new(),
-        });
+        review.insert(
+            design,
+            ReviewSection {
+                heading,
+                words,
+                boards: Vec::new(),
+            },
+        );
     }
     let mut statement = db
-        .prepare("SELECT design_id, section, board, caption, theme FROM review_board ORDER BY design_id, section, position")
+        .prepare("SELECT design_id, board, caption, theme FROM review_board ORDER BY design_id, position")
         .sql()?;
     for row in statement
         .query_map([], |row| {
             Ok((
                 row.get::<_, Id>(0)?,
-                row.get::<_, i64>(1)?,
+                row.get::<_, String>(1)?,
                 row.get::<_, String>(2)?,
                 row.get::<_, String>(3)?,
-                row.get::<_, String>(4)?,
             ))
         })
         .sql()?
     {
-        let (design, section, board, caption, theme) = row.sql()?;
+        let (design, board, caption, theme) = row.sql()?;
         let theme = if theme == "light" {
             Theme::Light
         } else {
@@ -1485,7 +1474,7 @@ pub fn read(
         };
         review
             .get_mut(&design)
-            .expect("review_board_is_on_a_section holds")[section as usize]
+            .expect("review_board_is_on_a_section holds")
             .boards
             .push(ReviewBoard {
                 board,
@@ -1591,7 +1580,7 @@ pub fn read(
             places: places.remove(&id).unwrap_or_default(),
             boards: boards.remove(&id).unwrap_or_default(),
             deleted: deleted.remove(&id).unwrap_or_default(),
-            review: review.remove(&id).unwrap_or_default(),
+            review: review.remove(&id),
             no_app_place,
             approved: approvals.remove(&id),
             settlement,
@@ -1601,6 +1590,55 @@ pub fn read(
         });
     }
     Ok(designs)
+}
+
+/// Makes `review_board` and `review_section` as design.sql writes them, where a
+/// design change has one review section, with the rows they held. Refuses a
+/// store whose design change has more than one section: the person drops it or
+/// it is amended to one section before the move. migrate.rs runs this with the
+/// foreign keys off.
+pub fn move_to_one_review_section(db: &Connection) -> Result<()> {
+    use rusqlite::OptionalExtension;
+    const SQL: &str = include_str!("design.sql");
+    let many: Option<Id> = db
+        .query_row(
+            "SELECT design_id FROM review_section GROUP BY design_id HAVING count(*) > 1 LIMIT 1",
+            [],
+            |row| row.get(0),
+        )
+        .optional()
+        .sql()?;
+    if let Some(id) = many {
+        fail!(
+            "design change {id} has more than one review section, and a review page is one section now; amend it to one section or drop it, then run the move again"
+        );
+    }
+    crate::db::remake_table(
+        db,
+        "review_board",
+        crate::db::statement(SQL, "CREATE TABLE review_board", "STRICT, WITHOUT ROWID;"),
+        |db| {
+            db.execute_batch(
+                "INSERT INTO review_board (design_id, position, board, caption, theme)
+    SELECT design_id, position, board, caption, theme FROM review_board_old;",
+            )
+            .sql()
+        },
+        &[],
+    )?;
+    crate::db::remake_table(
+        db,
+        "review_section",
+        crate::db::statement(SQL, "CREATE TABLE review_section", "STRICT;"),
+        |db| {
+            db.execute_batch(
+                "INSERT INTO review_section (design_id, heading, words)
+    SELECT design_id, heading, words FROM review_section_old;",
+            )
+            .sql()
+        },
+        &[],
+    )
 }
 
 /// The tables design.rs owns.

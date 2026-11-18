@@ -435,7 +435,7 @@ the paths they change and by the bytes of the boards, components and sources
 at the change's last commit and at the commits' last one, never by commit
 hash.
 
-The review page shows the change's words under their headings, with every board
+The review page shows the change's words under its heading, with every board
 of the change drawn twice, side by side, in frames the person can zoom (never
 an image): now, the board as it stands on origin/main, and proposed, the board
 at the last commit of the change's range, each drawn with its own commit's
@@ -482,9 +482,9 @@ sent again.
       FILE: {"title", "details", "worktree", "range": "origin/main..HEAD",
       "places": {PLACE: {"item": N} | {"new": ITEM_DRAFT} | {"matches": HOW}},
       "boards": {BOARD: {"link": CANVAS_URL}},
-      "review": [{"heading": H, "words": WORDS,
-                  "boards": [{"board": BOARD_PATH, "caption": C,
-                              "theme": "light" | "dark"}]}],
+      "review": {"heading": H, "words": WORDS,
+                 "boards": [{"board": BOARD_PATH, "caption": C,
+                             "theme": "light" | "dark"}]},
       "no_app_place": WHY, "fix": WHAT, "decision": N}.
       `places` answers every design place the range changes (a board, a
       component folder, a spec section) with an open item that does the app
@@ -517,10 +517,9 @@ sent again.
       makes the change wait on the person's review again. Record refuses an
       id that is no decision of the log, and a request that gives both `fix`
       and `decision`.
-      `review` is the review page: one section, because the person reviews
-      one concern per change. A section is a heading, the words under it
-      (optional, at most 25 words; `code`, **bold**, paragraphs and `-`
-      lists) and its boards (optional), each a board file of the repo's design
+      `review` is the review page: one heading, because the person reviews
+      one concern per change, the words under it (optional, at most 25 words;
+      `code`, **bold**, paragraphs and `-` lists) and its boards (optional), each a board file of the repo's design
       places that exists at the range's last commit, with its caption and the
       theme it is drawn in (a board may be on the page twice, once per theme,
       and a board the change did not touch may be there to compare). Every
@@ -543,11 +542,10 @@ sent again.
       answer names a place the range does not change, `matches` has no how,
       an item is closed or missing, a board of a project that publishes a
       canvas has no link, a project that publishes none gives `boards`,
-      `review` is missing,
-      empty, has more than one section, has a heading with no text, or has a
-      section with more than 25 words, a board of it is no file, no board
-      place or has no caption, a board of the change is not on it, or the
-      range changes no design files.
+      `review` is missing, has a heading with no text or more than 25
+      words, a board of it is no file, no board place or has no caption, a
+      board of the change is not on it, or the range changes no design
+      files.
 
   builds design amend N --request FILE
       The same over a new range, which N then holds to: a stored place the

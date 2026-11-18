@@ -234,7 +234,7 @@ fn design_branch(name: &str, recorded: bool) -> (Demo, Worktree, Lists) {
             &db,
             &top.display().to_string(),
             &[("design/mocks/a.dc.html", "https://canvas/a")],
-            Vec::new(),
+            None,
         );
     }
     let mut lists = read(&db);
@@ -266,7 +266,7 @@ fn health_counts_a_commit_covered_by_any_change_whose_range_holds_it() {
         &db,
         &path,
         &[("design/mocks/a.dc.html", "https://canvas/a")],
-        Vec::new(),
+        None,
     );
     design_tipped(&db, first, &a);
     let second = design_drawn(
@@ -276,7 +276,7 @@ fn health_counts_a_commit_covered_by_any_change_whose_range_holds_it() {
             ("design/mocks/b.dc.html", "https://canvas/b"),
             ("design/mocks/c.dc.html", "https://canvas/c"),
         ],
-        Vec::new(),
+        None,
     );
     design_tipped(&db, second, &b);
     let mut lists = read(&db);

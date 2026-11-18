@@ -160,34 +160,27 @@ fn review_of(dir: &Path, tip: &str) -> (DesignChange, DesignView) {
         &db,
         &dir.display().to_string(),
         &[("design/mocks/A.dc.html", "https://canvas.example/#A")],
-        vec![
-            ReviewSection {
-                heading: "A </script> heading".into(),
-                words: "words".into(),
-                boards: vec![
-                    ReviewBoard {
-                        board: "design/mocks/A.dc.html".into(),
-                        caption: "the A".into(),
-                        theme: Theme::Dark,
-                    },
-                    ReviewBoard {
-                        board: "design/mocks/B.dc.html".into(),
-                        caption: "no size".into(),
-                        theme: Theme::Light,
-                    },
-                    ReviewBoard {
-                        board: "design/mocks/Z.dc.html".into(),
-                        caption: "no file".into(),
-                        theme: Theme::Light,
-                    },
-                ],
-            },
-            ReviewSection {
-                heading: "Second".into(),
-                words: String::new(),
-                boards: vec![],
-            },
-        ],
+        Some(ReviewSection {
+            heading: "A </script> heading".into(),
+            words: "words".into(),
+            boards: vec![
+                ReviewBoard {
+                    board: "design/mocks/A.dc.html".into(),
+                    caption: "the A".into(),
+                    theme: Theme::Dark,
+                },
+                ReviewBoard {
+                    board: "design/mocks/B.dc.html".into(),
+                    caption: "no size".into(),
+                    theme: Theme::Light,
+                },
+                ReviewBoard {
+                    board: "design/mocks/Z.dc.html".into(),
+                    caption: "no file".into(),
+                    theme: Theme::Light,
+                },
+            ],
+        }),
     );
     design_tipped(&db, id, tip);
     let state = read(&db);
@@ -212,7 +205,7 @@ fn set_origin_main(dir: &Path, commit: &str) {
 }
 
 #[test]
-fn a_review_page_has_its_sections_and_each_board_now_and_proposed_sized_from_the_canvas() {
+fn a_review_page_has_its_heading_and_each_board_now_and_proposed_sized_from_the_canvas() {
     let scratch = Scratch::new("render-review");
     let dir = tree(&scratch);
     let tip = commit(&dir);
@@ -224,9 +217,8 @@ fn a_review_page_has_its_sections_and_each_board_now_and_proposed_sized_from_the
         "text can't end the data script"
     );
     let data = page_data(&page);
-    assert_eq!(data["sections"][0]["heading"], json!("A </script> heading"));
-    assert_eq!(data["sections"][1]["boards"], json!([]));
-    let boards = &data["sections"][0]["boards"];
+    assert_eq!(data["section"]["heading"], json!("A </script> heading"));
+    let boards = &data["section"]["boards"];
     let id = change.id.0;
     for side in ["now", "proposed"] {
         assert_eq!(
@@ -281,7 +273,7 @@ fn now_is_origin_main_and_proposed_is_the_last_commit_each_with_its_own_design_s
     let tip = commit(&dir);
     let (change, view) = review_of(&dir, &tip);
     let data = page_data(&review_page(&change, &view, "demo").unwrap());
-    let board = &data["sections"][0]["boards"][0];
+    let board = &data["section"]["boards"][0];
     assert_eq!(
         (&board["now"]["w"], &board["now"]["h"]),
         (&json!(400), &json!(300))
@@ -327,7 +319,7 @@ fn a_board_the_change_adds_has_no_now_and_a_board_it_deletes_has_only_a_now() {
     .unwrap();
     let tip = commit(&dir);
     let (mut change, _) = review_of(&dir, &tip);
-    change.review[0].boards = vec![
+    change.review.as_mut().unwrap().boards = vec![
         ReviewBoard {
             board: "design/mocks/A.dc.html".into(),
             caption: "the A".into(),
@@ -343,7 +335,7 @@ fn a_board_the_change_adds_has_no_now_and_a_board_it_deletes_has_only_a_now() {
     let view = design_view(&crate::lists::fixtures::read(&db()), &change, None).unwrap();
     let data = page_data(&review_page(&change, &view, "demo").unwrap());
     let id = change.id.0;
-    let boards = &data["sections"][0]["boards"];
+    let boards = &data["section"]["boards"];
     assert_eq!(
         boards[0]["now"]["src"],
         json!(format!("/design/demo/{id}/board/0/now"))
@@ -382,7 +374,7 @@ fn a_review_page_with_no_origin_main_says_so_at_each_now() {
     let tip = commit(&dir);
     let (change, view) = review_of(&dir, &tip);
     let data = page_data(&review_page(&change, &view, "demo").unwrap());
-    let board = &data["sections"][0]["boards"][0];
+    let board = &data["section"]["boards"][0];
     assert!(
         board["now"]["error"]
             .as_str()
@@ -401,7 +393,7 @@ fn a_review_page_of_a_commit_with_no_canvas_file_says_so_at_each_board() {
     let (change, view) = review_of(&dir, &tip);
     let data = page_data(&review_page(&change, &view, "demo").unwrap());
     assert!(
-        data["sections"][0]["boards"][0]["proposed"]["error"]
+        data["section"]["boards"][0]["proposed"]["error"]
             .as_str()
             .unwrap()
             .contains("canvas.json is not there")
@@ -486,7 +478,7 @@ fn two_changes_in_one_worktree_each_draw_their_own_last_commit() {
     let boards = |tip: &str| {
         let (change, view) = review_of(&dir, tip);
         let data = page_data(&review_page(&change, &view, "demo").unwrap());
-        data["sections"][0]["boards"][0]["proposed"].clone()
+        data["section"]["boards"][0]["proposed"].clone()
     };
     let (one, two) = (boards(&first), boards(&second));
     assert_eq!((&one["w"], &one["h"]), (&json!(400), &json!(300)));
@@ -501,7 +493,7 @@ fn a_review_page_of_a_change_with_no_last_commit_says_to_amend_it() {
     let (mut change, view) = review_of(&dir, "0000000");
     change.tip = None;
     let data = page_data(&review_page(&change, &view, "demo").unwrap());
-    let error = data["sections"][0]["boards"][0]["proposed"]["error"]
+    let error = data["section"]["boards"][0]["proposed"]["error"]
         .as_str()
         .unwrap();
     assert!(error.contains("amend it"), "{error}");

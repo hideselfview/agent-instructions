@@ -64,23 +64,21 @@ CREATE TABLE design_board (
     CONSTRAINT design_board_is_a_place FOREIGN KEY (design_id, path) REFERENCES design_place (design_id, path) ON DELETE CASCADE
 ) STRICT, WITHOUT ROWID;
 
+-- The review page's heading and words: one per design change.
 CREATE TABLE review_section (
-    design_id INTEGER NOT NULL REFERENCES design (id) ON DELETE CASCADE,
-    position INTEGER NOT NULL CONSTRAINT review_section_position_not_negative CHECK (position >= 0),
+    design_id INTEGER PRIMARY KEY REFERENCES design (id) ON DELETE CASCADE,
     heading TEXT NOT NULL CONSTRAINT review_section_heading_says_something CHECK (trim(heading) <> ''),
-    words TEXT NOT NULL,
-    PRIMARY KEY (design_id, position)
-) STRICT, WITHOUT ROWID;
+    words TEXT NOT NULL
+) STRICT;
 
 CREATE TABLE review_board (
     design_id INTEGER NOT NULL,
-    section INTEGER NOT NULL,
     position INTEGER NOT NULL CONSTRAINT review_board_position_not_negative CHECK (position >= 0),
     board TEXT NOT NULL CONSTRAINT review_board_is_a_board_file CHECK (board NOT GLOB '*#*' AND board NOT GLOB '*/'),
     caption TEXT NOT NULL CONSTRAINT review_board_caption_says_something CHECK (trim(caption) <> ''),
     theme TEXT NOT NULL CONSTRAINT review_board_theme_known CHECK (theme IN ('light', 'dark')),
-    PRIMARY KEY (design_id, section, position),
-    CONSTRAINT review_board_is_on_a_section FOREIGN KEY (design_id, section) REFERENCES review_section (design_id, position) ON DELETE CASCADE
+    PRIMARY KEY (design_id, position),
+    CONSTRAINT review_board_is_on_a_section FOREIGN KEY (design_id) REFERENCES review_section (design_id) ON DELETE CASCADE
 ) STRICT, WITHOUT ROWID;
 
 -- A board the change deletes: a board place of its range that is no file at the

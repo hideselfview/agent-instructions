@@ -290,9 +290,13 @@ const BEFORE_ACK_PER_REPO_STAMP: i64 = 1_591_868_490;
 /// The stamp of the schema before the decided changes' table was added.
 const BEFORE_DESIGN_DECISION_STAMP: i64 = 1_679_979_855;
 
+/// The stamp of the schema before a design change's review page was one
+/// section.
+const BEFORE_ONE_SECTION_STAMP: i64 = 507_266_959;
+
 /// Every stamp a store can carry that `move_store` moves, oldest schema first.
 /// A new move adds the stamp of the schema before it at the end.
-const STAMPS: [i64; 40] = [
+const STAMPS: [i64; 41] = [
     BEFORE_DESIGN_DELETED_STAMP,
     BEFORE_CHECK_TIMES_STAMP,
     BEFORE_DESIGN_TIP_STAMP,
@@ -333,6 +337,7 @@ const STAMPS: [i64; 40] = [
     BEFORE_COPY_REVIEW_STAMP,
     BEFORE_ACK_PER_REPO_STAMP,
     BEFORE_DESIGN_DECISION_STAMP,
+    BEFORE_ONE_SECTION_STAMP,
 ];
 
 /// Whether a store stamped <found> comes before the move that follows the
@@ -444,7 +449,9 @@ const DESIGN_DELETED: &str = "CREATE TABLE design_deleted (
 /// acknowledgements' table of one acknowledgement per agent gets today's,
 /// empty, which keeps an agent's acknowledgement of each repo's text apart
 /// (`ack::record::move_to_ack_per_repo`). Every store gets the empty
-/// `design_decision` table (no design change names a decision yet).
+/// `design_decision` table (no design change names a decision yet). Every
+/// store's review pages become one section each (`design::move_to_one_review_section`), and
+/// the move refuses a store with a design change of several.
 /// The moves run in one transaction, the store
 /// is stamped as today's schema, and it must then equal a fresh database's schema or the transaction rolls back. A
 /// store already at today's stamp, or with no database, is left alone; any
@@ -873,6 +880,10 @@ fn move_store(places: &Places, path: &Path, now: i64) -> Result<()> {
     // design change names a decision yet.
     if before(found, BEFORE_DESIGN_DECISION_STAMP) {
         tx.execute_batch(&design_decision()).sql()?;
+    }
+    // Every store from before the one-section review pages gets them.
+    if before(found, BEFORE_ONE_SECTION_STAMP) {
+        crate::lists::design::move_to_one_review_section(&tx)?;
     }
     tx.pragma_update(None, "user_version", db::stamp()).sql()?;
     let broken: Option<String> = tx

@@ -3207,6 +3207,176 @@ CREATE TABLE ack_word (
 ) STRICT, WITHOUT ROWID;
 "#;
 
+/// The review tables as design.sql wrote them before a review page was one
+/// section.
+const MANY_SECTIONS_TABLES: &str = r#"CREATE TABLE review_section (
+    design_id INTEGER NOT NULL REFERENCES design (id) ON DELETE CASCADE,
+    position INTEGER NOT NULL CONSTRAINT review_section_position_not_negative CHECK (position >= 0),
+    heading TEXT NOT NULL CONSTRAINT review_section_heading_says_something CHECK (trim(heading) <> ''),
+    words TEXT NOT NULL,
+    PRIMARY KEY (design_id, position)
+) STRICT, WITHOUT ROWID;
+
+CREATE TABLE review_board (
+    design_id INTEGER NOT NULL,
+    section INTEGER NOT NULL,
+    position INTEGER NOT NULL CONSTRAINT review_board_position_not_negative CHECK (position >= 0),
+    board TEXT NOT NULL CONSTRAINT review_board_is_a_board_file CHECK (board NOT GLOB '*#*' AND board NOT GLOB '*/'),
+    caption TEXT NOT NULL CONSTRAINT review_board_caption_says_something CHECK (trim(caption) <> ''),
+    theme TEXT NOT NULL CONSTRAINT review_board_theme_known CHECK (theme IN ('light', 'dark')),
+    PRIMARY KEY (design_id, section, position),
+    CONSTRAINT review_board_is_on_a_section FOREIGN KEY (design_id, section) REFERENCES review_section (design_id, position) ON DELETE CASCADE
+) STRICT, WITHOUT ROWID;
+
+"#;
+
+/// The review tables as design.sql writes them now, with the comment above
+/// them.
+fn one_section_tables(schema: &str) -> &str {
+    let start = schema
+        .find("-- The review page's heading and words")
+        .expect("the schema has them");
+    let end = "STRICT, WITHOUT ROWID;\n\n";
+    let from = start
+        + schema[start..]
+            .find("CREATE TABLE review_board")
+            .expect("it has them");
+    &schema[start..from + schema[from..].find(end).expect("it ends") + end.len()]
+}
+
+/// <schema> with the review tables as they were before a review page was one
+/// section. A schema without them is left as it is, as for
+/// `without_design_decision`.
+fn with_many_sections(schema: String) -> String {
+    if !schema.contains("-- The review page's heading and words") {
+        return schema;
+    }
+    let tables = one_section_tables(&schema).to_string();
+    schema.replacen(&tables, MANY_SECTIONS_TABLES, 1)
+}
+
+/// The schema text before a review page was one section.
+fn schema_before_one_section() -> String {
+    with_many_sections(db::schema())
+}
+
+#[test]
+fn the_one_section_stamp_is_the_schema_before_one_section_review_pages() {
+    assert_eq!(
+        db::stamp_of_text(&schema_before_one_section()),
+        BEFORE_ONE_SECTION_STAMP
+    );
+}
+
+/// A store from before one-section review pages keeps its page, its boards
+/// and their order, equals a fresh schema, and a store with two sections on
+/// one change is refused.
+#[test]
+fn a_store_from_before_one_section_review_pages_keeps_each_page_and_refuses_two_sections() {
+    let scratch = Scratch::new("move-one-section");
+    let places = scratch.places();
+    let dir = places.lists.join("bae");
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join(DATABASE);
+    let make = |two: bool| {
+        let _ = std::fs::remove_file(&path);
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(&schema_before_one_section()).unwrap();
+        conn.pragma_update(None, "user_version", BEFORE_ONE_SECTION_STAMP)
+            .unwrap();
+        use crate::lists::fixtures::v;
+        let design = &crate::lists::design::plant;
+        crate::lists::project::plant(&conn, "repo", &[("name", v("bae"))]).unwrap();
+        crate::lists::record::plant(
+            &conn,
+            "record",
+            &[
+                ("id", v(1)),
+                ("kind", v("design")),
+                ("opened_at", v(1)),
+                ("opened_by", v("tester")),
+            ],
+        )
+        .unwrap();
+        design(
+            &conn,
+            "design",
+            &[
+                ("id", v(1)),
+                ("title", v("T")),
+                ("details", v("d")),
+                ("repo", v("bae")),
+                ("worktree", v("/w")),
+            ],
+        )
+        .unwrap();
+        let section = |position: i64, heading: &str| {
+            design(
+                &conn,
+                "review_section",
+                &[
+                    ("design_id", v(1)),
+                    ("position", v(position)),
+                    ("heading", v(heading)),
+                    ("words", v("w")),
+                ],
+            )
+            .unwrap();
+        };
+        section(0, "H");
+        for (position, board, caption, theme) in [(0, "A", "a", "dark"), (1, "B", "b", "light")] {
+            design(
+                &conn,
+                "review_board",
+                &[
+                    ("design_id", v(1)),
+                    ("section", v(0)),
+                    ("position", v(position)),
+                    ("board", v(format!("design/mocks/{board}.dc.html"))),
+                    ("caption", v(caption)),
+                    ("theme", v(theme)),
+                ],
+            )
+            .unwrap();
+        }
+        if two {
+            section(1, "Second");
+        }
+    };
+    make(true);
+    let refused = migrate_stores(&places, 0).unwrap_err().text();
+    assert!(
+        refused.contains("design change #1 has more than one review section"),
+        "{refused}"
+    );
+    make(false);
+    migrate_stores(&places, 0).unwrap();
+    let conn = db::open(&path, db::Make::Never).unwrap();
+    assert_eq!(
+        db::schema_rows(&conn).unwrap(),
+        db::schema_rows(&db::memory()).unwrap()
+    );
+    let boards: Vec<(i64, String, String)> = conn
+        .prepare("SELECT position, board, caption FROM review_board ORDER BY position")
+        .unwrap()
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+        .unwrap()
+        .collect::<std::result::Result<_, _>>()
+        .unwrap();
+    assert_eq!(
+        boards[1],
+        (1, "design/mocks/B.dc.html".to_string(), "b".to_string())
+    );
+    let heading: String = conn
+        .query_row(
+            "SELECT heading FROM review_section WHERE design_id = 1",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(heading, "H");
+}
+
 /// The schema text before the decided changes' table: today's, without the
 /// table and with the approval's comment as it read then.
 fn schema_before_design_decision() -> String {
@@ -3223,6 +3393,7 @@ const DESIGN_DECISION_COMMENT: &str = "-- A board edit of a change the person de
 /// every older schema these tests rebuild is today's text with later parts
 /// taken out, and some start from a part list that never held it.
 fn without_design_decision(schema: String) -> String {
+    let schema = with_many_sections(schema);
     let Some(start) = schema.find(DESIGN_DECISION_COMMENT) else {
         return schema;
     };

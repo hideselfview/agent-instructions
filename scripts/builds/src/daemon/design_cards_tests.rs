@@ -36,7 +36,7 @@ fn branch(dir: &Path, files: &[&str]) -> Vec<Commit> {
 /// <worktree>, holding <places>.
 fn lists_with(worktree: &Path, ahead: &[Commit], places: &[&str]) -> (Lists, crate::lists::Id) {
     let db = db();
-    let id = design_drawn(&db, &worktree.display().to_string(), &[], vec![]);
+    let id = design_drawn(&db, &worktree.display().to_string(), &[], None);
     design_tipped(&db, id, &ahead[0].full);
     for place in places {
         crate::lists::fixtures::design_place(&db, id, place, Resolution::Matches("checked".into()));

@@ -217,7 +217,7 @@ fn affected_components(scope: &Scope, request: &DesignRequest) -> Result<BTreeSe
 /// places and a file at the range's last commit, which the dashboard draws it
 /// from.
 fn require_review_boards(scope: &Scope, request: &DesignRequest) -> Result<()> {
-    for section in request.review.iter().flatten() {
+    if let Some(section) = &request.review {
         for board in &section.boards {
             if PlaceKind::of(&board.board) != PlaceKind::Board {
                 fail!("`review` names {}, which is no board file", board.board);

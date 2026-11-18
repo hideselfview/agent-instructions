@@ -231,7 +231,7 @@ fn record_and_amend_keep_the_recording_sessions_inbox() {
     let body = serde_json::json!({
         "title": "Tokens", "details": "d", "worktree": dir.display().to_string(), "range": "base..HEAD",
         "no_app_place": "tokens only",
-        "review": [{"heading": "Tokens", "words": "w"}],
+        "review": {"heading": "Tokens", "words": "w"},
     });
     let socket = scratch.dir.join("rec.sock");
     let recorded = Messaging::new(socket.to_str().unwrap(), Some(TOKEN)).unwrap();

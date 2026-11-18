@@ -243,7 +243,8 @@ function layout() {
 }
 const main = document.getElementById("main");
 if (data.details.trim()) main.append(md(data.details));
-for (const s of data.sections) {
+if (data.section) {
+  const s = data.section;
   main.append(h("section", {}, h("h2", {}, s.heading), s.words.trim() ? md(s.words) : null,
     s.boards.length ? h("div", {class: "boards"}, s.boards.map(board)) : null));
 }

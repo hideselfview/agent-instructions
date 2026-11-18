@@ -137,13 +137,13 @@ fn draft(title: &str) -> serde_json::Value {
     json!({ "title": title, "area": "Alpha", "details": "do it", "for": "coordinator", "waits": [] })
 }
 
-/// A review page with one section holding <boards>, each in the dark.
+/// A review page holding <boards>, each in the dark.
 fn review_of(boards: &[&str]) -> serde_json::Value {
     let boards: Vec<serde_json::Value> = boards
         .iter()
         .map(|b| json!({ "board": b, "caption": format!("the {b}"), "theme": "dark" }))
         .collect();
-    json!([{ "heading": "What changed", "words": "the words under it", "boards": boards }])
+    json!({ "heading": "What changed", "words": "the words under it", "boards": boards })
 }
 
 /// A request for `base..HEAD` answering <places>, with a canvas link and a place on the review page for each board among them.
@@ -771,7 +771,7 @@ fn an_amend_whose_boards_come_out_the_same_keeps_the_approval() {
     assert_eq!(design.tip, Some(w.sha("HEAD")));
 
     let mut new_page = request.clone();
-    new_page["review"] = json!([{ "heading": "Other words", "boards": [{ "board": a, "caption": "A", "theme": "light" }] }]);
+    new_page["review"] = json!({ "heading": "Other words", "boards": [{ "board": a, "caption": "A", "theme": "light" }] });
     let amended = w.amend(1, new_page).unwrap();
     assert!(amended.contains("approval is cleared"), "{amended}");
     w.approve(1);
@@ -1402,7 +1402,10 @@ fn a_project_with_no_canvas_records_and_lands_a_change_with_no_links() {
     w.request(request).unwrap();
     let state = w.state();
     assert!(state.designs[0].boards.is_empty());
-    assert_eq!(state.designs[0].review[0].boards[0].board, board);
+    assert_eq!(
+        state.designs[0].review.as_ref().unwrap().boards[0].board,
+        board
+    );
     w.approve(1);
     let wt = w.worktree();
     w.run(&format!("check 1 {wt} {sha}")).unwrap();
@@ -1462,10 +1465,8 @@ fn a_design_change_needs_a_review_page_with_every_board_of_the_change_on_it() {
     let mut request = base_request(&w, places.clone());
     request.as_object_mut().unwrap().remove("review");
     assert!(message(w.request(request)).contains("needs its `review`"));
-    assert!(message(w.request(with(json!([])))).contains("has no section"));
     assert!(
-        message(w.request(with(json!([{ "heading": " ", "boards": [] }]))))
-            .contains("empty heading")
+        message(w.request(with(json!({ "heading": " ", "boards": [] })))).contains("empty heading")
     );
     let refused = message(w.request(with(review_of(&[a]))));
     assert!(
@@ -1487,28 +1488,24 @@ fn a_design_change_needs_a_review_page_with_every_board_of_the_change_on_it() {
             .contains("is no board file")
     );
     let mut bare = review_of(&[a, b]);
-    bare[0]["boards"][0]["caption"] = json!(" ");
+    bare["boards"][0]["caption"] = json!(" ");
     assert!(message(w.request(with(bare))).contains("empty caption"));
     let mut bad_theme = review_of(&[a, b]);
-    bad_theme[0]["boards"][0]["theme"] = json!("sepia");
+    bad_theme["boards"][0]["theme"] = json!("sepia");
     assert!(message(w.request(with(bad_theme))).contains("sepia"));
     assert_eq!(w.bytes(), before);
 
     // The record keeps the worktree the boards render from.
-    let review = json!([
-        { "heading": "The boards", "words": "just words", "boards": [{ "board": b, "caption": "B", "theme": "light" }, { "board": a, "caption": "A", "theme": "dark" }] },
-    ]);
+    let mut review = review_of(&[b, a]);
+    review["heading"] = json!("The boards");
     w.request(with(review)).unwrap();
     let design = &w.state().designs[0];
-    assert_eq!(design.review.len(), 1);
+    let page = design.review.as_ref().unwrap();
     assert_eq!(
-        (
-            design.review[0].heading.as_str(),
-            design.review[0].boards.len()
-        ),
+        (page.heading.as_str(), page.boards.len()),
         ("The boards", 2)
     );
-    assert_eq!(design.review[0].boards[0].board, b);
+    assert_eq!(page.boards[0].board, b);
     assert!(
         std::path::Path::new(&design.worktree)
             .join("design/mocks/A.dc.html")
@@ -1516,24 +1513,30 @@ fn a_design_change_needs_a_review_page_with_every_board_of_the_change_on_it() {
     );
     let shown = w.run("show 1").unwrap();
     assert!(
-        shown.contains("review: The boards") && shown.contains("(light) B"),
+        shown.contains("review: The boards") && shown.contains("(dark) the design/mocks/B.dc.html"),
         "{shown}"
     );
 
     // An amend that gives a review replaces the page; one that doesn't keeps it.
     let kept = json!({ "worktree": w.worktree(), "range": "base..HEAD", "places": {} });
     w.amend(1, kept).unwrap();
-    assert_eq!(w.state().designs[0].review[0].heading, "The boards");
+    assert_eq!(
+        w.state().designs[0].review.as_ref().unwrap().heading,
+        "The boards"
+    );
     let mut other = review_of(&[a, b]);
-    other[0]["heading"] = json!("Other");
+    other["heading"] = json!("Other");
     let replaced =
         json!({ "worktree": w.worktree(), "range": "base..HEAD", "places": {}, "review": other });
     w.amend(1, replaced).unwrap();
-    assert_eq!(w.state().designs[0].review[0].heading, "Other");
+    assert_eq!(
+        w.state().designs[0].review.as_ref().unwrap().heading,
+        "Other"
+    );
 }
 
 #[test]
-fn a_review_page_has_one_section_with_at_most_25_words() {
+fn a_review_page_is_one_section_with_at_most_25_words() {
     let w = world("design-review-short");
     let (a, b) = ("design/mocks/A.dc.html", "design/mocks/B.dc.html");
     w.commit(&[a, b]);
@@ -1544,33 +1547,30 @@ fn a_review_page_has_one_section_with_at_most_25_words() {
         request
     };
     let before = w.bytes();
-    let mut two = review_of(&[a, b]);
-    two.as_array_mut()
-        .unwrap()
-        .push(json!({ "heading": "Second", "boards": [] }));
-    let refused = message(w.request(with(two.clone())));
+    // A list of sections is no review page.
+    let refused = message(w.request(with(json!([review_of(&[a, b])]))));
     assert!(
-        refused.contains("has 2 sections") && refused.contains("one design change per concern"),
+        refused.contains("review") || refused.contains("sequence"),
         "{refused}"
     );
-    assert_eq!(w.bytes(), before);
-    // An amend refuses the same page.
-    let mut amend = base_request(&w, places.clone());
-    amend["review"] = review_of(&[a, b]);
-    w.request(amend).unwrap();
-    let mut over = base_request(&w, places.clone());
-    over.as_object_mut().unwrap().remove("title");
-    over["review"] = two;
-    assert!(message(w.amend(1, over)).contains("has 2 sections"));
     let mut long = review_of(&[a, b]);
-    long[0]["words"] = json!(vec!["word"; 26].join(" "));
+    long["words"] = json!(vec!["word"; 26].join(" "));
     let refused = message(w.request(with(long)));
     assert!(
         refused.contains("26 words") && refused.contains("at most 25"),
         "{refused}"
     );
+    assert_eq!(w.bytes(), before);
+    w.request(with(review_of(&[a, b]))).unwrap();
+    // An amend refuses the same page.
+    let mut over = review_of(&[a, b]);
+    over["words"] = json!(vec!["word"; 26].join(" "));
+    let mut amend = base_request(&w, places.clone());
+    amend.as_object_mut().unwrap().remove("title");
+    amend["review"] = over;
+    assert!(message(w.amend(1, amend)).contains("26 words"));
     let mut exact = review_of(&[a, b]);
-    exact[0]["words"] = json!(vec!["word"; 25].join("\n"));
+    exact["words"] = json!(vec!["word"; 25].join("\n"));
     let mut amend = base_request(&w, places.clone());
     amend.as_object_mut().unwrap().remove("title");
     amend["review"] = exact;
@@ -1986,18 +1986,9 @@ fn every_named_constraint_of_the_design_tables_refuses_its_row() {
     plant(&db, "design_board", &board).unwrap();
     let section = [
         ("design_id", v(good.0)),
-        ("position", v(0)),
         ("heading", v("H")),
         ("words", v("")),
     ];
-    refused.check(
-        "review_section_position_not_negative",
-        plant(
-            &db,
-            "review_section",
-            &row(&section, &[("position", v(-1))]),
-        ),
-    );
     refused.check(
         "review_section_heading_says_something",
         plant(
@@ -2009,7 +2000,6 @@ fn every_named_constraint_of_the_design_tables_refuses_its_row() {
     plant(&db, "review_section", &section).unwrap();
     let review = [
         ("design_id", v(good.0)),
-        ("section", v(0)),
         ("position", v(0)),
         ("board", v("design/mocks/A.dc.html")),
         ("caption", v("c")),
@@ -2038,7 +2028,11 @@ fn every_named_constraint_of_the_design_tables_refuses_its_row() {
     refused.check_as(
         "review_board_is_on_a_section",
         "FOREIGN KEY",
-        plant(&db, "review_board", &row(&review, &[("section", v(4))])),
+        plant(
+            &db,
+            "review_board",
+            &row(&review, &[("design_id", v(spare.0))]),
+        ),
     );
     plant(&db, "review_board", &review).unwrap();
     refused.covered_without_a_name(&["design_repo_is_the_projects"]);
@@ -2053,7 +2047,7 @@ fn dropping_a_place_takes_its_board_with_it_and_a_section_its_review_boards() {
         &db,
         "/d/bae-worktrees/side-2",
         &[("design/mocks/A.dc.html", "https://x/#A")],
-        vec![ReviewSection {
+        Some(ReviewSection {
             heading: "H".into(),
             words: String::new(),
             boards: vec![ReviewBoard {
@@ -2061,14 +2055,14 @@ fn dropping_a_place_takes_its_board_with_it_and_a_section_its_review_boards() {
                 caption: "c".into(),
                 theme: Theme::Dark,
             }],
-        }],
+        }),
     );
     db.execute("DELETE FROM design_place WHERE design_id = ?1", [id])
         .unwrap();
     db.execute("DELETE FROM review_section WHERE design_id = ?1", [id])
         .unwrap();
     let change = read(&db).design(id).unwrap().clone();
-    assert!(change.places.is_empty() && change.boards.is_empty() && change.review.is_empty());
+    assert!(change.places.is_empty() && change.boards.is_empty() && change.review.is_none());
 }
 
 #[test]

@@ -11,7 +11,7 @@
 //! changes can share a worktree and a change is drawn from its own branch.
 //!
 //! A design change's review page (`design_render/review.html`) shows the
-//! change's words under their headings, and each board twice, side by side in
+//! change's words under their heading, and each board twice, side by side in
 //! frames that load the board's own pages: now, the board as it stands on
 //! origin/main, and proposed, the board at the last commit of the change's
 //! range, each drawn with its own commit's design system. A board the change
@@ -588,14 +588,9 @@ fn canvas_size(canvas: &Value, file: &str) -> Result<(u64, u64)> {
     }
 }
 
-/// The <n>th board of <design>'s review page, counting through its sections
-/// in order.
+/// The <n>th board of <design>'s review page.
 pub fn review_board(design: &DesignChange, n: usize) -> Option<&ReviewBoard> {
-    design
-        .review
-        .iter()
-        .flat_map(|section| &section.boards)
-        .nth(n)
+    design.review.as_ref()?.boards.get(n)
 }
 
 /// The <k>th board <design> deletes, in path order.
@@ -667,25 +662,25 @@ fn drawing(design: &DesignChange, side: Side, board: &str, src: &str) -> Value {
 /// or file can't be read shows as that problem in its place, not as a page
 /// that fails whole.
 pub fn review_page(design: &DesignChange, view: &DesignView, project: &str) -> Result<String> {
-    let mut n = 0;
-    let mut sections = Vec::new();
-    for section in &design.review {
-        let mut boards = Vec::new();
-        for board in &section.boards {
-            let src = format!("/design/{project}/{}/board/{n}", design.id.0);
-            boards.push(json!({
-                "path": board.board,
-                "caption": board.caption,
-                "theme": board.theme.word(),
-                "link": design.boards.get(&board.board).map(|b| b.link.clone()),
-                "now": drawing(design, Side::Now, &board.board, &src),
-                "proposed": drawing(design, Side::Proposed, &board.board, &src),
-            }));
-            n += 1;
-        }
-        sections
-            .push(json!({ "heading": section.heading, "words": section.words, "boards": boards }));
-    }
+    let section = design.review.as_ref().map(|section| {
+        let boards: Vec<Value> = section
+            .boards
+            .iter()
+            .enumerate()
+            .map(|(n, board)| {
+                let src = format!("/design/{project}/{}/board/{n}", design.id.0);
+                json!({
+                    "path": board.board,
+                    "caption": board.caption,
+                    "theme": board.theme.word(),
+                    "link": design.boards.get(&board.board).map(|b| b.link.clone()),
+                    "now": drawing(design, Side::Now, &board.board, &src),
+                    "proposed": drawing(design, Side::Proposed, &board.board, &src),
+                })
+            })
+            .collect();
+        json!({ "heading": section.heading, "words": section.words, "boards": boards })
+    });
     let deleted: Vec<Value> = design
         .deleted
         .iter()
@@ -697,7 +692,7 @@ pub fn review_page(design: &DesignChange, view: &DesignView, project: &str) -> R
         })
         .collect();
     let mut data = serde_json::to_value(view).expect("the view serializes");
-    data["sections"] = Value::Array(sections);
+    data["section"] = section.unwrap_or(Value::Null);
     data["deleted"] = Value::Array(deleted);
     // `<` never appears in the JSON as itself, so no text can end the script.
     let data = data.to_string().replace('<', "\\u003c");
