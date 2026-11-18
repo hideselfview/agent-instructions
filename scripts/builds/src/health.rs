@@ -808,6 +808,9 @@ pub fn assess(
         parked_unknown,
     } in left.worktrees
     {
+        // A worktree git could not read, or one whose parked items builds
+        // could not read, may hold commits health did not see.
+        schedule_needed |= git.error.is_some() || parked_unknown.is_some();
         if !git.ahead.is_empty() {
             schedule_needed = true;
             let unknown = match parked_unknown {
@@ -891,7 +894,7 @@ pub fn assess(
         // A held claim is quiet on purpose: its note says why. A worktree
         // whose design change waits on the person's review is waiting on them.
         let held = claim.note_state.as_deref() == Some("held");
-        schedule_needed |= !held;
+        schedule_needed |= !held || git.error.is_some();
         let stalled = !held
             && !awaiting_review
             && building.is_empty()
@@ -1175,6 +1178,9 @@ pub fn health(tool: &Tool) -> Result<Health> {
         },
         lists,
     );
+    // A claim or a repo's branches that builds could not read may hide a
+    // running agent or commits waiting to land.
+    health.schedule_needed |= !unreadable.is_empty();
     health.findings.extend(unreadable);
     health
         .findings
@@ -1669,7 +1675,11 @@ mod tests {
             authored: now - 3600,
             subject: "work".to_string(),
         };
-        let needed = |states: &[Option<&str>], ahead: usize, unclaimed_ahead: usize| {
+        let run = |states: &[Option<&str>],
+                   ahead: usize,
+                   unclaimed_ahead: usize,
+                   claimed_unread: bool,
+                   unclaimed_unread: bool| {
             let machine = Machine {
                 at: now,
                 load: [1.0; 3],
@@ -1697,12 +1707,12 @@ mod tests {
                     root: PathBuf::from(format!("/volume/demo/side-{n}")),
                 })
                 .collect();
-            let git = |ahead: usize| SideGit {
+            let git = |ahead: usize, unread: bool| SideGit {
                 head: None,
                 ahead: (0..ahead).map(|n| commit(n as u8)).collect(),
                 uncommitted: Some(0),
                 last_write: Some(now - 60),
-                error: None,
+                error: unread.then(|| "git could not read it".to_string()),
             };
             let claimed = states
                 .iter()
@@ -1716,14 +1726,14 @@ mod tests {
                         note_state: state.map(str::to_string),
                     },
                     branch: Some("work".to_string()),
-                    git: git(ahead),
+                    git: git(ahead, claimed_unread),
                     awaiting_review: false,
                 })
                 .collect();
             let left = LeftBehind {
                 worktrees: vec![Unclaimed {
                     place: states.len(),
-                    git: git(unclaimed_ahead),
+                    git: git(unclaimed_ahead, unclaimed_unread),
                     parked_unknown: None,
                 }],
                 branches: Vec::new(),
@@ -1746,6 +1756,11 @@ mod tests {
             assert_eq!(health.schedule_needed, last == "health schedule: needed");
             health.schedule_needed
         };
+        let needed = |states: &[Option<&str>], ahead, unclaimed_ahead| {
+            run(states, ahead, unclaimed_ahead, false, false)
+        };
+        let needed_with_error =
+            |states: &[Option<&str>], claimed, unclaimed| run(states, 0, 0, claimed, unclaimed);
         let held = Some("held");
         assert!(!needed(&[], 0, 0), "nothing runs");
         assert!(
@@ -1755,6 +1770,14 @@ mod tests {
         assert!(needed(&[held, None], 2, 0), "an agent runs in one worktree");
         assert!(needed(&[None], 0, 0), "an agent runs with no commits yet");
         assert!(needed(&[held], 1, 1), "an unclaimed worktree has commits");
+        assert!(
+            needed_with_error(&[held], true, false),
+            "git could not read a held worktree"
+        );
+        assert!(
+            needed_with_error(&[], false, true),
+            "git could not read an unclaimed worktree"
+        );
     }
 
     /// The findings for one claimed worktree whose files last changed
