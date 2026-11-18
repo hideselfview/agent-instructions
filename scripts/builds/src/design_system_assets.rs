@@ -76,10 +76,7 @@ pub fn read(export: &Path) -> Result<(BTreeMap<String, String>, Vec<Upload>)> {
         for name in files_under(&entry.path())? {
             let from = entry.path().join(&name);
             let path = format!("project/assets/{group}/{name}");
-            let extension = name
-                .rsplit_once('.')
-                .map(|(_, extension)| extension.to_ascii_lowercase())
-                .unwrap_or_default();
+            let extension = extension(&name);
             if TEXT.contains(&extension.as_str()) {
                 let text = std::fs::read_to_string(&from)
                     .context(|| format!("reading {SYSTEM}/assets/{group}/{name}"))?;
@@ -105,6 +102,13 @@ pub fn read(export: &Path) -> Result<(BTreeMap<String, String>, Vec<Upload>)> {
     }
     uploads.sort_by(|a, b| a.0.path.cmp(&b.0.path));
     Ok((texts, uploads))
+}
+
+/// The lowercase extension of the file <name>, empty when it has none.
+pub fn extension(name: &str) -> String {
+    name.rsplit_once('.')
+        .map(|(_, extension)| extension.to_ascii_lowercase())
+        .unwrap_or_default()
 }
 
 fn hex(bytes: &[u8]) -> String {

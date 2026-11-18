@@ -344,10 +344,7 @@ fn write_artifact(
 /// type the Artifact tool serves from the extension, `text/plain` for a source
 /// file it does not serve. Fails on any other extension.
 fn content_type(path: &str) -> Result<Option<&'static str>> {
-    let extension = path
-        .rsplit_once('.')
-        .map(|(_, extension)| extension.to_ascii_lowercase())
-        .unwrap_or_default();
+    let extension = assets::extension(path);
     if SERVED.contains(&extension.as_str()) {
         Ok(None)
     } else if SOURCE.contains(&extension.as_str()) {
