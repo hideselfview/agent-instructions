@@ -51,13 +51,19 @@ fn new_claims_a_worktree_and_retire_removes_it() {
             .contains("is claimed by agent A since")
     );
     cmd_release(&scratch.places(), std::slice::from_ref(&side_arg)).unwrap();
-    cmd_app_checkout(&tool, &["mac".to_string(), side_arg.clone()]).unwrap();
+    cmd_app_checkout(
+        &tool,
+        &crate::host::Ssh::from_env(),
+        &["mac".to_string(), side_arg.clone()],
+    )
+    .unwrap();
     assert!(
         refusal(cmd_retire(&tool, std::slice::from_ref(&side_arg)))
             .contains("one of demo's mac app checkouts")
     );
     cmd_app_checkout(
         &tool,
+        &crate::host::Ssh::from_env(),
         &["remove".to_string(), "mac".to_string(), side_arg.clone()],
     )
     .unwrap();
@@ -94,7 +100,12 @@ fn a_checkout_is_the_app_checkout_of_one_lane_only() {
         ],
     );
     let arg = side.display().to_string();
-    cmd_app_checkout(&tool, &["android".to_string(), arg.clone()]).unwrap();
+    cmd_app_checkout(
+        &tool,
+        &crate::host::Ssh::from_env(),
+        &["android".to_string(), arg.clone()],
+    )
+    .unwrap();
     assert_eq!(
         tool.places.app_lane_of("demo", "side-1").unwrap(),
         Some(Lane::Android)
@@ -106,10 +117,21 @@ fn a_checkout_is_the_app_checkout_of_one_lane_only() {
     );
     assert!(!tool.places.app_checkouts_file("demo", Lane::Mac).exists());
     assert!(
-        refusal(cmd_app_checkout(&tool, &["mac".to_string(), arg.clone()]))
-            .contains("android app checkout already")
+        refusal(cmd_app_checkout(
+            &tool,
+            &crate::host::Ssh::from_env(),
+            &["mac".to_string(), arg.clone()]
+        ))
+        .contains("android app checkout already")
     );
-    assert!(refusal(cmd_app_checkout(&tool, &["ios".to_string(), arg])).contains("usage"));
+    assert!(
+        refusal(cmd_app_checkout(
+            &tool,
+            &crate::host::Ssh::from_env(),
+            &["ios".to_string(), arg]
+        ))
+        .contains("usage")
+    );
     assert!(
         refusal(cmd_retire(&tool, &[side.display().to_string()])).contains("android app checkouts")
     );
@@ -142,10 +164,20 @@ fn a_lane_holds_several_app_checkouts_and_one_comes_out_while_no_build_holds_it(
                 &side.display().to_string(),
             ],
         );
-        cmd_app_checkout(&tool, &args(&["android"], side)).unwrap();
+        cmd_app_checkout(
+            &tool,
+            &crate::host::Ssh::from_env(),
+            &args(&["android"], side),
+        )
+        .unwrap();
     }
     // Recording one again changes nothing.
-    cmd_app_checkout(&tool, &args(&["android"], &sides[0])).unwrap();
+    cmd_app_checkout(
+        &tool,
+        &crate::host::Ssh::from_env(),
+        &args(&["android"], &sides[0]),
+    )
+    .unwrap();
     assert_eq!(
         tool.places.app_checkouts_of("demo", Lane::Android).unwrap(),
         vec!["side-1", "side-2"]
@@ -169,6 +201,7 @@ fn a_lane_holds_several_app_checkouts_and_one_comes_out_while_no_build_holds_it(
     assert!(
         refusal(cmd_app_checkout(
             &tool,
+            &crate::host::Ssh::from_env(),
             &args(&["remove", "android"], &sides[1])
         ))
         .contains("holds")
@@ -185,7 +218,12 @@ fn a_lane_holds_several_app_checkouts_and_one_comes_out_while_no_build_holds_it(
     while crate::queue::is_held(&lock).unwrap() {
         std::thread::sleep(std::time::Duration::from_millis(5));
     }
-    cmd_app_checkout(&tool, &args(&["remove", "android"], &sides[1])).unwrap();
+    cmd_app_checkout(
+        &tool,
+        &crate::host::Ssh::from_env(),
+        &args(&["remove", "android"], &sides[1]),
+    )
+    .unwrap();
     assert_eq!(
         tool.places.app_checkouts_of("demo", Lane::Android).unwrap(),
         vec!["side-1"]
@@ -195,11 +233,17 @@ fn a_lane_holds_several_app_checkouts_and_one_comes_out_while_no_build_holds_it(
     assert!(
         refusal(cmd_app_checkout(
             &tool,
+            &crate::host::Ssh::from_env(),
             &args(&["remove", "android"], &sides[1])
         ))
         .contains("not one of")
     );
-    cmd_app_checkout(&tool, &args(&["remove", "android"], &sides[0])).unwrap();
+    cmd_app_checkout(
+        &tool,
+        &crate::host::Ssh::from_env(),
+        &args(&["remove", "android"], &sides[0]),
+    )
+    .unwrap();
     assert!(
         !tool
             .places
@@ -375,8 +419,8 @@ fn a_hosts_app_checkout_is_recorded_beside_this_macs_and_taken_out_again() {
     crate::host::add(&tool.places, &ssh, "m1", "user@m1").unwrap();
     let words = |words: &[&str]| -> Vec<String> { words.iter().map(|w| w.to_string()).collect() };
     let path = "/Users/me/dev/demo-worktrees/app-1";
-    cmd_app_checkout(&tool, &words(&["android", "--host", "m1", path])).unwrap();
-    cmd_app_checkout(&tool, &words(&["android", "--host", "m1", path])).unwrap();
+    cmd_app_checkout(&tool, &ssh, &words(&["android", "--host", "m1", path])).unwrap();
+    cmd_app_checkout(&tool, &ssh, &words(&["android", "--host", "m1", path])).unwrap();
     assert_eq!(
         tool.places.app_checkouts_of("demo", Lane::Android).unwrap(),
         vec!["m1:app-1"],
@@ -385,6 +429,7 @@ fn a_hosts_app_checkout_is_recorded_beside_this_macs_and_taken_out_again() {
     assert!(
         refusal(cmd_app_checkout(
             &tool,
+            &ssh,
             &words(&["mac", "--host", "m1", path])
         ))
         .contains("the lanes exist so that their builds share no checkout")
@@ -392,6 +437,7 @@ fn a_hosts_app_checkout_is_recorded_beside_this_macs_and_taken_out_again() {
     assert!(
         refusal(cmd_app_checkout(
             &tool,
+            &ssh,
             &words(&["android", "--host", "gone", path])
         ))
         .contains("no host named gone")
@@ -399,15 +445,86 @@ fn a_hosts_app_checkout_is_recorded_beside_this_macs_and_taken_out_again() {
     assert!(
         refusal(cmd_app_checkout(
             &tool,
+            &ssh,
             &words(&["android", "--host", "m1", "/Users/me/app-1"])
         ))
         .contains("-worktrees")
     );
-    cmd_app_checkout(&tool, &words(&["remove", "android", "--host", "m1", path])).unwrap();
+    cmd_app_checkout(
+        &tool,
+        &ssh,
+        &words(&["remove", "android", "--host", "m1", path]),
+    )
+    .unwrap();
     assert!(
         tool.places
             .app_checkouts_of("demo", Lane::Android)
             .unwrap()
             .is_empty()
+    );
+}
+
+/// Removing a host's app checkout from its lane deletes the lane file in the
+/// checkout's git dir on the host, so the host stops keeping its builds warm;
+/// when the host does not answer, the removal fails and the checkout stays in
+/// the lane.
+#[test]
+fn removing_a_hosts_app_checkout_deletes_its_lane_file_there() {
+    use crate::host::tests::fake_ssh;
+    let scratch = Scratch::new("app-checkout-host-unmark");
+    let tool = scratch.tool(0);
+    let home = scratch.dir.join("remote-home");
+    let ssh = fake_ssh(&scratch.dir.join("bin"), &home);
+    let clone = home.join("dev/demo");
+    repo(&clone, "target 1G\n");
+    let wt = home.join("dev/demo-worktrees/app-1");
+    git(
+        &clone,
+        &[
+            "worktree",
+            "add",
+            "-q",
+            "--detach",
+            &wt.display().to_string(),
+        ],
+    );
+    let lane_file = Checkout::find(&wt.display().to_string())
+        .unwrap()
+        .app_lane_file();
+    std::fs::write(&lane_file, "android\n").unwrap();
+    std::fs::write(
+        crate::host::hosts_file(&tool.places),
+        "m1 user@m1 10\ngone unreachable 4\n",
+    )
+    .unwrap();
+    let words = |words: &[&str]| -> Vec<String> { words.iter().map(|w| w.to_string()).collect() };
+    let path = wt.display().to_string();
+    for host in ["m1", "gone"] {
+        cmd_app_checkout(&tool, &ssh, &words(&["android", "--host", host, &path])).unwrap();
+    }
+    assert!(
+        refusal(cmd_app_checkout(
+            &tool,
+            &ssh,
+            &words(&["remove", "android", "--host", "gone", &path])
+        ))
+        .contains("host gone")
+    );
+    assert_eq!(
+        tool.places.app_checkouts_of("demo", Lane::Android).unwrap(),
+        vec!["m1:app-1", "gone:app-1"],
+        "a removal the host did not answer took the checkout out"
+    );
+    cmd_app_checkout(
+        &tool,
+        &ssh,
+        &words(&["remove", "android", "--host", "m1", &path]),
+    )
+    .unwrap();
+    assert!(!lane_file.exists(), "the host keeps the lane file");
+    assert!(wt.join(".git").exists(), "the worktree stays on the host");
+    assert_eq!(
+        tool.places.app_checkouts_of("demo", Lane::Android).unwrap(),
+        vec!["gone:app-1"]
     );
 }

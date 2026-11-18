@@ -777,9 +777,13 @@ built again.
   builds app-checkout remove mac|android <checkout>
   builds app-checkout remove mac|android --host <host> <path>
                               take it out again; refused while a build holds
-                              its lock. Adding a checkout that builds added
-                              makes it the person's, so builds no longer
-                              removes it
+                              its lock. On a host, the removal first deletes
+                              the checkout's builds-app-lane file there and
+                              leaves the worktree; when the host does not
+                              answer, the removal fails and the checkout
+                              stays in the lane. Adding a checkout that
+                              builds added makes it the person's, so builds
+                              no longer removes it
   builds app-checkout reset <repo> <checkout> [--matching <rev>]
                               put an app checkout on origin/main, holding its
                               lock (reset waits for the build holding it). The

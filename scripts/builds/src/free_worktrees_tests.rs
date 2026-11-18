@@ -118,6 +118,7 @@ fn new_adds_a_worktree_when_none_is_free() {
     std::fs::write(side(&scratch, 1).join("stray"), "x").unwrap();
     crate::worktree::cmd_app_checkout(
         &tool,
+        &crate::host::Ssh::from_env(),
         &["mac".to_string(), side(&scratch, 2).display().to_string()],
     )
     .unwrap();
@@ -169,8 +170,12 @@ fn an_idle_free_worktree_is_retired_and_the_rest_stay() {
     }
     // side-1 is the long-lived one, side-4 stays claimed, side-5 is the app
     // checkout.
-    crate::worktree::cmd_app_checkout(&tool, &["mac".to_string(), tops[4].display().to_string()])
-        .unwrap();
+    crate::worktree::cmd_app_checkout(
+        &tool,
+        &crate::host::Ssh::from_env(),
+        &["mac".to_string(), tops[4].display().to_string()],
+    )
+    .unwrap();
     for top in &tops {
         let checkout = Checkout::find(&top.display().to_string()).unwrap();
         age_all(&checkout.build_root(&tool.places), 48);
@@ -313,6 +318,7 @@ fn a_harness_worktree_is_never_recorded_as_an_app_checkout() {
     let harness = harness_worktree(&tool, &main);
     let result = crate::worktree::cmd_app_checkout(
         &tool,
+        &crate::host::Ssh::from_env(),
         &["mac".to_string(), harness.display().to_string()],
     );
     assert!(

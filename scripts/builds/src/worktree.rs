@@ -11,12 +11,14 @@
 
 use std::path::Path;
 
+use crate::app_remote::RemoteApp;
 use crate::checkout::{Checkout, git, git_text};
 use crate::claim::{Claim, require_one_line, require_project_named, set_project, write_claim};
 use crate::evict::{Recreate, Removal, evict};
 use crate::fail;
 use crate::fail::{Context, Fail, Result};
 use crate::free_worktrees::find_free;
+use crate::host::Ssh;
 use crate::lane::Lane;
 use crate::setup::setup;
 use crate::text::note;
@@ -294,7 +296,7 @@ pub fn retire_checkout(tool: &Tool, checkout: &Checkout) -> Result<()> {
 /// (or takes out) the app checkout `~/dev/<repo>-worktrees/<name>` on the host
 /// <path> names, as the entry `<host>:<name>` of the lane's set (app_remote.rs).
 /// The first build there makes the checkout.
-fn app_checkout_on_host(tool: &Tool, args: &[String]) -> Result<()> {
+fn app_checkout_on_host(tool: &Tool, ssh: &Ssh, args: &[String]) -> Result<()> {
     const USAGE: &str = "usage: builds app-checkout mac|android --host <host> <path> | builds app-checkout remove mac|android --host <host> <path>";
     let (removing, lane, host, path) = match args {
         [word, lane, flag, host, path] if word == "remove" && flag == "--host" => {
@@ -316,9 +318,19 @@ fn app_checkout_on_host(tool: &Tool, args: &[String]) -> Result<()> {
     tool.places.require_volume()?;
     let entry = crate::app_remote::entry_of(host, &name);
     if removing {
-        remove_from_lane(tool, &repo, lane, &entry, &entry)?;
+        // The lane file goes first: a host that does not answer fails the
+        // removal and leaves the checkout in the lane, for the person to
+        // remove again.
+        let Some(lock) = crate::lane_size::lock_checkout(&tool.places, &repo, lane, &entry)? else {
+            fail!("a build holds {entry}'s lock; remove it once that build ends");
+        };
+        let Some(remote) = RemoteApp::find(&tool.places, ssh, &repo, lane, &entry)? else {
+            fail!("{entry} names no host");
+        };
+        remote.unmark()?;
+        crate::lane_size::take_out(&tool.places, &repo, lane, &lock, None)?;
         note(format!(
-            "removed {entry} from {repo}'s {} app checkouts; ~/dev/{repo}-worktrees/{name} on {host} stays until you remove it there",
+            "removed {entry} from {repo}'s {} app checkouts, and its lane file on {host}, so {host} no longer keeps its builds warm; ~/dev/{repo}-worktrees/{name} on {host} stays until you remove it there",
             lane.word()
         ));
         return Ok(());
@@ -346,10 +358,10 @@ fn app_checkout_on_host(tool: &Tool, args: &[String]) -> Result<()> {
 /// repo's app checkouts for the lane; `builds app-checkout remove mac|android
 /// <checkout>` takes it out again, while no build holds its lock; `builds
 /// app-checkout reset <repo> <checkout>` puts one on origin's main (app_reset.rs).
-pub fn cmd_app_checkout(tool: &Tool, args: &[String]) -> Result<()> {
+pub fn cmd_app_checkout(tool: &Tool, ssh: &Ssh, args: &[String]) -> Result<()> {
     const USAGE: &str = "usage: builds app-checkout mac|android <checkout> | builds app-checkout mac|android --host <host> <path> | builds app-checkout remove mac|android [--host <host>] <checkout or path> | builds app-checkout reset <repo> <checkout> [--matching <rev>]";
     if args.iter().any(|arg| arg == "--host") {
-        return app_checkout_on_host(tool, args);
+        return app_checkout_on_host(tool, ssh, args);
     }
     let reset = match args {
         [word, repo, name] if word == "reset" => Some((repo, name, None)),
@@ -360,13 +372,7 @@ pub fn cmd_app_checkout(tool: &Tool, args: &[String]) -> Result<()> {
     };
     if let Some((repo, name, matching)) = reset {
         tool.places.require_volume()?;
-        return crate::app_reset::cmd_reset(
-            &tool.places,
-            &crate::host::Ssh::from_env(),
-            repo,
-            name,
-            matching,
-        );
+        return crate::app_reset::cmd_reset(&tool.places, ssh, repo, name, matching);
     }
     let (removing, lane, arg) = match args {
         [word, lane, arg] if word == "remove" => (true, lane, arg),

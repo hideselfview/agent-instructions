@@ -295,6 +295,21 @@ impl RemoteApp {
         }
     }
 
+    /// Deletes the checkout's lane file on the host (`Checkout::app_lane_file`),
+    /// so the host's builds stops keeping the checkout's builds warm once it is
+    /// no lane's. The worktree stays. When the host has no such worktree,
+    /// `unmark` succeeds and does nothing. A failure, such as a host that does
+    /// not answer, names the host and what the script printed there.
+    pub fn unmark(&self) -> Result<()> {
+        let script = UNMARK
+            .replace("@REPO@", &self.repo)
+            .replace("@NAME@", &self.name)
+            .replace("@LANE_FILE@", APP_LANE_FILE);
+        self.transport()
+            .capture(&script, "deleting the app checkout's lane file")
+            .map(|_| ())
+    }
+
     /// The command that runs <command> in the checkout on the host and is
     /// stopped as a step here is: a `builds remote step` process.
     pub fn step_command(&mut self, command: &[String]) -> Result<Command> {
@@ -515,6 +530,13 @@ else
   exclude_links
 fi
 echo "worktree=$wt""#;
+
+/// The script that deletes the lane file of the checkout <name> of <repo> on
+/// the host.
+const UNMARK: &str = r#"wt="$HOME/dev/@REPO@-worktrees/@NAME@"
+if [ -e "$wt/.git" ]; then
+  rm -f "$(git -C "$wt" rev-parse --absolute-git-dir)/@LANE_FILE@" || exit 1
+fi"#;
 
 /// The script that removes the checkout <name> of <repo> on the host: the
 /// worktree from the host's clone, the folder `ENSURE` makes beside it, and
