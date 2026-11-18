@@ -15,7 +15,6 @@ use std::path::{Path, PathBuf};
 pub(crate) const TOKENS: &str = boards::TOKENS_CSS;
 pub(crate) const BUNDLE_CSS: &str = "design/system/components/bundle.css";
 pub(crate) const BUNDLE_JS: &str = "design/system/components/bundle.js";
-pub(crate) const COMPONENTS: &str = "design/system/components";
 
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum DesignError {
@@ -186,7 +185,7 @@ pub(crate) fn preview_hash(
     browser_version: &str,
 ) -> Result<String, DesignError> {
     let mut hasher = Sha256::new();
-    let preview = root.join(COMPONENTS).join(component).join("preview.html");
+    let preview = root.join(boards::preview::preview_path(component));
     feed(
         &mut hasher,
         &format!("preview {component}"),

@@ -12,7 +12,6 @@ use regex::Regex;
 use std::path::Path;
 
 const BOARDS: &str = boards::MOCKS;
-const COMPONENTS: &str = "design/system/components";
 
 /// The ids of the named rows of a preview page: the first argument of each
 /// call of one of <calls>, such as `N('…', …)`.
@@ -77,9 +76,7 @@ fn no_board(root: &Path, calls: &[String], name: &Name) -> Option<String> {
             }
         }
         Name::Component(c) => {
-            let preview = Path::new(COMPONENTS)
-                .join(c.component())
-                .join("preview.html");
+            let preview = std::path::PathBuf::from(boards::preview::preview_path(&c.component()));
             let html = match std::fs::read_to_string(root.join(&preview)) {
                 Ok(html) => html,
                 Err(error) => return Some(unreadable(&preview, &error)),

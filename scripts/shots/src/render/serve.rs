@@ -6,7 +6,7 @@
 //! `/components/<Name>.html` with the design system loaded ahead of its
 //! script.
 
-use crate::design::{COMPONENTS, DesignSystem};
+use crate::design::DesignSystem;
 use crate::render::preview;
 use boards::routes::{DesignFile, Route, route};
 use futures::StreamExt;
@@ -28,7 +28,7 @@ pub(crate) struct Tree<'a> {
 /// The component named by `/components/<Name>.html`.
 fn preview_component(path: &str) -> Option<&str> {
     let name = path.strip_prefix("/components/")?.strip_suffix(".html")?;
-    (!name.is_empty() && name.chars().all(|c| c.is_ascii_alphanumeric())).then_some(name)
+    boards::preview::is_component_name(name).then_some(name)
 }
 
 /// The type and bytes of a file the server gives.
@@ -57,11 +57,7 @@ async fn answer(tree: Tree<'_>, url_path: &str) -> Result<Option<Found>, String>
         _ => {}
     }
     if let Some(component) = preview_component(path) {
-        let file = tree
-            .root
-            .join(COMPONENTS)
-            .join(component)
-            .join("preview.html");
+        let file = tree.root.join(boards::preview::preview_path(component));
         let Some(bytes) = read(&file).await? else {
             return Ok(None);
         };
