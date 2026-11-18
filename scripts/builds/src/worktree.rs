@@ -267,7 +267,7 @@ pub fn retire_checkout(tool: &Tool, checkout: &Checkout) -> Result<()> {
         );
     }
     let every = crate::lists::store::every_lists(&tool.places)?;
-    let commits = crate::procs::git_commits(&crate::procs::Processes::read());
+    let commits = crate::procs::git_commits(&crate::procs::Processes::read()?);
     let kept = crate::kept::read(&every, checkout, &commits)?;
     if let Some(parked) = kept.parked.first() {
         fail!(
@@ -451,7 +451,7 @@ fn record_in_lane(tool: &Tool, repo: &str, lane: Lane, entry: &str) -> Result<us
     }
     tool.places.write_app_checkouts(repo, lane, &set)?;
     drop(guard);
-    crate::queue::repoint(&tool.places, repo, lane);
+    crate::queue::repoint(&tool.places, repo, lane)?;
     Ok(set.len())
 }
 

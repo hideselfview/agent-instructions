@@ -441,8 +441,8 @@ pub fn sample(
     home: &Path,
     now: i64,
     sccache: (bool, Option<u64>, Option<Reading>),
-) -> Machine {
-    let processes = Processes::read();
+) -> Result<Machine> {
+    let processes = Processes::read()?;
     let builds = build_processes(&processes, places, &BUILD_NAMES);
     let (remote_runs, mut unread) = crate::cargo_place::remote_runs(&processes, places, hosts);
     let app_builds = processes
@@ -622,7 +622,7 @@ pub fn sample(
         places,
         &queued,
     );
-    Machine {
+    Ok(Machine {
         at: now,
         load: load_average(),
         cores: cores(),
@@ -640,7 +640,7 @@ pub fn sample(
         shells,
         locks: held,
         queues,
-    }
+    })
 }
 
 /// The label of the checkout the working directory of process <pid> is in.
@@ -1085,7 +1085,7 @@ pub fn health(tool: &Tool) -> Result<Health> {
         &tool.places.home,
         now,
         sccache,
-    );
+    )?;
     let mut claimed = Vec::new();
     let mut unclaimed = Vec::new();
     let mut unreadable = Vec::new();
@@ -1434,7 +1434,7 @@ pub fn cmd_health(tool: &Tool, args: &[String]) -> Result<()> {
     tool.places.require_volume()?;
     if stop_junk {
         // Judge the shells now, never from the daemon's last reading.
-        let (lines, failed) = crate::shells::stop(&health(tool)?.shells, tool.places.uid);
+        let (lines, failed) = crate::shells::stop(&health(tool)?.shells, tool.places.uid)?;
         if lines.is_empty() {
             println!("no junk shells");
         }

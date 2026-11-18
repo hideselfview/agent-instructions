@@ -38,7 +38,7 @@ fn is_free(checkout: &Checkout, every: &[Lists], commits: &GitCommits) -> Result
 /// stays as it was.
 pub fn find_free(tool: &Tool, main: &Path) -> Result<Option<Checkout>> {
     let every = crate::lists::store::every_lists(&tool.places)?;
-    let commits = crate::procs::git_commits(&Processes::read());
+    let commits = crate::procs::git_commits(&Processes::read()?);
     let mut tops = crate::checkout::worktrees_of(main)?;
     tops.sort();
     for top in tops {
@@ -86,7 +86,7 @@ fn git_dir_written(checkout: &Checkout) -> i64 {
 pub fn retire_idle(tool: &Tool, roots: &[Root], run: Run) -> Result<()> {
     let places = places_of(roots);
     let every = crate::lists::store::every_lists(&tool.places)?;
-    let processes = Processes::read();
+    let processes = Processes::read()?;
     let commits = crate::procs::git_commits(&processes);
     let builds = build_processes(&processes, &places, &BUILD_NAMES);
     for root in roots {

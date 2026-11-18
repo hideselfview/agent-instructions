@@ -198,7 +198,7 @@ pub fn grow(at: RepoLane, floor_kib: u64, need: Need) -> Result<Option<String>> 
         places.write_app_checkouts(repo, lane, &set)?;
         drop(host_guard);
         drop(lane_guard);
-        queue::repoint(places, repo, lane);
+        queue::repoint(places, repo, lane)?;
         note(format!(
             "builds added {entry} to {repo}'s {} app checkouts: {why}; its first build makes it on host {}",
             lane.word(),
@@ -479,8 +479,7 @@ pub fn take_out(
         }
     }
     drop(guard);
-    queue::repoint(places, repo, lane);
-    Ok(())
+    queue::repoint(places, repo, lane)
 }
 
 /// `shrink` for every lane of every repo on the volume, for `builds prune`.

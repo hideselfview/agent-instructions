@@ -194,7 +194,7 @@ fn app_checkout(places: &Places, repo: &str, host: &str, name: &str) -> Result<b
 /// answer or a removal fails there, prune notes it and moves on to the next
 /// one.
 pub fn prune(places: &Places, ssh: &Ssh, run: Run) -> Result<()> {
-    let holders = Holders::read();
+    let holders = Holders::read()?;
     for host in host::read_remote(places)? {
         prune_host(places, ssh, &host, &holders, run)?;
     }

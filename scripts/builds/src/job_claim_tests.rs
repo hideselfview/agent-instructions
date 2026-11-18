@@ -39,7 +39,7 @@ fn a_claim_is_gone_once_the_process_that_made_it_is() {
     let scratch = Scratch::new("job-claim-holders");
     let made_now = crate::remote::job_id();
     let gone = format!("{}-{}", gone_pid(), now_nanos());
-    let holders = Holders::read();
+    let holders = Holders::read().unwrap();
     let reused = format!("{}-17", std::process::id());
     let later = format!("{}-{}", gone_pid(), holders.read_at + 1);
     let no_such_pid = format!("99999999999-{}", now_nanos() - 1_000_000_000);
@@ -78,7 +78,7 @@ fn a_claim_is_gone_once_the_process_that_made_it_is() {
 #[test]
 fn release_gone_removes_only_the_claim_it_judged() {
     let scratch = Scratch::new("job-claim-release");
-    let holders = Holders::read();
+    let holders = Holders::read().unwrap();
     let gone = claim(&scratch.dir, "gone", "40-17");
     assert!(
         shell(

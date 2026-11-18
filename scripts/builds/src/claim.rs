@@ -305,7 +305,7 @@ pub fn cmd_release(places: &Places, args: &[String]) -> Result<()> {
     };
     let checkout = Checkout::find(checkout)?;
     let every = crate::lists::store::every_lists(places)?;
-    let commits = crate::procs::git_commits(&crate::procs::Processes::read());
+    let commits = crate::procs::git_commits(&crate::procs::Processes::read()?);
     crate::kept::read(&every, &checkout, &commits)?.require_leavable("release", &checkout.top)?;
     match forget(&checkout)? {
         Some(claim) => note(format!(

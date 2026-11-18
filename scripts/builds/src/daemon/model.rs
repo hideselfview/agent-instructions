@@ -811,7 +811,7 @@ impl Model {
             &self.places.home,
             now,
             sccache,
-        );
+        )?;
         let read_at = Instant::now();
         let free_kib = volume_space(&self.places.root)?.free_kib;
         let mut state = self.state.lock().expect("no panic holding it");

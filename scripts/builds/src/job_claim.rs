@@ -16,6 +16,7 @@
 
 use std::collections::HashMap;
 
+use crate::fail::Result;
 use crate::procs::Processes;
 
 /// Whether the process that made a claim runs.
@@ -45,15 +46,17 @@ fn now_nanos() -> u128 {
 
 impl Holders {
     /// Reads this Mac's processes. The time comes first, so every process
-    /// that made a claim before it and still runs is among them.
-    pub fn read() -> Holders {
+    /// that made a claim before it and still runs is among them. Fails when
+    /// the processes cannot be read, so no claim is judged gone from a short
+    /// list.
+    pub fn read() -> Result<Holders> {
         let read_at = now_nanos();
-        let started = Processes::read()
+        let started = Processes::read()?
             .list
             .iter()
             .map(|process| (process.pid, process.started))
             .collect();
-        Holders { read_at, started }
+        Ok(Holders { read_at, started })
     }
 
     /// Whether the process that made job <id>'s claim runs; None when <id> is

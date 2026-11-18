@@ -672,7 +672,7 @@ pub fn start_job<'a>(
             return Ok(Err(said));
         }
         let claimed = match transport.ask(
-            &claim_script(host, &request.repo, &pinned, &sha, &id, &Holders::read()),
+            &claim_script(host, &request.repo, &pinned, &sha, &id, &Holders::read()?),
             "claiming a worktree",
         )? {
             Ok(claimed) => claimed,

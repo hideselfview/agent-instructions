@@ -590,13 +590,14 @@ fn is_builds(processes: &Processes, pid: i32) -> bool {
 }
 
 /// Sends <signal> to each of <pids> that is a `builds` process, not this one.
-fn signal_all(pids: &[i32], signal: libc::c_int) {
-    let processes = Processes::read();
+fn signal_all(pids: &[i32], signal: libc::c_int) -> Result<()> {
+    let processes = Processes::read()?;
     for pid in pids {
         if *pid != std::process::id() as i32 && is_builds(&processes, *pid) {
             unsafe { libc::kill(*pid, signal) };
         }
     }
+    Ok(())
 }
 
 fn pids_in(order: &[String]) -> Vec<i32> {
@@ -649,8 +650,7 @@ pub fn top(places: &Places, repo: &str, pid: i32) -> Result<()> {
     let lane = lane_of_waiter(places, repo, pid)?;
     let queue = Queue::of(places, repo, lane);
     queue.move_to_top(pid)?;
-    signal_all(&pids_in(&queue.order()), libc::SIGUSR1);
-    Ok(())
+    signal_all(&pids_in(&queue.order()), libc::SIGUSR1)
 }
 
 /// Puts the waiter <pid> (default the first of <lane>, or of the one lane
@@ -711,9 +711,8 @@ pub fn takeover(places: &Places, repo: &str, pid: Option<i32>, lane: Option<Lane
             // Every lock is held: the build that joined last of the holders
             // is the one stopped.
             let holder = order[slots - 1].clone();
-            let Some(holder_pid) =
-                pid_of(&holder).filter(|pid| is_builds(&Processes::read(), *pid))
-            else {
+            let processes = Processes::read()?;
+            let Some(holder_pid) = pid_of(&holder).filter(|pid| is_builds(&processes, *pid)) else {
                 fail!(
                     "the holder's `builds` is gone, so its build can't be told to stop; kill its processes by pid"
                 );
@@ -728,20 +727,20 @@ pub fn takeover(places: &Places, repo: &str, pid: Option<i32>, lane: Option<Lane
         .into_iter()
         .filter(|pid| Some(*pid) != holder)
         .collect();
-    signal_all(&waiters, libc::SIGUSR1);
+    signal_all(&waiters, libc::SIGUSR1)?;
     if let Some(holder) = holder {
-        signal_all(&[holder], libc::SIGUSR2);
+        signal_all(&[holder], libc::SIGUSR2)?;
     }
     Ok(())
 }
 
 /// Tells every ticket's process in <lane>'s line to read the order again: its
 /// set of app checkouts changed.
-pub fn repoint(places: &Places, repo: &str, lane: Lane) {
+pub fn repoint(places: &Places, repo: &str, lane: Lane) -> Result<()> {
     signal_all(
         &pids_in(&Queue::of(places, repo, lane).order()),
         libc::SIGUSR1,
-    );
+    )
 }
 
 /// Splits `--lane <lane>` out of <args>.

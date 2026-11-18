@@ -7,6 +7,9 @@ use std::collections::HashMap;
 use std::ffi::CStr;
 use std::path::{Path, PathBuf};
 
+use crate::fail;
+use crate::fail::Result;
+
 /// Names of the processes that build: compilers, linkers and build tools.
 pub const BUILD_NAMES: [&str; 17] = [
     "cargo",
@@ -53,14 +56,55 @@ fn c_text(bytes: &[libc::c_char]) -> String {
     String::from_utf8_lossy(&bytes).into_owned()
 }
 
+/// The pid of every process on the machine.
+fn all_pids() -> Result<Vec<i32>> {
+    pids_listed(|buffer| {
+        let bytes = std::mem::size_of_val(buffer) as libc::c_int;
+        let at = if buffer.is_empty() {
+            std::ptr::null_mut()
+        } else {
+            buffer.as_mut_ptr().cast()
+        };
+        unsafe { libc::proc_listallpids(at, bytes) }
+    })
+}
+
+/// The pids <list> writes, as `proc_listallpids` writes them: into the
+/// buffer it is given, returning how many it wrote, or with an empty buffer
+/// how many there are, or -1 when it fails. The kernel fills as much of the
+/// buffer as fits, so a list that fills the whole buffer may be cut short:
+/// the buffer grows until the list leaves room to spare.
+fn pids_listed(mut list: impl FnMut(&mut [i32]) -> libc::c_int) -> Result<Vec<i32>> {
+    let listed = |filled: libc::c_int| {
+        if filled < 0 {
+            fail!(
+                "listing this Mac's processes failed: {}",
+                std::io::Error::last_os_error()
+            );
+        }
+        Ok(filled as usize)
+    };
+    let mut room = listed(list(&mut []))? + 256;
+    loop {
+        if libc::c_int::try_from(room * std::mem::size_of::<i32>()).is_err() {
+            fail!("listing this Mac's processes failed: {room} pids do not fit in one list");
+        }
+        let mut pids = vec![0i32; room];
+        let filled = listed(list(&mut pids))?;
+        if filled < room {
+            pids.truncate(filled);
+            return Ok(pids);
+        }
+        room *= 2;
+    }
+}
+
 impl Processes {
-    /// One pass over every process this user can read.
-    pub fn read() -> Processes {
-        let count = unsafe { libc::proc_listallpids(std::ptr::null_mut(), 0) };
-        let mut pids = vec![0i32; (count.max(0) as usize) + 256];
-        let bytes = (pids.len() * std::mem::size_of::<i32>()) as libc::c_int;
-        let filled = unsafe { libc::proc_listallpids(pids.as_mut_ptr().cast(), bytes) };
-        pids.truncate(filled.max(0) as usize);
+    /// One pass over every process this user can read. Fails when the
+    /// kernel would not list the processes, so no caller takes a short list
+    /// for the whole machine.
+    pub fn read() -> Result<Processes> {
+        let pids = all_pids()?;
         let mut list = Vec::with_capacity(pids.len());
         for pid in pids {
             if pid == 0 {
@@ -96,7 +140,7 @@ impl Processes {
             });
         }
         let by_pid = list.iter().enumerate().map(|(at, p)| (p.pid, at)).collect();
-        Processes { list, by_pid }
+        Ok(Processes { list, by_pid })
     }
 
     pub fn get(&self, pid: i32) -> Option<&Process> {
@@ -605,6 +649,29 @@ pub fn build_processes(
 mod tests {
     use super::*;
 
+    /// A list that fills the whole buffer may be cut short, so the buffer
+    /// grows until the list fits with room to spare; a list that fails, at
+    /// the count or at the read, fails the read.
+    #[test]
+    fn the_pid_buffer_grows_until_the_list_fits_and_a_failed_list_fails() {
+        let every: Vec<i32> = (1..=1000).collect();
+        let mut sizes = Vec::new();
+        let listed = pids_listed(|buffer| {
+            if buffer.is_empty() {
+                return 10;
+            }
+            sizes.push(buffer.len());
+            let n = buffer.len().min(every.len());
+            buffer[..n].copy_from_slice(&every[..n]);
+            n as libc::c_int
+        })
+        .unwrap();
+        assert_eq!(listed, every);
+        assert_eq!(sizes, [266, 532, 1064]);
+        assert!(pids_listed(|_| -1).is_err());
+        assert!(pids_listed(|buffer| if buffer.is_empty() { 10 } else { -1 }).is_err());
+    }
+
     /// A worktree has the commits that run in it or a folder in it, and
     /// commits_in fails for one where a git process runs whose arguments
     /// builds could not read.
@@ -653,7 +720,7 @@ mod tests {
             .spawn()
             .unwrap();
         let pid = child.id() as i32;
-        let processes = Processes::read();
+        let processes = Processes::read().unwrap();
         let found = processes.get(pid).map(|p| (p.name.clone(), p.ppid));
         let place = cwd(pid);
         let argv = args(pid);
@@ -717,7 +784,7 @@ mod tests {
             .current_dir("/")
             .spawn()
             .unwrap();
-        let found = build_processes(&Processes::read(), &places, &["sleep", "bash"]);
+        let found = build_processes(&Processes::read().unwrap(), &places, &["sleep", "bash"]);
         for child in [&mut in_folder, &mut by_argument] {
             child.kill().unwrap();
             child.wait().unwrap();

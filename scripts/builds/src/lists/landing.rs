@@ -411,7 +411,7 @@ pub fn landed(tool: &Tool, args: &[String]) -> Result<()> {
 /// still holds such work keeps its claim.
 fn release_finished(places: &crate::places::Places, ran_in: &[String]) -> Result<()> {
     let every = crate::lists::store::every_lists(places)?;
-    let commits = crate::procs::git_commits(&crate::procs::Processes::read());
+    let commits = crate::procs::git_commits(&crate::procs::Processes::read()?);
     let mut done: Vec<&String> = Vec::new();
     for worktree in ran_in {
         if !done.contains(&worktree) {

@@ -731,8 +731,8 @@ fn stopped_line(junk: &Junk, count: usize) -> String {
 /// deepest process first. A pid that is no longer an agent shell of <uid>
 /// (it exited and the number went to another process) is left alone. Returns
 /// one line per shell and the number of shells it could not stop.
-pub fn stop(shells: &Shells, uid: u32) -> (Vec<String>, usize) {
-    let processes = Processes::read();
+pub fn stop(shells: &Shells, uid: u32) -> crate::fail::Result<(Vec<String>, usize)> {
+    let processes = Processes::read()?;
     let pairs: Vec<(i32, i32)> = processes.list.iter().map(|p| (p.pid, p.ppid)).collect();
     let mut lines = Vec::new();
     let mut failed = 0;
@@ -768,7 +768,7 @@ pub fn stop(shells: &Shells, uid: u32) -> (Vec<String>, usize) {
             ));
         }
     }
-    (lines, failed)
+    Ok((lines, failed))
 }
 
 #[cfg(test)]
