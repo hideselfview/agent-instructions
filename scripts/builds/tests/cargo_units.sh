@@ -81,6 +81,16 @@ echo '#[test] fn answer_through_the_crate() { assert_eq!(app::answer(), 42); }' 
 echo 'fn main() { println!("example {}", app::answer()); }' > "$ws/app/examples/ex.rs"
 
 cd "$ws"
+# The workspace's Cargo.lock, as a repo commits it: builds cargo runs cargo
+# with --locked.
+cargo generate-lockfile -q
+
+# Bumps dep's version from $1 to $2 and updates Cargo.lock to match, as the
+# commit that bumps it would.
+bump() {
+    sed -i '' "s/^version = \"$1\"/version = \"$2\"/" dep/Cargo.toml
+    cargo update -q -w
+}
 
 # Every build these tests use, through builds cargo or plain cargo ($1).
 build_all() {
@@ -127,9 +137,19 @@ if "$builds" cargo fmt 2> /dev/null; then
     fail "builds cargo ran a subcommand that builds nothing"
 fi
 
+# builds cargo fails on a Cargo.lock that disagrees with the manifests, and
+# leaves the lock as the commit has it.
+cp Cargo.lock "$scratch/Cargo.lock"
+sed -i '' 's/^version = "0.1.0"/version = "0.1.9"/' dep/Cargo.toml
+if "$builds" cargo check -q 2> /dev/null; then
+    fail "builds cargo built with a Cargo.lock that disagrees with the manifests"
+fi
+cmp -s Cargo.lock "$scratch/Cargo.lock" || fail "builds cargo changed a stale Cargo.lock"
+sed -i '' 's/^version = "0.1.9"/version = "0.1.0"/' dep/Cargo.toml
+
 # The build copies of the first version, then of a dependency bump.
 build_all cargo
-sed -i '' 's/^version = "0.1.0"/version = "0.1.1"/' dep/Cargo.toml
+bump 0.1.0 0.1.1
 build_all cargo
 all="$(fingerprints)"
 
@@ -232,7 +252,7 @@ done
 # prune, within days of its last use: a dependency bump leaves a copy of every
 # unit above it, all of which the bump replaces.
 age 0.6
-sed -i '' 's/^version = "0.1.1"/version = "0.1.2"/' dep/Cargo.toml
+bump 0.1.1 0.1.2
 build_all "$builds" cargo
 bumped="$(recent)"
 units prune 3 100000 0 "$ws/target" > /dev/null 2>&1
@@ -246,7 +266,7 @@ done
 # While a `builds cargo` build holds its checkout's guard (cargo test holds
 # no cargo lock while it runs the tests), nothing is deleted.
 age 1.1
-sed -i '' 's/^version = "0.1.2"/version = "0.1.3"/' dep/Cargo.toml
+bump 0.1.2 0.1.3
 build_all "$builds" cargo
 replaced_copies="$(fingerprints)"
 touch "$ws/.builds-cargo.lock"
@@ -329,7 +349,7 @@ echo "target 1G" > "$ws/.build-dirs"
 mv "$ws/target" "$volume/ws/main/target"
 ln -s "$volume/ws/main/target" "$ws/target"
 lib_dep() { fingerprints | while read -r dir; do if [ -e "$dir/lib-dep" ]; then echo "$dir"; fi; done; }
-sed -i '' 's/^version = "0.1.3"/version = "0.1.4"/' dep/Cargo.toml
+bump 0.1.3 0.1.4
 [ -z "$(recent)" ] || fail "aging left recent copies: $(recent)"
 BUILDS_ROOT="$volume" "$builds" cargo build -q --all-targets
 [ -f "$volume/ws/main/.builds-cargo.lock" ] || fail "builds cargo took no guard in the checkout's build root"

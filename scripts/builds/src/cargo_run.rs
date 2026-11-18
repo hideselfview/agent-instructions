@@ -232,6 +232,22 @@ fn role_config(checkout: Option<&Checkout>) -> &'static [&'static str] {
     }
 }
 
+/// `--locked`, which has cargo fail on a Cargo.lock that disagrees with the
+/// manifests instead of rewriting it, unless cargo's own arguments in <args>
+/// (those before any `--`) hold it already, or `--frozen`, which implies it.
+/// Every build runs locked, so no build changes the commit it builds: a
+/// commit whose lock is stale fails at the cause. Before, cargo rewrote such a
+/// lock in an app checkout, and every later build there refused the changed
+/// checkout.
+fn locked_flag(args: &[String]) -> Option<&'static str> {
+    let mut cargos = args.iter().take_while(|arg| *arg != "--");
+    if cargos.any(|arg| arg == "--locked" || arg == "--frozen") {
+        None
+    } else {
+        Some("--locked")
+    }
+}
+
 /// Starts `builds units after-build <checkout>` in a session of its own, so
 /// it outlives this process: it deletes the build copies this build
 /// replaced, once nothing holds the checkout's guard or the profile's lock.
@@ -278,8 +294,8 @@ fn start_after_build(checkout: &Checkout, root: &Path) {
 }
 
 /// Runs cargo with these arguments plus the flag that has it report every
-/// unit it uses on stdout, which the recorder reads, and the settings of the
-/// checkout's role (`role_config`). Exits with cargo's status, or the
+/// unit it uses on stdout, which the recorder reads, `--locked`
+/// (`locked_flag`) and the settings of the checkout's role (`role_config`). Exits with cargo's status, or the
 /// recorder's when cargo succeeded and a reported unit could not be recorded.
 pub fn cmd_cargo(args: &[String]) -> Result<()> {
     let (subcommand, format): (&[String], &str) = match args.first().map(String::as_str) {
@@ -450,6 +466,7 @@ fn run_here(
         .args(subcommand)
         .arg(format)
         .args(config)
+        .args(locked_flag(args))
         .args(linker)
         .args(&args[subcommand.len()..])
         .env_remove(HOOK_CHECK_VARIABLE)
@@ -554,6 +571,30 @@ mod tests {
 
     fn role(dir: &Path) -> &'static [&'static str] {
         role_config(Checkout::at(dir).unwrap().as_ref())
+    }
+
+    #[test]
+    fn every_build_runs_locked_and_names_the_flag_once() {
+        let args = |words: &[&str]| {
+            words
+                .iter()
+                .map(|word| word.to_string())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            locked_flag(&args(&["build", "-p", "app"])),
+            Some("--locked")
+        );
+        assert_eq!(
+            locked_flag(&args(&["install", "--locked", "--git", "x"])),
+            None
+        );
+        assert_eq!(locked_flag(&args(&["test", "--frozen"])), None);
+        assert_eq!(
+            locked_flag(&args(&["run", "--", "--locked"])),
+            Some("--locked"),
+            "an argument after -- is the program's"
+        );
     }
 
     #[test]

@@ -373,6 +373,11 @@ builds reads cargo's report of each build to record the build copies it used
 (DISK, below). cargo typed by hand records nothing, so builds deletes what only
 it uses three days after cargo last built it.
 
+`builds cargo` runs every build with --locked, unless the command passes
+--locked or --frozen itself. When a commit's Cargo.lock disagrees with its
+Cargo.toml files, cargo fails, names the cause and leaves the lock as the
+commit has it.
+
 Every checkout but main builds without incremental compilation (`builds cargo`
 passes --config build.incremental=false), the app checkouts included. sccache
 refuses every incremental compile, so with incremental off sccache keeps each
