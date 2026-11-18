@@ -517,15 +517,20 @@ sent again.
       makes the change wait on the person's review again. Record refuses an
       id that is no decision of the log, and a request that gives both `fix`
       and `decision`.
-      `review` is the review page, in order: each section is a heading, the
-      words under it (optional; `code`, **bold**, paragraphs and `-` lists)
-      and its boards (optional), each a board file of the repo's design
+      `review` is the review page: one section, because the person reviews
+      one concern per change. A section is a heading, the words under it
+      (optional, at most 25 words; `code`, **bold**, paragraphs and `-`
+      lists) and its boards (optional), each a board file of the repo's design
       places that exists at the range's last commit, with its caption and the
       theme it is drawn in (a board may be on the page twice, once per theme,
       and a board the change did not touch may be there to compare). Every
       board place of the change must be on the page. A board file the range
       deletes needs no answer, link or place on the page: it is listed as
-      deleted, and the page shows only its now.
+      deleted, and the page shows only its now. The page circles every
+      element that differs between a board now and proposed, on both sides:
+      each board's page lists what it drew, and the review page pairs the
+      lists and circles what is missing, new, moved or restyled. The session
+      writes no marks.
       `worktree` and the range's last commit are stored with the change, and
       the page reads each board from that repo at that commit, so the commit
       must stay in the repo while the change is open. A change recorded
@@ -539,7 +544,8 @@ sent again.
       an item is closed or missing, a board of a project that publishes a
       canvas has no link, a project that publishes none gives `boards`,
       `review` is missing,
-      empty or has a heading with no text, a board of it is no file, no board
+      empty, has more than one section, has a heading with no text, or has a
+      section with more than 25 words, a board of it is no file, no board
       place or has no caption, a board of the change is not on it, or the
       range changes no design files.
 

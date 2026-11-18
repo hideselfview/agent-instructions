@@ -700,3 +700,145 @@ fn a_design_system_source_linked_from_elsewhere_in_the_repo_is_exported_with_it(
     .unwrap();
     assert!(page.contains("RELINKED_MARK"));
 }
+
+/// Runs `changesBetween` of the review page's script (`changes.js`) over two
+/// element lists in node, and returns its marks.
+fn changes_between(now: &Value, proposed: &Value) -> Value {
+    let program = format!(
+        "{}\nconsole.log(JSON.stringify(changesBetween({now}, {proposed})));",
+        CHANGES_SCRIPT
+    );
+    let out = std::process::Command::new("node")
+        .arg("-e")
+        .arg(program)
+        .output()
+        .expect("these tests run the page's script in node, which must be installed");
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    serde_json::from_slice(&out.stdout).unwrap()
+}
+
+fn element(text: &str, role: &str, x: i64, y: i64) -> Value {
+    json!({ "text": text, "role": role, "x": x, "y": y, "w": 100, "h": 20,
+        "color": "rgb(0, 0, 0)", "background": "" })
+}
+
+#[test]
+fn a_board_that_did_not_change_has_no_marks() {
+    let list = json!([
+        element("Devices", "text", 10, 10),
+        element("Remove", "button", 10, 40)
+    ]);
+    assert_eq!(
+        changes_between(&list, &list),
+        json!({ "now": [], "proposed": [] })
+    );
+}
+
+#[test]
+fn an_element_only_in_now_is_missing_and_one_only_in_proposed_is_new() {
+    let now = json!([
+        element("Devices", "text", 10, 10),
+        element("Old", "button", 10, 40)
+    ]);
+    let proposed = json!([
+        element("Devices", "text", 10, 10),
+        element("Added", "button", 10, 80)
+    ]);
+    let marks = changes_between(&now, &proposed);
+    assert_eq!(marks["now"].as_array().unwrap().len(), 1);
+    assert_eq!(marks["now"][0]["kind"], json!("missing"));
+    assert_eq!(
+        marks["now"][0]["title"],
+        json!("Was: Old (not in the proposal)")
+    );
+    assert_eq!(marks["proposed"].as_array().unwrap().len(), 1);
+    assert_eq!(marks["proposed"][0]["kind"], json!("new"));
+    assert_eq!(
+        marks["proposed"][0]["box"],
+        json!({ "x": 10, "y": 80, "w": 100, "h": 20 })
+    );
+}
+
+#[test]
+fn an_element_with_other_words_in_the_same_place_is_one_changed_element_that_says_what_it_was() {
+    let now = json!([element("Removing the device", "text", 10, 10)]);
+    let proposed = json!([element("Remove the device", "text", 10, 10)]);
+    let marks = changes_between(&now, &proposed);
+    assert_eq!(marks["proposed"].as_array().unwrap().len(), 1);
+    assert_eq!(marks["proposed"][0]["kind"], json!("restyled"));
+    assert_eq!(
+        marks["proposed"][0]["title"],
+        json!("Was: Removing the device")
+    );
+    assert_eq!(
+        marks["now"][0]["title"],
+        json!("Becomes: Remove the device")
+    );
+}
+
+#[test]
+fn a_box_that_moves_more_than_2_px_is_moved_and_a_colour_change_is_restyled() {
+    let now = json!([element("A", "text", 10, 10), element("B", "text", 10, 50)]);
+    let mut moved = element("A", "text", 10, 12);
+    let near = changes_between(&now, &json!([moved.clone(), element("B", "text", 10, 50)]));
+    assert_eq!(near, json!({ "now": [], "proposed": [] }));
+    moved["y"] = json!(30);
+    let mut recoloured = element("B", "text", 10, 50);
+    recoloured["color"] = json!("rgb(255, 0, 0)");
+    let marks = changes_between(&now, &json!([moved, recoloured]));
+    let of_kind = |kind: &str| {
+        marks["proposed"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|m| m["kind"] == json!(kind))
+            .unwrap()
+            .clone()
+    };
+    assert_eq!(marks["proposed"].as_array().unwrap().len(), 2);
+    assert_eq!(of_kind("moved")["title"], json!("Moved 20 px down"));
+    assert_eq!(
+        of_kind("restyled")["title"],
+        json!("Text colour was rgb(0, 0, 0)")
+    );
+}
+
+#[test]
+fn elements_with_the_same_words_pair_with_the_nearest_one() {
+    let now = json!([
+        element("Row", "text", 10, 10),
+        element("Row", "text", 10, 100)
+    ]);
+    let proposed = json!([
+        element("Row", "text", 10, 100),
+        element("Row", "text", 10, 10)
+    ]);
+    assert_eq!(
+        changes_between(&now, &proposed),
+        json!({ "now": [], "proposed": [] })
+    );
+}
+
+#[test]
+fn the_review_page_carries_the_script_that_circles_changes_and_each_board_page_lists_its_elements()
+{
+    let scratch = Scratch::new("render-circles");
+    let dir = tree(&scratch);
+    let tip = commit(&dir);
+    set_origin_main(&dir, &tip);
+    let (change, view) = review_of(&dir, &tip);
+    let page = review_page(&change, &view, "demo").unwrap();
+    assert!(page.contains("function changesBetween") && !page.contains("@@CHANGES@@"));
+    let board = render_board(
+        source_of(&change, Side::Proposed).unwrap(),
+        "A",
+        Theme::Dark,
+        &cache(&scratch),
+    )
+    .unwrap();
+    assert!(board.contains("function drawnElements") && board.contains("designElements"));
+}

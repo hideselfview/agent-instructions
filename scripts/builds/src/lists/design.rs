@@ -490,16 +490,34 @@ fn resolve(
     Ok(new_items)
 }
 
-/// A review page's own rules: every section has a heading, and every board on
-/// it is a board file. (That a board is one of the repo's board places and
+/// A review page has one section, and a section's words are short: the person
+/// reads every design change on it.
+const MAX_SECTIONS: usize = 1;
+const MAX_SECTION_WORDS: usize = 25;
+
+/// A review page's own rules: it has one section with a heading and at most
+/// `MAX_SECTION_WORDS` words, and every board on it is a board file. (That a board is one of the repo's board places and
 /// exists in the worktree is the command's, which reads git and the files.)
 fn check_review(review: &[ReviewSection]) -> Result<()> {
     if review.is_empty() {
         fail!("`review` has no section; a review page has at least one heading");
     }
+    if review.len() > MAX_SECTIONS {
+        fail!(
+            "`review` has {} sections; a review page has one section, so record one design change per concern",
+            review.len()
+        );
+    }
     for section in review {
         if section.heading.trim().is_empty() {
             fail!("a section of `review` has an empty heading");
+        }
+        let words = section.words.split_whitespace().count();
+        if words > MAX_SECTION_WORDS {
+            fail!(
+                "the words of section \"{}\" are {words} words; a section's words are at most {MAX_SECTION_WORDS}",
+                section.heading
+            );
         }
         for board in &section.boards {
             if PlaceKind::of(&board.board) != PlaceKind::Board {

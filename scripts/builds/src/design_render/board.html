@@ -98,6 +98,62 @@ function conv(n, key, sc) {
   return h.apply(null, [tag, props].concat(kids()));
 }
 ReactDOM.createRoot(document.getElementById('r')).render(render('__main__', {}));
+// The review page frames this page in a sandbox it cannot read, so this page
+// lists what it drew for it: each element a person sees (words, a control, an
+// image or a filled box) with its role, its box in board pixels, its text
+// colour and its background. The page compares the lists of two drawings of a
+// board. `src` names this frame to the page.
+function ownText(el) {
+  var text = '';
+  Array.prototype.forEach.call(el.childNodes, function (n) { if (n.nodeType === 3) text += n.textContent; });
+  return text.replace(/\s+/g, ' ').trim();
+}
+function roleOf(el, text) {
+  var tag = el.tagName.toLowerCase();
+  var explicit = el.getAttribute('role');
+  if (explicit) return explicit;
+  if (tag === 'a') return 'link';
+  if (tag === 'img' || tag === 'svg') return 'image';
+  if (tag === 'input') return el.getAttribute('type') || 'textbox';
+  if (tag === 'select' || tag === 'textarea' || tag === 'button') return tag;
+  return text ? 'text' : 'box';
+}
+function drawnElements() {
+  var out = [];
+  var all = document.getElementById('r').querySelectorAll('*');
+  Array.prototype.forEach.call(all, function (el) {
+    var inside = el.closest('svg');
+    if (inside && inside !== el) return;
+    var cs = getComputedStyle(el);
+    if (cs.display === 'none' || cs.display === 'contents' || cs.visibility === 'hidden' || cs.opacity === '0') return;
+    var r = el.getBoundingClientRect();
+    if (r.width < 1 || r.height < 1) return;
+    var tag = el.tagName.toLowerCase();
+    var text = ownText(el) || el.getAttribute('aria-label') || el.getAttribute('alt') || (tag === 'input' ? el.value || el.placeholder || '' : '');
+    var role = roleOf(el, text);
+    var parent = el.parentElement ? getComputedStyle(el.parentElement).backgroundColor : '';
+    var filled = cs.backgroundColor !== 'rgba(0, 0, 0, 0)' && cs.backgroundColor !== parent;
+    var control = role !== 'text' && role !== 'box';
+    if (!text && !control && !filled) return;
+    out.push({
+      text: text, role: role,
+      x: Math.round(r.left + window.scrollX), y: Math.round(r.top + window.scrollY),
+      w: Math.round(r.width), h: Math.round(r.height),
+      color: cs.color, background: filled ? cs.backgroundColor : ''
+    });
+  });
+  return out;
+}
+function postElements() {
+  if (parent === window) return;
+  parent.postMessage({ designElements: { src: location.pathname, elements: drawnElements() } }, '*');
+}
+(function whenDrawn(tries) {
+  if (document.getElementById('r').firstChild || tries > 200) { postElements(); return; }
+  requestAnimationFrame(function () { whenDrawn(tries + 1); });
+})(0);
+window.addEventListener('load', postElements);
+if (document.fonts && document.fonts.ready) document.fonts.ready.then(postElements);
 </script>
 </body>
 </html>

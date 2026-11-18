@@ -386,10 +386,13 @@ change.
      it from the worktree as one page of HTML without publishing the canvas.
   2. When the boards are drawn, record the change (`builds design record`):
      what changed, each board's canvas link (in a project that publishes a
-     canvas), and the review page's headings, words and boards. The change
+     canvas), and the review page's heading, words and boards. Keep the
+     change short: the page has one section, so record one change per
+     concern, and its words are at most 25. The change
      shows in the dashboard's Waiting on you tab as a card, and its Details
      opens the review page, which shows each board now and proposed side by
-     side and draws it again on each load. To change the boards again, commit
+     side, circles on both sides every element that differs, and draws it
+     again on each load. To change the boards again, commit
      and run `builds design amend`, which clears an approval unless every
      board comes out byte-identical. A rebase onto a moved main needs no
      amend: health and land compare the boards' files, not commit hashes.

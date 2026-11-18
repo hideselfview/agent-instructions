@@ -1494,22 +1494,21 @@ fn a_design_change_needs_a_review_page_with_every_board_of_the_change_on_it() {
     assert!(message(w.request(with(bad_theme))).contains("sepia"));
     assert_eq!(w.bytes(), before);
 
-    // Sections keep their order; the record keeps the worktree the boards render from.
+    // The record keeps the worktree the boards render from.
     let review = json!([
-        { "heading": "Words only", "words": "just words" },
-        { "heading": "The boards", "boards": [{ "board": b, "caption": "B", "theme": "light" }, { "board": a, "caption": "A", "theme": "dark" }] },
+        { "heading": "The boards", "words": "just words", "boards": [{ "board": b, "caption": "B", "theme": "light" }, { "board": a, "caption": "A", "theme": "dark" }] },
     ]);
     w.request(with(review)).unwrap();
     let design = &w.state().designs[0];
-    assert_eq!(design.review.len(), 2);
+    assert_eq!(design.review.len(), 1);
     assert_eq!(
         (
             design.review[0].heading.as_str(),
             design.review[0].boards.len()
         ),
-        ("Words only", 0)
+        ("The boards", 2)
     );
-    assert_eq!(design.review[1].boards[0].board, b);
+    assert_eq!(design.review[0].boards[0].board, b);
     assert!(
         std::path::Path::new(&design.worktree)
             .join("design/mocks/A.dc.html")
@@ -1524,10 +1523,58 @@ fn a_design_change_needs_a_review_page_with_every_board_of_the_change_on_it() {
     // An amend that gives a review replaces the page; one that doesn't keeps it.
     let kept = json!({ "worktree": w.worktree(), "range": "base..HEAD", "places": {} });
     w.amend(1, kept).unwrap();
-    assert_eq!(w.state().designs[0].review.len(), 2);
-    let replaced = json!({ "worktree": w.worktree(), "range": "base..HEAD", "places": {}, "review": review_of(&[a, b]) });
+    assert_eq!(w.state().designs[0].review[0].heading, "The boards");
+    let mut other = review_of(&[a, b]);
+    other[0]["heading"] = json!("Other");
+    let replaced =
+        json!({ "worktree": w.worktree(), "range": "base..HEAD", "places": {}, "review": other });
     w.amend(1, replaced).unwrap();
-    assert_eq!(w.state().designs[0].review.len(), 1);
+    assert_eq!(w.state().designs[0].review[0].heading, "Other");
+}
+
+#[test]
+fn a_review_page_has_one_section_with_at_most_25_words() {
+    let w = world("design-review-short");
+    let (a, b) = ("design/mocks/A.dc.html", "design/mocks/B.dc.html");
+    w.commit(&[a, b]);
+    let places = json!({ a: { "matches": "x" }, b: { "matches": "x" } });
+    let with = |review: serde_json::Value| {
+        let mut request = base_request(&w, places.clone());
+        request["review"] = review;
+        request
+    };
+    let before = w.bytes();
+    let mut two = review_of(&[a, b]);
+    two.as_array_mut()
+        .unwrap()
+        .push(json!({ "heading": "Second", "boards": [] }));
+    let refused = message(w.request(with(two.clone())));
+    assert!(
+        refused.contains("has 2 sections") && refused.contains("one design change per concern"),
+        "{refused}"
+    );
+    assert_eq!(w.bytes(), before);
+    // An amend refuses the same page.
+    let mut amend = base_request(&w, places.clone());
+    amend["review"] = review_of(&[a, b]);
+    w.request(amend).unwrap();
+    let mut over = base_request(&w, places.clone());
+    over.as_object_mut().unwrap().remove("title");
+    over["review"] = two;
+    assert!(message(w.amend(1, over)).contains("has 2 sections"));
+    let mut long = review_of(&[a, b]);
+    long[0]["words"] = json!(vec!["word"; 26].join(" "));
+    let refused = message(w.request(with(long)));
+    assert!(
+        refused.contains("26 words") && refused.contains("at most 25"),
+        "{refused}"
+    );
+    let mut exact = review_of(&[a, b]);
+    exact[0]["words"] = json!(vec!["word"; 25].join("\n"));
+    let mut amend = base_request(&w, places.clone());
+    amend.as_object_mut().unwrap().remove("title");
+    amend["review"] = exact;
+    w.amend(1, amend).unwrap();
 }
 
 #[test]

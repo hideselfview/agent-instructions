@@ -18,6 +18,9 @@
 //! adds has no now, and a board it deletes has only a now. The daemon draws
 //! each frame on every request, so the page shows a redraw on reload. The
 //! sizes of the frames come from each commit's `design/mocks/canvas.json`.
+//! Each board's page lists the elements it drew and posts the list to the
+//! review page, which circles on both sides the elements that differ
+//! (`design_render/changes.js`).
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -35,6 +38,9 @@ use crate::lists::{DesignChange, ReviewBoard, Theme};
 
 const BOARD_PAGE: &str = include_str!("design_render/board.html");
 const REVIEW_PAGE: &str = include_str!("design_render/review.html");
+/// The script that finds what differs between a board now and proposed
+/// (`design_render/changes.js`), which the review page runs.
+pub(crate) const CHANGES_SCRIPT: &str = include_str!("design_render/changes.js");
 
 pub(crate) const MOCKS: &str = "design/mocks";
 /// The file that places the boards on the canvas and gives each its size.
@@ -695,7 +701,10 @@ pub fn review_page(design: &DesignChange, view: &DesignView, project: &str) -> R
     data["deleted"] = Value::Array(deleted);
     // `<` never appears in the JSON as itself, so no text can end the script.
     let data = data.to_string().replace('<', "\\u003c");
-    Ok(fill(REVIEW_PAGE, &[("DATA", &data)]))
+    Ok(fill(
+        REVIEW_PAGE,
+        &[("DATA", &data), ("CHANGES", CHANGES_SCRIPT)],
+    ))
 }
 
 #[cfg(test)]
