@@ -192,8 +192,16 @@ pub fn cmd_reset(
     let reset = reset_under_lock(&mut site, places, repo, matching, &mut sent);
     let forgot = forget(&site, &sent);
     unsafe { libc::close(lock) };
-    reset?;
-    forgot?;
+    match (reset, forgot) {
+        (Err(error), Err(also)) => {
+            note(also.text());
+            return Err(error);
+        }
+        (reset, forgot) => {
+            reset?;
+            forgot?;
+        }
+    }
     note(format!("{} is on {TARGET}", site.shown()?));
     Ok(())
 }
