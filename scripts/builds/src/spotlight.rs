@@ -59,11 +59,7 @@ fi"#;
 
 /// Reads what `SCRIPT` printed.
 pub fn parse(text: &str) -> Result<Root> {
-    let value = |key: &str| {
-        text.lines()
-            .find_map(|line| line.strip_prefix(key)?.strip_prefix('='))
-            .map(str::trim)
-    };
+    let value = |key: &str| crate::remote::answer_value(text, key);
     let root = match value("spotlight_root") {
         Some(root) if !root.is_empty() => root.to_string(),
         _ => fail!("the answer about the build root names no root: {text:?}"),

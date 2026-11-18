@@ -64,11 +64,7 @@ const CONFIG_PREFIX: &str = "sccache_config:";
 
 /// Reads what `installed_script` printed.
 pub fn parse_installed(text: &str) -> Result<Installed> {
-    let value = |key: &str| {
-        text.lines()
-            .find_map(|line| line.strip_prefix(key)?.strip_prefix('='))
-            .map(str::trim)
-    };
+    let value = |key: &str| crate::remote::answer_value(text, key);
     let Some(builds) = value("builds") else {
         fail!("the host's answer has no builds line: {text:?}");
     };

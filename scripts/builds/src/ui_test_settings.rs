@@ -135,11 +135,7 @@ echo "ui_developer_group=$(/usr/sbin/dseditgroup -o checkmember -m "$(id -un)" _
 
 /// Reads what `SCRIPT` printed, among other lines.
 pub fn parse(text: &str) -> Result<UiTestSettings> {
-    let value = |key: &str| {
-        text.lines()
-            .find_map(|line| line.strip_prefix(key)?.strip_prefix('='))
-            .map(str::trim)
-    };
+    let value = |key: &str| crate::remote::answer_value(text, key);
     let user = match value("ui_user") {
         Some(user)
             if !user.is_empty()
