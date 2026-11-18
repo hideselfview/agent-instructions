@@ -236,3 +236,124 @@ fn a_manifest_that_can_not_be_read_makes_an_error_and_no_item() {
     assert!(check(&places, "<html>502 Bad Gateway</html>", 2000).is_err());
     assert_eq!(store.load().unwrap().items.len(), 0);
 }
+
+#[test]
+fn a_pin_is_read_as_rustup_reads_a_channel() {
+    for channel in [
+        "stable",
+        "beta",
+        "nightly",
+        "nightly-2026-04-01",
+        "beta-2026-04-01",
+    ] {
+        assert_eq!(pinned_version(channel), Ok(None), "{channel}");
+    }
+    assert_eq!(
+        pinned_version("1.95.2").unwrap().unwrap().to_string(),
+        "1.95.2"
+    );
+    assert_eq!(pinned_version("1.95").unwrap().unwrap().to_string(), "1.95");
+    for bad in [
+        "1",
+        "1.95.0.1",
+        "1.x",
+        "latest",
+        "nightly-soon",
+        "1.95.0-beta",
+        "",
+    ] {
+        assert!(pinned_version(bad).is_err(), "{bad}");
+    }
+}
+
+#[test]
+fn a_pin_of_two_parts_compares_by_its_two_parts() {
+    let stable = Version::parse("1.96.1").unwrap();
+    assert!(pinned_version("1.95").unwrap().unwrap().older_than(stable));
+    assert!(!pinned_version("1.96").unwrap().unwrap().older_than(stable));
+    assert!(
+        pinned_version("1.96.0")
+            .unwrap()
+            .unwrap()
+            .older_than(stable)
+    );
+    assert!(
+        !pinned_version("1.96.1")
+            .unwrap()
+            .unwrap()
+            .older_than(stable)
+    );
+}
+
+#[test]
+fn a_toolchain_file_that_cannot_be_read_is_an_error_that_names_the_file() {
+    let scratch = Scratch::new("rust-pin-faults");
+    let home = scratch.places().home;
+    clone(
+        &home,
+        "bad-toml",
+        &[("rust-toolchain.toml", "[toolchain\nchannel = 1")],
+    );
+    clone(
+        &home,
+        "bad-legacy",
+        &[("rust-toolchain", "[toolchain\nchannel = 1")],
+    );
+    clone(
+        &home,
+        "bad-channel",
+        &[("rust-toolchain.toml", &pin_file("latest"))],
+    );
+    for (repo, file) in [
+        ("bad-toml", "rust-toolchain.toml"),
+        ("bad-legacy", "rust-toolchain"),
+        ("bad-channel", "rust-toolchain.toml"),
+    ] {
+        let error = pin(&home.join("dev").join(repo))
+            .expect_err("refused")
+            .text();
+        assert!(error.starts_with(&format!("{file}: ")), "{error}");
+    }
+}
+
+#[test]
+fn rust_toolchain_wins_over_rust_toolchain_toml_as_in_rustup() {
+    let scratch = Scratch::new("rust-pin-order");
+    let home = scratch.places().home;
+    clone(
+        &home,
+        "both",
+        &[
+            ("rust-toolchain", "1.90.0\n"),
+            ("rust-toolchain.toml", &pin_file("1.95.0")),
+        ],
+    );
+    let found = pin(&home.join("dev/both")).unwrap().unwrap();
+    assert_eq!(
+        (found.file, found.version.to_string().as_str()),
+        ("rust-toolchain", "1.90.0")
+    );
+}
+
+#[test]
+fn a_repo_with_no_clone_faults_its_project_and_records_no_release() {
+    let scratch = Scratch::new("rust-no-clone");
+    let places = scratch.places();
+    clone(
+        &places.home,
+        "app",
+        &[("rust-toolchain.toml", &pin_file("1.95.0"))],
+    );
+    let store = project(&places, "demo", &["app", "missing"], &["Alpha"]);
+    let outcome = check(&places, &manifest("1.96.0"), 2000).unwrap();
+    assert_eq!(outcome.faults.len(), 1, "{:?}", outcome.faults);
+    assert!(
+        outcome.faults[0].contains("missing has no clone"),
+        "{:?}",
+        outcome.faults
+    );
+    assert_eq!(outcome.queued, Vec::<String>::new());
+    assert_eq!(store.load().unwrap().items.len(), 0);
+    let db = store.open_existing().unwrap();
+    assert_eq!(rust_release::queued(&db, "1.96.0").unwrap(), None);
+}

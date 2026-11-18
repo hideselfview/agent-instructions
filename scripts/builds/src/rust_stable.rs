@@ -107,42 +107,109 @@ fn fetch_manifest() -> Result<String> {
         .map_err(|_| Fail::Message(format!("{MANIFEST_URL} sent text that is not UTF-8")))
 }
 
+/// A version a repo pins: `x.y.z`, or `x.y`, which rustup takes as the
+/// newest patch release of that minor release.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Pinned(u32, u32, Option<u32>);
+
+impl Pinned {
+    /// Is this pin older than the release <stable>? A pin without a patch
+    /// number compares by its two parts.
+    pub fn older_than(self, stable: Version) -> bool {
+        match self.2 {
+            Some(patch) => Version(self.0, self.1, patch) < stable,
+            None => (self.0, self.1) < (stable.0, stable.1),
+        }
+    }
+}
+
+impl fmt::Display for Pinned {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self.2 {
+            Some(patch) => write!(f, "{}.{}.{patch}", self.0, self.1),
+            None => write!(f, "{}.{}", self.0, self.1),
+        }
+    }
+}
+
 /// A repo's pinned Rust version: the file that pins it and the version.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Pin {
     pub file: &'static str,
-    pub version: Version,
+    pub version: Pinned,
+}
+
+/// What toolchain channel <text> pins, read as rustup reads it: a channel
+/// name (`stable`, `beta` or `nightly`, with a date after it or without)
+/// pins no version, and `x.y` and `x.y.z` pin one. Anything else is an error.
+fn pinned_version(text: &str) -> std::result::Result<Option<Pinned>, String> {
+    let is_date = |rest: &str| {
+        let parts: Vec<&str> = rest.split('-').collect();
+        matches!(parts.as_slice(), [y, m, d] if [(y, 4), (m, 2), (d, 2)]
+            .iter()
+            .all(|(part, len)| part.len() == *len && part.bytes().all(|b| b.is_ascii_digit())))
+    };
+    for channel in ["stable", "beta", "nightly"] {
+        if let Some(rest) = text.strip_prefix(channel)
+            && (rest.is_empty() || rest.strip_prefix('-').is_some_and(is_date))
+        {
+            return Ok(None);
+        }
+    }
+    let numbers: Option<Vec<u32>> = text
+        .split('.')
+        .map(|part| {
+            (!part.is_empty() && part.bytes().all(|b| b.is_ascii_digit()))
+                .then(|| part.parse().ok())
+                .flatten()
+        })
+        .collect();
+    match numbers.as_deref() {
+        Some([major, minor]) => Ok(Some(Pinned(*major, *minor, None))),
+        Some([major, minor, patch]) => Ok(Some(Pinned(*major, *minor, Some(*patch)))),
+        _ => Err(format!("channel {text:?} is no channel name, x.y or x.y.z")),
+    }
 }
 
 /// The version that the repo at <clone> pins on its origin/main, or None when
-/// it pins none (no toolchain file, or a channel name instead of a version).
+/// it pins none (no toolchain file, no channel, or a channel name). Like
+/// rustup, `rust-toolchain` comes before `rust-toolchain.toml`. A file that
+/// can't be read is an error that names it.
 pub fn pin(clone: &Path) -> Result<Option<Pin>> {
-    for file in ["rust-toolchain.toml", "rust-toolchain"] {
+    for file in ["rust-toolchain", "rust-toolchain.toml"] {
         let listed =
             crate::app_config::run_git(clone, &["ls-tree", "--name-only", "origin/main", file])?;
         if listed.trim().is_empty() {
             continue;
         }
         let text = crate::app_config::run_git(clone, &["show", &format!("origin/main:{file}")])?;
-        return Ok(pinned_channel(file, &text)?
-            .as_deref()
-            .and_then(Version::parse)
-            .map(|version| Pin { file, version }));
+        let channel = pinned_channel(file, &text)
+            .map_err(|error| Fail::Message(format!("{file}: {error}")))?;
+        let version = match channel.as_deref().map(pinned_version) {
+            Some(Ok(version)) => version,
+            Some(Err(error)) => fail!("{file}: {error}"),
+            None => None,
+        };
+        return Ok(version.map(|version| Pin { file, version }));
     }
     Ok(None)
 }
 
-/// The channel that toolchain file <file> holding <text> names.
-fn pinned_channel(file: &str, text: &str) -> Result<Option<String>> {
+/// The channel that toolchain file <file> holding <text> names, if it names one.
+fn pinned_channel(file: &str, text: &str) -> std::result::Result<Option<String>, String> {
+    // The older `rust-toolchain` file may hold only the channel's name.
+    let legacy =
+        file == "rust-toolchain" && !text.contains(['[', '=']) && text.trim().lines().count() <= 1;
+    if legacy {
+        return Ok(Some(text.trim().to_string()));
+    }
     match text.parse::<toml::Table>() {
         Ok(table) => Ok(table
             .get("toolchain")
             .and_then(|toolchain| toolchain.get("channel"))
             .and_then(toml::Value::as_str)
             .map(str::to_string)),
-        // The older `rust-toolchain` file holds only the channel's name.
-        Err(_) if file == "rust-toolchain" => Ok(Some(text.trim().to_string())),
-        Err(error) => fail!("{file} is not TOML: {error}"),
+        Err(error) => Err(format!("is not TOML: {error}")),
     }
 }
 
@@ -179,12 +246,15 @@ fn queue_for(places: &Places, store: &Store, stable: Version, now: i64) -> Resul
     for repo in store.repos()? {
         let clone = places.home.join(crate::host::clone_path(&repo));
         if !clone.is_dir() {
-            continue;
+            fail!(
+                "{repo} has no clone at {} on this Mac, so its Rust pin is unread",
+                clone.display()
+            );
         }
         let found = pin(&clone).map_err(|error| {
             Fail::Message(format!("reading the Rust pin of {repo}: {}", error.text()))
         })?;
-        if let Some(found) = found.filter(|found| found.version < stable) {
+        if let Some(found) = found.filter(|found| found.version.older_than(stable)) {
             lagging.push((repo, found));
         }
     }
