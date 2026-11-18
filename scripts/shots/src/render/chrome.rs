@@ -117,7 +117,7 @@ fn installed() -> Result<PathBuf, ChromeError> {
 
 /// Runs <program> with <args> in <cwd>, failing with <step> named.
 fn run(step: &str, cwd: &Path, program: &str, args: &[&str]) -> Result<(), ChromeError> {
-    eprintln!("builds shots: {step}");
+    crate::log::note(step);
     let status = std::process::Command::new(program)
         .args(args)
         .current_dir(cwd)
@@ -219,10 +219,10 @@ pub(crate) async fn with_chrome<T>(work: impl AsyncFnOnce(&Chrome) -> T) -> Resu
             })
         };
         if let Err(error) = chrome.browser.close().await {
-            eprintln!("builds shots: closing Chrome failed: {error}");
+            crate::log::note(format_args!("closing Chrome failed: {error}"));
         }
         if let Err(error) = chrome.browser.wait().await {
-            eprintln!("builds shots: waiting for Chrome failed: {error}");
+            crate::log::note(format_args!("waiting for Chrome failed: {error}"));
         }
         out
     };

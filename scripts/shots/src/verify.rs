@@ -337,7 +337,7 @@ fn mark(standing: Option<Standing>) -> &'static str {
 /// whose findings are only listed, then a summary naming both.
 pub(crate) fn print(outcome: &Outcome) {
     for problem in &outcome.problems {
-        eprintln!("{}", problem.sentence);
+        crate::log::outcome(&problem.sentence);
     }
     for (label, pairs) in [
         ("FAIL ", outcome.failing().collect::<Vec<_>>()),
@@ -348,23 +348,23 @@ pub(crate) fn print(outcome: &Outcome) {
     ] {
         for pair in pairs {
             for finding in &pair.findings {
-                eprintln!(
+                crate::log::outcome(format_args!(
                     "{label}{}{}: {}",
                     pair.name,
                     mark(pair.against_base),
                     finding.sentence()
-                );
+                ));
             }
         }
     }
     for pair in &outcome.checked {
         for warning in &pair.warnings {
-            eprintln!(
+            crate::log::outcome(format_args!(
                 "{}{}: warning: {}",
                 pair.name,
                 mark(pair.against_base),
                 warning.sentence()
-            );
+            ));
         }
     }
     for (label, pairs) in [
@@ -376,22 +376,29 @@ pub(crate) fn print(outcome: &Outcome) {
     ] {
         for pair in pairs {
             for finding in &pair.findings {
-                eprintln!(
+                crate::log::outcome(format_args!(
                     "{label}{}{}: {finding} (from the record)",
                     pair.name,
                     mark(pair.against_base)
-                );
+                ));
             }
         }
     }
     for pair in outcome.skipped.iter().filter(|s| s.findings.is_empty()) {
-        eprintln!("{}{}: confirmed", pair.name, mark(pair.against_base));
+        crate::log::outcome(format_args!(
+            "{}{}: confirmed",
+            pair.name,
+            mark(pair.against_base)
+        ));
         for warning in &pair.warnings {
-            eprintln!("{}: confirmed with the warning: {warning}", pair.name);
+            crate::log::outcome(format_args!(
+                "{}: confirmed with the warning: {warning}",
+                pair.name
+            ));
         }
     }
     for name in &outcome.not_taken {
-        eprintln!("{name}: {}", crate::capture::NEEDS_WINDOW);
+        crate::log::outcome(format_args!("{name}: {}", crate::capture::NEEDS_WINDOW));
     }
     for (title, list) in [
         ("Boards with no shot (to build)", &outcome.lists.to_build),
@@ -402,9 +409,9 @@ pub(crate) fn print(outcome: &Outcome) {
         ("Shots with no board (to delete)", &outcome.lists.to_delete),
     ] {
         if !list.is_empty() {
-            eprintln!("{title}:");
+            crate::log::outcome(format_args!("{title}:"));
             for name in list {
-                eprintln!("  {name}");
+                crate::log::outcome(format_args!("  {name}"));
             }
         }
     }
@@ -429,17 +436,17 @@ fn summarize(outcome: &Outcome) {
         .chain(outcome.listed_skipped().map(|s| &s.name))
         .collect();
     if !failing.is_empty() {
-        eprintln!(
-            "builds shots: {} pair(s) fail the run: {}",
+        crate::log::note(format_args!(
+            "{} pair(s) fail the run: {}",
             failing.len(),
             names_of(failing.iter().copied())
-        );
+        ));
     }
     if !outcome.problems.is_empty() {
-        eprintln!(
-            "builds shots: {} shot or record entry(ies) with no board fail the run",
+        crate::log::note(format_args!(
+            "{} shot or record entry(ies) with no board fail the run",
             outcome.problems.len()
-        );
+        ));
     }
     if !listed.is_empty() {
         let why = if outcome.base_empty {
@@ -447,14 +454,14 @@ fn summarize(outcome: &Outcome) {
         } else {
             "they are neither new nor changed against the base"
         };
-        eprintln!(
-            "builds shots: {} pair(s) have findings that are only listed ({why}): {}",
+        crate::log::note(format_args!(
+            "{} pair(s) have findings that are only listed ({why}): {}",
             listed.len(),
             names_of(listed.iter().copied())
-        );
+        ));
     }
     if outcome.passed() {
-        eprintln!("builds shots: no pair fails the run");
+        crate::log::note(format_args!("no pair fails the run"));
     }
 }
 

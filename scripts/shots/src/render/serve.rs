@@ -149,7 +149,7 @@ async fn serve(tree: Tree<'_>, listener: TcpListener) -> std::io::Error {
             },
             Some(done) = connections.next() => {
                 if let Err(error) = done {
-                    eprintln!("builds shots: serving a request failed: {error}");
+                    crate::log::note(format_args!("serving a request failed: {error}"));
                 }
             }
         }

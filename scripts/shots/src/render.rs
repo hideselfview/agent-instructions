@@ -130,7 +130,7 @@ async fn draw_with(
             }
         };
         if let Err(error) = page.close().await {
-            eprintln!("builds shots: closing a page failed: {error}");
+            crate::log::note(format_args!("closing a page failed: {error}"));
         }
         let drawn = drawn?;
         let file = out.join(format!("{board}.png"));
@@ -150,7 +150,7 @@ async fn draw_with(
             serde_json::to_vec_pretty(&list).map_err(|e| e.to_string())?,
         )
         .map_err(|e| format!("cannot write {}: {e}", file.display()))?;
-        eprintln!("builds shots: rendered {board}");
+        crate::log::note(format_args!("rendered {board}"));
     }
     Ok(())
 }

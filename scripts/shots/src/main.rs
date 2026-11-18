@@ -8,6 +8,7 @@ mod declared;
 mod design;
 mod lint;
 mod lists;
+mod log;
 mod names;
 mod record;
 mod render;
@@ -210,10 +211,10 @@ fn finish(
 ) -> Result<bool, String> {
     verify::print(outcome);
     report::write(report_dir, outcome, header)?;
-    eprintln!(
-        "builds shots: report at {}",
+    crate::log::note(format_args!(
+        "report at {}",
         report_dir.join("index.html").display()
-    );
+    ));
     if let Some(summary) = std::env::var_os("GITHUB_STEP_SUMMARY") {
         use std::io::Write;
         let mut file = std::fs::OpenOptions::new()
@@ -297,7 +298,7 @@ fn run(action: Action) -> Result<bool, String> {
         Action::Record { from } => {
             let from = from.unwrap_or_else(|| root.join("shots").join(record::RESULTS));
             record::Record::promote(&from, &root).map_err(|e| e.to_string())?;
-            eprintln!("builds shots: wrote {}", record::FILE);
+            crate::log::note(format_args!("wrote {}", record::FILE));
             Ok(true)
         }
         Action::Lint => {
@@ -306,13 +307,16 @@ fn run(action: Action) -> Result<bool, String> {
                 record::Record::load(&root.join(record::FILE)).map_err(|e| e.to_string())?;
             let problems = lint::problems(&root, &settings.preview_calls, &declared, &record);
             for problem in &problems {
-                eprintln!("builds shots: {}", problem.sentence);
+                crate::log::note(&problem.sentence);
             }
             Ok(problems.is_empty())
         }
         Action::Runtime => {
             let checked = render::runtime::check(&root).map_err(|e| e.to_string())?;
-            println!("runtime {}: {}", checked.copy.sha256, checked.said);
+            crate::log::note(format_args!(
+                "runtime {}: {}",
+                checked.copy.sha256, checked.said
+            ));
             Ok(true)
         }
     }
@@ -323,7 +327,7 @@ fn main() -> ExitCode {
         Ok(true) => ExitCode::SUCCESS,
         Ok(false) => ExitCode::FAILURE,
         Err(message) => {
-            eprintln!("builds shots: {message}");
+            crate::log::note(message);
             ExitCode::FAILURE
         }
     }

@@ -129,7 +129,7 @@ pub(crate) fn capture(
 ) -> Result<Taken, CaptureError> {
     let taken = taken(declared, platform, prefixes, windows)?;
     for name in &taken.not_taken {
-        eprintln!("builds shots: {name}: {NEEDS_WINDOW}");
+        crate::log::note(format_args!("{name}: {NEEDS_WINDOW}"));
     }
     clear(out, platform)?;
     if taken.names.is_empty() {
@@ -139,7 +139,7 @@ pub(crate) fn capture(
     let (program, args) = command
         .split_first()
         .ok_or(CaptureError::NoCommand(platform.word()))?;
-    eprintln!("builds shots: {}", command.join(" "));
+    crate::log::note(command.join(" "));
     let status = Command::new(program)
         .args(args)
         .current_dir(root)
