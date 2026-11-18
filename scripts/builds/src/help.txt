@@ -648,8 +648,8 @@ file builds-app-lane in the checkout's git dir on the host: when a person adds
 a checkout the host already has, and when a build makes a new one there. The
 host's own `builds setup` and `builds prune` read the file and keep the
 checkout's builds warm, as this Mac does for its own app checkouts.
-build-app, `builds lock` and a build that runs a `here` step never take a
-checkout on a host. A build that runs a test class through a line an
+The android build-app, `builds lock` and a build that runs a `here` step never
+take a checkout on a host. A build that runs a test class through a line an
 `opens-windows` line names takes only a checkout on a host, never one on this
 Mac. When the lane has none, builds adds one on a host as for a build that
 waits, and the build fails when no host can take one (in bae, the M1's mac
@@ -752,12 +752,17 @@ built again.
                               holding one of the lane's locks, check out <ref>
                               (default origin/main, after a fetch) in that app
                               checkout, which must be clean, and run the
-                              lane's build that .app-build names; for mac,
+                              lane's build that .app-build names. The mac
+                              build takes a free checkout on this Mac or on a
+                              host, as `app-build` does, and a build on a host
+                              copies the built app back to this Mac; for mac,
                               replace the app in ~/Applications/<repo>-test,
-                              quitting the copy running. Opens nothing. This is
-                              the person's own build; the dashboard runs it
-                              from each lane's Build button, one run per lane
-                              at a time
+                              quitting the copy running. The android build
+                              installs the app on this Mac's device, so it
+                              takes only a checkout on this Mac. Opens
+                              nothing. This is the person's own build; the
+                              dashboard runs it from each lane's Build button,
+                              one run per lane at a time
   builds lock <repo> [--lane mac|android] <command> [<args>...]
                               wait for one of the lane's locks (the mac lane's
                               unless named), then run the command holding it,

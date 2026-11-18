@@ -129,14 +129,15 @@ pub fn cmd_lock(places: &Places, args: &[String]) -> Result<()> {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Where {
     /// Only the side worktrees of this Mac: for a command that runs here
-    /// (`builds lock`, `build-app`) and a step the repo keeps here (`here`
+    /// (`builds lock`, the android `build-app`) and a step the repo keeps here (`here`
     /// lines).
     Here,
     /// Only the checkouts on hosts: for a test run that opens windows
     /// (`opens-windows` lines), which on this Mac would reach the person's
     /// screen.
     Hosts,
-    /// Any of them (`app-build`, whose steps run where the checkout is).
+    /// Any of them (`app-build`, whose steps run where the checkout is, and
+    /// the mac `build-app`, which copies its app back).
     Anywhere,
 }
 

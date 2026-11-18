@@ -1,5 +1,5 @@
 use super::*;
-use crate::app_config::{parse_config, run_git};
+use crate::app_config::{check_out, parse_config, run_git};
 use crate::testing::{Scratch, git, repo};
 
 #[test]
@@ -99,4 +99,10 @@ fn no_ref_builds_the_origin_main_the_fetch_brought_not_a_stale_local_main() {
     );
     run_command(&top, &config.mac.unwrap().build, None).unwrap();
     assert!(top.join("out.app").is_dir() && top.join("newer").exists());
+}
+
+#[test]
+fn the_mac_build_may_take_a_hosts_checkout_and_the_android_build_may_not() {
+    assert_eq!(Platform::Mac.allowed(), Where::Anywhere);
+    assert_eq!(Platform::Android.allowed(), Where::Here);
 }

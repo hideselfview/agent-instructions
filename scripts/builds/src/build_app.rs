@@ -1,20 +1,25 @@
 //! `builds build-app <repo> mac|android [<ref>]`: builds the person's test app
-//! in the app checkout of the platform's lane (lane.rs), whose build stays
-//! warm, taking turns on that lane's app lock. Nothing is opened. The Mac app is copied out to
-//! `~/Applications/<repo>-test`, since the next build there replaces it, in
-//! place of the copy there, the running one quit first. The Android build is
-//! the repo's own script, which installs the app where it should go.
+//! in an app checkout of the platform's lane (lane.rs), whose build stays
+//! warm, taking turns on that lane's app lock. Nothing is opened. The Mac
+//! build takes a checkout on this Mac or on a host, as `builds app-build`
+//! does, and a build on a host copies the built app back here. The Mac app is
+//! copied out to `~/Applications/<repo>-test`, since the next build there
+//! replaces it, in place of the copy there, the running one quit first. The
+//! Android build is the repo's own script, which installs the app where it
+//! should go, so it takes only a checkout on this Mac.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::thread::sleep;
 use std::time::Duration;
 
-use crate::app_config::{CONFIG, Config, MacApp, app_checkout_top, check_out, run_command};
+use crate::app_config::{CONFIG, Config, MacApp, run_command};
+use crate::app_site::Site;
 use crate::fail;
 use crate::fail::{Context, Result};
+use crate::host::Ssh;
 use crate::lane::Lane;
-use crate::lock::{self, Within};
+use crate::lock::{self, Where, Within};
 use crate::places::Places;
 use crate::text::note;
 use crate::tool::Tool;
@@ -42,6 +47,16 @@ impl Platform {
         match self {
             Platform::Mac => Lane::Mac,
             Platform::Android => Lane::Android,
+        }
+    }
+
+    /// Which of the lane's checkouts the build may take: the Mac build, on
+    /// any host's too, since the build copies its app back here; the Android
+    /// build installs the app on the device of the Mac it runs on.
+    fn allowed(self) -> Where {
+        match self {
+            Platform::Mac => Where::Anywhere,
+            Platform::Android => Where::Here,
         }
     }
 
@@ -169,24 +184,56 @@ fn parse_args(args: &[String]) -> Result<(&String, Platform, &str)> {
     }
 }
 
+/// Runs the build <command> in <site>, with no time limit: here, or on the
+/// host through `builds remote step`.
+fn run_build(site: &mut Site, command: &[String]) -> Result<Within> {
+    match site {
+        Site::Local(top) => run_command(top, command, None),
+        Site::Remote(remote) => {
+            lock::run_in_group_within(remote.step_command(command)?, &command[0], None)
+        }
+    }
+}
+
+/// The folder on this Mac that holds the built app of <mac>: the checkout
+/// itself, or for a checkout on a host the folder the build's output was
+/// copied to.
+fn built_app(site: &mut Site, mac: &MacApp) -> Result<PathBuf> {
+    match site {
+        Site::Local(top) => Ok(top.join(&mac.app)),
+        Site::Remote(remote) => {
+            remote.pull_bundle(&mac.app)?;
+            Ok(remote.local_folder().join(&mac.app))
+        }
+    }
+}
+
 pub fn cmd_build_app(tool: &Tool, args: &[String]) -> Result<()> {
     let (repo, platform, commit) = parse_args(args)?;
     let places = &tool.places;
+    let ssh = Ssh::from_env();
 
     note(format!(
         "waiting for {repo}'s {} app lock, then building {commit}'s {} app",
         platform.word(),
         platform.word()
     ));
-    let mut held = lock::take(places, repo, platform.lane())?;
+    let mut held = lock::take_where(
+        places,
+        &ssh,
+        repo,
+        platform.lane(),
+        platform.allowed(),
+        tool.rules.floor_kib,
+    )?;
     // A takeover stops the build; it runs again from a checkout, behind the
     // build that took over.
-    let (config, top) = loop {
-        let top = app_checkout_top(places, repo, &held.checkout)?;
+    let (config, mut site) = loop {
+        let mut site = Site::of(places, &ssh, repo, platform.lane(), &held.checkout)?;
         note(format!("building in {}", held.checkout));
-        let config = check_out(&top, commit)?;
-        match run_command(&top, platform.build(&config)?, None)? {
-            Within::Ran(lock::Ran::Finished) => break (config, top),
+        let config = site.check_out(places, repo, commit)?;
+        match run_build(&mut site, platform.build(&config)?)? {
+            Within::Ran(lock::Ran::Finished) => break (config, site),
             Within::Ran(lock::Ran::TakenOver) => {
                 note(format!(
                     "the build was stopped for a takeover; building {commit} again after it"
@@ -201,7 +248,7 @@ pub fn cmd_build_app(tool: &Tool, args: &[String]) -> Result<()> {
         return Ok(());
     };
     let app = copy_path(places, repo, mac)?;
-    copy_out(&top.join(&mac.app), &app)?;
+    copy_out(&built_app(&mut site, mac)?, &app)?;
     // The build and the copy are done: the next build can start.
     held.release();
 

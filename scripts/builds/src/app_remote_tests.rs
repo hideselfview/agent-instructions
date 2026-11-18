@@ -276,6 +276,27 @@ fn results_come_back_to_the_checkouts_folder_on_this_mac() {
     app.switch_to(&s.source, &head_of(&s.source)).unwrap();
 }
 
+#[test]
+fn a_built_app_comes_back_with_its_links_as_links() {
+    let s = setup("remote-app-pull-bundle");
+    let mut app = remote_app(&s, Lane::Mac);
+    app.switch_to(&s.source, &head_of(&s.source)).unwrap();
+    let wt = s.home.join("dev/demo-worktrees/app-1");
+    let bundle = wt.join("out/Demo.app/Contents/Frameworks/F.framework/Versions");
+    std::fs::create_dir_all(bundle.join("A")).unwrap();
+    std::fs::write(bundle.join("A/F"), "code").unwrap();
+    std::os::unix::fs::symlink("A", bundle.join("Current")).unwrap();
+    let local = s.places.root.join("demo/m1:app-1");
+    app.pull_bundle("out/Demo.app").unwrap();
+    let copied = local.join("out/Demo.app/Contents/Frameworks/F.framework/Versions");
+    assert_eq!(
+        std::fs::read_link(copied.join("Current")).unwrap(),
+        Path::new("A"),
+        "a link the bundle holds stays a link"
+    );
+    assert_eq!(std::fs::read_to_string(copied.join("A/F")).unwrap(), "code");
+}
+
 /// The lane a switch wrote in the checkout's git dir.
 fn lane_mark(wt: &Path) -> String {
     let git_dir = crate::testing::git_out(wt, &["rev-parse", "--absolute-git-dir"]);

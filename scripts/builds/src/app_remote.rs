@@ -404,6 +404,17 @@ impl RemoteApp {
     /// `local_folder()/<path>`, replacing what is there; a path the checkout
     /// has not made is left out.
     pub fn pull(&mut self, paths: &[String]) -> Result<()> {
+        self.pull_with(paths, "-chf")
+    }
+
+    /// `pull` for a built app: symbolic links stay links, since a bundle's
+    /// frameworks hold some and a copy of what they point at breaks its
+    /// signature.
+    pub fn pull_bundle(&mut self, path: &str) -> Result<()> {
+        self.pull_with(&[path.to_string()], "-cf")
+    }
+
+    fn pull_with(&mut self, paths: &[String], tar_flags: &str) -> Result<()> {
         let worktree = self.locate()?;
         let into = self.local_folder();
         std::fs::create_dir_all(&into).context(|| format!("creating {}", into.display()))?;
@@ -414,7 +425,7 @@ impl RemoteApp {
                     .context(|| format!("removing {}", target.display()))?;
             }
             let script = format!(
-                "cd {} && if [ -e {path} ]; then tar -chf - {path}; fi",
+                "cd {} && if [ -e {path} ]; then tar {tar_flags} - {path}; fi",
                 sh_quote(&worktree),
                 path = sh_quote(path)
             );

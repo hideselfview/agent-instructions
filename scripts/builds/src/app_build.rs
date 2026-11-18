@@ -590,7 +590,7 @@ impl Site {
 
     /// Switches the checkout to <commit> (which must have no changes) and
     /// reads the repo's `.app-build` there.
-    fn check_out(&mut self, places: &Places, repo: &str, commit: &str) -> Result<Config> {
+    pub fn check_out(&mut self, places: &Places, repo: &str, commit: &str) -> Result<Config> {
         match self {
             Site::Local(top) => check_out(top, commit),
             Site::Remote(remote) => {
