@@ -33,9 +33,6 @@ pub struct Request {
     /// The session that took it, and when.
     pub taken: Option<Stamp>,
     pub ended: Option<Ended>,
-    /// The artifacts a published request sent the designs to, in the order
-    /// the session gave them; empty for a request that did not publish.
-    pub links: Vec<Link>,
 }
 
 /// One artifact a request published to.
@@ -63,10 +60,13 @@ impl Link {
 
 /// How a request ended.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-pub struct Ended {
-    pub at: i64,
-    /// None when it published the commit, else what stopped it.
-    pub error: Option<String>,
+#[serde(tag = "outcome", rename_all = "lowercase")]
+pub enum Ended {
+    /// The session published the commit to these artifacts, in the order it
+    /// gave them.
+    Published { at: i64, links: Vec<Link> },
+    /// Something stopped the request, which `error` says.
+    Failed { at: i64, error: String },
 }
 
 /// The error when no design session listens for <project>'s publish
@@ -118,23 +118,26 @@ fn request_of(row: &rusqlite::Row) -> rusqlite::Result<Request> {
             by: row.get(3)?,
         },
         taken: stamp(row.get(4)?, row.get(5)?),
-        ended: match ended_at {
-            Some(at) => Some(Ended {
+        ended: match (ended_at, row.get::<_, Option<String>>(8)?) {
+            (Some(at), Some(error)) => Some(Ended::Failed { at, error }),
+            (Some(at), None) => Some(Ended::Published {
                 at,
-                error: row.get(8)?,
+                links: Vec::new(),
             }),
-            None => None,
+            (None, _) => None,
         },
-        links: Vec::new(),
     })
 }
 
-/// <request> with the links it published to.
+/// <request> with the links it published to, when it published.
 fn with_links(db: &Connection, mut request: Request) -> Result<Request> {
+    let Some(Ended::Published { links, .. }) = &mut request.ended else {
+        return Ok(request);
+    };
     let mut statement = db
         .prepare("SELECT title, url FROM publish_link WHERE request_id = ?1 ORDER BY position")
         .sql()?;
-    request.links = statement
+    *links = statement
         .query_map([request.id], |row| {
             Ok(Link {
                 title: row.get(0)?,
@@ -294,7 +297,7 @@ pub fn published(db: &Connection, id: i64, links: &[Link], at: i64) -> Result<Re
     end(db, id, at, None)?;
     for (position, link) in links.iter().enumerate() {
         db.execute(
-            "INSERT INTO publish_link (request_id, position, title, url) VALUES (?1, ?2, ?3, ?4)",
+            "INSERT INTO publish_link (request_id, outcome, position, title, url) VALUES (?1, 'published', ?2, ?3, ?4)",
             params![id, position as i64, link.title, link.url],
         )
         .sql()?;

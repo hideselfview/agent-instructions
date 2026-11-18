@@ -216,7 +216,7 @@ function status(r) {
   if (!r.ended) return h("div", {class: "bstatus"}, "Publishing ", short(r.commit), r.taken
     ? " · the design session took it at " + minute(r.taken.at)
     : " · asked at " + minute(r.asked.at) + ", waiting for the design session to take it");
-  if (r.ended.error) return h("div", {class: "bstatus failed"}, "Failed to publish ", short(r.commit),
+  if (r.ended.outcome === "failed") return h("div", {class: "bstatus failed"}, "Failed to publish ", short(r.commit),
     " · ended " + minute(r.ended.at) + ": " + r.ended.error);
   return h("div", {class: "bstatus"}, "Published ", short(r.commit), " · ended " + minute(r.ended.at));
 }
@@ -241,8 +241,8 @@ function renderPublish() {
       dismiss(r.id);
       renderPublish();
     }) : null));
-    if (r.ended && !r.ended.error) parts.push(h("div", {class: "pub-links"},
-      r.links.map(l => h("a", {href: l.url, target: "_blank", rel: "noopener"}, l.title))));
+    if (r.ended && r.ended.outcome === "published") parts.push(h("div", {class: "pub-links"},
+      r.ended.links.map(l => h("a", {href: l.url, target: "_blank", rel: "noopener"}, l.title))));
   }
   body.replaceChildren(...parts);
 }

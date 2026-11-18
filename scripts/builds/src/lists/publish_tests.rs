@@ -110,17 +110,13 @@ fn a_request_wakes_the_listening_session_which_takes_it_and_records_the_commit_i
     let ended = done.published.unwrap();
     assert_eq!(
         ended.ended,
-        Some(Ended {
+        Some(Ended::Published {
             at: NOON + 60,
-            error: None
+            links: vec![
+                Link::parse("demo boards=https://claude.ai/artifact/AAA1").unwrap(),
+                Link::parse("Design system=https://claude.ai/artifact/DS1").unwrap(),
+            ],
         })
-    );
-    assert_eq!(
-        ended.links,
-        vec![
-            Link::parse("demo boards=https://claude.ai/artifact/AAA1").unwrap(),
-            Link::parse("Design system=https://claude.ai/artifact/DS1").unwrap(),
-        ]
     );
     assert_eq!(ended.taken.unwrap().by, "design-session");
     let shown = serde_json::to_string(&h.standing()).unwrap();
@@ -143,8 +139,11 @@ fn with_no_session_listening_a_request_is_refused_or_ends_failed() {
     assert_eq!(gone, "No design session is listening for demo");
     let latest = h.standing().latest.unwrap();
     assert_eq!(
-        latest.ended.unwrap().error.as_deref(),
-        Some("No design session is listening for demo")
+        latest.ended,
+        Some(Ended::Failed {
+            at: NOON,
+            error: "No design session is listening for demo".into()
+        })
     );
     assert_eq!(latest.taken, None);
 }
@@ -172,7 +171,13 @@ fn a_send_that_fails_other_than_by_the_session_being_gone_ends_the_request_faile
         "{error}"
     );
     let ended = h.standing().latest.unwrap().ended.unwrap();
-    assert_eq!(ended.error.as_deref(), Some(error.as_str()));
+    assert_eq!(
+        ended,
+        Ended::Failed {
+            at: NOON,
+            error: error.clone()
+        }
+    );
     let again = ask_and_tell(&h.store, COMMIT, &stamp(NOON))
         .unwrap_err()
         .text();
@@ -203,8 +208,11 @@ fn a_failed_publish_ends_with_its_reason_and_a_new_listener_replaces_the_old() {
     .unwrap();
     let latest = h.standing().latest.unwrap();
     assert_eq!(
-        latest.ended.unwrap().error.as_deref(),
-        Some("the canvas refused a call")
+        latest.ended,
+        Some(Ended::Failed {
+            at: NOON + 60,
+            error: "the canvas refused a call".into()
+        })
     );
     let ended = h
         .run(&["publish", "failed", "1", "--why", "again"])

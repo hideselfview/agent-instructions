@@ -39,17 +39,22 @@ CREATE TABLE publish_request (
     CONSTRAINT publish_request_taken_whole CHECK ((taken_at IS NULL) = (taken_by IS NULL)),
     CONSTRAINT publish_request_ended_whole CHECK ((ended_at IS NULL) = (outcome IS NULL)),
     CONSTRAINT publish_request_failed_says_why CHECK ((outcome IS 'failed') = (error IS NOT NULL)),
-    CONSTRAINT publish_request_published_was_taken CHECK (outcome IS NOT 'published' OR taken_at IS NOT NULL)
+    CONSTRAINT publish_request_published_was_taken CHECK (outcome IS NOT 'published' OR taken_at IS NOT NULL),
+    -- Lets a link name the outcome it needs its request to have.
+    CONSTRAINT publish_request_outcome_is_named UNIQUE (id, outcome)
 ) STRICT;
 -- At most one request is open: every open row has the same value here.
 CREATE UNIQUE INDEX publish_request_one_open ON publish_request (ended_at IS NULL) WHERE ended_at IS NULL;
 
 -- The artifacts a published request sent the designs to, as the session found
 -- them on its account: `publish done` writes them with the request's end.
+-- Only a request that ended published has rows here.
 CREATE TABLE publish_link (
-    request_id INTEGER NOT NULL REFERENCES publish_request (id) ON DELETE CASCADE,
+    request_id INTEGER NOT NULL,
+    outcome TEXT NOT NULL CONSTRAINT publish_link_request_published CHECK (outcome = 'published'),
     position INTEGER NOT NULL CONSTRAINT publish_link_position_is_counted CHECK (position >= 0),
     title TEXT NOT NULL CONSTRAINT publish_link_title_says_something CHECK (trim(title) <> ''),
     url TEXT NOT NULL CONSTRAINT publish_link_url_is_https CHECK (url LIKE 'https://%'),
-    PRIMARY KEY (request_id, position)
+    PRIMARY KEY (request_id, position),
+    FOREIGN KEY (request_id, outcome) REFERENCES publish_request (id, outcome) ON DELETE CASCADE
 ) STRICT;

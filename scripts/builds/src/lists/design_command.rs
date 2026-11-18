@@ -692,7 +692,7 @@ fn publish_files(tool: &Tool, args: &[String]) -> Result<String> {
 }
 
 /// `publish-last FOLDER --listing FILE [(--index FILE | --no-index) --by
-/// WHO [--uploaded FILE] [--request N [--project P]]]`: writes the last calls of the artifact whose folder
+/// WHO [--uploaded FILE]]`: writes the last calls of the artifact whose folder
 /// `publish-files` wrote, from the artifact's listing (FILE, or `-` for
 /// standard input) and, for the design system, its live index and the id
 /// each upload got, a JSON object of each upload's path on the artifact and
