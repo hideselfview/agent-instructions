@@ -35,8 +35,10 @@ write ("say who you are with --by").
     items that are ready.
   - The log holds each answer and each standing choice about how work runs,
     with who decided and why.
-  - The design session records each design change, and only the person
-    approves one.
+  - The design session records each design change it draws, and an
+    implementing agent records the board edit of a change the person
+    decided. Only the person approves a design change, in its review or in
+    the decision that settled the edit.
 
 A record's origin is the record it came from, and its trail is its chain of
 origins from the first record to it. When you make an entry from another

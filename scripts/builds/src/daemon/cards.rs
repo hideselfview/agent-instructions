@@ -190,7 +190,8 @@ impl ItemWait {
                 format!("Waits on design change {id} to land: {title}")
             }
             ItemWait::Unrecorded => {
-                "Waits on the design session to record its design change.".to_string()
+                "Waits until a recorded design change covers the design files its commits change."
+                    .to_string()
             }
             ItemWait::RulesReview(review) => review.sentence(),
             ItemWait::Condition(text) => format!("Waits until {text}"),

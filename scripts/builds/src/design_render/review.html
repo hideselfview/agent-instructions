@@ -120,6 +120,7 @@ function showApproval(problem) {
   slot.replaceChildren();
   approvalLine.classList.toggle("problem", !!problem);
   if (problem) { approvalLine.textContent = problem; return; }
+  if (data.decision) { approvalLine.textContent = "The person decided the change in decision #" + data.decision.id + ", so it needs no review."; return; }
   if (data.approved) { approvalLine.textContent = sessionWords[data.session] || ""; return; }
   if (!here) { approvalLine.textContent = "Approval is only on this Mac."; return; }
   approvalLine.textContent = "";

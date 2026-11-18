@@ -254,6 +254,9 @@ enum Review {
     /// A fix that changes no design, which builds approves when it records
     /// the fix.
     Fix,
+    /// A board edit of a change the person decided in this decision, which
+    /// builds approves when it records the decision.
+    Decided(Id),
     /// The person's approval stays: the range's last commit draws every
     /// board as they approved it.
     Kept,
@@ -274,6 +277,10 @@ fn recorded_words(verb: &str, recorded: &design::Recorded, title: &str, review: 
     match review {
         Review::Fix => out.push_str(&format!(
             "it is a fix that changes no design, so it needs no review; builds land --design {} can land it\n",
+            id.0
+        )),
+        Review::Decided(decision) => out.push_str(&format!(
+            "it is a board edit of a change the person decided in decision {decision}, so it needs no review; builds land --design {} can land it\n",
             id.0
         )),
         Review::Kept => out.push_str(&format!(
@@ -329,10 +336,10 @@ fn record(tool: &Tool, args: &[String], cwd: &Path, session: Option<&Messaging>)
             .clone();
         Ok((recorded, title))
     })?;
-    let review = if request.fix.is_some() {
-        Review::Fix
-    } else {
-        Review::Waits
+    let review = match (&request.fix, request.decision) {
+        (Some(_), _) => Review::Fix,
+        (None, Some(decision)) => Review::Decided(decision),
+        (None, None) => Review::Waits,
     };
     Ok(recorded_words("recorded", &recorded, &title, review))
 }
@@ -376,11 +383,12 @@ fn amend(tool: &Tool, args: &[String], cwd: &Path, session: Option<&Messaging>) 
                 design_session::keep(db, id, session)?;
                 let lists = store::read(db)?;
                 let design = lists.design(id).expect("open");
-                let review = match (design.fix.is_some(), design.approved.is_some()) {
-                    (true, _) => Review::Fix,
-                    (false, true) => Review::Kept,
-                    (false, false) if was_approved => Review::Cleared,
-                    (false, false) => Review::Waits,
+                let review = match (&design.fix, design.decision, design.approved.is_some()) {
+                    (Some(_), _, _) => Review::Fix,
+                    (None, Some(decision), _) => Review::Decided(decision),
+                    (None, None, true) => Review::Kept,
+                    (None, None, false) if was_approved => Review::Cleared,
+                    (None, None, false) => Review::Waits,
                 };
                 Ok((recorded, design.title.clone(), review))
             })?;

@@ -145,7 +145,11 @@ WHAT AN IMPLEMENTING AGENT DOES
      agent runs or that a landing waits on checks wording: the person reviews
      copy by hand, and only the person runs the copy review (`builds review
      copy`), which does.
-  7. Commit through the hook.
+  7. Commit through the hook. When the commit edits a board for a change the
+     person decided (ROLES), record the edit with `builds design record` and
+     the decision's id as its `decision` (DESIGN CHANGES), and amend the
+     change with the same `decision` after any later commit that changes the
+     board again.
   8. Report the SHA, the base and the checks. Leave nothing uncommitted: the
      coordinator runs `builds land` in this worktree, which refuses a
      worktree with uncommitted changes.
@@ -362,6 +366,15 @@ project's setting says which it does (`builds lists design-globs PROJECT
 corrected) with `fix` instead: such a fix needs no review page or approval, and
 lands with `--design N` like any other.
 
+An implementing agent that edits an existing board for a change the person
+decided (ROLES) records the edit with `decision`, the id of the person's
+decision in the log. builds approves the change as it records it, because the
+decision is the person's approval, so the change needs no review page. The
+coordinator lands it with the item that built the change (`builds land
+<worktree> --done N --design M <sha>...`) and then, in a project that publishes
+a canvas, publishes the canvas, as the design session does after it lands a
+change.
+
   1. While drawing, look at a board with `builds design render`, which draws
      it from the worktree as one page of HTML without publishing the canvas.
   2. When the boards are drawn, record the change (`builds design record`):
@@ -412,8 +425,9 @@ the person.
     what it waits on, or land and release it. A claim kept on purpose gets
     `builds note <worktree> --state held "<why, and until when>"`.
   - A held worktree whose wait closed: restart its work and clear the hold.
-  - Commits that change design files with no design change: the design
-    session records one (`builds design record`).
+  - Commits that change design files with no design change: whoever made the
+    commits records one (`builds design record`), the design session or, for
+    a board edit of a change the person decided, the implementing agent.
   - A running item whose worktree is gone or unclaimed: land it, stop it
     (`builds item stop`) or hand it on.
   - A branch with commits origin/main lacks that no worktree checks out and

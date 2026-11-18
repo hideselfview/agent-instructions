@@ -287,9 +287,12 @@ const BEFORE_COPY_REVIEW_STAMP: i64 = 2_122_037_992;
 /// each repo's text apart.
 const BEFORE_ACK_PER_REPO_STAMP: i64 = 1_591_868_490;
 
+/// The stamp of the schema before the decided changes' table was added.
+const BEFORE_DESIGN_DECISION_STAMP: i64 = 1_679_979_855;
+
 /// Every stamp a store can carry that `move_store` moves, oldest schema first.
 /// A new move adds the stamp of the schema before it at the end.
-const STAMPS: [i64; 39] = [
+const STAMPS: [i64; 40] = [
     BEFORE_DESIGN_DELETED_STAMP,
     BEFORE_CHECK_TIMES_STAMP,
     BEFORE_DESIGN_TIP_STAMP,
@@ -329,6 +332,7 @@ const STAMPS: [i64; 39] = [
     BEFORE_AGENT_IDS_STAMP,
     BEFORE_COPY_REVIEW_STAMP,
     BEFORE_ACK_PER_REPO_STAMP,
+    BEFORE_DESIGN_DECISION_STAMP,
 ];
 
 /// Whether a store stamped <found> comes before the move that follows the
@@ -438,7 +442,8 @@ const DESIGN_DELETED: &str = "CREATE TABLE design_deleted (
 /// (`review::record::move_to_copy_review`). Every store that has the
 /// acknowledgements' table of one acknowledgement per agent gets today's,
 /// empty, which keeps an agent's acknowledgement of each repo's text apart
-/// (`ack::record::move_to_ack_per_repo`).
+/// (`ack::record::move_to_ack_per_repo`). Every store gets the empty
+/// `design_decision` table (no design change names a decision yet).
 /// The moves run in one transaction, the store
 /// is stamped as today's schema, and it must then equal a fresh database's schema or the transaction rolls back. A
 /// store already at today's stamp, or with no database, is left alone; any
@@ -525,6 +530,12 @@ fn design_tip() -> String {
 /// today's schema text so the result equals a fresh database's.
 fn design_fix() -> String {
     db::statement(&db::schema(), "CREATE TABLE design_fix", "STRICT;").to_string()
+}
+
+/// The statement that makes `design_decision` as design.sql writes it, taken
+/// from today's schema text so the result equals a fresh database's.
+fn design_decision() -> String {
+    db::statement(&db::schema(), "CREATE TABLE design_decision", "STRICT;").to_string()
 }
 
 /// The effects that the `QUESTION_EFFECTS` file <file> gives, or None when
@@ -852,6 +863,11 @@ fn move_store(places: &Places, path: &Path, now: i64) -> Result<()> {
     // acknowledgement per agent, and gets today's table, empty.
     if !before(found, BEFORE_AGENT_IDS_STAMP) && before(found, BEFORE_ACK_PER_REPO_STAMP) {
         crate::ack::record::move_to_ack_per_repo(&tx)?;
+    }
+    // Every store from before the decided changes gets their empty table: no
+    // design change names a decision yet.
+    if before(found, BEFORE_DESIGN_DECISION_STAMP) {
+        tx.execute_batch(&design_decision()).sql()?;
     }
     tx.pragma_update(None, "user_version", db::stamp()).sql()?;
     let broken: Option<String> = tx

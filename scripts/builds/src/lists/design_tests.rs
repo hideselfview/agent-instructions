@@ -1187,6 +1187,137 @@ fn an_amend_without_the_fix_makes_the_change_wait_on_review_again() {
     assert!(design.approved.is_none() && design.fix.is_none());
 }
 
+/// Records in <w>'s store a decision the person made, and returns its id.
+fn decide(w: &World) -> Id {
+    w.store
+        .write(&stamp(NOON), "decision add", |db| {
+            let new = crate::lists::decision::NewDecision {
+                title: "Add a button to the alert".into(),
+                by: "person".into(),
+                body: "The alert gets a second button.".into(),
+                question: None,
+                replaces: None,
+                plan: None,
+            };
+            Ok(crate::lists::decision::add_decision(db, &new, &[], &stamp(NOON))?.decision)
+        })
+        .unwrap()
+}
+
+/// A request for `base..HEAD` that records the board edit of a change the
+/// person decided in <decision>: the board's place answered by the item that
+/// does the app work, its canvas link, and no review page.
+fn decided_request(w: &World, board: &str, item: Id, decision: Id) -> serde_json::Value {
+    let mut request = base_request(w, json!({ board: { "item": item.0 } }));
+    request.as_object_mut().unwrap().remove("review");
+    request["decision"] = json!(decision.0);
+    request
+}
+
+/// An implementing agent edits an existing board in the commit that builds
+/// the change the person decided, and records the edit with the decision.
+/// builds approves it as it records it, since the decision is the approval:
+/// land's check passes, health raises nothing and the worktree's card waits
+/// on nothing.
+#[test]
+fn a_board_edit_for_a_decided_change_is_approved_when_recorded_and_lands() {
+    let w = world("design-decided");
+    let board = "design/mocks/A.dc.html";
+    let work = w
+        .store
+        .write(&stamp(NOON), "seed", |db| {
+            Ok(crate::lists::fixtures::item(db, vec![]))
+        })
+        .unwrap();
+    let decision = decide(&w);
+    let sha = w.commit(&[board, "src/alert.rs"]);
+    assert_eq!(health_of(&w, "base..HEAD").len(), 1);
+
+    let out = w
+        .request(decided_request(&w, board, work, decision))
+        .unwrap();
+    assert!(
+        out.contains("needs no review") && out.contains(&format!("decision {decision}")),
+        "{out}"
+    );
+    let state = w.state();
+    let design = &state.designs[0];
+    assert!(design.approved.is_some());
+    assert_eq!(design.decision, Some(decision));
+    let wt = w.worktree();
+    let id = design.id.0;
+    assert!(
+        w.run(&format!("check {id} {wt} {sha}"))
+            .unwrap()
+            .contains("and is approved")
+    );
+    assert!(
+        w.run(&format!("show {id}"))
+            .unwrap()
+            .contains(&format!("decision {decision}"))
+    );
+    assert_eq!(health_of(&w, "base..HEAD"), Vec::<String>::new());
+    assert_eq!(card_of(&w, "base..HEAD"), None);
+}
+
+/// A decided change names a decision of the log: builds refuses an id no
+/// record has, a record that is no decision, and a change that is both a fix
+/// and a decided change, and records nothing.
+#[test]
+fn a_decided_change_must_name_a_decision_of_the_log() {
+    let w = world("design-decided-refused");
+    let board = "design/mocks/A.dc.html";
+    let work = w
+        .store
+        .write(&stamp(NOON), "seed", |db| {
+            Ok(crate::lists::fixtures::item(db, vec![]))
+        })
+        .unwrap();
+    let decision = decide(&w);
+    w.commit(&[board]);
+    let before = w.bytes();
+    for named in [Id(99), work] {
+        let refused = message(w.request(decided_request(&w, board, work, named)));
+        assert!(refused.contains("no decision"), "{refused}");
+        assert_eq!(w.bytes(), before);
+    }
+    let mut both = decided_request(&w, board, work, decision);
+    both["fix"] = json!("a drawing mistake");
+    let refused = message(w.request(both));
+    assert!(refused.contains("both"), "{refused}");
+    assert_eq!(w.bytes(), before);
+}
+
+#[test]
+fn an_amend_without_the_decision_makes_the_change_wait_on_review_again() {
+    let w = world("design-decided-amend");
+    let board = "design/mocks/A.dc.html";
+    let work = w
+        .store
+        .write(&stamp(NOON), "seed", |db| {
+            Ok(crate::lists::fixtures::item(db, vec![]))
+        })
+        .unwrap();
+    let decision = decide(&w);
+    w.commit(&[board]);
+    w.request(decided_request(&w, board, work, decision))
+        .unwrap();
+    let id = w.state().designs[0].id.0;
+    let amended = w
+        .amend(
+            id,
+            json!({ "worktree": w.worktree(), "range": "base..HEAD", "places": {},
+                    "review": review_of(&[board]) }),
+        )
+        .unwrap();
+    assert!(
+        amended.contains("waits on the person's review"),
+        "{amended}"
+    );
+    let design = &w.state().designs[0];
+    assert!(design.approved.is_none() && design.decision.is_none());
+}
+
 #[test]
 fn an_amend_clears_the_approval_and_says_so() {
     let w = world("design-amend-clears");

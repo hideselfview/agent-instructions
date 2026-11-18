@@ -391,7 +391,10 @@ change waits on the person's review until they approve it; `builds help
 workflow` says how the session and the person work through one. builds land
 --design N refuses the change before approval, and landing closes it. When the
 commits hold several changes, builds land takes --design once for each and
-closes each one.
+closes each one. An implementing agent that edits an existing board for a
+change the person decided records the edit as a design change that names the
+decision (`decision`), and builds approves it as it records it, because the
+decision is the person's approval.
 
 A repo's design files are the globs given to `lists init` or `lists
 design-globs`:
@@ -473,7 +476,7 @@ sent again.
       "review": [{"heading": H, "words": WORDS,
                   "boards": [{"board": BOARD_PATH, "caption": C,
                               "theme": "light" | "dark"}]}],
-      "no_app_place": WHY, "fix": WHAT}.
+      "no_app_place": WHY, "fix": WHAT, "decision": N}.
       `places` answers every design place the range changes (a board, a
       component folder, a spec section) with an open item that does the app
       work, a new item (which waits on this design change, so no one can take
@@ -495,6 +498,16 @@ sent again.
       follow the design system's measures, or a drawing mistake corrected.
       Such a change needs no `review` and is approved when recorded. An amend
       without `fix` makes the change wait on the person's review again.
+      `decision` is the id of the decision in the log in which the person
+      decided the change a board edit draws: a change to an existing screen
+      that the design system's existing parts can draw, such as new words or
+      a button added to an alert. The implementing agent edits the board in
+      the commit that builds the change and records the edit with
+      `decision`. The decision is the person's approval, so the change needs
+      no `review` and is approved when recorded. An amend without `decision`
+      makes the change wait on the person's review again. Record refuses an
+      id that is no decision of the log, and a request that gives both `fix`
+      and `decision`.
       `review` is the review page, in order: each section is a heading, the
       words under it (optional; `code`, **bold**, paragraphs and `-` lists)
       and its boards (optional), each a board file of the repo's design
@@ -536,7 +549,7 @@ sent again.
       they approved did, as after a rebase onto a moved main that changed
       none of them. Otherwise the amend clears the approval, since the person
       approved the boards the session drew before; an amend of a fix without
-      `fix` clears it too.
+      `fix`, or of a decided change without `decision`, clears it too.
 
   builds design approve N --by-person
       Records the person's approval, which only they give: pass --by-person

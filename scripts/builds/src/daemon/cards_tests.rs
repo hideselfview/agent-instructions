@@ -272,7 +272,7 @@ fn an_item_that_waits_on_a_design_review_names_the_change_in_the_pill() {
 }
 
 #[test]
-fn a_design_branch_no_recorded_change_covers_says_it_waits_on_the_design_session() {
+fn a_design_branch_no_recorded_change_covers_says_it_waits_on_a_design_change() {
     let card = words(
         &card(Some("ready-to-land"), claim(Some("note")), Some(0)),
         &[],
@@ -283,7 +283,7 @@ fn a_design_branch_no_recorded_change_covers_says_it_waits_on_the_design_session
         card.pill,
         pill(
             "No design change",
-            "Waits on the design session to record its design change."
+            "Waits until a recorded design change covers the design files its commits change."
         )
     );
 }

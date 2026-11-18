@@ -1821,7 +1821,8 @@ function designRow(g) {
       h("ul", {class: "l-list"}, g.blocks.map(b => h("li", {}, recLink(b.id, b.title))))) : fact("Blocks nothing."),
     g.landed.length ? fact("Landed:", g.landed.map(l => l.commits.join(" ") + " " + stamp(l.at)).join("; ")) : null,
     g.approved ? fact("Approved, waiting to land:", stamp(g.approved.at)) : null,
-    g.approved && sessionNote[g.session] ? fact(sessionNote[g.session]) : null,
+    g.decision ? fact("The person decided the change in decision #" + g.decision.id + ": " + g.decision.title + ". The coordinator lands it with its item.") : null,
+    g.approved && !g.decision && sessionNote[g.session] ? fact(sessionNote[g.session]) : null,
     h("span", {class: "l-sub"}, "#" + g.id + " · ", opened(g, "Recorded")),
     g.closed ? md(g.details) : h("button", {type: "button", class: "l-details", onclick: () => openReview(g)}, "Details"));
   return fold("g:" + g.id, g.id,

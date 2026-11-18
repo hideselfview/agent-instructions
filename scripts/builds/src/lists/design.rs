@@ -120,12 +120,16 @@ pub struct DesignChange {
     /// Why shared design files changed and no drawing did.
     pub no_app_place: Option<String>,
     /// What lets the change land: the person's review (`design approve`),
-    /// or the recording of a fix. An amend clears it unless every board
-    /// stays as the person approved it (`amend`).
+    /// or the recording of a fix or of a decided change. An amend clears it
+    /// unless every board stays as the person approved it (`amend`).
     pub approved: Option<Stamp>,
     /// What a change that changes no design fixes (a design-system measure,
     /// a drawing mistake): it is approved when recorded, with no review.
     pub fix: Option<String>,
+    /// The person's decision that settled a board edit of an existing
+    /// screen, which the implementing agent records: the decision is the
+    /// approval, so the change is approved when recorded, with no review.
+    pub decision: Option<Id>,
     /// The session that recorded it, and whether the approval reached it.
     pub session: SessionState,
     pub opened: Stamp,
@@ -189,6 +193,20 @@ pub struct DesignRequest {
     /// needs no review page and is approved when recorded; an amend without
     /// it makes the change wait on the person's review again.
     pub fix: Option<String>,
+    /// The decision of the log in which the person decided the change this
+    /// board edit draws: a change to an existing screen that the design
+    /// system's existing parts can draw. The decision is the approval, so
+    /// the change needs no review page and is approved when recorded; an
+    /// amend without it makes the change wait on the person's review again.
+    pub decision: Option<Id>,
+}
+
+impl DesignRequest {
+    /// Does the request settle the change without the person's review: a
+    /// fix, or a decided change?
+    fn settled(&self) -> bool {
+        self.fix.is_some() || self.decision.is_some()
+    }
 }
 
 /// What a record or amend made.
@@ -381,7 +399,7 @@ fn resolve(
         .filter(|p| PlaceKind::of(p) == PlaceKind::Board && !on_page.contains(p.as_str()))
         .map(String::as_str)
         .collect();
-    if !missing.is_empty() && request.fix.is_none() {
+    if !missing.is_empty() && !request.settled() {
         fail!(
             "boards of the change missing from the review page: {}; the person reviews every board of a change on its page, so give each under `review`",
             missing.join(", ")
@@ -598,9 +616,9 @@ pub fn record(
         fail!("{fault}");
     }
     let details = require_text("details", request.details.as_ref())?;
-    if request.review.is_none() && request.fix.is_none() {
+    if request.review.is_none() && !request.settled() {
         fail!(
-            "a design change needs its `review`: the headings, words and boards of the page the person reviews it on (a `fix` that changes no design needs none)"
+            "a design change needs its `review`: the headings, words and boards of the page the person reviews it on (a `fix` that changes no design, or a board edit of a change the person decided in a `decision`, needs none)"
         );
     }
     let design = open_change(
@@ -615,29 +633,52 @@ pub fn record(
         stamp,
     )?;
     let new_items = resolve(db, design, request, drawn, changes, affected, stamp)?;
-    keep_fix(db, design, request, stamp)?;
+    keep_settled(db, design, request, stamp)?;
     Ok(Recorded { design, new_items })
 }
 
-/// Writes <request>'s fix of change <id>, which approves it as recorded by
-/// <stamp>, or leaves the change with no fix.
-fn keep_fix(db: &Connection, id: Id, request: &DesignRequest, stamp: &Stamp) -> Result<()> {
-    db.execute("DELETE FROM design_fix WHERE design_id = ?1", [id])
-        .sql()?;
-    let Some(fixes) = &request.fix else {
-        return Ok(());
-    };
-    if fixes.trim().is_empty() {
+/// Writes what settles change <id> without the person's review, as
+/// <request> gives it: a fix, or the decision of a decided change. Either
+/// approves the change as recorded by <stamp>; with neither, the change has
+/// no fix and no decision. Refuses a decision id that is no decision of the
+/// log.
+fn keep_settled(db: &Connection, id: Id, request: &DesignRequest, stamp: &Stamp) -> Result<()> {
+    if request.fix.is_some() && request.decision.is_some() {
         fail!(
-            "fix is empty; say what the change fixes (the design system's measures, a drawing mistake)"
+            "a design change is a `fix` that changes no design or a `decision` the person made, not both"
         );
     }
-    db.execute(
-        "INSERT INTO design_fix (design_id, fixes) VALUES (?1, ?2)",
-        params![id, fixes],
-    )
-    .sql()?;
-    approve(db, id, stamp)
+    db.execute("DELETE FROM design_fix WHERE design_id = ?1", [id])
+        .sql()?;
+    db.execute("DELETE FROM design_decision WHERE design_id = ?1", [id])
+        .sql()?;
+    if let Some(fixes) = &request.fix {
+        if fixes.trim().is_empty() {
+            fail!(
+                "fix is empty; say what the change fixes (the design system's measures, a drawing mistake)"
+            );
+        }
+        db.execute(
+            "INSERT INTO design_fix (design_id, fixes) VALUES (?1, ?2)",
+            params![id, fixes],
+        )
+        .sql()?;
+        return approve(db, id, stamp);
+    }
+    if let Some(decision) = request.decision {
+        if !matches!(record::standing(db, decision)?, Some((Kind::Decision, _))) {
+            fail!(
+                "`decision` names {decision}, which is no decision in the log; give the id of the person's decision that settled the change"
+            );
+        }
+        db.execute(
+            "INSERT INTO design_decision (design_id, decision_id) VALUES (?1, ?2)",
+            params![id, decision],
+        )
+        .sql()?;
+        return approve(db, id, stamp);
+    }
+    Ok(())
 }
 
 /// The open design change <id>.
@@ -722,12 +763,13 @@ pub fn amend(
         && before.places.keys().eq(after.places.keys())
         && before.deleted == after.deleted
         && before.review == after.review
-        && !(before.fix.is_some() && request.fix.is_none());
+        && !(before.fix.is_some() && request.fix.is_none())
+        && !(before.decision.is_some() && request.decision.is_none());
     if !approval_holds {
         db.execute("DELETE FROM design_approval WHERE design_id = ?1", [id])
             .sql()?;
     }
-    keep_fix(db, id, request, stamp)?;
+    keep_settled(db, id, request, stamp)?;
     Ok(Recorded {
         design: id,
         new_items,
@@ -1128,6 +1170,16 @@ fn describe(lists: &Lists, design: &DesignChange, closed: Option<&Closed>) -> St
     if let Some(fixes) = &design.fix {
         let _ = writeln!(out, "a fix that changes no design: {fixes}");
     }
+    if let Some(decision) = design.decision {
+        let title = lists
+            .decision(decision)
+            .map(|d| format!(": {}", d.title))
+            .unwrap_or_default();
+        let _ = writeln!(
+            out,
+            "a board edit of a change the person decided in decision {decision}{title}"
+        );
+    }
     match &design.approved {
         Some(stamp) => {
             let _ = writeln!(
@@ -1402,6 +1454,17 @@ pub fn read(
         let (design, fix) = row.sql()?;
         fixes.insert(design, fix);
     }
+    let mut decisions: BTreeMap<Id, Id> = BTreeMap::new();
+    let mut statement = db
+        .prepare("SELECT design_id, decision_id FROM design_decision")
+        .sql()?;
+    for row in statement
+        .query_map([], |row| Ok((row.get::<_, Id>(0)?, row.get::<_, Id>(1)?)))
+        .sql()?
+    {
+        let (design, decision) = row.sql()?;
+        decisions.insert(design, decision);
+    }
     let mut sessions = design_session::states(db)?;
     let mut statement = db
         .prepare("SELECT id, title, details, repo, worktree, no_app_place FROM design ORDER BY id")
@@ -1442,6 +1505,7 @@ pub fn read(
             no_app_place,
             approved: approvals.remove(&id),
             fix: fixes.remove(&id),
+            decision: decisions.remove(&id),
             session: sessions.remove(&id).unwrap_or(SessionState::Unrecorded),
             opened: opened[&id].clone(),
             landed,
@@ -1452,12 +1516,13 @@ pub fn read(
 
 /// The tables design.rs owns.
 #[cfg(test)]
-const TABLES: [&str; 10] = [
+const TABLES: [&str; 11] = [
     "design",
     "design_session",
     "design_tip",
     "design_approval",
     "design_fix",
+    "design_decision",
     "design_place",
     "design_board",
     "design_deleted",

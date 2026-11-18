@@ -162,6 +162,10 @@ pub struct DesignView {
     pub no_app_place: Option<String>,
     /// The person's review: None while it waits on them.
     pub approved: Option<Stamp>,
+    /// The person's decision that settled a board edit of an existing
+    /// screen, which approved the change when the implementing agent
+    /// recorded it.
+    pub decision: Option<Named>,
     /// Whether the session that recorded it was told of the approval.
     pub session: crate::lists::design_session::SessionState,
     pub opened: Stamp,
@@ -395,6 +399,13 @@ pub fn design_view(lists: &Lists, design: &DesignChange, closed: Option<Stamp>) 
             .collect(),
         no_app_place: design.no_app_place.clone(),
         approved: design.approved.clone(),
+        decision: design.decision.map(|id| Named {
+            id,
+            title: lists
+                .decision(id)
+                .map(|d| d.title.clone())
+                .unwrap_or_default(),
+        }),
         session: design.session,
         opened: design.opened.clone(),
         landed: design.landed.clone(),

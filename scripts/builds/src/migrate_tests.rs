@@ -682,7 +682,7 @@ fn without_landing_review(schema: String) -> String {
 /// <schema> as the text read before the design fixes' table: every older
 /// schema these tests rebuild is today's text with later parts taken out.
 fn without_design_fix(schema: String) -> String {
-    let schema = without_landing_review(schema);
+    let schema = without_landing_review(without_design_decision(schema));
     let fix = "-- A change that changes no design:";
     let start = schema.find(fix).expect("the schema has it");
     let stop = start + schema[start..].find("STRICT;\n\n").expect("it ends") + "STRICT;\n\n".len();
@@ -3207,10 +3207,75 @@ CREATE TABLE ack_word (
 ) STRICT, WITHOUT ROWID;
 "#;
 
+/// The schema text before the decided changes' table: today's, without the
+/// table and with the approval's comment as it read then.
+fn schema_before_design_decision() -> String {
+    let schema = db::schema();
+    assert!(schema.contains(DESIGN_DECISION_COMMENT));
+    without_design_decision(schema)
+}
+
+/// The comment that opens the decided changes' table in design.sql.
+const DESIGN_DECISION_COMMENT: &str = "-- A board edit of a change the person decided";
+
+/// <schema> without the decided changes' table, with the approval's comment
+/// as it read before the table. A schema without the table is left as it is:
+/// every older schema these tests rebuild is today's text with later parts
+/// taken out, and some start from a part list that never held it.
+fn without_design_decision(schema: String) -> String {
+    let Some(start) = schema.find(DESIGN_DECISION_COMMENT) else {
+        return schema;
+    };
+    let stop = start + schema[start..].find("STRICT;\n\n").expect("it ends") + "STRICT;\n\n".len();
+    let without = format!("{}{}", &schema[..start], &schema[stop..]);
+    let now = "-- What lets the change land: the person's review, or the recording of a fix\n-- (design_fix) or of a decided change (design_decision). An amend deletes it.\n";
+    assert_eq!(without.matches(now).count(), 1);
+    without.replace(
+        now,
+        "-- What lets the change land: the person's review, or the recording of a fix\n-- (design_fix). An amend deletes it.\n",
+    )
+}
+
+#[test]
+fn the_design_decision_stamp_is_the_schema_before_decided_changes() {
+    assert_eq!(
+        db::stamp_of_text(&schema_before_design_decision()),
+        BEFORE_DESIGN_DECISION_STAMP
+    );
+}
+
+/// A store from before decided changes gains their empty table and equals a
+/// fresh schema.
+#[test]
+fn a_store_from_before_decided_changes_gains_their_table_and_equals_a_fresh_schema() {
+    let scratch = Scratch::new("move-design-decision");
+    let places = scratch.places();
+    let dir = places.lists.join("bae");
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join(DATABASE);
+    {
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(&schema_before_design_decision())
+            .unwrap();
+        conn.pragma_update(None, "user_version", BEFORE_DESIGN_DECISION_STAMP)
+            .unwrap();
+    }
+    migrate_stores(&places, 0).unwrap();
+    let conn = db::open(&path, db::Make::Never).unwrap();
+    assert_eq!(
+        db::schema_rows(&conn).unwrap(),
+        db::schema_rows(&db::memory()).unwrap()
+    );
+    let decided: i64 = conn
+        .query_row("SELECT COUNT(*) FROM design_decision", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(decided, 0);
+}
+
 /// The schema text before builds kept an agent's acknowledgement of each
 /// repo's text apart.
 fn schema_before_ack_per_repo() -> String {
-    let schema = db::schema();
+    let schema = schema_before_design_decision();
     assert_eq!(schema.matches(db::ACK_PART).count(), 1);
     schema.replacen(db::ACK_PART, BEFORE_ACK_PER_REPO_ACK_PART, 1)
 }

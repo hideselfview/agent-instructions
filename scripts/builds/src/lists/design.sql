@@ -19,7 +19,7 @@ CREATE TABLE design (
 ) STRICT;
 
 -- What lets the change land: the person's review, or the recording of a fix
--- (design_fix). An amend deletes it.
+-- (design_fix) or of a decided change (design_decision). An amend deletes it.
 CREATE TABLE design_approval (
     design_id INTEGER PRIMARY KEY REFERENCES design (id) ON DELETE CASCADE,
     at INTEGER NOT NULL,
@@ -32,6 +32,15 @@ CREATE TABLE design_approval (
 CREATE TABLE design_fix (
     design_id INTEGER PRIMARY KEY REFERENCES design (id) ON DELETE CASCADE,
     fixes TEXT NOT NULL CONSTRAINT design_fix_says_what_it_fixes CHECK (trim(fixes) <> '')
+) STRICT;
+
+-- A board edit of a change the person decided (an existing screen that the
+-- design system's existing parts can draw): the implementing agent records it
+-- with the decision, which is the person's approval, so it needs no review. An
+-- amend that names no decision deletes it.
+CREATE TABLE design_decision (
+    design_id INTEGER PRIMARY KEY REFERENCES design (id) ON DELETE CASCADE,
+    decision_id INTEGER NOT NULL REFERENCES decision (id)
 ) STRICT;
 
 -- Each design place the change touches, resolved by the item that does the
