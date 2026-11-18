@@ -138,6 +138,7 @@ fn sent(root: &Path, calls: &[PathBuf]) -> Vec<String> {
                 .into_owned(),
         );
         for (to, from) in call["files"].as_object().unwrap() {
+            let from = from.get("from").unwrap_or(from);
             assert_eq!(
                 Some(to.as_str()),
                 from.as_str(),
@@ -427,6 +428,51 @@ fn calls_hold_at_most_one_publishs_files_in_order() {
         ],
         "project/components/Cover/preview.html",
     );
+}
+
+/// A call names `text/plain` for each source file the Artifact tool does not
+/// serve, such as index.d.ts, in the {from, contentType} form, and sends a
+/// served file by its path. A file of neither kind fails.
+#[test]
+fn a_file_the_tool_does_not_serve_goes_as_text_plain() {
+    let scratch = Scratch::new("publish-content-types");
+    let dir = demo(&scratch);
+    let publish = write_demo(&scratch, &dir, "HEAD");
+    let system = publish
+        .artifacts
+        .iter()
+        .find(|artifact| artifact.kind() == Kind::DesignSystem)
+        .unwrap();
+    let calls: Vec<Value> = system.calls.iter().map(|call| json_of(call)).collect();
+    let files: Vec<&Map<String, Value>> = calls
+        .iter()
+        .map(|call| call["files"].as_object().unwrap())
+        .collect();
+    let types = files
+        .iter()
+        .find(|files| files.contains_key("project/components/index.d.ts"));
+    assert_eq!(
+        types.unwrap()["project/components/index.d.ts"],
+        json!({"from": "project/components/index.d.ts", "contentType": "text/plain"})
+    );
+    assert!(
+        files.iter().any(
+            |files| files.get("project/components/MacButton/preview.html")
+                == Some(&json!("project/components/MacButton/preview.html"))
+        ),
+        "a served file goes by its path"
+    );
+    assert_eq!(
+        content_type("a/b.D.TS").unwrap(),
+        Some("text/plain"),
+        "the extension's case does not matter"
+    );
+    let error = message(content_type("project/components/blob.wasm"));
+    assert!(
+        error.contains("blob.wasm is neither a file type the Artifact tool serves"),
+        "{error}"
+    );
+    assert!(content_type("project/LICENSE").is_err());
 }
 
 /// The Artifact tool's listing of <paths>, as it prints one.

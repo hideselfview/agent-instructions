@@ -32,6 +32,14 @@ use crate::fail::{Context, Fail, Result};
 
 /// The most files one Artifact publish sends.
 pub const BATCH: usize = 255;
+/// The extensions of the text files the Artifact tool serves with the media
+/// type it infers from the extension, so that a call names them by path.
+const SERVED: [&str; 9] = [
+    "html", "css", "js", "mjs", "json", "md", "txt", "csv", "svg",
+];
+/// The extensions of the source files the Artifact tool does not serve: a call
+/// sends each as `text/plain`, which it must name.
+const SOURCE: [&str; 7] = ["ts", "tsx", "jsx", "yaml", "yml", "toml", "map"];
 /// The record in each artifact's folder of what the folder publishes.
 const RECORD: &str = "artifact.json";
 
@@ -316,15 +324,50 @@ fn write_artifact(
         let [first, rest @ ..] = batch else {
             unreachable!("a chunk holds a path")
         };
-        let files: Map<String, Value> = rest
+        if content_type(first)?.is_some() {
+            fail!(
+                "{first} is the file that a call names as its file_path, which the Artifact tool serves only for a type it infers from the extension"
+            );
+        }
+        let files = rest
             .iter()
-            .map(|path| (path.clone(), json!(path)))
-            .collect();
+            .map(|path| Ok((path.clone(), file_source(path)?)))
+            .collect::<Result<Map<String, Value>>>()?;
         let to = root.join(format!("call-{}.json", n + 1));
         write(&to, &publish_call(url, &root, first, files))?;
         calls.push(to);
     }
     Ok((root, calls))
+}
+
+/// The media type that a call must name for the text file <path>: None for a
+/// type the Artifact tool serves from the extension, `text/plain` for a source
+/// file it does not serve. Fails on any other extension.
+fn content_type(path: &str) -> Result<Option<&'static str>> {
+    let extension = path
+        .rsplit_once('.')
+        .map(|(_, extension)| extension.to_ascii_lowercase())
+        .unwrap_or_default();
+    if SERVED.contains(&extension.as_str()) {
+        Ok(None)
+    } else if SOURCE.contains(&extension.as_str()) {
+        Ok(Some("text/plain"))
+    } else {
+        fail!(
+            "{path} is neither a file type the Artifact tool serves ({}) nor a source file ({}); add its extension to SERVED or SOURCE in design_publish.rs only when the tool serves it or it is text",
+            SERVED.join(", "),
+            SOURCE.join(", ")
+        )
+    }
+}
+
+/// The source of the file at <path> in a call's `files`: its path, or, for a
+/// file the Artifact tool does not serve, the `{from, contentType}` form.
+fn file_source(path: &str) -> Result<Value> {
+    Ok(match content_type(path)? {
+        None => json!(path),
+        Some(media_type) => json!({"from": path, "contentType": media_type}),
+    })
 }
 
 /// Writes into <root>, the design system's folder, the bytes of each of
