@@ -615,7 +615,11 @@ its command exits: builds stops the processes the command left in its process
 group, and a process it left elsewhere (a build daemon) cannot keep the step
 running, since the command's output reaches ssh through relays that builds
 ends. A connection to a host that stops answering ends within a minute and
-fails the step. A mac lane checkout on a host needs Xcode there.
+fails the step. A mac lane checkout on a host needs Xcode there. Each build
+there writes the lane's name to the file builds-app-lane in the checkout's git
+dir, since the lane's list of checkouts stays on this Mac: the host's own
+`builds setup` and `builds prune` read the file and keep the checkout's builds
+warm, as this Mac does for its own app checkouts.
 build-app, `builds lock` and a build that runs a `here` step never take a
 checkout on a host. A build that runs a test class through a line an
 `opens-windows` line names takes only a checkout on a host, never one on this
@@ -1112,7 +1116,12 @@ a toolchain upgrade is fine.
                               claims it. Then it removes each app checkout
                               builds added that no build has used for 60
                               minutes, with its worktree and build folders on
-                              its host (APP BUILDS).
+                              its host (APP BUILDS). Then it runs each host's
+                              own prune with the same options, which keeps
+                              the host's app checkouts warm, and prints what
+                              each host's prune says behind the host's name.
+                              A host that does not answer, or whose prune
+                              fails, does not stop the other hosts' prunes.
                               --idle also deletes every folder and DerivedData
                               entry nothing wrote to for that long, outside
                               main's and the app checkouts' own folders unless

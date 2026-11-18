@@ -53,6 +53,20 @@ fn run_builds_there(
     words: &str,
     doing: &str,
 ) -> Result<String> {
+    ask_builds_there(places, ssh, host, words, doing)?.map_err(fail::Fail::Message)
+}
+
+/// `run_builds_there`, with the host's failure apart from this Mac's: the
+/// outer error is this Mac's (ssh would not start), and the inner one is the
+/// host's (it did not answer, or builds failed there), whose text names the
+/// host and holds what builds printed.
+pub fn ask_builds_there(
+    places: &Places,
+    ssh: &Ssh,
+    host: &Host,
+    words: &str,
+    doing: &str,
+) -> Result<std::result::Result<String, String>> {
     if host.target.is_none() {
         fail!("{LOCAL} is this Mac, not a host to run builds on over ssh");
     }
@@ -60,7 +74,7 @@ fn run_builds_there(
         "{root}if out=$(\"$HOME/.local/bin/builds\" {words} 2>&1); then printf '%s\\n' \"$out\"; else status=$?; printf '%s\\n' \"$out\" >&2; exit $status; fi",
         root = crate::remote::root_script(host)
     );
-    crate::remote::Transport { places, ssh, host }.capture(&script, doing)
+    crate::remote::Transport { places, ssh, host }.ask(&script, doing)
 }
 
 /// Installs <program>, this Mac's `builds`, on <host> (`install_program`)

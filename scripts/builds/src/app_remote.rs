@@ -31,7 +31,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use crate::app_config::{app_checkout_top, run_git};
-use crate::checkout::Checkout;
+use crate::checkout::{APP_LANE_FILE, Checkout};
 use crate::fail;
 use crate::fail::{Context, Result};
 use crate::host::{self, Host, Ssh, clone_path, sh_quote};
@@ -426,9 +426,13 @@ impl RemoteApp {
 
 /// The script that makes the checkout <name> of <repo> on the host when it
 /// has none, set up as a side worktree is, or switches it to <sha> when it
-/// has no changes; it prints `worktree=<folder>`. Its setup runs the host's
-/// `builds setup`, which links the build folders into the host's builds
-/// root, and then the repo's post-checkout, as a job's worktree gets
+/// has no changes; it prints `worktree=<folder>`. Each run writes <lane> to
+/// the checkout's lane file (`Checkout::app_lane_file`), which the host's
+/// builds reads to keep the checkout's builds warm; a checkout a person made
+/// on the host gets the file at its first build. A new checkout's setup
+/// writes the file first, then runs the host's `builds setup`, which links
+/// the build folders into the host's builds root, and then the repo's
+/// post-checkout, as a job's worktree gets
 /// (remote.rs `claim_script`): a repo with no post-checkout would otherwise
 /// build into real folders in the checkout, outside the build volume and
 /// every cap. A checkout whose setup fails is removed, so the next build sets
@@ -446,6 +450,8 @@ fn ensure_script(host: &Host, repo: &str, name: &str, sha: &str, lane: Lane) -> 
         .replace("@SHA@", &sh_quote(sha))
         .replace("@JOBS@", JOBS_REF)
         .replace("@ANDROID@", android)
+        .replace("@LANE@", lane.word())
+        .replace("@LANE_FILE@", APP_LANE_FILE)
 }
 
 /// What a lane's checkout needs besides the repo's post-checkout: in the
@@ -468,8 +474,12 @@ if [ ! -e "$clone/.git" ]; then echo "no clone of @REPO@ at $clone" >&2; exit 90
 wts="$HOME/dev/@REPO@-worktrees"
 wt="$wts/@NAME@"
 mkdir -p "$wts" "$wt.job"
+mark_lane() {
+  printf '%s\n' @LANE@ > "$(git -C "$wt" rev-parse --absolute-git-dir)/@LANE_FILE@"
+}
 setup() {
   cd "$wt" || return 1
+  mark_lane || return 1
   "$HOME/.local/bin/builds" setup "$wt" || return 1
   if [ -x scripts/hooks/post-checkout ]; then
     scripts/hooks/post-checkout 0000000000000000000000000000000000000000 @SHA@ 1 || return 1
@@ -487,6 +497,7 @@ exclude_links() {
   done
 }
 if [ -e "$wt/.git" ]; then
+  mark_lane
   exclude_links
   if [ -n "$(git -C "$wt" status --porcelain)" ]; then
     echo "the app checkout $wt has changes, so nothing was built:" >&2

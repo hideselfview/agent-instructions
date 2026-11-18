@@ -57,6 +57,10 @@ pub fn git_text(command: &mut Command, what: &str) -> Result<String> {
     Ok(String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
+/// The name of the file in a host's app checkout's git dir that names its
+/// lane (`Checkout::app_lane_file`).
+pub const APP_LANE_FILE: &str = "builds-app-lane";
+
 /// A git checkout: the main checkout or one of its worktrees.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Checkout {
@@ -186,6 +190,51 @@ impl Checkout {
         places.root.join(self.repo()).join(self.name())
     }
 
+    /// The file in a host's app checkout's own git dir that names the lane it
+    /// is an app checkout of (`app_lane`), so the mark goes when the worktree
+    /// does.
+    pub fn app_lane_file(&self) -> PathBuf {
+        self.git_dir.join(APP_LANE_FILE)
+    }
+
+    /// The lane this is its repo's app checkout of, if it is one (main keeps
+    /// its builds warm too, but is not one). This Mac's lanes' sets name its
+    /// app checkouts (`Places::app_lane_of`). A host has no sets: they stay on
+    /// the Mac that sends the host its builds, which names the host's
+    /// checkouts there as <host>:<name>. So the script that makes or switches
+    /// an app checkout on a host writes its lane to `app_lane_file`, and a
+    /// host reads that.
+    pub fn app_lane(&self, places: &Places) -> Result<Option<Lane>> {
+        if self.is_main() {
+            return Ok(None);
+        }
+        if !places.is_host()? {
+            return places.app_lane_of(&self.repo(), &self.name());
+        }
+        let file = self.app_lane_file();
+        match std::fs::read_to_string(&file) {
+            Ok(text) => match Lane::parse(text.trim()) {
+                Some(lane) => Ok(Some(lane)),
+                None => fail!(
+                    "{} holds {text:?}, not a lane (mac | android)",
+                    file.display()
+                ),
+            },
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(error) => fail!("reading {}: {error}", file.display()),
+        }
+    }
+
+    /// Does this checkout keep its builds warm, as main and the app checkouts
+    /// do? The person installs from main and tests agents' app builds in the
+    /// app checkouts. The free-space floor never deletes their folders (an
+    /// app checkout's folders of the other lane excepted, see
+    /// `BuildDir::is_app_in`), and `prune --idle` leaves them unless
+    /// --include-warm; the caps still apply to them.
+    pub fn keeps_warm(&self, places: &Places) -> Result<bool> {
+        Ok(self.is_main() || self.app_lane(places)?.is_some())
+    }
+
     /// A claim is a file in the worktree's own git dir, so it goes when the
     /// worktree does.
     pub fn claim_file(&self) -> PathBuf {
@@ -293,40 +342,28 @@ impl Root {
         file_name(&self.path)
     }
 
-    /// Is this main's or an app checkout's root? Their builds stay warm on
-    /// purpose: the person installs from main and tests agents' app builds in
-    /// the app checkouts. The free-space floor never deletes their folders (an
-    /// app checkout's folders of the other lane excepted, see
-    /// `BuildDir::is_app_in`); the caps still apply to them.
+    /// Is this the root of a live checkout that keeps its builds warm
+    /// (`Checkout::keeps_warm`)? A gone checkout keeps nothing warm.
     pub fn keeps_warm(&self, places: &Places) -> Result<bool> {
-        keeps_warm(places, &self.path)
+        match &self.live {
+            Some(checkout) => checkout.keeps_warm(places),
+            None => Ok(false),
+        }
     }
 
-    /// The lane this is its repo's app checkout of (main keeps its builds warm
-    /// too, but is not one).
+    /// The lane this root's live checkout is an app checkout of
+    /// (`Checkout::app_lane`); None for a gone checkout.
     pub fn app_lane(&self, places: &Places) -> Result<Option<Lane>> {
-        app_lane(places, &self.path)
+        match &self.live {
+            Some(checkout) => checkout.app_lane(places),
+            None => Ok(None),
+        }
     }
 
     /// Is this an app checkout of either lane?
     pub fn is_app_checkout(&self, places: &Places) -> Result<bool> {
         Ok(self.app_lane(places)?.is_some())
     }
-}
-
-/// See `Root::app_lane`; for a root path.
-pub fn app_lane(places: &Places, root: &Path) -> Result<Option<Lane>> {
-    let checkout = file_name(root);
-    if checkout == "main" {
-        return Ok(None);
-    }
-    let repo = root.parent().map(file_name).unwrap_or_default();
-    places.app_lane_of(&repo, &checkout)
-}
-
-/// See `Root::keeps_warm`; for a root path.
-pub fn keeps_warm(places: &Places, root: &Path) -> Result<bool> {
-    Ok(file_name(root) == "main" || app_lane(places, root)?.is_some())
 }
 
 /// Every build root on the volume (<root>/*/*/.checkout), in glob order.

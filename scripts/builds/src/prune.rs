@@ -7,7 +7,7 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use crate::checkout::{Checkout, Root, app_lane, git, git_text};
+use crate::checkout::{Checkout, Root, git, git_text};
 use crate::evict::{Recreate, Removal, evict, make_temp_dir};
 use crate::fail;
 use crate::fail::{Context, Result};
@@ -58,7 +58,7 @@ pub fn prune_root(
     let mut freed = units::prune::prune(&cargo_ages(tool), run.dry(), &folders)?;
     freed.extend(prune_trees(tool, root, checkout, &folders, run)?);
     let claimed = checkout.claim_file().is_file();
-    let lane = app_lane(&tool.places, root)?;
+    let lane = checkout.app_lane(&tool.places)?;
     // Measured together, after the pruning: deleting one folder changes no
     // other's size.
     let measures = tool.measure_all(&folders)?;
@@ -728,8 +728,9 @@ fn naming_texts(tops: &[&Path], files: &[String]) -> std::result::Result<Vec<Str
 }
 
 /// `builds prune [--dry-run] [--idle <minutes> [--include-warm]]`. Also
-/// retires the free side worktrees nothing has used for a day, and removes
-/// the worktrees on the hosts that no checkout's jobs use. A prune that
+/// retires the free side worktrees nothing has used for a day, removes the
+/// worktrees on the hosts that no checkout's jobs use, and runs each host's
+/// own prune with the same options (`prune_hosts`). A prune that
 /// deletes holds the prune lock while it runs and records when it finished
 /// (prune_schedule.rs).
 pub fn cmd_prune(tool: &Tool, args: &[String]) -> Result<()> {
@@ -770,6 +771,7 @@ pub fn cmd_prune(tool: &Tool, args: &[String]) -> Result<()> {
     let ssh = crate::host::Ssh::from_env();
     crate::remote_worktrees::prune(&tool.places, &ssh, run)?;
     crate::lane_size::shrink_all(&tool.places, &ssh, run)?;
+    prune_hosts(&tool.places, &ssh, args)?;
     let roots = tool.roots()?;
     for root in &roots {
         let Some(checkout) = &root.live else {
@@ -807,6 +809,36 @@ pub fn cmd_prune(tool: &Tool, args: &[String]) -> Result<()> {
     if !run.dry() {
         empty_trash(tool)?;
         crate::prune_schedule::record_finished(&tool.places, crate::app_timing::now())?;
+    }
+    Ok(())
+}
+
+/// Runs each recorded host's own `builds prune` with <options>, this
+/// prune's, after this prune removed the worktrees and app checkouts there
+/// that no checkout here uses: the host deletes the build roots of the
+/// checkouts gone there, applies the caps and the rest to its own folders,
+/// and keeps its app checkouts warm (`Checkout::app_lane`). What the host's
+/// prune says comes out here behind the host's name. When a host does not
+/// answer or its prune fails, prune notes it and moves on to the next host.
+fn prune_hosts(
+    places: &crate::places::Places,
+    ssh: &crate::host::Ssh,
+    options: &[String],
+) -> Result<()> {
+    let words: Vec<String> = std::iter::once("prune".to_string())
+        .chain(options.iter().map(|option| crate::host::sh_quote(option)))
+        .collect();
+    for host in crate::host::read_remote(places)? {
+        match crate::host_setup::ask_builds_there(places, ssh, &host, &words.join(" "), "pruning")?
+        {
+            Ok(said) => {
+                for line in said.lines().filter(|line| !line.is_empty()) {
+                    let line = line.strip_prefix("builds: ").unwrap_or(line);
+                    note(format!("host {}: {line}", host.name));
+                }
+            }
+            Err(said) => note(said),
+        }
     }
     Ok(())
 }

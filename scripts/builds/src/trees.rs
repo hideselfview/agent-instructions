@@ -31,7 +31,7 @@
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
-use crate::checkout::{Checkout, keeps_warm};
+use crate::checkout::Checkout;
 use crate::evict::{Recreate, Removal, evict};
 use crate::fail;
 use crate::fail::Result;
@@ -177,7 +177,7 @@ pub fn prune_trees(
 ) -> Result<Vec<(PathBuf, u64)>> {
     // The builds the manifest keeps stay in the checkouts the person builds
     // and runs in; in any other checkout they age like the rest.
-    let kept: Vec<PathBuf> = if keeps_warm(&tool.places, root)? {
+    let kept: Vec<PathBuf> = if checkout.keeps_warm(&tool.places)? {
         kept_builds(&checkout.top)?
             .iter()
             .map(|path| root.join(path))

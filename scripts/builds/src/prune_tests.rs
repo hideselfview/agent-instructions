@@ -228,3 +228,123 @@ fn pruning_deletes_nothing_in_a_folder_it_cannot_list() {
         "pruning deleted a version in a folder it could not list"
     );
 }
+
+/// A host's app checkouts have no line in a lane's set, which stays on the Mac
+/// that sends the host its builds: the host's prune reads the lane that the
+/// checkout's git dir names, keeps that lane's folders warm under --idle,
+/// and lets the other lane's folders and a job worktree's go.
+#[test]
+fn a_hosts_prune_keeps_its_app_checkouts_lane_folders_warm() {
+    let scratch = Scratch::new("prune-host-app");
+    let tool = scratch.tool(0);
+    tool.places.mark_host().unwrap();
+    let main = scratch.dir.join("demo");
+    crate::testing::repo(&main, "xcode 4M lane mac\ngradle 4M lane android\n");
+    let mut roots = Vec::new();
+    for name in ["app-1", "remote-side-1"] {
+        let dir = scratch.dir.join("demo-worktrees").join(name);
+        crate::testing::git(
+            &main,
+            &[
+                "worktree",
+                "add",
+                "-q",
+                "--detach",
+                &dir.display().to_string(),
+            ],
+        );
+        let checkout = Checkout::find(&dir.display().to_string()).unwrap();
+        crate::setup::setup(&tool, &checkout).unwrap();
+        roots.push((checkout.clone(), checkout.build_root(&tool.places)));
+    }
+    std::fs::write(roots[0].0.app_lane_file(), "mac\n").unwrap();
+    assert_eq!(
+        roots[0].0.app_lane(&tool.places).unwrap(),
+        Some(crate::lane::Lane::Mac)
+    );
+    assert_eq!(roots[1].0.app_lane(&tool.places).unwrap(), None);
+    for (_, root) in &roots {
+        for folder in ["xcode", "gradle"] {
+            fill(&root.join(folder).join("blob"), 2048);
+            age_all(&root.join(folder), 2);
+        }
+    }
+    for (checkout, root) in &roots {
+        prune_root(&tool, root, checkout, Run::Real, 60, 0).unwrap();
+    }
+    assert!(
+        roots[0].1.join("xcode/blob").exists(),
+        "the host deleted its mac app checkout's idle mac folder"
+    );
+    assert!(
+        !roots[0].1.join("gradle/blob").exists(),
+        "the host kept its mac app checkout's idle android folder"
+    );
+    assert!(
+        !roots[1].1.join("xcode/blob").exists(),
+        "the host kept a job worktree's idle folder"
+    );
+}
+
+/// This Mac's lanes' sets name its app checkouts; a lane file in a checkout's
+/// git dir names one only on a host.
+#[test]
+fn this_mac_reads_its_app_checkouts_from_the_lanes_sets() {
+    let scratch = Scratch::new("prune-mac-app");
+    let tool = scratch.tool(0);
+    let main = scratch.dir.join("demo");
+    crate::testing::repo(&main, "target 1G\n");
+    let dir = scratch.dir.join("demo-worktrees/side-1");
+    crate::testing::git(
+        &main,
+        &[
+            "worktree",
+            "add",
+            "-q",
+            "--detach",
+            &dir.display().to_string(),
+        ],
+    );
+    let checkout = Checkout::find(&dir.display().to_string()).unwrap();
+    std::fs::write(checkout.app_lane_file(), "mac\n").unwrap();
+    assert_eq!(checkout.app_lane(&tool.places).unwrap(), None);
+    std::fs::create_dir_all(tool.places.root.join("demo")).unwrap();
+    std::fs::write(
+        tool.places
+            .app_checkouts_file("demo", crate::lane::Lane::Android),
+        "side-1\n",
+    )
+    .unwrap();
+    assert_eq!(
+        checkout.app_lane(&tool.places).unwrap(),
+        Some(crate::lane::Lane::Android)
+    );
+}
+
+/// `builds prune` runs each host's own prune with its options, and a host
+/// that does not answer or whose prune fails leaves the rest to run.
+#[test]
+fn a_prune_runs_each_hosts_own_prune_with_its_options() {
+    let scratch = Scratch::new("prune-hosts");
+    let places = scratch.places();
+    let home = scratch.dir.join("remote-home");
+    let ssh = crate::host::tests::fake_ssh(&scratch.dir.join("bin"), &home);
+    crate::testing::host_builds(
+        &home,
+        r#"echo "builds $*" >> "$HOME/runs.txt"
+echo "builds: deleted a folder" >&2"#,
+    );
+    std::fs::write(
+        crate::host::hosts_file(&places),
+        "gone unreachable 4\nm1 user@m1 10\n",
+    )
+    .unwrap();
+    let options = ["--idle".to_string(), "60".to_string()];
+    prune_hosts(&places, &ssh, &options).unwrap();
+    assert_eq!(
+        std::fs::read_to_string(home.join("runs.txt")).unwrap(),
+        "builds prune --idle 60\n"
+    );
+    crate::testing::host_builds(&home, "echo 'builds: another prune runs' >&2; exit 1");
+    prune_hosts(&places, &ssh, &[]).unwrap();
+}

@@ -275,3 +275,34 @@ fn results_come_back_to_the_checkouts_folder_on_this_mac() {
     // The link the build made is no change to the checkout.
     app.switch_to(&s.source, &head_of(&s.source)).unwrap();
 }
+
+/// The lane a switch wrote in the checkout's git dir.
+fn lane_mark(wt: &Path) -> String {
+    let git_dir = crate::testing::git_out(wt, &["rev-parse", "--absolute-git-dir"]);
+    std::fs::read_to_string(Path::new(git_dir.trim()).join(crate::checkout::APP_LANE_FILE)).unwrap()
+}
+
+#[test]
+fn a_switch_marks_the_checkout_with_its_lane_before_the_hosts_setup_runs() {
+    let s = setup("remote-app-lane");
+    // The host's builds says which lane the checkout's git dir names when
+    // its setup runs.
+    host_builds(
+        &s.home,
+        r#"echo "builds $* $(cat "$(git -C "$2" rev-parse --absolute-git-dir)/builds-app-lane")" >> "$HOME/runs.txt""#,
+    );
+    let mut app = remote_app(&s, Lane::Android);
+    app.switch_to(&s.source, &head_of(&s.source)).unwrap();
+    let wt = s.home.join("dev/demo-worktrees/app-1");
+    assert_eq!(lane_mark(&wt), "android\n");
+    assert_eq!(
+        std::fs::read_to_string(s.home.join("runs.txt")).unwrap(),
+        format!("builds setup {wt} android\nhook {wt}\n", wt = wt.display())
+    );
+    // A checkout that a person made on the host, or one from before the
+    // mark, gets it at its next switch.
+    let git_dir = crate::testing::git_out(&wt, &["rev-parse", "--absolute-git-dir"]);
+    std::fs::remove_file(Path::new(git_dir.trim()).join(crate::checkout::APP_LANE_FILE)).unwrap();
+    app.switch_to(&s.source, &head_of(&s.source)).unwrap();
+    assert_eq!(lane_mark(&wt), "android\n");
+}
