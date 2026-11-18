@@ -36,7 +36,9 @@ use crate::fail::{Context, Result};
 use crate::host::{self, Host, Ssh, clone_path, sh_quote};
 use crate::lane::Lane;
 use crate::places::Places;
-use crate::remote::{JOBS_REF, Transport, job_id, release_script, root_script, worktree_in};
+use crate::remote::{
+    JOB_WORKTREE_PREFIX, JOBS_REF, Transport, job_id, release_script, root_script, worktree_in,
+};
 
 /// What separates the host from the checkout's name in a lane's entry.
 const SEPARATOR: char = ':';
@@ -73,7 +75,7 @@ pub fn name_in(path: &str) -> Result<(String, String)> {
     if dev != "dev" {
         fail!("{path:?} is not under dev/; a host's app checkout is ~/dev/<repo>-worktrees/<name>");
     }
-    if name.starts_with("remote-") {
+    if name.starts_with(JOB_WORKTREE_PREFIX) {
         fail!(
             "{name} is a name `builds remote run` gives its job worktrees; give the app checkout another"
         );

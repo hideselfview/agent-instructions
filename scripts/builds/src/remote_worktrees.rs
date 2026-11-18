@@ -24,11 +24,8 @@ use crate::host::{self, Host, Ssh, clone_path, sh_quote};
 use crate::lane::Lane;
 use crate::places::Places;
 use crate::prune::Run;
-use crate::remote::{Transport, root_script};
+use crate::remote::{JOB_WORKTREE_PREFIX, Transport, root_script};
 use crate::text::note;
-
-/// The prefix of the name of every worktree a job runs in.
-const PREFIX: &str = "remote-";
 
 /// Who holds a job worktree's claim.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -89,7 +86,7 @@ fn parse_list(text: &str) -> Vec<HostWorktree> {
 /// names of the checkouts of its repo on this Mac): is it
 /// `remote-<checkout>` or `remote-<checkout>.<n>`?
 fn belongs(name: &str, checkouts: &[String]) -> bool {
-    let Some(rest) = name.strip_prefix(PREFIX) else {
+    let Some(rest) = name.strip_prefix(JOB_WORKTREE_PREFIX) else {
         return false;
     };
     checkouts.iter().any(|checkout| {
@@ -130,7 +127,10 @@ fn judge(
     if belongs(&worktree.name, checkouts) {
         return Judged::Used;
     }
-    let checkout = worktree.name.strip_prefix(PREFIX).unwrap_or(&worktree.name);
+    let checkout = worktree
+        .name
+        .strip_prefix(JOB_WORKTREE_PREFIX)
+        .unwrap_or(&worktree.name);
     let why = format!("no checkout of {} here is named {checkout}", worktree.repo);
     match &worktree.claim {
         Claim::Free => Judged::Unused(why),

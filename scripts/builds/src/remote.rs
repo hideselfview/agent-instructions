@@ -36,6 +36,9 @@ const USAGE: &str = "usage: builds remote run <repo> <ref> [--host <name>] -- <c
 /// The refs a job's commit is sent as, in the host's clone.
 pub const JOBS_REF: &str = "refs/builds/jobs";
 
+/// The prefix of the name of every worktree a job runs in (`pinned_name`).
+pub const JOB_WORKTREE_PREFIX: &str = "remote-";
+
 /// The exit status builds gives a job a signal stopped.
 const STOPPED_EXIT: i32 = 130;
 
@@ -369,7 +372,7 @@ export PATH
 /// takes `remote-<name>.2`, and so on.
 pub fn pinned_name(source: &Path) -> Result<String> {
     match source.file_name().and_then(|name| name.to_str()) {
-        Some(name) if !name.is_empty() => Ok(format!("remote-{name}")),
+        Some(name) if !name.is_empty() => Ok(format!("{JOB_WORKTREE_PREFIX}{name}")),
         _ => fail!(
             "{} has no folder name to name its worktree on a host",
             source.display()

@@ -1012,9 +1012,10 @@ the main disk. So `setup` keeps a free-space floor of 30 GiB
 deletes the build roots of checkouts that are gone, DerivedData's idle entries,
 then the incremental folders nothing wrote inside for 60 minutes in every
 checkout (claimed ones, main and the app checkouts included), and then the
-whole folders of unclaimed side worktrees that nothing wrote to for 30 minutes,
-never main's or an app checkout's own lane's folders; each kind goes least
-recently written first, until the floor is reached. If setup can't reach the
+whole folders that nothing wrote to for 30 minutes in the side worktrees no
+agent claims and in a host's job worktrees no job claims, never main's or an
+app checkout's own lane's folders; each kind goes least recently written first,
+until the floor is reached. If setup can't reach the
 floor, it warns, naming the free space and the biggest folders, and the build
 goes on: whoever runs the agents stops starting more. Only under the hard floor
 of 10 GiB (BUILDS_HARD_FLOOR_GIB) does it fail, before the build starts, rather

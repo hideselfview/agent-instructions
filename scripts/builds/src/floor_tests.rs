@@ -220,3 +220,43 @@ fn an_app_checkout_keeps_warm_only_the_folders_its_lane_builds_into() {
         );
     }
 }
+
+#[test]
+fn under_the_floor_a_job_worktree_goes_unless_a_job_claims_it() {
+    let scratch = Scratch::new("floor-jobs");
+    let tool = scratch.tool(0);
+    let main = scratch.dir.join("demo");
+    repo(&main, "target 1G\n");
+    for name in ["remote-side-1", "remote-side-2"] {
+        let dir = scratch.dir.join("demo-worktrees").join(name);
+        git(
+            &main,
+            &[
+                "worktree",
+                "add",
+                "-q",
+                "--detach",
+                &dir.display().to_string(),
+            ],
+        );
+        let checkout = Checkout::find(&dir.display().to_string()).unwrap();
+        crate::setup::setup(&tool, &checkout).unwrap();
+        let target = checkout.build_root(&tool.places).join("target");
+        fill(&target.join("blob"), 2048);
+        age_all(&target, 2);
+    }
+    // A job claims remote-side-2, as the claim script does.
+    std::fs::create_dir(scratch.dir.join("demo-worktrees/remote-side-2.job")).unwrap();
+    let tool = scratch.tool(1 << 30);
+    let roots = all_roots(&tool.places).unwrap();
+    keep_floor(&tool, &roots).unwrap();
+    let root = tool.places.root.join("demo");
+    assert!(
+        !root.join("remote-side-1/target/blob").exists(),
+        "the idle folder of a job worktree no job claims was kept"
+    );
+    assert!(
+        root.join("remote-side-2/target/blob").exists(),
+        "the folder of a job worktree a job claims was deleted"
+    );
+}

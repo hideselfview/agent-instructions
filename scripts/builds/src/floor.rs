@@ -5,18 +5,18 @@
 //! disk. So `setup` also keeps a free-space floor: under it, it deletes
 //! DerivedData's idle entries, then the incremental folders nothing wrote to
 //! for FLOOR_INCREMENTAL_IDLE_MINUTES in every checkout, then whole idle
-//! folders across every checkout but main and the app checkout, whose builds
-//! stay warm on purpose, and but claimed worktrees, whose agents are
-//! mid-task, least recently written first. If it still can't reach the floor
-//! it warns, naming the biggest folders, and the build goes on: whoever runs
-//! the agents frees space or runs fewer of them. Only under the hard floor
-//! does it fail, rather than let the build run out of space halfway. It never
-//! deletes a shared cache.
+//! folders of the side worktrees no agent claims and of a host's job
+//! worktrees no job claims, least recently written first, never main's or an
+//! app checkout's own lane's, whose builds stay warm on purpose. If it still
+//! can't reach the floor it warns, naming the biggest folders, and the build
+//! goes on: whoever runs the agents frees space or runs fewer of them. Only
+//! under the hard floor does it fail, rather than let the build run out of
+//! space halfway. It never deletes a shared cache.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
-use crate::checkout::Root;
+use crate::checkout::{Checkout, Root};
 use crate::evict::{Recreate, Removal, evict};
 use crate::fail::{Fail, Result};
 use crate::manifest::{SHARED_CACHES, build_dirs};
@@ -34,17 +34,24 @@ struct Candidate {
     measured: Measure,
 }
 
+/// Is <checkout> one whose folders the floor may delete: a side worktree no
+/// agent claims, or a job worktree on a host that no job claims? A claimed
+/// worktree has an agent or a job at work in it; an agent may go quiet for an
+/// hour between builds, and deleting its folders costs it a cold rebuild of
+/// every dependency.
+fn unclaimed(checkout: &Checkout) -> bool {
+    (checkout.is_side() && !checkout.claim_file().is_file())
+        || (checkout.is_job() && !checkout.job_claim_folder().exists())
+}
+
 /// The build folders the floor may delete, least recently written first:
-/// every live checkout's but main's, a claimed one's and the folders an app
-/// checkout's lane builds into.
-/// A claimed worktree has an agent at work in it, who may go quiet for an
-/// hour between builds; deleting its folders costs that agent a cold rebuild
-/// of every dependency.
+/// every unclaimed side or job worktree's (`unclaimed`), but for the folders
+/// an app checkout's lane builds into.
 fn floor_candidates(tool: &Tool, roots: &[Root]) -> Result<Vec<Candidate>> {
     let mut paths = Vec::new();
     for root in roots {
         let Some(checkout) = &root.live else { continue };
-        if !checkout.is_side() || checkout.claim_file().is_file() {
+        if !unclaimed(checkout) {
             continue;
         }
         let lane = root.app_lane(&tool.places)?;
@@ -172,7 +179,7 @@ pub fn keep_floor(tool: &Tool, roots: &[Root]) -> Result<()> {
         return Ok(());
     }
     note(format!(
-        "the build volume has {} free, under the {} floor; deleting idle DerivedData entries, then incremental folders nothing wrote to in {FLOOR_INCREMENTAL_IDLE_MINUTES}m, then idle build folders of unclaimed side worktrees, least recently written first",
+        "the build volume has {} free, under the {} floor; deleting idle DerivedData entries, then incremental folders nothing wrote to in {FLOOR_INCREMENTAL_IDLE_MINUTES}m, then idle build folders of unclaimed side and job worktrees, least recently written first",
         human(free),
         human(floor)
     ));

@@ -141,14 +141,36 @@ impl Checkout {
     /// else made (Claude Code's harness puts agents' under
     /// <main>/.claude/worktrees) is not one, and no command treats it as one.
     pub fn is_side(&self) -> bool {
-        let Some(parent) = self.main.parent() else {
-            return false;
-        };
-        let folder = parent.join(format!("{}-worktrees", self.repo()));
-        self.top.parent() == Some(folder.as_path())
-            && file_name(&self.top)
-                .strip_prefix("side-")
+        self.name_in_worktrees().is_some_and(|name| {
+            name.strip_prefix("side-")
                 .is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
+        })
+    }
+
+    /// Is this a worktree that jobs run in on a host,
+    /// <main's folder>/../<repo>-worktrees/remote-<name>
+    /// (`remote::pinned_name`)?
+    pub fn is_job(&self) -> bool {
+        self.name_in_worktrees()
+            .is_some_and(|name| name.starts_with(crate::remote::JOB_WORKTREE_PREFIX))
+    }
+
+    /// The folder a job claims a job worktree with, <top>.job, while it runs
+    /// there (remote_worktrees.rs).
+    pub fn job_claim_folder(&self) -> PathBuf {
+        let mut folder = self.top.clone().into_os_string();
+        folder.push(".job");
+        PathBuf::from(folder)
+    }
+
+    /// The worktree's folder name, when it is in the repo's worktrees folder,
+    /// <main's folder>/../<repo>-worktrees.
+    fn name_in_worktrees(&self) -> Option<String> {
+        let folder = self
+            .main
+            .parent()?
+            .join(format!("{}-worktrees", self.repo()));
+        (self.top.parent() == Some(folder.as_path())).then(|| file_name(&self.top))
     }
 
     /// `main`, or the worktree's folder name.
