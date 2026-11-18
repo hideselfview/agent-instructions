@@ -84,6 +84,12 @@ cd "$ws"
 # The workspace's Cargo.lock, as a repo commits it: builds cargo runs cargo
 # with --locked.
 cargo generate-lockfile -q
+# builds cargo has cargo link with builds-linker (linker.rs), and cargo
+# rebuilds every unit it links when the linker changes; so the workspace
+# links with it too, and a plain cargo build is up to date after a builds
+# cargo build of the same sources.
+mkdir .cargo
+printf '[target.%s]\nlinker = "%s"\n' "$(rustc -vV | sed -n 's/^host: //p')" "$HOME/.local/bin/builds-linker" > .cargo/config.toml
 
 # Bumps dep's version from $1 to $2 and updates Cargo.lock to match, as the
 # commit that bumps it would.
