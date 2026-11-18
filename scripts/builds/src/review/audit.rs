@@ -265,24 +265,35 @@ pub fn audit(inputs: &Inputs) -> Result<String> {
     let diff = run::diff_between(inputs.repo_dir, &last.base, &last.head)?.diff;
     let material = Material::load(inputs.root, inputs.project)?;
     let ran = groups_ran(&conn, inputs.landing)?;
-    let audited: Vec<(&Group, Vec<&Rule>)> = material
-        .groups
-        .named(&material.rules, &ran)
-        .into_iter()
-        .map(|(group, members)| {
-            let covering: Vec<&Rule> = members
-                .into_iter()
-                .filter(|rule| rule.matches(&diff.changed))
-                .collect();
-            (group, covering)
-        })
-        .filter(|(_, covering)| !covering.is_empty())
-        .collect();
+    let reviewed = material.groups.named(&material.rules, &ran);
+    let mut audited: Vec<(&Group, Vec<&Rule>)> = Vec::new();
+    let mut text = String::new();
+    for name in &ran {
+        let Some((group, members)) = reviewed.iter().find(|(group, _)| &group.name == name) else {
+            text.push_str(&format!(
+                "not audited: group {name} ran on the landing's review, and the rules checkout has no group of that name that `builds review` asks\n"
+            ));
+            continue;
+        };
+        let covering: Vec<&Rule> = members
+            .iter()
+            .copied()
+            .filter(|rule| rule.matches(&diff.changed))
+            .collect();
+        if covering.is_empty() {
+            text.push_str(&format!(
+                "not audited: group {name} has no rule in the rules checkout that covers the changed paths\n"
+            ));
+            continue;
+        }
+        audited.push((*group, covering));
+    }
     if audited.is_empty() {
-        return Ok(
-            "no group the landing's review ran has a rule that covers the changed paths: nothing to audit\n"
-                .to_string(),
-        );
+        text.push_str(&format!(
+            "audit of landing {} ({key}): no group the landing's review ran is left to audit\n",
+            inputs.landing
+        ));
+        return Ok(text);
     }
     let matched: Vec<&Rule> = audited
         .iter()
@@ -340,11 +351,11 @@ pub fn audit(inputs: &Inputs) -> Result<String> {
         .into_iter()
         .filter(|f| runs.contains(&f.run_id))
         .collect();
-    let mut text = format!(
+    text.push_str(&format!(
         "audit of landing {} ({key}): {} candidate misses the review did not raise\n",
         inputs.landing,
         fresh.len()
-    );
+    ));
     let (settled, _) = settle_misses(
         inputs.store,
         stamp,

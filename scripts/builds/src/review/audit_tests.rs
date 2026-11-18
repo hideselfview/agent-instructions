@@ -300,6 +300,25 @@ fn an_audit_drops_a_miss_the_check_rejects_with_the_models_reason() {
     );
 }
 
+#[test]
+fn an_audit_names_a_group_the_review_ran_that_the_rules_checkout_no_longer_holds() {
+    let demo = demo("review-audit-renamed");
+    let fake = fake(&demo.scratch.dir);
+    let side = demo.add_side(1, "agent", "work");
+    let landing = landed(&demo, &fake, &side);
+    crate::review::fakes::group_file(&fake.root, "alpha", "renamed", "sonnet", "");
+    let text = audit_of(&demo, &fake, &side, landing);
+    assert!(
+        text.contains("not audited: group alpha ran on the landing's review, and the rules checkout has no group of that name"),
+        "{text}"
+    );
+    assert!(
+        text.contains("no group the landing's review ran is left to audit"),
+        "{text}"
+    );
+    assert!(fake.prompts().is_empty());
+}
+
 /// Records <landing> as landed with its newest run, as `builds review landed`
 /// does after the push.
 fn land(demo: &crate::lists::item_fixtures::Demo, landing: i64, stamp: &crate::lists::Stamp) {
