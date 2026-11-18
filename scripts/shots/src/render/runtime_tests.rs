@@ -13,14 +13,6 @@ fn live_record(sha256: &str) -> String {
 }
 
 #[test]
-fn sha256_is_the_hex_digest() {
-    assert_eq!(
-        sha256(b"abc"),
-        "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
-    );
-}
-
-#[test]
 fn a_canvas_record_picks_the_copy_of_its_sha256() {
     let root = tempfile::tempdir().unwrap();
     let copy = &copies::COPIES[0];

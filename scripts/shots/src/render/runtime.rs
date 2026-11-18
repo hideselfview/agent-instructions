@@ -1,6 +1,9 @@
 //! The canvas runtime copy the boards are drawn with, and the check that it is
 //! the runtime the canvas serves.
 //!
+//! Each copy is compiled into builds, and the boards crate's test checks that
+//! each one hashes to its sha256, so a run trusts the copies' sha256s.
+//!
 //! builds keeps the copies by sha256 (`boards::runtime`). A repo that publishes
 //! a canvas records the runtime it was published with in
 //! `design/mocks/runtime.toml`, which the design session writes at each canvas
@@ -11,7 +14,6 @@
 
 use boards::runtime::{self as copies, RuntimeCopy};
 use serde::Deserialize;
-use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 
 pub(crate) const LIVE_RECORD: &str = "design/mocks/runtime.toml";
@@ -47,16 +49,6 @@ pub(crate) enum RuntimeError {
     #[error("{path} is not a valid record: {reason}")]
     BadRecord { path: PathBuf, reason: String },
     #[error(
-        "the copy {file} hashes to {actual}, not the sha256 its name and entry give; the copy was \
-edited. {}",
-        refresh(.canvas)
-    )]
-    CopyChanged {
-        file: String,
-        actual: String,
-        canvas: String,
-    },
-    #[error(
         "builds has no copy of the runtime {} ({} of canvas type release {}) that the canvas was \
 published with at {} by {}. {}",
         .0.runtime_sha256, .0.runtime, .0.type_release, .0.published_at, .0.published_by,
@@ -75,23 +67,6 @@ pub(crate) struct Checked {
     pub(crate) said: String,
 }
 
-fn sha256(bytes: &[u8]) -> String {
-    crate::hex::hex(&Sha256::digest(bytes))
-}
-
-/// Checks that a copy hashes to its sha256.
-fn whole(copy: &'static RuntimeCopy, canvas: &str) -> Result<(), RuntimeError> {
-    let actual = sha256(copy.text.as_bytes());
-    if actual == copy.sha256 {
-        return Ok(());
-    }
-    Err(RuntimeError::CopyChanged {
-        file: copies::copy_file(copy.sha256),
-        actual,
-        canvas: canvas.to_string(),
-    })
-}
-
 /// The copy the boards of the repo at `root` are drawn with.
 pub(crate) fn check(root: &Path) -> Result<Checked, RuntimeError> {
     let path = root.join(LIVE_RECORD);
@@ -99,7 +74,6 @@ pub(crate) fn check(root: &Path) -> Result<Checked, RuntimeError> {
         Ok(text) => text,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
             let copy = copies::newest();
-            whole(copy, copy.source)?;
             return Ok(Checked {
                 copy,
                 said: format!(
@@ -123,7 +97,6 @@ pub(crate) fn check(root: &Path) -> Result<Checked, RuntimeError> {
     let Some(copy) = copies::copy(&live.runtime_sha256) else {
         return Err(RuntimeError::NoCopy(Box::new(live)));
     };
-    whole(copy, &live.canvas)?;
     Ok(Checked {
         copy,
         said: format!(
