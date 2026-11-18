@@ -318,9 +318,13 @@ const BEFORE_DONE_REASON_STAMP: i64 = 845_794_923;
 /// stable Rust release.
 const BEFORE_RUST_RELEASE_STAMP: i64 = 1_985_440_997;
 
+/// The stamp of the schema before builds recorded how each check for a new
+/// stable Rust release ended.
+const BEFORE_RUST_CHECK_STAMP: i64 = 1_952_264_236;
+
 /// Every stamp a store can carry that `move_store` moves, oldest schema first.
 /// A new move adds the stamp of the schema before it at the end.
-const STAMPS: [i64; 47] = [
+const STAMPS: [i64; 48] = [
     BEFORE_DESIGN_DELETED_STAMP,
     BEFORE_CHECK_TIMES_STAMP,
     BEFORE_DESIGN_TIP_STAMP,
@@ -368,6 +372,7 @@ const STAMPS: [i64; 47] = [
     BEFORE_PUBLISH_STAMP,
     BEFORE_DONE_REASON_STAMP,
     BEFORE_RUST_RELEASE_STAMP,
+    BEFORE_RUST_CHECK_STAMP,
 ];
 
 /// Whether a store stamped <found> comes before the move that follows the
@@ -492,7 +497,8 @@ const DESIGN_DELETED: &str = "CREATE TABLE design_deleted (
 /// reason, and each question that closed as done before then gets
 /// the kind `done-unrecorded`, which has no reason
 /// (`lists::record::remake_closing`). Every store gets the empty table of the
-/// items made for stable Rust releases (none made yet).
+/// items made for stable Rust releases (none made yet), and the empty table of
+/// the checks' outcomes (no check recorded yet).
 /// The moves run in one transaction, the store
 /// is stamped as today's schema, and it must then equal a fresh database's schema or the transaction rolls back. A
 /// store already at today's stamp, or with no database, is left alone; any
@@ -980,6 +986,10 @@ fn move_store(places: &Places, path: &Path, now: i64) -> Result<()> {
     // builds has made no item for a release yet.
     if before(found, BEFORE_RUST_RELEASE_STAMP) {
         tx.execute_batch(db::RUST_RELEASE_PART).sql()?;
+    }
+    // Every store from before the Rust checks gets their empty table.
+    if before(found, BEFORE_RUST_CHECK_STAMP) {
+        tx.execute_batch(db::RUST_CHECK_PART).sql()?;
     }
     tx.pragma_update(None, "user_version", db::stamp()).sql()?;
     let broken: Option<String> = tx

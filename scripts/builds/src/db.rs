@@ -93,13 +93,22 @@ pub const PUBLISH_PART: &str = include_str!("lists/publish.sql");
 /// schema holds it after the publish requests' part.
 pub const RUST_RELEASE_PART: &str = include_str!("lists/rust_release.sql");
 
+/// How the last check for a stable Rust release ended (lists/rust_check.sql);
+/// the schema holds it after the Rust release items' part.
+pub const RUST_CHECK_PART: &str = include_str!("lists/rust_check.sql");
+
 /// The whole schema: the lists' tables, then the hook stats', then the
 /// app-build timings', then the design changes' recording sessions', then the
 /// stored shot findings, then the review's, then the hook checks' starting
 /// loads, then the cargo runs', then the kept work's, then the dropped
 /// items' work, then the spec checks', then the acknowledgements', then the
-/// publish requests', then the Rust release items'.
+/// publish requests', then the Rust release items', then the Rust checks'.
 pub fn schema() -> String {
+    format!("{}\n{RUST_CHECK_PART}", schema_before_rust_check())
+}
+
+/// The schema as it was before the Rust checks' table joined it.
+pub fn schema_before_rust_check() -> String {
     format!("{}\n{RUST_RELEASE_PART}", schema_before_rust_release())
 }
 

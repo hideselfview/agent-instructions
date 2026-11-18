@@ -20,7 +20,7 @@ use crate::fail;
 use crate::fail::{Context, Fail, Result};
 use crate::lists::item::{Audience, ItemDraft};
 use crate::lists::store::{Store, stores};
-use crate::lists::{Stamp, area, rust_release};
+use crate::lists::{Stamp, area, rust_check, rust_release};
 use crate::places::Places;
 use crate::text::note;
 
@@ -291,19 +291,58 @@ fn queue_for(places: &Places, store: &Store, stable: Version, now: i64) -> Resul
     }))
 }
 
+/// Records in each project's store that the check at <now> ended with
+/// <fault>, or with none; `builds health` lists a fault (lists/rust_check.rs).
+fn record_check(store: &Store, now: i64, fault: Option<&str>) -> Result<()> {
+    let stamp = Stamp {
+        at: now,
+        by: BY.to_string(),
+    };
+    store.write(&stamp, "rust stable check", |db| {
+        rust_check::record(db, now, fault)
+    })
+}
+
+/// Records <fault>, a check that failed before it read any project, in every
+/// project's store.
+pub fn record_failure(places: &Places, fault: &str, now: i64) -> Result<()> {
+    for store in stores(places)? {
+        record_check(&store, now, Some(fault))?;
+    }
+    Ok(())
+}
+
 /// Queues the move to <manifest>'s stable release in every project whose
-/// repos pin an older one. Returns each item made and each fault: a
-/// project that faults does not stop the others.
+/// repos pin an older one, and records in each project how the check ended.
+/// Returns each item made and each fault: a project that faults does not
+/// stop the others. A manifest that can't be read is an error, recorded in
+/// every project.
 pub fn check(places: &Places, manifest: &str, now: i64) -> Result<Outcome> {
-    let stable = stable_version(manifest)?;
+    let stable = match stable_version(manifest) {
+        Ok(stable) => stable,
+        Err(error) => {
+            let text = error.text();
+            record_failure(places, &text, now)?;
+            fail!("{text}");
+        }
+    };
     let mut outcome = Outcome::default();
     for store in stores(places)? {
-        match queue_for(places, &store, stable, now) {
-            Ok(Some(made)) => outcome.queued.push(made),
-            Ok(None) => {}
-            Err(error) => outcome
+        let fault = match queue_for(places, &store, stable, now) {
+            Ok(Some(made)) => {
+                outcome.queued.push(made);
+                None
+            }
+            Ok(None) => None,
+            Err(error) => Some(error.text()),
+        };
+        if let Err(error) = record_check(&store, now, fault.as_deref()) {
+            outcome
                 .faults
-                .push(format!("{}: {}", store.project, error.text())),
+                .push(format!("{}: {}", store.project, error.text()));
+        }
+        if let Some(fault) = fault {
+            outcome.faults.push(format!("{}: {fault}", store.project));
         }
     }
     Ok(outcome)
@@ -319,8 +358,17 @@ pub struct Outcome {
 /// Reads the manifest and checks it, saying in the daemon's log what it made
 /// and what failed; true when nothing failed.
 fn run_once(places: &Places) -> bool {
-    let result =
-        fetch_manifest().and_then(|manifest| check(places, &manifest, crate::app_timing::now()));
+    let now = crate::app_timing::now();
+    let result = match fetch_manifest() {
+        Ok(manifest) => check(places, &manifest, now),
+        Err(error) => {
+            let text = error.text();
+            if let Err(recording) = record_failure(places, &text, now) {
+                note(format!("stable Rust check: {}", recording.text()));
+            }
+            Err(Fail::Message(text))
+        }
+    };
     match result {
         Ok(outcome) => {
             for made in &outcome.queued {

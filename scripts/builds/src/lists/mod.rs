@@ -6,7 +6,8 @@
 //! re-exported. Each owner holds its types, its tables (the `.sql` file beside
 //! it) and every write to them: `record` (ids, stamps, closing), `project`,
 //! `area`, `item` with `running`, `kept_work`, `landing` and `dropped`,
-//! `rust_release` (the item made for each stable Rust release), `question`,
+//! `rust_release` (the item made for each stable Rust release), `rust_check`
+//! (how the last check for one ended), `question`,
 //! `decision`,
 //! `design`, `tag` (the tags of questions and items), `spec_check` (the
 //! checks of briefs against the product spec), `store` (the write log). `trail` reads where each question and item came from. Their commands
@@ -50,6 +51,7 @@ pub mod question;
 pub mod question_command;
 pub mod record;
 pub mod running;
+pub mod rust_check;
 pub mod rust_release;
 pub mod show;
 pub mod spec_check;

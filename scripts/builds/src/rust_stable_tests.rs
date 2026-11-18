@@ -357,3 +357,54 @@ fn a_repo_with_no_clone_faults_its_project_and_records_no_release() {
     let db = store.open_existing().unwrap();
     assert_eq!(rust_release::queued(&db, "1.96.0").unwrap(), None);
 }
+
+fn recorded(store: &Store) -> Option<(i64, Option<String>)> {
+    rust_check::read(&store.open_existing().unwrap()).unwrap()
+}
+
+#[test]
+fn a_fault_shows_in_health_until_a_later_check_succeeds() {
+    let scratch = Scratch::new("rust-health");
+    let places = scratch.places();
+    clone(
+        &places.home,
+        "app",
+        &[("rust-toolchain.toml", &pin_file("1.95.0"))],
+    );
+    let store = project(&places, "demo", &["app", "missing"], &["Alpha"]);
+    assert_eq!(rust_check::findings(&places), Vec::new());
+
+    check(&places, &manifest("1.96.0"), 2000).unwrap();
+    let found = rust_check::findings(&places);
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert!(found[0].text.contains("project demo"), "{}", found[0].text);
+    assert!(
+        found[0].text.contains("missing has no clone"),
+        "{}",
+        found[0].text
+    );
+
+    // The clone appears; the next check succeeds and the finding goes.
+    clone(&places.home, "missing", &[]);
+    check(&places, &manifest("1.96.0"), 3000).unwrap();
+    assert_eq!(rust_check::findings(&places), Vec::new());
+    assert_eq!(recorded(&store), Some((3000, None)));
+}
+
+#[test]
+fn a_manifest_that_can_not_be_read_or_fetched_is_recorded_in_every_project() {
+    let scratch = Scratch::new("rust-health-manifest");
+    let places = scratch.places();
+    let one = project(&places, "one", &["app"], &["Alpha"]);
+    let two = project(&places, "two", &["app"], &["Alpha"]);
+    assert!(check(&places, "<html>502</html>", 2000).is_err());
+    for store in [&one, &two] {
+        let (at, fault) = recorded(store).expect("recorded");
+        assert_eq!(at, 2000);
+        assert!(fault.unwrap().contains("not TOML"));
+    }
+    record_failure(&places, "fetching failed: no network", 3000).unwrap();
+    let found = rust_check::findings(&places);
+    assert_eq!(found.len(), 2);
+    assert!(found[0].text.contains("fetching failed: no network"));
+}

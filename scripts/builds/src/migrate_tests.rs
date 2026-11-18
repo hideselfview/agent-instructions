@@ -5354,3 +5354,38 @@ fn a_store_from_before_the_rust_release_items_gains_their_table_and_equals_a_fre
         .unwrap();
     assert_eq!(releases, 0);
 }
+
+#[test]
+fn the_rust_check_stamp_is_the_schema_before_the_rust_checks() {
+    assert_eq!(
+        db::stamp_of_text(&db::schema_before_rust_check()),
+        BEFORE_RUST_CHECK_STAMP
+    );
+}
+
+/// A store from before the Rust checks gains their empty table and equals a
+/// fresh schema.
+#[test]
+fn a_store_from_before_the_rust_checks_gains_their_table_and_equals_a_fresh_schema() {
+    let scratch = Scratch::new("move-rust-check");
+    let places = scratch.places();
+    let dir = places.lists.join("bae");
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join(DATABASE);
+    {
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(&db::schema_before_rust_check()).unwrap();
+        conn.pragma_update(None, "user_version", BEFORE_RUST_CHECK_STAMP)
+            .unwrap();
+    }
+    migrate_stores(&places, 0).unwrap();
+    let conn = db::open(&path, db::Make::Never).unwrap();
+    assert_eq!(
+        db::schema_rows(&conn).unwrap(),
+        db::schema_rows(&db::memory()).unwrap()
+    );
+    let checks: i64 = conn
+        .query_row("SELECT count(*) FROM rust_check", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(checks, 0);
+}

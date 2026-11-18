@@ -1076,6 +1076,7 @@ pub fn lists_findings(
     let mut lists = crate::lists::running::findings(places_in, loaded)?;
     lists.extend(crate::lists::kept_work::findings(loaded)?);
     lists.extend(crate::lists::held::findings(loaded, worktrees));
+    lists.extend(crate::lists::rust_check::findings(places_in));
     lists.extend(crate::lists::project::missing_globs_findings(
         &places_in.home,
         loaded,

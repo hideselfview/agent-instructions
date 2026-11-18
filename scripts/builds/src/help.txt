@@ -1319,6 +1319,8 @@ STATUS, HEALTH AND THE DASHBOARD
                               - whether the dashboard runs, and its pid, which
                                 it writes in the daemon's lock file
                               - when a `builds prune` last finished
+                              - each project whose last check for a new
+                                stable Rust release ended with a fault
                               - last, whether the coordinator's health
                                 schedule is still needed: "health schedule:
                                 needed" while an agent runs (a claimed
@@ -1429,6 +1431,11 @@ STATUS, HEALTH AND THE DASHBOARD
                               adds one queue item naming each pin and the
                               new version. The project's store records the
                               release, so a release never makes a second item.
+                              The store also records how each check ended,
+                              and `builds health` lists a fault (a fetch
+                              that failed, a clone or pin that can't be
+                              read, a write that was refused) until a later
+                              check succeeds.
                               The page shows the load of this Mac and of
                               each other host, the free space and each repo's
                               hook times; a Needs attention box with
