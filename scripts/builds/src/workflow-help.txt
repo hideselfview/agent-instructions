@@ -27,6 +27,14 @@ implementing agent edits the board in the same commit and names the decision. "D
 "product design" for screens and how they look, and "software plan" for the
 shape of code and data.
 
+A question for the person goes on the stack first, with `builds question ask`.
+Then any session may ask the person, or ask another session to ask them,
+naming the entry's id. No session sends the person a question that is not on
+the stack, because the Waiting on you tab shows only the stack. A question
+leaves the stack only with the person's answer, or with a stored reason that
+names the rule, spec text, earlier decision or code that settles it
+(`builds help lists`, DECISION STACK).
+
 
 WORKTREES
 
