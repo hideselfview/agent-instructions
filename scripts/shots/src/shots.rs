@@ -46,11 +46,7 @@ impl Shot {
         hasher.update(picture.width.to_le_bytes());
         hasher.update(picture.height.to_le_bytes());
         hasher.update(&picture.pixels);
-        let hash = hasher
-            .finalize()
-            .iter()
-            .map(|b| format!("{b:02x}"))
-            .collect();
+        let hash = crate::hex::hex(&hasher.finalize());
         Ok(Self {
             list,
             picture,
@@ -115,19 +111,28 @@ impl Picture {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+/// The element list a shot or a board writes beside its picture; builds-shots
+/// writes a board's and reads both.
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct ElementList {
     pub(crate) board: String,
-    #[serde(deserialize_with = "platform")]
+    #[serde(serialize_with = "platform_word", deserialize_with = "platform")]
     pub(crate) platform: Platform,
     pub(crate) size: Size,
     pub(crate) scale: f64,
     pub(crate) elements: Vec<Element>,
     /// Areas of the picture the other platform's picture has no counterpart
     /// for: a board's on-screen keyboard. Only boards write it.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub(crate) unshot: Vec<Bounds>,
+}
+
+fn platform_word<S: serde::Serializer>(
+    platform: &Platform,
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    serializer.serialize_str(platform.file_word())
 }
 
 fn platform<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Platform, D::Error> {
@@ -150,7 +155,7 @@ impl ElementList {
     }
 }
 
-#[derive(Debug, Clone, Copy, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Size {
     pub(crate) width: f64,

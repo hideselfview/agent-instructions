@@ -12,11 +12,11 @@
 
 use crate::design::Frame;
 use crate::names::{Platform, state_id};
-use crate::render::Size;
 use crate::render::board::{self, BoardError};
 use crate::render::read;
 use crate::settings::Preview;
 use crate::shots::Element;
+use crate::shots::Size;
 use chromiumoxide::Page;
 use chromiumoxide::cdp::browser_protocol::dom::DescribeNodeParams;
 use chromiumoxide::cdp::browser_protocol::page::{CaptureScreenshotFormat, Viewport};

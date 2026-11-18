@@ -12,27 +12,9 @@ pub(crate) mod serve;
 use crate::design::{self, DesignSystem};
 use crate::names::{self, Name};
 use crate::settings::Settings;
+use crate::shots::{ElementList, Size};
 use serve::Tree;
 use std::path::Path;
-
-#[derive(serde::Serialize)]
-pub(crate) struct Size {
-    pub(crate) width: f64,
-    pub(crate) height: f64,
-}
-
-/// The element list a board writes beside its picture, in the shape the shots
-/// write theirs.
-#[derive(serde::Serialize)]
-struct BoardList<'a> {
-    board: &'a str,
-    platform: &'a str,
-    size: Size,
-    scale: f64,
-    elements: Vec<crate::shots::Element>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    unshot: Vec<crate::shots::Bounds>,
-}
 
 /// Pixels per point the boards are drawn at.
 const BOARD_SCALE: f64 = 1.0;
@@ -136,9 +118,9 @@ async fn draw_with(
         let file = out.join(format!("{board}.png"));
         std::fs::write(&file, &drawn.png)
             .map_err(|e| format!("cannot write {}: {e}", file.display()))?;
-        let list = BoardList {
-            board: &board,
-            platform: name.platform().file_word(),
+        let list = ElementList {
+            board: board.clone(),
+            platform: name.platform(),
             size: drawn.size,
             scale: BOARD_SCALE,
             elements: drawn.elements,

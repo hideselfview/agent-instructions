@@ -79,33 +79,24 @@ impl Record {
     /// The record of the branch `reference` in the repository at `root`; none
     /// when that commit holds no record.
     pub(crate) fn at(root: &Path, reference: &str) -> Result<Self, RecordError> {
-        let git = |args: &[&str]| {
-            std::process::Command::new("git")
-                .args(args)
-                .current_dir(root)
-                .output()
-                .map_err(|e| RecordError::Git(reference.to_string(), e.to_string()))
-        };
+        let failed =
+            |error: boards::Error| RecordError::Git(reference.to_string(), error.to_string());
         let commit = format!("{reference}^{{commit}}");
-        let known = git(&["rev-parse", "--verify", "--quiet", &commit])?;
-        if !known.status.success() {
-            return Err(RecordError::Git(
-                reference.to_string(),
-                "no such commit".to_string(),
-            ));
-        }
-        let object = format!("{reference}:{FILE}");
-        if !git(&["cat-file", "-e", &object])?.status.success() {
+        boards::git_text(
+            boards::git(root).args(["rev-parse", "--verify", &commit]),
+            &format!("find the commit {reference}"),
+        )
+        .map_err(failed)?;
+        if !boards::exists_in(root, reference, FILE).map_err(failed)? {
             return Ok(Self::default());
         }
-        let shown = git(&["show", &object])?;
-        if !shown.status.success() {
-            return Err(RecordError::Git(
-                reference.to_string(),
-                String::from_utf8_lossy(&shown.stderr).trim().to_string(),
-            ));
-        }
-        Self::parse(&String::from_utf8_lossy(&shown.stdout), &object)
+        let object = format!("{reference}:{FILE}");
+        let text = boards::git_text(
+            boards::git(root).args(["show", &object]),
+            &format!("read {object}"),
+        )
+        .map_err(failed)?;
+        Self::parse(&text, &object)
     }
 
     pub(crate) fn to_text(&self) -> Result<String, RecordError> {

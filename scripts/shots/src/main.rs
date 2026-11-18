@@ -6,6 +6,7 @@ mod capture;
 mod compare;
 mod declared;
 mod design;
+mod hex;
 mod lint;
 mod lists;
 mod log;
@@ -155,15 +156,12 @@ fn capture(
 
 /// The commit at the checkout's head.
 fn commit(root: &Path) -> Result<String, String> {
-    let out = std::process::Command::new("git")
-        .args(["rev-parse", "--short=9", "HEAD"])
-        .current_dir(root)
-        .output()
-        .map_err(|e| format!("cannot run git: {e}"))?;
-    if !out.status.success() {
-        return Err("git could not name the head commit".to_string());
-    }
-    Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
+    let text = boards::git_text(
+        boards::git(root).args(["rev-parse", "--short=9", "HEAD"]),
+        "name the head commit",
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(text.trim().to_string())
 }
 
 /// The program's cache folder: `BUILDS_SHOTS_CACHE`, which builds sets to a
@@ -180,17 +178,14 @@ pub(crate) fn cache_dir() -> Result<PathBuf, String> {
 
 /// The repo the program runs in: git's top of the working directory.
 fn repository_root() -> Result<PathBuf, String> {
-    let out = std::process::Command::new("git")
-        .args(["rev-parse", "--show-toplevel"])
-        .output()
-        .map_err(|e| format!("cannot run git: {e}"))?;
-    if !out.status.success() {
-        return Err(format!(
-            "builds shots runs in a git repo: {}",
-            String::from_utf8_lossy(&out.stderr).trim()
-        ));
-    }
-    Ok(PathBuf::from(String::from_utf8_lossy(&out.stdout).trim()))
+    let here =
+        std::env::current_dir().map_err(|e| format!("cannot read the working directory: {e}"))?;
+    let top = boards::git_text(
+        boards::git(&here).args(["rev-parse", "--show-toplevel"]),
+        "find the repo builds shots runs in",
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(PathBuf::from(top.trim()))
 }
 
 fn header(commit: String, base: Option<String>, outcome: &verify::Outcome) -> report::Header {

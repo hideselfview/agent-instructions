@@ -138,11 +138,7 @@ fn verify(archive: &Path, expected: &str) -> Result<(), ChromeError> {
         &mut hasher,
     )
     .map_err(fetch)?;
-    let actual: String = hasher
-        .finalize()
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect();
+    let actual: String = crate::hex::hex(&hasher.finalize());
     if actual == expected {
         return Ok(());
     }

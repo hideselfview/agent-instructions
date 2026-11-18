@@ -26,9 +26,9 @@ entry to COPIES in scripts/boards/src/runtime.rs, and install builds."
 }
 
 /// `design/mocks/runtime.toml`.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct LiveRecord {
+pub(crate) struct LiveRecord {
     canvas: String,
     canvas_version: String,
     /// The canvas type's release the runtime was read from.
@@ -62,18 +62,8 @@ published with at {} by {}. {}",
         .0.runtime_sha256, .0.runtime, .0.type_release, .0.published_at, .0.published_by,
         refresh(&.0.canvas)
     )]
-    NoCopy(Box<NoCopy>),
-}
-
-/// A live record that names a runtime builds has no copy of.
-#[derive(Debug, PartialEq)]
-pub(crate) struct NoCopy {
-    runtime_sha256: String,
-    runtime: String,
-    type_release: String,
-    published_at: String,
-    published_by: String,
-    canvas: String,
+    /// The live record names a runtime builds has no copy of.
+    NoCopy(Box<LiveRecord>),
 }
 
 /// The copy the boards are drawn with.
@@ -86,10 +76,7 @@ pub(crate) struct Checked {
 }
 
 fn sha256(bytes: &[u8]) -> String {
-    Sha256::digest(bytes)
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect()
+    crate::hex::hex(&Sha256::digest(bytes))
 }
 
 /// Checks that a copy hashes to its sha256.
@@ -134,14 +121,7 @@ pub(crate) fn check(root: &Path) -> Result<Checked, RuntimeError> {
         reason: e.to_string(),
     })?;
     let Some(copy) = copies::copy(&live.runtime_sha256) else {
-        return Err(RuntimeError::NoCopy(Box::new(NoCopy {
-            runtime_sha256: live.runtime_sha256,
-            runtime: live.runtime,
-            type_release: live.type_release,
-            published_at: live.published_at,
-            published_by: live.published_by,
-            canvas: live.canvas,
-        })));
+        return Err(RuntimeError::NoCopy(Box::new(live)));
     };
     whole(copy, &live.canvas)?;
     Ok(Checked {

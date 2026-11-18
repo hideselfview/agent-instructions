@@ -92,7 +92,7 @@ fn the_base_branchs_record_is_read_from_git() {
         Record::at(root, "nowhere")
             .unwrap_err()
             .to_string()
-            .contains("no such commit")
+            .contains("git failed to find the commit nowhere")
     );
 }
 

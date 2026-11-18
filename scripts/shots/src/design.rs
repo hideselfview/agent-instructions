@@ -173,11 +173,7 @@ pub(crate) fn board_hash(
     }
     feed(&mut hasher, "runtime", runtime_sha256.as_bytes());
     feed(&mut hasher, "browser", browser_version.as_bytes());
-    Ok(hasher
-        .finalize()
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect())
+    Ok(crate::hex::hex(&hasher.finalize()))
 }
 
 /// What a component state's picture depends on: the component's preview page,
@@ -202,11 +198,7 @@ pub(crate) fn preview_hash(
     feed(&mut hasher, "react", REACT.as_bytes());
     feed(&mut hasher, "react-dom", REACT_DOM.as_bytes());
     feed(&mut hasher, "browser", browser_version.as_bytes());
-    Ok(hasher
-        .finalize()
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect())
+    Ok(crate::hex::hex(&hasher.finalize()))
 }
 
 #[cfg(test)]
