@@ -263,6 +263,17 @@ fn a_folders_design_system_follows_its_links_inside_the_repo_and_refuses_one_out
     std::os::unix::fs::symlink("../../../../linked.js", &source).unwrap();
     let js = Source::Dir(&dir).design_system(&cache(&scratch)).unwrap()[2].clone();
     assert!(js.contains("LINKED_MARK"));
+    // A link to a path the repo lacks says what reading it found.
+    std::os::unix::fs::symlink("../gone.svg", dir.join("design/system/gone")).unwrap();
+    let error = message(Source::Dir(&dir).design_system(&cache(&scratch)));
+    assert!(
+        error.contains(&format!(
+            "reading {}",
+            dir.join("design/gone.svg").display()
+        )) && error.contains("No such file"),
+        "{error}"
+    );
+    std::fs::remove_file(dir.join("design/system/gone")).unwrap();
     std::os::unix::fs::symlink("/etc/hosts", dir.join("design/system/outside")).unwrap();
     let error = message(Source::Dir(&dir).design_system(&cache(&scratch)));
     assert!(
@@ -284,4 +295,37 @@ fn the_scratch_folder_goes_when_its_use_fails() {
     });
     assert_eq!(message(result), "the use failed");
     assert!(!used.expect("the use ran").exists());
+}
+
+/// A scratch folder that cannot be removed fails the call, after the use's
+/// own error when the use failed too.
+#[test]
+fn a_scratch_folder_that_cannot_be_removed_fails_the_call() {
+    use std::os::unix::fs::PermissionsExt;
+    let scratch = Scratch::new("source-scratch-kept");
+    let cache = scratch.dir.join("cache");
+    let locked = std::cell::RefCell::new(Vec::new());
+    let lock = |work: &Path| {
+        let inner = work.join("locked");
+        std::fs::create_dir_all(&inner).unwrap();
+        std::fs::write(inner.join("file"), "x").unwrap();
+        std::fs::set_permissions(&inner, std::fs::Permissions::from_mode(0o500)).unwrap();
+        locked.borrow_mut().push(inner);
+    };
+    let kept = message(in_scratch(&cache, |work| {
+        lock(work);
+        Ok(())
+    }));
+    assert!(kept.starts_with("removing the scratch folder"), "{kept}");
+    let both = message(in_scratch(&cache, |work| -> Result<()> {
+        lock(work);
+        fail!("the use failed")
+    }));
+    assert!(
+        both.starts_with("the use failed; then removing the scratch folder"),
+        "{both}"
+    );
+    for inner in locked.borrow().iter() {
+        std::fs::set_permissions(inner, std::fs::Permissions::from_mode(0o700)).unwrap();
+    }
 }

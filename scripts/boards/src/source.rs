@@ -323,9 +323,6 @@ impl Source<'_> {
                 Ok(links)
             }
             Source::Dir(dir) => {
-                if std::fs::symlink_metadata(dir.join(input)).is_err() {
-                    fail!("{} has no {input}", dir.display());
-                }
                 let mut links = Vec::new();
                 let mut todo = vec![input.to_string()];
                 while let Some(rel) = todo.pop() {
@@ -377,26 +374,27 @@ fn copy_tree(from: &Path, to: &Path) -> Result<()> {
 }
 
 /// Runs <use_it> on a new scratch folder in <cache> and removes the folder
-/// after it, whatever <use_it> returns. A folder that cannot be removed is
-/// reported on stderr and left: it holds only copies.
-pub fn in_scratch<T, E>(
-    cache: &Path,
-    use_it: impl FnOnce(&Path) -> std::result::Result<T, E>,
-) -> std::result::Result<T, E> {
+/// after it, whatever <use_it> returns. A folder that cannot be removed fails
+/// the call: <use_it>'s own error comes first when it failed too.
+pub fn in_scratch<T>(cache: &Path, use_it: impl FnOnce(&Path) -> Result<T>) -> Result<T> {
     let work = cache.join(format!(
         ".work-{}-{}",
         std::process::id(),
         WORK.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
     ));
     let result = use_it(&work);
-    match std::fs::remove_dir_all(&work) {
-        Err(error) if error.kind() != std::io::ErrorKind::NotFound => eprintln!(
-            "could not remove the scratch folder {}: {error}",
+    let removed = match std::fs::remove_dir_all(&work) {
+        Err(error) if error.kind() != std::io::ErrorKind::NotFound => Err(format!(
+            "removing the scratch folder {}: {error}",
             work.display()
-        ),
-        _ => {}
+        )),
+        _ => Ok(()),
+    };
+    match (result, removed) {
+        (result, Ok(())) => result,
+        (Ok(_), Err(removing)) => Err(Error::new(removing)),
+        (Err(error), Err(removing)) => Err(Error::new(format!("{error}; then {removing}"))),
     }
-    result
 }
 
 /// Writes <paths> as they are at <rev> of the repo <repo> is in into <into>,

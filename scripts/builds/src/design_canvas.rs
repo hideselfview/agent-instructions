@@ -321,7 +321,7 @@ pub fn write_canvases(repo: &Path, rev: &str, out: &Path, cache: &Path) -> Resul
     )?;
     let boards = in_scratch(cache, |work| {
         export(repo, rev, &[MOCKS.to_string()], work, "the boards")?;
-        read_boards(work)
+        read_boards(work).map_err(|error| boards::Error::new(error.text()))
     })?;
     let splits = split(&index, &canvases, &boards)?;
     let folder = design_namespace(&index)?;
