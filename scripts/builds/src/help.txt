@@ -928,7 +928,10 @@ indexes the build root.
                               from: ~/dev/<repo>-worktrees/remote-<the
                               checkout's folder name> (remote-side-2 for
                               side-2), or remote-<name>.2 and on while another
-                              job from that checkout holds it. builds keeps the
+                              job from that checkout holds it. When the
+                              `builds` process of the job that holds it is gone,
+                              the next job removes that job's claim and takes
+                              the worktree. builds keeps the
                               remote worktree between jobs, so a checkout's job
                               finds the files and build output its last job
                               left, until `builds prune` removes it once the

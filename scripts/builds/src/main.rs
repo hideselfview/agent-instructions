@@ -40,6 +40,7 @@ mod host_setup;
 mod install;
 mod install_gate;
 mod install_hook;
+mod job_claim;
 mod kept;
 mod land;
 mod lane;

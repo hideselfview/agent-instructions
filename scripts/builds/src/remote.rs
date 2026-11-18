@@ -9,11 +9,12 @@
 //! checks the commit out there and runs the command. builds keeps the
 //! worktree between jobs, so its files and build output stay as that
 //! checkout's last job left them, until the checkout is gone and `builds
-//! prune` removes it (remote_worktrees.rs). When the job ends,
-//! however it ends, builds deletes the ref and the claim. A stopped `builds
-//! remote run` (SIGTERM, SIGINT, SIGHUP) stops the command on the host.
-//! The command's run ends when the command does, even when it leaves
-//! processes behind (`run_script`).
+//! prune` removes it (remote_worktrees.rs). When the job ends, however it
+//! ends, builds deletes the ref and the claim; when the `builds` process
+//! itself is killed first, the next job takes the claim over (job_claim.rs).
+//! A stopped `builds remote run` (SIGTERM, SIGINT, SIGHUP) stops the command
+//! on the host. The command's run ends when the command does, even when it
+//! leaves processes behind (`run_script`).
 //!
 //! On this Mac (host `local`) the clone is `~/dev/<repo>`, which already holds
 //! the commit, so nothing is pushed.
@@ -27,6 +28,7 @@ use crate::checkout::{Checkout, git, git_text};
 use crate::fail;
 use crate::fail::{Context, Fail, Result};
 use crate::host::{self, Host, REMOTE_ROOT, Ssh, VOLUME, choose, clone_path, sh_quote};
+use crate::job_claim::Holders;
 use crate::places::Places;
 use crate::text::note;
 use crate::tool::Tool;
@@ -382,18 +384,27 @@ pub fn pinned_name(source: &Path) -> Result<String> {
 
 /// Finds the repo's clone and claims worktree <pinned> for job <id>, or the
 /// first free `<pinned>.<n>` while another job holds it, with <sha> checked
-/// out in it, then sets the worktree up as `builds new` sets up a side
-/// worktree: the host's `builds setup` links the build folders into the
-/// host's builds root, and then the repo's `scripts/hooks/post-checkout` runs
-/// in it as git runs it for a new worktree (shared files linked from the main
+/// out in it. A claim whose process <holders> found gone holds nothing: the
+/// script removes it and claims that worktree (job_claim.rs). The script
+/// then sets the worktree up as `builds new` sets up a side worktree: the
+/// host's `builds setup` links the build folders into the host's builds
+/// root, and then the repo's `scripts/hooks/post-checkout` runs in it as git
+/// runs it for a new worktree (shared files linked from the main
 /// checkout). Both run for every job, so a worktree that an earlier job left
 /// without its links gets them. builds runs setup itself because a repo with
 /// no post-checkout, such as coven, would otherwise build into a real
 /// `target` folder in the worktree, outside the build volume and every cap.
 /// Prints `worktree=<path>`.
-fn claim_script(host: &Host, repo: &str, pinned: &str, sha: &str, id: &str) -> String {
+fn claim_script(
+    host: &Host,
+    repo: &str,
+    pinned: &str,
+    sha: &str,
+    id: &str,
+    holders: &Holders,
+) -> String {
     format!(
-        r#"{root}set -e
+        r#"{root}{claims}set -e
 clone="$HOME/{clone}"
 if [ ! -e "$clone/.git" ]; then echo "no clone of {repo} at $clone" >&2; exit 90; fi
 wts="$HOME/dev/{repo}-worktrees"
@@ -401,7 +412,11 @@ mkdir -p "$wts"
 pinned="$wts"/{pinned}
 wt="$pinned"
 n=1
-while ! mkdir "$wt.job" 2>/dev/null; do n=$((n+1)); wt="$pinned.$n"; done
+until mkdir "$wt.job" 2>/dev/null; do
+  gone=$(claim_gone "$wt.job") && release_gone "$wt.job" "$gone" && continue
+  n=$((n+1))
+  wt="$pinned.$n"
+done
 echo {id} > "$wt.job/id"
 if [ -e "$wt/.git" ]; then
   git -C "$wt" checkout -q --force --detach {sha} && git -C "$wt" clean -fdq
@@ -422,6 +437,7 @@ if [ -x "$wt/scripts/hooks/post-checkout" ]; then
 fi
 echo "worktree=$wt""#,
         root = root_script(host),
+        claims = holders.script(),
         clone = clone_path(repo),
         repo = repo,
         pinned = sh_quote(pinned),
@@ -656,7 +672,7 @@ pub fn start_job<'a>(
             return Ok(Err(said));
         }
         let claimed = match transport.ask(
-            &claim_script(host, &request.repo, &pinned, &sha, &id),
+            &claim_script(host, &request.repo, &pinned, &sha, &id, &Holders::read()),
             "claiming a worktree",
         )? {
             Ok(claimed) => claimed,

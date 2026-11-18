@@ -57,8 +57,8 @@ fn a_worktree_belongs_to_the_checkout_it_is_named_after() {
 fn an_unused_worktree_goes_unless_a_running_job_claims_it() {
     let here = names(&["bae", "side-1"]);
     let runs = |id: &str| match id {
-        "live-1" => Some(true),
-        "dead-1" => Some(false),
+        "live-1" => Some(Holder::Runs),
+        "dead-1" => Some(Holder::Gone),
         _ => None,
     };
     assert_eq!(
@@ -97,14 +97,6 @@ fn gone_pid() -> u32 {
     let pid = child.id();
     child.wait().unwrap();
     pid
-}
-
-#[test]
-fn a_job_runs_while_its_process_on_this_mac_runs() {
-    assert_eq!(job_runs(&format!("{}-17", std::process::id())), Some(true));
-    assert_eq!(job_runs(&format!("{}-17", gone_pid())), Some(false));
-    assert_eq!(job_runs("unreadable"), None);
-    assert_eq!(job_runs("x-17"), None);
 }
 
 /// Adds worktree <name> of the host's clone <clone>, with a build root in the
@@ -172,8 +164,8 @@ fn prune_removes_the_worktrees_on_a_host_that_no_checkout_uses() {
     let hosts = crate::host::hosts_file(&places);
     std::fs::create_dir_all(hosts.parent().unwrap()).unwrap();
     std::fs::write(&hosts, "m1 u@m1 10\ngone unreachable 4\n").unwrap();
-    let live = format!("{}-17", std::process::id());
-    let dead = format!("{}-17", gone_pid());
+    let live = crate::remote::job_id();
+    let dead = format!("{}-{}", gone_pid(), live.split_once('-').unwrap().1);
     host_worktree(&home, &clone, "remote-demo", None);
     host_worktree(&home, &clone, "remote-side-1", None);
     host_worktree(&home, &clone, "remote-side-1.2", None);

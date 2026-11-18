@@ -190,6 +190,49 @@ fn a_busy_worktree_sends_the_next_job_to_another() {
     );
 }
 
+/// The pid of a process that has exited.
+fn gone_pid() -> u32 {
+    let mut child = std::process::Command::new("true").spawn().unwrap();
+    let pid = child.id();
+    child.wait().unwrap();
+    pid
+}
+
+/// A claim whose builds process is gone holds nothing: the next job from the
+/// checkout removes it and runs in the checkout's worktree. A claim whose
+/// process runs still sends the job to another worktree.
+#[test]
+fn the_next_job_takes_over_a_claim_whose_process_is_gone() {
+    let s = setup("remote-dead-claim");
+    let places = s.scratch.places();
+    let wts = s.home.join("dev/demo-worktrees");
+    let job = || {
+        request(
+            What::Ref("main".to_string()),
+            &["sh", "-c", "pwd > ../where.txt"],
+        )
+    };
+    run_job(&places, &s.ssh, &s.host, &s.source, &job()).unwrap();
+    let claim = wts.join("remote-demo.job");
+    std::fs::create_dir_all(&claim).unwrap();
+    let dead = format!("{}-{}", gone_pid(), job_id().split_once('-').unwrap().1);
+    std::fs::write(claim.join("id"), format!("{dead}\n")).unwrap();
+    std::fs::write(claim.join("pid"), "73910\n").unwrap();
+
+    run_job(&places, &s.ssh, &s.host, &s.source, &job()).unwrap();
+    let ran_in = std::fs::read_to_string(wts.join("where.txt")).unwrap();
+    assert!(ran_in.trim().ends_with("remote-demo"), "{ran_in}");
+    assert!(!claim.exists(), "the job released the claim it took over");
+    assert!(!wts.join("remote-demo.2").exists());
+
+    std::fs::create_dir_all(&claim).unwrap();
+    std::fs::write(claim.join("id"), format!("{}\n", job_id())).unwrap();
+    run_job(&places, &s.ssh, &s.host, &s.source, &job()).unwrap();
+    let ran_in = std::fs::read_to_string(wts.join("where.txt")).unwrap();
+    assert!(ran_in.trim().ends_with("remote-demo.2"), "{ran_in}");
+    assert!(claim.join("id").exists(), "a running job's claim stays");
+}
+
 #[test]
 fn sends_the_staged_files_without_moving_a_ref() {
     let s = setup("remote-staged");
