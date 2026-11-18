@@ -17,7 +17,7 @@ use boards::tokens::specimen;
 use boards::{BOARD_SUFFIX, CANVAS, Source, TOKENS_JSON, canvas_size};
 use serde_json::{Value, json};
 
-use crate::design_canvas::{CANVASES, Published, page_of, pages_of, parse_canvases, placed};
+use crate::design_canvas::{CANVASES, page_of, pages_of, parse_canvases, placed};
 use crate::design_render::{FRAMES_SCRIPT, NOW, fill, render_board, render_preview};
 use crate::fail;
 use crate::fail::{Fail, Result};
@@ -122,15 +122,15 @@ pub fn page(
         ),
         Err(error) => json!({ "error": error.text() }),
     };
-    let publish = match publishing(&from).and_then(|links| Ok((links, standing?))) {
-        Ok((None, _)) => json!({ "canvas": false }),
-        Ok((Some(links), standing)) => json!({
-            "canvas": true,
-            "links": links,
-            "standing": standing,
-        }),
-        Err(error) => json!({ "error": error.text() }),
-    };
+    let publish =
+        match publishing(&from).and_then(|names_artifacts| Ok((names_artifacts, standing?))) {
+            Ok((false, _)) => json!({ "canvas": false }),
+            Ok((true, standing)) => json!({
+                "canvas": true,
+                "standing": standing,
+            }),
+            Err(error) => json!({ "error": error.text() }),
+        };
     let data = json!({
         "project": project,
         "publish": publish,
@@ -155,27 +155,19 @@ pub fn page(
     ))
 }
 
-/// The artifacts that the designs at <from> publish to, each with a title
-/// and its link, as `CANVASES` names them: each canvas, then the design
-/// system. None when <from> has no `CANVASES`, so its designs publish
-/// nowhere yet.
-fn publishing(from: &Source) -> Result<Option<Vec<Value>>> {
+/// Whether `CANVASES` at <from> names the artifacts that the designs publish
+/// to (a canvas or more, and the design system), by title. False when <from>
+/// has no `CANVASES`, so its designs publish nowhere yet; the artifacts'
+/// links are the publishing session's to find on its account.
+fn publishing(from: &Source) -> Result<bool> {
     if !from.has(CANVASES)? {
-        return Ok(None);
+        return Ok(false);
     }
-    let Published {
-        canvases,
-        design_system,
-    } = parse_canvases(
+    parse_canvases(
         &from.read(CANVASES, "the canvases file")?,
         &from.label(CANVASES),
     )?;
-    let mut links: Vec<Value> = canvases
-        .iter()
-        .map(|canvas| json!({ "title": canvas.title, "url": canvas.url }))
-        .collect();
-    links.push(json!({ "title": "Design system", "url": design_system }));
-    Ok(Some(links))
+    Ok(true)
 }
 
 /// The publishing of project <project> as its store holds it.

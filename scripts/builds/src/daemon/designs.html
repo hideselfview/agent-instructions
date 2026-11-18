@@ -19,8 +19,6 @@ body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 var
 .dz-tools { margin-left: auto; display: flex; gap: 8px; align-items: center; }
 .pub-now { color: var(--muted); }
 .pub-now code, .bstatus code { font: 500 12px var(--mono); color: var(--text-2); }
-.pub-links { display: flex; flex-direction: column; gap: 4px; color: var(--text-2); }
-.pub-links a { color: var(--accent); }
 .dz-sub code, .problem code { font: 500 12px var(--mono); color: var(--text-2); }
 .dz-pages { display: flex; gap: 4px; flex-wrap: wrap; border-bottom: 1px solid var(--line); padding-bottom: 8px; }
 .dz-pages button { font: inherit; font-size: 13px; color: var(--text-2); background: none; border: 1px solid transparent; border-radius: 6px; padding: 3px 10px; cursor: pointer; }
@@ -241,8 +239,6 @@ function renderPublish() {
       dismiss(r.id);
       renderPublish();
     }) : null));
-    if (r.ended && !r.ended.error) parts.push(h("div", {class: "pub-links"},
-      pub.links.map(l => h("a", {href: l.url, target: "_blank", rel: "noopener"}, l.title))));
   }
   body.replaceChildren(...parts);
 }

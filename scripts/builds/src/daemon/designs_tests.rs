@@ -202,7 +202,7 @@ fn the_page_offers_publishing_only_where_canvases_toml_names_the_artifacts() {
     git(&dir, &["checkout", "-q", "origin/main"]);
     std::fs::write(
         dir.join(CANVASES),
-        "[[canvas]]\nurl = \"https://claude.ai/artifact/AAA1\"\ntitle = \"demo boards\"\nlaunch = \"one\"\npages = [\"one\", \"two\"]\n\n[design_system]\nurl = \"https://claude.ai/artifact/DS1\"\n",
+        "[[canvas]]\ntitle = \"demo boards\"\nlaunch = \"one\"\npages = [\"one\", \"two\"]\n\n[design_system]\ntitle = \"demo design system\"\n",
     )
     .unwrap();
     git(&dir, &["add", CANVASES]);
@@ -214,10 +214,6 @@ fn the_page_offers_publishing_only_where_canvases_toml_names_the_artifacts() {
         data["publish"],
         json!({
             "canvas": true,
-            "links": [
-                { "title": "demo boards", "url": "https://claude.ai/artifact/AAA1" },
-                { "title": "Design system", "url": "https://claude.ai/artifact/DS1" },
-            ],
             "standing": { "latest": null, "published": null },
         })
     );
