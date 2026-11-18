@@ -9,11 +9,9 @@
 //! manifests; with it, the read fails at the cause and the checkout keeps the
 //! commit's lock, as a build does.
 
-use std::process::Command;
-
 use crate::cargo_place;
 use crate::cargo_run::locked_flag;
-use crate::fail::{Context, Fail, Result};
+use crate::fail::{Context, Result};
 
 /// cargo's subcommands that read the workspace and its lock and write
 /// nothing.
@@ -28,19 +26,14 @@ pub const SUBCOMMANDS: [&str; 5] = [
 /// Runs `cargo <args>`, a read, on this Mac in the working directory, with
 /// `--locked` (`locked_flag`), and exits with cargo's status.
 pub fn run(args: &[String]) -> Result<()> {
-    let env = |name: &str| std::env::var_os(name);
-    cargo_place::note_runs_here(
-        cargo_place::named_host(&env)?.as_deref(),
+    let dir = std::env::current_dir().context(|| "reading the working directory".to_string())?;
+    let locked: Vec<String> = std::iter::once(args[0].clone())
+        .chain(locked_flag(args).map(str::to_string))
+        .chain(args[1..].iter().cloned())
+        .collect();
+    cargo_place::run_as_given(
+        &dir,
+        &locked,
         &format!("cargo {} only reads this checkout", args[0]),
-    );
-    let status = Command::new("cargo")
-        .arg(&args[0])
-        .args(locked_flag(args))
-        .args(&args[1..])
-        .status()
-        .context(|| "running cargo".to_string())?;
-    match crate::fail::exit_code(status) {
-        0 => Ok(()),
-        code => Err(Fail::Exit(code)),
-    }
+    )
 }

@@ -13,10 +13,9 @@
 //! newest compatible version, which no pin move needs, so builds refuses it.
 
 use std::path::Path;
-use std::process::Command;
 
 use crate::fail;
-use crate::fail::{Context, Fail, Result};
+use crate::fail::{Context, Result};
 
 /// The options of `cargo update` that take the next argument as their value
 /// when it is not joined with `=`, so that argument names no package.
@@ -62,11 +61,6 @@ pub fn refusal(args: &[String]) -> Option<String> {
 /// `refusal` refuses it, and exits with cargo's status.
 pub fn run(args: &[String]) -> Result<()> {
     let dir = std::env::current_dir().context(|| "reading the working directory".to_string())?;
-    let env = |name: &str| std::env::var_os(name);
-    crate::cargo_place::note_runs_here(
-        crate::cargo_place::named_host(&env)?.as_deref(),
-        "cargo update changes this checkout's Cargo.lock",
-    );
     run_in(&dir, args)
 }
 
@@ -75,15 +69,7 @@ fn run_in(dir: &Path, args: &[String]) -> Result<()> {
     if let Some(why) = refusal(args) {
         fail!("{why}");
     }
-    let status = Command::new("cargo")
-        .args(args)
-        .current_dir(dir)
-        .status()
-        .context(|| "running cargo".to_string())?;
-    if status.success() {
-        return Ok(());
-    }
-    Err(Fail::Exit(crate::fail::exit_code(status)))
+    crate::cargo_place::run_as_given(dir, args, "cargo update changes this checkout's Cargo.lock")
 }
 
 #[cfg(test)]

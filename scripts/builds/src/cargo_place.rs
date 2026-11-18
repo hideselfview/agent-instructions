@@ -25,11 +25,13 @@
 //! Mac), for the person's debugging; a callers' own scripts never set it.
 
 use std::ffi::OsString;
+use std::path::Path;
+use std::process::Command;
 
 use crate::cargo_starts;
 use crate::checkout::Checkout;
 use crate::fail;
-use crate::fail::Result;
+use crate::fail::{Context, Fail, Result};
 use crate::host::{self, Host, Ssh};
 use crate::places::Places;
 use crate::procs::{Place, Processes, live_args, place_of_process};
@@ -63,6 +65,24 @@ pub fn named_host(env: &dyn Fn(&str) -> Option<OsString>) -> Result<Option<Strin
 pub fn note_runs_here(named: Option<&str>, why: &str) {
     if let Some(text) = runs_here_note(named, why) {
         note(text);
+    }
+}
+
+/// Runs `cargo <args>` as given on this Mac in <dir>, for a subcommand that
+/// builds nothing and so gets none of what `builds cargo` adds to a build,
+/// and exits with cargo's status. When `HOST_VARIABLE` names another host, it
+/// first says the command runs here, and <why>.
+pub fn run_as_given(dir: &Path, args: &[String], why: &str) -> Result<()> {
+    let env = |name: &str| std::env::var_os(name);
+    note_runs_here(named_host(&env)?.as_deref(), why);
+    let status = Command::new("cargo")
+        .args(args)
+        .current_dir(dir)
+        .status()
+        .context(|| "running cargo".to_string())?;
+    match crate::fail::exit_code(status) {
+        0 => Ok(()),
+        code => Err(Fail::Exit(code)),
     }
 }
 
