@@ -35,13 +35,9 @@ figcaption a { color: var(--accent); font-weight: 400; font-size: 12px; margin-l
 .side h3 { margin: 0 0 4px; font-size: 13px; font-weight: 600; color: var(--dim); }
 .note { color: var(--dim); border: 1px dashed var(--line); border-radius: 6px; padding: 8px 12px; max-width: 700px; }
 .frame { position: relative; overflow: hidden; border: 1px solid var(--line); background: #000; }
-.circle { position: absolute; box-sizing: border-box; border: 2px solid; border-radius: 12px; pointer-events: auto; }
-.circle.missing { border-color: #e5484d; } .circle.new { border-color: #f5a623; }
-.circle.moved { border-color: #8e4ec6; } .circle.restyled { border-color: #0091ff; }
+.circle { position: absolute; box-sizing: border-box; border: 2px solid #f5d90a; border-radius: 16px; pointer-events: auto; }
 .status { margin: 0 0 6px; color: var(--dim); font-size: 13px; }
 .status .key { font-weight: 600; }
-.status .key.missing { color: #e5484d; } .status .key.new { color: #f5a623; }
-.status .key.moved { color: #8e4ec6; } .status .key.restyled { color: #0091ff; }
 .frame iframe { display: block; border: 0; background: transparent; transform-origin: 0 0; }
 .problem { color: var(--bad); border: 1px solid var(--bad); border-radius: 6px; padding: 8px 12px; max-width: 700px; }
 .work { max-width: 1100px; padding-left: 18px; }
@@ -234,10 +230,12 @@ function layout() {
     frameBox.style.width = Math.round(b.w * s) + "px";
     frameBox.style.height = Math.round(b.h * s) + "px";
     for (const {el, box} of circles) {
-      el.style.left = Math.round((box.x - 3) * s) + "px";
-      el.style.top = Math.round((box.y - 3) * s) + "px";
-      el.style.width = Math.round((box.w + 6) * s) + "px";
-      el.style.height = Math.round((box.h + 6) * s) + "px";
+      // A circle stands 8 screen pixels clear of what it marks at any zoom,
+      // so its line never covers the element.
+      el.style.left = Math.round(box.x * s - 8) + "px";
+      el.style.top = Math.round(box.y * s - 8) + "px";
+      el.style.width = Math.round(box.w * s + 16) + "px";
+      el.style.height = Math.round(box.h * s + 16) + "px";
     }
   }
 }
