@@ -115,5 +115,3 @@ function changesBetween(now, proposed) {
   }
   return marks;
 }
-
-if (typeof module !== "undefined") module.exports = {changesBetween, pairElements, differences};

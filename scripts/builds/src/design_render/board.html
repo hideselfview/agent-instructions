@@ -97,7 +97,6 @@ function conv(n, key, sc) {
   });
   return h.apply(null, [tag, props].concat(kids()));
 }
-ReactDOM.createRoot(document.getElementById('r')).render(render('__main__', {}));
 // The review page frames this page in a sandbox it cannot read, so this page
 // lists what it drew for it: each element a person sees (words, a control, an
 // image or a filled box) with its role, its box in board pixels, its text
@@ -148,12 +147,15 @@ function postElements() {
   if (parent === window) return;
   parent.postMessage({ designElements: { src: location.pathname, elements: drawnElements() } }, '*');
 }
-(function whenDrawn(tries) {
-  if (document.getElementById('r').firstChild || tries > 200) { postElements(); return; }
-  requestAnimationFrame(function () { whenDrawn(tries + 1); });
-})(0);
-window.addEventListener('load', postElements);
-if (document.fonts && document.fonts.ready) document.fonts.ready.then(postElements);
+// Once React has drawn the board, and the fonts are in, the review page gets the
+// list of what was drawn.
+function Drawn(props) {
+  React.useEffect(function () {
+    (document.fonts ? document.fonts.ready : Promise.resolve()).then(postElements);
+  }, []);
+  return props.children;
+}
+ReactDOM.createRoot(document.getElementById('r')).render(h(Drawn, null, render('__main__', {})));
 </script>
 </body>
 </html>
