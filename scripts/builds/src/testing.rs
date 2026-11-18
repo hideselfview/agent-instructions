@@ -63,6 +63,14 @@ impl Drop for Scratch {
     }
 }
 
+/// The pid of a process that has exited.
+pub fn gone_pid() -> u32 {
+    let mut child = Command::new("true").spawn().unwrap();
+    let pid = child.id();
+    child.wait().unwrap();
+    pid
+}
+
 pub fn git(dir: &Path, args: &[&str]) {
     git_out(dir, args);
 }

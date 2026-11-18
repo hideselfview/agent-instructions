@@ -1,6 +1,6 @@
 use super::*;
 use crate::host::tests::fake_ssh;
-use crate::testing::{Scratch, git, host_builds};
+use crate::testing::{Scratch, git, gone_pid, host_builds};
 
 /// Runs a job that nothing stops.
 fn run_job(
@@ -188,14 +188,6 @@ fn a_busy_worktree_sends_the_next_job_to_another() {
         wts.join("remote-demo.job").exists(),
         "another job's claim stays"
     );
-}
-
-/// The pid of a process that has exited.
-fn gone_pid() -> u32 {
-    let mut child = std::process::Command::new("true").spawn().unwrap();
-    let pid = child.id();
-    child.wait().unwrap();
-    pid
 }
 
 /// A claim whose builds process is gone holds nothing: the next job from the

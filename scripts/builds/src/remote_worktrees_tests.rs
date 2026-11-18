@@ -1,6 +1,6 @@
 use super::*;
 use crate::host::tests::fake_ssh;
-use crate::testing::{Scratch, git};
+use crate::testing::{Scratch, git, gone_pid};
 use std::path::Path;
 
 fn names(list: &[&str]) -> Vec<String> {
@@ -89,14 +89,6 @@ fn an_unused_worktree_goes_unless_a_running_job_claims_it() {
         judge(&worktree("remote-side-1.2", Claim::Free), &here, runs),
         Judged::Used
     );
-}
-
-/// The pid of a process that has exited.
-fn gone_pid() -> u32 {
-    let mut child = std::process::Command::new("true").spawn().unwrap();
-    let pid = child.id();
-    child.wait().unwrap();
-    pid
 }
 
 /// Adds worktree <name> of the host's clone <clone>, with a build root in the

@@ -1,14 +1,6 @@
 use super::*;
-use crate::testing::Scratch;
+use crate::testing::{Scratch, gone_pid};
 use std::path::Path;
-
-/// The pid of a process that has exited.
-fn gone_pid() -> u32 {
-    let mut child = std::process::Command::new("true").spawn().unwrap();
-    let pid = child.id();
-    child.wait().unwrap();
-    pid
-}
 
 /// Runs <script> after the claim functions for <holders>, and returns its
 /// exit status and what it printed.
