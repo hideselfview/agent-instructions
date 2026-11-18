@@ -65,7 +65,7 @@ h1 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.01em; }
 .page.no-lists .side-toggle.show { display: inline-flex; }
 .side-hide { margin-left: auto; background: transparent; border: 0; color: var(--muted); padding: 4px; border-radius: 6px; cursor: pointer; display: inline-flex; }
 .side-hide:hover { color: var(--text); background: var(--surface); }
-.side-toggle:focus-visible, .side-hide:focus-visible, .fig.hook:focus-visible, .more-wts:focus-visible, .qbtn:focus-visible, .qw:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.side-toggle:focus-visible, .side-hide:focus-visible, .fig.hook:focus-visible, .more-wts:focus-visible, .qbtn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 /* The figures. */
 .top { display: flex; flex-wrap: wrap; align-items: stretch; gap: 10px; }
@@ -129,13 +129,6 @@ h1 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.01em; }
 .lane-co .co .br { font: 500 12px var(--mono); }
 .lane-co .co .disk { font: 500 13px var(--mono); }
 .lane-why { font-size: 12px; line-height: 1.4; color: var(--muted); overflow-wrap: anywhere; }
-.lane-removed { padding: 0 16px 10px; display: flex; flex-direction: column; gap: 4px; }
-.lane-wait { list-style: none; margin: 0; padding: 0 16px 12px; display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
-.lane-wait li { display: grid; grid-template-columns: 18px minmax(0, 1fr) max-content max-content; gap: 10px; align-items: baseline; }
-.lane-wait .qp { font: 500 13px var(--mono); }
-.lane-wait .qb { font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.lane-wait .br, .lane-wait .qt { font: 12px var(--mono); color: var(--muted); }
-.lane.building .lane-wait .br, .lane.building .lane-wait .qt { color: color-mix(in srgb, var(--working) 80%, transparent); }
 
 /* A lane's wait figure and the times it opens: its steps, costliest first. */
 .wait-open .wp-steps { width: 100%; }
@@ -225,20 +218,27 @@ h1 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.01em; }
 /* An app build lane: one card wide, green all over while it builds. */
 .lane { border: 1px solid var(--line); border-radius: 12px; background: transparent; display: flex; flex-direction: column; overflow: hidden; min-width: 0; }
 .lane.building { background: var(--working-bg); border-color: color-mix(in srgb, var(--working) 35%, transparent); color: var(--working); }
-.lane.building .lane-head, .lane.building .lane-q, .lane.building .lane-open { border-color: color-mix(in srgb, var(--working) 25%, transparent); }
-.lane.building .lane-head b, .lane.building .lane-q .qn { color: var(--working); }
-.lane.building .lane-head .br, .lane.building .lane-head .disk, .lane.building .lane-q { color: color-mix(in srgb, var(--working) 80%, transparent); }
+.lane.building .lane-head, .lane.building .lane-open { border-color: color-mix(in srgb, var(--working) 25%, transparent); }
+.lane.building .lane-head b { color: var(--working); }
+.lane.building .lane-head .br, .lane.building .lane-head .disk { color: color-mix(in srgb, var(--working) 80%, transparent); }
 .lane-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 10px 16px; border-bottom: 1px solid var(--line); }
 .lane-head > span:first-child { min-width: 0; overflow-wrap: anywhere; }
 .lane-head b { font-size: 15px; font-weight: 700; }
 .lane-head .br { font: 400 12px var(--mono); color: var(--muted); margin-left: 4px; white-space: nowrap; }
-.lane-head .wf { flex: none; display: flex; align-items: center; gap: 8px; cursor: pointer; border-radius: 6px; }
-.lane-head .wf.empty { cursor: default; }
-.lane-head .wf .h { font-size: 12px; color: var(--muted); }
-.lane-head .wf .v { font: 500 13px var(--mono); color: var(--text); }
-.lane-head .wf.on .v { color: var(--accent); }
-.lane-head .wf:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.lane.building .lane-head .wf .h, .lane.building .lane-head .wf .v { color: var(--working); }
+/* A lane's top: how many builds wait, which opens the queue's controls, and the
+   menu that holds the lane's other views: Stats…, Build… and Scale logs…. */
+.lane-top { flex: none; display: flex; align-items: center; gap: 8px; }
+.lane-n { font: 600 12px var(--sans); color: var(--text); background: transparent; border: 1px solid var(--line); border-radius: 6px; padding: 2px 8px; cursor: pointer; }
+.lane-n.on { border-color: var(--accent); }
+.lane-menu { position: relative; display: inline-flex; }
+.lane-more { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 22px; color: var(--muted); background: transparent; border: 1px solid var(--line); border-radius: 6px; padding: 0; cursor: pointer; }
+.lane-more[aria-expanded="true"] { color: var(--text); background: var(--pinned); }
+.lane-menu-pop { position: absolute; top: calc(100% + 4px); right: 0; z-index: 5; min-width: 140px; display: flex; flex-direction: column; padding: 4px; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 6px 20px rgba(0, 0, 0, .25); }
+.lane-menu-item { font: 400 13px var(--sans); color: var(--text); text-align: start; padding: 5px 10px; border: 0; border-radius: 5px; background: transparent; cursor: pointer; white-space: nowrap; }
+.lane-menu-item:hover:not(:disabled) { background: var(--line-soft); }
+.lane-menu-item:disabled { color: var(--muted); cursor: default; }
+.lane-n:focus-visible, .lane-more:focus-visible, .lane-menu-item:focus-visible, .bdismiss:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.lane.building .lane-n { color: var(--working); border-color: color-mix(in srgb, var(--working) 35%, transparent); }
 .lane-head .disk { font: 500 13px var(--mono); color: var(--muted); }
 .lane-now { flex: 1; padding: 12px 16px; display: flex; flex-direction: column; gap: 6px; }
 .lane-now .who { font-weight: 600; }
@@ -250,10 +250,6 @@ h1 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.01em; }
 .lane-now .procs .ic svg { vertical-align: -2px; margin-right: 5px; }
 .lane-now.stuck .who { color: var(--text); }
 .procs-plain { font: 12px var(--mono); color: var(--muted); overflow-wrap: anywhere; }
-.lane-q { padding: 10px 16px; display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--muted); border-top: 1px solid var(--line); }
-.lane-q .qn { font: 500 20px var(--mono); color: var(--text); line-height: 1; }
-.lane-q .qw { min-width: 0; flex: 1; cursor: pointer; }
-.lane-q .qw:hover { text-decoration: underline; }
 .lane-open { padding: 10px 16px; display: flex; flex-direction: column; gap: 6px; border-top: 1px solid var(--line); font-size: 13px; }
 .lane-open .label { font-size: 12px; font-weight: 600; }
 .qrow { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
@@ -262,6 +258,23 @@ h1 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.01em; }
 .qbtn.danger { color: var(--bad); }
 .qbtn:disabled { color: var(--muted); cursor: default; }
 .lane.building .qbtn { color: var(--working); border-color: color-mix(in srgb, var(--working) 35%, transparent); }
+.lane-dlg { padding: 0; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); color: var(--text); width: min(640px, 96vw); max-height: 90vh; }
+.lane-dlg[open] { display: flex; flex-direction: column; }
+.lane-dlg::backdrop { background: rgba(0, 0, 0, 0.55); }
+.lm-head { display: flex; align-items: baseline; gap: 14px; padding: 8px 14px; border-bottom: 1px solid var(--line); font-size: 13px; }
+.lm-title { font-weight: 600; }
+.lm-sub { flex: 1; min-width: 0; color: var(--muted); overflow-wrap: anywhere; }
+.lm-head button { margin-left: auto; font: 13px var(--sans); color: var(--text); background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 3px 12px; cursor: pointer; }
+.lm-body { padding: 12px 16px; display: flex; flex-direction: column; gap: 8px; font-size: 13px; overflow: auto; min-height: 0; }
+.lm-body h3 { margin: 0 0 6px; font-size: 13px; }
+.lm-body table { border-collapse: collapse; width: 100%; font-size: 12px; }
+.lm-body th { text-align: left; font-weight: 600; color: var(--muted); padding: 3px 10px 3px 0; }
+.lm-body td { padding: 3px 10px 3px 0; border-top: 1px solid var(--line-soft); }
+.lm-body .n { text-align: right; font-variant-numeric: tabular-nums; }
+.bresult { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.bresult[hidden] { display: none; }
+.bdismiss { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; color: var(--muted); background: transparent; border: 0; border-radius: 4px; padding: 0; cursor: pointer; }
+.bdismiss:hover { color: var(--text); }
 .bform { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; }
 .bform input { flex: 1 1 140px; min-width: 0; font: 12px var(--mono); color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; }
 .bform input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
@@ -423,6 +436,10 @@ a.l-ref:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; b
   <div class="rv-head"><span class="rv-title" id="rv-title"></span><a id="rv-open" target="_blank" rel="noopener">Open in its own tab</a><button type="button" id="rv-close">Close</button></div>
   <iframe class="rv-frame" id="rv-frame" title="Design change review"></iframe>
 </dialog>
+<dialog class="lane-dlg" id="lane-modal">
+  <div class="lm-head" id="lm-head"></div>
+  <div class="lm-body" id="lm-body"></div>
+</dialog>
 <script>
 "use strict";
 // The states the daemon derives for each side worktree (worktree_state in
@@ -436,7 +453,9 @@ let openWait = null;           // "repo lane" of the lane whose app build times 
 let openWaits = false;         // whether the time agents waited, by kind, is open
 const showFree = new Set();    // repos whose free worktrees are open
 const openQueue = new Set();   // "repo lane" of each lane whose queue is open
-const openBuild = new Set();   // "repo lane" of each lane whose build form is open
+let openMenu = null;           // "repo lane" of the lane whose ⋯ menu is open
+let laneModal = null;          // the modal a lane's menu opened: {kind: "stats" | "build" | "logs", repo, lane}
+const dismissedRuns = new Map(); // "repo lane" -> the run whose result the person dismissed
 const openRuns = new Set();    // hook runs opened to their checks
 const moreOf = new Set();      // which "N more" lines of the hook details are open
 
@@ -632,25 +651,34 @@ async function startBuild(repo, lane, ref) {
   render();
 }
 function buildPanel(repo, lane) {
-  const ref = h("input", {type: "text", placeholder: "ref (default origin/main)", "aria-label": "ref to build", spellcheck: "false"});
+  const ref = h("input", {type: "text", placeholder: "ref (default origin/main)", "aria-label": "Ref", spellcheck: "false"});
   const button = h("button", {type: "button", class: "qbtn"}, "Build");
   const status = h("div", {class: "bstatus"});
+  const dismiss = h("button", {type: "button", class: "bdismiss", title: "Dismiss this result", "aria-label": "Dismiss"});
+  dismiss.innerHTML = '<svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8"/></svg>';
+  const result = h("div", {class: "bresult"}, status, dismiss);
   const output = h("pre", {class: "boutput"});
-  const el = h("div", {class: "lane-open"}, h("span", {class: "label"}, "builds build-app " + repo.name + " " + lane),
-    h("div", {class: "bform"}, ref, button), status, output);
-  const panel = {el, ref, button, status, output, repo, lane};
+  const el = h("div", {class: "bpanel"}, h("div", {class: "bform"}, ref, button), result, output);
+  const panel = {el, ref, button, status, dismiss, result, output, repo, lane, run: null};
   button.addEventListener("click", () => startBuild(panel.repo, lane, ref.value.trim()));
+  dismiss.addEventListener("click", () => { dismissedRuns.set(repo.name + " " + lane, runId(panel.run)); render(); });
   return panel;
 }
+// A run is one start of the lane's build: its pid and start time tell it from the next.
+function runId(run) { return run.pid + " " + run.started_at; }
 function updateBuildPanel(panel, repo, lane) {
   panel.repo = repo;
   const run = repo.runs.find(r => r.lane === lane);
+  panel.run = run || null;
   const active = run && ["queued", "running", "detached"].includes(run.phase);
+  const shown = run && dismissedRuns.get(repo.name + " " + lane) !== runId(run);
   panel.button.disabled = !!active;
-  panel.status.textContent = run ? phaseLine(run) : "No build started from this page.";
-  panel.status.className = "bstatus" + (run && (run.phase === "failed" || run.phase === "lost") ? " failed" : "");
-  const text = run ? (run.output_cut ? "…\n" : "") + run.output : "";
-  panel.output.hidden = !run;
+  panel.result.hidden = !shown;
+  panel.dismiss.hidden = !!active;
+  panel.output.hidden = !shown;
+  panel.status.textContent = shown ? phaseLine(run) : "";
+  panel.status.className = "bstatus" + (shown && (run.phase === "failed" || run.phase === "lost") ? " failed" : "");
+  const text = shown ? (run.output_cut ? "…\n" : "") + run.output : "";
   if (panel.output.textContent !== text) {
     const atEnd = panel.output.scrollTop + panel.output.clientHeight >= panel.output.scrollHeight - 4;
     panel.output.textContent = text;
@@ -814,53 +842,97 @@ function checkoutNow(ab) {
   return [h("div", {class: "who"}, "Nobody is building here.")];
 }
 function capitalWord(word) { return word.charAt(0).toUpperCase() + word.slice(1); }
-// The count of waiting builds with its Build… button, then the queue's controls
-// when its count is clicked.
-function laneQueue(repo, al) {
+// A lane's top: how many builds wait, which opens the queue's controls, and
+// the ⋯ menu with the lane's other views, each of which opens a modal.
+function laneTop(repo, al) {
   const key = repo.name + " " + al.lane;
-  const toggle = set => () => { if (!set.delete(key)) set.add(key); render(); };
-  return [
-    h("div", {class: "lane-q"},
-      h("span", {class: "qn"}, String(al.waiting.length)),
-      h("span", {class: "qw", role: "button", tabindex: "0", title: "Click to reorder or take out a waiting build", onclick: toggle(openQueue),
-        onkeydown: e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(openQueue)(); } }}, "waiting"),
-      here ? h("button", {type: "button", class: "qbtn", title: "builds build-app " + repo.name + " " + al.lane + " [ref]: build a ref here, default origin/main",
-        onclick: toggle(openBuild)}, "Build…") : h("span", {class: "queued"}, "Build: " + ONLY_HERE.toLowerCase())),
-    openQueue.has(key) ? queueList(repo, al.lane) : null,
-    here && openBuild.has(key) ? buildPanelOf(repo, al.lane).el : null];
+  const menuOpen = openMenu === key;
+  const toggleQueue = () => { if (!openQueue.delete(key)) openQueue.add(key); render(); };
+  const openModal = kind => () => { laneModal = {kind, repo: repo.name, lane: al.lane}; openMenu = null; render(); };
+  const item = (text, kind, enabled, title) => {
+    const el = h("button", {type: "button", role: "menuitem", class: "lane-menu-item", title, onclick: openModal(kind)}, text);
+    el.disabled = !enabled;
+    return el;
+  };
+  const more = h("button", {type: "button", class: "lane-more", "aria-label": "More", "aria-haspopup": "menu", "aria-expanded": String(menuOpen),
+    onclick: () => { openMenu = menuOpen ? null : key; render(); }});
+  more.innerHTML = '<svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor" aria-hidden="true"><circle cx="3.5" cy="8" r="1.25"/><circle cx="8" cy="8" r="1.25"/><circle cx="12.5" cy="8" r="1.25"/></svg>';
+  return h("span", {class: "lane-top"},
+    h("button", {type: "button", class: "lane-n" + (openQueue.has(key) ? " on" : ""), "aria-expanded": String(openQueue.has(key)),
+      title: "Click to reorder or take out a waiting build", onclick: toggleQueue}, al.waiting.length + " waiting"),
+    h("span", {class: "lane-menu"}, more,
+      menuOpen ? h("div", {class: "lane-menu-pop", role: "menu"},
+        item("Stats…", "stats", true, "The lane's wait times"),
+        item("Build…", "build", here, here ? "builds build-app " + repo.name + " " + al.lane + " [ref]: build a ref here, default origin/main" : "Build: " + ONLY_HERE.toLowerCase()),
+        item("Scale logs…", "logs", true, "When and why builds added or removed a checkout")) : null));
 }
 // When and why builds added or removed a checkout of a lane, as a sentence:
-// "builds added this checkout at 14:32 because 2 builds waited".
+// "builds added side-3 at 14:32 because 2 builds waited".
 function laneChange(did, change) {
   return "builds " + did + " at " + when(new Date(change.at * 1000)) + " because " + change.why;
 }
 // An app build lane: nobody owns its checkouts and builds take turns, so it
-// shows, for each checkout, who builds now and what runs, then the builds
-// waiting for a checkout of the lane. Every lane has a row for each
-// checkout, one or several, and lists its queue. The row of a checkout that
-// builds added shows when and why builds added it, and a list of the
-// checkouts builds removed lately follows the rows. The daemon decides
-// whether a held lock still belongs to a running build (app_builds.rs).
-function laneCard(repo, al, waits) {
+// shows, for each checkout, who builds now and what runs. Its top holds how
+// many builds wait, which opens the queue under the checkouts, and a menu of
+// modals: the lane's wait times, its build form, and when and why builds added
+// or removed a checkout. The daemon decides whether a held lock still belongs
+// to a running build (app_builds.rs).
+function laneCard(repo, al) {
   const lane = capitalWord(al.lane);
   const building = al.checkouts.some(c => c.now.state === "building");
   const cls = "lane" + (building ? " building" : "");
-  const q = laneQueue(repo, al);
   return h("article", {class: cls},
     h("div", {class: "lane-head"}, h("span", {}, h("b", {}, lane + " app builds"), " ", h("span", {class: "br"}, al.checkouts.length + (al.checkouts.length === 1 ? " checkout" : " checkouts"))),
-      waits.length ? waitFigure(waits.find(x => x.repo === repo.name && x.lane === al.lane), waits) : null),
+      laneTop(repo, al)),
     al.checkouts.map(ab => h("div", {class: "lane-now lane-co" + (ab.now.state === "stuck" ? " stuck" : "")},
       h("div", {class: "co"}, h("span", {class: "br", title: ab.now.state === "building" && ab.now.branch ? ab.now.branch : ab.checked_out}, ab.checkout),
         ab.remote ? null : h("span", {class: "disk"}, ab.disk_kib === null ? "…" : size(ab.disk_kib))),
-      ab.added_by_builds ? h("div", {class: "lane-why"}, laneChange("added this checkout", ab.added_by_builds)) : null,
       checkoutNow(ab))),
-    al.removed_by_builds.length ? h("div", {class: "lane-removed"}, al.removed_by_builds.map(r =>
-      h("div", {class: "lane-why"}, laneChange("removed " + r.checkout, r)))) : null,
-    q[0],
-    h("ol", {class: "lane-wait"}, al.waiting.map((w, i) => h("li", {},
-      h("span", {class: "qp"}, String(i + 1)), h("span", {class: "qb"}, w.branch),
-      h("span", {class: "br"}, w.worktree || ""), h("span", {class: "qt"}, w.minutes + "m")))),
-    q.slice(1));
+    openQueue.has(repo.name + " " + al.lane) ? queueList(repo, al.lane) : null);
+}
+// The lane modal's body and head for each kind of view.
+function laneLogs(al) {
+  const changes = [
+    ...al.checkouts.filter(ab => ab.added_by_builds).map(ab => ({did: "added " + ab.checkout, change: ab.added_by_builds})),
+    ...al.removed_by_builds.map(r => ({did: "removed " + r.checkout, change: r}))];
+  changes.sort((a, b) => b.change.at - a.change.at);
+  return changes.length ? changes.map(c => h("div", {class: "lane-why"}, laneChange(c.did, c.change)))
+    : h("div", {class: "lane-why"}, "builds added or removed no checkout of this lane lately.");
+}
+function laneModalView() {
+  const dlg = document.getElementById("lane-modal");
+  const repo = laneModal && state.repos.find(r => r.name === laneModal.repo);
+  const al = repo && repo.app_builds.find(a => a.lane === laneModal.lane);
+  if (!al) { laneModal = null; if (dlg.open) dlg.close(); return; }
+  const lane = capitalWord(al.lane), key = repo.name + " " + al.lane;
+  const close = h("button", {type: "button", onclick: closeLaneModal}, "Close");
+  const body = document.getElementById("lm-body");
+  let title, sub = null, content;
+  if (laneModal.kind === "stats") {
+    const w = waitLanes().find(x => x.key === key);
+    title = lane + " app builds: stats";
+    sub = w && w.figures ? statsSummary(w) : null;
+    content = [statsBody(w)];
+  } else if (laneModal.kind === "build") {
+    title = "Build " + repo.name + " on " + lane;
+    content = [buildPanelOf(repo, al.lane).el];
+  } else {
+    title = lane + " app builds: scale logs";
+    sub = "Newest first";
+    content = laneLogs(al);
+  }
+  document.getElementById("lm-head").replaceChildren(h("span", {class: "lm-title"}, title), h("span", {class: "lm-sub"}, sub || ""), close);
+  // The build form stays the same element, so the ref being typed keeps its focus.
+  if (!(content.length === 1 && body.firstChild === content[0] && body.childNodes.length === 1)) body.replaceChildren(...content);
+  if (!dlg.open) dlg.showModal();
+}
+function closeLaneModal() { laneModal = null; render(); }
+{
+  const dlg = document.getElementById("lane-modal");
+  dlg.addEventListener("cancel", e => { e.preventDefault(); closeLaneModal(); });
+  dlg.addEventListener("click", e => { if (e.target === dlg) closeLaneModal(); });
+  // A click outside the open ⋯ menu closes it.
+  document.addEventListener("click", e => { if (openMenu && !e.target.closest(".lane-menu")) { openMenu = null; render(); } });
 }
 
 // Puts <items> ({key, data, make}) in <parent> in order, keeping each
@@ -911,7 +983,6 @@ function freeTile(repo, n, open) {
 // group. The builds repo (agent-instructions) is the last group.
 function reposView(root) {
   const last = r => r.name === "agent-instructions" ? 1 : 0;
-  const waits = waitLanes();
   const shown = [...state.repos].sort((a, b) => last(a) - last(b)).map(repo => {
     const {sides} = split(repo);
     const quiet = c => c.state === "free" && !(c.git && c.git.uncommitted);
@@ -927,9 +998,9 @@ function reposView(root) {
     const lanes = group.querySelector(".lanes");
     lanes.hidden = repo.app_builds.length === 0;
     patch(lanes, repo.app_builds.map(al => ({key: "lane " + al.lane,
-      data: [al, waits.filter(x => x.repo === repo.name), openWait === repo.name + " " + al.lane, queueOf(repo, al.lane), openQueue.has(repo.name + " " + al.lane), openBuild.has(repo.name + " " + al.lane),
+      data: [al, queueOf(repo, al.lane), openQueue.has(repo.name + " " + al.lane), openMenu === repo.name + " " + al.lane,
         openQueue.has(repo.name + " " + al.lane) ? repo.locks.filter(l => l.lane === al.lane) : null],
-      make: () => laneCard(repo, al, waits)})));
+      make: () => laneCard(repo, al)})));
     const cards = [...busy, ...(open ? free : [])].map(c => ({key: c.name, data: c, make: () => worktreeCard(c)}));
     if (hasCards && free.length) cards.push({key: "free-tile", data: [free.length, open], make: () => freeTile(repo, free.length, open)});
     patch(group.querySelector(".wts"), cards);
@@ -1146,19 +1217,20 @@ function waitLanes() {
   }
   return out;
 }
-// A lane's wait figure, at the right end of its card's header: the median wait
-// and one small bar per build. Clicking it opens the lane's times.
-const WAIT_BAR_HEIGHT = 16;
+// A lane's wait figure, in the top row: the median wait and one small bar per
+// build. Clicking it opens the lane's times under the figures.
+const WAIT_BAR_HEIGHT = 24;
 function waitFigure(w, all) {
-  const name = capital(w.lane);
+  const several = new Set(all.map(x => x.repo)).size > 1;
+  const label = (several ? w.repo + " " : "") + capital(w.lane) + " wait";
   const f = w.figures;
   if (!f) {
-    return h("span", {class: "wf empty", title: "Builds in the " + name + " lane: none in the last 12 hours, so there is nothing to draw."},
-      h("span", {class: "h"}, "wait"), h("span", {class: "v"}, "–"));
+    return h("div", {class: "fig hook line empty wait", title: "Builds in the " + capital(w.lane) + " lane: none in the last 12 hours, so there is nothing to draw."},
+      h("div", {class: "row"}, h("span", {class: "h"}, label), h("span", {class: "v"}, "–")));
   }
   const barsMax = Math.max(1, ...all.filter(x => x.repo === w.repo && x.figures).flatMap(x => x.figures.waits_ms));
   const n = f.waits_ms.length, width = Math.max(0, n * 6 - 2);
-  const chart = svg("svg", {class: "wf-chart", width: String(width), height: String(WAIT_BAR_HEIGHT), viewBox: "0 0 " + width + " " + WAIT_BAR_HEIGHT,
+  const chart = svg("svg", {width: String(width), height: String(WAIT_BAR_HEIGHT), viewBox: "0 0 " + width + " " + WAIT_BAR_HEIGHT,
     preserveAspectRatio: "none", "aria-hidden": "true"});
   f.waits_ms.forEach((ms, i) => {
     const hgt = Math.max(2, Math.round(ms / barsMax * WAIT_BAR_HEIGHT));
@@ -1170,11 +1242,11 @@ function waitFigure(w, all) {
   });
   const open = openWait === w.key;
   const toggle = () => { openWait = open ? null : w.key; openHook = null; render(); };
-  return h("span", {class: "wf" + (open ? " on" : ""), tabindex: "0", role: "button", "aria-expanded": String(open),
-      title: "Median wait in the " + name + " lane's queue over the last 12 hours, then one bar per build, oldest to newest. Click for the lane's times.",
+  return h("div", {class: "fig hook line wait" + (open ? " on" : ""), tabindex: "0", role: "button", "aria-expanded": String(open),
+      title: "Median wait in the " + capital(w.lane) + " lane's queue over the last 12 hours, then one bar per build, oldest to newest. Click for the lane's times.",
       onclick: toggle,
       onkeydown: e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(); } }},
-    h("span", {class: "h"}, "wait"), h("span", {class: "v"}, waitFigureTime(f.median_wait_ms)), chart);
+    h("div", {class: "row"}, h("span", {class: "h"}, label), h("span", {class: "v"}, waitFigureTime(f.median_wait_ms)), chart));
 }
 function stepRow(s, top) {
   const width = Math.max(1, Math.round(s.total_ms / top * 75));
@@ -1182,10 +1254,15 @@ function stepRow(s, top) {
     h("td", {class: "wp-total"}, h("span", {class: "wp-bar", style: "width:" + width + "%"}), h("span", {class: "wp-tv"}, span(s.total_ms))),
     h("td", {class: "n"}, String(s.ran)), h("td", {class: "n"}, span(s.median_ms)), h("td", {class: "n"}, span(s.slowest_ms)));
 }
-function waitDetails() {
-  const box = document.getElementById("wait-open");
-  const w = openWait ? waitLanes().find(x => x.key === openWait) : null;
-  if (!w || !w.figures) { box.hidden = true; box.replaceChildren(); return; }
+// The lane's times: "54 builds in 12 hours · 12m 26s median wait".
+function statsSummary(w) {
+  const f = w.figures;
+  return plural(f.runs, "build", "builds") + " in " + plural(w.window / 3600, "hour", "hours") + " · " + span(f.median_wait_ms) + " median wait";
+}
+// Where the time goes: the lane's steps, costliest first. The box under the
+// figures and the lane's Stats… modal both show it.
+function statsBody(w) {
+  if (!w || !w.figures) return h("div", {class: "lane-why"}, "builds ran nothing in this lane in the last 12 hours.");
   const f = w.figures;
   const key = "steps " + w.key;
   const all = moreOf.has(key);
@@ -1196,16 +1273,21 @@ function waitDetails() {
     ? h("tr", {class: "wp-more"}, h("td", {colspan: "6", onclick: () => { if (!moreOf.delete(key)) moreOf.add(key); render(); }},
         all ? "Fewer steps" : plural(hidden, "more step", "more steps") + ", each under " + wholeTime(f.steps[STEPS_SHOWN - 1].total_ms) + " in all"))
     : null;
-  box.hidden = false;
-  box.replaceChildren(
-    h("div", {class: "ho-head"}, h("b", {}, capital(w.lane) + " app builds"),
-      h("span", {}, plural(f.runs, "build", "builds") + " in " + plural(w.window / 3600, "hour", "hours") + " · " + span(f.median_wait_ms) + " median wait"),
-      h("button", {type: "button", class: "ho-close", title: "Close", "aria-label": "Close", onclick: () => { openWait = null; render(); }}, "×")),
-    h("h3", {}, "Where the time goes"),
+  return h("div", {class: "wait-open"}, h("h3", {}, "Where the time goes"),
     h("table", {class: "wp-steps"},
       h("tr", {}, h("th", {}, "Kind"), h("th", {}, "Step"), h("th", {}, "Time in all"), h("th", {class: "n"}, "Runs"),
         h("th", {class: "n"}, "Median"), h("th", {class: "n"}, "Slowest")),
       steps.map(s => stepRow(s, top)), more));
+}
+function waitDetails() {
+  const box = document.getElementById("wait-open");
+  const w = openWait ? waitLanes().find(x => x.key === openWait) : null;
+  if (!w || !w.figures) { box.hidden = true; box.replaceChildren(); return; }
+  box.hidden = false;
+  box.replaceChildren(
+    h("div", {class: "ho-head"}, h("b", {}, capital(w.lane) + " app builds"), h("span", {}, statsSummary(w)),
+      h("button", {type: "button", class: "ho-close", title: "Close", "aria-label": "Close", onclick: () => { openWait = null; render(); }}, "×")),
+    statsBody(w));
 }
 
 // ---- The time agents waited on each kind of work (waits.rs, in each
@@ -1275,11 +1357,13 @@ function render() {
   if (!state) return;
   const timingErrors = [...new Set(waitLanes().map(w => w.error).filter(Boolean))];
   document.getElementById("errors").append(...timingErrors.map(e => h("div", {class: "error"}, "The app build times: " + e)));
-  for (const repo of state.repos) for (const {lane} of repo.lanes) buildPanelOf(repo, lane);
-  document.getElementById("top").replaceChildren(loadFigure(state.load, state.hosts.length ? "local" : null), ...state.hosts.map(hostLoadFigure), diskFigure(state.volume), waitsFigure());
+  const lanes = waitLanes();
+  document.getElementById("top").replaceChildren(loadFigure(state.load, state.hosts.length ? "local" : null), ...state.hosts.map(hostLoadFigure), diskFigure(state.volume),
+    ...lanes.map(w => waitFigure(w, lanes)), waitsFigure());
   hookDetails();
   waitDetails();
   waitsDetails();
+  laneModalView();
   findingsView(state.health);
   if (lists && !lists.error) renderLists();
   const root = document.getElementById("view");

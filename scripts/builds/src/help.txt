@@ -761,8 +761,8 @@ built again.
                               installs the app on this Mac's device, so it
                               takes only a checkout on this Mac. Opens
                               nothing. This is the person's own build; the
-                              dashboard runs it from each lane's Build button,
-                              one run per lane at a time
+                              dashboard runs it from the Build… item in each
+                              lane's menu, one run per lane at a time
   builds lock <repo> [--lane mac|android] <command> [<args>...]
                               wait for one of the lane's locks (the mac lane's
                               unless named), then run the command holding it,
