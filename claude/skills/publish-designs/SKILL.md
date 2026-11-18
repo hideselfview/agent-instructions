@@ -58,9 +58,9 @@ publish the designs at commit C." For such a request:
    shows that the design session took it.
 2. Follow the rest of this skill with `--at C` on `publish-files`, so that the
    files come from the commit the person picked.
-3. Give the design system's `publish-last` (step 6 of Publish each artifact)
-   `--request N --project P` too. That run records that the request published
-   commit C, which ends it.
+3. After the last artifact's last calls and the runtime check (Check the canvas
+   runtime), end the request: `builds design publish done N --project P`. The
+   dashboard then shows the commit as published.
 4. When the publish stops before that, end the request with what stopped it:
    `builds design publish failed N --why "<what stopped it>" --project P`.
 
@@ -107,8 +107,7 @@ Do these steps for each artifact, in the printed order:
    listing on standard input, in a quoted heredoc (`<<'EOF'`). For the design
    system, add `--index <the index saved in step 5> --by "<the person's name>"`
    (`--no-index` in place of `--index` when it still has no index) and, when it
-   made uploads, `--uploaded <folder>/uploaded.json`. For a publish request, add
-   `--request N --project P`.
+   made uploads, `--uploaded <folder>/uploaded.json`.
 7. Make each last call that publish-last prints, in order, as in step 2: first
    the `last-` calls, then the design system's `delete-` calls, which delete the
    uploads its index no longer names. A canvas with no file to remove has no

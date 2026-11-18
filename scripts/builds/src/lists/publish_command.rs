@@ -1,4 +1,4 @@
-//! `builds design listen` and `builds design publish take | failed`: the
+//! `builds design listen` and `builds design publish take | done | failed`: the
 //! design session's side of a publish the person asks for on the dashboard
 //! (publish.rs).
 
@@ -14,10 +14,10 @@ use crate::lists::store::Store;
 use crate::text::local_minute;
 use crate::tool::Tool;
 
-const USAGE: &str = "usage: builds design listen --project P\n       builds design publish take N [--project P] [--by WHO]\n       builds design publish failed N --why WHY [--project P] [--by WHO]";
+const USAGE: &str = "usage: builds design listen --project P\n       builds design publish take N [--project P] [--by WHO]\n       builds design publish done N [--project P] [--by WHO]\n       builds design publish failed N --why WHY [--project P] [--by WHO]";
 
 /// A publish request's id, as a command names it.
-pub fn request_id(text: &str) -> Result<i64> {
+fn request_id(text: &str) -> Result<i64> {
     match text.parse::<i64>() {
         Ok(id) if id > 0 => Ok(id),
         _ => fail!("{text:?} is no publish request's number"),
@@ -53,7 +53,7 @@ pub fn listen(
     ))
 }
 
-/// `publish take N` and `publish failed N --why WHY`.
+/// `publish take N`, `publish done N` and `publish failed N --why WHY`.
 pub fn publish(tool: &Tool, args: &[String], cwd: &Path) -> Result<String> {
     let Some((verb, rest)) = args.split_first() else {
         fail!("{USAGE}")
@@ -71,10 +71,19 @@ pub fn publish(tool: &Tool, args: &[String], cwd: &Path) -> Result<String> {
                 publish::take(db, id, &stamp)
             })?;
             Ok(format!(
-                "you took publish request {id} at {}: publish commit {} with the publish-designs skill (`builds design publish-files DIR OUT --index FILE --at {}`), and give the design system's publish-last --request {id}\n",
+                "you took publish request {id} at {}: publish commit {} with the publish-designs skill (`builds design publish-files DIR OUT --index FILE --at {}`), and end the request with `builds design publish done {id}` once the design system's last calls and the runtime check are done\n",
                 local_minute(stamp.at),
                 taken.commit,
                 taken.commit
+            ))
+        }
+        "done" => {
+            let ended = store.write(&stamp, &format!("design publish done {id}"), |db| {
+                publish::published(db, id, stamp.at)
+            })?;
+            Ok(format!(
+                "publish request {id} ended: it published commit {}\n",
+                ended.commit
             ))
         }
         "failed" => {

@@ -1,6 +1,6 @@
 //! `builds design places | only | record | amend | approve | check | landed |
 //! drop | show | list | render | tokens-css | publish-find | publish-files |
-//! publish-last | listen | publish take | publish failed`.
+//! publish-last | listen | publish take | publish done | publish failed`.
 //!
 //! The commands that read git (`places`, `record`, `amend`, `check`,
 //! `landed`) find the project from the repo of the worktree they are given,
@@ -21,7 +21,7 @@ use crate::lists::{Id, Lists, Stamp};
 use crate::text::local_minute;
 use crate::tool::Tool;
 
-const USAGE: &str = "usage: builds design places DIR REV...\n       builds design only DIR REV...\n       builds design record --request FILE\n       builds design amend N --request FILE\n       builds design approve N --by-person\n       builds design check N[,N...] DIR REV...\n       builds design landed N DIR SHA...\n       builds design drop N --why WHY\n       builds design show N\n       builds design list\n       builds design render DIR BOARD [--theme light|dark] [--now | --at REV]\n       builds design tokens-css DIR\n       builds design publish-find DIR --artifacts FILE [--at REV]\n       builds design publish-files DIR OUT --artifacts FILE (--index FILE | --no-index) [--at REV]\n       builds design publish-last FOLDER --listing FILE [(--index FILE | --no-index) --by WHO [--uploaded FILE] [--request N [--project P]]]\n       builds design listen --project P\n       builds design publish take N [--project P] [--by WHO]\n       builds design publish failed N --why WHY [--project P] [--by WHO]";
+const USAGE: &str = "usage: builds design places DIR REV...\n       builds design only DIR REV...\n       builds design record --request FILE\n       builds design amend N --request FILE\n       builds design approve N --by-person\n       builds design check N[,N...] DIR REV...\n       builds design landed N DIR SHA...\n       builds design drop N --why WHY\n       builds design show N\n       builds design list\n       builds design render DIR BOARD [--theme light|dark] [--now | --at REV]\n       builds design tokens-css DIR\n       builds design publish-find DIR --artifacts FILE [--at REV]\n       builds design publish-files DIR OUT --artifacts FILE (--index FILE | --no-index) [--at REV]\n       builds design publish-last FOLDER --listing FILE [(--index FILE | --no-index) --by WHO [--uploaded FILE]]\n       builds design listen --project P\n       builds design publish take N [--project P] [--by WHO]\n       builds design publish done N [--project P] [--by WHO]\n       builds design publish failed N --why WHY [--project P] [--by WHO]";
 
 pub fn cmd_design(tool: &Tool, args: &[String]) -> Result<()> {
     print!("{}", run_to_text(tool, args)?);
@@ -60,7 +60,7 @@ pub fn run_in_session(
         "tokens-css" => tokens_css(rest),
         "publish-find" => publish_find(rest),
         "publish-files" => publish_files(tool, rest),
-        "publish-last" => publish_last(tool, rest, &cwd),
+        "publish-last" => publish_last(tool, rest),
         "listen" => super::publish_command::listen(tool, rest, &cwd, session()?.as_ref()),
         "publish" => super::publish_command::publish(tool, rest, &cwd),
         other => fail!("unknown design command {other}\n{USAGE}"),
@@ -697,15 +697,8 @@ fn publish_files(tool: &Tool, args: &[String]) -> Result<String> {
 /// standard input) and, for the design system, its live index and the id
 /// each upload got, a JSON object of each upload's path on the artifact and
 /// the url or id the Artifact tool gave for it (`design_publish::write_last`).
-/// With `--request N`, the design system's last calls end publish request N
-/// of the project (`--project`, else the one of the current directory's
-/// repo) as published, with the folder's commit.
-fn publish_last(tool: &Tool, args: &[String], cwd: &Path) -> Result<String> {
-    let args = Args::parse(
-        args,
-        &["listing", "index", "by", "uploaded", "request", "project"],
-        &["no-index"],
-    )?;
+fn publish_last(tool: &Tool, args: &[String]) -> Result<String> {
+    let args = Args::parse(args, &["listing", "index", "by", "uploaded"], &["no-index"])?;
     let [folder] = args.exactly(1, USAGE)? else {
         unreachable!("exactly one")
     };
@@ -734,18 +727,6 @@ fn publish_last(tool: &Tool, args: &[String], cwd: &Path) -> Result<String> {
         ),
     };
     let root = Path::new(folder);
-    let request = match args.value("request")? {
-        None => None,
-        Some(id) => {
-            let (kind, commit) = crate::design_publish::folder_of(root)?;
-            if kind != crate::design_publish::Kind::DesignSystem || index.is_none() {
-                fail!(
-                    "--request goes with the design system's folder and its --index, whose last calls end the publish"
-                );
-            }
-            Some((super::publish_command::request_id(id)?, commit))
-        }
-    };
     let last = crate::design_publish::write_last(
         root,
         &listing,
@@ -758,16 +739,5 @@ fn publish_last(tool: &Tool, args: &[String], cwd: &Path) -> Result<String> {
             }),
         &crate::text::utc_second(tool.now)?,
     )?;
-    let mut report = crate::design_publish::last_report(root, &last);
-    if let Some((id, commit)) = request {
-        let store = Store::resolve(&tool.places, &args, cwd)?;
-        let stamp = Stamp::resolve(tool.now, &args, cwd)?;
-        store.write(&stamp, &format!("design publish published {id}"), |db| {
-            super::publish::published(db, id, &commit, stamp.at)
-        })?;
-        report.push_str(&format!(
-            "builds recorded that publish request {id} published commit {commit}.\n"
-        ));
-    }
-    Ok(report)
+    Ok(crate::design_publish::last_report(root, &last))
 }

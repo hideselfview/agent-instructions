@@ -64,6 +64,8 @@ fn a_request_wakes_the_listening_session_which_takes_it_and_records_the_commit_i
     let open = h.standing();
     assert_eq!(open.latest.as_ref().unwrap().taken, None);
     assert_eq!(open.published, None);
+    let untaken = h.run(&["publish", "done", "1"]).unwrap_err().text();
+    assert!(untaken.contains("was never taken"), "{untaken}");
     let taken = h.run(&["publish", "take", "1"]).unwrap();
     assert!(taken.contains(&format!("--at {COMMIT}")), "{taken}");
     let again = h.run(&["publish", "take", "1"]).unwrap_err().text();
@@ -78,22 +80,20 @@ fn a_request_wakes_the_listening_session_which_takes_it_and_records_the_commit_i
         refused.contains("publish request 1 is still open"),
         "{refused}"
     );
-    h.store
-        .write(&stamp(NOON), "design publish published 1", |db| {
-            let wrong = published(db, 1, &"f".repeat(40), NOON + 120)
-                .unwrap_err()
-                .text();
-            assert!(wrong.contains("asks for commit"), "{wrong}");
-            published(db, 1, COMMIT, NOON + 120)
-        })
-        .unwrap();
+    let done = h.run(&["publish", "done", "1"]).unwrap();
+    assert!(
+        done.contains(&format!("published commit {COMMIT}")),
+        "{done}"
+    );
+    let twice = h.run(&["publish", "done", "1"]).unwrap_err().text();
+    assert!(twice.contains("has ended"), "{twice}");
     let done = h.standing();
     assert_eq!(done.latest, done.published);
     let ended = done.published.unwrap();
     assert_eq!(
         ended.ended,
         Some(Ended {
-            at: NOON + 120,
+            at: NOON + 60,
             error: None
         })
     );

@@ -437,9 +437,9 @@ what it writes. The person can also publish from the dashboard: the Designs
 page's Publish to claude.ai… form records a publish request for the commit the
 person picks and sends it to the design session that listens for the project.
 That session takes the request (`builds design publish take N`), publishes
-that commit with the skill, and the design system's publish-last ends the
-request, or `builds design publish failed N --why` ends it with what stopped
-it.
+that commit with the skill, and ends the request with `builds design publish
+done N` after the last call and the runtime check, or with `builds design
+publish failed N --why` and what stopped it.
 
 
 HEALTH CHECK

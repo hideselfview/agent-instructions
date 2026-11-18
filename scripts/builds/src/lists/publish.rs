@@ -5,9 +5,10 @@
 //! button records a request for one commit and sends that inbox a message
 //! naming it (`ask_and_tell`), the session takes the request (`builds design
 //! publish take N`), publishes with the publish-designs skill, and records
-//! how it ended: `publish-last` of the design system records the commit it
-//! published, and `builds design publish failed N --why` records what
-//! stopped it. The tables are `publish.sql`; this is the only code that
+//! how it ended: `builds design publish done N`, after the design system's
+//! last calls and the check of the canvas runtime, records that it published
+//! the request's commit, and `builds design publish failed N --why` records
+//! what stopped it. The tables are `publish.sql`; this is the only code that
 //! writes them. The listener's token is a per-session secret, kept as
 //! `design_session.rs` keeps a recording session's.
 
@@ -229,9 +230,9 @@ pub fn take(db: &Connection, id: i64, stamp: &Stamp) -> Result<Request> {
     self::request(db, id)
 }
 
-/// Records that taken request <id> published <commit> at <at>, which ends
-/// it; fails when <commit> is not the one it asked for.
-pub fn published(db: &Connection, id: i64, commit: &str, at: i64) -> Result<()> {
+/// Records that taken request <id> published its commit at <at>, which ends
+/// it.
+pub fn published(db: &Connection, id: i64, at: i64) -> Result<Request> {
     let request = request(db, id)?;
     if request.ended.is_some() {
         fail!("publish request {id} has ended");
@@ -241,13 +242,8 @@ pub fn published(db: &Connection, id: i64, commit: &str, at: i64) -> Result<()> 
             "publish request {id} was never taken; take it with `builds design publish take {id}` first"
         );
     }
-    if request.commit != commit {
-        fail!(
-            "publish request {id} asks for commit {}, and the folder holds the files of {commit}",
-            request.commit
-        );
-    }
-    end(db, id, at, None)
+    end(db, id, at, None)?;
+    self::request(db, id)
 }
 
 /// Records that open request <id> failed at <at> for <why>, which ends it.
