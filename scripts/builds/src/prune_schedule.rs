@@ -1,8 +1,7 @@
-//! Running `builds prune` on a schedule. What only prune deletes piles up
-//! until someone runs it by hand: on 2026-11-16 the hosts held 87 GB of the
-//! job worktrees of retired checkouts. So the dashboard daemon runs `builds
-//! prune` every PRUNE_HOURS hours, and that prune removes those worktrees on
-//! every host (remote_worktrees.rs).
+//! Running `builds prune` on a schedule. Some of what builds leaves behind
+//! only prune deletes, such as the job worktrees of retired checkouts on the
+//! hosts (remote_worktrees.rs), so the dashboard daemon runs `builds prune`
+//! every PRUNE_HOURS hours.
 //!
 //! A prune that finishes, whoever ran it, writes when it finished to
 //! `<daemon dir>/pruned`. The daemon starts the next prune PRUNE_HOURS after
