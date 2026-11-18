@@ -15,8 +15,10 @@ use std::path::{Path, PathBuf};
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
 
-use crate::design_render::{BOARD_SUFFIX, CANVAS, MOCKS, Source, export, imports, in_scratch};
-use crate::design_tokens::TOKENS_JSON;
+use boards::{
+    BOARD_SUFFIX, CANVAS, MOCKS, Source, TOKENS_JSON, design_namespace, export, imports, in_scratch,
+};
+
 use crate::fail;
 use crate::fail::{Context, Fail, Result};
 
@@ -267,30 +269,6 @@ pub fn split<'a>(
     Ok(splits)
 }
 
-/// The folder under `project/ds/` that the design system of <index> goes
-/// in: the namespace of its one design system.
-fn ds_folder(index: &Value) -> Result<String> {
-    let systems = index["designSystems"].as_array().map(Vec::as_slice);
-    let [system] = systems.unwrap_or_default() else {
-        fail!("{CANVAS} names no design system, or more than one; builds copies the repo's one");
-    };
-    let namespace = system["namespace"].as_str().unwrap_or("");
-    let fine = namespace
-        .bytes()
-        .next()
-        .is_some_and(|b| b.is_ascii_lowercase() || b.is_ascii_digit())
-        && namespace.len() <= 64
-        && namespace
-            .bytes()
-            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || matches!(b, b'_' | b'-'));
-    if !fine {
-        fail!(
-            "{CANVAS}'s design system has the namespace {namespace:?}, which is no folder name on a canvas"
-        );
-    }
-    Ok(namespace.to_string())
-}
-
 /// <paths>, the files of one canvas, in the batches that one publish each
 /// sends: the index first, then the design system, then the boards.
 pub fn batches(mut paths: Vec<String>) -> Vec<Vec<String>> {
@@ -346,7 +324,7 @@ pub fn write_canvases(repo: &Path, rev: &str, out: &Path, cache: &Path) -> Resul
         read_boards(work)
     })?;
     let splits = split(&index, &canvases, &boards)?;
-    let folder = ds_folder(&index)?;
+    let folder = design_namespace(&index)?;
     let [tokens_css, bundle_css, bundle_js] = from.design_system(cache)?;
     let tokens_json = from.read(TOKENS_JSON, "the design system's tokens")?;
     let system: BTreeMap<&str, &str> = DS_FILES

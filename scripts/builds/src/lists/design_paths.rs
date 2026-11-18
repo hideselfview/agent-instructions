@@ -404,7 +404,7 @@ pub fn changes_of(top: &Path, globs: &Globs, shas: &[String]) -> Result<Changes>
             .cloned()
             .collect();
         for board in boards {
-            if !exists_in(top, tip, &board)? {
+            if !boards::exists_in(top, tip, &board)? {
                 changes.places.remove(&board);
                 changes.deleted.insert(board);
             }
@@ -502,25 +502,6 @@ pub fn drawing_at<'a>(
         })
         .collect();
     Ok(Drawing { objects })
-}
-
-/// Does <path> exist as a file or folder in commit <rev>?
-pub fn exists_in(top: &Path, rev: &str, path: &str) -> Result<bool> {
-    let output = git(top)
-        .args(["cat-file", "-e", &format!("{rev}:{path}")])
-        .stdin(std::process::Stdio::null())
-        .output()
-        .map_err(|error| {
-            crate::fail::Fail::Message(format!("running git to look for {path} in {rev}: {error}"))
-        })?;
-    match output.status.code() {
-        Some(0) => Ok(true),
-        Some(128) => Ok(false),
-        _ => fail!(
-            "git failed to look for {path} in {rev}: {}",
-            String::from_utf8_lossy(&output.stderr).trim()
-        ),
-    }
 }
 
 /// The commits of <range> (`origin/main..HEAD`), oldest first; a range with

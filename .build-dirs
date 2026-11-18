@@ -7,6 +7,9 @@
 # scripts/builds/target is the builds tool's cargo target. The main checkout's
 # held 4.2G of incremental debug builds on 2026-11-15; a side worktree builds
 # without incremental output, so its cap is about twice that.
+# scripts/boards/target is the cargo target of the library builds shares with
+# the programs it runs; it builds alone only for its own tests and clippy.
 #
 # path                    cap
 scripts/builds/target     10G
+scripts/boards/target     2G

@@ -1,0 +1,10 @@
+[package]
+name = "boards"
+version = "0.1.0"
+edition = "2024"
+publish = false
+description = "A repo's design files, from a folder or a commit: its boards, its canvas index and its design system's tokens.css and bundles."
+
+[dependencies]
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"

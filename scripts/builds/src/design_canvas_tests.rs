@@ -426,18 +426,3 @@ fn an_index_entry_of_the_wrong_shape_is_refused_naming_it() {
         assert!(said.contains(&expected), "{said}");
     }
 }
-
-/// The scratch folder goes once its use ends, when the use fails too.
-#[test]
-fn the_scratch_folder_goes_when_its_use_fails() {
-    let scratch = Scratch::new("canvas-scratch");
-    let cache = scratch.dir.join("cache");
-    let mut used = None;
-    let result: Result<()> = in_scratch(&cache, |work| {
-        std::fs::create_dir_all(work.join("inside")).unwrap();
-        used = Some(work.to_path_buf());
-        fail!("the use failed")
-    });
-    assert_eq!(message(result), "the use failed");
-    assert!(!used.expect("the use ran").exists());
-}

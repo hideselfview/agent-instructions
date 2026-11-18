@@ -205,7 +205,7 @@ fn affected_components(scope: &Scope, request: &DesignRequest) -> Result<BTreeSe
     for path in request.places.keys().filter(|p| !changed.contains(*p)) {
         if PlaceKind::of(path) == PlaceKind::Component
             && scope.globs.names_place(path)
-            && design_paths::exists_in(&scope.checkout.top, &scope.tip, path.trim_end_matches('/'))?
+            && boards::exists_in(&scope.checkout.top, &scope.tip, path.trim_end_matches('/'))?
         {
             affected.insert(path.clone());
         }
@@ -228,7 +228,7 @@ fn require_review_boards(scope: &Scope, request: &DesignRequest) -> Result<()> {
                     board.board
                 );
             }
-            if !design_paths::exists_in(&scope.checkout.top, &scope.tip, &board.board)? {
+            if !boards::exists_in(&scope.checkout.top, &scope.tip, &board.board)? {
                 fail!(
                     "`review` names {}, which is no file at the range's last commit {}",
                     board.board,
@@ -583,12 +583,12 @@ fn render(tool: &Tool, args: &[String]) -> Result<String> {
     let dir = Path::new(dir);
     let source = match (args.switch("now"), args.value("at")?) {
         (true, Some(_)) => fail!("--now and --at both say which drawing: give one"),
-        (true, None) => crate::design_render::Source::Commit {
+        (true, None) => boards::Source::Commit {
             repo: dir,
             rev: crate::design_render::NOW,
         },
-        (false, Some(rev)) => crate::design_render::Source::Commit { repo: dir, rev },
-        (false, None) => crate::design_render::Source::Dir(dir),
+        (false, Some(rev)) => boards::Source::Commit { repo: dir, rev },
+        (false, None) => boards::Source::Dir(dir),
     };
     crate::design_render::render_board(source, board, theme, &tool.places.design_system_cache())
 }
@@ -601,8 +601,8 @@ fn tokens_css(args: &[String]) -> Result<String> {
         unreachable!("exactly one")
     };
     let dir = Path::new(dir);
-    let css = crate::design_render::Source::Dir(dir).tokens_css()?;
-    let to = dir.join(crate::design_tokens::TOKENS_CSS);
+    let css = boards::Source::Dir(dir).tokens_css()?;
+    let to = dir.join(boards::TOKENS_CSS);
     std::fs::write(&to, css).context(|| format!("writing {}", to.display()))?;
     Ok(format!("wrote {}\n", to.display()))
 }

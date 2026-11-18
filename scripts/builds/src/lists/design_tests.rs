@@ -2116,7 +2116,7 @@ fn tokens_css_writes_the_stylesheet_of_a_worktree_from_its_tokens() {
     );
     assert_eq!(
         std::fs::read_to_string(&css).unwrap(),
-        crate::design_tokens::tokens_css(&tokens).unwrap()
+        boards::tokens_css(&tokens).unwrap()
     );
     assert!(message(w.run("tokens-css")).contains("usage"));
 }

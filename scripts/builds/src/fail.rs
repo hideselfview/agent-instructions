@@ -23,6 +23,12 @@ impl Fail {
 
 pub type Result<T> = std::result::Result<T, Fail>;
 
+impl From<boards::Error> for Fail {
+    fn from(error: boards::Error) -> Fail {
+        Fail::Message(error.text())
+    }
+}
+
 /// The exit code a shell gives for a program that ended with <status>: its
 /// own code, or 128 plus the signal that ended it.
 pub fn exit_code(status: std::process::ExitStatus) -> i32 {

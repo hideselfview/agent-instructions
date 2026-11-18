@@ -321,21 +321,6 @@ fn a_key_names_a_place_only_in_the_form_the_glob_gives_it() {
 }
 
 #[test]
-fn exists_in_tells_a_folder_a_file_and_a_missing_path_apart() {
-    let scratch = Scratch::new("design-paths-exists");
-    let dir = scratch.dir.join("bae");
-    repo(&dir, "target 1\n");
-    commit(
-        &dir,
-        &[("design/system/components/MacRow/a.html", "1")],
-        "component",
-    );
-    assert!(exists_in(&dir, "HEAD", "design/system/components/MacRow").unwrap());
-    assert!(exists_in(&dir, "HEAD", "design/system/components/MacRow/a.html").unwrap());
-    assert!(!exists_in(&dir, "HEAD", "design/system/components/Gone").unwrap());
-}
-
-#[test]
 fn a_board_deep_in_a_repo_makes_only_its_design_folder_shared() {
     let globs = Globs {
         places: vec!["web/design/*.html".into()],

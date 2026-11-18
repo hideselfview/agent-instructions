@@ -6,6 +6,7 @@ publish = false
 description = "Owns this machine's build volume: build roots per checkout, caps, the free-space floor, claims, and a daemon with a live page."
 
 [dependencies]
+boards = { path = "../boards" }
 libc = "0.2.191"
 rusqlite = { version = "0.42.0", features = ["bundled"] }
 serde = { version = "1.0.229", features = ["derive"] }

@@ -1,9 +1,8 @@
 //! A design system's `tokens.css`, written from its `design/system/tokens.json`:
 //! one custom property per token and one class per text style, laid out as the
-//! claude.ai Design System page compiles it. builds draws boards with it, and
+//! claude.ai Design System page compiles it. The boards load it, and
 //! `builds design tokens-css DIR` writes the file into a worktree for other
-//! tools that load it there (a repo's screenshot checks, the design system's
-//! preview pages); both read the tokens through `design_render::Source`.
+//! tools that load it there; both read the tokens through `Source`.
 //!
 //! The stylesheet, in order:
 //!
@@ -23,8 +22,7 @@ use serde::Deserialize;
 use serde::de::{Deserializer, MapAccess, Visitor};
 use serde_json::Value;
 
-use crate::fail;
-use crate::fail::{Context, Result};
+use crate::{Context, Result, fail};
 
 /// Where a worktree's tokens are, and where their stylesheet goes.
 pub const TOKENS_JSON: &str = "design/system/tokens.json";
@@ -213,5 +211,5 @@ pub fn tokens_css(json: &str) -> Result<String> {
 }
 
 #[cfg(test)]
-#[path = "design_tokens_tests.rs"]
+#[path = "tokens_tests.rs"]
 mod tests;
