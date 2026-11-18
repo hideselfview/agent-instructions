@@ -43,9 +43,12 @@
 //!                   the Designs page of the project: every board of the
 //!                   repo that holds its design files as it stands on
 //!                   origin/main, and its design system (designs.rs)
-//!     GET /designs/<project>/publish
-//!                   the project's publishing: its newest publish request
-//!                   and the newest that published (lists/publish.rs)
+//!     /designs/<project>/publish/events
+//!                   `publish` events: the project's publishing (its newest
+//!                   publish request and the newest that published,
+//!                   lists/publish.rs) on connect
+//!                   and each time a read of the stores finds them changed;
+//!                   the Designs page's form follows these
 //!     POST /designs/<project>/publish  `{"commit"}`: records a request to
 //!                   publish the designs at that commit and wakes the design
 //!                   session listening for the project; only from this Mac
@@ -191,6 +194,11 @@ fn handle(mut stream: TcpStream, names: &[String], model: &Model) -> std::io::Re
     {
         return approve(&mut stream, model, project, id);
     }
+    if method == "GET"
+        && let Some(project) = path.strip_suffix("/events").and_then(publish_target)
+    {
+        return publish_events(stream, model, project);
+    }
     if let Some(project) = publish_target(path) {
         return match method {
             "POST" if length > MAX_BODY => respond(
@@ -200,17 +208,11 @@ fn handle(mut stream: TcpStream, names: &[String], model: &Model) -> std::io::Re
                 b"too large\n",
             ),
             "POST" => ask_publish(&mut stream, model, project, &body),
-            "GET" => json(
-                &mut stream,
-                super::designs::standing(&model.places, project).map(|standing| {
-                    serde_json::to_vec(&standing).expect("the standing serializes")
-                }),
-            ),
             _ => respond(
                 &mut stream,
                 "405 Method Not Allowed",
                 "text/plain; charset=utf-8",
-                b"GET or POST only\n",
+                b"POST only\n",
             ),
         };
     }
@@ -736,6 +738,39 @@ fn events(mut stream: TcpStream, model: &Model) -> std::io::Result<()> {
     })();
     model.watch(false);
     sent
+}
+
+/// Streams `publish` events of project <project> until the page goes: its
+/// publishing (`designs::standing`) on connect and after each read of the
+/// stores that found them changed, which every write to a store causes, or a
+/// `failure` event when the store can't be read.
+fn publish_events(mut stream: TcpStream, model: &Model, project: &str) -> std::io::Result<()> {
+    write!(
+        stream,
+        "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nCache-Control: no-store\r\nConnection: keep-alive\r\n\r\n"
+    )?;
+    let mut seen = 0;
+    let mut sent: Option<u64> = None;
+    loop {
+        let read = model.lists_version();
+        if sent != Some(read) {
+            match super::designs::standing(&model.places, project) {
+                Ok(standing) => write!(
+                    stream,
+                    "event: publish\ndata: {}\n\n",
+                    serde_json::to_string(&standing).expect("the standing serializes")
+                )?,
+                Err(error) => write!(
+                    stream,
+                    "event: failure\ndata: {}\n\n",
+                    serde_json::json!({ "error": error.text() })
+                )?,
+            }
+            stream.flush()?;
+            sent = Some(read);
+        }
+        seen = model.wait_change(seen);
+    }
 }
 
 /// Writes <data> to <stream> as event <name> unless <sent> holds the same

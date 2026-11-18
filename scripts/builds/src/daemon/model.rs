@@ -894,6 +894,12 @@ impl Model {
         Ok(json)
     }
 
+    /// The version of the stores as last read: it moves each time a read finds
+    /// a store changed.
+    pub fn lists_version(&self) -> u64 {
+        self.lists.current().0
+    }
+
     /// The hook runs' JSON the page reads; the same `Arc` comes back until
     /// the runs change.
     pub fn hooks_json(&self) -> Arc<String> {

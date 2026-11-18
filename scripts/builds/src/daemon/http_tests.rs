@@ -754,3 +754,68 @@ fn a_publish_path_names_one_project() {
         assert_eq!(publish_target(bad), None, "{bad:?}");
     }
 }
+
+/// Reads the server-sent events of <reader> until one named <name> comes, and
+/// returns its data.
+fn next_event(reader: &mut BufReader<TcpStream>, name: &str) -> String {
+    let mut event = String::new();
+    loop {
+        let mut line = String::new();
+        assert!(reader.read_line(&mut line).unwrap() > 0, "the stream ended");
+        if let Some(found) = line.strip_prefix("event: ") {
+            event = found.trim().to_string();
+        } else if let Some(data) = line.strip_prefix("data: ")
+            && event == name
+        {
+            return data.trim().to_string();
+        }
+    }
+}
+
+#[test]
+fn the_publish_events_follow_the_store_and_a_project_with_no_design_files_has_no_publish() {
+    use crate::lists::fixtures::{NOON, make_store, stamp};
+    let mut inbox = None;
+    let s = server_with("http-publish", |scratch, places| {
+        make_store(places, &["bae"]);
+        let socket = scratch.dir.join("p.sock");
+        inbox = Some(crate::testing::FakeInbox::listen(&socket));
+        let messaging =
+            crate::lists::design_session::Messaging::new(socket.to_str().unwrap(), None).unwrap();
+        crate::lists::store::Store::named(places, "demo")
+            .unwrap()
+            .write(&stamp(NOON), "design listen", |db| {
+                crate::lists::publish::listen(db, &messaging, &stamp(NOON))
+            })
+            .unwrap();
+    });
+    let origin = format!("http://127.0.0.1:{}", s.port);
+    let (status, body) = s.post_to(
+        "/designs/demo/publish",
+        &format!("127.0.0.1:{}", s.port),
+        Some(&origin),
+        r#"{"commit":"origin/main"}"#,
+    );
+    assert_eq!(status, 404, "{body}");
+    assert!(body.contains("project demo has no design files"), "{body}");
+    let mut stream = TcpStream::connect(("127.0.0.1", s.port)).unwrap();
+    write!(
+        stream,
+        "GET /designs/demo/publish/events HTTP/1.1\r\nHost: 127.0.0.1:{}\r\n\r\n",
+        s.port
+    )
+    .unwrap();
+    let mut reader = BufReader::new(stream);
+    let first: serde_json::Value =
+        serde_json::from_str(&next_event(&mut reader, "publish")).unwrap();
+    assert_eq!(
+        first,
+        serde_json::json!({ "latest": null, "published": null })
+    );
+    let store = crate::lists::store::Store::named(&s.model.places, "demo").unwrap();
+    crate::lists::publish::ask_and_tell(&store, &"a".repeat(40), &stamp(NOON)).unwrap();
+    let next: serde_json::Value =
+        serde_json::from_str(&next_event(&mut reader, "publish")).unwrap();
+    assert_eq!(next["latest"]["id"], serde_json::json!(1));
+    assert_eq!(inbox.unwrap().received().len(), 1);
+}
