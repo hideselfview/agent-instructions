@@ -52,6 +52,14 @@
    "y": 3300,
    "w": 760,
    "h": 900
+  },
+  "dashboard.designs-system.dc.html": {
+   "page": "dashboard",
+   "title": "A project's design system",
+   "x": 0,
+   "y": 4500,
+   "w": 1440,
+   "h": 1000
   }
  }
 }

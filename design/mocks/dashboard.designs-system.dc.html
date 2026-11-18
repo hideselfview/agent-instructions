@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Dashboard: a project's design system</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="ds/builds/tokens.css">
+<link rel="stylesheet" href="ds/builds/components/bundle.css">
+<script src="ds/builds/components/bundle.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet><style>body{margin:0;background:var(--bg)}
+.dz{display:flex;flex-direction:column;gap:16px;padding:20px 24px;font:400 14px var(--font-sans);color:var(--text)}
+.dz-head{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}
+.dz-head h1{margin:0;font:600 20px var(--font-sans)}
+.dz-sub{color:var(--muted);font-size:13px}
+.dz-sub code{font:500 12px var(--font-mono);color:var(--text-2)}
+.dz-tools{margin-left:auto;display:flex;gap:8px;align-items:center}
+.dz-pages{display:flex;gap:4px;flex-wrap:wrap;border-bottom:1px solid var(--line);padding-bottom:8px}
+.dz-pages button{font:inherit;font-size:13px;color:var(--text-2);background:none;border:1px solid transparent;border-radius:6px;padding:3px 10px;cursor:pointer}
+.dz-pages button[aria-selected="true"]{color:var(--text);border-color:var(--line);background:var(--surface)}
+.dz-pages .n{color:var(--muted);margin-left:6px;font-size:12px}
+.ds-sec{display:flex;flex-direction:column;gap:10px}
+.ds-sec h2{margin:0;font:600 15px var(--font-sans)}
+.ds-swatches{display:grid;grid-template-columns:repeat(8,minmax(0,1fr));gap:12px}
+.ds-sw{display:flex;flex-direction:column;gap:4px}
+.ds-chip{height:40px;border-radius:6px;border:1px solid var(--line)}
+.ds-k{font:500 11px var(--font-mono);color:var(--text-2)}
+.ds-type{display:flex;flex-direction:column;gap:6px}
+.ds-type div{display:flex;align-items:baseline;gap:16px}
+.ds-type .ds-k{width:120px}
+.ds-comps{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:20px}
+.ds-comp{display:flex;flex-direction:column;gap:6px}
+.ds-prev{height:120px;border:1px solid var(--line);border-radius:6px;background:var(--surface)}
+</style></helmet>
+<div class="dz">
+<div class="dz-head">
+  <h1>bae designs</h1>
+  <span class="dz-sub">main at <code>43b9c69</code> · 571 boards</span>
+  <span class="dz-sub">claude.ai has <code>43b9c69</code>, published 14:20</span>
+  <div class="dz-tools"><button type="button" class="qbtn">Publish to claude.ai…</button></div>
+</div>
+<div class="dz-pages" role="tablist" aria-label="Pages">
+  <button type="button" role="tab" aria-selected="false">Welcome<span class="n">71</span></button>
+  <button type="button" role="tab" aria-selected="false">Home<span class="n">91</span></button>
+  <button type="button" role="tab" aria-selected="false">Library<span class="n">178</span></button>
+  <button type="button" role="tab" aria-selected="false">Settings<span class="n">60</span></button>
+  <button type="button" role="tab" aria-selected="false">Shared<span class="n">16</span></button>
+  <button type="button" role="tab" aria-selected="true">Design system</button>
+</div>
+<section class="ds-sec"><h2>Colors</h2><div class="ds-swatches">
+  <div class="ds-sw"><div class="ds-chip" style="background:#141416"></div><span class="ds-k">bg</span></div>
+  <div class="ds-sw"><div class="ds-chip" style="background:#1d1d20"></div><span class="ds-k">surface</span></div>
+  <div class="ds-sw"><div class="ds-chip" style="background:#f2f2f3"></div><span class="ds-k">text-primary</span></div>
+  <div class="ds-sw"><div class="ds-chip" style="background:#a1a1a8"></div><span class="ds-k">text-secondary</span></div>
+  <div class="ds-sw"><div class="ds-chip" style="background:#c2508f"></div><span class="ds-k">accent</span></div>
+  <div class="ds-sw"><div class="ds-chip" style="background:#e5484d"></div><span class="ds-k">danger</span></div>
+  <div class="ds-sw"><div class="ds-chip" style="background:#f5a623"></div><span class="ds-k">warning</span></div>
+  <div class="ds-sw"><div class="ds-chip" style="background:#3dd68c"></div><span class="ds-k">success</span></div>
+</div></section>
+<section class="ds-sec"><h2>Type</h2><div class="ds-type">
+  <div><span class="ds-k">title · 600 20</span><span style="font:600 20px var(--font-sans)">Low Tide Hours</span></div>
+  <div><span class="ds-k">body · 400 13</span><span style="font:400 13px var(--font-sans)">bae saved the new S3 key.</span></div>
+  <div><span class="ds-k">caption · 400 11</span><span style="font:400 11px var(--font-sans);color:var(--muted)">Synced 2 minutes ago</span></div>
+</div></section>
+<section class="ds-sec"><h2>Components</h2><div class="ds-comps">
+  <div class="ds-comp"><div class="ds-prev"></div><span class="ds-k">MacStorageChip</span></div>
+  <div class="ds-comp"><div class="ds-prev"></div><span class="ds-k">MacStorageBand</span></div>
+  <div class="ds-comp"><div class="ds-prev"></div><span class="ds-k">MacAlbumTile</span></div>
+  <div class="ds-comp"><div class="ds-prev"></div><span class="ds-k">AndroidRow</span></div>
+</div></section>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1000}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>
