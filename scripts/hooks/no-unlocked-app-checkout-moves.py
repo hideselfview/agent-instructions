@@ -13,9 +13,12 @@ refused unless it is inside the `builds lock` of that checkout's lane.
 Read-only git is not affected.
 
 The checkouts, their repos and lanes come from `builds status --json`, which
-records them, so any repo with an app checkout recorded is covered. When `builds`
-fails the command is allowed, with a warning on stderr (exit 1, which Claude
-Code shows without blocking).
+records them, so any repo with an app checkout recorded is covered. builds refuses a
+command that names no agent, so the hook passes `--agent` the id builds gives
+the agent: the hook input's `agent_id` for a subagent, else its `session_id`
+(the main agent's id). When `builds` fails, or the input names neither, the
+command is allowed, with a warning on stderr (exit 1, which Claude Code shows
+without blocking).
 
 Known false refusal, kept because refusing too much is the safe side: a `cd`
 inside `( ... )` is read as lasting to the end of the command, so
@@ -51,11 +54,19 @@ SHELLS = {"sh", "bash", "zsh", "dash"}
 CD = {"cd", "pushd"}
 
 
-def app_checkouts() -> list[tuple[str, str, str]]:
-    """(app checkout path, repo name, lane) for each app checkout recorded.
+def agent_id(payload: dict) -> str:
+    """The id builds names the agent that ran the hook by: a subagent's `agent_id`, else the session id."""
+    agent = payload.get("agent_id") or payload.get("session_id")
+    if not agent:
+        raise ValueError("the hook input names neither agent_id nor session_id")
+    return agent
+
+
+def app_checkouts(agent: str) -> list[tuple[str, str, str]]:
+    """(app checkout path, repo name, lane) for each app checkout recorded, asked as agent <agent>.
     Raises OSError, ValueError, KeyError or SubprocessError when `builds` cannot say."""
-    result = subprocess.run(["builds", "status", "--json", "--no-folders"], capture_output=True, text=True,
-                            timeout=8, check=True)
+    result = subprocess.run(["builds", "status", "--json", "--no-folders", "--agent", agent],
+                            capture_output=True, text=True, timeout=8, check=True)
     repos = json.loads(result.stdout)["repos"]
     return [
         (c["path"], repo["name"], c["app_lane"])
@@ -150,7 +161,7 @@ def main():
     if "git" not in command:
         return
     try:
-        checkouts = app_checkouts()
+        checkouts = app_checkouts(agent_id(payload))
     except (OSError, ValueError, KeyError, subprocess.SubprocessError) as error:
         print(f"no-unlocked-app-checkout-moves: allowed unchecked, `builds status --json` failed: {error!r}",
               file=sys.stderr)
