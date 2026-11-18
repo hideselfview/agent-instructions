@@ -4,10 +4,11 @@
 //! own branch.
 //!
 //! The design system's bundles (`bundle.css`, `bundle.js`) are generated
-//! files that no commit holds. A folder has them on disk. A commit's own
-//! `build-bundle.py` builds them in a scratch copy of the design system,
-//! never in the repo's files, and they are kept in a cache under the hash of
-//! the files they come from: one build per distinct design system.
+//! files that no commit holds. A source's own `build-bundle.py` builds them
+//! in a scratch copy of the design system, never in the repo's files: a
+//! commit's are kept in a cache under the hash of the files they come from,
+//! one build per distinct design system, and a folder's, whose files may
+//! change at any time, are built on each read.
 
 use std::path::Path;
 use std::process::{Command, Stdio};
@@ -166,19 +167,26 @@ impl Source<'_> {
             .map_err(|error| Error::new(format!("{}: {error}", self.label(TOKENS_JSON))))
     }
 
-    /// The design system's bundle.css and bundle.js. A folder has them on
-    /// disk; a commit's are built and kept in <cache>.
+    /// The design system's bundle.css and bundle.js, which the source's
+    /// build-bundle.py builds in a scratch copy of what it reads.
     fn bundles(&self, cache: &Path) -> Result<[String; 2]> {
-        let Source::Commit { repo, rev } = self else {
-            let [a, b] = BUNDLES.map(|rel| self.read(rel, "the design system's"));
-            return Ok([a?, b?]);
-        };
         let inputs = self.bundle_inputs().map_err(|error| {
             Error::new(format!(
                 "the design system of {} cannot be generated: {error}",
                 self.name()
             ))
         })?;
+        let Source::Commit { repo, rev } = self else {
+            return in_scratch(cache, |work| {
+                self.copy_out(&inputs, work)?;
+                self.run_bundler(work)?;
+                let [css, js] = BUNDLES.map(|rel| {
+                    std::fs::read_to_string(work.join(rel))
+                        .context(|| format!("reading the generated {rel} of {}", self.name()))
+                });
+                Ok([css?, js?])
+            });
+        };
         let mut key = Vec::new();
         for input in &inputs {
             let hash = git_text(
@@ -198,6 +206,20 @@ impl Source<'_> {
                 .context(|| format!("reading the generated {name} of {rev}"))
         };
         Ok([read(BUNDLES[0])?, read(BUNDLES[1])?])
+    }
+
+    /// Writes <inputs>, paths of the source, into the folder <into> at their
+    /// paths in the repo.
+    fn copy_out(&self, inputs: &[String], into: &Path) -> Result<()> {
+        match self {
+            Source::Commit { repo, rev } => export(repo, rev, inputs, into, "the design system"),
+            Source::Dir(dir) => {
+                for input in inputs {
+                    copy_tree(&dir.join(input), &into.join(input))?;
+                }
+                Ok(())
+            }
+        }
     }
 
     /// Runs build-bundle.py in <work>, a copy of what it reads, and fails
@@ -230,10 +252,7 @@ impl Source<'_> {
     fn generate(&self, inputs: &[String], cache: &Path, entry: &Path) -> Result<()> {
         let what = self.name();
         in_scratch(cache, |work| {
-            let Source::Commit { repo, rev } = self else {
-                unreachable!("only a commit is generated")
-            };
-            export(repo, rev, inputs, work, "the design system")?;
+            self.copy_out(inputs, work)?;
             self.run_bundler(work)?;
             let out = work.join("out");
             std::fs::create_dir_all(&out).context(|| format!("making {}", out.display()))?;
@@ -281,36 +300,86 @@ impl Source<'_> {
         Ok(inputs)
     }
 
-    /// Each symbolic link at or under <input> of a commit, as its path in
-    /// the repo and the target it holds. Fails when the commit has no
-    /// <input>.
+    /// Each symbolic link at or under <input>, as its path in the repo and
+    /// the target it holds. Fails when the source has no <input>.
     fn links_under(&self, input: &str) -> Result<Vec<(String, String)>> {
-        let Source::Commit { repo, rev } = self else {
-            unreachable!("only a commit's links are followed")
-        };
-        let listing = git_text(
-            git(repo).args(["ls-tree", "-r", "-z", rev, "--", input]),
-            &format!("list {rev}:{input}"),
-        )?;
-        if listing.is_empty() {
-            fail!("{rev} has no {input}");
-        }
-        let mut links = Vec::new();
-        for entry in listing.split('\0').filter(|e| !e.is_empty()) {
-            let Some((meta, path)) = entry.split_once('\t') else {
-                continue;
-            };
-            if !meta.starts_with("120000 ") {
-                continue;
+        match self {
+            Source::Commit { repo, rev } => {
+                let listing = git_text(
+                    git(repo).args(["ls-tree", "-r", "-z", rev, "--", input]),
+                    &format!("list {rev}:{input}"),
+                )?;
+                if listing.is_empty() {
+                    fail!("{rev} has no {input}");
+                }
+                let mut links = Vec::new();
+                for entry in listing.split('\0').filter(|e| !e.is_empty()) {
+                    let Some((meta, path)) = entry.split_once('\t') else {
+                        continue;
+                    };
+                    if !meta.starts_with("120000 ") {
+                        continue;
+                    }
+                    let target = git_text(
+                        git(repo).args(["cat-file", "blob", &format!("{rev}:{path}")]),
+                        &format!("read the link {rev}:{path}"),
+                    )?;
+                    links.push((path.to_string(), target.trim_end_matches('\n').to_string()));
+                }
+                Ok(links)
             }
-            let target = git_text(
-                git(repo).args(["cat-file", "blob", &format!("{rev}:{path}")]),
-                &format!("read the link {rev}:{path}"),
-            )?;
-            links.push((path.to_string(), target.trim_end_matches('\n').to_string()));
+            Source::Dir(dir) => {
+                if std::fs::symlink_metadata(dir.join(input)).is_err() {
+                    fail!("{} has no {input}", dir.display());
+                }
+                let mut links = Vec::new();
+                let mut todo = vec![input.to_string()];
+                while let Some(rel) = todo.pop() {
+                    let path = dir.join(&rel);
+                    let meta = std::fs::symlink_metadata(&path)
+                        .context(|| format!("reading {}", path.display()))?;
+                    if meta.file_type().is_symlink() {
+                        let target = std::fs::read_link(&path)
+                            .context(|| format!("reading the link {}", path.display()))?;
+                        links.push((rel, target.to_string_lossy().into_owned()));
+                    } else if meta.is_dir() {
+                        for entry in std::fs::read_dir(&path)
+                            .context(|| format!("listing {}", path.display()))?
+                        {
+                            let entry = entry.context(|| format!("listing {}", path.display()))?;
+                            todo.push(format!("{rel}/{}", entry.file_name().to_string_lossy()));
+                        }
+                    }
+                }
+                links.sort();
+                Ok(links)
+            }
         }
-        Ok(links)
     }
+}
+
+/// Copies the file, link or folder <from> to <to>, keeping each symbolic
+/// link as a link.
+fn copy_tree(from: &Path, to: &Path) -> Result<()> {
+    let meta = std::fs::symlink_metadata(from).context(|| format!("reading {}", from.display()))?;
+    if let Some(parent) = to.parent() {
+        std::fs::create_dir_all(parent).context(|| format!("making {}", parent.display()))?;
+    }
+    if meta.file_type().is_symlink() {
+        let target =
+            std::fs::read_link(from).context(|| format!("reading the link {}", from.display()))?;
+        std::os::unix::fs::symlink(&target, to)
+            .context(|| format!("copying the link {}", from.display()))?;
+    } else if meta.is_dir() {
+        std::fs::create_dir_all(to).context(|| format!("making {}", to.display()))?;
+        for entry in std::fs::read_dir(from).context(|| format!("listing {}", from.display()))? {
+            let entry = entry.context(|| format!("listing {}", from.display()))?;
+            copy_tree(&entry.path(), &to.join(entry.file_name()))?;
+        }
+    } else {
+        std::fs::copy(from, to).context(|| format!("copying {}", from.display()))?;
+    }
+    Ok(())
 }
 
 /// Runs <use_it> on a new scratch folder in <cache> and removes the folder

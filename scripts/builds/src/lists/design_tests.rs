@@ -1774,12 +1774,8 @@ fn only_succeeds_for_commits_that_are_all_design_and_names_the_rest() {
 #[test]
 fn render_prints_a_board_of_a_worktree_as_one_page_in_the_theme_asked() {
     let w = world("design-render");
-    let system = w.dir.join("design/system");
-    std::fs::create_dir_all(system.join("components")).unwrap();
+    crate::testing::design_system(&w.dir, "1", "", "window.Bae = {};");
     std::fs::create_dir_all(w.dir.join("design/mocks")).unwrap();
-    std::fs::write(system.join("tokens.json"), crate::testing::tokens_json("1")).unwrap();
-    std::fs::write(system.join("components/bundle.css"), "").unwrap();
-    std::fs::write(system.join("components/bundle.js"), "window.Bae = {};").unwrap();
     std::fs::write(
         w.dir.join("design/mocks/mac.a.dc.html"),
         "<x-dc><p>hi</p></x-dc>",

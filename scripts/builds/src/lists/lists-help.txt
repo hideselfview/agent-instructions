@@ -607,9 +607,10 @@ sent again.
       that commit. BOARD is the name (mac.welcome.open-failed) or the path
       (design/mocks/mac.welcome.open-failed.dc.html). It follows the boards
       the board mounts (dc-import), applies each board's own values
-      (renderVals), sc-if and sc-for, and uses DIR's design system: the
-      bundles build-bundle.py wrote (design/system/components/bundle.js and
-      bundle.css), and the stylesheet that the builds tool writes from
+      (renderVals), sc-if and sc-for, and uses the design system it reads:
+      the bundles (design/system/components/bundle.js and bundle.css) that
+      its design/system/build-bundle.py builds in a scratch copy, never in
+      DIR, and the stylesheet that the builds tool writes from
       design/system/tokens.json, as `design tokens-css` does. A board names a
       component with its bundle's namespace (Bae.MacButton is window.Bae's
       MacButton). Redirect it to a file and open that; it loads React and

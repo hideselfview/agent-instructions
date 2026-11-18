@@ -135,7 +135,11 @@ fn a_board_that_cannot_be_drawn_says_what_is_missing() {
         ))
         .contains("has no <x-dc>")
     );
-    std::fs::remove_file(dir.join("design/system/components/bundle.js")).unwrap();
+    std::fs::write(
+        dir.join("design/system/build-bundle.py"),
+        "raise SystemExit('no bundles')",
+    )
+    .unwrap();
     assert!(
         message(render_board(
             Source::Dir(&dir),
@@ -143,7 +147,7 @@ fn a_board_that_cannot_be_drawn_says_what_is_missing() {
             Theme::Dark,
             &cache(&scratch)
         ))
-        .contains("bundle.js is not there")
+        .contains("build-bundle.py failed")
     );
 }
 

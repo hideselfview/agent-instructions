@@ -225,6 +225,52 @@ fn a_design_system_source_linked_from_elsewhere_in_the_repo_is_exported_with_it(
     assert!(js("HEAD").contains("RELINKED_MARK"));
 }
 
+#[test]
+fn a_folders_bundles_are_built_from_its_sources_and_never_read_or_written_in_it() {
+    let scratch = Scratch::new("source-folder-bundles");
+    let dir = tree(&scratch);
+    let components = dir.join("design/system/components");
+    // The bundles on disk are stale: the sources changed since the script ran.
+    std::fs::write(
+        components.join("src/bundle.js"),
+        "window.Bae = { FRESH_MARK: 1 };",
+    )
+    .unwrap();
+    let [_, css, js] = Source::Dir(&dir).design_system(&cache(&scratch)).unwrap();
+    assert!(js.contains("FRESH_MARK") && css.contains(".bundle { color: red; }"));
+    assert!(
+        std::fs::read_to_string(components.join("bundle.js"))
+            .unwrap()
+            .contains("BUNDLE_MARK")
+    );
+    // A folder with no bundles on disk builds them all the same, and keeps
+    // nothing in the cache or in the folder.
+    std::fs::remove_file(components.join("bundle.js")).unwrap();
+    std::fs::remove_file(components.join("bundle.css")).unwrap();
+    let [_, _, js] = Source::Dir(&dir).design_system(&cache(&scratch)).unwrap();
+    assert!(js.contains("FRESH_MARK"));
+    assert!(!components.join("bundle.js").exists());
+    assert_eq!(kept(&cache(&scratch)), 0);
+}
+
+#[test]
+fn a_folders_design_system_follows_its_links_inside_the_repo_and_refuses_one_outside() {
+    let scratch = Scratch::new("source-folder-links");
+    let dir = tree(&scratch);
+    std::fs::write(dir.join("linked.js"), "window.Bae = { LINKED_MARK: 1 };").unwrap();
+    let source = dir.join("design/system/components/src/bundle.js");
+    std::fs::remove_file(&source).unwrap();
+    std::os::unix::fs::symlink("../../../../linked.js", &source).unwrap();
+    let js = Source::Dir(&dir).design_system(&cache(&scratch)).unwrap()[2].clone();
+    assert!(js.contains("LINKED_MARK"));
+    std::os::unix::fs::symlink("/etc/hosts", dir.join("design/system/outside")).unwrap();
+    let error = message(Source::Dir(&dir).design_system(&cache(&scratch)));
+    assert!(
+        error.contains("cannot be generated") && error.contains("points outside the repo"),
+        "{error}"
+    );
+}
+
 /// The scratch folder goes once its use ends, when the use fails too.
 #[test]
 fn the_scratch_folder_goes_when_its_use_fails() {
