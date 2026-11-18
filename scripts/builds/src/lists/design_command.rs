@@ -60,7 +60,7 @@ pub fn run_in_session(
         "tokens-css" => tokens_css(rest),
         "publish-find" => publish_find(rest),
         "publish-files" => publish_files(tool, rest),
-        "publish-last" => publish_last(rest),
+        "publish-last" => publish_last(tool, rest),
         other => fail!("unknown design command {other}\n{USAGE}"),
     }
 }
@@ -660,11 +660,6 @@ fn live_index(args: &Args) -> Result<Option<String>> {
     }
 }
 
-/// The time now, as `text::utc_second` writes it.
-fn now() -> Result<String> {
-    crate::text::utc_second(crate::app_timing::now())
-}
-
 /// `publish-files DIR OUT --artifacts FILE (--index FILE | --no-index) [--at
 /// REV]`: writes into folder OUT the files of every artifact the designs of
 /// DIR's repo publish to, each canvas and the design system, all from the
@@ -689,7 +684,7 @@ fn publish_files(tool: &Tool, args: &[String]) -> Result<String> {
             listing: &listing,
             index: index.as_deref(),
         },
-        &now()?,
+        &crate::text::utc_second(tool.now)?,
     )?;
     Ok(crate::design_publish::report(&publish))
 }
@@ -701,7 +696,7 @@ fn publish_files(tool: &Tool, args: &[String]) -> Result<String> {
 /// yet) and the id each upload got, a JSON object of each upload's path on
 /// the artifact and the url or id the Artifact tool gave for it
 /// (`design_publish::write_last`).
-fn publish_last(args: &[String]) -> Result<String> {
+fn publish_last(tool: &Tool, args: &[String]) -> Result<String> {
     let args = Args::parse(args, &["listing", "index", "by", "uploaded"], &["no-index"])?;
     let [folder] = args.exactly(1, USAGE)? else {
         unreachable!("exactly one")
@@ -741,7 +736,7 @@ fn publish_last(args: &[String]) -> Result<String> {
                 by,
                 uploaded,
             }),
-        &now()?,
+        &crate::text::utc_second(tool.now)?,
     )?;
     Ok(crate::design_publish::last_report(root, &last))
 }
