@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Dashboard: a lane's modals</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="ds/builds/tokens.css">
+<link rel="stylesheet" href="ds/builds/components/bundle.css">
+<script src="ds/builds/components/bundle.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet><style>body{margin:0;background:var(--bg)} .lm-board{display:flex;flex-direction:column;gap:24px;padding:24px} .lm-board > .lm-cap{font:600 13px var(--font-sans);color:var(--muted)}</style></helmet>
+<div class="lm-board">
+<div class="lm-cap">Stats… opens the lane's wait times</div>
+<div class="lm-backdrop"><div class="lane-modal" role="dialog" aria-label="Mac app builds: stats"><div class="lm-head"><span class="lm-title">Mac app builds: stats</span><span class="lm-sub">54 builds in 12 hours · 12m 26s median wait</span><button type="button" class="lm-close">Close</button></div><div class="lm-body"><div class="wait-open"><h3>Where the time goes</h3><table class="wp-steps"><tr><th>Kind</th><th>Step</th><th>Time in all</th><th class="n">Runs</th><th class="n">Median</th><th class="n">Slowest</th></tr><tr><td class="wp-kind">Build</td><td><span class="wp-name">macos</span></td><td class="wp-total"><span class="wp-bar" style="width:75%"></span><span class="wp-tv">2h 05m</span></td><td class="n">34</td><td class="n">3m 42s</td><td class="n">5m 07s</td></tr><tr><td class="wp-kind">Build</td><td><span class="wp-name">macos-tests</span></td><td class="wp-total"><span class="wp-bar" style="width:30%"></span><span class="wp-tv">50m 30s</span></td><td class="n">16</td><td class="n">3m 09s</td><td class="n">4m 04s</td></tr><tr><td class="wp-kind">Shots</td><td><span class="wp-name">mac.welcome.*</span></td><td class="wp-total"><span class="wp-bar" style="width:10%"></span><span class="wp-tv">17m 27s</span></td><td class="n">5</td><td class="n">3m 29s</td><td class="n">3m 59s</td></tr><tr><td class="wp-kind">Shots</td><td><span class="wp-name">mac.component.*</span></td><td class="wp-total"><span class="wp-bar" style="width:9%"></span><span class="wp-tv">15m 04s</span></td><td class="n">5</td><td class="n">3m 01s</td><td class="n">3m 46s</td></tr><tr><td class="wp-kind">Shots</td><td><span class="wp-name">mac.component.progress</span></td><td class="wp-total"><span class="wp-bar" style="width:4%"></span><span class="wp-tv">6m 36s</span></td><td class="n">2</td><td class="n">3m 18s</td><td class="n">3m 36s</td></tr></table></div></div></div></div>
+<div class="lm-cap">Build… opens the build form, which keeps its last result until you dismiss it</div>
+<div class="lm-backdrop"><div class="lane-modal" role="dialog" aria-label="Build bae on Android"><div class="lm-head"><span class="lm-title">Build bae on Android</span><button type="button" class="lm-close">Close</button></div><div class="lm-body"><div class="bform"><input value="origin/main" aria-label="Ref"><button type="button" class="qbtn">Build</button></div><div class="bresult"><div class="bstatus failed">Failed (exit 1) · ended 10:29</div><button type="button" class="bdismiss" aria-label="Dismiss"><svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8"></path></svg></button></div><pre class="boutput">error: failed to run custom build command for `bae-bridge`
+build-app: step android-build failed (exit 1)</pre></div></div></div>
+<div class="lm-cap">Scale logs… opens when and why builds added or removed each checkout</div>
+<div class="lm-backdrop"><div class="lane-modal" role="dialog" aria-label="Mac app builds: scale logs"><div class="lm-head"><span class="lm-title">Mac app builds: scale logs</span><span class="lm-sub">The last 12 hours</span><button type="button" class="lm-close">Close</button></div><div class="lm-body"><div class="lane-why">builds added m1:builds-mac-2 at 10:02 because 4 builds waited</div><div class="lane-why">builds removed m1:builds-mac-1 at 09:23 because no build used it for 79 minutes</div><div class="lane-why">builds added m1:builds-mac-1 at 08:04 because 3 builds waited</div></div></div></div>
+</div>
+</x-dc>
+</body>
+</html>

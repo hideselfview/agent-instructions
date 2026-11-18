@@ -311,9 +311,17 @@ a.l-ref:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; b
 .lane-now .step { font: 500 12px var(--font-mono); overflow-wrap: anywhere; }
 .lane-now .waited { font-size: 12px; color: var(--muted); }
 .lane-why { font-size: 12px; line-height: 1.4; color: var(--muted); overflow-wrap: anywhere; }
-/* A panel a lane's menu opens, with its title and a close mark. */
-.lane-open-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
-.lane-close, .bdismiss { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; color: var(--muted); background: transparent; border: 0; border-radius: 4px; padding: 0; cursor: pointer; }
+/* A modal a lane's menu opens (Stats…, Build…, Scale logs…): a dialog over the
+   page, its title and Close in the head, as the design change review's. */
+.lm-backdrop { background: rgba(0, 0, 0, 0.55); padding: 24px; border-radius: 8px; }
+.lane-modal { width: min(640px, 100%); margin: 0 auto; display: flex; flex-direction: column; background: var(--surface); color: var(--text); border: 1px solid var(--line); border-radius: 12px; }
+.lm-head { display: flex; align-items: baseline; gap: 14px; padding: 8px 14px; border-bottom: 1px solid var(--line); font-size: 13px; }
+.lm-title { font-weight: 600; }
+.lm-sub { flex: 1; min-width: 0; color: var(--muted); overflow-wrap: anywhere; }
+.lm-head .lm-close { margin-left: auto; font: 13px var(--font-sans); color: var(--text); background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 3px 12px; cursor: pointer; }
+.lm-body { padding: 12px 16px; display: flex; flex-direction: column; gap: 8px; font-size: 13px; }
+.lm-body .wait-open h3 { margin: 0 0 6px; font-size: 13px; }
+.bdismiss { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; color: var(--muted); background: transparent; border: 0; border-radius: 4px; padding: 0; cursor: pointer; }
 /* The person's build's last result, which they dismiss. */
 .bresult { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
 .bstatus { font-size: 13px; line-height: 1.4; overflow-wrap: anywhere; }

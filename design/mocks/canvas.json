@@ -28,6 +28,14 @@
    "y": 0,
    "w": 760,
    "h": 1000
+  },
+  "dashboard.lane-modals.dc.html": {
+   "page": "dashboard",
+   "title": "A lane's modals",
+   "x": 2960,
+   "y": 0,
+   "w": 760,
+   "h": 1300
   }
  }
 }
