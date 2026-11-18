@@ -1506,8 +1506,9 @@ paths is a comma-separated list of globs over repo-relative paths: `*` stays
 inside one path segment, `**` is any number of segments, and a glob with no `/`
 matches the file name anywhere. The program is not run by a shell. As a whole
 argument, {files} is the matching staged files that still exist, and {crates}
-is `-p <crate>` for each workspace crate holding one (a root Cargo.toml counts
-as every crate, since it holds the workspace's lints and patches; a root
+is `-p <crate>` for each workspace crate holding one (a root Cargo.toml,
+clippy.toml or .clippy.toml counts as every crate, since each configures the
+workspace's lints; a root
 Cargo.lock counts as each crate whose resolved dependencies changed against
 HEAD, or against the commit `builds checks tests --since` names: its own lock
 entry or one it depends on at any depth); a check with neither runs whole

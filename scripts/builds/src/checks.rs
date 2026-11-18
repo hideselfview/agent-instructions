@@ -298,14 +298,18 @@ fn lock_crates(top: &Path, crates: &[Crate], base: Option<&str>) -> Result<Vec<S
     crate::lock_diff::with_changed_dependencies(&old, &new, &names)
 }
 
+/// Root files that configure every crate: the workspace manifest, with its
+/// lints and patches, and clippy's configuration.
+const ROOT_CONFIGS: [&str; 3] = ["Cargo.toml", "clippy.toml", ".clippy.toml"];
+
 /// The names of the crates that hold some of <files> (the deepest crate whose
-/// folder contains one), sorted. A root `Cargo.toml` counts as every crate,
-/// since it holds the workspace's lints and patches, and the root
+/// folder contains one), sorted. A root `Cargo.toml`, `clippy.toml` or
+/// `.clippy.toml` counts as every crate, and the root
 /// `Cargo.lock` as the crates <lock> names (`lock_crates`).
 fn crates_holding(crates: &[Crate], files: &[String], lock: &[String]) -> Vec<String> {
     let mut names: Vec<String> = Vec::new();
     for file in files {
-        if file == "Cargo.toml" {
+        if ROOT_CONFIGS.contains(&file.as_str()) {
             names.extend(crates.iter().map(|c| c.name.clone()));
             continue;
         }

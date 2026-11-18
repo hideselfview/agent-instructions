@@ -89,7 +89,7 @@ fn workspace(scratch: &Scratch) -> std::path::PathBuf {
 
 fn crates_argv(top: &Path, staged: &[&str]) -> Vec<String> {
     let lines =
-        parse("check c *.rs,Cargo.toml,Cargo.lock cargo clippy {crates} -- -D warnings\n").unwrap();
+        parse("check c *.rs,Cargo.toml,clippy.toml,.clippy.toml,Cargo.lock cargo clippy {crates} -- -D warnings\n").unwrap();
     let planned = plan(
         top,
         &lines,
@@ -188,7 +188,7 @@ fn a_staged_lock_counts_as_the_crates_whose_dependencies_changed() {
 }
 
 #[test]
-fn a_root_cargo_toml_or_lock_counts_as_every_crate() {
+fn a_root_cargo_toml_clippy_toml_or_lock_counts_as_every_crate() {
     let scratch = Scratch::new("checks-root");
     let top = workspace(&scratch);
     let every = files(&[
@@ -196,6 +196,10 @@ fn a_root_cargo_toml_or_lock_counts_as_every_crate() {
     ]);
     assert_eq!(crates_argv(&top, &["Cargo.toml"]), every);
     assert_eq!(crates_argv(&top, &["Cargo.lock"]), every);
+    std::fs::write(top.join("clippy.toml"), "").unwrap();
+    std::fs::write(top.join(".clippy.toml"), "").unwrap();
+    assert_eq!(crates_argv(&top, &["clippy.toml"]), every);
+    assert_eq!(crates_argv(&top, &[".clippy.toml"]), every);
     // A crate's own manifest counts as that crate only.
     assert_eq!(
         crates_argv(&top, &["crates/b/Cargo.toml"]),
