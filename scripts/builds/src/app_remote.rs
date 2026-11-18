@@ -7,9 +7,10 @@
 //!
 //! The checkout on the host is the worktree `~/dev/<repo>-worktrees/<name>` of
 //! the host's clone of the repo, set up as a side worktree is here: made with
-//! `git worktree add` and then the repo's `scripts/hooks/post-checkout`, with
-//! the host's builds root (`/Volumes/Builds` when the host has it, else
-//! `~/builds-root`) so the build folders live under `<root>/<repo>/<name>`, and, in the android lane, a
+//! `git worktree add`, then the host's `builds setup` and the repo's
+//! `scripts/hooks/post-checkout`, with the host's builds root
+//! (`/Volumes/Builds` when the host has it, else `~/builds-root`) so the build
+//! folders live under `<root>/<repo>/<name>`, and, in the android lane, a
 //! `local.properties` pointing each Gradle project at the host's Android SDK.
 //! A build sends its commit to the host's clone as a job ref
 //! (`refs/builds/jobs/<id>`, never to GitHub), switches the checkout to it
@@ -425,9 +426,13 @@ impl RemoteApp {
 
 /// The script that makes the checkout <name> of <repo> on the host when it
 /// has none, set up as a side worktree is, or switches it to <sha> when it
-/// has no changes; it prints `worktree=<folder>`. A checkout whose setup
-/// fails is removed, so the next build sets it up again rather than finding
-/// half of it.
+/// has no changes; it prints `worktree=<folder>`. Its setup runs the host's
+/// `builds setup`, which links the build folders into the host's builds
+/// root, and then the repo's post-checkout, as a job's worktree gets
+/// (remote.rs `claim_script`): a repo with no post-checkout would otherwise
+/// build into real folders in the checkout, outside the build volume and
+/// every cap. A checkout whose setup fails is removed, so the next build sets
+/// it up again rather than finding half of it.
 fn ensure_script(host: &Host, repo: &str, name: &str, sha: &str, lane: Lane) -> String {
     let android = match lane {
         Lane::Android => ANDROID_SETUP,
@@ -465,6 +470,7 @@ wt="$wts/@NAME@"
 mkdir -p "$wts" "$wt.job"
 setup() {
   cd "$wt" || return 1
+  "$HOME/.local/bin/builds" setup "$wt" || return 1
   if [ -x scripts/hooks/post-checkout ]; then
     scripts/hooks/post-checkout 0000000000000000000000000000000000000000 @SHA@ 1 || return 1
   fi

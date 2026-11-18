@@ -2,7 +2,7 @@ use super::*;
 use crate::app_config::run_git;
 use crate::host::tests::fake_ssh;
 use crate::lane::Lane;
-use crate::testing::{Scratch, git, git_out, repo};
+use crate::testing::{Scratch, git, git_out, host_builds, repo};
 use std::path::PathBuf;
 
 /// The ssh the tests of checkouts on this Mac pass: none of them reaches a
@@ -241,6 +241,8 @@ fn on_host(scratch: &Scratch) -> OnHost {
             clone.to_str().unwrap(),
         ],
     );
+    // The host's `builds`, whose setup the checkout's setup runs.
+    host_builds(&host_home, "exit 0");
     let ssh = fake_ssh(&scratch.dir.join("bin"), &host_home);
     crate::host::add(&places, &ssh, "m1", "user@m1").unwrap();
     places

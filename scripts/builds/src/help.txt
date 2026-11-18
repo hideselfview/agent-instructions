@@ -762,11 +762,14 @@ built again.
                               entry <host>:<name>. <path> ends in
                               dev/<repo>-worktrees/<name>, and the host's clone
                               ~/dev/<repo> must exist. Its first build makes
-                              the checkout there as a side worktree is made
-                              (the repo's post-checkout, build folders under
-                              ~/builds-root and, for the android lane, a
-                              local.properties naming the host's Android SDK
-                              in each Gradle project)
+                              the checkout there as a side worktree is made:
+                              the host's `builds setup` links the build
+                              folders into the host's builds root
+                              (/Volumes/Builds, or ~/builds-root on a host
+                              without that volume), then the repo's
+                              post-checkout runs, and, for the android lane,
+                              builds writes a local.properties naming the
+                              host's Android SDK in each Gradle project
   builds app-checkout remove mac|android <checkout>
   builds app-checkout remove mac|android --host <host> <path>
                               take it out again; refused while a build holds

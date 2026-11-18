@@ -49,6 +49,12 @@ impl World {
         std::fs::create_dir_all(remote_home.join("dev")).unwrap();
         std::fs::create_dir_all(second_home.join("dev")).unwrap();
         std::fs::create_dir_all(remote_home.join("Library/Android/sdk")).unwrap();
+        // Each host's `builds`, whose setup an app checkout's setup runs. A
+        // real one would link the build folders into this Mac's build volume.
+        for home in [&remote_home, &second_home] {
+            std::fs::create_dir_all(home.join(".local/bin")).unwrap();
+            script(&home.join(".local/bin/builds"), "#!/bin/sh\n");
+        }
         std::fs::create_dir_all(dir.join("home")).unwrap();
         std::fs::create_dir_all(dir.join("bin")).unwrap();
         std::fs::create_dir_all(dir.join("volume/demo")).unwrap();

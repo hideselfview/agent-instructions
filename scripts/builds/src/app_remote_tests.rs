@@ -1,6 +1,6 @@
 use super::*;
 use crate::host::tests::fake_ssh;
-use crate::testing::{Scratch, git};
+use crate::testing::{Scratch, git, host_builds};
 use std::os::unix::fs::PermissionsExt;
 
 #[test]
@@ -34,8 +34,9 @@ fn a_hosts_checkout_path_names_its_repo_and_its_name() {
 
 /// A source repo `demo` with a post-checkout hook, a Gradle project and a
 /// `.app-build`, a clone of it as the remote home's `dev/demo`, a recorded
-/// host `m1` that reaches the remote home through a fake ssh, and the host's
-/// Android SDK folder.
+/// host `m1` that reaches the remote home through a fake ssh, the host's
+/// Android SDK folder, and the host's `builds`. The hook and that `builds`
+/// each add a line to the remote home's `runs.txt` when they run.
 struct Setup {
     // Held so the scratch folder stays until the test ends.
     _scratch: Scratch,
@@ -53,7 +54,7 @@ fn setup(name: &str) -> Setup {
     std::fs::create_dir_all(source.join("droid")).unwrap();
     std::fs::write(
         source.join("scripts/hooks/post-checkout"),
-        "#!/bin/sh\necho \"$BUILDS_ROOT\" > hook-ran\n",
+        "#!/bin/sh\necho \"$BUILDS_ROOT\" > hook-ran\necho \"hook $(pwd)\" >> \"$HOME/runs.txt\"\n",
     )
     .unwrap();
     std::fs::set_permissions(
@@ -88,6 +89,7 @@ fn setup(name: &str) -> Setup {
             &home.join("dev/demo").display().to_string(),
         ],
     );
+    host_builds(&home, r#"echo "builds $*" >> "$HOME/runs.txt""#);
     let ssh = fake_ssh(&scratch.dir.join("bin"), &home);
     let places = scratch.places();
     host::add(&places, &ssh, "m1", "user@m1").unwrap();
@@ -143,6 +145,12 @@ fn the_first_switch_makes_the_checkout_as_a_side_worktree_is_made() {
         std::fs::read_to_string(wt.join("hook-ran")).unwrap().trim(),
         s.home.join("builds-root").display().to_string(),
         "the post-checkout ran with the host's builds root"
+    );
+    // The host's `builds setup` links the build folders first, since a repo
+    // without a post-checkout has nothing else that links them.
+    assert_eq!(
+        std::fs::read_to_string(s.home.join("runs.txt")).unwrap(),
+        format!("builds setup {wt}\nhook {wt}\n", wt = wt.display())
     );
     assert_eq!(
         std::fs::read_to_string(wt.join("droid/local.properties"))
