@@ -14,10 +14,9 @@
 //! folder, whose volume holds other files.
 
 use crate::fail;
-use crate::fail::{Fail, Result};
+use crate::fail::Result;
 use crate::host::{self, Host, Ssh, sh_quote};
 use crate::places::Places;
-use crate::text::note;
 
 /// A Mac's build root, as Spotlight treats it.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -29,17 +28,6 @@ pub enum Root {
     Volume { root: String, said: String },
     /// A folder with no `.noindex` name, on a volume that holds other files.
     Folder { root: String },
-}
-
-impl Root {
-    /// Does Spotlight keep out of the root?
-    pub fn kept_out(&self) -> bool {
-        match self {
-            Root::Named { .. } => true,
-            Root::Volume { said, .. } => indexing_off(said),
-            Root::Folder { .. } => false,
-        }
-    }
 }
 
 /// Does <said>, what `mdutil -s` says of a volume, say its indexing is off?
@@ -116,30 +104,28 @@ pub fn read(places: &Places, ssh: &Ssh, host: &Host) -> Result<Root> {
 
 /// `builds host setup`'s step for Spotlight: checks <host>'s build root, and
 /// when Spotlight indexes its build volume, turns the volume's indexing off
-/// through sudo if a person is at this terminal (<at_terminal>) to type the
-/// password, then checks again. With no one at the terminal, with the
-/// volume still indexed, or with a root builds can't keep Spotlight off, it
-/// fails, naming what to do. Returns what it says about the host.
+/// through sudo (`host::sudo_step`), which fails with no one at this terminal
+/// to type the password. A root builds can't keep Spotlight off fails the
+/// step. Returns what it says about the host.
 pub fn set_up(places: &Places, ssh: &Ssh, host: &Host, at_terminal: bool) -> Result<String> {
     set_up_with(
         &host.name,
         at_terminal,
-        &mut || read(places, ssh, host),
+        read(places, ssh, host)?,
         &mut |script| host::run_at_terminal(ssh, host, script),
     )
 }
 
-/// `set_up`, with <read> asking the host about its build root and <run>
-/// running a script there at this terminal.
+/// `set_up`, with <root> as the host said it and <run> running a script
+/// there at this terminal.
 fn set_up_with(
     name: &str,
     at_terminal: bool,
-    read: &mut dyn FnMut() -> Result<Root>,
+    root: Root,
     run: &mut dyn FnMut(&str) -> Result<()>,
 ) -> Result<String> {
     let place = host::place(name);
-    let again = format!("Then `builds host setup {name}` checks it again");
-    match read()? {
+    match root {
         Root::Named { root } => Ok(format!(
             "Spotlight skips its build root {root}, whose name ends in .noindex"
         )),
@@ -151,30 +137,15 @@ fn set_up_with(
             "Spotlight indexing is off on its build volume {root}"
         )),
         Root::Volume { root, said } => {
-            let command = command(&root);
-            if !at_terminal {
-                fail!(
-                    "Spotlight indexes the build volume {root} on {place} (mdutil -s says: {said}), so its indexer reads every file a build writes there, and no one is at this terminal to type the sudo password. Run `{command}` on {place}. {again}"
-                );
-            }
-            note(format!(
-                "turning off Spotlight indexing on the build volume {root} on {place} through sudo, which asks for the password there: {command}"
-            ));
-            let ran = run(&command);
-            let after = read()?;
-            if !after.kept_out() {
-                let why = match ran {
-                    Err(Fail::Message(message)) => format!(" ({message})"),
-                    _ => String::new(),
-                };
-                let said = match &after {
-                    Root::Volume { said, .. } => said.as_str(),
-                    _ => "",
-                };
-                fail!(
-                    "Spotlight still indexes the build volume {root} on {place} (mdutil -s says: {said}){why}. Run `{command}` on {place}. {again}"
-                );
-            }
+            host::sudo_step(
+                name,
+                at_terminal,
+                &format!(
+                    "Spotlight indexes the build volume {root} on {place} (mdutil -s says: {said}), so its indexer reads every file a build writes there"
+                ),
+                &[command(&root)],
+                run,
+            )?;
             Ok(format!(
                 "turned off Spotlight indexing on its build volume {root}"
             ))

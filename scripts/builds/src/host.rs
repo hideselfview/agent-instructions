@@ -133,6 +133,38 @@ pub fn run_at_terminal(ssh: &Ssh, host: &Host, script: &str) -> Result<()> {
     Ok(())
 }
 
+/// One sudo step of `builds host setup` on host <name>: <lacking> says what
+/// is off there, naming the host, and <commands> turn it on. With a person
+/// at this terminal (<at_terminal>), it runs the commands there in one
+/// script through <run>, which fails when sudo or a command exits non-zero,
+/// and that failure fails the step. With no one at the terminal, it runs
+/// nothing and fails. Each failure names the commands to run on the host.
+pub fn sudo_step(
+    name: &str,
+    at_terminal: bool,
+    lacking: &str,
+    commands: &[String],
+    run: &mut dyn FnMut(&str) -> Result<()>,
+) -> Result<()> {
+    let place = place(name);
+    let shown = commands
+        .iter()
+        .map(|command| format!("`{command}`"))
+        .collect::<Vec<_>>()
+        .join("; ");
+    let then = format!("Run {shown} on {place}, then `builds host setup {name}` checks again");
+    if !at_terminal {
+        fail!("{lacking}, and no one is at this terminal to type the sudo password. {then}");
+    }
+    crate::text::note(format!(
+        "running {shown} on {place} through sudo, which asks for the password there"
+    ));
+    if let Err(failed) = run(&commands.join(" && ")) {
+        fail!("{lacking}, and {}. {then}", failed.text());
+    }
+    Ok(())
+}
+
 /// <text> as one word for a POSIX shell.
 pub fn sh_quote(text: &str) -> String {
     format!("'{}'", text.replace('\'', "'\\''"))

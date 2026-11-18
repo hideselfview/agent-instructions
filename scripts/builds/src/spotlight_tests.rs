@@ -34,19 +34,19 @@ fn volume(said: &str) -> Root {
 }
 
 #[test]
-fn a_volume_is_kept_out_only_when_mdutil_says_its_indexing_is_disabled() {
+fn a_volume_is_off_only_when_mdutil_says_its_indexing_is_disabled() {
     let off = parse(VOLUME_OFF).unwrap();
     assert_eq!(off, volume("Indexing and searching disabled."));
-    assert!(off.kept_out());
     let on = parse(VOLUME_ON).unwrap();
     assert_eq!(on, volume("Indexing enabled."));
-    assert!(!on.kept_out());
-    assert!(volume("Indexing disabled.").kept_out());
-    assert!(!volume("Error: unknown indexing state.").kept_out());
+    assert!(indexing_off("Indexing and searching disabled."));
+    assert!(indexing_off("Indexing disabled."));
+    assert!(!indexing_off("Indexing enabled."));
+    assert!(!indexing_off("Error: unknown indexing state."));
 }
 
 #[test]
-fn a_folder_is_kept_out_only_when_its_name_ends_in_noindex() {
+fn a_folder_is_named_only_when_its_name_ends_in_noindex() {
     let named =
         parse("spotlight_root=/Users/d/builds-root.noindex\nspotlight_kind=folder\n").unwrap();
     assert_eq!(
@@ -55,7 +55,6 @@ fn a_folder_is_kept_out_only_when_its_name_ends_in_noindex() {
             root: "/Users/d/builds-root.noindex".to_string()
         }
     );
-    assert!(named.kept_out());
     let inside = parse("spotlight_root=/tmp/x.noindex/root\nspotlight_kind=folder\n").unwrap();
     assert!(matches!(inside, Root::Named { .. }), "{inside:?}");
     let folder = parse("spotlight_root=/tmp/noindex\nspotlight_kind=folder\n").unwrap();
@@ -65,7 +64,6 @@ fn a_folder_is_kept_out_only_when_its_name_ends_in_noindex() {
             root: "/tmp/noindex".to_string()
         }
     );
-    assert!(!folder.kept_out());
 }
 
 #[test]
@@ -146,46 +144,33 @@ fn setup_of_a_root_spotlight_skips_runs_nothing() {
             "Spotlight skips its build root /Users/d/builds-root.noindex, whose name ends in .noindex",
         ),
     ] {
-        let got = set_up_with("m1", false, &mut || Ok(root.clone()), &mut |_| {
-            panic!("nothing to run")
-        })
-        .unwrap();
+        let got = set_up_with("m1", false, root, &mut |_| panic!("nothing to run")).unwrap();
         assert_eq!(got, said);
     }
 }
 
 #[test]
 fn setup_with_no_one_at_the_terminal_fails_naming_the_command() {
-    let Err(Fail::Message(message)) = set_up_with(
-        "m1",
-        false,
-        &mut || Ok(volume("Indexing enabled.")),
-        &mut |_| panic!("no one can type the password"),
-    ) else {
+    let Err(Fail::Message(message)) =
+        set_up_with("m1", false, volume("Indexing enabled."), &mut |_| {
+            panic!("no one can type the password")
+        })
+    else {
         panic!("expected a failure");
     };
     assert_eq!(
         message,
-        "Spotlight indexes the build volume /Volumes/Builds on host m1 (mdutil -s says: Indexing enabled.), so its indexer reads every file a build writes there, and no one is at this terminal to type the sudo password. Run `sudo mdutil -i off '/Volumes/Builds'` on host m1. Then `builds host setup m1` checks it again"
+        "Spotlight indexes the build volume /Volumes/Builds on host m1 (mdutil -s says: Indexing enabled.), so its indexer reads every file a build writes there, and no one is at this terminal to type the sudo password. Run `sudo mdutil -i off '/Volumes/Builds'` on host m1, then `builds host setup m1` checks again"
     );
 }
 
 #[test]
-fn setup_at_a_terminal_turns_indexing_off_and_checks_again() {
-    let mut answers = vec![
-        volume("Indexing and searching disabled."),
-        volume("Indexing enabled."),
-    ];
+fn setup_at_a_terminal_turns_indexing_off() {
     let mut ran = Vec::new();
-    let said = set_up_with(
-        "local",
-        true,
-        &mut || Ok(answers.pop().unwrap()),
-        &mut |script| {
-            ran.push(script.to_string());
-            Ok(())
-        },
-    )
+    let said = set_up_with("local", true, volume("Indexing enabled."), &mut |script| {
+        ran.push(script.to_string());
+        Ok(())
+    })
     .unwrap();
     assert_eq!(ran, ["sudo mdutil -i off '/Volumes/Builds'"]);
     assert_eq!(
@@ -195,18 +180,17 @@ fn setup_at_a_terminal_turns_indexing_off_and_checks_again() {
 }
 
 #[test]
-fn setup_fails_when_the_volume_is_still_indexed_after_sudo() {
-    let Err(Fail::Message(message)) = set_up_with(
-        "m1",
-        true,
-        &mut || Ok(volume("Indexing enabled.")),
-        &mut |_| fail!("sudo on host m1 failed (exit status: 1)"),
-    ) else {
+fn setup_fails_when_sudo_fails() {
+    let Err(Fail::Message(message)) =
+        set_up_with("m1", true, volume("Indexing enabled."), &mut |_| {
+            fail!("sudo on host m1 failed (exit status: 1)")
+        })
+    else {
         panic!("expected a failure");
     };
     assert_eq!(
         message,
-        "Spotlight still indexes the build volume /Volumes/Builds on host m1 (mdutil -s says: Indexing enabled.) (sudo on host m1 failed (exit status: 1)). Run `sudo mdutil -i off '/Volumes/Builds'` on host m1. Then `builds host setup m1` checks it again"
+        "Spotlight indexes the build volume /Volumes/Builds on host m1 (mdutil -s says: Indexing enabled.), so its indexer reads every file a build writes there, and sudo on host m1 failed (exit status: 1). Run `sudo mdutil -i off '/Volumes/Builds'` on host m1, then `builds host setup m1` checks again"
     );
 }
 
@@ -217,10 +201,8 @@ fn setup_of_a_folder_root_not_named_noindex_fails_and_runs_nothing() {
     let Err(Fail::Message(message)) = set_up_with(
         "m1",
         true,
-        &mut || {
-            Ok(Root::Folder {
-                root: "/Users/d/elsewhere".to_string(),
-            })
+        Root::Folder {
+            root: "/Users/d/elsewhere".to_string(),
         },
         &mut |_| panic!("builds never turns off a volume that holds other files"),
     ) else {

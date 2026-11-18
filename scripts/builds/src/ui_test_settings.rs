@@ -5,20 +5,20 @@
 //! and the test class runs no tests.
 //!
 //! Each setting is a fact about one host, this Mac included: `builds host
-//! setup` checks it, turns it on through sudo when a person is at the
-//! terminal, and checks it again; `builds health` reads it with what the host
+//! setup` checks it and turns it on through sudo when a person is at the
+//! terminal; `builds health` reads it with what the host
 //! has installed (host_installed.rs) and lists each host that lacks one; and
 //! an app build whose step timed out turning on automation mode records the
 //! host as refusing mac app builds (host.rs), which setup removes once the
 //! settings are in place.
 
 use crate::fail;
-use crate::fail::{Fail, Result};
+use crate::fail::Result;
 use crate::health::Advice;
 use crate::host::{self, Host, Refusal, Refused, Ssh};
 use crate::host_installed::HostInstalled;
 use crate::places::Places;
-use crate::text::{local_minute, note};
+use crate::text::local_minute;
 
 /// What XCTest prints, within a line, when it could not turn on automation
 /// mode for a UI test because the host asked for a password.
@@ -170,63 +170,44 @@ pub fn read(places: &Places, ssh: &Ssh, host: &Host) -> Result<UiTestSettings> {
 }
 
 /// `builds host setup`'s step for these settings: checks them on <host>, and
-/// when some are off, runs their commands there through sudo if a person is
-/// at this terminal (<at_terminal>) to type the password, then checks again.
-/// Once all are on, it removes the host's record of UI tests timing out, so
-/// mac app builds use the host again. With no one at the terminal, or with a
-/// setting still off, it fails, naming the commands to run on the host.
-/// Returns what it says about the host.
+/// when some are off, turns them on there through sudo (`host::sudo_step`),
+/// which fails with no one at this terminal to type the password. Once all
+/// are on, it removes the host's record of UI tests timing out, so mac app
+/// builds use the host again. Returns what it says about the host.
 pub fn set_up(places: &Places, ssh: &Ssh, host: &Host, at_terminal: bool) -> Result<String> {
     set_up_with(
         places,
         &host.name,
         at_terminal,
-        &mut || read(places, ssh, host),
+        read(places, ssh, host)?,
         &mut |script| host::run_at_terminal(ssh, host, script),
     )
 }
 
-/// `set_up`, with <read> asking the host for its settings and <run> running a
+/// `set_up`, with <settings> as the host said them and <run> running a
 /// script there at this terminal.
 fn set_up_with(
     places: &Places,
     name: &str,
     at_terminal: bool,
-    read: &mut dyn FnMut() -> Result<UiTestSettings>,
+    settings: UiTestSettings,
     run: &mut dyn FnMut(&str) -> Result<()>,
 ) -> Result<String> {
-    let place = host::place(name);
-    let before = read()?;
-    let said = if before.missing.is_empty() {
+    let said = if settings.missing.is_empty() {
         "has the settings that UI tests need".to_string()
     } else {
-        if !at_terminal {
-            fail!(
-                "{place} lacks settings that UI tests need ({}), and no one is at this terminal to type the sudo password. Run these on {place}: {}. Then `builds host setup {name}` checks them again",
-                before.whats(),
-                before.quoted_commands()
-            );
-        }
-        let script = before.commands().join(" && ");
-        note(format!(
-            "turning on {} on {place} through sudo, which asks for {}'s password there: {script}",
-            before.whats(),
-            before.user
-        ));
-        let ran = run(&script);
-        let after = read()?;
-        if !after.missing.is_empty() {
-            let why = match ran {
-                Err(Fail::Message(message)) => format!(" ({message})"),
-                _ => String::new(),
-            };
-            fail!(
-                "{place} still lacks settings that UI tests need ({}){why}. Run these on {place}: {}. Then `builds host setup {name}` checks them again",
-                after.whats(),
-                after.quoted_commands()
-            );
-        }
-        format!("turned on {}", before.whats())
+        host::sudo_step(
+            name,
+            at_terminal,
+            &format!(
+                "{} lacks settings that UI tests need ({})",
+                host::place(name),
+                settings.whats()
+            ),
+            &settings.commands(),
+            run,
+        )?;
+        format!("turned on {}", settings.whats())
     };
     host::clear_refusal(places, Refused::UiAutomation, name)?;
     Ok(said)

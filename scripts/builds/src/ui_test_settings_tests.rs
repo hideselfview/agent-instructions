@@ -1,4 +1,5 @@
 use super::*;
+use crate::fail::Fail;
 use crate::host::tests::fake_ssh;
 use crate::host::{LOCAL, hosts_file, record_refusal, refusals};
 use crate::host_installed::Installed;
@@ -152,7 +153,7 @@ fn recorded(places: &Places) -> Vec<(String, Refused)> {
 fn setup_of_a_host_with_every_setting_runs_nothing_and_clears_its_record() {
     let scratch = Scratch::new("ui-settings-on");
     let places = timed_out(&scratch);
-    let said = set_up_with(&places, "m1", false, &mut || Ok(settings(&[])), &mut |_| {
+    let said = set_up_with(&places, "m1", false, settings(&[]), &mut |_| {
         panic!("nothing to run")
     })
     .unwrap();
@@ -170,19 +171,14 @@ fn setup_with_no_one_at_the_terminal_fails_naming_the_commands() {
         &places,
         "m1",
         false,
-        &mut || {
-            Ok(settings(&[
-                Setting::AutomationMode,
-                Setting::DeveloperGroup,
-            ]))
-        },
+        settings(&[Setting::AutomationMode, Setting::DeveloperGroup]),
         &mut |_| panic!("no one can type the password"),
     ) else {
         panic!("expected a failure");
     };
     assert!(
         message.starts_with("host m1 lacks settings that UI tests need (Automation Mode without a password, dmitry in the _developer group)")
-            && message.contains("Run these on host m1: `sudo automationmodetool enable-automationmode-without-authentication`; `sudo dseditgroup -o edit -a dmitry -t user _developer`")
+            && message.contains("Run `sudo automationmodetool enable-automationmode-without-authentication`; `sudo dseditgroup -o edit -a dmitry -t user _developer` on host m1, then `builds host setup m1` checks again")
             && !message.contains("DevToolsSecurity"),
         "{message}"
     );
@@ -193,18 +189,17 @@ fn setup_with_no_one_at_the_terminal_fails_naming_the_commands() {
 }
 
 /// At a terminal, setup runs the missing settings' commands through sudo in
-/// one script, checks again, and clears the record once all are on.
+/// one script and clears the record once they succeed.
 #[test]
-fn setup_at_a_terminal_runs_the_missing_commands_and_checks_again() {
+fn setup_at_a_terminal_runs_the_missing_commands() {
     let scratch = Scratch::new("ui-settings-terminal-on");
     let places = timed_out(&scratch);
-    let mut answers = vec![settings(&[]), settings(&[Setting::DeveloperMode])];
     let mut ran = Vec::new();
     let said = set_up_with(
         &places,
         "m1",
         true,
-        &mut || Ok(answers.pop().unwrap()),
+        settings(&[Setting::DeveloperMode]),
         &mut |script| {
             ran.push(script.to_string());
             Ok(())
@@ -216,18 +211,17 @@ fn setup_at_a_terminal_runs_the_missing_commands_and_checks_again() {
     assert_eq!(recorded(&places), []);
 }
 
-/// A setting still off after sudo ran (a wrong password, say) fails setup,
-/// naming what sudo said and the commands, and keeps the record.
+/// A failed sudo (a wrong password, say) fails setup, naming what sudo said
+/// and the commands, and keeps the record.
 #[test]
-fn setup_fails_when_a_setting_is_still_off_after_sudo() {
-    let scratch = Scratch::new("ui-settings-still-off");
+fn setup_fails_when_sudo_fails() {
+    let scratch = Scratch::new("ui-settings-sudo-failed");
     let places = timed_out(&scratch);
-    let lacking = settings(&[Setting::AutomationMode, Setting::DeveloperMode]);
     let Err(Fail::Message(message)) = set_up_with(
         &places,
         "m1",
         true,
-        &mut || Ok(lacking.clone()),
+        settings(&[Setting::AutomationMode, Setting::DeveloperMode]),
         &mut |script| {
             assert_eq!(
                 script,
@@ -239,7 +233,7 @@ fn setup_fails_when_a_setting_is_still_off_after_sudo() {
         panic!("expected a failure");
     };
     assert!(
-        message.starts_with("host m1 still lacks settings that UI tests need (Automation Mode without a password, developer mode) (sudo on host m1 failed")
+        message.starts_with("host m1 lacks settings that UI tests need (Automation Mode without a password, developer mode), and sudo on host m1 failed (exit status: 1). Run")
             && message.contains("`sudo DevToolsSecurity -enable`"),
         "{message}"
     );
