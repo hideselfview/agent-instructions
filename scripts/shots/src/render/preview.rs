@@ -33,12 +33,9 @@ pub(crate) const REACT_DOM: &str = include_str!("../../canvas/react-dom.producti
 /// size inside it.
 const PREVIEW_FRAME: Frame = Frame { w: 1000, h: 800 };
 
-const PREVIEW_READY: &str = r#"(() => {
-  const root = document.querySelector('#root');
-  if (!root || root.childElementCount === 0) return 'nothing drawn in #root';
-  if (document.fonts.status !== 'loaded') return 'fonts ' + document.fonts.status;
-  return 'ready';
-})()"#;
+/// The element that says a preview page is drawn: the first row React drew
+/// into the page's root.
+const PREVIEW_MOUNTED: &str = "#root > *";
 
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum PreviewError {
@@ -120,7 +117,7 @@ pub(crate) async fn render_row(
     platform: Platform,
     marks: &Preview,
 ) -> Result<Row, PreviewError> {
-    board::load(page, component, url, PREVIEW_FRAME, scale, PREVIEW_READY).await?;
+    board::load(page, component, url, PREVIEW_FRAME, scale, PREVIEW_MOUNTED).await?;
     let names: Vec<String> = page
         .evaluate(row_names(marks))
         .await

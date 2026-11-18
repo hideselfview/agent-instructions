@@ -1,9 +1,12 @@
 //! Loading a board in Chrome and taking its picture.
 //!
 //! The page loads under virtual time with a fixed budget, so animations stop
-//! at the same moment on every run; then the runtime's root, the fonts and the
-//! pending requests are waited for, granting more virtual time between looks.
-//! A runtime error in the console fails the board.
+//! at the same moment on every run; virtual time stands still while a request
+//! is pending. A script the page runs before its own watches for the element
+//! that says the page is drawn (the canvas runtime's `#dc-root`, or a preview's
+//! first row) and then for `document.fonts.ready`, and records how far the
+//! page got. When the budget runs out, a page that got short of drawn fails,
+//! and so does one that wrote a runtime error to the console before then.
 
 use crate::design::Frame;
 use chromiumoxide::Page;
@@ -11,7 +14,9 @@ use chromiumoxide::cdp::browser_protocol::emulation::{
     EventVirtualTimeBudgetExpired, MediaFeature, SetDeviceMetricsOverrideParams,
     SetEmulatedMediaParams, SetVirtualTimePolicyParams, VirtualTimePolicy,
 };
-use chromiumoxide::cdp::browser_protocol::page::CaptureScreenshotFormat;
+use chromiumoxide::cdp::browser_protocol::page::{
+    AddScriptToEvaluateOnNewDocumentParams, CaptureScreenshotFormat,
+};
 use chromiumoxide::cdp::js_protocol::runtime::{
     ConsoleApiCalledType, EventConsoleApiCalled, EventExceptionThrown, RemoteObject,
 };
@@ -21,22 +26,17 @@ use std::time::Duration;
 
 /// Virtual milliseconds the page runs for after navigation starts.
 const LOAD_BUDGET_MS: f64 = 2000.0;
-/// Virtual milliseconds granted per further look when the page is not ready.
-const EXTRA_BUDGET_MS: f64 = 500.0;
-const EXTRA_LOOKS: usize = 20;
-/// Real time one budget may take to run out.
+/// Real time the budget may take to run out.
 const BUDGET_TIMEOUT: Duration = Duration::from_secs(60);
 
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum BoardError {
     #[error("Chrome failed: {0}")]
     Protocol(String),
-    #[error("the board {board} was not ready after {looks} looks: {state}")]
-    NotReady {
-        board: String,
-        looks: usize,
-        state: String,
-    },
+    #[error(
+        "the board {board} was not drawn when its {LOAD_BUDGET_MS} virtual milliseconds ran out: {state}"
+    )]
+    NotReady { board: String, state: String },
     #[error("the board {board} raised runtime errors:\n{}", .errors.join("\n"))]
     Runtime { board: String, errors: Vec<String> },
 }
@@ -77,24 +77,37 @@ async fn grant(page: &Page, budget: f64) -> Result<(), BoardError> {
     Ok(())
 }
 
-async fn expired(
-    expired: &mut (impl futures::Stream<Item = std::sync::Arc<EventVirtualTimeBudgetExpired>> + Unpin),
-) -> Result<(), BoardError> {
-    tokio::time::timeout(BUDGET_TIMEOUT, expired.next())
-        .await
-        .map_err(|elapsed| {
-            BoardError::Protocol(format!("virtual time never ran out: {elapsed}"))
-        })?;
-    Ok(())
+/// The script a page runs before its own: it records in
+/// `window.__buildsShots.state` how far the page got toward drawn, waiting on
+/// the element <mounted> selects to appear and then on the page's fonts.
+fn watch_script(mounted: &str) -> String {
+    let selector = serde_json::to_string(mounted).expect("a string serializes");
+    format!(
+        r#"(() => {{
+  const watch = {{ state: 'nothing matches ' + {selector} }};
+  window.__buildsShots = watch;
+  new Promise((resolve) => {{
+    const look = () => {{
+      if (!document.querySelector({selector})) return;
+      observer.disconnect();
+      resolve();
+    }};
+    const observer = new MutationObserver(look);
+    observer.observe(document, {{ childList: true, subtree: true }});
+  }})
+    .then(() => {{
+      watch.state = 'fonts loading';
+      return document.fonts.ready;
+    }})
+    .then(() => {{
+      watch.state = 'ready';
+    }});
+}})();"#
+    )
 }
 
-/// What a canvas board reports about being ready: `ready` or the first thing
-/// missing.
-pub(crate) const BOARD_READY: &str = r#"(() => {
-  if (!document.querySelector('#dc-root')) return 'no #dc-root';
-  if (document.fonts.status !== 'loaded') return 'fonts ' + document.fonts.status;
-  return 'ready';
-})()"#;
+/// The element that says a canvas board is drawn: the runtime's root.
+pub(crate) const BOARD_MOUNTED: &str = "#dc-root";
 
 /// Draws the board at `url` in a frame of `frame` points at `scale` pixels per
 /// point, in dark mode.
@@ -105,7 +118,7 @@ pub(crate) async fn render(
     frame: Frame,
     scale: f64,
 ) -> Result<Rendered, BoardError> {
-    load(page, board, url, frame, scale, BOARD_READY).await?;
+    load(page, board, url, frame, scale, BOARD_MOUNTED).await?;
     let png = page
         .screenshot(
             ScreenshotParams::builder()
@@ -118,15 +131,15 @@ pub(crate) async fn render(
 }
 
 /// Loads `url` in a frame of `frame` points at `scale` pixels per point, in
-/// dark mode, and returns once `ready` (an expression that answers `ready` or
-/// what is missing) says the page is drawn and its virtual time has run out.
+/// dark mode, and returns once its virtual time has run out with the page
+/// drawn: the element <mounted> selects is there and the fonts are loaded.
 pub(crate) async fn load(
     page: &Page,
     board: &str,
     url: &str,
     frame: Frame,
     scale: f64,
-    ready_expression: &str,
+    mounted: &str,
 ) -> Result<(), BoardError> {
     page.execute(SetDeviceMetricsOverrideParams::new(
         i64::from(frame.w),
@@ -140,6 +153,11 @@ pub(crate) async fn load(
         media: None,
         features: Some(vec![MediaFeature::new("prefers-color-scheme", "dark")]),
     })
+    .await
+    .map_err(protocol)?;
+    page.execute(AddScriptToEvaluateOnNewDocumentParams::new(watch_script(
+        mounted,
+    )))
     .await
     .map_err(protocol)?;
     let mut console = page
@@ -157,38 +175,35 @@ pub(crate) async fn load(
 
     page.goto(url).await.map_err(protocol)?;
     grant(page, LOAD_BUDGET_MS).await?;
-    expired(&mut budget).await?;
 
-    let mut state = String::new();
-    let mut ready = false;
-    for _ in 0..=EXTRA_LOOKS {
-        state = page
-            .evaluate(ready_expression)
-            .await
-            .map_err(protocol)?
-            .into_value::<String>()
-            .map_err(protocol)?;
-        if state == "ready" {
-            ready = true;
-            break;
-        }
-        grant(page, EXTRA_BUDGET_MS).await?;
-        expired(&mut budget).await?;
-    }
-
+    // Chrome sends a page's events in order, so every console message and
+    // exception the page raised before its budget ran out comes ahead of the
+    // budget's event; `biased` takes them first.
     let mut errors = Vec::new();
-    while let Ok(Some(event)) = tokio::time::timeout(Duration::from_millis(0), console.next()).await
-    {
-        let message = event.args.iter().map(text).collect::<Vec<_>>().join(" ");
-        if is_runtime_error(&event.r#type, &message) {
-            errors.push(message);
+    let deadline = tokio::time::sleep(BUDGET_TIMEOUT);
+    tokio::pin!(deadline);
+    loop {
+        tokio::select! {
+            biased;
+            Some(event) = console.next() => {
+                let message = event.args.iter().map(text).collect::<Vec<_>>().join(" ");
+                if is_runtime_error(&event.r#type, &message) {
+                    errors.push(message);
+                }
+            }
+            Some(event) = thrown.next() => {
+                let details = &event.exception_details;
+                let detail = details.exception.as_ref().map(text).unwrap_or_default();
+                errors.push(format!("uncaught: {} {detail}", details.text));
+            }
+            Some(_) = budget.next() => break,
+            () = &mut deadline => {
+                return Err(BoardError::Protocol(format!(
+                    "the board's virtual time had not run out after {} real seconds",
+                    BUDGET_TIMEOUT.as_secs()
+                )));
+            }
         }
-    }
-    while let Ok(Some(event)) = tokio::time::timeout(Duration::from_millis(0), thrown.next()).await
-    {
-        let details = &event.exception_details;
-        let detail = details.exception.as_ref().map(text).unwrap_or_default();
-        errors.push(format!("uncaught: {} {detail}", details.text));
     }
     if !errors.is_empty() {
         return Err(BoardError::Runtime {
@@ -196,10 +211,15 @@ pub(crate) async fn load(
             errors,
         });
     }
-    if !ready {
+    let state = page
+        .evaluate("window.__buildsShots.state")
+        .await
+        .map_err(protocol)?
+        .into_value::<String>()
+        .map_err(protocol)?;
+    if state != "ready" {
         return Err(BoardError::NotReady {
             board: board.to_string(),
-            looks: EXTRA_LOOKS,
             state,
         });
     }

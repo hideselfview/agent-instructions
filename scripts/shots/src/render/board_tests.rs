@@ -107,3 +107,32 @@ async fn a_runtime_error_fails_the_board() {
         ),
     }
 }
+
+#[tokio::test]
+async fn a_page_the_runtime_never_mounts_is_not_drawn() {
+    let root = tree();
+    fixture::write(
+        root.path(),
+        "design/mocks/fixture.plain.dc.html",
+        "<!doctype html><html><body><p>no runtime</p></body></html>",
+    );
+    let result = fixture::with_browser(root.path(), async |server, chrome| {
+        let page = chrome.new_page().await.unwrap();
+        render(
+            &page,
+            "fixture.plain",
+            &server.board_url("fixture.plain"),
+            Frame { w: 300, h: 200 },
+            1.0,
+        )
+        .await
+    })
+    .await;
+    match result {
+        Err(BoardError::NotReady { board, state }) => {
+            assert_eq!(board, "fixture.plain");
+            assert_eq!(state, "nothing matches #dc-root");
+        }
+        other => panic!("expected not drawn, got {:?}", other.map(|r| r.png.len())),
+    }
+}
