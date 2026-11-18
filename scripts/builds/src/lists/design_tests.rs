@@ -1150,8 +1150,8 @@ fn a_fix_that_changes_no_design_is_approved_when_recorded_and_needs_no_review_pa
     let design = &w.state().designs[0];
     assert!(design.approved.is_some());
     assert_eq!(
-        design.fix.as_deref(),
-        Some("the row heights follow the design system's measures")
+        design.settlement,
+        Settlement::Fix("the row heights follow the design system's measures".into())
     );
     let wt = w.worktree();
     assert!(
@@ -1184,7 +1184,7 @@ fn an_amend_without_the_fix_makes_the_change_wait_on_review_again() {
         "{amended}"
     );
     let design = &w.state().designs[0];
-    assert!(design.approved.is_none() && design.fix.is_none());
+    assert!(design.approved.is_none() && design.settlement == Settlement::Review);
 }
 
 /// Records in <w>'s store a decision the person made, and returns its id.
@@ -1243,7 +1243,7 @@ fn a_board_edit_for_a_decided_change_is_approved_when_recorded_and_lands() {
     let state = w.state();
     let design = &state.designs[0];
     assert!(design.approved.is_some());
-    assert_eq!(design.decision, Some(decision));
+    assert_eq!(design.settlement, Settlement::Decision(decision));
     let wt = w.worktree();
     let id = design.id.0;
     assert!(
@@ -1315,7 +1315,7 @@ fn an_amend_without_the_decision_makes_the_change_wait_on_review_again() {
         "{amended}"
     );
     let design = &w.state().designs[0];
-    assert!(design.approved.is_none() && design.decision.is_none());
+    assert!(design.approved.is_none() && design.settlement == Settlement::Review);
 }
 
 #[test]

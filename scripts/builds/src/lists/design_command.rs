@@ -12,7 +12,7 @@ use crate::checkout::Checkout;
 use crate::fail;
 use crate::fail::{Context, Result};
 use crate::lists::args::{Args, read_request};
-use crate::lists::design::{self, DesignRequest, Drawn, Landed, PlaceAnswer};
+use crate::lists::design::{self, DesignRequest, Drawn, Landed, PlaceAnswer, Settlement};
 use crate::lists::design_paths::{self, Changes, Globs, PlaceKind};
 use crate::lists::design_session::{self, Messaging};
 use crate::lists::store::{self, Store, project_of};
@@ -336,10 +336,10 @@ fn record(tool: &Tool, args: &[String], cwd: &Path, session: Option<&Messaging>)
             .clone();
         Ok((recorded, title))
     })?;
-    let review = match (&request.fix, request.decision) {
-        (Some(_), _) => Review::Fix,
-        (None, Some(decision)) => Review::Decided(decision),
-        (None, None) => Review::Waits,
+    let review = match request.settlement {
+        Settlement::Fix(_) => Review::Fix,
+        Settlement::Decision(decision) => Review::Decided(decision),
+        Settlement::Review => Review::Waits,
     };
     Ok(recorded_words("recorded", &recorded, &title, review))
 }
@@ -383,12 +383,12 @@ fn amend(tool: &Tool, args: &[String], cwd: &Path, session: Option<&Messaging>) 
                 design_session::keep(db, id, session)?;
                 let lists = store::read(db)?;
                 let design = lists.design(id).expect("open");
-                let review = match (&design.fix, design.decision, design.approved.is_some()) {
-                    (Some(_), _, _) => Review::Fix,
-                    (None, Some(decision), _) => Review::Decided(decision),
-                    (None, None, true) => Review::Kept,
-                    (None, None, false) if was_approved => Review::Cleared,
-                    (None, None, false) => Review::Waits,
+                let review = match (&design.settlement, design.approved.is_some()) {
+                    (Settlement::Fix(_), _) => Review::Fix,
+                    (Settlement::Decision(decision), _) => Review::Decided(*decision),
+                    (Settlement::Review, true) => Review::Kept,
+                    (Settlement::Review, false) if was_approved => Review::Cleared,
+                    (Settlement::Review, false) => Review::Waits,
                 };
                 Ok((recorded, design.title.clone(), review))
             })?;

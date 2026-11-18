@@ -399,13 +399,16 @@ pub fn design_view(lists: &Lists, design: &DesignChange, closed: Option<Stamp>) 
             .collect(),
         no_app_place: design.no_app_place.clone(),
         approved: design.approved.clone(),
-        decision: design.decision.map(|id| Named {
-            id,
-            title: lists
-                .decision(id)
-                .map(|d| d.title.clone())
-                .unwrap_or_default(),
-        }),
+        decision: match &design.settlement {
+            crate::lists::design::Settlement::Decision(id) => Some(Named {
+                id: *id,
+                title: lists
+                    .decision(*id)
+                    .map(|d| d.title.clone())
+                    .unwrap_or_default(),
+            }),
+            _ => None,
+        },
         session: design.session,
         opened: design.opened.clone(),
         landed: design.landed.clone(),

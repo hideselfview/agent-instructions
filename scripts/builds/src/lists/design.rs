@@ -123,17 +123,36 @@ pub struct DesignChange {
     /// or the recording of a fix or of a decided change. An amend clears it
     /// unless every board stays as the person approved it (`amend`).
     pub approved: Option<Stamp>,
-    /// What a change that changes no design fixes (a design-system measure,
-    /// a drawing mistake): it is approved when recorded, with no review.
-    pub fix: Option<String>,
-    /// The person's decision that settled a board edit of an existing
-    /// screen, which the implementing agent records: the decision is the
-    /// approval, so the change is approved when recorded, with no review.
-    pub decision: Option<Id>,
+    /// Whether the change waits on the person's review, or what settled it
+    /// without one when it was recorded.
+    pub settlement: Settlement,
     /// The session that recorded it, and whether the approval reached it.
     pub session: SessionState,
     pub opened: Stamp,
     pub landed: Vec<DesignLanding>,
+}
+
+/// What lets a design change land: the person's review of its page, or
+/// what settled it without one, which approves it when it is recorded.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Settlement {
+    /// The change waits on the person's review of its page.
+    Review,
+    /// A fix that changes no design, and what it fixes: boards made to
+    /// follow the design system's measures, or a drawing mistake corrected.
+    Fix(String),
+    /// A board edit of an existing screen that the design system's existing
+    /// parts can draw, for a change the person decided in this decision of
+    /// the log. The decision is the person's approval.
+    Decision(Id),
+}
+
+impl Settlement {
+    /// Does the change wait on the person's review of its page?
+    pub fn needs_review(&self) -> bool {
+        matches!(self, Settlement::Review)
+    }
 }
 
 impl DesignChange {
@@ -163,10 +182,28 @@ pub enum PlaceAnswer {
 }
 
 /// A design change as `design record` and `design amend` take it: `title`
-/// and `details` are required to record and optional to amend.
+/// and `details` are required to record and optional to amend. Its JSON
+/// gives `fix` or `decision`, or neither, which `RequestFields` reads.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(try_from = "RequestFields")]
+pub struct DesignRequest {
+    pub title: Option<String>,
+    pub details: Option<String>,
+    pub worktree: String,
+    pub range: String,
+    pub places: BTreeMap<String, PlaceAnswer>,
+    pub boards: BTreeMap<String, Board>,
+    pub review: Option<Vec<ReviewSection>>,
+    pub no_app_place: Option<String>,
+    /// What settles the change: the person's review when the request gives
+    /// neither a fix nor a decision.
+    pub settlement: Settlement,
+}
+
+/// A design request's JSON fields, as the person or agent writes them.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct DesignRequest {
+struct RequestFields {
     pub title: Option<String>,
     pub details: Option<String>,
     /// A worktree of the repo the commits are in.
@@ -201,11 +238,34 @@ pub struct DesignRequest {
     pub decision: Option<Id>,
 }
 
-impl DesignRequest {
-    /// Does the request settle the change without the person's review: a
-    /// fix, or a decided change?
-    fn settled(&self) -> bool {
-        self.fix.is_some() || self.decision.is_some()
+impl TryFrom<RequestFields> for DesignRequest {
+    type Error = String;
+
+    /// Refuses a request that gives both a fix and a decision, and a fix
+    /// that says nothing.
+    fn try_from(fields: RequestFields) -> std::result::Result<DesignRequest, String> {
+        let settlement = match (fields.fix, fields.decision) {
+            (Some(_), Some(_)) => {
+                return Err("a design change is a `fix` that changes no design or a `decision` the person made, not both".to_string());
+            }
+            (Some(fixes), None) if fixes.trim().is_empty() => {
+                return Err("fix is empty; say what the change fixes (the design system's measures, a drawing mistake)".to_string());
+            }
+            (Some(fixes), None) => Settlement::Fix(fixes),
+            (None, Some(decision)) => Settlement::Decision(decision),
+            (None, None) => Settlement::Review,
+        };
+        Ok(DesignRequest {
+            title: fields.title,
+            details: fields.details,
+            worktree: fields.worktree,
+            range: fields.range,
+            places: fields.places,
+            boards: fields.boards,
+            review: fields.review,
+            no_app_place: fields.no_app_place,
+            settlement,
+        })
     }
 }
 
@@ -399,7 +459,7 @@ fn resolve(
         .filter(|p| PlaceKind::of(p) == PlaceKind::Board && !on_page.contains(p.as_str()))
         .map(String::as_str)
         .collect();
-    if !missing.is_empty() && !request.settled() {
+    if !missing.is_empty() && request.settlement.needs_review() {
         fail!(
             "boards of the change missing from the review page: {}; the person reviews every board of a change on its page, so give each under `review`",
             missing.join(", ")
@@ -616,7 +676,7 @@ pub fn record(
         fail!("{fault}");
     }
     let details = require_text("details", request.details.as_ref())?;
-    if request.review.is_none() && !request.settled() {
+    if request.review.is_none() && request.settlement.needs_review() {
         fail!(
             "a design change needs its `review`: the headings, words and boards of the page the person reviews it on (a `fix` that changes no design, or a board edit of a change the person decided in a `decision`, needs none)"
         );
@@ -637,48 +697,39 @@ pub fn record(
     Ok(Recorded { design, new_items })
 }
 
-/// Writes what settles change <id> without the person's review, as
-/// <request> gives it: a fix, or the decision of a decided change. Either
-/// approves the change as recorded by <stamp>; with neither, the change has
-/// no fix and no decision. Refuses a decision id that is no decision of the
-/// log.
+/// Writes what settles change <id>, as <request> gives it: a fix or the
+/// decision of a decided change approves the change as recorded by <stamp>,
+/// and the person's review leaves it with neither. Refuses a decision id
+/// that is no decision of the log.
 fn keep_settled(db: &Connection, id: Id, request: &DesignRequest, stamp: &Stamp) -> Result<()> {
-    if request.fix.is_some() && request.decision.is_some() {
-        fail!(
-            "a design change is a `fix` that changes no design or a `decision` the person made, not both"
-        );
-    }
     db.execute("DELETE FROM design_fix WHERE design_id = ?1", [id])
         .sql()?;
     db.execute("DELETE FROM design_decision WHERE design_id = ?1", [id])
         .sql()?;
-    if let Some(fixes) = &request.fix {
-        if fixes.trim().is_empty() {
-            fail!(
-                "fix is empty; say what the change fixes (the design system's measures, a drawing mistake)"
-            );
+    match &request.settlement {
+        Settlement::Review => Ok(()),
+        Settlement::Fix(fixes) => {
+            db.execute(
+                "INSERT INTO design_fix (design_id, fixes) VALUES (?1, ?2)",
+                params![id, fixes],
+            )
+            .sql()?;
+            approve(db, id, stamp)
         }
-        db.execute(
-            "INSERT INTO design_fix (design_id, fixes) VALUES (?1, ?2)",
-            params![id, fixes],
-        )
-        .sql()?;
-        return approve(db, id, stamp);
-    }
-    if let Some(decision) = request.decision {
-        if !matches!(record::standing(db, decision)?, Some((Kind::Decision, _))) {
-            fail!(
-                "`decision` names {decision}, which is no decision in the log; give the id of the person's decision that settled the change"
-            );
+        Settlement::Decision(decision) => {
+            if !matches!(record::standing(db, *decision)?, Some((Kind::Decision, _))) {
+                fail!(
+                    "`decision` names {decision}, which is no decision in the log; give the id of the person's decision that settled the change"
+                );
+            }
+            db.execute(
+                "INSERT INTO design_decision (design_id, decision_id) VALUES (?1, ?2)",
+                params![id, decision],
+            )
+            .sql()?;
+            approve(db, id, stamp)
         }
-        db.execute(
-            "INSERT INTO design_decision (design_id, decision_id) VALUES (?1, ?2)",
-            params![id, decision],
-        )
-        .sql()?;
-        return approve(db, id, stamp);
     }
-    Ok(())
 }
 
 /// The open design change <id>.
@@ -763,8 +814,7 @@ pub fn amend(
         && before.places.keys().eq(after.places.keys())
         && before.deleted == after.deleted
         && before.review == after.review
-        && !(before.fix.is_some() && request.fix.is_none())
-        && !(before.decision.is_some() && request.decision.is_none());
+        && (before.settlement.needs_review() || !request.settlement.needs_review());
     if !approval_holds {
         db.execute("DELETE FROM design_approval WHERE design_id = ?1", [id])
             .sql()?;
@@ -1167,18 +1217,21 @@ fn describe(lists: &Lists, design: &DesignChange, closed: Option<&Closed>) -> St
         local_minute(design.opened.at),
         design.opened.by
     );
-    if let Some(fixes) = &design.fix {
-        let _ = writeln!(out, "a fix that changes no design: {fixes}");
-    }
-    if let Some(decision) = design.decision {
-        let title = lists
-            .decision(decision)
-            .map(|d| format!(": {}", d.title))
-            .unwrap_or_default();
-        let _ = writeln!(
-            out,
-            "a board edit of a change the person decided in decision {decision}{title}"
-        );
+    match &design.settlement {
+        Settlement::Review => {}
+        Settlement::Fix(fixes) => {
+            let _ = writeln!(out, "a fix that changes no design: {fixes}");
+        }
+        Settlement::Decision(decision) => {
+            let title = lists
+                .decision(*decision)
+                .map(|d| format!(": {}", d.title))
+                .unwrap_or_default();
+            let _ = writeln!(
+                out,
+                "a board edit of a change the person decided in decision {decision}{title}"
+            );
+        }
     }
     match &design.approved {
         Some(stamp) => {
@@ -1484,6 +1537,14 @@ pub fn read(
     let mut designs = Vec::new();
     for row in rows {
         let (id, title, details, repo, worktree, no_app_place) = row.sql()?;
+        let settlement = match (fixes.remove(&id), decisions.remove(&id)) {
+            (Some(_), Some(_)) => {
+                fail!("design change {id} is both a fix and a decided change; the store is broken")
+            }
+            (Some(fixes), None) => Settlement::Fix(fixes),
+            (None, Some(decision)) => Settlement::Decision(decision),
+            (None, None) => Settlement::Review,
+        };
         let landed = match closings.get(&id) {
             Some((How::Landed(commits), stamp)) => vec![DesignLanding {
                 commits: commits.clone(),
@@ -1504,8 +1565,7 @@ pub fn read(
             review: review.remove(&id).unwrap_or_default(),
             no_app_place,
             approved: approvals.remove(&id),
-            fix: fixes.remove(&id),
-            decision: decisions.remove(&id),
+            settlement,
             session: sessions.remove(&id).unwrap_or(SessionState::Unrecorded),
             opened: opened[&id].clone(),
             landed,
