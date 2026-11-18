@@ -1921,8 +1921,8 @@ function renderProjects() {
     h("span", {class: "l-name"}, p.project || "none"),
     h("span", {class: "l-count"}, p.error ? "!" : String(p.board.waiting)))));
 }
-// The link to the chosen project's Designs page, for a project whose design
-// files one repo holds.
+// The link to the chosen project's Designs page, for a project with design
+// files.
 function renderDesignsLink() {
   const link = document.getElementById("l-designs");
   link.hidden = !lists || !!lists.error || !lists.designs;

@@ -324,7 +324,7 @@ pub fn compose(
                 let designs = loaded
                     .lists
                     .as_ref()
-                    .is_ok_and(|lists| matches!(design_repo(lists), Ok(Some(_))));
+                    .is_ok_and(|lists| !matches!(design_repo(lists), Ok(None)));
                 Composed::of(compose_view(loaded, now, claims), designs)
             })
             .collect(),
@@ -347,8 +347,9 @@ pub struct Composed {
     pub view: View,
     pub works: Vec<super::board::Work>,
     pub board: super::board::Board,
-    /// Whether the project has a Designs page: one repo holds its design
-    /// files (`design_repo`).
+    /// Whether the project has a Designs page: a repo holds its design files.
+    /// A project whose design files are in several repos has one too, which
+    /// says why it draws none (`design_repo`).
     pub designs: bool,
 }
 

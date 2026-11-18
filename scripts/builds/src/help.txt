@@ -1466,15 +1466,17 @@ STATUS, HEALTH AND THE DASHBOARD
                               keep nothing about them. Under the project
                               tabs, a link opens the chosen project's
                               Designs page (/designs/<project>), for a
-                              project whose design places one repo holds:
-                              every board of that repo as it stands on
-                              origin/main, in a tab per page of
+                              project with design places. The page shows
+                              every board of the repo that holds them as it
+                              stands on origin/main, in a tab per page of
                               design/mocks/canvas.json, each drawn in the
                               dark as a review page draws it, and a Design
                               system tab with the design system's colors in
                               its first theme, its text styles, and each
                               component's preview at the height its
-                              preview.html gives the card
+                              preview.html gives the card. For a project
+                              whose design places are in several repos, the
+                              page says that it draws the boards of one
 
 
 COMMIT CHECKS
