@@ -299,11 +299,12 @@ impl RemoteApp {
     /// (`Checkout::app_lane_file`), so the host's builds keeps the checkout's
     /// builds warm, as a person adds it to the lane. When the host has no such
     /// worktree yet, `mark` does nothing: the first build makes the checkout
-    /// and writes the file before the host's setup runs. A failure, such as a
-    /// host that does not answer, names the host and what the script printed
-    /// there.
-    pub fn mark(&self) -> Result<()> {
-        self.lane_file_script(MARK, "writing the app checkout's lane file")
+    /// and writes the file before the host's setup runs. Returns whether it
+    /// wrote the file. A failure, such as a host that does not answer, names
+    /// the host and what the script printed there.
+    pub fn mark(&self) -> Result<bool> {
+        let said = self.lane_file_script(MARK, "writing the app checkout's lane file")?;
+        Ok(said.trim() == "marked")
     }
 
     /// Deletes the checkout's lane file on the host, so the host's builds
@@ -312,16 +313,18 @@ impl RemoteApp {
     /// nothing. A failure names the host, as `mark`'s does.
     pub fn unmark(&self) -> Result<()> {
         self.lane_file_script(UNMARK, "deleting the app checkout's lane file")
+            .map(|_| ())
     }
 
-    fn lane_file_script(&self, script: &str, what: &str) -> Result<()> {
+    /// Runs <script> on the host and returns what it printed.
+    fn lane_file_script(&self, script: &str, what: &str) -> Result<String> {
         let script = script
             .replace("@MARK_LANE@", MARK_LANE)
             .replace("@REPO@", &self.repo)
             .replace("@NAME@", &self.name)
             .replace("@LANE@", self.lane.word())
             .replace("@LANE_FILE@", APP_LANE_FILE);
-        self.transport().capture(&script, what).map(|_| ())
+        self.transport().capture(&script, what)
     }
 
     /// The command that runs <command> in the checkout on the host and is
@@ -551,10 +554,10 @@ const MARK_LANE: &str = r#"mark_lane() {
 }"#;
 
 /// The script that writes the lane file of the checkout <name> of <repo> on
-/// the host, when the host has the worktree.
+/// the host, when the host has the worktree, and then prints `marked`.
 const MARK: &str = r#"@MARK_LANE@
 wt="$HOME/dev/@REPO@-worktrees/@NAME@"
-if [ -e "$wt/.git" ]; then mark_lane || exit 1; fi"#;
+if [ -e "$wt/.git" ]; then mark_lane || exit 1; echo marked; fi"#;
 
 /// The script that deletes the lane file of the checkout <name> of <repo> on
 /// the host, when the host has the worktree.

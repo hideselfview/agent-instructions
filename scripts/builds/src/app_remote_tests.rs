@@ -313,3 +313,24 @@ fn marking_or_unmarking_a_checkout_git_cannot_read_fails() {
     let unmarked = app.unmark().expect_err("a checkout git cannot read").text();
     assert!(unmarked.contains("m1"), "{unmarked}");
 }
+
+#[test]
+fn marking_says_whether_the_host_had_the_worktree() {
+    let s = setup("remote-app-marked");
+    let app = remote_app(&s, Lane::Mac);
+    assert!(!app.mark().unwrap(), "the host has no worktree yet");
+    let wt = s.home.join("dev/demo-worktrees/app-1");
+    git(
+        &s.home.join("dev/demo"),
+        &[
+            "worktree",
+            "add",
+            "-q",
+            "--detach",
+            &wt.display().to_string(),
+        ],
+    );
+    assert!(app.mark().unwrap());
+    assert!(app.mark().unwrap(), "marking again marks again");
+    assert_eq!(lane_mark(&wt), "mac\n");
+}

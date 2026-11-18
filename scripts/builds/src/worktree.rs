@@ -12,7 +12,7 @@
 use std::path::Path;
 
 use crate::app_remote::RemoteApp;
-use crate::checkout::{Checkout, git, git_text};
+use crate::checkout::{APP_LANE_FILE, Checkout, git, git_text};
 use crate::claim::{Claim, require_one_line, require_project_named, set_project, write_claim};
 use crate::evict::{Recreate, Removal, evict};
 use crate::fail;
@@ -343,10 +343,18 @@ fn app_checkout_on_host(tool: &Tool, ssh: &Ssh, args: &[String]) -> Result<()> {
     }
     // The lane file comes first: a host that does not answer fails the
     // addition and leaves the lane as it was, for the person to add it again.
-    remote.mark()?;
+    let marked = remote.mark()?;
     let count = record_in_lane(tool, &repo, lane, &entry)?;
+    let worktree = format!("~/dev/{repo}-worktrees/{name}");
+    let there = if marked {
+        format!(
+            "builds wrote {APP_LANE_FILE} in {worktree}'s git dir on {host}, so {host} keeps its builds warm"
+        )
+    } else {
+        format!("{host} has no {worktree} yet, and its first build makes it")
+    };
     note(format!(
-        "{entry} is one of {repo}'s {} app checkouts ({count} in all, in {}); its first build makes ~/dev/{repo}-worktrees/{name} on {host} when {host} has none",
+        "{entry} is one of {repo}'s {} app checkouts ({count} in all, in {}); {there}",
         lane.word(),
         tool.places.app_checkouts_file(&repo, lane).display()
     ));
