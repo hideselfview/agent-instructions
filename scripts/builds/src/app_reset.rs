@@ -26,6 +26,7 @@ use std::path::Path;
 use crate::app_config::run_git;
 use crate::app_remote::local_source;
 use crate::app_site::Site;
+use crate::checkout::git;
 use crate::fail;
 use crate::fail::{Context, Result};
 use crate::host::{Ssh, sh_quote};
@@ -107,12 +108,44 @@ fn differing(site: &mut Site, commit: &str) -> Result<BTreeSet<String>> {
     Ok(listed)
 }
 
+/// Refreshes the stat data of the index file <index> from the working tree.
+/// git exits 1 when files differ from the index, even with -q; that is the
+/// answer diff-files reads, not a failure. Every other exit fails.
+fn refresh(site: &mut Site, index: &str) -> Result<()> {
+    match site {
+        Site::Local(top) => {
+            let output = git(top)
+                .args(["update-index", "-q", "--refresh"])
+                .env("GIT_INDEX_FILE", index)
+                .stdin(std::process::Stdio::null())
+                .output()
+                .context(|| "running git update-index".to_string())?;
+            match output.status.code() {
+                Some(0 | 1) => Ok(()),
+                _ => fail!(
+                    "git update-index --refresh failed in {} ({}): {}",
+                    top.display(),
+                    output.status,
+                    String::from_utf8_lossy(&output.stderr).trim()
+                ),
+            }
+        }
+        Site::Remote(remote) => remote
+            .run_in(
+                &format!(
+                    "GIT_INDEX_FILE={} git update-index -q --refresh || [ $? -eq 1 ]",
+                    sh_quote(index)
+                ),
+                "git update-index --refresh",
+            )
+            .map(|_| ()),
+    }
+}
+
 /// `differing`, with the scratch index file <index>.
 fn differing_with(site: &mut Site, index: &str, commit: &str) -> Result<BTreeSet<String>> {
     site.git(Some(index), &["read-tree", commit])?;
-    // Differing files make --refresh exit 1 even with -q; the answer is in
-    // diff-files below.
-    let _ = site.git(Some(index), &["update-index", "-q", "--refresh"]);
+    refresh(site, index)?;
     let mut paths = BTreeSet::new();
     for args in [
         &["diff-files", "--name-only", "-z"][..],

@@ -337,3 +337,18 @@ fn a_hosts_checkout_resets_over_a_tree_matching_names() {
     cmd_reset(&host.places, &host.ssh, "demo", "m1:mac-1", Some(&middle)).unwrap();
     assert_eq!(git_out(&host.top, &["rev-parse", "HEAD"]), host.second);
 }
+
+#[test]
+fn a_refresh_passes_over_differing_files_and_fails_on_any_other_error() {
+    let scratch = Scratch::new("app-reset-refresh");
+    let (_, top, _, _) = halfway(&scratch);
+    let mut site = Site::Local(top.clone());
+    let index = scratch.dir.join("index").display().to_string();
+    site.git(Some(&index), &["read-tree", "HEAD"]).unwrap();
+    refresh(&mut site, &index).expect("files that differ are no failure");
+    std::fs::write(&index, "not an index").unwrap();
+    assert!(
+        refresh(&mut site, &index).is_err(),
+        "a broken index is a failure"
+    );
+}
