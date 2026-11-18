@@ -11,6 +11,9 @@ use std::time::{Duration, Instant};
 
 use serde_json::Value;
 
+mod common;
+use common::pruned_now;
+
 const BUILDS: &str = env!("CARGO_BIN_EXE_builds");
 const PATIENCE: Duration = Duration::from_secs(30);
 
@@ -539,6 +542,7 @@ fn the_daemon_serves_the_state_and_the_events_and_derives_each_worktrees_state()
     let port = free_port();
     // The daemon writes its notes to a file in its folder, not to stderr.
     let log = demo.volume().join(".builds-daemon/log");
+    pruned_now(&demo.volume());
     let server = demo
         .builds()
         .args(["dashboard", "--port", &port.to_string()])

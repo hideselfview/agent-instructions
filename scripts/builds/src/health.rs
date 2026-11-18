@@ -19,9 +19,10 @@
 //! Mac's or whose sccache server launchd does not run (host_installed.rs), or
 //! that lacks a setting that UI tests need or whose UI tests timed out turning on
 //! automation mode (ui_test_settings.rs), a host whose cores sit idle while
-//! items are ready or whose load is well over its cores (host_load.rs), or a
+//! items are ready or whose load is well over its cores (host_load.rs), a
 //! project's main checkout whose main lacks commits that origin/main has
-//! (main_checkout.rs).
+//! (main_checkout.rs), or no `builds prune` that finished in twice the
+//! interval the dashboard runs it at (prune_schedule.rs).
 
 use std::path::{Path, PathBuf};
 
@@ -84,6 +85,8 @@ pub enum FindingKind {
     /// A host whose cores sit idle while items are ready, or whose load is
     /// well over its cores (host_load.rs).
     Load,
+    /// No `builds prune` finished lately (prune_schedule.rs).
+    Prune,
 }
 
 /// What a finding says, and the command it suggests running, if any. The
@@ -1471,6 +1474,12 @@ pub fn cmd_health(tool: &Tool, args: &[String]) -> Result<()> {
     .into_iter()
     .unzip();
     health.findings.extend(dashboard_finding(dashboard));
+    let (prune_line, prune_late) = crate::prune_schedule::health(&tool.places, tool.now);
+    health.findings.extend(
+        prune_late
+            .into_iter()
+            .map(|advice| Finding::new(FindingKind::Prune, advice)),
+    );
     let ready = crate::host_load::ready_items(&crate::lists::store::load_all(&tool.places));
     let probed: Vec<_> = hosts.iter().cloned().zip(probes).collect();
     health.findings.extend(
@@ -1498,17 +1507,20 @@ pub fn cmd_health(tool: &Tool, args: &[String]) -> Result<()> {
         );
         println!("{value}");
     } else {
-        // The dashboard and the busy processes come before "needs action",
-        // which is last.
+        // The dashboard, prune and the busy processes come before "needs
+        // action", which is last.
         let mut out = lines(&health);
         let at = out
             .iter()
             .position(|line| line.starts_with("needs action"))
             .unwrap_or(out.len());
-        let mut before = vec![match dashboard {
-            Some(pid) => format!("dashboard: up (pid {pid})"),
-            None => "dashboard: not running".to_string(),
-        }];
+        let mut before = vec![
+            match dashboard {
+                Some(pid) => format!("dashboard: up (pid {pid})"),
+                None => "dashboard: not running".to_string(),
+            },
+            prune_line,
+        ];
         before.extend(crate::stuck::lines(&busy));
         out.splice(at..at, before);
         for line in out {

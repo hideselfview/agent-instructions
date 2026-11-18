@@ -55,6 +55,7 @@ mod migrate;
 mod places;
 mod procs;
 mod prune;
+mod prune_schedule;
 mod queue;
 mod remote;
 mod remote_worktrees;

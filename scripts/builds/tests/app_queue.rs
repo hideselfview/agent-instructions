@@ -8,6 +8,9 @@ use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
+mod common;
+use common::pruned_now;
+
 const BUILDS: &str = env!("CARGO_BIN_EXE_builds");
 const PATIENCE: Duration = Duration::from_secs(30);
 const LABELS: [&str; 5] = ["H", "A", "B", "C", "X"];
@@ -476,6 +479,7 @@ fn request(port: u16, method: &str, path: &str, origin: Option<&str>, body: &str
 #[test]
 fn the_dashboard_moves_a_waiter_only_for_its_own_page() {
     let mut volume = Volume::new("dashboard");
+    pruned_now(&volume.dir.join("volume"));
     let port = std::net::TcpListener::bind(("127.0.0.1", 0))
         .unwrap()
         .local_addr()

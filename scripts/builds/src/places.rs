@@ -336,6 +336,22 @@ impl Places {
         self.daemon_dir().join("log")
     }
 
+    /// The time the last `builds prune` that finished ended
+    /// (prune_schedule.rs).
+    pub fn prune_record(&self) -> PathBuf {
+        self.daemon_dir().join("pruned")
+    }
+
+    /// The file a running `builds prune` holds a lock on until it ends.
+    pub fn prune_lock(&self) -> PathBuf {
+        self.daemon_dir().join("prune.lock")
+    }
+
+    /// What the daemon's last scheduled `builds prune` said.
+    pub fn prune_log(&self) -> PathBuf {
+        self.daemon_dir().join("prune.log")
+    }
+
     /// The socket the daemon answers on; one daemon per root.
     pub fn daemon_socket(&self) -> PathBuf {
         self.daemon_dir().join("socket")

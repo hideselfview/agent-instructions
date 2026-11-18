@@ -937,7 +937,8 @@ builds keeps disk use bounded: it deletes the build copies and builds that no
 build uses, deletes a folder that is still over its cap, and keeps a free-space
 floor on the volume. `setup`, which runs before every hook and build, and
 `prune` do all of this, and `builds cargo` deletes the copies a build replaced
-as it exits. Nothing deletes a folder that a process holds a file open in or
+as it exits. The dashboard runs `builds prune` every 6 hours, and `builds
+health` says when a prune last finished. Nothing deletes a folder that a process holds a file open in or
 whose checkout's guard a build holds, and a deletion never fails a build: a
 removal that fails warns and leaves the folder in the trash for the next
 emptier.
@@ -1113,7 +1114,12 @@ a toolchain upgrade is fine.
                               entry nothing wrote to for that long, outside
                               main's and the app checkouts' own folders unless
                               --include-warm. --dry-run prints what it would
-                              delete and deletes nothing
+                              delete and deletes nothing. A prune that
+                              deletes fails at once while another runs, and
+                              when it finishes, it records the time, which
+                              `builds health` shows; the dashboard runs one
+                              6 hours after the later of that time and its
+                              own last start
   builds units prune <days> <incremental hours> <dry 0|1> <folder>...
   builds units git-checkouts <cargo home> <dry 0|1> <Cargo.lock>...
                               the steps setup and prune run on cargo's
@@ -1185,8 +1191,12 @@ STATUS, HEALTH AND THE DASHBOARD
                                 is up
                               - whether the dashboard runs, and its pid, which
                                 it writes in the daemon's lock file
+                              - when a `builds prune` last finished
                               These are findings, each with what to run: no
-                              dashboard running (`builds dashboard`); an
+                              dashboard running (`builds dashboard`); no
+                              `builds prune` that finished in the last 12
+                              hours, with the file that holds what the
+                              dashboard's last prune said; an
                               unclaimed worktree with commits waiting to land;
                               a project's main checkout whose main lacks
                               commits that origin/main has (`git -C
@@ -1269,6 +1279,11 @@ STATUS, HEALTH AND THE DASHBOARD
                               refuses what changes state, the queue buttons,
                               Build and a design change's Approve, from any
                               address but 127.0.0.1 or localhost on this Mac).
+                              It runs `builds prune` 6 hours after the later
+                              of the last prune's finish and its own last
+                              start, at once when no prune has finished, and
+                              writes what the prune says to
+                              /Volumes/Builds/.builds-daemon/prune.log.
                               The page shows the load of this Mac and of
                               each other host, the free space and each repo's
                               hook times; a Needs attention box with

@@ -729,7 +729,9 @@ fn naming_texts(tops: &[&Path], files: &[String]) -> std::result::Result<Vec<Str
 
 /// `builds prune [--dry-run] [--idle <minutes> [--include-warm]]`. Also
 /// retires the free side worktrees nothing has used for a day, and removes
-/// the worktrees on the hosts that no checkout's jobs use.
+/// the worktrees on the hosts that no checkout's jobs use. A prune that
+/// deletes holds the prune lock while it runs and records when it finished
+/// (prune_schedule.rs).
 pub fn cmd_prune(tool: &Tool, args: &[String]) -> Result<()> {
     let mut run = Run::Real;
     let mut idle: u64 = 0;
@@ -755,6 +757,11 @@ pub fn cmd_prune(tool: &Tool, args: &[String]) -> Result<()> {
         fail!("prune: --include-warm needs --idle");
     }
     tool.places.require_volume()?;
+    let _running = if run.dry() {
+        None
+    } else {
+        Some(crate::prune_schedule::hold(&tool.places)?)
+    };
     // Before the roots are pruned: a worktree about to go has nothing to prune.
     retire_idle(tool, &tool.roots()?, run)?;
     // Remove the host worktrees after retire_idle runs, because the jobs of
@@ -799,6 +806,7 @@ pub fn cmd_prune(tool: &Tool, args: &[String]) -> Result<()> {
     prune_installed(tool, &roots, run)?;
     if !run.dry() {
         empty_trash(tool)?;
+        crate::prune_schedule::record_finished(&tool.places, crate::app_timing::now())?;
     }
     Ok(())
 }
