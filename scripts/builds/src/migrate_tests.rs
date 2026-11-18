@@ -624,19 +624,28 @@ fn schema_before_design_fix() -> String {
     without_design_fix(schema_with_cargo_runs())
 }
 
+/// <schema> without the text from the first <opening> through the first <end>
+/// after it, as a test cuts a later table out of today's schema text; None
+/// when <schema> holds no <opening>.
+fn cut(schema: &str, opening: &str, end: &str) -> Option<String> {
+    let start = schema.find(opening)?;
+    let stop = start + schema[start..].find(end).expect("it ends") + end.len();
+    Some(format!("{}{}", &schema[..start], &schema[stop..]))
+}
+
 /// <schema> as the text read before reviews ran before landing: the review's
 /// header, `review_landing` and the audit's words as they read then, and no
 /// `review_commit` or `review_fix`. A schema without the review's tables is
 /// left as it is.
 fn without_landing_review(schema: String) -> String {
     let schema = without_scored_calls(schema);
-    let added = "\n-- The commits a review read, in order,";
-    let Some(start) = schema.find(added) else {
+    let Some(mut old) = cut(
+        &schema,
+        "\n-- The commits a review read, in order,",
+        "CHECK (trim(by) <> '')\n) STRICT;\n",
+    ) else {
         return schema;
     };
-    let end = "CHECK (trim(by) <> '')\n) STRICT;\n";
-    let stop = start + schema[start..].find(end).expect("it ends") + end.len();
-    let mut old = format!("{}{}", &schema[..start], &schema[stop..]);
     for (now, then) in [
         (
             "-- Every review of a change against the rules (`builds review`): the landing it
@@ -683,10 +692,12 @@ fn without_landing_review(schema: String) -> String {
 /// schema these tests rebuild is today's text with later parts taken out.
 fn without_design_fix(schema: String) -> String {
     let schema = without_landing_review(without_design_decision(schema));
-    let fix = "-- A change that changes no design:";
-    let start = schema.find(fix).expect("the schema has it");
-    let stop = start + schema[start..].find("STRICT;\n\n").expect("it ends") + "STRICT;\n\n".len();
-    let without = format!("{}{}", &schema[..start], &schema[stop..]);
+    let without = cut(
+        &schema,
+        "-- A change that changes no design:",
+        "STRICT;\n\n",
+    )
+    .expect("the schema has it");
     without.replace(
         "-- What lets the change land: the person's review, or the recording of a fix\n-- (design_fix). An amend deletes it.\n",
         "-- The person's review; an amend deletes it.\n",
@@ -3262,12 +3273,7 @@ const REVIEW_CIRCLE_COMMENT: &str = "-- An element the designer circles on a rev
 /// <schema> without the review circles' table. A schema without it is left as
 /// it is, as for `without_design_decision`.
 fn without_review_circles(schema: String) -> String {
-    let Some(start) = schema.find(REVIEW_CIRCLE_COMMENT) else {
-        return schema;
-    };
-    let end = "STRICT, WITHOUT ROWID;\n\n";
-    let stop = start + schema[start..].find(end).expect("it ends") + end.len();
-    format!("{}{}", &schema[..start], &schema[stop..])
+    cut(&schema, REVIEW_CIRCLE_COMMENT, "STRICT, WITHOUT ROWID;\n\n").unwrap_or(schema)
 }
 
 /// The schema text before the designer chose the circles on a review board.
@@ -3556,11 +3562,9 @@ const DESIGN_DECISION_COMMENT: &str = "-- A board edit of a change the person de
 /// taken out, and some start from a part list that never held it.
 fn without_design_decision(schema: String) -> String {
     let schema = with_many_sections(schema);
-    let Some(start) = schema.find(DESIGN_DECISION_COMMENT) else {
+    let Some(without) = cut(&schema, DESIGN_DECISION_COMMENT, "STRICT;\n\n") else {
         return schema;
     };
-    let stop = start + schema[start..].find("STRICT;\n\n").expect("it ends") + "STRICT;\n\n".len();
-    let without = format!("{}{}", &schema[..start], &schema[stop..]);
     let now = "-- What lets the change land: the person's review, or the recording of a fix\n-- (design_fix) or of a decided change (design_decision). An amend deletes it.\n";
     assert_eq!(without.matches(now).count(), 1);
     without.replace(
