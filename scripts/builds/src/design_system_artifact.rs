@@ -180,6 +180,60 @@ pub fn parse_index(text: &str) -> Result<Map<String, Value>> {
     Ok(index)
 }
 
+/// How the first line of the design system's bundle starts: the header that
+/// the artifact type reads, a JSON object, then ` */`.
+const BUNDLE_HEADER: &str = "/* @ds-bundle: ";
+
+/// The namespace that <bundle>, the text of the design system's
+/// `components/bundle.js`, declares in its header: the global its components
+/// are on. Fails when the first line is no header that gives one.
+pub fn bundle_namespace(bundle: &str) -> Result<String> {
+    let first = bundle.lines().next().unwrap_or("");
+    let Some(header) = first
+        .strip_prefix(BUNDLE_HEADER)
+        .and_then(|rest| rest.strip_suffix(" */"))
+    else {
+        fail!(
+            "the first line of {SYSTEM}/components/bundle.js is no `{BUNDLE_HEADER}{{...}} */` header, which names the namespace that a new design system's index gives"
+        );
+    };
+    let header: Value = serde_json::from_str(header).map_err(|error| {
+        crate::fail::Fail::Message(format!(
+            "the header of {SYSTEM}/components/bundle.js is no JSON: {error}"
+        ))
+    })?;
+    match header["namespace"].as_str() {
+        Some(namespace) if !namespace.is_empty() => Ok(namespace.to_string()),
+        _ => fail!("the header of {SYSTEM}/components/bundle.js names no namespace"),
+    }
+}
+
+/// The index of a design system whose artifact has none yet, in the shape
+/// the artifact type gives the index of a system its publisher starts: the
+/// marker, made at <at>; the title <title>; the namespace <namespace> of the
+/// bundle; the libraries of the type's starting index, React 18, which the
+/// previews load; and no sections, assets or docs. `assets::set_records` and
+/// `set_last_change` fill in the rest.
+pub fn start_index(title: &str, namespace: &str, at: &str) -> Map<String, Value> {
+    let index = json!({
+        "v": 3,
+        "layout": "files",
+        "createdOnFiles": {"v": 1, "at": at},
+        "title": title,
+        "namespace": namespace,
+        "libraries": [{"name": "react", "version": "18"}, {"name": "react-dom", "version": "18"}],
+        "sections": {},
+        "groups": [],
+        "assetGroups": {},
+        "blobs": {},
+        "docs": {"readme": "project/README.md", "sections": []},
+    });
+    let Value::Object(index) = index else {
+        unreachable!("the index is an object")
+    };
+    index
+}
+
 /// Sets <index>'s `lastChange` to say that <by> published the files of
 /// commit <commit> at <at> (ISO 8601).
 pub fn set_last_change(index: &mut Map<String, Value>, by: &str, at: &str, commit: &str) {

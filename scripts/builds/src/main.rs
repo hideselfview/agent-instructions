@@ -22,6 +22,7 @@ mod core_speed;
 mod daemon;
 mod db;
 mod derive;
+mod design_artifacts;
 mod design_canvas;
 mod design_publish;
 mod design_render;

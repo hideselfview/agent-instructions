@@ -113,3 +113,23 @@ fn the_shared_files_go_first_and_the_cover_last() {
     assert_eq!(rank("project/components/MacButton/preview.html"), 1);
     assert_eq!(rank("project/components/Cover/preview.html"), 2);
 }
+
+/// A new design system's index takes its namespace from the bundle's header,
+/// the first line, and a bundle without one is refused.
+#[test]
+fn the_bundles_header_names_the_namespace() {
+    let bundle = "/* @ds-bundle: {\"format\":4,\"namespace\":\"Bae\",\"components\":[]} */\nwindow.Bae = {};\n";
+    assert_eq!(bundle_namespace(bundle).unwrap(), "Bae");
+    for bundle in [
+        "window.Bae = {};\n",
+        "/* @ds-bundle: {\"format\":4} */\n",
+        "/* @ds-bundle: not json */\n",
+    ] {
+        assert!(bundle_namespace(bundle).is_err(), "{bundle}");
+    }
+    let index = start_index("bae", "Bae", "2026-11-18T19:00:00Z");
+    let text = index_text(&index);
+    let parsed = parse_index(&text).unwrap();
+    assert_eq!(parsed["title"], json!("bae"));
+    assert_eq!(parsed["namespace"], json!("Bae"));
+}

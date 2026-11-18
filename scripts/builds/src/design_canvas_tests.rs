@@ -5,17 +5,17 @@ fn message<T: std::fmt::Debug>(result: Result<T>) -> String {
     result.unwrap_err().text()
 }
 
-pub(crate) const ONE: &str = "https://claude.ai/artifact/CanvasOne";
-pub(crate) const TWO: &str = "https://claude.ai/artifact/CanvasTwo";
-
-pub(crate) const DS: &str = "https://claude.ai/artifact/DesignSystem";
+/// The titles of the demo repo's canvases and its design system.
+pub(crate) const ONE: &str = "demo: one";
+pub(crate) const TWO: &str = "demo: two and three";
+pub(crate) const DS: &str = "demo";
 
 /// The canvases of the demo repo: page `one` on the first canvas, pages `two`
 /// and `three` on the second, and its design system.
 pub(crate) fn canvases_toml() -> String {
     format!(
-        "# The canvases.\n\n[design_system]\nurl = \"{DS}\"\n\n[[canvas]]\nurl = \"{ONE}\"\ntitle = \"demo: one\"\nlaunch = \"one\"\npages = [\"one\"]\n\n\
-         [[canvas]]\nurl = \"{TWO}\"\ntitle = \"demo: two and three\"\nlaunch = \"three\"\npages = [\"two\", \"three\"]\n"
+        "# The canvases.\n\n[design_system]\ntitle = \"{DS}\"\n\n[[canvas]]\ntitle = \"{ONE}\"\nlaunch = \"one\"\npages = [\"one\"]\n\n\
+         [[canvas]]\ntitle = \"{TWO}\"\nlaunch = \"three\"\npages = [\"two\", \"three\"]\n"
     )
 }
 
@@ -28,7 +28,7 @@ pub(crate) fn index() -> Value {
         "title": "demo mocks",
         "attachments": {},
         "createdOnFiles": {"v": 1, "at": "2026-11-07T03:22:02Z"},
-        "designSystems": [{"title": "demo", "namespace": "demo", "artifact": "https://claude.ai/artifact/Ds", "version": null, "copiedAt": "2026-11-07T03:22:02Z"}],
+        "designSystems": [{"namespace": "demo", "version": null, "copiedAt": "2026-11-07T03:22:02Z"}],
         "launch": {"view": "canvas", "page": "two"},
         "pages": [{"id": "one", "name": "One"}, {"id": "two", "name": "Two"}, {"id": "three", "name": "Three"}],
         "boards": {
@@ -70,13 +70,11 @@ fn parsed(text: &str) -> Vec<Canvas> {
 #[test]
 fn a_split_that_leaves_a_page_out_or_gives_it_twice_is_refused() {
     let split_of = |text: &str| {
-        let text = format!("[design_system]\nurl = \"{DS}\"\n{text}");
+        let text = format!("[design_system]\ntitle = \"{DS}\"\n{text}");
         message(split(&index(), &parsed(&text), &boards()))
     };
-    let canvas = |url: &str, launch: &str, pages: &str| {
-        format!(
-            "[[canvas]]\nurl = \"{url}\"\ntitle = \"t\"\nlaunch = \"{launch}\"\npages = [{pages}]\n"
-        )
+    let canvas = |title: &str, launch: &str, pages: &str| {
+        format!("[[canvas]]\ntitle = \"{title}\"\nlaunch = \"{launch}\"\npages = [{pages}]\n")
     };
     let refused = split_of(&canvas(ONE, "one", "\"one\", \"two\""));
     assert!(refused.contains("page three is on no canvas"), "{refused}");
@@ -102,7 +100,7 @@ fn a_split_that_leaves_a_page_out_or_gives_it_twice_is_refused() {
     ));
     assert!(
         refused.contains(&format!(
-            "{ONE} launches on page two, which is not one of its pages"
+            "{ONE:?} launches on page two, which is not one of its pages"
         )),
         "{refused}"
     );
@@ -118,7 +116,7 @@ fn a_board_that_mounts_a_board_of_another_canvas_is_refused() {
     let refused = message(split(&index(), &parsed(&canvases_toml()), &files));
     assert!(
         refused.contains(&format!(
-            "b.dc.html on {TWO} mounts a.dc.html, which is on {ONE}"
+            "b.dc.html on {TWO:?} mounts a.dc.html, which is on {ONE:?}"
         )),
         "{refused}"
     );
@@ -155,37 +153,43 @@ fn a_canvas_over_the_file_limit_is_refused() {
     }
     let refused = message(split(&index, &parsed(&canvases_toml()), &files));
     assert!(
-        refused.contains(&format!("{TWO} would hold")) && refused.contains("at most 512"),
+        refused.contains(&format!("{TWO:?} would hold")) && refused.contains("at most 512"),
         "{refused}"
     );
 }
 
-/// Each canvas and the design system is named by its claude.ai link, once,
-/// and the file names the design system, so that no publish leaves it out.
+/// Each canvas and the design system is named by its title, never by a
+/// link, which belongs to one account; no two canvases share a title, and the
+/// file names the design system, so that no publish leaves it out.
 #[test]
-fn the_canvases_file_names_each_artifact_by_its_claude_link() {
-    let canvas = |url: &str| {
-        format!("[[canvas]]\nurl = \"{url}\"\ntitle = \"t\"\nlaunch = \"one\"\npages = [\"one\"]\n")
+fn the_canvases_file_names_each_artifact_by_its_title() {
+    let canvas = |title: &str| {
+        format!("[[canvas]]\ntitle = \"{title}\"\nlaunch = \"one\"\npages = [\"one\"]\n")
     };
-    let system = |url: &str| format!("[design_system]\nurl = \"{url}\"\n");
+    let system = |title: &str| format!("[design_system]\ntitle = \"{title}\"\n");
     let refused = message(parse_canvases(
-        &format!("{}{}", system(DS), canvas("https://example.com/x")),
-        CANVASES,
-    ));
-    assert!(refused.contains("is no artifact link"), "{refused}");
-    let refused = message(parse_canvases(
-        &format!("{}{}", system("https://claude.ai/artifact/"), canvas(ONE)),
-        CANVASES,
-    ));
-    assert!(refused.contains("is no artifact link"), "{refused}");
-    let refused = message(parse_canvases(
-        &format!("{}{}", system(ONE), canvas(ONE)),
+        &format!("{}{}{}", system(DS), canvas(ONE), canvas(ONE)),
         CANVASES,
     ));
     assert!(
-        refused.contains(&format!("names the artifact {ONE} twice")),
+        refused.contains(&format!("gives two canvases the title {ONE:?}")),
         "{refused}"
     );
+    for title in ["", " demo"] {
+        let refused = message(parse_canvases(
+            &format!("{}{}", system(title), canvas(ONE)),
+            CANVASES,
+        ));
+        assert!(refused.contains("is no title"), "{refused}");
+    }
+    let refused = message(parse_canvases(
+        &format!(
+            "[design_system]\nurl = \"https://claude.ai/artifact/Ds\"\n{}",
+            canvas(ONE)
+        ),
+        CANVASES,
+    ));
+    assert!(refused.contains("unknown field `url`"), "{refused}");
     let refused = message(parse_canvases(&canvas(ONE), CANVASES));
     assert!(refused.contains("names no design system"), "{refused}");
     let refused = message(parse_canvases("[[canvas]]\nurl = \"x\"\n", CANVASES));
@@ -194,6 +198,31 @@ fn the_canvases_file_names_each_artifact_by_its_claude_link() {
     let published = parse_canvases(&canvases_toml(), CANVASES).unwrap();
     assert_eq!(published.design_system, DS);
     assert_eq!(published.canvases.len(), 2);
+}
+
+/// The design system's entry in the repo's index gives neither its title nor
+/// its artifact: the publish sets both from what it found on the account.
+#[test]
+fn the_publish_names_the_design_system_it_found() {
+    let mut named = index();
+    name_design_system(&mut named, DS, "https://claude.ai/artifact/Found").unwrap();
+    assert_eq!(
+        named["designSystems"],
+        json!([{"namespace": "demo", "version": null, "copiedAt": "2026-11-07T03:22:02Z", "title": DS, "artifact": "https://claude.ai/artifact/Found"}])
+    );
+    for key in ["title", "artifact"] {
+        let mut given = index();
+        given["designSystems"][0][key] = json!("x");
+        let refused = message(name_design_system(
+            &mut given,
+            DS,
+            "https://claude.ai/artifact/F",
+        ));
+        assert!(refused.contains(&format!("gives its {key}")), "{refused}");
+    }
+    let mut none = index();
+    none["designSystems"] = json!([]);
+    assert!(message(name_design_system(&mut none, DS, "u")).contains("names no design system"));
 }
 
 /// A change a test makes to the demo index.

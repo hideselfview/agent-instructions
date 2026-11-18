@@ -1,11 +1,12 @@
 //! How a repo's boards split among the claude.ai canvases they publish to. A
 //! canvas holds at most `MAX_FILES` files, so a repo with more boards
 //! publishes them to several canvases, split by page:
-//! `design/mocks/canvases.toml` names each canvas's link, title, launch page
-//! and pages, and the link of the Design System artifact that the repo's
-//! design system publishes to beside them. Each canvas shows its boards, its
-//! part of `canvas.json`, and a copy of the design system under
-//! `project/ds/<namespace>/` (`design_publish` writes the files).
+//! `design/mocks/canvases.toml` names each canvas's title, launch page and
+//! pages, and the title of the Design System artifact that the repo's design
+//! system publishes to beside them (`design_artifacts` finds each title on
+//! the account). Each canvas shows its boards, its part of `canvas.json`, and
+//! a copy of the design system under `project/ds/<namespace>/`
+//! (`design_publish` writes the files).
 
 use std::collections::BTreeMap;
 
@@ -23,8 +24,6 @@ use crate::fail::{Fail, Result};
 pub const CANVASES: &str = "design/mocks/canvases.toml";
 /// Where a canvas keeps its index, the part of the repo's `CANVAS` it shows.
 pub const PUBLISHED_INDEX: &str = "project/canvas.json";
-/// How every artifact link starts; the artifact's id follows.
-const LINK: &str = "https://claude.ai/artifact/";
 /// The most files a canvas holds.
 pub const MAX_FILES: usize = 512;
 /// Where a canvas keeps its copy of the design system's shared files.
@@ -41,16 +40,15 @@ struct CanvasesFile {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct DesignSystemEntry {
-    url: String,
+    title: String,
 }
 
 /// One canvas of `CANVASES`.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Canvas {
-    /// The canvas's link, `https://claude.ai/artifact/<id>`.
-    pub url: String,
-    /// The title its index gives it.
+    /// The title its index gives it, by which the publish finds it on the
+    /// account.
     pub title: String,
     /// The page it opens on.
     pub launch: String,
@@ -82,19 +80,12 @@ pub fn rank(path: &str) -> u8 {
     }
 }
 
-/// What `CANVASES` names: the canvases, and the link of the design system's
+/// What `CANVASES` names: the canvases, and the title of the design system's
 /// artifact.
 #[derive(Debug)]
 pub struct Published {
     pub canvases: Vec<Canvas>,
     pub design_system: String,
-}
-
-/// The id of the artifact that <url> links to, the end of its link; None
-/// when <url> is no artifact link.
-pub fn artifact_id(url: &str) -> Option<&str> {
-    url.strip_prefix(LINK)
-        .filter(|id| !id.is_empty() && id.bytes().all(|b| b.is_ascii_alphanumeric()))
 }
 
 /// What <text>, a `CANVASES` file that <label> names in an error, names.
@@ -103,33 +94,64 @@ pub fn parse_canvases(text: &str, label: &str) -> Result<Published> {
         toml::from_str(text).map_err(|error| Fail::Message(format!("{label}: {error}")))?;
     if file.canvas.is_empty() {
         fail!(
-            "{label} names no canvas: give each as a [[canvas]] table with its url, title, launch and pages"
+            "{label} names no canvas: give each as a [[canvas]] table with its title, launch and pages"
         );
     }
     let Some(design_system) = file.design_system else {
         fail!(
-            "{label} names no design system: give its artifact's link as url in a [design_system] table, so that every publish sends the design system with the canvases"
+            "{label} names no design system: give its artifact's title as title in a [design_system] table, so that every publish sends the design system with the canvases"
         );
     };
-    let mut links: Vec<&str> = Vec::new();
-    for url in file
+    let mut titles: Vec<&str> = Vec::new();
+    for title in file
         .canvas
         .iter()
-        .map(|canvas| canvas.url.as_str())
-        .chain([design_system.url.as_str()])
+        .map(|canvas| canvas.title.as_str())
+        .chain([design_system.title.as_str()])
     {
-        if artifact_id(url).is_none() {
-            fail!("{label}: {url:?} is no artifact link; an artifact link is {LINK}<id>");
+        if title.trim().is_empty() || title.trim() != title {
+            fail!(
+                "{label}: {title:?} is no title; the publish finds each artifact by a title that has words and no space around them"
+            );
         }
-        if links.contains(&url) {
-            fail!("{label} names the artifact {url} twice");
+    }
+    for canvas in &file.canvas {
+        if titles.contains(&canvas.title.as_str()) {
+            fail!(
+                "{label} gives two canvases the title {:?}; the publish finds each canvas by its title",
+                canvas.title
+            );
         }
-        links.push(url);
+        titles.push(&canvas.title);
     }
     Ok(Published {
         canvases: file.canvas,
-        design_system: design_system.url,
+        design_system: design_system.title,
     })
+}
+
+/// Gives the one design system that <index>, the repo's `CANVAS`, names the
+/// title <title> and the artifact link <url> that the publish found on the
+/// account, so that every canvas names the design system it publishes beside.
+/// Fails when the repo's entry gives either, since an artifact link belongs to
+/// one account and `CANVASES` gives the title.
+pub fn name_design_system(index: &mut Value, title: &str, url: &str) -> Result<()> {
+    let Some([system]) = index["designSystems"].as_array_mut().map(Vec::as_mut_slice) else {
+        fail!("{CANVAS} names no design system, or more than one; the boards load one");
+    };
+    let Some(system) = system.as_object_mut() else {
+        fail!("{CANVAS}'s design system is no object");
+    };
+    for key in ["title", "artifact"] {
+        if system.contains_key(key) {
+            fail!(
+                "{CANVAS}'s design system gives its {key}, which the publish sets from the artifact it finds on the account: remove the {key} from the entry"
+            );
+        }
+    }
+    system.insert("title".to_string(), json!(title));
+    system.insert("artifact".to_string(), json!(url));
+    Ok(())
 }
 
 /// What one canvas publishes: its index and the names of its boards.
@@ -179,22 +201,22 @@ pub fn split<'a>(
         for page in &canvas.pages {
             if !pages.contains(&page.as_str()) {
                 fail!(
-                    "{CANVASES}: {} lists page {page}, which {CANVAS} does not list",
-                    canvas.url
+                    "{CANVASES}: {:?} lists page {page}, which {CANVAS} does not list",
+                    canvas.title
                 );
             }
             if let Some(other) = owner.insert(page, n) {
                 fail!(
-                    "{CANVASES}: page {page} is on two canvases, {} and {}",
-                    canvases[other].url,
-                    canvas.url
+                    "{CANVASES}: page {page} is on two canvases, {:?} and {:?}",
+                    canvases[other].title,
+                    canvas.title
                 );
             }
         }
         if !canvas.pages.contains(&canvas.launch) {
             fail!(
-                "{CANVASES}: {} launches on page {}, which is not one of its pages",
-                canvas.url,
+                "{CANVASES}: {:?} launches on page {}, which is not one of its pages",
+                canvas.title,
                 canvas.launch
             );
         }
@@ -240,9 +262,9 @@ pub fn split<'a>(
             };
             if other != on {
                 fail!(
-                    "{name} on {} mounts {file}, which is on {}; a board mounts only boards of its own canvas",
-                    canvases[on].url,
-                    canvases[other].url
+                    "{name} on {:?} mounts {file}, which is on {:?}; a board mounts only boards of its own canvas",
+                    canvases[on].title,
+                    canvases[other].title
                 );
             }
         }
@@ -257,8 +279,8 @@ pub fn split<'a>(
         let files = mine.len() + 1 + SHARED_FILES.len();
         if files > MAX_FILES {
             fail!(
-                "{} would hold {files} files, and a canvas holds at most {MAX_FILES}; move a page to another canvas in {CANVASES}",
-                canvas.url
+                "{:?} would hold {files} files, and a canvas holds at most {MAX_FILES}; move a page to another canvas in {CANVASES}",
+                canvas.title
             );
         }
         let my_notes: Map<String, Value> = notes

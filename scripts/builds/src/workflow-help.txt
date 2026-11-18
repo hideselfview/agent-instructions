@@ -422,8 +422,9 @@ change.
 
 In a project that publishes a canvas, the boards, design/mocks/canvas.json and
 design/system in the repo are the source of the published designs: every
-canvas that design/mocks/canvases.toml names, and the Design System artifact it
-names beside them. The published canvases and design system are copies that let
+canvas that design/mocks/canvases.toml names by its title, and the Design
+System artifact it names beside them, on whichever claude.ai account Claude
+Code is signed in to. The published canvases and design system are copies that let
 anyone look at the landed boards. An edit that anyone makes on their pages on
 claude.ai is an accident: publish the repo's version over it and merge nothing
 from it. A session publishes the designs with the publish-designs skill, which

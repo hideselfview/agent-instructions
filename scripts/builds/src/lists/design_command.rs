@@ -1,5 +1,6 @@
 //! `builds design places | only | record | amend | approve | check | landed |
-//! drop | show | list | render | tokens-css | publish-files | publish-last`.
+//! drop | show | list | render | tokens-css | publish-find | publish-files |
+//! publish-last`.
 //!
 //! The commands that read git (`places`, `record`, `amend`, `check`,
 //! `landed`) find the project from the repo of the worktree they are given,
@@ -20,7 +21,7 @@ use crate::lists::{Id, Lists, Stamp};
 use crate::text::local_minute;
 use crate::tool::Tool;
 
-const USAGE: &str = "usage: builds design places DIR REV...\n       builds design only DIR REV...\n       builds design record --request FILE\n       builds design amend N --request FILE\n       builds design approve N --by-person\n       builds design check N[,N...] DIR REV...\n       builds design landed N DIR SHA...\n       builds design drop N --why WHY\n       builds design show N\n       builds design list\n       builds design render DIR BOARD [--theme light|dark] [--now | --at REV]\n       builds design tokens-css DIR\n       builds design publish-files DIR OUT --index FILE [--at REV]\n       builds design publish-last FOLDER --listing FILE [--index FILE --by WHO [--uploaded FILE]]";
+const USAGE: &str = "usage: builds design places DIR REV...\n       builds design only DIR REV...\n       builds design record --request FILE\n       builds design amend N --request FILE\n       builds design approve N --by-person\n       builds design check N[,N...] DIR REV...\n       builds design landed N DIR SHA...\n       builds design drop N --why WHY\n       builds design show N\n       builds design list\n       builds design render DIR BOARD [--theme light|dark] [--now | --at REV]\n       builds design tokens-css DIR\n       builds design publish-find DIR --artifacts FILE [--at REV]\n       builds design publish-files DIR OUT --artifacts FILE (--index FILE | --no-index) [--at REV]\n       builds design publish-last FOLDER --listing FILE [(--index FILE | --no-index) --by WHO [--uploaded FILE]]";
 
 pub fn cmd_design(tool: &Tool, args: &[String]) -> Result<()> {
     print!("{}", run_to_text(tool, args)?);
@@ -57,6 +58,7 @@ pub fn run_in_session(
         "list" => list(tool, rest, &cwd),
         "render" => render(tool, rest),
         "tokens-css" => tokens_css(rest),
+        "publish-find" => publish_find(rest),
         "publish-files" => publish_files(tool, rest),
         "publish-last" => publish_last(rest),
         other => fail!("unknown design command {other}\n{USAGE}"),
@@ -618,42 +620,89 @@ fn tokens_css(args: &[String]) -> Result<String> {
     Ok(format!("wrote {}\n", to.display()))
 }
 
-/// `publish-files DIR OUT --index FILE [--at REV]`: writes into folder OUT
-/// the files of every artifact the designs of DIR's repo publish to, each
-/// canvas and the design system, all from the one commit that origin/main
-/// or REV names, with the uploads of each asset whose bytes FILE, the design
-/// system's live index, records none of, and prints each artifact's folder
-/// and calls (`design_publish::write_all`).
+/// The Artifact tool's listings of the account's artifacts that `--artifacts`
+/// names: a file, or `-` for standard input.
+fn artifacts_listing(args: &Args) -> Result<String> {
+    let Some(listing) = args.value("artifacts")? else {
+        fail!(
+            "give the Artifact tool's listings of the account's artifacts of the Design and Design System types with --artifacts FILE, or - for standard input"
+        )
+    };
+    crate::lists::args::read_input(listing)
+}
+
+/// `publish-find DIR --artifacts FILE [--at REV]`: prints the link of each
+/// artifact that the designs of DIR's repo at origin/main or REV publish to,
+/// found by its title in FILE (`design_publish::locate`).
+fn publish_find(args: &[String]) -> Result<String> {
+    let args = Args::parse(args, &["at", "artifacts"], &[])?;
+    let [dir] = args.exactly(1, USAGE)? else {
+        unreachable!("exactly one")
+    };
+    let listing = artifacts_listing(&args)?;
+    let rev = args.value("at")?.unwrap_or(crate::design_render::NOW);
+    let located = crate::design_publish::locate(Path::new(dir), rev, &listing)?;
+    Ok(crate::design_publish::locate_report(&located))
+}
+
+/// The design system's live index that `--index FILE` gives, or None for
+/// `--no-index`, which says the artifact has none yet. Exactly one is given.
+fn live_index(args: &Args) -> Result<Option<String>> {
+    match (args.value("index")?, args.switch("no-index")) {
+        (Some(index), false) => Ok(Some(
+            std::fs::read_to_string(index).context(|| format!("reading {index}"))?,
+        )),
+        (None, true) => Ok(None),
+        (Some(_), true) => fail!("--index and --no-index say opposite things: give one"),
+        (None, false) => fail!(
+            "give the design system's index, as the session read it from the artifact, with --index FILE, or --no-index when the artifact has none yet"
+        ),
+    }
+}
+
+/// The time now, as `text::utc_second` writes it.
+fn now() -> Result<String> {
+    crate::text::utc_second(crate::app_timing::now())
+}
+
+/// `publish-files DIR OUT --artifacts FILE (--index FILE | --no-index) [--at
+/// REV]`: writes into folder OUT the files of every artifact the designs of
+/// DIR's repo publish to, each canvas and the design system, all from the
+/// one commit that origin/main or REV names, to the link of each on the
+/// account that the listings in --artifacts show, with the uploads of each
+/// asset whose bytes the design system's live index records none of, and
+/// prints each artifact's folder and calls (`design_publish::write_all`).
 fn publish_files(tool: &Tool, args: &[String]) -> Result<String> {
-    let args = Args::parse(args, &["at", "index"], &[])?;
+    let args = Args::parse(args, &["at", "index", "artifacts"], &["no-index"])?;
     let [dir, out] = args.exactly(2, USAGE)? else {
         unreachable!("exactly two")
     };
-    let Some(index) = args.value("index")? else {
-        fail!(
-            "give the design system's index, as the session read it from the artifact, with --index FILE"
-        )
-    };
-    let index = std::fs::read_to_string(index).context(|| format!("reading {index}"))?;
+    let listing = artifacts_listing(&args)?;
+    let index = live_index(&args)?;
     let rev = args.value("at")?.unwrap_or(crate::design_render::NOW);
     let publish = crate::design_publish::write_all(
         Path::new(dir),
         rev,
         Path::new(out),
         &tool.places.design_system_cache(),
-        &index,
+        crate::design_publish::Account {
+            listing: &listing,
+            index: index.as_deref(),
+        },
+        &now()?,
     )?;
     Ok(crate::design_publish::report(&publish))
 }
 
-/// `publish-last FOLDER --listing FILE [--index FILE --by WHO [--uploaded
-/// FILE]]`: writes the last calls of the artifact whose folder
-/// `publish-files` wrote, from the artifact's listing (FILE, or `-` for
-/// standard input) and, for the design system, its live index and the id
-/// each upload got, a JSON object of each upload's path on the artifact and
-/// the url or id the Artifact tool gave for it (`design_publish::write_last`).
+/// `publish-last FOLDER --listing FILE [(--index FILE | --no-index) --by
+/// WHO [--uploaded FILE]]`: writes the last calls of the artifact whose
+/// folder `publish-files` wrote, from the artifact's listing (FILE, or `-`
+/// for standard input) and, for the design system, its live index (or none
+/// yet) and the id each upload got, a JSON object of each upload's path on
+/// the artifact and the url or id the Artifact tool gave for it
+/// (`design_publish::write_last`).
 fn publish_last(args: &[String]) -> Result<String> {
-    let args = Args::parse(args, &["listing", "index", "by", "uploaded"], &[])?;
+    let args = Args::parse(args, &["listing", "index", "by", "uploaded"], &["no-index"])?;
     let [folder] = args.exactly(1, USAGE)? else {
         unreachable!("exactly one")
     };
@@ -672,19 +721,15 @@ fn publish_last(args: &[String]) -> Result<String> {
             ids
         }
     };
-    let index = match (args.value("index")?, args.value("by")?) {
-        (None, None) if uploaded.is_empty() => None,
-        (None, None) => fail!("--uploaded goes with the design system's --index and --by"),
-        (Some(index), Some(by)) => Some((
-            std::fs::read_to_string(index).context(|| format!("reading {index}"))?,
-            by.to_string(),
-        )),
-        _ => fail!("--index and --by go together: the index to send, and who publishes it"),
+    let given = args.value("index")?.is_some() || args.switch("no-index");
+    let index = match (given, args.value("by")?) {
+        (false, None) if uploaded.is_empty() => None,
+        (false, None) => fail!("--uploaded goes with the design system's --index and --by"),
+        (true, Some(by)) => Some((live_index(&args)?, by.to_string())),
+        _ => fail!(
+            "--index (or --no-index) and --by go together: the index to send, and who publishes it"
+        ),
     };
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .expect("the clock is after 1970")
-        .as_secs() as i64;
     let root = Path::new(folder);
     let last = crate::design_publish::write_last(
         root,
@@ -692,11 +737,11 @@ fn publish_last(args: &[String]) -> Result<String> {
         index
             .as_ref()
             .map(|(text, by)| crate::design_publish::SystemLast {
-                index: text,
+                index: text.as_deref(),
                 by,
                 uploaded,
             }),
-        &crate::text::utc_second(now)?,
+        &now()?,
     )?;
     Ok(crate::design_publish::last_report(root, &last))
 }

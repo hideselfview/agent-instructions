@@ -1,4 +1,5 @@
 use super::*;
+use crate::design_artifacts::tests::{DS_URL, ONE_URL, TWO_URL, account};
 use crate::design_canvas::tests::{DS, ONE, TWO, boards, canvases_toml, index};
 use crate::design_system_artifact::SYSTEM;
 use crate::testing::{Scratch, design_system, git, git_out, repo};
@@ -13,6 +14,8 @@ const RUNTIME_SHA: &str = "b795ee21261f2e7da1b10cb25b4a4cfa275d1b96165f89396f1fe
 const MARK: &str = "<svg>mark</svg>";
 /// The drawing at the repo's root that the demo's sheep links to.
 const SHEEP: &str = "<svg>sheep</svg>";
+/// The demo design system's bundle, whose header names its namespace.
+const BUNDLE: &str = "/* @ds-bundle: {\"format\":4,\"namespace\":\"Demo\",\"components\":[]} */\nwindow.Demo = { BUNDLE_MARK: 1 };\n";
 
 fn sha256(text: &str) -> String {
     Sha256::digest(text.as_bytes())
@@ -46,12 +49,7 @@ fn demo(scratch: &Scratch) -> PathBuf {
     repo(&dir, "");
     let mocks = dir.join(MOCKS);
     std::fs::create_dir_all(&mocks).unwrap();
-    design_system(
-        &dir,
-        "1",
-        ".bundle { color: red; }",
-        "window.Bae = { BUNDLE_MARK: 1 };",
-    );
+    design_system(&dir, "1", ".bundle { color: red; }", BUNDLE);
     let system = dir.join(SYSTEM);
     for (path, text) in [
         ("README.md", "# Demo\n"),
@@ -150,13 +148,23 @@ fn sent(root: &Path, calls: &[PathBuf]) -> Vec<String> {
     paths
 }
 
+/// What the session read from the demo account: its listings, and the
+/// design system's live index.
+fn demo_account<'a>(listing: &'a str, index: &'a str) -> Account<'a> {
+    Account {
+        listing,
+        index: Some(index),
+    }
+}
+
 fn write_demo(scratch: &Scratch, dir: &Path, rev: &str) -> Publish {
     write_all(
         dir,
         rev,
         &scratch.dir.join("out"),
         &scratch.dir.join("cache"),
-        &live_index(),
+        demo_account(&account(), &live_index()),
+        "now",
     )
     .unwrap()
 }
@@ -177,12 +185,12 @@ fn every_artifact_gets_its_files_from_one_commit() {
         publish
             .artifacts
             .iter()
-            .map(|w| (w.url.as_str(), w.kind()))
+            .map(|w| (w.title.as_str(), w.url.as_str(), w.kind()))
             .collect::<Vec<_>>(),
         [
-            (ONE, Kind::Canvas),
-            (TWO, Kind::Canvas),
-            (DS, Kind::DesignSystem)
+            (ONE, ONE_URL, Kind::Canvas),
+            (TWO, TWO_URL, Kind::Canvas),
+            (DS, DS_URL, Kind::DesignSystem)
         ]
     );
     let out = std::fs::canonicalize(scratch.dir.join("out")).unwrap();
@@ -245,7 +253,7 @@ fn every_artifact_gets_its_files_from_one_commit() {
         json_of(&ds.join("upload-1.json")),
         json!({
             "action": "publish",
-            "url": DS,
+            "url": DS_URL,
             "asset": true,
             "file_path": ds.join("project/assets/Logos/sheep.svg").display().to_string(),
         }),
@@ -260,10 +268,7 @@ fn every_artifact_gets_its_files_from_one_commit() {
             "the canvas's copy of {rel} is the design system's"
         );
     }
-    assert_eq!(
-        read(&ds.join("project/components/bundle.js")),
-        "window.Bae = { BUNDLE_MARK: 1 };"
-    );
+    assert_eq!(read(&ds.join("project/components/bundle.js")), BUNDLE);
     assert!(read(&ds.join("project/tokens.css")).contains("--tokens: 1"));
     assert_eq!(
         read(&ds.join("project/tokens.json")),
@@ -273,6 +278,8 @@ fn every_artifact_gets_its_files_from_one_commit() {
 
     let index_one = json_of(&one.join("project/canvas.json"));
     let mut expected = index();
+    expected["designSystems"][0]["title"] = json!(DS);
+    expected["designSystems"][0]["artifact"] = json!(DS_URL);
     expected["title"] = json!("demo: one");
     expected["launch"] = json!({"view": "canvas", "page": "one"});
     expected["pages"] = json!([{"id": "one", "name": "One"}]);
@@ -295,7 +302,7 @@ fn every_artifact_gets_its_files_from_one_commit() {
 
     let call = json_of(&one.join("call-1.json"));
     assert_eq!(call["action"], json!("publish"));
-    assert_eq!(call["url"], json!(ONE));
+    assert_eq!(call["url"], json!(ONE_URL));
     assert_eq!(call["root"], json!(one.display().to_string()));
     assert_eq!(
         call["file_path"],
@@ -313,9 +320,9 @@ fn every_artifact_gets_its_files_from_one_commit() {
 
     let said = report(&publish);
     for part in [
-        ONE,
-        TWO,
-        DS,
+        &format!("canvas {ONE:?} {ONE_URL}"),
+        &format!("canvas {TWO:?} {TWO_URL}"),
+        &format!("design system {DS:?} {DS_URL}"),
         &head,
         &one.display().to_string(),
         &one.join("call-1.json").display().to_string(),
@@ -344,7 +351,8 @@ fn an_out_folder_that_holds_files_is_refused() {
             "HEAD",
             &out,
             &scratch.dir.join("cache"),
-            &live_index()
+            demo_account(&account(), &live_index()),
+            "now",
         ))
         .contains("is not empty")
     );
@@ -364,7 +372,8 @@ fn a_repo_without_a_canvases_file_or_runtime_record_is_refused() {
             "HEAD",
             &scratch.dir.join("out"),
             &scratch.dir.join("cache"),
-            &live_index(),
+            demo_account(&account(), &live_index()),
+            "now",
         ));
         assert!(refused.contains(file), "{refused}");
         assert!(!scratch.dir.join("out").exists(), "nothing is written");
@@ -386,13 +395,18 @@ fn calls_hold_at_most_one_publishs_files_in_order() {
         }
         let root = scratch.dir.join(format!("{kind:?}"));
         std::fs::create_dir_all(&root).unwrap();
-        let url = if kind == Kind::Canvas { ONE } else { DS };
+        let url = if kind == Kind::Canvas {
+            ONE_URL
+        } else {
+            DS_URL
+        };
         let holds = if kind == Kind::Canvas {
             Holds::Canvas
         } else {
             Holds::DesignSystem {
                 assets: vec![],
                 uploads: vec![],
+                start_index: None,
             }
         };
         let (at, written) = write_artifact(&root, url, "abc", &files, holds).unwrap();
@@ -498,7 +512,7 @@ fn a_canvas_last_call_removes_what_the_commit_lacks() {
     let publish = write_demo(&scratch, &dir, "HEAD");
     let one = &publish.artifacts[0].root;
     let shown = listing(
-        ONE,
+        ONE_URL,
         &[
             "index.html",
             "artifact-type/dc-runtime.js",
@@ -517,7 +531,7 @@ fn a_canvas_last_call_removes_what_the_commit_lacks() {
         }
     );
     let call = json_of(&last.calls[0]);
-    assert_eq!(call["url"], json!(ONE));
+    assert_eq!(call["url"], json!(ONE_URL));
     assert_eq!(
         call["file_path"],
         json!(one.join(PUBLISHED_INDEX).display().to_string())
@@ -528,7 +542,7 @@ fn a_canvas_last_call_removes_what_the_commit_lacks() {
     );
     assert!(last_report(one, &last).contains("last-1.json"));
 
-    let last = write_last(one, &listing(ONE, &["project/a.dc.html"]), None, "now").unwrap();
+    let last = write_last(one, &listing(ONE_URL, &["project/a.dc.html"]), None, "now").unwrap();
     assert!(last.calls.is_empty());
     assert!(
         !one.join("last-1.json").exists(),
@@ -537,7 +551,7 @@ fn a_canvas_last_call_removes_what_the_commit_lacks() {
     assert!(last_report(one, &last).contains("needs no last call"));
 
     let system_last = SystemLast {
-        index: &live_index(),
+        index: Some(&live_index()),
         by: "Dima",
         uploaded: BTreeMap::new(),
     };
@@ -574,7 +588,7 @@ fn the_design_systems_last_call_sends_its_index_last() {
     let publish = write_demo(&scratch, &dir, "HEAD");
     let ds = &publish.artifacts[2].root;
     let shown = listing(
-        DS,
+        DS_URL,
         &[
             "SKILL.md",
             "project/design-system.json",
@@ -590,7 +604,7 @@ fn the_design_systems_last_call_sends_its_index_last() {
     assert!(refused.contains("--index"), "{refused}");
     let live = live_index();
     let given = |pairs: &[(&str, &str)]| SystemLast {
-        index: &live,
+        index: Some(&live),
         by: "Dima",
         uploaded: uploaded(pairs),
     };
@@ -641,7 +655,7 @@ fn the_design_systems_last_call_sends_its_index_last() {
     assert_eq!(index_call["files"], json!({}));
     assert_eq!(
         json_of(&last.deletes[0]),
-        json!({"action": "delete", "url": DS, "path": "old-id"})
+        json!({"action": "delete", "url": DS_URL, "path": "old-id"})
     );
     let index = json_of(&ds.join(system::INDEX));
     assert_eq!(index["title"], json!("demo"));
@@ -666,9 +680,9 @@ fn the_design_systems_last_call_sends_its_index_last() {
 
     let again = write_last(
         ds,
-        &listing(DS, &["project/README.md"]),
+        &listing(DS_URL, &["project/README.md"]),
         Some(SystemLast {
-            index: &index.to_string(),
+            index: Some(&index.to_string()),
             by: "Dima",
             uploaded: uploaded(&[("project/assets/Logos/sheep.svg", "sheep-id")]),
         }),
@@ -677,4 +691,112 @@ fn the_design_systems_last_call_sends_its_index_last() {
     .unwrap();
     assert!(again.deletes.is_empty(), "a later run replaces the deletes");
     assert!(!ds.join("delete-1.json").exists());
+}
+
+/// A design system made since the last publish has no index: every asset
+/// uploads, and its last call sends the starting index, with the title the
+/// canvases file gives, the namespace the bundle's header gives, and the
+/// record of each upload. A design system that had an index when the files
+/// were written needs it again.
+#[test]
+fn a_design_system_with_no_index_yet_gets_the_starting_index() {
+    let scratch = Scratch::new("publish-new-ds");
+    let dir = demo(&scratch);
+    let publish = write_all(
+        &dir,
+        "HEAD",
+        &scratch.dir.join("out"),
+        &scratch.dir.join("cache"),
+        Account {
+            listing: &account(),
+            index: None,
+        },
+        "2026-11-18T19:00:00Z",
+    )
+    .unwrap();
+    let ds = &publish.artifacts[2];
+    let Artifact::DesignSystem { uploads } = &ds.artifact else {
+        panic!("the last artifact is the design system")
+    };
+    let uploaded_paths: Vec<&str> = uploads.iter().map(|(_, path)| path.as_str()).collect();
+    assert_eq!(
+        uploaded_paths,
+        [
+            "project/assets/Logos/mark.svg",
+            "project/assets/Logos/sheep.svg"
+        ]
+    );
+    let shown = listing(DS_URL, &["SKILL.md", "index.html"]);
+    let last = write_last(
+        &ds.root,
+        &shown,
+        Some(SystemLast {
+            index: None,
+            by: "Dima",
+            uploaded: uploaded(&[
+                ("project/assets/Logos/mark.svg", "mark-new"),
+                ("project/assets/Logos/sheep.svg", "sheep-new"),
+            ]),
+        }),
+        "2026-11-18T19:05:00Z",
+    )
+    .unwrap();
+    assert_eq!(last.calls, [ds.root.join("last-1.json")]);
+    assert!(last.deletes.is_empty());
+    let index = json_of(&ds.root.join(system::INDEX));
+    assert_eq!(
+        index["createdOnFiles"],
+        json!({"v": 1, "at": "2026-11-18T19:00:00Z"})
+    );
+    assert_eq!(index["title"], json!(DS));
+    assert_eq!(index["namespace"], json!("Demo"));
+    assert_eq!(index["layout"], json!("files"));
+    assert_eq!(index["groups"], json!(["Logos"]));
+    assert_eq!(
+        index["assetGroups"]["Logos"]["files"]["mark.svg"]["blob"],
+        json!("mark-new")
+    );
+    assert_eq!(index["lastChange"]["at"], json!("2026-11-18T19:05:00Z"));
+    system::parse_index(&index.to_string()).unwrap();
+
+    let other = Scratch::new("publish-had-index");
+    let had_one = write_demo(&other, &dir, "HEAD");
+    let refused = message(write_last(
+        &had_one.artifacts[2].root,
+        &shown,
+        Some(SystemLast {
+            index: None,
+            by: "Dima",
+            uploaded: uploaded(&[("project/assets/Logos/sheep.svg", "sheep-id")]),
+        }),
+        "now",
+    ));
+    assert!(refused.contains("had an index"), "{refused}");
+}
+
+/// A canvases file whose title the account lacks writes nothing, and says
+/// which artifact to create.
+#[test]
+fn a_title_the_account_lacks_writes_nothing() {
+    let scratch = Scratch::new("publish-missing");
+    let dir = demo(&scratch);
+    let listing = account().replace(&format!("- (mine) {TWO} "), "- (shared with the user) x ");
+    let refused = message(write_all(
+        &dir,
+        "HEAD",
+        &scratch.dir.join("out"),
+        &scratch.dir.join("cache"),
+        demo_account(&listing, &live_index()),
+        "now",
+    ));
+    assert!(
+        refused.contains(&format!("no Design artifact titled {TWO:?}")),
+        "{refused}"
+    );
+    assert!(!scratch.dir.join("out").exists(), "nothing is written");
+    let located = locate(&dir, "HEAD", &account()).unwrap();
+    let said = locate_report(&located);
+    for part in [ONE_URL, TWO_URL, DS_URL, &located.commit, system::INDEX] {
+        assert!(said.contains(part), "the report names {part}: {said}");
+    }
 }

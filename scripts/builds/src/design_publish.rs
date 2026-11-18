@@ -1,7 +1,9 @@
 //! The files that publish a repo's designs to claude.ai, all from one commit
-//! (`builds design publish-files` and `publish-last`): each canvas that
-//! `design/mocks/canvases.toml` names and the Design System artifact it names
-//! beside them. Only a Claude session can call the Artifact tool, so builds
+//! (`builds design publish-find`, `publish-files` and `publish-last`): each
+//! canvas that `design/mocks/canvases.toml` names and the Design System
+//! artifact it names beside them, which `design_artifacts` finds by title on
+//! the account the session is signed in to. Only a Claude session can call
+//! the Artifact tool, so builds
 //! publishes nothing itself: it writes a folder per artifact with the
 //! artifact's files at their paths on it, and the Artifact publish calls that
 //! send them, which the session makes in order, with the uploads of the
@@ -22,8 +24,9 @@ use serde_json::{Map, Value, json};
 use boards::runtime::RECORD as RUNTIME;
 use boards::{CANVAS, MOCKS, Source, design_namespace, export, in_scratch};
 
+use crate::design_artifacts::{self as artifacts, Found, artifact_id};
 use crate::design_canvas::{
-    self as canvas, CANVASES, PUBLISHED_INDEX, Published, artifact_id, parse_canvases, split,
+    self as canvas, CANVASES, PUBLISHED_INDEX, Published, name_design_system, parse_canvases, split,
 };
 use crate::design_system_artifact::{self as system, SHARED_FILES};
 use crate::design_system_assets::{self as assets, Asset, Upload};
@@ -97,6 +100,9 @@ enum Holds {
         /// The paths of the uploads that the session makes, those whose
         /// bytes the live index does not record.
         uploads: Vec<String>,
+        /// The index that `publish-files` started, when the artifact had
+        /// none yet.
+        start_index: Option<Map<String, Value>>,
     },
 }
 
@@ -137,6 +143,8 @@ pub enum Artifact {
 /// One artifact's folder, as `write_all` wrote it.
 #[derive(Debug)]
 pub struct Written {
+    /// The title by which the publish found the artifact on the account.
+    pub title: String,
     pub url: String,
     /// The folder the artifact's files are in, at their paths on it.
     pub root: PathBuf,
@@ -175,27 +183,99 @@ fn parse_runtime(text: &str, label: &str) -> Result<(String, String)> {
     Ok((record.runtime, record.runtime_sha256))
 }
 
+/// The artifacts that `CANVASES` names at one commit, and the link of each
+/// on the account.
+#[derive(Debug)]
+pub struct Located {
+    pub commit: String,
+    pub published: Published,
+    pub found: Found,
+}
+
+/// Finds each artifact that `CANVASES` names at the commit that <rev> of the
+/// repo <repo> names in <listing>, the Artifact tool's listings of the
+/// account's artifacts of the Design and Design System types
+/// (`design_artifacts::find`).
+pub fn locate(repo: &Path, rev: &str, listing: &str) -> Result<Located> {
+    let commit = Source::Commit { repo, rev }
+        .check()?
+        .expect("a commit source names a commit");
+    let from = Source::Commit { repo, rev: &commit };
+    let published = parse_canvases(
+        &from.read(CANVASES, "the canvases file")?,
+        &format!("{commit}:{CANVASES}"),
+    )?;
+    let found = artifacts::find(&published, listing)?;
+    Ok(Located {
+        commit,
+        published,
+        found,
+    })
+}
+
+/// What `builds design publish-find` prints: the link of each artifact on the
+/// account, and where the session reads the design system's index.
+pub fn locate_report(located: &Located) -> String {
+    let mut out = format!(
+        "builds found every artifact that {CANVASES} names at commit {} on the account:\n",
+        located.commit
+    );
+    for (canvas, url) in located
+        .published
+        .canvases
+        .iter()
+        .zip(&located.found.canvases)
+    {
+        out.push_str(&format!("  canvas {:?}: {url}\n", canvas.title));
+    }
+    let system_url = &located.found.design_system;
+    out.push_str(&format!(
+        "  design system {:?}: {system_url}\nRead {} from {system_url}, then run publish-files with the same --artifacts.\n",
+        located.published.design_system,
+        system::INDEX
+    ));
+    out
+}
+
+/// What the session read from the account: the Artifact tool's listings of
+/// its artifacts of the Design and Design System types, and the text of the
+/// design system's live index, which an artifact made since the last
+/// publish does not have yet.
+#[derive(Debug, Clone, Copy)]
+pub struct Account<'a> {
+    pub listing: &'a str,
+    pub index: Option<&'a str>,
+}
+
 /// Writes, into the empty or new folder <out>, a folder per artifact that
 /// the designs at <rev> of the repo <repo> is in publish to, all from the
 /// one commit <rev> names: `<out>/<artifact id>/project/...`, the record
 /// `RECORD`, the calls `call-<n>.json`, and for the design system the
 /// uploads `upload-<n>.json`: each file holds the arguments of one Artifact
-/// call. The design system uploads each asset whose bytes <system_index>,
-/// the text of its live index, records no upload of. The canvases come
-/// first, in the order `CANVASES` names them, then the design system. The
-/// design system's bundles are built into <cache>
-/// (`Places::design_system_cache`). Reads no store and writes nothing in the
-/// repo.
+/// call. <account> gives each artifact's link by its title, and the design
+/// system uploads each asset whose bytes its live index records no upload
+/// of; a design system with no index yet gets the starting index, made at
+/// <now>, and uploads every asset. The canvases come first, in the order
+/// `CANVASES` names them, then the design system. The design system's
+/// bundles are built into <cache> (`Places::design_system_cache`). Reads no
+/// store and writes nothing in the repo.
 pub fn write_all(
     repo: &Path,
     rev: &str,
     out: &Path,
     cache: &Path,
-    system_index: &str,
+    account: Account,
+    now: &str,
 ) -> Result<Publish> {
-    let commit = Source::Commit { repo, rev }
-        .check()?
-        .expect("a commit source names a commit");
+    let Located {
+        commit,
+        published:
+            Published {
+                canvases,
+                design_system: system_title,
+            },
+        found,
+    } = locate(repo, rev, account.listing)?;
     let from = Source::Commit { repo, rev: &commit };
     if std::fs::read_dir(out).is_ok_and(|mut entries| entries.next().is_some()) {
         fail!(
@@ -203,21 +283,21 @@ pub fn write_all(
             out.display()
         );
     }
-    let live_index = system::parse_index(system_index)?;
-    let index: Value = serde_json::from_str(&from.read(CANVAS, "the canvas index")?)
+    let mut index: Value = serde_json::from_str(&from.read(CANVAS, "the canvas index")?)
         .map_err(|error| Fail::Message(format!("{commit}:{CANVAS}: {error}")))?;
-    let Published {
-        canvases,
-        design_system,
-    } = parse_canvases(
-        &from.read(CANVASES, "the canvases file")?,
-        &format!("{commit}:{CANVASES}"),
-    )?;
     let (runtime, runtime_sha256) = parse_runtime(
         &from.read(RUNTIME, "the canvas runtime's record")?,
         &format!("{commit}:{RUNTIME}"),
     )?;
     let generated = from.design_system(cache)?;
+    let (live_index, start_index) = match account.index {
+        Some(text) => (system::parse_index(text)?, None),
+        None => {
+            let namespace = system::bundle_namespace(&generated[2])?;
+            let start = system::start_index(&system_title, &namespace, now);
+            (start.clone(), Some(start))
+        }
+    };
     let mut inputs = from.design_system_inputs()?;
     inputs.push(MOCKS.to_string());
     let (boards, contents) = in_scratch(cache, |work| {
@@ -227,8 +307,9 @@ pub fn write_all(
             system::contents(work, &generated).map_err(|error| boards::Error::new(error.text()))?;
         Ok((boards, contents))
     })?;
-    let splits = split(&index, &canvases, &boards)?;
     let folder = design_namespace(&index)?;
+    name_design_system(&mut index, &system_title, &found.design_system)?;
+    let splits = split(&index, &canvases, &boards)?;
     let copy: BTreeMap<String, String> = SHARED_FILES
         .into_iter()
         .map(|rel| {
@@ -239,7 +320,7 @@ pub fn write_all(
     std::fs::create_dir_all(out).context(|| format!("making {}", out.display()))?;
     let out = std::fs::canonicalize(out).context(|| format!("finding {}", out.display()))?;
     let mut artifacts = Vec::new();
-    for split in splits {
+    for (split, url) in splits.into_iter().zip(&found.canvases) {
         let mut files = copy.clone();
         let index =
             serde_json::to_string_pretty(&split.index).expect("the index serializes") + "\n";
@@ -247,10 +328,10 @@ pub fn write_all(
         for name in &split.boards {
             files.insert(format!("project/{name}"), boards[name].clone());
         }
-        let (root, calls) =
-            write_artifact(&out, &split.canvas.url, &commit, &files, Holds::Canvas)?;
+        let (root, calls) = write_artifact(&out, url, &commit, &files, Holds::Canvas)?;
         artifacts.push(Written {
-            url: split.canvas.url.clone(),
+            title: split.canvas.title.clone(),
+            url: url.clone(),
             root,
             files: files.len(),
             calls,
@@ -266,19 +347,22 @@ pub fn write_all(
         .into_iter()
         .map(|asset| asset.path.clone())
         .collect();
+    let system_url = &found.design_system;
     let (root, calls) = write_artifact(
         &out,
-        &design_system,
+        system_url,
         &commit,
         &contents.files,
         Holds::DesignSystem {
             assets: all,
             uploads: to_upload.clone(),
+            start_index,
         },
     )?;
-    let uploads = write_uploads(&root, &design_system, &contents.uploads, &to_upload)?;
+    let uploads = write_uploads(&root, system_url, &contents.uploads, &to_upload)?;
     artifacts.push(Written {
-        url: design_system.clone(),
+        title: system_title,
+        url: system_url.clone(),
         root,
         files: contents.files.len(),
         calls,
@@ -302,7 +386,7 @@ fn write_artifact(
     files: &BTreeMap<String, String>,
     holds: Holds,
 ) -> Result<(PathBuf, Vec<PathBuf>)> {
-    let root = out.join(artifact_id(url).expect("parse_canvases accepts only artifact links"));
+    let root = out.join(artifact_id(url).expect("design_artifacts finds only artifact links"));
     for (path, text) in files {
         write(&root.join(path), text)?;
     }
@@ -456,9 +540,10 @@ pub fn report(publish: &Publish) -> String {
     );
     for (n, artifact) in publish.artifacts.iter().enumerate() {
         out.push_str(&format!(
-            "\n{}. {} {}: {} files in {}\n",
+            "\n{}. {} {:?} {}: {} files in {}\n",
             n + 1,
             artifact.kind().name(),
+            artifact.title,
             artifact.url,
             artifact.files,
             artifact.root.display()
@@ -501,11 +586,12 @@ fn listed(listing: &str) -> Result<Vec<&str>> {
 }
 
 /// What the session gives `publish-last` for the design system: the text of
-/// its live index, read after the uploads, who publishes, and the id each
-/// upload got, by the upload's path on the artifact.
+/// its live index, read after the uploads (None when the artifact has no
+/// index yet), who publishes, and the id each upload got, by the upload's
+/// path on the artifact.
 #[derive(Debug)]
 pub struct SystemLast<'a> {
-    pub index: &'a str,
+    pub index: Option<&'a str>,
     pub by: &'a str,
     pub uploaded: BTreeMap<String, String>,
 }
@@ -523,7 +609,8 @@ pub struct LastCalls {
 /// `publish-files` wrote it: `last-<n>.json`, which remove each file that
 /// <listing> (the artifact's files now, as the Artifact tool lists them)
 /// shows, the repo decides, and the commit lacks, and, for the design
-/// system, send its index last. The index is <system>'s, with a record of
+/// system, send its index last. The index is <system>'s, or the starting
+/// index that `publish-files` made when <system> gives none, with a record of
 /// each asset at the commit and its `lastChange` saying that <system>'s
 /// `by` published the commit at <now>; `delete-<n>.json` then delete each
 /// upload the live index named and the new one does not. A canvas takes no
@@ -583,7 +670,7 @@ pub fn write_last(
         (Holds::Canvas, None) => {}
         (Holds::Canvas, Some(_)) => fail!("{} is a canvas, which takes no index", record.url),
         (Holds::DesignSystem { .. }, None) => fail!(
-            "{} is the design system, whose index goes in its last call: read {} from it and give it with --index, and who publishes with --by",
+            "{} is the design system, whose index goes in its last call: read {} from it and give it with --index (or --no-index when it has none yet), and who publishes with --by",
             record.url,
             system::INDEX
         ),
@@ -591,6 +678,7 @@ pub fn write_last(
             Holds::DesignSystem {
                 assets: all,
                 uploads,
+                start_index,
             },
             Some(last),
         ) => {
@@ -602,7 +690,15 @@ pub fn write_last(
                     list(uploads.iter().map(String::as_str))
                 );
             }
-            let mut index = system::parse_index(last.index)?;
+            let mut index = match (last.index, start_index) {
+                (Some(text), _) => system::parse_index(text)?,
+                (None, Some(start)) => start.clone(),
+                (None, None) => fail!(
+                    "{} had an index when publish-files ran: read {} from it again and give it with --index",
+                    record.url,
+                    system::INDEX
+                ),
+            };
             let unused = assets::set_records(&mut index, all, &last.uploaded)?;
             system::set_last_change(&mut index, last.by, now, &record.commit);
             write(&root.join(system::INDEX), &system::index_text(&index))?;

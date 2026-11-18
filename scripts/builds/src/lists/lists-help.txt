@@ -634,25 +634,56 @@ sent again.
       stylesheet; this command writes it for other tools that load it, such
       as a repo's screenshot checks. Reads no store.
 
-  builds design publish-files DIR OUT --index FILE [--at REV]
+  builds design publish-find DIR --artifacts FILE [--at REV]
+      Prints the link of each claude.ai artifact that the designs of DIR's
+      repo publish to, on the account that the session is signed in to.
+      design/mocks/canvases.toml at origin/main, or at commit or branch REV
+      with --at, names each canvas and the design system by its title, and
+      never by a link, because a link belongs to one account. --artifacts
+      FILE (or - for standard input) holds the Artifact tool's listings of
+      the account's artifacts of the Design type and of the Design System
+      type, every page of each, as the tool printed them: each header line
+      that says "made from the type" starts the rows of that type, and each
+      row `- (mine) <title> — <link>` is an artifact the person owns. The
+      command finds each canvas's title among the person's Design artifacts
+      and the design system's among their Design System artifacts, and
+      ignores the artifacts that others shared with the person. It refuses,
+      and names every title at once, when the account has no artifact of
+      the title's type with that title, saying which type to create it
+      from, when two of the person's artifacts of one type share the title,
+      or when the file holds no listing of one of the types. Reads no store
+      and writes nothing.
+
+  builds design publish-files DIR OUT --artifacts FILE (--index FILE | --no-index) [--at REV]
       Writes into folder OUT, which must be new or empty, the files of every
       claude.ai artifact that the designs of DIR's repo publish to: each
       canvas of the boards and the Design System artifact of the design
       system, with its uploads. The command resolves origin/main, or commit
       or branch REV with --at, to one commit and writes every artifact's
-      files from that commit, so the published copies never disagree. FILE
-      is the design system's index (project/design-system.json) as the
-      session read it from the artifact.
+      files from that commit, so the published copies never disagree. It
+      finds each artifact's link in --artifacts as publish-find does, and
+      refuses as publish-find does. --index FILE is the design system's
+      index (project/design-system.json) as the session read it from the
+      artifact. --no-index says that the design system's artifact has no
+      index yet, as one that the session made from the Design System type
+      since the last publish: the command then starts the index as the
+      artifact type starts one, with the design system's title, the
+      namespace that the header on the first line of
+      design/system/components/bundle.js gives, and the React 18 libraries
+      that the type's starting index lists, and uploads every asset.
 
       design/mocks/canvases.toml names the artifacts. A canvas holds at most
       512 files, so a repo publishes its boards to one canvas or more, split
-      by page. The file gives each canvas as a [[canvas]] table: its `url`
-      (https://claude.ai/artifact/<id>), its `title`, the page it opens on
-      (`launch`), and the ids of the pages of design/mocks/canvas.json that
-      it shows (`pages`). Each page of canvas.json is on exactly one canvas,
-      and a board or a note that names no page is on the first page. The
-      file gives the design system's artifact as a [design_system] table
-      with its `url`.
+      by page. The file gives each canvas as a [[canvas]] table: its
+      `title`, which no other canvas has, the page it opens on (`launch`),
+      and the ids of the pages of design/mocks/canvas.json that it shows
+      (`pages`). Each page of canvas.json is on exactly one canvas, and a
+      board or a note that names no page is on the first page. The file
+      gives the design system's artifact as a [design_system] table with
+      its `title`. canvas.json's one entry in `designSystems` gives the
+      design system's `namespace` and no `title` or `artifact`: the command
+      gives each canvas's copy of the entry the design system's title and
+      the link it found.
 
       The command writes a folder OUT/<id> for each artifact, with the
       artifact's files at their paths on it. A canvas gets
@@ -688,10 +719,12 @@ sent again.
       hold more than 512 files, a component folder whose name is no
       JavaScript identifier, a file directly under assets/ or one that the
       artifact keeps neither as an upload nor as text, an index without the
-      artifact type's marker, and a canvases.toml that names no design
-      system. Reads no store and writes nothing in DIR.
+      artifact type's marker, a canvases.toml that names no design system,
+      two canvases with one title, a `designSystems` entry that gives a
+      title or an artifact, and, with --no-index, a bundle whose first line
+      names no namespace. Reads no store and writes nothing in DIR.
 
-  builds design publish-last FOLDER --listing FILE [--index FILE --by WHO [--uploaded FILE]]
+  builds design publish-last FOLDER --listing FILE [(--index FILE | --no-index) --by WHO [--uploaded FILE]]
       Writes the last calls of the artifact whose folder FOLDER
       `publish-files` wrote, as last-1.json, last-2.json and on. --listing
       FILE (or - for standard input) is the Artifact tool's listing of the
@@ -705,8 +738,10 @@ sent again.
       (manifest.json and the api/ cards), and names that start with a dot.
 
       The design system's last call sends its index. --index is the index
-      the session read from the live artifact after it made the uploads,
-      and --uploaded is a JSON object of the url or id that the Artifact
+      the session read from the live artifact after it made the uploads, and
+      --no-index says the artifact still has none, so that the command
+      sends the index that publish-files started. --uploaded is a JSON
+      object of the url or id that the Artifact
       tool gave each upload, by the upload's path on the artifact
       (project/assets/<group>/<name>). The command keeps the index's every
       key but lastChange, which says that WHO published the commit, and
@@ -715,11 +750,13 @@ sent again.
       and the groups keep their order and their other keys. Then
       delete-1.json, delete-2.json and on each delete one upload that the
       index named and no longer does. The command refuses --index for a
-      canvas, needs it for the design system, and refuses --uploaded unless
-      it names exactly the folder's uploads. A later run replaces the
+      canvas, needs it or --no-index for the design system, refuses
+      --no-index when the artifact had an index as publish-files wrote the
+      folder, and refuses --uploaded unless it names exactly the folder's
+      uploads. A later run replaces the
       folder's last calls and deletes. Reads no store.
 
-      Both commands publish nothing, since only a Claude session can call
+      These commands publish nothing, since only a Claude session can call
       the Artifact tool. The publish-designs skill gives the steps with which
       a session publishes every artifact after a landing, from one run of
       `publish-files`.
