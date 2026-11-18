@@ -53,9 +53,9 @@ pub fn run(tool: &Tool, args: &[String], cwd: &Path, gh: GhRunner<'_>) -> Result
     let words = format!("question {}", args.join(" "));
     match command.as_str() {
         "ask" => ask(tool, rest, cwd, &words),
-        "answer" => resolve(tool, rest, cwd, &words, Closing::Answer),
-        "settle" => resolve(tool, rest, cwd, &words, Closing::Settle),
-        "done" => resolve(tool, rest, cwd, &words, Closing::Done),
+        "answer" => resolve(tool, rest, cwd, &words, Verb::Answer),
+        "settle" => resolve(tool, rest, cwd, &words, Verb::Settle),
+        "done" => resolve(tool, rest, cwd, &words, Verb::Done),
         "drop" => leave(tool, rest, cwd, &words, gh, Leaving::Drop),
         "defer" => leave(tool, rest, cwd, &words, gh, Leaving::Defer),
         "place" => place(tool, rest, cwd, &words),
@@ -257,10 +257,28 @@ fn ask(tool: &Tool, args: &[String], cwd: &Path, words: &str) -> Result<String> 
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum Closing {
+enum Verb {
     Answer,
     Settle,
     Done,
+}
+
+impl Verb {
+    fn word(self) -> &'static str {
+        match self {
+            Verb::Answer => "answer",
+            Verb::Settle => "settle",
+            Verb::Done => "done",
+        }
+    }
+}
+
+/// How a question closes, with what the request gives for it: the person's
+/// decision, the rule that settles it, or what shows its step done.
+enum Closing {
+    Answer(AnswerDecision),
+    Settle(String),
+    Done(String),
 }
 
 #[derive(Deserialize)]
@@ -288,77 +306,103 @@ struct Request {
     no_work: Option<String>,
 }
 
-fn resolve(
-    tool: &Tool,
-    args: &[String],
-    cwd: &Path,
-    words: &str,
-    closing: Closing,
-) -> Result<String> {
-    let verb = match closing {
-        Closing::Answer => "answer",
-        Closing::Settle => "settle",
-        Closing::Done => "done",
-    };
+/// The request's field <name> for <verb>, which the verb needs: refused when
+/// missing (<needs> says what it holds) or blank.
+fn field_needed<T>(
+    verb: Verb,
+    name: &str,
+    value: Option<T>,
+    needs: &str,
+    blank: fn(&T) -> bool,
+) -> Result<T> {
+    match value {
+        None => fail!("`question {}` needs `{name}`: {needs}", verb.word()),
+        Some(value) if blank(&value) => fail!("`{name}` is empty"),
+        Some(value) => Ok(value),
+    }
+}
+
+/// The request's field <name> for <verb>, which the verb does not take:
+/// refused when present (<elsewhere> says what to use instead).
+fn field_refused<T>(verb: Verb, name: &str, value: &Option<T>, elsewhere: &str) -> Result<()> {
+    if value.is_some() {
+        fail!(
+            "`{name}` is not part of `question {}`; {elsewhere}",
+            verb.word()
+        );
+    }
+    Ok(())
+}
+
+/// What <request> holds for <verb> and nothing of the other verbs'.
+fn closing_of(verb: Verb, request: &mut Request) -> Result<Closing> {
+    const TAKES_SHOWN_BY: &str = "`question done` takes it";
+    const DONE_TAKES: &str = "done takes `shown_by`, `blocked` and `work` or `no_work`";
+    let (decision, by_rule, shown_by) = (
+        request.decision.take(),
+        request.by_rule.take(),
+        request.shown_by.take(),
+    );
+    Ok(match verb {
+        Verb::Answer => {
+            field_refused(
+                verb,
+                "by_rule",
+                &by_rule,
+                "a decision of the person is `decision`, a rule is `question settle`",
+            )?;
+            field_refused(verb, "shown_by", &shown_by, TAKES_SHOWN_BY)?;
+            Closing::Answer(field_needed(
+                verb,
+                "decision",
+                decision,
+                "{title, body, by} in the request",
+                |_| false,
+            )?)
+        }
+        Verb::Settle => {
+            field_refused(
+                verb,
+                "decision",
+                &decision,
+                "settling records none: a question settled from rules is not the person's",
+            )?;
+            field_refused(verb, "shown_by", &shown_by, TAKES_SHOWN_BY)?;
+            Closing::Settle(field_needed(
+                verb,
+                "by_rule",
+                by_rule,
+                "the rule or code that settles it",
+                |rule| rule.trim().is_empty(),
+            )?)
+        }
+        Verb::Done => {
+            field_refused(verb, "decision", &decision, DONE_TAKES)?;
+            field_refused(verb, "by_rule", &by_rule, DONE_TAKES)?;
+            Closing::Done(field_needed(
+                verb,
+                "shown_by",
+                shown_by,
+                "what shows the step is done (the person's words, a decision, a commit or the code)",
+                |shown| shown.trim().is_empty(),
+            )?)
+        }
+    })
+}
+
+/// Adds each of <drafts> as a work item, in order.
+fn add_drafts(db: &rusqlite::Connection, drafts: &[ItemDraft], stamp: &Stamp) -> Result<Vec<Id>> {
+    drafts
+        .iter()
+        .map(|draft| add_item(db, draft, None, stamp))
+        .collect()
+}
+
+fn resolve(tool: &Tool, args: &[String], cwd: &Path, words: &str, verb: Verb) -> Result<String> {
     let args = Args::parse(args, &["request"], &[])?;
     let id = question_id(&args)?;
-    let request: Request = read_request(args.require("request")?)?;
-    // What the request must hold for this verb, and nothing of the others'.
-    let stray = |field: &str, others: &str| -> Result<()> {
-        fail!("`{field}` is not part of `question {verb}`; {others}")
-    };
-    match closing {
-        Closing::Answer => {
-            if request.by_rule.is_some() {
-                stray(
-                    "by_rule",
-                    "a decision of the person is `decision`, a rule is `question settle`",
-                )?;
-            }
-            if request.shown_by.is_some() {
-                stray("shown_by", "`question done` takes it")?;
-            }
-        }
-        Closing::Settle => {
-            if request.decision.is_some() {
-                stray(
-                    "decision",
-                    "settling records none: a question settled from rules is not the person's",
-                )?;
-            }
-            if request.shown_by.is_some() {
-                stray("shown_by", "`question done` takes it")?;
-            }
-        }
-        Closing::Done => {
-            if request.decision.is_some() || request.by_rule.is_some() {
-                stray(
-                    "decision` or `by_rule",
-                    "done takes `shown_by`, `blocked` and `work` or `no_work`",
-                )?;
-            }
-        }
-    }
-    let decision = match (closing, request.decision) {
-        (Closing::Answer, None) => {
-            fail!("`question answer` needs `decision` {{title, body, by}} in the request")
-        }
-        (_, decision) => decision,
-    };
-    let by_rule = match (closing, request.by_rule) {
-        (Closing::Settle, None) => {
-            fail!("`question settle` needs `by_rule`: the rule or code that settles it")
-        }
-        (Closing::Settle, Some(rule)) if rule.trim().is_empty() => fail!("`by_rule` is empty"),
-        (_, rule) => rule,
-    };
-    let shown_by = match (closing, request.shown_by) {
-        (Closing::Done, None) => fail!(
-            "`question done` needs `shown_by`: what shows the step is done (the person's words, a decision, a commit or the code)"
-        ),
-        (Closing::Done, Some(shown)) if shown.trim().is_empty() => fail!("`shown_by` is empty"),
-        (_, shown) => shown,
-    };
+    let mut request: Request = read_request(args.require("request")?)?;
+    let closing = closing_of(verb, &mut request)?;
     let drafts = work_or_why(request.work, request.no_work)?;
     require_draft_briefs(cwd, &drafts)?;
     let blocked = request.blocked;
@@ -367,11 +411,11 @@ fn resolve(
     let resolved = store.write(&stamp, words, |db| {
         let lists = &store::read(db)?;
         let question = open_question(lists, id)?.clone();
-        match (closing, question.kind) {
-            (Closing::Done, QuestionKind::Question) => {
+        match (verb, question.kind) {
+            (Verb::Done, QuestionKind::Question) => {
                 fail!("question {id} is a question: `builds question answer {} --request F` records the decision", id.0)
             }
-            (Closing::Answer, QuestionKind::YourStep | QuestionKind::Held) => fail!(
+            (Verb::Answer, QuestionKind::YourStep | QuestionKind::Held) => fail!(
                 "question {id} is {}: `builds question done {} --request F` closes it",
                 kind_words(question.kind),
                 id.0
@@ -382,8 +426,8 @@ fn resolve(
             fail!("a work item waits on {id}, which this closes; the work that follows has nothing to wait for");
         }
         apply_blocked(db, id, &blocked, &stamp)?;
-        let (how, made) = match decision {
-            Some(decision) => {
+        let (how, made) = match closing {
+            Closing::Answer(decision) => {
                 let new = NewDecision {
                     title: decision.title,
                     by: decision.by,
@@ -395,17 +439,13 @@ fn resolve(
                 let added = add_decision(db, &new, &drafts, &stamp)?;
                 (How::Answered(added.decision), (Some(added.decision), added.items))
             }
-            None => {
-                let mut items = Vec::new();
-                for draft in &drafts {
-                    items.push(add_item(db, draft, None, &stamp)?);
-                }
-                let how = match (by_rule, shown_by) {
-                    (Some(rule), _) => How::Settled(rule),
-                    (None, Some(shown)) => How::Done(shown),
-                    (None, None) => unreachable!("`done` needs `shown_by`, checked above"),
-                };
-                (how, (None, items))
+            Closing::Settle(rule) => {
+                let items = add_drafts(db, &drafts, &stamp)?;
+                (How::Settled(rule), (None, items))
+            }
+            Closing::Done(shown) => {
+                let items = add_drafts(db, &drafts, &stamp)?;
+                (How::Done(shown), (None, items))
             }
         };
         close(db, id, how, &stamp)?;
@@ -420,11 +460,11 @@ fn resolve(
     })?;
     let ((decision, items), ready) = resolved;
     let lists = store.load()?;
-    let mut out = match (closing, decision) {
-        (Closing::Answer, Some(decision)) => {
+    let mut out = match (verb, decision) {
+        (Verb::Answer, Some(decision)) => {
             format!("answered question {id} with decision {decision}\n")
         }
-        (Closing::Settle, _) => format!("settled question {id} by rule (no decision recorded)\n"),
+        (Verb::Settle, _) => format!("settled question {id} by rule (no decision recorded)\n"),
         _ => format!("question {id} done\n"),
     };
     if !items.is_empty() {
