@@ -611,3 +611,13 @@ fn an_unset_or_empty_host_variable_names_no_host_and_one_not_utf8_fails() {
         .text();
     assert!(said.contains("not UTF-8"), "{said}");
 }
+
+#[test]
+fn only_a_named_other_host_gets_the_note_that_the_command_runs_here() {
+    assert_eq!(runs_here_note(None, "why"), None);
+    assert_eq!(runs_here_note(Some(host::LOCAL), "why"), None);
+    assert_eq!(
+        runs_here_note(Some("m1"), "why").unwrap(),
+        format!("{HOST_VARIABLE} names host m1; this command runs on this Mac: why")
+    );
+}

@@ -63,14 +63,10 @@ pub fn refusal(args: &[String]) -> Option<String> {
 pub fn run(args: &[String]) -> Result<()> {
     let dir = std::env::current_dir().context(|| "reading the working directory".to_string())?;
     let env = |name: &str| std::env::var_os(name);
-    if let Some(name) =
-        crate::cargo_place::named_host(&env)?.filter(|name| name != crate::host::LOCAL)
-    {
-        crate::text::note(format!(
-            "{} names host {name}; this command runs on this Mac: cargo update changes this checkout's Cargo.lock",
-            crate::cargo_place::HOST_VARIABLE
-        ));
-    }
+    crate::cargo_place::note_runs_here(
+        crate::cargo_place::named_host(&env)?.as_deref(),
+        "cargo update changes this checkout's Cargo.lock",
+    );
     run_in(&dir, args)
 }
 

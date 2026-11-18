@@ -326,14 +326,7 @@ pub fn cmd_cargo(args: &[String]) -> Result<()> {
     let ssh = Ssh::from_env();
     let choice = match cargo_place::stays_here(args, checkout.as_ref(), &env) {
         Some(why) => {
-            // A named host that cannot take this command runs it here, and
-            // says so: the name is for debugging a command that could go.
-            if let Some(name) = named.as_deref().filter(|name| *name != LOCAL) {
-                crate::text::note(format!(
-                    "{} names host {name}; this command runs on this Mac: {why}",
-                    cargo_place::HOST_VARIABLE
-                ));
-            }
+            cargo_place::note_runs_here(named.as_deref(), &why);
             Choice::Here(why)
         }
         None => cargo_place::choose(

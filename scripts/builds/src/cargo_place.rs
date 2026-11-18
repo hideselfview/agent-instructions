@@ -56,6 +56,24 @@ pub fn named_host(env: &dyn Fn(&str) -> Option<OsString>) -> Result<Option<Strin
     }
 }
 
+/// Says on stderr that a command runs on this Mac although <named>, the host
+/// `HOST_VARIABLE` names, is another host, and <why>. A named host that
+/// cannot take a command runs it here and says so: the name is for debugging
+/// a command that could go.
+pub fn note_runs_here(named: Option<&str>, why: &str) {
+    if let Some(text) = runs_here_note(named, why) {
+        note(text);
+    }
+}
+
+/// What `note_runs_here` says, or None when <named> is no host or this Mac.
+fn runs_here_note(named: Option<&str>, why: &str) -> Option<String> {
+    let name = named.filter(|name| *name != host::LOCAL)?;
+    Some(format!(
+        "{HOST_VARIABLE} names host {name}; this command runs on this Mac: {why}"
+    ))
+}
+
 /// What a build on a host gets from the caller's environment. Each changes
 /// what the compilers or tests print or check and holds no path of this Mac.
 const FORWARDED: [&str; 5] = [
