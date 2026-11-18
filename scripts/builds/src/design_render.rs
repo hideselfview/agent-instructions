@@ -36,10 +36,13 @@ use crate::lists::{DesignChange, ReviewBoard, Theme};
 const BOARD_PAGE: &str = include_str!("design_render/board.html");
 const REVIEW_PAGE: &str = include_str!("design_render/review.html");
 
-const MOCKS: &str = "design/mocks";
+pub(crate) const MOCKS: &str = "design/mocks";
 /// The file that places the boards on the canvas and gives each its size.
-const CANVAS: &str = "design/mocks/canvas.json";
-const BOARD_SUFFIX: &str = ".dc.html";
+pub(crate) const CANVAS: &str = "design/mocks/canvas.json";
+/// The file that names the canvases the boards publish to and the pages each
+/// shows (`design_canvas`).
+pub(crate) const CANVASES: &str = "design/mocks/canvases.toml";
+pub(crate) const BOARD_SUFFIX: &str = ".dc.html";
 /// What a board with no script of its own runs.
 const NO_SCRIPT: &str =
     "class Component extends DCLogic { renderVals() { return { yes: true }; } }";
@@ -244,17 +247,12 @@ impl Source<'_> {
         let Source::Commit { repo, rev } = self else {
             unreachable!("only a commit is generated")
         };
-        let work = cache.join(format!(
-            ".work-{}-{}",
-            std::process::id(),
-            WORK.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-        ));
-        let result = (|| -> Result<()> {
-            export(repo, rev, inputs, &work, "the design system")?;
+        in_scratch(cache, |work| {
+            export(repo, rev, inputs, work, "the design system")?;
             let ran = Command::new("python3")
                 .arg("-I")
                 .arg(BUNDLER)
-                .current_dir(&work)
+                .current_dir(work)
                 .stdin(Stdio::null())
                 .output()
                 .context(|| format!("running python3 {BUNDLER} for {rev}"))?;
@@ -286,10 +284,28 @@ impl Source<'_> {
                 );
             }
             Ok(())
-        })();
-        let _ = std::fs::remove_dir_all(&work);
-        result
+        })
     }
+}
+
+/// Runs <use_it> on a new scratch folder in <cache> and removes the folder
+/// after it, whatever <use_it> returns. A folder that cannot be removed is
+/// reported and left: it holds only copies.
+pub(crate) fn in_scratch<T>(cache: &Path, use_it: impl FnOnce(&Path) -> Result<T>) -> Result<T> {
+    let work = cache.join(format!(
+        ".work-{}-{}",
+        std::process::id(),
+        WORK.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    ));
+    let result = use_it(&work);
+    match std::fs::remove_dir_all(&work) {
+        Err(error) if error.kind() != std::io::ErrorKind::NotFound => crate::text::note(format!(
+            "could not remove the scratch folder {}: {error}",
+            work.display()
+        )),
+        _ => {}
+    }
+    result
 }
 
 /// Writes <paths> as they are at <rev> of the repo <repo> is in into <into>,

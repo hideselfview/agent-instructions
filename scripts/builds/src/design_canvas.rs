@@ -15,17 +15,15 @@ use std::path::{Path, PathBuf};
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
 
-use crate::design_render::{Source, export, imports};
+use crate::design_render::{
+    BOARD_SUFFIX, CANVAS, CANVASES, MOCKS, Source, export, imports, in_scratch,
+};
 use crate::design_tokens::TOKENS_JSON;
 use crate::fail;
 use crate::fail::{Context, Fail, Result};
 
-/// The file that names the canvases and the pages each publishes.
-pub const CANVASES: &str = "design/mocks/canvases.toml";
-const MOCKS: &str = "design/mocks";
-/// The canvas index, in the repo's design/mocks and on each canvas.
-const INDEX: &str = "canvas.json";
-const BOARD_SUFFIX: &str = ".dc.html";
+/// Where a canvas keeps its index, the part of the repo's `CANVAS` it shows.
+const PUBLISHED_INDEX: &str = "project/canvas.json";
 /// How every canvas link starts; the canvas's id follows.
 const LINK: &str = "https://claude.ai/artifact/";
 /// The most files a canvas holds.
@@ -102,10 +100,14 @@ pub struct Split<'a> {
     pub boards: Vec<String>,
 }
 
-/// The page that <entry> (a board or a note of the index) is on: its own,
-/// or the first page when it names none, as the canvas places it.
-fn page_of<'a>(entry: &'a Value, first: &'a str) -> &'a str {
-    entry["page"].as_str().unwrap_or(first)
+/// The page that <entry>, the <kind> <name> of the index, is on: its own, or
+/// the first page when it names none, as the canvas places it.
+fn page_of<'a>(kind: &str, name: &str, entry: &'a Value, first: &'a str) -> Result<&'a str> {
+    match entry.get("page") {
+        None => Ok(first),
+        Some(Value::String(page)) => Ok(page),
+        Some(other) => fail!("{CANVAS}: {kind} {name} gives the page {other}, which is no page id"),
+    }
 }
 
 /// Splits <index>, the repo's `canvas.json`, and the board files <boards>
@@ -119,19 +121,25 @@ pub fn split<'a>(
     canvases: &'a [Canvas],
     boards: &BTreeMap<String, String>,
 ) -> Result<Vec<Split<'a>>> {
-    let pages: Vec<&str> = index["pages"]
-        .as_array()
-        .map(|pages| pages.iter().filter_map(|p| p["id"].as_str()).collect())
-        .unwrap_or_default();
+    let Some(page_list) = index["pages"].as_array() else {
+        fail!("{CANVAS} lists no pages, and the canvases are split by page");
+    };
+    let mut pages: Vec<&str> = Vec::new();
+    for (n, page) in page_list.iter().enumerate() {
+        let Some(id) = page["id"].as_str() else {
+            fail!("{CANVAS}: page {} of `pages` ({page}) has no id", n + 1);
+        };
+        pages.push(id);
+    }
     let Some(first) = pages.first().copied() else {
-        fail!("{INDEX} lists no pages, and the canvases are split by page");
+        fail!("{CANVAS} lists no pages, and the canvases are split by page");
     };
     let mut owner: BTreeMap<&str, usize> = BTreeMap::new();
     for (n, canvas) in canvases.iter().enumerate() {
         for page in &canvas.pages {
             if !pages.contains(&page.as_str()) {
                 fail!(
-                    "{CANVASES}: {} lists page {page}, which {INDEX} does not list",
+                    "{CANVASES}: {} lists page {page}, which {CANVAS} does not list",
                     canvas.url
                 );
             }
@@ -154,22 +162,42 @@ pub fn split<'a>(
     if let Some(page) = pages.iter().find(|page| !owner.contains_key(*page)) {
         fail!("{CANVASES}: page {page} is on no canvas; add it to the pages of one");
     }
-    let placed = index["boards"].as_object().cloned().unwrap_or_default();
+    let Some(placed) = index["boards"].as_object() else {
+        fail!("{CANVAS}: `boards` is not an object of board files");
+    };
     if let Some(name) = boards.keys().find(|name| !placed.contains_key(*name)) {
-        fail!("{name} is a board file that {INDEX} does not place");
+        fail!("{name} is a board file that {CANVAS} does not place");
     }
     if let Some(name) = placed.keys().find(|name| !boards.contains_key(*name)) {
-        fail!("{INDEX} places {name}, which is no board file");
+        fail!("{CANVAS} places {name}, which is no board file");
     }
-    let canvas_of = |name: &str| owner[page_of(&placed[name], first)];
+    let no_notes = Map::new();
+    let notes = match index.get("notes") {
+        None => &no_notes,
+        Some(Value::Object(notes)) => notes,
+        Some(_) => fail!("{CANVAS}: `notes` is not an object of notes"),
+    };
+    // The canvas that each board and each note is on, by its page.
+    let place = |kind: &str, entries: &Map<String, Value>| -> Result<BTreeMap<String, usize>> {
+        let mut on = BTreeMap::new();
+        for (name, entry) in entries {
+            let page = page_of(kind, name, entry, first)?;
+            let Some(canvas) = owner.get(page) else {
+                fail!("{CANVAS}: {kind} {name} is on page {page}, which {CANVAS} does not list");
+            };
+            on.insert(name.clone(), *canvas);
+        }
+        Ok(on)
+    };
+    let board_canvas = place("board", placed)?;
+    let note_canvas = place("note", notes)?;
     for (name, text) in boards {
-        let on = canvas_of(name);
+        let on = board_canvas[name];
         for mounted in imports(text) {
             let file = format!("{mounted}{BOARD_SUFFIX}");
-            if !placed.contains_key(&file) {
+            let Some(&other) = board_canvas.get(&file) else {
                 fail!("{name} mounts {file}, which is no board file");
-            }
-            let other = canvas_of(&file);
+            };
             if other != on {
                 fail!(
                     "{name} on {} mounts {file}, which is on {}; a board mounts only boards of its own canvas",
@@ -179,12 +207,11 @@ pub fn split<'a>(
             }
         }
     }
-    let notes = index["notes"].as_object().cloned().unwrap_or_default();
     let mut splits = Vec::new();
     for (n, canvas) in canvases.iter().enumerate() {
         let mine: Map<String, Value> = placed
             .iter()
-            .filter(|(name, _)| canvas_of(name) == n)
+            .filter(|(name, _)| board_canvas[*name] == n)
             .map(|(name, entry)| (name.clone(), entry.clone()))
             .collect();
         let files = mine.len() + 1 + DS_FILES.len();
@@ -196,34 +223,33 @@ pub fn split<'a>(
         }
         let my_notes: Map<String, Value> = notes
             .iter()
-            .filter(|(_, note)| owner[page_of(note, first)] == n)
+            .filter(|(id, _)| note_canvas[*id] == n)
             .map(|(id, note)| (id.clone(), note.clone()))
             .collect();
         let mut part = index.clone();
         part["title"] = json!(canvas.title);
         part["launch"] = json!({"view": "canvas", "page": canvas.launch});
         part["pages"] = Value::Array(
-            index["pages"]
-                .as_array()
-                .expect("the index lists pages")
+            page_list
                 .iter()
-                .filter(|page| {
-                    page["id"]
-                        .as_str()
-                        .is_some_and(|id| owner.get(id) == Some(&n))
-                })
-                .cloned()
+                .zip(&pages)
+                .filter(|(_, id)| owner.get(**id) == Some(&n))
+                .map(|(page, _)| page.clone())
                 .collect(),
         );
         for (key, kept) in [("order", &mine), ("noteOrder", &my_notes)] {
-            if let Some(order) = index[key].as_array() {
-                part[key] = Value::Array(
-                    order
-                        .iter()
-                        .filter(|entry| entry.as_str().is_some_and(|e| kept.contains_key(e)))
-                        .cloned()
-                        .collect(),
-                );
+            match index.get(key) {
+                None => {}
+                Some(Value::Array(order)) => {
+                    part[key] = Value::Array(
+                        order
+                            .iter()
+                            .filter(|entry| entry.as_str().is_some_and(|e| kept.contains_key(e)))
+                            .cloned()
+                            .collect(),
+                    );
+                }
+                Some(_) => fail!("{CANVAS}: `{key}` is not a list"),
             }
         }
         if index.get("notes").is_some() {
@@ -245,7 +271,7 @@ pub fn split<'a>(
 fn ds_folder(index: &Value) -> Result<String> {
     let systems = index["designSystems"].as_array().map(Vec::as_slice);
     let [system] = systems.unwrap_or_default() else {
-        fail!("{INDEX} names no design system, or more than one; builds copies the repo's one");
+        fail!("{CANVAS} names no design system, or more than one; builds copies the repo's one");
     };
     let namespace = system["namespace"].as_str().unwrap_or("");
     let fine = namespace
@@ -258,7 +284,7 @@ fn ds_folder(index: &Value) -> Result<String> {
             .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || matches!(b, b'_' | b'-'));
     if !fine {
         fail!(
-            "{INDEX}'s design system has the namespace {namespace:?}, which is no folder name on a canvas"
+            "{CANVAS}'s design system has the namespace {namespace:?}, which is no folder name on a canvas"
         );
     }
     Ok(namespace.to_string())
@@ -268,7 +294,7 @@ fn ds_folder(index: &Value) -> Result<String> {
 /// sends: the index first, then the design system, then the boards.
 pub fn batches(mut paths: Vec<String>) -> Vec<Vec<String>> {
     let rank = |path: &str| {
-        if path == format!("project/{INDEX}") {
+        if path == PUBLISHED_INDEX {
             0
         } else if path.starts_with("project/ds/") {
             1
@@ -292,8 +318,6 @@ pub struct Written {
     pub batches: Vec<PathBuf>,
 }
 
-static WORK: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
-
 /// Writes, into the empty or new folder <out>, a folder per canvas of the
 /// boards at <rev> of the repo <repo> is in: `<out>/<canvas id>/project/...`
 /// and its batches `<out>/<canvas id>/batch-<n>.json`, each a JSON object of
@@ -310,17 +334,16 @@ pub fn write_canvases(repo: &Path, rev: &str, out: &Path, cache: &Path) -> Resul
             out.display()
         );
     }
-    let work = cache.join(format!(
-        ".canvas-{}-{}",
-        std::process::id(),
-        WORK.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-    ));
-    let read = (|| {
-        export(repo, rev, &[MOCKS.to_string()], &work, "the boards")?;
-        read_mocks(&work.join(MOCKS), rev)
-    })();
-    let _ = std::fs::remove_dir_all(&work);
-    let (index, canvases, boards) = read?;
+    let index: Value = serde_json::from_str(&from.read(CANVAS, "the canvas index")?)
+        .map_err(|error| Fail::Message(format!("{rev}:{CANVAS}: {error}")))?;
+    let canvases = parse_canvases(
+        &from.read(CANVASES, "the canvases file")?,
+        &format!("{rev}:{CANVASES}"),
+    )?;
+    let boards = in_scratch(cache, |work| {
+        export(repo, rev, &[MOCKS.to_string()], work, "the boards")?;
+        read_boards(work)
+    })?;
     let splits = split(&index, &canvases, &boards)?;
     let folder = ds_folder(&index)?;
     let [tokens_css, bundle_css, bundle_js] = from.design_system(cache)?;
@@ -340,7 +363,7 @@ pub fn write_canvases(repo: &Path, rev: &str, out: &Path, cache: &Path) -> Resul
         let mut files: BTreeMap<String, &str> = BTreeMap::new();
         let index =
             serde_json::to_string_pretty(&split.index).expect("the index serializes") + "\n";
-        files.insert(format!("project/{INDEX}"), &index);
+        files.insert(PUBLISHED_INDEX.to_string(), &index);
         for name in &split.boards {
             files.insert(format!("project/{name}"), &boards[name]);
         }
@@ -377,33 +400,21 @@ pub fn write_canvases(repo: &Path, rev: &str, out: &Path, cache: &Path) -> Resul
     Ok(written)
 }
 
-/// The index, the canvases and the board files (name to text).
-type Mocks = (Value, Vec<Canvas>, BTreeMap<String, String>);
-
-/// The `Mocks` of <mocks>, the repo's design/mocks at <rev> exported to disk.
-fn read_mocks(mocks: &Path, rev: &str) -> Result<Mocks> {
-    let read = |name: &str| -> Result<String> {
-        let path = mocks.join(name);
-        match std::fs::read_to_string(&path) {
-            Ok(text) => Ok(text),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                fail!("{rev}:{MOCKS}/{name} is not there")
-            }
-            Err(error) => fail!("reading {}: {error}", path.display()),
-        }
-    };
-    let index: Value = serde_json::from_str(&read(INDEX)?)
-        .map_err(|error| Fail::Message(format!("{rev}:{MOCKS}/{INDEX}: {error}")))?;
-    let canvases = parse_canvases(&read("canvases.toml")?, &format!("{rev}:{CANVASES}"))?;
+/// The board files (name to text) of <export>, a folder that holds the
+/// repo's design/mocks at its path.
+fn read_boards(export: &Path) -> Result<BTreeMap<String, String>> {
+    let from = Source::Dir(export);
+    let mocks = export.join(MOCKS);
     let mut boards = BTreeMap::new();
-    for entry in std::fs::read_dir(mocks).context(|| format!("listing {}", mocks.display()))? {
+    for entry in std::fs::read_dir(&mocks).context(|| format!("listing {}", mocks.display()))? {
         let entry = entry.context(|| format!("listing {}", mocks.display()))?;
         let name = entry.file_name().to_string_lossy().into_owned();
         if name.ends_with(BOARD_SUFFIX) && entry.path().is_file() {
-            boards.insert(name.clone(), read(&name)?);
+            let text = from.read(&format!("{MOCKS}/{name}"), "the board")?;
+            boards.insert(name, text);
         }
     }
-    Ok((index, canvases, boards))
+    Ok(boards)
 }
 
 /// What `builds design canvas-files` prints: each canvas, its folder and its

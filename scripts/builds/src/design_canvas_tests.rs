@@ -280,7 +280,7 @@ fn a_split_that_leaves_a_page_out_or_gives_it_twice_is_refused() {
         canvas(TWO, "two", "\"two\", \"three\"")
     ));
     assert!(
-        refused.contains("page four, which canvas.json does not list"),
+        refused.contains(&format!("page four, which {CANVAS} does not list")),
         "{refused}"
     );
     let refused = split_of(&format!(
@@ -318,7 +318,9 @@ fn boards_and_the_index_must_name_the_same_files() {
     files.insert("e.dc.html".to_string(), "<x-dc>E</x-dc>".to_string());
     let refused = message(split(&index(), &parsed(&canvases_toml()), &files));
     assert!(
-        refused.contains("e.dc.html is a board file that canvas.json does not place"),
+        refused.contains(&format!(
+            "e.dc.html is a board file that {CANVAS} does not place"
+        )),
         "{refused}"
     );
     let mut files = boards();
@@ -374,4 +376,68 @@ fn batches_hold_at_most_one_publishs_files_with_the_index_first() {
     );
     assert_eq!(batches[0][0], "project/canvas.json");
     assert_eq!(batches[0][1], "project/ds/demo/tokens.json");
+}
+
+/// A change a test makes to the demo index.
+type Change = dyn Fn(&mut Value);
+
+/// Each part of the index that is not the shape the canvas reads is refused,
+/// naming the file and the entry, never read as empty or left out.
+#[test]
+fn an_index_entry_of_the_wrong_shape_is_refused_naming_it() {
+    let canvases = parsed(&canvases_toml());
+    let refused = |change: &Change| {
+        let mut index = index();
+        change(&mut index);
+        message(split(&index, &canvases, &boards()))
+    };
+    let cases: [(&Change, String); 7] = [
+        (
+            &|index| index["pages"][1] = json!({"name": "Two"}),
+            format!("{CANVAS}: page 2 of `pages` ({{\"name\":\"Two\"}}) has no id"),
+        ),
+        (
+            &|index| index["notes"] = json!(["n1"]),
+            format!("{CANVAS}: `notes` is not an object of notes"),
+        ),
+        (
+            &|index| index["boards"] = json!([]),
+            format!("{CANVAS}: `boards` is not an object of board files"),
+        ),
+        (
+            &|index| index["boards"]["b.dc.html"]["page"] = json!("four"),
+            format!("{CANVAS}: board b.dc.html is on page four, which {CANVAS} does not list"),
+        ),
+        (
+            &|index| index["notes"]["n1"]["page"] = json!("four"),
+            format!("{CANVAS}: note n1 is on page four, which {CANVAS} does not list"),
+        ),
+        (
+            &|index| index["notes"]["n1"]["page"] = json!(2),
+            format!("{CANVAS}: note n1 gives the page 2, which is no page id"),
+        ),
+        (
+            &|index| index["noteOrder"] = json!("n1"),
+            format!("{CANVAS}: `noteOrder` is not a list"),
+        ),
+    ];
+    for (change, expected) in cases {
+        let said = refused(change);
+        assert!(said.contains(&expected), "{said}");
+    }
+}
+
+/// The scratch folder goes once its use ends, when the use fails too.
+#[test]
+fn the_scratch_folder_goes_when_its_use_fails() {
+    let scratch = Scratch::new("canvas-scratch");
+    let cache = scratch.dir.join("cache");
+    let mut used = None;
+    let result: Result<()> = in_scratch(&cache, |work| {
+        std::fs::create_dir_all(work.join("inside")).unwrap();
+        used = Some(work.to_path_buf());
+        fail!("the use failed")
+    });
+    assert_eq!(message(result), "the use failed");
+    assert!(!used.expect("the use ran").exists());
 }
