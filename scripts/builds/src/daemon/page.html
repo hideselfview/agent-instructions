@@ -1907,7 +1907,7 @@ function renderProjects() {
 // files.
 function renderDesignsLink() {
   const link = document.getElementById("l-designs");
-  link.hidden = !lists || !!lists.error || !lists.designs;
+  link.hidden = !lists || !!lists.error || !lists.has_designs;
   if (link.hidden) return;
   link.href = "/designs/" + encodeURIComponent(lists.project);
   link.textContent = lists.project + " designs";
@@ -1941,12 +1941,12 @@ function renderControls() {
 function filtered() {
   return !!(tagFilter || chosen("stack-kind", KINDS) || chosen("queue-area", lists.areas.map(a => [a, a])) || chosen("queue-state", STATES));
 }
-// The tabs' counts: the board's, or with a filter chosen what each tab shows.
+// The tabs' counts: the rows each tab draws, so a count and its cards come from
+// the same entries.
 function tabCounts() {
-  const b = lists.board;
-  if (!filtered()) return {stack: String(b.waiting), running: String(b.running), queue: String(b.queue)};
   const stack = stackShown(), running = runningShown();
-  return {stack: String(stack.own.length + stack.held.length), running: String(running.works.length), queue: String(queueShown().length)};
+  return {stack: String(stack.own.length + stack.review.length + stack.held.length),
+    running: String(running.works.length + running.drawn.length), queue: String(queueShown().length)};
 }
 function renderLists() {
   const tabs = document.getElementById("l-tabs"), body = document.getElementById("l-body");
@@ -1964,14 +1964,19 @@ function renderLists() {
   tabs.hidden = false;
   renderTags();
   renderControls();
-  const counts = tabCounts();
-  for (const b of tabs.querySelectorAll("button")) {
-    b.setAttribute("aria-selected", String(b.dataset.tab === tab));
-    b.querySelector(".l-count").textContent = counts[b.dataset.tab];
-  }
   if (body.dataset.tab !== tab) { body.replaceChildren(); body.dataset.tab = tab; }
-  const items = {stack: stackItems, running: runningItems, queue: queueItems}[tab]();
-  patch(body, items);
+  try {
+    const counts = tabCounts();
+    for (const b of tabs.querySelectorAll("button")) {
+      b.setAttribute("aria-selected", String(b.dataset.tab === tab));
+      b.querySelector(".l-count").textContent = counts[b.dataset.tab];
+    }
+    patch(body, {stack: stackItems, running: runningItems, queue: queueItems}[tab]());
+  } catch (e) {
+    // The tab says why it draws no cards, never an empty list under a count.
+    body.replaceChildren(h("div", {class: "error"}, "The " + tab + " tab failed to draw: " + e.message));
+    console.error(e);
+  }
   tick();
 }
 function showRecord(id) {
