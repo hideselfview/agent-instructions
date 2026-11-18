@@ -403,7 +403,10 @@ fn a_manifest_that_can_not_be_read_or_fetched_is_recorded_in_every_project() {
         assert_eq!(at, 2000);
         assert!(fault.unwrap().contains("not TOML"));
     }
-    record_failure(&places, "fetching failed: no network", 3000).unwrap();
+    assert_eq!(
+        record_failure(&places, "fetching failed: no network", 3000),
+        Vec::<String>::new()
+    );
     let found = rust_check::findings(&places);
     assert_eq!(found.len(), 2);
     assert!(found[0].text.contains("fetching failed: no network"));

@@ -304,12 +304,21 @@ fn record_check(store: &Store, now: i64, fault: Option<&str>) -> Result<()> {
 }
 
 /// Records <fault>, a check that failed before it read any project, in every
-/// project's store.
-pub fn record_failure(places: &Places, fault: &str, now: i64) -> Result<()> {
-    for store in stores(places)? {
-        record_check(&store, now, Some(fault))?;
-    }
-    Ok(())
+/// project's store. Tries every store; returns what each store that refused
+/// said, one line each (none when all recorded it).
+pub fn record_failure(places: &Places, fault: &str, now: i64) -> Vec<String> {
+    let stores = match stores(places) {
+        Ok(stores) => stores,
+        Err(error) => return vec![format!("listing the stores: {}", error.text())],
+    };
+    stores
+        .iter()
+        .filter_map(|store| {
+            record_check(store, now, Some(fault))
+                .err()
+                .map(|error| format!("{}: {}", store.project, error.text()))
+        })
+        .collect()
 }
 
 /// Queues the move to <manifest>'s stable release in every project whose
@@ -322,8 +331,11 @@ pub fn check(places: &Places, manifest: &str, now: i64) -> Result<Outcome> {
         Ok(stable) => stable,
         Err(error) => {
             let text = error.text();
-            record_failure(places, &text, now)?;
-            fail!("{text}");
+            let refused = record_failure(places, &text, now);
+            if refused.is_empty() {
+                fail!("{text}");
+            }
+            fail!("{text}; recording it failed in: {}", refused.join("; "));
         }
     };
     let mut outcome = Outcome::default();
@@ -363,10 +375,13 @@ fn run_once(places: &Places) -> bool {
         Ok(manifest) => check(places, &manifest, now),
         Err(error) => {
             let text = error.text();
-            if let Err(recording) = record_failure(places, &text, now) {
-                note(format!("stable Rust check: {}", recording.text()));
+            note(format!("stable Rust check: {text}"));
+            for refused in record_failure(places, &text, now) {
+                note(format!(
+                    "stable Rust check: recording that failure failed in {refused}"
+                ));
             }
-            Err(Fail::Message(text))
+            return false;
         }
     };
     match result {

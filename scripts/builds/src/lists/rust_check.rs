@@ -32,24 +32,35 @@ pub fn read(db: &Connection) -> Result<Option<(i64, Option<String>)>> {
 }
 
 /// What `builds health` says: a finding for each project whose last check
-/// for a new stable Rust release ended with a fault. A store that can't be
-/// read is the lists' finding, not this one's.
+/// for a new stable Rust release ended with a fault, and for each project
+/// whose record of the check can't be read, naming the error.
 pub fn findings(places: &Places) -> Vec<Advice> {
-    let Ok(stores) = stores(places) else {
-        return Vec::new();
+    let stores = match stores(places) {
+        Ok(stores) => stores,
+        Err(error) => {
+            return vec![Advice::said(format!(
+                "rust: builds could not list the stores to read the last stable Rust checks: {}",
+                error.text()
+            ))];
+        }
     };
     stores
         .iter()
         .filter_map(|store| {
-            let db = store.open_existing().ok()?;
-            let (at, fault) = read(&db).ok()??;
-            fault.map(|fault| {
-                Advice::said(format!(
+            let read = store.open_existing().and_then(|db| read(&db));
+            match read {
+                Ok(Some((at, Some(fault)))) => Some(Advice::said(format!(
                     "rust: project {}'s check for a new stable Rust release failed at {}; it repeats every hour until it succeeds: {fault}",
                     store.project,
                     local_minute(at)
-                ))
-            })
+                ))),
+                Ok(_) => None,
+                Err(error) => Some(Advice::said(format!(
+                    "rust: builds could not read project {}'s last check for a new stable Rust release: {}",
+                    store.project,
+                    error.text()
+                ))),
+            }
         })
         .collect()
 }
