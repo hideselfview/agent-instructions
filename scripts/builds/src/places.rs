@@ -431,6 +431,13 @@ pub struct Rules {
     /// building macOS at the same time (bridge 7.4G + DerivedData 5.2G) is
     /// the headroom.
     pub floor_kib: u64,
+    /// The floor's deletions go on until the volume has this much more than
+    /// the floor free, and prune starts them as soon as it has less. Deletions
+    /// that stop at the floor itself leave the volume a GB or two above it,
+    /// and the next build's writes take it under again. One bae side
+    /// worktree's target fills 11-20 GB, so the margin holds the next fresh
+    /// build.
+    pub floor_margin_kib: u64,
     /// Under this a build fails instead of warning: the space left is about
     /// one platform build, and the main disk shares the pool, so running out
     /// would break the person's own apps too, not only the build.
@@ -452,6 +459,12 @@ pub struct Rules {
 }
 
 impl Rules {
+    /// The free space the floor's deletions bring the volume up to: the
+    /// floor and its margin.
+    pub fn floor_target_kib(&self) -> u64 {
+        self.floor_kib + self.floor_margin_kib
+    }
+
     /// <free_kib> of free space against these rules' floors.
     pub fn disk_space(&self, free_kib: u64) -> DiskSpace {
         DiskSpace {
@@ -464,6 +477,7 @@ impl Rules {
     pub fn from_env() -> Result<Rules> {
         Ok(Rules {
             floor_kib: gib_from_env("BUILDS_FREE_FLOOR_GIB", 30)? * 1024 * 1024,
+            floor_margin_kib: gib_from_env("BUILDS_FLOOR_MARGIN_GIB", 20)? * 1024 * 1024,
             hard_floor_kib: gib_from_env("BUILDS_HARD_FLOOR_GIB", 10)? * 1024 * 1024,
             unused_days: whole_from_env("BUILDS_UNUSED_DAYS", 3, "days")?,
             incremental_hours: whole_from_env("BUILDS_INCREMENTAL_HOURS", 6, "hours")?,

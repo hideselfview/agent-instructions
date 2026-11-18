@@ -47,6 +47,7 @@ impl Scratch {
             self.places(),
             Rules {
                 floor_kib: floor_gib * 1024 * 1024,
+                floor_margin_kib: 0,
                 hard_floor_kib: 0,
                 unused_days: 3,
                 incremental_hours: 6,

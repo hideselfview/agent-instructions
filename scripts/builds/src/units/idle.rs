@@ -56,8 +56,8 @@ pub fn idle_increments(folders: &[PathBuf], before: f64) -> Result<Vec<Increment
 
 /// What became of one incremental folder.
 pub enum Outcome {
-    /// Deleted, freeing this many bytes (not the `deps/` files it hard-links,
-    /// which stay with the unit).
+    /// Deleted, or on a dry run would be, freeing this many bytes (not the
+    /// `deps/` files it hard-links, which stay with the unit).
     Deleted(u64),
     /// A build holds its profile's cargo lock.
     Locked,
@@ -69,10 +69,21 @@ pub enum Outcome {
 
 /// Deletes <increment> while holding its profile's cargo lock, unless a
 /// build holds that lock, something wrote inside it since <before>, or a
-/// process holds a file in it.
-pub fn delete_idle(increment: &Increment, before: f64, held: &HashSet<u64>) -> Result<Outcome> {
-    let Some(_lock) = lock_profile(&increment.profile)? else {
-        return Ok(Outcome::Locked);
+/// process holds a file in it. A <dry> run takes no lock and deletes
+/// nothing, and says what deleting would free.
+pub fn delete_idle(
+    increment: &Increment,
+    before: f64,
+    held: &HashSet<u64>,
+    dry: bool,
+) -> Result<Outcome> {
+    let _lock = if dry {
+        None
+    } else {
+        let Some(lock) = lock_profile(&increment.profile)? else {
+            return Ok(Outcome::Locked);
+        };
+        Some(lock)
     };
     if newest_mtime(&increment.path, INCREMENTAL_DEPTH)? >= before {
         return Ok(Outcome::Written);
@@ -81,6 +92,8 @@ pub fn delete_idle(increment: &Increment, before: f64, held: &HashSet<u64>) -> R
         return Ok(Outcome::Held);
     }
     let size = freeable(&increment.path)?;
-    remove(&increment.path)?;
+    if !dry {
+        remove(&increment.path)?;
+    }
     Ok(Outcome::Deleted(size))
 }

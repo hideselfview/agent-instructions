@@ -105,6 +105,7 @@ pub fn prune_root(
             run,
             &reason,
             Recreate::Yes,
+            Removal::Background,
             "; the next build refills it",
         )?;
     }
@@ -140,19 +141,22 @@ pub fn prune_after_build(tool: &Tool, checkout: &Checkout) -> Result<()> {
     Ok(())
 }
 
-/// Deletes <folder> for <reason>, or says it would, or that it is in use.
-fn delete_folder(
+/// Deletes <folder> for <reason>, removing it as <removal> says, or says it
+/// would, or that it is in use. Returns whether it went, or on a dry run
+/// would go.
+pub fn delete_folder(
     tool: &Tool,
     folder: &Path,
     run: Run,
     reason: &str,
     recreate: Recreate,
+    removal: Removal,
     after: &str,
 ) -> Result<bool> {
     if run.dry() {
         note(format!("would delete {} ({reason})", folder.display()));
-        Ok(false)
-    } else if evict(&tool.places, folder, recreate, Removal::Background)? {
+        Ok(true)
+    } else if evict(&tool.places, folder, recreate, removal)? {
         note(format!("deleted {} ({reason}){after}", folder.display()));
         Ok(true)
     } else {
@@ -823,6 +827,9 @@ pub fn cmd_prune(tool: &Tool, args: &[String]) -> Result<()> {
     prune_scratchpads(tool, run)?;
     prune_cargo_git(tool, &roots, run)?;
     prune_installed(tool, &roots, run)?;
+    // After every other deletion here, whose removals it waits for, so its
+    // reading of the free space counts them.
+    crate::floor::keep_floor(tool, &roots, crate::floor::Keeper::Prune, run)?;
     if !run.dry() {
         empty_trash(tool)?;
         crate::prune_schedule::record_finished(&tool.places, crate::app_timing::now())?;

@@ -15,7 +15,7 @@ use crate::checkout::{Checkout, Root, absolute_link_target, worktrees_of};
 use crate::evict::{Recreate, Removal, evict};
 use crate::fail;
 use crate::fail::{Context, Result};
-use crate::floor::keep_floor;
+use crate::floor::{Keeper, keep_floor};
 use crate::manifest::{MANIFEST, build_dirs, has_manifest};
 use crate::prune::{
     Run, prune_caches, prune_cargo_git, prune_derived_data, prune_installed, prune_root,
@@ -181,7 +181,7 @@ pub fn setup(tool: &Tool, checkout: &Checkout) -> Result<()> {
     let roots = tool.roots()?;
     prune_cargo_git(tool, &roots, Run::Real)?;
     prune_installed(tool, &roots, Run::Real)?;
-    keep_floor(tool, &roots)
+    keep_floor(tool, &roots, Keeper::Setup, Run::Real)
 }
 
 #[cfg(test)]

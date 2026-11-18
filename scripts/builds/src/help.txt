@@ -1070,19 +1070,25 @@ files into incremental/.
 
 Free-space floor. Caps bound each folder, not the volume: a checkout with every
 platform built takes 45-52 GB, and the build volume shares its APFS pool with
-the main disk. So `setup` keeps a free-space floor of 30 GiB
-(BUILDS_FREE_FLOOR_GIB). Under it, setup finishes emptying the trash, then
-deletes the build roots of checkouts that are gone, DerivedData's idle entries,
-then the incremental folders nothing wrote inside for 60 minutes in every
-checkout (claimed ones, main and the app checkouts included), and then the
-whole folders that nothing wrote to for 30 minutes in the side worktrees no
+the main disk. So builds keeps a free-space floor of 30 GiB
+(BUILDS_FREE_FLOOR_GIB), and frees space up to a target of the floor plus a
+margin of 20 GiB (BUILDS_FLOOR_MARGIN_GIB), so that the next build's writes
+don't take the volume under the floor again at once. `setup` starts deleting
+when the volume has less free than the floor, and `prune` starts as soon as
+the volume has less free than the target. Each finishes emptying the trash,
+then deletes the build roots of checkouts that are gone, DerivedData's idle
+entries, then the incremental folders nothing wrote inside for 60 minutes in
+every checkout (claimed ones, main and the app checkouts included), and then
+the whole folders that nothing wrote to for 30 minutes in the side worktrees no
 agent claims and in a host's job worktrees no job claims, never main's or an
-app checkout's own lane's folders; each kind goes least recently written first,
-until the floor is reached. If setup can't reach the
-floor, it warns, naming the free space and the biggest folders, and the build
-goes on: whoever runs the agents stops starting more. Only under the hard floor
-of 10 GiB (BUILDS_HARD_FLOOR_GIB) does it fail, before the build starts, rather
-than let the build run out of space halfway. It never deletes a shared cache.
+app checkout's own lane's folders. Each kind goes least recently written first,
+until the volume has the target free. builds says what it deletes and why, and
+a last line gives the space it freed and the free space after. If builds can't
+reach the floor, it warns, naming the free space and the biggest folders, and
+the build goes on: whoever runs the agents stops starting more. Only under the
+hard floor of 10 GiB (BUILDS_HARD_FLOOR_GIB) does setup fail, before the build
+starts, rather than let the build run out of space halfway. These deletions
+never touch a shared cache.
 
 DerivedData. bae passes -derivedDataPath into a .build folder in the checkout
 (scripts/xcode-trees.sh is its one definition, and a pre-commit check refuses
@@ -1177,10 +1183,13 @@ a toolchain upgrade is fine.
                               each host's prune says behind the host's name.
                               A host that does not answer, or whose prune
                               fails, does not stop the other hosts' prunes.
-                              --idle also deletes every folder and DerivedData
-                              entry nothing wrote to for that long, outside
-                              main's and the app checkouts' own folders unless
-                              --include-warm. --dry-run prints what it would
+                              Last, when the volume has less free than the
+                              floor's target, it deletes idle folders until
+                              the volume has the target free (Free-space
+                              floor, above). --idle also deletes every
+                              folder and DerivedData entry nothing wrote to
+                              for that long, outside main's and the app
+                              checkouts' own folders unless --include-warm. --dry-run prints what it would
                               delete and deletes nothing. A prune that
                               deletes fails at once while another runs, and
                               when it finishes, it records the time, which

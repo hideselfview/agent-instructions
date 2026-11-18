@@ -2,26 +2,28 @@
 //!
 //! Caps bound each folder, not the volume: a checkout with every platform
 //! built is 45-52 GB, and the build volume shares its APFS pool with the main
-//! disk. So `setup` also keeps a free-space floor: under it, it deletes
-//! DerivedData's idle entries, then the incremental folders nothing wrote to
-//! for FLOOR_INCREMENTAL_IDLE_MINUTES in every checkout, then whole idle
-//! folders of the side worktrees no agent claims and of a host's job
-//! worktrees no job claims, least recently written first, never main's or an
-//! app checkout's own lane's, whose builds stay warm on purpose. If it still
-//! can't reach the floor it warns, naming the biggest folders, and the build
-//! goes on: whoever runs the agents frees space or runs fewer of them. Only
-//! under the hard floor does it fail, rather than let the build run out of
-//! space halfway. It never deletes a shared cache.
+//! disk. So `setup` keeps a free-space floor, and `prune` keeps the volume
+//! above it ahead of time. Each deletes DerivedData's idle entries, then the
+//! incremental folders nothing wrote to for FLOOR_INCREMENTAL_IDLE_MINUTES in
+//! every checkout, then whole idle folders of the side worktrees no agent
+//! claims and of a host's job worktrees no job claims, least recently written
+//! first, never main's or an app checkout's own lane's, whose builds stay warm
+//! on purpose. It goes on until the volume has the floor plus its margin
+//! free, so the next build's writes don't take the volume under the floor
+//! again at once. If it can't reach the floor it warns, naming the biggest
+//! folders, and the build goes on: whoever runs the agents frees space or
+//! runs fewer of them. Only under the hard floor does setup fail, rather than
+//! let the build run out of space halfway. It never deletes a shared cache.
 
 use std::collections::BTreeMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::checkout::{Checkout, Root};
-use crate::evict::{Recreate, Removal, evict};
+use crate::evict::{Recreate, Removal};
 use crate::fail::{Fail, Result};
 use crate::manifest::{SHARED_CACHES, build_dirs};
 use crate::places::{FLOOR_IDLE_MINUTES, FLOOR_INCREMENTAL_IDLE_MINUTES};
-use crate::prune::derived_data;
+use crate::prune::{Run, delete_folder, derived_data};
 use crate::text::{counted, human, human_bytes, local_minute, note};
 use crate::tool::Tool;
 use crate::units::OpenFiles;
@@ -83,6 +85,50 @@ fn floor_candidates(tool: &Tool, roots: &[Root]) -> Result<Vec<Candidate>> {
     Ok(candidates)
 }
 
+/// Which command keeps the floor. Both delete until the volume has the
+/// target free (`Rules::floor_target_kib`, the floor plus its margin); they
+/// differ in when they start and in what a volume left under the floor does.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Keeper {
+    /// `setup`, before every hook and build: starts only under the floor,
+    /// and under the hard floor stops the build before it starts.
+    Setup,
+    /// `prune`: starts under the target, so the space is there before the
+    /// next builds take it, and under the floor only warns.
+    Prune,
+}
+
+/// The volume's free space as the floor's deletions go: read again after
+/// each deletion, or on a dry run, the first reading plus what each deletion
+/// would free.
+struct Free<'a> {
+    tool: &'a Tool,
+    run: Run,
+    kib: u64,
+}
+
+impl Free<'_> {
+    /// Counts a deletion that freed, or would free, <kib>.
+    fn freed(&mut self, kib: u64) -> Result<()> {
+        self.kib = if self.run.dry() {
+            self.kib + kib
+        } else {
+            self.tool.free_kib()?
+        };
+        Ok(())
+    }
+
+    /// Deletes <path>, which takes <kib>, for <why>, waiting for the removal
+    /// so the next reading counts it, or on a dry run says it would; a
+    /// folder in use stays.
+    fn delete(&mut self, path: &Path, kib: u64, recreate: Recreate, why: &str) -> Result<()> {
+        if delete_folder(self.tool, path, self.run, why, recreate, Removal::Now, "")? {
+            self.freed(kib)?;
+        }
+        Ok(())
+    }
+}
+
 /// What became of one profile folder's idle incremental folders.
 #[derive(Default)]
 struct Tally {
@@ -95,9 +141,9 @@ struct Tally {
 /// Deletes the incremental folders nothing wrote anywhere inside for
 /// FLOOR_INCREMENTAL_IDLE_MINUTES, in every live checkout's build folders,
 /// claimed ones, main's and the app checkout's too, least recently written
-/// first, until the volume has <floor> free; says what went from each
-/// profile folder and what stayed. Returns the free space after.
-fn delete_idle_increments(tool: &Tool, roots: &[Root], mut free: u64, floor: u64) -> Result<u64> {
+/// first, until the volume has <target> free; says what went from each
+/// profile folder and what stayed.
+fn delete_idle_increments(tool: &Tool, roots: &[Root], free: &mut Free, target: u64) -> Result<()> {
     let mut folders = Vec::new();
     for root in roots {
         let Some(checkout) = &root.live else { continue };
@@ -114,26 +160,31 @@ fn delete_idle_increments(tool: &Tool, roots: &[Root], mut free: u64, floor: u64
     let mut open_files = OpenFiles::new(&folders);
     let mut tallies: BTreeMap<PathBuf, Tally> = BTreeMap::new();
     for increment in &increments {
-        if free >= floor {
+        if free.kib >= target {
             break;
         }
-        let outcome = delete_idle(increment, before, open_files.get()?)?;
+        let outcome = delete_idle(increment, before, open_files.get()?, free.run.dry())?;
         let tally = tallies.entry(increment.profile.clone()).or_default();
         match outcome {
             Outcome::Deleted(bytes) => {
                 tally.deleted += 1;
                 tally.bytes += bytes;
-                free = tool.free_kib()?;
+                free.freed(bytes / 1024)?;
             }
             Outcome::Locked => tally.locked += 1,
             Outcome::Held => tally.held += 1,
             Outcome::Written => {}
         }
     }
+    let verb = if free.run.dry() {
+        "would delete"
+    } else {
+        "deleted"
+    };
     for (profile, tally) in &tallies {
         if tally.deleted > 0 {
             note(format!(
-                "deleted {} nothing wrote to in {FLOOR_INCREMENTAL_IDLE_MINUTES}m from {} ({})",
+                "{verb} {} nothing wrote to in {FLOOR_INCREMENTAL_IDLE_MINUTES}m from {} ({})",
                 counted(tally.deleted, "incremental folder", "incremental folders"),
                 profile.display(),
                 human_bytes(tally.bytes)
@@ -162,59 +213,82 @@ fn delete_idle_increments(tool: &Tool, roots: &[Root], mut free: u64, floor: u64
             ));
         }
     }
-    Ok(free)
+    Ok(())
 }
 
-/// Brings the volume's free space up to the floor, waiting for each deletion
-/// so the next free-space reading counts it: the trash, the roots of
-/// checkouts that are gone, DerivedData's entries, every checkout's idle
-/// incremental folders, then whole folders of the other checkouts, each least
-/// recently written first and only when nothing is using it or wrote to it
-/// lately. When everything left is in use, freshly written or kept, it warns,
-/// naming the biggest folders, and fails only under the hard floor.
-pub fn keep_floor(tool: &Tool, roots: &[Root]) -> Result<()> {
+/// Brings the volume's free space up to the target, the floor plus its
+/// margin, once <keeper> finds it under where that keeper starts (`Keeper`),
+/// waiting for each deletion so the next free-space reading counts it: the
+/// trash, the roots of checkouts that are gone, DerivedData's entries, every
+/// checkout's idle incremental folders, then whole folders of the other
+/// checkouts, each least recently written first and only when nothing is
+/// using it or wrote to it lately. Says what it deleted and the free space
+/// after. When everything left is in use, freshly written or kept and the
+/// volume is still under the floor, it warns, naming the biggest folders, and
+/// setup fails under the hard floor. A dry <run> deletes nothing and says
+/// what it would delete.
+pub fn keep_floor(tool: &Tool, roots: &[Root], keeper: Keeper, run: Run) -> Result<()> {
     let floor = tool.rules.floor_kib;
-    let mut free = tool.free_kib()?;
-    if free >= floor {
+    let target = tool.rules.floor_target_kib();
+    let start = tool.free_kib()?;
+    let starts_under = match keeper {
+        Keeper::Setup => floor,
+        Keeper::Prune => target,
+    };
+    if start >= starts_under {
         return Ok(());
     }
+    let under = if start < floor {
+        format!("the {} floor", human(floor))
+    } else {
+        format!(
+            "the {} floor plus its {} margin",
+            human(floor),
+            human(tool.rules.floor_margin_kib)
+        )
+    };
+    let doing = if run.dry() {
+        "a real run would delete"
+    } else {
+        "deleting"
+    };
     note(format!(
-        "the build volume has {} free, under the {} floor; deleting idle DerivedData entries, then incremental folders nothing wrote to in {FLOOR_INCREMENTAL_IDLE_MINUTES}m, then idle build folders of unclaimed side and job worktrees, least recently written first",
-        human(free),
-        human(floor)
+        "the build volume has {} free, under {under}; {doing} idle DerivedData entries, then incremental folders nothing wrote to in {FLOOR_INCREMENTAL_IDLE_MINUTES}m, then idle build folders of unclaimed side and job worktrees, least recently written first, until it has {} free",
+        human(start),
+        human(target)
     ));
-    // Folders already renamed into the trash still hold their space until
-    // the background removal finishes.
-    crate::trash::empty_now(&tool.places)?;
-    free = tool.free_kib()?;
+    let mut free = Free {
+        tool,
+        run,
+        kib: start,
+    };
+    if !run.dry() {
+        // Folders already renamed into the trash still hold their space until
+        // the background removal finishes.
+        crate::trash::empty_now(&tool.places)?;
+        free.kib = tool.free_kib()?;
+    }
     let gone: Vec<&Root> = roots.iter().filter(|root| root.live.is_none()).collect();
     let gone_paths: Vec<PathBuf> = gone.iter().map(|root| root.path.clone()).collect();
-    let gone_measures = if free >= floor {
+    let gone_measures = if free.kib >= target {
         Vec::new()
     } else {
         tool.measure_all(&gone_paths)?
     };
     for (root, measured) in gone.into_iter().zip(gone_measures) {
-        if free >= floor {
+        if free.kib >= target {
             break;
         }
-        let kib = measured.kib;
-        if evict(&tool.places, &root.path, Recreate::No, Removal::Now)? {
-            note(format!(
-                "deleted {} ({}; its checkout is gone)",
-                root.path.display(),
-                human(kib)
-            ));
-            free = tool.free_kib()?;
-        }
+        let why = format!("{}; its checkout is gone", human(measured.kib));
+        free.delete(&root.path, measured.kib, Recreate::No, &why)?;
     }
-    let entries = if free >= floor {
+    let entries = if free.kib >= target {
         Vec::new()
     } else {
         derived_data(tool)?.1
     };
     for entry in entries {
-        if free >= floor {
+        if free.kib >= target {
             break;
         }
         let measured = Measure {
@@ -224,23 +298,18 @@ pub fn keep_floor(tool: &Tool, roots: &[Root]) -> Result<()> {
         if tool.written_within(&measured, FLOOR_IDLE_MINUTES) {
             continue;
         }
-        if evict(&tool.places, &entry.path, Recreate::No, Removal::Now)? {
-            note(format!(
-                "deleted {} ({}, last write {}), a DerivedData entry",
-                entry.path.display(),
-                human(entry.kib),
-                local_minute(entry.newest)
-            ));
-            free = tool.free_kib()?;
-        } else {
-            note(format!("in use, kept: {}", entry.path.display()));
-        }
+        let why = format!(
+            "{}, last write {}; a DerivedData entry",
+            human(entry.kib),
+            local_minute(entry.newest)
+        );
+        free.delete(&entry.path, entry.kib, Recreate::No, &why)?;
     }
-    if free < floor {
-        free = delete_idle_increments(tool, roots, free, floor)?;
+    if free.kib < target {
+        delete_idle_increments(tool, roots, &mut free, target)?;
     }
     for candidate in floor_candidates(tool, roots)? {
-        if free >= floor {
+        if free.kib >= target {
             break;
         }
         if candidate.measured.kib <= 1024
@@ -248,22 +317,30 @@ pub fn keep_floor(tool: &Tool, roots: &[Root]) -> Result<()> {
         {
             continue;
         }
-        if evict(&tool.places, &candidate.path, Recreate::Yes, Removal::Now)? {
-            note(format!(
-                "deleted {} ({}, last write {}); its next build refills it",
-                candidate.path.display(),
-                human(candidate.measured.kib),
-                local_minute(candidate.measured.newest.unwrap_or(0))
-            ));
-            free = tool.free_kib()?;
-        } else {
-            note(format!("in use, kept: {}", candidate.path.display()));
-        }
+        let why = format!(
+            "{}, last write {}; its next build refills it",
+            human(candidate.measured.kib),
+            local_minute(candidate.measured.newest.unwrap_or(0))
+        );
+        free.delete(&candidate.path, candidate.measured.kib, Recreate::Yes, &why)?;
     }
+    let free = free.kib;
+    note(format!(
+        "{} {}; the build volume {} {} free, against a target of {}",
+        if run.dry() {
+            "would free about"
+        } else {
+            "freed"
+        },
+        human(free.saturating_sub(start)),
+        if run.dry() { "would have" } else { "has" },
+        human(free),
+        human(target)
+    ));
     if free >= floor {
         return Ok(());
     }
-    let hard = free < tool.rules.hard_floor_kib;
+    let hard = keeper == Keeper::Setup && free < tool.rules.hard_floor_kib;
     let mut lines = Vec::new();
     if hard {
         lines.push(format!(
@@ -271,9 +348,17 @@ pub fn keep_floor(tool: &Tool, roots: &[Root]) -> Result<()> {
             human(free),
             human(tool.rules.hard_floor_kib)
         ));
-    } else {
+    } else if keeper == Keeper::Setup {
         lines.push(format!(
             "builds: warning: the build volume has {} free, under the {} floor; the build goes on, and under {} builds stop.",
+            human(free),
+            human(floor),
+            human(tool.rules.hard_floor_kib)
+        ));
+    } else {
+        lines.push(format!(
+            "builds: warning: the build volume {} {} free after this prune, under the {} floor; under {} builds stop.",
+            if run.dry() { "would have" } else { "has" },
             human(free),
             human(floor),
             human(tool.rules.hard_floor_kib)
