@@ -74,7 +74,13 @@ fn page_data(page: &str) -> Value {
 fn the_page_has_each_page_of_the_index_with_its_boards_in_the_canvas_rows_at_origin_main() {
     let scratch = Scratch::new("designs-page");
     let (dir, commit) = designs_repo(&scratch);
-    let page = page("demo", &dir, &scratch.dir.join("cache")).unwrap();
+    let page = page(
+        "demo",
+        &dir,
+        &scratch.dir.join("cache"),
+        Ok(Standing::default()),
+    )
+    .unwrap();
     assert!(!page.contains("@@"), "every marker is filled");
     let data = page_data(&page);
     assert_eq!(data["commit"], json!(commit));
@@ -118,9 +124,14 @@ fn a_design_system_that_cannot_be_read_shows_its_problem_and_a_bad_index_fails_t
     git(&dir, &["commit", "-q", "-am", "broken"]);
     let broken = crate::lists::design_paths::full_sha(&dir, "HEAD").unwrap();
     git(&dir, &["update-ref", "refs/remotes/origin/main", &broken]);
-    let error = page("demo", &dir, &scratch.dir.join("cache"))
-        .unwrap_err()
-        .text();
+    let error = page(
+        "demo",
+        &dir,
+        &scratch.dir.join("cache"),
+        Ok(Standing::default()),
+    )
+    .unwrap_err()
+    .text();
     assert!(error.contains("canvas.json lists no pages"), "{error}");
     git(
         &dir,
@@ -129,7 +140,15 @@ fn a_design_system_that_cannot_be_read_shows_its_problem_and_a_bad_index_fails_t
     git(&dir, &["commit", "-q", "-m", "index back"]);
     let fixed = crate::lists::design_paths::full_sha(&dir, "HEAD").unwrap();
     git(&dir, &["update-ref", "refs/remotes/origin/main", &fixed]);
-    let data = page_data(&page("demo", &dir, &scratch.dir.join("cache")).unwrap());
+    let data = page_data(
+        &page(
+            "demo",
+            &dir,
+            &scratch.dir.join("cache"),
+            Ok(Standing::default()),
+        )
+        .unwrap(),
+    );
     let error = data["system"]["error"].as_str().unwrap();
     assert!(error.contains("design/system/tokens.json"), "{error}");
     assert_eq!(data["components"][0]["name"], json!("Row"));
@@ -171,4 +190,46 @@ fn a_commit_is_forty_hex_digits() {
     assert!(!is_commit("HEAD"));
     assert!(!is_commit(&"g1".repeat(20)));
     assert!(!is_commit(&"a1".repeat(19)));
+}
+
+#[test]
+fn the_page_offers_publishing_only_where_canvases_toml_names_the_artifacts() {
+    let scratch = Scratch::new("designs-publishing");
+    let (dir, _) = designs_repo(&scratch);
+    let cache = scratch.dir.join("cache");
+    let data = page_data(&page("demo", &dir, &cache, Ok(Standing::default())).unwrap());
+    assert_eq!(data["publish"], json!({ "canvas": false }));
+    git(&dir, &["checkout", "-q", "origin/main"]);
+    std::fs::write(
+        dir.join(CANVASES),
+        "[[canvas]]\nurl = \"https://claude.ai/artifact/AAA1\"\ntitle = \"demo boards\"\nlaunch = \"one\"\npages = [\"one\", \"two\"]\n\n[design_system]\nurl = \"https://claude.ai/artifact/DS1\"\n",
+    )
+    .unwrap();
+    git(&dir, &["add", CANVASES]);
+    git(&dir, &["commit", "-q", "-m", "canvases"]);
+    let commit = crate::lists::design_paths::full_sha(&dir, "HEAD").unwrap();
+    git(&dir, &["update-ref", "refs/remotes/origin/main", &commit]);
+    let data = page_data(&page("demo", &dir, &cache, Ok(Standing::default())).unwrap());
+    assert_eq!(
+        data["publish"],
+        json!({
+            "canvas": true,
+            "links": [
+                { "title": "demo boards", "url": "https://claude.ai/artifact/AAA1" },
+                { "title": "Design system", "url": "https://claude.ai/artifact/DS1" },
+            ],
+            "standing": { "latest": null, "published": null },
+        })
+    );
+    let unreadable = page(
+        "demo",
+        &dir,
+        &cache,
+        Err(crate::fail::Fail::Message("the store is gone".into())),
+    )
+    .unwrap();
+    assert_eq!(
+        page_data(&unreadable)["publish"],
+        json!({ "error": "the store is gone" })
+    );
 }

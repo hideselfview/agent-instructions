@@ -1,0 +1,22 @@
+/* The dashboard's buttons and its modal form, which its page and its Designs page share. */
+.qbtn { flex: none; font: 600 12px var(--sans); color: var(--accent); background: transparent; border: 1px solid var(--line); border-radius: 6px; padding: 3px 9px; cursor: pointer; white-space: nowrap; }
+.qbtn.danger { color: var(--bad); }
+.qbtn:disabled { color: var(--muted); cursor: default; }
+.lane-dlg { padding: 0; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); color: var(--text); width: min(640px, 96vw); max-height: 90vh; }
+.lane-dlg[open] { display: flex; flex-direction: column; }
+.lane-dlg::backdrop { background: rgba(0, 0, 0, 0.55); }
+.lm-head { display: flex; align-items: baseline; gap: 14px; padding: 8px 14px; border-bottom: 1px solid var(--line); font-size: 13px; }
+.lm-title { font-weight: 600; }
+.lm-sub { flex: 1; min-width: 0; color: var(--muted); overflow-wrap: anywhere; }
+.lm-head button { margin-left: auto; font: 13px var(--sans); color: var(--text); background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 3px 12px; cursor: pointer; }
+.lm-body { padding: 12px 16px; display: flex; flex-direction: column; gap: 8px; font-size: 13px; overflow: auto; min-height: 0; }
+.bresult { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.bresult[hidden] { display: none; }
+.bdismiss { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; color: var(--muted); background: transparent; border: 0; border-radius: 4px; padding: 0; cursor: pointer; }
+.bdismiss:hover { color: var(--text); }
+.bform { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; }
+.bform input { flex: 1 1 140px; min-width: 0; font: 12px var(--mono); color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; }
+.bform input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.bstatus { font-size: 13px; line-height: 1.4; overflow-wrap: anywhere; }
+.bstatus.failed { color: var(--bad); }
+.qbtn:focus-visible, .bdismiss:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }

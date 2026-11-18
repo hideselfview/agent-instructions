@@ -1412,7 +1412,8 @@ STATUS, HEALTH AND THE DASHBOARD
                               Wi-Fi address, for a phone: anyone on that
                               network can then use the page, but the daemon
                               refuses what changes state, the queue buttons,
-                              Build and a design change's Approve, from any
+                              Build, a design change's Approve and Publish
+                              to claude.ai…, from any
                               address but 127.0.0.1 or localhost on this Mac).
                               It runs `builds prune` 6 hours after the later
                               of the last prune's finish and its own last
@@ -1476,7 +1477,16 @@ STATUS, HEALTH AND THE DASHBOARD
                               component's preview at the height its
                               preview.html gives the card. For a project
                               whose design places are in several repos, the
-                              page says that it draws the boards of one
+                              page says that it draws the boards of one. For
+                              a repo whose design/mocks/canvases.toml names
+                              the claude.ai artifacts, the page's header
+                              says which commit claude.ai has and when it
+                              was published, and its Publish to claude.ai…
+                              form asks the design session that listens for
+                              the project to publish a commit (`builds help
+                              lists`, design publish take); without the file
+                              the page says that the designs publish
+                              nowhere yet
 
 
 COMMIT CHECKS

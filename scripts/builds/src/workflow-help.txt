@@ -18,10 +18,12 @@ each, reviews their work and lands it. The agents implement. A design session
 draws the boards (pictures of screens, kept in the repo) that the apps are
 built to match: new screens, new layouts, and anything that needs a new part or
 a change to the design system. It takes its items from `builds next --for
-design-session`, from the top, in the order the coordinator takes its own. When the person decides a change to an existing
-screen that the design system's existing parts can draw, such as new words or a
-button added to an alert, the implementing agent edits the board in the same
-commit and names the decision. "Design" alone is ambiguous: write "board" or
+design-session`, from the top, in the order the coordinator takes its own. When
+it starts, it runs `builds design listen --project P` for each project it draws
+for, so that the dashboard can ask it to publish the designs (DESIGN CHANGES).
+When the person decides a change to an existing screen that the design system's
+existing parts can draw, such as new words or a button added to an alert, the
+implementing agent edits the board in the same commit and names the decision. "Design" alone is ambiguous: write "board" or
 "product design" for screens and how they look, and "software plan" for the
 shape of code and data.
 
@@ -431,7 +433,13 @@ from it. A session publishes the designs with the publish-designs skill, which
 sends every canvas and the design system from one commit: `builds design
 publish-files` writes the files of all of them from the one commit that
 origin/main names, or refuses and writes none, and `builds help lists` says
-what it writes.
+what it writes. The person can also publish from the dashboard: the Designs
+page's Publish to claude.ai… form records a publish request for the commit the
+person picks and sends it to the design session that listens for the project.
+That session takes the request (`builds design publish take N`), publishes
+that commit with the skill, and the design system's publish-last ends the
+request, or `builds design publish failed N --why` ends it with what stopped
+it.
 
 
 HEALTH CHECK

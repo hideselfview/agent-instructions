@@ -973,8 +973,28 @@ impl Model {
     /// None when the lists hold no such project or it has no design files.
     pub fn designs_page(&self, project: &str) -> Option<crate::fail::Result<String>> {
         Some(self.design_checkout(project)?.and_then(|repo| {
-            super::designs::page(project, &repo, &self.places.design_system_cache())
+            super::designs::page(
+                project,
+                &repo,
+                &self.places.design_system_cache(),
+                super::designs::standing(&self.places, project),
+            )
         }))
+    }
+
+    /// Asks the design session listening for project <project> to publish its
+    /// designs at <rev>; None when the lists hold no such project or it has
+    /// no design files.
+    pub fn ask_publish(
+        &self,
+        project: &str,
+        rev: &str,
+    ) -> Option<crate::fail::Result<crate::lists::publish::Request>> {
+        Some(
+            self.design_checkout(project)?.and_then(|repo| {
+                super::designs::ask(&self.places, project, &repo, rev, now_seconds())
+            }),
+        )
     }
 
     /// Board <name> of project <project>'s design files at <commit>, as a

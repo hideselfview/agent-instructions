@@ -1,6 +1,6 @@
 ---
 name: publish-designs
-description: Publish a project's designs to the claude.ai account Claude Code is signed in to, every canvas of its boards and its Design System artifact with its uploads, all from one commit, with `builds design publish-files` and the Artifact tool. Use after a landing that changes the boards or the design system of a project that publishes a canvas (bae), or when asked to publish the canvas, the boards or the design system.
+description: Publish a project's designs to the claude.ai account Claude Code is signed in to, every canvas of its boards and its Design System artifact with its uploads, all from one commit, with `builds design publish-files` and the Artifact tool. Use after a landing that changes the boards or the design system of a project that publishes a canvas (bae), when a "Publish request #N" message from the dashboard arrives, or when asked to publish the canvas, the boards or the design system.
 ---
 
 # Publish every canvas and the design system from one commit
@@ -46,6 +46,24 @@ Then list the account's artifacts again, write the file again and run
 publish-find again. When publish-find says that two of the person's artifacts
 share a title, stop and ask the person which one to keep: publish nothing.
 
+## A publish request from the dashboard
+
+The person can ask for a publish on the dashboard's Designs page. builds then
+records a publish request for one commit and sends the design session that
+listens for the project (`builds design listen --project P`, which a design
+session runs when it starts) a message: "Publish request #N of project P:
+publish the designs at commit C." For such a request:
+
+1. Take it first: `builds design publish take N --project P`. The dashboard then
+   shows that the design session took it.
+2. Follow the rest of this skill with `--at C` on `publish-files`, so that the
+   files come from the commit the person picked.
+3. Give the design system's `publish-last` (step 6 of Publish each artifact)
+   `--request N --project P` too. That run records that the request published
+   commit C, which ends it.
+4. When the publish stops before that, end the request with what stopped it:
+   `builds design publish failed N --why "<what stopped it>" --project P`.
+
 ## Write the files
 
 1. Read the design system's index: `read` with the design system's url and path
@@ -58,7 +76,7 @@ share a title, stop and ask the person which one to keep: publish nothing.
    system has no index yet. `<out>` is a new folder in your scratchpad. The
    Artifact tool takes a `root` only under the working directory or the
    scratchpad. Leave out `--at`, so that the files come from origin/main, which
-   holds what landed.
+   holds what landed, unless a publish request names the commit.
 
 The command prints the commit, then each artifact in the order you publish them:
 the canvases, then the design system. For each artifact it prints its title, its
@@ -89,7 +107,8 @@ Do these steps for each artifact, in the printed order:
    listing on standard input, in a quoted heredoc (`<<'EOF'`). For the design
    system, add `--index <the index saved in step 5> --by "<the person's name>"`
    (`--no-index` in place of `--index` when it still has no index) and, when it
-   made uploads, `--uploaded <folder>/uploaded.json`.
+   made uploads, `--uploaded <folder>/uploaded.json`. For a publish request, add
+   `--request N --project P`.
 7. Make each last call that publish-last prints, in order, as in step 2: first
    the `last-` calls, then the design system's `delete-` calls, which delete the
    uploads its index no longer names. A canvas with no file to remove has no
@@ -118,5 +137,6 @@ runtime (`scripts/boards/src/runtime.rs` in agent-instructions says how).
 Report the commit, each artifact's url, the artifacts you created, the files the
 last calls removed, the assets you uploaded and the uploads you deleted, and the
 result of the runtime check. When you could not finish every artifact, say which
-artifacts hold the new commit and which still hold an older one. The next
-session runs this skill again from the start, with a new folder.
+artifacts hold the new commit and which still hold an older one, and end a
+publish request that you did not finish with `builds design publish failed N
+--why`. The next session runs this skill again from the start, with a new folder.

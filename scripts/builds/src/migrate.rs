@@ -306,9 +306,13 @@ const BEFORE_RUNS_WITHOUT_GROUPING_STAMP: i64 = 341_419_053;
 /// store had `parked` and `parked_place`, and a run could end as parked.
 const BEFORE_KEPT_WORK_STAMP: i64 = 169_234_983;
 
+/// The stamp of the schema before builds kept the design session that listens
+/// for publish requests, and the requests.
+const BEFORE_PUBLISH_STAMP: i64 = 495_639_331;
+
 /// Every stamp a store can carry that `move_store` moves, oldest schema first.
 /// A new move adds the stamp of the schema before it at the end.
-const STAMPS: [i64; 44] = [
+const STAMPS: [i64; 45] = [
     BEFORE_DESIGN_DELETED_STAMP,
     BEFORE_CHECK_TIMES_STAMP,
     BEFORE_DESIGN_TIP_STAMP,
@@ -353,6 +357,7 @@ const STAMPS: [i64; 44] = [
     BEFORE_REVIEW_CIRCLES_STAMP,
     BEFORE_RUNS_WITHOUT_GROUPING_STAMP,
     BEFORE_KEPT_WORK_STAMP,
+    BEFORE_PUBLISH_STAMP,
 ];
 
 /// Whether a store stamped <found> comes before the move that follows the
@@ -470,7 +475,9 @@ const DESIGN_DELETED: &str = "CREATE TABLE design_deleted (
 /// gets the empty `review_circle` table (no review board has circles yet).
 /// Every store that had the review's tables gets `review_run` without the
 /// hash of each run's groups, which nothing read
-/// (`review::record::move_to_runs_without_grouping`).
+/// (`review::record::move_to_runs_without_grouping`). Every store gets the
+/// empty tables of the design session that listens for publish requests and
+/// of the requests (no session listens yet).
 /// The moves run in one transaction, the store
 /// is stamped as today's schema, and it must then equal a fresh database's schema or the transaction rolls back. A
 /// store already at today's stamp, or with no database, is left alone; any
@@ -947,6 +954,11 @@ fn move_store(places: &Places, path: &Path, now: i64) -> Result<()> {
     // again; an older store got today's `item_run` above.
     if !before(found, BEFORE_RUN_TIMES_STAMP) && before(found, BEFORE_KEPT_WORK_STAMP) {
         crate::lists::running::move_to_runs_without_park(&tx)?;
+    }
+    // Every store from before the publish requests gets their empty tables:
+    // no session listens and nobody has asked to publish yet.
+    if before(found, BEFORE_PUBLISH_STAMP) {
+        tx.execute_batch(db::PUBLISH_PART).sql()?;
     }
     tx.pragma_update(None, "user_version", db::stamp()).sql()?;
     let broken: Option<String> = tx

@@ -84,12 +84,23 @@ pub const SPEC_CHECK_PART: &str = include_str!("lists/spec_check.sql");
 /// (ack/record.sql); the schema holds it after the spec checks' part.
 pub const ACK_PART: &str = include_str!("ack/record.sql");
 
+/// The design session that listens for publish requests, and the requests
+/// to publish the designs (lists/publish.sql); the schema holds it after the
+/// acknowledgements' part.
+pub const PUBLISH_PART: &str = include_str!("lists/publish.sql");
+
 /// The whole schema: the lists' tables, then the hook stats', then the
 /// app-build timings', then the design changes' recording sessions', then the
 /// stored shot findings, then the review's, then the hook checks' starting
 /// loads, then the cargo runs', then the kept work's, then the dropped
-/// items' work, then the spec checks', then the acknowledgements'.
+/// items' work, then the spec checks', then the acknowledgements', then the
+/// publish requests'.
 pub fn schema() -> String {
+    format!("{}\n{PUBLISH_PART}", schema_before_publish())
+}
+
+/// The schema as it was before the publish requests' tables joined it.
+pub fn schema_before_publish() -> String {
     format!(
         "{}\n{REVIEW_PART}\n{HOOK_CHECK_STARTS_PART}\n{CARGO_RUNS_PART}\n{KEPT_WORK_PART}\n{DROPPED_PART}\n{SPEC_CHECK_PART}\n{ACK_PART}",
         schema_before_review()

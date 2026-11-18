@@ -63,6 +63,16 @@ impl Messaging {
         })
     }
 
+    /// The inbox's socket, which the store keeps.
+    pub(in crate::lists) fn socket(&self) -> &str {
+        &self.socket
+    }
+
+    /// The inbox's token, which only the store keeps.
+    pub(in crate::lists) fn token(&self) -> Option<&str> {
+        self.token.as_deref()
+    }
+
     /// The inbox of the session running this command: None outside a
     /// session, or in one without messaging.
     pub fn from_env() -> Result<Option<Messaging>> {

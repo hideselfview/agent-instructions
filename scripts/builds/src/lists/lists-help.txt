@@ -724,7 +724,7 @@ sent again.
       title or an artifact, and, with --no-index, a bundle whose first line
       names no namespace. Reads no store and writes nothing in DIR.
 
-  builds design publish-last FOLDER --listing FILE [(--index FILE | --no-index) --by WHO [--uploaded FILE]]
+  builds design publish-last FOLDER --listing FILE [(--index FILE | --no-index) --by WHO [--uploaded FILE] [--request N [--project P]]]
       Writes the last calls of the artifact whose folder FOLDER
       `publish-files` wrote, as last-1.json, last-2.json and on. --listing
       FILE (or - for standard input) is the Artifact tool's listing of the
@@ -754,7 +754,39 @@ sent again.
       --no-index when the artifact had an index as publish-files wrote the
       folder, and refuses --uploaded unless it names exactly the folder's
       uploads. A later run replaces the
-      folder's last calls and deletes. Reads no store.
+      folder's last calls and deletes. Without --request it reads no store.
+      With --request N, which goes only with the design system's folder,
+      the command records that publish request N of the project (--project,
+      else the project of the current directory's repo) published the
+      folder's commit, which ends the request; it refuses a request that
+      nobody took, one that ended, and one that asks for another commit.
+
+  builds design listen --project P
+      Keeps the inbox of the Claude session that runs it as the one the
+      dashboard wakes for project P's publish requests, in place of any
+      earlier one: the inbox socket and token from the session's
+      environment (CLAUDE_CODE_MESSAGING_SOCKET and
+      CLAUDE_CODE_MESSAGING_TOKEN), as `design record` keeps them. A design
+      session runs it when it starts. The command refuses to run outside a
+      session with an inbox.
+
+  builds design publish take N [--project P] [--by WHO]
+  builds design publish failed N --why WHY [--project P] [--by WHO]
+      The design session's side of a publish that the person asks for on
+      the dashboard. The Designs page's Publish to claude.ai… form records
+      a publish request for one commit and sends the listening session
+      "Publish request #N of project P: publish the designs at commit C. ..."
+      once. When no session listens, the form says "No design session is
+      listening for P": with no listener, builds records no request; with a
+      listener whose inbox no session reads, the request ends failed with
+      those words. At most one request is open at a time. `take` records
+      that the session took open request N, which the form shows, and
+      prints the commit to publish. The session then publishes with the
+      publish-designs skill, from that commit (publish-files --at C), and
+      gives the design system's publish-last --request N, which ends the
+      request as published. `failed` ends open request N with WHY, what
+      stopped the publish, which the form shows. The page's header says
+      which commit the newest published request sent, and when.
 
       These commands publish nothing, since only a Claude session can call
       the Artifact tool. The publish-designs skill gives the steps with which

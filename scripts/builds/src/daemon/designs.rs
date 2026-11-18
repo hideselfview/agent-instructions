@@ -17,16 +17,22 @@ use boards::tokens::specimen;
 use boards::{BOARD_SUFFIX, CANVAS, Source, TOKENS_JSON, canvas_size};
 use serde_json::{Value, json};
 
-use crate::design_canvas::{page_of, pages_of, placed};
+use crate::design_canvas::{CANVASES, Published, page_of, pages_of, parse_canvases, placed};
 use crate::design_render::{FRAMES_SCRIPT, NOW, fill, render_board, render_preview};
 use crate::fail;
 use crate::fail::{Fail, Result};
-use crate::lists::Theme;
+use crate::lists::publish::{Request, Standing, ask_and_tell};
+use crate::lists::store::Store;
+use crate::lists::{Stamp, Theme};
+use crate::places::Places;
 
 const DESIGNS_PAGE: &str = include_str!("designs.html");
 /// The dashboard's colors and fonts, which its page and the Designs page
 /// share.
 pub const PALETTE: &str = include_str!("palette.css");
+/// The dashboard's buttons and modal form, which its page and the Designs
+/// page share.
+pub const CONTROLS: &str = include_str!("controls.css");
 
 /// Is <text> a full commit id, as the Designs page names the commit its
 /// frames draw?
@@ -40,7 +46,14 @@ pub fn is_commit(text: &str) -> bool {
 /// with no size, and a part of the design system that can't be read, shows
 /// as that problem in its place; a canvas index that can't be read fails the
 /// page.
-pub fn page(project: &str, repo: &Path, cache: &Path) -> Result<String> {
+/// <standing> is the project's publishing as its store holds it, which the
+/// page's Publish to claude.ai form shows.
+pub fn page(
+    project: &str,
+    repo: &Path,
+    cache: &Path,
+    standing: Result<Standing>,
+) -> Result<String> {
     let commit = Source::Commit { repo, rev: NOW }
         .check()?
         .expect("a commit source names a commit");
@@ -107,8 +120,18 @@ pub fn page(project: &str, repo: &Path, cache: &Path) -> Result<String> {
         ),
         Err(error) => json!({ "error": error.text() }),
     };
+    let publish = match publishing(&from).and_then(|links| Ok((links, standing?))) {
+        Ok((None, _)) => json!({ "canvas": false }),
+        Ok((Some(links), standing)) => json!({
+            "canvas": true,
+            "links": links,
+            "standing": standing,
+        }),
+        Err(error) => json!({ "error": error.text() }),
+    };
     let data = json!({
         "project": project,
+        "publish": publish,
         "commit": commit,
         "boards": count,
         "base": format!("/designs/{project}/{commit}"),
@@ -122,10 +145,61 @@ pub fn page(project: &str, repo: &Path, cache: &Path) -> Result<String> {
         DESIGNS_PAGE,
         &[
             ("PALETTE", PALETTE),
+            ("CONTROLS", CONTROLS),
             ("DATA", &data),
             ("FRAMES", FRAMES_SCRIPT),
         ],
     ))
+}
+
+/// The artifacts that the designs at <from> publish to, each with a title
+/// and its link, as `CANVASES` names them: each canvas, then the design
+/// system. None when <from> has no `CANVASES`, so its designs publish
+/// nowhere yet.
+fn publishing(from: &Source) -> Result<Option<Vec<Value>>> {
+    if !from.has(CANVASES)? {
+        return Ok(None);
+    }
+    let Published {
+        canvases,
+        design_system,
+    } = parse_canvases(
+        &from.read(CANVASES, "the canvases file")?,
+        &from.label(CANVASES),
+    )?;
+    let mut links: Vec<Value> = canvases
+        .iter()
+        .map(|canvas| json!({ "title": canvas.title, "url": canvas.url }))
+        .collect();
+    links.push(json!({ "title": "Design system", "url": design_system }));
+    Ok(Some(links))
+}
+
+/// The publishing of project <project> as its store holds it.
+pub fn standing(places: &Places, project: &str) -> Result<Standing> {
+    let store = Store::named(places, project)?;
+    let db = store.open_existing()?;
+    crate::lists::publish::standing(&db)
+}
+
+/// Asks the design session that listens for project <project> to publish
+/// the designs at <rev> of the repo <repo> is in, for the person at the
+/// dashboard at <now> (`publish::ask_and_tell`). Fails when <rev> names no
+/// commit or one with no `CANVASES`, so that nothing publishes it.
+pub fn ask(places: &Places, project: &str, repo: &Path, rev: &str, now: i64) -> Result<Request> {
+    let commit = Source::Commit { repo, rev }
+        .check()?
+        .expect("a commit source names a commit");
+    let from = Source::Commit { repo, rev: &commit };
+    if !from.has(CANVASES)? {
+        fail!("commit {commit} has no {CANVASES}, so its designs publish to no artifact");
+    }
+    let store = Store::named(places, project)?;
+    let stamp = Stamp {
+        at: now,
+        by: super::approve::BY.to_string(),
+    };
+    ask_and_tell(&store, &commit, &stamp)
 }
 
 /// Which of two boards at <a> and <b> (each its y and x on the canvas)

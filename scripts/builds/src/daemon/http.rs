@@ -43,6 +43,12 @@
 //!                   the Designs page of the project: every board of the
 //!                   repo that holds its design files as it stands on
 //!                   origin/main, and its design system (designs.rs)
+//!     GET /designs/<project>/publish
+//!                   the project's publishing: its newest publish request
+//!                   and the newest that published (lists/publish.rs)
+//!     POST /designs/<project>/publish  `{"commit"}`: records a request to
+//!                   publish the designs at that commit and wakes the design
+//!                   session listening for the project; only from this Mac
 //!     /designs/<project>/<commit>/board/<name>
 //!     /designs/<project>/<commit>/component/<name>
 //!                   a board, or a component's preview, at that commit,
@@ -64,7 +70,10 @@ use crate::design_render::Side;
 static PAGE: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
     crate::design_render::fill(
         include_str!("page.html"),
-        &[("PALETTE", super::designs::PALETTE)],
+        &[
+            ("PALETTE", super::designs::PALETTE),
+            ("CONTROLS", super::designs::CONTROLS),
+        ],
     )
 });
 /// The most a POST's body may hold.
@@ -182,12 +191,35 @@ fn handle(mut stream: TcpStream, names: &[String], model: &Model) -> std::io::Re
     {
         return approve(&mut stream, model, project, id);
     }
+    if let Some(project) = publish_target(path) {
+        return match method {
+            "POST" if length > MAX_BODY => respond(
+                &mut stream,
+                "413 Payload Too Large",
+                "text/plain; charset=utf-8",
+                b"too large\n",
+            ),
+            "POST" => ask_publish(&mut stream, model, project, &body),
+            "GET" => json(
+                &mut stream,
+                super::designs::standing(&model.places, project).map(|standing| {
+                    serde_json::to_vec(&standing).expect("the standing serializes")
+                }),
+            ),
+            _ => respond(
+                &mut stream,
+                "405 Method Not Allowed",
+                "text/plain; charset=utf-8",
+                b"GET or POST only\n",
+            ),
+        };
+    }
     if method != "GET" {
         return respond(
             &mut stream,
             "405 Method Not Allowed",
             "text/plain; charset=utf-8",
-            b"GET only, and POST /api/queue, /api/build-app, /api/question-effect and /design/PROJECT/N/approve\n",
+            b"GET only, and POST /api/queue, /api/build-app, /api/question-effect, /design/PROJECT/N/approve and /designs/PROJECT/publish\n",
         );
     }
     match path {
@@ -407,6 +439,80 @@ fn allowed(method: &str, asker: &Asker<'_>) -> bool {
 /// reaches any route.
 fn changes_state(method: &str) -> bool {
     method != "GET" && method != "HEAD"
+}
+
+/// The project of `/designs/<project>/publish`.
+fn publish_target(path: &str) -> Option<&str> {
+    path.strip_prefix("/designs/")?
+        .strip_suffix("/publish")
+        .filter(|project| !project.is_empty() && !project.contains('/'))
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PublishRequest {
+    /// The commit or branch to publish, such as origin/main.
+    commit: String,
+}
+
+/// Asks the design session listening for <project> to publish its designs at
+/// the commit <body> names (`POST /designs/PROJECT/publish`). Only the person
+/// at this Mac asks (`handle` checks `from_this_mac`). Answers the request;
+/// 404 for a project with no design files, 409 when publishing is refused,
+/// such as when no design session listens, with the error.
+fn ask_publish(
+    stream: &mut TcpStream,
+    model: &Model,
+    project: &str,
+    body: &[u8],
+) -> std::io::Result<()> {
+    let request: PublishRequest = match serde_json::from_slice(body) {
+        Ok(request) => request,
+        Err(error) => {
+            let message =
+                serde_json::json!({ "error": format!("the request: {error}") }).to_string();
+            return respond(
+                stream,
+                "400 Bad Request",
+                "application/json",
+                message.as_bytes(),
+            );
+        }
+    };
+    if request.commit.trim().is_empty() || request.commit.starts_with('-') {
+        let message =
+            serde_json::json!({ "error": "name a commit or branch to publish" }).to_string();
+        return respond(
+            stream,
+            "400 Bad Request",
+            "application/json",
+            message.as_bytes(),
+        );
+    }
+    match model.ask_publish(project, request.commit.trim()) {
+        None => respond(
+            stream,
+            "404 Not Found",
+            "application/json",
+            serde_json::json!({ "error": format!("project {project} has no design files") })
+                .to_string()
+                .as_bytes(),
+        ),
+        Some(Ok(asked)) => respond(
+            stream,
+            "200 OK",
+            "application/json",
+            &serde_json::to_vec(&asked).expect("the request serializes"),
+        ),
+        Some(Err(error)) => respond(
+            stream,
+            "409 Conflict",
+            "application/json",
+            serde_json::json!({ "error": error.text() })
+                .to_string()
+                .as_bytes(),
+        ),
+    }
 }
 
 /// The project and design change id of `/design/<project>/<id>/approve`.

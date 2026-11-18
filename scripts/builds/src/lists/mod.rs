@@ -42,6 +42,8 @@ mod item_show;
 pub mod kept_work;
 pub mod landing;
 pub mod project;
+pub mod publish;
+mod publish_command;
 pub mod question;
 pub mod question_command;
 pub mod record;

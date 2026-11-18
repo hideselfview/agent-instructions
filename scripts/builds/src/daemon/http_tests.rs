@@ -741,3 +741,16 @@ fn a_designs_path_is_the_page_or_a_board_or_component_at_a_full_commit() {
         assert_eq!(designs_route(&bad), None, "{bad:?}");
     }
 }
+
+#[test]
+fn a_publish_path_names_one_project() {
+    assert_eq!(publish_target("/designs/bae/publish"), Some("bae"));
+    for bad in [
+        "/designs//publish",
+        "/designs/bae/x/publish",
+        "/designs/bae",
+        "/design/bae/publish",
+    ] {
+        assert_eq!(publish_target(bad), None, "{bad:?}");
+    }
+}

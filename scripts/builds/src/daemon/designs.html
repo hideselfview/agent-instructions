@@ -9,12 +9,18 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Roboto:wght@400;500;600;700;800&display=swap">
 <style>
 @@PALETTE@@
+@@CONTROLS@@
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 var(--sans); }
 .dz { display: flex; flex-direction: column; gap: 16px; padding: 20px 24px 48px; }
 .dz-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
 .dz-head h1 { margin: 0; font: 600 20px var(--sans); }
 .dz-sub { color: var(--muted); font-size: 13px; }
+.dz-tools { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+.pub-now { color: var(--muted); }
+.pub-now code, .bstatus code { font: 500 12px var(--mono); color: var(--text-2); }
+.pub-links { display: flex; flex-direction: column; gap: 4px; color: var(--text-2); }
+.pub-links a { color: var(--accent); }
 .dz-sub code, .problem code { font: 500 12px var(--mono); color: var(--text-2); }
 .dz-pages { display: flex; gap: 4px; flex-wrap: wrap; border-bottom: 1px solid var(--line); padding-bottom: 8px; }
 .dz-pages button { font: inherit; font-size: 13px; color: var(--text-2); background: none; border: 1px solid transparent; border-radius: 6px; padding: 3px 10px; cursor: pointer; }
@@ -46,10 +52,14 @@ body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 var
 </head>
 <body>
 <div class="dz">
-  <div class="dz-head"><h1 id="title"></h1><span class="dz-sub" id="at"></span></div>
+  <div class="dz-head"><h1 id="title"></h1><span class="dz-sub" id="at"></span><span class="dz-sub" id="claude"></span><div class="dz-tools" id="tools"></div></div>
   <div class="dz-pages" id="tabs" role="tablist" aria-label="Pages"></div>
   <div id="main"></div>
 </div>
+<dialog class="lane-dlg" id="publish" aria-label="Publish to claude.ai">
+  <div class="lm-head"><span class="lm-title" id="pub-title"></span><button type="button" id="pub-close">Close</button></div>
+  <div class="lm-body" id="pub-body"></div>
+</dialog>
 <script type="application/json" id="data">@@DATA@@</script>
 <script>
 @@FRAMES@@
@@ -152,6 +162,124 @@ document.getElementById("tabs").addEventListener("click", e => {
 });
 window.addEventListener("hashchange", render);
 render();
+
+// Publish to claude.ai: the person picks a commit and asks the design
+// session that listens for the project to publish it; the store holds the
+// request, and the form shows it as the session takes it and ends it. The
+// form keeps the newest request's result until the person dismisses it.
+const pub = data.publish;
+let standing = pub.standing || {latest: null, published: null};
+let failure = null;
+let polling = null;
+const here = ["127.0.0.1", "localhost", "[::1]"].includes(location.hostname);
+const DISMISSED = "designs-publish-dismissed:" + data.project;
+function dismissed() {
+  try { return Number(localStorage.getItem(DISMISSED)); } catch (e) { return 0; }
+}
+function minute(at) {
+  return new Date(at * 1000).toLocaleTimeString([], {hour: "2-digit", minute: "2-digit", hour12: false});
+}
+const short = commit => h("code", {title: commit}, commit.slice(0, 7));
+function claudeHas() {
+  const p = standing.published;
+  return p ? ["claude.ai has ", short(p.commit), ", published " + minute(p.ended.at)]
+    : ["claude.ai has no publish that builds recorded"];
+}
+function renderHead() {
+  const line = document.getElementById("claude"), tools = document.getElementById("tools");
+  if (pub.error) { line.replaceChildren(h("span", {class: "problem"}, pub.error)); tools.replaceChildren(); return; }
+  if (!pub.canvas) {
+    line.replaceChildren("These designs publish to no claude.ai artifact yet: the repo has no design/mocks/canvases.toml.");
+    tools.replaceChildren();
+    return;
+  }
+  line.replaceChildren(...claudeHas());
+  const button = h("button", {type: "button", class: "qbtn"}, "Publish to claude.ai…");
+  button.addEventListener("click", openPublish);
+  tools.replaceChildren(button);
+}
+// The request the form shows: the newest, unless it ended and the person
+// dismissed it.
+function shown() {
+  const r = standing.latest;
+  return r && !(r.ended && r.id === dismissed()) ? r : null;
+}
+function dismissButton(onclick) {
+  const b = h("button", {type: "button", class: "bdismiss", "aria-label": "Dismiss"});
+  b.innerHTML = '<svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8"></path></svg>';
+  b.addEventListener("click", onclick);
+  return b;
+}
+function status(r) {
+  if (!r.ended) return h("div", {class: "bstatus"}, "Publishing ", short(r.commit), r.taken
+    ? " · the design session took it at " + minute(r.taken.at)
+    : " · asked at " + minute(r.asked.at) + ", waiting for the design session to take it");
+  if (r.ended.error) return h("div", {class: "bstatus failed"}, "Failed to publish ", short(r.commit),
+    " · ended " + minute(r.ended.at) + ": " + r.ended.error);
+  return h("div", {class: "bstatus"}, "Published ", short(r.commit), " · ended " + minute(r.ended.at));
+}
+function renderPublish() {
+  document.getElementById("pub-title").textContent = "Publish " + data.project + " designs to claude.ai";
+  const body = document.getElementById("pub-body");
+  if (!here) { body.replaceChildren(h("div", {class: "pub-now"}, "Publishing is only on this Mac.")); return; }
+  const r = shown();
+  const open = !!(r && !r.ended);
+  const input = h("input", {value: "origin/main", "aria-label": "Commit"});
+  const go = h("button", {type: "button", class: "qbtn"}, "Publish");
+  if (open) { input.disabled = true; go.disabled = true; }
+  go.addEventListener("click", () => ask(input.value, go));
+  const parts = [];
+  if (!r && !failure) parts.push(h("div", {class: "pub-now"}, ...claudeHas(),
+    ". Publish sends every canvas and the design system from one commit."));
+  parts.push(h("div", {class: "bform"}, input, go));
+  if (failure) parts.push(h("div", {class: "bresult"}, h("div", {class: "bstatus failed"}, failure),
+    dismissButton(() => { failure = null; renderPublish(); })));
+  else if (r) {
+    parts.push(h("div", {class: "bresult"}, status(r), r.ended ? dismissButton(() => {
+      try { localStorage.setItem(DISMISSED, String(r.id)); } catch (e) { /* kept for this page only */ }
+      renderPublish();
+    }) : null));
+    if (r.ended && !r.ended.error) parts.push(h("div", {class: "pub-links"},
+      pub.links.map(l => h("a", {href: l.url, target: "_blank", rel: "noopener"}, l.title))));
+  }
+  body.replaceChildren(...parts);
+}
+async function ask(commit, button) {
+  button.disabled = true;
+  failure = null;
+  try {
+    const response = await fetch("/designs/" + encodeURIComponent(data.project) + "/publish",
+      {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({commit: commit.trim()})});
+    const answer = await response.json();
+    if (!response.ok) failure = answer.error || "publishing failed";
+  } catch (error) {
+    failure = "publishing failed: " + error;
+  }
+  await refresh();
+}
+// Reads the project's publishing again, and again every two seconds while
+// a request is open.
+async function refresh() {
+  clearTimeout(polling);
+  try {
+    const response = await fetch("/designs/" + encodeURIComponent(data.project) + "/publish");
+    const answer = await response.json();
+    if (response.ok) standing = answer;
+    else failure = answer.error || "reading the publish requests failed";
+  } catch (error) {
+    failure = "reading the publish requests failed: " + error;
+  }
+  renderHead();
+  renderPublish();
+  if (standing.latest && !standing.latest.ended) polling = setTimeout(refresh, 2000);
+}
+function openPublish() {
+  renderPublish();
+  document.getElementById("publish").showModal();
+}
+document.getElementById("pub-close").addEventListener("click", () => document.getElementById("publish").close());
+renderHead();
+if (standing.latest && !standing.latest.ended) refresh();
 </script>
 </body>
 </html>

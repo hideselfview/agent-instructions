@@ -2036,7 +2036,7 @@ fn with_parked(schema: String) -> String {
 #[test]
 fn the_kept_work_stamp_is_the_schema_before_builds_named_what_an_item_keeps() {
     assert_eq!(
-        db::stamp_of_text(&with_parked(db::schema())),
+        db::stamp_of_text(&with_parked(db::schema_before_publish())),
         BEFORE_KEPT_WORK_STAMP
     );
 }
@@ -2055,7 +2055,7 @@ fn a_store_with_parked_items_keeps_their_places_and_equals_a_fresh_schema() {
     let path = dir.join(DATABASE);
     {
         let conn = Connection::open(&path).unwrap();
-        conn.execute_batch(&with_parked(db::schema())).unwrap();
+        conn.execute_batch(&with_parked(db::schema_before_publish())).unwrap();
         conn.pragma_update(None, "user_version", BEFORE_KEPT_WORK_STAMP)
             .unwrap();
         crate::lists::project::plant(
@@ -3447,7 +3447,7 @@ fn without_review_circles(schema: String) -> String {
 
 /// The schema text before the designer chose the circles on a review board.
 fn schema_before_review_circles() -> String {
-    let schema = db::schema();
+    let schema = db::schema_before_publish();
     assert!(schema.contains(REVIEW_CIRCLE_COMMENT));
     without_review_circles(schema)
 }
@@ -3537,7 +3537,7 @@ fn a_store_from_before_review_circles_gains_their_table_and_equals_a_fresh_schem
 
 /// The schema text before a review page was one section.
 fn schema_before_one_section() -> String {
-    with_many_sections(db::schema())
+    with_many_sections(db::schema_before_publish())
 }
 
 #[test]
@@ -3757,7 +3757,7 @@ fn old_review_run(conn: &Connection, landing: i64, changed_lines: i64) -> i64 {
 #[test]
 fn the_runs_without_grouping_stamp_is_the_schema_before_runs_lost_their_grouping() {
     assert_eq!(
-        db::stamp_of_text(&with_grouping(with_parked(db::schema()))),
+        db::stamp_of_text(&with_grouping(with_parked(db::schema_before_publish()))),
         BEFORE_RUNS_WITHOUT_GROUPING_STAMP
     );
 }
@@ -3773,7 +3773,7 @@ fn a_store_from_before_runs_lost_their_grouping_keeps_each_run_and_equals_a_fres
     let path = dir.join(DATABASE);
     {
         let conn = Connection::open(&path).unwrap();
-        conn.execute_batch(&with_grouping(with_parked(db::schema())))
+        conn.execute_batch(&with_grouping(with_parked(db::schema_before_publish())))
             .unwrap();
         use crate::lists::fixtures::v;
         crate::review::record::plant(
@@ -3831,7 +3831,7 @@ fn a_store_from_before_runs_lost_their_grouping_keeps_each_run_and_equals_a_fres
 /// The schema text before the decided changes' table: today's, without the
 /// table and with the approval's comment as it read then.
 fn schema_before_design_decision() -> String {
-    let schema = db::schema();
+    let schema = db::schema_before_publish();
     assert!(schema.contains(DESIGN_DECISION_COMMENT));
     without_design_decision(schema)
 }
@@ -5169,4 +5169,39 @@ fn a_store_from_before_run_times_gets_the_runs_its_write_log_tells_of() {
         .query_row("SELECT from_at FROM spans_recorded", [], |row| row.get(0))
         .unwrap();
     assert_eq!(from, 800);
+}
+
+#[test]
+fn the_publish_stamp_is_the_schema_before_the_publish_requests() {
+    assert_eq!(
+        db::stamp_of_text(&db::schema_before_publish()),
+        BEFORE_PUBLISH_STAMP
+    );
+}
+
+/// A store from before the publish requests gains their empty tables and
+/// equals a fresh schema.
+#[test]
+fn a_store_from_before_the_publish_requests_gains_their_tables_and_equals_a_fresh_schema() {
+    let scratch = Scratch::new("move-publish");
+    let places = scratch.places();
+    let dir = places.lists.join("bae");
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join(DATABASE);
+    {
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(&db::schema_before_publish()).unwrap();
+        conn.pragma_update(None, "user_version", BEFORE_PUBLISH_STAMP)
+            .unwrap();
+    }
+    migrate_stores(&places, 0).unwrap();
+    let conn = db::open(&path, db::Make::Never).unwrap();
+    assert_eq!(
+        db::schema_rows(&conn).unwrap(),
+        db::schema_rows(&db::memory()).unwrap()
+    );
+    let requests: i64 = conn
+        .query_row("SELECT count(*) FROM publish_request", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(requests, 0);
 }
