@@ -27,10 +27,6 @@ use crate::text::{local_minute, minutes_since, note};
 /// How often the daemon runs `builds prune`.
 pub const PRUNE_HOURS: i64 = 6;
 
-/// How often the daemon reads the record again while it waits, since a
-/// prune run by hand moves the next start.
-const CHECK_SECONDS: u64 = 600;
-
 /// When a prune last finished, in seconds since 1970; None when no prune
 /// has finished.
 pub fn last_finished(places: &Places) -> Result<Option<i64>> {
@@ -137,8 +133,9 @@ pub fn start(places: Places, exe: PathBuf) -> Result<()> {
                     run_once(&places, &exe);
                     continue;
                 }
-                let wait = ((next - now) as u64).min(CHECK_SECONDS);
-                std::thread::sleep(Duration::from_secs(wait));
+                // A prune run by hand meanwhile only moves the next start
+                // later, which the record read at the scheduled time shows.
+                std::thread::sleep(Duration::from_secs((next - now) as u64));
             }
         })
         .context(|| "starting a thread".to_string())?;
