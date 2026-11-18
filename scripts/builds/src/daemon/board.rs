@@ -20,15 +20,12 @@ pub enum Tab {
     Running,
 }
 
-/// The three tabs' counts. Waiting on you holds the stack's questions, the
-/// design changes waiting on review and the running work held on the person;
-/// Running holds the running work and the design changes being drawn (the
-/// person approved them); Queue holds the items nobody has started.
+/// What Waiting on you counts for the project's tab: the stack's questions, the
+/// design changes waiting on review and the running work held on the person.
+/// The page counts the other tabs from the rows it draws.
 #[derive(Clone, Debug, Default, Serialize)]
 pub struct Board {
     pub waiting: usize,
-    pub running: usize,
-    pub queue: usize,
     pub works: Vec<Work>,
 }
 
@@ -79,16 +76,13 @@ fn waits_on_person(item: &ItemView) -> bool {
 pub fn board(view: &View) -> Board {
     let works = works(view);
     let count = |tab| works.iter().filter(|work| work.tab == tab).count();
-    let open = |approved: bool| {
-        view.designs
-            .iter()
-            .filter(|design| design.closed.is_none() && design.approved.is_some() == approved)
-            .count()
-    };
+    let to_review = view
+        .designs
+        .iter()
+        .filter(|design| design.closed.is_none() && design.approved.is_none())
+        .count();
     Board {
-        waiting: view.stack.len() + open(false) + count(Tab::Waiting),
-        running: count(Tab::Running) + open(true),
-        queue: view.items.iter().filter(|i| i.running.is_empty()).count(),
+        waiting: view.stack.len() + to_review + count(Tab::Waiting),
         works,
     }
 }

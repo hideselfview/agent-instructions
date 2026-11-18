@@ -162,10 +162,7 @@ fn each_tab_counts_what_it_holds() {
     item(&db, vec![Wait::Condition("a quiet machine".into())]);
 
     let board = board_of(&db, &[("side-1", Some("waiting-on-you"))]);
-    assert_eq!(
-        (board.waiting, board.running, board.queue),
-        (1 + 1 + 2, 1, 2)
-    );
+    assert_eq!(board.waiting, 1 + 1 + 2);
     let tab_of = |checkout: &str| {
         board
             .works
@@ -185,10 +182,10 @@ fn a_design_change_waits_on_review_until_approved_and_then_runs() {
     let db = db();
     let id = design(&db);
     let before = board_of(&db, &[]);
-    assert_eq!((before.waiting, before.running), (1, 0));
+    assert_eq!(before.waiting, 1);
     crate::lists::design::approve(&db, id, &stamp(NOON)).unwrap();
     let after = board_of(&db, &[]);
-    assert_eq!((after.waiting, after.running), (0, 1));
+    assert_eq!(after.waiting, 0);
 }
 
 #[test]
@@ -199,7 +196,7 @@ fn a_wait_on_another_item_is_not_the_persons() {
     let waits = item(&db, vec![Wait::Item(other)]);
     start(&db, waits, "side-1");
     let board = board_of(&db, &[]);
-    assert_eq!((board.waiting, board.running, board.queue), (0, 1, 1));
+    assert_eq!(board.waiting, 0);
 }
 
 #[test]
@@ -213,7 +210,7 @@ fn work_whose_item_waits_on_a_design_change_to_review_is_held_on_the_person() {
     let board = board_of(&db, &[]);
     assert_eq!(board.works[0].tab, Tab::Waiting);
     // The change to review and the work it holds.
-    assert_eq!((board.waiting, board.running), (2, 0));
+    assert_eq!(board.waiting, 2);
 }
 
 #[test]
@@ -228,7 +225,7 @@ fn work_whose_item_waits_on_an_approved_design_change_is_not_held_on_the_person(
     let board = board_of(&db, &[]);
     assert_eq!(board.works[0].tab, Tab::Running);
     // The work, and the approved change that waits to land.
-    assert_eq!((board.waiting, board.running), (0, 2));
+    assert_eq!(board.waiting, 0);
 }
 
 #[test]
