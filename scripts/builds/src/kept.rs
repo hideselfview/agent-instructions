@@ -1,5 +1,5 @@
-//! What keeps a side worktree: the open items of any project that run in it,
-//! and the work in it that origin/main lacks and no open item
+//! What keeps a side worktree: the open items of any project that run in it
+//! or keep it (lists/kept_work.rs), and the work in it that origin/main lacks and no open item
 //! holds (unlanded.rs). `builds release` and a landing's release refuse to
 //! remove the claim of a worktree where an item runs or that holds such
 //! work. `builds new` hands out, and `builds prune` and `builds retire`
@@ -21,7 +21,10 @@ pub struct Kept {
     /// The open items of any project that run in the worktree, each with
     /// its words, `#N "title"`.
     pub running: Vec<(Id, String)>,
-    /// The work origin/main lacks that no open item holds.
+    /// The open items of any project that keep the worktree, the same way.
+    pub keeping: Vec<String>,
+    /// The work origin/main lacks that no open item holds. An item that
+    /// keeps the worktree holds all of it.
     pub unheld: Held,
 }
 
@@ -29,18 +32,20 @@ impl Kept {
     /// Does nothing keep the worktree, so that `builds new` may hand it out
     /// once it has no claim?
     pub fn is_empty(&self) -> bool {
-        self.running.is_empty() && self.unheld.is_empty()
+        self.running.is_empty() && self.keeping.is_empty() && self.unheld.is_empty()
     }
 
     /// May the worktree's claim go: does no item run there, and does every
     /// piece of its work that origin/main lacks have an item that holds it?
+    /// An item that keeps the worktree holds its work.
     pub fn is_leavable(&self) -> bool {
         self.running.is_empty() && self.unheld.is_empty()
     }
 
     /// Refuses <what> (a command that removes the claim of <top>, or the
     /// worktree itself) while an item runs there, since the claim names the
-    /// item's agent, or while the worktree holds work no item holds.
+    /// item's agent, or while the worktree holds work no item holds. An item
+    /// that keeps the worktree holds its work, so it refuses nothing here.
     pub fn require_leavable(&self, what: &str, top: &Path) -> Result<()> {
         if let Some((first, _)) = self.running.first() {
             let id = first.0;
@@ -79,14 +84,28 @@ pub fn read(
         .into_iter()
         .map(|(lists, item)| (item.id, words(lists, item)))
         .collect();
-    let repo = checkout.repo();
-    let held: Vec<String> = crate::unlanded::named_branches(every.iter())
-        .into_iter()
-        .filter(|(named_repo, _)| *named_repo == repo)
-        .map(|(_, branch)| branch)
+    let keeping: Vec<String> = every
+        .iter()
+        .filter_map(|lists| {
+            crate::lists::kept_work::kept_in(lists, &top).map(|item| words(lists, item))
+        })
         .collect();
-    let unheld = crate::unlanded::in_worktree(checkout, window_start(checkout)?, &held, commits)?;
-    Ok(Kept { running, unheld })
+    let unheld = if keeping.is_empty() {
+        let repo = checkout.repo();
+        let held: Vec<String> = crate::unlanded::named_branches(every.iter())
+            .into_iter()
+            .filter(|(named_repo, _)| *named_repo == repo)
+            .map(|(_, branch)| branch)
+            .collect();
+        crate::unlanded::in_worktree(checkout, window_start(checkout)?, &held, commits)?
+    } else {
+        Held::default()
+    };
+    Ok(Kept {
+        running,
+        keeping,
+        unheld,
+    })
 }
 
 /// When the branches <checkout> left start to count, in seconds since 1970:

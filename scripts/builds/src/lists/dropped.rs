@@ -1,5 +1,5 @@
 //! The work an item held when the person dropped it. Dropping an item that
-//! runs alone in its worktrees throws its work away (`builds
+//! runs or is kept alone in its worktrees throws its work away (`builds
 //! item drop`), and drop refuses an item that shares a worktree with another
 //! open item (`require_alone`). The drop records each worktree's branch, the
 //! commits on it and on HEAD that origin/main lacks and the files that were
@@ -110,7 +110,7 @@ pub fn read(worktree: &str, branch: &str) -> Result<DroppedWork> {
 }
 
 /// Refuses to drop item <id> of project <project> while another open item of
-/// <every> (each project's lists) runs in one of <worktrees>:
+/// <every> (each project's lists) runs or is kept in one of <worktrees>:
 /// the work there is that item's too, and the drop would throw it away and
 /// remove the claim of that item's agent. `item stop` ends the item's run
 /// and leaves the work to the other items, and a drop of an item that runs
@@ -124,7 +124,8 @@ pub fn require_alone<'a>(
     let mut others: Vec<String> = Vec::new();
     for lists in every {
         for worktree in worktrees {
-            for item in running_in(lists, worktree) {
+            let kept = crate::lists::kept_work::kept_in(lists, worktree);
+            for item in running_in(lists, worktree).into_iter().chain(kept) {
                 if lists.project == project && item.id == id {
                     continue;
                 }

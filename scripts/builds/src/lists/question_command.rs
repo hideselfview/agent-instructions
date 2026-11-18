@@ -184,6 +184,9 @@ fn ask(tool: &Tool, args: &[String], cwd: &Path, words: &str) -> Result<String> 
             if !item.running.is_empty() {
                 fail!("item {from} is running; run `builds item stop {} --why …` first, then move it to the stack", from.0);
             }
+            if !item.kept.is_empty() {
+                fail!("item {from} is kept, and its work waits in its worktree; take it there and land the work first");
+            }
         }
         let new = NewQuestion {
             title: title.clone(),

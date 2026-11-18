@@ -24,13 +24,13 @@ use crate::lists::record::close;
 use crate::lists::show::wait_words;
 use crate::lists::store::{self, Store};
 use crate::lists::{
-    How, Id, Kind, Lists, Located, Stamp, dropped, issue, item_show, landing, running, tag, take,
-    trail,
+    How, Id, Kind, Lists, Located, Stamp, dropped, issue, item_show, kept_work, landing, running,
+    tag, take, trail,
 };
 use crate::text::note;
 use crate::tool::Tool;
 
-const USAGE: &str = "usage: builds item add --title T --area A --details-file F [--for design-session] [--wait REF]... [--brief P] [--priority first|last --why WHY] [--origin N] [--tag T]...\n       builds item edit N [--title T] [--area A] [--details-file F] [--brief P] [--for F] [--origin N] [--tag T]... [--untag T]...\n       builds item note N TEXT\n       builds item wait N (--on REF | --off REF [--blocks-nothing WHY])\n       builds item take N [M...] --worktree W --branch B --brief P [--as design-session]\n       builds item handoff N --brief P\n       builds item stop N --why WHY\n       builds item finished N --made WHAT\n       builds item drop N --why WHY\n       builds item defer N --issue URL\n       builds item place N first|last|none --why WHY\n       builds item check-landing DIR [--done N]... [--part N]... SHA...\n       builds item landed DIR [--done N]... [--part N]... SHA...\n       builds item show N\n       builds item list [--running] [--ready] [--area A] [--for F] [--tag T]\n       builds item times [N...]\n(REF is item:N, question:N, design:N or condition:TEXT)";
+const USAGE: &str = "usage: builds item add --title T --area A --details-file F [--for design-session] [--wait REF]... [--brief P] [--priority first|last --why WHY] [--origin N] [--tag T]...\n       builds item edit N [--title T] [--area A] [--details-file F] [--brief P] [--for F] [--origin N] [--tag T]... [--untag T]...\n       builds item note N TEXT\n       builds item wait N (--on REF | --off REF [--blocks-nothing WHY])\n       builds item take N [M...] [--worktree W --branch B] --brief P [--as design-session]\n       builds item handoff N --brief P\n       builds item stop N --why WHY\n       builds item finished N --made WHAT\n       builds item drop N --why WHY\n       builds item defer N --issue URL\n       builds item place N first|last|none --why WHY\n       builds item check-landing DIR [--done N]... [--part N]... SHA...\n       builds item landed DIR [--done N]... [--part N]... SHA...\n       builds item show N\n       builds item list [--running] [--ready] [--area A] [--for F] [--tag T]\n       builds item times [N...]\n(REF is item:N, question:N, design:N or condition:TEXT)";
 
 pub fn cmd_item(tool: &Tool, args: &[String]) -> Result<()> {
     let cwd = current_dir()?;
@@ -343,15 +343,50 @@ fn handoff(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     Ok(())
 }
 
+/// `item stop N --why WHY`: ends the item's run and puts it back in the
+/// queue. A worktree where the item ran, that holds work origin/main lacks
+/// (commits or files not committed) and where no other item runs, stays the
+/// item's: the item keeps the worktree and branch (lists/kept_work.rs), and
+/// stop removes the worktree's claim, since no agent works there. The next
+/// `item take` of the item runs it there again.
 fn stop(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     let args = Args::parse(args, &["why"], &[])?;
     let id = one_id(&args, "builds item stop N --why WHY")?;
     let why = args.why()?.to_string();
     let store = Store::resolve(&tool.places, &args, cwd)?;
     let stamp = Stamp::resolve(tool.now, &args, cwd)?;
+    let every = store::every_lists(&tool.places)?;
+    let kept = {
+        let lists = store.load()?;
+        let mut kept = Vec::new();
+        for running in &lists
+            .item(id)
+            .map(|i| i.running.clone())
+            .unwrap_or_default()
+        {
+            let shared = crate::lists::running::running_in_any(&every, &running.worktree)
+                .into_iter()
+                .any(|(lists, other)| !(lists.project == store.project && other.id == id));
+            let git = crate::side_git::read(Path::new(&running.worktree));
+            if let Some(error) = git.error {
+                fail!("reading {}: {error}", running.worktree);
+            }
+            if !shared && (!git.ahead.is_empty() || git.uncommitted.unwrap_or(0) > 0) {
+                kept.push(kept_work::KeptWork {
+                    worktree: running.worktree.clone(),
+                    branch: running.branch.clone(),
+                    since: stamp.clone(),
+                });
+            }
+        }
+        kept
+    };
     store.write(&stamp, &format!("item stop {id}"), |db| {
         open_item(&store::read(db)?, id)?;
         running::stop(db, id, &stamp)?;
+        if !kept.is_empty() {
+            kept_work::keep(db, id, &kept)?;
+        }
         add_note(
             db,
             id,
@@ -362,14 +397,49 @@ fn stop(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
             },
         )
     })?;
-    note(format!("stopped {id}; it is back in the queue"));
+    for place in &kept {
+        let checkout = crate::checkout::Checkout::find(&place.worktree)?;
+        if let Some(claim) = crate::claim::unclaim(&checkout)? {
+            note(format!(
+                "removed the claim on {}: {}",
+                place.worktree,
+                claim.text()
+            ));
+        }
+    }
+    if kept.is_empty() {
+        note(format!("stopped {id}; it is back in the queue"));
+    } else {
+        let words: Vec<String> = kept
+            .iter()
+            .map(|k| format!("{} on {}", k.worktree, k.branch))
+            .collect();
+        note(format!(
+            "stopped {id}; it is back in the queue and keeps {}",
+            words.join(" and ")
+        ));
+    }
     Ok(())
+}
+
+/// Refuses to <how> (a verb: drop, defer, close) <item> while it keeps a
+/// worktree: the worktree holds its commits and files.
+fn require_not_kept(item: &Item, how: &str) -> Result<()> {
+    if item.kept.is_empty() {
+        return Ok(());
+    }
+    let worktrees: Vec<&str> = item.kept.iter().map(|p| p.worktree.as_str()).collect();
+    fail!(
+        "{} keeps {}, which holds its commits and files; take it there and land the work before you {how} it",
+        item.id,
+        worktrees.join(" and ")
+    );
 }
 
 /// What stands in the way of item <id> leaving the queue without being done:
 /// an open item waits on it, or it is the last item an open question blocks.
 /// Names each and the command that frees it. Unless <work_goes> (a drop,
-/// which throws the item's work away), it also must not run.
+/// which throws the item's work away), it also must not run or be kept.
 fn require_can_leave(lists: &Lists, id: Id, how: &str, work_goes: bool) -> Result<()> {
     let item = open_item(lists, id)?;
     if !work_goes && !item.running.is_empty() {
@@ -379,6 +449,9 @@ fn require_can_leave(lists: &Lists, id: Id, how: &str, work_goes: bool) -> Resul
             worktrees.join(" and "),
             id.0
         );
+    }
+    if !work_goes {
+        require_not_kept(item, how)?;
     }
     lists.require_none_waits_on(RecordWait::Item(id), how)?;
     for question in &lists.questions {
@@ -410,6 +483,10 @@ fn finished(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     let store = Store::resolve(&tool.places, &args, cwd)?;
     let stamp = Stamp::resolve(tool.now, &args, cwd)?;
     store.write(&stamp, &format!("item finished {id}"), |db| {
+        let lists = store::read(db)?;
+        if let Some(item) = lists.item(id) {
+            require_not_kept(item, "close")?;
+        }
         running::end(db, id, running::Ended::Closed, &stamp)?;
         close(db, id, How::Finished(made.clone()), &stamp)
     })?;
@@ -418,8 +495,8 @@ fn finished(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
 }
 
 /// `item drop N --why WHY`: closes the item as dropped. drop refuses an item
-/// while another open item of any project runs in one of its
-/// worktrees (`dropped::require_alone`). When the item runs
+/// while another open item of any project runs or is kept in one of its
+/// worktrees (`dropped::require_alone`). When the item runs or is kept
 /// alone, the drop throws its work away: one store write closes the item
 /// and records each worktree's branch, the commits origin/main lacks and the
 /// files not committed, and then the drop detaches each worktree at
@@ -458,20 +535,28 @@ fn drop_item(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
         let lists = store::read(db)?;
         require_can_leave(&lists, id, "drop", true)?;
         let item = open_item(&lists, id)?;
-        let worktrees: Vec<&str> = item.running.iter().map(|r| r.worktree.as_str()).collect();
+        let worktrees: Vec<&str> = item
+            .running
+            .iter()
+            .map(|r| r.worktree.as_str())
+            .chain(item.kept.iter().map(|p| p.worktree.as_str()))
+            .collect();
         dropped::require_alone(
             other_projects.iter().chain([&lists]),
             &store.project,
             id,
             &worktrees,
         )?;
-        let works = item
+        let places = item
             .running
             .iter()
             .map(|r| (&r.worktree, &r.branch))
+            .chain(item.kept.iter().map(|p| (&p.worktree, &p.branch)));
+        let works = places
             .map(|(worktree, branch)| dropped::read(worktree, branch))
             .collect::<Result<Vec<_>>>()?;
         running::end(db, id, running::Ended::Closed, &stamp)?;
+        kept_work::end(db, id)?;
         close(db, id, How::Dropped(why.clone()), &stamp)?;
         dropped::record(db, id, &works)?;
         Ok(works)

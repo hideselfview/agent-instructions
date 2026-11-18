@@ -329,8 +329,10 @@ pub fn forget(checkout: &Checkout) -> Result<Option<Claim>> {
 }
 
 /// Removes <checkout>'s claim and keeps its project file, and returns the
-/// claim, or None when there was none. unclaim moves the claim to the
-/// worktree's last claim file, and kept.rs reads the time that claim began while the worktree has no claim.
+/// claim, or None when there was none: an item kept there (lists/kept.rs)
+/// keeps the worktree in its project for the agent that takes it next.
+/// unclaim moves the claim to the worktree's last claim file, and kept.rs
+/// reads the time that claim began while the worktree has no claim.
 pub fn unclaim(checkout: &Checkout) -> Result<Option<Claim>> {
     let file = checkout.claim_file();
     let Some(claim) = Claim::read(&file)? else {

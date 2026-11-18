@@ -154,18 +154,38 @@ pub fn require_side_worktree(path: &str) -> Result<(String, String, String)> {
     }
 }
 
+/// The table of the worktrees an item holds: where it runs, or where it
+/// keeps its unfinished work (lists/kept_work.rs). Both have one row per
+/// worktree, with its repo, parent folder, checkout name and branch.
+pub enum PlaceTable {
+    Running,
+    Kept,
+}
+
+impl PlaceTable {
+    fn name(&self) -> &'static str {
+        match self {
+            PlaceTable::Running => "running_place",
+            PlaceTable::Kept => "kept_work_place",
+        }
+    }
+}
+
 /// Writes <places>, each a side worktree and its branch, as item <id>'s rows
-/// of `running_place`: one per worktree, with its repo, parent folder,
-/// checkout name and branch.
-fn insert_places<'a>(
+/// of <table>.
+pub fn insert_places<'a>(
     db: &Connection,
+    table: PlaceTable,
     id: Id,
     places: impl IntoIterator<Item = (&'a str, &'a str)>,
 ) -> Result<()> {
     for (worktree, branch) in places {
         let (parent, repo, checkout) = require_side_worktree(worktree)?;
         db.execute(
-            "INSERT INTO running_place (item_id, repo, parent, checkout, branch) VALUES (?1, ?2, ?3, ?4, ?5)",
+            &format!(
+                "INSERT INTO {} (item_id, repo, parent, checkout, branch) VALUES (?1, ?2, ?3, ?4, ?5)",
+                table.name()
+            ),
             params![id, repo, parent, checkout, branch],
         )
         .sql()?;
@@ -193,6 +213,7 @@ pub fn start(db: &Connection, ids: &[Id], places: &[Running]) -> Result<()> {
         .sql()?;
         insert_places(
             db,
+            PlaceTable::Running,
             *id,
             places
                 .iter()
@@ -577,25 +598,31 @@ pub fn findings(
     Ok(findings)
 }
 
-/// What the move from before builds dropped the parked state did with one
-/// parked item.
-#[derive(Debug, PartialEq, Eq)]
-pub struct WasParked {
-    pub item: Id,
-    /// Each worktree and branch the item was parked in.
-    pub places: Vec<(String, String)>,
-}
+/// An item and the worktree and branch of each place it keeps.
+pub type KeptByItem = (Id, Vec<(String, String)>);
 
-/// Drops `parked` and `parked_place` from a store that has them. A parked
-/// item becomes a ready item that holds no worktree: its worktree keeps the
-/// work, which builds keeps with the worktree (an unclaimed worktree with
-/// commits is never handed out or retired), and the item gets a note, at
-/// <now>, that names each worktree and branch it was parked in. Returns each
-/// parked item, so the move can say what it did. migrate.rs runs this with
-/// the foreign keys off.
-pub fn move_to_no_park(db: &Connection, now: i64) -> Result<Vec<WasParked>> {
+/// Makes `kept_work` and `kept_work_place` from the `parked` and
+/// `parked_place` of a store from before builds named what an item keeps:
+/// each parked item keeps the same worktrees, branches and moment. Returns
+/// each item's place, so the move can say what it did. migrate.rs runs this
+/// with the foreign keys off.
+pub fn move_to_kept_work(db: &Connection) -> Result<Vec<KeptByItem>> {
+    const SQL: &str = include_str!("kept_work.sql");
+    let tables = crate::db::statement(SQL, "CREATE TABLE kept_work (", "STRICT;");
+    let places = crate::db::statement(
+        SQL,
+        "CREATE TABLE kept_work_place (",
+        "STRICT, WITHOUT ROWID;",
+    );
+    let index = crate::db::statement(SQL, "CREATE INDEX kept_work_place_worktree", ";");
+    db.execute_batch(&format!(
+        "{tables}\n{places}\n{index}
+INSERT INTO kept_work (item_id, since_at, since_by) SELECT item_id, since_at, since_by FROM parked;
+INSERT INTO kept_work_place (item_id, repo, parent, checkout, branch) SELECT item_id, repo, parent, checkout, branch FROM parked_place;"
+    ))
+    .sql()?;
     let mut statement = db
-        .prepare("SELECT item_id, worktree, branch FROM parked_place ORDER BY item_id, repo")
+        .prepare("SELECT item_id, worktree, branch FROM kept_work_place ORDER BY item_id, repo")
         .sql()?;
     let rows = statement
         .query_map([], |row| {
@@ -605,44 +632,23 @@ pub fn move_to_no_park(db: &Connection, now: i64) -> Result<Vec<WasParked>> {
             ))
         })
         .sql()?;
-    let mut parked: Vec<WasParked> = Vec::new();
+    let mut kept: Vec<KeptByItem> = Vec::new();
     for row in rows {
         let (item, place) = row.sql()?;
-        match parked.last_mut() {
-            Some(last) if last.item == item => last.places.push(place),
-            _ => parked.push(WasParked {
-                item,
-                places: vec![place],
-            }),
+        match kept.last_mut() {
+            Some((last, places)) if *last == item => places.push(place),
+            _ => kept.push((item, vec![place])),
         }
     }
     drop(statement);
-    for was in &parked {
-        let words: Vec<String> = was
-            .places
-            .iter()
-            .map(|(worktree, branch)| format!("{worktree} on {branch}"))
-            .collect();
-        db.execute(
-            "INSERT INTO item_note (item_id, at, by, text) VALUES (?1, ?2, 'builds', ?3)",
-            params![
-                was.item,
-                now,
-                format!(
-                    "builds dropped the parked state: this item was parked in {} and now waits in the queue; its work stays there, where no agent claims it",
-                    words.join(" and ")
-                )
-            ],
-        )
-        .sql()?;
-    }
     db.execute_batch("DROP TABLE parked_place; DROP TABLE parked;")
         .sql()?;
-    Ok(parked)
+    Ok(kept)
 }
 
 /// Makes `item_run` again without the run that ended as parked: those runs
-/// become runs that ended as stopped, since a park ended a run as a stop does.
+/// become runs that ended as stopped, since keeping an item's work ended a
+/// run as a stop does.
 /// migrate.rs runs this with the foreign keys off, in a store that has
 /// `item_run` in its older shape.
 pub fn move_to_runs_without_park(db: &Connection) -> Result<()> {

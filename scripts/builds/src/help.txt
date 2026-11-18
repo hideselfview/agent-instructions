@@ -238,8 +238,8 @@ it: whoever hands out the worktree (a coordinator dispatching an agent, or the
 person) claims it. A landing that leaves nothing to land releases it (`builds
 land`); whoever handed it out releases it when the work stops, once the
 worktree holds nothing origin/main lacks: release refuses a worktree when
-releasing it would leave its work with no claim and no item (`builds item take`
-gives the work an item). A local branch with commits waiting to
+releasing it would leave its work with no claim and no item (`builds item stop`
+keeps the work with its item instead). A local branch with commits waiting to
 land that no worktree checks out and no open item names is work left behind
 too: `builds health` lists it, with `builds new <repo> --resume <branch>` to
 check it out in a worktree. A claim is a file in the worktree's git dir, so
@@ -267,9 +267,10 @@ A note set without --state has no state, so writing the next note clears the
 state. Claiming the worktree again for the same <who> renews the claim's date
 and keeps the note.
 
-The dashboard gives each side worktree the first state that matches: Can't
-read what this worktree waits on (the daemon could not read what a running
-item waits on, and the card says why), Waiting on you
+The dashboard gives each side worktree the first state that matches: Ready
+(no claim, and an open item keeps the worktree with its unfinished work:
+`builds item stop`, `builds help lists`), Can't read what this worktree waits on (the daemon could
+not read what a running item waits on, and the card says why), Waiting on you
 (the claim's note says so, a running item waits on a question or on a design
 change the person has not approved, or the worktree's commits are a design
 change the person has not approved), Paused (the claim's note has --state
@@ -296,7 +297,7 @@ cherry-picks it.
                               post-checkout, which builds nothing. A free
                               worktree is not an app checkout, has no claim,
                               and passes the check `release` makes: no item of
-                              any project runs in it, its tree is
+                              any project runs in or keeps it, its tree is
                               clean, no `git commit` runs there, and every
                               commit on its HEAD and on each branch it left
                               since its last claim began is on origin/main by
@@ -325,8 +326,8 @@ cherry-picks it.
                               record that <who> works in the side worktree
                               (--project as for `new`; a claim renewed without
                               it keeps its project). When builds removes a
-                              claim (`release`, a landing or `builds item
-                              drop`), the worktree keeps it as its last
+                              claim (`release`, a landing, `builds item stop`
+                              or `drop`), the worktree keeps it as its last
                               claim, and `new` counts the branches the
                               worktree left from that claim's start
   builds note <checkout> [--state waiting-on-you|winding-down|held] [<text>]
@@ -352,14 +353,17 @@ cherry-picks it.
                               HEAD past origin/main counts too. The refusal
                               names the commits, the files and each `git commit`
                               that runs, and the commands that keep the work:
-                              land it, or take an item there (`builds item
-                              take`, with --held when the item waits on
-                              something open). Only the person throws work
+                              land it, stop its item (`builds item stop`),
+                              which keeps the worktree for the item, or take
+                              an item there (`builds item take`, with --held
+                              when the item waits on something open). An item
+                              that keeps the worktree holds all of it. Only the
+                              person throws work
                               away, by dropping its item. `new` hands out no
                               worktree that this check would refuse
   builds retire <checkout>    remove a clean, unclaimed side worktree and its
                               build root; refuses an app checkout, a worktree
-                              an item runs in, and one that
+                              an item runs in or keeps, and one that
                               `release` would refuse for its work: commits on
                               its HEAD or on a branch it left since its last
                               claim began, or files not committed
@@ -1336,7 +1340,7 @@ STATUS, HEALTH AND THE DASHBOARD
                               person does first);
                               a local branch with commits waiting to land
                               that no worktree checks out and no open item of
-                              any project runs in (`builds
+                              any project runs in or keeps (`builds
                               new <repo> --resume <branch>`);
                               a claimed worktree with no change and no build
                               for an hour (counted from its claim, if later); a lists store that fails its check;
@@ -1445,7 +1449,8 @@ STATUS, HEALTH AND THE DASHBOARD
                               shows the item's priority (first, last or
                               none) and, when the pointer rests on the
                               priority, the reason for it; then how many
-                              items wait behind it and what it waits on. Under the tag bar, Waiting
+                              items wait behind it, which worktree it keeps and
+                              what it waits on. Under the tag bar, Waiting
                               on you sorts its questions by the stack's
                               order (the default), by what they block (most
                               items waiting first), by age (oldest first)

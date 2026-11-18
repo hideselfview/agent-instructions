@@ -446,7 +446,7 @@ a.l-ref:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; b
 "use strict";
 // The states the daemon derives for each side worktree (worktree_state in
 // model.rs), in the order the cards sort.
-const ORDER = ["waiting-on-you", "waits-unread", "ready-to-land", "in-review", "queued", "winding-down", "working", "held", "free"];
+const ORDER = ["waiting-on-you", "waits-unread", "ready-to-land", "in-review", "queued", "winding-down", "working", "held", "kept", "free"];
 const LISTS_HIDDEN_KEY = "builds-dashboard-lists-hidden";
 let state = null, streamError = "", connectionDown = false;
 let hooks = null, hooksError = "";
@@ -802,7 +802,7 @@ function queuedNote(words) {
 function worktreeCard(c) {
   const g = c.git, a = c.activity, building = a.processes.length > 0;
   const words = c.words, chip = words.chip, queued = words.queued;
-  const tone = queued ? " queued" : ["in-review", "held", "waits-unread"].includes(c.state) ? " inreview" : chip === "Ready to land" ? " ready" : chip === "Waiting on you" ? " you" : chip ? " building" : "";
+  const tone = queued ? " queued" : ["in-review", "held", "waits-unread"].includes(c.state) ? " inreview" : chip === "Ready to land" || chip === "Ready" ? " ready" : chip === "Waiting on you" ? " you" : chip ? " building" : "";
   return h("article", {class: "wt-card"},
     h("div", {class: "bar" + tone},
       h("span", {class: "grp"}, chip ? h("span", queued ? {class: "state", title: queued.line} : {class: "state"}, chip,
@@ -1714,10 +1714,11 @@ function isReady(it) { return !isRunning(it) && it.for === "coordinator" && it.s
 function unmet(it) { return it.waits.filter(w => !w.met); }
 function waitName(w) { return w.kind === "condition" ? w.text : w.title + " #" + w.id; }
 function waitLink(w) { return w.kind === "condition" ? document.createTextNode(w.text) : recLink(w.id, w.title + " #" + w.id); }
-// An item's row line: its priority, how many items wait behind it and what
-// it waits on.
+// An item's row line: its priority, how many items wait behind it, the
+// worktree it keeps and what it waits on.
 function itemFacts(it) {
-  const parts = [behindWords(it.behind)];
+  const parts = [behindWords(it.behind),
+    ...it.kept.map(p => "keeps " + p.worktree.split("/").slice(-2).join("/") + " on " + p.branch)];
   const waits = unmet(it);
   if (waits.length) parts.push("waits on " + waits.map(waitName).join("; "));
   return h("div", {class: "l-rowfact"}, priorityWords(it.priority), " · " + parts.join(" · "));
@@ -1728,6 +1729,7 @@ function itemBody(it) {
     h("ul", {class: "l-list"}, it.waits.map(w => h("li", {}, waitLink(w), w.met ? " (met)" : "")))));
   if (it.priority) facts.push(fact("Priority " + it.priority.level + ":", it.priority.why));
   if (it.brief) facts.push(fact("Brief", mono(it.brief)));
+  for (const p of it.kept) facts.push(fact("Keeps", mono(p.worktree), " on ", mono(p.branch), ", since " + stamp(p.since.at)));
   for (const l of it.landed) facts.push(fact("Landed in " + repoDisplayName(l.repo) + ":", mono(l.commits.join(" ")), " " + stamp(l.at)));
   const notes = it.notes.length ? h("div", {class: "l-facts"}, it.notes.map(n =>
     h("div", {class: "l-fact"}, h("span", {class: "k"}, stamp(n.at) + " " + n.by + ":"), " ", inline(n.text)))) : null;
@@ -1735,7 +1737,7 @@ function itemBody(it) {
     md(it.details), facts.length ? h("div", {class: "l-facts"}, facts) : null, notes, opened(it, "Added"));
 }
 // An item's row shows, closed, its title and trail, then its priority, what
-// waits behind it and what it waits on; opened, it adds
+// waits behind it, which worktree it keeps and what it waits on; opened, it adds
 // the rest of the item.
 function itemRow(it) {
   return fold("i:" + it.id, it.id,

@@ -5,7 +5,7 @@
 //! This file is the whole state as one snapshot and the owners' types
 //! re-exported. Each owner holds its types, its tables (the `.sql` file beside
 //! it) and every write to them: `record` (ids, stamps, closing), `project`,
-//! `area`, `item` with `running`, `landing` and `dropped`, `question`, `decision`,
+//! `area`, `item` with `running`, `kept_work`, `landing` and `dropped`, `question`, `decision`,
 //! `design`, `tag` (the tags of questions and items), `spec_check` (the
 //! checks of briefs against the product spec), `store` (the write log). `trail` reads where each question and item came from. Their commands
 //! are `command`,
@@ -39,6 +39,7 @@ mod item_command;
 #[cfg(test)]
 pub mod item_fixtures;
 mod item_show;
+pub mod kept_work;
 pub mod landing;
 pub mod project;
 pub mod question;

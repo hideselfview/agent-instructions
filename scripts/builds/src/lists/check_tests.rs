@@ -194,6 +194,61 @@ fn a_worktree_that_holds_two_branches_of_work_is_a_fault_and_one_branch_for_two_
     );
 }
 
+fn kept(worktree: &str, branch: &str) -> crate::lists::kept_work::KeptWork {
+    crate::lists::kept_work::KeptWork {
+        worktree: worktree.into(),
+        branch: branch.into(),
+        since: stamp(NOON),
+    }
+}
+
+/// An item that keeps a worktree holds its worktree alone and is never running or closed.
+#[test]
+fn an_item_that_keeps_a_worktree_that_shares_its_worktree_runs_or_is_closed_is_a_fault() {
+    use crate::lists::kept_work::keep;
+    let db = db();
+    let a = item(&db, vec![]);
+    let b = item(&db, vec![]);
+    keep(&db, a, &[kept("/d/bae-worktrees/side-1", "work")]).unwrap();
+    assert_eq!(faults_of(&db), Vec::<String>::new());
+    start(&db, &[b], &[running("/d/bae-worktrees/side-1", "work")]).unwrap();
+    assert_eq!(
+        faults_of(&db),
+        [format!(
+            "worktree /d/bae-worktrees/side-1 holds the kept work of item {a} and item {b}"
+        )]
+    );
+    crate::lists::running::end(&db, b, Ended::Stopped, &stamp(NOON)).unwrap();
+    start(&db, &[a], &[running("/d/bae-worktrees/side-1", "work")]).unwrap();
+    assert_eq!(
+        faults_of(&db),
+        [format!("item {a} both runs and keeps a worktree")]
+    );
+    crate::lists::running::end(&db, a, Ended::Closed, &stamp(NOON)).unwrap();
+    close(&db, a, How::Landed(vec![sha('a')]), &stamp(NOON)).unwrap();
+    assert_eq!(
+        faults_of(&db),
+        [format!("item {a} is closed and still keeps a worktree")]
+    );
+}
+
+/// A kept branch counts as the worktree's one branch of work.
+#[test]
+fn a_kept_branch_and_a_running_branch_in_one_worktree_are_a_fault() {
+    let db = db();
+    let a = item(&db, vec![]);
+    let b = item(&db, vec![]);
+    crate::lists::kept_work::keep(&db, a, &[kept("/d/bae-worktrees/side-1", "work")]).unwrap();
+    start(&db, &[b], &[running("/d/bae-worktrees/side-1", "other")]).unwrap();
+    let found = faults_of(&db);
+    assert!(
+        found
+            .iter()
+            .any(|fault| fault.contains("/d/bae-worktrees/side-1 holds two branches of work")),
+        "{found:?}"
+    );
+}
+
 /// Dropped work belongs to an item closed as dropped.
 #[test]
 fn dropped_work_on_an_item_not_closed_as_dropped_is_a_fault() {

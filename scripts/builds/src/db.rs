@@ -68,8 +68,12 @@ pub const HOOK_CHECK_STARTS_PART: &str = include_str!("hook_check_starts.sql");
 /// the last part of the schema.
 pub const CARGO_RUNS_PART: &str = include_str!("cargo_run.sql");
 
-/// The work an item held when the person dropped it (lists/dropped.sql); the
+/// Where open items keep a worktree with no agent (lists/kept_work.sql); the
 /// schema holds it after the cargo runs' part.
+pub const KEPT_WORK_PART: &str = include_str!("lists/kept_work.sql");
+
+/// The work an item held when the person dropped it (lists/dropped.sql); the
+/// schema holds it after the kept work's part.
 pub const DROPPED_PART: &str = include_str!("lists/dropped.sql");
 
 /// The checks of briefs against the product spec (lists/spec_check.sql); the
@@ -83,11 +87,11 @@ pub const ACK_PART: &str = include_str!("ack/record.sql");
 /// The whole schema: the lists' tables, then the hook stats', then the
 /// app-build timings', then the design changes' recording sessions', then the
 /// stored shot findings, then the review's, then the hook checks' starting
-/// loads, then the cargo runs', then the dropped
+/// loads, then the cargo runs', then the kept work's, then the dropped
 /// items' work, then the spec checks', then the acknowledgements'.
 pub fn schema() -> String {
     format!(
-        "{}\n{REVIEW_PART}\n{HOOK_CHECK_STARTS_PART}\n{CARGO_RUNS_PART}\n{DROPPED_PART}\n{SPEC_CHECK_PART}\n{ACK_PART}",
+        "{}\n{REVIEW_PART}\n{HOOK_CHECK_STARTS_PART}\n{CARGO_RUNS_PART}\n{KEPT_WORK_PART}\n{DROPPED_PART}\n{SPEC_CHECK_PART}\n{ACK_PART}",
         schema_before_review()
     )
 }

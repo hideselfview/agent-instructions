@@ -270,6 +270,11 @@ pub fn retire_checkout(tool: &Tool, checkout: &Checkout) -> Result<()> {
     let every = crate::lists::store::every_lists(&tool.places)?;
     let commits = crate::procs::git_commits(&crate::procs::Processes::read()?);
     let kept = crate::kept::read(&every, checkout, &commits)?;
+    if let Some(keeping) = kept.keeping.first() {
+        fail!(
+            "{top} holds the work of {keeping}, which keeps it; take the item there (`builds item take`) to work on it"
+        );
+    }
     kept.require_leavable("retire", &checkout.top)?;
     run_checked(
         git(&checkout.main)

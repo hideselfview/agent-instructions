@@ -677,6 +677,121 @@ fn finished_closes_a_running_item_with_what_it_made() {
     assert!(refusal(item(&demo, &["finished", "9", "--made", "nothing"])).contains("not a record"));
 }
 
+/// Stopping an item that ran where work is left keeps the worktree for it:
+/// the item stops running, its worktree loses its claim, `next` lists the
+/// worktree, and health says nothing of the unclaimed worktree's commits.
+/// Taking the item without --worktree runs it there again.
+#[test]
+fn stop_keeps_the_worktree_of_unfinished_work_and_take_runs_the_item_there_again() {
+    let demo = demo("item-stop-keeps");
+    let side = demo.add_side(1, "agent A", "work");
+    let side_arg = side.display().to_string();
+    let checkout = Checkout::find(&side_arg).unwrap();
+    crate::setup::setup(&demo.tool, &checkout).unwrap();
+    demo.commit(&side, "unlanded");
+    add(&demo, FIVE, &[]).unwrap();
+    let brief = demo.brief("b.md");
+    item(&demo, &take_args(&side_arg, &brief, &["1"], "work")).unwrap();
+
+    item(&demo, &["stop", "1", "--why", "the agent ran out of room"]).unwrap();
+    let lists = open(&demo);
+    let stopped = &lists.items[0];
+    assert!(stopped.running.is_empty(), "a stopped item still runs");
+    assert_eq!(
+        stopped
+            .kept
+            .iter()
+            .map(|p| (p.worktree.as_str(), p.branch.as_str()))
+            .collect::<Vec<_>>(),
+        [(side_arg.as_str(), "work")]
+    );
+    assert!(
+        crate::claim::Claim::read(&checkout.claim_file())
+            .unwrap()
+            .is_none(),
+        "the kept worktree kept its agent's claim"
+    );
+    let next = crate::lists::item_show::next_text(&lists, Audience::Coordinator);
+    assert!(
+        next.contains(FIVE) && next.contains(&format!("keeps {side_arg} on work")),
+        "{next}"
+    );
+    let health = crate::health::health(&demo.tool).unwrap();
+    assert!(
+        health
+            .findings
+            .iter()
+            .all(|finding| !finding.advice.text.contains("has no claim")),
+        "{:?}",
+        health.findings
+    );
+
+    crate::claim::cmd_claim(
+        &demo.tool.places,
+        &[side_arg.clone(), "agent B".into()],
+        NOON,
+    )
+    .unwrap();
+    item(&demo, &["take", "1", "--brief", &brief]).unwrap();
+    let taken = &open(&demo).items[0];
+    assert!(taken.kept.is_empty(), "a taken item kept its worktree");
+    assert_eq!(taken.running[0].worktree, side_arg);
+}
+
+/// Stopping an item whose worktree holds nothing origin/main lacks keeps
+/// nothing and leaves the claim.
+#[test]
+fn stop_keeps_no_worktree_that_holds_no_work() {
+    let demo = demo("item-stop-clean");
+    let side = demo.add_side(1, "agent A", "work");
+    let side_arg = side.display().to_string();
+    let checkout = Checkout::find(&side_arg).unwrap();
+    add(&demo, FIVE, &[]).unwrap();
+    let brief = demo.brief("b.md");
+    item(&demo, &take_args(&side_arg, &brief, &["1"], "work")).unwrap();
+    item(&demo, &["stop", "1", "--why", "wrong start"]).unwrap();
+    assert!(open(&demo).items[0].kept.is_empty());
+    assert!(
+        crate::claim::Claim::read(&checkout.claim_file())
+            .unwrap()
+            .is_some()
+    );
+    let said = refusal(item(&demo, &["take", "1", "--brief", &brief]));
+    assert!(said.contains("keeps no worktree"), "{said}");
+}
+
+/// take refuses another worktree for an item that keeps one and another item
+/// for a kept worktree; finished refuses an item that keeps a worktree.
+#[test]
+fn take_and_finished_refuse_what_would_split_an_item_from_its_kept_work() {
+    let demo = demo("item-stop-refuse");
+    let one = demo.add_side(1, "agent A", "work");
+    let two = demo.add_side(2, "agent B", "other");
+    let (one_arg, two_arg) = (one.display().to_string(), two.display().to_string());
+    let brief = demo.brief("b.md");
+    add(&demo, FIVE, &[]).unwrap();
+    add(&demo, "Do the second thing now", &[]).unwrap();
+    add(&demo, "Do the third thing now", &[]).unwrap();
+    item(&demo, &take_args(&two_arg, &brief, &["2"], "other")).unwrap();
+    demo.commit(&two, "unlanded");
+    item(&demo, &["stop", "2", "--why", "the agent ran out of room"]).unwrap();
+    crate::claim::cmd_claim(
+        &demo.tool.places,
+        &[two_arg.clone(), "agent C".into()],
+        NOON,
+    )
+    .unwrap();
+    let wrong_item = refusal(item(&demo, &take_args(&two_arg, &brief, &["3"], "other")));
+    assert!(wrong_item.contains("kept work of #2"), "{wrong_item}");
+    let wrong_place = refusal(item(&demo, &take_args(&one_arg, &brief, &["2"], "work")));
+    assert!(
+        wrong_place.contains(&format!("keeps its work in {two_arg} on other")),
+        "{wrong_place}"
+    );
+    let said = refusal(item(&demo, &["finished", "2", "--made", "nothing"]));
+    assert!(said.contains("keeps"), "{said}");
+}
+
 /// In a repo two projects hold, an item of the project the claim does not
 /// name still holds the worktree: release refuses, and health does not say
 /// to release it.
@@ -786,6 +901,30 @@ fn drop_records_and_throws_away_a_running_items_work() {
     )
     .unwrap();
     assert!(branches.trim().is_empty(), "the branch stayed: {branches}");
+}
+
+/// Dropping an item that keeps a worktree throws away the work in it the
+/// same way.
+#[test]
+fn drop_throws_away_a_kept_worktrees_work() {
+    let demo = demo("item-drop-kept");
+    let side = demo.add_side(1, "agent A", "work");
+    let side_arg = side.display().to_string();
+    let brief = demo.brief("b.md");
+    add(&demo, FIVE, &[]).unwrap();
+    item(&demo, &take_args(&side_arg, &brief, &["1"], "work")).unwrap();
+    demo.commit(&side, "unlanded");
+    item(&demo, &["stop", "1", "--why", "the agent ran out of room"]).unwrap();
+    item(&demo, &["drop", "1", "--why", "no longer wanted"]).unwrap();
+    let lists = open(&demo);
+    assert!(lists.items.is_empty());
+    let checkout = Checkout::find(&side_arg).unwrap();
+    assert_eq!(checkout.branch().unwrap(), None);
+    assert!(
+        crate::side_git::waiting_to_land(&side, "HEAD")
+            .unwrap()
+            .is_empty()
+    );
 }
 
 /// When git fails to throw the work away, the drop has already closed the
@@ -1039,9 +1178,10 @@ fn release_and_health_wait_for_a_git_commit_that_runs_in_the_worktree() {
     cmd_release(&demo.tool.places, &[side.display().to_string()]).unwrap();
 }
 
-/// Release removes the claim of a worktree whose work landed.
+/// Release removes the claim of a worktree whose work an item keeps, or
+/// whose work landed.
 #[test]
-fn release_lets_go_of_landed_work() {
+fn release_lets_go_of_kept_or_landed_work() {
     let demo = demo("release-ok");
     let side = demo.add_side(1, "agent A", "work");
     let side_arg = side.display().to_string();
@@ -1050,6 +1190,21 @@ fn release_lets_go_of_landed_work() {
     crate::testing::git(&demo.main, &["push", "-q", "origin", "main"]);
     crate::testing::git(&side, &["fetch", "-q", "origin"]);
     cmd_release(&demo.tool.places, std::slice::from_ref(&side_arg)).unwrap();
+
+    let two = demo.add_side(2, "agent B", "other");
+    let two_arg = two.display().to_string();
+    add(&demo, FIVE, &[]).unwrap();
+    let brief = demo.brief("b.md");
+    item(&demo, &take_args(&two_arg, &brief, &["1"], "other")).unwrap();
+    demo.commit(&two, "unlanded");
+    item(&demo, &["stop", "1", "--why", "the agent ran out of room"]).unwrap();
+    crate::claim::cmd_claim(
+        &demo.tool.places,
+        &[two_arg.clone(), "agent C".into()],
+        NOON,
+    )
+    .unwrap();
+    cmd_release(&demo.tool.places, &[two_arg]).unwrap();
 }
 
 /// The findings about loose branches that health reports for <demo>.

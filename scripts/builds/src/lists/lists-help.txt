@@ -207,13 +207,15 @@ runs in (plans are in no commit); an absolute path is itself.
       waits on N needs --blocks-nothing WHY, the reason N stays open, and wait
       refuses --blocks-nothing while another open item waits on N.
 
-  builds item take N [M...] --worktree W --branch B [--worktree W2 --branch B2]
+  builds item take N [M...] [--worktree W --branch B [--worktree W2 --branch B2]]
                     --brief P [--as design-session] [--held WHY]
                     [--spec-decided N] [--rules-root DIR] [--reviewer PROGRAM]
       Marks the items running. W is a claimed side worktree of a project repo
       (the claim names the agent; the item stores none) and B a branch of it.
       Work that spans repos names one worktree and branch per repo, the nth
-      --branch for the nth --worktree, and the item runs in all of them.
+      --branch for the nth --worktree, and the item runs in all of them. An
+      item that keeps worktrees (`item stop`) is taken without --worktree and
+      --branch, in the worktrees it keeps, and nowhere else.
       Refused for an item that waits, one already running (stop it first), a
       design-session item without --as design-session, a worktree already
       running another branch, and two worktrees of one repo. --held WHY takes
@@ -246,13 +248,24 @@ runs in (plans are in no commit); an absolute path is itself.
       runs in.
 
   builds item stop N --why WHY
-      Puts the item back in the queue, out of every worktree; the why is a
-      note.
+      Puts the item back in the queue; the why is a note. A worktree where
+      the item ran that holds work origin/main lacks (commits, or files not
+      committed), and where no other item runs, stays the item's: the item
+      keeps its worktree and branch with no agent, and stop removes the
+      worktree's claim and keeps its project. The item waits in the queue,
+      ready, and its card on the dashboard says Ready. A kept worktree
+      belongs to its item: `item take` of the item without --worktree and
+      --branch runs it there again (claim the worktree for the agent first),
+      take refuses the item in any other worktree and any other item in the
+      kept worktree, and `builds new`, `prune`, `retire` and `release` never
+      hand it out or remove it. `item show` and `builds next` name the
+      worktree and branch an item keeps.
 
   builds item finished N --made WHAT
       Closes an open item whose work made no commits (an audit, research) as
       finished, with what it made (items, stack entries, notes), and removes
-      it from every worktree it runs in. A finished item frees the items that
+      it from every worktree it runs in. finished refuses an item that keeps a worktree,
+      which holds its work. A finished item frees the items that
       wait on it, as a landed item does.
 
   builds item drop N --why WHY | builds item defer N --issue URL
@@ -260,12 +273,13 @@ runs in (plans are in no commit); an absolute path is itself.
       message names them and the `item wait --off` that frees each), or when
       it is the last item an open question blocks (`item wait N --off
       question:Q --blocks-nothing WHY` frees it). defer also refuses an item
-      that runs, and needs an open GitHub issue. The person drops
+      that runs or keeps a worktree, and needs an open GitHub issue. The person drops
       an item to throw its work away. drop refuses an item while another open
-      item of any project runs in one of its worktrees, since the
+      item of any project runs in or keeps one of its worktrees, since the
       work there is that item's too: `builds item stop N` ends the item's run
       and leaves the work to the other items, and a drop of an item that runs
-      nowhere throws nothing away. For each worktree the item runs in, drop first closes the item and records on it the branch,
+      nowhere throws nothing away. For each worktree the item runs in or
+      keeps, drop first closes the item and records on it the branch,
       the commits on it and on HEAD that origin/main lacks and the files not
       committed, in one store write that saves all of it or none. Then drop
       detaches the worktree at origin/main, discards those files (ignored ones
@@ -334,7 +348,8 @@ runs in (plans are in no commit); an absolute path is itself.
       and whose waits are met, in the same order (an item placed last waits
       for the design session's other open items, as the coordinator's waits
       for its own); without it, the coordinator's items, and the design
-      session's never appear. `item list
+      session's never appear. An item that
+      keeps a worktree names the worktree and branch its work waits in. `item list
       --ready` uses the same order.
 
   builds area add NAME [--after AREA] | rename OLD NEW | move NAME --after AREA

@@ -302,8 +302,9 @@ const BEFORE_REVIEW_CIRCLES_STAMP: i64 = 1_361_574_994;
 /// each review run used.
 const BEFORE_RUNS_WITHOUT_GROUPING_STAMP: i64 = 341_419_053;
 
-/// The stamp of the schema before builds dropped the parked state.
-const BEFORE_NO_PARK_STAMP: i64 = 169_234_983;
+/// The stamp of the schema before builds named the work an item keeps: the
+/// store had `parked` and `parked_place`, and a run could end as parked.
+const BEFORE_KEPT_WORK_STAMP: i64 = 169_234_983;
 
 /// Every stamp a store can carry that `move_store` moves, oldest schema first.
 /// A new move adds the stamp of the schema before it at the end.
@@ -351,7 +352,7 @@ const STAMPS: [i64; 44] = [
     BEFORE_ONE_SECTION_STAMP,
     BEFORE_REVIEW_CIRCLES_STAMP,
     BEFORE_RUNS_WITHOUT_GROUPING_STAMP,
-    BEFORE_NO_PARK_STAMP,
+    BEFORE_KEPT_WORK_STAMP,
 ];
 
 /// Whether a store stamped <found> comes before the move that follows the
@@ -721,8 +722,9 @@ fn move_store(places: &Places, path: &Path, now: i64) -> Result<()> {
         crate::lists::question::move_to_ranks(&tx)?;
     }
     // Only a store from just before builds checked briefs against the spec,
-    // or after, has the dropped items' tables.
+    // or after, has the kept work's and dropped items' tables.
     if before(found, BEFORE_PARKED_STAMP) {
+        tx.execute_batch(db::KEPT_WORK_PART).sql()?;
         tx.execute_batch(db::DROPPED_PART).sql()?;
     }
     // Only a store from just before the coordinator could settle a finding
@@ -927,28 +929,26 @@ fn move_store(places: &Places, path: &Path, now: i64) -> Result<()> {
     {
         crate::review::record::move_to_runs_without_grouping(&tx)?;
     }
-    // A store that had `parked` (from after items could park) loses the
-    // parked state: each parked item becomes a ready item with a note that
-    // names where it was parked, and the move tells each. An older store got
-    // no `parked` above.
-    if !before(found, BEFORE_PARKED_STAMP) && before(found, BEFORE_NO_PARK_STAMP) {
-        for was in crate::lists::running::move_to_no_park(&tx, now)? {
-            let places: Vec<String> = was
-                .places
+    // A store that had `parked` (from after items could park) gets the same
+    // places in `kept_work`: each parked item keeps the worktrees and
+    // branches it was parked in, and the move tells each. An older store got
+    // today's tables above.
+    if !before(found, BEFORE_PARKED_STAMP) && before(found, BEFORE_KEPT_WORK_STAMP) {
+        for (item, places) in crate::lists::running::move_to_kept_work(&tx)? {
+            let places: Vec<String> = places
                 .iter()
                 .map(|(worktree, branch)| format!("{worktree} on {branch}"))
                 .collect();
             crate::text::note(format!(
-                "{}: item {} was parked in {}; builds dropped the parked state, so the item waits in the queue as a ready item, its work stays in the worktree, and a note on the item says where",
+                "{}: item {item} keeps {}, where it was parked",
                 path.display(),
-                was.item,
                 places.join(" and ")
             ));
         }
     }
     // A store that had `item_run` before runs could not end as parked gets it
     // again; an older store got today's `item_run` above.
-    if !before(found, BEFORE_RUN_TIMES_STAMP) && before(found, BEFORE_NO_PARK_STAMP) {
+    if !before(found, BEFORE_RUN_TIMES_STAMP) && before(found, BEFORE_KEPT_WORK_STAMP) {
         crate::lists::running::move_to_runs_without_park(&tx)?;
     }
     tx.pragma_update(None, "user_version", db::stamp()).sql()?;

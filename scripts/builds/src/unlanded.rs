@@ -4,8 +4,8 @@
 //! three), so a session can't drop the work by releasing. `builds health`
 //! lists each local branch that holds such work while no worktree checks it
 //! out and no open item names it (`loose_branches`, `unheld`). Work leaves a
-//! worktree only by landing, by an item that holds it (running, or running held
-//! on the person), or by the person dropping that item
+//! worktree only by landing, by an item that holds it (running held on the
+//! person, or kept), or by the person dropping that item
 //! (lists/dropped.rs).
 
 use std::collections::{BTreeSet, HashMap};
@@ -87,7 +87,7 @@ fn branches_left(top: &Path, since: i64) -> Result<Vec<String>> {
 /// The work in <checkout> that origin/main lacks and no open item holds:
 /// HEAD's commits, the commits of each branch the worktree left since
 /// <since> (its claim's start) that no worktree checks out now and no name
-/// of <held> (the branches open items run on) covers, the
+/// of <held> (the branches open items run or are kept on) covers, the
 /// files not committed, and the `git commit`s of <commits> (every one that
 /// runs) that run there.
 pub fn in_worktree(
@@ -181,7 +181,7 @@ pub fn refusal(what: &str, top: &Path, held: &Held) -> String {
     }
     let branch = branch.as_deref().unwrap_or("BRANCH");
     lines.push(format!(
-        "Land it (`builds land {top} --done N SHA...`), or take an item there (`builds item take N --worktree {top} --branch {branch} --brief P`, with `--held WHY` when the item waits on something open). Commit the files and give detached commits a branch (`git -C {top} switch -c NAME`) first. Only the person throws work away, by dropping its item."
+        "Land it (`builds land {top} --done N SHA...`), or give it to an item: take one there (`builds item take N --worktree {top} --branch {branch} --brief P`, with `--held WHY` when the item waits on something open). Commit the files and give detached commits a branch (`git -C {top} switch -c NAME`) first. Only the person throws work away, by dropping its item."
     ));
     lines.join("\n")
 }
@@ -273,7 +273,7 @@ pub fn loose_branches(main: &Path, judged: &mut Judged) -> Result<Vec<LooseBranc
 }
 
 /// The branches of <loose> that no open item of <loaded> names: an item's
-/// running place names its repo and branch. A store that does not
+/// running or kept place names its repo and branch. A store that does not
 /// load names nothing, and is a finding of its own.
 pub fn unheld(
     loose: Vec<LooseBranch>,
@@ -292,7 +292,7 @@ pub fn unheld(
         .collect()
 }
 
-/// The repo and branch of every running place of an open item of
+/// The repo and branch of every running or kept place of an open item of
 /// <lists>: the branches items hold.
 pub fn named_branches<'a>(
     lists: impl Iterator<Item = &'a crate::lists::Lists>,
@@ -300,7 +300,12 @@ pub fn named_branches<'a>(
     let mut named = BTreeSet::new();
     for lists in lists {
         for item in &lists.items {
-            for (worktree, branch) in item.running.iter().map(|r| (&r.worktree, &r.branch)) {
+            let places = item
+                .running
+                .iter()
+                .map(|r| (&r.worktree, &r.branch))
+                .chain(item.kept.iter().map(|p| (&p.worktree, &p.branch)));
+            for (worktree, branch) in places {
                 if let Some((repo, _)) = crate::lists::side_worktree_parts(worktree) {
                     named.insert((repo, branch.clone()));
                 }

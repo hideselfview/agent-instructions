@@ -1968,7 +1968,7 @@ fn a_store_from_before_check_starts_keeps_its_runs_and_gains_the_tables() {
     assert_eq!(stats.runs, 1, "the move keeps the old run");
 }
 
-/// The text of parked.sql as it read before builds dropped the parked state.
+/// The text of parked.sql as it read before builds named what an item keeps.
 const OLD_PARKED_SQL: &str = r#"-- Where an open item holds a worktree with no agent (`builds item park`): its
 -- work waits there on its branch while the item waits in the queue, and
 -- taking the item moves it to `running` in the same worktree. A parked item
@@ -1999,7 +1999,7 @@ CREATE INDEX parked_place_worktree ON parked_place (worktree);
 /// The comment that opens dropped.sql, as it read before builds dropped the
 /// parked state, and as it reads now.
 const OLD_DROPPED_COMMENT: &str = "for each worktree it ran or parked in, the branch,";
-const DROPPED_COMMENT: &str = "for each worktree it ran in, the branch,";
+const DROPPED_COMMENT: &str = "for each worktree it ran or kept in, the branch,";
 
 /// The text of running.sql <part> as it read before builds dropped the
 /// parked state: an ended run could end as parked.
@@ -2016,9 +2016,9 @@ fn old_running_sql(part: &str) -> String {
     )
 }
 
-/// <schema> as it read before builds dropped the parked state: with the
-/// `parked` tables after the cargo runs' part, `item_run` that can end as
-/// parked, and the comments that name the parked state. A schema that has the
+/// <schema> as it read before builds named what an item keeps: with the
+/// `parked` tables in place of the `kept_work` tables, `item_run` that can end
+/// as parked, and the dropped items' comment that names parked items. A schema that has the
 /// parked tables already, or has no dropped items' tables, is left as it is:
 /// the older schemas these tests rebuild pass through this from more than one
 /// chain.
@@ -2029,25 +2029,24 @@ fn with_parked(schema: String) -> String {
     let schema = schema.replacen(DROPPED_COMMENT, OLD_DROPPED_COMMENT, 1);
     let running = include_str!("lists/running.sql");
     let schema = schema.replacen(running, &old_running_sql(running), 1);
-    let dropped = "\n-- These tables record the work an item held";
-    assert_eq!(schema.matches(dropped).count(), 1);
-    schema.replacen(dropped, &format!("\n{OLD_PARKED_SQL}{dropped}"), 1)
+    assert_eq!(schema.matches(db::KEPT_WORK_PART).count(), 1);
+    schema.replacen(db::KEPT_WORK_PART, OLD_PARKED_SQL, 1)
 }
 
 #[test]
-fn the_no_park_stamp_is_the_schema_before_builds_dropped_the_parked_state() {
+fn the_kept_work_stamp_is_the_schema_before_builds_named_what_an_item_keeps() {
     assert_eq!(
         db::stamp_of_text(&with_parked(db::schema())),
-        BEFORE_NO_PARK_STAMP
+        BEFORE_KEPT_WORK_STAMP
     );
 }
 
-/// A store from before builds dropped the parked state loses the parked
-/// tables, keeps its items, gives each parked item a note that names the
-/// worktree and branch it was parked in, turns a run that ended as parked
-/// into one that ended as stopped, and equals a fresh schema.
+/// A store from before builds named what an item keeps gives each parked item
+/// the worktree and branch it was parked in as what it keeps, turns a run
+/// that ended as parked into one that ended as stopped, loses the parked
+/// tables, and equals a fresh schema.
 #[test]
-fn a_store_with_parked_items_loses_the_parked_state_and_equals_a_fresh_schema() {
+fn a_store_with_parked_items_keeps_their_places_and_equals_a_fresh_schema() {
     use crate::lists::fixtures::v;
     let scratch = Scratch::new("move-no-park");
     let places = scratch.places();
@@ -2057,7 +2056,7 @@ fn a_store_with_parked_items_loses_the_parked_state_and_equals_a_fresh_schema() 
     {
         let conn = Connection::open(&path).unwrap();
         conn.execute_batch(&with_parked(db::schema())).unwrap();
-        conn.pragma_update(None, "user_version", BEFORE_NO_PARK_STAMP)
+        conn.pragma_update(None, "user_version", BEFORE_KEPT_WORK_STAMP)
             .unwrap();
         crate::lists::project::plant(
             &conn,
@@ -2107,20 +2106,30 @@ fn a_store_with_parked_items_loses_the_parked_state_and_equals_a_fresh_schema() 
         db::schema_rows(&conn).unwrap(),
         db::schema_rows(&db::memory()).unwrap()
     );
-    let note: (i64, String) = conn
+    let kept: (String, String, i64, String) = conn
         .query_row(
-            "SELECT at, text FROM item_note WHERE item_id = 1",
+            "SELECT p.worktree, p.branch, k.since_at, k.since_by FROM kept_work k JOIN kept_work_place p ON p.item_id = k.item_id WHERE k.item_id = 1",
             [],
-            |row| Ok((row.get(0)?, row.get(1)?)),
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
         )
         .unwrap();
-    assert_eq!(note.0, 9);
-    assert!(
-        note.1
-            .contains("parked in /d/bae-worktrees/side-2 on work and now waits in the queue"),
-        "{}",
-        note.1
+    assert_eq!(
+        kept,
+        (
+            "/d/bae-worktrees/side-2".to_string(),
+            "work".to_string(),
+            7,
+            "tester".to_string()
+        )
     );
+    let parked_tables: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE name LIKE 'parked%'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(parked_tables, 0);
     let runs: Vec<(i64, String)> = conn
         .prepare("SELECT id, how FROM item_run ORDER BY id")
         .unwrap()
@@ -2828,9 +2837,8 @@ fn plant_old_park(conn: &Connection, id: i64, parent: &str, checkout: &str, bran
     .unwrap();
 }
 
-/// A store from before spec checks that parks an item loses the parked
-/// tables and gives the item a note that says where it was parked, equals a
-/// fresh schema, and then records a check of the item's brief.
+/// A store from before spec checks that parks an item keeps its place,
+/// equals a fresh schema, and then records a check of the item's brief.
 #[test]
 fn a_store_from_before_spec_checks_gains_the_tables_and_records_a_check() {
     use crate::lists::fixtures::v;
@@ -2889,15 +2897,10 @@ fn a_store_from_before_spec_checks_gains_the_tables_and_records_a_check() {
     drop(conn);
     let conn = Connection::open(&path).unwrap();
     conn.pragma_update(None, "foreign_keys", true).unwrap();
-    let note: String = conn
-        .query_row("SELECT text FROM item_note WHERE item_id = 1", [], |row| {
-            row.get(0)
-        })
+    let kept: i64 = conn
+        .query_row("SELECT COUNT(*) FROM kept_work", [], |row| row.get(0))
         .unwrap();
-    assert!(
-        note.contains("this item was parked in /d/bae-worktrees/side-2 on work"),
-        "{note}"
-    );
+    assert_eq!(kept, 1, "the move keeps the item's place");
     crate::lists::spec_check::tests::record_one(&conn, "bae", crate::lists::Id(1));
 }
 

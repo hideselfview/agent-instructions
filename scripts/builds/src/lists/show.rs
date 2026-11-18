@@ -29,6 +29,17 @@ pub fn wait_words(lists: &Lists, wait: &Wait) -> String {
     }
 }
 
+/// What an item keeps, as the queue's lines say it.
+pub fn kept_words(kept: &crate::lists::kept_work::KeptWork) -> String {
+    format!(
+        "keeps {} on {} since {} by {}",
+        kept.worktree,
+        kept.branch,
+        local_minute(kept.since.at),
+        kept.since.by
+    )
+}
+
 /// An item as lines. Fails when `trail::trail` fails on the item's trail.
 pub fn item_line(lists: &Lists, item: &Item) -> Result<String> {
     let state = derive::item_state(lists, item);
@@ -55,6 +66,9 @@ pub fn item_line(lists: &Lists, item: &Item) -> Result<String> {
             "\n      running in {} on {}, brief {}",
             running.worktree, running.branch, running.brief
         );
+    }
+    for kept in &item.kept {
+        let _ = write!(line, "\n      {}", kept_words(kept));
     }
     Ok(line)
 }

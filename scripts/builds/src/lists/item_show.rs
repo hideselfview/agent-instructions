@@ -12,7 +12,7 @@ use crate::lists::args::Args;
 use crate::lists::derive::{self, FLOW_DAYS, ItemState, Times, branch_times, item_times};
 use crate::lists::item::open_item;
 use crate::lists::running::marker;
-use crate::lists::show::{item_line, wait_words};
+use crate::lists::show::{item_line, kept_words, wait_words};
 use crate::lists::store::Store;
 use crate::lists::trail::{trail_line, trail_wanted};
 use crate::lists::{Audience, Closed, How, Id, Item, Kind, Level, Lists, Located, Standing, Wait};
@@ -243,6 +243,10 @@ pub fn render_item(lists: &Lists, id: Id, now: i64) -> Result<String> {
             running.since.by
         );
     }
+    let kept = if open { item.kept.as_slice() } else { &[] };
+    for kept in kept {
+        let _ = writeln!(out, "{}", kept_words(kept));
+    }
     for work in &item.dropped {
         let _ = writeln!(
             out,
@@ -399,7 +403,8 @@ pub fn next(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
 }
 
 /// What `builds next` prints for <lists>: each ready item of <audience>, how
-/// many open items wait behind it when any do, and its brief.
+/// many open items wait behind it when any do, its brief, and the worktree it
+/// is kept in, which holds its work.
 pub fn next_text(lists: &Lists, audience: Audience) -> String {
     let ready = derive::dispatch_order(lists, audience);
     let mut out = String::new();
@@ -426,6 +431,9 @@ pub fn next_text(lists: &Lists, audience: Audience) -> String {
         );
         if let Some(brief) = &item.brief {
             let _ = writeln!(out, "       brief {brief}");
+        }
+        for kept in &item.kept {
+            let _ = writeln!(out, "       {}", kept_words(kept));
         }
     }
     out

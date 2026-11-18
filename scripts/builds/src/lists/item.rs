@@ -2,7 +2,7 @@
 //! waits on records or conditions, may carry a priority, a brief and notes,
 //! and is made by a draft, and may name the record it came from (trail.rs),
 //! such as the decision or design change that made it. Where it runs
-//! is `running`, what
+//! is `running`, the worktree it holds with no agent is `kept`, what
 //! already landed of it is `landing`; `item_command` is
 //! the commands around these operations.
 
@@ -15,9 +15,11 @@ use crate::db::Sql;
 use crate::fail;
 use crate::fail::Result;
 use crate::lists::check::item_title_fault;
+use crate::lists::kept_work::KeptWork;
 use crate::lists::running::{Run, Span};
 use crate::lists::{
-    Id, Kind, LandedPart, Lists, Located, Running, Stamp, Standing, area, landing, record, running,
+    Id, Kind, LandedPart, Lists, Located, Running, Stamp, Standing, area, kept_work, landing,
+    record, running,
 };
 use crate::lists::{tag, trail};
 
@@ -122,9 +124,13 @@ pub struct Item {
     /// held or the item waited on the person: the ended ones oldest first,
     /// then the open ones of the run that goes on.
     pub spans: Vec<Span>,
+    /// Where it holds a worktree with no agent while it waits in the queue:
+    /// one worktree per repo the work spans, none when it is not kept. An
+    /// item is never both running and kept.
+    pub kept: Vec<KeptWork>,
     pub landed: Vec<LandedPart>,
     /// What it held when the person dropped it: one entry per worktree it ran
-    /// in. An open item has none.
+    /// or kept in. An open item has none.
     pub dropped: Vec<crate::lists::dropped::DroppedWork>,
     /// The checks of its briefs against the product spec, oldest first.
     pub spec_checks: Vec<crate::lists::spec_check::SpecChecked>,
@@ -608,6 +614,7 @@ pub fn read(
     let mut running = running::read(db)?;
     let mut runs = running::read_runs(db)?;
     let mut spans = running::read_spans(db)?;
+    let mut kept = kept_work::read(db)?;
     let mut landed = landing::read(db)?;
     let mut dropped = crate::lists::dropped::read_all(db)?;
     let mut spec_checks = crate::lists::spec_check::read_all(db)?;
@@ -646,6 +653,7 @@ pub fn read(
             running: running.remove(&id).unwrap_or_default(),
             runs: runs.remove(&id).unwrap_or_default(),
             spans: spans.remove(&id).unwrap_or_default(),
+            kept: kept.remove(&id).unwrap_or_default(),
             landed: landed.remove(&id).unwrap_or_default(),
             dropped: dropped.remove(&id).unwrap_or_default(),
             spec_checks: spec_checks.remove(&id).unwrap_or_default(),

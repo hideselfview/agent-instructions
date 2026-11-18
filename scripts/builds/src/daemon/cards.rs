@@ -295,7 +295,7 @@ pub struct Words {
     pub chip: Option<&'static str>,
     /// What the worktree waits on, at the right of the top bar.
     pub pill: Option<Pill>,
-    /// The items running here, in list order.
+    /// The items running here, in list order, or the item that keeps the worktree.
     pub items: Vec<RunningItem>,
     /// For a held worktree, beside its items: what it waits on, else its
     /// claim note, else what holding means. For any other worktree, only
@@ -386,6 +386,18 @@ pub fn words(checkout: &CheckoutPage, items: &[RunningItem], waits: &[ItemWait])
             }
             _ => (Some("Needs review"), None, String::new()),
         },
+        // An item that keeps the worktree waits only for an agent: work that
+        // waits on something is held, and its card says what.
+        Some("kept") => {
+            return Words {
+                chip: Some("Ready"),
+                pill: None,
+                items: items.to_vec(),
+                note: Some("Waits for an agent to continue this work.".into()),
+                uncommitted,
+                queued: None,
+            };
+        }
         // The card's errors say why.
         Some("waits-unread") => (
             Some("Can't read what this worktree waits on"),

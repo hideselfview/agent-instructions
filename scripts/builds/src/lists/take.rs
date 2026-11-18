@@ -5,7 +5,9 @@
 //! depends on the lists after it takes the lock. Work
 //! that spans repos names one worktree and branch per repo (`--worktree W
 //! --branch B` repeated, the nth branch for the nth worktree); the items run
-//! in all of them.
+//! in all of them. An item that keeps worktrees (`builds item stop` records
+//! them when its run ends with work left there) is taken in them, without
+//! --worktree and --branch, and nowhere else.
 //!
 //! Before the take's write, take checks the brief against the product spec
 //! of each named worktree's repo that has spec files (spec_check.rs) and
@@ -25,6 +27,7 @@ use crate::lists::draft::brief_file;
 use crate::lists::held::waits_on_open;
 use crate::lists::item::open_item;
 use crate::lists::item_command::blocking_words;
+use crate::lists::kept_work::{self, kept_in};
 use crate::lists::running::{Running, SpanKind, open_span, running_in, start};
 use crate::lists::spec_check::{self, Brief, Setup};
 use crate::lists::store::{self, Store};
@@ -32,7 +35,7 @@ use crate::lists::{Audience, Id, Kind, Lists, Stamp};
 use crate::text::note;
 use crate::tool::Tool;
 
-const USAGE: &str = "builds item take N [M...] --worktree W --branch B [--worktree W2 --branch B2] --brief P [--as design-session] [--held WHY] [--spec-decided N] [--rules-root DIR] [--reviewer PROGRAM]";
+const USAGE: &str = "builds item take N [M...] [--worktree W --branch B [--worktree W2 --branch B2]] --brief P [--as design-session] [--held WHY] [--spec-decided N] [--rules-root DIR] [--reviewer PROGRAM]";
 
 /// One worktree an item runs in: checked, with its branch and the
 /// claim that holds it, if any.
@@ -46,7 +49,11 @@ struct Place {
 /// The worktrees and branches <args> names, each a side worktree of its own
 /// repo with the branch; <usage> is the command's.
 fn places_named(args: &Args, usage: &str) -> Result<Vec<Place>> {
-    let worktrees = args.values("worktree");
+    let worktrees: Vec<String> = args
+        .values("worktree")
+        .into_iter()
+        .map(str::to_string)
+        .collect();
     let branches: Vec<String> = args
         .values("branch")
         .into_iter()
@@ -55,6 +62,12 @@ fn places_named(args: &Args, usage: &str) -> Result<Vec<Place>> {
     if worktrees.is_empty() {
         fail!("--worktree is required: {usage}");
     }
+    places_of(worktrees, branches)
+}
+
+/// The places of <worktrees> and their <branches>, checked as
+/// `places_named` checks them.
+fn places_of(worktrees: Vec<String>, branches: Vec<String>) -> Result<Vec<Place>> {
     if worktrees.len() != branches.len() {
         fail!(
             "{} --worktree and {} --branch given; each worktree takes the branch of its work, in the same order",
@@ -64,7 +77,7 @@ fn places_named(args: &Args, usage: &str) -> Result<Vec<Place>> {
     }
     let mut places: Vec<Place> = Vec::new();
     for (worktree, branch) in worktrees.into_iter().zip(branches) {
-        let checkout = Checkout::find(worktree)?;
+        let checkout = Checkout::find(&worktree)?;
         if !checkout.is_side() {
             fail!(
                 "{} is not one of the repo's side worktrees (<repo>-worktrees/side-N); items run in those",
@@ -95,9 +108,29 @@ fn places_named(args: &Args, usage: &str) -> Result<Vec<Place>> {
     Ok(places)
 }
 
+/// Do <places> name the same worktrees and branches as <held>, in any order?
+fn same_places<'a>(
+    places: &[Place],
+    held: impl Iterator<Item = (&'a String, &'a String)> + Clone,
+) -> bool {
+    places.len() == held.clone().count()
+        && places.iter().all(|place| {
+            held.clone()
+                .any(|(worktree, branch)| *worktree == place.top && *branch == place.branch)
+        })
+}
+
+/// The worktrees and branches of <held>, as a refusal lists them.
+fn places_words<'a>(held: impl Iterator<Item = (&'a String, &'a String)>) -> String {
+    held.map(|(worktree, branch)| format!("{worktree} on {branch}"))
+        .collect::<Vec<_>>()
+        .join(" and ")
+}
+
 /// Refuses <places> that a repo of <lists> does not hold, or whose worktree
-/// holds another branch of work.
-fn require_places_free(lists: &Lists, places: &[Place]) -> Result<()> {
+/// holds another branch of work or the kept work of an item not in <ids>
+/// (the items that move there).
+fn require_places_free(lists: &Lists, places: &[Place], ids: &[Id]) -> Result<()> {
     for Place {
         top,
         checkout,
@@ -129,11 +162,19 @@ fn require_places_free(lists: &Lists, places: &[Place]) -> Result<()> {
                 running.branch
             );
         }
+        if let Some(other) = kept_in(lists, top).filter(|other| !ids.contains(&other.id)) {
+            fail!(
+                "{top} holds the kept work of {} \"{}\": take that item there, or work elsewhere",
+                other.id,
+                other.title
+            );
+        }
     }
     Ok(())
 }
 
-/// Refuses <ids> that cannot run in <places>: an item that runs already, an item meant for the other audience than
+/// Refuses <ids> that cannot run in <places>: an item that runs already, one
+/// keeps work elsewhere, an item meant for the other audience than
 /// <design_session> names, and one that waits on something not met, or, when
 /// <held>, one that waits on nothing open.
 fn require_takeable(
@@ -143,7 +184,7 @@ fn require_takeable(
     design_session: bool,
     held: bool,
 ) -> Result<()> {
-    require_places_free(lists, places)?;
+    require_places_free(lists, places, ids)?;
     for id in ids {
         let item = open_item(lists, *id)?;
         if let Some(running) = item.running.first() {
@@ -152,6 +193,13 @@ fn require_takeable(
                 running.worktree,
                 running.branch,
                 id.0
+            );
+        }
+        let kept = item.kept.iter().map(|p| (&p.worktree, &p.branch));
+        if !item.kept.is_empty() && !same_places(places, kept.clone()) {
+            fail!(
+                "{id} keeps its work in {}; take it there",
+                places_words(kept)
             );
         }
         match (item.r#for, design_session) {
@@ -297,7 +345,11 @@ pub fn take(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
         }
         crate::claim::require_one_line("--held", why)?;
     }
-    let places = places_named(&args, USAGE)?;
+    let places = if args.values("worktree").is_empty() {
+        kept_places(&Store::resolve(&tool.places, &args, cwd)?.load()?, &ids)?
+    } else {
+        places_named(&args, USAGE)?
+    };
     let mut agents = Vec::new();
     for place in &places {
         match &place.claim {
@@ -339,6 +391,9 @@ pub fn take(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
                     since: stamp.clone(),
                 })
                 .collect();
+            for id in &ids {
+                kept_work::end(db, *id)?;
+            }
             start(db, &ids, &running)?;
             // Last, so a refusal above leaves the claims as they were.
             if let Some(why) = &held {
@@ -371,4 +426,30 @@ pub fn take(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
         wheres.join(" and ")
     ));
     Ok(())
+}
+
+/// The places of the items <ids> keep, for a take that names no worktree: the
+/// items must all keep the same worktrees and branches, and the take runs
+/// them there.
+fn kept_places(lists: &Lists, ids: &[Id]) -> Result<Vec<Place>> {
+    let mut kept: Option<Vec<(String, String)>> = None;
+    for id in ids {
+        let item = open_item(lists, *id)?;
+        if item.kept.is_empty() {
+            fail!("{id} keeps no worktree, so --worktree and --branch are required: {USAGE}");
+        }
+        let places: Vec<(String, String)> = item
+            .kept
+            .iter()
+            .map(|k| (k.worktree.clone(), k.branch.clone()))
+            .collect();
+        match &kept {
+            Some(first) if *first != places => {
+                fail!("{id} keeps other worktrees than the items before it; take them apart")
+            }
+            _ => kept = Some(places),
+        }
+    }
+    let (worktrees, branches) = kept.expect("a take names an item").into_iter().unzip();
+    places_of(worktrees, branches)
 }
