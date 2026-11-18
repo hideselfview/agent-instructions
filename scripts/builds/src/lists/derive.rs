@@ -90,15 +90,15 @@ pub fn unmet_waits<'a>(lists: &Lists, item: &'a Item) -> Vec<&'a Wait> {
         .collect()
 }
 
-/// An item `last` in priority waits while any other open coordinator item
-/// that is not itself `last` exists.
+/// An item `last` in priority waits while any other open item for the same
+/// audience that is not itself `last` exists.
 pub fn waits_for_others(lists: &Lists, item: &Item) -> bool {
     item.priority
         .as_ref()
         .is_some_and(|p| p.level == Level::Last)
         && lists.items.iter().any(|other| {
             other.id != item.id
-                && other.r#for == Audience::Coordinator
+                && other.r#for == item.r#for
                 && !other
                     .priority
                     .as_ref()
@@ -134,11 +134,17 @@ pub fn item_state(lists: &Lists, item: &Item) -> ItemState {
         ItemState::Running
     } else if item.r#for == Audience::DesignSession {
         ItemState::DesignSession
-    } else if !unmet_waits(lists, item).is_empty() || waits_for_others(lists, item) {
+    } else if !can_start(lists, item) {
         ItemState::Waiting
     } else {
         ItemState::Ready
     }
+}
+
+/// Can <item> start now: no agent runs it, every wait is met, and it is not
+/// held back by being placed last.
+fn can_start(lists: &Lists, item: &Item) -> bool {
+    item.running.is_empty() && unmet_waits(lists, item).is_empty() && !waits_for_others(lists, item)
 }
 
 /// An entry of the stack with what it blocks.
@@ -268,32 +274,14 @@ pub fn queue_order(lists: &Lists, items: &mut [&Item]) {
     });
 }
 
-/// The ready coordinator items in dispatch order (`queue_order`). `last`
-/// items are ready only once nothing else is open, so they come out last by
-/// themselves.
-pub fn dispatch_order(lists: &Lists) -> Vec<&Item> {
+/// The items for <audience> that can start now, in dispatch order
+/// (`queue_order`). `last` items come out only once no other open item for the
+/// audience remains, so they come out last by themselves.
+pub fn dispatch_order(lists: &Lists, audience: Audience) -> Vec<&Item> {
     let mut ready: Vec<&Item> = lists
         .items
         .iter()
-        .filter(|item| {
-            item.r#for == Audience::Coordinator && item_state(lists, item) == ItemState::Ready
-        })
-        .collect();
-    queue_order(lists, &mut ready);
-    ready
-}
-
-/// The design session's items it can take now, in the same order: those no
-/// agent runs and whose waits are all met.
-pub fn design_session_order(lists: &Lists) -> Vec<&Item> {
-    let mut ready: Vec<&Item> = lists
-        .items
-        .iter()
-        .filter(|item| {
-            item.r#for == Audience::DesignSession
-                && item.running.is_empty()
-                && unmet_waits(lists, item).is_empty()
-        })
+        .filter(|item| item.r#for == audience && can_start(lists, item))
         .collect();
     queue_order(lists, &mut ready);
     ready

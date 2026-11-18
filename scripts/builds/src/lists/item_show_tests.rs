@@ -73,7 +73,7 @@ fn next_order_is_first_then_area_order_and_leaves_out_waiting_running_and_design
         &["--for", "design-session"],
     );
     let lists = demo.store.load().unwrap();
-    let order: Vec<u32> = derive::dispatch_order(&lists)
+    let order: Vec<u32> = derive::dispatch_order(&lists, Audience::Coordinator)
         .iter()
         .map(|i| i.id.0)
         .collect();

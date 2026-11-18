@@ -181,7 +181,7 @@ approve the change, and then only on its landing. The dashboard lists a
 running item's work under Waiting on you while a wait of the item waits on the
 person. An open item is then, in order: running; the design session's (shown
 apart, never dispatched); waiting (on a wait not met, or placed last while any
-other open coordinator item that is not placed last exists); or ready. The
+other open item of the same audience that is not placed last exists); or ready. The
 command looks up a relative brief path in the main checkout of the repo it
 runs in (plans are in no commit); an absolute path is itself.
 
@@ -346,8 +346,10 @@ runs in (plans are in no commit); an absolute path is itself.
       by area order and age, and items placed last once nothing else is open.
       A line says how many items the item unblocks when any do. With --for
       design-session, it lists the design session's items that no agent runs
-      and whose waits are met, in the same order; without it, the
-      coordinator's items, and the design session's never appear. A parked
+      and whose waits are met, in the same order (an item placed last waits
+      for the design session's other open items, as the coordinator's waits
+      for its own); without it, the coordinator's items, and the design
+      session's never appear. A parked
       item names the worktree and branch its work waits in. `item list
       --ready` uses the same order.
 

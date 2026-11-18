@@ -267,7 +267,10 @@ fn dispatch_order_is_first_then_area_and_age_then_last() {
     priority(&db, waiting, Level::First);
     let design_session = item(&db, vec![]);
     set_audience(&db, design_session, Audience::DesignSession);
-    let ids: Vec<Id> = dispatch_order(&read(&db)).iter().map(|i| i.id).collect();
+    let ids: Vec<Id> = dispatch_order(&read(&db), Audience::Coordinator)
+        .iter()
+        .map(|i| i.id)
+        .collect();
     assert_eq!(
         ids,
         vec![first_early, first_late, alpha_old, alpha_new, beta_old]
@@ -275,7 +278,11 @@ fn dispatch_order_is_first_then_area_and_age_then_last() {
     // A last item is ready only once the others are gone, and then comes out.
     let last = item(&db, vec![]);
     priority(&db, last, Level::Last);
-    assert!(!dispatch_order(&read(&db)).iter().any(|i| i.id == last));
+    assert!(
+        !dispatch_order(&read(&db), Audience::Coordinator)
+            .iter()
+            .any(|i| i.id == last)
+    );
     for id in [
         first_early,
         first_late,
@@ -287,7 +294,7 @@ fn dispatch_order_is_first_then_area_and_age_then_last() {
         close(&db, id, How::Dropped("x".into()), &stamp(NOON)).unwrap();
     }
     assert_eq!(
-        dispatch_order(&read(&db))
+        dispatch_order(&read(&db), Audience::Coordinator)
             .iter()
             .map(|i| i.id)
             .collect::<Vec<_>>(),
@@ -308,7 +315,10 @@ fn dispatch_order_puts_what_other_items_wait_on_ahead_of_area_and_age() {
     let _waits_on_small = item(&db, vec![Wait::Item(beta_small)]);
     let first = item_opened(&db, vec![], stamp(NOON + 900));
     priority(&db, first, Level::First);
-    let ids: Vec<Id> = dispatch_order(&read(&db)).iter().map(|i| i.id).collect();
+    let ids: Vec<Id> = dispatch_order(&read(&db), Audience::Coordinator)
+        .iter()
+        .map(|i| i.id)
+        .collect();
     // First comes first; then 2 items wait behind the blocker (through a
     // chain), 1 behind the small one, and none behind the old Alpha item.
     assert_eq!(ids, vec![first, beta_blocker, beta_small, alpha_old]);
@@ -326,12 +336,22 @@ fn the_design_session_gets_its_ready_items_in_the_same_order() {
     let waiting = item(&db, vec![Wait::Question(q)]);
     set_audience(&db, waiting, Audience::DesignSession);
     let coordinator = item(&db, vec![]);
-    let ids: Vec<Id> = design_session_order(&read(&db))
+    let ids: Vec<Id> = dispatch_order(&read(&db), Audience::DesignSession)
         .iter()
         .map(|i| i.id)
         .collect();
     assert_eq!(ids, vec![blocker, plain]);
     assert!(!ids.contains(&coordinator) && !ids.contains(&waiting));
+    // Placed last, a design item waits for the design session's other open
+    // items, not the coordinator's.
+    let last = item(&db, vec![]);
+    set_audience(&db, last, Audience::DesignSession);
+    priority(&db, last, Level::Last);
+    let ids: Vec<Id> = dispatch_order(&read(&db), Audience::DesignSession)
+        .iter()
+        .map(|i| i.id)
+        .collect();
+    assert_eq!(ids, vec![blocker, plain]);
 }
 
 #[test]

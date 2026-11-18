@@ -586,7 +586,7 @@ pub fn blocking_words(lists: &Lists, item: &Item) -> Vec<String> {
         .map(|w| wait_words(lists, w))
         .collect();
     if waits_for_others(lists, item) {
-        words.push("every other open coordinator item (it is last)".to_string());
+        words.push("every other open item for the same audience (it is last)".to_string());
     }
     words
 }

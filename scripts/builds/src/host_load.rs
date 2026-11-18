@@ -68,7 +68,9 @@ pub fn ready_items(loaded: &std::result::Result<Vec<Loaded>, String>) -> usize {
         .iter()
         .flatten()
         .filter_map(|store| store.lists.as_ref().ok())
-        .map(|lists| crate::lists::derive::dispatch_order(lists).len())
+        .map(|lists| {
+            crate::lists::derive::dispatch_order(lists, crate::lists::Audience::Coordinator).len()
+        })
         .sum()
 }
 

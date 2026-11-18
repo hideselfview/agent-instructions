@@ -58,7 +58,7 @@ pub fn item_line(lists: &Lists, item: &Item) -> Result<String> {
         let _ = write!(line, "\n      waits on {}", unmet.join("; "));
     }
     if derive::waits_for_others(lists, item) {
-        line.push_str("\n      last: waits until no other coordinator work is open");
+        line.push_str("\n      last: waits until no other work for the same audience is open");
     }
     for running in &item.running {
         let _ = write!(

@@ -406,10 +406,7 @@ pub fn next(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
 /// many open items wait behind it when any do, its brief, and the worktree it
 /// is parked in, which holds its work.
 pub fn next_text(lists: &Lists, audience: Audience) -> String {
-    let ready = match audience {
-        Audience::Coordinator => derive::dispatch_order(lists),
-        Audience::DesignSession => derive::design_session_order(lists),
-    };
+    let ready = derive::dispatch_order(lists, audience);
     let mut out = String::new();
     if ready.is_empty() {
         out.push_str("nothing is ready to dispatch\n");
