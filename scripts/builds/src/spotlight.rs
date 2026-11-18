@@ -1,19 +1,17 @@
 //! Keeping Spotlight off each Mac's build root. Spotlight's indexer reads every
-//! file a build writes on a volume it indexes: on 2026-11-17 the index of m1's
-//! Builds volume held 187,078 files, 18,538 of them rlibs and 24,518 object
-//! files, and m1's mds_stores had used 2h48m of CPU in three days.
+//! file a build writes where it indexes, and spends the host's CPU on output
+//! that nobody searches.
 //!
 //! Spotlight skips a folder whose name ends in `.noindex`, so a host's build
 //! root in its home folder, `~/builds-root.noindex` (host.rs `REMOTE_ROOT`),
 //! needs nothing more. A `.metadata_never_index` file in a folder does not
-//! keep Spotlight out: on m1 (macOS 27), Spotlight indexed the files of a
-//! folder that held one within seconds. A build volume's indexing is a
-//! setting of the whole volume, which `mdutil -s` reads and only
-//! `sudo mdutil -i off` turns off. `builds host setup` turns it off on the
-//! host, this Mac included, when a person is at the terminal to type the
-//! password, and `builds status` says whether Spotlight indexes the root.
-//! builds never runs mdutil on a root that is a folder, whose volume holds
-//! other files.
+//! keep Spotlight out on macOS 27: Spotlight indexes the folder's files
+//! anyway. A build volume's indexing is a setting of the whole volume, which
+//! `mdutil -s` reads and only `sudo mdutil -i off` turns off. `builds host
+//! setup` turns it off on the host, this Mac included, when a person is at
+//! the terminal to type the password, and `builds status` says whether
+//! Spotlight indexes the root. builds never runs mdutil on a root that is a
+//! folder, whose volume holds other files.
 
 use crate::fail;
 use crate::fail::{Fail, Result};
