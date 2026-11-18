@@ -370,7 +370,8 @@ design changes take no canvas links and landing one has no publish step. A
 project's setting says which it does (`builds lists design-globs PROJECT
 --canvas yes|no`). The design session records a fix that changes no design
 (boards it redrew to follow the design system's measures, a drawing mistake it
-corrected) with `fix` instead: such a fix needs no review page or approval, and
+corrected, a board it deleted because the app can no longer reach the state the
+board draws) with `fix` instead: such a fix needs no review page or approval, and
 lands with `--design N` like any other.
 
 An implementing agent that edits an existing board for a change the person

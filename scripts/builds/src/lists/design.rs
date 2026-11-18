@@ -143,7 +143,8 @@ pub enum Settlement {
     /// The change waits on the person's review of its page.
     Review,
     /// A fix that changes no design, and what it fixes: boards made to
-    /// follow the design system's measures, or a drawing mistake corrected.
+    /// follow the design system's measures, a drawing mistake corrected, or a
+    /// board deleted because the app can no longer reach the state it draws.
     Fix(String),
     /// A board edit of an existing screen that the design system's existing
     /// parts can draw, for a change the person decided in this decision of
@@ -229,7 +230,8 @@ struct RequestFields {
     /// Why shared design files changed and no drawing did.
     pub no_app_place: Option<String>,
     /// What the change fixes when it changes no design: boards made to follow
-    /// the design system's measures, or a drawing mistake corrected. A fix
+    /// the design system's measures, a drawing mistake corrected, or a board
+    /// deleted because the app can no longer reach the state it draws. A fix
     /// needs no review page and is approved when recorded; an amend without
     /// it makes the change wait on the person's review again.
     pub fix: Option<String>,
@@ -252,7 +254,7 @@ impl TryFrom<RequestFields> for DesignRequest {
                 return Err("a design change is a `fix` that changes no design or a `decision` the person made, not both".to_string());
             }
             (Some(fixes), None) if fixes.trim().is_empty() => {
-                return Err("fix is empty; say what the change fixes (the design system's measures, a drawing mistake)".to_string());
+                return Err("fix is empty; say what the change fixes (the design system's measures, a drawing mistake, a board of a state the app can no longer reach)".to_string());
             }
             (Some(fixes), None) => Settlement::Fix(fixes),
             (None, Some(decision)) => Settlement::Decision(decision),
