@@ -334,3 +334,17 @@ fn marking_says_whether_the_host_had_the_worktree() {
     assert!(app.mark().unwrap(), "marking again marks again");
     assert_eq!(lane_mark(&wt), "mac\n");
 }
+
+#[test]
+fn marking_reads_only_the_hosts_two_answers() {
+    assert!(marked_in("lane-file=written\n").unwrap());
+    assert!(!marked_in("lane-file=no-worktree\n").unwrap());
+    assert!(
+        marked_in("motd from the host\nlane-file=written\n").unwrap(),
+        "the last answer counts"
+    );
+    for said in ["", "marked\n", "lane-file=\n", "lane-file=maybe\n"] {
+        let error = marked_in(said).expect_err("not an answer").text();
+        assert!(error.contains("lane file"), "{error}");
+    }
+}

@@ -303,8 +303,7 @@ impl RemoteApp {
     /// wrote the file. A failure, such as a host that does not answer, names
     /// the host and what the script printed there.
     pub fn mark(&self) -> Result<bool> {
-        let said = self.lane_file_script(MARK, "writing the app checkout's lane file")?;
-        Ok(said.trim() == "marked")
+        marked_in(&self.lane_file_script(MARK, "writing the app checkout's lane file")?)
     }
 
     /// Deletes the checkout's lane file on the host, so the host's builds
@@ -554,10 +553,31 @@ const MARK_LANE: &str = r#"mark_lane() {
 }"#;
 
 /// The script that writes the lane file of the checkout <name> of <repo> on
-/// the host, when the host has the worktree, and then prints `marked`.
+/// the host, when the host has the worktree, and says which it did
+/// (`marked_in`).
 const MARK: &str = r#"@MARK_LANE@
 wt="$HOME/dev/@REPO@-worktrees/@NAME@"
-if [ -e "$wt/.git" ]; then mark_lane || exit 1; echo marked; fi"#;
+if [ -e "$wt/.git" ]; then
+  mark_lane || exit 1
+  echo lane-file=written
+else
+  echo lane-file=no-worktree
+fi"#;
+
+/// Whether `MARK` wrote the lane file, from the last `lane-file=` line it
+/// printed: `written`, or `no-worktree` when the host has no such worktree.
+/// Fails on any other output.
+fn marked_in(output: &str) -> Result<bool> {
+    match output
+        .lines()
+        .rev()
+        .find_map(|line| line.strip_prefix("lane-file="))
+    {
+        Some("written") => Ok(true),
+        Some("no-worktree") => Ok(false),
+        _ => fail!("the host did not say whether it wrote the lane file: {output:?}"),
+    }
+}
 
 /// The script that deletes the lane file of the checkout <name> of <repo> on
 /// the host, when the host has the worktree.
