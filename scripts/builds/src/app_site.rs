@@ -5,8 +5,8 @@
 
 use std::path::PathBuf;
 
-use crate::app_config::{app_checkout_top, switch_to};
-use crate::app_remote::RemoteApp;
+use crate::app_config::{app_checkout_top, resolve, run_git, switch_to};
+use crate::app_remote::{RemoteApp, fetched_local_source};
 use crate::checkout::{git, git_text};
 use crate::fail::Result;
 use crate::host::Ssh;
@@ -27,6 +27,27 @@ impl Site {
             Some(remote) => Site::Remote(Box::new(remote)),
             None => Site::Local(app_checkout_top(places, repo, entry)?),
         })
+    }
+
+    /// The folder on this Mac that holds the checkout's commits, after a
+    /// fetch from origin: the checkout itself here, or `local_source` for a
+    /// checkout on a host, whose clone gets commits only from this Mac.
+    pub fn fetched_source(&self, places: &Places, repo: &str) -> Result<PathBuf> {
+        match self {
+            Site::Local(top) => {
+                run_git(top, &["fetch", "-q", "origin"])?;
+                Ok(top.clone())
+            }
+            Site::Remote(_) => fetched_local_source(places, repo),
+        }
+    }
+
+    /// The commit the checkout is on.
+    pub fn head(&mut self) -> Result<String> {
+        match self {
+            Site::Local(top) => resolve(top, "HEAD"),
+            Site::Remote(remote) => remote.head(),
+        }
     }
 
     /// The checkout's folder, as a message shows it.

@@ -1,4 +1,5 @@
 use super::*;
+use crate::app_config::run_git;
 use crate::host::tests::fake_ssh;
 use crate::lane::Lane;
 use crate::testing::{Scratch, git, git_out, repo};

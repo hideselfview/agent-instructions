@@ -29,7 +29,7 @@
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-use crate::app_config::app_checkout_top;
+use crate::app_config::{app_checkout_top, run_git};
 use crate::checkout::Checkout;
 use crate::fail;
 use crate::fail::{Context, Result};
@@ -113,6 +113,14 @@ pub fn local_source(places: &Places, repo: &str) -> Result<PathBuf> {
         );
     }
     Ok(clone)
+}
+
+/// `local_source`, after a fetch from origin there, so that it holds the
+/// commits origin has now.
+pub fn fetched_local_source(places: &Places, repo: &str) -> Result<PathBuf> {
+    let source = local_source(places, repo)?;
+    run_git(&source, &["fetch", "-q", "origin"])?;
+    Ok(source)
 }
 
 /// The commands that make, switch and read the checkout `<name>` of <repo> on

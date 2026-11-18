@@ -69,10 +69,10 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use crate::app_config::{
-    CONFIG, Config, PickKind, Picker, Step, check_out, parse_config, run_command_keeping, run_git,
-    show_duration,
+    CONFIG, Config, PickKind, Picker, Step, check_out, parse_config, resolve, run_command_keeping,
+    run_git, show_duration,
 };
-use crate::app_remote::{RemoteApp, local_source};
+use crate::app_remote::{RemoteApp, fetched_local_source, local_source};
 use crate::app_site::Site;
 use crate::app_timing::{self, RunRecord, StepKind, StepRecord, StepResult, Timer};
 use crate::checkout::Checkout;
@@ -394,16 +394,6 @@ impl Built {
     }
 }
 
-/// The full id of <rev> in the checkout <top>.
-fn resolve(top: &Path, rev: &str) -> Result<String> {
-    Ok(run_git(
-        top,
-        &["rev-parse", "--verify", &format!("{rev}^{{commit}}")],
-    )?
-    .trim()
-    .to_string())
-}
-
 /// How a lane's steps ended, when none failed because of the code.
 #[derive(Debug, PartialEq, Eq)]
 enum Ended {
@@ -555,8 +545,7 @@ fn run_steps_with(
 /// tree, to tell which lanes the steps are in before any lock is taken. A
 /// lane's own run reads it again from its checkout, under its lock.
 fn config_at(places: &Places, repo: &str, commit: &str) -> Result<Config> {
-    let source = local_source(places, repo)?;
-    run_git(&source, &["fetch", "-q", "origin"])?;
+    let source = fetched_local_source(places, repo)?;
     parse_config(&run_git(&source, &["show", &format!("{commit}:{CONFIG}")])?)
 }
 
@@ -569,17 +558,8 @@ impl Site {
         repo: &str,
         commit: &str,
     ) -> Result<(String, String)> {
-        match self {
-            Site::Local(top) => {
-                run_git(top, &["fetch", "-q", "origin"])?;
-                Ok((resolve(top, commit)?, resolve(top, "HEAD")?))
-            }
-            Site::Remote(remote) => {
-                let source = local_source(places, repo)?;
-                run_git(&source, &["fetch", "-q", "origin"])?;
-                Ok((resolve(&source, commit)?, remote.head()?))
-            }
-        }
+        let source = self.fetched_source(places, repo)?;
+        Ok((resolve(&source, commit)?, self.head()?))
     }
 
     /// The name of the host the checkout is on.
@@ -608,22 +588,13 @@ impl Site {
         }
     }
 
-    /// The commit the checkout is on.
-    fn head(&mut self) -> Result<String> {
-        match self {
-            Site::Local(top) => resolve(top, "HEAD"),
-            Site::Remote(remote) => remote.head(),
-        }
-    }
-
     /// Switches the checkout to <commit> (which must have no changes) and
     /// reads the repo's `.app-build` there.
     fn check_out(&mut self, places: &Places, repo: &str, commit: &str) -> Result<Config> {
         match self {
             Site::Local(top) => check_out(top, commit),
             Site::Remote(remote) => {
-                let source = local_source(places, repo)?;
-                run_git(&source, &["fetch", "-q", "origin"])?;
+                let source = fetched_local_source(places, repo)?;
                 let sha = resolve(&source, commit)?;
                 remote.switch_to(&source, &sha)?;
                 parse_config(&run_git(&source, &["show", &format!("{sha}:{CONFIG}")])?)
@@ -698,8 +669,7 @@ pub fn commit_and_config(
     repo: &str,
     git_ref: &str,
 ) -> Result<(std::path::PathBuf, String, Config)> {
-    let top = local_source(places, repo)?;
-    run_git(&top, &["fetch", "-q", "origin"])?;
+    let top = fetched_local_source(places, repo)?;
     let commit = resolve(&top, git_ref)?;
     let config = parse_config(&run_git(&top, &["show", &format!("{commit}:{CONFIG}")])?)?;
     Ok((top, commit, config))

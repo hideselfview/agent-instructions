@@ -684,6 +684,16 @@ pub fn run_git(top: &Path, args: &[&str]) -> Result<String> {
     git_text(git(top).args(args), &format!("git {}", args.join(" ")))
 }
 
+/// The full id of the commit <rev> names in the repository at <top>.
+pub fn resolve(top: &Path, rev: &str) -> Result<String> {
+    Ok(run_git(
+        top,
+        &["rev-parse", "--verify", &format!("{rev}^{{commit}}")],
+    )?
+    .trim()
+    .to_string())
+}
+
 /// Detaches the app checkout <top> at <commit> (`force`: over local changes),
 /// so that the tree is the old commit's or the new one's however the build
 /// that asks is stopped. `git checkout` writes the files first and moves HEAD

@@ -23,8 +23,7 @@
 use std::collections::BTreeSet;
 use std::path::Path;
 
-use crate::app_config::run_git;
-use crate::app_remote::local_source;
+use crate::app_config::resolve;
 use crate::app_site::Site;
 use crate::checkout::git;
 use crate::fail;
@@ -46,19 +45,10 @@ fn bring(
     revs: &[&str],
     sent: &mut Vec<String>,
 ) -> Result<Vec<String>> {
-    let source = match site {
-        Site::Local(top) => top.clone(),
-        Site::Remote(_) => local_source(places, repo)?,
-    };
-    run_git(&source, &["fetch", "-q", "origin"])?;
+    let source = site.fetched_source(places, repo)?;
     let mut commits = Vec::new();
     for rev in revs {
-        let commit = run_git(
-            &source,
-            &["rev-parse", "--verify", &format!("{rev}^{{commit}}")],
-        )?
-        .trim()
-        .to_string();
+        let commit = resolve(&source, rev)?;
         if let Site::Remote(remote) = site {
             sent.push(remote.send(&source, &commit)?);
         }
