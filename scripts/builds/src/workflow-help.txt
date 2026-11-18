@@ -411,6 +411,9 @@ in the repo are the canvas's source. The published canvas and design system are
 copies that let anyone look at the landed boards. An edit that anyone makes on
 the canvas page on claude.ai is an accident: publish the repo's version over it
 and merge nothing from it.
+`builds design canvas-files` writes the files of each canvas from origin/main,
+and `builds help lists` gives the steps with which any Claude session publishes
+them.
 
 
 HEALTH CHECK

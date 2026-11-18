@@ -115,7 +115,7 @@ impl Source<'_> {
     }
 
     /// Fails unless the revision of a commit source is a commit.
-    fn check(&self) -> Result<()> {
+    pub(crate) fn check(&self) -> Result<()> {
         if let Source::Commit { repo, rev } = self {
             git_text(
                 git(repo).args([
@@ -163,7 +163,7 @@ impl Source<'_> {
         Ok(self.text(rel)?.is_some())
     }
 
-    fn read(&self, rel: &str, what: &str) -> Result<String> {
+    pub(crate) fn read(&self, rel: &str, what: &str) -> Result<String> {
         match self.text(rel)? {
             Some(text) => Ok(text),
             None => fail!("{what} {} is not there", self.label(rel)),
@@ -185,7 +185,7 @@ static WORK: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0)
 impl Source<'_> {
     /// The design system's tokens.css, bundle.css and bundle.js. builds
     /// writes tokens.css from the source's tokens.json itself.
-    fn design_system(&self, cache: &Path) -> Result<[String; 3]> {
+    pub(crate) fn design_system(&self, cache: &Path) -> Result<[String; 3]> {
         let css = self.tokens_css()?;
         let [bundle_css, bundle_js] = self.bundles(cache)?;
         Ok([css, bundle_css, bundle_js])
@@ -250,43 +250,7 @@ impl Source<'_> {
             WORK.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
         ));
         let result = (|| -> Result<()> {
-            std::fs::create_dir_all(&work).context(|| format!("making {}", work.display()))?;
-            let archive = git(repo)
-                .arg("archive")
-                .arg(rev)
-                .arg("--")
-                .args(inputs)
-                .stdin(Stdio::null())
-                .output()
-                .context(|| format!("running git to export the design system of {rev}"))?;
-            if !archive.status.success() {
-                fail!(
-                    "git failed to export the design system of {rev}: {}",
-                    String::from_utf8_lossy(&archive.stderr).trim()
-                );
-            }
-            let mut tar = Command::new("tar")
-                .arg("-x")
-                .arg("-C")
-                .arg(&work)
-                .stdin(Stdio::piped())
-                .stderr(Stdio::piped())
-                .spawn()
-                .context(|| "running tar to unpack the design system".to_string())?;
-            std::io::Write::write_all(
-                &mut tar.stdin.take().expect("tar's stdin is piped"),
-                &archive.stdout,
-            )
-            .context(|| "feeding tar".to_string())?;
-            let unpacked = tar
-                .wait_with_output()
-                .context(|| "waiting for tar".to_string())?;
-            if !unpacked.status.success() {
-                fail!(
-                    "tar failed to unpack the design system of {rev}: {}",
-                    String::from_utf8_lossy(&unpacked.stderr).trim()
-                );
-            }
+            export(repo, rev, inputs, &work, "the design system")?;
             let ran = Command::new("python3")
                 .arg("-I")
                 .arg(BUNDLER)
@@ -326,6 +290,56 @@ impl Source<'_> {
         let _ = std::fs::remove_dir_all(&work);
         result
     }
+}
+
+/// Writes <paths> as they are at <rev> of the repo <repo> is in into <into>,
+/// which it creates, at their paths in the repo. <what> names them in an
+/// error.
+pub(crate) fn export(
+    repo: &Path,
+    rev: &str,
+    paths: &[String],
+    into: &Path,
+    what: &str,
+) -> Result<()> {
+    std::fs::create_dir_all(into).context(|| format!("making {}", into.display()))?;
+    let archive = git(repo)
+        .arg("archive")
+        .arg(rev)
+        .arg("--")
+        .args(paths)
+        .stdin(Stdio::null())
+        .output()
+        .context(|| format!("running git to export {what} of {rev}"))?;
+    if !archive.status.success() {
+        fail!(
+            "git failed to export {what} of {rev}: {}",
+            String::from_utf8_lossy(&archive.stderr).trim()
+        );
+    }
+    let mut tar = Command::new("tar")
+        .arg("-x")
+        .arg("-C")
+        .arg(into)
+        .stdin(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .context(|| format!("running tar to unpack {what}"))?;
+    std::io::Write::write_all(
+        &mut tar.stdin.take().expect("tar's stdin is piped"),
+        &archive.stdout,
+    )
+    .context(|| "feeding tar".to_string())?;
+    let unpacked = tar
+        .wait_with_output()
+        .context(|| "waiting for tar".to_string())?;
+    if !unpacked.status.success() {
+        fail!(
+            "tar failed to unpack {what} of {rev}: {}",
+            String::from_utf8_lossy(&unpacked.stderr).trim()
+        );
+    }
+    Ok(())
 }
 
 /// The paths at <rev> build-bundle.py reads: the design system's folder, and
@@ -469,7 +483,7 @@ fn parse_part(from: &Source, rel: &str) -> Result<Part> {
 }
 
 /// The names of the boards <body> mounts.
-fn imports(body: &str) -> Vec<String> {
+pub(crate) fn imports(body: &str) -> Vec<String> {
     let mut names = Vec::new();
     let mut rest = body;
     while let Some(start) = rest.find("<dc-import name=\"") {

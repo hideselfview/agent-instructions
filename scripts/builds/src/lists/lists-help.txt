@@ -611,6 +611,55 @@ sent again.
       stylesheet; this command writes it for other tools that load it, such
       as a repo's screenshot checks. Reads no store.
 
+  builds design canvas-files DIR OUT [--at REV]
+      Writes into folder OUT, which must be new or empty, the files of each
+      claude.ai canvas that the boards of DIR's repo publish to, as the
+      boards stand on origin/main, or at commit or branch REV with --at. A
+      canvas holds at most 512 files, so a repo publishes its boards to one
+      canvas or more, split by page. design/mocks/canvases.toml gives each
+      canvas as a [[canvas]] table: its `url`
+      (https://claude.ai/artifact/<id>), its `title`, the page it opens on
+      (`launch`), and the ids of the pages of design/mocks/canvas.json that
+      it shows (`pages`). Each page of canvas.json is on exactly one canvas,
+      and a board or a note that names no page is on the first page. For
+      each canvas, the command writes the folder OUT/<id> with the canvas's
+      files at their paths on the canvas: project/canvas.json, which keeps
+      only the canvas's pages, boards and notes and gives the canvas's title
+      and launch page; the board files of its pages; and the design system
+      at the commit under project/ds/<namespace>/ (tokens.json, tokens.css,
+      and the components/bundle.css and components/bundle.js that the
+      commit's build-bundle.py builds). Beside project/ it writes
+      batch-1.json, batch-2.json and on: each is a JSON object of at most 255
+      paths, the most that one publish sends, and the first holds the index
+      and the design system. The command prints each canvas with its folder
+      and batches. The command refuses a page that is on no canvas or on two,
+      a board that mounts (dc-import) a board of another canvas, a board file
+      that canvas.json does not place or the other way round, and a canvas
+      that would hold more than 512 files. Reads no store and writes nothing
+      in DIR.
+
+      The command publishes nothing, since only a Claude session can call
+      the Artifact tool. To publish the canvases after a landing, a session
+      runs the command with OUT in its scratchpad, then does this for each
+      canvas with the Artifact tool:
+        1. Read the canvas (`read` with its url), and list its files (`list`
+           with scope files, through every page of the listing).
+        2. Publish each batch in order: `publish` with the canvas's url,
+           `root` set to the canvas's folder and `files` set to the batch's
+           JSON. In the last batch, also map to null each path under
+           project/ that the listing shows and the folder lacks, so that a
+           board the repo deleted leaves the canvas.
+        3. When the Artifact tool refuses a publish because someone saved
+           the canvas since the listing, list the files again and publish the
+           batch again. The repo's files replace every edit made on the
+           canvas page.
+      After the last canvas, the session reads artifact-type/dc-runtime.js
+      from the canvas that design/mocks/runtime.toml names, and compares its
+      sha256 with that file's runtime_sha256. When they differ, the canvas
+      runtime changed and the shot check still draws boards with the old
+      one, so the session adds a queue item that updates runtime.toml and
+      the shot check's copy of the runtime.
+
 
 PROJECTS
 

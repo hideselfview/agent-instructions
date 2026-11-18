@@ -1,5 +1,5 @@
 //! `builds design places | only | record | amend | approve | check | landed |
-//! drop | show | list | render | tokens-css`.
+//! drop | show | list | render | tokens-css | canvas-files`.
 //!
 //! The commands that read git (`places`, `record`, `amend`, `check`,
 //! `landed`) find the project from the repo of the worktree they are given,
@@ -20,7 +20,7 @@ use crate::lists::{Id, Lists, Stamp};
 use crate::text::local_minute;
 use crate::tool::Tool;
 
-const USAGE: &str = "usage: builds design places DIR REV...\n       builds design only DIR REV...\n       builds design record --request FILE\n       builds design amend N --request FILE\n       builds design approve N --by-person\n       builds design check N[,N...] DIR REV...\n       builds design landed N DIR SHA...\n       builds design drop N --why WHY\n       builds design show N\n       builds design list\n       builds design render DIR BOARD [--theme light|dark] [--now | --at REV]\n       builds design tokens-css DIR";
+const USAGE: &str = "usage: builds design places DIR REV...\n       builds design only DIR REV...\n       builds design record --request FILE\n       builds design amend N --request FILE\n       builds design approve N --by-person\n       builds design check N[,N...] DIR REV...\n       builds design landed N DIR SHA...\n       builds design drop N --why WHY\n       builds design show N\n       builds design list\n       builds design render DIR BOARD [--theme light|dark] [--now | --at REV]\n       builds design tokens-css DIR\n       builds design canvas-files DIR OUT [--at REV]";
 
 pub fn cmd_design(tool: &Tool, args: &[String]) -> Result<()> {
     print!("{}", run_to_text(tool, args)?);
@@ -57,6 +57,7 @@ pub fn run_in_session(
         "list" => list(tool, rest, &cwd),
         "render" => render(tool, rest),
         "tokens-css" => tokens_css(rest),
+        "canvas-files" => canvas_files(tool, rest),
         other => fail!("unknown design command {other}\n{USAGE}"),
     }
 }
@@ -604,4 +605,23 @@ fn tokens_css(args: &[String]) -> Result<String> {
     let to = dir.join(crate::design_tokens::TOKENS_CSS);
     std::fs::write(&to, css).context(|| format!("writing {}", to.display()))?;
     Ok(format!("wrote {}\n", to.display()))
+}
+
+/// `canvas-files DIR OUT [--at REV]`: writes into folder OUT the files of each
+/// canvas the boards of DIR's repo publish to, as they stand on origin/main or
+/// at REV, and prints each canvas's folder and batches
+/// (`design_canvas::write_canvases`).
+fn canvas_files(tool: &Tool, args: &[String]) -> Result<String> {
+    let args = Args::parse(args, &["at"], &[])?;
+    let [dir, out] = args.exactly(2, USAGE)? else {
+        unreachable!("exactly two")
+    };
+    let rev = args.value("at")?.unwrap_or(crate::design_render::NOW);
+    let written = crate::design_canvas::write_canvases(
+        Path::new(dir),
+        rev,
+        Path::new(out),
+        &tool.places.design_system_cache(),
+    )?;
+    Ok(crate::design_canvas::report(&written))
 }
