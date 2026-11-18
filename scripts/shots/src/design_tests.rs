@@ -136,16 +136,17 @@ fn the_hash_changes_with_each_built_file_the_runtime_and_the_browser() {
     );
 }
 
-/// The hash of a board is the one the checker gave before it moved into
-/// builds, whose inputs the move kept: a record written before the move
-/// still names its boards.
+/// A board's hash takes the same inputs, in the same order and under the same
+/// labels, as the hashes in the records repos have committed, so a record
+/// stays valid for every board nothing changed. A change to the inputs
+/// changes this pinned hash.
 #[test]
-fn the_board_hash_is_the_one_from_before_the_move() {
+fn the_board_hash_inputs_stay_pinned() {
     let root = tree();
-    assert_eq!(hash(root.path()), BEFORE_THE_MOVE);
+    assert_eq!(hash(root.path()), PINNED_HASH);
 }
 
-const BEFORE_THE_MOVE: &str = "3a5b336cf10b11bca597eed0236b2be5f8bcc6cd9ffd55aba3e13718c7d632f7";
+const PINNED_HASH: &str = "3a5b336cf10b11bca597eed0236b2be5f8bcc6cd9ffd55aba3e13718c7d632f7";
 
 #[test]
 fn the_design_system_comes_from_the_repos_sources_and_its_canvas_namespace() {
