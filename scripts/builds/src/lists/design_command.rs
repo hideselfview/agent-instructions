@@ -1,5 +1,5 @@
 //! `builds design places | only | record | amend | approve | check | landed |
-//! drop | show | list | render | tokens-css | canvas-files`.
+//! drop | show | list | render | tokens-css | publish-files | publish-last`.
 //!
 //! The commands that read git (`places`, `record`, `amend`, `check`,
 //! `landed`) find the project from the repo of the worktree they are given,
@@ -20,7 +20,7 @@ use crate::lists::{Id, Lists, Stamp};
 use crate::text::local_minute;
 use crate::tool::Tool;
 
-const USAGE: &str = "usage: builds design places DIR REV...\n       builds design only DIR REV...\n       builds design record --request FILE\n       builds design amend N --request FILE\n       builds design approve N --by-person\n       builds design check N[,N...] DIR REV...\n       builds design landed N DIR SHA...\n       builds design drop N --why WHY\n       builds design show N\n       builds design list\n       builds design render DIR BOARD [--theme light|dark] [--now | --at REV]\n       builds design tokens-css DIR\n       builds design canvas-files DIR OUT [--at REV]";
+const USAGE: &str = "usage: builds design places DIR REV...\n       builds design only DIR REV...\n       builds design record --request FILE\n       builds design amend N --request FILE\n       builds design approve N --by-person\n       builds design check N[,N...] DIR REV...\n       builds design landed N DIR SHA...\n       builds design drop N --why WHY\n       builds design show N\n       builds design list\n       builds design render DIR BOARD [--theme light|dark] [--now | --at REV]\n       builds design tokens-css DIR\n       builds design publish-files DIR OUT [--at REV]\n       builds design publish-last FOLDER --listing FILE [--index FILE --by WHO]";
 
 pub fn cmd_design(tool: &Tool, args: &[String]) -> Result<()> {
     print!("{}", run_to_text(tool, args)?);
@@ -57,7 +57,8 @@ pub fn run_in_session(
         "list" => list(tool, rest, &cwd),
         "render" => render(tool, rest),
         "tokens-css" => tokens_css(rest),
-        "canvas-files" => canvas_files(tool, rest),
+        "publish-files" => publish_files(tool, rest),
+        "publish-last" => publish_last(rest),
         other => fail!("unknown design command {other}\n{USAGE}"),
     }
 }
@@ -617,21 +618,59 @@ fn tokens_css(args: &[String]) -> Result<String> {
     Ok(format!("wrote {}\n", to.display()))
 }
 
-/// `canvas-files DIR OUT [--at REV]`: writes into folder OUT the files of each
-/// canvas the boards of DIR's repo publish to, as they stand on origin/main or
-/// at REV, and prints each canvas's folder and batches
-/// (`design_canvas::write_canvases`).
-fn canvas_files(tool: &Tool, args: &[String]) -> Result<String> {
+/// `publish-files DIR OUT [--at REV]`: writes into folder OUT the files of
+/// every artifact the designs of DIR's repo publish to, each canvas and the
+/// design system, all from the one commit that origin/main or REV names, and
+/// prints each artifact's folder and calls
+/// (`design_publish::write_all`).
+fn publish_files(tool: &Tool, args: &[String]) -> Result<String> {
     let args = Args::parse(args, &["at"], &[])?;
     let [dir, out] = args.exactly(2, USAGE)? else {
         unreachable!("exactly two")
     };
     let rev = args.value("at")?.unwrap_or(crate::design_render::NOW);
-    let written = crate::design_canvas::write_canvases(
+    let publish = crate::design_publish::write_all(
         Path::new(dir),
         rev,
         Path::new(out),
         &tool.places.design_system_cache(),
     )?;
-    Ok(crate::design_canvas::report(&written))
+    Ok(crate::design_publish::report(&publish))
+}
+
+/// `publish-last FOLDER --listing FILE [--index FILE --by WHO]`: writes the
+/// last calls of the artifact whose folder `publish-files` wrote, from the
+/// artifact's listing (FILE, or `-` for standard input) and, for the design
+/// system, its live index (`design_publish::write_last`).
+fn publish_last(args: &[String]) -> Result<String> {
+    let args = Args::parse(args, &["listing", "index", "by"], &[])?;
+    let [folder] = args.exactly(1, USAGE)? else {
+        unreachable!("exactly one")
+    };
+    let Some(listing) = args.value("listing")? else {
+        fail!("give the artifact's listing with --listing FILE, or - for standard input")
+    };
+    let listing = crate::lists::args::read_input(listing)?;
+    let index = match (args.value("index")?, args.value("by")?) {
+        (None, None) => None,
+        (Some(index), Some(by)) => Some((
+            std::fs::read_to_string(index).context(|| format!("reading {index}"))?,
+            by.to_string(),
+        )),
+        _ => fail!("--index and --by go together: the index to send, and who publishes it"),
+    };
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("the clock is after 1970")
+        .as_secs() as i64;
+    let root = Path::new(folder);
+    let calls = crate::design_publish::write_last(
+        root,
+        &listing,
+        index
+            .as_ref()
+            .map(|(text, by)| (text.as_str(), by.as_str())),
+        &crate::text::utc_second(now),
+    )?;
+    Ok(crate::design_publish::last_report(root, &calls))
 }

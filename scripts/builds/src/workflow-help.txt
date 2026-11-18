@@ -366,7 +366,7 @@ The design session lands its boards through a design change, which the person
 reviews and approves first (`builds help lists` has the record and its
 commands). Only bae publishes its boards as a claude.ai canvas: its design
 changes give each board's canvas link, and landing one ends with publishing the
-canvas. builds keeps its boards in the repo and publishes nothing, so its
+designs. builds keeps its boards in the repo and publishes nothing, so its
 design changes take no canvas links and landing one has no publish step. A
 project's setting says which it does (`builds lists design-globs PROJECT
 --canvas yes|no`). The design session records a fix that changes no design
@@ -381,7 +381,7 @@ decision in the log. builds approves the change as it records it, because the
 decision is the person's approval, so the change needs no review page. The
 coordinator lands it with the item that built the change (`builds land
 <worktree> --done N --design M <sha>...`) and then, in a project that publishes
-a canvas, publishes the canvas, as the design session does after it lands a
+a canvas, publishes the designs, as the design session does after it lands a
 change.
 
   1. While drawing, look at a board with `builds design render`, which draws
@@ -412,20 +412,23 @@ change.
      --design N <sha>...` with the worktree where the design session drew the
      boards (the Approve button recorded the approval; never run `builds design
      approve` for it), then, in a project that publishes a canvas, publish the
-     canvas, which only a Claude session can do. When that session has ended,
+     designs, which only a Claude session can do. When that session has ended,
      the next design session runs `builds land` for the change. `builds design
      approve N --by-person` is for an approval the person gives in words. When
      a rule group covers a path the commits change, `builds land` refuses them
      until the rules review finishes, as for any branch (REVIEW).
 
-In a project that publishes a canvas, the boards and design/mocks/canvas.json
-in the repo are the canvas's source. The published canvas and design system are
-copies that let anyone look at the landed boards. An edit that anyone makes on
-the canvas page on claude.ai is an accident: publish the repo's version over it
-and merge nothing from it.
-`builds design canvas-files` writes the files of each canvas from origin/main,
-and `builds help lists` gives the steps with which any Claude session publishes
-them.
+In a project that publishes a canvas, the boards, design/mocks/canvas.json and
+design/system in the repo are the source of the published designs: every
+canvas that design/mocks/canvases.toml names, and the Design System artifact it
+names beside them. The published canvases and design system are copies that let
+anyone look at the landed boards. An edit that anyone makes on their pages on
+claude.ai is an accident: publish the repo's version over it and merge nothing
+from it. A session publishes the designs with the publish-designs skill, which
+sends every canvas and the design system from one commit: `builds design
+publish-files` writes the files of all of them from the one commit that
+origin/main names, or refuses and writes none, and `builds help lists` says
+what it writes.
 
 
 HEALTH CHECK

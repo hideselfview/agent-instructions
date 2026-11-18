@@ -136,17 +136,29 @@ pub fn local_start_of(day: &str) -> Option<i64> {
     (epoch != -1).then_some(epoch)
 }
 
+/// <epoch> in UTC as ISO 8601, `2026-11-18T19:20:05Z`.
+pub fn utc_second(epoch: i64) -> String {
+    let time: libc::time_t = epoch;
+    let mut tm: libc::tm = unsafe { std::mem::zeroed() };
+    unsafe { libc::gmtime_r(&time, &mut tm) };
+    format_tm(&tm, c"%Y-%m-%dT%H:%M:%SZ")
+}
+
 fn strftime(epoch: i64, format: &std::ffi::CStr) -> String {
     let time: libc::time_t = epoch;
     let mut tm: libc::tm = unsafe { std::mem::zeroed() };
+    unsafe { libc::localtime_r(&time, &mut tm) };
+    format_tm(&tm, format)
+}
+
+fn format_tm(tm: &libc::tm, format: &std::ffi::CStr) -> String {
     let mut buffer = [0u8; 64];
     unsafe {
-        libc::localtime_r(&time, &mut tm);
         let written = libc::strftime(
             buffer.as_mut_ptr().cast(),
             buffer.len(),
             format.as_ptr(),
-            &tm,
+            tm,
         );
         String::from_utf8_lossy(&buffer[..written]).into_owned()
     }

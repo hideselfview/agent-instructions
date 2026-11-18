@@ -1,20 +1,20 @@
 use super::*;
-use crate::testing::{Scratch, design_system, git, repo};
 use serde_json::json;
-use std::path::PathBuf;
 
 fn message<T: std::fmt::Debug>(result: Result<T>) -> String {
     result.unwrap_err().text()
 }
 
-const ONE: &str = "https://claude.ai/artifact/CanvasOne";
-const TWO: &str = "https://claude.ai/artifact/CanvasTwo";
+pub(crate) const ONE: &str = "https://claude.ai/artifact/CanvasOne";
+pub(crate) const TWO: &str = "https://claude.ai/artifact/CanvasTwo";
+
+pub(crate) const DS: &str = "https://claude.ai/artifact/DesignSystem";
 
 /// The canvases of the demo repo: page `one` on the first canvas, pages `two`
-/// and `three` on the second.
-fn canvases_toml() -> String {
+/// and `three` on the second, and its design system.
+pub(crate) fn canvases_toml() -> String {
     format!(
-        "# The canvases.\n\n[[canvas]]\nurl = \"{ONE}\"\ntitle = \"demo: one\"\nlaunch = \"one\"\npages = [\"one\"]\n\n\
+        "# The canvases.\n\n[design_system]\nurl = \"{DS}\"\n\n[[canvas]]\nurl = \"{ONE}\"\ntitle = \"demo: one\"\nlaunch = \"one\"\npages = [\"one\"]\n\n\
          [[canvas]]\nurl = \"{TWO}\"\ntitle = \"demo: two and three\"\nlaunch = \"three\"\npages = [\"two\", \"three\"]\n"
     )
 }
@@ -22,7 +22,7 @@ fn canvases_toml() -> String {
 /// The demo repo's canvas index: board `a` on page one mounts `c`, which has
 /// no page and so is on the first page; `b` is on page two and `d` on page
 /// three. Note `n1` is on page two and `n2` has no page.
-fn index() -> Value {
+pub(crate) fn index() -> Value {
     json!({
         "v": 3,
         "title": "demo mocks",
@@ -47,7 +47,7 @@ fn index() -> Value {
 }
 
 /// The files of the demo repo's design/mocks, by name.
-fn boards() -> BTreeMap<String, String> {
+pub(crate) fn boards() -> BTreeMap<String, String> {
     [
         (
             "a.dc.html",
@@ -62,205 +62,17 @@ fn boards() -> BTreeMap<String, String> {
     .collect()
 }
 
-/// A repo with the demo boards, index and canvases committed, with a README
-/// beside them that is no board, and a design system.
-fn demo(scratch: &Scratch) -> PathBuf {
-    let dir = scratch.dir.join("repo");
-    repo(&dir, "");
-    let mocks = dir.join(MOCKS);
-    std::fs::create_dir_all(&mocks).unwrap();
-    design_system(
-        &dir,
-        "1",
-        ".bundle { color: red; }",
-        "window.Bae = { BUNDLE_MARK: 1 };",
-    );
-    for (name, text) in boards() {
-        std::fs::write(mocks.join(name), text).unwrap();
-    }
-    std::fs::write(mocks.join("README.md"), "# Mocks\n").unwrap();
-    std::fs::write(mocks.join("canvas.json"), index().to_string()).unwrap();
-    std::fs::write(dir.join(CANVASES), canvases_toml()).unwrap();
-    commit(&dir);
-    dir
-}
-
-fn commit(dir: &Path) {
-    git(dir, &["add", "design"]);
-    git(dir, &["commit", "-q", "-m", "boards"]);
-}
-
-fn read(path: &Path) -> String {
-    std::fs::read_to_string(path).unwrap_or_else(|error| panic!("{}: {error}", path.display()))
-}
-
-/// Every file under <dir>, by its path relative to <dir>.
-fn files_under(dir: &Path) -> Vec<String> {
-    let mut found = Vec::new();
-    let mut todo = vec![dir.to_path_buf()];
-    while let Some(next) = todo.pop() {
-        for entry in std::fs::read_dir(&next).unwrap() {
-            let path = entry.unwrap().path();
-            if path.is_dir() {
-                todo.push(path);
-            } else {
-                found.push(
-                    path.strip_prefix(dir)
-                        .unwrap()
-                        .to_string_lossy()
-                        .into_owned(),
-                );
-            }
-        }
-    }
-    found.sort();
-    found
-}
-
-/// Each canvas gets the boards on its pages, the index of only those boards
-/// and notes with its own title and launch page, and a copy of the design
-/// system at the commit, in a folder of its own, with the batches that
-/// publish every file of the folder.
-#[test]
-fn each_canvas_gets_its_pages_boards_and_the_design_system() {
-    let scratch = Scratch::new("canvas-files");
-    let dir = demo(&scratch);
-    let out = scratch.dir.join("out");
-    let written = write_canvases(&dir, "HEAD", &out, &scratch.dir.join("cache")).unwrap();
-    assert_eq!(
-        written.iter().map(|w| w.url.as_str()).collect::<Vec<_>>(),
-        [ONE, TWO]
-    );
-    let one = out.join("CanvasOne");
-    let two = out.join("CanvasTwo");
-    assert_eq!(written[0].root, one);
-    let ds = [
-        "project/ds/demo/components/bundle.css",
-        "project/ds/demo/components/bundle.js",
-        "project/ds/demo/tokens.css",
-        "project/ds/demo/tokens.json",
-    ];
-    let mut expected_one = vec![
-        "batch-1.json",
-        "project/a.dc.html",
-        "project/c.dc.html",
-        "project/canvas.json",
-    ];
-    expected_one.extend(ds);
-    expected_one.sort();
-    assert_eq!(files_under(&one), expected_one);
-    let mut expected_two = vec![
-        "batch-1.json",
-        "project/b.dc.html",
-        "project/canvas.json",
-        "project/d.dc.html",
-    ];
-    expected_two.extend(ds);
-    expected_two.sort();
-    assert_eq!(files_under(&two), expected_two);
-
-    assert_eq!(read(&one.join("project/a.dc.html")), boards()["a.dc.html"]);
-    assert_eq!(
-        read(&one.join("project/ds/demo/components/bundle.js")),
-        "window.Bae = { BUNDLE_MARK: 1 };"
-    );
-    assert!(read(&one.join("project/ds/demo/tokens.css")).contains("--tokens: 1"));
-    assert_eq!(
-        read(&one.join("project/ds/demo/tokens.json")),
-        read(&dir.join("design/system/tokens.json"))
-    );
-
-    let index_one: Value = serde_json::from_str(&read(&one.join("project/canvas.json"))).unwrap();
-    let mut expected = index();
-    expected["title"] = json!("demo: one");
-    expected["launch"] = json!({"view": "canvas", "page": "one"});
-    expected["pages"] = json!([{"id": "one", "name": "One"}]);
-    expected["boards"] = json!({
-        "a.dc.html": {"x": 0, "y": 0, "w": 10, "h": 10, "page": "one"},
-        "c.dc.html": {"x": 0, "y": 0, "w": 10, "h": 10}
-    });
-    expected["order"] = json!(["c.dc.html", "a.dc.html"]);
-    expected["notes"] = json!({"n2": {"x": 0, "y": 0, "text": "on the first page"}});
-    expected["noteOrder"] = json!(["n2"]);
-    assert_eq!(index_one, expected);
-    let index_two: Value = serde_json::from_str(&read(&two.join("project/canvas.json"))).unwrap();
-    assert_eq!(index_two["title"], json!("demo: two and three"));
-    assert_eq!(
-        index_two["launch"],
-        json!({"view": "canvas", "page": "three"})
-    );
-    assert_eq!(index_two["order"], json!(["d.dc.html", "b.dc.html"]));
-    assert_eq!(index_two["noteOrder"], json!(["n1"]));
-
-    let batch: BTreeMap<String, String> =
-        serde_json::from_str(&read(&one.join("batch-1.json"))).unwrap();
-    let published: Vec<&String> = batch.keys().collect();
-    assert_eq!(
-        published,
-        expected_one
-            .iter()
-            .filter(|path| path.starts_with("project/"))
-            .collect::<Vec<_>>()
-    );
-    assert!(batch.iter().all(|(to, from)| to == from));
-    assert_eq!(written[0].batches, [one.join("batch-1.json")]);
-
-    let said = report(&written);
-    for part in [
-        ONE,
-        TWO,
-        &one.display().to_string(),
-        &one.join("batch-1.json").display().to_string(),
-        "7 files",
-    ] {
-        assert!(said.contains(part), "the report names {part}: {said}");
-    }
-}
-
-/// A folder that already holds files is refused, so no file left from an
-/// earlier run is published.
-#[test]
-fn an_out_folder_that_holds_files_is_refused() {
-    let scratch = Scratch::new("canvas-files-out");
-    let dir = demo(&scratch);
-    let out = scratch.dir.join("out");
-    std::fs::create_dir_all(&out).unwrap();
-    std::fs::write(out.join("left.txt"), "x").unwrap();
-    assert!(
-        message(write_canvases(
-            &dir,
-            "HEAD",
-            &out,
-            &scratch.dir.join("cache")
-        ))
-        .contains("is not empty")
-    );
-}
-
-/// A repo with no canvases file publishes none, and says which file it reads.
-#[test]
-fn a_repo_without_a_canvases_file_is_refused() {
-    let scratch = Scratch::new("canvas-files-none");
-    let dir = demo(&scratch);
-    git(&dir, &["rm", "-q", CANVASES]);
-    git(&dir, &["commit", "-q", "-m", "no canvases"]);
-    let refused = message(write_canvases(
-        &dir,
-        "HEAD",
-        &scratch.dir.join("out"),
-        &scratch.dir.join("cache"),
-    ));
-    assert!(refused.contains(CANVASES), "{refused}");
-}
-
 /// The canvases parsed from <text>.
 fn parsed(text: &str) -> Vec<Canvas> {
-    parse_canvases(text, CANVASES).unwrap()
+    parse_canvases(text, CANVASES).unwrap().canvases
 }
 
 #[test]
 fn a_split_that_leaves_a_page_out_or_gives_it_twice_is_refused() {
-    let split_of = |text: &str| message(split(&index(), &parsed(text), &boards()));
+    let split_of = |text: &str| {
+        let text = format!("[design_system]\nurl = \"{DS}\"\n{text}");
+        message(split(&index(), &parsed(&text), &boards()))
+    };
     let canvas = |url: &str, launch: &str, pages: &str| {
         format!(
             "[[canvas]]\nurl = \"{url}\"\ntitle = \"t\"\nlaunch = \"{launch}\"\npages = [{pages}]\n"
@@ -348,34 +160,40 @@ fn a_canvas_over_the_file_limit_is_refused() {
     );
 }
 
+/// Each canvas and the design system is named by its claude.ai link, once,
+/// and the file names the design system, so that no publish leaves it out.
 #[test]
-fn the_canvases_file_names_each_canvas_by_its_claude_link() {
+fn the_canvases_file_names_each_artifact_by_its_claude_link() {
+    let canvas = |url: &str| {
+        format!("[[canvas]]\nurl = \"{url}\"\ntitle = \"t\"\nlaunch = \"one\"\npages = [\"one\"]\n")
+    };
+    let system = |url: &str| format!("[design_system]\nurl = \"{url}\"\n");
     let refused = message(parse_canvases(
-        "[[canvas]]\nurl = \"https://example.com/x\"\ntitle = \"t\"\nlaunch = \"one\"\npages = [\"one\"]\n",
+        &format!("{}{}", system(DS), canvas("https://example.com/x")),
         CANVASES,
     ));
-    assert!(refused.contains("https://claude.ai/artifact/"), "{refused}");
+    assert!(refused.contains("is no artifact link"), "{refused}");
+    let refused = message(parse_canvases(
+        &format!("{}{}", system("https://claude.ai/artifact/"), canvas(ONE)),
+        CANVASES,
+    ));
+    assert!(refused.contains("is no artifact link"), "{refused}");
+    let refused = message(parse_canvases(
+        &format!("{}{}", system(ONE), canvas(ONE)),
+        CANVASES,
+    ));
+    assert!(
+        refused.contains(&format!("names the artifact {ONE} twice")),
+        "{refused}"
+    );
+    let refused = message(parse_canvases(&canvas(ONE), CANVASES));
+    assert!(refused.contains("names no design system"), "{refused}");
     let refused = message(parse_canvases("[[canvas]]\nurl = \"x\"\n", CANVASES));
     assert!(refused.contains(CANVASES), "{refused}");
-    assert!(message(parse_canvases("", CANVASES)).contains("names no canvas"));
-}
-
-/// The index, then the design system, goes in the first batch, and no batch
-/// holds more files than one publish sends.
-#[test]
-fn batches_hold_at_most_one_publishs_files_with_the_index_first() {
-    let mut paths: Vec<String> = (0..300)
-        .map(|n| format!("project/b{n:03}.dc.html"))
-        .collect();
-    paths.push("project/ds/demo/tokens.json".to_string());
-    paths.push("project/canvas.json".to_string());
-    let batches = batches(paths);
-    assert_eq!(
-        batches.iter().map(Vec::len).collect::<Vec<_>>(),
-        [BATCH, 302 - BATCH]
-    );
-    assert_eq!(batches[0][0], "project/canvas.json");
-    assert_eq!(batches[0][1], "project/ds/demo/tokens.json");
+    assert!(message(parse_canvases(&system(DS), CANVASES)).contains("names no canvas"));
+    let published = parse_canvases(&canvases_toml(), CANVASES).unwrap();
+    assert_eq!(published.design_system, DS);
+    assert_eq!(published.canvases.len(), 2);
 }
 
 /// A change a test makes to the demo index.
