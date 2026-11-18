@@ -585,24 +585,6 @@ fn listed(listing: &str) -> Result<Vec<&str>> {
     Ok(paths)
 }
 
-/// The record of what the folder <root> publishes, as `publish-files` wrote
-/// it.
-fn read_record(root: &Path) -> Result<Record> {
-    let record_file = root.join(RECORD);
-    serde_json::from_str(
-        &std::fs::read_to_string(&record_file)
-            .context(|| format!("reading {}", record_file.display()))?,
-    )
-    .map_err(|error| Fail::Message(format!("{}: {error}", record_file.display())))
-}
-
-/// The kind of artifact the folder <root> publishes to, and the commit its
-/// files come from, as `publish-files` recorded them.
-pub fn folder_of(root: &Path) -> Result<(Kind, String)> {
-    let record = read_record(root)?;
-    Ok((record.holds.kind(), record.commit))
-}
-
 /// What the session gives `publish-last` for the design system: the text of
 /// its live index, read after the uploads (None when the artifact has no
 /// index yet), who publishes, and the id each upload got, by the upload's
@@ -642,7 +624,12 @@ pub fn write_last(
     now: &str,
 ) -> Result<LastCalls> {
     let root = &std::fs::canonicalize(root).context(|| format!("finding {}", root.display()))?;
-    let record = read_record(root)?;
+    let record_file = root.join(RECORD);
+    let record: Record = serde_json::from_str(
+        &std::fs::read_to_string(&record_file)
+            .context(|| format!("reading {}", record_file.display()))?,
+    )
+    .map_err(|error| Fail::Message(format!("{}: {error}", record_file.display())))?;
     let shown = listed(listing)?;
     if shown.is_empty() {
         fail!(
