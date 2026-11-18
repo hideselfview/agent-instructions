@@ -163,7 +163,7 @@ fn delete_idle_increments(tool: &Tool, roots: &[Root], free: &mut Free, target: 
         if free.kib >= target {
             break;
         }
-        let outcome = delete_idle(increment, before, open_files.get()?, free.run.dry())?;
+        let outcome = delete_idle(increment, before, open_files.get()?, free.run)?;
         let tally = tallies.entry(increment.profile.clone()).or_default();
         match outcome {
             Outcome::Deleted(bytes) => {
@@ -176,11 +176,7 @@ fn delete_idle_increments(tool: &Tool, roots: &[Root], free: &mut Free, target: 
             Outcome::Written => {}
         }
     }
-    let verb = if free.run.dry() {
-        "would delete"
-    } else {
-        "deleted"
-    };
+    let verb = free.run.deleted();
     for (profile, tally) in &tallies {
         if tally.deleted > 0 {
             note(format!(

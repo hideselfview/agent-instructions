@@ -31,6 +31,15 @@ impl Run {
     pub fn dry(self) -> bool {
         self == Run::Dry
     }
+
+    /// The verb for what a deletion did in this run: "deleted", or on a dry
+    /// run "would delete".
+    pub fn deleted(self) -> &'static str {
+        match self {
+            Run::Real => "deleted",
+            Run::Dry => "would delete",
+        }
+    }
 }
 
 /// Deletes the unused build copies in the folders of <checkout>'s manifest in
@@ -55,7 +64,7 @@ pub fn prune_root(
     if folders.is_empty() {
         return Ok(());
     }
-    let mut freed = units::prune::prune(&cargo_ages(tool), run.dry(), &folders)?;
+    let mut freed = units::prune::prune(&cargo_ages(tool), run, &folders)?;
     freed.extend(prune_trees(tool, root, checkout, &folders, run)?);
     let claimed = checkout.claim_file().is_file();
     let lane = checkout.app_lane(&tool.places)?;
@@ -137,7 +146,7 @@ pub fn prune_after_build(tool: &Tool, checkout: &Checkout) -> Result<()> {
         .map(|entry| root.join(&entry.path))
         .filter(|folder| folder.is_dir())
         .collect();
-    units::prune::prune(&cargo_ages(tool), false, &folders)?;
+    units::prune::prune(&cargo_ages(tool), Run::Real, &folders)?;
     Ok(())
 }
 
@@ -599,7 +608,7 @@ pub fn prune_cargo_git(tool: &Tool, roots: &[Root], run: Run) -> Result<()> {
     if lockfiles.is_empty() {
         return Ok(());
     }
-    units::git_checkouts::prune_git_checkouts(&tool.places.cargo_home, run.dry(), &lockfiles)?;
+    units::git_checkouts::prune_git_checkouts(&tool.places.cargo_home, run, &lockfiles)?;
     Ok(())
 }
 

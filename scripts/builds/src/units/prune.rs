@@ -17,6 +17,7 @@ use super::{
     lock_profile, names_in, newest_mtime, profile_dirs, remove, unit_dir,
 };
 use crate::fail::Result;
+use crate::prune::Run;
 use crate::text::{counted, human_bytes, note};
 use crate::usage::{Seen, bytes_with, freeable};
 
@@ -642,10 +643,6 @@ fn single_link(path: &Path) -> bool {
     std::fs::symlink_metadata(path).is_ok_and(|meta| meta.nlink() == 1)
 }
 
-fn verb(dry: bool) -> &'static str {
-    if dry { "would delete" } else { "deleted" }
-}
-
 /// Deletes <profile>'s <units> no build used since the cutoff, those in
 /// <replaced> (superseded), the incremental folders only they used, every
 /// incremental folder nothing wrote anywhere inside since the idle cutoff,
@@ -656,7 +653,7 @@ fn prune_profile(
     units: &Units,
     replaced: &HashSet<String>,
     ages: &Ages,
-    dry: bool,
+    run: Run,
     open_files: &mut OpenFiles,
 ) -> Result<u64> {
     let mut stale: Vec<&Unit> = Vec::new();
@@ -767,7 +764,7 @@ fn prune_profile(
                 }
                 None => by_name.push((name, 1, unit_size)),
             }
-            if !dry {
+            if !run.dry() {
                 for path in found.paths() {
                     remove(&path)?;
                 }
@@ -782,7 +779,7 @@ fn prune_profile(
             .collect();
         note(format!(
             "{} {} {why} from {} ({}; most: {})",
-            verb(dry),
+            run.deleted(),
             counted(group.len(), "build copy", "build copies"),
             profile.display(),
             human_bytes(size),
@@ -795,14 +792,14 @@ fn prune_profile(
             size += bytes_with(&seen, crate_dir)?;
         }
         freed += size;
-        if !dry {
+        if !run.dry() {
             for crate_dir in &increment_dirs {
                 remove(crate_dir)?;
             }
         }
         note(format!(
             "{} {} no build copy left uses from {} ({})",
-            verb(dry),
+            run.deleted(),
             counted(
                 increment_dirs.len(),
                 "incremental folder",
@@ -821,7 +818,7 @@ fn prune_profile(
         }
         let size: u64 = sizes.iter().sum();
         freed += size;
-        if !dry {
+        if !run.dry() {
             for crate_dir in &idle_dirs {
                 remove(crate_dir)?;
             }
@@ -841,7 +838,7 @@ fn prune_profile(
             .collect();
         note(format!(
             "{} {} {} from {} ({}; most: {})",
-            verb(dry),
+            run.deleted(),
             counted(idle_dirs.len(), "incremental folder", "incremental folders"),
             ages.idle_why(),
             profile.display(),
@@ -858,14 +855,14 @@ fn prune_profile(
             }
         }
         freed += size;
-        if !dry {
+        if !run.dry() {
             for path in &objects {
                 remove(path)?;
             }
         }
         note(format!(
             "{} {} no build or debugger reads from {} ({})",
-            verb(dry),
+            run.deleted(),
             counted(objects.len(), "object file", "object files"),
             profile.display(),
             human_bytes(size)
@@ -886,12 +883,12 @@ fn prune_profile(
 /// deletes nothing). A folder whose guard a `builds cargo` build holds is
 /// left whole; a profile folder whose lock a build holds keeps its units.
 /// Returns the KiB freed per folder; notes go to stderr.
-pub fn prune(ages: &Ages, dry: bool, folders: &[PathBuf]) -> Result<Vec<(PathBuf, u64)>> {
+pub fn prune(ages: &Ages, run: Run, folders: &[PathBuf]) -> Result<Vec<(PathBuf, u64)>> {
     let mut result = Vec::new();
     for folder in folders {
         let root = std::fs::canonicalize(folder).unwrap_or_else(|_| folder.clone());
         // Held until this folder's units are done with.
-        let guard = if dry {
+        let guard = if run.dry() {
             Guard::Absent
         } else {
             lock_guard(&root)?
@@ -908,7 +905,7 @@ pub fn prune(ages: &Ages, dry: bool, folders: &[PathBuf]) -> Result<Vec<(PathBuf
         let mut locks = Vec::new();
         let mut free = HashSet::new();
         for (at, profile) in profiles.iter().enumerate() {
-            if dry {
+            if run.dry() {
                 free.insert(at);
             } else if let Some(lock) = lock_profile(profile)? {
                 locks.push(lock);
@@ -969,7 +966,7 @@ pub fn prune(ages: &Ages, dry: bool, folders: &[PathBuf]) -> Result<Vec<(PathBuf
                 .filter(|(p, _)| *p == at)
                 .map(|(_, hash)| hash.clone())
                 .collect();
-            freed += prune_profile(profile, units, &replaced_here, ages, dry, &mut open_files)?;
+            freed += prune_profile(profile, units, &replaced_here, ages, run, &mut open_files)?;
         }
         drop(locks);
         result.push((folder.clone(), freed / 1024));

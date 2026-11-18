@@ -361,6 +361,15 @@ pub fn remove(path: &Path) -> Result<()> {
     }
 }
 
+/// The run a `<dry 0|1>` argument of `builds units` names.
+fn run_arg(dry: &str) -> crate::prune::Run {
+    if dry == "1" {
+        crate::prune::Run::Dry
+    } else {
+        crate::prune::Run::Real
+    }
+}
+
 /// `builds units prune|git-checkouts|after-build ...`: the steps setup
 /// and prune run, on the folders named; the shell tests drive them this way.
 /// `after-build` is what `builds cargo` starts as it exits.
@@ -378,7 +387,7 @@ pub fn cmd_units(tool: &crate::tool::Tool, args: &[String]) -> Result<()> {
         Some("prune") if args.len() >= 4 => {
             let folders: Vec<PathBuf> = args[4..].iter().map(PathBuf::from).collect();
             let rules = prune::Ages::new(number(&args[1])?, number(&args[2])?);
-            for (folder, freed_kib) in prune::prune(&rules, args[3] == "1", &folders)? {
+            for (folder, freed_kib) in prune::prune(&rules, run_arg(&args[3]), &folders)? {
                 println!("{freed_kib}\t{}", folder.display());
             }
             Ok(())
@@ -387,7 +396,7 @@ pub fn cmd_units(tool: &crate::tool::Tool, args: &[String]) -> Result<()> {
             let lockfiles: Vec<PathBuf> = args[3..].iter().map(PathBuf::from).collect();
             let freed = git_checkouts::prune_git_checkouts(
                 Path::new(&args[1]),
-                args[2] == "1",
+                run_arg(&args[2]),
                 &lockfiles,
             )?;
             println!("{freed}");

@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 
 use super::remove;
 use crate::fail::Result;
+use crate::prune::Run;
 use crate::text::{counted, human_bytes, note};
 use crate::usage::{Seen, bytes_with};
 
@@ -48,14 +49,14 @@ fn pinned_revisions(lockfiles: &[PathBuf]) -> Result<HashSet<String>> {
 /// cargo's package cache locks, which a cargo checking one out holds. The git
 /// databases (git/db) stay: cargo checks a commit out of them again in
 /// seconds. Returns the KiB freed.
-pub fn prune_git_checkouts(cargo_home: &Path, dry: bool, lockfiles: &[PathBuf]) -> Result<u64> {
+pub fn prune_git_checkouts(cargo_home: &Path, run: Run, lockfiles: &[PathBuf]) -> Result<u64> {
     let checkouts = cargo_home.join("git").join("checkouts");
     if !checkouts.is_dir() {
         return Ok(0);
     }
     let pinned = pinned_revisions(lockfiles)?;
     let mut locks = Vec::new();
-    if !dry {
+    if !run.dry() {
         for name in [".package-cache", ".package-cache-mutate"] {
             match crate::evict::try_lock_creating(&cargo_home.join(name))? {
                 Some(lock) => locks.push(lock),
@@ -92,14 +93,14 @@ pub fn prune_git_checkouts(cargo_home: &Path, dry: bool, lockfiles: &[PathBuf]) 
         size += bytes_with(&seen, path)?;
     }
     if !unpinned.is_empty() {
-        if !dry {
+        if !run.dry() {
             for path in &unpinned {
                 remove(path)?;
             }
         }
         note(format!(
             "{} {} no Cargo.lock pins from {} ({})",
-            if dry { "would delete" } else { "deleted" },
+            run.deleted(),
             counted(unpinned.len(), "git checkout", "git checkouts"),
             checkouts.display(),
             human_bytes(size)

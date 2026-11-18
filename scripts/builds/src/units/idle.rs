@@ -9,6 +9,7 @@ use super::{
     INCREMENTAL_DEPTH, holds_any, lock_profile, names_in, newest_mtime, profile_dirs, remove,
 };
 use crate::fail::Result;
+use crate::prune::Run;
 use crate::usage::freeable;
 
 /// An incremental folder, the profile folder it is in, and its newest write
@@ -69,15 +70,15 @@ pub enum Outcome {
 
 /// Deletes <increment> while holding its profile's cargo lock, unless a
 /// build holds that lock, something wrote inside it since <before>, or a
-/// process holds a file in it. A <dry> run takes no lock and deletes
+/// process holds a file in it. A dry <run> takes no lock and deletes
 /// nothing, and says what deleting would free.
 pub fn delete_idle(
     increment: &Increment,
     before: f64,
     held: &HashSet<u64>,
-    dry: bool,
+    run: Run,
 ) -> Result<Outcome> {
-    let _lock = if dry {
+    let _lock = if run.dry() {
         None
     } else {
         let Some(lock) = lock_profile(&increment.profile)? else {
@@ -92,7 +93,7 @@ pub fn delete_idle(
         return Ok(Outcome::Held);
     }
     let size = freeable(&increment.path)?;
-    if !dry {
+    if !run.dry() {
         remove(&increment.path)?;
     }
     Ok(Outcome::Deleted(size))
