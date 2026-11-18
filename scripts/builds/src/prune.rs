@@ -13,7 +13,7 @@ use crate::fail;
 use crate::fail::{Context, Result};
 use crate::free_worktrees::retire_idle;
 use crate::manifest::{SHARED_CACHES, build_dirs, has_manifest};
-use crate::places::{DERIVED_DATA_CAP_KIB, DERIVED_DATA_IDLE_MINUTES, FLOOR_IDLE_MINUTES};
+use crate::places::{DERIVED_DATA_CAP_KIB, DERIVED_DATA_IDLE_MINUTES, FLOOR_IDLE_MINUTES, Places};
 use crate::temp_builds::temp_build_folders;
 use crate::text::{human, note};
 use crate::tool::Tool;
@@ -585,18 +585,8 @@ pub fn prune_temp_builds(tool: &Tool, run: Run) -> Result<()> {
 /// tool knows pins goes. The git databases stay, and cargo checks a commit
 /// out of them again in seconds when a branch needs it.
 pub fn prune_cargo_git(tool: &Tool, roots: &[Root], run: Run) -> Result<()> {
-    let tops: Vec<PathBuf> = roots
-        .iter()
-        .filter_map(|root| root.live.as_ref())
-        .map(|c| c.top.clone())
-        .collect();
-    let listed = crate::checkout::parallel_map(&tops, |top| {
-        git_text(
-            git(top).args(["ls-files", "--", "Cargo.lock", "*/Cargo.lock"]),
-            "list Cargo.lock files",
-        )
-        .map(|text| text.lines().map(|line| top.join(line)).collect::<Vec<_>>())
-    });
+    let live: Vec<&Root> = roots.iter().filter(|root| root.live.is_some()).collect();
+    let listed = crate::checkout::parallel_map(&live, |root| lockfiles_of(&tool.places, root));
     let mut lockfiles = Vec::new();
     for found in listed {
         lockfiles.extend(found?);
@@ -607,6 +597,26 @@ pub fn prune_cargo_git(tool: &Tool, roots: &[Root], run: Run) -> Result<()> {
     }
     units::git_checkouts::prune_git_checkouts(&tool.places.cargo_home, run.dry(), &lockfiles)?;
     Ok(())
+}
+
+/// The Cargo.lock files git tracks in the checkout of <root>, which was live
+/// when the caller listed the roots. Another builds process may remove the
+/// checkout meanwhile (a retired side worktree, a host's idle app checkout or
+/// job worktree): git deletes the worktree's files, its `.git` among them,
+/// before the remover deletes the build root. A checkout that is no longer
+/// live pins nothing; git failing in one that still is fails.
+fn lockfiles_of(places: &Places, root: &Root) -> Result<Vec<PathBuf>> {
+    let top = &root.top;
+    match git_text(
+        git(top).args(["ls-files", "--", "Cargo.lock", "*/Cargo.lock"]),
+        "list Cargo.lock files",
+    ) {
+        Ok(text) => Ok(text.lines().map(|line| top.join(line)).collect()),
+        Err(error) => match Root::read(places, &root.path)? {
+            Some(Root { live: Some(_), .. }) => Err(error),
+            _ => Ok(Vec::new()),
+        },
+    }
 }
 
 /// The tools a repo's script installs once per version into the cache home
