@@ -284,7 +284,7 @@ fn run(command: &str, args: &[String]) -> Result<()> {
         "release" => claim::cmd_release(&tool.places, args),
         "app-checkout" => worktree::cmd_app_checkout(&tool, &host::Ssh::from_env(), args),
         "build-app" => build_app::cmd_build_app(&tool, args),
-        "status" => status::cmd_status(&mut tool, args),
+        "status" => status::cmd_status(&mut tool, &host::Ssh::from_env(), args),
         "prune" => prune::cmd_prune(&tool, args),
         "install" => install::cmd_install(&tool, args),
         "units" => units::cmd_units(&tool, args),

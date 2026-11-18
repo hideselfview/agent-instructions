@@ -484,7 +484,7 @@ fn volume_line(root: &Path) -> Result<String> {
 }
 
 /// `builds status [--json [--no-folders]]`.
-pub fn cmd_status(tool: &mut Tool, args: &[String]) -> Result<()> {
+pub fn cmd_status(tool: &mut Tool, ssh: &Ssh, args: &[String]) -> Result<()> {
     match args
         .iter()
         .map(String::as_str)
@@ -569,7 +569,7 @@ pub fn cmd_status(tool: &mut Tool, args: &[String]) -> Result<()> {
         is_host,
     ));
     out.push(crate::spotlight::status_line(
-        crate::spotlight::read(&tool.places, &Ssh::from_env(), &Host::local()),
+        crate::spotlight::read(&tool.places, ssh, &Host::local()),
         is_host,
     ));
     sccache_lines(&mut out);
