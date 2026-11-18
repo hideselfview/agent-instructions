@@ -12,7 +12,7 @@
 use std::path::Path;
 
 use crate::app_remote::RemoteApp;
-use crate::checkout::{APP_LANE_FILE, Checkout, git, git_text};
+use crate::checkout::{APP_LANE_FILE, Checkout};
 use crate::claim::{Claim, require_one_line, require_project_named, set_project, write_claim};
 use crate::evict::{Recreate, Removal, evict};
 use crate::fail;
@@ -23,6 +23,7 @@ use crate::lane::Lane;
 use crate::setup::setup;
 use crate::text::note;
 use crate::tool::Tool;
+use boards::{git, git_text};
 
 fn run_checked(command: &mut std::process::Command, what: &str) -> Result<()> {
     let status = command.status().context(|| format!("running {what}"))?;

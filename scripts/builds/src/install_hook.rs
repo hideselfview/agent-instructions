@@ -13,10 +13,10 @@
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
-use crate::checkout::{git, git_text};
 use crate::fail;
 use crate::fail::{Context, Result};
 use crate::text::note;
+use boards::{git, git_text};
 
 const HOOK: &str = "#!/bin/sh
 # Written by `builds install-hook`: runs the repo's .checks on the staged files.

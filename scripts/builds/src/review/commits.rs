@@ -5,9 +5,9 @@
 use std::path::Path;
 use std::process::Stdio;
 
-use crate::checkout::git;
 use crate::fail;
 use crate::fail::{Context, Result};
+use boards::git;
 
 /// What <args> prints in <repo>, or why it failed.
 pub fn git_text(repo: &Path, args: &[&str]) -> Result<String> {

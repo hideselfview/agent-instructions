@@ -140,7 +140,7 @@ pub fn with_changed_dependencies(old: &str, new: &str, members: &[String]) -> Re
 /// no commit (a repo before its first) or that commit has no `Cargo.lock`.
 pub fn lock_at(top: &Path, rev: &str) -> Result<Option<String>> {
     let answers = |args: &[&str]| -> Result<bool> {
-        Ok(crate::checkout::git(top)
+        Ok(boards::git(top)
             .args(args)
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::null())
@@ -158,11 +158,11 @@ pub fn lock_at(top: &Path, rev: &str) -> Result<Option<String>> {
     {
         return Ok(None);
     }
-    crate::checkout::git_text(
-        crate::checkout::git(top).args(["show", &format!("{rev}:Cargo.lock")]),
+    let text = boards::git_text(
+        boards::git(top).args(["show", &format!("{rev}:Cargo.lock")]),
         "read the old Cargo.lock",
-    )
-    .map(Some)
+    )?;
+    Ok(Some(text))
 }
 
 #[cfg(test)]

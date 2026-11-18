@@ -105,11 +105,11 @@ use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-use crate::checkout::git;
 use crate::fail;
 use crate::fail::{Context, Fail, Result};
 use crate::lists::Id;
 use crate::text::shell_word;
+use boards::git;
 
 const USAGE: &str = "usage: builds land <worktree> [--done N]... [--part N]... [--design N]... <sha>... (run it in the worktree whose branch holds the commits, with nothing uncommitted there, and in a repo of a project with a claim on it; land requires --design exactly when the commits change a design place or shared design file, once for each design change that resolves some of them, and takes --design alone for commits that are all design files)";
 

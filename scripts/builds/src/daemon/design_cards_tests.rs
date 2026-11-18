@@ -16,13 +16,10 @@ fn branch(dir: &Path, files: &[&str]) -> Vec<Commit> {
         git(dir, &["add", file]);
     }
     git(dir, &["commit", "-q", "-m", "Draw"]);
-    let full = crate::checkout::git_text(
-        crate::checkout::git(dir).args(["rev-parse", "HEAD"]),
-        "read HEAD",
-    )
-    .unwrap()
-    .trim()
-    .to_string();
+    let full = boards::git_text(boards::git(dir).args(["rev-parse", "HEAD"]), "read HEAD")
+        .unwrap()
+        .trim()
+        .to_string();
     vec![Commit {
         sha: full.chars().take(7).collect(),
         full,

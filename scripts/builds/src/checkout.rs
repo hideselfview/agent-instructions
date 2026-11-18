@@ -9,6 +9,8 @@
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
+use boards::{git, git_text};
+
 use crate::fail;
 use crate::fail::{Context, Result};
 use crate::lane::Lane;
@@ -33,28 +35,6 @@ pub fn git_local_env_vars() -> Result<Vec<String>> {
     command.args(["rev-parse", "--local-env-vars"]);
     let listed = git_text(&mut command, "list its local variables")?;
     Ok(listed.split_whitespace().map(str::to_string).collect())
-}
-
-/// `git -C <dir>`.
-pub fn git(dir: &Path) -> Command {
-    let mut command = Command::new("git");
-    command.arg("-C").arg(dir);
-    command
-}
-
-/// stdout of a git command that must succeed, as text.
-pub fn git_text(command: &mut Command, what: &str) -> Result<String> {
-    let output = command
-        .stdin(Stdio::null())
-        .output()
-        .context(|| format!("running git to {what}"))?;
-    if !output.status.success() {
-        fail!(
-            "git failed to {what}: {}",
-            String::from_utf8_lossy(&output.stderr).trim()
-        );
-    }
-    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
 /// The name of the file in a host's app checkout's git dir that names its

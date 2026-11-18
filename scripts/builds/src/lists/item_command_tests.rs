@@ -927,8 +927,8 @@ fn drop_records_and_throws_away_a_running_items_work() {
             .is_none(),
         "the worktree kept its claim"
     );
-    let branches = crate::checkout::git_text(
-        crate::checkout::git(&demo.main).args(["branch", "--list", "work"]),
+    let branches = boards::git_text(
+        boards::git(&demo.main).args(["branch", "--list", "work"]),
         "list branches",
     )
     .unwrap();

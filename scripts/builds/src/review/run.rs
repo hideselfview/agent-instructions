@@ -7,7 +7,7 @@ use std::process::Stdio;
 
 use serde_json::json;
 
-use crate::checkout::{git, parallel_map};
+use crate::checkout::parallel_map;
 use crate::fail;
 use crate::fail::{Context, Result};
 use crate::review::call;
@@ -20,6 +20,7 @@ use crate::review::groups::{Group, Groups};
 use crate::review::prompt::{self, PROJECT_FACTS};
 use crate::review::record::{Finding, NewCall, NewExchange, NewFinding, RunRow};
 use crate::review::rules::{self, Rule};
+use boards::git;
 
 /// What a review reads besides the diff.
 pub struct Material {

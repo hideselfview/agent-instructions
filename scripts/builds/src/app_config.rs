@@ -87,12 +87,12 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Duration;
 
-use crate::checkout::{git, git_text};
 use crate::fail;
 use crate::fail::{Context, Result};
 use crate::lane::Lane;
 use crate::lock::{self, Where, Within};
 use crate::places::Places;
+use boards::{git, git_text};
 
 pub const CONFIG: &str = ".app-build";
 
@@ -681,7 +681,10 @@ pub fn parse_config(text: &str) -> Result<Config> {
 
 /// Runs git in <top>, failing with what it said.
 pub fn run_git(top: &Path, args: &[&str]) -> Result<String> {
-    git_text(git(top).args(args), &format!("git {}", args.join(" ")))
+    Ok(git_text(
+        git(top).args(args),
+        &format!("git {}", args.join(" ")),
+    )?)
 }
 
 /// The full id of the commit <rev> names in the repository at <top>.
@@ -732,7 +735,8 @@ pub fn switch_to(top: &Path, commit: &str, force: bool) -> Result<()> {
             Ok(())
         });
     }
-    git_text(&mut command, &format!("git {}", args.join(" "))).map(|_| ())
+    git_text(&mut command, &format!("git {}", args.join(" ")))?;
+    Ok(())
 }
 
 /// The ref checked out in the app checkout <top>, which must be clean, and its

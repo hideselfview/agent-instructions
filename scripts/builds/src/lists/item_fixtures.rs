@@ -3,14 +3,15 @@
 
 use std::path::PathBuf;
 
-use crate::checkout::git_text;
-use crate::checkout::{Checkout, git};
+use crate::checkout::Checkout;
 use crate::claim::write_claim;
 use crate::fail::{Fail, Result};
 use crate::lists::fixtures::NOON;
 use crate::lists::store::Store;
 use crate::testing::{Scratch, git as run_git, repo};
 use crate::tool::Tool;
+use boards::git;
+use boards::git_text;
 
 pub struct Demo {
     pub scratch: Scratch,

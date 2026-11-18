@@ -24,7 +24,7 @@ use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
-use crate::checkout::{Checkout, git, git_text};
+use crate::checkout::Checkout;
 use crate::fail;
 use crate::fail::{Context, Fail, Result};
 use crate::host::{self, Host, REMOTE_ROOT, Ssh, VOLUME, choose, clone_path, sh_quote};
@@ -32,6 +32,7 @@ use crate::job_claim::Holders;
 use crate::places::Places;
 use crate::text::note;
 use crate::tool::Tool;
+use boards::{git, git_text};
 
 const USAGE: &str = "usage: builds remote run <repo> <ref> [--host <name>] -- <command> [<args>...]\n       builds remote run <repo> --staged [--host <name>] -- <command> [<args>...]\n       builds remote run <repo> --working [--host <name>] -- <command> [<args>...]";
 
@@ -211,7 +212,7 @@ fn commit_of(source: &Path, what: &What) -> Result<String> {
 
 /// A commit of <tree> on top of HEAD that no ref names.
 fn commit_tree(source: &Path, tree: &str, message: &str) -> Result<String> {
-    git_text(
+    Ok(git_text(
         source_git(source).args([
             "-c",
             "user.name=builds",
@@ -225,7 +226,7 @@ fn commit_tree(source: &Path, tree: &str, message: &str) -> Result<String> {
             message,
         ]),
         "commit the files to send",
-    )
+    )?)
 }
 
 /// The id of a tree holding what is in the working tree of <source>: HEAD's

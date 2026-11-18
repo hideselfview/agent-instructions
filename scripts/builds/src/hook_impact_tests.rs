@@ -43,7 +43,7 @@ fn head(dir: &Path) -> String {
 }
 
 fn git_in(dir: &Path, args: &[&str]) -> std::process::Command {
-    let mut command = crate::checkout::git(dir);
+    let mut command = boards::git(dir);
     command.args(args);
     command
 }

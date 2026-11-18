@@ -7,12 +7,12 @@ use std::path::PathBuf;
 
 use crate::app_config::{app_checkout_top, resolve, run_git, switch_to};
 use crate::app_remote::{RemoteApp, fetched_local_source};
-use crate::checkout::{git, git_text};
 use crate::fail::Result;
 use crate::host::Ssh;
 use crate::lane::Lane;
 use crate::places::Places;
 use crate::side_git::{UNCOMMITTED_STATUS, paths_in_status};
+use boards::{git, git_text};
 
 /// One of a repo's app checkouts, on this Mac or on a host.
 pub enum Site {
@@ -67,7 +67,10 @@ impl Site {
                 if let Some(index) = index {
                     command.env("GIT_INDEX_FILE", index);
                 }
-                git_text(command.args(args), &format!("git {}", args.join(" ")))
+                Ok(git_text(
+                    command.args(args),
+                    &format!("git {}", args.join(" ")),
+                )?)
             }
             Site::Remote(remote) => remote.git(index, args),
         }

@@ -25,13 +25,13 @@ use std::path::Path;
 
 use crate::app_config::resolve;
 use crate::app_site::Site;
-use crate::checkout::git;
 use crate::fail;
 use crate::fail::{Context, Result};
 use crate::host::{Ssh, sh_quote};
 use crate::lock;
 use crate::places::Places;
 use crate::text::note;
+use boards::git;
 
 /// What the checkout is put on.
 const TARGET: &str = "origin/main";

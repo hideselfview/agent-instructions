@@ -26,7 +26,7 @@ use std::process::Stdio;
 use rusqlite::{Connection, params};
 use serde::{Deserialize, Serialize};
 
-use crate::checkout::{Checkout, git};
+use crate::checkout::Checkout;
 use crate::db::Sql;
 use crate::fail;
 use crate::fail::{Context, Result};
@@ -38,6 +38,7 @@ use crate::lists::store::{self, Store};
 use crate::lists::{Closed, How, Id, Kind, Located, Stamp, Standing};
 use crate::text::note;
 use crate::tool::Tool;
+use boards::git;
 
 const USAGE: &str = "builds item check-landing|landed DIR [--done N]... [--part N]... SHA...";
 

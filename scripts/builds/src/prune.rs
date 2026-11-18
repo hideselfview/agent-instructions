@@ -7,7 +7,7 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use crate::checkout::{Checkout, Root, git, git_text};
+use crate::checkout::{Checkout, Root};
 use crate::evict::{Recreate, Removal, evict, make_temp_dir};
 use crate::fail;
 use crate::fail::{Context, Result};
@@ -20,6 +20,7 @@ use crate::tool::Tool;
 use crate::trees::prune_trees;
 use crate::units;
 use crate::usage::Measure;
+use boards::{git, git_text};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Run {
@@ -626,7 +627,7 @@ fn lockfiles_of(places: &Places, root: &Root) -> Result<Vec<PathBuf>> {
     ) {
         Ok(text) => Ok(text.lines().map(|line| top.join(line)).collect()),
         Err(error) => match Root::read(places, &root.path)? {
-            Some(Root { live: Some(_), .. }) => Err(error),
+            Some(Root { live: Some(_), .. }) => Err(error.into()),
             _ => {
                 note(format!(
                     "pruning skipped {top}: git could not list its Cargo.lock files ({}), and {top} is no longer a live checkout, so it pins nothing",

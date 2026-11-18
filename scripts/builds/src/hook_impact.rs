@@ -23,10 +23,10 @@ use std::path::{Path, PathBuf};
 
 use rusqlite::Connection;
 
-use crate::checkout::{git, git_text};
 use crate::fail;
 use crate::fail::{Context, Result};
 use crate::hook_stats::{self, median_of, open_for_reading, seconds};
+use boards::{git, git_text};
 
 /// One check's figures over one side's runs that ran it.
 #[derive(Clone, Debug, PartialEq, Eq)]

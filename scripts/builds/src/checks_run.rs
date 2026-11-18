@@ -33,7 +33,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
-use crate::checkout::{Checkout, git, git_local_env_vars, git_text};
+use crate::checkout::{Checkout, git_local_env_vars};
 use crate::checks::{CONFIG, Kind, Line, Planned, parse, plan};
 use crate::fail;
 use crate::fail::{Context, Fail, Result};
@@ -44,6 +44,7 @@ use crate::lists::args::Args;
 use crate::lists::store::{Store, database_of};
 use crate::places::Places;
 use crate::text::note;
+use boards::{git, git_text};
 
 const USAGE: &str = "usage: builds checks run [<worktree>] | builds checks run --since <rev> [<worktree>] | builds checks whole [<worktree>] | builds checks list [<worktree>] | builds checks tests --since <rev> [--run] | builds checks stats [--project <project>] [--repo <repo>] [--since <YYYY-MM-DD>] [--change <rev>]";
 

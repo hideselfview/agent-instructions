@@ -7,7 +7,7 @@ use std::process::{Command, Stdio};
 use crate::fail;
 use crate::fail::{Context, Result};
 
-use crate::checkout::git;
+use boards::git;
 
 /// Lines of the new file shown above and below each hunk.
 const AROUND: i64 = 40;

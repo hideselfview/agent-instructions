@@ -25,12 +25,12 @@ use std::path::Path;
 
 use crate::app_build::{self, Pick};
 use crate::app_config::{CONFIG, Config, PickKind, run_git};
-use crate::checkout::git;
 use crate::fail;
 use crate::fail::{Context, Result};
 use crate::lane::Lane;
 use crate::places::Places;
 use crate::text::note;
+use boards::git;
 
 const USAGE: &str =
     "usage: builds app-build <repo> <ref> [--test <Class>]... [--shots <prefix>]... [--fresh]";

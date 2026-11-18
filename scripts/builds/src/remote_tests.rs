@@ -638,7 +638,7 @@ fn sends_the_whole_working_tree_without_moving_a_ref_or_the_index() {
     std::fs::write(s.source.join("untracked.txt"), "untracked\n").unwrap();
     std::fs::write(s.source.join("ignored.txt"), "ignored\n").unwrap();
     let status_before = git_text(
-        crate::checkout::git(&s.source).args(["status", "--porcelain"]),
+        boards::git(&s.source).args(["status", "--porcelain"]),
         "status",
     )
     .unwrap();
@@ -683,7 +683,7 @@ fn sends_the_whole_working_tree_without_moving_a_ref_or_the_index() {
     std::fs::write(s.source.join("tracked.txt"), "edited\n").unwrap();
     assert_eq!(
         git_text(
-            crate::checkout::git(&s.source).args(["status", "--porcelain"]),
+            boards::git(&s.source).args(["status", "--porcelain"]),
             "status",
         )
         .unwrap(),

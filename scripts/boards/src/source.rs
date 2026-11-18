@@ -37,14 +37,16 @@ const BUNDLER: &str = "design/system/build-bundle.py";
 
 static WORK: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 
-fn git(dir: &Path) -> Command {
+/// `git -C <dir>`.
+pub fn git(dir: &Path) -> Command {
     let mut command = Command::new("git");
     command.arg("-C").arg(dir);
     command
 }
 
-/// stdout of a git command that must succeed, as text.
-fn git_text(command: &mut Command, what: &str) -> Result<String> {
+/// stdout of a git command that must succeed, as text. <what> says what the
+/// command does in an error: "git failed to <what>".
+pub fn git_text(command: &mut Command, what: &str) -> Result<String> {
     let output = command
         .stdin(Stdio::null())
         .output()
@@ -120,19 +122,11 @@ impl Source<'_> {
                 if !exists_in(repo, rev, rel)? {
                     return Ok(None);
                 }
-                let bytes = git(repo)
-                    .args(["cat-file", "blob", &format!("{rev}:{rel}")])
-                    .stdin(Stdio::null())
-                    .output()
-                    .context(|| format!("running git to read {}", self.label(rel)))?;
-                if !bytes.status.success() {
-                    fail!(
-                        "git failed to read {}: {}",
-                        self.label(rel),
-                        String::from_utf8_lossy(&bytes.stderr).trim()
-                    );
-                }
-                Ok(Some(String::from_utf8_lossy(&bytes.stdout).into_owned()))
+                let text = git_text(
+                    git(repo).args(["cat-file", "blob", &format!("{rev}:{rel}")]),
+                    &format!("read {}", self.label(rel)),
+                )?;
+                Ok(Some(text))
             }
         }
     }

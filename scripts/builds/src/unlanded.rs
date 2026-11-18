@@ -11,10 +11,11 @@
 use std::collections::{BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 
-use crate::checkout::{Checkout, git, git_text};
+use crate::checkout::Checkout;
 use crate::fail;
 use crate::fail::Result;
 use crate::side_git::Commit;
+use boards::{git, git_text};
 
 /// The work a worktree holds that origin/main lacks.
 #[derive(Debug, Default)]

@@ -252,13 +252,10 @@ fn commit_f(top: &Path, text: &str, message: &str) -> String {
     std::fs::write(top.join("f.rs"), text).unwrap();
     crate::testing::git(top, &["add", "f.rs"]);
     crate::testing::git(top, &["commit", "-q", "-m", message]);
-    crate::checkout::git_text(
-        crate::checkout::git(top).args(["rev-parse", "HEAD"]),
-        "read HEAD",
-    )
-    .unwrap()
-    .trim()
-    .to_string()
+    boards::git_text(boards::git(top).args(["rev-parse", "HEAD"]), "read HEAD")
+        .unwrap()
+        .trim()
+        .to_string()
 }
 
 /// A demo whose main holds f.rs on origin too, a side worktree on branch work
@@ -1017,7 +1014,7 @@ fn a_review_of_a_given_head_reads_a_copy_and_keeps_what_each_reviewer_was_sent_a
     let fake = fake(&demo.scratch.dir);
     let side = demo.add_side(1, "agent", "work");
     demo.commit(&side, "a.rs");
-    let head = crate::checkout::git(&side)
+    let head = boards::git(&side)
         .args(["rev-parse", "HEAD"])
         .output()
         .unwrap();

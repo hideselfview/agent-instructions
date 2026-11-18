@@ -14,13 +14,14 @@ use std::path::{Path, PathBuf};
 use rusqlite::{Connection, params};
 use serde::{Deserialize, Serialize};
 
-use crate::checkout::{Checkout, git, git_text};
+use crate::checkout::Checkout;
 use crate::db::Sql;
 use crate::fail;
 use crate::fail::Result;
 use crate::lists::running::{require_side_worktree, running_in};
 use crate::lists::{Id, Lists};
 use crate::side_git::Commit;
+use boards::{git, git_text};
 
 /// What one worktree of a dropped item held.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

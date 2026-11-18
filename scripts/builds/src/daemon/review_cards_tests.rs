@@ -6,8 +6,8 @@ use crate::review::fakes::fake;
 
 /// The commits of <side> past main, newest first, as git reads them for a card.
 fn ahead(side: &Path) -> Vec<side_git::Commit> {
-    let text = crate::checkout::git_text(
-        crate::checkout::git(side).args(["rev-list", "main..HEAD"]),
+    let text = boards::git_text(
+        boards::git(side).args(["rev-list", "main..HEAD"]),
         "list the commits",
     )
     .unwrap();

@@ -33,11 +33,11 @@ use std::io::Write;
 use std::path::Path;
 use std::process::Stdio;
 
-use crate::checkout::{git, git_text};
 use crate::fail;
 use crate::fail::{Context, Result};
 use crate::glob::{Question, segments_match};
 use crate::lists::Lists;
+use boards::{git, git_text};
 
 /// A repo's globs: its design places, its shared sources and its spec files.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]

@@ -532,13 +532,10 @@ fn a_branch_lands_in_two_parts_once_a_review_closed_its_findings() {
 
 /// The commit HEAD names in <side>.
 fn head(side: &Path) -> String {
-    crate::checkout::git_text(
-        crate::checkout::git(side).args(["rev-parse", "HEAD"]),
-        "read HEAD",
-    )
-    .unwrap()
-    .trim()
-    .to_string()
+    boards::git_text(boards::git(side).args(["rev-parse", "HEAD"]), "read HEAD")
+        .unwrap()
+        .trim()
+        .to_string()
 }
 
 #[test]

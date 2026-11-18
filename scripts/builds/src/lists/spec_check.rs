@@ -19,7 +19,7 @@ use rusqlite::{Connection, params};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
-use crate::checkout::{git, git_text, parallel_map};
+use crate::checkout::parallel_map;
 use crate::db::Sql;
 use crate::fail;
 use crate::fail::Result;
@@ -27,6 +27,7 @@ use crate::lists::design_paths::Globs;
 use crate::lists::{Id, Kind, Lists, Stamp};
 use crate::review::call::Usage;
 use crate::review::check::{clause_in, squash};
+use boards::{git, git_text};
 
 /// The rule whose text the reviewer follows and whose group's model it runs.
 pub const RULE: &str = "every-change-agrees-with-its-product-spec";

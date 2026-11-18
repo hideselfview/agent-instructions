@@ -73,13 +73,14 @@ mod score;
 
 use std::path::{Path, PathBuf};
 
-use crate::checkout::{Checkout, git};
+use crate::checkout::Checkout;
 use crate::fail;
 use crate::fail::{Context, Fail, Result};
 use crate::lists::Stamp;
 use crate::lists::args::{Args, current_dir};
 use crate::lists::store::{Store, project_of};
 use crate::tool::Tool;
+use boards::git;
 
 use record::Kind;
 

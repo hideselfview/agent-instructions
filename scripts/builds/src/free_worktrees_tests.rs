@@ -36,13 +36,10 @@ fn new(tool: &Tool, main: &Path, extra: &[&str]) {
 }
 
 fn head(top: &Path) -> String {
-    git_text(
-        crate::checkout::git(top).args(["rev-parse", "HEAD"]),
-        "read HEAD",
-    )
-    .unwrap()
-    .trim()
-    .to_string()
+    git_text(boards::git(top).args(["rev-parse", "HEAD"]), "read HEAD")
+        .unwrap()
+        .trim()
+        .to_string()
 }
 
 /// Commits a file in <top>.
@@ -52,7 +49,7 @@ fn commit(top: &Path, file: &str) {
     git(top, &["commit", "-q", "-m", file]);
 }
 
-use crate::checkout::git_text;
+use boards::git_text;
 
 #[test]
 fn new_hands_out_a_free_worktree_before_adding_one() {
@@ -479,11 +476,7 @@ fn new_refuses_a_worktree_whose_left_branch_holds_unlanded_commits() {
         side(&scratch, 3).exists(),
         "new handed out a worktree that left a branch with unlanded commits"
     );
-    let work = git_text(
-        crate::checkout::git(&main).args(["rev-parse", "work"]),
-        "read work",
-    )
-    .unwrap();
+    let work = git_text(boards::git(&main).args(["rev-parse", "work"]), "read work").unwrap();
     assert_eq!(work.trim(), sha, "new moved the branch that holds the work");
 
     git(&main, &["cherry-pick", &sha]);
@@ -509,7 +502,7 @@ fn new_never_moves_a_branch_that_holds_work() {
     release(&scratch, 1);
     branch_with_a_commit(&main, "taken");
     let before = git_text(
-        crate::checkout::git(&main).args(["rev-parse", "taken"]),
+        boards::git(&main).args(["rev-parse", "taken"]),
         "read taken",
     )
     .unwrap();
@@ -526,7 +519,7 @@ fn new_never_moves_a_branch_that_holds_work() {
     );
     assert!(result.is_err(), "new took a branch name that exists");
     let after = git_text(
-        crate::checkout::git(&main).args(["rev-parse", "taken"]),
+        boards::git(&main).args(["rev-parse", "taken"]),
         "read taken",
     )
     .unwrap();
