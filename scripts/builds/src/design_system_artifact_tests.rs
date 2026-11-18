@@ -11,6 +11,7 @@ fn the_repo_decides_every_project_file_but_the_pages_own() {
         "project/tokens.json",
         "project/components/MacButton/preview.html",
         "project/archived/old.md",
+        "project/assets/Logos/README.md",
     ] {
         assert!(repo_decides(path), "{path}");
     }
@@ -18,7 +19,6 @@ fn the_repo_decides_every_project_file_but_the_pages_own() {
         INDEX,
         "project/manifest.json",
         "project/api/components/MacButton.md",
-        "project/assets/Logos/README.md",
         "project/.image-slots.state.json",
         "index.html",
         "SKILL.md",
@@ -33,10 +33,9 @@ fn the_repo_decides_every_project_file_but_the_pages_own() {
 #[test]
 fn the_index_keeps_its_keys_and_says_which_commit_it_holds() {
     let live = r#"{"v":3,"layout":"files","createdOnFiles":{"v":1,"at":"2026-11-05T15:42:55Z"},"title":"bae","blobs":{"x":1},"lastChange":{"by":"old"}}"#;
-    let written: Value = serde_json::from_str(
-        &with_last_change(live, "Dima", "2026-11-18T19:00:00Z", "abc123").unwrap(),
-    )
-    .unwrap();
+    let mut index = parse_index(live).unwrap();
+    set_last_change(&mut index, "Dima", "2026-11-18T19:00:00Z", "abc123");
+    let written: Value = serde_json::from_str(&index_text(&index)).unwrap();
     let mut expected: Value = serde_json::from_str(live).unwrap();
     expected["lastChange"] = json!({
         "by": "Dima",
@@ -52,12 +51,9 @@ fn the_index_keeps_its_keys_and_says_which_commit_it_holds() {
 #[test]
 fn a_file_without_the_marker_is_no_index() {
     for text in [r#"{"v":3,"title":"bae"}"#, "[]", "not json"] {
-        assert!(
-            with_last_change(text, "Dima", "now", "abc").is_err(),
-            "{text}"
-        );
+        assert!(parse_index(text).is_err(), "{text}");
     }
-    assert!(with_last_change(r#"{"convertedFrom":{}}"#, "Dima", "now", "abc").is_ok());
+    assert!(parse_index(r#"{"convertedFrom":{}}"#).is_ok());
 }
 
 /// A component folder whose name the artifact type refuses is refused here,
@@ -70,7 +66,7 @@ fn a_component_folder_that_is_no_identifier_is_refused() {
     std::fs::write(system.join("README.md"), "# Demo\n").unwrap();
     std::fs::write(system.join("tokens.json"), "{}").unwrap();
     let generated = ["css".to_string(), "bcss".to_string(), "bjs".to_string()];
-    let refused = files(&scratch.dir, &generated).unwrap_err().text();
+    let refused = contents(&scratch.dir, &generated).unwrap_err().text();
     assert!(refused.contains("components/Mac-Button"), "{refused}");
     std::fs::rename(
         system.join("components/Mac-Button"),
@@ -78,11 +74,25 @@ fn a_component_folder_that_is_no_identifier_is_refused() {
     )
     .unwrap();
     std::fs::write(system.join("components/MacButton/README.md"), "Button.\n").unwrap();
-    let published = files(&scratch.dir, &generated).unwrap();
+    std::fs::create_dir_all(system.join("assets/Logos")).unwrap();
+    std::fs::write(system.join("assets/Logos/README.md"), "Logos.\n").unwrap();
+    std::fs::write(system.join("assets/Logos/mark.svg"), "<svg/>").unwrap();
+    let Contents {
+        files: published,
+        uploads,
+    } = contents(&scratch.dir, &generated).unwrap();
+    assert_eq!(
+        uploads
+            .iter()
+            .map(|(asset, _)| asset.path.as_str())
+            .collect::<Vec<_>>(),
+        ["project/assets/Logos/mark.svg"]
+    );
     assert_eq!(
         published.keys().map(String::as_str).collect::<Vec<_>>(),
         [
             "project/README.md",
+            "project/assets/Logos/README.md",
             "project/components/MacButton/README.md",
             "project/components/bundle.css",
             "project/components/bundle.js",

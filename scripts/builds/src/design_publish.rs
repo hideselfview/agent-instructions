@@ -4,11 +4,14 @@
 //! beside them. Only a Claude session can call the Artifact tool, so builds
 //! publishes nothing itself: it writes a folder per artifact with the
 //! artifact's files at their paths on it, and the Artifact publish calls that
-//! send them, which the session makes in order. What only the live artifacts
-//! hold (the files on each one now, and the design system's index) the
-//! session reads and gives `publish-last`, which writes each artifact's last
-//! calls: the removal of each file the commit no longer has, and the design
-//! system's index.
+//! send them, which the session makes in order, with the uploads of the
+//! design system's assets whose bytes the live index does not record. What
+//! only the live artifacts hold (the files on each one now, the design
+//! system's index, and the ids the uploads got) the session reads and gives
+//! `publish-last`, which writes each artifact's last calls: the removal of
+//! each file the commit no longer has, the design system's index with the
+//! records of every asset at the commit, and the deletion of each upload the
+//! index no longer names.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -22,7 +25,8 @@ use boards::{CANVAS, MOCKS, Source, design_namespace, export, in_scratch};
 use crate::design_canvas::{
     self as canvas, CANVASES, PUBLISHED_INDEX, Published, artifact_id, parse_canvases, split,
 };
-use crate::design_system_artifact::{self as system, SHARED_FILES, SYSTEM};
+use crate::design_system_artifact::{self as system, SHARED_FILES};
+use crate::design_system_assets::{self as assets, Asset, Upload};
 use crate::fail;
 use crate::fail::{Context, Fail, Result};
 
@@ -82,8 +86,13 @@ struct Record {
     kind: Kind,
     /// The commit the files come from.
     commit: String,
-    /// Every path the folder publishes.
+    /// Every path the folder publishes as a file.
     paths: Vec<String>,
+    /// Every upload of the design system at the commit.
+    assets: Vec<Asset>,
+    /// The paths of the uploads that the session makes, those whose bytes
+    /// the live index does not record.
+    uploads: Vec<String>,
 }
 
 /// One artifact's folder, as `write_all` wrote it.
@@ -97,6 +106,8 @@ pub struct Written {
     pub files: usize,
     /// The call files, in the order they are published.
     pub calls: Vec<PathBuf>,
+    /// The upload call files, each with the path on the artifact it uploads.
+    pub uploads: Vec<(PathBuf, String)>,
 }
 
 /// Everything `write_all` wrote, for one commit.
@@ -121,12 +132,21 @@ fn parse_runtime(text: &str, label: &str) -> Result<(String, String)> {
 /// Writes, into the empty or new folder <out>, a folder per artifact that
 /// the designs at <rev> of the repo <repo> is in publish to, all from the
 /// one commit <rev> names: `<out>/<artifact id>/project/...`, the record
-/// `RECORD`, and the calls `call-<n>.json`, each the arguments of one
-/// Artifact publish but its `action`. The canvases come first, in the order
-/// `CANVASES` names them, then the design system. The design system's
-/// bundles are built into <cache> (`Places::design_system_cache`). Reads no
-/// store and writes nothing in the repo.
-pub fn write_all(repo: &Path, rev: &str, out: &Path, cache: &Path) -> Result<Publish> {
+/// `RECORD`, the calls `call-<n>.json`, and for the design system the
+/// uploads `upload-<n>.json`: each file holds the arguments of one Artifact
+/// call. The design system uploads each asset whose bytes <system_index>,
+/// the text of its live index, records no upload of. The canvases come
+/// first, in the order `CANVASES` names them, then the design system. The
+/// design system's bundles are built into <cache>
+/// (`Places::design_system_cache`). Reads no store and writes nothing in the
+/// repo.
+pub fn write_all(
+    repo: &Path,
+    rev: &str,
+    out: &Path,
+    cache: &Path,
+    system_index: &str,
+) -> Result<Publish> {
     let commit = Source::Commit { repo, rev }
         .check()?
         .expect("a commit source names a commit");
@@ -137,6 +157,7 @@ pub fn write_all(repo: &Path, rev: &str, out: &Path, cache: &Path) -> Result<Pub
             out.display()
         );
     }
+    let live_index = system::parse_index(system_index)?;
     let index: Value = serde_json::from_str(&from.read(CANVAS, "the canvas index")?)
         .map_err(|error| Fail::Message(format!("{commit}:{CANVAS}: {error}")))?;
     let Published {
@@ -151,25 +172,21 @@ pub fn write_all(repo: &Path, rev: &str, out: &Path, cache: &Path) -> Result<Pub
         &format!("{commit}:{RUNTIME}"),
     )?;
     let generated = from.design_system(cache)?;
-    let (boards, system_files) = in_scratch(cache, |work| {
-        export(
-            repo,
-            &commit,
-            &[MOCKS.to_string(), SYSTEM.to_string()],
-            work,
-            "the designs",
-        )?;
+    let mut inputs = from.design_system_inputs()?;
+    inputs.push(MOCKS.to_string());
+    let (boards, contents) = in_scratch(cache, |work| {
+        export(repo, &commit, &inputs, work, "the designs")?;
         let boards = read_boards(work)?;
-        let system_files =
-            system::files(work, &generated).map_err(|error| boards::Error::new(error.text()))?;
-        Ok((boards, system_files))
+        let contents =
+            system::contents(work, &generated).map_err(|error| boards::Error::new(error.text()))?;
+        Ok((boards, contents))
     })?;
     let splits = split(&index, &canvases, &boards)?;
     let folder = design_namespace(&index)?;
     let copy: BTreeMap<String, String> = SHARED_FILES
         .into_iter()
         .map(|rel| {
-            let text = &system_files[&format!("project/{rel}")];
+            let text = &contents.files[&format!("project/{rel}")];
             (canvas::ds_copy(&folder, rel), text.clone())
         })
         .collect();
@@ -190,14 +207,27 @@ pub fn write_all(repo: &Path, rev: &str, out: &Path, cache: &Path) -> Result<Pub
             Kind::Canvas,
             &commit,
             &files,
+            &[],
+            &[],
         )?);
     }
+    let all: Vec<Asset> = contents
+        .uploads
+        .iter()
+        .map(|(asset, _)| asset.clone())
+        .collect();
+    let to_upload: Vec<String> = assets::to_upload(&live_index, &all)
+        .into_iter()
+        .map(|asset| asset.path.clone())
+        .collect();
     artifacts.push(write_artifact(
         &out,
         &design_system,
         Kind::DesignSystem,
         &commit,
-        &system_files,
+        &contents.files,
+        &contents.uploads,
+        &to_upload,
     )?);
     Ok(Publish {
         commit,
@@ -208,13 +238,16 @@ pub fn write_all(repo: &Path, rev: &str, out: &Path, cache: &Path) -> Result<Pub
 }
 
 /// Writes the folder `<out>/<id>` of the artifact at <url>: <files> at their
-/// paths, the record, and the calls that publish them.
+/// paths, the bytes of each of <uploads> whose path <to_upload> names, the
+/// record, and the calls that publish them.
 fn write_artifact(
     out: &Path,
     url: &str,
     kind: Kind,
     commit: &str,
     files: &BTreeMap<String, String>,
+    uploads: &[Upload],
+    to_upload: &[String],
 ) -> Result<Written> {
     let root = out.join(artifact_id(url).expect("parse_canvases accepts only artifact links"));
     for (path, text) in files {
@@ -225,6 +258,8 @@ fn write_artifact(
         kind,
         commit: commit.to_string(),
         paths: files.keys().cloned().collect(),
+        assets: uploads.iter().map(|(asset, _)| asset.clone()).collect(),
+        uploads: to_upload.to_vec(),
     };
     write(
         &root.join(RECORD),
@@ -242,8 +277,27 @@ fn write_artifact(
             .map(|path| (path.clone(), json!(path)))
             .collect();
         let to = root.join(format!("call-{}.json", n + 1));
-        write(&to, &call(url, &root, first, files))?;
+        write(&to, &publish_call(url, &root, first, files))?;
         calls.push(to);
+    }
+    let mut upload_calls = Vec::new();
+    for (asset, bytes) in uploads {
+        if !to_upload.contains(&asset.path) {
+            continue;
+        }
+        let file = root.join(&asset.path);
+        let dir = file.parent().expect("a file has a folder");
+        std::fs::create_dir_all(dir).context(|| format!("making {}", dir.display()))?;
+        std::fs::write(&file, bytes).context(|| format!("writing {}", file.display()))?;
+        let to = root.join(format!("upload-{}.json", upload_calls.len() + 1));
+        let call = json!({
+            "action": "publish",
+            "url": url,
+            "asset": true,
+            "file_path": file.display().to_string(),
+        });
+        write(&to, &json_text(&call))?;
+        upload_calls.push((to, asset.path.clone()));
     }
     Ok(Written {
         url: url.to_string(),
@@ -251,6 +305,7 @@ fn write_artifact(
         root,
         files: files.len(),
         calls,
+        uploads: upload_calls,
     })
 }
 
@@ -258,14 +313,18 @@ fn write_artifact(
 /// <root>, as JSON: it sends <file_path> (every publish names one) and
 /// <files>, each path on the artifact mapped to its path under <root>, or to
 /// null to remove it.
-fn call(url: &str, root: &Path, file_path: &str, files: Map<String, Value>) -> String {
-    let call = json!({
+fn publish_call(url: &str, root: &Path, file_path: &str, files: Map<String, Value>) -> String {
+    json_text(&json!({
+        "action": "publish",
         "url": url,
         "root": root.display().to_string(),
         "file_path": root.join(file_path).display().to_string(),
         "files": files,
-    });
-    serde_json::to_string_pretty(&call).expect("a call serializes") + "\n"
+    }))
+}
+
+fn json_text(value: &Value) -> String {
+    serde_json::to_string_pretty(value).expect("a call serializes") + "\n"
 }
 
 fn write(to: &Path, text: &str) -> Result<()> {
@@ -294,8 +353,8 @@ fn read_boards(export: &Path) -> std::result::Result<BTreeMap<String, String>, b
 }
 
 /// What `builds design publish-files` prints: the commit, each artifact with
-/// its folder and calls in the order a session makes them, and the runtime
-/// check.
+/// its folder, calls and uploads in the order a session makes them, and the
+/// runtime check.
 pub fn report(publish: &Publish) -> String {
     let canvases = publish
         .artifacts
@@ -317,6 +376,14 @@ pub fn report(publish: &Publish) -> String {
         ));
         for call in &artifact.calls {
             out.push_str(&format!("   {}\n", call.display()));
+        }
+        if artifact.kind == Kind::DesignSystem {
+            if artifact.uploads.is_empty() {
+                out.push_str("   no upload: the index records every asset's bytes\n");
+            }
+            for (call, path) in &artifact.uploads {
+                out.push_str(&format!("   {} uploads {path}\n", call.display()));
+            }
         }
     }
     out.push_str(&format!(
@@ -344,20 +411,42 @@ fn listed(listing: &str) -> Result<Vec<&str>> {
     Ok(paths)
 }
 
+/// What the session gives `publish-last` for the design system: the text of
+/// its live index, read after the uploads, who publishes, and the id each
+/// upload got, by the upload's path on the artifact.
+#[derive(Debug)]
+pub struct SystemLast<'a> {
+    pub index: &'a str,
+    pub by: &'a str,
+    pub uploaded: BTreeMap<String, String>,
+}
+
+/// The last calls of one artifact, as `write_last` wrote them.
+#[derive(Debug, PartialEq)]
+pub struct LastCalls {
+    /// The publish calls, in order.
+    pub calls: Vec<PathBuf>,
+    /// The calls that delete an upload, made after the last publish call.
+    pub deletes: Vec<PathBuf>,
+}
+
 /// Writes the last calls of the artifact whose folder is <root>, as
 /// `publish-files` wrote it: `last-<n>.json`, which remove each file that
 /// <listing> (the artifact's files now, as the Artifact tool lists them)
 /// shows, the repo decides, and the commit lacks, and, for the design
-/// system, send its index last: <index>, the text of the live index, with
-/// its `lastChange` saying that <by> published the commit at <now>. A canvas
-/// takes no index, and the design system needs one. Replaces the last calls
-/// of an earlier run in the folder, and returns the new ones in order.
+/// system, send its index last. The index is <system>'s, with a record of
+/// each asset at the commit and its `lastChange` saying that <system>'s
+/// `by` published the commit at <now>; `delete-<n>.json` then delete each
+/// upload the live index named and the new one does not. A canvas takes no
+/// <system>, and the design system needs one, whose uploads must be the ones
+/// the folder's upload calls make. Replaces the last calls of an earlier run
+/// in the folder.
 pub fn write_last(
     root: &Path,
     listing: &str,
-    index: Option<(&str, &str)>,
+    system_last: Option<SystemLast>,
     now: &str,
-) -> Result<Vec<PathBuf>> {
+) -> Result<LastCalls> {
     let root = &std::fs::canonicalize(root).context(|| format!("finding {}", root.display()))?;
     let record_file = root.join(RECORD);
     let record: Record = serde_json::from_str(
@@ -380,7 +469,7 @@ pub fn write_last(
         let entry = entry.context(|| format!("listing {}", root.display()))?;
         let name = entry.file_name();
         let name = name.to_string_lossy();
-        if name.starts_with("last-") && name.ends_with(".json") {
+        if (name.starts_with("last-") || name.starts_with("delete-")) && name.ends_with(".json") {
             let path = entry.path();
             std::fs::remove_file(&path).context(|| format!("removing {}", path.display()))?;
         }
@@ -398,7 +487,8 @@ pub fn write_last(
             )
         })
         .collect();
-    match (record.kind, index) {
+    let mut deletes = Vec::new();
+    match (record.kind, system_last) {
         (Kind::Canvas, None) => {}
         (Kind::Canvas, Some(_)) => fail!("{} is a canvas, which takes no index", record.url),
         (Kind::DesignSystem, None) => fail!(
@@ -406,27 +496,54 @@ pub fn write_last(
             record.url,
             system::INDEX
         ),
-        (Kind::DesignSystem, Some((text, by))) => {
-            write(
-                &root.join(system::INDEX),
-                &system::with_last_change(text, by, now, &record.commit)?,
-            )?;
+        (Kind::DesignSystem, Some(last)) => {
+            let made: Vec<&String> = last.uploaded.keys().collect();
+            if made != record.uploads.iter().collect::<Vec<_>>() {
+                fail!(
+                    "--uploaded names the uploads of {}, and the folder's upload calls make those of {}: give the id that each upload call got, and only those",
+                    list(made.iter().map(|p| p.as_str())),
+                    list(record.uploads.iter().map(String::as_str))
+                );
+            }
+            let mut index = system::parse_index(last.index)?;
+            let unused = assets::set_records(&mut index, &record.assets, &last.uploaded)?;
+            system::set_last_change(&mut index, last.by, now, &record.commit);
+            write(&root.join(system::INDEX), &system::index_text(&index))?;
             calls.push((system::INDEX, Map::new()));
+            for (n, id) in unused.iter().enumerate() {
+                let to = root.join(format!("delete-{}.json", n + 1));
+                let call = json!({"action": "delete", "url": record.url, "path": id});
+                write(&to, &json_text(&call))?;
+                deletes.push(to);
+            }
         }
     }
     let mut written = Vec::new();
     for (n, (file_path, files)) in calls.into_iter().enumerate() {
         let to = root.join(format!("last-{}.json", n + 1));
-        write(&to, &call(&record.url, root, file_path, files))?;
+        write(&to, &publish_call(&record.url, root, file_path, files))?;
         written.push(to);
     }
-    Ok(written)
+    Ok(LastCalls {
+        calls: written,
+        deletes,
+    })
+}
+
+/// <items> as a list a sentence names, or "none".
+fn list<'a>(items: impl Iterator<Item = &'a str>) -> String {
+    let items: Vec<&str> = items.collect();
+    if items.is_empty() {
+        "none".to_string()
+    } else {
+        items.join(", ")
+    }
 }
 
 /// What `builds design publish-last` prints: the calls to make, or that the
 /// artifact has nothing left to send.
-pub fn last_report(root: &Path, calls: &[PathBuf]) -> String {
-    if calls.is_empty() {
+pub fn last_report(root: &Path, last: &LastCalls) -> String {
+    if last.calls.is_empty() {
         return format!(
             "{} has no file the commit lacks, so it needs no last call.\n",
             root.display()
@@ -436,7 +553,7 @@ pub fn last_report(root: &Path, calls: &[PathBuf]) -> String {
         "builds wrote the last calls of {}. Make them in this order:\n",
         root.display()
     );
-    for call in calls {
+    for call in last.calls.iter().chain(&last.deletes) {
         out.push_str(&format!("  {}\n", call.display()));
     }
     out

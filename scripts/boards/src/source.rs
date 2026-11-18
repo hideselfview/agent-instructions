@@ -166,7 +166,7 @@ impl Source<'_> {
     /// The design system's bundle.css and bundle.js, which the source's
     /// build-bundle.py builds in a scratch copy of what it reads.
     fn bundles(&self, cache: &Path) -> Result<[String; 2]> {
-        let inputs = self.bundle_inputs().map_err(|error| {
+        let inputs = self.design_system_inputs().map_err(|error| {
             Error::new(format!(
                 "the design system of {} cannot be generated: {error}",
                 self.name()
@@ -272,10 +272,12 @@ impl Source<'_> {
         })
     }
 
-    /// The paths build-bundle.py reads: the design system's folder, and what
-    /// a symbolic link in it points at inside the repo (bae's sheep logo
+    /// The paths the design system's files are read from: its folder, and
+    /// what a symbolic link in it points at inside the repo (bae's sheep logo
     /// links to the repo's icon source), followed until no new path turns up.
-    fn bundle_inputs(&self) -> Result<Vec<String>> {
+    /// build-bundle.py reads them, and an export of them holds every file of
+    /// the design system with its links resolved.
+    pub fn design_system_inputs(&self) -> Result<Vec<String>> {
         let mut inputs = vec![BUNDLE_SOURCES.to_string()];
         let mut next = 0;
         while next < inputs.len() {

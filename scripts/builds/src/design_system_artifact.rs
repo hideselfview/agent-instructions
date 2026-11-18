@@ -2,16 +2,18 @@
 //! system publishes to, in the shape that artifact type keeps them under
 //! `project/`: the brand book (`README.md`), `tokens.json` and the
 //! `tokens.css` builds writes from it, and `components/` with the bundles
-//! the commit's build-bundle.py builds. The artifact's index
-//! (`project/design-system.json`) is the page's own record, which only the
-//! live artifact holds: a session reads it, and builds sets its `lastChange`
-//! to say which commit the files come from.
+//! the commit's build-bundle.py builds, and `assets/` (`design_system_assets`).
+//! The artifact's index (`project/design-system.json`) is the page's own
+//! record, which only the live artifact holds: a session reads it, and builds
+//! sets its asset records and its `lastChange`, which says which commit the
+//! files come from.
 
 use std::collections::BTreeMap;
 use std::path::Path;
 
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 
+use crate::design_system_assets::{self as assets, Upload};
 use crate::fail;
 use crate::fail::{Context, Result};
 
@@ -37,15 +39,24 @@ const COVER: &str = "project/components/Cover/";
 /// which every publish needs: one the artifact publishes anyway.
 pub const REMOVAL_ANCHOR: &str = "project/README.md";
 
-/// The files the artifact publishes, by their paths on it, from <export>, a
-/// folder that holds the repo's `SYSTEM` at its path, and <generated>, the
+/// What the artifact publishes from one commit.
+#[derive(Debug)]
+pub struct Contents {
+    /// The files, by their paths on the artifact.
+    pub files: BTreeMap<String, String>,
+    /// The uploads, each with its bytes, in the order of their paths.
+    pub uploads: Vec<Upload>,
+}
+
+/// What the artifact publishes from <export>, a folder that holds the
+/// repo's `SYSTEM` at its path with its links resolved, and <generated>, the
 /// tokens.css, bundle.css and bundle.js that `Source::design_system` gives:
 /// `SYSTEM`'s README.md and tokens.json, every file under its
-/// `components/`, and the generated files at their places in
-/// `SHARED_FILES`. Fails when a component's folder name is no JavaScript
+/// `components/`, the generated files at their places in `SHARED_FILES`,
+/// and its `assets/`. Fails when a component's folder name is no JavaScript
 /// identifier, which the artifact type refuses, or the artifact would hold
 /// more than `MAX_FILES` files.
-pub fn files(export: &Path, generated: &[String; 3]) -> Result<BTreeMap<String, String>> {
+pub fn contents(export: &Path, generated: &[String; 3]) -> Result<Contents> {
     let system = export.join(SYSTEM);
     let mut files = BTreeMap::new();
     for name in ["README.md", "tokens.json"] {
@@ -69,13 +80,15 @@ pub fn files(export: &Path, generated: &[String; 3]) -> Result<BTreeMap<String, 
     for (rel, text) in SHARED_FILES[1..].iter().zip(generated) {
         files.insert(format!("project/{rel}"), text.clone());
     }
+    let (texts, uploads) = assets::read(export)?;
+    files.extend(texts);
     if files.len() > MAX_FILES {
         fail!(
             "the design system would publish {} files, and a Design System artifact holds at most {MAX_FILES}",
             files.len()
         );
     }
-    Ok(files)
+    Ok(Contents { files, uploads })
 }
 
 /// Adds every file under <dir> to <files> at <prefix>/<its path under dir>.
@@ -124,8 +137,9 @@ pub fn rank(path: &str) -> u8 {
 /// Whether the repo's design system decides the file at <path> of the
 /// artifact, so that a path the commit lacks leaves the artifact: every path
 /// under `project/` but the index, the files the page generates (`api/`
-/// cards and `manifest.json`), the asset uploads under `assets/` and the
-/// page's own state files, whose names start with a dot.
+/// cards and `manifest.json`) and the page's own state files, whose names
+/// start with a dot. The index's records name the uploads, which no listing
+/// of the artifact's files shows.
 pub fn repo_decides(path: &str) -> bool {
     let Some(rest) = path.strip_prefix("project/") else {
         return false;
@@ -133,27 +147,30 @@ pub fn repo_decides(path: &str) -> bool {
     !(path == INDEX
         || rest == "manifest.json"
         || rest.starts_with("api/")
-        || rest.starts_with("assets/")
         || rest.split('/').any(|part| part.starts_with('.')))
 }
 
-/// <index>, the text of the live artifact's index, with its `lastChange`
-/// saying that <by> published the files of commit <commit> at <at> (ISO
-/// 8601), and every other key kept. Fails when the text is no index: a JSON
-/// object without the marker (`createdOnFiles` or `convertedFrom`) that the
-/// artifact type writes, which the type says never to write over.
-pub fn with_last_change(index: &str, by: &str, at: &str, commit: &str) -> Result<String> {
-    let mut value: Value = serde_json::from_str(index)
+/// The live artifact's index from <text>. Fails when the text is no index:
+/// a JSON object without the marker (`createdOnFiles` or `convertedFrom`)
+/// that the artifact type writes, which the type says never to write over.
+pub fn parse_index(text: &str) -> Result<Map<String, Value>> {
+    let value: Value = serde_json::from_str(text)
         .map_err(|error| crate::fail::Fail::Message(format!("the index is no JSON: {error}")))?;
-    let Some(object) = value.as_object_mut() else {
+    let Value::Object(index) = value else {
         fail!("the index is no JSON object");
     };
-    if !object.contains_key("createdOnFiles") && !object.contains_key("convertedFrom") {
+    if !index.contains_key("createdOnFiles") && !index.contains_key("convertedFrom") {
         fail!(
             "the index has no createdOnFiles or convertedFrom marker, so it is no Design System index; publish nothing over it"
         );
     }
-    object.insert(
+    Ok(index)
+}
+
+/// Sets <index>'s `lastChange` to say that <by> published the files of
+/// commit <commit> at <at> (ISO 8601).
+pub fn set_last_change(index: &mut Map<String, Value>, by: &str, at: &str, commit: &str) {
+    index.insert(
         "lastChange".to_string(),
         json!({
             "by": by,
@@ -162,7 +179,11 @@ pub fn with_last_change(index: &str, by: &str, at: &str, commit: &str) -> Result
             "note": format!("Published from commit {commit} of the repo's {SYSTEM}."),
         }),
     );
-    Ok(serde_json::to_string_pretty(&value).expect("the index serializes") + "\n")
+}
+
+/// <index> as the text of the index file.
+pub fn index_text(index: &Map<String, Value>) -> String {
+    serde_json::to_string_pretty(index).expect("the index serializes") + "\n"
 }
 
 #[cfg(test)]

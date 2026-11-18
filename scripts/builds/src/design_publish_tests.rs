@@ -1,16 +1,46 @@
 use super::*;
 use crate::design_canvas::tests::{DS, ONE, TWO, boards, canvases_toml, index};
+use crate::design_system_artifact::SYSTEM;
 use crate::testing::{Scratch, design_system, git, git_out, repo};
+use sha2::{Digest, Sha256};
 
 fn message<T: std::fmt::Debug>(result: Result<T>) -> String {
     result.unwrap_err().text()
 }
 
 const RUNTIME_SHA: &str = "b795ee21261f2e7da1b10cb25b4a4cfa275d1b96165f89396f1fed426e191844";
+/// The demo design system's mark, whose upload the live index records.
+const MARK: &str = "<svg>mark</svg>";
+/// The drawing at the repo's root that the demo's sheep links to.
+const SHEEP: &str = "<svg>sheep</svg>";
+
+fn sha256(text: &str) -> String {
+    Sha256::digest(text.as_bytes())
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
+}
+
+/// The demo design system's live index: it records the upload of the mark's
+/// bytes, and of a logo the repo no longer has.
+fn live_index() -> String {
+    json!({
+        "v": 3,
+        "createdOnFiles": {"v": 1, "at": "x"},
+        "title": "demo",
+        "groups": ["Logos"],
+        "assetGroups": {"Logos": {"name": "Logos", "order": ["old.svg", "mark.svg"], "files": {
+            "mark.svg": {"name": "mark.svg", "blob": "mark-id", "size": MARK.len(), "type": "image/svg+xml", "sha256": sha256(MARK)},
+            "old.svg": {"name": "old.svg", "blob": "old-id", "size": 1, "type": "image/svg+xml", "sha256": "x"}
+        }}}
+    })
+    .to_string()
+}
 
 /// A repo with the demo boards, index and canvases committed, with a README
-/// beside them that is no board, a design system with two components and a
-/// brand book, and the record of the canvas runtime.
+/// beside them that is no board, a design system with two components, a
+/// brand book and a group of logos (one a link to a drawing at the repo's
+/// root, as bae's sheep is), and the record of the canvas runtime.
 fn demo(scratch: &Scratch) -> PathBuf {
     let dir = scratch.dir.join("repo");
     repo(&dir, "");
@@ -29,9 +59,17 @@ fn demo(scratch: &Scratch) -> PathBuf {
         ("components/MacButton/README.md", "A button.\n"),
         ("components/MacButton/preview.html", "<!-- @dsCard -->\n"),
         ("components/Cover/preview.html", "<!-- @dsCard -->\n"),
+        ("assets/Logos/README.md", "Logos.\n"),
+        ("assets/Logos/mark.svg", MARK),
     ] {
         write(&system.join(path), text).unwrap();
     }
+    std::fs::write(dir.join("icon.svg"), SHEEP).unwrap();
+    std::os::unix::fs::symlink(
+        "../../../../icon.svg",
+        system.join("assets/Logos/sheep.svg"),
+    )
+    .unwrap();
     for (name, text) in boards() {
         std::fs::write(mocks.join(name), text).unwrap();
     }
@@ -50,7 +88,7 @@ fn demo(scratch: &Scratch) -> PathBuf {
 }
 
 fn commit(dir: &Path) {
-    git(dir, &["add", "design"]);
+    git(dir, &["add", "design", "icon.svg"]);
     git(dir, &["commit", "-q", "-m", "boards"]);
 }
 
@@ -117,6 +155,7 @@ fn write_demo(scratch: &Scratch, dir: &Path, rev: &str) -> Publish {
         rev,
         &scratch.dir.join("out"),
         &scratch.dir.join("cache"),
+        &live_index(),
     )
     .unwrap()
 }
@@ -181,6 +220,8 @@ fn every_artifact_gets_its_files_from_one_commit() {
         "artifact.json",
         "call-1.json",
         "project/README.md",
+        "project/assets/Logos/README.md",
+        "project/assets/Logos/sheep.svg",
         "project/components/Cover/preview.html",
         "project/components/MacButton/README.md",
         "project/components/MacButton/preview.html",
@@ -191,8 +232,24 @@ fn every_artifact_gets_its_files_from_one_commit() {
         "project/components/src/bundle.js",
         "project/tokens.css",
         "project/tokens.json",
+        "upload-1.json",
     ];
     assert_eq!(files_under(&ds), expected_ds);
+    assert_eq!(
+        read(&ds.join("project/assets/Logos/sheep.svg")),
+        SHEEP,
+        "a linked asset holds what its link points at"
+    );
+    assert_eq!(
+        json_of(&ds.join("upload-1.json")),
+        json!({
+            "action": "publish",
+            "url": DS,
+            "asset": true,
+            "file_path": ds.join("project/assets/Logos/sheep.svg").display().to_string(),
+        }),
+        "only the asset whose bytes the index lacks is uploaded"
+    );
 
     assert_eq!(read(&one.join("project/a.dc.html")), boards()["a.dc.html"]);
     for rel in SHARED_FILES {
@@ -236,6 +293,7 @@ fn every_artifact_gets_its_files_from_one_commit() {
     assert_eq!(index_two["noteOrder"], json!(["n1"]));
 
     let call = json_of(&one.join("call-1.json"));
+    assert_eq!(call["action"], json!("publish"));
     assert_eq!(call["url"], json!(ONE));
     assert_eq!(call["root"], json!(one.display().to_string()));
     assert_eq!(
@@ -262,6 +320,7 @@ fn every_artifact_gets_its_files_from_one_commit() {
         &one.join("call-1.json").display().to_string(),
         &ds.join("call-1.json").display().to_string(),
         "7 files",
+        "upload-1.json uploads project/assets/Logos/sheep.svg",
         "artifact-type/dc-runtime.js",
         RUNTIME_SHA,
     ] {
@@ -279,7 +338,14 @@ fn an_out_folder_that_holds_files_is_refused() {
     std::fs::create_dir_all(&out).unwrap();
     std::fs::write(out.join("left.txt"), "x").unwrap();
     assert!(
-        message(write_all(&dir, "HEAD", &out, &scratch.dir.join("cache"))).contains("is not empty")
+        message(write_all(
+            &dir,
+            "HEAD",
+            &out,
+            &scratch.dir.join("cache"),
+            &live_index()
+        ))
+        .contains("is not empty")
     );
 }
 
@@ -297,6 +363,7 @@ fn a_repo_without_a_canvases_file_or_runtime_record_is_refused() {
             "HEAD",
             &scratch.dir.join("out"),
             &scratch.dir.join("cache"),
+            &live_index(),
         ));
         assert!(refused.contains(file), "{refused}");
         assert!(!scratch.dir.join("out").exists(), "nothing is written");
@@ -319,7 +386,7 @@ fn calls_hold_at_most_one_publishs_files_in_order() {
         let root = scratch.dir.join(format!("{kind:?}"));
         std::fs::create_dir_all(&root).unwrap();
         let url = if kind == Kind::Canvas { ONE } else { DS };
-        let written = write_artifact(&root, url, kind, "abc", &files).unwrap();
+        let written = write_artifact(&root, url, kind, "abc", &files, &[], &[]).unwrap();
         let calls: Vec<Vec<String>> = written
             .calls
             .iter()
@@ -388,9 +455,15 @@ fn a_canvas_last_call_removes_what_the_commit_lacks() {
             "project/ds/demo/old.css",
         ],
     );
-    let calls = write_last(one, &shown, None, "now").unwrap();
-    assert_eq!(calls, [one.join("last-1.json")]);
-    let call = json_of(&calls[0]);
+    let last = write_last(one, &shown, None, "now").unwrap();
+    assert_eq!(
+        last,
+        LastCalls {
+            calls: vec![one.join("last-1.json")],
+            deletes: vec![]
+        }
+    );
+    let call = json_of(&last.calls[0]);
     assert_eq!(call["url"], json!(ONE));
     assert_eq!(
         call["file_path"],
@@ -400,17 +473,22 @@ fn a_canvas_last_call_removes_what_the_commit_lacks() {
         call["files"],
         json!({"project/ds/demo/old.css": null, "project/gone.dc.html": null})
     );
-    assert!(last_report(one, &calls).contains("last-1.json"));
+    assert!(last_report(one, &last).contains("last-1.json"));
 
-    let calls = write_last(one, &listing(ONE, &["project/a.dc.html"]), None, "now").unwrap();
-    assert!(calls.is_empty());
+    let last = write_last(one, &listing(ONE, &["project/a.dc.html"]), None, "now").unwrap();
+    assert!(last.calls.is_empty());
     assert!(
         !one.join("last-1.json").exists(),
         "a later run replaces the earlier calls"
     );
-    assert!(last_report(one, &calls).contains("needs no last call"));
+    assert!(last_report(one, &last).contains("needs no last call"));
 
-    let refused = message(write_last(one, &shown, Some(("{}", "Dima")), "now"));
+    let system_last = SystemLast {
+        index: &live_index(),
+        by: "Dima",
+        uploaded: BTreeMap::new(),
+    };
+    let refused = message(write_last(one, &shown, Some(system_last), "now"));
     assert!(refused.contains("takes no index"), "{refused}");
     let refused = message(write_last(one, "nothing here\n", None, "now"));
     assert!(refused.contains("names no file"), "{refused}");
@@ -423,9 +501,19 @@ fn a_canvas_last_call_removes_what_the_commit_lacks() {
     assert!(refused.contains("never closes them"), "{refused}");
 }
 
+/// The upload ids the session gives for the demo's uploads.
+fn uploaded(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
+    pairs
+        .iter()
+        .map(|(path, id)| (path.to_string(), id.to_string()))
+        .collect()
+}
+
 /// The design system's last calls remove what the commit lacks, but never
 /// the page's own files, and send its index last, with the commit in its
-/// lastChange.
+/// lastChange and a record of each asset: the new upload of the sheep, and
+/// the mark's upload kept. Then the calls delete the upload of the logo the
+/// repo no longer has.
 #[test]
 fn the_design_systems_last_call_sends_its_index_last() {
     let scratch = Scratch::new("publish-last-ds");
@@ -440,32 +528,78 @@ fn the_design_systems_last_call_sends_its_index_last() {
             "project/manifest.json",
             "project/api/tokens.md",
             "project/assets/Logos/README.md",
+            "project/assets/Old/README.md",
             "project/README.md",
             "project/components/OldThing/README.md",
         ],
     );
     let refused = message(write_last(ds, &shown, None, "now"));
     assert!(refused.contains("--index"), "{refused}");
-    let live = r#"{"v":3,"createdOnFiles":{"v":1,"at":"x"},"title":"demo"}"#;
-    let calls = write_last(ds, &shown, Some((live, "Dima")), "2026-11-18T19:00:00Z").unwrap();
-    assert_eq!(calls, [ds.join("last-1.json"), ds.join("last-2.json")]);
-    let removal = json_of(&calls[0]);
+    let live = live_index();
+    let given = |pairs: &[(&str, &str)]| SystemLast {
+        index: &live,
+        by: "Dima",
+        uploaded: uploaded(pairs),
+    };
+    let refused = message(write_last(ds, &shown, Some(given(&[])), "now"));
+    assert!(
+        refused.contains("project/assets/Logos/sheep.svg"),
+        "{refused}"
+    );
+    let refused = message(write_last(
+        ds,
+        &shown,
+        Some(given(&[
+            ("project/assets/Logos/sheep.svg", "sheep-id"),
+            ("project/assets/Logos/mark.svg", "mark-2"),
+        ])),
+        "now",
+    ));
+    assert!(refused.contains("only those"), "{refused}");
+
+    let last = write_last(
+        ds,
+        &shown,
+        Some(given(&[("project/assets/Logos/sheep.svg", "sheep-id")])),
+        "2026-11-18T19:00:00Z",
+    )
+    .unwrap();
+    assert_eq!(
+        last,
+        LastCalls {
+            calls: vec![ds.join("last-1.json"), ds.join("last-2.json")],
+            deletes: vec![ds.join("delete-1.json")],
+        }
+    );
+    let removal = json_of(&last.calls[0]);
     assert_eq!(
         removal["files"],
-        json!({"project/components/OldThing/README.md": null})
+        json!({"project/assets/Old/README.md": null, "project/components/OldThing/README.md": null})
     );
     assert_eq!(
         removal["file_path"],
         json!(ds.join("project/README.md").display().to_string())
     );
-    let last = json_of(&calls[1]);
+    let index_call = json_of(&last.calls[1]);
     assert_eq!(
-        last["file_path"],
+        index_call["file_path"],
         json!(ds.join(system::INDEX).display().to_string())
     );
-    assert_eq!(last["files"], json!({}));
+    assert_eq!(index_call["files"], json!({}));
+    assert_eq!(
+        json_of(&last.deletes[0]),
+        json!({"action": "delete", "url": DS, "path": "old-id"})
+    );
     let index = json_of(&ds.join(system::INDEX));
     assert_eq!(index["title"], json!("demo"));
+    assert_eq!(index["groups"], json!(["Logos"]));
+    let logos = &index["assetGroups"]["Logos"];
+    assert_eq!(logos["order"], json!(["mark.svg", "sheep.svg"]));
+    assert_eq!(logos["files"]["mark.svg"]["blob"], json!("mark-id"));
+    assert_eq!(
+        logos["files"]["sheep.svg"],
+        json!({"name": "sheep.svg", "blob": "sheep-id", "size": SHEEP.len(), "type": "image/svg+xml", "sha256": sha256(SHEEP)})
+    );
     assert_eq!(index["lastChange"]["by"], json!("Dima"));
     assert_eq!(index["lastChange"]["at"], json!("2026-11-18T19:00:00Z"));
     assert!(
@@ -474,4 +608,20 @@ fn the_design_systems_last_call_sends_its_index_last() {
             .unwrap()
             .contains(&publish.commit)
     );
+    let said = last_report(ds, &last);
+    assert!(said.contains("delete-1.json"), "{said}");
+
+    let again = write_last(
+        ds,
+        &listing(DS, &["project/README.md"]),
+        Some(SystemLast {
+            index: &index.to_string(),
+            by: "Dima",
+            uploaded: uploaded(&[("project/assets/Logos/sheep.svg", "sheep-id")]),
+        }),
+        "now",
+    )
+    .unwrap();
+    assert!(again.deletes.is_empty(), "a later run replaces the deletes");
+    assert!(!ds.join("delete-1.json").exists());
 }

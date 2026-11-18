@@ -1,6 +1,6 @@
 ---
 name: publish-designs
-description: Publish a project's designs to claude.ai, every canvas of its boards and its Design System artifact, all from one commit, with `builds design publish-files` and the Artifact tool. Use after a landing that changes the boards or the design system of a project that publishes a canvas (bae), or when asked to publish the canvas, the boards or the design system.
+description: Publish a project's designs to claude.ai, every canvas of its boards and its Design System artifact with its uploads, all from one commit, with `builds design publish-files` and the Artifact tool. Use after a landing that changes the boards or the design system of a project that publishes a canvas (bae), or when asked to publish the canvas, the boards or the design system.
 ---
 
 # Publish every canvas and the design system from one commit
@@ -9,14 +9,17 @@ This skill is for a Claude session that publishes a project's designs after a
 landing. The designs are the boards (`design/mocks`) and the design system
 (`design/system`) of the project's repo. The repo publishes them to several
 claude.ai artifacts: one canvas or more, which show the boards, and one Design
-System artifact. `design/mocks/canvases.toml` in the repo names each of them.
+System artifact, which also keeps the design system's pictures as uploads that
+its index names. `design/mocks/canvases.toml` in the repo names each artifact.
 
 Every publish sends every artifact from the same commit, so the published copies
 never disagree. builds writes the files and only a session can call the Artifact
 tool, so the work splits in two: `builds design publish-files` writes every
-artifact's files and its publish calls from one commit, and the session makes
-the calls in order. `builds help lists` (design publish-files and publish-last)
-says what each command writes.
+artifact's files, uploads and calls from one commit, and the session makes the
+calls in order. Each call file holds the arguments of one Artifact tool call,
+its `action` among them: pass every field as it is, and add none.
+`builds help lists` (design publish-files and publish-last) says what each
+command writes.
 
 The repo's files are the source. An edit someone made on an artifact's page on
 claude.ai is an accident: the repo's files replace it, and you merge nothing
@@ -24,17 +27,22 @@ from it.
 
 ## Write the files
 
-Run `builds design publish-files <worktree> <out>`, where `<worktree>` is any
-checkout of the repo and `<out>` is a new folder in your scratchpad. The
-Artifact tool takes a `root` only under the working directory or the scratchpad.
-Leave out `--at`, so that the files come from origin/main, which holds what
-landed.
+1. Read the design system's index: `read` with the design system's url (from
+   `design/mocks/canvases.toml`) and path `project/design-system.json`. The
+   result says where the tool saved the file.
+2. Run `builds design publish-files <worktree> <out> --index <the saved index>`,
+   where `<worktree>` is any checkout of the repo and `<out>` is a new folder in
+   your scratchpad. The Artifact tool takes a `root` only under the working
+   directory or the scratchpad. Leave out `--at`, so that the files come from
+   origin/main, which holds what landed.
 
 The command prints the commit, then each artifact in the order you publish them:
 the canvases, then the design system. For each artifact it prints the folder and
-the call files (`call-1.json` and on). It ends with the sha256 that the repo
-records for the canvas runtime. When the command refuses, publish nothing and
-report its error.
+the call files (`call-1.json` and on), and for the design system the upload
+files (`upload-1.json` and on) with the path each one uploads. builds uploads
+only the assets whose bytes the index records no upload of. The command ends
+with the sha256 that the repo records for the canvas runtime. When the command
+refuses, publish nothing and report its error.
 
 ## Publish each artifact
 
@@ -42,23 +50,31 @@ Do these steps for each artifact, in the printed order:
 
 1. Read the artifact with the Artifact tool (`read` with its url). The tool
    refuses a publish to an artifact that this conversation has not read.
-2. Make each call, in order: Read the call file and pass its `url`, `root`,
-   `file_path` and `files` to the Artifact tool's `publish` as they are. Add no
-   other field, such as `capabilities`, `contract` or `icon`.
-3. List the artifact's files (`list` with its url and scope `files`), through
+2. Make each call, in order: Read the call file and pass its fields to the
+   Artifact tool as they are.
+3. For the design system only, make each upload call, then write the url that
+   the tool gave each upload into `<folder>/uploaded.json`, a JSON object keyed
+   by the path that publish-files printed for the upload:
+   `{"project/assets/Logos/bae-word.svg": "/_blob/<id>"}`.
+4. List the artifact's files (`list` with its url and scope `files`), through
    every page of the listing.
-4. For the design system only, read its index (`read` with its url and path
-   `project/design-system.json`). The result says where the tool saved the file.
-5. Run `builds design publish-last <folder> --listing -` with every line of the
+5. For the design system only, read its index again, as in Write the files.
+6. Run `builds design publish-last <folder> --listing -` with every line of the
    listing on standard input, in a quoted heredoc (`<<'EOF'`). For the design
-   system, add `--index <the saved index> --by "<the person's name>"`.
-6. Make each last call that publish-last prints, in order, as in step 2. A
-   canvas with no file to remove has no last call.
+   system, add `--index <the index saved in step 5> --by "<the person's name>"`
+   and, when it made uploads, `--uploaded <folder>/uploaded.json`.
+7. Make each last call that publish-last prints, in order, as in step 2: first
+   the `last-` calls, then the design system's `delete-` calls, which delete the
+   uploads its index no longer names. A canvas with no file to remove has no
+   last call.
 
 When the Artifact tool refuses a call because someone saved the artifact since
 you read it, the refusal counts as a read. Make the same call again, since the
 repo's files replace every edit made on the page. When the tool refuses a last
-call, list the files again, run publish-last again, and make its new calls.
+call, list the files again, run publish-last again, and make its new calls. When
+publish-last refuses because an asset has no upload of its bytes, someone
+changed the index since you read it: start again from Write the files, with a
+new folder.
 
 ## Check the canvas runtime
 
@@ -72,7 +88,8 @@ runtime (`scripts/boards/src/runtime.rs` in agent-instructions says how).
 
 ## Report
 
-Report the commit, each artifact's url, the files the last calls removed, and
-the result of the runtime check. When you could not finish every artifact, say
-which artifacts hold the new commit and which still hold an older one. The next
-session runs this skill again from the start, with a new folder.
+Report the commit, each artifact's url, the files the last calls removed, the
+assets you uploaded and the uploads you deleted, and the result of the runtime
+check. When you could not finish every artifact, say which artifacts hold the
+new commit and which still hold an older one. The next session runs this skill
+again from the start, with a new folder.
