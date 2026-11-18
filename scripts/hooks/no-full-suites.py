@@ -38,22 +38,6 @@ LIBTEST_VALUE_OPTIONS = {
 }
 
 
-def without_redirections(tokens):
-    # `> log`, `2>&1`, `>>out`: a redirection's target is not a test filter.
-    out, skip = [], False
-    for token in tokens:
-        if skip:
-            skip = False
-            continue
-        if re.fullmatch(r"\d*(>>?|<)", token):
-            skip = True
-            continue
-        if re.match(r"^\d*(>>?|<)", token):
-            continue
-        out.append(token)
-    return out
-
-
 SUBSTITUTION = re.compile(r"\$\(([^)]*)\)?|`([^`]*)`?")
 
 
@@ -67,7 +51,7 @@ def segments(command: str):
             for inner in SUBSTITUTION.finditer(word):
                 yield from segments(inner.group(1) or inner.group(2) or "")
             current.append(SUBSTITUTION.sub(" ", word).strip() or word)
-        yield without_redirections(current)
+        yield shell_words.without_redirections(current)
 
 
 def full_cargo_run(tokens):

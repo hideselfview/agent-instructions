@@ -51,8 +51,9 @@ them into `~/.claude/` and `~/.codex/`, so both tools read the same files.
 - `scripts/builds/` is the `builds` tool, a Rust program (`builds help`).
 - `scripts/hooks/` holds the Claude Code hooks that `claude/settings.json` runs
   before each Bash command.
-  - They refuse full local test suites, polling loops, and moves in an app
-    checkout without its lock.
+  - They refuse full local test suites, polling loops and other waits on a
+    process or a time (such as `caffeinate -w`), and moves in an app checkout
+    without its lock.
 - `scripts/rules_review/matching_rules.py` lists the rule files whose `paths`
   match given repo paths.
 - `.githooks/` holds this repo's git hooks.

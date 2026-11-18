@@ -48,3 +48,20 @@ def commands(command: str):
         else:
             current.append(token)
     yield current, None
+
+
+def without_redirections(words):
+    """The words without their redirections (`> log`, `2>&1`, `>>out`): a
+    redirection's target is no argument of the command."""
+    out, skip = [], False
+    for word in words:
+        if skip:
+            skip = False
+            continue
+        if re.fullmatch(r"\d*(>>?|<)", word):
+            skip = True
+            continue
+        if re.match(r"^\d*(>>?|<)", word):
+            continue
+        out.append(word)
+    return out
