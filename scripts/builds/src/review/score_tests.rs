@@ -426,7 +426,6 @@ fn a_finding_settled_again_counts_as_dropped_and_a_closed_or_allowed_one_as_conf
         base: "b",
         head: "h",
         since: None,
-        grouping: "g",
         rules_version: "",
     };
     let (_, ids) = record::add_run(&db, &new_run, std::slice::from_ref(&call)).unwrap();
@@ -537,7 +536,6 @@ fn a_first_review_records_its_changed_lines_and_its_groups_confirmed_findings() 
         base: "b",
         head: "h",
         since: None,
-        grouping: "g",
         rules_version: "",
     };
     let calls = [

@@ -45,8 +45,6 @@ CREATE TABLE review_run (
     -- differs from the net change an earlier run of its review read, that
     -- earlier run; null for a run that read the whole net change.
     since_run INTEGER REFERENCES review_run (id),
-    -- A hash of the groups file the run used, so a change of grouping shows in the record.
-    grouping TEXT NOT NULL,
     -- The commit of the rules checkout the run read, empty when it is no repo.
     rules_version TEXT NOT NULL,
     -- How many lines the review run's diff adds and removes. The column is

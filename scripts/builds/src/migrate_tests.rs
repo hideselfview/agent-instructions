@@ -2609,7 +2609,6 @@ fn a_store_from_before_code_left_moves_and_records_a_second_settle() {
         base: "b",
         head: "h",
         since: None,
-        grouping: "g",
         rules_version: "",
     };
     let (_, ids) = crate::review::record::add_run(&conn, &run, &[call]).unwrap();
@@ -3270,9 +3269,12 @@ fn with_many_sections(schema: String) -> String {
 /// The comment that opens the review circles' table in design.sql.
 const REVIEW_CIRCLE_COMMENT: &str = "-- An element the designer circles on a review board";
 
-/// <schema> without the review circles' table. A schema without it is left as
-/// it is, as for `without_design_decision`.
+/// <schema> as it read before the review circles' table: with `review_run`'s
+/// hash of each run's groups (`with_grouping`), and without the table. A
+/// schema without the table is left without it, as for
+/// `without_design_decision`.
 fn without_review_circles(schema: String) -> String {
+    let schema = with_grouping(schema);
     cut(&schema, REVIEW_CIRCLE_COMMENT, "STRICT, WITHOUT ROWID;\n\n").unwrap_or(schema)
 }
 
@@ -3545,6 +3547,119 @@ fn a_store_from_before_one_section_review_pages_keeps_each_page_joins_a_closed_c
     assert_eq!(heading, "H");
 }
 
+/// The column of `review_run`, with its comment, that record.sql held before
+/// builds stopped keeping a hash of the groups each run used.
+const GROUPING_COLUMN: &str = "    -- A hash of the groups file the run used, so a change of grouping shows in the record.\n    grouping TEXT NOT NULL,\n";
+
+/// <schema> with `review_run` as it was before builds stopped keeping a hash
+/// of the groups each run used. A schema without `review_run`, or one whose
+/// `review_run` has the column already, is left as it is: the older schemas
+/// these tests rebuild pass through this from more than one chain.
+fn with_grouping(schema: String) -> String {
+    if !schema.contains("CREATE TABLE review_run") || schema.contains(GROUPING_COLUMN) {
+        return schema;
+    }
+    let since = "    since_run INTEGER REFERENCES review_run (id),\n";
+    assert_eq!(schema.matches(since).count(), 1);
+    schema.replacen(since, &format!("{since}{GROUPING_COLUMN}"), 1)
+}
+
+/// Writes a review run of <landing> that read <changed_lines> lines into a
+/// store whose `review_run` still has the hash of the run's groups, as
+/// `record::add_run` wrote one then. Returns the run's id.
+fn old_review_run(conn: &Connection, landing: i64, changed_lines: i64) -> i64 {
+    use crate::lists::fixtures::v;
+    crate::review::record::plant(
+        conn,
+        "review_run",
+        &[
+            ("landing_id", v(landing)),
+            ("kind", v("review")),
+            ("at", v(6)),
+            ("base", v("b")),
+            ("head", v("h")),
+            ("grouping", v("g")),
+            ("rules_version", v("")),
+            ("changed_lines", v(changed_lines)),
+        ],
+    )
+    .unwrap();
+    conn.last_insert_rowid()
+}
+
+#[test]
+fn the_runs_without_grouping_stamp_is_the_schema_before_runs_lost_their_grouping() {
+    assert_eq!(
+        db::stamp_of_text(&with_grouping(db::schema())),
+        BEFORE_RUNS_WITHOUT_GROUPING_STAMP
+    );
+}
+
+/// A store from before runs lost the hash of their groups keeps each run
+/// without it and equals a fresh schema.
+#[test]
+fn a_store_from_before_runs_lost_their_grouping_keeps_each_run_and_equals_a_fresh_schema() {
+    let scratch = Scratch::new("move-runs-without-grouping");
+    let places = scratch.places();
+    let dir = places.lists.join("bae");
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join(DATABASE);
+    {
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(&with_grouping(db::schema())).unwrap();
+        use crate::lists::fixtures::v;
+        crate::review::record::plant(
+            &conn,
+            "review_run",
+            &[
+                ("kind", v("replay")),
+                ("label", v("case")),
+                ("at", v(5)),
+                ("base", v("b")),
+                ("head", v("h")),
+                ("grouping", v("g")),
+                ("rules_version", v("v")),
+            ],
+        )
+        .unwrap();
+        conn.pragma_update(None, "user_version", BEFORE_RUNS_WITHOUT_GROUPING_STAMP)
+            .unwrap();
+    }
+    migrate_stores(&places, 0).unwrap();
+    let conn = db::open(&path, db::Make::Never).unwrap();
+    assert_eq!(
+        db::schema_rows(&conn).unwrap(),
+        db::schema_rows(&db::memory()).unwrap()
+    );
+    let run: (String, String, i64, String, String, String) = conn
+        .query_row(
+            "SELECT kind, label, at, base, head, rules_version FROM review_run",
+            [],
+            |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                    row.get(5)?,
+                ))
+            },
+        )
+        .unwrap();
+    assert_eq!(
+        run,
+        (
+            "replay".to_string(),
+            "case".to_string(),
+            5,
+            "b".to_string(),
+            "h".to_string(),
+            "v".to_string()
+        )
+    );
+}
+
 /// The schema text before the decided changes' table: today's, without the
 /// table and with the approval's comment as it read then.
 fn schema_before_design_decision() -> String {
@@ -3796,7 +3911,8 @@ CREATE INDEX review_writing_run_key ON review_writing_run (key);
 /// own: record.sql as it read then, and writing.sql after the
 /// acknowledgements' part.
 fn schema_before_copy_review() -> String {
-    let mut review = db::REVIEW_PART.to_string();
+    let grouped = with_grouping(db::REVIEW_PART.to_string());
+    let mut review = grouped.clone();
     for (now, then) in [
         (
             "-- allowed to land. The tables also hold each copy review (`builds review
@@ -3840,11 +3956,8 @@ fn schema_before_copy_review() -> String {
         review = review.replacen(now, then, 1);
     }
     let schema = schema_before_ack_per_repo();
-    assert_eq!(schema.matches(db::REVIEW_PART).count(), 1);
-    format!(
-        "{}\n{WRITING_PART}",
-        schema.replacen(db::REVIEW_PART, &review, 1)
-    )
+    assert_eq!(schema.matches(&grouped).count(), 1);
+    format!("{}\n{WRITING_PART}", schema.replacen(&grouped, &review, 1))
 }
 
 #[test]
@@ -3861,7 +3974,7 @@ fn the_copy_review_stamp_is_the_schema_before_copy_review() {
 /// other finding.
 #[test]
 fn a_store_from_before_copy_review_settles_the_open_wording_findings() {
-    use crate::review::record::{self, Kind, NewRun, Settled};
+    use crate::review::record::{self, Settled};
     let scratch = Scratch::new("move-copy-review");
     let places = scratch.places();
     let dir = places.lists.join("bae");
@@ -3880,24 +3993,14 @@ fn a_store_from_before_copy_review_settles_the_open_wording_findings() {
         )
         .unwrap();
         let landing = record::add_landing(&conn, "branch:work", "bae", 5).unwrap();
-        let run = NewRun {
-            landing: Some(landing),
-            kind: Kind::Review { changed_lines: 1 },
-            label: None,
-            at: 6,
-            base: "b",
-            head: "h",
-            since: None,
-            grouping: "g",
-            rules_version: "",
-        };
+        let run = old_review_run(&conn, landing, 1);
         let mut writing = call_of("Text people read", diff, &[("a.rs", "Cover uploaded")]);
         writing.findings.push(writing.findings[0].clone());
         writing.findings[0].rule = "write-plain-literal-active-sentences".to_string();
         writing.findings[1].rule = "no-dash-as-sentence-punctuation".to_string();
         let mut views = call_of("UI views", diff, &[("a.rs", "Cover uploaded")]);
         views.findings[0].rule = "localization-stays-in-sync-with-ui".to_string();
-        let (_, ids) = record::add_run(&conn, &run, &[writing, views]).unwrap();
+        let ids = record::add_calls(&conn, run, Some(landing), &[writing, views]).unwrap();
         record::settle(&conn, ids[0][1], "confirmed", "real", 7, "coordinator").unwrap();
         ids
     };
@@ -4008,7 +4111,7 @@ fn call_of(group: &str, diff: &str, found: &[(&str, &str)]) -> crate::review::re
 /// or on comment lines, and leaves the rest as they were.
 #[test]
 fn a_store_from_before_message_style_settles_the_open_message_and_comment_findings() {
-    use crate::review::record::{self, Kind, NewRun, Settled};
+    use crate::review::record::{self, Settled};
     let scratch = Scratch::new("move-message-style");
     let places = scratch.places();
     let dir = places.lists.join("bae");
@@ -4022,17 +4125,7 @@ fn a_store_from_before_message_style_settles_the_open_message_and_comment_findin
             .unwrap();
         crate::lists::project::plant(&conn, "repo", &[("name", "bae".to_string().into())]).unwrap();
         let landing = record::add_landing(&conn, "branch:work", "bae", 5).unwrap();
-        let run = NewRun {
-            landing: Some(landing),
-            kind: Kind::Review { changed_lines: 3 },
-            label: None,
-            at: 6,
-            base: "b",
-            head: "h",
-            since: None,
-            grouping: "g",
-            rules_version: "",
-        };
+        let run = old_review_run(&conn, landing, 3);
         let writing = call_of(
             "Text people read",
             diff,
@@ -4044,7 +4137,7 @@ fn a_store_from_before_message_style_settles_the_open_message_and_comment_findin
             ],
         );
         let alpha = call_of("alpha", diff, &[("a.rs", "the cover is uploaded")]);
-        let (_, ids) = record::add_run(&conn, &run, &[writing, alpha]).unwrap();
+        let ids = record::add_calls(&conn, run, Some(landing), &[writing, alpha]).unwrap();
         for (id, how) in [
             (ids[0][1], "confirmed"),
             (ids[0][2], "confirmed"),
@@ -4392,7 +4485,6 @@ fn a_store_from_before_allowed_moves_and_records_an_allowed_finding() {
         base: "b",
         head: "h",
         since: None,
-        grouping: "g",
         rules_version: "",
     };
     let (_, ids) = crate::review::record::add_run(&conn, &run, &[call]).unwrap();

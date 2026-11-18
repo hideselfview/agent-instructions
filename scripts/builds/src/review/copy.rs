@@ -80,7 +80,6 @@ pub fn check(inputs: &Inputs) -> Result<Checked> {
                         base: &change.base,
                         head: &change.head,
                         since: None,
-                        grouping: &material.grouping,
                         rules_version: &run::rules_version(inputs.root),
                     },
                     &asked.calls,

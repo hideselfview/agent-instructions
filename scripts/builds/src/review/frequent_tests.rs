@@ -59,7 +59,6 @@ fn store(branches: &[Vec<Vec<&str>>]) -> rusqlite::Connection {
                 base: "base",
                 head: "head",
                 since: None,
-                grouping: "g",
                 rules_version: "",
             };
             let (_, ids) = add_run(&db, &run, &[call(clauses)]).unwrap();

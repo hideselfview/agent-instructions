@@ -25,8 +25,6 @@ use boards::git;
 /// What a review reads besides the diff.
 pub struct Material {
     pub groups: Groups,
-    /// A hash of the groups' settings and rules, recorded with every run.
-    pub grouping: String,
     /// The rules of the project: `rules/` and its own.
     pub rules: Vec<Rule>,
     /// The project's always-loaded instructions, empty when it has none.
@@ -44,7 +42,6 @@ impl Material {
         let project_file = root.join("projects").join(format!("{project}.md"));
         let project_text = std::fs::read_to_string(&project_file).unwrap_or_default();
         Ok(Material {
-            grouping: groups.digest.clone(),
             groups,
             rules,
             project_text,
@@ -103,19 +100,8 @@ impl Material {
         for group in &mut self.groups.groups {
             group.model = model.to_string();
         }
-        self.grouping = format!("model {model}");
         self
     }
-}
-
-/// FNV-1a of <text> as 16 hex digits.
-pub fn hash(text: &str) -> String {
-    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
-    for byte in text.bytes() {
-        hash ^= u64::from(byte);
-        hash = hash.wrapping_mul(0x0100_0000_01b3);
-    }
-    format!("{hash:016x}")
 }
 
 /// A change to review.

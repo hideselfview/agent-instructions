@@ -87,8 +87,6 @@ impl Group {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Groups {
     pub groups: Vec<Group>,
-    /// A hash of every group's settings and rules, recorded with every run.
-    pub digest: String,
 }
 
 impl Groups {
@@ -106,7 +104,6 @@ impl Groups {
             .collect();
         dirs.sort();
         let mut groups = Vec::new();
-        let mut fingerprint = String::new();
         for dir in dirs {
             let path = tree.join(&dir).join(FILE);
             let text =
@@ -116,13 +113,9 @@ impl Groups {
                 .filter(|rule| rule.group_dir.as_deref() == Some(dir.as_str()))
                 .map(|rule| rule.slug.clone())
                 .collect();
-            fingerprint.push_str(&format!("{dir}\n{text}\n{}\n", slugs.join(",")));
             groups.push(Group::parse(&dir, &text, slugs)?);
         }
-        Ok(Groups {
-            groups,
-            digest: crate::review::run::hash(&fingerprint),
-        })
+        Ok(Groups { groups })
     }
 
     /// What is wrong with the grouping against <rules>, which must be every

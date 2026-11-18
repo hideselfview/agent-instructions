@@ -318,7 +318,6 @@ pub fn review(inputs: &Inputs) -> Result<Reported> {
                         base: &ask.change.base,
                         head: &ask.change.head,
                         since: ask.since,
-                        grouping: &material.grouping,
                         rules_version: &run::rules_version(inputs.root),
                     },
                     &asked.calls,

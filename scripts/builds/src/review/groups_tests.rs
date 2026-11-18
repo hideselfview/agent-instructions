@@ -26,10 +26,7 @@ fn group(dir: &str, extra: &str, rules: &[&str]) -> Group {
 }
 
 fn groups(groups: Vec<Group>) -> Groups {
-    Groups {
-        groups,
-        digest: String::new(),
-    }
+    Groups { groups }
 }
 
 #[test]

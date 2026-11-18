@@ -305,8 +305,6 @@ pub struct NewRun<'a> {
     /// For a review run that reads only the changes since the last review,
     /// the run of that last review.
     pub since: Option<i64>,
-    /// A hash of the groups' settings and rules the run used.
-    pub grouping: &'a str,
     /// The commit of the rules checkout the run read.
     pub rules_version: &'a str,
 }
@@ -341,11 +339,23 @@ pub fn add_run(db: &Connection, run: &NewRun, calls: &[NewCall]) -> Result<(i64,
         Kind::Replay | Kind::Audit | Kind::Copy => None,
     };
     db.execute(
-        "INSERT INTO review_run (landing_id, kind, label, at, base, head, since_run, grouping, rules_version, changed_lines) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
-        params![run.landing, run.kind.word(), run.label, run.at, run.base, run.head, run.since, run.grouping, run.rules_version, changed_lines],
+        "INSERT INTO review_run (landing_id, kind, label, at, base, head, since_run, rules_version, changed_lines) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+        params![run.landing, run.kind.word(), run.label, run.at, run.base, run.head, run.since, run.rules_version, changed_lines],
     )
     .sql()?;
     let run_id = db.last_insert_rowid();
+    Ok((run_id, add_calls(db, run_id, run.landing, calls)?))
+}
+
+/// Writes <calls> of run <run_id>, a run of <landing>, with their verdicts,
+/// exchanges and findings, and closes each finding a call closes. Returns,
+/// per call in order, the ids its findings got.
+pub fn add_calls(
+    db: &Connection,
+    run_id: i64,
+    landing: Option<i64>,
+    calls: &[NewCall],
+) -> Result<Vec<Vec<i64>>> {
     let mut ids = Vec::new();
     for call in calls {
         let rules = serde_json::to_string(&call.rules).expect("strings serialize");
@@ -383,10 +393,10 @@ pub fn add_run(db: &Connection, run: &NewRun, calls: &[NewCall]) -> Result<(i64,
         }
         ids.push(finding_ids);
         for finding in &call.closes {
-            close(db, *finding, run_id, run.landing)?;
+            close(db, *finding, run_id, landing)?;
         }
     }
-    Ok((run_id, ids))
+    Ok(ids)
 }
 
 /// Closes open confirmed finding <id> of <landing>: run <run> read changes
@@ -947,22 +957,43 @@ fn copy_scored_calls(db: &Connection) -> Result<()> {
 /// foreign keys off, and the rename runs under `legacy_alter_table`, so the
 /// tables that point at `review_run` keep naming it.
 pub fn move_to_net_change(db: &Connection) -> Result<()> {
+    remake_runs(
+        db,
+        "id, landing_id, kind, label, at, base, head, NULL, rules_version, NULL",
+    )
+}
+
+/// Makes `review_run` again with the statements of record.sql, so the table
+/// equals a fresh database's, and copies into it every run of the old table,
+/// with <columns> read from the old table for today's columns in order. Each
+/// move that calls it runs with the foreign keys off, and the rename runs
+/// under `legacy_alter_table`, so the tables that point at `review_run` keep
+/// naming it.
+fn remake_runs(db: &Connection, columns: &str) -> Result<()> {
     let schema = crate::db::REVIEW_PART;
     let slice = |from: &str, end: &str| crate::db::statement(schema, from, end);
-    let run = slice("CREATE TABLE review_run", "STRICT;");
-    let index = slice("CREATE INDEX review_run_landing", ";");
     crate::db::remake_table(
         db,
         "review_run",
-        run,
+        slice("CREATE TABLE review_run", "STRICT;"),
         |db| {
-            db.execute_batch(
-                "INSERT INTO review_run (id, landing_id, kind, label, at, base, head, since_run, grouping, rules_version)
-    SELECT id, landing_id, kind, label, at, base, head, NULL, grouping, rules_version FROM review_run_old;",
-            )
+            db.execute_batch(&format!(
+                "INSERT INTO review_run (id, landing_id, kind, label, at, base, head, since_run, rules_version, changed_lines)
+    SELECT {columns} FROM review_run_old;"
+            ))
             .sql()
         },
-        &[index],
+        &[slice("CREATE INDEX review_run_landing", ";")],
+    )
+}
+
+/// Moves a store's `review_run` from before builds stopped keeping a hash of
+/// the groups each run used, which nothing read, to today's: every run keeps
+/// its row without the hash.
+pub fn move_to_runs_without_grouping(db: &Connection) -> Result<()> {
+    remake_runs(
+        db,
+        "id, landing_id, kind, label, at, base, head, since_run, rules_version, changed_lines",
     )
 }
 
@@ -1048,22 +1079,9 @@ CREATE TABLE review_code_left (
 /// the rename runs under `legacy_alter_table`, so the tables that point at
 /// `review_run` keep naming it.
 pub fn move_to_counted_lines(db: &Connection) -> Result<()> {
-    let schema = crate::db::REVIEW_PART;
-    let slice = |from: &str, end: &str| crate::db::statement(schema, from, end);
-    let run = slice("CREATE TABLE review_run", "STRICT;");
-    let index = slice("CREATE INDEX review_run_landing", ";");
-    crate::db::remake_table(
+    remake_runs(
         db,
-        "review_run",
-        run,
-        |db| {
-            db.execute_batch(
-                "INSERT INTO review_run (id, landing_id, kind, label, at, base, head, since_run, grouping, rules_version)
-    SELECT id, landing_id, kind, label, at, base, head, since_run, grouping, rules_version FROM review_run_old;",
-            )
-            .sql()
-        },
-        &[index],
+        "id, landing_id, kind, label, at, base, head, since_run, rules_version, NULL",
     )
 }
 
@@ -1248,20 +1266,9 @@ pub const COPY_REVIEW_WHY: &str = "The person: \"we need separate copy and code 
 /// with the foreign keys off, after the moves that make `review_settle_again`
 /// and `review_allowed`. Returns how many findings the move settled.
 pub fn move_to_copy_review(db: &Connection, now: i64) -> Result<usize> {
-    let schema = crate::db::REVIEW_PART;
-    let slice = |from: &str, end: &str| crate::db::statement(schema, from, end);
-    crate::db::remake_table(
+    remake_runs(
         db,
-        "review_run",
-        slice("CREATE TABLE review_run", "STRICT;"),
-        |db| {
-            db.execute_batch(
-                "INSERT INTO review_run (id, landing_id, kind, label, at, base, head, since_run, grouping, rules_version, changed_lines)
-    SELECT id, landing_id, kind, label, at, base, head, since_run, grouping, rules_version, changed_lines FROM review_run_old;",
-            )
-            .sql()
-        },
-        &[slice("CREATE INDEX review_run_landing", ";")],
+        "id, landing_id, kind, label, at, base, head, since_run, rules_version, changed_lines",
     )?;
     remake_findings(db)?;
     let found: Vec<Finding> = {

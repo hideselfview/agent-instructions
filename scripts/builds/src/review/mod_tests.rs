@@ -406,7 +406,6 @@ fn a_run_that_read_a_stretch_of_commits_is_not_the_last_review() {
                     base: &changed,
                     head: &g,
                     since: None,
-                    grouping: "g",
                     rules_version: "",
                 },
                 &[],

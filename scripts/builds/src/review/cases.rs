@@ -524,7 +524,6 @@ pub fn run_of<'a>(case: &'a Case, at: i64, rules_version: &'a str) -> NewRun<'a>
         base: "",
         head: "",
         since: None,
-        grouping: "",
         rules_version,
     }
 }
