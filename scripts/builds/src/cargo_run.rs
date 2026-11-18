@@ -236,9 +236,8 @@ fn role_config(checkout: Option<&Checkout>) -> &'static [&'static str] {
 /// manifests instead of rewriting it, unless cargo's own arguments in <args>
 /// (those before any `--`) hold it already, or `--frozen`, which implies it.
 /// Every build runs locked, so no build changes the commit it builds: a
-/// commit whose lock is stale fails at the cause. Before, cargo rewrote such a
-/// lock in an app checkout, and every later build there refused the changed
-/// checkout.
+/// commit whose lock is stale fails at the cause, and the checkout keeps the
+/// commit's lock.
 fn locked_flag(args: &[String]) -> Option<&'static str> {
     let mut cargos = args.iter().take_while(|arg| *arg != "--");
     if cargos.any(|arg| arg == "--locked" || arg == "--frozen") {
