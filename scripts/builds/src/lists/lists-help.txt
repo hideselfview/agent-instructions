@@ -484,7 +484,9 @@ sent again.
       "boards": {BOARD: {"link": CANVAS_URL}},
       "review": {"heading": H, "words": WORDS,
                  "boards": [{"board": BOARD_PATH, "caption": C,
-                             "theme": "light" | "dark"}]},
+                             "theme": "light" | "dark",
+                             "circles": [{"selector": CSS_SELECTOR,
+                                          "label": WORDS}]}]},
       "no_app_place": WHY, "fix": WHAT, "decision": N}.
       `places` answers every design place the range changes (a board, a
       component folder, a spec section) with an open item that does the app
@@ -526,11 +528,17 @@ sent again.
       and a board the change did not touch may be there to compare). Every
       board place of the change must be on the page. A board file the range
       deletes needs no answer, link or place on the page: it is listed as
-      deleted, and the page shows only its now. The page circles every
-      element that differs between a board now and proposed, on both sides:
-      each board's page lists what it drew, and the review page pairs the
-      lists and circles what is missing, new, moved or restyled. The session
-      writes no marks.
+      deleted, and the page shows only its now.
+      `circles` on a board (optional) names what changed on it: the page
+      circles each element that a circle's CSS selector finds, on each side
+      (now and proposed) where the selector finds it, and circles nothing
+      else. To circle an element the board's markup has no selector for,
+      give the element an id or a class in the board. `label` (optional) is
+      the words the circle shows when the person points at it, which the
+      page also lists under the board's caption. The page names each circle
+      whose selector is no CSS selector or finds nothing on either side. A
+      board that is no file on origin/main is new whole, so it takes no
+      circles.
       `worktree` and the range's last commit are stored with the change, and
       the page reads each board from that repo at that commit, so the commit
       must stay in the repo while the change is open. A change recorded
@@ -545,8 +553,9 @@ sent again.
       canvas has no link, a project that publishes none gives `boards`,
       `review` is missing, has a heading with no text or more than 25
       words, a board of it is no file, no board place or has no caption, a
-      board of the change is not on it, or the range changes no design
-      files.
+      circle has no selector or an empty label, a board with circles is no
+      file on origin/main, a board of the change is not on it, or the range
+      changes no design files.
 
   builds design amend N --request FILE
       The same over a new range, which N then holds to: a stored place the

@@ -3248,11 +3248,116 @@ fn one_section_tables(schema: &str) -> &str {
 /// section. A schema without them is left as it is, as for
 /// `without_design_decision`.
 fn with_many_sections(schema: String) -> String {
+    let schema = without_review_circles(schema);
     if !schema.contains("-- The review page's heading and words") {
         return schema;
     }
     let tables = one_section_tables(&schema).to_string();
     schema.replacen(&tables, MANY_SECTIONS_TABLES, 1)
+}
+
+/// The comment that opens the review circles' table in design.sql.
+const REVIEW_CIRCLE_COMMENT: &str = "-- An element the designer circles on a review board";
+
+/// <schema> without the review circles' table. A schema without it is left as
+/// it is, as for `without_design_decision`.
+fn without_review_circles(schema: String) -> String {
+    let Some(start) = schema.find(REVIEW_CIRCLE_COMMENT) else {
+        return schema;
+    };
+    let end = "STRICT, WITHOUT ROWID;\n\n";
+    let stop = start + schema[start..].find(end).expect("it ends") + end.len();
+    format!("{}{}", &schema[..start], &schema[stop..])
+}
+
+/// The schema text before the designer chose the circles on a review board.
+fn schema_before_review_circles() -> String {
+    let schema = db::schema();
+    assert!(schema.contains(REVIEW_CIRCLE_COMMENT));
+    without_review_circles(schema)
+}
+
+#[test]
+fn the_review_circles_stamp_is_the_schema_before_the_designer_chose_circles() {
+    assert_eq!(
+        db::stamp_of_text(&schema_before_review_circles()),
+        BEFORE_REVIEW_CIRCLES_STAMP
+    );
+}
+
+/// A store from before the designer chose circles gains their empty table,
+/// keeps its review boards and equals a fresh schema.
+#[test]
+fn a_store_from_before_review_circles_gains_their_table_and_equals_a_fresh_schema() {
+    use crate::lists::fixtures::v;
+    let scratch = Scratch::new("move-review-circles");
+    let places = scratch.places();
+    let dir = places.lists.join("bae");
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join(DATABASE);
+    {
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(&schema_before_review_circles()).unwrap();
+        conn.pragma_update(None, "user_version", BEFORE_REVIEW_CIRCLES_STAMP)
+            .unwrap();
+        let design = &crate::lists::design::plant;
+        crate::lists::project::plant(&conn, "repo", &[("name", v("bae"))]).unwrap();
+        crate::lists::record::plant(
+            &conn,
+            "record",
+            &[
+                ("id", v(1)),
+                ("kind", v("design")),
+                ("opened_at", v(1)),
+                ("opened_by", v("tester")),
+            ],
+        )
+        .unwrap();
+        design(
+            &conn,
+            "design",
+            &[
+                ("id", v(1)),
+                ("title", v("T")),
+                ("details", v("d")),
+                ("repo", v("bae")),
+                ("worktree", v("/w")),
+            ],
+        )
+        .unwrap();
+        design(
+            &conn,
+            "review_section",
+            &[("design_id", v(1)), ("heading", v("H")), ("words", v(""))],
+        )
+        .unwrap();
+        design(
+            &conn,
+            "review_board",
+            &[
+                ("design_id", v(1)),
+                ("position", v(0)),
+                ("board", v("design/mocks/A.dc.html")),
+                ("caption", v("a")),
+                ("theme", v("dark")),
+            ],
+        )
+        .unwrap();
+    }
+    migrate_stores(&places, 0).unwrap();
+    let conn = db::open(&path, db::Make::Never).unwrap();
+    assert_eq!(
+        db::schema_rows(&conn).unwrap(),
+        db::schema_rows(&db::memory()).unwrap()
+    );
+    let counts: (i64, i64) = conn
+        .query_row(
+            "SELECT (SELECT COUNT(*) FROM review_board), (SELECT COUNT(*) FROM review_circle)",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!(counts, (1, 0));
 }
 
 /// The schema text before a review page was one section.

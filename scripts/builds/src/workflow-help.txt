@@ -387,16 +387,20 @@ change.
      it from the worktree as one page of HTML without publishing the canvas.
   2. When the boards are drawn, record the change (`builds design record`):
      what changed, each board's canvas link (in a project that publishes a
-     canvas), and the review page's heading, words and boards. Keep the
-     change short: the page has one heading, so record one change per
-     concern, and its words are at most 25. The change
-     shows in the dashboard's Waiting on you tab as a card, and its Details
-     opens the review page, which shows each board now and proposed side by
-     side, circles on both sides every element that differs, and draws it
-     again on each load. To change the boards again, commit
-     and run `builds design amend`, which clears an approval unless every
-     board comes out byte-identical. A rebase onto a moved main needs no
-     amend: health and land compare the boards' files, not commit hashes.
+     canvas), and the review page's heading, words and boards, with the
+     circles of each board: a CSS selector for each element that changed,
+     and a label if the circle needs words. Keep the change short: the page
+     has one heading, so record one change per concern, and its words are at
+     most 25. Circle what the person must look at, not every element the
+     change moves: when one heading goes and every row below it moves up,
+     circle the heading. The change shows in the dashboard's Waiting on you
+     tab as a card, and its Details opens the review page, which shows each
+     board now and proposed side by side, circles on each side the elements
+     the selectors find there, and draws it again on each load. To change
+     the boards again, commit and run `builds design amend`, which clears an
+     approval unless every board comes out byte-identical. A rebase onto a
+     moved main needs no amend: health and land compare the boards' files,
+     not commit hashes.
   3. Everything the person reviews goes on that page: new boards, proposals,
      before and after examples. Never make a page of your own (a review.html,
      a page in the scratchpad) or open a browser tab; the person reloads the

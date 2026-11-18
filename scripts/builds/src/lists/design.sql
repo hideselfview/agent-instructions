@@ -81,6 +81,19 @@ CREATE TABLE review_board (
     CONSTRAINT review_board_is_on_a_section FOREIGN KEY (design_id) REFERENCES review_section (design_id) ON DELETE CASCADE
 ) STRICT, WITHOUT ROWID;
 
+-- An element the designer circles on a review board: the CSS selector that
+-- finds it on the board's pages, now and proposed, and the words the circle
+-- shows, if any.
+CREATE TABLE review_circle (
+    design_id INTEGER NOT NULL,
+    board INTEGER NOT NULL,
+    position INTEGER NOT NULL CONSTRAINT review_circle_position_not_negative CHECK (position >= 0),
+    selector TEXT NOT NULL CONSTRAINT review_circle_selector_says_something CHECK (trim(selector) <> ''),
+    label TEXT CONSTRAINT review_circle_label_says_something CHECK (label IS NULL OR trim(label) <> ''),
+    PRIMARY KEY (design_id, board, position),
+    CONSTRAINT review_circle_is_on_a_board FOREIGN KEY (design_id, board) REFERENCES review_board (design_id, position) ON DELETE CASCADE
+) STRICT, WITHOUT ROWID;
+
 -- A board the change deletes: a board place of its range that is no file at the
 -- range's last commit. It needs no answer, canvas link or place on the review
 -- page, which names it as deleted.

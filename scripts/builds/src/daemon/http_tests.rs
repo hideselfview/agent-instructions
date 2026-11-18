@@ -299,11 +299,13 @@ fn design_store(scratch: &Scratch, places: &crate::places::Places) {
                             board: "design/mocks/A.dc.html".into(),
                             caption: "A".into(),
                             theme: Theme::Light,
+                            circles: vec![],
                         },
                         ReviewBoard {
                             board: "design/mocks/Gone.dc.html".into(),
                             caption: "Gone".into(),
                             theme: Theme::Dark,
+                            circles: vec![],
                         },
                     ],
                 }),

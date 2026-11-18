@@ -215,7 +215,8 @@ fn affected_components(scope: &Scope, request: &DesignRequest) -> Result<BTreeSe
 
 /// Every board on the request's review page is one of the repo's board
 /// places and a file at the range's last commit, which the dashboard draws it
-/// from.
+/// from, and a board with circles is a file on origin/main too: the page draws
+/// a board that is no file there as new, whole, with no circles.
 fn require_review_boards(scope: &Scope, request: &DesignRequest) -> Result<()> {
     if let Some(section) = &request.review {
         for board in &section.boards {
@@ -233,6 +234,15 @@ fn require_review_boards(scope: &Scope, request: &DesignRequest) -> Result<()> {
                     "`review` names {}, which is no file at the range's last commit {}",
                     board.board,
                     scope.tip
+                );
+            }
+            let now = crate::design_render::NOW;
+            if !board.circles.is_empty()
+                && !boards::exists_in(&scope.checkout.top, now, &board.board)?
+            {
+                fail!(
+                    "`review` circles elements on {}, which is no file on {now}: a board the change adds is new whole, so leave out its circles",
+                    board.board
                 );
             }
         }

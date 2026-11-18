@@ -37,8 +37,8 @@ figcaption a { color: var(--accent); font-weight: 400; font-size: 12px; margin-l
 .frame { position: relative; overflow: hidden; border: 1px solid var(--line); background: #000; }
 .hide-circles .circle { display: none; }
 .circle { position: absolute; box-sizing: border-box; border: 2px solid #f5d90a; border-radius: 16px; pointer-events: auto; }
-.status { margin: 0 0 6px; color: var(--dim); font-size: 13px; }
-.status .key { font-weight: 600; }
+.status { margin: 0 0 6px; color: var(--dim); font-size: 13px; max-width: 700px; }
+.status .bad { color: var(--bad); }
 .frame iframe { display: block; border: 0; background: transparent; transform-origin: 0 0; }
 .problem { color: var(--bad); border: 1px solid var(--bad); border-radius: 6px; padding: 8px 12px; max-width: 700px; }
 .work { max-width: 1100px; padding-left: 18px; }
@@ -64,7 +64,7 @@ figcaption a { color: var(--accent); font-weight: 400; font-size: 12px; margin-l
 <main id="main"></main>
 <script type="application/json" id="data">@@DATA@@</script>
 <script>
-@@CHANGES@@
+@@CIRCLES@@
 </script>
 <script>
 const data = JSON.parse(document.getElementById("data").textContent);
@@ -166,53 +166,58 @@ function side(label, d, absent, pair, which) {
 function drawn(d, pair, which) {
   const frame = h("iframe", {src: d.src, sandbox: "allow-scripts", title: d.src, width: d.w, height: d.h});
   const box = h("div", {class: "frame"}, frame);
-  const entry = {b: d, frame, box, circles: [], elements: null};
+  const entry = {b: d, frame, box, circles: [], found: null};
   frames.push(entry);
-  if (pair) pair[which] = entry;
+  if (pair) {
+    pair[which] = entry;
+    entry.pair = pair;
+    // Each load of the frame, the first and each redraw, asks its board page
+    // what the designer's selectors find (board.html).
+    if (pair.circles.length) frame.addEventListener("load", () => {
+      entry.found = null;
+      frame.contentWindow.postMessage({designCircles: pair.circles.map(c => c.selector)}, "*");
+    });
+  }
   return box;
 }
-// Each board page lists the elements it drew once it has drawn (board.html).
-// When both pages of a board have, the elements that differ are circled on
-// both sides. A page that draws again sends its list again.
+// Each board page answers what the selectors find once it has drawn. When
+// every drawing of a board has answered, the page circles what they found.
 window.addEventListener("message", e => {
-  const sent = e.data && e.data.designElements;
-  if (!sent || !Array.isArray(sent.elements)) return;
+  const sent = e.data && e.data.designBoxes;
+  if (!sent || !Array.isArray(sent.found)) return;
   const entry = frames.find(f => f.frame.contentWindow === e.source && f.b.src === sent.src);
-  if (!entry) return;
-  entry.elements = sent.elements;
-  if (entry.pair) settle(entry.pair);
+  if (!entry || !entry.pair) return;
+  entry.found = sent.found;
+  settle(entry.pair);
 });
 function settle(pair) {
-  if (!pair.now.elements || !pair.proposed.elements) return;
-  const marks = changesBetween(pair.now.elements, pair.proposed.elements);
+  const sides = [pair.now, pair.proposed].filter(Boolean);
+  if (sides.some(entry => !entry.found)) return;
+  const marks = circleMarks(pair.circles, pair.now ? pair.now.found : null, pair.proposed ? pair.proposed.found : null);
   for (const [entry, list] of [[pair.now, marks.now], [pair.proposed, marks.proposed]]) {
+    if (!entry) continue;
     for (const c of entry.circles) c.el.remove();
     entry.circles = list.map(m => {
-      const el = h("div", {class: "circle " + m.kind, title: m.title});
+      const el = h("div", {class: "circle", title: m.title});
       entry.box.append(el);
       return {el, box: m.box};
     });
   }
-  // A changed element is on both sides: count it once, on the proposed side.
-  const kinds = {missing: marks.now.filter(m => m.kind === "missing").length, new: marks.proposed.filter(m => m.kind === "new").length,
-    moved: marks.proposed.filter(m => m.kind === "moved").length, restyled: marks.proposed.filter(m => m.kind === "restyled").length};
-  const total = Object.values(kinds).reduce((a, b) => a + b, 0);
-  pair.status.replaceChildren(...(total === 0 ? ["No visible change"]
-    : [total + (total === 1 ? " element" : " elements") + " changed: ",
-      ...Object.entries(kinds).filter(([, n]) => n).flatMap(([k, n], i) => [i ? ", " : "", h("span", {class: "key " + k}, n + " " + k)])]));
+  pair.problems.replaceChildren(...marks.problems.map(p => h("div", {class: "bad"}, p)));
   layout();
 }
 function board(b) {
   const caption = h("figcaption", {}, b.caption, h("span", {class: "meta"}, b.theme),
     b.link ? h("a", {href: b.link, target: "_blank", rel: "noopener"}, "on the canvas") : null);
   const isNew = b.now && b.now.absent;
-  const status = h("div", {class: "status"}, isNew ? "New board" : "");
-  const pair = {status};
+  const labels = b.circles.map(c => c.label).filter(Boolean);
+  const problems = h("div", {});
+  const status = h("div", {class: "status"}, isNew ? "New board" : "",
+    labels.length ? "Circled: " + labels.join("; ") : "", problems);
+  const pair = {problems, circles: b.circles};
   const sides = h("div", {class: "pair"},
     side("Now (origin/main)", b.now, "This board is new: it has no now.", pair, "now"),
     side("Proposed (the change)", b.proposed, "", pair, "proposed"));
-  if (pair.now) pair.now.pair = pair;
-  if (pair.proposed) pair.proposed.pair = pair;
   return h("figure", {}, caption, status, sides);
 }
 function gone(d) {

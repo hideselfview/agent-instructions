@@ -72,13 +72,29 @@ impl Theme {
 
 /// A board on a review page: the board file (a place of the repo's design
 /// places, `design/mocks/<name>.dc.html`), what the caption under it says,
-/// and the theme it is drawn in.
+/// the theme it is drawn in, and the elements the designer circles on it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ReviewBoard {
     pub board: String,
     pub caption: String,
     pub theme: Theme,
+    /// What changed, as the designer says: the page circles these and
+    /// nothing else. Empty on a board the change adds, which is new whole.
+    #[serde(default)]
+    pub circles: Vec<Circle>,
+}
+
+/// An element the designer circles on a review board: the CSS selector that
+/// finds it on the board's pages, now and proposed, and the words the circle
+/// shows. The page circles every element the selector finds, on each side
+/// where it finds one.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Circle {
+    pub selector: String,
+    #[serde(default)]
+    pub label: Option<String>,
 }
 
 /// The heading of a review page, the words under it, and the boards.
@@ -498,9 +514,10 @@ fn resolve(
 const MAX_SECTION_WORDS: usize = 25;
 
 /// A review page's own rules: its heading has text, its words are at most
-/// `MAX_SECTION_WORDS`, and every board on it has a caption. (That a board is a
-/// board file, one of the repo's board places, and exists in the worktree is the
-/// command's, which reads git and the files.)
+/// `MAX_SECTION_WORDS`, every board on it has a caption, and each circle has a
+/// selector and, if it has a label, words in it. (That a board is a board file,
+/// one of the repo's board places, exists in the worktree and is no new board
+/// when it has circles is the command's, which reads git and the files.)
 fn check_review(section: &ReviewSection) -> Result<()> {
     if section.heading.trim().is_empty() {
         fail!("`review` has an empty heading");
@@ -517,6 +534,21 @@ fn check_review(section: &ReviewSection) -> Result<()> {
                 "the board {} on the review page has an empty caption",
                 board.board
             );
+        }
+        for circle in &board.circles {
+            if circle.selector.trim().is_empty() {
+                fail!(
+                    "a circle on the board {} has an empty selector",
+                    board.board
+                );
+            }
+            if circle.label.as_ref().is_some_and(|l| l.trim().is_empty()) {
+                fail!(
+                    "the circle {} on the board {} has an empty label; leave the label out or say what changed",
+                    circle.selector,
+                    board.board
+                );
+            }
         }
     }
     Ok(())
@@ -650,6 +682,13 @@ pub fn save(db: &Connection, design: &DesignChange) -> Result<()> {
                 params![design.id, at as i64, board.board, board.caption, board.theme.word()],
             )
             .sql()?;
+            for (n, circle) in board.circles.iter().enumerate() {
+                db.execute(
+                    "INSERT INTO review_circle (design_id, board, position, selector, label) VALUES (?1, ?2, ?3, ?4, ?5)",
+                    params![design.id, at as i64, n as i64, circle.selector, circle.label],
+                )
+                .sql()?;
+            }
         }
     }
     Ok(())
@@ -1276,6 +1315,16 @@ fn describe(lists: &Lists, design: &DesignChange, closed: Option<&Closed>) -> Re
                 board.theme.word(),
                 board.caption
             );
+            for circle in &board.circles {
+                match &circle.label {
+                    Some(label) => {
+                        let _ = writeln!(out, "      circles {}: {label}", circle.selector);
+                    }
+                    None => {
+                        let _ = writeln!(out, "      circles {}", circle.selector);
+                    }
+                }
+            }
         }
     }
     if let Some(why) = &design.no_app_place {
@@ -1451,21 +1500,43 @@ pub fn read(
             },
         );
     }
+    let mut circles: BTreeMap<(Id, i64), Vec<Circle>> = BTreeMap::new();
     let mut statement = db
-        .prepare("SELECT design_id, board, caption, theme FROM review_board ORDER BY design_id, position")
+        .prepare("SELECT design_id, board, selector, label FROM review_circle ORDER BY design_id, board, position")
         .sql()?;
     for row in statement
         .query_map([], |row| {
             Ok((
                 row.get::<_, Id>(0)?,
-                row.get::<_, String>(1)?,
+                row.get::<_, i64>(1)?,
                 row.get::<_, String>(2)?,
-                row.get::<_, String>(3)?,
+                row.get::<_, Option<String>>(3)?,
             ))
         })
         .sql()?
     {
-        let (design, board, caption, theme) = row.sql()?;
+        let (design, board, selector, label) = row.sql()?;
+        circles
+            .entry((design, board))
+            .or_default()
+            .push(Circle { selector, label });
+    }
+    let mut statement = db
+        .prepare("SELECT design_id, position, board, caption, theme FROM review_board ORDER BY design_id, position")
+        .sql()?;
+    for row in statement
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, Id>(0)?,
+                row.get::<_, i64>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, String>(4)?,
+            ))
+        })
+        .sql()?
+    {
+        let (design, position, board, caption, theme) = row.sql()?;
         let theme = if theme == "light" {
             Theme::Light
         } else {
@@ -1479,6 +1550,7 @@ pub fn read(
                 board,
                 caption,
                 theme,
+                circles: circles.remove(&(design, position)).unwrap_or_default(),
             });
     }
     let mut tips: BTreeMap<Id, String> = BTreeMap::new();
@@ -1652,7 +1724,7 @@ pub fn move_to_one_review_section(db: &Connection) -> Result<()> {
 
 /// The tables design.rs owns.
 #[cfg(test)]
-const TABLES: [&str; 11] = [
+const TABLES: [&str; 12] = [
     "design",
     "design_session",
     "design_tip",
@@ -1664,6 +1736,7 @@ const TABLES: [&str; 11] = [
     "design_deleted",
     "review_section",
     "review_board",
+    "review_circle",
 ];
 
 /// Writes a row of one of design.rs's tables as given, the constraints still

@@ -97,61 +97,40 @@ function conv(n, key, sc) {
   });
   return h.apply(null, [tag, props].concat(kids()));
 }
-// The review page frames this page in a sandbox it cannot read, so this page
-// lists what it drew for it: each element a person sees (words, a control, an
-// image or a filled box) with its role, its box in board pixels, its text
-// colour and its background. The page compares the lists of two drawings of a
-// board. `src` names this frame to the page.
-function ownText(el) {
-  var text = '';
-  Array.prototype.forEach.call(el.childNodes, function (n) { if (n.nodeType === 3) text += n.textContent; });
-  return text.replace(/\s+/g, ' ').trim();
-}
-function roleOf(el, text) {
-  var tag = el.tagName.toLowerCase();
-  var explicit = el.getAttribute('role');
-  if (explicit) return explicit;
-  if (tag === 'a') return 'link';
-  if (tag === 'img' || tag === 'svg') return 'image';
-  if (tag === 'input') return el.getAttribute('type') || 'textbox';
-  if (tag === 'select' || tag === 'textarea' || tag === 'button') return tag;
-  return text ? 'text' : 'box';
-}
-function drawnElements() {
-  var out = [];
-  var all = document.getElementById('r').querySelectorAll('*');
+// The review page frames this page in a sandbox it cannot read, so it posts
+// this page the CSS selectors of the elements it circles, and this page
+// answers, once it has drawn, with what each selector finds (`foundBy`).
+// `src` names this frame to the page.
+var markDrawn;
+var drawn = new Promise(function (resolve) { markDrawn = resolve; });
+// The boxes, in board pixels, of the elements a person sees that <selector>
+// finds on the board, or the error that stops it.
+function foundBy(selector) {
+  var all;
+  try {
+    all = document.getElementById('r').querySelectorAll(selector);
+  } catch (error) {
+    return { error: String(error && error.message || error) };
+  }
+  var boxes = [];
   Array.prototype.forEach.call(all, function (el) {
-    var inside = el.closest('svg');
-    if (inside && inside !== el) return;
-    var cs = getComputedStyle(el);
-    if (cs.display === 'none' || cs.display === 'contents' || cs.visibility === 'hidden' || cs.opacity === '0') return;
     var r = el.getBoundingClientRect();
     if (r.width < 1 || r.height < 1) return;
-    var tag = el.tagName.toLowerCase();
-    var text = ownText(el) || el.getAttribute('aria-label') || el.getAttribute('alt') || (tag === 'input' ? el.value || el.placeholder || '' : '');
-    var role = roleOf(el, text);
-    var parent = el.parentElement ? getComputedStyle(el.parentElement).backgroundColor : '';
-    var filled = cs.backgroundColor !== 'rgba(0, 0, 0, 0)' && cs.backgroundColor !== parent;
-    var control = role !== 'text' && role !== 'box';
-    if (!text && !control && !filled) return;
-    out.push({
-      text: text, role: role,
-      x: Math.round(r.left + window.scrollX), y: Math.round(r.top + window.scrollY),
-      w: Math.round(r.width), h: Math.round(r.height),
-      color: cs.color, background: filled ? cs.backgroundColor : ''
-    });
+    boxes.push({ x: Math.round(r.left + window.scrollX), y: Math.round(r.top + window.scrollY), w: Math.round(r.width), h: Math.round(r.height) });
   });
-  return out;
+  return { boxes: boxes };
 }
-function postElements() {
-  if (parent === window) return;
-  parent.postMessage({ designElements: { src: location.pathname, elements: drawnElements() } }, '*');
-}
-// Once React has drawn the board, and the fonts are in, the review page gets the
-// list of what was drawn.
+window.addEventListener('message', function (e) {
+  var asked = e.data && e.data.designCircles;
+  if (e.source !== parent || !Array.isArray(asked)) return;
+  drawn.then(function () {
+    parent.postMessage({ designBoxes: { src: location.pathname, found: asked.map(foundBy) } }, '*');
+  });
+});
+// The board is drawn once React has drawn it and the fonts are in.
 function Drawn(props) {
   React.useEffect(function () {
-    (document.fonts ? document.fonts.ready : Promise.resolve()).then(postElements);
+    (document.fonts ? document.fonts.ready : Promise.resolve()).then(markDrawn);
   }, []);
   return props.children;
 }

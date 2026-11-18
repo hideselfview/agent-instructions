@@ -294,9 +294,13 @@ const BEFORE_DESIGN_DECISION_STAMP: i64 = 1_679_979_855;
 /// section.
 const BEFORE_ONE_SECTION_STAMP: i64 = 507_266_959;
 
+/// The stamp of the schema before the designer chose the circles on a review
+/// board.
+const BEFORE_REVIEW_CIRCLES_STAMP: i64 = 1_361_574_994;
+
 /// Every stamp a store can carry that `move_store` moves, oldest schema first.
 /// A new move adds the stamp of the schema before it at the end.
-const STAMPS: [i64; 41] = [
+const STAMPS: [i64; 42] = [
     BEFORE_DESIGN_DELETED_STAMP,
     BEFORE_CHECK_TIMES_STAMP,
     BEFORE_DESIGN_TIP_STAMP,
@@ -338,6 +342,7 @@ const STAMPS: [i64; 41] = [
     BEFORE_ACK_PER_REPO_STAMP,
     BEFORE_DESIGN_DECISION_STAMP,
     BEFORE_ONE_SECTION_STAMP,
+    BEFORE_REVIEW_CIRCLES_STAMP,
 ];
 
 /// Whether a store stamped <found> comes before the move that follows the
@@ -451,7 +456,8 @@ const DESIGN_DELETED: &str = "CREATE TABLE design_deleted (
 /// (`ack::record::move_to_ack_per_repo`). Every store gets the empty
 /// `design_decision` table (no design change names a decision yet). Every
 /// store's review pages become one section each (`design::move_to_one_review_section`), and
-/// the move refuses a store with a design change of several.
+/// the move refuses a store with a design change of several. Every store
+/// gets the empty `review_circle` table (no review board has circles yet).
 /// The moves run in one transaction, the store
 /// is stamped as today's schema, and it must then equal a fresh database's schema or the transaction rolls back. A
 /// store already at today's stamp, or with no database, is left alone; any
@@ -544,6 +550,17 @@ fn design_fix() -> String {
 /// from today's schema text so the result equals a fresh database's.
 fn design_decision() -> String {
     db::statement(&db::schema(), "CREATE TABLE design_decision", "STRICT;").to_string()
+}
+
+/// The statement that makes `review_circle` as design.sql writes it, taken
+/// from today's schema text so the result equals a fresh database's.
+fn review_circle() -> String {
+    db::statement(
+        &db::schema(),
+        "CREATE TABLE review_circle",
+        "STRICT, WITHOUT ROWID;",
+    )
+    .to_string()
 }
 
 /// The effects that the `QUESTION_EFFECTS` file <file> gives, or None when
@@ -884,6 +901,11 @@ fn move_store(places: &Places, path: &Path, now: i64) -> Result<()> {
     // Every store from before the one-section review pages gets them.
     if before(found, BEFORE_ONE_SECTION_STAMP) {
         crate::lists::design::move_to_one_review_section(&tx)?;
+    }
+    // Every store from before the designer chose the circles gets their
+    // empty table: no review board has circles yet.
+    if before(found, BEFORE_REVIEW_CIRCLES_STAMP) {
+        tx.execute_batch(&review_circle()).sql()?;
     }
     tx.pragma_update(None, "user_version", db::stamp()).sql()?;
     let broken: Option<String> = tx

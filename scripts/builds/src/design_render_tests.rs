@@ -1,5 +1,5 @@
 use super::*;
-use crate::lists::design::ReviewSection;
+use crate::lists::design::{Circle, ReviewSection};
 use crate::lists::fixtures::{db, design_drawn, design_tipped, read};
 use crate::lists::view::design_view;
 use crate::testing::{Scratch, design_system, git, repo};
@@ -172,16 +172,19 @@ fn review_of(dir: &Path, tip: &str) -> (DesignChange, DesignView) {
                     board: "design/mocks/A.dc.html".into(),
                     caption: "the A".into(),
                     theme: Theme::Dark,
+                    circles: vec![],
                 },
                 ReviewBoard {
                     board: "design/mocks/B.dc.html".into(),
                     caption: "no size".into(),
                     theme: Theme::Light,
+                    circles: vec![],
                 },
                 ReviewBoard {
                     board: "design/mocks/Z.dc.html".into(),
                     caption: "no file".into(),
                     theme: Theme::Light,
+                    circles: vec![],
                 },
             ],
         }),
@@ -328,11 +331,13 @@ fn a_board_the_change_adds_has_no_now_and_a_board_it_deletes_has_only_a_now() {
             board: "design/mocks/A.dc.html".into(),
             caption: "the A".into(),
             theme: Theme::Dark,
+            circles: vec![],
         },
         ReviewBoard {
             board: "design/mocks/New.dc.html".into(),
             caption: "the new one".into(),
             theme: Theme::Light,
+            circles: vec![],
         },
     ];
     change.deleted.insert("design/mocks/Old.dc.html".into());
@@ -503,12 +508,12 @@ fn a_review_page_of_a_change_with_no_last_commit_says_to_amend_it() {
     assert!(error.contains("amend it"), "{error}");
 }
 
-/// Runs `changesBetween` of the review page's script (`changes.js`) over two
-/// element lists in node, and returns its marks.
-fn changes_between(now: &Value, proposed: &Value) -> Value {
+/// Runs `circleMarks` of the review page's script (`circles.js`) over a
+/// board's circles and what each side found, and returns its marks.
+fn circle_marks(circles: &Value, now: &Value, proposed: &Value) -> Value {
     let program = format!(
-        "{}\nconsole.log(JSON.stringify(changesBetween({now}, {proposed})));",
-        CHANGES_SCRIPT
+        "{}\nconsole.log(JSON.stringify(circleMarks({circles}, {now}, {proposed})));",
+        CIRCLES_SCRIPT
     );
     let out = std::process::Command::new("node")
         .arg("-e")
@@ -523,118 +528,79 @@ fn changes_between(now: &Value, proposed: &Value) -> Value {
     serde_json::from_slice(&out.stdout).unwrap()
 }
 
-fn element(text: &str, role: &str, x: i64, y: i64) -> Value {
-    json!({ "text": text, "role": role, "x": x, "y": y, "w": 100, "h": 20,
-        "color": "rgb(0, 0, 0)", "background": "" })
+fn found(boxes: &[(i64, i64)]) -> Value {
+    json!({ "boxes": boxes.iter().map(|(x, y)| json!({ "x": x, "y": y, "w": 100, "h": 20 })).collect::<Vec<_>>() })
 }
 
 #[test]
-fn a_board_that_did_not_change_has_no_marks() {
-    let list = json!([
-        element("Devices", "text", 10, 10),
-        element("Remove", "button", 10, 40)
+fn each_circle_marks_what_its_selector_finds_on_each_side_with_its_label() {
+    let circles = json!([
+        { "selector": "#disc-1", "label": "The Disc 1 heading goes" },
+        { "selector": ".row:first-child" }
     ]);
+    // The heading is only on now; the first row is on both sides, moved up.
+    let now = json!([found(&[(10, 10)]), found(&[(10, 40)])]);
+    let proposed = json!([found(&[]), found(&[(10, 10)])]);
     assert_eq!(
-        changes_between(&list, &list),
-        json!({ "now": [], "proposed": [] })
+        circle_marks(&circles, &now, &proposed),
+        json!({
+            "now": [
+                { "box": { "x": 10, "y": 10, "w": 100, "h": 20 }, "title": "The Disc 1 heading goes" },
+                { "box": { "x": 10, "y": 40, "w": 100, "h": 20 }, "title": ".row:first-child" }
+            ],
+            "proposed": [
+                { "box": { "x": 10, "y": 10, "w": 100, "h": 20 }, "title": ".row:first-child" }
+            ],
+            "problems": []
+        })
     );
 }
 
 #[test]
-fn an_element_only_in_now_is_missing_and_one_only_in_proposed_is_new() {
-    let now = json!([
-        element("Devices", "text", 10, 10),
-        element("Old", "button", 10, 40)
-    ]);
-    let proposed = json!([
-        element("Devices", "text", 10, 10),
-        element("Added", "button", 10, 80)
-    ]);
-    let marks = changes_between(&now, &proposed);
-    assert_eq!(marks["now"].as_array().unwrap().len(), 1);
-    assert_eq!(marks["now"][0]["kind"], json!("missing"));
-    assert_eq!(
-        marks["now"][0]["title"],
-        json!("Was: Old (not in the proposal)")
-    );
-    assert_eq!(marks["proposed"].as_array().unwrap().len(), 1);
-    assert_eq!(marks["proposed"][0]["kind"], json!("new"));
-    assert_eq!(
-        marks["proposed"][0]["box"],
-        json!({ "x": 10, "y": 80, "w": 100, "h": 20 })
-    );
-}
-
-#[test]
-fn an_element_with_other_words_in_the_same_place_is_one_changed_element_that_says_what_it_was() {
-    let now = json!([element("Removing the device", "text", 10, 10)]);
-    let proposed = json!([element("Remove the device", "text", 10, 10)]);
-    let marks = changes_between(&now, &proposed);
-    assert_eq!(marks["proposed"].as_array().unwrap().len(), 1);
-    assert_eq!(marks["proposed"][0]["kind"], json!("restyled"));
-    assert_eq!(
-        marks["proposed"][0]["title"],
-        json!("Was: Removing the device")
-    );
-    assert_eq!(
-        marks["now"][0]["title"],
-        json!("Becomes: Remove the device")
-    );
-}
-
-#[test]
-fn a_box_that_moves_more_than_2_px_is_moved_and_a_colour_change_is_restyled() {
-    let now = json!([element("A", "text", 10, 10), element("B", "text", 10, 50)]);
-    let mut moved = element("A", "text", 10, 12);
-    let near = changes_between(&now, &json!([moved.clone(), element("B", "text", 10, 50)]));
-    assert_eq!(near, json!({ "now": [], "proposed": [] }));
-    moved["y"] = json!(30);
-    let mut recoloured = element("B", "text", 10, 50);
-    recoloured["color"] = json!("rgb(255, 0, 0)");
-    let marks = changes_between(&now, &json!([moved, recoloured]));
-    let of_kind = |kind: &str| {
-        marks["proposed"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .find(|m| m["kind"] == json!(kind))
-            .unwrap()
-            .clone()
-    };
-    assert_eq!(marks["proposed"].as_array().unwrap().len(), 2);
-    assert_eq!(of_kind("moved")["title"], json!("Moved 20 px down"));
-    assert_eq!(
-        of_kind("restyled")["title"],
-        json!("Text colour was rgb(0, 0, 0)")
-    );
-}
-
-#[test]
-fn elements_with_the_same_words_pair_with_the_nearest_one() {
-    let now = json!([
-        element("Row", "text", 10, 10),
-        element("Row", "text", 10, 100)
+fn a_circle_that_finds_nothing_or_is_no_selector_is_a_problem_and_a_side_with_no_drawing_is_skipped()
+ {
+    let circles = json!([
+        { "selector": "#gone" },
+        { "selector": "[[" },
+        { "selector": "#here" }
     ]);
     let proposed = json!([
-        element("Row", "text", 10, 100),
-        element("Row", "text", 10, 10)
+        found(&[]),
+        { "error": "'[[' is not a valid selector" },
+        found(&[(1, 2)])
     ]);
+    let marks = circle_marks(&circles, &Value::Null, &proposed);
+    assert_eq!(marks["now"], json!([]));
+    assert_eq!(marks["proposed"].as_array().unwrap().len(), 1);
     assert_eq!(
-        changes_between(&now, &proposed),
-        json!({ "now": [], "proposed": [] })
+        marks["problems"],
+        json!([
+            "The circle #gone finds no element on the board.",
+            "The circle [[ is no CSS selector: '[[' is not a valid selector"
+        ])
     );
 }
 
 #[test]
-fn the_review_page_carries_the_script_that_circles_changes_and_each_board_page_lists_its_elements()
-{
+fn the_review_page_gives_each_board_its_circles_and_each_board_page_answers_what_selectors_find() {
     let scratch = Scratch::new("render-circles");
     let dir = tree(&scratch);
     let tip = commit(&dir);
     set_origin_main(&dir, &tip);
-    let (change, view) = review_of(&dir, &tip);
+    let (mut change, view) = review_of(&dir, &tip);
+    let circle = Circle {
+        selector: ".a-only".into(),
+        label: Some("The greeting".into()),
+    };
+    change.review.as_mut().unwrap().boards[0].circles = vec![circle];
     let page = review_page(&change, &view, "demo").unwrap();
-    assert!(page.contains("function changesBetween") && !page.contains("@@CHANGES@@"));
+    assert!(page.contains("function circleMarks") && !page.contains("@@CIRCLES@@"));
+    let data = page_data(&page);
+    assert_eq!(
+        data["section"]["boards"][0]["circles"],
+        json!([{ "selector": ".a-only", "label": "The greeting" }])
+    );
+    assert_eq!(data["section"]["boards"][1]["circles"], json!([]));
     let board = render_board(
         source_of(&change, Side::Proposed).unwrap(),
         "A",
@@ -642,5 +608,5 @@ fn the_review_page_carries_the_script_that_circles_changes_and_each_board_page_l
         &cache(&scratch),
     )
     .unwrap();
-    assert!(board.contains("function drawnElements") && board.contains("designElements"));
+    assert!(board.contains("function foundBy") && board.contains("designBoxes"));
 }

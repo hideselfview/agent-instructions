@@ -19,9 +19,10 @@
 //! adds has no now, and a board it deletes has only a now. The daemon draws
 //! each frame on every request, so the page shows a redraw on reload. The
 //! sizes of the frames come from each commit's `design/mocks/canvas.json`.
-//! Each board's page lists the elements it drew and posts the list to the
-//! review page, which circles on both sides the elements that differ
-//! (`design_render/changes.js`).
+//! The review page circles only what the designer says changed: it posts each
+//! board's page the CSS selectors of the board's circles, the page answers
+//! with the boxes of the elements each finds, and the review page circles
+//! them on each side where they are (`design_render/circles.js`).
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -36,9 +37,9 @@ use crate::lists::{DesignChange, ReviewBoard, Theme};
 
 const BOARD_PAGE: &str = include_str!("design_render/board.html");
 const REVIEW_PAGE: &str = include_str!("design_render/review.html");
-/// The script that finds what differs between a board now and proposed
-/// (`design_render/changes.js`), which the review page runs.
-pub(crate) const CHANGES_SCRIPT: &str = include_str!("design_render/changes.js");
+/// The script that decides where the review page draws the designer's
+/// circles (`design_render/circles.js`), which the review page runs.
+const CIRCLES_SCRIPT: &str = include_str!("design_render/circles.js");
 
 /// What a board with no script of its own runs.
 const NO_SCRIPT: &str =
@@ -277,6 +278,7 @@ pub fn review_page(design: &DesignChange, view: &DesignView, project: &str) -> R
                     "path": board.board,
                     "caption": board.caption,
                     "theme": board.theme.word(),
+                    "circles": board.circles,
                     "link": design.boards.get(&board.board).map(|b| b.link.clone()),
                     "now": drawing(design, Side::Now, &board.board, &src),
                     "proposed": drawing(design, Side::Proposed, &board.board, &src),
@@ -302,7 +304,7 @@ pub fn review_page(design: &DesignChange, view: &DesignView, project: &str) -> R
     let data = data.to_string().replace('<', "\\u003c");
     Ok(fill(
         REVIEW_PAGE,
-        &[("DATA", &data), ("CHANGES", CHANGES_SCRIPT)],
+        &[("DATA", &data), ("CIRCLES", CIRCLES_SCRIPT)],
     ))
 }
 

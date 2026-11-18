@@ -2031,12 +2031,36 @@ fn every_named_constraint_of_the_design_tables_refuses_its_row() {
         ),
     );
     plant(&db, "review_board", &review).unwrap();
+    let circle = [
+        ("design_id", v(good.0)),
+        ("board", v(0)),
+        ("position", v(0)),
+        ("selector", v("#disc-1")),
+    ];
+    refused.check(
+        "review_circle_position_not_negative",
+        plant(&db, "review_circle", &row(&circle, &[("position", v(-1))])),
+    );
+    refused.check(
+        "review_circle_selector_says_something",
+        plant(&db, "review_circle", &row(&circle, &[("selector", v(" "))])),
+    );
+    refused.check(
+        "review_circle_label_says_something",
+        plant(&db, "review_circle", &row(&circle, &[("label", v(" "))])),
+    );
+    refused.check_as(
+        "review_circle_is_on_a_board",
+        "FOREIGN KEY",
+        plant(&db, "review_circle", &row(&circle, &[("board", v(1))])),
+    );
+    plant(&db, "review_circle", &circle).unwrap();
     refused.covered_without_a_name(&["design_repo_is_the_projects"]);
     refused.done();
 }
 
 #[test]
-fn dropping_a_place_takes_its_board_with_it_and_a_section_its_review_boards() {
+fn dropping_a_place_takes_its_board_with_it_and_a_section_its_review_boards_and_their_circles() {
     use crate::lists::fixtures::{db, design_drawn, read};
     let db = db();
     let id = design_drawn(
@@ -2050,6 +2074,10 @@ fn dropping_a_place_takes_its_board_with_it_and_a_section_its_review_boards() {
                 board: "design/mocks/A.dc.html".into(),
                 caption: "c".into(),
                 theme: Theme::Dark,
+                circles: vec![Circle {
+                    selector: "#disc-1".into(),
+                    label: None,
+                }],
             }],
         }),
     );
@@ -2059,6 +2087,10 @@ fn dropping_a_place_takes_its_board_with_it_and_a_section_its_review_boards() {
         .unwrap();
     let change = read(&db).design(id).unwrap().clone();
     assert!(change.places.is_empty() && change.boards.is_empty() && change.review.is_none());
+    let circles: i64 = db
+        .query_row("SELECT count(*) FROM review_circle", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(circles, 0);
 }
 
 #[test]
@@ -2092,6 +2124,81 @@ fn a_review_board_must_be_a_file_at_the_last_commit_not_only_in_the_worktree() {
         refused.contains("is no file at the range's last commit"),
         "{refused}"
     );
+}
+
+#[test]
+fn a_review_board_keeps_the_circles_the_designer_names_and_a_board_the_change_adds_has_none() {
+    let w = world("design-review-circles");
+    let (a, b) = ("design/mocks/A.dc.html", "design/mocks/B.dc.html");
+    w.commit(&[a]);
+    git(&w.dir, &["tag", "-f", "base"]);
+    git(&w.dir, &["update-ref", "refs/remotes/origin/main", "base"]);
+    // The change redraws A and adds B.
+    w.commit(&[a, b]);
+    let places = json!({ a: { "matches": "x" }, b: { "matches": "x" } });
+    let with = |on_a: serde_json::Value, on_b: serde_json::Value| {
+        let mut request = base_request(&w, places.clone());
+        request["review"]["boards"][0]["circles"] = on_a;
+        request["review"]["boards"][1]["circles"] = on_b;
+        request
+    };
+    let before = w.bytes();
+    let refused = message(w.request(with(json!([{ "selector": " " }]), json!([]))));
+    assert!(refused.contains("empty selector"), "{refused}");
+    let refused = message(w.request(with(json!([{ "selector": "#x", "label": " " }]), json!([]))));
+    assert!(refused.contains("empty label"), "{refused}");
+    let refused = message(w.request(with(
+        json!([{ "selector": "#x", "kind": "moved" }]),
+        json!([]),
+    )));
+    assert!(refused.contains("unknown field `kind`"), "{refused}");
+    let refused = message(w.request(with(json!([]), json!([{ "selector": "#x" }]))));
+    assert!(
+        refused.contains(&format!(
+            "circles elements on {b}, which is no file on origin/main"
+        )),
+        "{refused}"
+    );
+    assert_eq!(w.bytes(), before);
+
+    let circles = json!([
+        { "selector": "#disc-1", "label": "The Disc 1 heading goes" },
+        { "selector": ".row" }
+    ]);
+    w.request(with(circles.clone(), json!([]))).unwrap();
+    let page = w.state().designs[0].review.clone().unwrap();
+    assert_eq!(
+        page.boards[0].circles,
+        vec![
+            Circle {
+                selector: "#disc-1".into(),
+                label: Some("The Disc 1 heading goes".into()),
+            },
+            Circle {
+                selector: ".row".into(),
+                label: None,
+            },
+        ]
+    );
+    assert!(page.boards[1].circles.is_empty());
+    let shown = w.run("show 1").unwrap();
+    assert!(
+        shown.contains("      circles #disc-1: The Disc 1 heading goes\n")
+            && shown.contains("      circles .row\n"),
+        "{shown}"
+    );
+
+    // The circles are part of the page the person approved: an amend that
+    // keeps them keeps the approval, and one that changes them clears it.
+    w.approve(1);
+    let amend = |circles: serde_json::Value| {
+        let mut request = with(circles, json!([]));
+        request.as_object_mut().unwrap().remove("title");
+        w.amend(1, request).unwrap();
+        w.state().designs[0].approved.is_some()
+    };
+    assert!(amend(circles));
+    assert!(!amend(json!([{ "selector": "#disc-1" }])));
 }
 
 #[test]
