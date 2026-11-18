@@ -797,8 +797,8 @@ sent again.
 
       These commands publish nothing, since only a Claude session can call
       the Artifact tool. The publish-designs skill gives the steps with which
-      a session publishes every artifact after a landing, from one run of
-      `publish-files`.
+      a session publishes every artifact, from one run of `publish-files`,
+      when the person asks for a publish. No landing or approval starts one.
 
 
 PROJECTS

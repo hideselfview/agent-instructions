@@ -20,7 +20,8 @@ built to match: new screens, new layouts, and anything that needs a new part or
 a change to the design system. It takes its items from `builds next --for
 design-session`, from the top, in the order the coordinator takes its own. When
 it starts, it runs `builds design listen --project P` for each project it draws
-for, so that the dashboard can ask it to publish the designs (DESIGN CHANGES).
+for, so that the dashboard can pass the person's publish requests to it
+(PUBLISHING DESIGNS).
 When the person decides a change to an existing screen that the design system's
 existing parts can draw, such as new words or a button added to an alert, the
 implementing agent edits the board in the same commit and names the decision. "Design" alone is ambiguous: write "board" or
@@ -376,10 +377,10 @@ DESIGN CHANGES
 
 The design session lands its boards through a design change, which the person
 reviews and approves first (`builds help lists` has the record and its
-commands). Only bae publishes its boards as a claude.ai canvas: its design
-changes give each board's canvas link, and landing one ends with publishing the
-designs. builds keeps its boards in the repo and publishes nothing, so its
-design changes take no canvas links and landing one has no publish step. A
+commands). Only bae keeps its boards as a claude.ai canvas: its design
+changes give each board's canvas link. Landing a design change publishes
+nothing (PUBLISHING DESIGNS). builds keeps its boards in the repo only, so its
+design changes take no canvas links. A
 project's setting says which it does (`builds lists design-globs PROJECT
 --canvas yes|no`). The design session records a fix that changes no design
 (boards it redrew to follow the design system's measures, a drawing mistake it
@@ -392,12 +393,10 @@ decided (ROLES) records the edit with `decision`, the id of the person's
 decision in the log. builds approves the change as it records it, because the
 decision is the person's approval, so the change needs no review page. The
 coordinator lands it with the item that built the change (`builds land
-<worktree> --done N --design M <sha>...`) and then, in a project that publishes
-a canvas, publishes the designs, as the design session does after it lands a
-change.
+<worktree> --done N --design M <sha>...`).
 
   1. While drawing, look at a board with `builds design render`, which draws
-     it from the worktree as one page of HTML without publishing the canvas.
+     it from the worktree as one page of HTML. It publishes nothing.
   2. When the boards are drawn, record the change (`builds design record`):
      what changed, each board's canvas link (in a project that publishes a
      canvas), and the review page's heading, words and boards, with the
@@ -423,31 +422,40 @@ change.
      the change. That message is the cue to land: run `builds land <worktree>
      --design N <sha>...` with the worktree where the design session drew the
      boards (the Approve button recorded the approval; never run `builds design
-     approve` for it), then, in a project that publishes a canvas, publish the
-     designs, which only a Claude session can do. When that session has ended,
+     approve` for it). Landing does not publish. When that session has ended,
      the next design session runs `builds land` for the change. `builds design
      approve N --by-person` is for an approval the person gives in words. When
      a rule group covers a path the commits change, `builds land` refuses them
      until the rules review finishes, as for any branch (REVIEW).
 
+PUBLISHING DESIGNS
+
+The designs reach claude.ai only when the person triggers a publish: with the
+dashboard's Publish to claude.ai... button, or by asking a session to publish.
+No landing, approval, item or session publishes on its own, and no session
+queues, proposes or starts a publish because something landed. When a landing
+changes the boards, the published copies stay as they are until the person asks.
+
 In a project that publishes a canvas, the boards, design/mocks/canvas.json and
 design/system in the repo are the source of the published designs: every
 canvas that design/mocks/canvases.toml names by its title, and the Design
 System artifact it names beside them, on whichever claude.ai account Claude
-Code is signed in to. The published canvases and design system are copies that let
-anyone look at the landed boards. An edit that anyone makes on their pages on
-claude.ai is an accident: publish the repo's version over it and merge nothing
-from it. A session publishes the designs with the publish-designs skill, which
-sends every canvas and the design system from one commit: `builds design
-publish-files` writes the files of all of them from the one commit that
-origin/main names, or refuses and writes none, and `builds help lists` says
-what it writes. The person can also publish from the dashboard: the Designs
-page's Publish to claude.ai… form records a publish request for the commit the
-person picks and sends it to the design session that listens for the project.
-That session takes the request (`builds design publish take N`), publishes
-that commit with the skill, and ends the request with `builds design publish
-done N` after the last call and the runtime check, or with `builds design
-publish failed N --why` and what stopped it.
+Code is signed in to. The published canvases and design system are copies that
+let anyone look at the landed boards. An edit that anyone makes on their pages
+on claude.ai is an accident: publish the repo's version over it and merge
+nothing from it. When the person asks, a session publishes the designs with the
+publish-designs skill, which sends every canvas and the design system from one
+commit: `builds design publish-files` writes the files of all of them from the
+one commit that origin/main names, or refuses and writes none, and `builds help
+lists` says what it writes.
+
+The person's other way to publish is the dashboard: the Designs page's Publish
+to claude.ai... form records a publish request for the commit the person picks
+and sends it to the design session that listens for the project. That session
+takes the request (`builds design publish take N`), publishes that commit with
+the skill, and ends the request with `builds design publish done N` after the
+last call and the runtime check, or with `builds design publish failed N --why`
+and what stopped it.
 
 
 HEALTH CHECK

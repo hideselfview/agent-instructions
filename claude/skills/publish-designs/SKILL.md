@@ -1,19 +1,21 @@
 ---
 name: publish-designs
-description: Publish a project's designs to the claude.ai account Claude Code is signed in to, every canvas of its boards and its Design System artifact with its uploads, all from one commit, with `builds design publish-files` and the Artifact tool. Use after a landing that changes the boards or the design system of a project that publishes a canvas (bae), when a "Publish request #N" message from the dashboard arrives, or when asked to publish the canvas, the boards or the design system.
+description: Publish a project's designs to the claude.ai account Claude Code is signed in to, every canvas of its boards and its Design System artifact with its uploads, all from one commit, with `builds design publish-files` and the Artifact tool. Use only when the person triggers a publish: a "Publish request #N" message from the dashboard arrives, or the person asks to publish the canvas, the boards or the design system. Never use it because a landing, an approval or an item says to publish.
 ---
 
 # Publish every canvas and the design system from one commit
 
-This skill is for a Claude session that publishes a project's designs after a
-landing. The designs are the boards (`design/mocks`) and the design system
-(`design/system`) of the project's repo. The repo publishes them to several
-claude.ai artifacts: one canvas or more, which show the boards, and one Design
-System artifact, which also keeps the design system's pictures as uploads that
-its index names. `design/mocks/canvases.toml` in the repo names each artifact by
-its title. The artifacts are the ones on whichever claude.ai account Claude Code
-is signed in to: builds finds each title among the account's artifacts, so a
-change of account needs no edit in the repo.
+This skill is for a Claude session that publishes a project's designs when the
+person triggers it, with the dashboard's publish request or by asking the
+session. A landing, an approval or an item never starts a publish. The designs
+are the boards (`design/mocks`) and the design system (`design/system`) of the
+project's repo. The repo publishes them to several claude.ai artifacts: one
+canvas or more, which show the boards, and one Design System artifact, which
+also keeps the design system's pictures as uploads that its index names.
+`design/mocks/canvases.toml` in the repo names each artifact by its title. The
+artifacts are the ones on whichever claude.ai account Claude Code is signed in
+to: builds finds each title among the account's artifacts, so a change of
+account needs no edit in the repo.
 
 Every publish sends every artifact from the same commit, so the published copies
 never disagree. builds writes the files and only a session can call the Artifact
