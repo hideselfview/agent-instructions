@@ -1269,6 +1269,13 @@ STATUS, HEALTH AND THE DASHBOARD
                               - whether the dashboard runs, and its pid, which
                                 it writes in the daemon's lock file
                               - when a `builds prune` last finished
+                              - last, whether the coordinator's health
+                                schedule is still needed: "health schedule:
+                                needed" while an agent runs (a claimed
+                                worktree that is not held) or commits wait
+                                to land in a worktree or branch that is not
+                                held, else "health schedule: can stop"
+                                (`builds help workflow`, HEALTH CHECK)
                               These are findings, each with what to run: no
                               dashboard running (`builds dashboard`); no
                               `builds prune` that finished in the last 12

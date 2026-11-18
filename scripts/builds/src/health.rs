@@ -153,6 +153,11 @@ pub struct Health {
     pub queues: Vec<LaneQueue>,
     /// What needs acting on, one line each; empty when nothing does.
     pub findings: Vec<Finding>,
+    /// Does the coordinator's health-check schedule still have work to
+    /// watch: an agent runs (a claimed worktree that is not held), or commits
+    /// wait to land in a worktree or branch that is not held? False when
+    /// every worktree with waiting commits is held and no agent runs.
+    pub schedule_needed: bool,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -796,6 +801,7 @@ pub fn assess(
             ),
         ));
     }
+    let mut schedule_needed = !left.branches.is_empty();
     for Unclaimed {
         place,
         git,
@@ -803,6 +809,7 @@ pub fn assess(
     } in left.worktrees
     {
         if !git.ahead.is_empty() {
+            schedule_needed = true;
             let unknown = match parked_unknown {
                 Some(fault) => {
                     format!("; builds cannot tell whether an item is parked there, since {fault}")
@@ -819,8 +826,8 @@ pub fn assess(
             ));
         }
     }
-    for branch in left.branches {
-        findings.push(Finding::new(FindingKind::Branch, loose_advice(&branch)));
+    for branch in &left.branches {
+        findings.push(Finding::new(FindingKind::Branch, loose_advice(branch)));
     }
     let mut worktrees = Vec::new();
     for Claimed {
@@ -884,6 +891,7 @@ pub fn assess(
         // A held claim is quiet on purpose: its note says why. A worktree
         // whose design change waits on the person's review is waiting on them.
         let held = claim.note_state.as_deref() == Some("held");
+        schedule_needed |= !held;
         let stalled = !held
             && !awaiting_review
             && building.is_empty()
@@ -935,6 +943,7 @@ pub fn assess(
         locks: machine.locks,
         queues: machine.queues,
         findings,
+        schedule_needed,
     }
 }
 
@@ -1374,6 +1383,11 @@ pub fn lines(health: &Health) -> Vec<String> {
             out.push(format!("    {}", finding.advice.line()));
         }
     }
+    out.push(if health.schedule_needed {
+        "health schedule: needed".to_string()
+    } else {
+        "health schedule: can stop".to_string()
+    });
     out
 }
 
@@ -1640,6 +1654,107 @@ mod tests {
             [true, false, false],
             "the dashboard shows the finding's worktree, and only it, as stalled"
         );
+    }
+
+    /// The coordinator's schedule can stop when every worktree with waiting
+    /// commits is held and no agent runs; it is needed while an agent runs or
+    /// commits wait to land with no hold.
+    #[test]
+    fn the_schedule_can_stop_only_when_every_claim_is_held() {
+        let now = 1_800_000_000;
+        let commit = |n: u8| Commit {
+            full: format!("{n:040}"),
+            sha: format!("{n:07}"),
+            time: now - 3600,
+            authored: now - 3600,
+            subject: "work".to_string(),
+        };
+        let needed = |states: &[Option<&str>], ahead: usize, unclaimed_ahead: usize| {
+            let machine = Machine {
+                at: now,
+                load: [1.0; 3],
+                cores: 8,
+                builds: Vec::new(),
+                remote_runs: Vec::new(),
+                app_builds: Vec::new(),
+                unread: Vec::new(),
+                commits: Default::default(),
+                sccache: SccacheHealth {
+                    listening: true,
+                    executed: Some(1),
+                    compared: None,
+                    waiting: Vec::new(),
+                },
+                shells: Shells::default(),
+                locks: Vec::new(),
+                queues: Vec::new(),
+            };
+            let places: Vec<Place> = (1..=states.len() + 1)
+                .map(|n| Place {
+                    label: format!("demo/side-{n}"),
+                    repo: "demo".to_string(),
+                    top: PathBuf::from(format!("/demo-worktrees/side-{n}")),
+                    root: PathBuf::from(format!("/volume/demo/side-{n}")),
+                })
+                .collect();
+            let git = |ahead: usize| SideGit {
+                head: None,
+                ahead: (0..ahead).map(|n| commit(n as u8)).collect(),
+                uncommitted: Some(0),
+                last_write: Some(now - 60),
+                error: None,
+            };
+            let claimed = states
+                .iter()
+                .enumerate()
+                .map(|(at, state)| Claimed {
+                    place: at,
+                    claim: Claim {
+                        who: format!("agent {at}"),
+                        since: now - 60,
+                        note: None,
+                        note_state: state.map(str::to_string),
+                    },
+                    branch: Some("work".to_string()),
+                    git: git(ahead),
+                    awaiting_review: false,
+                })
+                .collect();
+            let left = LeftBehind {
+                worktrees: vec![Unclaimed {
+                    place: states.len(),
+                    git: git(unclaimed_ahead),
+                    parked_unknown: None,
+                }],
+                branches: Vec::new(),
+            };
+            let health = assess(
+                now,
+                DiskSpace {
+                    free_kib: 100 << 20,
+                    floor_kib: 30 << 20,
+                    hard_floor_kib: 10 << 20,
+                },
+                machine,
+                &places,
+                claimed,
+                left,
+                Vec::new(),
+            );
+            let printed = lines(&health);
+            let last = printed.last().expect("health prints lines").clone();
+            assert_eq!(health.schedule_needed, last == "health schedule: needed");
+            health.schedule_needed
+        };
+        let held = Some("held");
+        assert!(!needed(&[], 0, 0), "nothing runs");
+        assert!(
+            !needed(&[held, held], 2, 0),
+            "held commits wait on a record"
+        );
+        assert!(needed(&[held, None], 2, 0), "an agent runs in one worktree");
+        assert!(needed(&[None], 0, 0), "an agent runs with no commits yet");
+        assert!(needed(&[held], 1, 1), "an unclaimed worktree has commits");
     }
 
     /// The findings for one claimed worktree whose files last changed

@@ -420,9 +420,12 @@ HEALTH CHECK
 
 While the coordinator's agents run or commits wait to land, a schedule in its
 session (CronCreate) runs `builds health` every 5 minutes, and the coordinator
-acts on every line of its "needs action" list first. Delete the schedule
-(CronDelete) when nothing is left to check. A quiet check needs no message to
-the person.
+acts on every line of its "needs action" list first. The last line of the
+output says whether the schedule is still needed. It says "health schedule:
+can stop" when no agent runs and every worktree with commits waiting to land is
+held (it waits on an open record). The coordinator deletes the schedule
+(CronDelete) when the line says so, and creates it again when an agent starts
+or a hold clears. A quiet check needs no message to the person.
 
   - sccache finished no compiles while clients wait: restart it (`launchctl
     kickstart -k gui/$(id -u)/local.sccache-server`).
