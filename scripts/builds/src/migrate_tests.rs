@@ -3269,16 +3269,17 @@ fn the_one_section_stamp_is_the_schema_before_one_section_review_pages() {
 }
 
 /// A store from before one-section review pages keeps its page, its boards
-/// and their order, equals a fresh schema, and a store with two sections on
-/// one change is refused.
+/// and their order, equals a fresh schema, joins the sections of a landed
+/// change into one, and refuses an open change with two.
 #[test]
-fn a_store_from_before_one_section_review_pages_keeps_each_page_and_refuses_two_sections() {
+fn a_store_from_before_one_section_review_pages_keeps_each_page_joins_a_closed_changes_sections_and_refuses_an_open_one()
+ {
     let scratch = Scratch::new("move-one-section");
     let places = scratch.places();
     let dir = places.lists.join("bae");
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join(DATABASE);
-    let make = |two: bool| {
+    let make = |two: bool, landed: bool| {
         let _ = std::fs::remove_file(&path);
         let conn = Connection::open(&path).unwrap();
         conn.execute_batch(&schema_before_one_section()).unwrap();
@@ -3341,15 +3342,71 @@ fn a_store_from_before_one_section_review_pages_keeps_each_page_and_refuses_two_
         }
         if two {
             section(1, "Second");
+            design(
+                &conn,
+                "review_board",
+                &[
+                    ("design_id", v(1)),
+                    ("section", v(1)),
+                    ("position", v(0)),
+                    ("board", v("design/mocks/C.dc.html")),
+                    ("caption", v("c")),
+                    ("theme", v("dark")),
+                ],
+            )
+            .unwrap();
+        }
+        if landed {
+            crate::lists::record::plant(
+                &conn,
+                "closing",
+                &[
+                    ("record_id", v(1)),
+                    ("kind", v("design")),
+                    ("how", v("landed")),
+                    ("at", v(2)),
+                    ("by", v("tester")),
+                ],
+            )
+            .unwrap();
         }
     };
-    make(true);
+    make(true, false);
     let refused = migrate_stores(&places, 0).unwrap_err().text();
     assert!(
-        refused.contains("design change #1 has more than one review section"),
+        refused.contains("design change #1 is open and has more than one review section"),
         "{refused}"
     );
-    make(false);
+    // A landed change keeps both sections as one: headings and words in order, boards numbered on.
+    make(true, true);
+    migrate_stores(&places, 0).unwrap();
+    let conn = db::open(&path, db::Make::Never).unwrap();
+    let (heading, words): (String, String) = conn
+        .query_row(
+            "SELECT heading, words FROM review_section WHERE design_id = 1",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!((heading.as_str(), words.as_str()), ("H / Second", "w\n\nw"));
+    let boards: Vec<(i64, String)> = conn
+        .prepare("SELECT position, board FROM review_board ORDER BY position")
+        .unwrap()
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+        .unwrap()
+        .collect::<std::result::Result<_, _>>()
+        .unwrap();
+    assert_eq!(
+        boards.iter().map(|b| b.1.as_str()).collect::<Vec<_>>(),
+        [
+            "design/mocks/A.dc.html",
+            "design/mocks/B.dc.html",
+            "design/mocks/C.dc.html"
+        ]
+    );
+    assert_eq!(boards.iter().map(|b| b.0).collect::<Vec<_>>(), [0, 1, 2]);
+    drop(conn);
+    make(false, false);
     migrate_stores(&places, 0).unwrap();
     let conn = db::open(&path, db::Make::Never).unwrap();
     assert_eq!(
