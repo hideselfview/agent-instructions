@@ -3272,6 +3272,74 @@ fn a_store_from_before_decided_changes_gains_their_table_and_equals_a_fresh_sche
     assert_eq!(decided, 0);
 }
 
+/// A store from after questions named their effect keeps each question's
+/// effect, and the move reads no effects file for it: not a missing one, and
+/// not one written for an earlier move that lacks the questions asked since.
+#[test]
+fn a_store_whose_questions_name_their_effects_keeps_them_and_needs_no_effects_file() {
+    use crate::lists::fixtures::v;
+    let scratch = Scratch::new("move-effects-held");
+    let places = scratch.places();
+    let store = |project: &str| {
+        let dir = places.lists.join(project);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join(DATABASE);
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(&schema_before_design_decision())
+            .unwrap();
+        conn.pragma_update(None, "user_version", BEFORE_DESIGN_DECISION_STAMP)
+            .unwrap();
+        for (id, effect) in [(1, "data-loss"), (2, "bug")] {
+            crate::lists::record::plant(
+                &conn,
+                "record",
+                &[
+                    ("id", v(id)),
+                    ("kind", v("question")),
+                    ("opened_at", v(10)),
+                    ("opened_by", v("tester")),
+                ],
+            )
+            .unwrap();
+            crate::lists::question::plant(
+                &conn,
+                "question",
+                &[
+                    ("id", v(id)),
+                    ("title", v("A question")),
+                    ("details", v("d")),
+                    ("kind", v("question")),
+                    ("effect", v(effect)),
+                ],
+            )
+            .unwrap();
+        }
+        (dir, path)
+    };
+    let (_, without_file) = store("builds");
+    let (stale_dir, with_stale_file) = store("bae");
+    effects_file(&stale_dir, &[(1, "cleanup")]);
+    migrate_stores(&places, 0).unwrap();
+    for path in [without_file, with_stale_file] {
+        let conn = db::open_reader(&path)
+            .unwrap()
+            .expect("opens under today's stamp");
+        let effects: Vec<(u32, String)> = conn
+            .prepare("SELECT id, effect FROM question ORDER BY id")
+            .unwrap()
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+            .unwrap()
+            .collect::<rusqlite::Result<_>>()
+            .unwrap();
+        assert_eq!(
+            effects,
+            vec![(1, "data-loss".into()), (2, "bug".into())],
+            "{}",
+            path.display()
+        );
+    }
+}
+
 /// The schema text before builds kept an agent's acknowledgement of each
 /// repo's text apart.
 fn schema_before_ack_per_repo() -> String {

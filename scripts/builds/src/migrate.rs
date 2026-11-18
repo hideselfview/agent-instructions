@@ -421,10 +421,11 @@ const DESIGN_DELETED: &str = "CREATE TABLE design_deleted (
 /// In every store older than the move that kept the reason
 /// for blocking nothing only while no open item waits on the question, the
 /// move clears that reason (`blocks_nothing`) on each open question that an
-/// open item waits on. The move makes `question` again in every store with
-/// the effect that the store's `QUESTION_EFFECTS` file gives each question,
-/// and refuses a store whose questions and file differ, or whose file is
-/// missing while the store holds a question. Every store gets the tables
+/// open item waits on. The move makes `question` again in every store from
+/// before questions named their effect, with the effect that the store's
+/// `QUESTION_EFFECTS` file gives each question, and refuses such a store
+/// whose questions and file differ, or whose file is missing while the store
+/// holds a question; it reads no file for a newer store. Every store gets the tables
 /// of ended runs and spans, with each ended run its write log tells of
 /// (`running::move_to_runs`) and <now>, the moment install moves it, as the
 /// start of its spans. Every store that had the
@@ -794,19 +795,23 @@ fn move_store(places: &Places, path: &Path, now: i64) -> Result<()> {
     if before(found, BEFORE_BLOCKS_FROM_WAITS_STAMP) {
         crate::lists::question::move_to_blocks_from_waits(&tx)?;
     }
-    // The move makes `question` again in every store, with the effect the
-    // store's `QUESTION_EFFECTS` file gives each question.
-    let file = path.with_file_name(QUESTION_EFFECTS);
-    let given = read_effects(&file)?;
-    crate::lists::question::move_to_effects(&tx, given.as_ref().unwrap_or(&BTreeMap::new()))
-        .map_err(|fail| {
-            let missing = if given.is_none() {
-                ", which does not exist"
-            } else {
-                ""
-            };
-            Fail::Message(format!("{}{missing}: {}", file.display(), fail.text()))
-        })?;
+    // Every store from before questions named their effect gets `question`
+    // again, with the effect the store's `QUESTION_EFFECTS` file gives each
+    // question. A newer store's questions hold their effects already, and the
+    // move reads no file for it.
+    if before(found, BEFORE_EFFECTS_STAMP) {
+        let file = path.with_file_name(QUESTION_EFFECTS);
+        let given = read_effects(&file)?;
+        crate::lists::question::move_to_effects(&tx, given.as_ref().unwrap_or(&BTreeMap::new()))
+            .map_err(|fail| {
+                let missing = if given.is_none() {
+                    ", which does not exist"
+                } else {
+                    ""
+                };
+                Fail::Message(format!("{}{missing}: {}", file.display(), fail.text()))
+            })?;
+    }
     // Every store from before builds kept the runs of items gets their
     // tables, and the runs that its write log tells of.
     if before(found, BEFORE_RUN_TIMES_STAMP) {
