@@ -1,5 +1,5 @@
 //! What each host, this Mac included, has set up for builds' jobs: the
-//! `builds` program its jobs run, whether launchd runs its sccache server,
+//! `builds` and `builds-shots` programs its jobs run, whether launchd runs its sccache server,
 //! whether its sccache config holds builds' cap, and the settings that UI
 //! tests need on the host (ui_test_settings.rs). `builds
 //! health` and the dashboard compare each host with this Mac and say what to
@@ -18,6 +18,9 @@ pub struct Installed {
     /// The SHA-256 of the host's ~/.local/bin/builds, the program its jobs
     /// and the repos' scripts run there; None when the host has none.
     pub builds: Option<String>,
+    /// The SHA-256 of the host's ~/.local/bin/builds-shots, which `builds
+    /// shots` runs there; None when the host has none.
+    pub shots: Option<String>,
     /// Whether launchd runs the host's sccache server from the plist builds
     /// writes (`install::run_sccache_under_launchd`), so the server keeps the
     /// cache under the size limit builds sets and does not exit when idle:
@@ -40,7 +43,7 @@ pub struct Installed {
 }
 
 /// Runs on a host, and on this Mac, to print what `parse_installed` reads:
-/// the builds digest, whether builds' plist is there, each line of the
+/// the builds and builds-shots digests, whether builds' plist is there, each line of the
 /// sccache config after `sccache_config:`, the processes listening on
 /// sccache's port, the settings that UI tests need, and last, after `job=loaded`, what
 /// `launchctl print` says about launchd's job.
@@ -48,12 +51,14 @@ fn installed_script() -> String {
     let label = crate::install::SCCACHE_LABEL;
     format!(
         r#"if [ -e "$HOME/.local/bin/builds" ]; then echo "builds=$(shasum -a 256 "$HOME/.local/bin/builds" | cut -d ' ' -f 1)"; else echo builds=missing; fi
+if [ -e "$HOME/.local/bin/{shots}" ]; then echo "shots=$(shasum -a 256 "$HOME/.local/bin/{shots}" | cut -d ' ' -f 1)"; else echo shots=missing; fi
 if [ -e "$HOME/Library/LaunchAgents/{label}.plist" ]; then echo plist=present; else echo plist=missing; fi
 if [ -e "$HOME/{config}" ]; then sed 's/^/{CONFIG_PREFIX}/' "$HOME/{config}"; fi
 {listener}
 {ui_tests}
 if job=$(launchctl print "gui/$(id -u)/{label}" 2>/dev/null); then echo job=loaded; printf '%s\n' "$job"; else echo job=none; fi"#,
         config = crate::install::SCCACHE_CONFIG,
+        shots = crate::shots_program::PROGRAM,
         listener = crate::sccache::listener_script(),
         ui_tests = crate::ui_test_settings::SCRIPT
     )
@@ -67,6 +72,16 @@ pub fn parse_installed(text: &str) -> Result<Installed> {
     let value = |key: &str| crate::host::answer_value(text, key);
     let Some(builds) = value("builds") else {
         fail!("the host's answer has no builds line: {text:?}");
+    };
+    let Some(shots) = value("shots") else {
+        fail!("the host's answer has no shots line: {text:?}");
+    };
+    let digest = |program: &str, answer: &str| -> Result<Option<String>> {
+        match answer {
+            "missing" => Ok(None),
+            "" => fail!("shasum printed nothing for the host's {program}: {text:?}"),
+            digest => Ok(Some(digest.to_string())),
+        }
     };
     let plist = match value("plist") {
         Some("present") => true,
@@ -90,11 +105,8 @@ pub fn parse_installed(text: &str) -> Result<Installed> {
         _ => fail!("the host's answer has no job line: {text:?}"),
     };
     Ok(Installed {
-        builds: match builds {
-            "missing" => None,
-            "" => fail!("shasum printed nothing for the host's builds: {text:?}"),
-            digest => Some(digest.to_string()),
-        },
+        builds: digest("builds", builds)?,
+        shots: digest(crate::shots_program::PROGRAM, shots)?,
         sccache_under_launchd: plist && crate::sccache::launchd_serves(job.as_ref(), listener),
         sccache_cap,
         sccache_running_cap,
@@ -187,6 +199,17 @@ pub fn installed_findings(reads: &[HostInstalled]) -> Vec<crate::health::Advice>
                 ),
                 Some(_) => format!(
                     "host {name} runs a different version of builds than this Mac (its ~/.local/bin/builds differs), so its jobs can behave differently from this Mac's. Install this Mac's builds there with"
+                ),
+            };
+            out.push(crate::health::Advice::run(text, setup.clone()));
+        }
+        if installed.shots != local.shots {
+            let text = match installed.shots {
+                None => format!(
+                    "host {name} has no builds-shots at ~/.local/bin/builds-shots, so `builds shots` fails in its jobs. Install this Mac's builds-shots there with"
+                ),
+                Some(_) => format!(
+                    "host {name} runs a different version of builds-shots than this Mac (its ~/.local/bin/builds-shots differs), so its shots checks can find other differences than this Mac's. Install this Mac's builds-shots there with"
                 ),
             };
             out.push(crate::health::Advice::run(text, setup.clone()));

@@ -374,14 +374,9 @@ pub fn how_to_make(repo: &str, git_ref: &str, prefix: &str) -> String {
     format!("builds app-build {repo} {git_ref} --shots {prefix}")
 }
 
-pub fn cmd_shots(places: &Places, args: &[String]) -> Result<()> {
-    let [sub, rest @ ..] = args else {
-        fail!("{USAGE}");
-    };
-    if sub != "findings" {
-        fail!("unknown shots command {sub}\n{USAGE}");
-    }
-    let [repo, git_ref, lane, prefix] = rest else {
+/// `builds shots findings`, given the arguments after `findings`.
+pub fn cmd_findings(places: &Places, args: &[String]) -> Result<()> {
+    let [repo, git_ref, lane, prefix] = args else {
         fail!("{USAGE}");
     };
     let lane = Lane::parse_or_fail(lane)?;

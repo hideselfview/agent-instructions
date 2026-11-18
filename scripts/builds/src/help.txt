@@ -15,11 +15,13 @@ More help:
 
 builds is a Rust program in agent-instructions (scripts/builds).
 agent-instructions' install.sh builds it from the main checkout's committed
-HEAD, never from the working tree, and runs `builds install`, which puts it on
-PATH as ~/.local/bin/builds. Agents change agent-instructions the way they
-change bae and coven: on a branch in a side worktree from `builds new
-~/dev/agent-instructions --for <who> --project builds` (or `--project bae` for
-bae's rules and project file), reviewed and landed (`builds help workflow`).
+HEAD, never from the working tree, with builds-shots, the program `builds
+shots` runs (scripts/shots), and runs `builds install`, which puts both on
+PATH as ~/.local/bin/builds and ~/.local/bin/builds-shots. Agents change
+agent-instructions the way they change bae and coven: on a branch in a side
+worktree from `builds new ~/dev/agent-instructions --for <who> --project
+builds` (or `--project bae` for bae's rules and project file), reviewed and
+landed (`builds help workflow`).
 The main checkout is the person's, and it is the live copy: install.sh links
 its files into ~/.claude and ~/.codex. Its post-commit and post-merge hooks run
 install.sh again when a commit or merge on its main branch changes what
@@ -604,6 +606,9 @@ A repo's `.app-build` at its root says what its app builds run, one line each:
   shots-source <folder>
                     the shots program's sources; their git tree at a commit
                     is the shots version stored findings are keyed by
+  shots-<setting> ...
+                    a setting of builds-shots (`builds shots`), which reads
+                    these lines itself: builds skips them
   results <lane> <path>...
                     the folders a --test or --shots run on another host
                     copies back to this Mac
@@ -748,6 +753,44 @@ built again.
                               made them and where the run's report is. With
                               none stored, it fails and names the app-build
                               command that makes them
+  builds shots run|capture|check|record|lint|runtime [<argument>...]
+                              run builds-shots, which checks the shots of the
+                              repo it runs in against the repo's boards, with
+                              these arguments; builds gives it a cache folder
+                              in the build volume's caches for the Chrome it
+                              pins. `builds shots <command> --help` lists a
+                              command's arguments. `run` takes the selected
+                              shots into shots/ and checks them, failing on
+                              the pairs new or changed against origin/main's
+                              record (design/shots.toml); `capture` takes
+                              them into a folder; `check` checks shots
+                              already taken, failing on every pair with
+                              findings, and writes the report and a results
+                              record; `record` writes a results record to
+                              design/shots.toml; `lint` names each declared
+                              shot and each record entry with no board;
+                              `runtime` names the canvas runtime copy that
+                              draws the boards. The program reads the
+                              .app-build lines that start with shots- (other
+                              than shots-source): `shots-capture <platform>
+                              <command>...` takes a platform's shots,
+                              `shots-declared <platform> <folder>` holds the
+                              source that declares them, `shots-preview
+                              <row> <name> <cell>` gives the selectors of a
+                              component preview's rows, `shots-preview-calls
+                              <function>...` the functions that name a
+                              preview's rows, and `shots-unshot
+                              <selector>...` the parts of a board that the
+                              app draws nothing for. builds-shots runs a
+                              capture command from the repo's top with
+                              BUILDS_SHOTS_OUT (the folder to write each
+                              <name>@<platform>.png and .json into),
+                              BUILDS_SHOTS_SELECT (the name prefixes, comma
+                              separated, unset for every shot) and
+                              BUILDS_SHOTS_WINDOWS=1 (take the shots shown in
+                              a window too), and on mac a copy of each with
+                              TEST_RUNNER_ in front, which Xcode passes to
+                              the test process
   builds build-app <repo> mac|android [<ref>]
                               holding one of the lane's locks, check out <ref>
                               (default origin/main, after a fetch) in that app
@@ -903,9 +946,9 @@ indexes the build root.
                               by key, with no password) for its cores and
                               records it in the file `hosts` beside the lists
                               folder (`<name> <target> <cores> [<speed>]`).
-                              `setup` copies this Mac's builds program
-                              to ~/.local/bin/builds on the host (both are
-                              arm64 macOS), links builds-linker to it there,
+                              `setup` copies this Mac's builds and
+                              builds-shots programs to ~/.local/bin on the
+                              host (both are arm64 macOS), links builds-linker to it there,
                               makes its builds root, and has
                               that copy run `builds host setup-here` there,
                               which records that the Mac is a host (the file
@@ -933,7 +976,7 @@ indexes the build root.
                               record and turns off Spotlight's indexing of
                               this Mac's build volume; `builds install` does
                               the rest of this Mac's setup.
-                              `builds install` copies the program to every
+                              `builds install` copies both programs to every
                               host the same way, without the sccache step, the
                               timing or the settings. `list`
                               asks every host for its load average per core,
@@ -1335,9 +1378,10 @@ STATUS, HEALTH AND THE DASHBOARD
                               Mac (a plain kill does not end it); a build host
                               that refuses jobs (HOSTS), with what the host
                               said and what to fix; a build host whose
-                              ~/.local/bin/builds is missing or differs from
-                              this Mac's (`builds host setup <name>`); a build
-                              host, or this Mac, whose sccache server launchd
+                              ~/.local/bin/builds or
+                              ~/.local/bin/builds-shots is missing or differs
+                              from this Mac's (`builds host setup <name>`); a
+                              build host, or this Mac, whose sccache server launchd
                               does not run from builds' plist, or whose
                               sccache config does not hold builds' cap, or
                               whose server runs with another cap than its
@@ -2101,9 +2145,11 @@ INSTALLING
                               A builds command started by one of the first
                               kind runs under it, and an install that would
                               wait refuses to run under one. Then move the
-                              stores to this builds' schema, copy builds onto
-                              PATH in one rename (a
-                              failed build leaves the installed one), link
+                              stores to this builds' schema, copy
+                              builds-shots and then builds onto PATH, each in
+                              one rename (a failed build leaves the installed
+                              ones; install fails when no builds-shots sits
+                              beside this builds), link
                               ~/.local/bin/builds-linker to it, and let the
                               waiting commands start. Then create the
                               shared caches and their links (moving a real
@@ -2120,15 +2166,16 @@ INSTALLING
                               launchd's server then listens on the port),
                               point Xcode's default DerivedData at the
                               volume, restart a running dashboard so it runs
-                              the new code, and copy the same builds to every
-                              recorded host (HOSTS), where it runs `builds host
+                              the new code, and copy the same builds and
+                              builds-shots to every recorded host (HOSTS), where it runs `builds host
                               setup-here` to write the sccache config and run
                               the server under launchd as here. When builds
                               cannot reach a host or install on it, builds
                               installs on every other host first, then fails
                               the install and names that host, and `builds
-                              health` lists it until its builds matches this
-                              Mac's and its config holds builds' cap. Run it from
+                              health` lists it until its builds and
+                              builds-shots match this Mac's and its config
+                              holds builds' cap. Run it from
                               a fresh build (install.sh does), never from the
                               installed binary, which can't copy itself onto
                               itself

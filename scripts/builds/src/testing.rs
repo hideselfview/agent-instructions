@@ -42,6 +42,17 @@ impl Scratch {
         }
     }
 
+    /// The programs builds installs: this test program as builds, and a
+    /// file of the words "shots" as builds-shots.
+    pub fn programs(&self) -> crate::install::Programs {
+        let shots = self.dir.join(crate::shots_program::PROGRAM);
+        std::fs::write(&shots, "shots").expect("the scratch folder is writable");
+        crate::install::Programs {
+            builds: std::env::current_exe().expect("the test program has a path"),
+            shots,
+        }
+    }
+
     pub fn tool(&self, floor_gib: u64) -> Tool {
         Tool::new(
             self.places(),

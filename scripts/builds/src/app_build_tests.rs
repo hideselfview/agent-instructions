@@ -843,12 +843,12 @@ fn app_build_with_only_a_shots_pick_prints_a_stored_run_and_takes_no_lane() {
         &args(&["demo", "HEAD", "--shots", "mac.a."]),
     )
     .unwrap();
-    crate::shot_findings::cmd_shots(
+    crate::shots_program::cmd_shots(
         &places,
         &args(&["findings", "demo", "HEAD", "mac", "mac.a."]),
     )
     .unwrap();
-    let Err(Fail::Message(message)) = crate::shot_findings::cmd_shots(
+    let Err(Fail::Message(message)) = crate::shots_program::cmd_shots(
         &places,
         &args(&["findings", "demo", "HEAD", "mac", "mac.other."]),
     ) else {

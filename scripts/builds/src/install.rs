@@ -1,8 +1,8 @@
-//! `builds install`: puts `builds` on PATH and links `builds-linker` to it
-//! (see the `linker` module), creates the shared caches and the links to
+//! `builds install`: puts `builds` and `builds-shots` (shots_program.rs) on
+//! PATH and links `builds-linker` to builds (see the `linker` module), creates the shared caches and the links to
 //! them, writes the sccache config, runs the sccache server under launchd,
-//! points Xcode's default DerivedData at the volume, and copies this builds
-//! binary to every recorded host. `builds install` runs from a fresh build,
+//! points Xcode's default DerivedData at the volume, and copies both
+//! programs to every recorded host. `builds install` runs from a fresh build,
 //! never from the installed binary (that fails: it would copy itself onto
 //! itself); it changes only what differs.
 
@@ -215,22 +215,61 @@ fn require_new_build(me: &Path, dest: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Copies this binary to ~/.local/bin/builds in one rename, so no hook ever
-/// finds the path missing or half written while it is replaced, and a process
-/// running the old file keeps that file: writing over it in place invalidates
-/// its code signature and the kernel kills it. Returns whether it replaced the
-/// binary (always, now: running from the installed binary fails).
+/// The programs builds installs, here and on each host: `builds`, and
+/// `builds-shots` beside it, where install.sh builds both.
+pub struct Programs {
+    pub builds: PathBuf,
+    pub shots: PathBuf,
+}
+
+impl Programs {
+    /// The `builds` at <builds> and the builds-shots beside it, which must
+    /// be there.
+    pub fn beside(builds: PathBuf) -> Result<Self> {
+        let shots = crate::shots_program::beside(&builds);
+        if !shots.is_file() {
+            fail!(
+                "{} has no {} beside it; agent-instructions' install.sh builds scripts/shots into the folder it builds builds into",
+                builds.display(),
+                crate::shots_program::PROGRAM
+            );
+        }
+        Ok(Self { builds, shots })
+    }
+
+    /// The programs beside this one.
+    pub fn of_this() -> Result<Self> {
+        Self::beside(std::env::current_exe().context(|| "finding this binary".to_string())?)
+    }
+}
+
+/// Copies <program> to <bin>/<name> in one rename, so no hook ever finds the
+/// path missing or half written while it is replaced, and a process running
+/// the old file keeps that file: writing over it in place invalidates its code
+/// signature and the kernel kills it.
+fn put_in(bin: &Path, program: &Path, name: &str) -> Result<()> {
+    let dest = bin.join(name);
+    let staged = bin.join(format!(".{name}.{}", crate::text::staged_suffix()));
+    std::fs::copy(program, &staged)
+        .context(|| format!("copying {} to {}", program.display(), staged.display()))?;
+    std::fs::rename(&staged, &dest).context(|| format!("replacing {}", dest.display()))?;
+    note(format!(
+        "copied {} to ~/.local/bin/{name}",
+        program.display()
+    ));
+    Ok(())
+}
+
+/// Copies these programs to ~/.local/bin, builds-shots first, so the
+/// builds that runs it never finds it missing. Returns whether it replaced
+/// the binary (always, now: running from the installed binary fails).
 fn put_on_path(home: &Path) -> Result<bool> {
     let bin = home.join(".local/bin");
     std::fs::create_dir_all(&bin).context(|| format!("creating {}", bin.display()))?;
-    let me = std::env::current_exe().context(|| "finding this binary".to_string())?;
-    let dest = bin.join("builds");
-    require_new_build(&me, &dest)?;
-    let staged = bin.join(format!(".builds.{}", crate::text::staged_suffix()));
-    std::fs::copy(&me, &staged)
-        .context(|| format!("copying {} to {}", me.display(), staged.display()))?;
-    std::fs::rename(&staged, &dest).context(|| format!("replacing {}", dest.display()))?;
-    note(format!("copied {} to ~/.local/bin/builds", me.display()));
+    let programs = Programs::of_this()?;
+    require_new_build(&programs.builds, &bin.join("builds"))?;
+    put_in(&bin, &programs.shots, crate::shots_program::PROGRAM)?;
+    put_in(&bin, &programs.builds, "builds")?;
     link_linker(home)?;
     Ok(true)
 }
@@ -602,11 +641,14 @@ pub fn cmd_install(tool: &Tool, args: &[String]) -> Result<()> {
     if replaced {
         restart_dashboards(home)?;
     }
-    let me = std::env::current_exe().context(|| "finding this binary".to_string())?;
-    install_on_hosts(&tool.places, &crate::host::Ssh::from_env(), &me)
+    install_on_hosts(
+        &tool.places,
+        &crate::host::Ssh::from_env(),
+        &Programs::of_this()?,
+    )
 }
 
-/// Installs <program>, this build, on every recorded host
+/// Installs <programs>, this build's, on every recorded host
 /// (`host_setup::install_on_host`): copies it there, so each host's jobs run
 /// the builds this Mac runs, and has it write the host's sccache config with
 /// builds' cap and run its sccache server under launchd, so a change of the
@@ -618,11 +660,11 @@ pub fn cmd_install(tool: &Tool, args: &[String]) -> Result<()> {
 fn install_on_hosts(
     places: &crate::places::Places,
     ssh: &crate::host::Ssh,
-    program: &Path,
+    programs: &Programs,
 ) -> Result<()> {
     let hosts = crate::host::read_remote(places)?;
     let installed = crate::checkout::parallel_map(&hosts, |host| {
-        crate::host_setup::install_on_host(places, ssh, host, program)
+        crate::host_setup::install_on_host(places, ssh, host, programs)
     });
     let mut failed = Vec::new();
     for (host, result) in hosts.iter().zip(installed) {
@@ -899,7 +941,9 @@ mod tests {
         let program = scratch.dir.join("builds");
         std::fs::write(&program, "#!/bin/sh\necho \"$*\" >> \"$HOME/ran.txt\"\n").unwrap();
         std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
-        let Err(crate::fail::Fail::Message(message)) = install_on_hosts(&places, &ssh, &program)
+        std::fs::write(scratch.dir.join("builds-shots"), "shots").unwrap();
+        let programs = Programs::beside(program.clone()).unwrap();
+        let Err(crate::fail::Fail::Message(message)) = install_on_hosts(&places, &ssh, &programs)
         else {
             panic!("expected a failure for the host that does not answer");
         };
@@ -908,6 +952,10 @@ mod tests {
         assert_eq!(
             std::fs::read(home.join(".local/bin/builds")).unwrap(),
             std::fs::read(&program).unwrap()
+        );
+        assert_eq!(
+            std::fs::read_to_string(home.join(".local/bin/builds-shots")).unwrap(),
+            "shots"
         );
         assert_eq!(
             std::fs::read_to_string(home.join("ran.txt")).unwrap(),

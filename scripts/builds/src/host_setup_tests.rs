@@ -16,7 +16,7 @@ fn host(name: &str) -> Host {
 }
 
 #[test]
-fn install_program_copies_builds_to_the_host_and_makes_its_root() {
+fn install_program_copies_both_programs_to_the_host_and_makes_its_root() {
     let scratch = Scratch::new("host-setup");
     let home = scratch.dir.join("remote-home");
     let ssh = fake_ssh(&scratch.dir.join("bin"), &home);
@@ -26,12 +26,16 @@ fn install_program_copies_builds_to_the_host_and_makes_its_root() {
         cores: 10,
         speed: Some(1.0),
     };
-    let exe = std::env::current_exe().unwrap();
-    install_program(&ssh, &host, &exe).unwrap();
+    let programs = scratch.programs();
+    install_program(&ssh, &host, &programs).unwrap();
     let installed = home.join(".local/bin/builds");
     assert_eq!(
         std::fs::read(&installed).unwrap(),
         std::fs::read(std::env::current_exe().unwrap()).unwrap()
+    );
+    assert_eq!(
+        std::fs::read_to_string(home.join(".local/bin/builds-shots")).unwrap(),
+        "shots"
     );
     assert!(home.join(REMOTE_ROOT).is_dir());
     assert!(!home.join(".local/bin/builds.part").exists());
@@ -41,19 +45,19 @@ fn install_program_copies_builds_to_the_host_and_makes_its_root() {
         "builds-linker runs the host's builds"
     );
     // A second install leaves the link as it is.
-    install_program(&ssh, &host, &exe).unwrap();
+    install_program(&ssh, &host, &programs).unwrap();
     assert_eq!(
         std::fs::read_link(crate::linker::path(&home)).unwrap(),
         Path::new("builds")
     );
-    assert!(install_program(&ssh, &Host::local(), &exe).is_err());
+    assert!(install_program(&ssh, &Host::local(), &programs).is_err());
     let gone = Host {
         name: "gone".to_string(),
         target: Some("unreachable".to_string()),
         cores: 1,
         speed: Some(1.0),
     };
-    let Err(Fail::Message(message)) = install_program(&ssh, &gone, &exe) else {
+    let Err(Fail::Message(message)) = install_program(&ssh, &gone, &programs) else {
         panic!("expected a failure");
     };
     assert!(message.contains("host gone"), "{message}");
@@ -68,10 +72,10 @@ fn installs_at_the_same_time_on_one_host_all_succeed() {
     let home = scratch.dir.join("remote-home");
     let ssh = fake_ssh(&scratch.dir.join("bin"), &home);
     let m1 = host("m1");
-    let exe = std::env::current_exe().unwrap();
+    let programs = scratch.programs();
     let results: Vec<Result<String>> = std::thread::scope(|scope| {
         let handles: Vec<_> = (0..8)
-            .map(|_| scope.spawn(|| install_program(&ssh, &m1, &exe)))
+            .map(|_| scope.spawn(|| install_program(&ssh, &m1, &programs)))
             .collect();
         handles
             .into_iter()
@@ -83,7 +87,7 @@ fn installs_at_the_same_time_on_one_host_all_succeed() {
     }
     assert_eq!(
         std::fs::read(home.join(".local/bin/builds")).unwrap(),
-        std::fs::read(&exe).unwrap()
+        std::fs::read(&programs.builds).unwrap()
     );
     assert_eq!(
         std::fs::read_link(crate::linker::path(&home)).unwrap(),
@@ -92,7 +96,9 @@ fn installs_at_the_same_time_on_one_host_all_succeed() {
     let left: Vec<String> = std::fs::read_dir(home.join(".local/bin"))
         .unwrap()
         .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
-        .filter(|name| name != "builds" && name != crate::linker::NAME)
+        .filter(|name| {
+            name != "builds" && name != crate::linker::NAME && name != crate::shots_program::PROGRAM
+        })
         .collect();
     assert!(left.is_empty(), "{left:?}");
 }

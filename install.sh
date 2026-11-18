@@ -166,14 +166,18 @@ done
 # runs this too, and would otherwise install whatever edit is in progress in
 # main. The export is synced into a folder that stays put, rewriting only the
 # files that changed, so cargo rebuilds only when the committed source did.
-# builds depends on scripts/boards by its path, ../boards, so the library is
-# synced beside it.
+# builds and builds-shots, the program `builds shots` runs, depend on
+# scripts/boards by its path, ../boards, so the library is synced beside them.
+# Both build into one target folder, and `builds install` installs the
+# builds-shots it finds beside itself.
 head="$repo/scripts/builds/target/head"
 rm -rf "$head/export"
-mkdir -p "$head/export" "$head/src" "$head/boards"
-git -C "$repo" archive HEAD scripts/builds scripts/boards | tar -x -C "$head/export"
+mkdir -p "$head/export" "$head/src" "$head/boards" "$head/shots"
+git -C "$repo" archive HEAD scripts/builds scripts/boards scripts/shots | tar -x -C "$head/export"
 rsync -rc --delete "$head/export/scripts/builds/" "$head/src/"
 rsync -rc --delete "$head/export/scripts/boards/" "$head/boards/"
+rsync -rc --delete "$head/export/scripts/shots/" "$head/shots/"
 rm -rf "$head/export"
 cargo build --release --quiet --locked --manifest-path "$head/src/Cargo.toml" --target-dir "$head/target"
+cargo build --release --quiet --locked --manifest-path "$head/shots/Cargo.toml" --target-dir "$head/target"
 "$head/target/release/builds" install

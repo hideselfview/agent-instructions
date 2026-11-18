@@ -1,5 +1,5 @@
 //! Setting a host up to take jobs (`builds host setup`): copying this Mac's
-//! `builds` program there, running the host's sccache server under launchd,
+//! `builds` and `builds-shots` programs there, running the host's sccache server under launchd,
 //! measuring the speed of its cores against this Mac's, turning on the
 //! settings that UI tests need there (ui_test_settings.rs), and turning off
 //! Spotlight's indexing of its build volume (spotlight.rs).
@@ -10,6 +10,7 @@ use std::process::Stdio;
 use crate::fail;
 use crate::fail::{Context, Result};
 use crate::host::{self, Host, LOCAL, Ssh, sh_quote};
+use crate::install::Programs;
 use crate::places::Places;
 use crate::tool::Tool;
 
@@ -28,8 +29,7 @@ pub struct SetUp {
 /// (`core_speed`) in the hosts file, timing the same compile there with
 /// `builds host speed-here` and here.
 pub fn setup_host(places: &Places, ssh: &Ssh, host: &Host) -> Result<SetUp> {
-    let exe = std::env::current_exe().context(|| "finding this program".to_string())?;
-    let (root, said) = install_on_host(places, ssh, host, &exe)?;
+    let (root, said) = install_on_host(places, ssh, host, &Programs::of_this()?)?;
     let printed = run_builds_there(places, ssh, host, "host speed-here", "timing a compile")?;
     let there = crate::core_speed::parse_line(&printed)?;
     let here = crate::core_speed::time_compile(&speed_folder())?;
@@ -78,46 +78,70 @@ pub fn ask_builds_there(
     crate::remote::Transport { places, ssh, host }.ask(&script, doing)
 }
 
-/// Installs <program>, this Mac's `builds`, on <host> (`install_program`)
-/// and has that copy run `builds host setup-here` there, which writes the
-/// sccache config with builds' cap and runs the host's sccache server under
-/// launchd, as `builds install` does on this Mac. Returns the host's builds
-/// root and what setup-here said. `builds install` runs this for every host,
-/// so a change of builds' sccache cap reaches each host when it lands.
+/// Installs <programs>, this Mac's, on <host> (`install_program`) and has
+/// that builds run `builds host setup-here` there, which writes the sccache
+/// config with builds' cap and runs the host's sccache server under launchd,
+/// as `builds install` does on this Mac. Returns the host's builds root and
+/// what setup-here said. `builds install` runs this for every host, so a
+/// change of builds' sccache cap reaches each host when it lands.
 pub fn install_on_host(
     places: &Places,
     ssh: &Ssh,
     host: &Host,
-    program: &Path,
+    programs: &Programs,
 ) -> Result<(String, String)> {
-    let root = install_program(ssh, host, program)?;
+    let root = install_program(ssh, host, programs)?;
     let said = run_builds_there(places, ssh, host, "host setup-here", "setting up")?;
     Ok((root, said))
 }
 
-/// Copies <program>, this Mac's `builds`, to `~/.local/bin/builds` on <host>
-/// and creates its builds root. Each install writes the program and its
-/// linker's link under names of its own and renames them into place, so
-/// installs that run at the same time on one host, as two landings' do, each
-/// leave the whole program. The repo's own `scripts/build-layout.sh` and
-/// `scripts/cargo.sh` find the program there, so a repo's hooks and scripts
-/// work on the host as they do here. Both Macs run arm64 macOS, so the same
-/// program runs on both.
-pub fn install_program(ssh: &Ssh, host: &Host, program: &Path) -> Result<String> {
+/// Copies <programs>, this Mac's, to `~/.local/bin` on <host>, builds-shots
+/// first, and creates the host's builds root, which it returns. Each install
+/// writes a program and the linker's link under names of its own and renames
+/// them into place, so installs that run at the same time on one host, as two
+/// landings' do, each leave whole programs. The repo's own
+/// `scripts/build-layout.sh` and `scripts/cargo.sh` find builds there, so a
+/// repo's hooks and scripts work on the host as they do here. Both Macs run
+/// arm64 macOS, so the same programs run on both.
+pub fn install_program(ssh: &Ssh, host: &Host, programs: &Programs) -> Result<String> {
+    let shots = crate::shots_program::PROGRAM;
+    send(
+        ssh,
+        host,
+        &programs.shots,
+        &format!(
+            "bin=\"$HOME/.local/bin\" && mkdir -p \"$bin\" && part=$(mktemp \"$bin/{shots}.XXXXXX\") && trap 'rm -f \"$part\"' EXIT && cat > \"$part\" && chmod 755 \"$part\" && mv \"$part\" \"$bin/{shots}\""
+        ),
+    )?;
+    send(
+        ssh,
+        host,
+        &programs.builds,
+        &format!(
+            "{root}bin=\"$HOME/.local/bin\" && mkdir -p \"$bin\" \"$BUILDS_ROOT\" && part=$(mktemp \"$bin/builds.XXXXXX\") && link=$(mktemp -u \"$bin/{linker}.XXXXXX\") && trap 'rm -f \"$part\" \"$link\"' EXIT && cat > \"$part\" && chmod 755 \"$part\" && mv \"$part\" \"$bin/builds\" && ln -s builds \"$link\" && mv \"$link\" \"$bin/{linker}\" && echo \"$BUILDS_ROOT\"",
+            linker = crate::linker::NAME,
+            root = crate::remote::root_script(host)
+        ),
+    )
+}
+
+/// Runs <script> on <host> with the bytes of <program> on its stdin, and
+/// returns what it printed on stdout, trimmed.
+fn send(ssh: &Ssh, host: &Host, program: &Path, script: &str) -> Result<String> {
     use std::io::Write;
     let Some(target) = &host.target else {
         fail!("{LOCAL} is this Mac and already has builds");
     };
-    let program = std::fs::read(program).context(|| format!("reading {}", program.display()))?;
-    let script = format!(
-        "{root}bin=\"$HOME/.local/bin\" && mkdir -p \"$bin\" \"$BUILDS_ROOT\" && part=$(mktemp \"$bin/builds.XXXXXX\") && link=$(mktemp -u \"$bin/{linker}.XXXXXX\") && trap 'rm -f \"$part\" \"$link\"' EXIT && cat > \"$part\" && chmod 755 \"$part\" && mv \"$part\" \"$bin/builds\" && ln -s builds \"$link\" && mv \"$link\" \"$bin/{linker}\" && echo \"$BUILDS_ROOT\"",
-        linker = crate::linker::NAME,
-        root = crate::remote::root_script(host)
-    );
+    let name = program
+        .file_name()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .into_owned();
+    let bytes = std::fs::read(program).context(|| format!("reading {}", program.display()))?;
     let mut child = ssh
         .command(
             target,
-            &format!("sh -c {}", sh_quote(&script)),
+            &format!("sh -c {}", sh_quote(script)),
             host::Terminal::None,
         )
         .stdin(Stdio::piped())
@@ -129,20 +153,20 @@ pub fn install_program(ssh: &Ssh, host: &Host, program: &Path) -> Result<String>
         .stdin
         .take()
         .expect("the command pipes the child's stdin");
-    let sent = stdin.write_all(&program);
+    let sent = stdin.write_all(&bytes);
     drop(stdin);
     let output = child
         .wait_with_output()
         .context(|| format!("waiting for ssh to {}", host.name))?;
     if !output.status.success() {
         fail!(
-            "installing builds on host {} ({target}) failed ({}): {}",
+            "installing {name} on host {} ({target}) failed ({}): {}",
             host.name,
             output.status,
             String::from_utf8_lossy(&output.stderr).trim()
         );
     }
-    sent.context(|| format!("sending builds to host {}", host.name))?;
+    sent.context(|| format!("sending {name} to host {}", host.name))?;
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
 

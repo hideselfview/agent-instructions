@@ -39,7 +39,7 @@ fn answer(builds: &str, plist: &str, listener: &str, job: Option<&str>) -> Strin
         )
     };
     format!(
-        "builds={builds}\nplist={plist}\n{config}listener_status={status}\n{lsof}listener_said=\n{stats}{UI_TESTS}{job}",
+        "builds={builds}\nshots=cd34\nplist={plist}\n{config}listener_status={status}\n{lsof}listener_said=\n{stats}{UI_TESTS}{job}",
         config = config_lines(crate::install::sccache_cap_kib())
     )
 }
@@ -79,6 +79,7 @@ fn reads_what_a_host_has_installed() {
         parse_installed(&answer("ab12", "present", "2914", Some(RUNNING))).unwrap(),
         Installed {
             builds: Some("ab12".to_string()),
+            shots: Some("cd34".to_string()),
             sccache_under_launchd: true,
             sccache_cap: true,
             sccache_running_cap: Some(cap_bytes()),
@@ -89,6 +90,7 @@ fn reads_what_a_host_has_installed() {
         parse_installed(&answer("missing", "present", "", None)).unwrap(),
         Installed {
             builds: None,
+            shots: Some("cd34".to_string()),
             sccache_under_launchd: false,
             sccache_cap: true,
             sccache_running_cap: None,
@@ -97,6 +99,18 @@ fn reads_what_a_host_has_installed() {
     );
     assert!(parse_installed(&answer("", "present", "", None)).is_err());
     assert!(parse_installed("builds=ab12\n").is_err());
+    assert!(
+        parse_installed(&answer("ab12", "present", "", None).replace("shots=cd34\n", "")).is_err(),
+        "no shots line"
+    );
+    assert_eq!(
+        parse_installed(
+            &answer("ab12", "present", "", None).replace("shots=cd34", "shots=missing")
+        )
+        .unwrap()
+        .shots,
+        None
+    );
     assert!(parse_installed("builds=ab12\nplist=present\nlistener=\n").is_err());
     let lsof_fails = answer("ab12", "present", "", None)
         .replace("listener_said=", "listener_said=lsof: cannot run");
@@ -144,6 +158,7 @@ fn a_host_whose_builds_is_not_this_macs_is_a_finding() {
     let mine = places.home.join(".local/bin/builds");
     std::fs::create_dir_all(mine.parent().unwrap()).unwrap();
     std::fs::copy(std::env::current_exe().unwrap(), &mine).unwrap();
+    std::fs::write(mine.with_file_name("builds-shots"), "shots").unwrap();
     let m1 = host("m1");
     let gone = Host {
         name: "gone".to_string(),
@@ -171,15 +186,30 @@ fn a_host_whose_builds_is_not_this_macs_is_a_finding() {
     };
 
     let found = findings();
-    assert_eq!(found.len(), 1, "{found:?}");
+    assert_eq!(found.len(), 2, "{found:?}");
     assert!(
-        found[0].text.starts_with("host m1 has no builds"),
+        found[0].text.starts_with("host m1 has no builds at"),
+        "{found:?}"
+    );
+    assert!(
+        found[1].text.starts_with("host m1 has no builds-shots"),
         "{found:?}"
     );
     assert_eq!(found[0].command.as_deref(), Some("builds host setup m1"));
 
-    crate::host_setup::install_program(&ssh, &m1, &std::env::current_exe().unwrap()).unwrap();
-    assert_eq!(findings(), [], "m1 has this Mac's builds");
+    crate::host_setup::install_program(&ssh, &m1, &scratch.programs()).unwrap();
+    assert_eq!(findings(), [], "m1 has this Mac's builds and builds-shots");
+
+    std::fs::write(home.join(".local/bin/builds-shots"), "older").unwrap();
+    let found = findings();
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert!(
+        found[0]
+            .text
+            .starts_with("host m1 runs a different version of builds-shots"),
+        "{found:?}"
+    );
+    std::fs::write(home.join(".local/bin/builds-shots"), "shots").unwrap();
 
     std::fs::write(home.join(".local/bin/builds"), "older").unwrap();
     let found = findings();
@@ -200,6 +230,7 @@ fn a_host_whose_builds_is_not_this_macs_is_a_finding() {
 fn a_host_whose_sccache_runs_outside_launchd_is_a_finding() {
     let installed = |sccache_under_launchd| Installed {
         builds: Some("ab12".to_string()),
+        shots: Some("cd34".to_string()),
         sccache_under_launchd,
         sccache_cap: true,
         sccache_running_cap: Some(cap_bytes()),
@@ -262,6 +293,7 @@ fn a_host_whose_sccache_config_does_not_hold_builds_cap_is_a_finding() {
         host: host.to_string(),
         read: Ok(Installed {
             builds: Some("ab12".to_string()),
+            shots: Some("cd34".to_string()),
             sccache_under_launchd: true,
             sccache_cap,
             sccache_running_cap: Some(cap_bytes()),
@@ -326,6 +358,7 @@ fn a_server_whose_running_cap_differs_from_its_config_is_a_finding() {
         host: host.to_string(),
         read: Ok(Installed {
             builds: Some("ab12".to_string()),
+            shots: Some("cd34".to_string()),
             sccache_under_launchd: true,
             sccache_cap: true,
             sccache_running_cap: running,

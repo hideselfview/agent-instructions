@@ -34,6 +34,10 @@
 //! that holds the shots program's source. Its git tree at a commit is the
 //! version of the checker that made a run's findings (shot_findings.rs); with
 //! no such line, builds stores and reads no findings.
+//!
+//! Every other line whose keyword starts with `shots-` holds a screenshot
+//! setting for builds-shots, the program `builds shots` runs, which reads
+//! those lines itself (scripts/shots/src/settings.rs): this parser skips them.
 //! A `results <lane> <path>...` line names folders of the lane's app checkout
 //! (relative to it) that a run of tests or screenshots writes and agents read:
 //! when the lane's checkout is on another host (app_remote.rs), a run of
@@ -489,6 +493,7 @@ pub fn parse_config(text: &str) -> Result<Config> {
                     fail!("{CONFIG}: two shots-source lines");
                 }
             }
+            (keyword, _) if keyword.starts_with("shots-") => {}
             ("on", _) => {
                 let mut named = words(field);
                 if named.len() < 2 {

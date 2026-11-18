@@ -67,6 +67,7 @@ mod sccache;
 mod setup;
 mod shells;
 mod shot_findings;
+mod shots_program;
 mod side_git;
 mod spotlight;
 mod status;
@@ -248,7 +249,7 @@ fn run(command: &str, args: &[String]) -> Result<()> {
                 args,
             );
         }
-        "shots" => return shot_findings::cmd_shots(&Places::from_env()?, args),
+        "shots" => return shots_program::cmd_shots(&Places::from_env()?, args),
         "ack" => return ack::cmd_ack(&Places::from_env()?, args),
         "agent" => return ack::agent::cmd_agent(&Places::from_env()?, args),
         "queue" => return queue::cmd_queue(&Places::from_env()?, args),

@@ -248,6 +248,7 @@ fn installed(name: &str, ui_tests: UiTestSettings) -> HostInstalled {
         host: name.to_string(),
         read: Ok(Installed {
             builds: Some("ab12".to_string()),
+            shots: Some("cd34".to_string()),
             sccache_under_launchd: true,
             sccache_cap: true,
             sccache_running_cap: None,

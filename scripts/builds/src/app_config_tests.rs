@@ -370,6 +370,15 @@ fn a_shots_source_line_names_the_folder_of_the_shots_program_once() {
 }
 
 #[test]
+fn the_shots_programs_lines_are_skipped() {
+    let config = parse_config(
+        "shots-capture mac ./capture.sh\nshots-preview .row .name .cell\nshots-source s\n",
+    )
+    .unwrap();
+    assert_eq!(config, parse_config("shots-source s\n").unwrap());
+}
+
+#[test]
 fn results_lines_name_the_folders_a_lane_copies_back() {
     let config = parse_config(
         "step android a ./a\nresults android shots bae-android/app/build/test-results\nresults mac shots\nresults android reports/\n",
