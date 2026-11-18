@@ -60,6 +60,17 @@ impl Material {
             .collect()
     }
 
+    /// The names of the groups that hold a finding of <open> in one of
+    /// <changed>, whether or not their rules cover it: a later run asks each
+    /// over the changes, so that it closes the findings they fix.
+    pub fn holding_groups(&self, open: &[Finding], changed: &[String]) -> Vec<String> {
+        self.groups
+            .reviewing(&self.rules)
+            .filter(|(group, members)| holds_open(group, members, changed, open))
+            .map(|(group, _)| group.name.clone())
+            .collect()
+    }
+
     /// The names of the groups that read the commit messages of <since>, the
     /// changes since the last review of a branch whose commits change
     /// <branch>: each group that reads commit messages and whose rules cover
@@ -416,16 +427,27 @@ struct Unit<'a> {
     file: Option<FileDiff>,
 }
 
+/// Whether <group>, with <members>, holds a finding of <open> in a file one
+/// of <paths> names.
+fn holds_open(group: &Group, members: &[&Rule], paths: &[String], open: &[Finding]) -> bool {
+    let names = prompt::answer_names(group, members);
+    open.iter().any(|finding| {
+        names.contains(&finding.rule) && paths.iter().any(|path| names_file(path, &finding.file))
+    })
+}
+
 /// The units of group <at>, <group> with <members>, over <diff> as a first
 /// review asks them: a group that lists sites gets one per changed file its
-/// rules cover by either path of a rename, and one for the commit messages
-/// when it reads them; any other group gets one for the whole diff, with the
-/// commit messages when it reads them (`Diff::text_for`).
+/// rules cover or it holds a finding of <open> in, by either path of a
+/// rename, and one for the commit messages when it reads them; any other
+/// group gets one for the whole diff, with the commit messages when it reads
+/// them (`Diff::text_for`).
 fn units_of<'a>(
     group: &'a Group,
     members: &'a [&'a Rule],
     at: usize,
     diff: &Diff,
+    open: &[Finding],
 ) -> Vec<Unit<'a>> {
     let unit = |file| Unit {
         group,
@@ -438,7 +460,11 @@ fn units_of<'a>(
     }
     let mut units: Vec<Unit> = files::split(&diff.text)
         .into_iter()
-        .filter(|file| members.iter().any(|rule| rule.matches(&file.paths())))
+        .filter(|file| {
+            let paths = file.paths();
+            members.iter().any(|rule| rule.matches(&paths))
+                || holds_open(group, members, &paths, open)
+        })
         .map(|file| unit(Some(file)))
         .collect();
     if let (true, Some((file, _))) = (
@@ -460,11 +486,7 @@ fn not_read(
     open: &[Finding],
 ) -> Vec<String> {
     let holds = |(group, members): &(&Group, Vec<&Rule>), paths: &[String]| {
-        let names = prompt::answer_names(group, members);
-        open.iter().any(|finding| {
-            names.contains(&finding.rule)
-                && paths.iter().any(|path| names_file(path, &finding.file))
-        })
+        holds_open(group, members, paths, open)
     };
     first
         .iter()
@@ -499,7 +521,7 @@ pub fn ask_groups(
     let first: Vec<Vec<Unit>> = picked
         .iter()
         .enumerate()
-        .map(|(at, (group, members))| units_of(group, members, at, diff))
+        .map(|(at, (group, members))| units_of(group, members, at, diff, open))
         .collect();
     let not_read: Vec<Vec<String>> = first
         .iter()

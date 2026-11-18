@@ -224,9 +224,18 @@ impl Groups {
         rules: &'a [Rule],
         names: &[String],
     ) -> Vec<(&'a Group, Vec<&'a Rule>)> {
-        self.with_members(rules)
-            .filter(|(group, _)| !group.copy && names.contains(&group.name))
+        self.reviewing(rules)
+            .filter(|(group, _)| names.contains(&group.name))
             .collect()
+    }
+
+    /// The groups that review no copy, each with its reviewable rules that
+    /// exist in <rules> (the project's).
+    pub fn reviewing<'a>(
+        &'a self,
+        rules: &'a [Rule],
+    ) -> impl Iterator<Item = (&'a Group, Vec<&'a Rule>)> {
+        self.with_members(rules).filter(|(group, _)| !group.copy)
     }
 
     /// Whether rule <slug> is in a copy group (`Group::copy`).

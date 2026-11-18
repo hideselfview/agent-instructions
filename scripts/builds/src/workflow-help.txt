@@ -265,14 +265,14 @@ hand, and the copy review (`builds review copy`) is theirs to run.
      is unreviewed and no confirmed finding is open (LANDING).
 
 In a later run, only the groups that hold open findings in a file read that
-file, and every group that covers any other changed file reads that file, as
-on a first review. The groups run at the same time, in the same run, and
-builds asks no group that reads none of the changed files. For example, the
-necessary-code group (Necessary code) holds findings in a.rs and b.rs, and the
-errors group (Errors and invalid state) holds one in c.rs. After the fix, the
-necessary-code group reads only a.rs and b.rs, and the errors group reads only
-c.rs. The run's report names each group that did not read a file, with the
-files it did not read.
+file, whether or not their rules cover it, and every group that covers any
+other changed file reads that file, as on a first review. The groups run at
+the same time, in the same run, and builds asks no group that reads none of the
+changed files. For example, the necessary-code group (Necessary code) holds
+findings in a.rs and b.rs, and the errors group (Errors and invalid state)
+holds one in c.rs. After the fix, the necessary-code group reads only a.rs and
+b.rs, and the errors group reads only c.rs. The run's report names each group
+that did not read a file, with the files it did not read.
 
 The changes since the last review are the lines the branch adds or removes that
 it did not add or remove at the last review, the lines it no longer changes,

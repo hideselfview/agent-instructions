@@ -616,6 +616,112 @@ fn each_group_reads_only_the_files_where_it_holds_findings_and_both_run_in_one_r
     assert_eq!(groups, ["alpha", "writing"]);
 }
 
+/// A group's reviewer of a whole diff reads every file of it, so the group can
+/// hold an open finding in a file its rules do not cover. A fix of that file
+/// alone asks the group, which reads the fix and closes the finding.
+#[test]
+fn a_fix_of_a_file_no_rule_covers_asks_the_group_that_holds_its_finding() {
+    let demo = demo("review-uncovered-fix");
+    let fake = fake(&demo.scratch.dir);
+    let side = demo.add_side(1, "agent", "work");
+    demo.commit(&side, "a.rs");
+    demo.commit(&side, "b.js");
+    raise(
+        &fake,
+        "alpha",
+        "rule-a",
+        "Never do the bad thing here.",
+        &["b.js"],
+    );
+    let landing = run_review(&demo, &fake, &side, "k").landing.unwrap();
+    let found = findings_of(&demo, landing);
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert_eq!(found[0].check_failed, None);
+    settle_as(&demo, found[0].id, "confirmed", "real");
+    fake.prompts();
+    fix(&side, &["b.js"]);
+    closes(&fake, &[found[0].id]);
+    let read = run_review(&demo, &fake, &side, "k");
+    let prompts = fake.prompts();
+    assert_eq!(prompts.len(), 1, "{}", read.text);
+    let (group, prompt) = &prompts[0];
+    assert_eq!(group, "alpha");
+    assert!(
+        prompt.contains("diff --git a/b.js b/b.js") && !prompt.contains("+a.rs"),
+        "{prompt}"
+    );
+    assert!(
+        read.text
+            .contains(&format!("closed finding {}", found[0].id)),
+        "{}",
+        read.text
+    );
+    assert!(read.refusal.is_none(), "{:?}", read.refusal);
+}
+
+/// A group that lists sites reads one file per call, each a file its rules
+/// cover. When the rules change between runs so that they no longer cover a
+/// file where the group holds an open finding, a fix of that file still gives
+/// the group a call over it, which closes the finding.
+#[test]
+fn a_group_that_lists_sites_reads_a_file_where_it_holds_a_finding_its_rules_no_longer_cover() {
+    let demo = demo("review-sites-uncovered-fix");
+    let fake = fake(&demo.scratch.dir);
+    std::fs::create_dir_all(fake.root.join("rules/writing")).unwrap();
+    let rule_w = |glob: &str| {
+        rule_file(
+            &fake.root,
+            "writing",
+            "rule-w",
+            glob,
+            true,
+            "**Rule W.** Write plain sentences.",
+        )
+    };
+    rule_w("**/*");
+    group_file(
+        &fake.root,
+        "writing",
+        "writing",
+        "opus",
+        "enumerate = true\nsites = \"is a sentence\"\n",
+    );
+    let side = demo.add_side(1, "agent", "work");
+    demo.commit(&side, "a.rs");
+    demo.commit(&side, "b.js");
+    fake.answer_task(
+        "writing",
+        serde_json::json!({"summary": "s", "sites": [{
+            "file": "b.js", "line": 1, "code": "b.js", "verdict": "finding",
+            "rule": "rule-w", "clause": "Write plain sentences.", "problem": "p"
+        }]}),
+    );
+    let landing = run_review(&demo, &fake, &side, "k").landing.unwrap();
+    let found = findings_of(&demo, landing);
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert_eq!(found[0].check_failed, None);
+    settle_as(&demo, found[0].id, "confirmed", "real");
+    fake.prompts();
+    rule_w("**/*.rs");
+    fix(&side, &["b.js"]);
+    fake.answer_task(
+        "writing",
+        serde_json::json!({"summary": "s", "sites": [], "closed": [found[0].id]}),
+    );
+    let read = run_review(&demo, &fake, &side, "k");
+    let prompts = fake.prompts();
+    assert_eq!(prompts.len(), 1, "{}", read.text);
+    let (group, prompt) = &prompts[0];
+    assert_eq!(group, "writing");
+    assert!(prompt.contains("diff --git a/b.js b/b.js"), "{prompt}");
+    assert!(
+        read.text
+            .contains(&format!("closed finding {}", found[0].id)),
+        "{}",
+        read.text
+    );
+}
+
 /// Group style judges no code comment, and group alpha judges comments too:
 /// builds drops the style group's finding on a comment line with its reason,
 /// and keeps its finding on a string and alpha's finding on the comment.

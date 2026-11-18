@@ -34,8 +34,9 @@
 //! last review in a new run, which becomes the last review. Each reviewer also gets the open confirmed
 //! findings of its group's rules, checks the code at each one's place, and
 //! closes each one whose problem is gone. Only the groups that hold open
-//! findings in a file read that file, and every group that covers any other
-//! changed file reads that file (`run::ask_groups`). `landing::Coverage` says
+//! findings in a file read that file, whether or not their rules cover it,
+//! and every group that covers any other changed file reads that file
+//! (`run::ask_groups`). `landing::Coverage` says
 //! what the review read, for this run and for `builds land`. The run refuses
 //! when the review lacks nothing.
 //!
@@ -247,16 +248,6 @@ pub fn review(inputs: &Inputs) -> Result<Reported> {
         });
     }
     let open = record::open_landing(&conn, inputs.key)?;
-    let asks = match open {
-        None => vec![Ask {
-            groups: material.group_names(&change.diff.changed),
-            change,
-            since: None,
-            last_review: true,
-            note: None,
-        }],
-        Some(landing) => later_asks(&conn, inputs, &material, &change, landing)?,
-    };
     // The confirmed findings no review closed, which each reviewer checks
     // against the code as it is now.
     let open_findings: Vec<record::Finding> = match open {
@@ -265,6 +256,16 @@ pub fn review(inputs: &Inputs) -> Result<Reported> {
             .into_iter()
             .filter(record::Finding::is_open)
             .collect(),
+    };
+    let asks = match open {
+        None => vec![Ask {
+            groups: material.group_names(&change.diff.changed),
+            change,
+            since: None,
+            last_review: true,
+            note: None,
+        }],
+        Some(landing) => later_asks(&conn, inputs, &material, &change, landing, &open_findings)?,
     };
     let mut running: Vec<(String, Running)> = Vec::new();
     let mut answers = Vec::new();
@@ -406,16 +407,19 @@ struct Ask {
 /// review reads <diff>, the branch's net change: for each diff a
 /// run read, the groups asked over it that gave no answer over it, asked over
 /// that diff again; and, when the changes since the last review touch a path
-/// a group covers or a commit message, the groups that cover a changed path
-/// and the groups that read the changed messages, asked over those changes
-/// (`run::diff_since`). No reviewer reads a diff twice. Fails with why builds
-/// review reviews no change twice when the review lacks nothing.
+/// a group covers, a file where a group holds a finding of <open> or a commit
+/// message, the groups that cover a changed path, the groups that hold a
+/// finding of <open> in a changed file and the groups that read the changed
+/// messages, asked over those changes (`run::diff_since`). No reviewer reads
+/// a diff twice. Fails with why builds review reviews no change twice when
+/// the review lacks nothing.
 fn later_asks(
     conn: &rusqlite::Connection,
     inputs: &Inputs,
     material: &run::Material,
     change: &run::NetChange,
     landing: i64,
+    open: &[record::Finding],
 ) -> Result<Vec<Ask>> {
     let coverage = landing::Coverage::of(conn, &record::landing(conn, landing)?)?;
     let calls = record::calls_of_landing(conn, landing)?;
@@ -448,7 +452,11 @@ fn later_asks(
         source.in_place = read.in_place;
     }
     let mut groups = material.group_names(&since.diff.changed);
-    for group in material.commit_text_groups(&since.diff, &change.diff.changed) {
+    for group in material
+        .holding_groups(open, &since.diff.changed)
+        .into_iter()
+        .chain(material.commit_text_groups(&since.diff, &change.diff.changed))
+    {
         if !groups.contains(&group) {
             groups.push(group);
         }
@@ -469,7 +477,7 @@ fn later_asks(
     }
     if asks.is_empty() {
         fail!(
-            "{}\nrun {} of review landing {landing} ({}) is the last review, over {}...{}; every group answered, and nothing changed since the last review on a path a group's rules cover or in a commit message a group reads, so builds review does not review it again.\nbuilds review show {landing} lists the review and its findings.",
+            "{}\nrun {} of review landing {landing} ({}) is the last review, over {}...{}; every group answered, and nothing changed since the last review on a path a group's rules cover, in a file where a group holds an open finding or in a commit message a group reads, so builds review does not review it again.\nbuilds review show {landing} lists the review and its findings.",
             landing::ONE_REVIEW,
             last.id,
             inputs.key,
