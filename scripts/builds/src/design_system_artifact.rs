@@ -93,20 +93,33 @@ pub fn contents(export: &Path, generated: &[String; 3]) -> Result<Contents> {
 
 /// Adds every file under <dir> to <files> at <prefix>/<its path under dir>.
 fn add_tree(dir: &Path, prefix: &str, files: &mut BTreeMap<String, String>) -> Result<()> {
-    for entry in std::fs::read_dir(dir).context(|| format!("listing {}", dir.display()))? {
-        let entry = entry.context(|| format!("listing {}", dir.display()))?;
-        let name = entry.file_name().to_string_lossy().into_owned();
-        let path = entry.path();
-        let at = format!("{prefix}/{name}");
-        if path.is_dir() {
-            add_tree(&path, &at, files)?;
-        } else {
-            let text =
-                std::fs::read_to_string(&path).context(|| format!("reading {}", path.display()))?;
-            files.insert(at, text);
-        }
+    for rel in files_under(dir)? {
+        let path = dir.join(&rel);
+        let text =
+            std::fs::read_to_string(&path).context(|| format!("reading {}", path.display()))?;
+        files.insert(format!("{prefix}/{rel}"), text);
     }
     Ok(())
+}
+
+/// The path of every file under <dir>, relative to it, following links.
+pub fn files_under(dir: &Path) -> Result<Vec<String>> {
+    let mut found = Vec::new();
+    let mut todo = vec![String::new()];
+    while let Some(rel) = todo.pop() {
+        let at = dir.join(&rel);
+        for entry in std::fs::read_dir(&at).context(|| format!("listing {}", at.display()))? {
+            let entry = entry.context(|| format!("listing {}", at.display()))?;
+            let name = format!("{rel}{}", entry.file_name().to_string_lossy());
+            if entry.path().is_dir() {
+                todo.push(format!("{name}/"));
+            } else {
+                found.push(name);
+            }
+        }
+    }
+    found.sort();
+    Ok(found)
 }
 
 /// Whether <name> is an ASCII JavaScript identifier.

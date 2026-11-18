@@ -99,6 +99,7 @@ fn only_assets_whose_bytes_the_index_lacks_are_uploaded() {
         asset("Icons", "same.svg", "s1"),
     ];
     let names: Vec<&str> = to_upload(&live, &all)
+        .unwrap()
         .into_iter()
         .map(|asset| asset.path.as_str())
         .collect();
@@ -190,4 +191,58 @@ fn an_upload_id_comes_from_its_url_or_is_the_id() {
     assert_eq!(upload_id("abc123").unwrap(), "abc123");
     assert!(upload_id("/_blob/").is_err());
     assert!(upload_id("a b").is_err());
+}
+
+/// Each part of the index's asset records that is not the shape the artifact
+/// type writes fails, naming it, so builds never writes over what it cannot
+/// read; a part the index leaves out is empty.
+#[test]
+fn asset_records_of_the_wrong_shape_are_refused_naming_them() {
+    let all = [asset("Logos", "a.svg", "sa")];
+    let new: BTreeMap<String, String> =
+        [("project/assets/Logos/a.svg".to_string(), "id".to_string())].into();
+    let cases = [
+        (json!({"assetGroups": []}), "assetGroups is []"),
+        (json!({"groups": "Logos"}), "groups is \"Logos\""),
+        (json!({"groups": ["Logos", 2]}), "groups holds 2"),
+        (
+            json!({"assetGroups": {"Logos": 1}}),
+            "assetGroups.Logos is 1",
+        ),
+        (
+            json!({"assetGroups": {"Logos": {"order": {}}}}),
+            "assetGroups.Logos.order is {}",
+        ),
+        (
+            json!({"assetGroups": {"Logos": {"files": []}}}),
+            "assetGroups.Logos.files is []",
+        ),
+        (
+            json!({"assetGroups": {"Logos": {"files": {"a.svg": {"name": "a.svg"}}}}}),
+            "assetGroups.Logos.files.a.svg names the upload null",
+        ),
+        (
+            json!({"assetGroups": {"Logos": {"files": {"a.svg": {"blob": "b", "sha256": 1}}}}}),
+            "assetGroups.Logos.files.a.svg gives the sha256 1",
+        ),
+    ];
+    for (live, expected) in cases {
+        let mut live = index(live);
+        let refused = to_upload(&live, &all).unwrap_err().text();
+        assert!(refused.contains(expected), "{refused}");
+        let refused = set_records(&mut live, &all, &new).unwrap_err().text();
+        assert!(refused.contains(expected), "{refused}");
+    }
+    let mut empty = index(json!({}));
+    assert_eq!(to_upload(&empty, &all).unwrap().len(), 1);
+    assert!(set_records(&mut empty, &all, &new).unwrap().is_empty());
+    assert_eq!(empty["groups"], json!(["Logos"]));
+}
+
+/// A name the index's order gives twice is kept once, where it first stands.
+#[test]
+fn an_order_keeps_each_name_once() {
+    let kept: Vec<String> = ["b", "a", "b"].map(String::from).to_vec();
+    let wanted = ["a", "b", "c"].map(String::from).into_iter();
+    assert_eq!(kept_then_new(&kept, wanted), ["b", "a", "c"]);
 }

@@ -176,7 +176,7 @@ fn every_artifact_gets_its_files_from_one_commit() {
         publish
             .artifacts
             .iter()
-            .map(|w| (w.url.as_str(), w.kind))
+            .map(|w| (w.url.as_str(), w.kind()))
             .collect::<Vec<_>>(),
         [
             (ONE, Kind::Canvas),
@@ -386,11 +386,18 @@ fn calls_hold_at_most_one_publishs_files_in_order() {
         let root = scratch.dir.join(format!("{kind:?}"));
         std::fs::create_dir_all(&root).unwrap();
         let url = if kind == Kind::Canvas { ONE } else { DS };
-        let written = write_artifact(&root, url, kind, "abc", &files, &[], &[]).unwrap();
+        let holds = if kind == Kind::Canvas {
+            Holds::Canvas
+        } else {
+            Holds::DesignSystem {
+                assets: vec![],
+                uploads: vec![],
+            }
+        };
+        let (at, written) = write_artifact(&root, url, "abc", &files, holds).unwrap();
         let calls: Vec<Vec<String>> = written
-            .calls
             .iter()
-            .map(|call| sent(&written.root, std::slice::from_ref(call)))
+            .map(|call| sent(&at, std::slice::from_ref(call)))
             .collect();
         assert_eq!(
             calls.iter().map(Vec::len).collect::<Vec<_>>(),

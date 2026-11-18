@@ -78,36 +78,74 @@ impl Kind {
     }
 }
 
+/// What a folder publishes beside its files, by the kind of its artifact.
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
+enum Holds {
+    Canvas,
+    DesignSystem {
+        /// Every upload of the design system at the commit.
+        assets: Vec<Asset>,
+        /// The paths of the uploads that the session makes, those whose
+        /// bytes the live index does not record.
+        uploads: Vec<String>,
+    },
+}
+
+impl Holds {
+    fn kind(&self) -> Kind {
+        match self {
+            Holds::Canvas => Kind::Canvas,
+            Holds::DesignSystem { .. } => Kind::DesignSystem,
+        }
+    }
+}
+
 /// What a folder publishes, which `publish-files` writes as `RECORD` beside
 /// the files and `publish-last` reads.
 #[derive(Debug, Serialize, Deserialize)]
 struct Record {
     url: String,
-    kind: Kind,
     /// The commit the files come from.
     commit: String,
     /// Every path the folder publishes as a file.
     paths: Vec<String>,
-    /// Every upload of the design system at the commit.
-    assets: Vec<Asset>,
-    /// The paths of the uploads that the session makes, those whose bytes
-    /// the live index does not record.
-    uploads: Vec<String>,
+    #[serde(flatten)]
+    holds: Holds,
+}
+
+/// What `write_all` wrote for one artifact beside its files and calls, by
+/// the kind of the artifact.
+#[derive(Debug)]
+pub enum Artifact {
+    Canvas,
+    DesignSystem {
+        /// The upload call files, each with the path on the artifact it
+        /// uploads.
+        uploads: Vec<(PathBuf, String)>,
+    },
 }
 
 /// One artifact's folder, as `write_all` wrote it.
 #[derive(Debug)]
 pub struct Written {
     pub url: String,
-    pub kind: Kind,
     /// The folder the artifact's files are in, at their paths on it.
     pub root: PathBuf,
     /// How many files the artifact publishes.
     pub files: usize,
     /// The call files, in the order they are published.
     pub calls: Vec<PathBuf>,
-    /// The upload call files, each with the path on the artifact it uploads.
-    pub uploads: Vec<(PathBuf, String)>,
+    pub artifact: Artifact,
+}
+
+impl Written {
+    pub fn kind(&self) -> Kind {
+        match self.artifact {
+            Artifact::Canvas => Kind::Canvas,
+            Artifact::DesignSystem { .. } => Kind::DesignSystem,
+        }
+    }
 }
 
 /// Everything `write_all` wrote, for one commit.
@@ -201,34 +239,43 @@ pub fn write_all(
         for name in &split.boards {
             files.insert(format!("project/{name}"), boards[name].clone());
         }
-        artifacts.push(write_artifact(
-            &out,
-            &split.canvas.url,
-            Kind::Canvas,
-            &commit,
-            &files,
-            &[],
-            &[],
-        )?);
+        let (root, calls) =
+            write_artifact(&out, &split.canvas.url, &commit, &files, Holds::Canvas)?;
+        artifacts.push(Written {
+            url: split.canvas.url.clone(),
+            root,
+            files: files.len(),
+            calls,
+            artifact: Artifact::Canvas,
+        });
     }
     let all: Vec<Asset> = contents
         .uploads
         .iter()
         .map(|(asset, _)| asset.clone())
         .collect();
-    let to_upload: Vec<String> = assets::to_upload(&live_index, &all)
+    let to_upload: Vec<String> = assets::to_upload(&live_index, &all)?
         .into_iter()
         .map(|asset| asset.path.clone())
         .collect();
-    artifacts.push(write_artifact(
+    let (root, calls) = write_artifact(
         &out,
         &design_system,
-        Kind::DesignSystem,
         &commit,
         &contents.files,
-        &contents.uploads,
-        &to_upload,
-    )?);
+        Holds::DesignSystem {
+            assets: all,
+            uploads: to_upload.clone(),
+        },
+    )?;
+    let uploads = write_uploads(&root, &design_system, &contents.uploads, &to_upload)?;
+    artifacts.push(Written {
+        url: design_system.clone(),
+        root,
+        files: contents.files.len(),
+        calls,
+        artifact: Artifact::DesignSystem { uploads },
+    });
     Ok(Publish {
         commit,
         artifacts,
@@ -238,28 +285,25 @@ pub fn write_all(
 }
 
 /// Writes the folder `<out>/<id>` of the artifact at <url>: <files> at their
-/// paths, the bytes of each of <uploads> whose path <to_upload> names, the
-/// record, and the calls that publish them.
+/// paths, the record of them and of <holds>, and the calls that publish the
+/// files. Returns the folder and the calls in order.
 fn write_artifact(
     out: &Path,
     url: &str,
-    kind: Kind,
     commit: &str,
     files: &BTreeMap<String, String>,
-    uploads: &[Upload],
-    to_upload: &[String],
-) -> Result<Written> {
+    holds: Holds,
+) -> Result<(PathBuf, Vec<PathBuf>)> {
     let root = out.join(artifact_id(url).expect("parse_canvases accepts only artifact links"));
     for (path, text) in files {
         write(&root.join(path), text)?;
     }
+    let kind = holds.kind();
     let record = Record {
         url: url.to_string(),
-        kind,
         commit: commit.to_string(),
         paths: files.keys().cloned().collect(),
-        assets: uploads.iter().map(|(asset, _)| asset.clone()).collect(),
-        uploads: to_upload.to_vec(),
+        holds,
     };
     write(
         &root.join(RECORD),
@@ -280,7 +324,19 @@ fn write_artifact(
         write(&to, &publish_call(url, &root, first, files))?;
         calls.push(to);
     }
-    let mut upload_calls = Vec::new();
+    Ok((root, calls))
+}
+
+/// Writes into <root>, the design system's folder, the bytes of each of
+/// <uploads> whose path <to_upload> names, and the call that uploads each to
+/// the artifact at <url>. Returns each call with the path it uploads.
+fn write_uploads(
+    root: &Path,
+    url: &str,
+    uploads: &[Upload],
+    to_upload: &[String],
+) -> Result<Vec<(PathBuf, String)>> {
+    let mut calls = Vec::new();
     for (asset, bytes) in uploads {
         if !to_upload.contains(&asset.path) {
             continue;
@@ -289,7 +345,7 @@ fn write_artifact(
         let dir = file.parent().expect("a file has a folder");
         std::fs::create_dir_all(dir).context(|| format!("making {}", dir.display()))?;
         std::fs::write(&file, bytes).context(|| format!("writing {}", file.display()))?;
-        let to = root.join(format!("upload-{}.json", upload_calls.len() + 1));
+        let to = root.join(format!("upload-{}.json", calls.len() + 1));
         let call = json!({
             "action": "publish",
             "url": url,
@@ -297,16 +353,9 @@ fn write_artifact(
             "file_path": file.display().to_string(),
         });
         write(&to, &json_text(&call))?;
-        upload_calls.push((to, asset.path.clone()));
+        calls.push((to, asset.path.clone()));
     }
-    Ok(Written {
-        url: url.to_string(),
-        kind,
-        root,
-        files: files.len(),
-        calls,
-        uploads: upload_calls,
-    })
+    Ok(calls)
 }
 
 /// The arguments of one Artifact publish to the artifact at <url> from
@@ -359,7 +408,7 @@ pub fn report(publish: &Publish) -> String {
     let canvases = publish
         .artifacts
         .iter()
-        .filter(|artifact| artifact.kind == Kind::Canvas)
+        .filter(|artifact| artifact.kind() == Kind::Canvas)
         .count();
     let mut out = format!(
         "builds wrote the files of {canvases} canvases and the design system at commit {}. Publish every artifact, in this order, as the publish-designs skill says:\n",
@@ -369,7 +418,7 @@ pub fn report(publish: &Publish) -> String {
         out.push_str(&format!(
             "\n{}. {} {}: {} files in {}\n",
             n + 1,
-            artifact.kind.name(),
+            artifact.kind().name(),
             artifact.url,
             artifact.files,
             artifact.root.display()
@@ -377,11 +426,11 @@ pub fn report(publish: &Publish) -> String {
         for call in &artifact.calls {
             out.push_str(&format!("   {}\n", call.display()));
         }
-        if artifact.kind == Kind::DesignSystem {
-            if artifact.uploads.is_empty() {
+        if let Artifact::DesignSystem { uploads } = &artifact.artifact {
+            if uploads.is_empty() {
                 out.push_str("   no upload: the index records every asset's bytes\n");
             }
-            for (call, path) in &artifact.uploads {
+            for (call, path) in uploads {
                 out.push_str(&format!("   {} uploads {path}\n", call.display()));
             }
         }
@@ -463,7 +512,9 @@ pub fn write_last(
     }
     let gone: Vec<&str> = shown
         .into_iter()
-        .filter(|path| record.kind.repo_decides(path) && !record.paths.iter().any(|p| p == path))
+        .filter(|path| {
+            record.holds.kind().repo_decides(path) && !record.paths.iter().any(|p| p == path)
+        })
         .collect();
     for entry in std::fs::read_dir(root).context(|| format!("listing {}", root.display()))? {
         let entry = entry.context(|| format!("listing {}", root.display()))?;
@@ -474,7 +525,7 @@ pub fn write_last(
             std::fs::remove_file(&path).context(|| format!("removing {}", path.display()))?;
         }
     }
-    let anchor = record.kind.removal_anchor();
+    let anchor = record.holds.kind().removal_anchor();
     let mut calls: Vec<(&str, Map<String, Value>)> = gone
         .chunks(BATCH - 1)
         .map(|chunk| {
@@ -488,25 +539,31 @@ pub fn write_last(
         })
         .collect();
     let mut deletes = Vec::new();
-    match (record.kind, system_last) {
-        (Kind::Canvas, None) => {}
-        (Kind::Canvas, Some(_)) => fail!("{} is a canvas, which takes no index", record.url),
-        (Kind::DesignSystem, None) => fail!(
+    match (&record.holds, system_last) {
+        (Holds::Canvas, None) => {}
+        (Holds::Canvas, Some(_)) => fail!("{} is a canvas, which takes no index", record.url),
+        (Holds::DesignSystem { .. }, None) => fail!(
             "{} is the design system, whose index goes in its last call: read {} from it and give it with --index, and who publishes with --by",
             record.url,
             system::INDEX
         ),
-        (Kind::DesignSystem, Some(last)) => {
+        (
+            Holds::DesignSystem {
+                assets: all,
+                uploads,
+            },
+            Some(last),
+        ) => {
             let made: Vec<&String> = last.uploaded.keys().collect();
-            if made != record.uploads.iter().collect::<Vec<_>>() {
+            if made != uploads.iter().collect::<Vec<_>>() {
                 fail!(
                     "--uploaded names the uploads of {}, and the folder's upload calls make those of {}: give the id that each upload call got, and only those",
                     list(made.iter().map(|p| p.as_str())),
-                    list(record.uploads.iter().map(String::as_str))
+                    list(uploads.iter().map(String::as_str))
                 );
             }
             let mut index = system::parse_index(last.index)?;
-            let unused = assets::set_records(&mut index, &record.assets, &last.uploaded)?;
+            let unused = assets::set_records(&mut index, all, &last.uploaded)?;
             system::set_last_change(&mut index, last.by, now, &record.commit);
             write(&root.join(system::INDEX), &system::index_text(&index))?;
             calls.push((system::INDEX, Map::new()));

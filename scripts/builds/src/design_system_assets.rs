@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
 
-use crate::design_system_artifact::SYSTEM;
+use crate::design_system_artifact::{SYSTEM, files_under};
 use crate::fail;
 use crate::fail::{Context, Result};
 
@@ -73,9 +73,7 @@ pub fn read(export: &Path) -> Result<(BTreeMap<String, String>, Vec<Upload>)> {
                 "{SYSTEM}/assets/{group} is in no group; put it in a folder under {SYSTEM}/assets, which the Design System artifact shows as its group"
             );
         }
-        let mut found = Vec::new();
-        files_under(&entry.path(), "", &mut found)?;
-        for name in found {
+        for name in files_under(&entry.path())? {
             let from = entry.path().join(&name);
             let path = format!("project/assets/{group}/{name}");
             let extension = name
@@ -109,20 +107,6 @@ pub fn read(export: &Path) -> Result<(BTreeMap<String, String>, Vec<Upload>)> {
     Ok((texts, uploads))
 }
 
-/// Adds the path of every file under <dir>, below <prefix>, to <found>.
-fn files_under(dir: &Path, prefix: &str, found: &mut Vec<String>) -> Result<()> {
-    for entry in std::fs::read_dir(dir).context(|| format!("listing {}", dir.display()))? {
-        let entry = entry.context(|| format!("listing {}", dir.display()))?;
-        let name = format!("{prefix}{}", entry.file_name().to_string_lossy());
-        if entry.path().is_dir() {
-            files_under(&entry.path(), &format!("{name}/"), found)?;
-        } else {
-            found.push(name);
-        }
-    }
-    Ok(())
-}
-
 fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
@@ -142,31 +126,136 @@ fn key(name: &str) -> String {
         .collect()
 }
 
-/// The record of <asset> in <index>, if the index has one.
-fn record<'a>(index: &'a Map<String, Value>, asset: &Asset) -> Option<&'a Value> {
-    index
-        .get("assetGroups")?
-        .get(&asset.group)?
-        .get("files")?
-        .get(key(&asset.name))
+/// The asset records of a live index, read strictly: a key the index
+/// leaves out is empty, and a key of the wrong shape fails, since builds
+/// would otherwise write over what it cannot read.
+#[derive(Debug, Default)]
+struct Live {
+    /// The groups in the index's order (`groups`).
+    order: Vec<String>,
+    groups: BTreeMap<String, LiveGroup>,
 }
 
-/// The upload that <index>'s record of <asset> names, when the record says
-/// the upload holds the asset's bytes.
-fn uploaded<'a>(index: &'a Map<String, Value>, asset: &Asset) -> Option<&'a str> {
-    let record = record(index, asset)?;
-    (record.get("sha256").and_then(Value::as_str) == Some(asset.sha256.as_str()))
-        .then(|| record.get("blob").and_then(Value::as_str))
-        .flatten()
+#[derive(Debug, Default)]
+struct LiveGroup {
+    /// The entry's keys other than `order` and `files`, kept as they are.
+    entry: Map<String, Value>,
+    /// The group's uploads in the index's order, by name.
+    order: Vec<String>,
+    /// Each record, by its key.
+    files: BTreeMap<String, LiveRecord>,
+}
+
+#[derive(Debug)]
+struct LiveRecord {
+    blob: String,
+    /// The sha256 builds wrote in the record; None in a record it did not
+    /// write.
+    sha256: Option<String>,
+}
+
+/// The value of <key> in <object>, which <label> names in an error, when it
+/// is a list of strings; an empty list when <object> has no <key>.
+fn strings(object: &Map<String, Value>, key: &str, label: &str) -> Result<Vec<String>> {
+    let Some(value) = object.get(key) else {
+        return Ok(Vec::new());
+    };
+    let Some(items) = value.as_array() else {
+        fail!("the index's {label} is {value}, which is no list of names");
+    };
+    items
+        .iter()
+        .map(|item| match item.as_str() {
+            Some(name) => Ok(name.to_string()),
+            None => fail!("the index's {label} holds {item}, which is no name"),
+        })
+        .collect()
+}
+
+/// The object that <value>, the index's <label>, is.
+fn object<'a>(value: &'a Value, label: &str) -> Result<&'a Map<String, Value>> {
+    match value.as_object() {
+        Some(object) => Ok(object),
+        None => fail!("the index's {label} is {value}, which is no object"),
+    }
+}
+
+/// The asset records of <index>, the live index.
+fn live(index: &Map<String, Value>) -> Result<Live> {
+    let mut live = Live {
+        order: strings(index, "groups", "groups")?,
+        groups: BTreeMap::new(),
+    };
+    let Some(groups) = index.get("assetGroups") else {
+        return Ok(live);
+    };
+    for (name, entry) in object(groups, "assetGroups")? {
+        let label = format!("assetGroups.{name}");
+        let entry = object(entry, &label)?;
+        let mut group = LiveGroup {
+            entry: entry.clone(),
+            order: strings(entry, "order", &format!("{label}.order"))?,
+            files: BTreeMap::new(),
+        };
+        group.entry.remove("order");
+        group.entry.remove("files");
+        if let Some(files) = entry.get("files") {
+            for (key, record) in object(files, &format!("{label}.files"))? {
+                let label = format!("{label}.files.{key}");
+                let record = object(record, &label)?;
+                let blob = match record.get("blob") {
+                    Some(Value::String(blob)) => blob.clone(),
+                    other => fail!(
+                        "the index's {label} names the upload {}, which is no upload id",
+                        other.unwrap_or(&Value::Null)
+                    ),
+                };
+                let sha256 = match record.get("sha256") {
+                    None => None,
+                    Some(Value::String(sha256)) => Some(sha256.clone()),
+                    Some(other) => {
+                        fail!("the index's {label} gives the sha256 {other}, which is no hash")
+                    }
+                };
+                group.files.insert(key.clone(), LiveRecord { blob, sha256 });
+            }
+        }
+        live.groups.insert(name.clone(), group);
+    }
+    Ok(live)
+}
+
+impl Live {
+    /// The upload that the record of <asset> names, when the record says the
+    /// upload holds the asset's bytes.
+    fn uploaded(&self, asset: &Asset) -> Option<&str> {
+        let record = self
+            .groups
+            .get(&asset.group)?
+            .files
+            .get(&key(&asset.name))?;
+        (record.sha256.as_deref() == Some(asset.sha256.as_str())).then_some(record.blob.as_str())
+    }
+
+    /// Every upload the records name.
+    fn blobs(&self) -> BTreeSet<String> {
+        self.groups
+            .values()
+            .flat_map(|group| group.files.values())
+            .map(|record| record.blob.clone())
+            .collect()
+    }
 }
 
 /// The assets of <assets> that need an upload: those whose record in
-/// <index>, the live index, is missing or names other bytes.
-pub fn to_upload<'a>(index: &Map<String, Value>, assets: &'a [Asset]) -> Vec<&'a Asset> {
-    assets
+/// <index>, the live index, is missing or names other bytes. Fails when the
+/// index's asset records are of the wrong shape.
+pub fn to_upload<'a>(index: &Map<String, Value>, assets: &'a [Asset]) -> Result<Vec<&'a Asset>> {
+    let live = live(index)?;
+    Ok(assets
         .iter()
-        .filter(|asset| uploaded(index, asset).is_none())
-        .collect()
+        .filter(|asset| live.uploaded(asset).is_none())
+        .collect())
 }
 
 /// The upload id in <url>, what the Artifact tool gave for one upload: the
@@ -190,18 +279,21 @@ pub fn upload_id(url: &str) -> Result<String> {
 /// uploads keep the order the index gives them, with the new ones after,
 /// by name; a group the commit lacks leaves the index. Returns the uploads
 /// that the index named and no longer does, which the session deletes. Fails
-/// when an asset has neither a new upload nor a record of its bytes.
+/// when the index's asset records are of the wrong shape, or an asset has
+/// neither a new upload nor a record of its bytes.
 pub fn set_records(
     index: &mut Map<String, Value>,
     assets: &[Asset],
     new: &BTreeMap<String, String>,
 ) -> Result<Vec<String>> {
-    let before = blobs(index);
-    let mut groups: BTreeMap<&str, Map<String, Value>> = BTreeMap::new();
+    let live = live(index)?;
+    // Each group's records by key, and its uploads' names.
+    let mut groups: BTreeMap<&str, (Map<String, Value>, Vec<String>)> = BTreeMap::new();
+    let mut kept = BTreeSet::new();
     for asset in assets {
         let blob = match new.get(&asset.path) {
             Some(id) => id.clone(),
-            None => match uploaded(index, asset) {
+            None => match live.uploaded(asset) {
                 Some(id) => id.to_string(),
                 None => fail!(
                     "{} has no upload of its bytes: upload it, or write the files again with publish-files, which reads the index anew",
@@ -209,7 +301,9 @@ pub fn set_records(
                 ),
             },
         };
-        groups.entry(&asset.group).or_default().insert(
+        kept.insert(blob.clone());
+        let (records, names) = groups.entry(&asset.group).or_default();
+        records.insert(
             key(&asset.name),
             json!({
                 "name": asset.name,
@@ -219,91 +313,41 @@ pub fn set_records(
                 "sha256": asset.sha256,
             }),
         );
+        names.push(asset.name.clone());
     }
-    let old_groups = index
-        .get("assetGroups")
-        .and_then(Value::as_object)
-        .cloned()
-        .unwrap_or_default();
-    let old_order: Vec<String> = index
-        .get("groups")
-        .and_then(Value::as_array)
-        .map(|names| {
-            names
-                .iter()
-                .filter_map(Value::as_str)
-                .map(str::to_string)
-                .collect()
-        })
-        .unwrap_or_default();
-    let order = kept_then_new(&old_order, groups.keys().map(|g| g.to_string()));
+    let order = kept_then_new(&live.order, groups.keys().map(|g| g.to_string()));
     let mut asset_groups = Map::new();
-    for group in &order {
-        let files = &groups[group.as_str()];
-        let mut entry = old_groups
-            .get(group)
-            .and_then(Value::as_object)
-            .cloned()
-            .unwrap_or_default();
-        let old_files: Vec<String> = entry
-            .get("order")
-            .and_then(Value::as_array)
-            .map(|names| {
-                names
-                    .iter()
-                    .filter_map(Value::as_str)
-                    .map(str::to_string)
-                    .collect()
-            })
-            .unwrap_or_default();
-        let names = files
-            .values()
-            .map(|record| record["name"].as_str().unwrap_or("").to_string());
-        entry.insert("name".to_string(), json!(group));
-        entry.insert("order".to_string(), json!(kept_then_new(&old_files, names)));
-        entry.insert("files".to_string(), Value::Object(files.clone()));
-        asset_groups.insert(group.clone(), Value::Object(entry));
+    for name in &order {
+        let (records, names) = groups
+            .remove(name.as_str())
+            .expect("the order holds only these groups");
+        let old = live.groups.get(name);
+        let mut entry = old.map(|group| group.entry.clone()).unwrap_or_default();
+        let old_order = old.map(|group| group.order.as_slice()).unwrap_or_default();
+        entry.insert("name".to_string(), json!(name));
+        entry.insert(
+            "order".to_string(),
+            json!(kept_then_new(old_order, names.into_iter())),
+        );
+        entry.insert("files".to_string(), Value::Object(records));
+        asset_groups.insert(name.clone(), Value::Object(entry));
     }
     index.insert("groups".to_string(), json!(order));
     index.insert("assetGroups".to_string(), Value::Object(asset_groups));
-    let after = blobs(index);
-    Ok(before.difference(&after).cloned().collect())
+    Ok(live.blobs().difference(&kept).cloned().collect())
 }
 
-/// <wanted> in the order <kept> gives them, then the rest by name.
+/// <wanted> in the order <kept> gives them, each once, then the rest by
+/// name.
 fn kept_then_new(kept: &[String], wanted: impl Iterator<Item = String>) -> Vec<String> {
     let wanted: BTreeSet<String> = wanted.collect();
-    let mut order: Vec<String> = kept
-        .iter()
-        .filter(|name| wanted.contains(*name))
-        .cloned()
-        .collect();
-    order.dedup();
-    for name in wanted {
-        if !order.contains(&name) {
-            order.push(name);
+    let mut order: Vec<String> = Vec::new();
+    for name in kept.iter().chain(&wanted) {
+        if wanted.contains(name) && !order.contains(name) {
+            order.push(name.clone());
         }
     }
     order
-}
-
-/// Every upload id the asset records of <index> name.
-fn blobs(index: &Map<String, Value>) -> BTreeSet<String> {
-    let mut found = BTreeSet::new();
-    let Some(groups) = index.get("assetGroups").and_then(Value::as_object) else {
-        return found;
-    };
-    for group in groups.values() {
-        let Some(files) = group.get("files").and_then(Value::as_object) else {
-            continue;
-        };
-        for record in files.values() {
-            if let Some(blob) = record.get("blob").and_then(Value::as_str) {
-                found.insert(blob.to_string());
-            }
-        }
-    }
-    found
 }
 
 #[cfg(test)]
