@@ -19,17 +19,17 @@ use crate::lists::{Audience, Closed, How, Id, Item, Kind, Level, Lists, Located,
 use crate::text::{counted, duration, local_minute};
 use crate::tool::Tool;
 
-fn wait_line(lists: &Lists, wait: &Wait) -> String {
+fn wait_line(lists: &Lists, wait: &Wait) -> Result<String> {
     let met = if derive::wait_met(lists, wait) {
         "met"
     } else {
         "not met"
     };
     let words = wait_words(lists, wait);
-    match question_closing_words(lists, wait) {
+    Ok(match question_closing_words(lists, wait)? {
         Some(closing) => format!("{words} ({met}; {closing})"),
         None => format!("{words} ({met})"),
-    }
+    })
 }
 
 /// <times> in words at <now>: when the first run started, when the work
@@ -218,7 +218,7 @@ pub fn render_item(lists: &Lists, id: Id, now: i64) -> Result<String> {
         let _ = writeln!(out, "brief: {brief}");
     }
     for wait in &item.waits {
-        let _ = writeln!(out, "waits on {}", wait_line(lists, wait));
+        let _ = writeln!(out, "waits on {}", wait_line(lists, wait)?);
     }
     // A closed item runs nowhere, whatever its record holds.
     let running = if open { item.running.as_slice() } else { &[] };

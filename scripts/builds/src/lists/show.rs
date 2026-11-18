@@ -2,6 +2,7 @@
 
 use std::fmt::Write;
 
+use crate::fail;
 use crate::fail::Result;
 use crate::lists::derive::{self, ItemState, StackEntry};
 use crate::lists::trail::{trail_line, trail_wanted};
@@ -31,13 +32,17 @@ pub fn wait_words(lists: &Lists, wait: &Wait) -> String {
 
 /// How the question that <wait> names left the stack, with the reason or
 /// decision that closed it; None for any other wait, or a question still open.
-pub fn question_closing_words(lists: &Lists, wait: &Wait) -> Option<String> {
+/// Fails when the wait names no record, which the store's checks refuse.
+pub fn question_closing_words(lists: &Lists, wait: &Wait) -> Result<Option<String>> {
     let Wait::Question(id) = wait else {
-        return None;
+        return Ok(None);
     };
-    match lists.locate(*id)?.standing {
-        crate::lists::Standing::Closed(closed) => Some(closed.how.words()),
-        crate::lists::Standing::Open => None,
+    match lists.locate(*id) {
+        Some(found) => match found.standing {
+            crate::lists::Standing::Closed(closed) => Ok(Some(closed.how.words())),
+            crate::lists::Standing::Open => Ok(None),
+        },
+        None => fail!("an item waits on question {id}, which is no record"),
     }
 }
 

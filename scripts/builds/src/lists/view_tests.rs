@@ -306,3 +306,13 @@ fn a_wait_on_a_closed_question_says_why_the_question_closed() {
         json!("settled by rules/x.md")
     );
 }
+
+#[test]
+fn a_wait_on_a_question_that_is_no_record_fails_instead_of_reading_as_open() {
+    let db = db();
+    let lists = read(&db);
+    let error = crate::lists::show::question_closing_words(&lists, &Wait::Question(Id(99)))
+        .unwrap_err()
+        .text();
+    assert!(error.contains("no record"), "{error}");
+}

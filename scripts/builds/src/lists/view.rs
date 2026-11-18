@@ -266,24 +266,24 @@ impl View {
     }
 }
 
-fn wait_view(lists: &Lists, wait: &Wait) -> WaitView {
+fn wait_view(lists: &Lists, wait: &Wait) -> Result<WaitView> {
     let named = |kind: &'static str, id: Id| {
         let title = lists.locate(id).map(|found| found.title.to_string());
-        WaitView {
+        Ok(WaitView {
             kind,
             id: Some(id),
             title,
             text: None,
             met: derive::wait_met(lists, wait),
-            closing: crate::lists::show::question_closing_words(lists, wait),
+            closing: crate::lists::show::question_closing_words(lists, wait)?,
             on_person: derive::wait_on_person(lists, wait),
-        }
+        })
     };
     match wait {
         Wait::Item(id) => named("item", *id),
         Wait::Question(id) => named("question", *id),
         Wait::Design(id) => named("design", *id),
-        Wait::Condition(text) => WaitView {
+        Wait::Condition(text) => Ok(WaitView {
             kind: "condition",
             id: None,
             title: None,
@@ -291,7 +291,7 @@ fn wait_view(lists: &Lists, wait: &Wait) -> WaitView {
             met: false,
             closing: None,
             on_person: false,
-        },
+        }),
     }
 }
 
@@ -316,7 +316,7 @@ fn item_view(
             .waits
             .iter()
             .map(|wait| wait_view(lists, wait))
-            .collect(),
+            .collect::<Result<_>>()?,
         running: item
             .running
             .iter()
