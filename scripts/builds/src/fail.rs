@@ -23,6 +23,15 @@ impl Fail {
 
 pub type Result<T> = std::result::Result<T, Fail>;
 
+/// The exit code a shell gives for a program that ended with <status>: its
+/// own code, or 128 plus the signal that ended it.
+pub fn exit_code(status: std::process::ExitStatus) -> i32 {
+    use std::os::unix::process::ExitStatusExt;
+    status
+        .code()
+        .unwrap_or_else(|| 128 + status.signal().unwrap_or(0))
+}
+
 /// Ends the current function with a `Fail::Message` built like `format!`.
 #[macro_export]
 macro_rules! fail {
@@ -64,6 +73,15 @@ mod tests {
 
     fn message(result: Result<u8>) -> String {
         result.expect_err("fails").text()
+    }
+
+    #[test]
+    fn an_exit_code_is_the_programs_code_or_128_plus_its_signal() {
+        use std::os::unix::process::ExitStatusExt;
+        use std::process::ExitStatus;
+        assert_eq!(exit_code(ExitStatus::from_raw(0)), 0);
+        assert_eq!(exit_code(ExitStatus::from_raw(3 << 8)), 3);
+        assert_eq!(exit_code(ExitStatus::from_raw(libc::SIGKILL)), 137);
     }
 
     #[test]

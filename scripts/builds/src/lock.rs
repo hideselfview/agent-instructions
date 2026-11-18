@@ -54,7 +54,7 @@
 //! (`Held::requeue`), straight behind the taker, and runs again.
 
 use std::collections::HashMap;
-use std::os::unix::process::{CommandExt, ExitStatusExt};
+use std::os::unix::process::CommandExt;
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 use std::sync::mpsc::{RecvTimeoutError, channel};
@@ -845,12 +845,11 @@ fn run_group(
     // The group is gone with its leader's pid free to be reused: no later
     // signal may go to it.
     GROUP.store(0, Ordering::SeqCst);
-    match (status.code(), status.signal()) {
+    match crate::fail::exit_code(status) {
         _ if timed_out.load(Ordering::SeqCst) => Ok(Within::TimedOut),
-        (Some(0), _) => Ok(Within::Ran(Ran::Finished)),
+        0 => Ok(Within::Ran(Ran::Finished)),
         _ if TAKEN_OVER.load(Ordering::SeqCst) => Ok(Within::Ran(Ran::TakenOver)),
-        (Some(code), _) => Err(Fail::Exit(code)),
-        (None, signal) => Err(Fail::Exit(128 + signal.unwrap_or(0))),
+        code => Err(Fail::Exit(code)),
     }
 }
 

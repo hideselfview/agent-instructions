@@ -556,7 +556,7 @@ pub fn run_command(
     command: &[String],
     time_locks: bool,
 ) -> Result<(i32, Option<Duration>)> {
-    use std::os::unix::process::{CommandExt, ExitStatusExt};
+    use std::os::unix::process::CommandExt;
     let run = job_id();
     let mut child = transport
         .command(&run_script(transport.host, worktree, command, &run))
@@ -598,12 +598,7 @@ pub fn run_command(
     if stopped {
         return Ok((STOPPED_EXIT, waited));
     }
-    Ok((
-        status
-            .code()
-            .unwrap_or_else(|| 128 + status.signal().unwrap_or(0)),
-        waited,
-    ))
+    Ok((crate::fail::exit_code(status), waited))
 }
 
 /// The worktree path the claim script printed.

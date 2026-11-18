@@ -494,10 +494,7 @@ fn run_here(
     let code = if status.success() {
         recorded
     } else {
-        use std::os::unix::process::ExitStatusExt;
-        status
-            .code()
-            .unwrap_or_else(|| 128 + status.signal().unwrap_or(0))
+        crate::fail::exit_code(status)
     };
     Ok(Exited { code, lock_wait })
 }

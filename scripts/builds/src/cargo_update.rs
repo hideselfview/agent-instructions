@@ -83,12 +83,7 @@ fn run_in(dir: &Path, args: &[String]) -> Result<()> {
     if status.success() {
         return Ok(());
     }
-    use std::os::unix::process::ExitStatusExt;
-    Err(Fail::Exit(
-        status
-            .code()
-            .unwrap_or_else(|| 128 + status.signal().unwrap_or(0)),
-    ))
+    Err(Fail::Exit(crate::fail::exit_code(status)))
 }
 
 #[cfg(test)]
