@@ -109,6 +109,30 @@ pub enum Terminal {
     Person,
 }
 
+/// Runs <script> on <host> with this terminal as its input and output, so
+/// sudo there can ask the person for the password.
+pub fn run_at_terminal(ssh: &Ssh, host: &Host, script: &str) -> Result<()> {
+    let mut command = match &host.target {
+        Some(target) => ssh.command(
+            target,
+            &format!("sh -c {}", sh_quote(script)),
+            Terminal::Person,
+        ),
+        None => {
+            let mut command = Command::new("sh");
+            command.arg("-c").arg(script);
+            command
+        }
+    };
+    let status = command
+        .status()
+        .context(|| format!("running sudo on {}", place(&host.name)))?;
+    if !status.success() {
+        fail!("sudo on {} failed ({status})", place(&host.name));
+    }
+    Ok(())
+}
+
 /// <text> as one word for a POSIX shell.
 pub fn sh_quote(text: &str) -> String {
     format!("'{}'", text.replace('\'', "'\\''"))
@@ -839,8 +863,9 @@ pub const VOLUME: &str = "/Volumes/Builds";
 
 /// The builds root on a remote host without a build volume, relative to the
 /// host's home: each worktree's build folders live in `<root>/<repo>/<name>`
-/// there, as a side worktree's live under /Volumes/Builds here.
-pub const REMOTE_ROOT: &str = "builds-root";
+/// there, as a side worktree's live under /Volumes/Builds here. Spotlight
+/// skips a folder whose name ends in `.noindex` (spotlight.rs).
+pub const REMOTE_ROOT: &str = "builds-root.noindex";
 
 pub fn cmd_host(tool: &Tool, ssh: &Ssh, args: &[String]) -> Result<()> {
     match args {

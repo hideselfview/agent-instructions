@@ -361,3 +361,23 @@ fn the_hosts_file_keeps_each_hosts_speed() {
     std::fs::write(&file, "m1 u@m1 10 0\n").unwrap();
     assert!(read_remote(&places).is_err());
 }
+
+/// A script run at the terminal runs on the host through `ssh -t`.
+#[test]
+fn a_script_at_the_terminal_runs_on_the_host() {
+    let scratch = Scratch::new("host-terminal");
+    let home = scratch.dir.join("remote-home");
+    let ssh = fake_ssh(&scratch.dir.join("bin"), &home);
+    let m1 = Host {
+        name: "m1".to_string(),
+        target: Some("u@m1".to_string()),
+        cores: 10,
+        speed: Some(1.0),
+    };
+    run_at_terminal(&ssh, &m1, "touch ran && touch 'ran too'").unwrap();
+    assert!(home.join("ran").exists() && home.join("ran too").exists());
+    let Err(Fail::Message(message)) = run_at_terminal(&ssh, &m1, "exit 1") else {
+        panic!("expected a failure");
+    };
+    assert!(message.starts_with("sudo on host m1 failed"), "{message}");
+}

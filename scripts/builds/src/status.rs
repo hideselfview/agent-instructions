@@ -1,6 +1,7 @@
 //! `builds status`: every entry on the volume, with size against cap, last
-//! write and links, and build output in the temporary folders; `--json` the
-//! repos' checkouts and the volume's free space.
+//! write and links, build output in the temporary folders, and whether
+//! Spotlight indexes the build root (spotlight.rs); `--json` the repos'
+//! checkouts and the volume's free space.
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -11,6 +12,7 @@ use crate::checkout::{Root, absolute_link_target, file_name, parallel_map};
 use crate::claim::Claim;
 use crate::fail;
 use crate::fail::Result;
+use crate::host::{Host, Ssh};
 use crate::install::sccache_config_holds;
 use crate::lane::{AddedBy, Lane, is_lane_file};
 use crate::manifest::{SHARED_CACHES, build_dirs, kept_builds};
@@ -560,10 +562,15 @@ pub fn cmd_status(tool: &mut Tool, args: &[String]) -> Result<()> {
             last_write(measured.newest)
         ));
     }
+    let is_host = tool.places.is_host()?;
     out.extend(missing_folder_lines(
         tool.places.derived_data().is_dir(),
         tool.places.caches().is_dir(),
-        tool.places.is_host()?,
+        is_host,
+    ));
+    out.push(crate::spotlight::status_line(
+        crate::spotlight::read(&tool.places, &Ssh::from_env(), &Host::local()),
+        is_host,
     ));
     sccache_lines(&mut out);
     out.push(volume_line(&tool.places.root)?);

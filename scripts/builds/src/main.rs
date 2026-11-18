@@ -65,6 +65,7 @@ mod setup;
 mod shells;
 mod shot_findings;
 mod side_git;
+mod spotlight;
 mod status;
 mod stuck;
 mod temp_builds;

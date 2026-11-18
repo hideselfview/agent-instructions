@@ -9,9 +9,10 @@
 //! the host's clone of the repo, set up as a side worktree is here: made with
 //! `git worktree add`, then the host's `builds setup` and the repo's
 //! `scripts/hooks/post-checkout`, with the host's builds root
-//! (`/Volumes/Builds` when the host has it, else `~/builds-root`) so the build
-//! folders live under `<root>/<repo>/<name>`, and, in the android lane, a
-//! `local.properties` pointing each Gradle project at the host's Android SDK.
+//! (`/Volumes/Builds` when the host has it, else `~/builds-root.noindex`) so
+//! the build folders live under `<root>/<repo>/<name>`, and, in the android
+//! lane, a `local.properties` pointing each Gradle project at the host's
+//! Android SDK.
 //! A build sends its commit to the host's clone as a job ref
 //! (`refs/builds/jobs/<id>`, never to GitHub), switches the checkout to it
 //! (the checkout must have no changes, as here) and deletes the ref; the

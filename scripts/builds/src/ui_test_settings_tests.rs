@@ -121,20 +121,6 @@ fn reads_a_hosts_settings_over_ssh() {
     assert!(read(&places, &ssh, &gone).is_err());
 }
 
-/// A script run at the terminal runs on the host through `ssh -t`.
-#[test]
-fn a_script_at_the_terminal_runs_on_the_host() {
-    let scratch = Scratch::new("ui-settings-terminal");
-    let home = scratch.dir.join("remote-home");
-    let ssh = fake_ssh(&scratch.dir.join("bin"), &home);
-    run_at_terminal(&ssh, &host("m1"), "touch ran && touch 'ran too'").unwrap();
-    assert!(home.join("ran").exists() && home.join("ran too").exists());
-    let Err(Fail::Message(message)) = run_at_terminal(&ssh, &host("m1"), "exit 1") else {
-        panic!("expected a failure");
-    };
-    assert!(message.starts_with("sudo on host m1 failed"), "{message}");
-}
-
 /// The places of a scratch with host m1 recorded, and m1 recorded as timing
 /// out turning on automation mode.
 fn timed_out(scratch: &Scratch) -> Places {

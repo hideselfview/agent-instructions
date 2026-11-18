@@ -143,7 +143,7 @@ fn the_first_switch_makes_the_checkout_as_a_side_worktree_is_made() {
     assert_eq!(app.head().unwrap(), sha);
     assert_eq!(
         std::fs::read_to_string(wt.join("hook-ran")).unwrap().trim(),
-        s.home.join("builds-root").display().to_string(),
+        s.home.join("builds-root.noindex").display().to_string(),
         "the post-checkout ran with the host's builds root"
     );
     // The host's `builds setup` links the build folders first, since a repo
@@ -254,7 +254,7 @@ fn results_come_back_to_the_checkouts_folder_on_this_mac() {
     let wt = s.home.join("dev/demo-worktrees/app-1");
     // As in a real checkout, the results folder is a link into the builds
     // root.
-    let real = s.home.join("builds-root/demo/app-1/shots");
+    let real = s.home.join("builds-root.noindex/demo/app-1/shots");
     std::fs::create_dir_all(real.join("android")).unwrap();
     std::fs::write(real.join("android/a.png"), "pixels").unwrap();
     std::os::unix::fs::symlink(&real, wt.join("shots")).unwrap();

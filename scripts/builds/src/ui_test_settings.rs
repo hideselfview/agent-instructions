@@ -12,12 +12,10 @@
 //! host as refusing mac app builds (host.rs), which setup removes once the
 //! settings are in place.
 
-use std::process::Command;
-
 use crate::fail;
-use crate::fail::{Context, Fail, Result};
+use crate::fail::{Fail, Result};
 use crate::health::Advice;
-use crate::host::{self, Host, Refusal, Refused, Ssh, sh_quote};
+use crate::host::{self, Host, Refusal, Refused, Ssh};
 use crate::host_installed::HostInstalled;
 use crate::places::Places;
 use crate::text::{local_minute, note};
@@ -171,30 +169,6 @@ pub fn read(places: &Places, ssh: &Ssh, host: &Host) -> Result<UiTestSettings> {
     parse(&transport.capture(SCRIPT, "checking the settings that UI tests need")?)
 }
 
-/// Runs <script> on <host> with this terminal as its input and output, so
-/// sudo there can ask the person for the password.
-fn run_at_terminal(ssh: &Ssh, host: &Host, script: &str) -> Result<()> {
-    let mut command = match &host.target {
-        Some(target) => ssh.command(
-            target,
-            &format!("sh -c {}", sh_quote(script)),
-            host::Terminal::Person,
-        ),
-        None => {
-            let mut command = Command::new("sh");
-            command.arg("-c").arg(script);
-            command
-        }
-    };
-    let status = command
-        .status()
-        .context(|| format!("running sudo on {}", host::place(&host.name)))?;
-    if !status.success() {
-        fail!("sudo on {} failed ({status})", host::place(&host.name));
-    }
-    Ok(())
-}
-
 /// `builds host setup`'s step for these settings: checks them on <host>, and
 /// when some are off, runs their commands there through sudo if a person is
 /// at this terminal (<at_terminal>) to type the password, then checks again.
@@ -208,7 +182,7 @@ pub fn set_up(places: &Places, ssh: &Ssh, host: &Host, at_terminal: bool) -> Res
         &host.name,
         at_terminal,
         &mut || read(places, ssh, host),
-        &mut |script| run_at_terminal(ssh, host, script),
+        &mut |script| host::run_at_terminal(ssh, host, script),
     )
 }
 

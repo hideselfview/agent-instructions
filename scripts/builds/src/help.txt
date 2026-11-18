@@ -773,8 +773,8 @@ built again.
                               the checkout there as a side worktree is made:
                               the host's `builds setup` links the build
                               folders into the host's builds root
-                              (/Volumes/Builds, or ~/builds-root on a host
-                              without that volume), then the repo's
+                              (/Volumes/Builds, or ~/builds-root.noindex on a
+                              host without that volume), then the repo's
                               post-checkout runs, and, for the android lane,
                               builds writes a local.properties naming the
                               host's Android SDK in each Gradle project
@@ -806,8 +806,8 @@ HOSTS
 
 builds can run jobs on other Macs, its hosts; this Mac is always one, named
 local. A host keeps its clone of each repo at ~/dev/<repo>, its worktrees at
-~/dev/<repo>-worktrees/, and its build roots in ~/builds-root in place of
-/Volumes/Builds.
+~/dev/<repo>-worktrees/, and its build roots in /Volumes/Builds when it has
+that volume, else in ~/builds-root.noindex.
 
 A host refuses jobs when it answers but cannot start one. builds finds this
 two ways: a probe, which asks the host for its load and disk, also runs git
@@ -846,6 +846,19 @@ names the commands to run on the host. `builds health` checks them on every
 host, this Mac included, and lists each host that lacks one under "needs
 action" with the commands.
 
+Spotlight's indexer reads every file a build writes where it indexes, so
+builds keeps Spotlight off each Mac's build root. Spotlight skips a folder
+whose name ends in .noindex, so a host's build root in its home folder,
+~/builds-root.noindex, needs nothing more. A .metadata_never_index file in a
+folder does not keep Spotlight out. A build volume's indexing is a setting of
+the whole volume: `mdutil -s /Volumes/Builds` reads it, and
+`sudo mdutil -i off /Volumes/Builds` turns it off. `builds host setup` checks
+it on the host and runs that command through sudo there when a person is at
+this terminal; with nobody at the terminal it fails and names the command.
+builds never runs mdutil on a build root that is a folder, because the
+folder's volume holds other files. `builds status` says whether Spotlight
+indexes the build root.
+
   builds host add <name> <ssh target>
   builds host setup <name>
   builds host setup local
@@ -861,7 +874,7 @@ action" with the commands.
                               `setup` copies this Mac's builds program
                               to ~/.local/bin/builds on the host (both are
                               arm64 macOS), links builds-linker to it there,
-                              makes its ~/builds-root, and has
+                              makes its builds root, and has
                               that copy run `builds host setup-here` there,
                               which records that the Mac is a host (the file
                               `host` beside its lists folder, so `builds
@@ -880,11 +893,14 @@ action" with the commands.
                               settings that UI tests need there and turns on
                               the ones that are off (above), and once all are
                               on removes the host's record of UI tests timing
-                              out, so mac app builds use its checkouts again.
+                              out, so mac app builds use its checkouts again,
+                              and last turns off Spotlight's indexing of its
+                              build volume (above).
                               `setup local` checks the settings on this Mac,
-                              turns on the ones that are off and removes its
-                              record; `builds install` does the rest of this
-                              Mac's setup.
+                              turns on the ones that are off, removes its
+                              record and turns off Spotlight's indexing of
+                              this Mac's build volume; `builds install` does
+                              the rest of this Mac's setup.
                               `builds install` copies the program to every
                               host the same way, without the sccache step, the
                               timing or the settings. `list`
@@ -918,8 +934,9 @@ action" with the commands.
                               left, until `builds prune` removes it once the
                               checkout is gone. Before each job the host's
                               `builds setup` links the worktree's build folders
-                              into the host's builds root (/Volumes/Builds, or
-                              ~/builds-root on a host without that volume), and
+                              into the host's builds root (/Volumes/Builds,
+                              or ~/builds-root.noindex on a host without that
+                              volume), and
                               then the repo's scripts/hooks/post-checkout runs
                               in the worktree with BUILDS_ROOT set to that root
                               (the command gets the same). When the job ends,
@@ -1157,8 +1174,9 @@ STATUS, HEALTH AND THE DASHBOARD
 
   builds status               every entry on the volume: size per folder
                               against its cap, last write, links, and the
-                              builds inside each folder; and the build output
-                              in the temporary folders
+                              builds inside each folder; the build output in
+                              the temporary folders; and whether Spotlight
+                              indexes the build root (HOSTS)
   builds status --json [--no-folders]
                               the repos' checkouts (path, branch, app
                               checkout, claim, note and its `note_state`, each

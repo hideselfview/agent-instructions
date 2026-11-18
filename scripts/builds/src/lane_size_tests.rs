@@ -304,7 +304,7 @@ fn an_idle_checkout_builds_added_goes_and_a_persons_and_a_used_one_stay() {
     .unwrap();
     let host_home = world.scratch.dir.join("host-home");
     let worktree = host_home.join("dev/demo-worktrees/builds-android-1");
-    let built = host_home.join("builds-root/demo/builds-android-1/target");
+    let built = host_home.join("builds-root.noindex/demo/builds-android-1/target");
     for dir in [&worktree, &built] {
         std::fs::create_dir_all(dir).unwrap();
     }

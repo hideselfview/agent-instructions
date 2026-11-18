@@ -1,7 +1,8 @@
 //! Setting a host up to take jobs (`builds host setup`): copying this Mac's
 //! `builds` program there, running the host's sccache server under launchd,
-//! measuring the speed of its cores against this Mac's, and turning on the
-//! settings that UI tests need there (ui_test_settings.rs).
+//! measuring the speed of its cores against this Mac's, turning on the
+//! settings that UI tests need there (ui_test_settings.rs), and turning off
+//! Spotlight's indexing of its build volume (spotlight.rs).
 
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
@@ -146,9 +147,10 @@ pub fn install_program(ssh: &Ssh, host: &Host, program: &Path) -> Result<String>
 }
 
 /// `builds host setup <name>`: runs `setup_host`, then turns on the settings
-/// that UI tests need (`ui_test_settings::set_up`), whose sudo commands run
-/// only when a person is at this terminal. For this Mac (`local`), the
-/// command only turns on the settings, because `builds install` sets up
+/// that UI tests need (`ui_test_settings::set_up`) and turns off Spotlight's
+/// indexing of the build volume (`spotlight::set_up`), whose sudo commands
+/// run only when a person is at this terminal. For this Mac (`local`), the
+/// command only does the sudo steps, because `builds install` sets up
 /// everything else.
 pub fn cmd_setup(tool: &Tool, ssh: &Ssh, name: &str) -> Result<()> {
     use std::io::IsTerminal;
@@ -168,8 +170,10 @@ pub fn cmd_setup(tool: &Tool, ssh: &Ssh, name: &str) -> Result<()> {
             set_up.root, set_up.speed
         );
     }
-    let said =
-        crate::ui_test_settings::set_up(&tool.places, ssh, &host, std::io::stdin().is_terminal())?;
+    let at_terminal = std::io::stdin().is_terminal();
+    let said = crate::ui_test_settings::set_up(&tool.places, ssh, &host, at_terminal)?;
+    println!("host {name}: {said}");
+    let said = crate::spotlight::set_up(&tool.places, ssh, &host, at_terminal)?;
     println!("host {name}: {said}");
     Ok(())
 }

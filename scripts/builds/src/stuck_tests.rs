@@ -401,7 +401,7 @@ fn a_wedged_fseventsd_replaces_its_busy_finding() {
 /// test that no `builds cargo` runs.
 #[test]
 fn an_idle_test_that_builds_cargo_runs_on_a_host_is_hung() {
-    const TEST: &str = "/Users/d/builds-root/bae/remote-1/target/debug/deps/bae_store-0123456789abcdef --test-threads 4";
+    const TEST: &str = "/Volumes/Builds/bae/remote-1/target/debug/deps/bae_store-0123456789abcdef --test-threads 4";
     let rows = vec![
         row(1, 0, 0, 0.0, 10.0, 9_000_000, "/sbin/launchd"),
         row(

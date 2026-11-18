@@ -428,7 +428,7 @@ fn a_new_remote_worktree_runs_the_repos_post_checkout_with_the_hosts_root() {
     );
     let wts = s.home.join("dev/demo-worktrees");
     let hook = std::fs::read_to_string(wts.join("hook.txt")).unwrap();
-    let root = format!("{}/builds-root", s.home.display());
+    let root = format!("{}/builds-root.noindex", s.home.display());
     assert_eq!(
         hook.trim(),
         format!(
@@ -573,7 +573,7 @@ fn a_remote_step_runs_with_the_hosts_root_and_path() {
     let mut lines = seen.lines();
     assert_eq!(
         lines.next().unwrap(),
-        format!("{}/builds-root", s.home.display())
+        format!("{}/builds-root.noindex", s.home.display())
     );
     let path = lines.next().unwrap();
     assert!(
