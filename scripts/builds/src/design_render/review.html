@@ -35,6 +35,7 @@ figcaption a { color: var(--accent); font-weight: 400; font-size: 12px; margin-l
 .side h3 { margin: 0 0 4px; font-size: 13px; font-weight: 600; color: var(--dim); }
 .note { color: var(--dim); border: 1px dashed var(--line); border-radius: 6px; padding: 8px 12px; max-width: 700px; }
 .frame { position: relative; overflow: hidden; border: 1px solid var(--line); background: #000; }
+.hide-circles .circle { display: none; }
 .circle { position: absolute; box-sizing: border-box; border: 2px solid #f5d90a; border-radius: 16px; pointer-events: auto; }
 .status { margin: 0 0 6px; color: var(--dim); font-size: 13px; }
 .status .key { font-weight: 600; }
@@ -56,6 +57,7 @@ figcaption a { color: var(--accent); font-weight: 400; font-size: 12px; margin-l
     <button type="button" data-zoom="1" aria-pressed="false">100%</button>
     <button type="button" data-zoom="1.5" aria-pressed="false">150%</button>
     <button type="button" data-zoom="2" aria-pressed="false">200%</button>
+    <button type="button" id="circles" aria-pressed="true">Circles</button>
     <button type="button" id="reload">Redraw boards</button>
   </div>
 </header>
@@ -259,6 +261,11 @@ if (data.places.length || data.no_app_place) {
 document.getElementById("tools").addEventListener("click", e => {
   const b = e.target.closest("button");
   if (!b) return;
+  if (b.id === "circles") {
+    const on = document.body.classList.toggle("hide-circles");
+    b.setAttribute("aria-pressed", String(!on));
+    return;
+  }
   if (b.id === "reload") {
     for (const {b: board, frame} of frames) frame.src = board.src + (board.src.includes("?") ? "&" : "?") + "t=" + Date.now();
     return;
