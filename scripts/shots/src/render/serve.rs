@@ -1,0 +1,178 @@
+//! A static HTTP server on 127.0.0.1 for the boards, answering with the
+//! canvas's routes (`boards::routes`): the boards and their parts as
+//! siblings, the runtime copy and the design system under
+//! `/ds/<namespace>/`, each also under `/storage/`. It also serves React at
+//! `/react.js` and `/react-dom.js`, and each component's preview page at
+//! `/components/<Name>.html` with the design system loaded ahead of its
+//! script.
+
+use crate::design::{COMPONENTS, DesignSystem};
+use crate::render::preview;
+use boards::routes::{DesignFile, Route, route};
+use futures::StreamExt;
+use futures::stream::FuturesUnordered;
+use std::net::SocketAddr;
+use std::path::Path;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::{TcpListener, TcpStream};
+
+/// What the server serves: the repo's boards, its design system and the
+/// runtime copy.
+#[derive(Clone, Copy)]
+pub(crate) struct Tree<'a> {
+    pub(crate) root: &'a Path,
+    pub(crate) design: &'a DesignSystem,
+    pub(crate) runtime: &'static str,
+}
+
+/// The component named by `/components/<Name>.html`.
+fn preview_component(path: &str) -> Option<&str> {
+    let name = path.strip_prefix("/components/")?.strip_suffix(".html")?;
+    (!name.is_empty() && name.chars().all(|c| c.is_ascii_alphanumeric())).then_some(name)
+}
+
+/// The type and bytes of what <url_path> names, if it names something.
+async fn answer(tree: Tree<'_>, url_path: &str) -> Option<(&'static str, Vec<u8>)> {
+    let path = url_path.split(['?', '#']).next()?;
+    let javascript = "text/javascript; charset=utf-8";
+    match path {
+        "/react.js" => return Some((javascript, preview::REACT.as_bytes().to_vec())),
+        "/react-dom.js" => return Some((javascript, preview::REACT_DOM.as_bytes().to_vec())),
+        _ => {}
+    }
+    if let Some(component) = preview_component(path) {
+        let file = tree
+            .root
+            .join(COMPONENTS)
+            .join(component)
+            .join("preview.html");
+        let html = tokio::fs::read_to_string(&file).await.ok()?;
+        let page = preview::assemble(component, &html, &tree.design.namespace).ok()?;
+        return Some(("text/html; charset=utf-8", page.into_bytes()));
+    }
+    match route(url_path)? {
+        Route::Runtime => Some((javascript, tree.runtime.as_bytes().to_vec())),
+        Route::Design(namespace, file) => {
+            if namespace != tree.design.namespace {
+                return None;
+            }
+            Some(match file {
+                DesignFile::TokensCss => ("text/css; charset=utf-8", &tree.design.tokens_css),
+                DesignFile::BundleCss => ("text/css; charset=utf-8", &tree.design.bundle_css),
+                DesignFile::BundleJs => (javascript, &tree.design.bundle_js),
+            })
+            .map(|(kind, text)| (kind, text.as_bytes().to_vec()))
+        }
+        Route::Mocks(relative) => {
+            let file = tree.root.join(boards::MOCKS).join(relative);
+            let bytes = tokio::fs::read(&file).await.ok()?;
+            Some((content_type(&file), bytes))
+        }
+    }
+}
+
+fn content_type(file: &Path) -> &'static str {
+    match file.extension().and_then(|e| e.to_str()) {
+        Some("html") => "text/html; charset=utf-8",
+        Some("js") => "text/javascript; charset=utf-8",
+        Some("css") => "text/css; charset=utf-8",
+        Some("json") => "application/json",
+        Some("svg") => "image/svg+xml",
+        Some("png") => "image/png",
+        Some("woff2") => "font/woff2",
+        _ => "application/octet-stream",
+    }
+}
+
+async fn respond(tree: Tree<'_>, mut stream: TcpStream) -> std::io::Result<()> {
+    let mut request = Vec::new();
+    let mut buffer = [0u8; 4096];
+    while !request.windows(4).any(|w| w == b"\r\n\r\n") {
+        let n = stream.read(&mut buffer).await?;
+        if n == 0 {
+            return Ok(());
+        }
+        request.extend_from_slice(&buffer[..n]);
+    }
+    let head = String::from_utf8_lossy(&request);
+    let mut line = head.lines().next().unwrap_or("").split(' ');
+    let (method, target) = (line.next().unwrap_or(""), line.next().unwrap_or(""));
+    let found = if method == "GET" || method == "HEAD" {
+        answer(tree, target).await
+    } else {
+        None
+    };
+    let (status, kind, body) = match found {
+        Some((kind, body)) => ("200 OK", kind, body),
+        None => (
+            "404 Not Found",
+            "text/plain",
+            format!("not found: {target}").into_bytes(),
+        ),
+    };
+    let head = format!(
+        "HTTP/1.1 {status}\r\nContent-Type: {kind}\r\nContent-Length: {}\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n",
+        body.len()
+    );
+    stream.write_all(head.as_bytes()).await?;
+    if method != "HEAD" {
+        stream.write_all(&body).await?;
+    }
+    stream.shutdown().await
+}
+
+pub(crate) struct Server {
+    address: SocketAddr,
+}
+
+impl Server {
+    /// The URL of the preview page of `component`.
+    pub(crate) fn preview_url(&self, component: &str) -> String {
+        format!("http://{}/components/{component}.html", self.address)
+    }
+
+    /// The URL of the board `name`.
+    pub(crate) fn board_url(&self, name: &str) -> String {
+        format!("http://{}/{name}.dc.html", self.address)
+    }
+}
+
+/// Answers requests from `listener` until it fails; the connections are
+/// served together, in this future.
+async fn serve(tree: Tree<'_>, listener: TcpListener) -> std::io::Error {
+    let mut connections = FuturesUnordered::new();
+    loop {
+        tokio::select! {
+            accepted = listener.accept() => match accepted {
+                Ok((stream, _)) => connections.push(respond(tree, stream)),
+                Err(error) => return error,
+            },
+            Some(done) = connections.next() => {
+                if let Err(error) = done {
+                    eprintln!("builds shots: serving a request failed: {error}");
+                }
+            }
+        }
+    }
+}
+
+/// Serves <tree> on a free port while `work` runs with the
+/// server, and stops with it. The requests are answered in this future, so no
+/// task outlives the call.
+pub(crate) async fn with_server<T>(
+    tree: Tree<'_>,
+    work: impl AsyncFnOnce(&Server) -> T,
+) -> std::io::Result<T> {
+    let listener = TcpListener::bind("127.0.0.1:0").await?;
+    let server = Server {
+        address: listener.local_addr()?,
+    };
+    tokio::select! {
+        out = work(&server) => Ok(out),
+        error = serve(tree, listener) => Err(error),
+    }
+}
+
+#[cfg(test)]
+#[path = "serve_tests.rs"]
+mod tests;

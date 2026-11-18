@@ -1,0 +1,31 @@
+[package]
+name = "builds-shots"
+version = "0.1.0"
+edition = "2024"
+publish = false
+description = "Checks an app's screenshots against its design boards; `builds shots` runs it."
+
+[[bin]]
+name = "builds-shots"
+path = "src/main.rs"
+
+[dependencies]
+boards = { path = "../boards" }
+chromiumoxide = "0.9"
+clap = { version = "4", features = ["derive"] }
+futures = "0.3"
+image = { version = "0.25", default-features = false, features = ["png"] }
+regex = "1.11"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.150"
+sha2 = "0.10"
+tempfile = "3.8"
+thiserror = "2"
+tokio = { version = "1.0", features = ["rt-multi-thread", "macros", "net", "io-util", "time", "fs"] }
+toml = "1.1.8"
+unicode-normalization = "0.1"
+
+[lints.rust]
+# A `pub` item silences dead_code, so every item is `pub(crate)` or narrower.
+unreachable_pub = "deny"
+dead_code = "deny"
