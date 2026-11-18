@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Dashboard: publish designs to claude.ai</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="ds/builds/tokens.css">
+<link rel="stylesheet" href="ds/builds/components/bundle.css">
+<script src="ds/builds/components/bundle.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet><style>body{margin:0;background:var(--bg)} .lm-board{display:flex;flex-direction:column;gap:24px;padding:24px} .lm-board > .lm-cap{font:600 13px var(--font-sans);color:var(--muted)}
+.pub-links{display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--text-2)}
+.pub-links a{color:var(--accent)}
+.pub-now{font-size:13px;color:var(--muted)}
+.pub-now code{font:500 12px var(--font-mono);color:var(--text-2)}</style></helmet>
+<div class="lm-board">
+<div class="lm-cap">Publish to claude.ai… opens the publish form: a commit, then Publish</div>
+<div class="lm-backdrop"><div class="lane-modal" role="dialog" aria-label="Publish bae designs to claude.ai"><div class="lm-head"><span class="lm-title">Publish bae designs to claude.ai</span><button type="button" class="lm-close">Close</button></div><div class="lm-body"><div class="pub-now">claude.ai has <code>43b9c69</code>, published 14:20. Publish sends both canvases and the design system from one commit.</div><div class="bform"><input value="origin/main" aria-label="Commit"><button type="button" class="qbtn">Publish</button></div></div></div></div>
+<div class="lm-cap">While a Claude session publishes</div>
+<div class="lm-backdrop"><div class="lane-modal" role="dialog" aria-label="Publish bae designs to claude.ai"><div class="lm-head"><span class="lm-title">Publish bae designs to claude.ai</span><button type="button" class="lm-close">Close</button></div><div class="lm-body"><div class="bform"><input value="origin/main" aria-label="Commit" disabled><button type="button" class="qbtn" disabled>Publish</button></div><div class="bresult"><div class="bstatus">Publishing <code>5f2e81a</code> · the design session took it at 15:02</div></div></div></div></div>
+<div class="lm-cap">After it ends, the form keeps its result until you dismiss it</div>
+<div class="lm-backdrop"><div class="lane-modal" role="dialog" aria-label="Publish bae designs to claude.ai"><div class="lm-head"><span class="lm-title">Publish bae designs to claude.ai</span><button type="button" class="lm-close">Close</button></div><div class="lm-body"><div class="bform"><input value="origin/main" aria-label="Commit"><button type="button" class="qbtn">Publish</button></div><div class="bresult"><div class="bstatus">Published <code>5f2e81a</code> · ended 15:06</div><button type="button" class="bdismiss" aria-label="Dismiss"><svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8"></path></svg></button></div><div class="pub-links"><a href="https://claude.ai/artifact/FLmQghVJ24uoT5Ukpe92NR">Welcome, settings, library</a><a href="https://claude.ai/artifact/UD1cAH7iWgr6927dGF2m4j">Home, import, storage</a><a href="https://claude.ai/artifact/MUbLkiU63y27pSuFTgm8CE">Design system</a></div></div></div></div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":760,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

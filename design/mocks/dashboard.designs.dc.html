@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Dashboard: a project's designs</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="ds/builds/tokens.css">
+<link rel="stylesheet" href="ds/builds/components/bundle.css">
+<script src="ds/builds/components/bundle.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet><style>body{margin:0;background:var(--bg)}
+.dz{display:flex;flex-direction:column;gap:16px;padding:20px 24px;font:400 14px var(--font-sans);color:var(--text)}
+.dz-head{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}
+.dz-head h1{margin:0;font:600 20px var(--font-sans)}
+.dz-sub{color:var(--muted);font-size:13px}
+.dz-sub code{font:500 12px var(--font-mono);color:var(--text-2)}
+.dz-tools{margin-left:auto;display:flex;gap:8px;align-items:center}
+.dz-pages{display:flex;gap:4px;flex-wrap:wrap;border-bottom:1px solid var(--line);padding-bottom:8px}
+.dz-pages button{font:inherit;font-size:13px;color:var(--text-2);background:none;border:1px solid transparent;border-radius:6px;padding:3px 10px;cursor:pointer}
+.dz-pages button[aria-selected="true"]{color:var(--text);border-color:var(--line);background:var(--surface)}
+.dz-pages .n{color:var(--muted);margin-left:6px;font-size:12px}
+.dz-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:20px}
+.dz-board{display:flex;flex-direction:column;gap:6px;min-width:0}
+.dz-frame{aspect-ratio:4/3;border:1px solid var(--line);border-radius:6px;background:var(--surface)}
+.dz-frame.tall{aspect-ratio:9/16}
+.dz-name{font:500 12px var(--font-mono);color:var(--text-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dz-title{font-size:13px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+</style></helmet>
+<div class="dz">
+<div class="dz-head">
+  <h1>bae designs</h1>
+  <span class="dz-sub">main at <code>43b9c69</code> · 571 boards</span>
+  <span class="dz-sub">claude.ai has <code>43b9c69</code>, published 14:20</span>
+  <div class="dz-tools"><button type="button" class="qbtn">Publish to claude.ai…</button></div>
+</div>
+<div class="dz-pages" role="tablist" aria-label="Pages">
+  <button type="button" role="tab" aria-selected="true">Welcome<span class="n">71</span></button>
+  <button type="button" role="tab" aria-selected="false">Home<span class="n">91</span></button>
+  <button type="button" role="tab" aria-selected="false">Loading<span class="n">37</span></button>
+  <button type="button" role="tab" aria-selected="false">Search<span class="n">7</span></button>
+  <button type="button" role="tab" aria-selected="false">Import<span class="n">17</span></button>
+  <button type="button" role="tab" aria-selected="false">Storage<span class="n">33</span></button>
+  <button type="button" role="tab" aria-selected="false">Settings<span class="n">60</span></button>
+  <button type="button" role="tab" aria-selected="false">Library<span class="n">178</span></button>
+  <button type="button" role="tab" aria-selected="false">Logo<span class="n">13</span></button>
+  <button type="button" role="tab" aria-selected="false">Explore<span class="n">34</span></button>
+  <button type="button" role="tab" aria-selected="false">Shared<span class="n">16</span></button>
+  <button type="button" role="tab" aria-selected="false">Design system</button>
+</div>
+<div class="dz-grid">
+  <div class="dz-board"><div class="dz-frame"></div><span class="dz-name">mac.welcome.libraries</span><span class="dz-title">macOS: the libraries on this Mac</span></div>
+  <div class="dz-board"><div class="dz-frame"></div><span class="dz-name">mac.welcome.libraries.none</span><span class="dz-title">macOS: no library yet</span></div>
+  <div class="dz-board"><div class="dz-frame"></div><span class="dz-name">mac.welcome.add-library</span><span class="dz-title">macOS: add a library</span></div>
+  <div class="dz-board"><div class="dz-frame"></div><span class="dz-name">mac.welcome.create.name</span><span class="dz-title">macOS: name a new library</span></div>
+  <div class="dz-board"><div class="dz-frame"></div><span class="dz-name">mac.welcome.opening.steps</span><span class="dz-title">macOS: opening a library</span></div>
+  <div class="dz-board"><div class="dz-frame"></div><span class="dz-name">mac.welcome.reset.confirm</span><span class="dz-title">macOS: reset from cloud</span></div>
+  <div class="dz-board"><div class="dz-frame tall"></div><span class="dz-name">android.welcome.libraries</span><span class="dz-title">The libraries on this phone</span></div>
+  <div class="dz-board"><div class="dz-frame tall"></div><span class="dz-name">android.welcome.opening.damaged</span><span class="dz-title">The library's data is damaged</span></div>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1000}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>
