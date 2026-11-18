@@ -393,7 +393,7 @@ pub fn words(checkout: &CheckoutPage, items: &[RunningItem], waits: &[ItemWait])
                 chip: Some("Ready"),
                 pill: None,
                 items: items.to_vec(),
-                note: Some("Waits for an agent to continue this work.".into()),
+                note: None,
                 uncommitted,
                 queued: None,
             };

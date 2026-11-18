@@ -802,7 +802,7 @@ function queuedNote(words) {
 function worktreeCard(c) {
   const g = c.git, a = c.activity, building = a.processes.length > 0;
   const words = c.words, chip = words.chip, queued = words.queued;
-  const tone = queued ? " queued" : ["in-review", "held", "waits-unread"].includes(c.state) ? " inreview" : chip === "Ready to land" || chip === "Ready" ? " ready" : chip === "Waiting on you" ? " you" : chip ? " building" : "";
+  const tone = queued ? " queued" : ["in-review", "held", "kept", "waits-unread"].includes(c.state) ? " inreview" : chip === "Ready to land" ? " ready" : chip === "Waiting on you" ? " you" : chip ? " building" : "";
   return h("article", {class: "wt-card"},
     h("div", {class: "bar" + tone},
       h("span", {class: "grp"}, chip ? h("span", queued ? {class: "state", title: queued.line} : {class: "state"}, chip,

@@ -934,15 +934,12 @@ fn move_store(places: &Places, path: &Path, now: i64) -> Result<()> {
     // branches it was parked in, and the move tells each. An older store got
     // today's tables above.
     if !before(found, BEFORE_PARKED_STAMP) && before(found, BEFORE_KEPT_WORK_STAMP) {
-        for (item, places) in crate::lists::running::move_to_kept_work(&tx)? {
-            let places: Vec<String> = places
-                .iter()
-                .map(|(worktree, branch)| format!("{worktree} on {branch}"))
-                .collect();
+        for (item, places) in crate::lists::kept_work::move_to_kept_work(&tx)? {
+            let places = crate::lists::kept_work::places_words(places.iter().map(|(w, b)| (w, b)));
             crate::text::note(format!(
                 "{}: item {item} keeps {}, where it was parked",
                 path.display(),
-                places.join(" and ")
+                places
             ));
         }
     }

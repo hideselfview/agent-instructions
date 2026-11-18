@@ -27,7 +27,7 @@ use crate::lists::draft::brief_file;
 use crate::lists::held::waits_on_open;
 use crate::lists::item::open_item;
 use crate::lists::item_command::blocking_words;
-use crate::lists::kept_work::{self, kept_in};
+use crate::lists::kept_work::{self, kept_in, places_words};
 use crate::lists::running::{Running, SpanKind, open_span, running_in, start};
 use crate::lists::spec_check::{self, Brief, Setup};
 use crate::lists::store::{self, Store};
@@ -47,8 +47,8 @@ struct Place {
 }
 
 /// The worktrees and branches <args> names, each a side worktree of its own
-/// repo with the branch; <usage> is the command's.
-fn places_named(args: &Args, usage: &str) -> Result<Vec<Place>> {
+/// repo with the branch.
+fn places_named(args: &Args) -> Result<Vec<Place>> {
     let worktrees: Vec<String> = args
         .values("worktree")
         .into_iter()
@@ -59,9 +59,6 @@ fn places_named(args: &Args, usage: &str) -> Result<Vec<Place>> {
         .into_iter()
         .map(str::to_string)
         .collect();
-    if worktrees.is_empty() {
-        fail!("--worktree is required: {usage}");
-    }
     places_of(worktrees, branches)
 }
 
@@ -118,13 +115,6 @@ fn same_places<'a>(
             held.clone()
                 .any(|(worktree, branch)| *worktree == place.top && *branch == place.branch)
         })
-}
-
-/// The worktrees and branches of <held>, as a refusal lists them.
-fn places_words<'a>(held: impl Iterator<Item = (&'a String, &'a String)>) -> String {
-    held.map(|(worktree, branch)| format!("{worktree} on {branch}"))
-        .collect::<Vec<_>>()
-        .join(" and ")
 }
 
 /// Refuses <places> that a repo of <lists> does not hold, or whose worktree
@@ -348,7 +338,7 @@ pub fn take(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     let places = if args.values("worktree").is_empty() {
         kept_places(&Store::resolve(&tool.places, &args, cwd)?.load()?, &ids)?
     } else {
-        places_named(&args, USAGE)?
+        places_named(&args)?
     };
     let mut agents = Vec::new();
     for place in &places {

@@ -598,54 +598,6 @@ pub fn findings(
     Ok(findings)
 }
 
-/// An item and the worktree and branch of each place it keeps.
-pub type KeptByItem = (Id, Vec<(String, String)>);
-
-/// Makes `kept_work` and `kept_work_place` from the `parked` and
-/// `parked_place` of a store from before builds named what an item keeps:
-/// each parked item keeps the same worktrees, branches and moment. Returns
-/// each item's place, so the move can say what it did. migrate.rs runs this
-/// with the foreign keys off.
-pub fn move_to_kept_work(db: &Connection) -> Result<Vec<KeptByItem>> {
-    const SQL: &str = include_str!("kept_work.sql");
-    let tables = crate::db::statement(SQL, "CREATE TABLE kept_work (", "STRICT;");
-    let places = crate::db::statement(
-        SQL,
-        "CREATE TABLE kept_work_place (",
-        "STRICT, WITHOUT ROWID;",
-    );
-    let index = crate::db::statement(SQL, "CREATE INDEX kept_work_place_worktree", ";");
-    db.execute_batch(&format!(
-        "{tables}\n{places}\n{index}
-INSERT INTO kept_work (item_id, since_at, since_by) SELECT item_id, since_at, since_by FROM parked;
-INSERT INTO kept_work_place (item_id, repo, parent, checkout, branch) SELECT item_id, repo, parent, checkout, branch FROM parked_place;"
-    ))
-    .sql()?;
-    let mut statement = db
-        .prepare("SELECT item_id, worktree, branch FROM kept_work_place ORDER BY item_id, repo")
-        .sql()?;
-    let rows = statement
-        .query_map([], |row| {
-            Ok((
-                row.get::<_, Id>(0)?,
-                (row.get::<_, String>(1)?, row.get::<_, String>(2)?),
-            ))
-        })
-        .sql()?;
-    let mut kept: Vec<KeptByItem> = Vec::new();
-    for row in rows {
-        let (item, place) = row.sql()?;
-        match kept.last_mut() {
-            Some((last, places)) if *last == item => places.push(place),
-            _ => kept.push((item, vec![place])),
-        }
-    }
-    drop(statement);
-    db.execute_batch("DROP TABLE parked_place; DROP TABLE parked;")
-        .sql()?;
-    Ok(kept)
-}
-
 /// Makes `item_run` again without the run that ended as parked: those runs
 /// become runs that ended as stopped, since keeping an item's work ended a
 /// run as a stop does.

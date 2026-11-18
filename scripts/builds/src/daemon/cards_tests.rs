@@ -626,8 +626,7 @@ fn commits_whose_rules_review_is_not_finished_are_in_review_and_the_card_says_wh
     );
 }
 
-/// The card of a worktree an item keeps says Ready, lists the item and says
-/// that the work waits only for an agent.
+/// The card of a worktree an item keeps says Ready and lists the item.
 #[test]
 fn a_worktree_an_item_keeps_says_ready_and_lists_its_item() {
     let item = RunningItem {
@@ -641,8 +640,5 @@ fn a_worktree_an_item_keeps_says_ready_and_lists_its_item() {
     );
     assert_eq!(said.chip, Some("Ready"));
     assert_eq!(said.items, [item]);
-    assert_eq!(
-        said.note.as_deref(),
-        Some("Waits for an agent to continue this work.")
-    );
+    assert_eq!(said.note, None);
 }

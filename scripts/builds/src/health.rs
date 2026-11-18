@@ -11,7 +11,7 @@
 //! under its
 //! free-space floor, a lists store that fails its check, a running item
 //! whose worktree is gone or has no claim (lists/running.rs), a kept item
-//! whose worktree is gone (lists/kept.rs), a held worktree
+//! whose worktree is gone (lists/kept_work.rs), a held worktree
 //! whose item waits on nothing open, commits that change design files no
 //! recorded design change covers (lists/held.rs), a repo with a design folder
 //! and no design globs (lists/project.rs), or a build host that refuses
@@ -718,7 +718,7 @@ pub struct Claimed {
 /// work an agent left behind. Never the app checkout, which no one claims:
 /// what it has checked out is the branch an app build is building, and never
 /// a worktree an open item is kept in, whose work waits there for the item
-/// (lists/kept.rs).
+/// (lists/kept_work.rs).
 pub struct Unclaimed {
     pub place: usize,
     pub git: SideGit,
@@ -1058,7 +1058,7 @@ fn held_for(holder: &Holder) -> String {
 
 /// What the lists say, one line each: the running-item and held-work
 /// findings about the claimed worktrees (lists/running.rs, lists/held.rs),
-/// each kept item whose worktree is gone (lists/kept.rs), and each repo with a design folder and no design globs
+/// each kept item whose worktree is gone (lists/kept_work.rs), and each repo with a design folder and no design globs
 /// (lists/project.rs). Also
 /// marks the worktrees whose design change waits on the person's review, so
 /// <claimed> is judged with that known.

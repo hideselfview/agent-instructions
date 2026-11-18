@@ -381,7 +381,10 @@ fn stop(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
         }
         kept
     };
-    store.write(&stamp, &format!("item stop {id}"), |db| {
+    // The claims go in the store's write, after its other writes, so a store
+    // that refuses the stop leaves every claim; when removing a claim fails,
+    // the write rolls back and the claims already removed come back.
+    let removed = store.write(&stamp, &format!("item stop {id}"), |db| {
         open_item(&store::read(db)?, id)?;
         running::stop(db, id, &stamp)?;
         if !kept.is_empty() {
@@ -395,28 +398,36 @@ fn stop(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
                 by: stamp.by.clone(),
                 text: format!("stopped: {why}"),
             },
-        )
-    })?;
-    for place in &kept {
-        let checkout = crate::checkout::Checkout::find(&place.worktree)?;
-        if let Some(claim) = crate::claim::unclaim(&checkout)? {
-            note(format!(
-                "removed the claim on {}: {}",
-                place.worktree,
-                claim.text()
-            ));
+        )?;
+        let mut removed = Vec::new();
+        for place in &kept {
+            let checkout = crate::checkout::Checkout::find(&place.worktree)?;
+            match crate::claim::unclaim(&checkout) {
+                Ok(Some(claim)) => removed.push((checkout, claim)),
+                Ok(None) => {}
+                Err(error) => {
+                    for (checkout, _) in &removed {
+                        let _ = std::fs::rename(checkout.last_claim_file(), checkout.claim_file());
+                    }
+                    return Err(error);
+                }
+            }
         }
+        Ok(removed)
+    })?;
+    for (checkout, claim) in &removed {
+        note(format!(
+            "removed the claim on {}: {}",
+            checkout.top.display(),
+            claim.text()
+        ));
     }
     if kept.is_empty() {
         note(format!("stopped {id}; it is back in the queue"));
     } else {
-        let words: Vec<String> = kept
-            .iter()
-            .map(|k| format!("{} on {}", k.worktree, k.branch))
-            .collect();
         note(format!(
             "stopped {id}; it is back in the queue and keeps {}",
-            words.join(" and ")
+            kept_work::places_words(kept.iter().map(|k| (&k.worktree, &k.branch)))
         ));
     }
     Ok(())
