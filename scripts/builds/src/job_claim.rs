@@ -37,7 +37,10 @@ pub struct Holders {
     started: HashMap<i32, i64>,
 }
 
-fn now_nanos() -> u128 {
+/// Now, in nanoseconds since 1970: the clock that job ids (`remote::job_id`)
+/// and `Holders::read` both read, so a claim's time and the time builds read
+/// the processes compare.
+pub fn now_nanos() -> u128 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .expect("the clock is after 1970")

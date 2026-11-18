@@ -620,14 +620,7 @@ pub fn worktree_in(output: &str) -> Result<String> {
 
 /// A name for one job's ref on a host, unique among the jobs of all processes.
 pub fn job_id() -> String {
-    format!(
-        "{}-{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("the clock is after 1970")
-            .as_nanos()
-    )
+    format!("{}-{}", std::process::id(), crate::job_claim::now_nanos())
 }
 
 /// A job whose commit is on its host and whose worktree there is claimed:
