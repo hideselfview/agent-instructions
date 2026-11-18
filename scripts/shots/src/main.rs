@@ -297,10 +297,9 @@ fn run(action: Action) -> Result<bool, String> {
             Ok(true)
         }
         Action::Lint => {
-            let declared = read_declared()?;
             let record =
                 record::Record::load(&root.join(record::FILE)).map_err(|e| e.to_string())?;
-            let problems = lint::problems(&root, &settings.preview_calls, &declared, &record);
+            let problems = lint::check(&root, &settings, &record)?;
             for problem in &problems {
                 crate::log::note(&problem.sentence);
             }
