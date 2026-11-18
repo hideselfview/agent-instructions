@@ -87,3 +87,48 @@ async fn serves_the_canvas_tree_and_refuses_the_rest() {
     .await
     .unwrap();
 }
+
+#[tokio::test]
+async fn a_file_it_cannot_give_answers_500_with_the_cause() {
+    let root = tree();
+    write(
+        root.path(),
+        "design/system/components/NoHead/preview.html",
+        "<body></body>",
+    );
+    write(
+        root.path(),
+        "design/system/components/Binary/preview.html",
+        "",
+    );
+    std::fs::write(
+        root.path()
+            .join("design/system/components/Binary/preview.html"),
+        [0xff, 0xfe],
+    )
+    .unwrap();
+    std::fs::create_dir_all(root.path().join("design/mocks/folder.dc.html")).unwrap();
+    let design = system("tokens", "css", "js");
+    let tree = Tree {
+        root: root.path(),
+        design: &design,
+        runtime: "runtime",
+    };
+    with_server(tree, async |server| {
+        let no_head = get(server, "/components/NoHead.html").await;
+        assert!(no_head.starts_with("HTTP/1.1 500"), "{no_head}");
+        assert!(no_head.contains("has no <head>"), "{no_head}");
+        let binary = get(server, "/components/Binary.html").await;
+        assert!(
+            binary.starts_with("HTTP/1.1 500") && binary.contains("is not text"),
+            "{binary}"
+        );
+        let folder = get(server, "/folder.dc.html").await;
+        assert!(
+            folder.starts_with("HTTP/1.1 500") && folder.contains("cannot read"),
+            "{folder}"
+        );
+    })
+    .await
+    .unwrap();
+}

@@ -112,3 +112,23 @@ fn a_record_entry_needs_its_board_too() {
             .contains("mac.welcome.gone.dc.html is missing")
     );
 }
+
+#[test]
+fn a_preview_it_cannot_read_says_why_and_not_that_it_is_missing() {
+    let root = tempfile::tempdir().unwrap();
+    write(
+        root.path(),
+        "design/system/components/MacRow/preview.html",
+        "",
+    );
+    std::fs::write(
+        root.path()
+            .join("design/system/components/MacRow/preview.html"),
+        [0xff, 0xfe],
+    )
+    .unwrap();
+    let problems = sentences(root.path(), &[declared("mac.component.row.label")]);
+    assert_eq!(problems.len(), 1, "{problems:?}");
+    assert!(problems[0].contains("cannot read"), "{problems:?}");
+    assert!(!problems[0].contains("missing"), "{problems:?}");
+}

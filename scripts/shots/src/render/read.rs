@@ -27,6 +27,12 @@ pub(crate) enum ReadError {
     Protocol(String),
     #[error("the accessibility tree has no node {0}")]
     NoNode(String),
+    #[error("the board's {role} node {name:?} has no box: {why}")]
+    NoBox {
+        role: String,
+        name: String,
+        why: &'static str,
+    },
 }
 
 fn protocol(error: impl std::fmt::Display) -> ReadError {
@@ -94,6 +100,8 @@ pub(crate) struct Raw {
     /// The control opens a menu or list (`aria-haspopup`).
     pub(crate) has_popup: bool,
     pub(crate) bounds: Option<Bounds>,
+    /// Why the node has no bounds, when it is one the board's elements read.
+    pub(crate) no_box: Option<&'static str>,
     pub(crate) text: Option<TextStyle>,
     pub(crate) placeholder: Option<String>,
 }
@@ -121,10 +129,14 @@ pub(crate) fn build(raw: &[Raw], platform: Platform) -> Result<Vec<Element>, Rea
         let inside_control = folded;
         let mut next_parent = parent;
         let mut next_folded = folded;
-        if kept
-            && !(role == Role::Text && inside_control)
-            && let Some(bounds) = node.bounds
-        {
+        if kept && !(role == Role::Text && inside_control) {
+            let Some(bounds) = node.bounds else {
+                return Err(ReadError::NoBox {
+                    role: node.chrome_role.clone(),
+                    name: node.name.clone().unwrap_or_default(),
+                    why: node.no_box.unwrap_or("Chrome gave it none"),
+                });
+            };
             next_parent = Some(elements.len());
             elements.push(element(node, role, label.clone(), bounds, parent));
         }
@@ -395,27 +407,9 @@ async fn gather(page: &Page) -> Result<Vec<Raw>, ReadError> {
     let mut nodes = Vec::new();
     for node in &tree.result.nodes {
         let mut raw = raw(node);
-        if !raw.ignored
-            && !STRUCTURE.contains(&raw.chrome_role.as_str())
-            && let Some(backend) = node.backend_dom_node_id
-        {
-            let resolved = page
-                .execute(
-                    ResolveNodeParams::builder()
-                        .backend_node_id(backend)
-                        .build(),
-                )
-                .await
-                .map_err(protocol)?;
-            if let Some(object_id) = resolved.result.object.object_id {
-                let mut call = CallFunctionOnParams::new(GEOMETRY);
-                call.object_id = Some(object_id);
-                call.return_by_value = Some(true);
-                let called = page.execute(call).await.map_err(protocol)?;
-                if let Some(value) = called.result.result.value
-                    && !value.is_null()
-                {
-                    let geometry: Geometry = serde_json::from_value(value).map_err(protocol)?;
+        if !raw.ignored && !STRUCTURE.contains(&raw.chrome_role.as_str()) {
+            match measure(page, node).await? {
+                Ok(geometry) => {
                     raw.bounds = Some(Bounds {
                         x: geometry.x,
                         y: geometry.y,
@@ -444,11 +438,39 @@ async fn gather(page: &Page) -> Result<Vec<Raw>, ReadError> {
                         raw.value = Some(value);
                     }
                 }
+                Err(why) => raw.no_box = Some(why),
             }
         }
         nodes.push(raw);
     }
     Ok(nodes)
+}
+
+/// The box and style of the DOM node <node> describes, or why Chrome gave
+/// none.
+async fn measure(page: &Page, node: &AxNode) -> Result<Result<Geometry, &'static str>, ReadError> {
+    let Some(backend) = node.backend_dom_node_id else {
+        return Ok(Err("the accessibility node describes no DOM node"));
+    };
+    let resolved = page
+        .execute(
+            ResolveNodeParams::builder()
+                .backend_node_id(backend)
+                .build(),
+        )
+        .await
+        .map_err(protocol)?;
+    let Some(object_id) = resolved.result.object.object_id else {
+        return Ok(Err("Chrome resolved no object for its DOM node"));
+    };
+    let mut call = CallFunctionOnParams::new(GEOMETRY);
+    call.object_id = Some(object_id);
+    call.return_by_value = Some(true);
+    let called = page.execute(call).await.map_err(protocol)?;
+    match called.result.result.value {
+        Some(value) if !value.is_null() => Ok(Ok(serde_json::from_value(value).map_err(protocol)?)),
+        _ => Ok(Err("its DOM node has no box to measure")),
+    }
 }
 
 #[cfg(test)]

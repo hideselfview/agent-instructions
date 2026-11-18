@@ -31,13 +31,29 @@ fn preview_component(path: &str) -> Option<&str> {
     (!name.is_empty() && name.chars().all(|c| c.is_ascii_alphanumeric())).then_some(name)
 }
 
-/// The type and bytes of what <url_path> names, if it names something.
-async fn answer(tree: Tree<'_>, url_path: &str) -> Option<(&'static str, Vec<u8>)> {
-    let path = url_path.split(['?', '#']).next()?;
+/// The type and bytes of a file the server gives.
+type Found = (&'static str, Vec<u8>);
+
+/// The bytes of <file>; none when it does not exist, and an error that says
+/// why when reading it fails.
+async fn read(file: &Path) -> Result<Option<Vec<u8>>, String> {
+    match tokio::fs::read(file).await {
+        Ok(bytes) => Ok(Some(bytes)),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(format!("cannot read {}: {error}", file.display())),
+    }
+}
+
+/// What <url_path> names; none when it names nothing, and an error that says
+/// why when it names something the server cannot give.
+async fn answer(tree: Tree<'_>, url_path: &str) -> Result<Option<Found>, String> {
+    let path = url_path.split(['?', '#']).next().unwrap_or_default();
     let javascript = "text/javascript; charset=utf-8";
     match path {
-        "/react.js" => return Some((javascript, preview::REACT.as_bytes().to_vec())),
-        "/react-dom.js" => return Some((javascript, preview::REACT_DOM.as_bytes().to_vec())),
+        "/react.js" => return Ok(Some((javascript, preview::REACT.as_bytes().to_vec()))),
+        "/react-dom.js" => {
+            return Ok(Some((javascript, preview::REACT_DOM.as_bytes().to_vec())));
+        }
         _ => {}
     }
     if let Some(component) = preview_component(path) {
@@ -46,29 +62,34 @@ async fn answer(tree: Tree<'_>, url_path: &str) -> Option<(&'static str, Vec<u8>
             .join(COMPONENTS)
             .join(component)
             .join("preview.html");
-        let html = tokio::fs::read_to_string(&file).await.ok()?;
-        let page = preview::assemble(component, &html, &tree.design.namespace).ok()?;
-        return Some(("text/html; charset=utf-8", page.into_bytes()));
+        let Some(bytes) = read(&file).await? else {
+            return Ok(None);
+        };
+        let html = String::from_utf8(bytes)
+            .map_err(|error| format!("{} is not text: {error}", file.display()))?;
+        let page = preview::assemble(component, &html, &tree.design.namespace)
+            .map_err(|error| error.to_string())?;
+        return Ok(Some(("text/html; charset=utf-8", page.into_bytes())));
     }
-    match route(url_path)? {
+    let Some(route) = route(url_path) else {
+        return Ok(None);
+    };
+    Ok(match route {
         Route::Runtime => Some((javascript, tree.runtime.as_bytes().to_vec())),
-        Route::Design(namespace, file) => {
-            if namespace != tree.design.namespace {
-                return None;
-            }
-            Some(match file {
+        Route::Design(namespace, _) if namespace != tree.design.namespace => None,
+        Route::Design(_, file) => {
+            let (kind, text) = match file {
                 DesignFile::TokensCss => ("text/css; charset=utf-8", &tree.design.tokens_css),
                 DesignFile::BundleCss => ("text/css; charset=utf-8", &tree.design.bundle_css),
                 DesignFile::BundleJs => (javascript, &tree.design.bundle_js),
-            })
-            .map(|(kind, text)| (kind, text.as_bytes().to_vec()))
+            };
+            Some((kind, text.as_bytes().to_vec()))
         }
         Route::Mocks(relative) => {
             let file = tree.root.join(boards::MOCKS).join(relative);
-            let bytes = tokio::fs::read(&file).await.ok()?;
-            Some((content_type(&file), bytes))
+            read(&file).await?.map(|bytes| (content_type(&file), bytes))
         }
-    }
+    })
 }
 
 fn content_type(file: &Path) -> &'static str {
@@ -97,18 +118,26 @@ async fn respond(tree: Tree<'_>, mut stream: TcpStream) -> std::io::Result<()> {
     let head = String::from_utf8_lossy(&request);
     let mut line = head.lines().next().unwrap_or("").split(' ');
     let (method, target) = (line.next().unwrap_or(""), line.next().unwrap_or(""));
-    let found = if method == "GET" || method == "HEAD" {
+    let answered = if method == "GET" || method == "HEAD" {
         answer(tree, target).await
     } else {
-        None
+        Ok(None)
     };
-    let (status, kind, body) = match found {
-        Some((kind, body)) => ("200 OK", kind, body),
-        None => (
+    let (status, kind, body) = match answered {
+        Ok(Some((kind, body))) => ("200 OK", kind, body),
+        Ok(None) => (
             "404 Not Found",
             "text/plain",
             format!("not found: {target}").into_bytes(),
         ),
+        Err(why) => {
+            crate::log::note(format_args!("cannot answer {target}: {why}"));
+            (
+                "500 Internal Server Error",
+                "text/plain",
+                format!("cannot answer {target}: {why}").into_bytes(),
+            )
+        }
     };
     let head = format!(
         "HTTP/1.1 {status}\r\nContent-Type: {kind}\r\nContent-Length: {}\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n",

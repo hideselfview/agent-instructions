@@ -310,3 +310,23 @@ async fn a_texts_box_is_its_words_not_its_container() {
     assert_eq!(style.weight, Some(600));
     assert_eq!(style.color.as_ref().map(String::len), Some(9));
 }
+
+#[test]
+fn a_kept_node_with_no_box_fails_the_read_and_says_why() {
+    let mut button = named(node("2", "button", &[]), "Add");
+    button.bounds = None;
+    button.no_box = Some("its DOM node has no box to measure");
+    let mut hidden = node("3", "button", &[]);
+    hidden.bounds = None;
+    hidden.ignored = true;
+    let root = node("1", "generic", &["3"]);
+    assert!(build(&[root, hidden.clone()], Platform::Mac).is_ok());
+    let root = node("1", "generic", &["2", "3"]);
+    let error = build(&[root, button, hidden], Platform::Mac)
+        .unwrap_err()
+        .to_string();
+    assert_eq!(
+        error,
+        "the board's button node \"Add\" has no box: its DOM node has no box to measure"
+    );
+}

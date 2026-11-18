@@ -70,14 +70,19 @@ fn no_board(root: &Path, calls: &[String], name: &Name) -> Option<String> {
     match name {
         Name::Screen(_) => {
             let board = Path::new(BOARDS).join(format!("{name}.dc.html"));
-            (!root.join(&board).is_file()).then(|| format!("{} is missing", board.display()))
+            match std::fs::metadata(root.join(&board)) {
+                Ok(found) if found.is_file() => None,
+                Ok(_) => Some(format!("{} is not a file", board.display())),
+                Err(error) => Some(unreadable(&board, &error)),
+            }
         }
         Name::Component(c) => {
             let preview = Path::new(COMPONENTS)
                 .join(c.component())
                 .join("preview.html");
-            let Ok(html) = std::fs::read_to_string(root.join(&preview)) else {
-                return Some(format!("{} is missing", preview.display()));
+            let html = match std::fs::read_to_string(root.join(&preview)) {
+                Ok(html) => html,
+                Err(error) => return Some(unreadable(&preview, &error)),
             };
             let mut states = states(&html, calls);
             if states.is_empty() {
@@ -86,6 +91,15 @@ fn no_board(root: &Path, calls: &[String], name: &Name) -> Option<String> {
             (!states.iter().any(|s| s == c.state()))
                 .then(|| format!("{} has the states {}", c.component(), states.join(", ")))
         }
+    }
+}
+
+/// Why <path> gave no board: it is missing, or reading it failed.
+fn unreadable(path: &Path, error: &std::io::Error) -> String {
+    if error.kind() == std::io::ErrorKind::NotFound {
+        format!("{} is missing", path.display())
+    } else {
+        format!("cannot read {}: {error}", path.display())
     }
 }
 
