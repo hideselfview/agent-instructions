@@ -86,7 +86,6 @@ pub(crate) struct Raw {
     pub(crate) id: String,
     /// The DOM node the accessibility node describes.
     pub(crate) backend: Option<i64>,
-    pub(crate) parent: Option<String>,
     pub(crate) children: Vec<String>,
     pub(crate) ignored: bool,
     pub(crate) chrome_role: String,
@@ -299,7 +298,6 @@ fn raw(node: &AxNode) -> Raw {
     Raw {
         id: node.node_id.inner().clone(),
         backend: node.backend_dom_node_id.map(|b| *b.inner()),
-        parent: node.parent_id.as_ref().map(|p| p.inner().clone()),
         children: node
             .child_ids
             .iter()
