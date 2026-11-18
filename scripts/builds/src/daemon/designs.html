@@ -175,8 +175,14 @@ let standing = pub.standing || {latest: null, published: null};
 let failure = null;
 const here = ["127.0.0.1", "localhost", "[::1]"].includes(location.hostname);
 const DISMISSED = "designs-publish-dismissed:" + data.project;
-function dismissed() {
-  try { return Number(localStorage.getItem(DISMISSED)); } catch (e) { return 0; }
+// The id of the newest request the person dismissed. The page variable is
+// the state; localStorage only carries it across reloads, and the page works
+// without it.
+let dismissedId = 0;
+try { dismissedId = Number(localStorage.getItem(DISMISSED)) || 0; } catch (e) { /* none remembered */ }
+function dismiss(id) {
+  dismissedId = id;
+  try { localStorage.setItem(DISMISSED, String(id)); } catch (e) { /* not remembered across reloads */ }
 }
 function minute(at) {
   return new Date(at * 1000).toLocaleTimeString([], {hour: "2-digit", minute: "2-digit", hour12: false});
@@ -204,7 +210,7 @@ function renderHead() {
 // dismissed it.
 function shown() {
   const r = standing.latest;
-  return r && !(r.ended && r.id === dismissed()) ? r : null;
+  return r && !(r.ended && r.id === dismissedId) ? r : null;
 }
 function status(r) {
   if (!r.ended) return h("div", {class: "bstatus"}, "Publishing ", short(r.commit), r.taken
@@ -232,7 +238,7 @@ function renderPublish() {
     dismissButton(() => { failure = null; renderPublish(); })));
   else if (r) {
     parts.push(h("div", {class: "bresult"}, status(r), r.ended ? dismissButton(() => {
-      try { localStorage.setItem(DISMISSED, String(r.id)); } catch (e) { /* kept for this page only */ }
+      dismiss(r.id);
       renderPublish();
     }) : null));
     if (r.ended && !r.ended.error) parts.push(h("div", {class: "pub-links"},
