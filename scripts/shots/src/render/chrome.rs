@@ -9,14 +9,6 @@ use std::path::{Path, PathBuf};
 /// The Chrome for Testing build every board hash names.
 pub(crate) const PINNED: &str = "157.0.8103.78";
 
-/// Where fetched builds are kept: `chrome` in the program's cache folder
-/// (`crate::cache_dir`).
-fn cache_dir() -> Result<PathBuf, ChromeError> {
-    Ok(crate::cache_dir()
-        .map_err(ChromeError::Fetch)?
-        .join("chrome"))
-}
-
 /// A platform Chrome for Testing is published for.
 #[derive(Debug, PartialEq, Eq)]
 struct Platform {
@@ -67,7 +59,8 @@ impl Platform {
 /// when it is not there. Each run unpacks in a folder of its own and renames
 /// it into place, so the folder is whole or absent; of two runs that fetch at
 /// once, the one that renames second finds the build there and uses it.
-fn installed() -> Result<PathBuf, ChromeError> {
+/// The builds are kept in `chrome` in the program's cache folder <cache>.
+fn installed(cache: &Path) -> Result<PathBuf, ChromeError> {
     let platform = Platform::of(std::env::consts::OS, std::env::consts::ARCH).ok_or_else(|| {
         ChromeError::Fetch(format!(
             "no Chrome for Testing for {} {}",
@@ -75,7 +68,7 @@ fn installed() -> Result<PathBuf, ChromeError> {
             std::env::consts::ARCH
         ))
     })?;
-    let cache = cache_dir()?;
+    let cache = cache.join("chrome");
     let fetch = |e: std::io::Error| ChromeError::Fetch(e.to_string());
     std::fs::create_dir_all(&cache).map_err(fetch)?;
     let folder = platform.folder(&cache, PINNED);
@@ -182,12 +175,16 @@ impl Chrome {
     }
 }
 
-/// Fetches the pinned build when the cache does not hold it, starts it
+/// Fetches the pinned build into the program's cache folder <cache> when it
+/// does not hold it, starts it
 /// headless with sRGB colour and no scrollbars, runs `work` with it and closes
 /// it. The browser's events are driven alongside `work` and end with it, so
 /// no task outlives the call.
-pub(crate) async fn with_chrome<T>(work: impl AsyncFnOnce(&Chrome) -> T) -> Result<T, ChromeError> {
-    let executable = installed()?;
+pub(crate) async fn with_chrome<T>(
+    cache: &Path,
+    work: impl AsyncFnOnce(&Chrome) -> T,
+) -> Result<T, ChromeError> {
+    let executable = installed(cache)?;
     let profile = tempfile::tempdir().map_err(|e| ChromeError::Launch(e.to_string()))?;
     let config = BrowserConfig::builder()
         .user_data_dir(profile.path())

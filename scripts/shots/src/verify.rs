@@ -20,7 +20,8 @@ pub(crate) struct Verification<'a> {
     pub(crate) root: &'a Path,
     /// The repo's screenshot settings.
     pub(crate) settings: &'a Settings,
-    /// The program's cache folder, where the design system is built.
+    /// The program's cache folder, where the design system is built and
+    /// Chrome is kept.
     pub(crate) cache: &'a Path,
     /// The shots to check.
     pub(crate) names: &'a [Name],
@@ -222,7 +223,7 @@ pub(crate) fn verify(job: &Verification) -> Result<Outcome, String> {
         design: &design,
         runtime: runtime.copy.text,
     };
-    render::boards(tree, job.settings, &pending, &boards)?;
+    render::boards(tree, job.settings, job.cache, &pending, &boards)?;
     let mut checked = Vec::new();
     for name in &pending {
         let shot = &shots[name];

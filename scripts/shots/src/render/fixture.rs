@@ -56,9 +56,11 @@ pub(crate) async fn with_browser<T>(
         runtime: boards::runtime::newest().text,
     };
     serve::with_server(tree, async |server| {
-        chrome::with_chrome(async |chrome| work(server, chrome).await)
-            .await
-            .unwrap()
+        chrome::with_chrome(&crate::cache_dir().unwrap(), async |chrome| {
+            work(server, chrome).await
+        })
+        .await
+        .unwrap()
     })
     .await
     .unwrap()

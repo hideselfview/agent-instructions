@@ -48,11 +48,12 @@ pub(crate) fn hashes(
 }
 
 /// Renders the board of each of `names` from `tree` into `out` as
-/// `<name>.png` and `<name>.json`; starts no browser when there is nothing
-/// to render.
+/// `<name>.png` and `<name>.json`, in the Chrome kept in the program's cache
+/// folder <cache>; starts no browser when there is nothing to render.
 pub(crate) fn boards(
     tree: Tree<'_>,
     settings: &Settings,
+    cache: &Path,
     names: &[Name],
     out: &Path,
 ) -> Result<(), String> {
@@ -64,17 +65,18 @@ pub(crate) fn boards(
         .enable_all()
         .build()
         .map_err(|e| e.to_string())?
-        .block_on(draw(tree, settings, names, out))
+        .block_on(draw(tree, settings, cache, names, out))
 }
 
 async fn draw(
     tree: Tree<'_>,
     settings: &Settings,
+    cache: &Path,
     names: &[Name],
     out: &Path,
 ) -> Result<(), String> {
     serve::with_server(tree, async |server| {
-        chrome::with_chrome(async |chrome| {
+        chrome::with_chrome(cache, async |chrome| {
             draw_with(tree.root, settings, names, out, server, chrome).await
         })
         .await
