@@ -498,9 +498,9 @@ fn resolve(
 const MAX_SECTION_WORDS: usize = 25;
 
 /// A review page's own rules: its heading has text, its words are at most
-/// `MAX_SECTION_WORDS`, and every board on it is a board file. (That a board is
-/// one of the repo's board places and exists in the worktree is the command's,
-/// which reads git and the files.)
+/// `MAX_SECTION_WORDS`, and every board on it has a caption. (That a board is a
+/// board file, one of the repo's board places, and exists in the worktree is the
+/// command's, which reads git and the files.)
 fn check_review(section: &ReviewSection) -> Result<()> {
     if section.heading.trim().is_empty() {
         fail!("`review` has an empty heading");
@@ -512,9 +512,6 @@ fn check_review(section: &ReviewSection) -> Result<()> {
         );
     }
     for board in &section.boards {
-        if PlaceKind::of(&board.board) != PlaceKind::Board {
-            fail!("`review` names {}, which is no board file", board.board);
-        }
         if board.caption.trim().is_empty() {
             fail!(
                 "the board {} on the review page has an empty caption",
