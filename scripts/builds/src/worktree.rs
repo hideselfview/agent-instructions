@@ -451,7 +451,8 @@ fn record_in_lane(tool: &Tool, repo: &str, lane: Lane, entry: &str) -> Result<us
 /// checkouts and deletes its lock, holding that lock so no build takes the
 /// checkout meanwhile, and runs <before> under the lock first; a failure of
 /// <before> leaves the checkout in the lane. Fails, before <before> runs,
-/// when the lane has no such checkout or a build holds its lock.
+/// when a build holds its lock or the lane has no such checkout
+/// (`lane_size::lock_checkout`).
 fn remove_from_lane(
     tool: &Tool,
     repo: &str,
@@ -460,17 +461,6 @@ fn remove_from_lane(
     shown: &str,
     before: impl FnOnce() -> Result<()>,
 ) -> Result<()> {
-    if !tool
-        .places
-        .app_checkouts_of(repo, lane)?
-        .iter()
-        .any(|e| e == entry)
-    {
-        fail!(
-            "{shown} is not one of {repo}'s {} app checkouts",
-            lane.word()
-        );
-    }
     let Some(lock) = crate::lane_size::lock_checkout(&tool.places, repo, lane, entry)? else {
         fail!("a build holds {shown}'s lock; remove it once that build ends");
     };

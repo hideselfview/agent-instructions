@@ -393,7 +393,10 @@ impl Drop for CheckoutLock {
 }
 
 /// Takes the lock of <repo>'s <lane> app checkout <entry>, making the lane's
-/// lock folder when it has none; None while a build holds the lock.
+/// lock folder when it has none; None while a build holds the lock. Fails
+/// when, with the lock held, the lane's set has no such checkout: only a
+/// holder of the lock takes a checkout out of the set (`take_out`), so it
+/// stays in the set while the lock is held.
 pub fn lock_checkout(
     places: &Places,
     repo: &str,
@@ -402,12 +405,24 @@ pub fn lock_checkout(
 ) -> Result<Option<CheckoutLock>> {
     let dir = places.app_locks_dir(repo, lane);
     std::fs::create_dir_all(&dir).context(|| format!("creating {}", dir.display()))?;
-    Ok(
-        queue::try_lock(&places.app_lock_file(repo, lane, entry))?.map(|fd| CheckoutLock {
-            fd,
-            entry: entry.to_string(),
-        }),
-    )
+    let Some(fd) = queue::try_lock(&places.app_lock_file(repo, lane, entry))? else {
+        return Ok(None);
+    };
+    let lock = CheckoutLock {
+        fd,
+        entry: entry.to_string(),
+    };
+    if !places
+        .app_checkouts_of(repo, lane)?
+        .iter()
+        .any(|e| e == entry)
+    {
+        fail!(
+            "{entry} is not one of {repo}'s {} app checkouts",
+            lane.word()
+        );
+    }
+    Ok(Some(lock))
 }
 
 /// Takes the checkout that <lock> locks out of <repo>'s <lane> set, under the
@@ -416,7 +431,8 @@ pub fn lock_checkout(
 /// builds removed the checkout, which it added on a host: the lane's removal
 /// record gets the line, and the folder here that holds the checkout's copied
 /// results goes too. Then it tells the builds in the lane's queue to read the
-/// set again. Fails when the checkout is not in the set.
+/// set again. <lock> comes from `lock_checkout`, which found the checkout in
+/// the set.
 pub fn take_out(
     places: &Places,
     repo: &str,
@@ -428,12 +444,6 @@ pub fn take_out(
     let queue = Queue::of(places, repo, lane);
     let guard = queue.guard()?;
     let mut set = places.app_checkouts_recorded(repo, lane)?;
-    if !set.iter().any(|checkout| checkout.entry == entry) {
-        fail!(
-            "{entry} is not one of {repo}'s {} app checkouts",
-            lane.word()
-        );
-    }
     set.retain(|checkout| checkout.entry != entry);
     places.write_app_checkouts(repo, lane, &set)?;
     if let Some(removal) = removal {
