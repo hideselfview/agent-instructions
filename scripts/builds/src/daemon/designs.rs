@@ -17,7 +17,7 @@ use boards::tokens::specimen;
 use boards::{BOARD_SUFFIX, CANVAS, Source, TOKENS_JSON, canvas_size};
 use serde_json::{Value, json};
 
-use crate::design_canvas::page_of;
+use crate::design_canvas::{page_of, pages_of, placed};
 use crate::design_render::{FRAMES_SCRIPT, NOW, fill, render_board, render_preview};
 use crate::fail;
 use crate::fail::{Fail, Result};
@@ -47,31 +47,16 @@ pub fn page(project: &str, repo: &Path, cache: &Path) -> Result<String> {
     let from = Source::Commit { repo, rev: &commit };
     let index: Value = serde_json::from_str(&from.read(CANVAS, "the canvas index")?)
         .map_err(|error| Fail::Message(format!("{}: {error}", from.label(CANVAS))))?;
-    let Some(page_list) = index["pages"].as_array() else {
-        fail!("{} lists no pages", from.label(CANVAS));
-    };
-    let Some(placed) = index["boards"].as_object() else {
-        fail!(
-            "{}: `boards` is not an object of board files",
-            from.label(CANVAS)
-        );
-    };
     let mut pages = Vec::new();
-    for (n, page) in page_list.iter().enumerate() {
-        let (Some(id), Some(name)) = (page["id"].as_str(), page["name"].as_str()) else {
-            fail!(
-                "{}: page {} of `pages` ({page}) has no id or no name",
-                from.label(CANVAS),
-                n + 1
-            );
+    for page in pages_of(&index)? {
+        let Some(name) = page.entry["name"].as_str() else {
+            fail!("{}: page {} has no name", from.label(CANVAS), page.id);
         };
-        pages.push((id, name, Vec::new()));
+        pages.push((page.id, name, Vec::new()));
     }
-    let Some(first) = pages.first().map(|(id, _, _)| *id) else {
-        fail!("{} lists no pages", from.label(CANVAS));
-    };
+    let first = pages[0].0;
     let mut count = 0;
-    for (file, entry) in placed {
+    for (file, entry) in placed(&index)? {
         let Some(name) = file.strip_suffix(BOARD_SUFFIX) else {
             fail!(
                 "{} places {file}, which is no board file",

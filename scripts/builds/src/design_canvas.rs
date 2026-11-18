@@ -162,6 +162,41 @@ pub struct Split<'a> {
     pub boards: Vec<String>,
 }
 
+/// A page of the canvas index: its entry in `pages`, and its id.
+pub(crate) struct Page<'a> {
+    pub entry: &'a Value,
+    pub id: &'a str,
+}
+
+/// The pages of <index>, the repo's `CANVAS`, in its order; the first is the
+/// page of every board and note that names none. Fails when the index lists
+/// no page, or a page has no id.
+pub(crate) fn pages_of(index: &Value) -> Result<Vec<Page<'_>>> {
+    let Some(list) = index["pages"].as_array() else {
+        fail!("{CANVAS} lists no pages");
+    };
+    let mut pages = Vec::new();
+    for (n, entry) in list.iter().enumerate() {
+        let Some(id) = entry["id"].as_str() else {
+            fail!("{CANVAS}: page {} of `pages` ({entry}) has no id", n + 1);
+        };
+        pages.push(Page { entry, id });
+    }
+    if pages.is_empty() {
+        fail!("{CANVAS} lists no pages");
+    }
+    Ok(pages)
+}
+
+/// The board entries that <index>, the repo's `CANVAS`, places, by board
+/// file.
+pub(crate) fn placed(index: &Value) -> Result<&Map<String, Value>> {
+    match index["boards"].as_object() {
+        Some(placed) => Ok(placed),
+        None => fail!("{CANVAS}: `boards` is not an object of board files"),
+    }
+}
+
 /// The page that <entry>, the <kind> <name> of the index, is on: its own, or
 /// the first page when it names none, as the canvas places it.
 pub(crate) fn page_of<'a>(
@@ -188,19 +223,9 @@ pub fn split<'a>(
     canvases: &'a [Canvas],
     boards: &BTreeMap<String, String>,
 ) -> Result<Vec<Split<'a>>> {
-    let Some(page_list) = index["pages"].as_array() else {
-        fail!("{CANVAS} lists no pages, and the canvases are split by page");
-    };
-    let mut pages: Vec<&str> = Vec::new();
-    for (n, page) in page_list.iter().enumerate() {
-        let Some(id) = page["id"].as_str() else {
-            fail!("{CANVAS}: page {} of `pages` ({page}) has no id", n + 1);
-        };
-        pages.push(id);
-    }
-    let Some(first) = pages.first().copied() else {
-        fail!("{CANVAS} lists no pages, and the canvases are split by page");
-    };
+    let page_list = pages_of(index)?;
+    let pages: Vec<&str> = page_list.iter().map(|page| page.id).collect();
+    let first = pages[0];
     let mut owner: BTreeMap<&str, usize> = BTreeMap::new();
     for (n, canvas) in canvases.iter().enumerate() {
         for page in &canvas.pages {
@@ -229,9 +254,7 @@ pub fn split<'a>(
     if let Some(page) = pages.iter().find(|page| !owner.contains_key(*page)) {
         fail!("{CANVASES}: page {page} is on no canvas; add it to the pages of one");
     }
-    let Some(placed) = index["boards"].as_object() else {
-        fail!("{CANVAS}: `boards` is not an object of board files");
-    };
+    let placed = placed(index)?;
     if let Some(name) = boards.keys().find(|name| !placed.contains_key(*name)) {
         fail!("{name} is a board file that {CANVAS} does not place");
     }
@@ -299,9 +322,8 @@ pub fn split<'a>(
         part["pages"] = Value::Array(
             page_list
                 .iter()
-                .zip(&pages)
-                .filter(|(_, id)| owner.get(**id) == Some(&n))
-                .map(|(page, _)| page.clone())
+                .filter(|page| owner.get(page.id) == Some(&n))
+                .map(|page| page.entry.clone())
                 .collect(),
         );
         for (key, kept) in [("order", &mine), ("noteOrder", &my_notes)] {
