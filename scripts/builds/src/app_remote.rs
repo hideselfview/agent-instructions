@@ -295,19 +295,33 @@ impl RemoteApp {
         }
     }
 
-    /// Deletes the checkout's lane file on the host (`Checkout::app_lane_file`),
-    /// so the host's builds stops keeping the checkout's builds warm once it is
-    /// no lane's. The worktree stays. When the host has no such worktree,
-    /// `unmark` succeeds and does nothing. A failure, such as a host that does
-    /// not answer, names the host and what the script printed there.
+    /// Writes the lane to the checkout's lane file on the host
+    /// (`Checkout::app_lane_file`), so the host's builds keeps the checkout's
+    /// builds warm, as a person adds it to the lane. When the host has no such
+    /// worktree yet, `mark` does nothing: the first build makes the checkout
+    /// and writes the file before the host's setup runs. A failure, such as a
+    /// host that does not answer, names the host and what the script printed
+    /// there.
+    pub fn mark(&self) -> Result<()> {
+        self.lane_file_script(MARK, "writing the app checkout's lane file")
+    }
+
+    /// Deletes the checkout's lane file on the host, so the host's builds
+    /// stops keeping the checkout's builds warm once it is no lane's. The
+    /// worktree stays. When the host has no such worktree, `unmark` does
+    /// nothing. A failure names the host, as `mark`'s does.
     pub fn unmark(&self) -> Result<()> {
-        let script = UNMARK
+        self.lane_file_script(UNMARK, "deleting the app checkout's lane file")
+    }
+
+    fn lane_file_script(&self, script: &str, what: &str) -> Result<()> {
+        let script = script
+            .replace("@MARK_LANE@", MARK_LANE)
             .replace("@REPO@", &self.repo)
             .replace("@NAME@", &self.name)
+            .replace("@LANE@", self.lane.word())
             .replace("@LANE_FILE@", APP_LANE_FILE);
-        self.transport()
-            .capture(&script, "deleting the app checkout's lane file")
-            .map(|_| ())
+        self.transport().capture(&script, what).map(|_| ())
     }
 
     /// The command that runs <command> in the checkout on the host and is
@@ -441,11 +455,11 @@ impl RemoteApp {
 
 /// The script that makes the checkout <name> of <repo> on the host when it
 /// has none, set up as a side worktree is, or switches it to <sha> when it
-/// has no changes; it prints `worktree=<folder>`. Each run writes <lane> to
-/// the checkout's lane file (`Checkout::app_lane_file`), which the host's
-/// builds reads to keep the checkout's builds warm; a checkout a person made
-/// on the host gets the file at its first build. A new checkout's setup
-/// writes the file first, then runs the host's `builds setup`, which links
+/// has no changes; it prints `worktree=<folder>`. A new checkout's setup
+/// writes <lane> to the checkout's lane file (`Checkout::app_lane_file`),
+/// which the host's builds reads to keep the checkout's builds warm (a
+/// checkout the host already had got the file when a person added it to the
+/// lane, `RemoteApp::mark`), then runs the host's `builds setup`, which links
 /// the build folders into the host's builds root, and then the repo's
 /// post-checkout, as a job's worktree gets
 /// (remote.rs `claim_script`): a repo with no post-checkout would otherwise
@@ -458,6 +472,7 @@ fn ensure_script(host: &Host, repo: &str, name: &str, sha: &str, lane: Lane) -> 
         Lane::Mac => "",
     };
     ENSURE
+        .replace("@MARK_LANE@", MARK_LANE)
         .replace("@ROOT@", &root_script(host))
         .replace("@CLONE@", &clone_path(repo))
         .replace("@REPO@", repo)
@@ -489,9 +504,7 @@ if [ ! -e "$clone/.git" ]; then echo "no clone of @REPO@ at $clone" >&2; exit 90
 wts="$HOME/dev/@REPO@-worktrees"
 wt="$wts/@NAME@"
 mkdir -p "$wts" "$wt.job"
-mark_lane() {
-  printf '%s\n' @LANE@ > "$(git -C "$wt" rev-parse --absolute-git-dir)/@LANE_FILE@"
-}
+@MARK_LANE@
 setup() {
   cd "$wt" || return 1
   mark_lane || return 1
@@ -512,7 +525,6 @@ exclude_links() {
   done
 }
 if [ -e "$wt/.git" ]; then
-  mark_lane
   exclude_links
   if [ -n "$(git -C "$wt" status --porcelain)" ]; then
     echo "the app checkout $wt has changes, so nothing was built:" >&2
@@ -531,11 +543,26 @@ else
 fi
 echo "worktree=$wt""#;
 
+/// The shell function that writes @LANE@ to the lane file of the checkout
+/// "$wt"; it fails when git cannot name the checkout's git dir.
+const MARK_LANE: &str = r#"mark_lane() {
+  git_dir=$(git -C "$wt" rev-parse --absolute-git-dir) || return 1
+  printf '%s\n' @LANE@ > "$git_dir/@LANE_FILE@"
+}"#;
+
+/// The script that writes the lane file of the checkout <name> of <repo> on
+/// the host, when the host has the worktree.
+const MARK: &str = r#"@MARK_LANE@
+wt="$HOME/dev/@REPO@-worktrees/@NAME@"
+if [ -e "$wt/.git" ]; then mark_lane || exit 1; fi"#;
+
 /// The script that deletes the lane file of the checkout <name> of <repo> on
-/// the host.
-const UNMARK: &str = r#"wt="$HOME/dev/@REPO@-worktrees/@NAME@"
+/// the host, when the host has the worktree.
+const UNMARK: &str = r#"set -e
+wt="$HOME/dev/@REPO@-worktrees/@NAME@"
 if [ -e "$wt/.git" ]; then
-  rm -f "$(git -C "$wt" rev-parse --absolute-git-dir)/@LANE_FILE@" || exit 1
+  git_dir=$(git -C "$wt" rev-parse --absolute-git-dir)
+  rm -f "$git_dir/@LANE_FILE@"
 fi"#;
 
 /// The script that removes the checkout <name> of <repo> on the host: the

@@ -283,7 +283,7 @@ fn lane_mark(wt: &Path) -> String {
 }
 
 #[test]
-fn a_switch_marks_the_checkout_with_its_lane_before_the_hosts_setup_runs() {
+fn a_new_checkout_gets_its_lane_file_before_the_hosts_setup_runs() {
     let s = setup("remote-app-lane");
     // The host's builds says which lane the checkout's git dir names when
     // its setup runs.
@@ -299,10 +299,17 @@ fn a_switch_marks_the_checkout_with_its_lane_before_the_hosts_setup_runs() {
         std::fs::read_to_string(s.home.join("runs.txt")).unwrap(),
         format!("builds setup {wt} android\nhook {wt}\n", wt = wt.display())
     );
-    // A checkout that a person made on the host, or one from before the
-    // mark, gets it at its next switch.
-    let git_dir = crate::testing::git_out(&wt, &["rev-parse", "--absolute-git-dir"]);
-    std::fs::remove_file(Path::new(git_dir.trim()).join(crate::checkout::APP_LANE_FILE)).unwrap();
-    app.switch_to(&s.source, &head_of(&s.source)).unwrap();
-    assert_eq!(lane_mark(&wt), "android\n");
+}
+
+#[test]
+fn marking_or_unmarking_a_checkout_git_cannot_read_fails() {
+    let s = setup("remote-app-badmark");
+    let app = remote_app(&s, Lane::Android);
+    let wt = s.home.join("dev/demo-worktrees/app-1");
+    std::fs::create_dir_all(&wt).unwrap();
+    std::fs::write(wt.join(".git"), "gitdir: /nowhere\n").unwrap();
+    let marked = app.mark().expect_err("a checkout git cannot read").text();
+    assert!(marked.contains("m1"), "{marked}");
+    let unmarked = app.unmark().expect_err("a checkout git cannot read").text();
+    assert!(unmarked.contains("m1"), "{unmarked}");
 }

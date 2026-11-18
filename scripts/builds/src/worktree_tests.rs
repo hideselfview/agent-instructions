@@ -464,14 +464,15 @@ fn a_hosts_app_checkout_is_recorded_beside_this_macs_and_taken_out_again() {
     );
 }
 
-/// Removing a host's app checkout from its lane deletes the lane file in the
-/// checkout's git dir on the host, so the host stops keeping its builds warm;
-/// when the host does not answer, the removal fails and the checkout stays in
-/// the lane.
+/// Adding a host's app checkout writes its lane file in the checkout's git
+/// dir on the host, and removing it deletes the file, so the host keeps the
+/// checkout's builds warm exactly while it is in a lane. When the host does
+/// not answer, either fails and leaves the lane as it was; a removal under
+/// the wrong lane fails before it touches the host.
 #[test]
-fn removing_a_hosts_app_checkout_deletes_its_lane_file_there() {
+fn a_hosts_app_checkout_has_its_lane_file_exactly_while_it_is_in_a_lane() {
     use crate::host::tests::fake_ssh;
-    let scratch = Scratch::new("app-checkout-host-unmark");
+    let scratch = Scratch::new("app-checkout-host-mark");
     let tool = scratch.tool(0);
     let home = scratch.dir.join("remote-home");
     let ssh = fake_ssh(&scratch.dir.join("bin"), &home);
@@ -491,7 +492,6 @@ fn removing_a_hosts_app_checkout_deletes_its_lane_file_there() {
     let lane_file = Checkout::find(&wt.display().to_string())
         .unwrap()
         .app_lane_file();
-    std::fs::write(&lane_file, "android\n").unwrap();
     std::fs::write(
         crate::host::hosts_file(&tool.places),
         "m1 user@m1 10\ngone unreachable 4\n",
@@ -499,9 +499,41 @@ fn removing_a_hosts_app_checkout_deletes_its_lane_file_there() {
     .unwrap();
     let words = |words: &[&str]| -> Vec<String> { words.iter().map(|w| w.to_string()).collect() };
     let path = wt.display().to_string();
-    for host in ["m1", "gone"] {
-        cmd_app_checkout(&tool, &ssh, &words(&["android", "--host", host, &path])).unwrap();
-    }
+    cmd_app_checkout(&tool, &ssh, &words(&["android", "--host", "m1", &path])).unwrap();
+    assert_eq!(std::fs::read_to_string(&lane_file).unwrap(), "android\n");
+    assert!(
+        refusal(cmd_app_checkout(
+            &tool,
+            &ssh,
+            &words(&["android", "--host", "gone", &path])
+        ))
+        .contains("host gone")
+    );
+    assert_eq!(
+        tool.places.app_checkouts_of("demo", Lane::Android).unwrap(),
+        vec!["m1:app-1"],
+        "an addition the host did not answer was recorded"
+    );
+    assert!(
+        refusal(cmd_app_checkout(
+            &tool,
+            &ssh,
+            &words(&["remove", "mac", "--host", "m1", &path])
+        ))
+        .contains("not one of")
+    );
+    assert!(
+        lane_file.exists(),
+        "a removal under the wrong lane deleted the lane file"
+    );
+    let mut set = tool
+        .places
+        .app_checkouts_recorded("demo", Lane::Android)
+        .unwrap();
+    set.push(crate::lane::AppCheckout::by_person("gone:app-1"));
+    tool.places
+        .write_app_checkouts("demo", Lane::Android, &set)
+        .unwrap();
     assert!(
         refusal(cmd_app_checkout(
             &tool,
