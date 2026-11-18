@@ -537,7 +537,10 @@ checked out in your worktree) and builds. Put everything that needs the build
 checkout. To change something, commit or amend in your worktree and run the
 command again. A dirty app checkout fails the command rather than carry
 someone's changes into your build: find out whose they are before deleting
-them.
+them. After its steps, `builds app-build` checks the checkout again. When a
+step changed a file your commit holds, or added a file that no ignore rule
+covers, the build did not build your commit as it is: builds puts the checkout
+back on your commit and fails the build, naming the files.
 
 Another checkout may keep an app build while a wave of work needs it (the
 person asks for an app build in a worktree, or parallel agents each need one).

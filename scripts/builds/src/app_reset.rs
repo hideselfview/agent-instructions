@@ -23,7 +23,7 @@
 use std::collections::BTreeSet;
 use std::path::Path;
 
-use crate::app_config::{run_git, switch_to};
+use crate::app_config::run_git;
 use crate::app_remote::local_source;
 use crate::app_site::Site;
 use crate::fail;
@@ -31,7 +31,6 @@ use crate::fail::{Context, Result};
 use crate::host::{Ssh, sh_quote};
 use crate::lock;
 use crate::places::Places;
-use crate::side_git::{UNCOMMITTED_STATUS, paths_in_status};
 use crate::text::note;
 
 /// What the checkout is put on.
@@ -75,17 +74,6 @@ fn forget(site: &Site, sent: &[String]) -> Result<()> {
         }
     }
     Ok(())
-}
-
-/// Detaches the checkout at <commit> over its local changes. On this Mac the
-/// switch holds out against every signal but SIGKILL (`switch_to`).
-fn force_to(site: &mut Site, commit: &str) -> Result<()> {
-    match site {
-        Site::Local(top) => switch_to(top, commit, true),
-        Site::Remote(remote) => remote
-            .git(None, &["checkout", "-q", "--detach", "--force", commit])
-            .map(|_| ()),
-    }
 }
 
 /// Deletes the file <path>, in the checkout's git dir.
@@ -142,7 +130,7 @@ fn differing_with(site: &mut Site, index: &str, commit: &str) -> Result<BTreeSet
 
 /// The dirty paths of the checkout that none of <commits> holds exactly.
 fn foreign_changes(site: &mut Site, commits: &[&str]) -> Result<Vec<String>> {
-    let mut foreign = paths_in_status(&site.git(None, &UNCOMMITTED_STATUS)?);
+    let mut foreign = site.changes()?;
     for commit in commits {
         if foreign.is_empty() {
             break;
@@ -150,7 +138,7 @@ fn foreign_changes(site: &mut Site, commits: &[&str]) -> Result<Vec<String>> {
         let differs = differing(site, commit)?;
         foreign.retain(|path| differs.contains(path));
     }
-    Ok(foreign.into_iter().collect())
+    Ok(foreign)
 }
 
 /// <matching>: a commit the dirty paths may match as well, the one a halfway
@@ -202,7 +190,7 @@ fn reset_under_lock(
             foreign.join("\n  ")
         );
     }
-    force_to(site, target)?;
+    site.force_to(target)?;
     let left = site.git(None, &["status", "--porcelain"])?;
     if !left.trim().is_empty() {
         fail!("{} is still dirty after the reset:\n{left}", site.shown()?);

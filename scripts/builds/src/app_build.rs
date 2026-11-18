@@ -1050,33 +1050,36 @@ fn build_lane(
             .partition(|step| pick_kind_of(&step.name).is_some());
         let shots = ShotsStore::of(places, repo, lane, &config);
         let watch = lane.uses_xcode();
-        let mut ended = site.run_steps(
-            &held,
-            &builds,
-            &[],
-            shots.as_ref(),
-            watch,
-            &mut timing.steps,
-        )?;
-        if ended == Ended::Finished && !builds.is_empty() {
-            let steps = builds.iter().map(|step| step.name.clone()).collect();
-            Built {
-                commit: site.head()?,
-                steps,
-            }
-            .write(&built_file)?;
-        }
-        if ended == Ended::Finished {
-            ended = site.run_steps(
+        let ran = (|| {
+            let mut ended = site.run_steps(
                 &held,
-                &tests,
-                &config.results_of(lane),
+                &builds,
+                &[],
                 shots.as_ref(),
                 watch,
                 &mut timing.steps,
             )?;
-        }
-        match ended {
+            if ended == Ended::Finished && !builds.is_empty() {
+                let steps = builds.iter().map(|step| step.name.clone()).collect();
+                Built {
+                    commit: site.head()?,
+                    steps,
+                }
+                .write(&built_file)?;
+            }
+            if ended == Ended::Finished {
+                ended = site.run_steps(
+                    &held,
+                    &tests,
+                    &config.results_of(lane),
+                    shots.as_ref(),
+                    watch,
+                    &mut timing.steps,
+                )?;
+            }
+            Ok(ended)
+        })();
+        match left_unchanged(&mut site, &built_file, ran)? {
             Ended::Finished => return Ok(()),
             Ended::TakenOver => {
                 note(format!(
@@ -1099,6 +1102,41 @@ fn build_lane(
         // waits for no queued build.
         timing.stores = None;
         held = hold_stores(held.requeue()?, &mut timing.stores)?;
+    }
+}
+
+/// <ran>, how the steps in <site> ended, unless they left the checkout
+/// changed. A step that changes a file the commit holds, or adds one that no
+/// ignore rule covers, built something other than the commit, and the next
+/// build would refuse the changed checkout. So the build fails naming the
+/// files, after it puts the checkout back on its commit and clears the record
+/// of what the checkout built. Steps that failed fail with their own error,
+/// and the files changed go to stderr.
+fn left_unchanged(site: &mut Site, built_file: &Path, ran: Result<Ended>) -> Result<Ended> {
+    let changed = match (site.changes(), &ran) {
+        (Ok(changed), _) => changed,
+        (Err(error), Ok(_)) => return Err(error),
+        (Err(error), Err(_)) => {
+            note(error.text());
+            return ran;
+        }
+    };
+    if changed.is_empty() {
+        return ran;
+    }
+    Built::clear(built_file)?;
+    site.put_back()?;
+    let message = format!(
+        "the steps changed these files in {}, so they did not build the commit as it is; builds put the checkout back on its commit:\n  {}",
+        site.shown()?,
+        changed.join("\n  ")
+    );
+    match ran {
+        Ok(_) => fail!("{message}"),
+        Err(error) => {
+            note(message);
+            Err(error)
+        }
     }
 }
 

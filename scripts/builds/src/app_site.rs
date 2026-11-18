@@ -5,13 +5,14 @@
 
 use std::path::PathBuf;
 
-use crate::app_config::app_checkout_top;
+use crate::app_config::{app_checkout_top, switch_to};
 use crate::app_remote::RemoteApp;
 use crate::checkout::{git, git_text};
 use crate::fail::Result;
 use crate::host::Ssh;
 use crate::lane::Lane;
 use crate::places::Places;
+use crate::side_git::{UNCOMMITTED_STATUS, paths_in_status};
 
 /// One of a repo's app checkouts, on this Mac or on a host.
 pub enum Site {
@@ -49,5 +50,31 @@ impl Site {
             }
             Site::Remote(remote) => remote.git(index, args),
         }
+    }
+
+    /// The paths `git status` names in the checkout: changed, staged and
+    /// untracked files alike.
+    pub fn changes(&mut self) -> Result<Vec<String>> {
+        Ok(paths_in_status(&self.git(None, &UNCOMMITTED_STATUS)?)
+            .into_iter()
+            .collect())
+    }
+
+    /// Detaches the checkout at <commit> over its local changes. On this Mac
+    /// the switch holds out against every signal but SIGKILL (`switch_to`).
+    pub fn force_to(&mut self, commit: &str) -> Result<()> {
+        match self {
+            Site::Local(top) => switch_to(top, commit, true),
+            Site::Remote(remote) => remote
+                .git(None, &["checkout", "-q", "--detach", "--force", commit])
+                .map(|_| ()),
+        }
+    }
+
+    /// Puts the checkout back on its commit: the commit's files over every
+    /// change, and no file that git neither tracks nor ignores.
+    pub fn put_back(&mut self) -> Result<()> {
+        self.force_to("HEAD")?;
+        self.git(None, &["clean", "-q", "-f", "-d"]).map(|_| ())
     }
 }

@@ -112,8 +112,9 @@ impl Volume {
     }
 
     /// `app_repo` with <config> as its `.app-build`; besides `one.sh` and
-    /// `two.sh`, `droid.sh` (a script like them) and `bad.sh` (which logs and
-    /// exits 3), for the steps of <config> to name. The android lane's app
+    /// `two.sh`, `droid.sh` (a script like them), `bad.sh` (which logs and
+    /// exits 3) and `dirty.sh` (which changes itself, a file the commit holds,
+    /// adds the file `made` and exits 0), for the steps of <config> to name. The android lane's app
     /// checkout is recorded too, a clone of the same origin.
     fn app_repo_with(&self, config: &str) {
         let top = self.dir.join("checkout");
@@ -139,6 +140,15 @@ impl Volume {
         let mut mode = std::fs::metadata(&bad).unwrap().permissions();
         std::os::unix::fs::PermissionsExt::set_mode(&mut mode, 0o755);
         std::fs::set_permissions(&bad, mode).unwrap();
+        let dirty = top.join("dirty.sh");
+        std::fs::write(
+            &dirty,
+            "#!/bin/sh\necho '# changed' >> \"$0\"\necho made > made\n",
+        )
+        .unwrap();
+        let mut dirty_mode = std::fs::metadata(&dirty).unwrap().permissions();
+        std::os::unix::fs::PermissionsExt::set_mode(&mut dirty_mode, 0o755);
+        std::fs::set_permissions(&dirty, dirty_mode).unwrap();
         for name in ["one", "two", "droid"] {
             let script = format!(
                 "#!/bin/sh\ntrap 'echo \"stop {name}\" >> \"$QUEUE_TEST_DIR/log\"; exit 1' TERM\necho \"start {name}\" >> \"$QUEUE_TEST_DIR/log\"\nwhile [ ! -e \"$QUEUE_TEST_DIR/go-{name}\" ]; do sleep 0.05; done\necho \"end {name}\" >> \"$QUEUE_TEST_DIR/log\"\n"
@@ -655,6 +665,39 @@ fn app_build_runs_the_steps_named_and_lists_them() {
     let unknown = volume.run(&["app-build", "demo", "main", "three"]);
     assert!(!unknown.status.success());
     assert!(String::from_utf8_lossy(&unknown.stderr).contains("no step three"));
+}
+
+#[test]
+fn a_step_that_changes_the_checkout_fails_the_build_which_puts_the_checkout_back() {
+    let volume = Volume::new("app-build-dirty");
+    volume.app_repo_with("step mac dirty ./dirty.sh\nstep mac two ./two.sh\n");
+    let top = volume.dir.join("checkout");
+    let git = |args: &[&str]| {
+        let output = Command::new("git")
+            .arg("-C")
+            .arg(&top)
+            .args(args)
+            .output()
+            .unwrap();
+        String::from_utf8_lossy(&output.stdout).trim().to_string()
+    };
+    let head = git(&["rev-parse", "HEAD"]);
+    let built = volume.run(&["app-build", "demo", "main", "dirty"]);
+    let said = String::from_utf8_lossy(&built.stderr);
+    assert!(!built.status.success(), "the build fails: {said}");
+    assert!(
+        said.contains("dirty.sh") && said.contains("made"),
+        "the build names the files its steps changed: {said}"
+    );
+    assert_eq!(git(&["status", "--porcelain"]), "", "the checkout is clean");
+    assert_eq!(git(&["rev-parse", "HEAD"]), head, "on its commit");
+    volume.open_gate("two");
+    let next = volume.run(&["app-build", "demo", "main", "two"]);
+    assert!(
+        next.status.success(),
+        "the next build takes the checkout: {}",
+        String::from_utf8_lossy(&next.stderr)
+    );
 }
 
 #[test]
