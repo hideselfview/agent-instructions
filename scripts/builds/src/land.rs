@@ -438,7 +438,21 @@ impl Landing<'_> {
         line
     }
 
+    /// <line> with the landing's project, which a repo in two projects cannot
+    /// tell from the worktree: the line as given when it names a project or
+    /// the landing is in none.
+    fn in_project(&self, mut line: Vec<String>) -> Vec<String> {
+        if let Some(Recording { project, .. }) = &self.recording
+            && !line.iter().any(|word| word == "--project")
+        {
+            line.push("--project".to_string());
+            line.push(project.clone());
+        }
+        line
+    }
+
     fn run_line(&self, line: &[String]) -> (bool, String) {
+        let line = self.in_project(line.to_vec());
         let args: Vec<&str> = line.iter().map(String::as_str).collect();
         self.builds(&args)
     }
@@ -583,7 +597,9 @@ impl Landing<'_> {
             review.push("--more-to-land".to_string());
         }
         lines.push(review);
-        for mut line in lines {
+        for line in lines {
+            // The rerun below carries the project too.
+            let mut line = self.in_project(line);
             line.push("--by".to_string());
             line.push(by.clone());
             let (ok, said) = self.run_line(&line);

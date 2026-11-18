@@ -339,7 +339,7 @@ fn a_project_repo_names_its_work_item_before_anything_moves() {
         calls,
         [
             format!("lists project-of {dir}"),
-            format!("design places {dir} {a}")
+            format!("design places {dir} {a} --project bae")
         ]
     );
     let (code, out, _) = run_land(
@@ -361,7 +361,7 @@ fn a_project_repo_names_its_work_item_before_anything_moves() {
     assert_eq!(
         calls[calls.len() - 2..],
         [
-            format!("item landed {dir} --done 7 --part 8 {a} --by agent A"),
+            format!("item landed {dir} --done 7 --part 8 {a} --project bae --by agent A"),
             format!("review landed {dir} --project bae --landing branch:a {a} --by agent A")
         ],
         "every record names the worktree's claim; a --part landing keeps the claim"
@@ -402,7 +402,7 @@ fn a_cherry_picked_landing_records_the_new_commit_on_main_and_releases_the_workt
     assert_eq!(
         calls[calls.len() - 3..],
         [
-            format!("item landed {dir} --done 7 {new} --by agent A"),
+            format!("item landed {dir} --done 7 {new} --project bae --by agent A"),
             format!("review landed {dir} --project bae --landing branch:b {b} --by agent A"),
             format!("release {dir}")
         ],
@@ -547,12 +547,12 @@ fn design_places_need_the_design_change() {
         },
     );
     assert_eq!(code, 0);
-    assert!(calls.contains(&format!("design check 3 {dir} {a}")));
+    assert!(calls.contains(&format!("design check 3 {dir} {a} --project bae")));
     assert_eq!(
         calls[calls.len() - 4..],
         [
-            format!("item landed {dir} --done 7 {a} --by agent A"),
-            format!("design landed 3 {dir} {a} --by agent A"),
+            format!("item landed {dir} --done 7 {a} --project bae --by agent A"),
+            format!("design landed 3 {dir} {a} --project bae --by agent A"),
             format!("review landed {dir} --project bae --landing branch:a {a} --by agent A"),
             format!("release {dir}")
         ]
@@ -574,7 +574,7 @@ fn shared_only_design_files_with_the_design_change_land() {
     );
     assert_eq!(code, 0);
     assert!(calls.contains(&format!(
-        "design landed 3 {} {a} --by agent A",
+        "design landed 3 {} {a} --project bae --by agent A",
         one.display()
     )));
 }
@@ -643,15 +643,15 @@ fn a_design_change_alone_lands_commits_that_are_all_design_files() {
         },
     );
     assert!(code == 0 && main_of(&f) == a);
-    assert!(calls.contains(&format!("design only {dir} {a}")));
-    assert!(calls.contains(&format!("design check 3 {dir} {a}")));
+    assert!(calls.contains(&format!("design only {dir} {a} --project bae")));
+    assert!(calls.contains(&format!("design check 3 {dir} {a} --project bae")));
     assert!(calls.contains(&format!(
         "review check-landing {dir} --project bae --landing branch:a {a}"
     )));
     assert_eq!(
         calls[calls.len() - 3..],
         [
-            format!("design landed 3 {dir} {a} --by agent A"),
+            format!("design landed 3 {dir} {a} --project bae --by agent A"),
             format!("review landed {dir} --project bae --landing branch:a {a} --by agent A"),
             format!("release {dir}")
         ],
@@ -682,7 +682,7 @@ fn several_design_changes_land_in_one_call_and_each_is_recorded_as_landed() {
         "{out}"
     );
     assert!(
-        calls.contains(&format!("design check 3,4 {dir} {a}")),
+        calls.contains(&format!("design check 3,4 {dir} {a} --project bae")),
         "one check decides whether the changes together resolve every place: {calls:?}"
     );
     let (code, out, calls) = run_land(
@@ -695,13 +695,13 @@ fn several_design_changes_land_in_one_call_and_each_is_recorded_as_landed() {
         },
     );
     assert!(code == 0 && main_of(&f) == a, "{out}");
-    assert!(calls.contains(&format!("design only {dir} {a}")));
-    assert!(calls.contains(&format!("design check 3,4 {dir} {a}")));
+    assert!(calls.contains(&format!("design only {dir} {a} --project bae")));
+    assert!(calls.contains(&format!("design check 3,4 {dir} {a} --project bae")));
     assert_eq!(
         calls[calls.len() - 4..],
         [
-            format!("design landed 3 {dir} {a} --by agent A"),
-            format!("design landed 4 {dir} {a} --by agent A"),
+            format!("design landed 3 {dir} {a} --project bae --by agent A"),
+            format!("design landed 4 {dir} {a} --project bae --by agent A"),
             format!("review landed {dir} --project bae --landing branch:a {a} --by agent A"),
             format!("release {dir}")
         ]
@@ -727,7 +727,7 @@ fn a_failed_design_record_after_a_design_only_push_exits_with_the_rerun() {
         "{out}"
     );
     assert!(out.contains(&format!(
-        "rerun: builds design landed 3 {} {a} --by 'agent A'",
+        "rerun: builds design landed 3 {} {a} --project bae --by 'agent A'",
         one.display()
     )));
     assert!(!out.contains("item landed"));
@@ -755,13 +755,13 @@ fn a_failed_record_exits_with_the_rerun_and_the_rerun_records_it() {
         "{out}"
     );
     assert!(out.contains(&format!(
-        "rerun: builds item landed {} --done 7 {a} --by 'agent A'",
+        "rerun: builds item landed {} --done 7 {a} --project bae --by 'agent A'",
         one.display()
     )));
     let (code, _, calls) = run_land(&f, &one, &["--done", "7", &a], project());
     assert_eq!(code, 0);
     assert!(calls.contains(&format!(
-        "item landed {} --done 7 {a} --by agent A",
+        "item landed {} --done 7 {a} --project bae --by agent A",
         one.display()
     )));
 }
@@ -856,7 +856,10 @@ fn landing_a_commit_already_on_main_says_so_and_records_its_copy() {
     assert_eq!(
         calls[calls.len() - 3..],
         [
-            format!("item landed {} --done 7 {a} --by agent A", one.display()),
+            format!(
+                "item landed {} --done 7 {a} --project bae --by agent A",
+                one.display()
+            ),
             // The first landing left the worktree detached at a.
             format!(
                 "review landed {} --project bae --landing detached:{} {a} --by agent A",
@@ -1046,7 +1049,7 @@ fn a_landing_that_main_moved_under_tries_again_from_a_fresh_fetch() {
     assert_eq!(git_out(&f.origin, &["show", "main:a.txt"]), "a");
     assert_eq!(git_out(&f.origin, &["show", "main:c.txt"]), "c");
     assert!(calls.contains(&format!(
-        "item landed {} --done 7 {new} --by agent A",
+        "item landed {} --done 7 {new} --project bae --by agent A",
         one.display()
     )));
     assert_eq!(head_of(&one), new);
