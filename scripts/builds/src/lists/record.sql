@@ -17,7 +17,7 @@ CREATE TABLE closing (
     record_id INTEGER PRIMARY KEY,
     kind TEXT NOT NULL,
     how TEXT NOT NULL CONSTRAINT closing_how_known CHECK (
-        how IN ('answered', 'settled', 'done', 'landed', 'finished', 'dropped', 'deferred', 'moved-to-stack')
+        how IN ('answered', 'settled', 'done', 'done-unrecorded', 'landed', 'finished', 'dropped', 'deferred', 'moved-to-stack')
     ),
     at INTEGER NOT NULL,
     by TEXT NOT NULL CONSTRAINT closing_by_says_something CHECK (trim(by) <> ''),
@@ -28,12 +28,14 @@ CREATE TABLE closing (
     -- Why whoever closed the record settled it (the rule, spec text, earlier
     -- decision or code that settles it), dropped or deferred it, or what
     -- shows a question's step done, or what a finished item made. A question
-    -- leaves only with a decision (answered) or one of these reasons.
+    -- leaves only with a decision (answered) or one of these reasons, except a
+    -- done that closed before builds kept reasons (done-unrecorded), which only
+    -- the move to this schema writes and which has none.
     reason TEXT,
     CONSTRAINT closing_names_its_record FOREIGN KEY (record_id, kind) REFERENCES record (id, kind),
     CONSTRAINT closing_how_fits_kind CHECK (
         CASE kind
-            WHEN 'question' THEN how IN ('answered', 'settled', 'done', 'dropped', 'deferred')
+            WHEN 'question' THEN how IN ('answered', 'settled', 'done', 'done-unrecorded', 'dropped', 'deferred')
             WHEN 'item' THEN how IN ('landed', 'finished', 'dropped', 'deferred', 'moved-to-stack')
             WHEN 'design' THEN how IN ('landed', 'dropped')
             ELSE 0

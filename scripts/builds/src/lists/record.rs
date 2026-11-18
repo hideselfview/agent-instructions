@@ -79,6 +79,9 @@ pub enum How {
     /// A question for the person's own step, closed: what shows the step is
     /// done.
     Done(String),
+    /// A question closed as done before builds kept a reason. Only the move
+    /// writes it, and no command can.
+    DoneUnrecorded,
     Landed(Vec<String>),
     /// An item whose work finished with no commits (an audit, research):
     /// what it made (items, stack entries, notes).
@@ -168,6 +171,7 @@ impl How {
             How::Answered(decision) => format!("answered by decision {decision}"),
             How::Settled(rule) => format!("settled by {rule}"),
             How::Done(reason) => format!("done: {reason}"),
+            How::DoneUnrecorded => "closed as done; builds kept no reason then".to_string(),
             How::Landed(commits) => {
                 let short: Vec<&str> = commits.iter().map(|c| &c[..c.len().min(9)]).collect();
                 format!("landed ({})", short.join(" "))
@@ -185,6 +189,7 @@ impl How {
             How::Answered(_) => "answered",
             How::Settled(_) => "settled",
             How::Done(_) => "done",
+            How::DoneUnrecorded => "done-unrecorded",
             How::Landed(_) => "landed",
             How::Finished(_) => "finished",
             How::Dropped(_) => "dropped",
@@ -201,6 +206,7 @@ impl How {
                 How::Answered(_)
                     | How::Settled(_)
                     | How::Done(_)
+                    | How::DoneUnrecorded
                     | How::Dropped(_)
                     | How::Deferred(_)
             ),
@@ -352,7 +358,7 @@ fn insert_closing(db: &Connection, id: Id, kind: Kind, how: &How, stamp: &Stamp)
         | How::Finished(reason)
         | How::Dropped(reason)
         | How::Deferred(reason) => (None, None, Some(reason.as_str())),
-        How::Landed(_) => (None, None, None),
+        How::DoneUnrecorded | How::Landed(_) => (None, None, None),
     };
     db.execute(
         "INSERT INTO closing (record_id, kind, how, at, by, decision_id, question_id, reason) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
@@ -371,15 +377,11 @@ fn insert_closing(db: &Connection, id: Id, kind: Kind, how: &How, stamp: &Stamp)
     Ok(())
 }
 
-/// The reason the move gives a question that closed as done before builds
-/// kept why: it says no reason was recorded and names none.
-pub const DONE_BEFORE_REASONS: &str = "closed as done before builds recorded why";
-
 /// Makes the `closing` table again as record.sql writes it today, where an
 /// item may close as finished, a design change as dropped and a question as
 /// done only with a reason, and copies every closing into it. A question that
-/// closed as done with no reason gets `DONE_BEFORE_REASONS`, which claims no
-/// rule or step. The statement comes from record.sql, so the table equals a
+/// closed as done with no reason becomes `done-unrecorded`, the one closing
+/// that has none. The statement comes from record.sql, so the table equals a
 /// fresh database's. migrate.rs runs this with the foreign keys off, and
 /// SQLite renames the old table under `legacy_alter_table`, so
 /// `closing_commit` keeps naming `closing`.
@@ -392,10 +394,11 @@ pub fn remake_closing(db: &Connection) -> Result<()> {
         |db| {
             db.execute(
                 "INSERT INTO closing (record_id, kind, how, at, by, decision_id, question_id, reason)
-    SELECT record_id, kind, how, at, by, decision_id, question_id,
-           CASE WHEN how = 'done' AND reason IS NULL THEN ?1 ELSE reason END
+    SELECT record_id, kind,
+           CASE WHEN how = 'done' AND reason IS NULL THEN 'done-unrecorded' ELSE how END,
+           at, by, decision_id, question_id, reason
     FROM closing_old;",
-                params![DONE_BEFORE_REASONS],
+                [],
             )
             .sql()
             .map(|_| ())
@@ -452,6 +455,7 @@ pub fn read_closings(db: &Connection) -> Result<BTreeMap<Id, (How, Stamp)>> {
             }
             "settled" => How::Settled(reason()),
             "done" => How::Done(reason()),
+            "done-unrecorded" => How::DoneUnrecorded,
             "landed" => How::Landed(commits.remove(&id).unwrap_or_default()),
             "finished" => How::Finished(reason()),
             "dropped" => How::Dropped(reason()),

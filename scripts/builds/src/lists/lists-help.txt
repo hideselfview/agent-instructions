@@ -138,7 +138,7 @@ auto` takes it out of the ranked order.
       done (the person's words, a decision, a commit or the code), "blocked",
       "work" | "no_work"}. builds stores `shown_by` as the reason and prints
       it where it prints a settle's. A question closed as done before builds
-      kept this shows "closed as done before builds recorded why".
+      kept this shows "closed as done; builds kept no reason then".
 
   builds question drop N --why WHY
   builds question defer N --issue URL

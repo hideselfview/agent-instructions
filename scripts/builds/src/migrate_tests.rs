@@ -5172,31 +5172,44 @@ fn a_store_from_before_run_times_gets_the_runs_its_write_log_tells_of() {
     assert_eq!(from, 800);
 }
 
-/// What record.sql said of a closing's reason before a question could close
-/// as done only with a reason, and as it says now.
-const OLD_CLOSING_REASON: &str =
-    "    -- Why whoever closed the record settled, dropped or deferred it, or what a
-    -- finished item made.
-    reason TEXT,";
-const NEW_CLOSING_REASON: &str =
-    "    -- Why whoever closed the record settled it (the rule, spec text, earlier
+/// Pairs of record.sql text as it reads now and as it read before a
+/// question could close as done only with a reason.
+const CLOSING_BEFORE_DONE_REASON: [(&str, &str); 4] = [
+    (
+        "    -- Why whoever closed the record settled it (the rule, spec text, earlier
     -- decision or code that settles it), dropped or deferred it, or what
     -- shows a question's step done, or what a finished item made. A question
-    -- leaves only with a decision (answered) or one of these reasons.
-    reason TEXT,";
-const OLD_CLOSING_CHECK: &str =
-    "(how IN ('settled', 'finished', 'dropped', 'deferred')) = (reason IS NOT NULL)";
-const NEW_CLOSING_CHECK: &str =
-    "(how IN ('settled', 'done', 'finished', 'dropped', 'deferred')) = (reason IS NOT NULL)";
+    -- leaves only with a decision (answered) or one of these reasons, except a
+    -- done that closed before builds kept reasons (done-unrecorded), which only
+    -- the move to this schema writes and which has none.
+    reason TEXT,",
+        "    -- Why whoever closed the record settled, dropped or deferred it, or what a
+    -- finished item made.
+    reason TEXT,",
+    ),
+    (
+        "(how IN ('settled', 'done', 'finished', 'dropped', 'deferred')) = (reason IS NOT NULL)",
+        "(how IN ('settled', 'finished', 'dropped', 'deferred')) = (reason IS NOT NULL)",
+    ),
+    (
+        "how IN ('answered', 'settled', 'done', 'done-unrecorded', 'landed',",
+        "how IN ('answered', 'settled', 'done', 'landed',",
+    ),
+    (
+        "WHEN 'question' THEN how IN ('answered', 'settled', 'done', 'done-unrecorded', 'dropped', 'deferred')",
+        "WHEN 'question' THEN how IN ('answered', 'settled', 'done', 'dropped', 'deferred')",
+    ),
+];
 
 /// <schema> as it read before a question could close as done only with a
 /// reason: `closing` let a question close as done with none.
 fn with_done_without_reason(schema: String) -> String {
-    assert_eq!(schema.matches(NEW_CLOSING_REASON).count(), 1);
-    assert_eq!(schema.matches(NEW_CLOSING_CHECK).count(), 1);
-    schema
-        .replacen(NEW_CLOSING_REASON, OLD_CLOSING_REASON, 1)
-        .replacen(NEW_CLOSING_CHECK, OLD_CLOSING_CHECK, 1)
+    CLOSING_BEFORE_DONE_REASON
+        .iter()
+        .fold(schema, |schema, (new, old)| {
+            assert_eq!(schema.matches(new).count(), 1, "{new}");
+            schema.replacen(new, old, 1)
+        })
 }
 
 /// The schema as it was before the publish requests' tables joined it, and
@@ -5220,7 +5233,7 @@ fn the_done_reason_stamp_is_the_schema_before_a_question_closed_as_done_with_a_r
 }
 
 /// A store from before questions closed as done with a reason gives each
-/// question that closed as done `DONE_BEFORE_REASONS`, keeps every other
+/// question that closed as done the kind `done-unrecorded`, keeps every other
 /// closing as it was, and equals a fresh schema.
 #[test]
 fn a_store_with_questions_closed_as_done_marks_them_and_equals_a_fresh_schema() {
@@ -5253,18 +5266,18 @@ fn a_store_with_questions_closed_as_done_marks_them_and_equals_a_fresh_schema() 
         db::schema_rows(&conn).unwrap(),
         db::schema_rows(&db::memory()).unwrap()
     );
-    let reasons: Vec<(i64, String)> = conn
-        .prepare("SELECT record_id, reason FROM closing ORDER BY record_id")
+    let reasons: Vec<(i64, String, Option<String>)> = conn
+        .prepare("SELECT record_id, how, reason FROM closing ORDER BY record_id")
         .unwrap()
-        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
         .unwrap()
         .collect::<rusqlite::Result<_>>()
         .unwrap();
     assert_eq!(
         reasons,
         [
-            (1, crate::lists::record::DONE_BEFORE_REASONS.to_string()),
-            (2, "a rule".to_string())
+            (1, "done-unrecorded".to_string(), None),
+            (2, "settled".to_string(), Some("a rule".to_string()))
         ]
     );
 }

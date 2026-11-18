@@ -211,6 +211,10 @@ fn every_named_constraint_of_the_record_tables_refuses_its_row() {
         plant(&db, "closing", &on_second(std::slice::from_ref(&no_reason))),
     );
     refused.check(
+        "closing_reason_goes_with_how",
+        plant(&db, "closing", &on_second(&[("how", v("done-unrecorded"))])),
+    );
+    refused.check(
         "closing_reason_says_something",
         plant(&db, "closing", &row(&item_closing, &[("reason", v(" "))])),
     );
@@ -285,4 +289,15 @@ fn every_named_constraint_of_the_record_tables_refuses_its_row() {
         ),
     );
     refused.done();
+}
+
+#[test]
+fn a_done_that_closed_before_reasons_has_none_and_says_so() {
+    assert!(How::DoneUnrecorded.fits(Kind::Question));
+    assert!(!How::DoneUnrecorded.fits(Kind::Item));
+    assert_eq!(How::DoneUnrecorded.label(), "done-unrecorded");
+    assert_eq!(
+        How::DoneUnrecorded.words(),
+        "closed as done; builds kept no reason then"
+    );
 }

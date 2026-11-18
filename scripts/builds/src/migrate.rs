@@ -485,7 +485,7 @@ const DESIGN_DELETED: &str = "CREATE TABLE design_deleted (
 /// of the requests (no session listens yet).
 /// Every store gets `closing` where a question closes as done only with a
 /// reason, and each question that closed as done before then gets
-/// `DONE_BEFORE_REASONS` as its reason, which names no rule or step
+/// the kind `done-unrecorded`, which has no reason
 /// (`lists::record::remake_closing`).
 /// The moves run in one transaction, the store
 /// is stamped as today's schema, and it must then equal a fresh database's schema or the transaction rolls back. A

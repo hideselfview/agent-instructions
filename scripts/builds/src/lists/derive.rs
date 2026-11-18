@@ -30,7 +30,7 @@ pub fn closed_meets_wait(closed: &Closed) -> bool {
         (&closed.record, &closed.how),
         (
             Record::Question(_),
-            How::Answered(_) | How::Settled(_) | How::Done(_)
+            How::Answered(_) | How::Settled(_) | How::Done(_) | How::DoneUnrecorded
         ) | (Record::Item(_) | Record::Design(_), How::Landed(_))
             | (Record::Item(_), How::Finished(_))
     )
