@@ -3,7 +3,7 @@
 //! nothing has used for a day, so they don't pile up.
 //!
 //! A side worktree is free when it has no claim and nothing keeps it
-//! (kept.rs): no item of any project runs or is parked in it, its tree is
+//! (kept.rs): no item of any project runs in it, its tree is
 //! clean, no `git commit` runs there, and neither its HEAD nor a branch it
 //! left since its last claim began holds a commit missing from origin/main.
 //! `builds release` refuses to remove a claim on the same facts. Landing

@@ -738,13 +738,7 @@ impl Model {
             &machine.commits,
         )?;
         let (_, loaded) = self.lists.current();
-        let unclaimed = unclaimed_of(
-            &self.places,
-            &state.roots,
-            &state.facts,
-            &places,
-            &crate::lists::parked::parked_worktrees(&loaded),
-        )?;
+        let unclaimed = unclaimed_of(&self.places, &state.roots, &state.facts, &places)?;
         let lists =
             crate::health::lists_findings(&self.places, &loaded, &places, &mut claimed, &held)?;
         let mut loose: Vec<crate::unlanded::LooseBranch> = Vec::new();
@@ -1246,21 +1240,6 @@ impl Model {
                     checkout.state =
                         super::cards::card_state(checkout.state, shell, waits.as_deref());
                     let waits = waits.unwrap_or_default();
-                    // A worktree an item is parked in, with no agent, holds that
-                    // item's work: its card shows it parked with the item.
-                    let parked = project
-                        .and_then(|lists| crate::lists::parked::parked_in(lists, &checkout.path))
-                        .filter(|_| checkout.claim.is_none());
-                    let items = match parked {
-                        Some(item) => {
-                            checkout.state = Some("parked");
-                            vec![super::cards::RunningItem {
-                                id: item.id.0,
-                                title: item.title.clone(),
-                            }]
-                        }
-                        None => items,
-                    };
                     checkout.words = super::cards::words(checkout, &items, &waits);
                 }
             }
@@ -1372,24 +1351,16 @@ fn claimed_of(
 }
 
 /// The unclaimed side worktrees of <roots>, leaving out the app checkouts
-/// and the worktrees in <parked>, where open items are parked. When <parked>
-/// is why builds cannot read the stores, each worktree carries that reason.
 fn unclaimed_of(
     tool_places: &Places,
     roots: &[Root],
     facts: &HashMap<PathBuf, Facts>,
     places: &[Place],
-    parked: &std::result::Result<Vec<String>, String>,
 ) -> crate::fail::Result<Vec<Unclaimed>> {
     let mut unclaimed = Vec::new();
     for root in roots {
         let Some(checkout) = &root.live else { continue };
-        if checkout.is_main()
-            || root.is_app_checkout(tool_places)?
-            || parked
-                .as_ref()
-                .is_ok_and(|parked| parked.contains(&checkout.top.display().to_string()))
-        {
+        if checkout.is_main() || root.is_app_checkout(tool_places)? {
             continue;
         }
         let Some(git) = facts.get(&root.path).and_then(|facts| facts.git.as_ref()) else {
@@ -1404,7 +1375,6 @@ fn unclaimed_of(
         unclaimed.push(Unclaimed {
             place,
             git: git.clone(),
-            parked_unknown: parked.as_ref().err().cloned(),
         });
     }
     Ok(unclaimed)
@@ -1425,9 +1395,7 @@ fn unclaimed_of(
 ///     working         claimed, none of the above
 ///     free            unclaimed, nothing waiting to land
 ///
-/// The page then turns an unclaimed worktree an open item is parked in into
-/// parked, whatever it holds (lists/parked.rs). The page also gives the state
-/// waits-unread to a worktree when the daemon could not read what its running
+/// The page gives the state waits-unread to a worktree when the daemon could not read what its running
 /// items wait on (cards::card_state).
 pub fn worktree_state(claim: Option<&Claim>, git: Option<&SideGit>) -> &'static str {
     let ahead = git.is_some_and(|g| !g.ahead.is_empty());

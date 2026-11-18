@@ -37,13 +37,12 @@ pub struct Running {
     pub since: Stamp,
 }
 
-/// How a run ended: someone stopped the item, parked it, or closed it (the
+/// How a run ended: someone stopped the item or closed it (the
 /// item's closing says how).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Ended {
     Stopped,
-    Parked,
     Closed,
 }
 
@@ -52,7 +51,6 @@ impl Ended {
     fn word(self) -> &'static str {
         match self {
             Ended::Stopped => "stopped",
-            Ended::Parked => "parked",
             Ended::Closed => "closed",
         }
     }
@@ -60,7 +58,6 @@ impl Ended {
     fn from_word(word: &str) -> Ended {
         match word {
             "stopped" => Ended::Stopped,
-            "parked" => Ended::Parked,
             "closed" => Ended::Closed,
             other => unreachable!("item_run_how_known holds, but the database has {other:?}"),
         }
@@ -157,38 +154,18 @@ pub fn require_side_worktree(path: &str) -> Result<(String, String, String)> {
     }
 }
 
-/// The table of the worktrees an item holds: where it runs, or where it is
-/// parked (lists/parked.rs). Both have one row per worktree, with its repo,
-/// parent folder, checkout name and branch.
-pub enum PlaceTable {
-    Running,
-    Parked,
-}
-
-impl PlaceTable {
-    fn name(&self) -> &'static str {
-        match self {
-            PlaceTable::Running => "running_place",
-            PlaceTable::Parked => "parked_place",
-        }
-    }
-}
-
 /// Writes <places>, each a side worktree and its branch, as item <id>'s rows
-/// of <table>.
-pub fn insert_places<'a>(
+/// of `running_place`: one per worktree, with its repo, parent folder,
+/// checkout name and branch.
+fn insert_places<'a>(
     db: &Connection,
-    table: PlaceTable,
     id: Id,
     places: impl IntoIterator<Item = (&'a str, &'a str)>,
 ) -> Result<()> {
     for (worktree, branch) in places {
         let (parent, repo, checkout) = require_side_worktree(worktree)?;
         db.execute(
-            &format!(
-                "INSERT INTO {} (item_id, repo, parent, checkout, branch) VALUES (?1, ?2, ?3, ?4, ?5)",
-                table.name()
-            ),
+            "INSERT INTO running_place (item_id, repo, parent, checkout, branch) VALUES (?1, ?2, ?3, ?4, ?5)",
             params![id, repo, parent, checkout, branch],
         )
         .sql()?;
@@ -216,7 +193,6 @@ pub fn start(db: &Connection, ids: &[Id], places: &[Running]) -> Result<()> {
         .sql()?;
         insert_places(
             db,
-            PlaceTable::Running,
             *id,
             places
                 .iter()
@@ -552,7 +528,7 @@ pub fn running_in_any<'a>(lists: &'a [Lists], worktree: &str) -> Vec<(&'a Lists,
 /// What `builds health` says about the lists: a store whose database fails
 /// SQLite's integrity checks, a store that fails its check,
 /// and a running item whose worktree is gone or has no claim. `builds
-/// release` and a landing's release (kept.rs), `builds item park` and `builds
+/// release` and a landing's release (kept.rs), `builds
 /// item drop` each refuse to remove a claim while another item runs in the
 /// worktree, so only a hand edit can leave a running item with no claim;
 /// `builds health` reports such an item and does not repair it. One line
@@ -601,13 +577,99 @@ pub fn findings(
     Ok(findings)
 }
 
+/// What the move from before builds dropped the parked state did with one
+/// parked item.
+#[derive(Debug, PartialEq, Eq)]
+pub struct WasParked {
+    pub item: Id,
+    /// Each worktree and branch the item was parked in.
+    pub places: Vec<(String, String)>,
+}
+
+/// Drops `parked` and `parked_place` from a store that has them. A parked
+/// item becomes a ready item that holds no worktree: its worktree keeps the
+/// work, which builds keeps with the worktree (an unclaimed worktree with
+/// commits is never handed out or retired), and the item gets a note, at
+/// <now>, that names each worktree and branch it was parked in. Returns each
+/// parked item, so the move can say what it did. migrate.rs runs this with
+/// the foreign keys off.
+pub fn move_to_no_park(db: &Connection, now: i64) -> Result<Vec<WasParked>> {
+    let mut statement = db
+        .prepare("SELECT item_id, worktree, branch FROM parked_place ORDER BY item_id, repo")
+        .sql()?;
+    let rows = statement
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, Id>(0)?,
+                (row.get::<_, String>(1)?, row.get::<_, String>(2)?),
+            ))
+        })
+        .sql()?;
+    let mut parked: Vec<WasParked> = Vec::new();
+    for row in rows {
+        let (item, place) = row.sql()?;
+        match parked.last_mut() {
+            Some(last) if last.item == item => last.places.push(place),
+            _ => parked.push(WasParked {
+                item,
+                places: vec![place],
+            }),
+        }
+    }
+    drop(statement);
+    for was in &parked {
+        let words: Vec<String> = was
+            .places
+            .iter()
+            .map(|(worktree, branch)| format!("{worktree} on {branch}"))
+            .collect();
+        db.execute(
+            "INSERT INTO item_note (item_id, at, by, text) VALUES (?1, ?2, 'builds', ?3)",
+            params![
+                was.item,
+                now,
+                format!(
+                    "builds dropped the parked state: this item was parked in {} and now waits in the queue; its work stays there, where no agent claims it",
+                    words.join(" and ")
+                )
+            ],
+        )
+        .sql()?;
+    }
+    db.execute_batch("DROP TABLE parked_place; DROP TABLE parked;")
+        .sql()?;
+    Ok(parked)
+}
+
+/// Makes `item_run` again without the run that ended as parked: those runs
+/// become runs that ended as stopped, since a park ended a run as a stop does.
+/// migrate.rs runs this with the foreign keys off, in a store that has
+/// `item_run` in its older shape.
+pub fn move_to_runs_without_park(db: &Connection) -> Result<()> {
+    const SQL: &str = include_str!("running.sql");
+    crate::db::remake_table(
+        db,
+        "item_run",
+        crate::db::statement(SQL, "CREATE TABLE item_run (", "STRICT;"),
+        |db| {
+            db.execute_batch(
+                "INSERT INTO item_run (id, item_id, since_at, since_by, how, ended_at, ended_by)
+    SELECT id, item_id, since_at, since_by, CASE how WHEN 'parked' THEN 'stopped' ELSE how END, ended_at, ended_by
+    FROM item_run_old;",
+            )
+            .sql()
+        },
+        &[crate::db::statement(SQL, "CREATE INDEX item_run_item", ";")],
+    )
+}
+
 /// What `move_to_runs` read from a store's write log.
 #[derive(Debug, PartialEq, Eq)]
 pub struct Recovered {
     /// The ended runs it wrote.
     pub runs: usize,
     /// The runs whose end the log does not tell: a take of an item that is
-    /// neither running nor closed now, with no stop, park, drop, finish or
+    /// neither running nor closed now, with no stop, drop, finish or
     /// landing after it. The move writes none of them.
     pub unended: usize,
 }
@@ -623,7 +685,7 @@ fn logged_ids<'a>(words: impl Iterator<Item = &'a str>) -> Vec<Id> {
 /// before them, writes each run that ended that the write log tells of, and
 /// records <now> as the moment the store began to record spans. A run
 /// starts at an `item take` line and ends at the next `item stop` or `item
-/// park` line of its item, or at the item's closing when an `item drop`,
+/// park` line of its item (an old store logged `item park`, which ended a run as a stop does), or at the item's closing when an `item drop`,
 /// `item finished` or `item landed` line closed it (an `item landed` line
 /// names commits, not items, so each item closed as landed at the line's
 /// moment ends there). The run of an item that runs now stays its `running`
@@ -694,13 +756,9 @@ pub fn move_to_runs(db: &Connection, now: i64) -> Result<Recovered> {
                 }
                 continue;
             }
-            "stop" => named
+            "stop" | "park" => named
                 .into_iter()
                 .map(|id| (id, Ended::Stopped, stamp.clone()))
-                .collect(),
-            "park" => named
-                .into_iter()
-                .map(|id| (id, Ended::Parked, stamp.clone()))
                 .collect(),
             "drop" | "finished" => named
                 .into_iter()

@@ -121,9 +121,6 @@ pub struct ItemView {
     pub waits: Vec<WaitView>,
     /// One per repo the item runs in; empty when it is not running.
     pub running: Vec<RunningView>,
-    /// One per repo the item is parked in: its work waits there with no
-    /// agent. Empty when it is not parked.
-    pub parked: Vec<crate::lists::parked::Parked>,
     pub landed: Vec<LandedPart>,
     /// What its runs add up to; None when it never ran.
     pub times: Option<Times>,
@@ -331,7 +328,6 @@ fn item_view(
                 }
             })
             .collect(),
-        parked: item.parked.clone(),
         landed: item.landed.clone(),
         times: derive::item_times(lists, item, None)?,
         notes: item.notes.clone(),

@@ -26,7 +26,7 @@ CREATE TABLE running_place (
 CREATE INDEX running_place_worktree ON running_place (worktree);
 
 -- Each run of an item that ended: it ran from `item take` until someone
--- stopped it (`item stop`), parked it (`item park`) or closed it (a landing,
+-- stopped it (`item stop`) or closed it (a landing,
 -- `item finished` or `item drop`, which the item's closing names). The run
 -- that goes on is the item's `running` row.
 CREATE TABLE item_run (
@@ -34,7 +34,7 @@ CREATE TABLE item_run (
     item_id INTEGER NOT NULL REFERENCES item (id),
     since_at INTEGER NOT NULL,
     since_by TEXT NOT NULL CONSTRAINT item_run_since_by_says_something CHECK (trim(since_by) <> ''),
-    how TEXT NOT NULL CONSTRAINT item_run_how_known CHECK (how IN ('stopped', 'parked', 'closed')),
+    how TEXT NOT NULL CONSTRAINT item_run_how_known CHECK (how IN ('stopped', 'closed')),
     ended_at INTEGER NOT NULL,
     ended_by TEXT NOT NULL CONSTRAINT item_run_ended_by_says_something CHECK (trim(ended_by) <> ''),
     CONSTRAINT item_run_ends_after_it_starts CHECK (ended_at >= since_at)

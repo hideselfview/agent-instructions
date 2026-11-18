@@ -1,13 +1,11 @@
-//! `builds item take`: an agent starts work on items, and `builds item park`:
-//! an item keeps its work in a worktree with no agent while it waits in the
-//! queue. The worktree's claim names the agent; the command reads the claim
+//! `builds item take`: an agent starts work on items. The worktree's claim
+//! names the agent; the command reads the claim
 //! when it needs the agent and never stores it. The command checks the worktrees, branches and brief in git and
 //! the file system before it takes the store's lock, and checks what
 //! depends on the lists after it takes the lock. Work
 //! that spans repos names one worktree and branch per repo (`--worktree W
 //! --branch B` repeated, the nth branch for the nth worktree); the items run
-//! or park in all of them. Taking a parked item moves it to running in the
-//! worktrees it is parked in.
+//! in all of them.
 //!
 //! Before the take's write, take checks the brief against the product spec
 //! of each named worktree's repo that has spec files (spec_check.rs) and
@@ -27,8 +25,7 @@ use crate::lists::draft::brief_file;
 use crate::lists::held::waits_on_open;
 use crate::lists::item::open_item;
 use crate::lists::item_command::blocking_words;
-use crate::lists::parked::{self, Parked, parked_in};
-use crate::lists::running::{Ended, Running, SpanKind, end, open_span, running_in, start};
+use crate::lists::running::{Running, SpanKind, open_span, running_in, start};
 use crate::lists::spec_check::{self, Brief, Setup};
 use crate::lists::store::{self, Store};
 use crate::lists::{Audience, Id, Kind, Lists, Stamp};
@@ -36,9 +33,8 @@ use crate::text::note;
 use crate::tool::Tool;
 
 const USAGE: &str = "builds item take N [M...] --worktree W --branch B [--worktree W2 --branch B2] --brief P [--as design-session] [--held WHY] [--spec-decided N] [--rules-root DIR] [--reviewer PROGRAM]";
-const PARK_USAGE: &str = "builds item park N --worktree W --branch B [--worktree W2 --branch B2]";
 
-/// One worktree an item runs or parks in: checked, with its branch and the
+/// One worktree an item runs in: checked, with its branch and the
 /// claim that holds it, if any.
 struct Place {
     top: String,
@@ -99,29 +95,9 @@ fn places_named(args: &Args, usage: &str) -> Result<Vec<Place>> {
     Ok(places)
 }
 
-/// Do <places> name the same worktrees and branches as <held>, in any order?
-fn same_places<'a>(
-    places: &[Place],
-    held: impl Iterator<Item = (&'a String, &'a String)> + Clone,
-) -> bool {
-    places.len() == held.clone().count()
-        && places.iter().all(|place| {
-            held.clone()
-                .any(|(worktree, branch)| *worktree == place.top && *branch == place.branch)
-        })
-}
-
-/// The worktrees and branches of <held>, as a refusal lists them.
-fn places_words<'a>(held: impl Iterator<Item = (&'a String, &'a String)>) -> String {
-    held.map(|(worktree, branch)| format!("{worktree} on {branch}"))
-        .collect::<Vec<_>>()
-        .join(" and ")
-}
-
 /// Refuses <places> that a repo of <lists> does not hold, or whose worktree
-/// holds another branch of work or the parked work of an item not in <ids>
-/// (the items that move there).
-fn require_places_free(lists: &Lists, places: &[Place], ids: &[Id]) -> Result<()> {
+/// holds another branch of work.
+fn require_places_free(lists: &Lists, places: &[Place]) -> Result<()> {
     for Place {
         top,
         checkout,
@@ -153,19 +129,11 @@ fn require_places_free(lists: &Lists, places: &[Place], ids: &[Id]) -> Result<()
                 running.branch
             );
         }
-        if let Some(other) = parked_in(lists, top).filter(|other| !ids.contains(&other.id)) {
-            fail!(
-                "{top} holds {} \"{}\" parked: take that item there, or work elsewhere",
-                other.id,
-                other.title
-            );
-        }
     }
     Ok(())
 }
 
-/// Refuses <ids> that cannot run in <places>: an item that runs already, one
-/// parked elsewhere, an item meant for the other audience than
+/// Refuses <ids> that cannot run in <places>: an item that runs already, an item meant for the other audience than
 /// <design_session> names, and one that waits on something not met, or, when
 /// <held>, one that waits on nothing open.
 fn require_takeable(
@@ -175,7 +143,7 @@ fn require_takeable(
     design_session: bool,
     held: bool,
 ) -> Result<()> {
-    require_places_free(lists, places, ids)?;
+    require_places_free(lists, places)?;
     for id in ids {
         let item = open_item(lists, *id)?;
         if let Some(running) = item.running.first() {
@@ -184,13 +152,6 @@ fn require_takeable(
                 running.worktree,
                 running.branch,
                 id.0
-            );
-        }
-        let parked = item.parked.iter().map(|p| (&p.worktree, &p.branch));
-        if !item.parked.is_empty() && !same_places(places, parked.clone()) {
-            fail!(
-                "{id} is parked in {}; take it there, where its work is",
-                places_words(parked)
             );
         }
         match (item.r#for, design_session) {
@@ -378,9 +339,6 @@ pub fn take(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
                     since: stamp.clone(),
                 })
                 .collect();
-            for id in &ids {
-                parked::end(db, *id)?;
-            }
             start(db, &ids, &running)?;
             // Last, so a refusal above leaves the claims as they were.
             if let Some(why) = &held {
@@ -413,92 +371,4 @@ pub fn take(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
         wheres.join(" and ")
     ));
     Ok(())
-}
-
-/// `builds item park N --worktree W --branch B`: open item N keeps its work in
-/// each worktree W on its branch B with no agent, and waits in the queue
-/// (`builds next` names the worktree) until an agent takes it there. A
-/// running item must park where it runs, and stops running. A worktree that
-/// another item runs or is parked in, park refuses. The store's write comes
-/// first, then park removes each worktree's claim: no agent works there.
-/// When removing a claim fails, the same park again finds the item parked
-/// in those places and removes the claims that are left.
-pub fn park(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
-    let args = Args::parse(args, &["worktree", "branch"], &[])?;
-    let [id] = args.exactly(1, PARK_USAGE)? else {
-        unreachable!("exactly one")
-    };
-    let id = Id::parse(id)?;
-    let places = places_named(&args, PARK_USAGE)?;
-    let store = Store::resolve(&tool.places, &args, cwd)?;
-    let stamp = Stamp::resolve(tool.now, &args, cwd)?;
-    let parked_there = store.load()?.item(id).is_some_and(|item| {
-        !item.parked.is_empty()
-            && same_places(
-                &places,
-                item.parked.iter().map(|p| (&p.worktree, &p.branch)),
-            )
-    });
-    if !parked_there {
-        write_park(&store, &stamp, id, &places)?;
-    }
-    for place in &places {
-        if let Some(claim) = crate::claim::unclaim(&place.checkout)? {
-            note(format!(
-                "removed the claim on {}: {}",
-                place.top,
-                claim.text()
-            ));
-        }
-    }
-    note(format!(
-        "{id} is parked in {} and waits in the queue",
-        places_words(places.iter().map(|p| (&p.top, &p.branch)))
-    ));
-    Ok(())
-}
-
-/// Writes open item <id> parked in <places> to <store>, ending its run there.
-fn write_park(store: &Store, stamp: &Stamp, id: Id, places: &[Place]) -> Result<()> {
-    store.write(stamp, &format!("item park {id}"), |db| {
-        let lists = &store::read(db)?;
-        require_places_free(lists, places, &[id])?;
-        let item = open_item(lists, id)?;
-        if !item.parked.is_empty() {
-            fail!(
-                "{id} is parked already, in {}",
-                places_words(item.parked.iter().map(|p| (&p.worktree, &p.branch)))
-            );
-        }
-        let running = item.running.iter().map(|r| (&r.worktree, &r.branch));
-        if !item.running.is_empty() && !same_places(places, running.clone()) {
-            fail!(
-                "{id} runs in {}; park it there, where its work is",
-                places_words(running)
-            );
-        }
-        for place in places {
-            if let Some(other) = running_in(lists, &place.top)
-                .into_iter()
-                .find(|other| other.id != id)
-            {
-                fail!(
-                    "{} still runs {} \"{}\", whose agent works there; park {id} in another worktree",
-                    place.top,
-                    other.id,
-                    other.title
-                );
-            }
-        }
-        end(db, id, Ended::Parked, stamp)?;
-        let parked: Vec<Parked> = places
-            .iter()
-            .map(|place| Parked {
-                worktree: place.top.clone(),
-                branch: place.branch.clone(),
-                since: stamp.clone(),
-            })
-            .collect();
-        parked::park(db, id, &parked)
-    })
 }

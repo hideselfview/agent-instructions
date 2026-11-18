@@ -1,5 +1,5 @@
 -- These tables record the work an item held when the person dropped it
--- (`builds item drop`): for each worktree it ran or parked in, the branch,
+-- (`builds item drop`): for each worktree it ran in, the branch,
 -- the commits on it that origin/main lacked, and the files nobody had
 -- committed. The drop
 -- deletes the branch and discards the files, so these tables record what the

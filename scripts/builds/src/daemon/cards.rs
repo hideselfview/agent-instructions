@@ -295,7 +295,7 @@ pub struct Words {
     pub chip: Option<&'static str>,
     /// What the worktree waits on, at the right of the top bar.
     pub pill: Option<Pill>,
-    /// The items running here, in list order, or the item parked here.
+    /// The items running here, in list order.
     pub items: Vec<RunningItem>,
     /// For a held worktree, beside its items: what it waits on, else its
     /// claim note, else what holding means. For any other worktree, only
@@ -386,7 +386,6 @@ pub fn words(checkout: &CheckoutPage, items: &[RunningItem], waits: &[ItemWait])
             }
             _ => (Some("Needs review"), None, String::new()),
         },
-        Some("parked") => (Some("Parked"), None, String::new()),
         // The card's errors say why.
         Some("waits-unread") => (
             Some("Can't read what this worktree waits on"),

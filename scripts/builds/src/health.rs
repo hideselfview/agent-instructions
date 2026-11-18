@@ -10,8 +10,7 @@
 //! app-build` of its branch, or one it holds the app lock for), the volume
 //! under its
 //! free-space floor, a lists store that fails its check, a running item
-//! whose worktree is gone or has no claim (lists/running.rs), a parked item
-//! whose worktree is gone (lists/parked.rs), a held worktree
+//! whose worktree is gone or has no claim (lists/running.rs), a held worktree
 //! whose item waits on nothing open, commits that change design files no
 //! recorded design change covers (lists/held.rs), a repo with a design folder
 //! and no design globs (lists/project.rs), or a build host that refuses
@@ -716,15 +715,10 @@ pub struct Claimed {
 
 /// A side worktree with no claim that holds commits missing from origin/main:
 /// work an agent left behind. Never the app checkout, which no one claims:
-/// what it has checked out is the branch an app build is building, and never
-/// a worktree an open item is parked in, whose work waits there for the item
-/// (lists/parked.rs).
+/// what it has checked out is the branch an app build is building.
 pub struct Unclaimed {
     pub place: usize,
     pub git: SideGit,
-    /// Why builds cannot tell whether an item is parked there: a store that
-    /// does not load. None when builds read every store.
-    pub parked_unknown: Option<String>,
 }
 
 /// Work an agent left where no claim shows it: side worktrees with no claim
@@ -803,27 +797,15 @@ pub fn assess(
         ));
     }
     let mut schedule_needed = !left.branches.is_empty();
-    for Unclaimed {
-        place,
-        git,
-        parked_unknown,
-    } in left.worktrees
-    {
-        // A worktree git could not read, or one whose parked items builds
-        // could not read, may hold commits health did not see.
-        schedule_needed |= git.error.is_some() || parked_unknown.is_some();
+    for Unclaimed { place, git } in left.worktrees {
+        // A worktree git could not read may hold commits health did not see.
+        schedule_needed |= git.error.is_some();
         if !git.ahead.is_empty() {
             schedule_needed = true;
-            let unknown = match parked_unknown {
-                Some(fault) => {
-                    format!("; builds cannot tell whether an item is parked there, since {fault}")
-                }
-                None => String::new(),
-            };
             findings.push(Finding::new(
                 FindingKind::Unclaimed,
                 Advice::said(format!(
-                    "worktree: {} has no claim and {} waiting to land, so it is not retired{unknown}",
+                    "worktree: {} has no claim and {} waiting to land, so it is not retired",
                     places[place].label,
                     crate::text::counted(git.ahead.len(), "commit", "commits")
                 )),
@@ -1058,7 +1040,7 @@ fn held_for(holder: &Holder) -> String {
 
 /// What the lists say, one line each: the running-item and held-work
 /// findings about the claimed worktrees (lists/running.rs, lists/held.rs),
-/// each parked item whose worktree is gone (lists/parked.rs), and each repo with a design folder and no design globs
+/// and each repo with a design folder and no design globs
 /// (lists/project.rs). Also
 /// marks the worktrees whose design change waits on the person's review, so
 /// <claimed> is judged with that known.
@@ -1074,7 +1056,6 @@ pub fn lists_findings(
         one.awaiting_review = reviewing.contains(&places[one.place].label);
     }
     let mut lists = crate::lists::running::findings(places_in, loaded)?;
-    lists.extend(crate::lists::parked::findings(loaded)?);
     lists.extend(crate::lists::held::findings(loaded, worktrees));
     lists.extend(crate::lists::project::missing_globs_findings(
         &places_in.home,
@@ -1103,9 +1084,6 @@ pub fn health(tool: &Tool) -> Result<Health> {
     let mut unclaimed = Vec::new();
     let mut unreadable = Vec::new();
     let loaded = crate::lists::store::load_all(&tool.places);
-    // While a store does not load, health names each unclaimed worktree
-    // with commits and says it cannot tell whether an item is parked there.
-    let parked = crate::lists::parked::parked_worktrees(&loaded);
     for (at, root) in live.iter().enumerate() {
         let checkout = root.live.as_ref().expect("live");
         if !checkout.is_side() {
@@ -1114,10 +1092,6 @@ pub fn health(tool: &Tool) -> Result<Health> {
         match Claim::read(&checkout.claim_file()) {
             Ok(Some(claim)) => claimed.push((at, checkout, claim)),
             Ok(None) if root.is_app_checkout(&tool.places)? => {}
-            Ok(None)
-                if parked
-                    .as_ref()
-                    .is_ok_and(|parked| parked.contains(&checkout.top.display().to_string())) => {}
             Ok(None) => unclaimed.push((at, checkout)),
             Err(damaged) => unreadable.push(Finding::new(
                 FindingKind::Claim,
@@ -1131,11 +1105,7 @@ pub fn health(tool: &Tool) -> Result<Health> {
     let unclaimed: Vec<Unclaimed> = unclaimed
         .into_iter()
         .zip(unclaimed_gits)
-        .map(|((place, _), git)| Unclaimed {
-            place,
-            git,
-            parked_unknown: parked.as_ref().err().cloned(),
-        })
+        .map(|((place, _), git)| Unclaimed { place, git })
         .collect();
     let gits = parallel_map(&claimed, |(_, checkout, _)| {
         crate::side_git::read(&checkout.top)
@@ -1740,7 +1710,6 @@ mod tests {
                 worktrees: vec![Unclaimed {
                     place: states.len(),
                     git: git(unclaimed_ahead, unclaimed_unread),
-                    parked_unknown: None,
                 }],
                 branches: Vec::new(),
             };
@@ -2227,12 +2196,10 @@ mod tests {
                     Unclaimed {
                         place: 0,
                         git: git(vec![commit]),
-                        parked_unknown: Some("project demo's lists: broken".to_string()),
                     },
                     Unclaimed {
                         place: 1,
                         git: git(Vec::new()),
-                        parked_unknown: None,
                     },
                 ],
                 branches: Vec::new(),
@@ -2245,13 +2212,6 @@ mod tests {
                 .advice
                 .text
                 .starts_with("worktree: demo/side-1 has no claim and 1 commit waiting to land"),
-            "{:?}",
-            health.findings
-        );
-        assert!(
-            health.findings[0].advice.text.ends_with(
-                "builds cannot tell whether an item is parked there, since project demo's lists: broken"
-            ),
             "{:?}",
             health.findings
         );

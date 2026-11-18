@@ -677,153 +677,6 @@ fn finished_closes_a_running_item_with_what_it_made() {
     assert!(refusal(item(&demo, &["finished", "9", "--made", "nothing"])).contains("not a record"));
 }
 
-fn park_args<'a>(id: &'a str, side: &'a str, branch: &'a str) -> Vec<&'a str> {
-    vec!["park", id, "--worktree", side, "--branch", branch]
-}
-
-/// When park cannot remove the worktree's claim after it parked the item,
-/// the same park again removes it.
-#[test]
-fn a_park_whose_claim_stayed_finishes_when_run_again() {
-    use std::os::unix::fs::PermissionsExt;
-    let demo = demo("item-park-again");
-    let side = demo.add_side(1, "agent A", "work");
-    let side_arg = side.display().to_string();
-    let checkout = Checkout::find(&side_arg).unwrap();
-    add(&demo, FIVE, &[]).unwrap();
-    let brief = demo.brief("b.md");
-    item(&demo, &take_args(&side_arg, &brief, &["1"], "work")).unwrap();
-    // The claim file stays while its folder refuses to lose a file.
-    let folder = checkout.claim_file().parent().unwrap().to_path_buf();
-    let mode = std::fs::metadata(&folder).unwrap().permissions().mode();
-    std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o555)).unwrap();
-    let failed = item(&demo, &park_args("1", &side_arg, "work"));
-    std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(mode)).unwrap();
-    assert!(refusal(failed).contains("moving"));
-    assert_eq!(
-        open(&demo).items[0].parked.len(),
-        1,
-        "the park was not written"
-    );
-
-    item(&demo, &park_args("1", &side_arg, "work")).unwrap();
-    assert!(
-        crate::claim::Claim::read(&checkout.claim_file())
-            .unwrap()
-            .is_none()
-    );
-    assert_eq!(open(&demo).items[0].parked.len(), 1);
-}
-
-/// A running item parks where it runs: it stops running, its worktree loses
-/// its claim, `next` lists it with the worktree, and health says nothing of
-/// the unclaimed worktree's commits. Taking it there runs it again.
-#[test]
-fn park_keeps_the_work_for_the_queue_and_take_runs_it_there_again() {
-    let demo = demo("item-park");
-    let side = demo.add_side(1, "agent A", "work");
-    let side_arg = side.display().to_string();
-    let checkout = Checkout::find(&side_arg).unwrap();
-    crate::setup::setup(&demo.tool, &checkout).unwrap();
-    demo.commit(&side, "unlanded");
-    add(&demo, FIVE, &[]).unwrap();
-    let brief = demo.brief("b.md");
-    item(&demo, &take_args(&side_arg, &brief, &["1"], "work")).unwrap();
-
-    item(&demo, &park_args("1", &side_arg, "work")).unwrap();
-    let lists = open(&demo);
-    let parked = &lists.items[0];
-    assert!(parked.running.is_empty(), "a parked item still runs");
-    assert_eq!(
-        parked
-            .parked
-            .iter()
-            .map(|p| (p.worktree.as_str(), p.branch.as_str()))
-            .collect::<Vec<_>>(),
-        [(side_arg.as_str(), "work")]
-    );
-    assert!(
-        crate::claim::Claim::read(&checkout.claim_file())
-            .unwrap()
-            .is_none(),
-        "the parked worktree kept its agent's claim"
-    );
-    let next = crate::lists::item_show::next_text(&lists, Audience::Coordinator);
-    assert!(
-        next.contains(FIVE) && next.contains(&format!("parked in {side_arg} on work")),
-        "{next}"
-    );
-    let health = crate::health::health(&demo.tool).unwrap();
-    assert!(
-        health
-            .findings
-            .iter()
-            .all(|finding| !finding.advice.text.contains("has no claim")),
-        "{:?}",
-        health.findings
-    );
-
-    crate::claim::cmd_claim(
-        &demo.tool.places,
-        &[side_arg.clone(), "agent B".into()],
-        NOON,
-    )
-    .unwrap();
-    item(&demo, &take_args(&side_arg, &brief, &["1"], "work")).unwrap();
-    let taken = &open(&demo).items[0];
-    assert!(taken.parked.is_empty(), "a taken item stayed parked");
-    assert_eq!(taken.running[0].worktree, side_arg);
-}
-
-/// A queued item that never ran parks too; park refuses an item running
-/// elsewhere, one parked already and a worktree another item runs in; take
-/// refuses another worktree for a parked item and another item for a parked
-/// worktree; finished refuses a parked item.
-#[test]
-fn park_and_take_refuse_what_would_split_an_item_from_its_work() {
-    let demo = demo("item-park-refuse");
-    let one = demo.add_side(1, "agent A", "work");
-    let two = demo.add_side(2, "agent B", "other");
-    let (one_arg, two_arg) = (one.display().to_string(), two.display().to_string());
-    let brief = demo.brief("b.md");
-    add(&demo, FIVE, &[]).unwrap();
-    add(&demo, "Do the second thing now", &[]).unwrap();
-    add(&demo, "Do the third thing now", &[]).unwrap();
-    item(&demo, &take_args(&one_arg, &brief, &["1"], "work")).unwrap();
-    let before = demo.state();
-    let elsewhere = refusal(item(&demo, &park_args("1", &two_arg, "other")));
-    assert!(
-        elsewhere.contains(&format!("runs in {one_arg} on work")),
-        "{elsewhere}"
-    );
-    let busy = refusal(item(&demo, &park_args("2", &one_arg, "work")));
-    assert!(busy.contains("still runs #1"), "{busy}");
-    assert_eq!(demo.state(), before);
-
-    item(&demo, &park_args("2", &two_arg, "other")).unwrap();
-    // Parking it there again writes nothing: it only removes claims left.
-    let parked = demo.state();
-    item(&demo, &park_args("2", &two_arg, "other")).unwrap();
-    assert_eq!(demo.state(), parked);
-    let other_item = refusal(item(&demo, &park_args("3", &two_arg, "other")));
-    assert!(other_item.contains("holds #2"), "{other_item}");
-    crate::claim::cmd_claim(
-        &demo.tool.places,
-        &[two_arg.clone(), "agent C".into()],
-        NOON,
-    )
-    .unwrap();
-    let wrong_item = refusal(item(&demo, &take_args(&two_arg, &brief, &["3"], "other")));
-    assert!(wrong_item.contains("holds #2"), "{wrong_item}");
-    let wrong_place = refusal(item(&demo, &take_args(&one_arg, &brief, &["2"], "work")));
-    assert!(
-        wrong_place.contains(&format!("is parked in {two_arg} on other")),
-        "{wrong_place}"
-    );
-    let said = refusal(item(&demo, &["finished", "2", "--made", "nothing"]));
-    assert!(said.contains("is parked in"), "{said}");
-}
-
 /// In a repo two projects hold, an item of the project the claim does not
 /// name still holds the worktree: release refuses, and health does not say
 /// to release it.
@@ -933,29 +786,6 @@ fn drop_records_and_throws_away_a_running_items_work() {
     )
     .unwrap();
     assert!(branches.trim().is_empty(), "the branch stayed: {branches}");
-}
-
-/// Dropping a parked item throws away the work in its worktree the same way.
-#[test]
-fn drop_throws_away_a_parked_items_work() {
-    let demo = demo("item-drop-parked");
-    let side = demo.add_side(1, "agent A", "work");
-    let side_arg = side.display().to_string();
-    let brief = demo.brief("b.md");
-    add(&demo, FIVE, &[]).unwrap();
-    item(&demo, &take_args(&side_arg, &brief, &["1"], "work")).unwrap();
-    demo.commit(&side, "unlanded");
-    item(&demo, &park_args("1", &side_arg, "work")).unwrap();
-    item(&demo, &["drop", "1", "--why", "no longer wanted"]).unwrap();
-    let lists = open(&demo);
-    assert!(lists.items.is_empty());
-    let checkout = Checkout::find(&side_arg).unwrap();
-    assert_eq!(checkout.branch().unwrap(), None);
-    assert!(
-        crate::side_git::waiting_to_land(&side, "HEAD")
-            .unwrap()
-            .is_empty()
-    );
 }
 
 /// When git fails to throw the work away, the drop has already closed the
@@ -1102,7 +932,7 @@ fn release_refuses_a_worktree_whose_branch_holds_unlanded_commits() {
         said.contains("branch work: ")
             && said.contains(" unlanded")
             && said.contains("builds land")
-            && said.contains("builds item park")
+            && said.contains("builds item take")
             && said.contains("--held"),
         "{said}"
     );
@@ -1209,10 +1039,9 @@ fn release_and_health_wait_for_a_git_commit_that_runs_in_the_worktree() {
     cmd_release(&demo.tool.places, &[side.display().to_string()]).unwrap();
 }
 
-/// Release removes the claim of a worktree whose work an item holds parked,
-/// or whose work landed.
+/// Release removes the claim of a worktree whose work landed.
 #[test]
-fn release_lets_go_of_parked_or_landed_work() {
+fn release_lets_go_of_landed_work() {
     let demo = demo("release-ok");
     let side = demo.add_side(1, "agent A", "work");
     let side_arg = side.display().to_string();
@@ -1221,19 +1050,6 @@ fn release_lets_go_of_parked_or_landed_work() {
     crate::testing::git(&demo.main, &["push", "-q", "origin", "main"]);
     crate::testing::git(&side, &["fetch", "-q", "origin"]);
     cmd_release(&demo.tool.places, std::slice::from_ref(&side_arg)).unwrap();
-
-    let two = demo.add_side(2, "agent B", "other");
-    let two_arg = two.display().to_string();
-    demo.commit(&two, "unlanded");
-    add(&demo, FIVE, &[]).unwrap();
-    item(&demo, &park_args("1", &two_arg, "other")).unwrap();
-    crate::claim::cmd_claim(
-        &demo.tool.places,
-        &[two_arg.clone(), "agent C".into()],
-        NOON,
-    )
-    .unwrap();
-    cmd_release(&demo.tool.places, &[two_arg]).unwrap();
 }
 
 /// The findings about loose branches that health reports for <demo>.

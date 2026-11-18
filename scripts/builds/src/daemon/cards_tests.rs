@@ -625,21 +625,3 @@ fn commits_whose_rules_review_is_not_finished_are_in_review_and_the_card_says_wh
         )
     );
 }
-
-/// A parked worktree's card says Parked and lists the item parked there, and
-/// no note: no agent works there.
-#[test]
-fn a_parked_worktree_says_parked_and_lists_its_item() {
-    let item = RunningItem {
-        id: 7,
-        title: "Do the parked thing now".into(),
-    };
-    let said = words(
-        &card(Some("parked"), None, Some(2)),
-        std::slice::from_ref(&item),
-        &[],
-    );
-    assert_eq!(said.chip, Some("Parked"));
-    assert_eq!(said.items, [item]);
-    assert_eq!(said.note, None);
-}

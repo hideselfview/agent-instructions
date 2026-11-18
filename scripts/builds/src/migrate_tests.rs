@@ -1968,6 +1968,176 @@ fn a_store_from_before_check_starts_keeps_its_runs_and_gains_the_tables() {
     assert_eq!(stats.runs, 1, "the move keeps the old run");
 }
 
+/// The text of parked.sql as it read before builds dropped the parked state.
+const OLD_PARKED_SQL: &str = r#"-- Where an open item holds a worktree with no agent (`builds item park`): its
+-- work waits there on its branch while the item waits in the queue, and
+-- taking the item moves it to `running` in the same worktree. A parked item
+-- holds one worktree for each repo its work spans. parked.rs owns these tables and is the only code that
+-- writes them.
+
+CREATE TABLE parked (
+    item_id INTEGER PRIMARY KEY REFERENCES item (id),
+    since_at INTEGER NOT NULL,
+    since_by TEXT NOT NULL CONSTRAINT parked_since_by_says_something CHECK (trim(since_by) <> '')
+) STRICT;
+
+CREATE TABLE parked_place (
+    item_id INTEGER NOT NULL REFERENCES parked (item_id) ON DELETE CASCADE,
+    repo TEXT NOT NULL REFERENCES repo (name),
+    -- A side worktree is <parent>/<repo>-worktrees/<checkout>.
+    parent TEXT NOT NULL CONSTRAINT parked_place_parent_is_absolute CHECK (substr(parent, 1, 1) = '/'),
+    checkout TEXT NOT NULL CONSTRAINT parked_place_checkout_is_a_side_worktree CHECK (
+        checkout GLOB 'side-[0-9]*' AND checkout NOT GLOB 'side-*[^0-9]*'
+    ),
+    worktree TEXT GENERATED ALWAYS AS (parent || '/' || repo || '-worktrees/' || checkout) STORED NOT NULL,
+    branch TEXT NOT NULL CONSTRAINT parked_place_branch_says_something CHECK (trim(branch) <> ''),
+    PRIMARY KEY (item_id, repo)
+) STRICT, WITHOUT ROWID;
+CREATE INDEX parked_place_worktree ON parked_place (worktree);
+"#;
+
+/// The comment that opens dropped.sql, as it read before builds dropped the
+/// parked state, and as it reads now.
+const OLD_DROPPED_COMMENT: &str = "for each worktree it ran or parked in, the branch,";
+const DROPPED_COMMENT: &str = "for each worktree it ran in, the branch,";
+
+/// The text of running.sql <part> as it read before builds dropped the
+/// parked state: an ended run could end as parked.
+fn old_running_sql(part: &str) -> String {
+    part.replacen(
+        "-- stopped it (`item stop`) or closed it (a landing,",
+        "-- stopped it (`item stop`), parked it (`item park`) or closed it (a landing,",
+        1,
+    )
+    .replacen(
+        "how IN ('stopped', 'closed')",
+        "how IN ('stopped', 'parked', 'closed')",
+        1,
+    )
+}
+
+/// <schema> as it read before builds dropped the parked state: with the
+/// `parked` tables after the cargo runs' part, `item_run` that can end as
+/// parked, and the comments that name the parked state. A schema that has the
+/// parked tables already, or has no dropped items' tables, is left as it is:
+/// the older schemas these tests rebuild pass through this from more than one
+/// chain.
+fn with_parked(schema: String) -> String {
+    if schema.contains("CREATE TABLE parked (") || !schema.contains(DROPPED_COMMENT) {
+        return schema;
+    }
+    let schema = schema.replacen(DROPPED_COMMENT, OLD_DROPPED_COMMENT, 1);
+    let running = include_str!("lists/running.sql");
+    let schema = schema.replacen(running, &old_running_sql(running), 1);
+    let dropped = "\n-- These tables record the work an item held";
+    assert_eq!(schema.matches(dropped).count(), 1);
+    schema.replacen(dropped, &format!("\n{OLD_PARKED_SQL}{dropped}"), 1)
+}
+
+#[test]
+fn the_no_park_stamp_is_the_schema_before_builds_dropped_the_parked_state() {
+    assert_eq!(
+        db::stamp_of_text(&with_parked(db::schema())),
+        BEFORE_NO_PARK_STAMP
+    );
+}
+
+/// A store from before builds dropped the parked state loses the parked
+/// tables, keeps its items, gives each parked item a note that names the
+/// worktree and branch it was parked in, turns a run that ended as parked
+/// into one that ended as stopped, and equals a fresh schema.
+#[test]
+fn a_store_with_parked_items_loses_the_parked_state_and_equals_a_fresh_schema() {
+    use crate::lists::fixtures::v;
+    let scratch = Scratch::new("move-no-park");
+    let places = scratch.places();
+    let dir = places.lists.join("bae");
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join(DATABASE);
+    {
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(&with_parked(db::schema())).unwrap();
+        conn.pragma_update(None, "user_version", BEFORE_NO_PARK_STAMP)
+            .unwrap();
+        crate::lists::project::plant(
+            &conn,
+            "project",
+            &[("singleton", v(1)), ("name", v("bae")), ("canvas", v(1))],
+        )
+        .unwrap();
+        crate::lists::project::plant(&conn, "repo", &[("name", v("bae"))]).unwrap();
+        crate::lists::area::plant(&conn, &[("name", v("Alpha")), ("position", v(0))]).unwrap();
+        for id in [1, 2] {
+            crate::lists::record::plant(
+                &conn,
+                "record",
+                &[
+                    ("id", v(id)),
+                    ("kind", v("item")),
+                    ("opened_at", v(5)),
+                    ("opened_by", v("tester")),
+                ],
+            )
+            .unwrap();
+            crate::lists::item::plant(
+                &conn,
+                "item",
+                &[
+                    ("id", v(id)),
+                    ("title", v("Do the first thing now")),
+                    ("area", v("Alpha")),
+                    ("details", v("d")),
+                    ("audience", v("coordinator")),
+                ],
+            )
+            .unwrap();
+        }
+        plant_old_park(&conn, 1, "/d", "side-2", "work");
+        conn.execute_batch(
+            "INSERT INTO item_run (id, item_id, since_at, since_by, how, ended_at, ended_by)
+                 VALUES (1, 2, 5, 'tester', 'parked', 6, 'tester'), (2, 2, 7, 'tester', 'stopped', 8, 'tester');
+             INSERT INTO item_run_place (run_id, repo, worktree, branch)
+                 VALUES (1, 'bae', '/d/bae-worktrees/side-3', 'other');",
+        )
+        .unwrap();
+    }
+    migrate_stores(&places, 9).unwrap();
+    let conn = db::open(&path, db::Make::Never).unwrap();
+    assert_eq!(
+        db::schema_rows(&conn).unwrap(),
+        db::schema_rows(&db::memory()).unwrap()
+    );
+    let note: (i64, String) = conn
+        .query_row(
+            "SELECT at, text FROM item_note WHERE item_id = 1",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!(note.0, 9);
+    assert!(
+        note.1
+            .contains("parked in /d/bae-worktrees/side-2 on work and now waits in the queue"),
+        "{}",
+        note.1
+    );
+    let runs: Vec<(i64, String)> = conn
+        .prepare("SELECT id, how FROM item_run ORDER BY id")
+        .unwrap()
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+        .unwrap()
+        .collect::<rusqlite::Result<_>>()
+        .unwrap();
+    assert_eq!(
+        runs,
+        [(1, "stopped".to_string()), (2, "stopped".to_string())]
+    );
+    let kept: i64 = conn
+        .query_row("SELECT COUNT(*) FROM item_run_place", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(kept, 1, "the move keeps where a run ran");
+}
+
 /// <schema> without each of <parts>, which it holds once each.
 fn without_parts(mut schema: String, parts: &[&str]) -> String {
     for part in parts {
@@ -2627,10 +2797,11 @@ fn schema_before_spec_check() -> String {
 /// The schema text before an item could hold a worktree parked or record
 /// its dropped work: without the parked and dropped items' tables.
 fn schema_before_parked() -> String {
-    without_parts(
-        schema_before_spec_check(),
-        &[db::PARKED_PART, db::DROPPED_PART],
-    )
+    let schema = schema_before_spec_check();
+    let parked = format!("\n{OLD_PARKED_SQL}");
+    assert_eq!(schema.matches(&parked).count(), 1);
+    let dropped = db::DROPPED_PART.replacen(DROPPED_COMMENT, OLD_DROPPED_COMMENT, 1);
+    without_parts(schema.replacen(&parked, "", 1), &[&dropped])
 }
 
 #[test]
@@ -2641,9 +2812,25 @@ fn the_spec_check_stamp_is_the_schema_before_spec_checks() {
     );
 }
 
-/// A store from before spec checks keeps its parked item, gains the empty
-/// tables, equals a fresh schema, and then records a check of the item's
-/// brief.
+/// Writes item <id> parked in side worktree <checkout> of <parent> on
+/// <branch> into <conn>, whose schema has the parked tables as they read
+/// before builds dropped the parked state.
+fn plant_old_park(conn: &Connection, id: i64, parent: &str, checkout: &str, branch: &str) {
+    conn.execute(
+        "INSERT INTO parked (item_id, since_at, since_by) VALUES (?1, 7, 'tester')",
+        [id],
+    )
+    .unwrap();
+    conn.execute(
+        "INSERT INTO parked_place (item_id, repo, parent, checkout, branch) VALUES (?1, 'bae', ?2, ?3, ?4)",
+        rusqlite::params![id, parent, checkout, branch],
+    )
+    .unwrap();
+}
+
+/// A store from before spec checks that parks an item loses the parked
+/// tables and gives the item a note that says where it was parked, equals a
+/// fresh schema, and then records a check of the item's brief.
 #[test]
 fn a_store_from_before_spec_checks_gains_the_tables_and_records_a_check() {
     use crate::lists::fixtures::v;
@@ -2689,19 +2876,7 @@ fn a_store_from_before_spec_checks_gains_the_tables_and_records_a_check() {
         )
         .unwrap();
         conn.pragma_update(None, "foreign_keys", true).unwrap();
-        crate::lists::parked::park(
-            &conn,
-            crate::lists::Id(1),
-            &[crate::lists::parked::Parked {
-                worktree: "/d/bae-worktrees/side-2".to_string(),
-                branch: "work".to_string(),
-                since: crate::lists::Stamp {
-                    at: 7,
-                    by: "tester".to_string(),
-                },
-            }],
-        )
-        .unwrap();
+        plant_old_park(&conn, 1, "/d", "side-2", "work");
     }
     migrate_stores(&places, 0).unwrap();
     let conn = db::open_reader(&path)
@@ -2714,10 +2889,15 @@ fn a_store_from_before_spec_checks_gains_the_tables_and_records_a_check() {
     drop(conn);
     let conn = Connection::open(&path).unwrap();
     conn.pragma_update(None, "foreign_keys", true).unwrap();
-    let parked: i64 = conn
-        .query_row("SELECT COUNT(*) FROM parked", [], |row| row.get(0))
+    let note: String = conn
+        .query_row("SELECT text FROM item_note WHERE item_id = 1", [], |row| {
+            row.get(0)
+        })
         .unwrap();
-    assert_eq!(parked, 1, "the move keeps the parked item");
+    assert!(
+        note.contains("this item was parked in /d/bae-worktrees/side-2 on work"),
+        "{note}"
+    );
     crate::lists::spec_check::tests::record_one(&conn, "bae", crate::lists::Id(1));
 }
 
@@ -2729,10 +2909,10 @@ fn the_parked_stamp_is_the_schema_before_parked_items() {
     );
 }
 
-/// A store from before parked items keeps its items, gains the empty tables,
-/// equals a fresh schema, and then takes a parked item.
+/// A store from before parked items keeps its items, gains the dropped
+/// items' tables and equals a fresh schema.
 #[test]
-fn a_store_from_before_parked_items_gains_the_tables_and_parks_an_item() {
+fn a_store_from_before_parked_items_gains_the_dropped_tables_and_equals_a_fresh_schema() {
     use crate::lists::fixtures::v;
     let scratch = Scratch::new("move-parked");
     let places = scratch.places();
@@ -2784,22 +2964,6 @@ fn a_store_from_before_parked_items_gains_the_tables_and_parks_an_item() {
         db::schema_rows(&conn).unwrap(),
         db::schema_rows(&db::memory()).unwrap()
     );
-    drop(conn);
-    let conn = Connection::open(&path).unwrap();
-    conn.pragma_update(None, "foreign_keys", true).unwrap();
-    crate::lists::parked::park(
-        &conn,
-        crate::lists::Id(1),
-        &[crate::lists::parked::Parked {
-            worktree: "/d/bae-worktrees/side-2".to_string(),
-            branch: "work".to_string(),
-            since: crate::lists::Stamp {
-                at: 7,
-                by: "tester".to_string(),
-            },
-        }],
-    )
-    .unwrap();
 }
 
 /// The schema text before builds recorded each commit a landing pushed:
@@ -3274,7 +3438,7 @@ const REVIEW_CIRCLE_COMMENT: &str = "-- An element the designer circles on a rev
 /// schema without the table is left without it, as for
 /// `without_design_decision`.
 fn without_review_circles(schema: String) -> String {
-    let schema = with_grouping(schema);
+    let schema = with_grouping(with_parked(schema));
     cut(&schema, REVIEW_CIRCLE_COMMENT, "STRICT, WITHOUT ROWID;\n\n").unwrap_or(schema)
 }
 
@@ -3590,7 +3754,7 @@ fn old_review_run(conn: &Connection, landing: i64, changed_lines: i64) -> i64 {
 #[test]
 fn the_runs_without_grouping_stamp_is_the_schema_before_runs_lost_their_grouping() {
     assert_eq!(
-        db::stamp_of_text(&with_grouping(db::schema())),
+        db::stamp_of_text(&with_grouping(with_parked(db::schema()))),
         BEFORE_RUNS_WITHOUT_GROUPING_STAMP
     );
 }
@@ -3606,7 +3770,8 @@ fn a_store_from_before_runs_lost_their_grouping_keeps_each_run_and_equals_a_fres
     let path = dir.join(DATABASE);
     {
         let conn = Connection::open(&path).unwrap();
-        conn.execute_batch(&with_grouping(db::schema())).unwrap();
+        conn.execute_batch(&with_grouping(with_parked(db::schema())))
+            .unwrap();
         use crate::lists::fixtures::v;
         crate::review::record::plant(
             &conn,
@@ -4893,12 +5058,18 @@ fn schema_before_run_times() -> String {
 /// <schema> with running.sql as it was before builds kept ended runs and
 /// spans: without the tables that end it today.
 fn without_run_times(schema: String) -> String {
-    let part = include_str!("lists/running.sql");
+    let today = include_str!("lists/running.sql");
+    // The schemas these tests rebuild pass through here with running.sql as
+    // it reads today, or as it read before builds dropped the parked state.
+    let part = [today.to_string(), old_running_sql(today)]
+        .into_iter()
+        .find(|part| schema.contains(part))
+        .expect("the schema holds running.sql");
     let before = &part[..part
         .find("\n-- Each run of an item that ended")
         .expect("running.sql's ended runs")];
-    assert_eq!(schema.matches(part).count(), 1);
-    schema.replacen(part, before, 1)
+    assert_eq!(schema.matches(&part).count(), 1);
+    schema.replacen(&part, before, 1)
 }
 
 #[test]
@@ -4988,7 +5159,7 @@ fn a_store_from_before_run_times_gets_the_runs_its_write_log_tells_of() {
         [
             (1, 100, "stopped".to_string(), 200),
             (1, 300, "closed".to_string(), 400),
-            (2, 100, "parked".to_string(), 600),
+            (2, 100, "stopped".to_string(), 600),
         ]
     );
     let from: i64 = conn

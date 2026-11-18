@@ -29,17 +29,6 @@ pub fn wait_words(lists: &Lists, wait: &Wait) -> String {
     }
 }
 
-/// Where an item is parked, as the queue's lines say it.
-pub fn parked_words(parked: &crate::lists::parked::Parked) -> String {
-    format!(
-        "parked in {} on {} since {} by {}",
-        parked.worktree,
-        parked.branch,
-        local_minute(parked.since.at),
-        parked.since.by
-    )
-}
-
 /// An item as lines. Fails when `trail::trail` fails on the item's trail.
 pub fn item_line(lists: &Lists, item: &Item) -> Result<String> {
     let state = derive::item_state(lists, item);
@@ -66,9 +55,6 @@ pub fn item_line(lists: &Lists, item: &Item) -> Result<String> {
             "\n      running in {} on {}, brief {}",
             running.worktree, running.branch, running.brief
         );
-    }
-    for parked in &item.parked {
-        let _ = write!(line, "\n      {}", parked_words(parked));
     }
     Ok(line)
 }
