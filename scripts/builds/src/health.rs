@@ -19,7 +19,8 @@
 //! Mac's or whose sccache server launchd does not run (host_installed.rs), or
 //! that lacks a setting that UI tests need or whose UI tests timed out turning on
 //! automation mode (ui_test_settings.rs), a host whose cores sit idle while
-//! items are ready or whose load is well over its cores (host_load.rs), a
+//! items are ready or whose load is well over its cores, or a ready item of project builds
+//! that no agent runs (host_load.rs), a
 //! project's main checkout whose main lacks commits that origin/main has
 //! (main_checkout.rs), or no `builds prune` that finished in twice the
 //! interval the dashboard runs it at (prune_schedule.rs).
@@ -1500,11 +1501,16 @@ pub fn cmd_health(tool: &Tool, args: &[String]) -> Result<()> {
             .into_iter()
             .map(|advice| Finding::new(FindingKind::Prune, advice)),
     );
-    let ready = crate::host_load::ready_items(&crate::lists::store::load_all(&tool.places));
+    let loaded = crate::lists::store::load_all(&tool.places);
+    let ready = crate::host_load::ready_items(&loaded);
     let probed: Vec<_> = hosts.iter().cloned().zip(probes).collect();
     health.findings.extend(
         crate::host_load::findings(&probed, ready, tool.rules.floor_kib)
             .into_iter()
+            .map(|advice| Finding::new(FindingKind::Load, advice)),
+    );
+    health.findings.extend(
+        crate::host_load::builds_items_ready(&loaded)
             .map(|advice| Finding::new(FindingKind::Load, advice)),
     );
     // Read now: a probe in another command, or this one, may have just

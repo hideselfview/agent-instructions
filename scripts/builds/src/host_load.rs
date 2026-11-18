@@ -1,8 +1,9 @@
 //! Whether the build hosts' cores do the work that waits. While items are
 //! ready to dispatch, the coordinator keeps every host's cores busy, and while
-//! a host's load is well over its cores, it starts nothing new. `builds health`
+//! a host's load is well over its cores, it starts nothing new, except items of project builds. `builds health`
 //! lists a host whose cores sit idle while items are ready, and a host over its
-//! cores, under "needs action".
+//! cores, under "needs action", and every ready item of project builds that
+//! no agent runs.
 //!
 //! Both judge the 5-minute load average: health runs every 5 minutes, and the
 //! 1-minute average rises and falls with each build's steps.
@@ -44,7 +45,7 @@ pub fn findings(
         let load = format!("its 5-minute load is {five:.1} on {} cores", answer.cores);
         if five > OVER_SHARE * cores {
             found.push(Advice::said(format!(
-                "{} is over its cores: {load}; start nothing new",
+                "{} is over its cores: {load}; start nothing new, except builds items, which this does not hold back",
                 crate::host::place(&host.name)
             )));
         } else if ready > 0
@@ -59,6 +60,31 @@ pub fn findings(
         }
     }
     found
+}
+
+/// The project whose items go first: work on the builds tool slows every agent
+/// until it lands, so load never holds its items back.
+const BUILDS_PROJECT: &str = "builds";
+
+/// The line for the ready items of project builds that no agent runs, whatever
+/// the hosts' load; none when there are none.
+pub fn builds_items_ready(loaded: &std::result::Result<Vec<Loaded>, String>) -> Option<Advice> {
+    let titles: Vec<String> = loaded
+        .iter()
+        .flatten()
+        .filter(|store| store.project == BUILDS_PROJECT)
+        .filter_map(|store| store.lists.as_ref().ok())
+        .flat_map(|lists| {
+            crate::lists::derive::dispatch_order(lists, crate::lists::Audience::Coordinator)
+        })
+        .map(|item| format!("{} {}", item.id, item.title))
+        .collect();
+    (!titles.is_empty()).then(|| {
+        Advice::said(format!(
+            "builds items ready and not running: {}; start them (builds work goes first)",
+            titles.join(", ")
+        ))
+    })
 }
 
 /// The items ready to dispatch (`builds next`) in every project whose store
