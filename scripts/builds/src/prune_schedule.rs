@@ -67,14 +67,13 @@ pub fn hold(places: &Places) -> Result<Running> {
     let dir = places.daemon_dir();
     std::fs::create_dir_all(&dir).context(|| format!("creating {}", dir.display()))?;
     let path = places.prune_lock();
-    let lock = crate::flock::open_creating(&path)?;
-    if !crate::flock::try_lock(&lock, libc::LOCK_EX, &path)? {
-        fail!(
+    match crate::evict::try_lock_creating(&path)? {
+        Some(lock) => Ok(Running { _lock: lock }),
+        None => fail!(
             "prune: another builds prune is running and holds {}",
             path.display()
-        );
+        ),
     }
-    Ok(Running { _lock: lock })
 }
 
 /// When the daemon starts the next prune: PRUNE_HOURS after the later of
