@@ -37,6 +37,7 @@ use crate::host::{self, Host, Ssh, clone_path, sh_quote};
 use crate::lane::Lane;
 use crate::places::Places;
 use crate::remote::{JOBS_REF, Transport, job_id, release_script, root_script, worktree_in};
+use crate::text::note;
 
 /// What separates the host from the checkout's name in a lane's entry.
 const SEPARATOR: char = ':';
@@ -214,20 +215,23 @@ impl RemoteApp {
     /// when it has none (set up as a side worktree is) and switches it to
     /// <sha>. Fails, naming the host, when the checkout has changes.
     pub fn switch_to(&mut self, source: &Path, sha: &str) -> Result<()> {
-        let id = job_id();
-        let transport = self.transport();
-        transport.send(source, &self.repo, sha, &id)?;
-        let made = transport.capture(
+        let id = self.send(source, sha)?;
+        let made = self.transport().capture(
             &ensure_script(&self.host, &self.repo, &self.name, sha, self.lane),
             "switching the app checkout",
         );
-        let dropped = transport.capture(
-            &release_script(&self.repo, None, &id),
-            "removing the job's ref",
-        );
-        let worktree = worktree_in(&made?)?;
-        dropped?;
-        self.worktree = Some(worktree);
+        let dropped = self.unsend(&id);
+        let made = match (made, dropped) {
+            (Err(error), Err(also)) => {
+                note(also.text());
+                return Err(error);
+            }
+            (made, dropped) => {
+                dropped?;
+                made?
+            }
+        };
+        self.worktree = Some(worktree_in(&made)?);
         Ok(())
     }
 
