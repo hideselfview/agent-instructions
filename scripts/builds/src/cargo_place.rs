@@ -70,11 +70,11 @@ pub fn note_runs_here(named: Option<&str>, why: &str) {
 
 /// Runs `cargo <args>` as given on this Mac in <dir>, for a subcommand that
 /// builds nothing and so gets none of what `builds cargo` adds to a build,
-/// and exits with cargo's status. When `HOST_VARIABLE` names another host, it
-/// first says the command runs here, and <why>.
-pub fn run_as_given(dir: &Path, args: &[String], why: &str) -> Result<()> {
-    let env = |name: &str| std::env::var_os(name);
-    note_runs_here(named_host(&env)?.as_deref(), why);
+/// and exits with cargo's status. When <named>, the host `HOST_VARIABLE`
+/// names (`named_host`), is another host, it first says the command runs
+/// here, and <why>.
+pub fn run_as_given(dir: &Path, args: &[String], named: Option<&str>, why: &str) -> Result<()> {
+    note_runs_here(named, why);
     let status = Command::new("cargo")
         .args(args)
         .current_dir(dir)

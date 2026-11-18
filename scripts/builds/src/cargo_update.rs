@@ -61,15 +61,23 @@ pub fn refusal(args: &[String]) -> Option<String> {
 /// `refusal` refuses it, and exits with cargo's status.
 pub fn run(args: &[String]) -> Result<()> {
     let dir = std::env::current_dir().context(|| "reading the working directory".to_string())?;
-    run_in(&dir, args)
+    let env = |name: &str| std::env::var_os(name);
+    let named = crate::cargo_place::named_host(&env)?;
+    run_in(&dir, args, named.as_deref())
 }
 
-/// Runs `cargo <args>`, an update, in <dir>, as `run` does.
-fn run_in(dir: &Path, args: &[String]) -> Result<()> {
+/// Runs `cargo <args>`, an update, in <dir>, as `run` does, with <named> the
+/// host `HOST_VARIABLE` names.
+fn run_in(dir: &Path, args: &[String], named: Option<&str>) -> Result<()> {
     if let Some(why) = refusal(args) {
         fail!("{why}");
     }
-    crate::cargo_place::run_as_given(dir, args, "cargo update changes this checkout's Cargo.lock")
+    crate::cargo_place::run_as_given(
+        dir,
+        args,
+        named,
+        "cargo update changes this checkout's Cargo.lock",
+    )
 }
 
 #[cfg(test)]

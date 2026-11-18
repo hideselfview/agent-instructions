@@ -81,7 +81,7 @@ fn an_update_of_a_named_package_rewrites_its_entry_in_the_lock() {
         .unwrap();
     assert!(status.success());
     workspace(&top, "0.2.0");
-    run_in(&top, &args(&["update", "-p", "dep"])).unwrap();
+    run_in(&top, &args(&["update", "-p", "dep"]), None).unwrap();
     let lock = std::fs::read_to_string(top.join("Cargo.lock")).unwrap();
     assert!(
         lock.contains("name = \"dep\"\nversion = \"0.2.0\""),

@@ -27,6 +27,8 @@ pub const SUBCOMMANDS: [&str; 5] = [
 /// `--locked` (`locked_flag`), and exits with cargo's status.
 pub fn run(args: &[String]) -> Result<()> {
     let dir = std::env::current_dir().context(|| "reading the working directory".to_string())?;
+    let env = |name: &str| std::env::var_os(name);
+    let named = cargo_place::named_host(&env)?;
     let locked: Vec<String> = std::iter::once(args[0].clone())
         .chain(locked_flag(args).map(str::to_string))
         .chain(args[1..].iter().cloned())
@@ -34,6 +36,7 @@ pub fn run(args: &[String]) -> Result<()> {
     cargo_place::run_as_given(
         &dir,
         &locked,
+        named.as_deref(),
         &format!("cargo {} only reads this checkout", args[0]),
     )
 }
