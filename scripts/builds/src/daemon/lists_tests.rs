@@ -521,3 +521,30 @@ fn lists_id_of_first_design(snapshot: &Snapshot) -> u32 {
         .id
         .0
 }
+
+#[test]
+fn the_design_repo_is_the_one_repo_with_design_places_and_only_it_gives_a_designs_page() {
+    let mut lists = read(&db());
+    lists.design_places.clear();
+    assert_eq!(design_repo(&lists).unwrap(), None);
+    lists.design_places.insert("coven".into(), Vec::new());
+    lists
+        .design_places
+        .insert("bae".into(), vec!["design/mocks/*.html".into()]);
+    assert_eq!(design_repo(&lists).unwrap(), Some("bae"));
+    let one = compose(&Ok(vec![loaded("a", Ok(lists.clone()))]), NOON, &no_claims);
+    assert_eq!(
+        serde_json::to_value(&one[0]).unwrap()["designs"],
+        json!(true)
+    );
+    lists
+        .design_places
+        .insert("coven".into(), vec!["design/*".into()]);
+    let error = design_repo(&lists).unwrap_err().text();
+    assert!(error.contains("in 2 repos (bae, coven)"), "{error}");
+    let several = compose(&Ok(vec![loaded("a", Ok(lists))]), NOON, &no_claims);
+    assert_eq!(
+        serde_json::to_value(&several[0]).unwrap()["designs"],
+        json!(false)
+    );
+}

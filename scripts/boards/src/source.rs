@@ -206,7 +206,7 @@ impl Source<'_> {
 
     /// Writes <inputs>, paths of the source, into the folder <into> at their
     /// paths in the repo.
-    fn copy_out(&self, inputs: &[String], into: &Path) -> Result<()> {
+    pub(crate) fn copy_out(&self, inputs: &[String], into: &Path) -> Result<()> {
         match self {
             Source::Commit { repo, rev } => export(repo, rev, inputs, into, "the design system"),
             Source::Dir(dir) => {

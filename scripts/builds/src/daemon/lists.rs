@@ -262,6 +262,45 @@ pub fn open_design(
     Some((design.clone(), design_view(lists, design, None)))
 }
 
+/// The repo that holds <lists>'s design files: the one repo its design
+/// places' globs name. None when no repo has design places; fails when
+/// several do, since the Designs page draws one repo's boards.
+pub fn design_repo(lists: &crate::lists::Lists) -> crate::fail::Result<Option<&str>> {
+    let repos: Vec<&str> = lists
+        .design_places
+        .iter()
+        .filter(|(_, globs)| !globs.is_empty())
+        .map(|(repo, _)| repo.as_str())
+        .collect();
+    match repos[..] {
+        [] => Ok(None),
+        [repo] => Ok(Some(repo)),
+        _ => crate::fail!(
+            "project {} keeps design files in {} repos ({}), and the Designs page draws the boards of one",
+            lists.project,
+            repos.len(),
+            repos.join(", ")
+        ),
+    }
+}
+
+/// The repo that holds project <project>'s design files, as `design_repo`
+/// finds it; None when the lists hold no such project.
+pub fn project_design_repo(
+    snapshot: &Snapshot,
+    project: &str,
+) -> Option<crate::fail::Result<Option<String>>> {
+    let loaded = snapshot
+        .as_deref()
+        .ok()?
+        .iter()
+        .find(|loaded| loaded.project == project)?;
+    Some(match &loaded.lists {
+        Ok(lists) => design_repo(lists).map(|repo| repo.map(str::to_string)),
+        Err(fault) => Err(crate::fail::Fail::Message(fault.clone())),
+    })
+}
+
 /// What the page reads: one lists JSON per project, in project order. No
 /// project, or a store that fails its check, is that project's `error`.
 /// <claims> answers for a running item's worktree.
@@ -271,16 +310,25 @@ pub fn compose(
     claims: &dyn Fn(&str) -> ClaimFacts,
 ) -> Vec<Composed> {
     match snapshot.as_deref() {
-        Ok([]) => vec![Composed::of(View::failed(
-            "",
-            0,
-            "there are no lists; `builds lists init <project>` makes them".to_string(),
-        ))],
+        Ok([]) => vec![Composed::of(
+            View::failed(
+                "",
+                0,
+                "there are no lists; `builds lists init <project>` makes them".to_string(),
+            ),
+            false,
+        )],
         Ok(stores) => stores
             .iter()
-            .map(|loaded| Composed::of(compose_view(loaded, now, claims)))
+            .map(|loaded| {
+                let designs = loaded
+                    .lists
+                    .as_ref()
+                    .is_ok_and(|lists| matches!(design_repo(lists), Ok(Some(_))));
+                Composed::of(compose_view(loaded, now, claims), designs)
+            })
             .collect(),
-        Err(fault) => vec![Composed::of(View::failed("", 0, fault.clone()))],
+        Err(fault) => vec![Composed::of(View::failed("", 0, fault.clone()), false)],
     }
 }
 
@@ -299,13 +347,21 @@ pub struct Composed {
     pub view: View,
     pub works: Vec<super::board::Work>,
     pub board: super::board::Board,
+    /// Whether the project has a Designs page: one repo holds its design
+    /// files (`design_repo`).
+    pub designs: bool,
 }
 
 impl Composed {
-    fn of(view: View) -> Composed {
+    fn of(view: View, designs: bool) -> Composed {
         let works = super::board::works(&view);
         let board = super::board::board(&view);
-        Composed { view, works, board }
+        Composed {
+            view,
+            works,
+            board,
+            designs,
+        }
     }
 }
 

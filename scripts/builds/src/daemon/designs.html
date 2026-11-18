@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Designs</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Roboto:wght@400;500;600;700;800&display=swap">
+<style>
+@@PALETTE@@
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 var(--sans); }
+.dz { display: flex; flex-direction: column; gap: 16px; padding: 20px 24px 48px; }
+.dz-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.dz-head h1 { margin: 0; font: 600 20px var(--sans); }
+.dz-sub { color: var(--muted); font-size: 13px; }
+.dz-sub code, .problem code { font: 500 12px var(--mono); color: var(--text-2); }
+.dz-pages { display: flex; gap: 4px; flex-wrap: wrap; border-bottom: 1px solid var(--line); padding-bottom: 8px; }
+.dz-pages button { font: inherit; font-size: 13px; color: var(--text-2); background: none; border: 1px solid transparent; border-radius: 6px; padding: 3px 10px; cursor: pointer; }
+.dz-pages button[aria-selected="true"] { color: var(--text); border-color: var(--line); background: var(--surface); }
+.dz-pages button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.dz-pages .n { color: var(--muted); margin-left: 6px; font-size: 12px; }
+.dz-sep { width: 1px; align-self: stretch; background: var(--line); margin: 2px 6px; }
+.dz-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 20px; align-items: start; }
+.dz-board { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.frame { position: relative; overflow: hidden; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); }
+.dz-name { font: 500 12px var(--mono); color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dz-title { font-size: 13px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#main { display: flex; flex-direction: column; gap: 24px; }
+.ds-sec { display: flex; flex-direction: column; gap: 10px; }
+.ds-sec h2 { margin: 0; font: 600 15px var(--sans); }
+.ds-swatches { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 12px; }
+.ds-sw { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.ds-chip { height: 40px; border-radius: 6px; border: 1px solid var(--line); }
+.ds-k { font: 500 11px var(--mono); color: var(--text-2); overflow-wrap: anywhere; }
+.ds-type { display: flex; flex-direction: column; gap: 6px; }
+.ds-type div { display: flex; align-items: baseline; gap: 16px; min-width: 0; }
+.ds-type .ds-k { flex: none; width: 120px; }
+.ds-comps { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 20px; align-items: start; }
+.ds-comp { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.ds-prev { display: block; width: 100%; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); }
+.problem { color: var(--bad); background: var(--bad-bg); border-radius: 6px; padding: 8px 10px; font-size: 13px; overflow-wrap: anywhere; }
+@media (max-width: 900px) { .dz-grid, .ds-comps { grid-template-columns: repeat(2, minmax(0, 1fr)); } .ds-swatches { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+</style>
+</head>
+<body>
+<div class="dz">
+  <div class="dz-head"><h1 id="title"></h1><span class="dz-sub" id="at"></span></div>
+  <div class="dz-pages" id="tabs" role="tablist" aria-label="Pages"></div>
+  <div id="main"></div>
+</div>
+<script type="application/json" id="data">@@DATA@@</script>
+<script>
+@@FRAMES@@
+</script>
+<script>
+const data = JSON.parse(document.getElementById("data").textContent);
+const h = (tag, attrs, ...kids) => {
+  const el = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) if (v !== null && v !== undefined) el.setAttribute(k, v);
+  el.append(...kids.flat(Infinity).filter(k => k !== null && k !== undefined));
+  return el;
+};
+document.title = data.project + " designs";
+document.getElementById("title").textContent = data.project + " designs";
+document.getElementById("at").append("main at ", h("code", {title: data.commit}, data.commit.slice(0, 7)),
+  " · " + data.boards + (data.boards === 1 ? " board" : " boards"));
+
+// The tabs: the design system, then one per page of the canvas index. The
+// chosen tab is in the address's #, so a reload keeps it.
+const SYSTEM = "system";
+function chosen() {
+  const id = decodeURIComponent(location.hash.slice(1));
+  if (id === SYSTEM || data.pages.some(p => p.id === id)) return id;
+  return data.pages.length ? data.pages[0].id : SYSTEM;
+}
+function tab(id, label, count) {
+  return h("button", {type: "button", role: "tab", "data-tab": id, "aria-selected": String(id === chosen())},
+    label, count === undefined ? null : h("span", {class: "n"}, String(count)));
+}
+function renderTabs() {
+  document.getElementById("tabs").replaceChildren(tab(SYSTEM, "Design system"),
+    h("span", {class: "dz-sep", "aria-hidden": "true"}),
+    ...data.pages.map(p => tab(p.id, p.name, p.boards.length)));
+}
+
+// The boards of the chosen page, each a frame scaled to its column. The
+// frames load their pages as they come near the view.
+let drawn = [];
+function rescale() {
+  for (const d of drawn) scaleFrame(d, d.w, d.h, d.cell.clientWidth / d.w);
+}
+new ResizeObserver(rescale).observe(document.getElementById("main"));
+function boardCell(b) {
+  const cell = h("div", {class: "dz-board"});
+  if (b.error) cell.append(h("div", {class: "problem"}, b.error));
+  else {
+    const d = Object.assign(boardFrame(data.base + "/board/" + encodeURIComponent(b.name), b.w, b.h, true), {w: b.w, h: b.h, cell});
+    drawn.push(d);
+    cell.append(d.box);
+  }
+  cell.append(h("span", {class: "dz-name", title: b.name}, b.name),
+    b.title ? h("span", {class: "dz-title", title: b.title}, b.title) : null);
+  return cell;
+}
+function pageView(page) {
+  if (!page.boards.length) return h("div", {class: "dz-sub"}, "No board is on this page.");
+  return h("div", {class: "dz-grid"}, page.boards.map(boardCell));
+}
+
+// The design system: its colors in the first theme, its text styles, and a
+// card per component, each the component's preview page in a frame of the
+// card's height.
+function systemView() {
+  const out = [];
+  const s = data.system;
+  if (s.error) out.push(h("div", {class: "problem"}, s.error));
+  else {
+    if (s.colors.length) out.push(h("section", {class: "ds-sec"}, h("h2", {}, "Colors"),
+      h("div", {class: "ds-swatches"}, s.colors.map(c => h("div", {class: "ds-sw", title: c.value},
+        h("div", {class: "ds-chip", style: "background: " + c.value}), h("span", {class: "ds-k"}, c.name))))));
+    if (s.styles.length) out.push(h("section", {class: "ds-sec"}, h("h2", {}, "Type"),
+      h("div", {class: "ds-type"}, s.styles.map(t => h("div", {},
+        h("span", {class: "ds-k"}, t.name), h("span", {style: t.css}, t.words))))));
+  }
+  const c = data.components;
+  if (c.error) out.push(h("div", {class: "problem"}, c.error));
+  else if (c.length) out.push(h("section", {class: "ds-sec"}, h("h2", {}, "Components"),
+    h("div", {class: "ds-comps"}, c.map(card => h("div", {class: "ds-comp"},
+      card.error ? h("div", {class: "problem"}, card.error)
+        : h("iframe", {class: "ds-prev", sandbox: "allow-scripts", loading: "lazy", title: card.name,
+          style: "height: " + card.height + "px", src: data.base + "/component/" + encodeURIComponent(card.name)}),
+      h("span", {class: "ds-k"}, card.name))))));
+  if (!out.length) out.push(h("div", {class: "dz-sub"}, "The design system has no colors, text styles or components."));
+  return out;
+}
+
+function render() {
+  renderTabs();
+  drawn = [];
+  const id = chosen();
+  const page = data.pages.find(p => p.id === id);
+  document.getElementById("main").replaceChildren(...[page ? pageView(page) : systemView()].flat());
+  rescale();
+}
+document.getElementById("tabs").addEventListener("click", e => {
+  const b = e.target.closest("button[data-tab]");
+  if (!b) return;
+  history.replaceState(null, "", "#" + encodeURIComponent(b.dataset.tab));
+  render();
+});
+window.addEventListener("hashchange", render);
+render();
+</script>
+</body>
+</html>

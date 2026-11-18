@@ -76,3 +76,65 @@ fn tokens_that_cannot_make_a_stylesheet_say_why() {
     let error = tokens_css("not json").unwrap_err().text();
     assert!(error.starts_with("reading the tokens: "), "{error}");
 }
+
+#[test]
+fn the_specimen_gives_each_color_in_the_first_theme_and_each_style_with_its_font_stack() {
+    let specimen = specimen(TOKENS).unwrap();
+    assert_eq!(
+        specimen.colors,
+        [
+            Swatch {
+                name: "background".into(),
+                value: "#111111".into()
+            },
+            Swatch {
+                name: "danger".into(),
+                value: "#FF0000".into()
+            },
+        ]
+    );
+    assert_eq!(
+        specimen.styles,
+        [
+            TextSpecimen {
+                name: "body".into(),
+                css: "font-family: Inter, sans-serif; font-size: 14px; font-weight: 400; line-height: 1.45"
+                    .into(),
+                words: "body".into(),
+            },
+            TextSpecimen {
+                name: "code".into(),
+                css: "font-family: Menlo, monospace; font-size: 13px; font-weight: 500; letter-spacing: 0.01em"
+                    .into(),
+                words: "code".into(),
+            },
+        ]
+    );
+}
+
+#[test]
+fn a_style_shows_its_sample_else_its_usage_and_a_family_with_no_stack_fails() {
+    let with_words = TOKENS
+        .replace(
+            r#""lineHeight": "1.45" }"#,
+            r#""lineHeight": "1.45", "usage": "Labels", "sample": "Low Tide Hours" }"#,
+        )
+        .replace(
+            r#""letterSpacing": "0.01em" }"#,
+            r#""letterSpacing": "0.01em", "usage": "Codes and paths" }"#,
+        );
+    let words: Vec<String> = specimen(&with_words)
+        .unwrap()
+        .styles
+        .into_iter()
+        .map(|style| style.words)
+        .collect();
+    assert_eq!(words, ["Low Tide Hours", "Codes and paths"]);
+    let error = specimen(&TOKENS.replace(r#""family": "mono""#, r#""family": "serif""#))
+        .unwrap_err()
+        .text();
+    assert!(
+        error.contains("text style code is in the family serif"),
+        "{error}"
+    );
+}

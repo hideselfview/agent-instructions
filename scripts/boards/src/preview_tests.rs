@@ -1,0 +1,76 @@
+use super::*;
+use crate::testing::{Scratch, commit, git, repo};
+
+/// A repo with components `Row` (a card 120 high), `Bare` (a preview whose
+/// first line gives no height) and `notes` (a folder with no preview).
+fn components(scratch: &Scratch) -> std::path::PathBuf {
+    let dir = scratch.dir.join("repo");
+    repo(&dir);
+    let folder = dir.join(COMPONENTS);
+    for (name, text) in [
+        (
+            "Row",
+            "<!-- @dsCard group=\"Mac\" height=120 -->\n<!doctype html>",
+        ),
+        ("Bare", "<!doctype html>"),
+    ] {
+        std::fs::create_dir_all(folder.join(name)).unwrap();
+        std::fs::write(folder.join(name).join("preview.html"), text).unwrap();
+    }
+    std::fs::create_dir_all(folder.join("notes")).unwrap();
+    std::fs::write(folder.join("notes/README.md"), "no preview").unwrap();
+    dir
+}
+
+#[test]
+fn each_component_with_a_preview_has_a_card_of_its_height_at_a_folder_and_a_commit() {
+    let scratch = Scratch::new("preview-cards");
+    let dir = components(&scratch);
+    let at = commit(&dir);
+    let cache = scratch.dir.join("cache");
+    for from in [
+        Source::Dir(&dir),
+        Source::Commit {
+            repo: &dir,
+            rev: &at,
+        },
+    ] {
+        let cards = cards(&from, &cache).unwrap();
+        assert_eq!(
+            cards,
+            [
+                Card {
+                    name: "Bare".into(),
+                    height: Err("The first line of design/system/components/Bare/preview.html gives its card no height, as <!-- @dsCard height=N --> does.".into()),
+                },
+                Card {
+                    name: "Row".into(),
+                    height: Ok(120),
+                },
+            ]
+        );
+    }
+    let empty = git(&dir, &["rev-list", "--max-parents=0", "HEAD"]);
+    let none = cards(
+        &Source::Commit {
+            repo: &dir,
+            rev: &empty,
+        },
+        &cache,
+    )
+    .unwrap();
+    assert!(none.is_empty(), "a commit with no components has no cards");
+}
+
+#[test]
+fn the_loads_go_right_after_the_head_tag_and_a_page_with_no_head_has_none() {
+    assert_eq!(
+        with_loads(
+            "<html><header></header><HEAD lang=\"en\"><title>x</title></head>",
+            "<script></script>"
+        )
+        .unwrap(),
+        "<html><header></header><HEAD lang=\"en\"><script></script><title>x</title></head>"
+    );
+    assert_eq!(with_loads("<body><header></header></body>", "<x>"), None);
+}

@@ -18,8 +18,8 @@
 use std::fmt;
 use std::marker::PhantomData;
 
-use serde::Deserialize;
 use serde::de::{Deserializer, MapAccess, Visitor};
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::{Context, Result, fail};
@@ -141,11 +141,50 @@ struct Style {
     font_weight: Scalar,
     line_height: Option<Scalar>,
     letter_spacing: Option<Scalar>,
+    /// The words the design system shows the style in.
+    sample: Option<String>,
+    usage: Option<String>,
+}
+
+impl Style {
+    /// The style's CSS declarations, with <font_family> as its font-family's
+    /// value.
+    fn declarations(&self, font_family: String) -> Vec<String> {
+        let mut declarations = vec![
+            format!("font-family: {font_family}"),
+            format!("font-size: {}", self.font_size),
+            format!("font-weight: {}", self.font_weight),
+        ];
+        if let Some(height) = &self.line_height {
+            declarations.push(format!("line-height: {height}"));
+        }
+        if let Some(spacing) = &self.letter_spacing {
+            declarations.push(format!("letter-spacing: {spacing}"));
+        }
+        declarations
+    }
+}
+
+impl ColorToken {
+    /// The token's value in theme <id>.
+    fn value_in(&self, id: &str) -> Result<&Scalar> {
+        match &self.value {
+            ColorValue::Every(value) => Ok(value),
+            ColorValue::PerTheme(values) => match values.get(id) {
+                Some(value) => Ok(value),
+                None => fail!("color {} has no value for theme {id}", self.name),
+            },
+        }
+    }
+}
+
+fn parse(json: &str) -> Result<Tokens> {
+    serde_json::from_str(json).context(|| "reading the tokens".to_string())
 }
 
 /// The stylesheet of the tokens in <json>, the text of a tokens.json.
 pub fn tokens_css(json: &str) -> Result<String> {
-    let tokens: Tokens = serde_json::from_str(json).context(|| "reading the tokens".to_string())?;
+    let tokens = parse(json)?;
     let mut out = vec![format!(
         "/* {}: builds design tokens-css writes this file from tokens.json */",
         tokens.name
@@ -158,14 +197,7 @@ pub fn tokens_css(json: &str) -> Result<String> {
             format!("[data-theme=\"{id}\"] {{")
         }];
         for token in &tokens.color.tokens {
-            let value = match &token.value {
-                ColorValue::Every(value) => value,
-                ColorValue::PerTheme(values) => match values.get(id) {
-                    Some(value) => value,
-                    None => fail!("color {} has no value for theme {id}", token.name),
-                },
-            };
-            block.push(format!("  --{}: {value};", token.name));
+            block.push(format!("  --{}: {};", token.name, token.value_in(id)?));
         }
         block.push("}".to_string());
         out.push(block.join("\n"));
@@ -189,25 +221,85 @@ pub fn tokens_css(json: &str) -> Result<String> {
     for group in &tokens.text.groups {
         for style in &group.styles {
             let family = style.family.as_ref().unwrap_or(&group.family);
-            let mut declarations = vec![
-                format!("font-family: var(--font-{family})"),
-                format!("font-size: {}", style.font_size),
-                format!("font-weight: {}", style.font_weight),
-            ];
-            if let Some(height) = &style.line_height {
-                declarations.push(format!("line-height: {height}"));
-            }
-            if let Some(spacing) = &style.letter_spacing {
-                declarations.push(format!("letter-spacing: {spacing}"));
-            }
             out.push(format!(
                 ".{} {{ {}; }}",
                 style.name,
-                declarations.join("; ")
+                style
+                    .declarations(format!("var(--font-{family})"))
+                    .join("; ")
             ));
         }
     }
     Ok(out.join("\n") + "\n")
+}
+
+/// What a page shows of a design system's tokens without its stylesheet:
+/// each color in the first theme, and each text style as CSS declarations
+/// that name its font stack, with the words to draw it in.
+#[derive(Debug, PartialEq, Eq, Serialize)]
+pub struct Specimen {
+    /// Each color's value in the first theme.
+    pub colors: Vec<Swatch>,
+    pub styles: Vec<TextSpecimen>,
+}
+
+#[derive(Debug, PartialEq, Eq, Serialize)]
+pub struct Swatch {
+    pub name: String,
+    pub value: String,
+}
+
+#[derive(Debug, PartialEq, Eq, Serialize)]
+pub struct TextSpecimen {
+    pub name: String,
+    /// The style's declarations, as one `style` attribute's text.
+    pub css: String,
+    /// The style's sample, else its usage, else its name.
+    pub words: String,
+}
+
+/// The specimen of the tokens in <json>, the text of a tokens.json. Fails
+/// where `tokens_css` does, and on a text style whose family names no font
+/// stack.
+pub fn specimen(json: &str) -> Result<Specimen> {
+    let tokens = parse(json)?;
+    let Some(first) = tokens.color.themes.first() else {
+        fail!("the tokens name no color theme");
+    };
+    let colors = tokens
+        .color
+        .tokens
+        .iter()
+        .map(|token| {
+            Ok(Swatch {
+                name: token.name.clone(),
+                value: token.value_in(&first.id)?.to_string(),
+            })
+        })
+        .collect::<Result<_>>()?;
+    let mut styles = Vec::new();
+    for group in &tokens.text.groups {
+        for style in &group.styles {
+            let family = style.family.as_ref().unwrap_or(&group.family);
+            let Some((_, stack)) = tokens.text.families.0.iter().find(|(key, _)| key == family)
+            else {
+                fail!(
+                    "text style {} is in the family {family}, which the tokens give no font stack",
+                    style.name
+                );
+            };
+            styles.push(TextSpecimen {
+                name: style.name.clone(),
+                css: style.declarations(stack.clone()).join("; "),
+                words: style
+                    .sample
+                    .clone()
+                    .or_else(|| style.usage.clone())
+                    .unwrap_or_else(|| style.name.clone()),
+            });
+        }
+    }
+    Ok(Specimen { colors, styles })
 }
 
 #[cfg(test)]

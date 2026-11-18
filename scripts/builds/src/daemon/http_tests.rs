@@ -717,3 +717,27 @@ fn the_effect_control_works_only_from_the_page_at_this_mac() {
     assert_eq!((status, reply.as_str()), (200, "{}"));
     assert_eq!(effect(), crate::lists::Effect::Bug);
 }
+
+#[test]
+fn a_designs_path_is_the_page_or_a_board_or_component_at_a_full_commit() {
+    let commit = "0123456789abcdef0123456789abcdef01234567";
+    assert_eq!(designs_route("bae"), Some(DesignsRoute::Page("bae")));
+    assert_eq!(
+        designs_route(&format!("bae/{commit}/board/mac.welcome")),
+        Some(DesignsRoute::Board("bae", commit, "mac.welcome"))
+    );
+    assert_eq!(
+        designs_route(&format!("bae/{commit}/component/MacRow")),
+        Some(DesignsRoute::Component("bae", commit, "MacRow"))
+    );
+    for bad in [
+        "".to_string(),
+        "bae/".to_string(),
+        "bae/HEAD/board/A".to_string(),
+        format!("bae/{commit}/board"),
+        format!("bae/{commit}/boards/A"),
+        format!("bae/{commit}/board/A/now"),
+    ] {
+        assert_eq!(designs_route(&bad), None, "{bad:?}");
+    }
+}

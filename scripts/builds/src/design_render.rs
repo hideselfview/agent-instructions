@@ -6,6 +6,9 @@
 //! and the `tokens.css` builds writes from `tokens.json`. The page's script
 //! is `design_render/board.html`.
 //!
+//! `render_preview` draws a design-system component's `preview.html` the same
+//! way, with the design system and React loaded ahead of its own script.
+//!
 //! A board is drawn from a `boards::Source`: a directory's files, or the
 //! files at a commit, which git reads without checking anything out, so two
 //! design changes can share a worktree and a change is drawn from its own
@@ -27,7 +30,9 @@
 use std::collections::BTreeMap;
 use std::path::Path;
 
-use boards::{BOARD_SUFFIX, CANVAS, MOCKS, Source, board_name, board_path, canvas_size, imports};
+use boards::{
+    BOARD_SUFFIX, CANVAS, MOCKS, Source, board_name, board_path, canvas_size, imports, preview,
+};
 use serde_json::{Value, json};
 
 use crate::fail;
@@ -41,13 +46,23 @@ const REVIEW_PAGE: &str = include_str!("design_render/review.html");
 /// circles (`design_render/circles.js`), which the review page runs.
 const CIRCLES_SCRIPT: &str = include_str!("design_render/circles.js");
 
+/// The script tags that load React 18.3.1, which a board page and a
+/// component's preview page draw with.
+const REACT: &str = r#"<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>"#;
+
+/// The script that draws a board's page in a frame at the board's own size,
+/// scaled (`design_render/frames.js`), which the review page and the
+/// dashboard's Designs page run.
+pub const FRAMES_SCRIPT: &str = include_str!("design_render/frames.js");
+
 /// What a board with no script of its own runs.
 const NO_SCRIPT: &str =
     "class Component extends DCLogic { renderVals() { return { yes: true }; } }";
 
 /// <template> with each `@@NAME@@` replaced by its part, in one pass: a part
 /// holding such a marker is not filled again.
-fn fill(template: &str, parts: &[(&str, &str)]) -> String {
+pub fn fill(template: &str, parts: &[(&str, &str)]) -> String {
     let mut out = String::with_capacity(template.len());
     let mut rest = template;
     while let Some(start) = rest.find("@@") {
@@ -183,6 +198,7 @@ pub fn render_board(from: Source, board: &str, theme: Theme, cache: &Path) -> Re
         BOARD_PAGE,
         &[
             ("THEME", theme.word()),
+            ("REACT", REACT),
             ("TOKENS_CSS", &tokens_css),
             ("BUNDLE_CSS", &bundle_css),
             ("BUNDLE_JS", &script_safe(&bundle_js)),
@@ -191,6 +207,30 @@ pub fn render_board(from: Source, board: &str, theme: Theme, cache: &Path) -> Re
             ("CLASSES", &classes),
         ],
     ))
+}
+
+/// Component <name>'s preview page of <from>, with the design system of
+/// <from> and React loaded ahead of its own script, as the Design System
+/// page draws its card; a commit's design system is generated into <cache>.
+pub fn render_preview(from: Source, name: &str, cache: &Path) -> Result<String> {
+    from.check()?;
+    if !preview::is_component_name(name) {
+        fail!("{name:?} is no component: a component's name is letters and digits");
+    }
+    let rel = preview::preview_path(name);
+    let html = from.read(&rel, "the preview")?;
+    let [tokens_css, bundle_css, bundle_js] = from.design_system(cache)?;
+    let loads = format!(
+        "<style>{tokens_css}</style><style>{bundle_css}</style>{REACT}<script>{}</script>",
+        script_safe(&bundle_js)
+    );
+    match preview::with_loads(&html, &loads) {
+        Some(page) => Ok(page),
+        None => fail!(
+            "{} has no <head> to load the design system in",
+            from.label(&rel)
+        ),
+    }
 }
 
 /// The <n>th board of <design>'s review page.
@@ -304,7 +344,11 @@ pub fn review_page(design: &DesignChange, view: &DesignView, project: &str) -> R
     let data = data.to_string().replace('<', "\\u003c");
     Ok(fill(
         REVIEW_PAGE,
-        &[("DATA", &data), ("CIRCLES", CIRCLES_SCRIPT)],
+        &[
+            ("DATA", &data),
+            ("CIRCLES", CIRCLES_SCRIPT),
+            ("FRAMES", FRAMES_SCRIPT),
+        ],
     ))
 }
 

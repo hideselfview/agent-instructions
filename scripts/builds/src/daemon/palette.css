@@ -1,0 +1,35 @@
+/* The dashboard's colors and fonts, which its page and its Designs page share. */
+:root {
+  --sans: Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --bg: #F6F6F3; --surface: #FFFFFF; --pinned: #EDEDE8; --pinned-line: #DADAD3;
+  --line: #E2E2DC; --line-soft: #F0F0EA; --track: #ECECE6;
+  --text: #1A1A19; --text-2: #2B2B29; --text-3: #3A3A37; --muted: #5C5C57; --muted-2: #6B6B66;
+  --ok: #2E7D4F; --warn: #86692A; --warn-bg: #F5EEDA; --bad: #B3261E; --bad-bg: #FDE7E5;
+  --accent: #1F4FB8; --waiting-bg: #EEF3FC;
+  --working-bg: #E7F2EA; --working: #1F5E38;
+  --ready-bg: #E3ECFB; --ready: #1F4FB8;
+  --you-bg: #FBEBDD; --you: #8A3E08;
+  --winding-bg: #EFEDE6; --winding: #4F4C42;
+  --free-bg: #F1F1EC; --free: #5C5C57;
+  --dot-you: #C25E10; --dot-ready: #1F4FB8; --dot-working: #2E7D4F; --dot-free: #9A9A92;
+  --on: #1A1A19; --on-text: #FFFFFF;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #161615; --surface: #1F1F1D; --pinned: #262624; --pinned-line: #383833;
+    --line: #34342F; --line-soft: #2B2B28; --track: #34342F;
+    --text: #ECECE8; --text-2: #D9D9D3; --text-3: #C9C9C2; --muted: #A6A69F; --muted-2: #9C9C95;
+    --ok: #5DBB84; --warn: #D6BD84; --warn-bg: #2C2719; --bad: #FF8A80; --bad-bg: #3D1A17;
+    --accent: #93B2FF; --waiting-bg: #1C2538;
+    --working-bg: #1C3324; --working: #93D8AE;
+    --ready-bg: #1D2A45; --ready: #A9C3FF;
+    --you-bg: #3E2614; --you: #F6B27C;
+    --winding-bg: #2D2B25; --winding: #D3CEBD;
+    --free-bg: #2A2A27; --free: #B5B5AE;
+    --dot-you: #E07A2E; --dot-ready: #6F95F0; --dot-working: #4FAE76; --dot-free: #85857E;
+    --on: #ECECE8; --on-text: #161615;
+    color-scheme: dark;
+  }
+}

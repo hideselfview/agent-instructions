@@ -39,6 +39,14 @@
 //!                   a board of that page as it stands on origin/main (now)
 //!                   or at the change's last commit (proposed), drawn now;
 //!                   the page's frames load these
+//!     /designs/<project>
+//!                   the Designs page of the project: every board of the
+//!                   repo that holds its design files as it stands on
+//!                   origin/main, and its design system (designs.rs)
+//!     /designs/<project>/<commit>/board/<name>
+//!     /designs/<project>/<commit>/component/<name>
+//!                   a board, or a component's preview, at that commit,
+//!                   drawn now; the Designs page's frames load these
 //!     /events       `state` events: the whole state on connect and each time
 //!                   it changes, at most four a second; `lists` events: the
 //!                   lists JSON on connect and each time it changes, never
@@ -52,7 +60,13 @@ use std::time::{Duration, Instant};
 use super::model::Model;
 use crate::design_render::Side;
 
-const PAGE: &str = include_str!("page.html");
+/// The page, with the colors and fonts it shares with the Designs page.
+static PAGE: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
+    crate::design_render::fill(
+        include_str!("page.html"),
+        &[("PALETTE", super::designs::PALETTE)],
+    )
+});
 /// The most a POST's body may hold.
 const MAX_BODY: usize = 4096;
 /// The least time between two events on one stream: pacing for the page.
@@ -210,6 +224,22 @@ fn handle(mut stream: TcpStream, names: &[String], model: &Model) -> std::io::Re
             model.hooks_json().as_bytes(),
         ),
         "/events" => events(stream, model),
+        _ if path.starts_with("/designs/") => {
+            let drawn = designs_route(&path["/designs/".len()..]).and_then(|route| match route {
+                DesignsRoute::Page(project) => model.designs_page(project),
+                DesignsRoute::Board(project, commit, name) => {
+                    model.designs_board(project, commit, name)
+                }
+                DesignsRoute::Component(project, commit, name) => {
+                    model.designs_preview(project, commit, name)
+                }
+            });
+            drawn_page(
+                &mut stream,
+                drawn,
+                b"no such project with design files, or no such page of its designs\n",
+            )
+        }
         _ if path.starts_with("/design/") => {
             let drawn = design_route(&path["/design/".len()..]).and_then(|route| match route {
                 DesignRoute::Page(project, id) => model.design_page(project, id),
@@ -218,26 +248,7 @@ fn handle(mut stream: TcpStream, names: &[String], model: &Model) -> std::io::Re
                 }
                 DesignRoute::Deleted(project, id, k) => model.design_deleted_board(project, id, k),
             });
-            match drawn {
-                Some(Ok(page)) => respond(
-                    &mut stream,
-                    "200 OK",
-                    "text/html; charset=utf-8",
-                    page.as_bytes(),
-                ),
-                Some(Err(error)) => respond(
-                    &mut stream,
-                    "500 Internal Server Error",
-                    "text/plain; charset=utf-8",
-                    format!("{}\n", error.text()).as_bytes(),
-                ),
-                None => respond(
-                    &mut stream,
-                    "404 Not Found",
-                    "text/plain; charset=utf-8",
-                    b"no such open design change or board\n",
-                ),
-            }
+            drawn_page(&mut stream, drawn, b"no such open design change or board\n")
         }
         _ => respond(
             &mut stream,
@@ -245,6 +256,63 @@ fn handle(mut stream: TcpStream, names: &[String], model: &Model) -> std::io::Re
             "text/plain; charset=utf-8",
             b"not found\n",
         ),
+    }
+}
+
+/// Answers with <drawn>, a page drawn now: the page, the error that stopped
+/// it, or <missing> when the address names nothing.
+fn drawn_page(
+    stream: &mut TcpStream,
+    drawn: Option<crate::fail::Result<String>>,
+    missing: &[u8],
+) -> std::io::Result<()> {
+    match drawn {
+        Some(Ok(page)) => respond(
+            stream,
+            "200 OK",
+            "text/html; charset=utf-8",
+            page.as_bytes(),
+        ),
+        Some(Err(error)) => respond(
+            stream,
+            "500 Internal Server Error",
+            "text/plain; charset=utf-8",
+            format!("{}\n", error.text()).as_bytes(),
+        ),
+        None => respond(
+            stream,
+            "404 Not Found",
+            "text/plain; charset=utf-8",
+            missing,
+        ),
+    }
+}
+
+/// What a `/designs/...` path asks for.
+#[derive(Debug, PartialEq, Eq)]
+enum DesignsRoute<'a> {
+    /// The Designs page of the project.
+    Page(&'a str),
+    /// Board <name> of the project's design files at the commit.
+    Board(&'a str, &'a str, &'a str),
+    /// Component <name>'s preview at the commit.
+    Component(&'a str, &'a str, &'a str),
+}
+
+/// <rest> is the path after `/designs/`: `<project>`,
+/// `<project>/<commit>/board/<name>` or `<project>/<commit>/component/<name>`,
+/// where the commit is a full commit id, as the page names it.
+fn designs_route(rest: &str) -> Option<DesignsRoute<'_>> {
+    let parts: Vec<&str> = rest.split('/').collect();
+    match parts.as_slice() {
+        [project] if !project.is_empty() => Some(DesignsRoute::Page(project)),
+        [project, commit, "board", name] if super::designs::is_commit(commit) => {
+            Some(DesignsRoute::Board(project, commit, name))
+        }
+        [project, commit, "component", name] if super::designs::is_commit(commit) => {
+            Some(DesignsRoute::Component(project, commit, name))
+        }
+        _ => None,
     }
 }
 

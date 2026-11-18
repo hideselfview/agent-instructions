@@ -39,7 +39,6 @@ figcaption a { color: var(--accent); font-weight: 400; font-size: 12px; margin-l
 .circle { position: absolute; box-sizing: border-box; border: 2px solid #f5d90a; border-radius: 16px; pointer-events: auto; }
 .status { margin: 0 0 6px; color: var(--dim); font-size: 13px; max-width: 700px; }
 .status .bad { color: var(--bad); }
-.frame iframe { display: block; border: 0; background: transparent; transform-origin: 0 0; }
 .problem { color: var(--bad); border: 1px solid var(--bad); border-radius: 6px; padding: 8px 12px; max-width: 700px; }
 .work { max-width: 1100px; padding-left: 18px; }
 .work li { margin: 3px 0; }
@@ -65,6 +64,9 @@ figcaption a { color: var(--accent); font-weight: 400; font-size: 12px; margin-l
 <script type="application/json" id="data">@@DATA@@</script>
 <script>
 @@CIRCLES@@
+</script>
+<script>
+@@FRAMES@@
 </script>
 <script>
 const data = JSON.parse(document.getElementById("data").textContent);
@@ -151,9 +153,8 @@ function showApproval(problem) {
 showApproval();
 
 // Each drawing is a rendered page in a frame, drawn at the size the canvas
-// gives it and scaled; the frame stays live HTML, so zooming shows it sharp.
-// A board shows its now and its proposed side by side, each with the design
-// system of its own commit.
+// gives it and scaled (frames.js). A board shows its now and its proposed
+// side by side, each with the design system of its own commit.
 let zoom = "fit";
 const frames = [];
 function side(label, d, absent, pair, which) {
@@ -164,8 +165,7 @@ function side(label, d, absent, pair, which) {
   return h("div", {class: "side"}, h("h3", {}, label), body);
 }
 function drawn(d, pair, which) {
-  const frame = h("iframe", {src: d.src, sandbox: "allow-scripts", title: d.src, width: d.w, height: d.h});
-  const box = h("div", {class: "frame"}, frame);
+  const {frame, box} = boardFrame(d.src, d.w, d.h, false);
   const entry = {b: d, frame, box, circles: [], found: null};
   frames.push(entry);
   if (pair) {
@@ -231,11 +231,10 @@ function scaleOf(b) {
   return Number(zoom);
 }
 function layout() {
-  for (const {b, frame, box: frameBox, circles} of frames) {
+  for (const entry of frames) {
+    const {b, circles} = entry;
     const s = scaleOf(b);
-    frame.style.transform = "scale(" + s + ")";
-    frameBox.style.width = Math.round(b.w * s) + "px";
-    frameBox.style.height = Math.round(b.h * s) + "px";
+    scaleFrame(entry, b.w, b.h, s);
     for (const {el, box} of circles) {
       // A circle stands 8 screen pixels clear of what it marks at any zoom,
       // so its line never covers the element.

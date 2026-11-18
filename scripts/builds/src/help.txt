@@ -1463,7 +1463,18 @@ STATUS, HEALTH AND THE DASHBOARD
                               session, which draws the boards. The page
                               keeps each list's sort and filters in its
                               URL, so a reload keeps them, and the lists
-                              keep nothing about them
+                              keep nothing about them. Under the project
+                              tabs, a link opens the chosen project's
+                              Designs page (/designs/<project>), for a
+                              project whose design places one repo holds:
+                              every board of that repo as it stands on
+                              origin/main, in a tab per page of
+                              design/mocks/canvas.json, each drawn in the
+                              dark as a review page draws it, and a Design
+                              system tab with the design system's colors in
+                              its first theme, its text styles, and each
+                              component's preview at the height its
+                              preview.html gives the card
 
 
 COMMIT CHECKS

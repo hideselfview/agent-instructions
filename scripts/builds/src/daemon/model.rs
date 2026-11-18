@@ -957,6 +957,52 @@ impl Model {
         )
     }
 
+    /// The main checkout of the repo that holds project <project>'s design
+    /// files (`lists::design_repo`); None when the lists hold no such project
+    /// or the project has no design files.
+    fn design_checkout(&self, project: &str) -> Option<crate::fail::Result<PathBuf>> {
+        let (_, snapshot) = self.lists.current();
+        let repo = match super::lists::project_design_repo(&snapshot, project)? {
+            Ok(repo) => repo?,
+            Err(error) => return Some(Err(error)),
+        };
+        Some(Ok(self.places.home.join(crate::host::clone_path(&repo))))
+    }
+
+    /// The Designs page of project <project>, drawn now from origin/main;
+    /// None when the lists hold no such project or it has no design files.
+    pub fn designs_page(&self, project: &str) -> Option<crate::fail::Result<String>> {
+        Some(self.design_checkout(project)?.and_then(|repo| {
+            super::designs::page(project, &repo, &self.places.design_system_cache())
+        }))
+    }
+
+    /// Board <name> of project <project>'s design files at <commit>, as a
+    /// frame of the Designs page loads it.
+    pub fn designs_board(
+        &self,
+        project: &str,
+        commit: &str,
+        name: &str,
+    ) -> Option<crate::fail::Result<String>> {
+        Some(self.design_checkout(project)?.and_then(|repo| {
+            super::designs::board(&repo, commit, name, &self.places.design_system_cache())
+        }))
+    }
+
+    /// Component <name>'s preview of project <project>'s design system at
+    /// <commit>, as a frame of the Designs page loads it.
+    pub fn designs_preview(
+        &self,
+        project: &str,
+        commit: &str,
+        name: &str,
+    ) -> Option<crate::fail::Result<String>> {
+        Some(self.design_checkout(project)?.and_then(|repo| {
+            super::designs::preview(&repo, commit, name, &self.places.design_system_cache())
+        }))
+    }
+
     /// The claim and git facts of the worktree at <worktree>; no agent and no
     /// commits for one the daemon doesn't know as a live checkout.
     fn claim_facts(&self, worktree: &str) -> ClaimFacts {

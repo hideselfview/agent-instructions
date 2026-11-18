@@ -164,7 +164,12 @@ pub struct Split<'a> {
 
 /// The page that <entry>, the <kind> <name> of the index, is on: its own, or
 /// the first page when it names none, as the canvas places it.
-fn page_of<'a>(kind: &str, name: &str, entry: &'a Value, first: &'a str) -> Result<&'a str> {
+pub(crate) fn page_of<'a>(
+    kind: &str,
+    name: &str,
+    entry: &'a Value,
+    first: &'a str,
+) -> Result<&'a str> {
     match entry.get("page") {
         None => Ok(first),
         Some(Value::String(page)) => Ok(page),

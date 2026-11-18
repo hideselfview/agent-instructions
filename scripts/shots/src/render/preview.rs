@@ -22,7 +22,6 @@ use chromiumoxide::cdp::browser_protocol::dom::DescribeNodeParams;
 use chromiumoxide::cdp::browser_protocol::page::{CaptureScreenshotFormat, Viewport};
 use chromiumoxide::cdp::js_protocol::runtime::EvaluateParams;
 use chromiumoxide::page::ScreenshotParams;
-use regex::Regex;
 use serde::Deserialize;
 
 /// React 18.3.1, which a preview page draws its rows with.
@@ -60,18 +59,11 @@ pub(crate) fn assemble(
     html: &str,
     namespace: &str,
 ) -> Result<String, PreviewError> {
-    let head = Regex::new(r"(?i)<head[^>]*>").unwrap();
-    let Some(found) = head.find(html) else {
-        return Err(PreviewError::NoHead(component.to_string()));
-    };
     let loads = format!(
         r#"<link rel="stylesheet" href="/ds/{namespace}/tokens.css"><link rel="stylesheet" href="/ds/{namespace}/components/bundle.css"><script src="/react.js"></script><script src="/react-dom.js"></script><script src="/ds/{namespace}/components/bundle.js"></script>"#
     );
-    Ok(format!(
-        "{}{loads}{}",
-        &html[..found.end()],
-        &html[found.end()..]
-    ))
+    boards::preview::with_loads(html, &loads)
+        .ok_or_else(|| PreviewError::NoHead(component.to_string()))
 }
 
 #[derive(Deserialize)]

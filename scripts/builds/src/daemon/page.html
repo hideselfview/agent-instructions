@@ -8,40 +8,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
 <style>
-:root {
-  --sans: Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
-  --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-  --bg: #F6F6F3; --surface: #FFFFFF; --pinned: #EDEDE8; --pinned-line: #DADAD3;
-  --line: #E2E2DC; --line-soft: #F0F0EA; --track: #ECECE6;
-  --text: #1A1A19; --text-2: #2B2B29; --text-3: #3A3A37; --muted: #5C5C57; --muted-2: #6B6B66;
-  --ok: #2E7D4F; --warn: #86692A; --warn-bg: #F5EEDA; --bad: #B3261E; --bad-bg: #FDE7E5;
-  --accent: #1F4FB8; --waiting-bg: #EEF3FC;
-  --working-bg: #E7F2EA; --working: #1F5E38;
-  --ready-bg: #E3ECFB; --ready: #1F4FB8;
-  --you-bg: #FBEBDD; --you: #8A3E08;
-  --winding-bg: #EFEDE6; --winding: #4F4C42;
-  --free-bg: #F1F1EC; --free: #5C5C57;
-  --dot-you: #C25E10; --dot-ready: #1F4FB8; --dot-working: #2E7D4F; --dot-free: #9A9A92;
-  --on: #1A1A19; --on-text: #FFFFFF;
-  color-scheme: light;
-}
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #161615; --surface: #1F1F1D; --pinned: #262624; --pinned-line: #383833;
-    --line: #34342F; --line-soft: #2B2B28; --track: #34342F;
-    --text: #ECECE8; --text-2: #D9D9D3; --text-3: #C9C9C2; --muted: #A6A69F; --muted-2: #9C9C95;
-    --ok: #5DBB84; --warn: #D6BD84; --warn-bg: #2C2719; --bad: #FF8A80; --bad-bg: #3D1A17;
-    --accent: #93B2FF; --waiting-bg: #1C2538;
-    --working-bg: #1C3324; --working: #93D8AE;
-    --ready-bg: #1D2A45; --ready: #A9C3FF;
-    --you-bg: #3E2614; --you: #F6B27C;
-    --winding-bg: #2D2B25; --winding: #D3CEBD;
-    --free-bg: #2A2A27; --free: #B5B5AE;
-    --dot-you: #E07A2E; --dot-ready: #6F95F0; --dot-working: #4FAE76; --dot-free: #85857E;
-    --on: #ECECE8; --on-text: #161615;
-    color-scheme: dark;
-  }
-}
+@@PALETTE@@
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 var(--sans); }
 .mono { font-family: var(--mono); }
@@ -308,6 +275,8 @@ h1 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.01em; }
 .l-tabs button[aria-selected="true"] { background: var(--on); color: var(--on-text); }
 .l-tabs button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .l-tabs .l-count { font: 500 12px var(--mono); white-space: nowrap; opacity: 0.85; }
+.l-designs { display: block; margin: 0 0 8px; font-size: 13px; color: var(--accent); }
+.l-designs[hidden] { display: none; }
 /* The tags of the open questions and items: All, then each tag with its count; one chosen shows only its entries. */
 .l-tagbar { display: flex; flex-wrap: wrap; gap: 4px; }
 .l-tagbar[hidden] { display: none; }
@@ -423,6 +392,7 @@ a.l-ref:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; b
   <div class="l-top">
     <div class="l-head"><h2>Lists</h2><button class="side-hide" id="lists-hide" type="button" title="Hide the Lists panel" aria-label="Hide the Lists panel"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true"><rect x="1.75" y="2.75" width="12.5" height="10.5" rx="2"/><path d="M10 2.75v10.5"/></svg></button></div>
     <div class="l-tabs l-projects" id="l-projects" role="tablist" aria-label="Projects" hidden></div>
+    <a class="l-designs" id="l-designs" hidden></a>
     <div class="l-tabs" id="l-tabs" role="tablist" hidden>
       <button type="button" role="tab" data-tab="stack"><span class="l-name">Waiting on you</span><span class="l-count"></span></button>
       <button type="button" role="tab" data-tab="running"><span class="l-name">Running</span><span class="l-count"></span></button>
@@ -1951,6 +1921,15 @@ function renderProjects() {
     h("span", {class: "l-name"}, p.project || "none"),
     h("span", {class: "l-count"}, p.error ? "!" : String(p.board.waiting)))));
 }
+// The link to the chosen project's Designs page, for a project whose design
+// files one repo holds.
+function renderDesignsLink() {
+  const link = document.getElementById("l-designs");
+  link.hidden = !lists || !!lists.error || !lists.designs;
+  if (link.hidden) return;
+  link.href = "/designs/" + encodeURIComponent(lists.project);
+  link.textContent = lists.project + " designs";
+}
 // A select of the controls bar: <label>, then the default's <all> and each of
 // <options>.
 function viewSelect(key, label, all, options) {
@@ -1990,6 +1969,7 @@ function tabCounts() {
 function renderLists() {
   const tabs = document.getElementById("l-tabs"), body = document.getElementById("l-body");
   renderProjects();
+  renderDesignsLink();
   if (!lists || lists.error) {
     tabs.hidden = true;
     document.getElementById("l-tags").hidden = true;
