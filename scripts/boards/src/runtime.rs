@@ -44,15 +44,26 @@ pub struct RuntimeCopy {
 }
 
 /// Every copy, oldest first.
-pub const COPIES: &[RuntimeCopy] = &[RuntimeCopy {
-    sha256: "b795ee21261f2e7da1b10cb25b4a4cfa275d1b96165f89396f1fed426e191844",
-    version: "1794441585-926d",
-    source: "https://claude.ai/artifact/9geFwGqEzevbvbh22NqZzJ",
-    read_at: "2026-11-12T00:01:28Z",
-    text: include_str!(
-        "../runtime/b795ee21261f2e7da1b10cb25b4a4cfa275d1b96165f89396f1fed426e191844.js"
-    ),
-}];
+pub const COPIES: &[RuntimeCopy] = &[
+    RuntimeCopy {
+        sha256: "b795ee21261f2e7da1b10cb25b4a4cfa275d1b96165f89396f1fed426e191844",
+        version: "1794441585-926d",
+        source: "https://claude.ai/artifact/9geFwGqEzevbvbh22NqZzJ",
+        read_at: "2026-11-12T00:01:28Z",
+        text: include_str!(
+            "../runtime/b795ee21261f2e7da1b10cb25b4a4cfa275d1b96165f89396f1fed426e191844.js"
+        ),
+    },
+    RuntimeCopy {
+        sha256: "c4929939a4fa0ff409afd395a75cd87a7a7412d26bf4cf34d7292a94c05ea482",
+        version: "1795034766-f50d",
+        source: "https://claude.ai/artifact/59mGrccWpy4FtzYgdfvpvb",
+        read_at: "2026-11-18T20:46:06Z",
+        text: include_str!(
+            "../runtime/c4929939a4fa0ff409afd395a75cd87a7a7412d26bf4cf34d7292a94c05ea482.js"
+        ),
+    },
+];
 
 /// The copy whose sha256 is <sha256>, if there is one.
 pub fn copy(sha256: &str) -> Option<&'static RuntimeCopy> {
