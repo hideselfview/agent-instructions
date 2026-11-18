@@ -322,9 +322,7 @@ pub fn cmd_cargo(args: &[String]) -> Result<()> {
     let places = Places::from_env()?;
     let checkout = Checkout::at_keeping_env(&dir)?;
     let env = |name: &str| std::env::var_os(name);
-    let named = std::env::var(cargo_place::HOST_VARIABLE)
-        .ok()
-        .filter(|name| !name.is_empty());
+    let named = cargo_place::named_host(&env)?;
     let ssh = Ssh::from_env();
     let choice = match cargo_place::stays_here(args, checkout.as_ref(), &env) {
         Some(why) => {

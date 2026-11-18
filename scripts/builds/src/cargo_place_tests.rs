@@ -590,3 +590,24 @@ fn a_host_that_refuses_the_job_leaves_it_to_this_mac_and_is_passed_over_until_gi
     .unwrap();
     assert!(job.is_none());
 }
+
+#[test]
+fn an_unset_or_empty_host_variable_names_no_host_and_one_not_utf8_fails() {
+    use std::os::unix::ffi::OsStringExt;
+    let reading = |value: Option<OsString>| {
+        move |name: &str| {
+            assert_eq!(name, HOST_VARIABLE);
+            value.clone()
+        }
+    };
+    assert_eq!(named_host(&reading(None)).unwrap(), None);
+    assert_eq!(named_host(&reading(Some("".into()))).unwrap(), None);
+    assert_eq!(
+        named_host(&reading(Some("m1".into()))).unwrap(),
+        Some("m1".to_string())
+    );
+    let said = named_host(&reading(Some(OsString::from_vec(vec![0x6d, 0xff]))))
+        .unwrap_err()
+        .text();
+    assert!(said.contains("not UTF-8"), "{said}");
+}

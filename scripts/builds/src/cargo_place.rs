@@ -42,6 +42,20 @@ pub const BEFORE_VARIABLE: &str = "BUILDS_CARGO_BEFORE";
 /// The environment variable that names the host for one command.
 pub const HOST_VARIABLE: &str = "BUILDS_CARGO_HOST";
 
+/// The host `HOST_VARIABLE` names, as <env> reads the caller's environment:
+/// None when the variable is unset or empty. A value that is not UTF-8 names
+/// no host builds could look up, so it fails.
+pub fn named_host(env: &dyn Fn(&str) -> Option<OsString>) -> Result<Option<String>> {
+    match env(HOST_VARIABLE) {
+        None => Ok(None),
+        Some(value) => match value.into_string() {
+            Ok(name) if name.is_empty() => Ok(None),
+            Ok(name) => Ok(Some(name)),
+            Err(value) => fail!("{HOST_VARIABLE} is not UTF-8: {value:?}"),
+        },
+    }
+}
+
 /// What a build on a host gets from the caller's environment. Each changes
 /// what the compilers or tests print or check and holds no path of this Mac.
 const FORWARDED: [&str; 5] = [

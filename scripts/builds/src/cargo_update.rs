@@ -62,9 +62,9 @@ pub fn refusal(args: &[String]) -> Option<String> {
 /// `refusal` refuses it, and exits with cargo's status.
 pub fn run(args: &[String]) -> Result<()> {
     let dir = std::env::current_dir().context(|| "reading the working directory".to_string())?;
-    if let Some(name) = std::env::var(crate::cargo_place::HOST_VARIABLE)
-        .ok()
-        .filter(|name| !name.is_empty() && name != crate::host::LOCAL)
+    let env = |name: &str| std::env::var_os(name);
+    if let Some(name) =
+        crate::cargo_place::named_host(&env)?.filter(|name| name != crate::host::LOCAL)
     {
         crate::text::note(format!(
             "{} names host {name}; this command runs on this Mac: cargo update changes this checkout's Cargo.lock",
