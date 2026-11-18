@@ -35,12 +35,9 @@ fn finding(kind: &str, rule: &str, file: &str, check_failed: Option<&str>) -> Fi
 }
 
 #[test]
-fn every_landing_is_audited_under_a_new_grouping_and_five_percent_after_unless_a_group_missed_more()
-{
-    assert_eq!(chance(1, false), 1.0);
-    assert_eq!(chance(FULL_FOR, false), 1.0);
-    assert_eq!(chance(FULL_FOR + 1, false), BASE_CHANCE);
-    assert_eq!(chance(FULL_FOR + 1, true), RISEN_CHANCE);
+fn five_percent_of_landings_are_audited_unless_a_group_they_ran_missed_more() {
+    assert_eq!(chance(false), BASE_CHANCE);
+    assert_eq!(chance(true), RISEN_CHANCE);
 }
 
 #[test]
@@ -84,19 +81,48 @@ fn a_groups_misses_have_risen_when_its_recent_audits_missed_more_than_its_earlie
     assert!(!rate(20, 2, 10, 0).risen());
 }
 
+fn group_on(name: &str, model: &str) -> Group {
+    Group::parse(
+        name,
+        &format!("name = \"{name}\"\nquestion = \"q\"\nmodel = \"{model}\"\n"),
+        Vec::new(),
+    )
+    .unwrap()
+}
+
 #[test]
-fn the_shuffle_is_the_same_for_a_seed_and_holds_every_rule_once() {
+fn the_shuffle_is_the_same_for_a_seed_and_holds_every_rule_once_on_its_groups_model() {
     let rules: Vec<Rule> = (0..7)
         .map(|n| Rule::parse(&format!("r{n}"), "---\npaths: ['**']\n---\nb\n"))
         .collect();
-    let refs: Vec<&Rule> = rules.iter().collect();
-    let a = shuffled_groups(&refs, 3, &mut Rng(42));
-    let b = shuffled_groups(&refs, 3, &mut Rng(42));
+    let deep = group_on("deep", "opus");
+    let fast = group_on("fast", "sonnet");
+    let audited: Vec<(&Group, Vec<&Rule>)> = vec![
+        (&deep, rules[..5].iter().collect()),
+        (&fast, rules[5..].iter().collect()),
+    ];
+    let a = shuffled_groups(&audited, 3, &mut Rng(42));
+    let b = shuffled_groups(&audited, 3, &mut Rng(42));
     assert_eq!(a, b);
     assert_eq!(a.len(), 3);
     let mut all: Vec<String> = a.iter().flat_map(|g| g.rules.clone()).collect();
     all.sort();
     assert_eq!(all, ["r0", "r1", "r2", "r3", "r4", "r5", "r6"]);
+    for shuffled in &a {
+        let model = if shuffled.rules.iter().any(|r| r == "r5" || r == "r6") {
+            "sonnet"
+        } else {
+            "opus"
+        };
+        assert_eq!(shuffled.model, model, "{shuffled:?}");
+        assert!(
+            shuffled
+                .rules
+                .iter()
+                .all(|r| (r == "r5" || r == "r6") == (model == "sonnet")),
+            "{shuffled:?}"
+        );
+    }
 }
 
 fn stamp() -> crate::lists::Stamp {
@@ -213,8 +239,41 @@ fn an_audit_records_two_runs_names_the_misses_and_feeds_the_miss_rate() {
         (rate.group.as_str(), rate.audits, rate.misses),
         ("alpha", 1, 1)
     );
-    // Under a grouping with one landing, every landing is audited.
-    assert!(sampled(&conn, landing, &group_of_rule, 0.99).unwrap());
+    // No group's misses rose, so the landing is audited at the base chance.
+    assert!(sampled(&conn, landing, &group_of_rule, BASE_CHANCE - 0.01).unwrap());
+    assert!(!sampled(&conn, landing, &group_of_rule, BASE_CHANCE).unwrap());
+}
+
+#[test]
+fn an_audit_asks_only_the_rules_of_the_groups_the_review_ran() {
+    let demo = demo("review-audit-ran");
+    let fake = fake(&demo.scratch.dir);
+    let side = demo.add_side(1, "agent", "work");
+    let landing = landed(&demo, &fake, &side);
+    // After the landing, rule-b of group beta covers the changed a.rs too,
+    // but beta did not run on the landing, so the audit does not ask it.
+    crate::review::fakes::rule_file(
+        &fake.root,
+        "beta",
+        "rule-b",
+        "**/*.rs",
+        false,
+        "**Rule B.** Never do the other thing.",
+    );
+    fake.answer("audit rule-a", &[("rule-a", None)]);
+    fake.answer("shuffle 1", &[("rule-a", None)]);
+    let text = audit_of(&demo, &fake, &side, landing);
+    assert!(text.contains("0 candidate misses"), "{text}");
+    let asked: Vec<String> = fake.prompts().into_iter().map(|(g, _)| g).collect();
+    assert_eq!(asked, ["audit rule-a", "shuffle 1"]);
+    let conn = db::open_reader(&demo.store.database()).unwrap().unwrap();
+    let calls = record::calls_of_landing(&conn, landing).unwrap();
+    let shuffled = calls.iter().find(|c| c.group == "shuffle 1").unwrap();
+    assert_eq!(shuffled.rules, ["rule-a"]);
+    assert_eq!(
+        shuffled.model, "sonnet",
+        "alpha, the group of rule-a, runs sonnet"
+    );
 }
 
 #[test]

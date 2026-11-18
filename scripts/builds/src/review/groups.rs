@@ -238,13 +238,6 @@ impl Groups {
         self.with_members(rules).filter(|(group, _)| !group.copy)
     }
 
-    /// Whether rule <slug> is in a copy group (`Group::copy`).
-    pub fn in_copy_group(&self, slug: &str) -> bool {
-        self.groups
-            .iter()
-            .any(|group| group.copy && group.rules.iter().any(|rule| rule == slug))
-    }
-
     /// Every group with its reviewable rules that exist in <rules>.
     fn with_members<'a>(
         &'a self,

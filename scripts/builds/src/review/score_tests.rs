@@ -75,7 +75,6 @@ fn run(id: i64, kind: &str, head: &str) -> RunRow {
         base: "b".to_string(),
         head: head.to_string(),
         since: None,
-        grouping: "g".to_string(),
         rules_version: "abc".to_string(),
     }
 }

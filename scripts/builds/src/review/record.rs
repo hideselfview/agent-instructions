@@ -720,7 +720,6 @@ pub struct RunRow {
     /// The run of the last review, when this review run read only the changes
     /// since that run; None for a run that read the whole net change.
     pub since: Option<i64>,
-    pub grouping: String,
     /// The commit of the rules checkout the run read.
     pub rules_version: String,
 }
@@ -736,7 +735,7 @@ impl RunRow {
 /// The runs of <landing>.
 pub fn runs_of_landing(db: &Connection, landing: i64) -> Result<Vec<RunRow>> {
     let mut statement = db
-        .prepare("SELECT id, kind, base, head, since_run, grouping, rules_version FROM review_run WHERE landing_id = ?1 ORDER BY id")
+        .prepare("SELECT id, kind, base, head, since_run, rules_version FROM review_run WHERE landing_id = ?1 ORDER BY id")
         .sql()?;
     let rows = statement
         .query_map(params![landing], |row| {
@@ -746,22 +745,11 @@ pub fn runs_of_landing(db: &Connection, landing: i64) -> Result<Vec<RunRow>> {
                 base: row.get(2)?,
                 head: row.get(3)?,
                 since: row.get(4)?,
-                grouping: row.get(5)?,
-                rules_version: row.get(6)?,
+                rules_version: row.get(5)?,
             })
         })
         .sql()?;
     rows.map(|row| row.sql()).collect()
-}
-
-/// How many landings had a review under the grouping <hash>.
-pub fn landings_under(db: &Connection, hash: &str) -> Result<i64> {
-    db.query_row(
-        "SELECT COUNT(DISTINCT landing_id) FROM review_run WHERE kind = 'review' AND grouping = ?1",
-        params![hash],
-        |row| row.get(0),
-    )
-    .sql()
 }
 
 /// The landings that had an audit, oldest first.

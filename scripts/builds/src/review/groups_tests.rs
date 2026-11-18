@@ -152,10 +152,6 @@ fn a_review_of_the_checkout_runs_no_wording_rule() {
         "no-dash-as-sentence-punctuation",
         "spell-bae-and-disc-id-one-way",
     ];
-    for slug in wording {
-        assert!(groups.in_copy_group(slug), "{slug}");
-    }
-    assert!(!groups.in_copy_group("localization-stays-in-sync-with-ui"));
     let changed = vec![
         "bae-macos/bae/Views/Welcome.swift".to_string(),
         "spec/bae.md".to_string(),

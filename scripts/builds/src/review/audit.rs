@@ -1,9 +1,10 @@
 //! Sampled audits of landings whose change landed after its review: `builds
 //! review landed` samples them as `builds land` records each. An audit asks again,
 //! two other ways, and anything it raises that the landing's review did not
-//! becomes a candidate miss for the coordinator to settle: one reviewer per
-//! rule over every rule that covers a changed path, and one review with the
-//! rules shuffled into a different grouping. A second model checks each
+//! becomes a candidate miss for the coordinator to settle. Both ways ask only
+//! the rules of the groups the landing's review ran that cover a changed
+//! path, each on the model of its own group: one reviewer per rule, and one
+//! review with the rules shuffled into a different grouping. A second model checks each
 //! candidate miss against its rule's text (`model_check.rs`), and the audit
 //! settles it with the model's answer: confirmed, or dropped with the model's
 //! reason. The record keeps each group's audited miss rate, which `builds
@@ -18,10 +19,10 @@ use crate::lists::Stamp;
 use crate::lists::args::{Args, current_dir};
 use crate::lists::store::Store;
 use crate::review::files;
-use crate::review::groups::{Group, Groups};
+use crate::review::groups::Group;
 use crate::review::model_check;
 use crate::review::prompt;
-use crate::review::record::{self, Call, Finding, Kind, NewRun};
+use crate::review::record::{self, Finding, Kind, NewRun};
 use crate::review::render;
 use crate::review::rules::Rule;
 use crate::review::run::{self, Diff, Material};
@@ -30,21 +31,13 @@ use crate::review::run::{self, Diff, Material};
 pub const BASE_CHANCE: f64 = 0.05;
 /// The share for a landing that ran a group whose audited misses rose.
 pub const RISEN_CHANCE: f64 = 0.25;
-/// Every landing is audited until this many have been reviewed under a grouping.
-pub const FULL_FOR: i64 = 20;
 /// The audits a group's recent miss rate is taken over.
 const RECENT: usize = 10;
 
-/// The share of landings to audit: all of them for the first `FULL_FOR`
-/// under a grouping, more for a landing that ran a group whose misses rose.
-pub fn chance(landings_under_grouping: i64, risen: bool) -> f64 {
-    if landings_under_grouping <= FULL_FOR {
-        1.0
-    } else if risen {
-        RISEN_CHANCE
-    } else {
-        BASE_CHANCE
-    }
+/// The share of landings to audit: more for a landing that ran a group whose
+/// misses rose.
+pub fn chance(risen: bool) -> f64 {
+    if risen { RISEN_CHANCE } else { BASE_CHANCE }
 }
 
 /// A small deterministic generator, so a shuffle can be repeated from its seed.
@@ -57,13 +50,6 @@ impl Rng {
         self.0 ^= self.0 << 17;
         self.0
     }
-}
-
-fn group_of<'a>(groups: &'a Groups, slug: &str) -> Option<&'a Group> {
-    groups
-        .groups
-        .iter()
-        .find(|g| g.rules.iter().any(|r| r == slug))
 }
 
 fn synthetic(name: String, model: &str, question: &str, rules: &[&Rule]) -> Group {
@@ -84,38 +70,67 @@ fn synthetic(name: String, model: &str, question: &str, rules: &[&Rule]) -> Grou
     }
 }
 
-/// One group per rule, each asked in the model and the words of the rule's own group.
-pub fn per_rule_groups(groups: &Groups, matched: &[&Rule]) -> Vec<Group> {
-    matched
+/// One group per rule of <audited>, each asked in the model and the words of
+/// the rule's own group.
+pub fn per_rule_groups(audited: &[(&Group, Vec<&Rule>)]) -> Vec<Group> {
+    audited
         .iter()
-        .map(|rule| {
-            let (model, question) = group_of(groups, &rule.slug)
-                .map(|g| (g.model.as_str(), g.question.clone()))
-                .unwrap_or(("sonnet", String::new()));
-            synthetic(format!("audit {}", rule.slug), model, &question, &[rule])
+        .flat_map(|(group, rules)| {
+            rules.iter().map(|rule| {
+                synthetic(
+                    format!("audit {}", rule.slug),
+                    &group.model,
+                    &group.question,
+                    &[*rule],
+                )
+            })
         })
         .collect()
 }
 
-/// The rules in a random order, cut into groups of <size>.
-pub fn shuffled_groups(matched: &[&Rule], size: usize, rng: &mut Rng) -> Vec<Group> {
-    let mut order: Vec<&Rule> = matched.to_vec();
-    for i in (1..order.len()).rev() {
-        let j = (rng.next() % (i as u64 + 1)) as usize;
-        order.swap(i, j);
+/// The rules of <audited> in a random order, cut into groups of <size>. A
+/// shuffled group holds only rules whose own groups run one model, and runs
+/// that model, so the shuffle changes the grouping and nothing else.
+pub fn shuffled_groups(audited: &[(&Group, Vec<&Rule>)], size: usize, rng: &mut Rng) -> Vec<Group> {
+    let mut models: Vec<&str> = Vec::new();
+    for (group, _) in audited {
+        if !models.contains(&group.model.as_str()) {
+            models.push(&group.model);
+        }
     }
-    order
-        .chunks(size.max(1))
-        .enumerate()
-        .map(|(n, chunk)| {
-            synthetic(
-                format!("shuffle {}", n + 1),
-                "sonnet",
+    let mut shuffled = Vec::new();
+    for model in models {
+        let mut order: Vec<&Rule> = audited
+            .iter()
+            .filter(|(group, _)| group.model == model)
+            .flat_map(|(_, rules)| rules.iter().copied())
+            .collect();
+        for i in (1..order.len()).rev() {
+            let j = (rng.next() % (i as u64 + 1)) as usize;
+            order.swap(i, j);
+        }
+        for chunk in order.chunks(size.max(1)) {
+            shuffled.push(synthetic(
+                format!("shuffle {}", shuffled.len() + 1),
+                model,
                 "Does the change follow each of these rules?",
                 chunk,
-            )
-        })
-        .collect()
+            ));
+        }
+    }
+    shuffled
+}
+
+/// The names of the groups the review runs of <landing> asked, each once, in
+/// the order first asked.
+fn groups_ran(db: &Connection, landing: i64) -> Result<Vec<String>> {
+    let mut ran: Vec<String> = Vec::new();
+    for call in record::calls_of_landing(db, landing)? {
+        if call.kind == "review" && !ran.contains(&call.group) {
+            ran.push(call.group);
+        }
+    }
+    Ok(ran)
 }
 
 /// The findings of audits that the landing's review did not raise: an audit
@@ -165,23 +180,16 @@ pub fn rates(db: &Connection, group_of_rule: &dyn Fn(&str) -> Option<String>) ->
     let mut outcomes: Vec<(String, Vec<bool>)> = Vec::new();
     for landing in record::audited_landings(db)? {
         let findings = record::findings_of_landing(db, landing)?;
-        let calls: Vec<Call> = record::calls_of_landing(db, landing)?;
         let missed: Vec<String> = candidate_misses(&findings)
             .into_iter()
             .filter(|f| f.settled_as("confirmed"))
             .filter_map(|f| group_of_rule(&f.rule))
             .collect();
-        let mut ran: Vec<&str> = Vec::new();
-        for call in calls.iter().filter(|c| c.kind == "review") {
-            if !ran.contains(&call.group.as_str()) {
-                ran.push(&call.group);
-            }
-        }
-        for group in ran {
-            let miss = missed.iter().any(|g| g == group);
-            match outcomes.iter_mut().find(|(g, _)| g == group) {
+        for group in groups_ran(db, landing)? {
+            let miss = missed.contains(&group);
+            match outcomes.iter_mut().find(|(g, _)| *g == group) {
                 Some((_, list)) => list.push(miss),
-                None => outcomes.push((group.to_string(), vec![miss])),
+                None => outcomes.push((group, vec![miss])),
             }
         }
     }
@@ -219,19 +227,14 @@ pub fn sampled(
     group_of_rule: &dyn Fn(&str) -> Option<String>,
     roll: f64,
 ) -> Result<bool> {
-    let Some(landed) = landed_run(db, landing)? else {
+    if landed_run(db, landing)?.is_none() {
         return Ok(false);
-    };
-    let under = record::landings_under(db, &landed.grouping)?;
-    let ran: Vec<String> = record::calls_of_landing(db, landing)?
-        .into_iter()
-        .filter(|c| c.kind == "review")
-        .map(|c| c.group)
-        .collect();
+    }
+    let ran = groups_ran(db, landing)?;
     let risen = rates(db, group_of_rule)?
         .iter()
         .any(|rate| rate.risen() && ran.contains(&rate.group));
-    Ok(roll < chance(under, risen))
+    Ok(roll < chance(risen))
 }
 
 pub struct Inputs<'a> {
@@ -247,8 +250,9 @@ pub struct Inputs<'a> {
 }
 
 /// Audits a landing whose change landed and records both audits, over the
-/// commits of the run it landed with. Returns what to print: the candidate
-/// misses and how to settle them.
+/// commits of the run it landed with, asking the rules of the groups its
+/// review ran. Returns what to print: the candidate misses and how to settle
+/// them.
 pub fn audit(inputs: &Inputs) -> Result<String> {
     let conn = inputs.store.open_existing()?;
     let key = record::landing(&conn, inputs.landing)?.key;
@@ -260,25 +264,34 @@ pub fn audit(inputs: &Inputs) -> Result<String> {
     };
     let diff = run::diff_between(inputs.repo_dir, &last.base, &last.head)?.diff;
     let material = Material::load(inputs.root, inputs.project)?;
-    let matched: Vec<&Rule> = material
-        .rules
-        .iter()
-        .filter(|r| {
-            r.reviewable && !material.groups.in_copy_group(&r.slug) && r.matches(&diff.changed)
-        })
-        .collect();
-    if matched.is_empty() {
-        return Ok("no rule covers the changed paths: nothing to audit\n".to_string());
-    }
-    let reviewed_groups = material
+    let ran = groups_ran(&conn, inputs.landing)?;
+    let audited: Vec<(&Group, Vec<&Rule>)> = material
         .groups
-        .pick(&material.rules, &diff.changed)
-        .len()
-        .max(1);
-    let size = matched.len().div_ceil(reviewed_groups);
-    let per_rule = per_rule_groups(&material.groups, &matched);
+        .named(&material.rules, &ran)
+        .into_iter()
+        .map(|(group, members)| {
+            let covering: Vec<&Rule> = members
+                .into_iter()
+                .filter(|rule| rule.matches(&diff.changed))
+                .collect();
+            (group, covering)
+        })
+        .filter(|(_, covering)| !covering.is_empty())
+        .collect();
+    if audited.is_empty() {
+        return Ok(
+            "no group the landing's review ran has a rule that covers the changed paths: nothing to audit\n"
+                .to_string(),
+        );
+    }
+    let matched: Vec<&Rule> = audited
+        .iter()
+        .flat_map(|(_, rules)| rules.iter().copied())
+        .collect();
+    let size = matched.len().div_ceil(audited.len());
+    let per_rule = per_rule_groups(&audited);
     let mut rng = Rng(inputs.seed | 1);
-    let shuffled = shuffled_groups(&matched, size, &mut rng);
+    let shuffled = shuffled_groups(&audited, size, &mut rng);
     let ask = |groups: &[Group]| {
         let picked: Vec<(&Group, Vec<&Rule>)> = groups
             .iter()

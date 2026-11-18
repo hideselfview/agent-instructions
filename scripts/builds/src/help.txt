@@ -1977,11 +1977,10 @@ run `review replay --rules-root` on it.
                               Once `review landed` records the landing as
                               landed, the command decides whether to audit
                               the landing and, when it does, starts `builds review audit` in the
-                              background, which never fails a landing. It
-                              audits about 5% of landings; 25% when a group the
-                              landing ran has missed more in its latest 10
-                              audits than before; and every landing until the
-                              current groups have reviewed 20
+                              background, which never fails a landing. The
+                              command audits about 5% of landings, and 25% of
+                              those that ran a group that missed more in its
+                              latest 10 audits than before
   builds review groups [--rules-root DIR] [--project P] [--changed PATH]...
                               list the groups of rules, and fail naming every
                               rule outside a group folder (one with no
@@ -2034,9 +2033,12 @@ run `review replay --rules-root` on it.
   builds review audit <landing> --repo-dir DIR [--rules-root DIR] [--reviewer PROGRAM]
                               audit a landing whose change landed, over the
                               commits of the run it landed with, read in DIR's
-                              repo: one reviewer per rule that covers a changed
-                              path, and one review with those rules shuffled
-                              into other groups. A finding in a rule and file
+                              repo. The audit asks only the groups that the
+                              landing's reviews ran, and of each group the
+                              rules that cover a changed path, each on its
+                              own group's model: one reviewer per rule, and
+                              one review with those rules shuffled into other
+                              groups. A finding in a rule and file
                               that the landing's reviews did not raise is a
                               candidate miss. The model check (opus) reads
                               each candidate miss with its rule's text and
