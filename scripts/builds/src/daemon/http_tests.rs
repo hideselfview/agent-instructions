@@ -381,6 +381,8 @@ fn the_daemon_draws_a_design_changes_review_page_and_its_boards_from_the_changes
 #[test]
 fn a_design_path_is_a_page_or_a_board_of_a_page() {
     assert_eq!(design_route("demo/7"), Some(DesignRoute::Page("demo", 7)));
+    // Each project counts its own ids, so a bare id names no page.
+    assert_eq!(design_route("7"), None);
     assert_eq!(
         design_route("demo/7/board/3/now"),
         Some(DesignRoute::Board("demo", 7, 3, Side::Now))
