@@ -68,7 +68,8 @@ BUILDS
 
 Every build follows three rules, which `builds help` explains (CARGO, BUILD
 FOLDERS and APP BUILDS). Run every cargo command through `builds cargo`, which
-bae's and coven's scripts/cargo.sh runs. Never set CARGO_TARGET_DIR or another
+bae's and coven's scripts/cargo.sh runs, except the subcommands it refuses,
+such as fmt (`builds help`, CARGO). Never set CARGO_TARGET_DIR or another
 CARGO_* variable, on a command or in a script: each checkout builds into its
 own folders on /Volumes/Builds, and sccache's key holds the path and every
 CARGO_* variable, so a build with another path or another CARGO_* variable gets

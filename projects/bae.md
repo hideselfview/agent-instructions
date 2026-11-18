@@ -118,12 +118,12 @@ one.
 
 ### Rust builds
 
-Run every cargo command through `scripts/cargo.sh`, never bare `cargo`
-(`builds help`, CARGO). `scripts/cargo.sh test`, `clippy`, `check`, `doc` and
-`nextest` run on this Mac or the M1 (a second Mac that builds also uses),
-whichever has more free cores. A test that needs this Mac's keychain, a local
-server or a file outside the checkout fails on the M1: run it with
-`BUILDS_CARGO_HOST=local`.
+Run every cargo command through `scripts/cargo.sh`, never bare `cargo`, except
+the subcommands that builds refuses, such as `fmt` (`builds help`, CARGO).
+`scripts/cargo.sh test`, `clippy`, `check`, `doc` and `nextest` run on this Mac
+or the M1 (a second Mac that builds also uses), whichever has more free cores. A
+test that needs this Mac's keychain, a local server or a file outside the
+checkout fails on the M1: run it with `BUILDS_CARGO_HOST=local`.
 
 Don't delete build folders yourself: `builds` deletes the ones no build has used
 for days and keeps the rest under their size caps.

@@ -387,6 +387,14 @@ cargo would then move every dependency in the lock to its newest compatible
 version. An update builds nothing, so builds records no run and no build
 copies for it.
 
+`builds cargo` also runs the subcommands that only read the workspace: tree,
+metadata, locate-project, pkgid and verify-project. builds runs each on this
+Mac in the working directory with --locked, as it runs a build: without
+--locked, cargo rewrites a Cargo.lock that disagrees with the manifests.
+builds adds nothing else to a read, and records no run and no build copies for
+it. builds refuses every other subcommand that builds nothing, such as fmt and
+clean: run those with cargo itself.
+
 Every checkout but main builds without incremental compilation (`builds cargo`
 passes --config build.incremental=false), the app checkouts included. sccache
 refuses every incremental compile, so with incremental off sccache keeps each
@@ -425,7 +433,8 @@ again here, since cargo may have run part of it there. A landing's compile
 check runs `builds cargo`, so it follows the same rules. These stay on this
 Mac:
 
-  - every other subcommand (build, rustc, run, bench, install, update)
+  - every other subcommand (build, rustc, run, bench, install, update, and the
+    reads, such as tree and metadata)
   - a command with --message-format, --target, --release or a path argument
     (--manifest-path, --target-dir, an absolute path)
   - a command run with CARGO_TARGET_DIR or FFMPEG_DIR set, or with
@@ -495,6 +504,10 @@ restart the server.
                               Cargo.lock entries of the named packages, or with
                               -w those of the workspace's own packages; refuse
                               an update that names neither.
+  builds cargo tree|metadata|locate-project|pkgid|verify-project [<args>...]
+                              run cargo's subcommand on this Mac with --locked,
+                              which fails instead of rewriting a stale
+                              Cargo.lock.
 
 
 APP BUILDS

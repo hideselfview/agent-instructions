@@ -140,17 +140,27 @@ if "$builds" cargo build -q -p no-such-package 2> /dev/null; then
     fail "a failing cargo build exited 0 through builds cargo"
 fi
 if "$builds" cargo fmt 2> /dev/null; then
-    fail "builds cargo ran a subcommand that builds nothing"
+    fail "builds cargo ran a subcommand that neither builds nor only reads the workspace"
 fi
 
+# builds cargo runs the subcommands that only read the workspace, and passes
+# their output through.
+"$builds" cargo metadata --no-deps --format-version 1 | grep -q '"name":"app"' \
+    || fail "cargo metadata's output did not pass through"
+"$builds" cargo tree -q -p app | grep -q '── dep v0.1.0' || fail "cargo tree's output did not pass through"
+
 # builds cargo fails on a Cargo.lock that disagrees with the manifests, and
-# leaves the lock as the commit has it.
+# leaves the lock as the commit has it, for a read as for a build.
 cp Cargo.lock "$scratch/Cargo.lock"
 sed -i '' 's/^version = "0.1.0"/version = "0.1.9"/' dep/Cargo.toml
 if "$builds" cargo check -q 2> /dev/null; then
     fail "builds cargo built with a Cargo.lock that disagrees with the manifests"
 fi
 cmp -s Cargo.lock "$scratch/Cargo.lock" || fail "builds cargo changed a stale Cargo.lock"
+if "$builds" cargo tree -q 2> /dev/null; then
+    fail "builds cargo read the workspace with a Cargo.lock that disagrees with the manifests"
+fi
+cmp -s Cargo.lock "$scratch/Cargo.lock" || fail "a read through builds cargo changed a stale Cargo.lock"
 sed -i '' 's/^version = "0.1.9"/version = "0.1.0"/' dep/Cargo.toml
 
 # The build copies of the first version, then of a dependency bump.

@@ -235,10 +235,10 @@ fn role_config(checkout: Option<&Checkout>) -> &'static [&'static str] {
 /// `--locked`, which has cargo fail on a Cargo.lock that disagrees with the
 /// manifests instead of rewriting it, unless cargo's own arguments in <args>
 /// (those before any `--`) hold it already, or `--frozen`, which implies it.
-/// Every build runs locked, so no build changes the commit it builds: a
-/// commit whose lock is stale fails at the cause, and the checkout keeps the
-/// commit's lock.
-fn locked_flag(args: &[String]) -> Option<&'static str> {
+/// Every build and every read (cargo_read.rs) runs locked, so none changes
+/// the commit it runs on: a commit whose lock is stale fails at the cause,
+/// and the checkout keeps the commit's lock.
+pub fn locked_flag(args: &[String]) -> Option<&'static str> {
     let mut cargos = args.iter().take_while(|arg| *arg != "--");
     if cargos.any(|arg| arg == "--locked" || arg == "--frozen") {
         None
@@ -296,10 +296,14 @@ fn start_after_build(checkout: &Checkout, root: &Path) {
 /// unit it uses on stdout, which the recorder reads, `--locked`
 /// (`locked_flag`) and the settings of the checkout's role (`role_config`). Exits with cargo's status, or the
 /// recorder's when cargo succeeded and a reported unit could not be recorded.
-/// An update builds nothing and runs as cargo_update.rs says.
+/// An update builds nothing and runs as cargo_update.rs says, and a read as
+/// cargo_read.rs says.
 pub fn cmd_cargo(args: &[String]) -> Result<()> {
     let (subcommand, format): (&[String], &str) = match args.first().map(String::as_str) {
         Some("update") => return crate::cargo_update::run(args),
+        Some(read) if crate::cargo_read::SUBCOMMANDS.contains(&read) => {
+            return crate::cargo_read::run(args);
+        }
         Some(
             "build" | "check" | "clippy" | "doc" | "rustc" | "rustdoc" | "test" | "bench" | "run"
             | "install",
@@ -314,7 +318,9 @@ pub fn cmd_cargo(args: &[String]) -> Result<()> {
             ),
         },
         None => fail!("usage: builds cargo <subcommand> [<args>...]"),
-        Some(other) => fail!("cargo: cargo {other} builds nothing; run it without builds"),
+        Some(other) => fail!(
+            "cargo: builds cargo runs builds, updates and the subcommands that only read the workspace, and cargo {other} is none of them; run it without builds"
+        ),
     };
     let began = Instant::now();
     let started_at = crate::app_timing::now();
