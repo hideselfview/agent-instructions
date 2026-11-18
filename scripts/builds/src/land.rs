@@ -427,32 +427,27 @@ impl Landing<'_> {
         merged(command)
     }
 
-    /// The `builds` command line for <verb> with the landing's worktree, items and <shas>.
-    fn with_items(&self, head: &[&str], with_items: bool, shas: &[String]) -> Vec<String> {
+    /// The `builds` command line for <verb> with the landing's worktree, items, <shas>
+    /// and <project>, which a repo in two projects cannot tell from the worktree.
+    fn with_items(
+        &self,
+        head: &[&str],
+        with_items: bool,
+        shas: &[String],
+        project: &str,
+    ) -> Vec<String> {
         let mut line: Vec<String> = head.iter().map(|s| s.to_string()).collect();
         line.push(self.workdir.display().to_string());
         if with_items {
             line.extend(self.request.items.iter().cloned());
         }
         line.extend(shas.iter().cloned());
-        line
-    }
-
-    /// <line> with the landing's project, which a repo in two projects cannot
-    /// tell from the worktree: the line as given when it names a project or
-    /// the landing is in none.
-    fn in_project(&self, mut line: Vec<String>) -> Vec<String> {
-        if let Some(Recording { project, .. }) = &self.recording
-            && !line.iter().any(|word| word == "--project")
-        {
-            line.push("--project".to_string());
-            line.push(project.clone());
-        }
+        line.push("--project".to_string());
+        line.push(project.to_string());
         line
     }
 
     fn run_line(&self, line: &[String]) -> (bool, String) {
-        let line = self.in_project(line.to_vec());
         let args: Vec<&str> = line.iter().map(String::as_str).collect();
         self.builds(&args)
     }
@@ -473,7 +468,7 @@ impl Landing<'_> {
             return Ok(());
         };
         let (ok, places) =
-            self.run_line(&self.with_items(&["design", "places"], false, &request.shas));
+            self.run_line(&self.with_items(&["design", "places"], false, &request.shas, project));
         if !ok {
             return Err(refuse(
                 out,
@@ -499,7 +494,7 @@ impl Landing<'_> {
                 ));
             }
             let (only, said) =
-                self.run_line(&self.with_items(&["design", "only"], false, &request.shas));
+                self.run_line(&self.with_items(&["design", "only"], false, &request.shas, project));
             if !only {
                 let _ = writeln!(
                     out,
@@ -508,8 +503,12 @@ impl Landing<'_> {
                 return Err(refuse(out, said));
             }
         } else {
-            let (ok, said) =
-                self.run_line(&self.with_items(&["item", "check-landing"], true, &request.shas));
+            let (ok, said) = self.run_line(&self.with_items(
+                &["item", "check-landing"],
+                true,
+                &request.shas,
+                project,
+            ));
             if !ok {
                 let _ = writeln!(out, "LANDING REFUSED, land fetched and pushed nothing:");
                 return Err(refuse(out, said));
@@ -538,6 +537,8 @@ impl Landing<'_> {
             let mut line = vec!["design".to_string(), "check".to_string(), ids.join(",")];
             line.push(workdir.to_string());
             line.extend(request.shas.iter().cloned());
+            line.push("--project".to_string());
+            line.push(project.clone());
             let (ok, said) = self.run_line(&line);
             if !ok {
                 let _ = writeln!(out, "LANDING REFUSED, land fetched and pushed nothing:");
@@ -580,7 +581,7 @@ impl Landing<'_> {
         let mut all_written = true;
         let mut lines: Vec<Vec<String>> = Vec::new();
         if !self.request.items.is_empty() {
-            lines.push(self.with_items(&["item", "landed"], true, on_main));
+            lines.push(self.with_items(&["item", "landed"], true, on_main, project));
         }
         for design in &self.request.designs {
             let mut line = vec![
@@ -590,6 +591,8 @@ impl Landing<'_> {
             ];
             line.push(self.workdir.display().to_string());
             line.extend(on_main.iter().cloned());
+            line.push("--project".to_string());
+            line.push(project.clone());
             lines.push(line);
         }
         let mut review = self.review_line("landed", project, key);
@@ -597,9 +600,7 @@ impl Landing<'_> {
             review.push("--more-to-land".to_string());
         }
         lines.push(review);
-        for line in lines {
-            // The rerun below carries the project too.
-            let mut line = self.in_project(line);
+        for mut line in lines {
             line.push("--by".to_string());
             line.push(by.clone());
             let (ok, said) = self.run_line(&line);
