@@ -388,13 +388,7 @@ fn waits_as(argv: &[String]) -> Option<String> {
     let rest = &argv[1..];
     match name {
         "sleep" => Some("sleep".to_string()),
-        "caffeinate"
-            if rest
-                .iter()
-                .any(|a| a.starts_with('-') && a.chars().skip(1).any(|c| c == 't' || c == 'w')) =>
-        {
-            Some("caffeinate -t/-w".to_string())
-        }
+        "caffeinate" if caffeinate_waits(rest) => Some("caffeinate -t/-w".to_string()),
         "lsof"
             if rest
                 .iter()
@@ -407,6 +401,30 @@ fn waits_as(argv: &[String]) -> Option<String> {
         }
         _ => None,
     }
+}
+
+/// Whether caffeinate with the arguments <rest> waits: `-t <seconds>` or
+/// `-w <pid>` among its own options, which end at its program, and no program
+/// to run. With a program caffeinate ignores both and runs the program, so
+/// `caffeinate -i tar -tf a.tar` runs tar and waits on nothing.
+fn caffeinate_waits(rest: &[String]) -> bool {
+    let mut waits = false;
+    let mut i = 0;
+    while let Some(word) = rest.get(i).filter(|w| w.starts_with('-') && *w != "--") {
+        let flags = &word[1..];
+        if let Some(n) = flags.find(['t', 'w']) {
+            waits = true;
+            // The value is the rest of the word (`-w4242`), else the next word.
+            if n == flags.len() - 1 {
+                i += 1;
+            }
+        }
+        i += 1;
+    }
+    if rest.get(i).is_some_and(|w| w == "--") {
+        i += 1;
+    }
+    waits && i >= rest.len()
 }
 
 /// What a simple command <argv> of the shell's text loops as, when it starts

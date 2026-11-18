@@ -185,6 +185,46 @@ fn a_sleep_that_already_finished_is_not_a_wait() {
 }
 
 #[test]
+fn caffeinate_waits_only_on_its_own_options_with_no_program() {
+    let argv = |words: &[&str]| -> Vec<String> { words.iter().map(|w| w.to_string()).collect() };
+    let waits_as_caffeinate = |words: &[&str]| waits_as(&argv(words)).is_some();
+    assert!(waits_as_caffeinate(&["caffeinate", "-w4242"]));
+    assert!(waits_as_caffeinate(&["caffeinate", "-it", "119"]));
+    assert!(waits_as_caffeinate(&["caffeinate", "-t", "119", "-i"]));
+    assert!(waits_as_caffeinate(&[
+        "/usr/bin/caffeinate",
+        "-w",
+        "4242",
+        "--"
+    ]));
+    // tar's -tf is not caffeinate's -t.
+    assert!(!waits_as_caffeinate(&[
+        "caffeinate",
+        "-i",
+        "tar",
+        "-tf",
+        "a.tar"
+    ]));
+    // With a program caffeinate ignores -t and -w and runs the program.
+    assert!(!waits_as_caffeinate(&[
+        "caffeinate",
+        "-w",
+        "4242",
+        "tar",
+        "-xf",
+        "a.tar"
+    ]));
+    assert!(!waits_as_caffeinate(&[
+        "caffeinate",
+        "-t",
+        "60",
+        "--",
+        "make"
+    ]));
+    assert!(!waits_as_caffeinate(&["caffeinate", "-i"]));
+}
+
+#[test]
 fn a_wait_loop_around_a_running_build_is_not_junk() {
     let looped = shell(1, 3, &side(1), "until cargo test -p a; do sleep 5; done");
     let cargo = child(11, &looped, 5.0, &["cargo", "test", "-p", "a"]);
