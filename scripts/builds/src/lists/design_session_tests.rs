@@ -147,11 +147,9 @@ fn the_token_is_in_the_store_and_in_nothing_that_is_shown() {
 
     let lists = h.store.load().unwrap();
     let json = serde_json::to_string(&lists.designs).unwrap();
-    let view = serde_json::to_string(&crate::lists::view::design_view(
-        &lists,
-        &lists.designs[0],
-        None,
-    ))
+    let view = serde_json::to_string(
+        &crate::lists::view::design_view(&lists, &lists.designs[0], None).unwrap(),
+    )
     .unwrap();
     let show = crate::lists::design::show(&lists, Id(1)).unwrap();
     let list = crate::lists::design::list(&lists);

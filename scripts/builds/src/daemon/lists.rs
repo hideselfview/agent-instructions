@@ -244,13 +244,14 @@ pub fn running_waits(
     Ok(found)
 }
 
-/// Open design change <id> of project <project>, as the lists JSON shows it;
-/// None when that project has no open design change with that id.
+/// Open design change <id> of project <project>, and the change as the
+/// lists JSON shows it, which fails on a broken store; None when that
+/// project has no open design change with that id.
 pub fn open_design(
     snapshot: &Snapshot,
     project: &str,
     id: u32,
-) -> Option<(DesignChange, DesignView)> {
+) -> Option<(DesignChange, crate::fail::Result<DesignView>)> {
     let loaded = snapshot
         .as_deref()
         .ok()?

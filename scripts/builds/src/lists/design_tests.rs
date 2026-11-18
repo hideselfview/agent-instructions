@@ -1260,6 +1260,35 @@ fn a_board_edit_for_a_decided_change_is_approved_when_recorded_and_lands() {
     assert_eq!(card_of(&w, "base..HEAD"), None);
 }
 
+/// Lists that hold a decided change without its decision come from a
+/// broken store: `design show` and the change's view in the lists JSON fail
+/// on them and name the decision, instead of leaving its title out.
+#[test]
+fn a_decided_change_whose_decision_the_lists_lack_fails_show_and_its_view() {
+    let w = world("design-decided-broken");
+    let board = "design/mocks/A.dc.html";
+    let work = w
+        .store
+        .write(&stamp(NOON), "seed", |db| {
+            Ok(crate::lists::fixtures::item(db, vec![]))
+        })
+        .unwrap();
+    let decision = decide(&w);
+    w.commit(&[board]);
+    w.request(decided_request(&w, board, work, decision))
+        .unwrap();
+    let mut lists = w.state();
+    lists.decisions.clear();
+    let design = lists.designs[0].clone();
+    let shown = message(show(&lists, design.id));
+    assert!(
+        shown.contains(&format!("decision {decision}")) && shown.contains("broken"),
+        "{shown}"
+    );
+    let viewed = message(crate::lists::view::design_view(&lists, &design, None));
+    assert!(viewed.contains("broken"), "{viewed}");
+}
+
 /// A decided change names a decision of the log: builds refuses an id no
 /// record has, a record that is no decision, and a change that is both a fix
 /// and a decided change, and records nothing.

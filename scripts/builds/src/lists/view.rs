@@ -256,7 +256,7 @@ impl View {
                     .map(|item| item_view(lists, item, &branches))
                     .collect::<Result<_>>()?
             },
-            designs: designs(lists, now),
+            designs: designs(lists, now)?,
             decisions: decisions(lists),
             flow: derive::flow(lists, now),
         })
@@ -365,8 +365,23 @@ fn place_item(lists: &Lists, id: Id) -> PlaceItem {
     }
 }
 
-pub fn design_view(lists: &Lists, design: &DesignChange, closed: Option<Stamp>) -> DesignView {
-    DesignView {
+/// <design> as the lists JSON shows it. Fails on a decided change whose
+/// decision the lists lack, which means a broken store.
+pub fn design_view(
+    lists: &Lists,
+    design: &DesignChange,
+    closed: Option<Stamp>,
+) -> Result<DesignView> {
+    let decision = match &design.settlement {
+        crate::lists::design::Settlement::Decision(id) => Some(Named {
+            id: *id,
+            title: crate::lists::design::decided(lists, design.id, *id)?
+                .title
+                .clone(),
+        }),
+        _ => None,
+    };
+    Ok(DesignView {
         id: design.id,
         title: design.title.clone(),
         details: design.details.clone(),
@@ -399,41 +414,32 @@ pub fn design_view(lists: &Lists, design: &DesignChange, closed: Option<Stamp>) 
             .collect(),
         no_app_place: design.no_app_place.clone(),
         approved: design.approved.clone(),
-        decision: match &design.settlement {
-            crate::lists::design::Settlement::Decision(id) => Some(Named {
-                id: *id,
-                title: lists
-                    .decision(*id)
-                    .map(|d| d.title.clone())
-                    .unwrap_or_default(),
-            }),
-            _ => None,
-        },
+        decision,
         session: design.session,
         opened: design.opened.clone(),
         landed: design.landed.clone(),
         closed,
-    }
+    })
 }
 
 /// The open design changes, then those that landed in the last `FLOW_DAYS`
 /// days.
-fn designs(lists: &Lists, now: i64) -> Vec<DesignView> {
+fn designs(lists: &Lists, now: i64) -> Result<Vec<DesignView>> {
     let recent = now - FLOW_DAYS as i64 * 86400;
     let mut views: Vec<DesignView> = lists
         .designs
         .iter()
         .map(|d| design_view(lists, d, None))
-        .collect();
+        .collect::<Result<_>>()?;
     for closed in lists.closed.iter().rev() {
         if let crate::lists::Record::Design(design) = &closed.record
             && matches!(closed.how, crate::lists::How::Landed(_))
             && closed.closed.at >= recent
         {
-            views.push(design_view(lists, design, Some(closed.closed.clone())));
+            views.push(design_view(lists, design, Some(closed.closed.clone()))?);
         }
     }
-    views
+    Ok(views)
 }
 
 fn decisions(lists: &Lists) -> Vec<DecisionView> {

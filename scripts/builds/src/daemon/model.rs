@@ -905,7 +905,7 @@ impl Model {
     pub fn design_page(&self, project: &str, id: u32) -> Option<crate::fail::Result<String>> {
         let (_, snapshot) = self.lists.current();
         let (design, view) = super::lists::open_design(&snapshot, project, id)?;
-        Some(crate::design_render::review_page(&design, &view, project))
+        Some(view.and_then(|view| crate::design_render::review_page(&design, &view, project)))
     }
 
     /// <side> of the <n>th board of open design change <id>'s review page,

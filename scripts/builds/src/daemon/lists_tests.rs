@@ -193,6 +193,7 @@ fn an_open_design_change_is_found_by_id_with_its_view_and_a_landed_or_missing_on
     let id = design(&db);
     let snapshot: Snapshot = Ok(vec![loaded("demo", Ok(read(&db)))]);
     let (design, view) = open_design(&snapshot, "demo", id.0).expect("open");
+    let view = view.unwrap();
     assert_eq!(
         (design.id, design.worktree.as_str(), view.id),
         (id, "/d/bae-worktrees/side-2", id)

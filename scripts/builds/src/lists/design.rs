@@ -23,7 +23,9 @@ use crate::lists::design_session::{self, SessionState};
 use crate::lists::item::{ItemDraft, RecordWait, add_item};
 use crate::lists::record;
 use crate::lists::store;
-use crate::lists::{Closed, How, Id, Kind, Lists, Located, Record, Stamp, Standing, Wait};
+use crate::lists::{
+    Closed, Decision, How, Id, Kind, Lists, Located, Record, Stamp, Standing, Wait,
+};
 use crate::text::local_minute;
 
 /// How a design place was resolved.
@@ -1200,7 +1202,7 @@ fn resolution_words(lists: &Lists, resolution: &Resolution) -> String {
     }
 }
 
-fn describe(lists: &Lists, design: &DesignChange, closed: Option<&Closed>) -> String {
+fn describe(lists: &Lists, design: &DesignChange, closed: Option<&Closed>) -> Result<String> {
     let mut out = String::new();
     let state = match closed {
         Some(closed) => format!("{} {}", closed.how.label(), local_minute(closed.closed.at)),
@@ -1223,13 +1225,10 @@ fn describe(lists: &Lists, design: &DesignChange, closed: Option<&Closed>) -> St
             let _ = writeln!(out, "a fix that changes no design: {fixes}");
         }
         Settlement::Decision(decision) => {
-            let title = lists
-                .decision(*decision)
-                .map(|d| format!(": {}", d.title))
-                .unwrap_or_default();
+            let title = &decided(lists, design.id, *decision)?.title;
             let _ = writeln!(
                 out,
-                "a board edit of a change the person decided in decision {decision}{title}"
+                "a board edit of a change the person decided in decision {decision}: {title}"
             );
         }
     }
@@ -1291,7 +1290,19 @@ fn describe(lists: &Lists, design: &DesignChange, closed: Option<&Closed>) -> St
     {
         let _ = writeln!(out, "  dropped: {why}");
     }
-    out
+    Ok(out)
+}
+
+/// The decision <decision> that settled design change <design>. The table's
+/// reference to the decision log keeps the decision there, so a change whose
+/// decision the lists lack means a broken store, and this fails.
+pub fn decided(lists: &Lists, design: Id, decision: Id) -> Result<&Decision> {
+    match lists.decision(decision) {
+        Some(found) => Ok(found),
+        None => fail!(
+            "design change {design} names decision {decision}, which the lists do not hold; the store is broken"
+        ),
+    }
 }
 
 /// `design show`: an open, landed or dropped design change.
@@ -1304,7 +1315,7 @@ pub fn show(lists: &Lists, id: Id) -> Result<String> {
         Some(Located {
             standing: Standing::Open,
             ..
-        }) => Ok(describe(lists, lists.design(id).expect("open"), None)),
+        }) => describe(lists, lists.design(id).expect("open"), None),
         Some(Located {
             standing: Standing::Closed(closed),
             ..
@@ -1312,7 +1323,7 @@ pub fn show(lists: &Lists, id: Id) -> Result<String> {
             let Record::Design(design) = &closed.record else {
                 unreachable!("located as a design change")
             };
-            Ok(describe(lists, design, Some(closed)))
+            describe(lists, design, Some(closed))
         }
     }
 }

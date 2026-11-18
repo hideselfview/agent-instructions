@@ -192,7 +192,7 @@ fn review_of(dir: &Path, tip: &str) -> (DesignChange, DesignView) {
     design_tipped(&db, id, tip);
     let state = read(&db);
     let change = state.design(id).unwrap().clone();
-    let view = design_view(&state, &change, None);
+    let view = design_view(&state, &change, None).unwrap();
     (change, view)
 }
 
@@ -340,7 +340,7 @@ fn a_board_the_change_adds_has_no_now_and_a_board_it_deletes_has_only_a_now() {
         },
     ];
     change.deleted.insert("design/mocks/Old.dc.html".into());
-    let view = design_view(&crate::lists::fixtures::read(&db()), &change, None);
+    let view = design_view(&crate::lists::fixtures::read(&db()), &change, None).unwrap();
     let data = page_data(&review_page(&change, &view, "demo").unwrap());
     let id = change.id.0;
     let boards = &data["sections"][0]["boards"];
