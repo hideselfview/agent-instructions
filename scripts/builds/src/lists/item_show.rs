@@ -391,19 +391,25 @@ pub fn list(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     Ok(())
 }
 
-/// `builds next`: the ready coordinator items in dispatch order.
+/// `builds next [--for design-session]`: the ready items of the coordinator
+/// (or of the design session) in dispatch order.
 pub fn next(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
-    let args = Args::parse(args, &[], &[])?;
-    args.exactly(0, "builds next")?;
+    let args = Args::parse(args, &["for"], &[])?;
+    args.exactly(0, "builds next [--for coordinator|design-session]")?;
+    let audience: Audience = args.choice("for")?.unwrap_or(Audience::Coordinator);
     let store = Store::resolve(&tool.places, &args, cwd)?;
-    print!("{}", next_text(&store.load()?));
+    print!("{}", next_text(&store.load()?, audience));
     Ok(())
 }
 
-/// What `builds next` prints for <lists>: each ready coordinator item, its
-/// brief, and the worktree it is parked in, which holds its work.
-pub fn next_text(lists: &Lists) -> String {
-    let ready = derive::dispatch_order(lists);
+/// What `builds next` prints for <lists>: each ready item of <audience>, how
+/// many open items wait behind it when any do, its brief, and the worktree it
+/// is parked in, which holds its work.
+pub fn next_text(lists: &Lists, audience: Audience) -> String {
+    let ready = match audience {
+        Audience::Coordinator => derive::dispatch_order(lists),
+        Audience::DesignSession => derive::design_session_order(lists),
+    };
     let mut out = String::new();
     if ready.is_empty() {
         out.push_str("nothing is ready to dispatch\n");
@@ -414,9 +420,13 @@ pub fn next_text(lists: &Lists) -> String {
             Some(_) => " [last]",
             None => "",
         };
+        let unblocks = match derive::behind(lists, item.id) {
+            0 => String::new(),
+            n => format!(", unblocks {}", crate::text::counted(n, "item", "items")),
+        };
         let _ = writeln!(
             out,
-            "{:>3}. {} {}{priority} ({})",
+            "{:>3}. {} {}{priority} ({}{unblocks})",
             number + 1,
             item.id,
             item.title,

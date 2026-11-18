@@ -339,11 +339,17 @@ runs in (plans are in no commit); an absolute path is itself.
       runs that ended from the store's write log, which names no branch, so
       those runs name none and have no held or waiting time.
 
-  builds next
-      The ready coordinator items in dispatch order: items placed first
-      (oldest first), then by area order and age, and items placed last once
-      nothing else is open. The design session's items never appear. A parked
-      item names the worktree and branch its work waits in.
+  builds next [--for coordinator|design-session]
+      The ready items in dispatch order: items placed first (oldest first),
+      then the items that other open items wait on, most first (directly or
+      through a chain of open items, as the stack counts them), then the rest
+      by area order and age, and items placed last once nothing else is open.
+      A line says how many items the item unblocks when any do. With --for
+      design-session, it lists the design session's items that no agent runs
+      and whose waits are met, in the same order; without it, the
+      coordinator's items, and the design session's never appear. A parked
+      item names the worktree and branch its work waits in. `item list
+      --ready` uses the same order.
 
   builds area add NAME [--after AREA] | rename OLD NEW | move NAME --after AREA
               | remove NAME

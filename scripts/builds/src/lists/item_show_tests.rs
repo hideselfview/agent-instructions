@@ -281,3 +281,40 @@ fn times_say_how_long_each_item_and_branch_ran_and_was_held_or_waited() {
             .contains(&format!("times: {first} ({from})\n"))
     );
 }
+
+#[test]
+fn next_says_how_many_items_each_unblocks_and_takes_the_design_sessions_items() {
+    let demo = demo("show-next-unblocks");
+    add(&demo, "Do the plain thing now", "Alpha", &[]);
+    add(&demo, "Do the blocking thing now", "Beta", &[]);
+    add(
+        &demo,
+        "Do the blocked thing now",
+        "Alpha",
+        &["--wait", "item:2"],
+    );
+    add(
+        &demo,
+        "Draw the new screen now",
+        "Alpha",
+        &["--for", "design-session"],
+    );
+    let lists = demo.store.load().unwrap();
+    let coordinator = next_text(&lists, Audience::Coordinator);
+    let at = |text: &str| coordinator.find(text).unwrap_or(usize::MAX);
+    assert!(
+        at("2 Do the blocking thing now (Beta, unblocks 1 item)")
+            < at("1 Do the plain thing now (Alpha)"),
+        "{coordinator}"
+    );
+    assert!(
+        !coordinator.contains("Draw the new screen"),
+        "{coordinator}"
+    );
+    let design = next_text(&lists, Audience::DesignSession);
+    assert!(
+        design.contains("4 Draw the new screen now (Alpha)"),
+        "{design}"
+    );
+    assert!(!design.contains("plain"), "{design}");
+}

@@ -231,9 +231,11 @@ pub fn stack_order(lists: &Lists) -> Vec<StackEntry<'_>> {
     entries
 }
 
-/// Sorts <items> into the queue's order, the one the dashboard's Queue tab
-/// shows: `priority first` items at the top (oldest first), then the rest by
-/// area order and age, then `priority last` items (oldest first).
+/// Sorts <items> into the queue's order, the one `builds next` and the
+/// dashboard's Queue tab show: `priority first` items at the top (oldest
+/// first), then the rest by how many open items wait on each directly or
+/// through a chain of open items (most first, as the stack counts them), then
+/// by area order and age, then `priority last` items (oldest first).
 pub fn queue_order(lists: &Lists, items: &mut [&Item]) {
     let area_rank = |item: &Item| {
         lists
@@ -247,11 +249,18 @@ pub fn queue_order(lists: &Lists, items: &mut [&Item]) {
         None => 1,
         Some(Level::Last) => 2,
     };
+    let unblocked: BTreeMap<Id, usize> = items
+        .iter()
+        .map(|item| (item.id, behind(lists, item.id)))
+        .collect();
     items.sort_by(|a, b| {
         group(a).cmp(&group(b)).then_with(|| {
             let by_age = (a.opened.at, a.id).cmp(&(b.opened.at, b.id));
             if group(a) == 1 {
-                area_rank(a).cmp(&area_rank(b)).then(by_age)
+                unblocked[&b.id]
+                    .cmp(&unblocked[&a.id])
+                    .then(area_rank(a).cmp(&area_rank(b)))
+                    .then(by_age)
             } else {
                 by_age
             }
@@ -259,15 +268,31 @@ pub fn queue_order(lists: &Lists, items: &mut [&Item]) {
     });
 }
 
-/// The ready coordinator items in dispatch order: `priority first` (oldest
-/// first), then the rest by area order and age. `last` items are ready only
-/// once nothing else is open, so they come out last by themselves.
+/// The ready coordinator items in dispatch order (`queue_order`). `last`
+/// items are ready only once nothing else is open, so they come out last by
+/// themselves.
 pub fn dispatch_order(lists: &Lists) -> Vec<&Item> {
     let mut ready: Vec<&Item> = lists
         .items
         .iter()
         .filter(|item| {
             item.r#for == Audience::Coordinator && item_state(lists, item) == ItemState::Ready
+        })
+        .collect();
+    queue_order(lists, &mut ready);
+    ready
+}
+
+/// The design session's items it can take now, in the same order: those no
+/// agent runs and whose waits are all met.
+pub fn design_session_order(lists: &Lists) -> Vec<&Item> {
+    let mut ready: Vec<&Item> = lists
+        .items
+        .iter()
+        .filter(|item| {
+            item.r#for == Audience::DesignSession
+                && item.running.is_empty()
+                && unmet_waits(lists, item).is_empty()
         })
         .collect();
     queue_order(lists, &mut ready);

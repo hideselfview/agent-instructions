@@ -17,7 +17,8 @@ A coordinator session plans work, dispatches background agents with a brief
 each, reviews their work and lands it. The agents implement. A design session
 draws the boards (pictures of screens, kept in the repo) that the apps are
 built to match: new screens, new layouts, and anything that needs a new part or
-a change to the design system. When the person decides a change to an existing
+a change to the design system. It takes its items from `builds next --for
+design-session`, from the top, in the order the coordinator takes its own. When the person decides a change to an existing
 screen that the design system's existing parts can draw, such as new words or a
 button added to an alert, the implementing agent edits the board in the same
 commit and names the decision. "Design" alone is ambiguous: write "board" or
@@ -188,7 +189,9 @@ DISPATCH
     cleanup replaces with plain live queries. Other cleanups (rewording,
     deleting dead code, merging duplicate types) start only when no critical
     item is ready.
-  - Take items from `builds next`. Claim the worktree (`builds claim`), mark
+  - Take items from `builds next`, from the top: items placed first, then
+    the items that other open items wait on (most first), then the rest by
+    area and age. Claim the worktree (`builds claim`), mark
     the items running (`builds item take`), keep the worktree's note current
     (`builds note`) on every dispatch and handoff. When an agent stops before
     its work lands, park its item where the work is (`builds item park`);

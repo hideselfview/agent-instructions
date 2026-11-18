@@ -296,6 +296,45 @@ fn dispatch_order_is_first_then_area_and_age_then_last() {
 }
 
 #[test]
+fn dispatch_order_puts_what_other_items_wait_on_ahead_of_area_and_age() {
+    let db = db();
+    let alpha_old = item_opened(&db, vec![], stamp(NOON - 100));
+    let beta_blocker = item(&db, vec![]);
+    set_area(&db, beta_blocker, "Beta");
+    let beta_one = item(&db, vec![Wait::Item(beta_blocker)]);
+    let _beta_two = item(&db, vec![Wait::Item(beta_one)]);
+    let beta_small = item(&db, vec![]);
+    set_area(&db, beta_small, "Beta");
+    let _waits_on_small = item(&db, vec![Wait::Item(beta_small)]);
+    let first = item_opened(&db, vec![], stamp(NOON + 900));
+    priority(&db, first, Level::First);
+    let ids: Vec<Id> = dispatch_order(&read(&db)).iter().map(|i| i.id).collect();
+    // First comes first; then 2 items wait behind the blocker (through a
+    // chain), 1 behind the small one, and none behind the old Alpha item.
+    assert_eq!(ids, vec![first, beta_blocker, beta_small, alpha_old]);
+}
+
+#[test]
+fn the_design_session_gets_its_ready_items_in_the_same_order() {
+    let db = db();
+    let q = question(&db);
+    let plain = item_opened(&db, vec![], stamp(NOON - 100));
+    set_audience(&db, plain, Audience::DesignSession);
+    let blocker = item(&db, vec![]);
+    set_audience(&db, blocker, Audience::DesignSession);
+    let _app_work = item(&db, vec![Wait::Item(blocker)]);
+    let waiting = item(&db, vec![Wait::Question(q)]);
+    set_audience(&db, waiting, Audience::DesignSession);
+    let coordinator = item(&db, vec![]);
+    let ids: Vec<Id> = design_session_order(&read(&db))
+        .iter()
+        .map(|i| i.id)
+        .collect();
+    assert_eq!(ids, vec![blocker, plain]);
+    assert!(!ids.contains(&coordinator) && !ids.contains(&waiting));
+}
+
+#[test]
 fn flow_counts_the_last_fourteen_days_by_who_opened_and_how_closed() {
     let db = db();
     let now = NOON;

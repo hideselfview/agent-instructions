@@ -748,7 +748,7 @@ fn park_keeps_the_work_for_the_queue_and_take_runs_it_there_again() {
             .is_none(),
         "the parked worktree kept its agent's claim"
     );
-    let next = crate::lists::item_show::next_text(&lists);
+    let next = crate::lists::item_show::next_text(&lists, Audience::Coordinator);
     assert!(
         next.contains(FIVE) && next.contains(&format!("parked in {side_arg} on work")),
         "{next}"
