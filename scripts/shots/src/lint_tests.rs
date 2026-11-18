@@ -133,12 +133,8 @@ fn a_preview_it_cannot_read_says_why_and_not_that_it_is_missing() {
     assert!(!problems[0].contains("missing"), "{problems:?}");
 }
 
-fn settings(text: &str) -> Settings {
-    Settings::parse(text).unwrap()
-}
-
 #[test]
-fn the_lint_reads_the_harness_the_settings_name_and_finds_a_missing_board() {
+fn a_scene_the_harness_declares_with_no_board_is_a_problem() {
     let root = tempfile::tempdir().unwrap();
     write(
         root.path(),
@@ -151,16 +147,9 @@ fn the_lint_reads_the_harness_the_settings_name_and_finds_a_missing_board() {
         "design/mocks/mac.welcome.libraries.dc.html",
         "<x-dc></x-dc>",
     );
-    let settings = settings("shots-declared mac app/Shots");
-    let found = check(root.path(), &settings, &Record::default()).unwrap();
-    let sentences: Vec<_> = found.iter().map(|p| p.sentence.as_str()).collect();
-    assert_eq!(sentences.len(), 1, "{sentences:?}");
-    assert!(sentences[0].contains("shot 'mac.album.credits' has no board"));
-}
-
-#[test]
-fn settings_with_no_declare_folder_fail_the_lint_and_do_not_pass_it() {
-    let root = tempfile::tempdir().unwrap();
-    let error = check(root.path(), &settings(""), &Record::default()).unwrap_err();
-    assert!(error.contains("no shots-declared line"), "{error}");
+    let folders = [(crate::names::Platform::Mac, "app/Shots".to_string())];
+    let declared = crate::declared::read(root.path(), &folders).unwrap();
+    let found = sentences(root.path(), &declared);
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert!(found[0].contains("shot 'mac.album.credits' has no board"));
 }

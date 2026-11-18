@@ -19,6 +19,11 @@ pub(crate) enum DeclaredError {
         "{0}: a scene shown in its window is written `ShotScene(id: \"<board name>\", …, frame: .window(…)) {{ … }}` so the tool can tell it needs the window"
     )]
     WindowScene(PathBuf),
+    #[error(
+        "{} has no shots-declared line, so there is no harness to read",
+        crate::settings::FILE
+    )]
+    NoHarness,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -40,6 +45,9 @@ pub(crate) fn read(
     root: &Path,
     folders: &[(Platform, String)],
 ) -> Result<Vec<Declared>, DeclaredError> {
+    if folders.is_empty() {
+        return Err(DeclaredError::NoHarness);
+    }
     let mut all = Vec::new();
     for (platform, directory) in folders {
         // A web shot's fixture declares it by its name; a harness's source

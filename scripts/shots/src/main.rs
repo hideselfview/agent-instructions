@@ -299,7 +299,8 @@ fn run(action: Action) -> Result<bool, String> {
         Action::Lint => {
             let record =
                 record::Record::load(&root.join(record::FILE)).map_err(|e| e.to_string())?;
-            let problems = lint::check(&root, &settings, &record)?;
+            let declared = read_declared()?;
+            let problems = lint::problems(&root, &settings.preview_calls, &declared, &record);
             for problem in &problems {
                 crate::log::note(&problem.sentence);
             }

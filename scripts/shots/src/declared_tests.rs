@@ -195,3 +195,25 @@ fn a_web_shot_is_declared_by_its_fixture_file() {
         Err(DeclaredError::Name(..))
     ));
 }
+
+#[test]
+fn no_declare_folder_fails_the_read_and_does_not_read_nothing() {
+    let root = tempfile::tempdir().unwrap();
+    assert!(matches!(
+        read(root.path(), &[]),
+        Err(DeclaredError::NoHarness)
+    ));
+}
+
+#[test]
+fn a_harness_with_a_scene_and_no_board_is_declared_for_the_lint_to_find() {
+    let root = tempfile::tempdir().unwrap();
+    write(
+        root.path(),
+        "app/Shots/Scenes.swift",
+        "ShotScene(id: \"mac.album.credits\", frame: .sheet) { }",
+    );
+    let found = read(root.path(), &[(Platform::Mac, "app/Shots".to_string())]).unwrap();
+    assert_eq!(found.len(), 1);
+    assert_eq!(found[0].name.to_string(), "mac.album.credits");
+}

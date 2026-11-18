@@ -8,7 +8,6 @@
 use crate::declared::Declared;
 use crate::names::{Name, state_id};
 use crate::record::{FILE, Record};
-use crate::settings::{self, Settings};
 use regex::Regex;
 use std::path::Path;
 
@@ -64,24 +63,6 @@ pub(crate) fn problems(
         })
     });
     shots.chain(entries).collect()
-}
-
-/// The problems of the repo at <root>: reads the harness folders its
-/// settings name. A repo whose settings name none declares no shots as far as
-/// this reading can tell, so the lint fails instead of passing on nothing.
-pub(crate) fn check(
-    root: &Path,
-    settings: &Settings,
-    record: &Record,
-) -> Result<Vec<Problem>, String> {
-    if settings.declared.is_empty() {
-        return Err(format!(
-            "{} has no shots-declared line, so there is no harness to read",
-            settings::FILE
-        ));
-    }
-    let declared = crate::declared::read(root, &settings.declared).map_err(|e| e.to_string())?;
-    Ok(problems(root, &settings.preview_calls, &declared, record))
 }
 
 /// Why `name` has no board, when it has none.
