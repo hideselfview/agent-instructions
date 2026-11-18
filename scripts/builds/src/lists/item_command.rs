@@ -361,7 +361,7 @@ fn stop(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     let lists = store.load()?;
     let item = open_item(&lists, id)?;
     if item.running.is_empty() && !item.kept.is_empty() {
-        let left = remove_claims(id, item.kept.iter().map(|k| k.worktree.as_str()))?;
+        let left = remove_claims(id, &item.kept, true)?;
         if left == 0 {
             note(format!(
                 "{id} is stopped and keeps {} already; nothing is left to do",
@@ -412,17 +412,26 @@ fn stop(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
             kept_work::places_words(kept.iter().map(|k| (&k.worktree, &k.branch)))
         ));
     }
-    remove_claims(id, kept.iter().map(|k| k.worktree.as_str()))?;
+    remove_claims(id, &kept, false)?;
     Ok(())
 }
 
-/// Removes the claim of each of <worktrees>, which item <id> keeps, and says
-/// each it removed. Says how many it removed. A removal that fails stops here
-/// and names the worktree and the command that finishes the job.
-fn remove_claims<'a>(id: Id, worktrees: impl Iterator<Item = &'a str>) -> Result<usize> {
+/// Removes the claim of each worktree <kept> names, which item <id> keeps,
+/// and says each it removed. Says how many it removed. When <only_stale>
+/// (the item kept the worktrees in an earlier stop), a claim made since the
+/// keep is a new agent's and stays. A removal that fails stops here and names
+/// the worktree and the command that finishes the job.
+fn remove_claims(id: Id, kept: &[kept_work::KeptWork], only_stale: bool) -> Result<usize> {
     let mut removed = 0;
-    for worktree in worktrees {
+    for place in kept {
+        let worktree = place.worktree.as_str();
         let checkout = crate::checkout::Checkout::find(worktree)?;
+        if only_stale {
+            match crate::claim::Claim::read(&checkout.claim_file())? {
+                Some(claim) if kept_work::is_stale_claim(place, &claim) => {}
+                _ => continue,
+            }
+        }
         match crate::claim::unclaim(&checkout) {
             Ok(Some(claim)) => {
                 removed += 1;

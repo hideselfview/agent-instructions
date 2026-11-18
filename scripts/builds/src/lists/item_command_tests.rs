@@ -789,6 +789,39 @@ fn a_stop_whose_claim_stayed_finishes_when_run_again_and_then_does_nothing() {
     assert_eq!(open(&demo).items[0].kept.len(), 1);
 }
 
+/// A claim made after the item kept the worktree, to take the item, is a new
+/// agent's: health does not report it and the same stop leaves it.
+#[test]
+fn a_claim_made_after_the_keep_is_neither_reported_nor_removed() {
+    let demo = demo("item-stop-fresh-claim");
+    let side = demo.add_side(1, "agent A", "work");
+    let side_arg = side.display().to_string();
+    let checkout = Checkout::find(&side_arg).unwrap();
+    crate::setup::setup(&demo.tool, &checkout).unwrap();
+    demo.commit(&side, "unlanded");
+    add(&demo, FIVE, &[]).unwrap();
+    let brief = demo.brief("b.md");
+    item(&demo, &take_args(&side_arg, &brief, &["1"], "work")).unwrap();
+    item(&demo, &["stop", "1", "--why", "out of room"]).unwrap();
+    crate::claim::write_claim(&checkout, "agent B", demo.tool.now + 600, None, None).unwrap();
+    let health = crate::health::health(&demo.tool).unwrap();
+    assert!(
+        health
+            .findings
+            .iter()
+            .all(|finding| !finding.advice.text.contains("still has a claim")),
+        "{:?}",
+        health.findings
+    );
+    let before = demo.state();
+    item(&demo, &["stop", "1", "--why", "out of room"]).unwrap();
+    assert_eq!(demo.state(), before);
+    let claim = crate::claim::Claim::read(&checkout.claim_file())
+        .unwrap()
+        .expect("the new agent's claim stayed");
+    assert_eq!(claim.who, "agent B");
+}
+
 /// Stopping an item whose worktree holds nothing origin/main lacks keeps
 /// nothing and leaves the claim.
 #[test]

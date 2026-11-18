@@ -117,9 +117,17 @@ pub fn kept_worktrees(
     Ok(kept)
 }
 
+/// Is <claim> older than the keep <kept>? A claim made before the item kept
+/// the worktree names the agent that worked there, and no agent works there
+/// now. A claim made after it, to take the item, is a new agent's. A claim
+/// records its minute, so a claim in the minute of the keep is a new one.
+pub fn is_stale_claim(kept: &KeptWork, claim: &crate::claim::Claim) -> bool {
+    claim.since < kept.since.at - kept.since.at.rem_euclid(60)
+}
+
 /// What `builds health` says about kept work: one line for each item that
 /// keeps a worktree that is not a live worktree, and one for each kept
-/// worktree that still has a claim, since its work is no longer
+/// worktree that still has a claim older than the keep, since its work is no longer
 /// where the item says it waits.
 pub fn findings(loaded: &std::result::Result<Vec<Loaded>, String>) -> Result<Vec<Advice>> {
     let Ok(loaded) = loaded else {
@@ -131,7 +139,9 @@ pub fn findings(loaded: &std::result::Result<Vec<Loaded>, String>) -> Result<Vec
         for item in &lists.items {
             for kept in &item.kept {
                 if let Some(checkout) = crate::lists::running::live_worktree(&kept.worktree)? {
-                    if let Some(claim) = crate::claim::Claim::read(&checkout.claim_file())? {
+                    if let Some(claim) = crate::claim::Claim::read(&checkout.claim_file())?
+                        .filter(|claim| is_stale_claim(kept, claim))
+                    {
                         findings.push(Advice::run(
                             format!(
                                 "lists: item {} \"{}\" keeps {}, which still has a claim ({}); remove the claim with",
