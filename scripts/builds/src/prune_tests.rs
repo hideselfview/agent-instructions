@@ -352,14 +352,14 @@ echo "builds: deleted a folder" >&2"#,
 /// A repo `demo` whose main checkout and side worktree side-1 each commit a
 /// Cargo.lock pinning one git commit (main <main_sha>, side-1 <side_sha>),
 /// with a build root marking each, and a checkout in cargo's home for each
-/// commit. Returns the roots as `builds setup` lists them, and the two
-/// checkouts.
+/// commit. Returns the roots as `builds setup` lists them, and the side
+/// worktree.
 fn two_pinning_checkouts(
     scratch: &Scratch,
     tool: &Tool,
     main_sha: &str,
     side_sha: &str,
-) -> (Vec<Root>, Checkout, Checkout) {
+) -> (Vec<Root>, Checkout) {
     let main = scratch.dir.join("demo");
     crate::testing::repo(&main, "target 1G\n");
     let side = scratch.dir.join("demo-worktrees/side-1");
@@ -376,7 +376,6 @@ fn two_pinning_checkouts(
     let lock = |sha: &str| {
         format!("[[package]]\nname = \"dep\"\nsource = \"git+https://example.com/dep#{sha}\"\n")
     };
-    let mut checkouts = Vec::new();
     for (top, sha) in [(&main, main_sha), (&side, side_sha)] {
         std::fs::write(top.join("Cargo.lock"), lock(sha)).unwrap();
         crate::testing::git(top, &["add", "Cargo.lock"]);
@@ -397,13 +396,10 @@ fn two_pinning_checkouts(
                 .join("f"),
             1,
         );
-        checkouts.push(checkout);
     }
     let roots = tool.roots().unwrap();
     assert!(roots.iter().all(|root| root.live.is_some()));
-    let side = checkouts.pop().unwrap();
-    let main = checkouts.pop().unwrap();
-    (roots, main, side)
+    (roots, Checkout::find(&side.display().to_string()).unwrap())
 }
 
 /// Another builds process removes a worktree while `builds setup` runs (a
@@ -417,7 +413,7 @@ fn a_checkout_removed_after_the_listing_pins_nothing() {
     let tool = scratch.tool(0);
     let main_sha = "a".repeat(40);
     let side_sha = "b".repeat(40);
-    let (roots, _, side) = two_pinning_checkouts(&scratch, &tool, &main_sha, &side_sha);
+    let (roots, side) = two_pinning_checkouts(&scratch, &tool, &main_sha, &side_sha);
     std::fs::remove_file(side.top.join(".git")).unwrap();
     prune_cargo_git(&tool, &roots, Run::Real).unwrap();
     let checkouts = tool.places.cargo_home.join("git/checkouts/dep-1");
@@ -439,7 +435,7 @@ fn a_live_checkout_git_cannot_list_fails_the_prune() {
     let tool = scratch.tool(0);
     let main_sha = "a".repeat(40);
     let side_sha = "b".repeat(40);
-    let (roots, _, side) = two_pinning_checkouts(&scratch, &tool, &main_sha, &side_sha);
+    let (roots, side) = two_pinning_checkouts(&scratch, &tool, &main_sha, &side_sha);
     std::fs::write(side.git_dir.join("index"), "not an index").unwrap();
     let error = prune_cargo_git(&tool, &roots, Run::Real)
         .unwrap_err()
