@@ -89,13 +89,22 @@ pub const ACK_PART: &str = include_str!("ack/record.sql");
 /// acknowledgements' part.
 pub const PUBLISH_PART: &str = include_str!("lists/publish.sql");
 
+/// The item made for each stable Rust release (lists/rust_release.sql); the
+/// schema holds it after the publish requests' part.
+pub const RUST_RELEASE_PART: &str = include_str!("lists/rust_release.sql");
+
 /// The whole schema: the lists' tables, then the hook stats', then the
 /// app-build timings', then the design changes' recording sessions', then the
 /// stored shot findings, then the review's, then the hook checks' starting
 /// loads, then the cargo runs', then the kept work's, then the dropped
 /// items' work, then the spec checks', then the acknowledgements', then the
-/// publish requests'.
+/// publish requests', then the Rust release items'.
 pub fn schema() -> String {
+    format!("{}\n{RUST_RELEASE_PART}", schema_before_rust_release())
+}
+
+/// The schema as it was before the Rust release items' table joined it.
+pub fn schema_before_rust_release() -> String {
     format!("{}\n{PUBLISH_PART}", schema_before_publish())
 }
 

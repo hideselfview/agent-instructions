@@ -5221,7 +5221,7 @@ fn schema_before_publish() -> String {
 /// The schema as it was before a question could close as done only with a
 /// reason.
 fn schema_before_done_reason() -> String {
-    with_done_without_reason(db::schema())
+    with_done_without_reason(db::schema_before_rust_release())
 }
 
 #[test]
@@ -5315,4 +5315,42 @@ fn a_store_from_before_the_publish_requests_gains_their_tables_and_equals_a_fres
         .query_row("SELECT count(*) FROM publish_request", [], |row| row.get(0))
         .unwrap();
     assert_eq!(requests, 0);
+}
+
+#[test]
+fn the_rust_release_stamp_is_the_schema_before_the_rust_release_items() {
+    assert_eq!(
+        db::stamp_of_text(&db::schema_before_rust_release()),
+        BEFORE_RUST_RELEASE_STAMP
+    );
+}
+
+/// A store from before the Rust release items gains their empty table and
+/// equals a fresh schema.
+#[test]
+fn a_store_from_before_the_rust_release_items_gains_their_table_and_equals_a_fresh_schema() {
+    let scratch = Scratch::new("move-rust-release");
+    let places = scratch.places();
+    let dir = places.lists.join("bae");
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join(DATABASE);
+    {
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(&db::schema_before_rust_release())
+            .unwrap();
+        conn.pragma_update(None, "user_version", BEFORE_RUST_RELEASE_STAMP)
+            .unwrap();
+    }
+    migrate_stores(&places, 0).unwrap();
+    let conn = db::open(&path, db::Make::Never).unwrap();
+    assert_eq!(
+        db::schema_rows(&conn).unwrap(),
+        db::schema_rows(&db::memory()).unwrap()
+    );
+    let releases: i64 = conn
+        .query_row("SELECT count(*) FROM rust_release_item", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    assert_eq!(releases, 0);
 }

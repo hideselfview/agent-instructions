@@ -1420,6 +1420,15 @@ STATUS, HEALTH AND THE DASHBOARD
                               start, at once when no prune has finished, and
                               writes what the prune says to
                               /Volumes/Builds/.builds-daemon/prune.log.
+                              Every 6 hours it also reads rustup's manifest
+                              of the stable Rust channel (an hour later when
+                              that fails, with the failure in the daemon's
+                              log). For each project whose repos pin an
+                              older Rust version on origin/main
+                              (rust-toolchain.toml or rust-toolchain), it
+                              adds one queue item naming each pin and the
+                              new version. The project's store records the
+                              release, so a release never makes a second item.
                               The page shows the load of this Mac and of
                               each other host, the free space and each repo's
                               hook times; a Needs attention box with

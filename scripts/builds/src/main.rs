@@ -67,6 +67,7 @@ mod queue;
 mod remote;
 mod remote_worktrees;
 mod review;
+mod rust_stable;
 mod sccache;
 mod setup;
 mod shells;

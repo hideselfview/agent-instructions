@@ -202,6 +202,7 @@ pub fn cmd_dashboard(tool: &Tool, args: &[String]) -> Result<()> {
         vec![exe.to_string_lossy().into_owned()],
     )?;
     crate::prune_schedule::start(tool.places.clone(), exe)?;
+    crate::rust_stable::start(tool.places.clone())?;
     let model = Model::start(tool.places.clone(), tool.rules.clone(), tracker, runs);
     let questions = model.clone();
     let given = tool.places.root.clone();
