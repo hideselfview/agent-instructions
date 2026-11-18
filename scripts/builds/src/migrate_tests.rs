@@ -2055,7 +2055,8 @@ fn a_store_with_parked_items_keeps_their_places_and_equals_a_fresh_schema() {
     let path = dir.join(DATABASE);
     {
         let conn = Connection::open(&path).unwrap();
-        conn.execute_batch(&with_parked(db::schema_before_publish())).unwrap();
+        conn.execute_batch(&with_parked(db::schema_before_publish()))
+            .unwrap();
         conn.pragma_update(None, "user_version", BEFORE_KEPT_WORK_STAMP)
             .unwrap();
         crate::lists::project::plant(

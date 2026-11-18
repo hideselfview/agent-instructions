@@ -137,5 +137,6 @@ Report the commit, each artifact's url, the artifacts you created, the files the
 last calls removed, the assets you uploaded and the uploads you deleted, and the
 result of the runtime check. When you could not finish every artifact, say which
 artifacts hold the new commit and which still hold an older one, and end a
-publish request that you did not finish with `builds design publish failed N
---why`. The next session runs this skill again from the start, with a new folder.
+publish request that you did not finish with
+`builds design publish failed N --why`. The next session runs this skill again
+from the start, with a new folder.
