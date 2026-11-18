@@ -147,11 +147,7 @@ pub fn sudo_step(
     run: &mut dyn FnMut(&str) -> Result<()>,
 ) -> Result<()> {
     let place = place(name);
-    let shown = commands
-        .iter()
-        .map(|command| format!("`{command}`"))
-        .collect::<Vec<_>>()
-        .join("; ");
+    let shown = shown_commands(commands);
     let then = format!("Run {shown} on {place}, then `builds host setup {name}` checks again");
     if !at_terminal {
         fail!("{lacking}, and no one is at this terminal to type the sudo password. {then}");
@@ -163,6 +159,23 @@ pub fn sudo_step(
         fail!("{lacking}, and {}. {then}", failed.text());
     }
     Ok(())
+}
+
+/// <commands>, each in backticks, for a person to read and run.
+pub fn shown_commands(commands: &[String]) -> String {
+    commands
+        .iter()
+        .map(|command| format!("`{command}`"))
+        .collect::<Vec<_>>()
+        .join("; ")
+}
+
+/// The value of the first line `<key>=<value>` in <text>, which a script
+/// run on a host printed, without the spaces around it.
+pub fn answer_value<'a>(text: &'a str, key: &str) -> Option<&'a str> {
+    text.lines()
+        .find_map(|line| line.strip_prefix(key)?.strip_prefix('='))
+        .map(str::trim)
 }
 
 /// <text> as one word for a POSIX shell.

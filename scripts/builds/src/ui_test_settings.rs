@@ -113,16 +113,6 @@ impl UiTestSettings {
             .map(|setting| setting.command(&self.user))
             .collect()
     }
-
-    /// The commands that turn on the settings that are off, each in
-    /// backticks, for a person to read.
-    fn quoted_commands(&self) -> String {
-        self.commands()
-            .iter()
-            .map(|command| format!("`{command}`"))
-            .collect::<Vec<_>>()
-            .join("; ")
-    }
 }
 
 /// Runs on a host, and on this Mac, to print what `parse` reads: the user,
@@ -135,7 +125,7 @@ echo "ui_developer_group=$(/usr/sbin/dseditgroup -o checkmember -m "$(id -un)" _
 
 /// Reads what `SCRIPT` printed, among other lines.
 pub fn parse(text: &str) -> Result<UiTestSettings> {
-    let value = |key: &str| crate::remote::answer_value(text, key);
+    let value = |key: &str| crate::host::answer_value(text, key);
     let user = match value("ui_user") {
         Some(user)
             if !user.is_empty()
@@ -256,7 +246,7 @@ pub fn finding(name: &str, refusal: Option<&Refusal>, settings: Option<&UiTestSe
             format!(
                 "{place} lacks {}, so XCTest asks for a password on its screen or times out turning on automation mode, and its UI tests run nothing. Run {} on {place}, or, to run them there through sudo, run this from a terminal:",
                 settings.whats(),
-                settings.quoted_commands()
+                host::shown_commands(&settings.commands())
             ),
             setup,
         );
@@ -271,7 +261,7 @@ pub fn finding(name: &str, refusal: Option<&Refusal>, settings: Option<&UiTestSe
             "{} lacks {}. To run {} there through sudo and then let mac app builds use {place} again, run this from a terminal:",
             capitalized(&place),
             settings.whats(),
-            settings.quoted_commands()
+            host::shown_commands(&settings.commands())
         ),
         (None, Some(_)) => format!(
             "{} has the settings that UI tests need now. Let mac app builds use it again with",

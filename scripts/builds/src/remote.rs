@@ -246,14 +246,6 @@ fn working_tree(source: &Path, index: &Path) -> Result<String> {
         .to_string())
 }
 
-/// The value of the first line `<key>=<value>` in <text>, which a script
-/// run on a host printed, without the spaces around it.
-pub fn answer_value<'a>(text: &'a str, key: &str) -> Option<&'a str> {
-    text.lines()
-        .find_map(|line| line.strip_prefix(key)?.strip_prefix('='))
-        .map(str::trim)
-}
-
 /// Where a job's commands run: this Mac, or a host over ssh.
 pub struct Transport<'a> {
     pub places: &'a Places,

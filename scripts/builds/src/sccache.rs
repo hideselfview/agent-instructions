@@ -199,7 +199,7 @@ pub fn running_max_cache_size() -> Result<u64> {
 
 /// Reads the lines `listener_script` printed among <text>'s.
 pub fn parse_listener_lines(text: &str) -> Result<Option<u32>> {
-    let value = |key: &str| crate::remote::answer_value(text, key);
+    let value = |key: &str| crate::host::answer_value(text, key);
     let stdout: Vec<&str> = text
         .lines()
         .filter_map(|line| line.strip_prefix("listener="))
