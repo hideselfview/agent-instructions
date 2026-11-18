@@ -361,15 +361,6 @@ pub fn remove(path: &Path) -> Result<()> {
     }
 }
 
-/// The run a `<dry 0|1>` argument of `builds units` names.
-fn run_arg(dry: &str) -> crate::prune::Run {
-    if dry == "1" {
-        crate::prune::Run::Dry
-    } else {
-        crate::prune::Run::Real
-    }
-}
-
 /// `builds units prune|git-checkouts|after-build ...`: the steps setup
 /// and prune run, on the folders named; the shell tests drive them this way.
 /// `after-build` is what `builds cargo` starts as it exits.
@@ -383,11 +374,19 @@ pub fn cmd_units(tool: &crate::tool::Tool, args: &[String]) -> Result<()> {
             Err(_) => fail!("{usage}"),
         }
     };
+    // Anything but 0 or 1 is a mistake, never a real deletion.
+    let run = |text: &String| -> Result<crate::prune::Run> {
+        match text.as_str() {
+            "0" => Ok(crate::prune::Run::Real),
+            "1" => Ok(crate::prune::Run::Dry),
+            _ => fail!("{usage}"),
+        }
+    };
     match args.first().map(String::as_str) {
         Some("prune") if args.len() >= 4 => {
             let folders: Vec<PathBuf> = args[4..].iter().map(PathBuf::from).collect();
             let rules = prune::Ages::new(number(&args[1])?, number(&args[2])?);
-            for (folder, freed_kib) in prune::prune(&rules, run_arg(&args[3]), &folders)? {
+            for (folder, freed_kib) in prune::prune(&rules, run(&args[3])?, &folders)? {
                 println!("{freed_kib}\t{}", folder.display());
             }
             Ok(())
@@ -396,7 +395,7 @@ pub fn cmd_units(tool: &crate::tool::Tool, args: &[String]) -> Result<()> {
             let lockfiles: Vec<PathBuf> = args[3..].iter().map(PathBuf::from).collect();
             let freed = git_checkouts::prune_git_checkouts(
                 Path::new(&args[1]),
-                run_arg(&args[2]),
+                run(&args[2])?,
                 &lockfiles,
             )?;
             println!("{freed}");
@@ -412,6 +411,36 @@ pub fn cmd_units(tool: &crate::tool::Tool, args: &[String]) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A dry argument other than 0 or 1 fails with the usage and deletes
+    /// nothing, in both commands that take one.
+    #[test]
+    fn a_dry_argument_other_than_0_or_1_fails() {
+        let scratch = crate::testing::Scratch::new("units-dry-arg");
+        let tool = scratch.tool(0);
+        let folder = scratch.dir.join("target");
+        let file = folder.join("debug/deps/libgone-0123456789abcdef.rlib");
+        crate::testing::fill(&file, 4);
+        let words = |list: &[&str]| -> Vec<String> { list.iter().map(|w| w.to_string()).collect() };
+        for dry in ["yes", "true", "2", ""] {
+            let folder = folder.display().to_string();
+            let cargo_home = scratch.dir.join("cargo").display().to_string();
+            for args in [
+                words(&["prune", "0", "0", dry, &folder]),
+                words(&["git-checkouts", &cargo_home, dry]),
+            ] {
+                match cmd_units(&tool, &args) {
+                    Err(crate::fail::Fail::Message(message)) => assert!(
+                        message.starts_with("usage: builds units"),
+                        "{args:?}: {message}"
+                    ),
+                    Err(other) => panic!("{args:?} failed without the usage: {other:?}"),
+                    Ok(()) => panic!("{args:?} ran"),
+                }
+            }
+        }
+        assert!(file.exists(), "a rejected dry argument deleted a file");
+    }
 
     #[test]
     fn names() {
