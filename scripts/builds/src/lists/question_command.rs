@@ -273,13 +273,15 @@ struct AnswerDecision {
 }
 
 /// What `answer`, `settle` and `done` read from `--request`: the decision
-/// (answer), the rule that settles it (settle), and for each the fate of every
-/// item that waits and the work that follows.
+/// (answer), the rule that settles it (settle), what shows the step done
+/// (done), and for each the fate of every item that waits and the work that
+/// follows.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Request {
     decision: Option<AnswerDecision>,
     by_rule: Option<String>,
+    shown_by: Option<String>,
     #[serde(default)]
     blocked: BlockedMap,
     work: Option<Vec<ItemDraft>>,
@@ -313,6 +315,9 @@ fn resolve(
                     "a decision of the person is `decision`, a rule is `question settle`",
                 )?;
             }
+            if request.shown_by.is_some() {
+                stray("shown_by", "`question done` takes it")?;
+            }
         }
         Closing::Settle => {
             if request.decision.is_some() {
@@ -321,12 +326,15 @@ fn resolve(
                     "settling records none: a question settled from rules is not the person's",
                 )?;
             }
+            if request.shown_by.is_some() {
+                stray("shown_by", "`question done` takes it")?;
+            }
         }
         Closing::Done => {
             if request.decision.is_some() || request.by_rule.is_some() {
                 stray(
                     "decision` or `by_rule",
-                    "done takes `blocked` and `work` or `no_work`",
+                    "done takes `shown_by`, `blocked` and `work` or `no_work`",
                 )?;
             }
         }
@@ -343,6 +351,13 @@ fn resolve(
         }
         (Closing::Settle, Some(rule)) if rule.trim().is_empty() => fail!("`by_rule` is empty"),
         (_, rule) => rule,
+    };
+    let shown_by = match (closing, request.shown_by) {
+        (Closing::Done, None) => fail!(
+            "`question done` needs `shown_by`: what shows the step is done (the person's words, a decision, a commit or the code)"
+        ),
+        (Closing::Done, Some(shown)) if shown.trim().is_empty() => fail!("`shown_by` is empty"),
+        (_, shown) => shown,
     };
     let drafts = work_or_why(request.work, request.no_work)?;
     require_draft_briefs(cwd, &drafts)?;
@@ -385,9 +400,10 @@ fn resolve(
                 for draft in &drafts {
                     items.push(add_item(db, draft, None, &stamp)?);
                 }
-                let how = match by_rule {
-                    Some(rule) => How::Settled(rule),
-                    None => How::Done,
+                let how = match (by_rule, shown_by) {
+                    (Some(rule), _) => How::Settled(rule),
+                    (None, Some(shown)) => How::Done(shown),
+                    (None, None) => unreachable!("`done` needs `shown_by`, checked above"),
                 };
                 (how, (None, items))
             }
@@ -648,10 +664,11 @@ fn show(tool: &Tool, args: &[String], cwd: &Path) -> Result<String> {
                 .map(|line| format!("{line}\n"))
                 .unwrap_or_default();
             Ok(format!(
-                "{id} {title}\nclosed {} ({}) by {}\n{trail}",
+                "{id} {title}\nclosed {} ({}) by {}\n{}\n{trail}",
                 closed.how.label(),
                 crate::text::local_minute(closed.closed.at),
-                closed.closed.by
+                closed.closed.by,
+                closed.how.words()
             ))
         }
         Some(Located { kind, .. }) => fail!("{id} is a {}, not a question", kind.name()),

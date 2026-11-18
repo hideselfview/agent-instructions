@@ -101,7 +101,7 @@ fn a_dropped_item_others_wait_on_fails_the_final_check() {
     let c = item(&db, vec![Wait::Item(a)]);
     let blocked = BlockedMap::from([(a, Blocked::Drop("no".into())), (b, Blocked::Proceeds)]);
     apply_blocked(&db, q, &blocked, &stamp(NOON)).unwrap();
-    close(&db, q, How::Done, &stamp(NOON)).unwrap();
+    close(&db, q, How::Done("shown".into()), &stamp(NOON)).unwrap();
     let faults = crate::lists::check::faults(&db, "demo").unwrap();
     let message = faults.join("\n");
     assert!(

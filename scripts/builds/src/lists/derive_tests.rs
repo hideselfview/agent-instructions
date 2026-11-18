@@ -39,7 +39,7 @@ fn a_wait_is_met_by_the_way_its_record_closed() {
     let decision = decision_answering(&db, answered);
     close(&db, answered, How::Answered(decision), &stamp(NOON)).unwrap();
     close(&db, settled, How::Settled("rule".into()), &stamp(NOON)).unwrap();
-    close(&db, done, How::Done, &stamp(NOON)).unwrap();
+    close(&db, done, How::Done("shown".into()), &stamp(NOON)).unwrap();
     close(&db, dropped, How::Dropped("no".into()), &stamp(NOON)).unwrap();
     close(
         &db,
@@ -126,7 +126,7 @@ fn an_items_state() {
     // A running item that also waits on an answer is still running.
     assert_eq!(state(running), ItemState::Running);
     // Once the question closes, the wait is met.
-    close(&db, q, How::Done, &stamp(NOON)).unwrap();
+    close(&db, q, How::Done("shown".into()), &stamp(NOON)).unwrap();
     assert_eq!(state(waiting), ItemState::Ready);
 }
 

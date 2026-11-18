@@ -106,11 +106,11 @@ fn the_json_has_the_pages_shape() {
     );
     assert_eq!(
         item_json["waits"][0],
-        json!({"kind": "question", "id": q.0, "title": lists.question(q).unwrap().title, "text": null, "met": false, "on_person": true})
+        json!({"kind": "question", "id": q.0, "title": lists.question(q).unwrap().title, "text": null, "met": false, "closing": null, "on_person": true})
     );
     assert_eq!(
         item_json["waits"][1],
-        json!({"kind": "condition", "id": null, "title": null, "text": "a quiet machine", "met": false, "on_person": false})
+        json!({"kind": "condition", "id": null, "title": null, "text": "a quiet machine", "met": false, "closing": null, "on_person": false})
     );
     let running_json = json["items"]
         .as_array()
@@ -286,4 +286,23 @@ fn each_item_counts_the_open_items_that_wait_behind_it() {
         .map(|i| &i["behind"])
         .collect();
     assert_eq!(behind, [&json!(2), &json!(1), &json!(0)]);
+}
+
+#[test]
+fn a_wait_on_a_closed_question_says_why_the_question_closed() {
+    let db = db();
+    let q = question(&db);
+    let waiting = item(&db, vec![Wait::Question(q)]);
+    close(&db, q, How::Settled("rules/x.md".into()), &stamp(NOON)).unwrap();
+    let json = view_json(&read(&db));
+    let item_json = json["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|i| i["id"] == json!(waiting.0))
+        .unwrap();
+    assert_eq!(
+        item_json["waits"][0]["closing"],
+        json!("settled by rules/x.md")
+    );
 }

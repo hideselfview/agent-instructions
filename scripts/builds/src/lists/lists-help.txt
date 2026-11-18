@@ -127,17 +127,24 @@ auto` takes it out of the ranked order.
       new top.
 
   builds question settle N --request F
-      The request: {"by_rule": the rule or code that settles it, "blocked",
-      "work" | "no_work"}. Records no decision: a question that rules settle
-      is not the person's.
+      The request: {"by_rule": the rule path, spec section, earlier decision
+      or code that settles it, "blocked", "work" | "no_work"}. Records no
+      decision: a question that rules settle is not the person's. builds
+      stores `by_rule` as the question's reason, and `question show` and the
+      dashboard's waits on the question print it.
 
   builds question done N --request F
-      For your-step and held entries: {"blocked", "work" | "no_work"}.
+      For your-step and held entries: {"shown_by": what shows the step is
+      done (the person's words, a decision, a commit or the code), "blocked",
+      "work" | "no_work"}. builds stores `shown_by` as the reason and prints
+      it where it prints a settle's. A question closed as done before builds
+      kept this shows "closed as done before builds recorded why".
 
   builds question drop N --why WHY
   builds question defer N --issue URL
-      Takes the entry off; refused while an item waits on it (the message
-      names each and the `item wait ITEM --off question:N` that frees it).
+      Takes the entry off with its reason (--why, or the issue); refused while
+      an item waits on it (the message names each and the `item wait ITEM
+      --off question:N` that frees it).
       defer needs an open GitHub issue (`gh issue view URL --json state`,
       asked before the write lock).
 
@@ -165,7 +172,8 @@ auto` takes it out of the ranked order.
       --untag refuses a tag the entry does not carry.
 
   builds question show N | builds question list [--tag T]
-      One entry with its details and trail (a closed one shows how it left), or
+      One entry with its details and trail (a closed one shows how it left and the
+      reason or decision that closed it), or
       the stack in the order builds asks the person its entries, one line per
       entry.
 

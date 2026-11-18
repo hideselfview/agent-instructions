@@ -84,7 +84,7 @@ fn a_hold_is_refused_for_an_item_whose_question_closed() {
     let top = demo.add_side(1, "agent", "work");
     start(&demo, &top, |db| {
         let q = question(db);
-        crate::lists::record::close(db, q, How::Done, &stamp(NOON)).unwrap();
+        crate::lists::record::close(db, q, How::Done("shown".into()), &stamp(NOON)).unwrap();
         vec![Wait::Question(q)]
     });
     assert!(refusal(held(&demo, &top)).contains("waits on nothing open"));
@@ -199,7 +199,7 @@ fn health_names_a_hold_whose_wait_closed() {
     running_in_db(&db, id, "/w/bae-worktrees/side-1");
     let mut tree = bae_worktree(Some("held"));
     assert!(findings(&loaded(read(&db)), std::slice::from_ref(&tree)).is_empty());
-    crate::lists::record::close(&db, q, How::Done, &stamp(NOON)).unwrap();
+    crate::lists::record::close(&db, q, How::Done("shown".into()), &stamp(NOON)).unwrap();
     let found = findings(&loaded(read(&db)), std::slice::from_ref(&tree));
     assert_eq!(found.len(), 1, "{found:?}");
     assert!(

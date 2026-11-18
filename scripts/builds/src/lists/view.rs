@@ -73,6 +73,9 @@ pub struct WaitView {
     pub title: Option<String>,
     pub text: Option<String>,
     pub met: bool,
+    /// How the question it names left the stack, with the reason or the
+    /// decision that closed it; None for any other wait.
+    pub closing: Option<String>,
     /// Does it wait on the person (`derive::wait_on_person`)?
     pub on_person: bool,
 }
@@ -272,6 +275,7 @@ fn wait_view(lists: &Lists, wait: &Wait) -> WaitView {
             title,
             text: None,
             met: derive::wait_met(lists, wait),
+            closing: crate::lists::show::question_closing_words(lists, wait),
             on_person: derive::wait_on_person(lists, wait),
         }
     };
@@ -285,6 +289,7 @@ fn wait_view(lists: &Lists, wait: &Wait) -> WaitView {
             title: None,
             text: Some(text.clone()),
             met: false,
+            closing: None,
             on_person: false,
         },
     }

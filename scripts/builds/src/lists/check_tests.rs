@@ -106,7 +106,7 @@ fn an_open_items_wait_on_a_record_closed_so_it_never_meets_it_is_a_fault() {
         ],
     );
     close(&db, dropped_q, How::Dropped("x".into()), &stamp(NOON)).unwrap();
-    close(&db, answered_q, How::Done, &stamp(NOON)).unwrap();
+    close(&db, answered_q, How::Done("shown".into()), &stamp(NOON)).unwrap();
     close(
         &db,
         dropped_item,

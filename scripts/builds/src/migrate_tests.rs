@@ -143,7 +143,7 @@ fn plant_run(conn: &Connection) {
 /// comment above it.
 fn schema_before_design_tip() -> String {
     let schema = without_design_fix(without_canvas(without_blocks_from_waits(without_effects(
-        without_run_times(db::schema_before_app_timing()),
+        without_run_times(with_done_without_reason(db::schema_before_app_timing())),
     ))));
     let from = schema
         .find("\n-- The last commit of the range")
@@ -390,7 +390,7 @@ fn store_before_app_timing(dir: &std::path::Path) -> std::path::PathBuf {
     let conn = Connection::open(&path).unwrap();
     conn.execute_batch(&without_design_fix(without_canvas(
         without_blocks_from_waits(without_loads(without_effects(without_run_times(
-            db::schema_before_app_timing(),
+            with_done_without_reason(db::schema_before_app_timing()),
         )))),
     )))
     .unwrap();
@@ -422,7 +422,7 @@ fn the_app_timing_stamp_is_the_schema_before_app_timings() {
     assert_eq!(
         db::stamp_of_text(&without_design_fix(without_canvas(
             without_blocks_from_waits(without_loads(without_effects(without_run_times(
-                db::schema_before_app_timing()
+                with_done_without_reason(db::schema_before_app_timing())
             ))))
         ))),
         BEFORE_APP_TIMING_STAMP
@@ -437,7 +437,7 @@ fn store_before_design_session(dir: &std::path::Path) -> std::path::PathBuf {
     let conn = Connection::open(&path).unwrap();
     conn.execute_batch(&without_design_fix(without_canvas(
         without_blocks_from_waits(without_loads(without_effects(without_run_times(
-            db::schema_before_design_session(),
+            with_done_without_reason(db::schema_before_design_session()),
         )))),
     )))
     .unwrap();
@@ -470,7 +470,7 @@ fn the_design_session_stamp_is_the_schema_before_design_sessions() {
     assert_eq!(
         db::stamp_of_text(&without_design_fix(without_canvas(
             without_blocks_from_waits(without_loads(without_effects(without_run_times(
-                db::schema_before_design_session()
+                with_done_without_reason(db::schema_before_design_session())
             ))))
         ))),
         BEFORE_DESIGN_SESSION_STAMP
@@ -485,7 +485,7 @@ fn store_before_shot_findings(dir: &std::path::Path) -> std::path::PathBuf {
     let conn = Connection::open(&path).unwrap();
     conn.execute_batch(&without_design_fix(without_canvas(
         without_blocks_from_waits(without_loads(without_effects(without_run_times(
-            db::schema_before_shot_findings(),
+            with_done_without_reason(db::schema_before_shot_findings()),
         )))),
     )))
     .unwrap();
@@ -517,7 +517,7 @@ fn the_shot_findings_stamp_is_the_schema_before_shot_findings() {
     assert_eq!(
         db::stamp_of_text(&without_design_fix(without_canvas(
             without_blocks_from_waits(without_loads(without_effects(without_run_times(
-                db::schema_before_shot_findings()
+                with_done_without_reason(db::schema_before_shot_findings())
             ))))
         ))),
         BEFORE_SHOT_FINDINGS_STAMP
@@ -532,7 +532,7 @@ fn store_before_review(dir: &std::path::Path) -> std::path::PathBuf {
     let conn = Connection::open(&path).unwrap();
     conn.execute_batch(&without_design_fix(without_canvas(
         without_blocks_from_waits(without_loads(without_effects(without_run_times(
-            db::schema_before_review(),
+            with_done_without_reason(db::schema_before_review()),
         )))),
     )))
     .unwrap();
@@ -572,7 +572,7 @@ fn the_review_stamp_is_the_schema_before_the_review() {
     assert_eq!(
         db::stamp_of_text(&without_design_fix(without_canvas(
             without_blocks_from_waits(without_loads(without_effects(without_run_times(
-                db::schema_before_review()
+                with_done_without_reason(db::schema_before_review())
             ))))
         ))),
         BEFORE_REVIEW_STAMP
@@ -2036,7 +2036,7 @@ fn with_parked(schema: String) -> String {
 #[test]
 fn the_kept_work_stamp_is_the_schema_before_builds_named_what_an_item_keeps() {
     assert_eq!(
-        db::stamp_of_text(&with_parked(db::schema_before_publish())),
+        db::stamp_of_text(&with_parked(schema_before_publish())),
         BEFORE_KEPT_WORK_STAMP
     );
 }
@@ -2055,7 +2055,7 @@ fn a_store_with_parked_items_keeps_their_places_and_equals_a_fresh_schema() {
     let path = dir.join(DATABASE);
     {
         let conn = Connection::open(&path).unwrap();
-        conn.execute_batch(&with_parked(db::schema_before_publish()))
+        conn.execute_batch(&with_parked(schema_before_publish()))
             .unwrap();
         conn.pragma_update(None, "user_version", BEFORE_KEPT_WORK_STAMP)
             .unwrap();
@@ -3448,7 +3448,7 @@ fn without_review_circles(schema: String) -> String {
 
 /// The schema text before the designer chose the circles on a review board.
 fn schema_before_review_circles() -> String {
-    let schema = db::schema_before_publish();
+    let schema = schema_before_publish();
     assert!(schema.contains(REVIEW_CIRCLE_COMMENT));
     without_review_circles(schema)
 }
@@ -3538,7 +3538,7 @@ fn a_store_from_before_review_circles_gains_their_table_and_equals_a_fresh_schem
 
 /// The schema text before a review page was one section.
 fn schema_before_one_section() -> String {
-    with_many_sections(db::schema_before_publish())
+    with_many_sections(schema_before_publish())
 }
 
 #[test]
@@ -3758,7 +3758,7 @@ fn old_review_run(conn: &Connection, landing: i64, changed_lines: i64) -> i64 {
 #[test]
 fn the_runs_without_grouping_stamp_is_the_schema_before_runs_lost_their_grouping() {
     assert_eq!(
-        db::stamp_of_text(&with_grouping(with_parked(db::schema_before_publish()))),
+        db::stamp_of_text(&with_grouping(with_parked(schema_before_publish()))),
         BEFORE_RUNS_WITHOUT_GROUPING_STAMP
     );
 }
@@ -3774,7 +3774,7 @@ fn a_store_from_before_runs_lost_their_grouping_keeps_each_run_and_equals_a_fres
     let path = dir.join(DATABASE);
     {
         let conn = Connection::open(&path).unwrap();
-        conn.execute_batch(&with_grouping(with_parked(db::schema_before_publish())))
+        conn.execute_batch(&with_grouping(with_parked(schema_before_publish())))
             .unwrap();
         use crate::lists::fixtures::v;
         crate::review::record::plant(
@@ -3832,7 +3832,7 @@ fn a_store_from_before_runs_lost_their_grouping_keeps_each_run_and_equals_a_fres
 /// The schema text before the decided changes' table: today's, without the
 /// table and with the approval's comment as it read then.
 fn schema_before_design_decision() -> String {
-    let schema = db::schema_before_publish();
+    let schema = schema_before_publish();
     assert!(schema.contains(DESIGN_DECISION_COMMENT));
     without_design_decision(schema)
 }
@@ -5172,10 +5172,107 @@ fn a_store_from_before_run_times_gets_the_runs_its_write_log_tells_of() {
     assert_eq!(from, 800);
 }
 
+/// What record.sql said of a closing's reason before a question could close
+/// as done only with a reason, and as it says now.
+const OLD_CLOSING_REASON: &str =
+    "    -- Why whoever closed the record settled, dropped or deferred it, or what a
+    -- finished item made.
+    reason TEXT,";
+const NEW_CLOSING_REASON: &str =
+    "    -- Why whoever closed the record settled it (the rule, spec text, earlier
+    -- decision or code that settles it), dropped or deferred it, or what
+    -- shows a question's step done, or what a finished item made. A question
+    -- leaves only with a decision (answered) or one of these reasons.
+    reason TEXT,";
+const OLD_CLOSING_CHECK: &str =
+    "(how IN ('settled', 'finished', 'dropped', 'deferred')) = (reason IS NOT NULL)";
+const NEW_CLOSING_CHECK: &str =
+    "(how IN ('settled', 'done', 'finished', 'dropped', 'deferred')) = (reason IS NOT NULL)";
+
+/// <schema> as it read before a question could close as done only with a
+/// reason: `closing` let a question close as done with none.
+fn with_done_without_reason(schema: String) -> String {
+    assert_eq!(schema.matches(NEW_CLOSING_REASON).count(), 1);
+    assert_eq!(schema.matches(NEW_CLOSING_CHECK).count(), 1);
+    schema
+        .replacen(NEW_CLOSING_REASON, OLD_CLOSING_REASON, 1)
+        .replacen(NEW_CLOSING_CHECK, OLD_CLOSING_CHECK, 1)
+}
+
+/// The schema as it was before the publish requests' tables joined it, and
+/// before a question could close as done only with a reason.
+fn schema_before_publish() -> String {
+    with_done_without_reason(db::schema_before_publish())
+}
+
+/// The schema as it was before a question could close as done only with a
+/// reason.
+fn schema_before_done_reason() -> String {
+    with_done_without_reason(db::schema())
+}
+
+#[test]
+fn the_done_reason_stamp_is_the_schema_before_a_question_closed_as_done_with_a_reason() {
+    assert_eq!(
+        db::stamp_of_text(&schema_before_done_reason()),
+        BEFORE_DONE_REASON_STAMP
+    );
+}
+
+/// A store from before questions closed as done with a reason gives each
+/// question that closed as done `DONE_BEFORE_REASONS`, keeps every other
+/// closing as it was, and equals a fresh schema.
+#[test]
+fn a_store_with_questions_closed_as_done_marks_them_and_equals_a_fresh_schema() {
+    let scratch = Scratch::new("move-done-reason");
+    let places = scratch.places();
+    let dir = places.lists.join("bae");
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join(DATABASE);
+    {
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(&schema_before_done_reason()).unwrap();
+        conn.pragma_update(None, "user_version", BEFORE_DONE_REASON_STAMP)
+            .unwrap();
+        for (id, how, reason) in [(1, "done", None), (2, "settled", Some("a rule"))] {
+            conn.execute(
+                "INSERT INTO record (id, kind, opened_at, opened_by) VALUES (?1, 'question', 5, 'tester')",
+                [id],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO closing (record_id, kind, how, at, by, reason) VALUES (?1, 'question', ?2, 9, 'tester', ?3)",
+                rusqlite::params![id, how, reason],
+            )
+            .unwrap();
+        }
+    }
+    migrate_stores(&places, 0).unwrap();
+    let conn = db::open(&path, db::Make::Never).unwrap();
+    assert_eq!(
+        db::schema_rows(&conn).unwrap(),
+        db::schema_rows(&db::memory()).unwrap()
+    );
+    let reasons: Vec<(i64, String)> = conn
+        .prepare("SELECT record_id, reason FROM closing ORDER BY record_id")
+        .unwrap()
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+        .unwrap()
+        .collect::<rusqlite::Result<_>>()
+        .unwrap();
+    assert_eq!(
+        reasons,
+        [
+            (1, crate::lists::record::DONE_BEFORE_REASONS.to_string()),
+            (2, "a rule".to_string())
+        ]
+    );
+}
+
 #[test]
 fn the_publish_stamp_is_the_schema_before_the_publish_requests() {
     assert_eq!(
-        db::stamp_of_text(&db::schema_before_publish()),
+        db::stamp_of_text(&schema_before_publish()),
         BEFORE_PUBLISH_STAMP
     );
 }
@@ -5191,7 +5288,7 @@ fn a_store_from_before_the_publish_requests_gains_their_tables_and_equals_a_fres
     let path = dir.join(DATABASE);
     {
         let conn = Connection::open(&path).unwrap();
-        conn.execute_batch(&db::schema_before_publish()).unwrap();
+        conn.execute_batch(&schema_before_publish()).unwrap();
         conn.pragma_update(None, "user_version", BEFORE_PUBLISH_STAMP)
             .unwrap();
     }

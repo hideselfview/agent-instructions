@@ -12,28 +12,12 @@ use crate::lists::args::Args;
 use crate::lists::derive::{self, FLOW_DAYS, ItemState, Times, branch_times, item_times};
 use crate::lists::item::open_item;
 use crate::lists::running::marker;
-use crate::lists::show::{item_line, kept_words, wait_words};
+use crate::lists::show::{item_line, kept_words, question_closing_words, wait_words};
 use crate::lists::store::Store;
 use crate::lists::trail::{trail_line, trail_wanted};
 use crate::lists::{Audience, Closed, How, Id, Item, Kind, Level, Lists, Located, Standing, Wait};
 use crate::text::{counted, duration, local_minute};
 use crate::tool::Tool;
-
-fn how_words(how: &How) -> String {
-    match how {
-        How::Answered(decision) => format!("answered by decision {decision}"),
-        How::Settled(rule) => format!("settled by {rule}"),
-        How::Done => "done".to_string(),
-        How::Landed(commits) => {
-            let short: Vec<&str> = commits.iter().map(|c| &c[..c.len().min(9)]).collect();
-            format!("landed ({})", short.join(" "))
-        }
-        How::Finished(made) => format!("finished: {made}"),
-        How::Dropped(why) => format!("dropped: {why}"),
-        How::Deferred(url) => format!("deferred to {url}"),
-        How::MovedToStack(question) => format!("moved to the stack as {question}"),
-    }
-}
 
 fn wait_line(lists: &Lists, wait: &Wait) -> String {
     let met = if derive::wait_met(lists, wait) {
@@ -41,7 +25,11 @@ fn wait_line(lists: &Lists, wait: &Wait) -> String {
     } else {
         "not met"
     };
-    format!("{} ({met})", wait_words(lists, wait))
+    let words = wait_words(lists, wait);
+    match question_closing_words(lists, wait) {
+        Some(closing) => format!("{words} ({met}; {closing})"),
+        None => format!("{words} ({met})"),
+    }
 }
 
 /// <times> in words at <now>: when the first run started, when the work
@@ -200,7 +188,7 @@ pub fn render_item(lists: &Lists, id: Id, now: i64) -> Result<String> {
         Some(closed) => (
             format!(
                 "closed, {} by {} {}",
-                how_words(&closed.how),
+                closed.how.words(),
                 closed.closed.by,
                 local_minute(closed.closed.at)
             ),

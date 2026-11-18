@@ -1678,7 +1678,7 @@ function itemFacts(it) {
 function itemBody(it) {
   const facts = [];
   if (it.waits.length) facts.push(h("div", {class: "l-fact"}, h("span", {class: "k"}, "Waits"),
-    h("ul", {class: "l-list"}, it.waits.map(w => h("li", {}, waitLink(w), w.met ? " (met)" : "")))));
+    h("ul", {class: "l-list"}, it.waits.map(w => h("li", {}, waitLink(w), w.met ? " (met)" : "", w.closing ? " (" + w.closing + ")" : "")))));
   if (it.priority) facts.push(fact("Priority " + it.priority.level + ":", it.priority.why));
   if (it.brief) facts.push(fact("Brief", mono(it.brief)));
   for (const p of it.kept) facts.push(fact("Keeps", mono(p.worktree), " on ", mono(p.branch), ", since " + stamp(p.since.at)));

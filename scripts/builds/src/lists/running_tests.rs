@@ -352,7 +352,12 @@ fn a_write_through_the_store_opens_and_ends_waiting_spans() {
         .unwrap();
     store
         .write(&stamp(NOON + 400), "question done", |db| {
-            crate::lists::record::close(db, asked, crate::lists::How::Done, &stamp(NOON + 400))
+            crate::lists::record::close(
+                db,
+                asked,
+                crate::lists::How::Done("shown".into()),
+                &stamp(NOON + 400),
+            )
         })
         .unwrap();
     assert_eq!(

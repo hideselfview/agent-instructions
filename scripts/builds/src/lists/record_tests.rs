@@ -30,10 +30,10 @@ fn how_a_record_may_leave_depends_on_its_kind() {
     assert!(!How::Answered(Id(1)).fits(Kind::Item));
     assert!(How::Landed(vec![crate::lists::fixtures::sha('a')]).fits(Kind::Item));
     assert!(How::Landed(vec![crate::lists::fixtures::sha('a')]).fits(Kind::Design));
-    assert!(!How::Done.fits(Kind::Item));
+    assert!(!How::Done("shown".into()).fits(Kind::Item));
     assert!(How::MovedToStack(Id(1)).fits(Kind::Item));
     assert!(!How::MovedToStack(Id(1)).fits(Kind::Question));
-    assert!(!How::Done.fits(Kind::Decision));
+    assert!(!How::Done("shown".into()).fits(Kind::Decision));
 }
 
 #[test]
@@ -41,7 +41,7 @@ fn locate_finds_open_and_closed_records() {
     let db = db();
     let q = question(&db);
     let i = item(&db, vec![]);
-    crate::lists::record::close(&db, q, How::Done, &stamp(1)).unwrap();
+    crate::lists::record::close(&db, q, How::Done("shown".into()), &stamp(1)).unwrap();
     let lists = read(&db);
     let open = lists.locate(i).unwrap();
     assert_eq!(
@@ -62,18 +62,25 @@ fn close_closes_the_record_and_refuses_what_does_not_fit() {
     let q = question(&db);
     let i = item(&db, vec![]);
     assert!(
-        refusal(close(&db, i, How::Done, &stamp(NOON))).contains("item cannot be closed as done")
+        refusal(close(&db, i, How::Done("shown".into()), &stamp(NOON)))
+            .contains("item cannot be closed as done")
     );
-    assert!(refusal(close(&db, Id(99), How::Done, &stamp(NOON))).contains("not a record"));
-    close(&db, q, How::Done, &stamp(NOON + 5)).unwrap();
+    assert!(
+        refusal(close(&db, Id(99), How::Done("shown".into()), &stamp(NOON)))
+            .contains("not a record")
+    );
+    close(&db, q, How::Done("shown".into()), &stamp(NOON + 5)).unwrap();
     let lists = read(&db);
     assert!(lists.question(q).is_none());
     let closed = lists.closed_record(q).unwrap();
     assert_eq!(
         (closed.how.clone(), closed.closed.clone()),
-        (How::Done, stamp(NOON + 5))
+        (How::Done("shown".into()), stamp(NOON + 5))
     );
-    assert!(refusal(close(&db, q, How::Done, &stamp(NOON))).contains("already closed (done)"));
+    assert!(
+        refusal(close(&db, q, How::Done("shown".into()), &stamp(NOON)))
+            .contains("already closed (done)")
+    );
 }
 
 #[test]
@@ -118,7 +125,9 @@ fn every_named_constraint_of_the_record_tables_refuses_its_row() {
         ("how", v("done")),
         ("at", v(1)),
         ("by", v("a")),
+        ("reason", v("the person's words")),
     ];
+    let no_reason = ("reason", v(rusqlite::types::Value::Null));
     let item_closing = [
         ("record_id", v(i.0)),
         ("kind", v("item")),
@@ -144,7 +153,11 @@ fn every_named_constraint_of_the_record_tables_refuses_its_row() {
         plant(
             &db,
             "closing",
-            &on_second(&[("how", v("answered")), ("decision_id", v(decision.0))]),
+            &on_second(&[
+                ("how", v("answered")),
+                ("decision_id", v(decision.0)),
+                no_reason.clone(),
+            ]),
         ),
     );
     refused.check_as(
@@ -154,11 +167,19 @@ fn every_named_constraint_of_the_record_tables_refuses_its_row() {
     );
     refused.check(
         "closing_how_fits_kind",
-        plant(&db, "closing", &on_second(&[("how", v("landed"))])),
+        plant(
+            &db,
+            "closing",
+            &on_second(&[("how", v("landed")), no_reason.clone()]),
+        ),
     );
     refused.check(
         "closing_answered_names_its_decision",
-        plant(&db, "closing", &on_second(&[("how", v("answered"))])),
+        plant(
+            &db,
+            "closing",
+            &on_second(&[("how", v("answered")), no_reason.clone()]),
+        ),
     );
     refused.check(
         "closing_moved_names_its_question",
@@ -184,6 +205,10 @@ fn every_named_constraint_of_the_record_tables_refuses_its_row() {
                 &[("reason", v(rusqlite::types::Value::Null))],
             ),
         ),
+    );
+    refused.check(
+        "closing_reason_goes_with_how",
+        plant(&db, "closing", &on_second(std::slice::from_ref(&no_reason))),
     );
     refused.check(
         "closing_reason_says_something",

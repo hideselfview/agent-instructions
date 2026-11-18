@@ -25,8 +25,10 @@ CREATE TABLE closing (
     decision_id INTEGER CONSTRAINT closing_decision_answers_once UNIQUE REFERENCES decision (id),
     -- The question that took an item's place.
     question_id INTEGER REFERENCES question (id),
-    -- Why whoever closed the record settled, dropped or deferred it, or what a
-    -- finished item made.
+    -- Why whoever closed the record settled it (the rule, spec text, earlier
+    -- decision or code that settles it), dropped or deferred it, or what
+    -- shows a question's step done, or what a finished item made. A question
+    -- leaves only with a decision (answered) or one of these reasons.
     reason TEXT,
     CONSTRAINT closing_names_its_record FOREIGN KEY (record_id, kind) REFERENCES record (id, kind),
     CONSTRAINT closing_how_fits_kind CHECK (
@@ -39,7 +41,7 @@ CREATE TABLE closing (
     ),
     CONSTRAINT closing_answered_names_its_decision CHECK ((how = 'answered') = (decision_id IS NOT NULL)),
     CONSTRAINT closing_moved_names_its_question CHECK ((how = 'moved-to-stack') = (question_id IS NOT NULL)),
-    CONSTRAINT closing_reason_goes_with_how CHECK ((how IN ('settled', 'finished', 'dropped', 'deferred')) = (reason IS NOT NULL)),
+    CONSTRAINT closing_reason_goes_with_how CHECK ((how IN ('settled', 'done', 'finished', 'dropped', 'deferred')) = (reason IS NOT NULL)),
     CONSTRAINT closing_reason_says_something CHECK (reason IS NULL OR trim(reason) <> ''),
     CONSTRAINT closing_with_how UNIQUE (record_id, how)
 ) STRICT;

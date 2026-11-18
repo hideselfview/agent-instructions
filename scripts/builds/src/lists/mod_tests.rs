@@ -36,7 +36,10 @@ fn wire_shapes_are_the_plans() {
         serde_json::to_string(&How::MovedToStack(Id(2))).unwrap(),
         r#"{"moved-to-stack":2}"#
     );
-    assert_eq!(serde_json::to_string(&How::Done).unwrap(), r#""done""#);
+    assert_eq!(
+        serde_json::to_string(&How::Done("shown".into())).unwrap(),
+        r#"{"done":"shown"}"#
+    );
     assert_eq!(
         serde_json::to_string(&Audience::DesignSession).unwrap(),
         r#""design-session""#

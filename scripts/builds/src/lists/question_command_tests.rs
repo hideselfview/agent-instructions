@@ -706,6 +706,11 @@ fn settle_records_no_decision_and_needs_a_rule() {
         &How::Settled("rules/x.md says so".into())
     );
     assert!(lists.decisions.is_empty());
+    let shown = go(&scratch, &tool, &format!("show {q}")).unwrap();
+    assert!(
+        shown.contains("closed settled") && shown.contains("settled by rules/x.md says so"),
+        "{shown}"
+    );
     assert_eq!(lists.items.last().unwrap().origin, None);
     assert!(
         out.contains("settled question") && out.contains("no decision recorded"),
@@ -728,13 +733,28 @@ fn done_closes_your_step_and_held_but_not_a_question() {
     let r = file(
         &scratch,
         "d.json",
-        r#"{"blocked": {}, "no_work": "nothing follows"}"#,
+        r#"{"shown_by": "the person's words", "blocked": {}, "no_work": "nothing follows"}"#,
     );
     let with_waiter = file(
         &scratch,
         "w.json",
-        &format!(r#"{{"blocked": {{"{waiting}": "proceeds"}}, "no_work": "nothing follows"}}"#),
+        &format!(
+            r#"{{"shown_by": "the person's words", "blocked": {{"{waiting}": "proceeds"}}, "no_work": "nothing follows"}}"#
+        ),
     );
+    let without_reason = file(
+        &scratch,
+        "n.json",
+        r#"{"blocked": {}, "no_work": "nothing follows"}"#,
+    );
+    refuses(
+        &scratch,
+        &tool,
+        &store,
+        &format!("done {step} --request {without_reason}"),
+        "needs `shown_by`",
+    );
+    assert!(store.load().unwrap().question(step).is_some());
     refuses(
         &scratch,
         &tool,
@@ -752,9 +772,14 @@ fn done_closes_your_step_and_held_but_not_a_question() {
     let lists = store.load().unwrap();
     assert_eq!(
         (closed_as(&lists, step), closed_as(&lists, held)),
-        (&How::Done, &How::Done)
+        (
+            &How::Done("the person's words".into()),
+            &How::Done("the person's words".into())
+        )
     );
     assert!(out.contains(&format!("question {step} done")), "{out}");
+    let shown = go(&scratch, &tool, &format!("show {step}")).unwrap();
+    assert!(shown.contains("done: the person's words"), "{shown}");
     let with_decision = file(
         &scratch,
         "x.json",

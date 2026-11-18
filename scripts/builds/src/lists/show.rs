@@ -29,6 +29,18 @@ pub fn wait_words(lists: &Lists, wait: &Wait) -> String {
     }
 }
 
+/// How the question that <wait> names left the stack, with the reason or
+/// decision that closed it; None for any other wait, or a question still open.
+pub fn question_closing_words(lists: &Lists, wait: &Wait) -> Option<String> {
+    let Wait::Question(id) = wait else {
+        return None;
+    };
+    match lists.locate(*id)?.standing {
+        crate::lists::Standing::Closed(closed) => Some(closed.how.words()),
+        crate::lists::Standing::Open => None,
+    }
+}
+
 /// What an item keeps, as the queue's lines say it.
 pub fn kept_words(kept: &crate::lists::kept_work::KeptWork) -> String {
     format!(

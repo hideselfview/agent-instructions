@@ -30,7 +30,10 @@ write ("say who you are with --by").
   - The stack holds only what waits on the person, a plan's open questions
     among them. Whoever asks an entry names its effect and what it blocks
     (below). A question that a rule or the code settles is not the person's:
-    `builds question settle` closes it and records no decision.
+    `builds question settle` closes it, records no decision and stores the
+    rule, spec text, earlier decision or code that settles it. A question
+    leaves the stack only with the person's answer (a decision) or with such
+    a stored reason: a settle, a done, a drop or a defer each needs one.
   - The queue holds only what agents can do, and `builds next` lists the
     items that are ready.
   - The log holds each answer and each standing choice about how work runs,
