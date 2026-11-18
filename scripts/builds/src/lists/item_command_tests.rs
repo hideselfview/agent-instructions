@@ -738,6 +738,57 @@ fn stop_keeps_the_worktree_of_unfinished_work_and_take_runs_the_item_there_again
     assert_eq!(taken.running[0].worktree, side_arg);
 }
 
+/// When stop cannot remove a kept worktree's claim, the item already keeps
+/// the worktree, the failure names the worktree and the command to run
+/// again, and health says the worktree still has a claim. The same stop
+/// again removes the claim; a third does nothing.
+#[test]
+fn a_stop_whose_claim_stayed_finishes_when_run_again_and_then_does_nothing() {
+    use std::os::unix::fs::PermissionsExt;
+    let demo = demo("item-stop-again");
+    let side = demo.add_side(1, "agent A", "work");
+    let side_arg = side.display().to_string();
+    let checkout = Checkout::find(&side_arg).unwrap();
+    crate::setup::setup(&demo.tool, &checkout).unwrap();
+    demo.commit(&side, "unlanded");
+    add(&demo, FIVE, &[]).unwrap();
+    let brief = demo.brief("b.md");
+    item(&demo, &take_args(&side_arg, &brief, &["1"], "work")).unwrap();
+    // The claim file stays while its folder refuses to lose a file.
+    let folder = checkout.claim_file().parent().unwrap().to_path_buf();
+    let mode = std::fs::metadata(&folder).unwrap().permissions().mode();
+    std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o555)).unwrap();
+    let failed = item(&demo, &["stop", "1", "--why", "out of room"]);
+    let health = crate::health::health(&demo.tool).unwrap();
+    std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(mode)).unwrap();
+    let said = refusal(failed);
+    assert!(
+        said.contains(&side_arg) && said.contains("builds item stop 1 --why WHY"),
+        "{said}"
+    );
+    assert_eq!(open(&demo).items[0].kept.len(), 1, "the keep was written");
+    assert!(open(&demo).items[0].running.is_empty());
+    assert!(
+        health.findings.iter().any(|finding| {
+            finding.advice.text.contains("still has a claim")
+                && finding.advice.command.as_deref() == Some("builds item stop 1 --why WHY")
+        }),
+        "{:?}",
+        health.findings
+    );
+
+    item(&demo, &["stop", "1", "--why", "out of room"]).unwrap();
+    assert!(
+        crate::claim::Claim::read(&checkout.claim_file())
+            .unwrap()
+            .is_none()
+    );
+    let before = demo.state();
+    item(&demo, &["stop", "1", "--why", "out of room"]).unwrap();
+    assert_eq!(demo.state(), before, "a third stop wrote something");
+    assert_eq!(open(&demo).items[0].kept.len(), 1);
+}
+
 /// Stopping an item whose worktree holds nothing origin/main lacks keeps
 /// nothing and leaves the claim.
 #[test]

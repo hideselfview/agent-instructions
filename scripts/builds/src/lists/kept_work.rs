@@ -118,7 +118,8 @@ pub fn kept_worktrees(
 }
 
 /// What `builds health` says about kept work: one line for each item that
-/// keeps a worktree that is not a live worktree, since its work is no longer
+/// keeps a worktree that is not a live worktree, and one for each kept
+/// worktree that still has a claim, since its work is no longer
 /// where the item says it waits.
 pub fn findings(loaded: &std::result::Result<Vec<Loaded>, String>) -> Result<Vec<Advice>> {
     let Ok(loaded) = loaded else {
@@ -129,7 +130,19 @@ pub fn findings(loaded: &std::result::Result<Vec<Loaded>, String>) -> Result<Vec
         let Ok(lists) = &project.lists else { continue };
         for item in &lists.items {
             for kept in &item.kept {
-                if crate::lists::running::live_worktree(&kept.worktree)?.is_some() {
+                if let Some(checkout) = crate::lists::running::live_worktree(&kept.worktree)? {
+                    if let Some(claim) = crate::claim::Claim::read(&checkout.claim_file())? {
+                        findings.push(Advice::run(
+                            format!(
+                                "lists: item {} \"{}\" keeps {}, which still has a claim ({}); remove the claim with",
+                                item.id.0,
+                                item.title,
+                                kept.worktree,
+                                claim.text()
+                            ),
+                            format!("builds item stop {} --why WHY", item.id.0),
+                        ));
+                    }
                     continue;
                 }
                 findings.push(Advice::run(

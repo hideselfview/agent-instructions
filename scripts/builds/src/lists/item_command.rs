@@ -346,45 +346,49 @@ fn handoff(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
 /// `item stop N --why WHY`: ends the item's run and puts it back in the
 /// queue. A worktree where the item ran, that holds work origin/main lacks
 /// (commits or files not committed) and where no other item runs, stays the
-/// item's: the item keeps the worktree and branch (lists/kept_work.rs), and
-/// stop removes the worktree's claim, since no agent works there. The next
-/// `item take` of the item runs it there again.
+/// item's: the item keeps the worktree and branch (lists/kept_work.rs). The
+/// store's write commits first, and then stop removes the claim of each kept
+/// worktree, since no agent works there. A claim that stays (its removal
+/// failed) leaves the item kept, and the same stop again, which finds the
+/// item keeping the worktrees, removes the claims that are left and does
+/// nothing else. The next `item take` of the item runs it there again.
 fn stop(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     let args = Args::parse(args, &["why"], &[])?;
     let id = one_id(&args, "builds item stop N --why WHY")?;
     let why = args.why()?.to_string();
     let store = Store::resolve(&tool.places, &args, cwd)?;
     let stamp = Stamp::resolve(tool.now, &args, cwd)?;
-    let every = store::every_lists(&tool.places)?;
-    let kept = {
-        let lists = store.load()?;
-        let mut kept = Vec::new();
-        for running in &lists
-            .item(id)
-            .map(|i| i.running.clone())
-            .unwrap_or_default()
-        {
-            let shared = crate::lists::running::running_in_any(&every, &running.worktree)
-                .into_iter()
-                .any(|(lists, other)| !(lists.project == store.project && other.id == id));
-            let git = crate::side_git::read(Path::new(&running.worktree));
-            if let Some(error) = git.error {
-                fail!("reading {}: {error}", running.worktree);
-            }
-            if !shared && (!git.ahead.is_empty() || git.uncommitted.unwrap_or(0) > 0) {
-                kept.push(kept_work::KeptWork {
-                    worktree: running.worktree.clone(),
-                    branch: running.branch.clone(),
-                    since: stamp.clone(),
-                });
-            }
+    let lists = store.load()?;
+    let item = open_item(&lists, id)?;
+    if item.running.is_empty() && !item.kept.is_empty() {
+        let left = remove_claims(id, item.kept.iter().map(|k| k.worktree.as_str()))?;
+        if left == 0 {
+            note(format!(
+                "{id} is stopped and keeps {} already; nothing is left to do",
+                kept_work::places_words(item.kept.iter().map(|k| (&k.worktree, &k.branch)))
+            ));
         }
-        kept
-    };
-    // The claims go in the store's write, after its other writes, so a store
-    // that refuses the stop leaves every claim; when removing a claim fails,
-    // the write rolls back and the claims already removed come back.
-    let removed = store.write(&stamp, &format!("item stop {id}"), |db| {
+        return Ok(());
+    }
+    let every = store::every_lists(&tool.places)?;
+    let mut kept = Vec::new();
+    for running in &item.running {
+        let shared = crate::lists::running::running_in_any(&every, &running.worktree)
+            .into_iter()
+            .any(|(lists, other)| !(lists.project == store.project && other.id == id));
+        let git = crate::side_git::read(Path::new(&running.worktree));
+        if let Some(error) = git.error {
+            fail!("reading {}: {error}", running.worktree);
+        }
+        if !shared && (!git.ahead.is_empty() || git.uncommitted.unwrap_or(0) > 0) {
+            kept.push(kept_work::KeptWork {
+                worktree: running.worktree.clone(),
+                branch: running.branch.clone(),
+                since: stamp.clone(),
+            });
+        }
+    }
+    store.write(&stamp, &format!("item stop {id}"), |db| {
         open_item(&store::read(db)?, id)?;
         running::stop(db, id, &stamp)?;
         if !kept.is_empty() {
@@ -398,30 +402,8 @@ fn stop(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
                 by: stamp.by.clone(),
                 text: format!("stopped: {why}"),
             },
-        )?;
-        let mut removed = Vec::new();
-        for place in &kept {
-            let checkout = crate::checkout::Checkout::find(&place.worktree)?;
-            match crate::claim::unclaim(&checkout) {
-                Ok(Some(claim)) => removed.push((checkout, claim)),
-                Ok(None) => {}
-                Err(error) => {
-                    for (checkout, _) in &removed {
-                        let _ = std::fs::rename(checkout.last_claim_file(), checkout.claim_file());
-                    }
-                    return Err(error);
-                }
-            }
-        }
-        Ok(removed)
+        )
     })?;
-    for (checkout, claim) in &removed {
-        note(format!(
-            "removed the claim on {}: {}",
-            checkout.top.display(),
-            claim.text()
-        ));
-    }
     if kept.is_empty() {
         note(format!("stopped {id}; it is back in the queue"));
     } else {
@@ -430,7 +412,31 @@ fn stop(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
             kept_work::places_words(kept.iter().map(|k| (&k.worktree, &k.branch)))
         ));
     }
+    remove_claims(id, kept.iter().map(|k| k.worktree.as_str()))?;
     Ok(())
+}
+
+/// Removes the claim of each of <worktrees>, which item <id> keeps, and says
+/// each it removed. Says how many it removed. A removal that fails stops here
+/// and names the worktree and the command that finishes the job.
+fn remove_claims<'a>(id: Id, worktrees: impl Iterator<Item = &'a str>) -> Result<usize> {
+    let mut removed = 0;
+    for worktree in worktrees {
+        let checkout = crate::checkout::Checkout::find(worktree)?;
+        match crate::claim::unclaim(&checkout) {
+            Ok(Some(claim)) => {
+                removed += 1;
+                note(format!("removed the claim on {worktree}: {}", claim.text()));
+            }
+            Ok(None) => {}
+            Err(error) => fail!(
+                "{id} keeps {worktree}, whose claim stays: {}; run `builds item stop {} --why WHY` again to remove it",
+                error.text(),
+                id.0
+            ),
+        }
+    }
+    Ok(removed)
 }
 
 /// Refuses to <how> (a verb: drop, defer, close) <item> while it keeps a
