@@ -67,16 +67,45 @@ pub fn daemon_lives(lock: &Path) -> io::Result<bool> {
 mod tests {
     use super::*;
 
-    /// `daemon_pid` returns this process's pid while it holds the lock, and
-    /// None before it claims the lock and after it drops the claim.
+    /// `daemon_pid` returns the pid of the daemon that holds the lock, and
+    /// None before any daemon claims the lock and after the one holding it
+    /// exits. The daemon that exits is another process, as in use: when a
+    /// test drops a claim it holds, every child that another test forked
+    /// meanwhile still holds the lock until it execs.
     #[test]
     fn the_pid_of_the_daemon_holding_the_lock_is_read_while_it_lives() {
+        use std::io::BufRead;
+        use std::process::{Command, Stdio};
         let scratch = crate::testing::Scratch::new("live-pid");
         let lock = scratch.dir.join("lock");
         assert_eq!(daemon_pid(&lock).unwrap(), None);
         let claim = claim(&lock).unwrap().unwrap();
         assert_eq!(daemon_pid(&lock).unwrap(), Some(std::process::id() as i32));
         drop(claim);
+
+        // lockf holds the lock while its shell writes its pid there, says
+        // it, and waits for its input to end.
+        let mut daemon = Command::new("lockf")
+            .arg("-k")
+            .arg(&lock)
+            .args([
+                "/bin/bash",
+                "-c",
+                "echo $$ > \"$0\"; echo $$; cat > /dev/null",
+            ])
+            .arg(&lock)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let mut said = String::new();
+        std::io::BufReader::new(daemon.stdout.take().unwrap())
+            .read_line(&mut said)
+            .unwrap();
+        let pid: i32 = said.trim().parse().unwrap();
+        assert_eq!(daemon_pid(&lock).unwrap(), Some(pid));
+        drop(daemon.stdin.take());
+        assert!(daemon.wait().unwrap().success());
         assert_eq!(daemon_pid(&lock).unwrap(), None);
     }
 }

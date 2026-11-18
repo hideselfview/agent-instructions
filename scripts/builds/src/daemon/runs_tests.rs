@@ -204,8 +204,11 @@ fn a_run_a_restart_did_not_see_end_is_detached_while_it_runs_and_lost_after() {
     std::fs::create_dir_all(&dir).unwrap();
     std::fs::write(log_file(&dir, "demo", Lane::Mac), "before the restart\n").unwrap();
 
-    // A live build-app: a shell with that word among its arguments.
-    let mut live = Command::new("sh")
+    // A live build-app: a shell with that word among its arguments. bash,
+    // not sh: macOS's /bin/sh execs the shell /private/var/select/sh names
+    // a moment after it starts, and while it execs, the kernel fails a read
+    // of its arguments, so the daemon would see no build-app.
+    let mut live = Command::new("/bin/bash")
         .args(["-c", "sleep 30; :", "build-app"])
         .spawn()
         .unwrap();

@@ -701,20 +701,23 @@ mod tests {
                 root: base.join("volume/demo/side-1"),
             },
         ];
-        // A `sleep` in side-1's folder; a `sh` elsewhere naming main's build
-        // root, as sccache's rustc names its --out-dir.
+        // A `sleep` in side-1's folder; a `bash` elsewhere naming main's
+        // build root, as sccache's rustc names its --out-dir. bash, not sh:
+        // macOS's /bin/sh execs the shell /private/var/select/sh names a
+        // moment after it starts, which changes its name, and while it execs,
+        // the kernel fails a read of its arguments.
         let mut in_folder = std::process::Command::new("sleep")
             .arg("30")
             .current_dir(&top)
             .spawn()
             .unwrap();
         let out_dir = format!("{}/target/debug", places[0].root.display());
-        let mut by_argument = std::process::Command::new("sh")
+        let mut by_argument = std::process::Command::new("/bin/bash")
             .args(["-c", "sleep 30; :", "rustc", &out_dir])
             .current_dir("/")
             .spawn()
             .unwrap();
-        let found = build_processes(&Processes::read(), &places, &["sleep", "sh"]);
+        let found = build_processes(&Processes::read(), &places, &["sleep", "bash"]);
         for child in [&mut in_folder, &mut by_argument] {
             child.kill().unwrap();
             child.wait().unwrap();
