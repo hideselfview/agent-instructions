@@ -16,9 +16,13 @@ ROLES
 A coordinator session plans work, dispatches background agents with a brief
 each, reviews their work and lands it. The agents implement. A design session
 draws the boards (pictures of screens, kept in the repo) that the apps are
-built to match. "Design" alone is ambiguous: write "board" or "product design"
-for screens and how they look, and "software plan" for the shape of code and
-data.
+built to match: new screens, new layouts, and anything that needs a new part or
+a change to the design system. When the person decides a change to an existing
+screen that the design system's existing parts can draw, such as new words or a
+button added to an alert, the implementing agent edits the board in the same
+commit and names the decision. "Design" alone is ambiguous: write "board" or
+"product design" for screens and how they look, and "software plan" for the
+shape of code and data.
 
 
 WORKTREES

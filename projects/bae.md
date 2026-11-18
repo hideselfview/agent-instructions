@@ -281,12 +281,17 @@ in, once the agent is done there.
 
 ### Design-session items
 
-The design session owns the boards (`design/mocks`), the design system
-(`design/system`) and the canvas, the published page of all the boards. The
-coordinator never picks up or dispatches a design-session item, and app work
-that waits on a board waits until the board lands. How the design session draws,
-records, reviews and lands a change is in `builds help workflow`, and how
-boards, shots and the apps' views fit together is in
+The design session owns the design system (`design/system`) and the canvas, the
+published page of all the boards (`design/mocks`). When the person decides a
+change to an existing screen that the design system's existing parts can draw,
+such as new words or a button added to an alert, the implementing agent edits
+the board in the same commit and names the decision. The design session draws
+new screens, new layouts, and anything that needs a new part or a change to the
+design system. The coordinator never picks up or dispatches a design-session
+item, and app work that waits on a board the design session draws waits until
+the board lands. How the design session draws, records, reviews and lands a
+change is in `builds help workflow`, and how boards, shots and the apps' views
+fit together is in
 `projects/bae-rules/screen-content/build-each-screen-to-match-its-board.md`.
 
 ## Logs and known build failures

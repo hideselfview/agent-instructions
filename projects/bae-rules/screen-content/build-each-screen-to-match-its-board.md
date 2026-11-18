@@ -1,5 +1,5 @@
 ---
-digest: Boards are the target and the apps follow them; a board never copies the app. A plan that builds a board transcribes its markup; every built board has a shot of the real view, named from its board or component and checked by a program, never by reading pictures. Screens show one thing, put the action under what it acts on, wait without a button, use design-system parts, and take every colour from the design system.
+digest: Boards are the target and the apps follow them; a board never copies the app. For a change the person decided to an existing screen that existing design-system parts can draw, the implementing agent edits the board in the same commit and names the decision; the design session draws new screens, new layouts and new or changed parts. A plan that builds a board transcribes its markup; every built board has a shot of the real view, named from its board or component and checked by a program, never by reading pictures. Screens show one thing, put the action under what it acts on, wait without a button, use design-system parts, and take every colour from the design system.
 paths:
   - design/**
   - bae-macos/**
@@ -11,15 +11,21 @@ blocking: true
 
 ## Build each screen to match its board
 
-The design session draws each screen as a board, and each app builds the screen
-to match it. Where a board and an app differ, the app changes. Never copy a
-board's words, sizes, names (accessible names included), punctuation or layout
-from the app, its strings, its shots or a test's sample data, not even to make a
-shot check pass or two platforms agree: put the difference on the app's work
-queue. A board changes only when the person decides it or when it breaks a
-written rule (the words check, the design system), and the commit says which.
-Where a board leaves something out (a placeholder, a control with no name), draw
-what the design calls for and say so.
+Each screen has a board, and each app builds the screen to match it. Where a
+board and an app differ, the app changes. Never copy a board's words, sizes,
+names (accessible names included), punctuation or layout from the app, its
+strings, its shots or a test's sample data, not even to make a shot check pass
+or two platforms agree: put the difference on the app's work queue. Where a
+board leaves something out (a placeholder, a control with no name), draw what
+the design calls for and say so.
+
+A board changes only when the person decides it or when it breaks a written rule
+(the words check, the design system), and the commit says which. When the person
+decides a change to an existing screen that the design system's existing parts
+can draw, such as new words or a button added to an alert, the implementing
+agent edits the board in the same commit and names the decision. The design
+session draws new screens, new layouts, and anything that needs a new part or a
+change to the design system.
 
 ### Laying out a screen
 
