@@ -15,13 +15,14 @@ use std::path::{Path, PathBuf};
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
 
-use crate::design_render::{
-    BOARD_SUFFIX, CANVAS, CANVASES, MOCKS, Source, export, imports, in_scratch,
-};
+use crate::design_render::{BOARD_SUFFIX, CANVAS, MOCKS, Source, export, imports, in_scratch};
 use crate::design_tokens::TOKENS_JSON;
 use crate::fail;
 use crate::fail::{Context, Fail, Result};
 
+/// The file that names the canvases the boards publish to and the pages each
+/// shows.
+pub const CANVASES: &str = "design/mocks/canvases.toml";
 /// Where a canvas keeps its index, the part of the repo's `CANVAS` it shows.
 const PUBLISHED_INDEX: &str = "project/canvas.json";
 /// How every canvas link starts; the canvas's id follows.

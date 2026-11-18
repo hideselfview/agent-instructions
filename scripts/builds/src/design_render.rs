@@ -39,9 +39,6 @@ const REVIEW_PAGE: &str = include_str!("design_render/review.html");
 pub(crate) const MOCKS: &str = "design/mocks";
 /// The file that places the boards on the canvas and gives each its size.
 pub(crate) const CANVAS: &str = "design/mocks/canvas.json";
-/// The file that names the canvases the boards publish to and the pages each
-/// shows (`design_canvas`).
-pub(crate) const CANVASES: &str = "design/mocks/canvases.toml";
 pub(crate) const BOARD_SUFFIX: &str = ".dc.html";
 /// What a board with no script of its own runs.
 const NO_SCRIPT: &str =
