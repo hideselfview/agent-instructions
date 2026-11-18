@@ -71,7 +71,13 @@ fn a_file_is_read_from_a_directory_or_a_commit_and_a_missing_one_is_named() {
         message(at.read("design/mocks/B.dc.html", "the board")),
         format!("the board {first}:design/mocks/B.dc.html is not there")
     );
-    at.check().unwrap();
+    assert_eq!(at.check().unwrap(), Some(first.clone()));
+    let branch = Source::Commit {
+        repo: &dir,
+        rev: "main",
+    };
+    assert_eq!(branch.check().unwrap(), Some(first.clone()));
+    assert_eq!(Source::Dir(&dir).check().unwrap(), None);
     let nowhere = Source::Commit {
         repo: &dir,
         rev: "no-such-branch",

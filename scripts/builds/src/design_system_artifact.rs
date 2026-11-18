@@ -21,20 +21,31 @@ pub const SYSTEM: &str = "design/system";
 pub const INDEX: &str = "project/design-system.json";
 /// The most files the artifact type keeps of an artifact's own.
 pub const MAX_FILES: usize = 4080;
+/// The design system's files that every preview loads, under `project/`:
+/// the tokens, and the stylesheet and bundles builds generates. Each canvas
+/// carries a copy of them too, under `project/ds/<namespace>/`.
+pub const SHARED_FILES: [&str; 4] = [
+    "tokens.json",
+    "tokens.css",
+    "components/bundle.css",
+    "components/bundle.js",
+];
+/// The component the artifact type shows above the brand book, which it asks
+/// to be written last.
+const COVER: &str = "project/components/Cover/";
+/// The file that a call which only removes files names as its `file_path`,
+/// which every publish needs: one the artifact publishes anyway.
+pub const REMOVAL_ANCHOR: &str = "project/README.md";
 
 /// The files the artifact publishes, by their paths on it, from <export>, a
-/// folder that holds the repo's `SYSTEM` at its path, and the generated
-/// <tokens_css>, <bundle_css> and <bundle_js>: `SYSTEM`'s README.md and
-/// tokens.json, every file under its `components/`, and the generated
-/// files. Fails when a component's folder name is no JavaScript identifier,
-/// which the artifact type refuses, or the artifact would hold more than
-/// `MAX_FILES` files.
-pub fn files(
-    export: &Path,
-    tokens_css: &str,
-    bundle_css: &str,
-    bundle_js: &str,
-) -> Result<BTreeMap<String, String>> {
+/// folder that holds the repo's `SYSTEM` at its path, and <generated>, the
+/// tokens.css, bundle.css and bundle.js that `Source::design_system` gives:
+/// `SYSTEM`'s README.md and tokens.json, every file under its
+/// `components/`, and the generated files at their places in
+/// `SHARED_FILES`. Fails when a component's folder name is no JavaScript
+/// identifier, which the artifact type refuses, or the artifact would hold
+/// more than `MAX_FILES` files.
+pub fn files(export: &Path, generated: &[String; 3]) -> Result<BTreeMap<String, String>> {
     let system = export.join(SYSTEM);
     let mut files = BTreeMap::new();
     for name in ["README.md", "tokens.json"] {
@@ -55,12 +66,8 @@ pub fn files(
         }
     }
     add_tree(&components, "project/components", &mut files)?;
-    for (path, text) in [
-        ("project/tokens.css", tokens_css),
-        ("project/components/bundle.css", bundle_css),
-        ("project/components/bundle.js", bundle_js),
-    ] {
-        files.insert(path.to_string(), text.to_string());
+    for (rel, text) in SHARED_FILES[1..].iter().zip(generated) {
+        files.insert(format!("project/{rel}"), text.clone());
     }
     if files.len() > MAX_FILES {
         fail!(
@@ -96,6 +103,22 @@ fn is_identifier(name: &str) -> bool {
         .next()
         .is_some_and(|b| b.is_ascii_alphabetic() || b == b'_' || b == b'$')
         && bytes.all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'$')
+}
+
+/// Where <path> goes among the artifact's calls, lower first: the shared
+/// files first, since every preview loads them, and the cover last, as the
+/// artifact type asks.
+pub fn rank(path: &str) -> u8 {
+    if SHARED_FILES
+        .iter()
+        .any(|rel| path.strip_prefix("project/") == Some(rel))
+    {
+        0
+    } else if path.starts_with(COVER) {
+        2
+    } else {
+        1
+    }
 }
 
 /// Whether the repo's design system decides the file at <path> of the

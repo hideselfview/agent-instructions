@@ -41,7 +41,7 @@ fn demo(scratch: &Scratch) -> PathBuf {
     std::fs::write(
         dir.join(RUNTIME),
         format!(
-            "canvas = \"{ONE}\"\nruntime = \"artifact-type/dc-runtime.js\"\nruntime_sha256 = \"{RUNTIME_SHA}\"\n"
+            "canvas = \"{ONE}\"\ncanvas_version = \"1-a\"\ntype_release = \"1-b\"\nruntime = \"artifact-type/dc-runtime.js\"\nruntime_sha256 = \"{RUNTIME_SHA}\"\npublished_at = \"2026-11-13T15:04:45Z\"\npublished_by = \"a session\"\n"
         ),
     )
     .unwrap();
@@ -195,7 +195,7 @@ fn every_artifact_gets_its_files_from_one_commit() {
     assert_eq!(files_under(&ds), expected_ds);
 
     assert_eq!(read(&one.join("project/a.dc.html")), boards()["a.dc.html"]);
-    for rel in DS_FILES {
+    for rel in SHARED_FILES {
         assert_eq!(
             read(&one.join(format!("project/ds/demo/{rel}"))),
             read(&ds.join(format!("project/{rel}"))),
@@ -414,6 +414,13 @@ fn a_canvas_last_call_removes_what_the_commit_lacks() {
     assert!(refused.contains("takes no index"), "{refused}");
     let refused = message(write_last(one, "nothing here\n", None, "now"));
     assert!(refused.contains("names no file"), "{refused}");
+    let refused = message(write_last(
+        one,
+        "- \"project/a.dc.html\"  text/html\n- \"project/cut off\n",
+        None,
+        "now",
+    ));
+    assert!(refused.contains("never closes them"), "{refused}");
 }
 
 /// The design system's last calls remove what the commit lacks, but never

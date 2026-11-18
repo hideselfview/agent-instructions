@@ -94,20 +94,22 @@ impl Source<'_> {
         }
     }
 
-    /// Fails unless the revision of a commit source is a commit.
-    pub fn check(&self) -> Result<()> {
-        if let Source::Commit { repo, rev } = self {
-            git_text(
-                git(repo).args([
-                    "rev-parse",
-                    "--verify",
-                    "--quiet",
-                    &format!("{rev}^{{commit}}"),
-                ]),
-                &format!("find the commit {rev}"),
-            )?;
-        }
-        Ok(())
+    /// The full id of the commit that a commit source's revision names, or
+    /// None for a folder; fails when the revision names no commit.
+    pub fn check(&self) -> Result<Option<String>> {
+        let Source::Commit { repo, rev } = self else {
+            return Ok(None);
+        };
+        let commit = git_text(
+            git(repo).args([
+                "rev-parse",
+                "--verify",
+                "--quiet",
+                &format!("{rev}^{{commit}}"),
+            ]),
+            &format!("find the commit {rev}"),
+        )?;
+        Ok(Some(commit.trim().to_string()))
     }
 
     /// The text of file <rel>; None when there is no such file.

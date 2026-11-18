@@ -670,7 +670,7 @@ fn publish_last(args: &[String]) -> Result<String> {
         index
             .as_ref()
             .map(|(text, by)| (text.as_str(), by.as_str())),
-        &crate::text::utc_second(now),
+        &crate::text::utc_second(now)?,
     )?;
     Ok(crate::design_publish::last_report(root, &calls))
 }

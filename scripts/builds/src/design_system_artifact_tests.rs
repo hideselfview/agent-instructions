@@ -69,7 +69,8 @@ fn a_component_folder_that_is_no_identifier_is_refused() {
     std::fs::create_dir_all(system.join("components/Mac-Button")).unwrap();
     std::fs::write(system.join("README.md"), "# Demo\n").unwrap();
     std::fs::write(system.join("tokens.json"), "{}").unwrap();
-    let refused = files(&scratch.dir, "", "", "").unwrap_err().text();
+    let generated = ["css".to_string(), "bcss".to_string(), "bjs".to_string()];
+    let refused = files(&scratch.dir, &generated).unwrap_err().text();
     assert!(refused.contains("components/Mac-Button"), "{refused}");
     std::fs::rename(
         system.join("components/Mac-Button"),
@@ -77,7 +78,7 @@ fn a_component_folder_that_is_no_identifier_is_refused() {
     )
     .unwrap();
     std::fs::write(system.join("components/MacButton/README.md"), "Button.\n").unwrap();
-    let published = files(&scratch.dir, "css", "bcss", "bjs").unwrap();
+    let published = files(&scratch.dir, &generated).unwrap();
     assert_eq!(
         published.keys().map(String::as_str).collect::<Vec<_>>(),
         [
@@ -90,4 +91,15 @@ fn a_component_folder_that_is_no_identifier_is_refused() {
         ]
     );
     assert_eq!(published["project/components/bundle.js"], "bjs");
+}
+
+/// The shared files go in the first call and the cover in the last.
+#[test]
+fn the_shared_files_go_first_and_the_cover_last() {
+    for rel in SHARED_FILES {
+        assert_eq!(rank(&format!("project/{rel}")), 0, "{rel}");
+    }
+    assert_eq!(rank("project/README.md"), 1);
+    assert_eq!(rank("project/components/MacButton/preview.html"), 1);
+    assert_eq!(rank("project/components/Cover/preview.html"), 2);
 }

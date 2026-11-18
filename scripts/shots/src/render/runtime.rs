@@ -12,11 +12,10 @@
 //! that sha256, and drawing fails when builds has no such copy. A repo with no
 //! record publishes no canvas, and its boards are drawn with the newest copy.
 
-use boards::runtime::{self as copies, RuntimeCopy};
-use serde::Deserialize;
+use boards::runtime::{self as copies, Record as LiveRecord, RuntimeCopy};
 use std::path::{Path, PathBuf};
 
-pub(crate) const LIVE_RECORD: &str = "design/mocks/runtime.toml";
+pub(crate) use boards::runtime::RECORD as LIVE_RECORD;
 
 /// How to add a copy of the runtime the canvas at `canvas` serves.
 fn refresh(canvas: &str) -> String {
@@ -25,21 +24,6 @@ fn refresh(canvas: &str) -> String {
 (action read), save it in agent-instructions as scripts/boards/runtime/<its sha256>.js, add its \
 entry to COPIES in scripts/boards/src/runtime.rs, and install builds."
     )
-}
-
-/// `design/mocks/runtime.toml`.
-#[derive(Debug, PartialEq, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(crate) struct LiveRecord {
-    canvas: String,
-    canvas_version: String,
-    /// The canvas type's release the runtime was read from.
-    type_release: String,
-    /// Where the runtime sits in the canvas type.
-    runtime: String,
-    runtime_sha256: String,
-    published_at: String,
-    published_by: String,
 }
 
 #[derive(Debug, thiserror::Error, PartialEq)]

@@ -9,6 +9,26 @@
 //! Artifact tool (action read), save it as `runtime/<its sha256>.js`, and add
 //! its entry to `COPIES` with the version and the time of that read.
 
+/// The file in a repo that publishes a canvas that records the runtime its
+/// canvas was last published with.
+pub const RECORD: &str = "design/mocks/runtime.toml";
+
+/// `RECORD`, which the design session writes at each canvas publish.
+#[derive(Debug, PartialEq, Eq, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Record {
+    /// The canvas the runtime was read from.
+    pub canvas: String,
+    pub canvas_version: String,
+    /// The canvas type's release the runtime was read from.
+    pub type_release: String,
+    /// Where the runtime sits in the canvas type.
+    pub runtime: String,
+    pub runtime_sha256: String,
+    pub published_at: String,
+    pub published_by: String,
+}
+
 /// One copy of the canvas runtime and where it was read.
 #[derive(Debug, PartialEq, Eq)]
 pub struct RuntimeCopy {

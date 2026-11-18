@@ -14,6 +14,7 @@ use serde_json::{Map, Value, json};
 
 use boards::{BOARD_SUFFIX, CANVAS, imports};
 
+use crate::design_system_artifact::SHARED_FILES;
 use crate::fail;
 use crate::fail::{Fail, Result};
 
@@ -26,13 +27,8 @@ pub const PUBLISHED_INDEX: &str = "project/canvas.json";
 const LINK: &str = "https://claude.ai/artifact/";
 /// The most files a canvas holds.
 pub const MAX_FILES: usize = 512;
-/// The design system's files on a canvas, under `project/ds/<namespace>/`.
-pub const DS_FILES: [&str; 4] = [
-    "tokens.json",
-    "tokens.css",
-    "components/bundle.css",
-    "components/bundle.js",
-];
+/// Where a canvas keeps its copy of the design system's shared files.
+const DS_COPY: &str = "project/ds/";
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -60,6 +56,30 @@ pub struct Canvas {
     pub launch: String,
     /// The ids of the pages of `canvas.json` it publishes.
     pub pages: Vec<String>,
+}
+
+/// The path on a canvas of its copy of <rel>, one of the design system's
+/// `SHARED_FILES`, for the design system whose namespace is <namespace>.
+pub fn ds_copy(namespace: &str, rel: &str) -> String {
+    format!("{DS_COPY}{namespace}/{rel}")
+}
+
+/// Whether the repo decides a canvas's file at <path>, so that a path the
+/// commit lacks leaves the canvas: every file under `project/`.
+pub fn repo_decides(path: &str) -> bool {
+    path.starts_with("project/")
+}
+
+/// Where <path> goes among a canvas's calls, lower first: its index, then
+/// its copy of the design system, then the boards.
+pub fn rank(path: &str) -> u8 {
+    if path == PUBLISHED_INDEX {
+        0
+    } else if path.starts_with(DS_COPY) {
+        1
+    } else {
+        2
+    }
 }
 
 /// What `CANVASES` names: the canvases, and the link of the design system's
@@ -234,7 +254,7 @@ pub fn split<'a>(
             .filter(|(name, _)| board_canvas[*name] == n)
             .map(|(name, entry)| (name.clone(), entry.clone()))
             .collect();
-        let files = mine.len() + 1 + DS_FILES.len();
+        let files = mine.len() + 1 + SHARED_FILES.len();
         if files > MAX_FILES {
             fail!(
                 "{} would hold {files} files, and a canvas holds at most {MAX_FILES}; move a page to another canvas in {CANVASES}",

@@ -136,12 +136,15 @@ pub fn local_start_of(day: &str) -> Option<i64> {
     (epoch != -1).then_some(epoch)
 }
 
-/// <epoch> in UTC as ISO 8601, `2026-11-18T19:20:05Z`.
-pub fn utc_second(epoch: i64) -> String {
+/// <epoch> in UTC as ISO 8601, `2026-11-18T19:20:05Z`; fails when the C
+/// library cannot break it into a date, as for a year it cannot hold.
+pub fn utc_second(epoch: i64) -> Result<String> {
     let time: libc::time_t = epoch;
     let mut tm: libc::tm = unsafe { std::mem::zeroed() };
-    unsafe { libc::gmtime_r(&time, &mut tm) };
-    format_tm(&tm, c"%Y-%m-%dT%H:%M:%SZ")
+    if unsafe { libc::gmtime_r(&time, &mut tm) }.is_null() {
+        crate::fail!("the time {epoch} has no date in UTC");
+    }
+    Ok(format_tm(&tm, c"%Y-%m-%dT%H:%M:%SZ"))
 }
 
 fn strftime(epoch: i64, format: &std::ffi::CStr) -> String {
@@ -288,6 +291,13 @@ mod tests {
         );
         let refused = since_start(Some("yesterday")).unwrap_err().text();
         assert!(refused.contains("--since"), "{refused}");
+    }
+
+    #[test]
+    fn a_utc_time_is_iso_8601_or_fails() {
+        assert_eq!(utc_second(0).unwrap(), "1970-01-01T00:00:00Z");
+        assert_eq!(utc_second(1_795_032_000).unwrap(), "2026-11-18T20:00:00Z");
+        assert!(utc_second(i64::MAX).is_err());
     }
 
     #[test]

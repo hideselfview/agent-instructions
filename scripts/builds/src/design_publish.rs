@@ -16,24 +16,20 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 
-use boards::{CANVAS, MOCKS, Source, design_namespace, export, git, git_text, in_scratch};
+use boards::runtime::RECORD as RUNTIME;
+use boards::{CANVAS, MOCKS, Source, design_namespace, export, in_scratch};
 
 use crate::design_canvas::{
-    CANVASES, DS_FILES, PUBLISHED_INDEX, Published, artifact_id, parse_canvases, split,
+    self as canvas, CANVASES, PUBLISHED_INDEX, Published, artifact_id, parse_canvases, split,
 };
-use crate::design_system_artifact::{self as system, SYSTEM};
+use crate::design_system_artifact::{self as system, SHARED_FILES, SYSTEM};
 use crate::fail;
 use crate::fail::{Context, Fail, Result};
 
 /// The most files one Artifact publish sends.
 pub const BATCH: usize = 255;
-/// The record of the canvas runtime the boards are drawn with.
-const RUNTIME: &str = "design/mocks/runtime.toml";
 /// The record in each artifact's folder of what the folder publishes.
 const RECORD: &str = "artifact.json";
-/// The file a call that only removes files names as its `file_path`, which
-/// every publish needs: one the artifact publishes anyway.
-const DESIGN_SYSTEM_README: &str = "project/README.md";
 
 /// Which kind of artifact a folder publishes to.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -52,37 +48,28 @@ impl Kind {
     }
 
     /// Whether the repo decides the artifact's file at <path>, so that a path
-    /// the commit lacks leaves the artifact. On a canvas, the repo decides
-    /// every file under `project/`.
+    /// the commit lacks leaves the artifact.
     fn repo_decides(self, path: &str) -> bool {
         match self {
-            Kind::Canvas => path.starts_with("project/"),
+            Kind::Canvas => canvas::repo_decides(path),
             Kind::DesignSystem => system::repo_decides(path),
         }
     }
 
-    /// Where <path> goes among the artifact's calls: lower first. A canvas
-    /// gets its index first, then the design system, then the boards. A
-    /// design system gets its tokens and bundles first, which every preview
-    /// loads, and its cover last, as the artifact type asks.
+    /// Where <path> goes among the artifact's calls: lower first.
     fn rank(self, path: &str) -> u8 {
         match self {
-            Kind::Canvas if path == PUBLISHED_INDEX => 0,
-            Kind::Canvas if path.starts_with("project/ds/") => 1,
-            Kind::Canvas => 2,
-            Kind::DesignSystem
-                if matches!(
-                    path,
-                    "project/tokens.json"
-                        | "project/tokens.css"
-                        | "project/components/bundle.css"
-                        | "project/components/bundle.js"
-                ) =>
-            {
-                0
-            }
-            Kind::DesignSystem if path.starts_with("project/components/Cover/") => 2,
-            Kind::DesignSystem => 1,
+            Kind::Canvas => canvas::rank(path),
+            Kind::DesignSystem => system::rank(path),
+        }
+    }
+
+    /// The file that a call which only removes files names as its
+    /// `file_path`: one the artifact publishes anyway.
+    fn removal_anchor(self) -> &'static str {
+        match self {
+            Kind::Canvas => PUBLISHED_INDEX,
+            Kind::DesignSystem => system::REMOVAL_ANCHOR,
         }
     }
 }
@@ -123,30 +110,12 @@ pub struct Publish {
     pub runtime_sha256: String,
 }
 
-/// The commit that <rev> of the repo <repo> is in names.
-fn resolve(repo: &Path, rev: &str) -> Result<String> {
-    let sha = git_text(
-        git(repo).args([
-            "rev-parse",
-            "--verify",
-            "--quiet",
-            &format!("{rev}^{{commit}}"),
-        ]),
-        &format!("find the commit {rev}"),
-    )?;
-    Ok(sha.trim().to_string())
-}
-
 /// The runtime's file and sha256 that <text>, the `RUNTIME` file that
 /// <label> names, records.
 fn parse_runtime(text: &str, label: &str) -> Result<(String, String)> {
-    let table: toml::Table =
+    let record: boards::runtime::Record =
         toml::from_str(text).map_err(|error| Fail::Message(format!("{label}: {error}")))?;
-    let field = |key: &str| match table.get(key) {
-        Some(toml::Value::String(value)) if !value.is_empty() => Ok(value.clone()),
-        _ => fail!("{label} gives no {key}"),
-    };
-    Ok((field("runtime")?, field("runtime_sha256")?))
+    Ok((record.runtime, record.runtime_sha256))
 }
 
 /// Writes, into the empty or new folder <out>, a folder per artifact that
@@ -158,7 +127,9 @@ fn parse_runtime(text: &str, label: &str) -> Result<(String, String)> {
 /// bundles are built into <cache> (`Places::design_system_cache`). Reads no
 /// store and writes nothing in the repo.
 pub fn write_all(repo: &Path, rev: &str, out: &Path, cache: &Path) -> Result<Publish> {
-    let commit = resolve(repo, rev)?;
+    let commit = Source::Commit { repo, rev }
+        .check()?
+        .expect("a commit source names a commit");
     let from = Source::Commit { repo, rev: &commit };
     if std::fs::read_dir(out).is_ok_and(|mut entries| entries.next().is_some()) {
         fail!(
@@ -179,7 +150,7 @@ pub fn write_all(repo: &Path, rev: &str, out: &Path, cache: &Path) -> Result<Pub
         &from.read(RUNTIME, "the canvas runtime's record")?,
         &format!("{commit}:{RUNTIME}"),
     )?;
-    let [tokens_css, bundle_css, bundle_js] = from.design_system(cache)?;
+    let generated = from.design_system(cache)?;
     let (boards, system_files) = in_scratch(cache, |work| {
         export(
             repo,
@@ -189,17 +160,17 @@ pub fn write_all(repo: &Path, rev: &str, out: &Path, cache: &Path) -> Result<Pub
             "the designs",
         )?;
         let boards = read_boards(work)?;
-        let system_files = system::files(work, &tokens_css, &bundle_css, &bundle_js)
-            .map_err(|error| boards::Error::new(error.text()))?;
+        let system_files =
+            system::files(work, &generated).map_err(|error| boards::Error::new(error.text()))?;
         Ok((boards, system_files))
     })?;
     let splits = split(&index, &canvases, &boards)?;
     let folder = design_namespace(&index)?;
-    let copy: BTreeMap<String, String> = DS_FILES
+    let copy: BTreeMap<String, String> = SHARED_FILES
         .into_iter()
         .map(|rel| {
             let text = &system_files[&format!("project/{rel}")];
-            (format!("project/ds/{folder}/{rel}"), text.clone())
+            (canvas::ds_copy(&folder, rel), text.clone())
         })
         .collect();
     std::fs::create_dir_all(out).context(|| format!("making {}", out.display()))?;
@@ -357,13 +328,20 @@ pub fn report(publish: &Publish) -> String {
 
 /// The paths that <listing>, the Artifact tool's listing of an artifact's
 /// files, names: the text between the quotes of each line that starts with
-/// `- "`. Its other lines say nothing of a file.
-fn listed(listing: &str) -> Vec<&str> {
-    listing
-        .lines()
-        .filter_map(|line| line.trim_start().strip_prefix("- \""))
-        .filter_map(|rest| rest.split_once('"').map(|(path, _)| path))
-        .collect()
+/// `- "`. Its other lines say nothing of a file. Fails on such a line with no
+/// closing quote, which names no path builds can trust.
+fn listed(listing: &str) -> Result<Vec<&str>> {
+    let mut paths = Vec::new();
+    for line in listing.lines() {
+        let Some(rest) = line.trim_start().strip_prefix("- \"") else {
+            continue;
+        };
+        let Some((path, _)) = rest.split_once('"') else {
+            fail!("the listing line {line:?} opens a path's quotes and never closes them");
+        };
+        paths.push(path);
+    }
+    Ok(paths)
 }
 
 /// Writes the last calls of the artifact whose folder is <root>, as
@@ -387,7 +365,7 @@ pub fn write_last(
             .context(|| format!("reading {}", record_file.display()))?,
     )
     .map_err(|error| Fail::Message(format!("{}: {error}", record_file.display())))?;
-    let shown = listed(listing);
+    let shown = listed(listing)?;
     if shown.is_empty() {
         fail!(
             "the listing names no file; give the Artifact tool's listing of {}'s files, each line as `- \"<path>\" ...`",
@@ -399,18 +377,15 @@ pub fn write_last(
         .filter(|path| record.kind.repo_decides(path) && !record.paths.iter().any(|p| p == path))
         .collect();
     for entry in std::fs::read_dir(root).context(|| format!("listing {}", root.display()))? {
-        let path = entry
-            .context(|| format!("listing {}", root.display()))?
-            .path();
-        let name = path.file_name().unwrap_or_default().to_string_lossy();
+        let entry = entry.context(|| format!("listing {}", root.display()))?;
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
         if name.starts_with("last-") && name.ends_with(".json") {
+            let path = entry.path();
             std::fs::remove_file(&path).context(|| format!("removing {}", path.display()))?;
         }
     }
-    let anchor = match record.kind {
-        Kind::Canvas => PUBLISHED_INDEX,
-        Kind::DesignSystem => DESIGN_SYSTEM_README,
-    };
+    let anchor = record.kind.removal_anchor();
     let mut calls: Vec<(&str, Map<String, Value>)> = gone
         .chunks(BATCH - 1)
         .map(|chunk| {
