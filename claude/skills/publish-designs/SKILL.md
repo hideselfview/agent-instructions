@@ -59,8 +59,10 @@ publish the designs at commit C." For such a request:
 2. Follow the rest of this skill with `--at C` on `publish-files`, so that the
    files come from the commit the person picked.
 3. After the last artifact's last calls and the runtime check (Check the canvas
-   runtime), end the request: `builds design publish done N --project P`. The
-   dashboard then shows the commit as published.
+   runtime), end the request with one `--link` for each artifact, the title and
+   url that `publish-find` printed:
+   `builds design publish done N --link "<title>=<url>" ... --project P`. The
+   dashboard then shows the commit as published, with the links.
 4. When the publish stops before that, end the request with what stopped it:
    `builds design publish failed N --why "<what stopped it>" --project P`.
 

@@ -46,6 +46,8 @@ body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 var
 .ds-prev { display: block; width: 100%; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); }
 .problem { color: var(--bad); background: var(--bad-bg); border-radius: 6px; padding: 8px 10px; font-size: 13px; overflow-wrap: anywhere; }
 @media (max-width: 900px) { .dz-grid, .ds-comps { grid-template-columns: repeat(2, minmax(0, 1fr)); } .ds-swatches { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+.pub-links { display: flex; flex-direction: column; gap: 4px; color: var(--text-2); }
+.pub-links a { color: var(--accent); }
 </style>
 </head>
 <body>
@@ -239,6 +241,8 @@ function renderPublish() {
       dismiss(r.id);
       renderPublish();
     }) : null));
+    if (r.ended && !r.ended.error) parts.push(h("div", {class: "pub-links"},
+      r.links.map(l => h("a", {href: l.url, target: "_blank", rel: "noopener"}, l.title))));
   }
   body.replaceChildren(...parts);
 }

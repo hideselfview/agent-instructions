@@ -14,7 +14,7 @@ use crate::lists::store::Store;
 use crate::text::local_minute;
 use crate::tool::Tool;
 
-const USAGE: &str = "usage: builds design listen --project P\n       builds design publish take N [--project P] [--by WHO]\n       builds design publish done N [--project P] [--by WHO]\n       builds design publish failed N --why WHY [--project P] [--by WHO]";
+const USAGE: &str = "usage: builds design listen --project P\n       builds design publish take N [--project P] [--by WHO]\n       builds design publish done N --link TITLE=URL... [--project P] [--by WHO]\n       builds design publish failed N --why WHY [--project P] [--by WHO]";
 
 /// A publish request's id, as a command names it.
 fn request_id(text: &str) -> Result<i64> {
@@ -58,7 +58,7 @@ pub fn publish(tool: &Tool, args: &[String], cwd: &Path) -> Result<String> {
     let Some((verb, rest)) = args.split_first() else {
         fail!("{USAGE}")
     };
-    let args = Args::parse(rest, &["project", "by", "why"], &[])?;
+    let args = Args::parse(rest, &["project", "by", "why", "link"], &[])?;
     let [id] = args.exactly(1, USAGE)? else {
         unreachable!("exactly one")
     };
@@ -71,15 +71,20 @@ pub fn publish(tool: &Tool, args: &[String], cwd: &Path) -> Result<String> {
                 publish::take(db, id, &stamp)
             })?;
             Ok(format!(
-                "you took publish request {id} at {}: publish commit {} with the publish-designs skill (`builds design publish-files DIR OUT --index FILE --at {}`), and end the request with `builds design publish done {id}` once the design system's last calls and the runtime check are done\n",
+                "you took publish request {id} at {}: publish commit {} with the publish-designs skill (`builds design publish-files DIR OUT --index FILE --at {}`), and end the request with `builds design publish done {id} --link TITLE=URL` for each artifact (the urls publish-find printed) once the design system's last calls and the runtime check are done\n",
                 local_minute(stamp.at),
                 taken.commit,
                 taken.commit
             ))
         }
         "done" => {
+            let links = args
+                .values("link")
+                .into_iter()
+                .map(publish::Link::parse)
+                .collect::<Result<Vec<_>>>()?;
             let ended = store.write(&stamp, &format!("design publish done {id}"), |db| {
-                publish::published(db, id, stamp.at)
+                publish::published(db, id, &links, stamp.at)
             })?;
             Ok(format!(
                 "publish request {id} ended: it published commit {}\n",

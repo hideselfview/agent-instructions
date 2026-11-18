@@ -766,7 +766,7 @@ sent again.
       session with an inbox.
 
   builds design publish take N [--project P] [--by WHO]
-  builds design publish done N [--project P] [--by WHO]
+  builds design publish done N --link TITLE=URL... [--project P] [--by WHO]
   builds design publish failed N --why WHY [--project P] [--by WHO]
       The design session's side of a publish that the person asks for on
       the dashboard. The Designs page's Publish to claude.ai… form records
@@ -780,8 +780,10 @@ sent again.
       prints the commit to publish. The session then publishes with the
       publish-designs skill, from that commit (publish-files --at C). Once
       it has made the design system's last calls and checked the canvas
-      runtime, `done` ends the request as published, and refuses a request
-      that nobody took. Until then, `failed` ends open request N with WHY,
+      runtime, `done` ends the request as published, with one --link for each
+      artifact it published to (the title and url that publish-find
+      printed), which the form shows; it refuses a request that nobody took
+      and a call with no --link. Until then, `failed` ends open request N with WHY,
       what stopped the publish, which the form shows. The page's header says
       which commit the newest published request sent, and when.
 

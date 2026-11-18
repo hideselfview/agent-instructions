@@ -80,7 +80,25 @@ fn a_request_wakes_the_listening_session_which_takes_it_and_records_the_commit_i
         refused.contains("publish request 1 is still open"),
         "{refused}"
     );
-    let done = h.run(&["publish", "done", "1"]).unwrap();
+    let none = h.run(&["publish", "done", "1"]).unwrap_err().text();
+    assert!(none.contains("--link TITLE=URL"), "{none}");
+    let bad = h
+        .run(&["publish", "done", "1", "--link", "boards=ftp://x"])
+        .unwrap_err()
+        .text();
+    assert!(bad.contains("no link"), "{bad}");
+    assert_eq!(h.standing().published, None, "a refused done ends nothing");
+    let done = h
+        .run(&[
+            "publish",
+            "done",
+            "1",
+            "--link",
+            "demo boards=https://claude.ai/artifact/AAA1",
+            "--link",
+            "Design system=https://claude.ai/artifact/DS1",
+        ])
+        .unwrap();
     assert!(
         done.contains(&format!("published commit {COMMIT}")),
         "{done}"
@@ -96,6 +114,13 @@ fn a_request_wakes_the_listening_session_which_takes_it_and_records_the_commit_i
             at: NOON + 60,
             error: None
         })
+    );
+    assert_eq!(
+        ended.links,
+        vec![
+            Link::parse("demo boards=https://claude.ai/artifact/AAA1").unwrap(),
+            Link::parse("Design system=https://claude.ai/artifact/DS1").unwrap(),
+        ]
     );
     assert_eq!(ended.taken.unwrap().by, "design-session");
     let shown = serde_json::to_string(&h.standing()).unwrap();

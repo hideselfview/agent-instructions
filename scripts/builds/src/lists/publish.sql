@@ -43,3 +43,13 @@ CREATE TABLE publish_request (
 ) STRICT;
 -- At most one request is open: every open row has the same value here.
 CREATE UNIQUE INDEX publish_request_one_open ON publish_request (ended_at IS NULL) WHERE ended_at IS NULL;
+
+-- The artifacts a published request sent the designs to, as the session found
+-- them on its account: `publish done` writes them with the request's end.
+CREATE TABLE publish_link (
+    request_id INTEGER NOT NULL REFERENCES publish_request (id) ON DELETE CASCADE,
+    position INTEGER NOT NULL CONSTRAINT publish_link_position_is_counted CHECK (position >= 0),
+    title TEXT NOT NULL CONSTRAINT publish_link_title_says_something CHECK (trim(title) <> ''),
+    url TEXT NOT NULL CONSTRAINT publish_link_url_is_https CHECK (url LIKE 'https://%'),
+    PRIMARY KEY (request_id, position)
+) STRICT;

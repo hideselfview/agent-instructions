@@ -5,7 +5,7 @@
 //! button records a request for one commit and sends that inbox a message
 //! naming it (`ask_and_tell`), the session takes the request (`builds design
 //! publish take N`), publishes with the publish-designs skill, and records
-//! how it ended: `builds design publish done N`, after the design system's
+//! how it ended: `builds design publish done N --link TITLE=URL`, after the design system's
 //! last calls and the check of the canvas runtime, records that it published
 //! the request's commit, and `builds design publish failed N --why` records
 //! what stopped it. The tables are `publish.sql`; this is the only code that
@@ -33,6 +33,32 @@ pub struct Request {
     /// The session that took it, and when.
     pub taken: Option<Stamp>,
     pub ended: Option<Ended>,
+    /// The artifacts a published request sent the designs to, in the order
+    /// the session gave them; empty for a request that did not publish.
+    pub links: Vec<Link>,
+}
+
+/// One artifact a request published to.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct Link {
+    pub title: String,
+    pub url: String,
+}
+
+impl Link {
+    /// The link that `TITLE=URL` gives.
+    pub fn parse(text: &str) -> Result<Link> {
+        let Some((title, url)) = text.rsplit_once('=') else {
+            fail!("{text:?} is no link: write it as TITLE=URL");
+        };
+        if title.trim().is_empty() || !url.starts_with("https://") {
+            fail!("{text:?} is no link: write it as TITLE=URL, with an https URL");
+        }
+        Ok(Link {
+            title: title.trim().to_string(),
+            url: url.to_string(),
+        })
+    }
 }
 
 /// How a request ended.
@@ -99,7 +125,26 @@ fn request_of(row: &rusqlite::Row) -> rusqlite::Result<Request> {
             }),
             None => None,
         },
+        links: Vec::new(),
     })
+}
+
+/// <request> with the links it published to.
+fn with_links(db: &Connection, mut request: Request) -> Result<Request> {
+    let mut statement = db
+        .prepare("SELECT title, url FROM publish_link WHERE request_id = ?1 ORDER BY position")
+        .sql()?;
+    request.links = statement
+        .query_map([request.id], |row| {
+            Ok(Link {
+                title: row.get(0)?,
+                url: row.get(1)?,
+            })
+        })
+        .sql()?
+        .collect::<rusqlite::Result<_>>()
+        .sql()?;
+    Ok(request)
 }
 
 /// Request <id>; fails when there is none.
@@ -113,7 +158,7 @@ fn request(db: &Connection, id: i64) -> Result<Request> {
         .optional()
         .sql()?;
     match found {
-        Some(request) => Ok(request),
+        Some(request) => with_links(db, request),
         None => fail!("there is no publish request {id}"),
     }
 }
@@ -135,7 +180,9 @@ pub fn standing(db: &Connection) -> Result<Standing> {
             request_of,
         )
         .optional()
-        .sql()
+        .sql()?
+        .map(|request| with_links(db, request))
+        .transpose()
     };
     Ok(Standing {
         latest: newest("")?,
@@ -229,9 +276,9 @@ pub fn take(db: &Connection, id: i64, stamp: &Stamp) -> Result<Request> {
     self::request(db, id)
 }
 
-/// Records that taken request <id> published its commit at <at>, which ends
-/// it.
-pub fn published(db: &Connection, id: i64, at: i64) -> Result<Request> {
+/// Records that taken request <id> published its commit to <links> at <at>,
+/// which ends it.
+pub fn published(db: &Connection, id: i64, links: &[Link], at: i64) -> Result<Request> {
     let request = request(db, id)?;
     if request.ended.is_some() {
         fail!("publish request {id} has ended");
@@ -241,7 +288,17 @@ pub fn published(db: &Connection, id: i64, at: i64) -> Result<Request> {
             "publish request {id} was never taken; take it with `builds design publish take {id}` first"
         );
     }
+    if links.is_empty() {
+        fail!("say which artifacts the publish sent the designs to with --link TITLE=URL");
+    }
     end(db, id, at, None)?;
+    for (position, link) in links.iter().enumerate() {
+        db.execute(
+            "INSERT INTO publish_link (request_id, position, title, url) VALUES (?1, ?2, ?3, ?4)",
+            params![id, position as i64, link.title, link.url],
+        )
+        .sql()?;
+    }
     self::request(db, id)
 }
 
