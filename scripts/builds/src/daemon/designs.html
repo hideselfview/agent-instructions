@@ -62,6 +62,9 @@ body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 var
 </dialog>
 <script type="application/json" id="data">@@DATA@@</script>
 <script>
+@@CONTROLS_JS@@
+</script>
+<script>
 @@FRAMES@@
 </script>
 <script>
@@ -202,12 +205,6 @@ function renderHead() {
 function shown() {
   const r = standing.latest;
   return r && !(r.ended && r.id === dismissed()) ? r : null;
-}
-function dismissButton(onclick) {
-  const b = h("button", {type: "button", class: "bdismiss", "aria-label": "Dismiss"});
-  b.innerHTML = '<svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8"></path></svg>';
-  b.addEventListener("click", onclick);
-  return b;
 }
 function status(r) {
   if (!r.ended) return h("div", {class: "bstatus"}, "Publishing ", short(r.commit), r.taken

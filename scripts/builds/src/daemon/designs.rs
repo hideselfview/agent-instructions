@@ -33,6 +33,8 @@ pub const PALETTE: &str = include_str!("palette.css");
 /// The dashboard's buttons and modal form, which its page and the Designs
 /// page share.
 pub const CONTROLS: &str = include_str!("controls.css");
+/// The buttons and other controls both pages build the same way.
+pub const CONTROLS_JS: &str = include_str!("controls.js");
 
 /// Is <text> a full commit id, as the Designs page names the commit its
 /// frames draw?
@@ -146,6 +148,7 @@ pub fn page(
         &[
             ("PALETTE", PALETTE),
             ("CONTROLS", CONTROLS),
+            ("CONTROLS_JS", CONTROLS_JS),
             ("DATA", &data),
             ("FRAMES", FRAMES_SCRIPT),
         ],

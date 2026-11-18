@@ -394,6 +394,9 @@ a.l-ref:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; b
   <div class="lm-body" id="lm-body"></div>
 </dialog>
 <script>
+@@CONTROLS_JS@@
+</script>
+<script>
 "use strict";
 // The states the daemon derives for each side worktree (worktree_state in
 // model.rs), in the order the cards sort.
@@ -607,14 +610,12 @@ function buildPanel(repo, lane) {
   const ref = h("input", {type: "text", placeholder: "ref (default origin/main)", "aria-label": "Ref", spellcheck: "false"});
   const button = h("button", {type: "button", class: "qbtn"}, "Build");
   const status = h("div", {class: "bstatus"});
-  const dismiss = h("button", {type: "button", class: "bdismiss", title: "Dismiss this result", "aria-label": "Dismiss"});
-  dismiss.innerHTML = '<svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8"/></svg>';
+  const dismiss = dismissButton(() => { dismissedRuns.set(repo.name + " " + lane, runId(panel.run)); render(); });
   const result = h("div", {class: "bresult"}, status, dismiss);
   const output = h("pre", {class: "boutput"});
   const el = h("div", {class: "bpanel"}, h("div", {class: "bform"}, ref, button), result, output);
   const panel = {el, ref, button, status, dismiss, result, output, repo, lane, run: null};
   button.addEventListener("click", () => startBuild(panel.repo, lane, ref.value.trim()));
-  dismiss.addEventListener("click", () => { dismissedRuns.set(repo.name + " " + lane, runId(panel.run)); render(); });
   return panel;
 }
 // A run is one start of the lane's build: its pid and start time tell it from the next.

@@ -76,6 +76,7 @@ static PAGE: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
         &[
             ("PALETTE", super::designs::PALETTE),
             ("CONTROLS", super::designs::CONTROLS),
+            ("CONTROLS_JS", super::designs::CONTROLS_JS),
         ],
     )
 });
