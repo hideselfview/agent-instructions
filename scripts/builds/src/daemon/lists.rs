@@ -348,20 +348,20 @@ pub struct Composed {
     pub works: Vec<super::board::Work>,
     pub board: super::board::Board,
     /// Whether the project has a Designs page: a repo holds its design files.
-    /// A project whose design files are in several repos has one too, which
+    /// The view's `designs` is the list of its design changes. A project whose design files are in several repos has one too, which
     /// says why it draws none (`design_repo`).
-    pub designs: bool,
+    pub has_designs: bool,
 }
 
 impl Composed {
-    fn of(view: View, designs: bool) -> Composed {
+    fn of(view: View, has_designs: bool) -> Composed {
         let works = super::board::works(&view);
         let board = super::board::board(&view);
         Composed {
             view,
             works,
             board,
-            designs,
+            has_designs,
         }
     }
 }

@@ -534,7 +534,7 @@ fn the_design_repo_is_the_one_repo_with_design_places_and_any_design_places_give
     assert_eq!(design_repo(&lists).unwrap(), Some("bae"));
     let one = compose(&Ok(vec![loaded("a", Ok(lists.clone()))]), NOON, &no_claims);
     assert_eq!(
-        serde_json::to_value(&one[0]).unwrap()["designs"],
+        serde_json::to_value(&one[0]).unwrap()["has_designs"],
         json!(true)
     );
     lists
@@ -545,13 +545,36 @@ fn the_design_repo_is_the_one_repo_with_design_places_and_any_design_places_give
     // The page says why it draws no boards.
     let several = compose(&Ok(vec![loaded("a", Ok(lists.clone()))]), NOON, &no_claims);
     assert_eq!(
-        serde_json::to_value(&several[0]).unwrap()["designs"],
+        serde_json::to_value(&several[0]).unwrap()["has_designs"],
         json!(true)
     );
     lists.design_places.clear();
     let none = compose(&Ok(vec![loaded("a", Ok(lists))]), NOON, &no_claims);
     assert_eq!(
-        serde_json::to_value(&none[0]).unwrap()["designs"],
+        serde_json::to_value(&none[0]).unwrap()["has_designs"],
         json!(false)
     );
+}
+
+#[test]
+fn a_projects_lists_json_keeps_each_field_once_with_its_own_shape() {
+    let db = db();
+    let question = crate::lists::fixtures::question(&db);
+    let change = design(&db);
+    let lists = read(&db);
+    let composed = compose(&Ok(vec![loaded("demo", Ok(lists))]), NOON, &no_claims);
+    // The page reads the text a client gets: a key that appears twice in it
+    // keeps only its last value there.
+    let text = serde_json::to_string(&Served {
+        projects: &composed,
+    })
+    .unwrap();
+    for key in ["stack", "designs", "board"] {
+        let count = text.matches(&format!("\"{key}\":")).count();
+        assert_eq!(count, 1, "{key} appears {count} times in {text}");
+    }
+    let project = &serde_json::from_str::<serde_json::Value>(&text).unwrap()["projects"][0];
+    assert_eq!(project["stack"][0]["id"], json!(question.0));
+    assert_eq!(project["designs"][0]["id"], json!(change.0));
+    assert_eq!(project["board"]["waiting"], json!(2));
 }
