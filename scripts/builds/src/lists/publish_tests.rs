@@ -125,6 +125,39 @@ fn with_no_session_listening_a_request_is_refused_or_ends_failed() {
 }
 
 #[test]
+fn a_send_that_fails_other_than_by_the_session_being_gone_ends_the_request_failed() {
+    let h = held("publish-send-fails");
+    let blocked = h.scratch.dir.join("file");
+    std::fs::write(&blocked, "").unwrap();
+    let socket = blocked.join("p.sock");
+    let mut tool = h.scratch.tool(0);
+    tool.now = NOON + 60;
+    let args: Vec<String> = ["listen", "--project", "demo", "--by", "design-session"]
+        .map(String::from)
+        .to_vec();
+    run_in_session(&tool, &args, || {
+        Messaging::new(socket.to_str().unwrap(), Some(TOKEN)).map(Some)
+    })
+    .unwrap();
+    let error = ask_and_tell(&h.store, COMMIT, &stamp(NOON))
+        .unwrap_err()
+        .text();
+    assert!(
+        error.starts_with("connecting to the session's inbox"),
+        "{error}"
+    );
+    let ended = h.standing().latest.unwrap().ended.unwrap();
+    assert_eq!(ended.error.as_deref(), Some(error.as_str()));
+    let again = ask_and_tell(&h.store, COMMIT, &stamp(NOON))
+        .unwrap_err()
+        .text();
+    assert!(
+        again.starts_with("connecting"),
+        "a later ask is not refused as open: {again}"
+    );
+}
+
+#[test]
 fn a_failed_publish_ends_with_its_reason_and_a_new_listener_replaces_the_old() {
     let h = held("publish-failed");
     let inbox = FakeInbox::listen(&h.socket());

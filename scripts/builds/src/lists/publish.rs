@@ -190,27 +190,26 @@ fn end(db: &Connection, id: i64, at: i64, error: Option<&str>) -> Result<()> {
 }
 
 /// Records a request to publish <commit> in <store> and sends the listening
-/// session a message naming it, once. When nothing listens on the inbox,
-/// the request ends failed with `no_listener`, and that is the error; any
-/// other failure of the send is the error too, with the request open and
-/// the session not told, and nothing retries it.
+/// session a message naming it, once. When the send fails, the request ends
+/// failed with the reason, so the next ask can go ahead, and that reason is
+/// the error: `no_listener` when nothing listens on the inbox, the send's own
+/// error otherwise. Nothing retries the send.
 pub fn ask_and_tell(store: &Store, commit: &str, stamp: &Stamp) -> Result<Request> {
     let project = store.project.clone();
     let (asked, to) = store.write(stamp, &format!("design publish ask {commit}"), |db| {
         ask(db, &project, commit, stamp)
     })?;
-    match send(&to, &asked_words(&project, asked.id, commit))? {
-        Sent::Delivered => Ok(asked),
-        Sent::Gone => {
-            let why = no_listener(&project);
-            store.write(
-                stamp,
-                &format!("design publish failed {}", asked.id),
-                |db| end(db, asked.id, stamp.at, Some(&why)),
-            )?;
-            fail!("{why}")
-        }
-    }
+    let why = match send(&to, &asked_words(&project, asked.id, commit)) {
+        Ok(Sent::Delivered) => return Ok(asked),
+        Ok(Sent::Gone) => no_listener(&project),
+        Err(error) => error.text(),
+    };
+    store.write(
+        stamp,
+        &format!("design publish failed {}", asked.id),
+        |db| end(db, asked.id, stamp.at, Some(&why)),
+    )?;
+    fail!("{why}")
 }
 
 /// Records that <stamp>'s session took open request <id>.
