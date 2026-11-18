@@ -12,6 +12,7 @@ mod build_app;
 mod cargo_place;
 mod cargo_run;
 mod cargo_starts;
+mod cargo_update;
 mod checkout;
 mod checks;
 mod checks_run;

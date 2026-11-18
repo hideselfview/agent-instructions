@@ -203,6 +203,10 @@ bae's `Cargo.toml` pins coven to one commit (`rev`). Move the pin as soon as
 coven lands what bae needs. While coven lands a planned series of commits, move
 the pin once, after the series.
 
+To move the pin, change `rev` in `Cargo.toml` and run
+`scripts/cargo.sh update -p coven`, which rewrites the `Cargo.lock` entries of
+every coven crate. Commit both files.
+
 ### File size
 
 A source file must not exceed 1,000 lines (`scripts/check-source-file-size.py`,

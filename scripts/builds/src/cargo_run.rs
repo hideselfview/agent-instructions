@@ -296,8 +296,10 @@ fn start_after_build(checkout: &Checkout, root: &Path) {
 /// unit it uses on stdout, which the recorder reads, `--locked`
 /// (`locked_flag`) and the settings of the checkout's role (`role_config`). Exits with cargo's status, or the
 /// recorder's when cargo succeeded and a reported unit could not be recorded.
+/// An update builds nothing and runs as cargo_update.rs says.
 pub fn cmd_cargo(args: &[String]) -> Result<()> {
     let (subcommand, format): (&[String], &str) = match args.first().map(String::as_str) {
+        Some("update") => return crate::cargo_update::run(args),
         Some(
             "build" | "check" | "clippy" | "doc" | "rustc" | "rustdoc" | "test" | "bench" | "run"
             | "install",

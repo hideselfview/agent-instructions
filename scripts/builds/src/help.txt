@@ -378,6 +378,15 @@ it uses three days after cargo last built it.
 Cargo.toml files, cargo fails, names the cause and leaves the lock as the
 commit has it.
 
+`builds cargo update` rewrites Cargo.lock: run it after you change a
+dependency's version, or a git dependency's rev, in a Cargo.toml, and name each
+package whose entries change (`builds cargo update -p coven`). builds runs
+cargo update as given, on this Mac in the working directory, without --locked,
+and refuses an update that names neither a package nor the workspace (-w), since
+cargo would then move every dependency in the lock to its newest compatible
+version. An update builds nothing, so builds records no run and no build
+copies for it.
+
 Every checkout but main builds without incremental compilation (`builds cargo`
 passes --config build.incremental=false), the app checkouts included. sccache
 refuses every incremental compile, so with incremental off sccache keeps each
@@ -416,7 +425,7 @@ again here, since cargo may have run part of it there. A landing's compile
 check runs `builds cargo`, so it follows the same rules. These stay on this
 Mac:
 
-  - every other subcommand (build, rustc, run, bench, install)
+  - every other subcommand (build, rustc, run, bench, install, update)
   - a command with --message-format, --target, --release or a path argument
     (--manifest-path, --target-dir, an absolute path)
   - a command run with CARGO_TARGET_DIR or FFMPEG_DIR set, or with
@@ -481,6 +490,11 @@ restart the server.
                               BUILDS_HOOK_CHECK). builds records nothing for a
                               repo in no project, and a host that runs cargo
                               for a job records nothing there.
+  builds cargo update (-p <package>... | -w) [<args>...]
+                              run cargo update on this Mac, which rewrites the
+                              Cargo.lock entries of the named packages, or with
+                              -w those of the workspace's own packages; refuse
+                              an update that names neither.
 
 
 APP BUILDS
