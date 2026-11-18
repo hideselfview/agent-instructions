@@ -37,7 +37,6 @@ use crate::host::{self, Host, Ssh, clone_path, sh_quote};
 use crate::lane::Lane;
 use crate::places::Places;
 use crate::remote::{JOBS_REF, Transport, job_id, release_script, root_script, worktree_in};
-use crate::text::note;
 
 /// What separates the host from the checkout's name in a lane's entry.
 const SEPARATOR: char = ':';
@@ -229,16 +228,7 @@ impl RemoteApp {
             "switching the app checkout",
         );
         let dropped = self.unsend(&id);
-        let made = match (made, dropped) {
-            (Err(error), Err(also)) => {
-                note(also.text());
-                return Err(error);
-            }
-            (made, dropped) => {
-                dropped?;
-                made?
-            }
-        };
+        let made = crate::fail::with_cleanup(made, dropped)?;
         self.worktree = Some(worktree_in(&made)?);
         Ok(())
     }
