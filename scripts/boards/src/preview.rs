@@ -14,8 +14,8 @@ use crate::{Context, Result, fail};
 /// The folder of the design system's components.
 pub const COMPONENTS: &str = "design/system/components";
 
-/// A component's card: its name, and the card's height or why the card has
-/// none.
+/// A component's card: its folder's name, and the card's height or why the
+/// card has none.
 #[derive(Debug, PartialEq, Eq)]
 pub struct Card {
     pub name: String,
@@ -34,7 +34,8 @@ pub fn is_component_name(name: &str) -> bool {
 }
 
 /// The cards of the components of <from>, by name: each folder of
-/// `COMPONENTS` that holds a `preview.html`. A commit's folder is read from
+/// `COMPONENTS` that holds a `preview.html`. A folder whose name is no
+/// component name gets a card of that problem. A commit's folder is read from
 /// an export into a scratch folder in <cache>. A source with no `COMPONENTS`
 /// has no cards.
 pub fn cards(from: &Source, cache: &Path) -> Result<Vec<Card>> {
@@ -66,17 +67,23 @@ fn cards_in(top: &Path) -> Result<Vec<Card>> {
         let entry = entry.context(|| format!("listing {}", folder.display()))?;
         let name = entry.file_name().to_string_lossy().into_owned();
         let preview = entry.path().join("preview.html");
-        if !is_component_name(&name) || !preview.is_file() {
+        if !preview.is_file() {
             continue;
         }
-        let text = std::fs::read_to_string(&preview)
-            .context(|| format!("reading {}", preview_path(&name)))?;
-        let height = card_height(text.lines().next().unwrap_or("")).ok_or_else(|| {
-            format!(
-                "The first line of {} gives its card no height, as <!-- @dsCard height=N --> does.",
-                preview_path(&name)
-            )
-        });
+        let height = if is_component_name(&name) {
+            let text = std::fs::read_to_string(&preview)
+                .context(|| format!("reading {}", preview_path(&name)))?;
+            card_height(text.lines().next().unwrap_or("")).ok_or_else(|| {
+                format!(
+                    "The first line of {} gives its card no height, as <!-- @dsCard height=N --> does.",
+                    preview_path(&name)
+                )
+            })
+        } else {
+            Err(format!(
+                "{COMPONENTS}/{name} holds a preview.html, and its folder's name is no component name: a component's name is letters and digits."
+            ))
+        };
         cards.push(Card { name, height });
     }
     cards.sort_by(|a, b| a.name.cmp(&b.name));

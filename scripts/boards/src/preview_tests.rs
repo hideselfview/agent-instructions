@@ -2,7 +2,8 @@ use super::*;
 use crate::testing::{Scratch, commit, git, repo};
 
 /// A repo with components `Row` (a card 120 high), `Bare` (a preview whose
-/// first line gives no height) and `notes` (a folder with no preview).
+/// first line gives no height), `Mac-Row` (a preview in a folder whose name
+/// is no component name) and `notes` (a folder with no preview).
 fn components(scratch: &Scratch) -> std::path::PathBuf {
     let dir = scratch.dir.join("repo");
     repo(&dir);
@@ -13,6 +14,7 @@ fn components(scratch: &Scratch) -> std::path::PathBuf {
             "<!-- @dsCard group=\"Mac\" height=120 -->\n<!doctype html>",
         ),
         ("Bare", "<!doctype html>"),
+        ("Mac-Row", "<!-- @dsCard height=90 -->\n<!doctype html>"),
     ] {
         std::fs::create_dir_all(folder.join(name)).unwrap();
         std::fs::write(folder.join(name).join("preview.html"), text).unwrap();
@@ -42,6 +44,10 @@ fn each_component_with_a_preview_has_a_card_of_its_height_at_a_folder_and_a_comm
                 Card {
                     name: "Bare".into(),
                     height: Err("The first line of design/system/components/Bare/preview.html gives its card no height, as <!-- @dsCard height=N --> does.".into()),
+                },
+                Card {
+                    name: "Mac-Row".into(),
+                    height: Err("design/system/components/Mac-Row holds a preview.html, and its folder's name is no component name: a component's name is letters and digits.".into()),
                 },
                 Card {
                     name: "Row".into(),
