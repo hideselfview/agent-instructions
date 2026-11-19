@@ -28,22 +28,31 @@ struct Stat {
     rss_pages: u64,
 }
 
-/// The stat of <pid>; None when the process has exited (its folder in /proc
-/// is gone). Fails when the file cannot be read for another reason or does
-/// not hold the fields `Stat` names.
-fn read_stat(pid: i32) -> Result<Option<Stat>> {
-    let path = format!("/proc/{pid}/stat");
-    let text = match std::fs::read_to_string(&path) {
-        Ok(text) => text,
+/// The bytes of the /proc file <path>; None when the process exited (the file
+/// is gone). Fails when the file cannot be read for another reason.
+fn read_proc_file(path: &str) -> Result<Option<Vec<u8>>> {
+    match std::fs::read(path) {
+        Ok(bytes) => Ok(Some(bytes)),
         // ESRCH: the process exited while the kernel wrote the file.
         Err(error)
             if error.kind() == std::io::ErrorKind::NotFound
                 || error.raw_os_error() == Some(libc::ESRCH) =>
         {
-            return Ok(None);
+            Ok(None)
         }
         Err(error) => fail!("reading {path}: {error}"),
+    }
+}
+
+/// The stat of <pid>; None when the process has exited (its folder in /proc
+/// is gone). Fails when the file cannot be read for another reason or does
+/// not hold the fields `Stat` names.
+fn read_stat(pid: i32) -> Result<Option<Stat>> {
+    let path = format!("/proc/{pid}/stat");
+    let Some(bytes) = read_proc_file(&path)? else {
+        return Ok(None);
     };
+    let text = String::from_utf8_lossy(&bytes).into_owned();
     let parsed = (|| {
         let open = text.find('(')?;
         let close = text.rfind(')')?;
@@ -183,21 +192,7 @@ pub fn args(pid: i32) -> Option<Vec<String>> {
 /// The environment <pid> started with (/proc/<pid>/environ), as `NAME=value`
 /// strings; None when it exited or can't be read.
 pub fn environment(pid: i32) -> Option<Vec<String>> {
-    let bytes = match std::fs::read(format!("/proc/{pid}/environ")) {
-        Ok(bytes) => bytes,
-        Err(error)
-            if error.kind() == std::io::ErrorKind::NotFound
-                || error.raw_os_error() == Some(libc::ESRCH) =>
-        {
-            return None;
-        }
-        Err(error) => {
-            crate::text::note(format!(
-                "builds cannot read the environment of pid {pid}: {error}"
-            ));
-            return None;
-        }
-    };
+    let bytes = or_note(read_proc_file(&format!("/proc/{pid}/environ"))).flatten()?;
     Some(
         bytes
             .split(|b| *b == 0)
