@@ -6,6 +6,7 @@ fn row(pid: i32, ppid: i32, zombie: bool, age: i64, command: &str) -> Row {
         ppid,
         uid: 501,
         cpu_percent: Some(0.0),
+        sustained: None,
         cpu_seconds: 0.0,
         age_seconds: age,
         zombie,

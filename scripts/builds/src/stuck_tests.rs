@@ -6,6 +6,11 @@ fn row(pid: i32, ppid: i32, uid: u32, pcpu: f64, cpu: f64, age: i64, command: &s
         ppid,
         uid,
         cpu_percent: Some(pcpu),
+        // Steady over the whole span, unless a test says otherwise.
+        sustained: Some(Sustained {
+            percent: pcpu,
+            seconds: 600,
+        }),
         cpu_seconds: cpu,
         age_seconds: age,
         zombie: false,
@@ -110,7 +115,7 @@ fn a_daemon_with_high_recent_cpu_is_flagged_with_the_sample_command() {
     assert!(
         action
             .text
-            .contains("85% of a core since the host's previous reading"),
+            .contains("stayed over 50% of a core in every interval of the last 10m (at least 85%)"),
         "{action:?}"
     );
     assert!(
@@ -120,6 +125,30 @@ fn a_daemon_with_high_recent_cpu_is_flagged_with_the_sample_command() {
             .unwrap()
             .contains("sudo sample 617 5 -file"),
         "{action:?}"
+    );
+}
+
+#[test]
+fn a_daemon_busy_in_one_interval_only_is_not_flagged() {
+    // 85% since the last reading, but 5% in an earlier interval of the span.
+    let mut daemon = row(617, 1, 0, 85.0, 21_360.0, 4 * 86_400, WINDOW_SERVER);
+    daemon.sustained = Some(Sustained {
+        percent: 5.0,
+        seconds: 600,
+    });
+    assert_eq!(
+        judge("local", &[daemon], &HashMap::new(), &sampling(), None),
+        vec![]
+    );
+}
+
+#[test]
+fn a_daemon_with_too_few_readings_for_a_span_is_not_flagged() {
+    let mut daemon = row(617, 1, 0, 95.0, 21_360.0, 4 * 86_400, WINDOW_SERVER);
+    daemon.sustained = None;
+    assert_eq!(
+        judge("local", &[daemon], &HashMap::new(), &sampling(), None),
+        vec![]
     );
 }
 

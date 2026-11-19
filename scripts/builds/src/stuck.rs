@@ -34,8 +34,9 @@ const PEGGED_PERCENT: f64 = 90.0;
 const PEGGED_SECONDS: i64 = 30 * 60;
 /// A test binary running this long has run longer than a test run takes.
 const TEST_SECONDS: i64 = 30 * 60;
-/// fseventsd is flagged as soon as it is busy: every program that watches
-/// files depends on it, and a cause is only found by sampling it while it runs.
+/// fseventsd is flagged as soon as it has kept busy for a span, like every
+/// system daemon: every program that watches files depends on it, and a cause
+/// is only found by sampling it while it runs.
 const FSEVENTSD: &str = "fseventsd";
 /// Seconds `sample` watches the process.
 const SAMPLE_SECONDS: u32 = 5;
@@ -45,6 +46,15 @@ const ANCESTORS: usize = 12;
 /// What `ps` prints, one process a line: pid, parent, user, CPU share, CPU
 /// time, time since start, state, command with its arguments.
 pub const PS_FORMAT: &str = "pid=,ppid=,uid=,pcpu=,cputime=,etime=,stat=,command=";
+
+/// What a process used over a span of the host's readings.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Sustained {
+    /// The lowest share of a core, as a percentage, in any interval of the span.
+    pub percent: f64,
+    /// The seconds the span covers.
+    pub seconds: i64,
+}
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Row {
@@ -56,6 +66,10 @@ pub struct Row {
     /// reading has no such process. Rows from `parse_ps` hold what `ps`
     /// prints, and a scan replaces it with the measured share.
     pub cpu_percent: Option<f64>,
+    /// The lowest share the process had in any interval between the host's
+    /// readings over the last span (process_readings.rs), or None when the
+    /// readings do not cover a span with the process in every interval.
+    pub sustained: Option<Sustained>,
     pub cpu_seconds: f64,
     pub age_seconds: i64,
     /// Exited and waiting for its parent to reap it (state Z).
@@ -120,6 +134,7 @@ pub fn parse_ps(text: &str) -> Result<Vec<Row>, String> {
             ppid,
             uid,
             cpu_percent: Some(cpu_percent),
+            sustained: None,
             cpu_seconds,
             age_seconds,
             zombie,
@@ -469,14 +484,13 @@ fn is_fseventsd(row: &Row) -> bool {
     is_system(row) && basename(row.command.split_whitespace().next().unwrap_or("")) == FSEVENTSD
 }
 
+/// The span <row>'s sustained share covers, in minutes: `10m`.
+fn span_of(row: &Row) -> String {
+    format!("{}m", minutes(row.sustained.map_or(0, |s| s.seconds)))
+}
+
 /// What the person does about <busy>, when it looks stuck.
-fn action_for(
-    host: &str,
-    owner: &Owner,
-    row: &Row,
-    percent: f64,
-    sampling: &Sampling,
-) -> Option<Advice> {
+fn action_for(host: &str, owner: &Owner, row: &Row, sampling: &Sampling) -> Option<Advice> {
     let limit = DEFAULT_STEP_LIMIT.as_secs() as i64;
     let kill = format!("kill {}", row.pid);
     let sample = sampling.command(host, row.pid);
@@ -506,15 +520,17 @@ fn action_for(
         )),
         Owner::System { name } if name == FSEVENTSD => Some(Advice::run(
             format!(
-                "fseventsd is busy ({:.0}% now, {} of CPU); read a sample of it before anyone kills fseventsd, and take the sample with",
-                percent,
+                "fseventsd used {} of CPU and stayed over {BUSY_PERCENT:.0}% of a core in every interval of the last {}; read a sample of it before anyone kills fseventsd, and take the sample with",
                 duration(row.cpu_seconds as i64),
+                span_of(row),
             ),
             sample,
         )),
         Owner::System { .. } => Some(Advice::run(
             format!(
-                "this system daemon used {percent:.0}% of a core since the host's previous reading; read a sample of it before anyone kills it, and take the sample with",
+                "this system daemon stayed over {BUSY_PERCENT:.0}% of a core in every interval of the last {} (at least {:.0}%); read a sample of it before anyone kills it, and take the sample with",
+                span_of(row),
+                row.sustained.map_or(0.0, |s| s.percent),
             ),
             sample,
         )),
@@ -539,10 +555,17 @@ pub fn judge(
         .iter()
         .filter(|row| Some(row.pid) != dashboard)
         .filter_map(|row| Some((row, busy_share(row)?)))
-        .map(|(row, percent)| {
+        .filter_map(|(row, percent)| {
             let owner = owner_of(&by_pid, row, cwds);
-            let action = action_for(host, &owner, row, percent, sampling);
-            Busy {
+            // A system daemon is busy only while it keeps using CPU: over
+            // the threshold in every interval of the span, not in one.
+            if matches!(owner, Owner::System { .. })
+                && !row.sustained.is_some_and(|s| s.percent > BUSY_PERCENT)
+            {
+                return None;
+            }
+            let action = action_for(host, &owner, row, sampling);
+            Some(Busy {
                 host: host.to_string(),
                 pid: row.pid,
                 cpu_percent: percent,
@@ -551,7 +574,7 @@ pub fn judge(
                 command: row.command.clone(),
                 owner,
                 action,
-            }
+            })
         })
         .collect();
     found.sort_by(|a, b| b.cpu_seconds.total_cmp(&a.cpu_seconds));

@@ -4,7 +4,9 @@
 //! time. A scan (host_scan.rs) compares its listing with the newest reading
 //! that is at least MIN_SECONDS old and at most MAX_SECONDS old, and a
 //! process's CPU share is the CPU time it used since that reading over the
-//! seconds between them. A process that the reading lacks, or that started
+//! seconds between them. Over the span of SPAN_SECONDS, the lowest share in
+//! any interval between readings is the process's `Row::sustained`. A process
+//! that the reading lacks, or that started
 //! at another time (a new process on a reused pid), has no share yet. A host
 //! gets a reading at most once a minute, and readings over MAX_SECONDS old
 //! go.
@@ -17,12 +19,16 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use crate::fail::Result;
-use crate::stuck::Row;
+use crate::stuck::{Row, Sustained};
 
 /// A reading younger than this says too little about what a process used.
 pub const MIN_SECONDS: i64 = 10;
 /// A reading older than this says nothing about what a process uses now.
 pub const MAX_SECONDS: i64 = 15 * 60;
+/// How long a process must keep using CPU before it counts as busy for a
+/// span: its share is over the threshold in every interval between the
+/// readings of this many seconds, ending now.
+pub const SPAN_SECONDS: i64 = 10 * 60;
 /// Two start times this close or closer are the same process's: `ps` prints
 /// whole seconds of age, and each reading rounds them.
 const START_TOLERANCE: i64 = 2;
@@ -95,22 +101,64 @@ fn compared(readings: &[Reading], now: i64) -> Option<&Reading> {
         .max_by_key(|r| r.at)
 }
 
+/// What <later> used since <earlier>, as a percentage of a core over <seconds>,
+/// or None when they are not one process or <later> used less CPU time.
+fn interval_share(earlier: &Proc, later: &Proc, seconds: i64) -> Option<f64> {
+    let used = later.cpu - earlier.cpu;
+    ((later.start - earlier.start).abs() <= START_TOLERANCE && used >= 0.0)
+        .then(|| used / seconds as f64 * 100.0)
+}
+
+/// The lowest share that process <current> had in any interval between the
+/// readings of <readings> from the newest one at least SPAN_SECONDS old (and
+/// at most MAX_SECONDS) up to <now>, with the seconds that span covers. None
+/// when no reading is old enough, or a reading in the span lacks the process.
+fn sustained(readings: &[Reading], now: i64, current: &Proc) -> Option<Sustained> {
+    let first = readings
+        .iter()
+        .filter(|r| (SPAN_SECONDS..=MAX_SECONDS).contains(&(now - r.at)))
+        .max_by_key(|r| r.at)?;
+    let mut span: Vec<&Reading> = readings
+        .iter()
+        .filter(|r| r.at >= first.at && now - r.at >= MIN_SECONDS)
+        .collect();
+    span.sort_by_key(|r| r.at);
+    let mut earlier: Option<(&Proc, i64)> = None;
+    let mut lowest: Option<f64> = None;
+    for reading in span {
+        let proc = reading.procs.iter().find(|p| p.pid == current.pid)?;
+        if let Some((before, at)) = earlier {
+            let share = interval_share(before, proc, reading.at - at)?;
+            lowest = Some(lowest.map_or(share, |l| l.min(share)));
+        }
+        earlier = Some((proc, reading.at));
+    }
+    let (before, at) = earlier?;
+    let share = interval_share(before, current, now - at)?;
+    Some(Sustained {
+        percent: lowest.map_or(share, |l| l.min(share)),
+        seconds: now - first.at,
+    })
+}
+
 /// <rows>, listed at <now>, with each CPU share set to what the process used
 /// since the reading <compared> picks from <readings>, as a percentage of a
-/// core, or to None when that reading has no such process.
+/// core, or to None when that reading has no such process; and each
+/// `sustained` set by `sustained` over the readings.
 pub fn measure(mut rows: Vec<Row>, now: i64, readings: &[Reading]) -> Vec<Row> {
     let previous = compared(readings, now);
     let before: HashMap<i32, &Proc> = previous
         .map(|reading| reading.procs.iter().map(|p| (p.pid, p)).collect())
         .unwrap_or_default();
     for row in &mut rows {
-        row.cpu_percent = previous.and_then(|reading| {
-            let earlier = before.get(&row.pid)?;
-            let started = now - row.age_seconds;
-            let used = row.cpu_seconds - earlier.cpu;
-            ((started - earlier.start).abs() <= START_TOLERANCE && used >= 0.0)
-                .then(|| used / (now - reading.at) as f64 * 100.0)
-        });
+        let current = Proc {
+            pid: row.pid,
+            start: now - row.age_seconds,
+            cpu: row.cpu_seconds,
+        };
+        row.cpu_percent = previous
+            .and_then(|reading| interval_share(before.get(&row.pid)?, &current, now - reading.at));
+        row.sustained = sustained(readings, now, &current);
     }
     rows
 }

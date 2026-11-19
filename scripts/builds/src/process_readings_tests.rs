@@ -1,4 +1,5 @@
 use super::*;
+use crate::stuck::Sustained;
 
 const NOW: i64 = 1_795_069_000;
 
@@ -103,4 +104,58 @@ fn readings_are_kept_in_a_file_for_each_host() {
     write(&scratch.dir, "m1", &kept).unwrap();
     assert_eq!(read(&scratch.dir, "m1").unwrap(), kept);
     assert_eq!(read(&scratch.dir, "local").unwrap(), []);
+}
+
+/// Readings a minute apart over the last 11 minutes of a process that used
+/// <rates>[i] CPU seconds a minute in the i-th minute, as the readings and the
+/// row now.
+fn minutes_of_use(rates: &[f64; 11]) -> (Vec<Reading>, Vec<Row>) {
+    let mut cpu = 20_000.0;
+    let mut readings = Vec::new();
+    for (i, rate) in rates.iter().enumerate() {
+        let ago = (11 - i as i64) * 60;
+        readings.push(reading(ago, &[(617, cpu, 400_000 - ago)]));
+        cpu += rate;
+    }
+    (readings, vec![row(617, cpu, 400_000)])
+}
+
+fn lowest(readings: &[Reading], rows: Vec<Row>) -> Option<Sustained> {
+    measure(rows, NOW, readings)[0].sustained
+}
+
+/// 36 CPU seconds a minute is 60% of a core. The span starts at the newest
+/// reading 10 minutes old, and the 55% interval is inside it.
+#[test]
+fn a_daemon_busy_across_the_span_has_its_lowest_share() {
+    let mut rates = [36.0; 11];
+    rates[6] = 33.0;
+    let (readings, rows) = minutes_of_use(&rates);
+    let sustained = lowest(&readings, rows).unwrap();
+    assert!((sustained.percent - 55.0).abs() < 1e-9, "{sustained:?}");
+    assert_eq!(sustained.seconds, SPAN_SECONDS);
+}
+
+#[test]
+fn a_daemon_busy_in_one_interval_only_has_a_low_share() {
+    let mut rates = [0.6; 11];
+    rates[10] = 36.0;
+    let (readings, rows) = minutes_of_use(&rates);
+    let sustained = lowest(&readings, rows).unwrap();
+    assert!((sustained.percent - 1.0).abs() < 1e-9, "{sustained:?}");
+}
+
+#[test]
+fn too_few_readings_give_no_span() {
+    let (readings, rows) = minutes_of_use(&[36.0; 11]);
+    // Only the last five minutes.
+    let recent: Vec<Reading> = readings.into_iter().skip(6).collect();
+    assert_eq!(lowest(&recent, rows), None);
+}
+
+#[test]
+fn a_reading_that_lacks_the_process_gives_no_span() {
+    let (mut readings, rows) = minutes_of_use(&[36.0; 11]);
+    readings[5].procs.clear();
+    assert_eq!(lowest(&readings, rows), None);
 }
