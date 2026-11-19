@@ -3,6 +3,7 @@
 
 mod ack;
 mod app_build;
+mod app_build_commit;
 mod app_config;
 mod app_remote;
 mod app_reset;

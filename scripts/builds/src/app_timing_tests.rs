@@ -60,6 +60,26 @@ fn a_run_keeps_the_load_of_its_checkouts_host() {
 }
 
 #[test]
+fn a_run_keeps_the_commit_it_built_and_a_run_with_none_has_no_row() {
+    let scratch = Scratch::new("timing-commit");
+    let path = store(&scratch);
+    let commit = "0123456789abcdef0123456789abcdef01234567";
+    let mut built = run(NOW, Lane::Mac, 0, true, Vec::new());
+    built.built_commit = Some(commit.to_string());
+    record(&path, &built).unwrap();
+    record(&path, &run(NOW, Lane::Mac, 0, true, Vec::new())).unwrap();
+    let conn = crate::db::open_reader(&path).unwrap().unwrap();
+    let commits: Vec<(i64, Option<String>)> = conn
+        .prepare("SELECT r.id, c.built_commit FROM app_build_runs r LEFT JOIN app_build_run_commit c ON c.run_id = r.id ORDER BY r.id")
+        .unwrap()
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+        .unwrap()
+        .collect::<rusqlite::Result<_>>()
+        .unwrap();
+    assert_eq!(commits, vec![(1, Some(commit.to_string())), (2, None)]);
+}
+
+#[test]
 fn a_recorded_run_comes_back_in_the_figures_with_its_steps() {
     let scratch = Scratch::new("timing-record");
     let path = store(&scratch);

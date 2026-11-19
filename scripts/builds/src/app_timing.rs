@@ -177,7 +177,7 @@ pub fn database_of(
     }
 }
 
-/// Writes <run>, its steps and the commit it built (app_build_commit.sql) to
+/// Writes <run>, its steps and the commit it built (app_build_commit.rs) to
 /// the existing database at <path>, in one transaction.
 pub fn record(path: &Path, run: &RunRecord) -> Result<()> {
     let mut conn = crate::db::open(path, crate::db::Make::Never)?;
@@ -219,11 +219,7 @@ pub fn record(path: &Path, run: &RunRecord) -> Result<()> {
         }
     }
     if let Some(commit) = &run.built_commit {
-        tx.execute(
-            "INSERT INTO app_build_run_commit (run_id, built_commit) VALUES (?1, ?2)",
-            params![id, commit],
-        )
-        .context(what)?;
+        crate::app_build_commit::record(&tx, id, commit).context(what)?;
     }
     tx.commit().context(what)
 }
