@@ -414,12 +414,12 @@ pub fn cmd_cargo(args: &[String]) -> Result<()> {
         None if tool == cargo_place::CargoTool::Mutants => prepare_here(checkout.as_ref(), &env)
             .and_then(|()| run_before_here(checkout.as_ref(), &env))
             .and_then(|()| {
-                run_mutants_here(
-                    &places,
-                    checkout.as_ref(),
-                    &mutants_args_here(&places, given)?,
-                    &env,
-                )
+                // A host's job comes capped by this Mac (`CAPPED_VARIABLE`).
+                let args = match env(crate::cargo_mutants::CAPPED_VARIABLE) {
+                    Some(_) => given.to_vec(),
+                    None => mutants_args_here(&places, given)?,
+                };
+                run_mutants_here(&places, checkout.as_ref(), &args, &env)
             })?,
         None => prepare_here(checkout.as_ref(), &env)
             .and_then(|()| run_before_here(checkout.as_ref(), &env))
@@ -790,13 +790,11 @@ fn mutants_args(args: &[String], load: f64, band: crate::host_band::Band) -> Vec
 /// `mutants_args` for this Mac, with the band `builds host band local` set,
 /// or the shares of its cores.
 fn mutants_args_here(places: &Places, args: &[String]) -> Result<Vec<String>> {
-    let mut local = crate::host::Host::local();
-    local.band = crate::host::read_file(places)?.local_band;
-    let cores = Load::here().cores;
+    let local = crate::host::local_host(places)?;
     Ok(mutants_args(
         args,
         crate::procs::load_average()[1],
-        local.band_for(cores),
+        local.band_for(Load::here().cores),
     ))
 }
 

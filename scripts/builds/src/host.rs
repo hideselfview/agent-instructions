@@ -892,13 +892,17 @@ pub fn set_band(places: &Places, name: &str, band: Option<Band>) -> Result<()> {
     write_file(places, &file)
 }
 
+/// This Mac with the load band `builds host band local` set, if any.
+pub fn local_host(places: &Places) -> Result<Host> {
+    let mut local = Host::local();
+    local.band = read_file(places)?.local_band;
+    Ok(local)
+}
+
 /// This Mac, then every recorded host.
 pub fn all(places: &Places) -> Result<Vec<Host>> {
-    let file = read_file(places)?;
-    let mut local = Host::local();
-    local.band = file.local_band;
-    let mut hosts = vec![local];
-    hosts.extend(file.remote);
+    let mut hosts = vec![local_host(places)?];
+    hosts.extend(read_file(places)?.remote);
     Ok(hosts)
 }
 

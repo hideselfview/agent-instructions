@@ -10,6 +10,11 @@
 
 use crate::host_band::Band;
 
+/// The variable `builds cargo` sets for the `builds cargo mutants` a host
+/// runs for a job: this Mac has capped the job's `--jobs` by the host's band
+/// already, which only this Mac keeps, so the host caps nothing again.
+pub const CAPPED_VARIABLE: &str = "BUILDS_MUTANTS_CAPPED";
+
 /// How many jobs a run may use on a host whose 5-minute load average is
 /// <load> and whose band is <band>: the room under the band's high end,
 /// rounded down, and at least one.

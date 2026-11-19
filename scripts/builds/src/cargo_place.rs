@@ -366,10 +366,13 @@ pub fn host_command(
             ));
         }
     }
-    let forwarded = FORWARDED
+    let mut forwarded: Vec<String> = FORWARDED
         .iter()
         .filter_map(|name| Some(format!("{name}={}", env(name)?.to_string_lossy())))
         .collect();
+    if args.first().map(String::as_str) == Some("mutants") {
+        forwarded.push(format!("{}=1", crate::cargo_mutants::CAPPED_VARIABLE));
+    }
     job_words("cargo", &lines, forwarded, args, checkout, dir, env)
 }
 

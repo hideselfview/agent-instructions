@@ -1103,3 +1103,19 @@ fn a_job_that_builds_a_macos_package_stays_off_linux_hosts() {
     );
     assert_eq!(needs_mac(&host, &probe, None), None, "no such package");
 }
+
+#[test]
+fn a_mutants_job_tells_its_host_that_this_mac_capped_its_jobs() {
+    let scratch = Scratch::new("place-mutants-capped");
+    let (_main, side) = checkouts(&scratch);
+    let words = host_command(
+        &args(&["mutants", "--jobs", "2"]),
+        &side,
+        &side.top,
+        &no_env,
+    );
+    let capped = format!("{}=1", crate::cargo_mutants::CAPPED_VARIABLE);
+    assert!(words.contains(&capped), "{words:?}");
+    let words = host_command(&args(&["test"]), &side, &side.top, &no_env);
+    assert!(!words.contains(&capped), "{words:?}");
+}
