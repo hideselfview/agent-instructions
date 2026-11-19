@@ -128,6 +128,46 @@ pub struct Card {
     pub runs: Vec<(i64, i64)>,
     /// The item's state events that say whether it was ready or blocked.
     pub states: Vec<(i64, Kind)>,
+    /// Each hook check that ran, in time order.
+    pub checks: Vec<CheckRun>,
+}
+
+/// One hook check that ran: its hook run's commit (HEAD when the run
+/// started) tells whether a later run saw the same commit.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CheckRun {
+    pub name: String,
+    pub passed: bool,
+    pub base: Option<String>,
+}
+
+/// What became of a failed check, from the next run of the same check on
+/// the same card.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Outcome {
+    /// It passed on a different commit: the agent fixed what it caught.
+    Fixed,
+    /// It passed on the same commit.
+    Flaky,
+    /// No later run passed.
+    Stood,
+}
+
+/// The outcome of each failed run in <checks>, with its check's name.
+pub fn failure_outcomes(checks: &[CheckRun]) -> Vec<(String, Outcome)> {
+    let mut found = Vec::new();
+    for (at, run) in checks.iter().enumerate().filter(|(_, run)| !run.passed) {
+        let next = checks[at + 1..]
+            .iter()
+            .find(|later| later.name == run.name && later.passed);
+        let outcome = match next {
+            None => Outcome::Stood,
+            Some(later) if later.base.is_some() && later.base == run.base => Outcome::Flaky,
+            Some(_) => Outcome::Fixed,
+        };
+        found.push((run.name.clone(), outcome));
+    }
+    found
 }
 
 fn find(lists: &Lists, id: Id) -> Result<(&Item, Option<&Closed>)> {
@@ -207,6 +247,7 @@ pub fn gather(db: &Connection, lists: &Lists, id: Id, now: i64) -> Result<Card> 
         steps: Vec::new(),
         runs: Vec::new(),
         states: Vec::new(),
+        checks: Vec::new(),
     };
     card.moments.push(Moment {
         at: item.opened.at,
@@ -405,6 +446,25 @@ fn read_hooks(db: &Connection, worktree: &str, from: i64, to: i64, card: &mut Ca
             false,
             true,
         ));
+        let mut outcomes = db
+            .prepare(
+                "SELECT c.name, c.outcome = 'passed', r.base FROM hook_run_checks c \
+                 JOIN hook_runs r ON r.id = c.run_id \
+                 WHERE c.run_id = ?1 AND c.kind = 'check' AND c.outcome <> 'skipped' ORDER BY c.position",
+            )
+            .sql()?;
+        let found = outcomes
+            .query_map([id], |row| {
+                Ok(CheckRun {
+                    name: row.get(0)?,
+                    passed: row.get(1)?,
+                    base: row.get(2)?,
+                })
+            })
+            .sql()?;
+        for check in found {
+            card.checks.push(check.sql()?);
+        }
         let mut checks = db
             .prepare(
                 "SELECT name, ms FROM hook_run_checks \
@@ -928,6 +988,42 @@ pub fn totals_text(cards: &[Card]) -> String {
             duration_fine(percentile(&times, 0.5)),
             duration_fine(percentile(&times, 0.9)),
             times.len(),
+        );
+    }
+    out.push_str(&failures_text(cards));
+    out
+}
+
+/// For each hook check over <cards>: its runs that failed, and how many of
+/// the failures a fix commit followed, passed again on the same commit, or
+/// stood, the checks that fail most first.
+fn failures_text(cards: &[Card]) -> String {
+    let mut runs: BTreeMap<String, usize> = BTreeMap::new();
+    let mut failed: BTreeMap<String, [usize; 3]> = BTreeMap::new();
+    for card in cards {
+        for check in &card.checks {
+            *runs.entry(check.name.clone()).or_default() += 1;
+        }
+        for (name, outcome) in failure_outcomes(&card.checks) {
+            failed.entry(name).or_default()[outcome as usize] += 1;
+        }
+    }
+    let mut names: Vec<(&String, &[usize; 3])> = failed.iter().collect();
+    names.sort_by_key(|(_, counts)| std::cmp::Reverse(counts.iter().sum::<usize>()));
+    let mut out = String::new();
+    let _ = writeln!(
+        out,
+        "hook checks that failed (runs, failures, then failures a fix commit followed, that passed again on the same commit, and that stood)"
+    );
+    for (name, counts) in names {
+        let _ = writeln!(
+            out,
+            "  {:>5} runs  {:>4} failed  {:>4} fixed  {:>4} flaky  {:>4} stood  {name}",
+            runs[name],
+            counts.iter().sum::<usize>(),
+            counts[Outcome::Fixed as usize],
+            counts[Outcome::Flaky as usize],
+            counts[Outcome::Stood as usize],
         );
     }
     out

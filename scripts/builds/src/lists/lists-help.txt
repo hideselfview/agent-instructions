@@ -372,7 +372,11 @@ runs in (plans are in no commit); an absolute path is itself.
       slowest steps over the items that landed in the last 14 days: for each
       kind, the number of items that had it, the median and the 90th
       percentile among them and its share of the items' time, and for each
-      step, its runs, median, 90th percentile and share. Then it prints each
+      step, its runs, median, 90th percentile and share. It also prints, for
+      each commit hook check, its runs, its failed runs, and how many of the
+      failures a fix commit followed (the check passed later on another
+      commit), passed again on the same commit (flaky), or stood (no later
+      run passed). Then it prints each
       running item, each item
       that landed in those days, and each branch on which a run goes on or
       whose last run ended with a landing in those days. For a branch, times

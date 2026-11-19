@@ -328,3 +328,27 @@ fn an_item_that_never_ran_is_queued_from_its_first_event_and_a_closed_record_tha
     assert_eq!(attribute(&card), BTreeMap::from([(Kind::Queued, 120)]));
     assert!(gather(&db, &lists, Id(999), T0).is_err());
 }
+
+#[test]
+fn a_failed_check_is_fixed_flaky_or_standing_by_the_next_pass() {
+    let run = |name: &str, passed: bool, base: &str| CheckRun {
+        name: name.into(),
+        passed,
+        base: Some(base.into()),
+    };
+    let checks = vec![
+        run("clippy", false, "a"),
+        run("clippy", true, "b"),
+        run("fmt", false, "b"),
+        run("fmt", true, "b"),
+        run("spec", false, "b"),
+    ];
+    assert_eq!(
+        failure_outcomes(&checks),
+        vec![
+            ("clippy".to_string(), Outcome::Fixed),
+            ("fmt".to_string(), Outcome::Flaky),
+            ("spec".to_string(), Outcome::Stood),
+        ]
+    );
+}
