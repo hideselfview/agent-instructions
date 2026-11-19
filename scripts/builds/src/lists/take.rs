@@ -5,9 +5,12 @@
 //! depends on the lists after it takes the lock. Work
 //! that spans repos names one worktree and branch per repo (`--worktree W
 //! --branch B` repeated, the nth branch for the nth worktree); the items run
-//! in all of them. An item that keeps worktrees (`builds item stop` records
-//! them when its run ends with work left there) is taken in them, without
-//! --worktree and --branch, and nowhere else.
+//! in all of them. An item that runs already takes a worktree of each repo
+//! of its project that it does not run in yet: its work grew into another
+//! repo, and the take adds that worktree to the run that goes on, with the
+//! brief the item runs with. An item that keeps worktrees (`builds item stop`
+//! records them when its run ends with work left there) is taken in them,
+//! without --worktree and --branch, and nowhere else.
 //!
 //! Before the take's write, take checks the brief against the product spec
 //! of each named worktree's repo that has spec files (spec_check.rs) and
@@ -25,10 +28,12 @@ use crate::fail::Result;
 use crate::lists::args::Args;
 use crate::lists::draft::brief_file;
 use crate::lists::held::waits_on_open;
-use crate::lists::item::open_item;
+use crate::lists::item::{Item, open_item};
 use crate::lists::item_command::blocking_words;
 use crate::lists::kept_work::{self, kept_in, places_words};
-use crate::lists::running::{Running, SpanKind, open_span, running_in, start};
+use crate::lists::running::{
+    self, Running, SpanKind, open_span, running_in, side_worktree_parts, start,
+};
 use crate::lists::spec_check::{self, Brief, Setup};
 use crate::lists::store::{self, Store};
 use crate::lists::{Audience, Id, Kind, Lists, Stamp};
@@ -176,27 +181,48 @@ fn require_places_free(lists: &Lists, places: &[Place], ids: &[Id]) -> Result<()
     Ok(())
 }
 
-/// Refuses <ids> that cannot run in <places>: an item that runs already, one
-/// keeps work elsewhere, an item meant for the other audience than
-/// <design_session> names, and one that waits on something not met, or, when
-/// <held>, one that waits on nothing open.
+/// What a take does with its items.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Take {
+    /// The items do not run: they start running in the places.
+    Start,
+    /// The items run already: each place joins the run that goes on, in a
+    /// repo the items do not run in yet.
+    Join,
+}
+
+/// Refuses <ids> that cannot run in <places> with <brief>: a running item
+/// that runs in one of <places>' repos already or runs with another brief,
+/// items of which some run and some do not, one that keeps work elsewhere,
+/// an item meant for the other audience than <design_session> names, and
+/// one that waits on something not met, or, when <held>, one that waits on
+/// nothing open. Says whether the take starts the items or adds <places> to
+/// their runs.
 fn require_takeable(
     lists: &Lists,
     places: &[Place],
     ids: &[Id],
+    brief: &str,
     design_session: bool,
     held: bool,
-) -> Result<()> {
+) -> Result<Take> {
     require_places_free(lists, places, ids)?;
+    let mut take: Option<Take> = None;
     for id in ids {
         let item = open_item(lists, *id)?;
-        if let Some(running) = item.running.first() {
-            fail!(
-                "{id} already runs in {} on {}; run `builds item stop {} --why WHY` first",
-                running.worktree,
-                running.branch,
-                id.0
-            );
+        let this = if item.running.is_empty() {
+            Take::Start
+        } else {
+            Take::Join
+        };
+        match take {
+            Some(first) if first != this => fail!(
+                "some of the items run and some do not; take the running ones apart from the others"
+            ),
+            _ => take = Some(this),
+        }
+        if this == Take::Join {
+            require_joinable(item, places, brief)?;
         }
         let kept = item.kept.iter().map(|p| (&p.worktree, &p.branch));
         if !item.kept.is_empty() && !same_places(places, kept.clone()) {
@@ -229,6 +255,34 @@ fn require_takeable(
                 blocking.join("; ")
             );
         }
+    }
+    Ok(take.expect("a take names an item"))
+}
+
+/// Refuses running <item> in <places> unless each is in a repo the item
+/// does not run in yet and <brief> is the brief it runs with: an item runs
+/// in one worktree per repo, with one brief.
+fn require_joinable(item: &Item, places: &[Place], brief: &str) -> Result<()> {
+    let id = item.id;
+    for place in places {
+        let repo = place.checkout.repo();
+        if let Some(running) = item.running.iter().find(|running| {
+            side_worktree_parts(&running.worktree).is_some_and(|(of, _)| of == repo)
+        }) {
+            fail!(
+                "{id} already runs in {} on {}, its worktree of repo {repo}; an item runs in one worktree per repo, so stop it first (`builds item stop {} --why WHY`) to run it elsewhere",
+                running.worktree,
+                running.branch,
+                id.0
+            );
+        }
+    }
+    let runs_with = &item.running.first().expect("a running item").brief;
+    if runs_with != brief {
+        fail!(
+            "{id} runs with brief {runs_with}, and a worktree that joins its run takes that brief; name it with --brief, or give the item a new brief with `builds item handoff {} --brief P` first",
+            id.0
+        );
     }
     Ok(())
 }
@@ -371,9 +425,16 @@ pub fn take(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     // The spec check runs a reviewer for minutes, so take refuses what the
     // store refuses before the check, and again under the store's lock.
     let lists = store.load()?;
-    require_takeable(&lists, &places, &ids, design_session, held.is_some())?;
+    require_takeable(
+        &lists,
+        &places,
+        &ids,
+        &brief,
+        design_session,
+        held.is_some(),
+    )?;
     check_spec(&store, &stamp, &lists, &places, &ids, &read_brief, &args)?;
-    store.write(
+    let take = store.write(
         &stamp,
         &format!(
             "item take {}",
@@ -384,20 +445,36 @@ pub fn take(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
         ),
         |db| {
             let lists = &store::read(db)?;
-            require_takeable(lists, &places, &ids, design_session, held.is_some())?;
-            let running: Vec<Running> = places
-                .iter()
-                .map(|place| Running {
-                    worktree: place.top.clone(),
-                    branch: place.branch.clone(),
-                    brief: brief.clone(),
-                    since: stamp.clone(),
-                })
-                .collect();
-            for id in &ids {
-                kept_work::end(db, *id)?;
+            let take =
+                require_takeable(lists, &places, &ids, &brief, design_session, held.is_some())?;
+            match take {
+                Take::Start => {
+                    let running: Vec<Running> = places
+                        .iter()
+                        .map(|place| Running {
+                            worktree: place.top.clone(),
+                            branch: place.branch.clone(),
+                            brief: brief.clone(),
+                            since: stamp.clone(),
+                        })
+                        .collect();
+                    for id in &ids {
+                        kept_work::end(db, *id)?;
+                    }
+                    start(db, &ids, &running)?;
+                }
+                Take::Join => {
+                    for id in &ids {
+                        running::join(
+                            db,
+                            *id,
+                            places
+                                .iter()
+                                .map(|place| (place.top.as_str(), place.branch.as_str())),
+                        )?;
+                    }
+                }
             }
-            start(db, &ids, &running)?;
             // Last, so a refusal above leaves the claims as they were. A
             // held take notes why the work waits, and any take ends a claim's
             // wait for its item.
@@ -415,7 +492,7 @@ pub fn take(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
                 };
                 Claim { note, ..claim }.write(&place.checkout.claim_file())?;
             }
-            Ok(())
+            Ok(take)
         },
     )?;
     let named: Vec<String> = ids.iter().map(|id| id.to_string()).collect();
@@ -424,8 +501,12 @@ pub fn take(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
         .zip(&agents)
         .map(|(p, agent)| format!("{} on {} for {agent}", p.top, p.branch))
         .collect();
+    let also = match take {
+        Take::Start => "",
+        Take::Join => "also ",
+    };
     note(format!(
-        "{} run in {}",
+        "{} {also}run in {}",
         named.join(", "),
         wheres.join(" and ")
     ));

@@ -223,6 +223,19 @@ pub fn start(db: &Connection, ids: &[Id], places: &[Running]) -> Result<()> {
     Ok(())
 }
 
+/// Adds <places>, each a side worktree and its branch, to the places open
+/// item <id> runs in: its work in another repo of its project, with the
+/// run's brief and moment. The database refuses a place of an item that does
+/// not run, and a second place in a repo where the item runs.
+pub fn join<'a>(
+    db: &Connection,
+    id: Id,
+    places: impl IntoIterator<Item = (&'a str, &'a str)>,
+) -> Result<()> {
+    item::require_open_item(db, id)?;
+    insert_places(db, PlaceTable::Running, id, places)
+}
+
 /// Gives every place open item <id> runs in <brief>. Refused when it does
 /// not run.
 pub fn handoff(db: &Connection, id: Id, brief: &str) -> Result<()> {

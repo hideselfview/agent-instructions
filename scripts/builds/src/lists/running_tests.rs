@@ -434,3 +434,27 @@ fn a_places_worktree_is_generated_from_its_parts_and_a_repo_has_one_worktree_per
     );
     assert!(elsewhere.unwrap_err().to_string().contains("FOREIGN KEY"));
 }
+
+#[test]
+fn a_place_joins_a_running_items_run_in_a_repo_it_does_not_run_in() {
+    let db = db();
+    let id = item(&db, vec![]);
+    let idle = item(&db, vec![]);
+    start(&db, &[id], &[place("/d/bae-worktrees/side-1", "work")]).unwrap();
+    join(&db, id, [("/d/coven-worktrees/side-2", "work")]).unwrap();
+    let lists = read(&db);
+    let running: Vec<(&str, &str, &str)> = lists.items[0]
+        .running
+        .iter()
+        .map(|r| (r.worktree.as_str(), r.branch.as_str(), r.brief.as_str()))
+        .collect();
+    assert_eq!(
+        running,
+        [
+            ("/d/bae-worktrees/side-1", "work", "b.md"),
+            ("/d/coven-worktrees/side-2", "work", "b.md")
+        ]
+    );
+    assert!(join(&db, id, [("/d/bae-worktrees/side-3", "other")]).is_err());
+    assert!(join(&db, idle, [("/d/coven-worktrees/side-4", "work")]).is_err());
+}

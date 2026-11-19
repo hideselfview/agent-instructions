@@ -483,6 +483,98 @@ fn a_landing_from_the_second_repo_is_accepted_and_the_first_repos_commit_is_not_
     assert!(refused.contains("not a commit"), "{refused}");
 }
 
+/// `item take` of <ids> in <worktree> on <branch> with <brief>.
+fn take_in(
+    demo: &Demo,
+    ids: &[&str],
+    worktree: &std::path::Path,
+    branch: &str,
+    brief: &str,
+) -> Result<()> {
+    let mut args = vec!["take"];
+    args.extend_from_slice(ids);
+    args.extend([
+        "--worktree",
+        worktree.to_str().unwrap(),
+        "--branch",
+        branch,
+        "--brief",
+        brief,
+    ]);
+    cmd_item(&demo.tool, &words(&args))
+}
+
+#[test]
+fn a_running_item_takes_a_worktree_of_another_repo_and_lands_from_each() {
+    let demo = crate::lists::item_fixtures::demo_over("landing-join", &["demo", "other"]);
+    let demo_agent = demo.add_side_of("demo", 1, "agent A", "work");
+    let other_agent = demo.add_side_of("other", 1, "agent A", "work");
+    let details = demo.brief("details.txt");
+    let brief = demo.brief("b.md");
+    let another = demo.brief("c.md");
+    for title in ["Do the first thing now", "Do the second thing now"] {
+        cmd_item(
+            &demo.tool,
+            &words(&[
+                "add",
+                "--title",
+                title,
+                "--area",
+                "Alpha",
+                "--details-file",
+                &details,
+            ]),
+        )
+        .unwrap();
+    }
+    take_in(&demo, &["1"], &demo_agent, "work", &brief).unwrap();
+    let before = demo.state();
+    let other_brief = refusal(take_in(&demo, &["1"], &other_agent, "work", &another));
+    assert!(other_brief.contains("runs with brief"), "{other_brief}");
+    let mixed = refusal(take_in(&demo, &["1", "2"], &other_agent, "work", &brief));
+    assert!(mixed.contains("some of the items run"), "{mixed}");
+    assert_eq!(demo.state(), before);
+
+    // The branches of the two repos have the same name.
+    take_in(&demo, &["1"], &other_agent, "work", &brief).unwrap();
+    let lists = demo.store.load().unwrap();
+    let item = lists.item(Id(1)).unwrap();
+    assert_eq!(
+        item.running
+            .iter()
+            .map(|r| (r.worktree.clone(), r.branch.as_str(), r.since.at))
+            .collect::<Vec<_>>(),
+        [
+            (
+                demo_agent.display().to_string(),
+                "work",
+                item.running[0].since.at
+            ),
+            (
+                other_agent.display().to_string(),
+                "work",
+                item.running[0].since.at
+            )
+        ]
+    );
+    let again = refusal(take_in(&demo, &["1"], &other_agent, "work", &brief));
+    assert!(again.contains("already runs in"), "{again}");
+
+    let demo_commit = demo.commit(&demo_agent, "a.txt");
+    let other_commit = demo.commit(&other_agent, "b.txt");
+    run_git(&demo_agent, &["push", "-q", "origin", "HEAD:main"]);
+    run_git(&other_agent, &["push", "-q", "origin", "HEAD:main"]);
+    let part = land_args(&demo_agent, &["--part", "1", &demo_commit]);
+    check_landing(&demo.tool, &part).unwrap();
+    super::landed(&demo.tool, &part).unwrap();
+    let done = land_args(&other_agent, &["--done", "1", &other_commit]);
+    check_landing(&demo.tool, &done).unwrap();
+    super::landed(&demo.tool, &done).unwrap();
+    let lists = demo.store.load().unwrap();
+    assert!(lists.item(Id(1)).is_none());
+    assert!(matches!(&lists.closed[0].how, How::Landed(c) if *c == [other_commit.clone()]));
+}
+
 #[test]
 fn every_named_constraint_of_the_landing_tables_refuses_its_row() {
     use crate::lists::fixtures::{Refusals, db, item, row, sha, v};

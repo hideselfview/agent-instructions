@@ -229,12 +229,19 @@ runs in (plans are in no commit); an absolute path is itself.
       Marks the items running. W is a claimed side worktree of a project repo
       (the claim names the agent; the item stores none) and B a branch of it.
       Work that spans repos names one worktree and branch per repo, the nth
-      --branch for the nth --worktree, and the item runs in all of them. An
-      item that keeps worktrees (`item stop`) is taken without --worktree and
-      --branch, in the worktrees it keeps, and nowhere else.
-      Refused for an item that waits, one already running (stop it first), a
-      design-session item without --as design-session, a worktree already
-      running another branch, and two worktrees of one repo. --held WHY takes
+      --branch for the nth --worktree, and the item runs in all of them. When
+      a running item's work grows into another repo of its project, take
+      adds a worktree of that repo to the item's run, with the brief P the
+      item runs with, and the item then lands from either worktree (`item
+      check-landing`). An item that keeps worktrees (`item stop`) is taken
+      without --worktree and --branch, in the worktrees it keeps, and nowhere
+      else.
+      Refused for an item that waits, a running item in a repo where it runs
+      already (stop it first) or with another brief than the one it runs
+      with (`item handoff` changes that), running items named with items
+      that do not run, a design-session item without --as design-session, a
+      worktree already running another branch, and two worktrees of one
+      repo. --held WHY takes
       an item that waits on an open question, item, design change or
       condition (and only such an item), and notes each worktree held with WHY
       in the same write: work kept for an answer, with no agent running.
