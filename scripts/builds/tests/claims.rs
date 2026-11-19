@@ -264,7 +264,13 @@ fn claims_keep_their_notes_and_a_notes_state_until_a_plain_note_clears_it() {
     demo.run(&["claim", &side, "agent A"]);
     let fields = claim_fields(&file);
     assert_eq!(fields[0], "agent A");
-    assert_eq!(fields.len(), 2, "claim wrote {fields:?}");
+    // A new claim waits for its item: the starting state, which `builds item
+    // take` clears and which health never releases.
+    assert_eq!(
+        fields[2..],
+        ["claimed; its item is not yet taken", "starting"],
+        "claim wrote {fields:?}"
+    );
     let since = fields[1].clone();
 
     demo.run(&["note", &side, "waiting", "on", "Linux", "CI"]);

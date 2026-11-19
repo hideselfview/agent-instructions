@@ -524,27 +524,3 @@ fn health_sees_an_item_of_either_project_in_a_repo_two_projects_hold() {
         );
     }
 }
-
-/// A claim is idle, and `builds health` releases it, only while nothing
-/// runs there, no commit waits to land, no file is uncommitted, no `git
-/// commit` runs, and the claim is neither held nor an app checkout's.
-#[test]
-fn a_claim_is_idle_only_when_nothing_holds_the_worktree() {
-    let top = std::path::Path::new("/w");
-    assert!(worktree(top, "a", None, Vec::new()).claim_is_idle(true));
-    assert!(!worktree(top, "a", None, Vec::new()).claim_is_idle(false));
-    assert!(!worktree(top, "a", Some("held"), Vec::new()).claim_is_idle(true));
-    assert!(!worktree(top, "a", None, vec!["abc".into()]).claim_is_idle(true));
-    let mut dirty = worktree(top, "a", None, Vec::new());
-    dirty.uncommitted = Some(2);
-    assert!(!dirty.claim_is_idle(true));
-    let mut committing = worktree(top, "a", None, Vec::new());
-    committing.committing = Ok(vec![7]);
-    assert!(!committing.claim_is_idle(true));
-    let mut unknown = worktree(top, "a", None, Vec::new());
-    unknown.committing = Err("ps failed".into());
-    assert!(!unknown.claim_is_idle(true));
-    let mut app = worktree(top, "a", None, Vec::new());
-    app.app_checkout = true;
-    assert!(!app.claim_is_idle(true));
-}

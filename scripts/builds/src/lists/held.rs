@@ -188,20 +188,6 @@ impl Worktree {
         })
     }
 
-    /// Is its claim one `builds release` may remove, and one health says to
-    /// release: no item runs there (<nothing_runs>), it is not an app
-    /// checkout or held, and it has no commits that origin/main lacks, no
-    /// files not committed and no `git commit` running? `builds health`
-    /// releases such a claim itself (health_fix.rs).
-    pub fn claim_is_idle(&self, nothing_runs: bool) -> bool {
-        !self.app_checkout
-            && self.claim.note_state.as_deref() != Some("held")
-            && self.ahead.is_empty()
-            && self.uncommitted == Some(0)
-            && self.committing.as_ref().is_ok_and(|pids| pids.is_empty())
-            && nothing_runs
-    }
-
     /// The lists of the project its work is in (`store::lists_of`).
     fn lists<'a>(
         &self,
@@ -286,7 +272,16 @@ pub fn findings(
         // Release refuses a worktree with commits, files or a running git
         // commit that nothing else holds, so health says to release only one
         // with none of them.
-        if worktree.claim_is_idle(running.is_empty()) {
+        if !standing
+            && worktree.claim.note_state.as_deref() != Some("held")
+            && worktree.ahead.is_empty()
+            && worktree.uncommitted == Some(0)
+            && worktree
+                .committing
+                .as_ref()
+                .is_ok_and(|pids| pids.is_empty())
+            && running.is_empty()
+        {
             found.push(Advice::run(
                 format!(
                     "lists: {} claims {}, but no item runs there and the worktree has no commits that origin/main lacks, no files not committed and no git commit running; release it with",

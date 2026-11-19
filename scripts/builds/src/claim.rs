@@ -21,6 +21,15 @@ use crate::fail::Result;
 use crate::places::Places;
 use crate::text::{local_minute, local_minute_epoch, note};
 
+/// The state of the claim that `builds claim` and `builds new` make: the
+/// worktree is claimed for work whose item `builds item take` has not started
+/// yet, and take clears it. Health releases no claim that carries it
+/// (health_fix.rs). `builds note` never sets it.
+pub const STARTING: &str = "starting";
+
+/// The note of a claim in the STARTING state.
+pub const STARTING_NOTE: &str = "claimed; its item is not yet taken";
+
 /// The states a note may carry.
 pub const NOTE_STATES: [&str; 3] = ["waiting-on-you", "winding-down", "held"];
 
@@ -207,7 +216,7 @@ pub fn cmd_claim(places: &Places, args: &[String], now: i64) -> Result<()> {
             claim.text()
         ),
         Some(claim) => (claim.note, claim.note_state),
-        None => (None, None),
+        None => (Some(STARTING_NOTE.to_string()), Some(STARTING.to_string())),
     };
     match project {
         Some(project) => set_project(places, &checkout, Some(project))?,

@@ -11,7 +11,7 @@
 //! 1-minute average rises and falls with each build's steps.
 
 use crate::health::Advice;
-use crate::host::{Host, Probe};
+use crate::host::{Host, PassedOver, Probe};
 use crate::lists::store::Loaded;
 
 /// Cores sit idle on a host whose 5-minute load is under this share of its
@@ -82,36 +82,26 @@ pub fn findings(
                 Ok(_) => found.push(Advice::said(format!(
                     "cores idle on {place} while {items}: {load}; start agents"
                 ))),
-                Err(why) => found.push(passed_over(host, answer, floor_kib, &place, &items, &why)),
+                Err(why) => found.push(passed_over(&place, &items, &why)),
             }
         }
     }
     found
 }
 
-/// The line for an idle host that `builds cargo` passes over for <why> (what
-/// `host::takes_cargo` said), with the fix for that reason: agents started for
-/// its cores would build elsewhere, so health says what keeps work off it.
-fn passed_over(
-    host: &Host,
-    answer: &Probe,
-    floor_kib: u64,
-    place: &str,
-    items: &str,
-    why: &str,
-) -> Advice {
-    let name = &host.name;
+/// The line for an idle host that `builds cargo` passes over for <why>
+/// (`host::takes_cargo`), with the fix for that reason: agents started for its
+/// cores would build elsewhere, so health says what keeps work off it.
+fn passed_over(place: &str, items: &str, why: &PassedOver) -> Advice {
     let said =
         format!("cores idle on {place} while {items}, but builds cargo passes it over: {why}");
-    if answer.free_kib < floor_kib {
-        Advice::run(
+    match why {
+        PassedOver::UnderFloor { .. } => Advice::run(
             format!("{said}. Free disk there (builds help, DISK), starting with"),
             "builds prune".to_string(),
-        )
-    } else if answer.git_fails.is_some() {
-        Advice::said(format!("{said}. Fix git on {name}"))
-    } else {
-        Advice::said(said)
+        ),
+        PassedOver::GitFails { host, .. } => Advice::said(format!("{said}. Fix git on {host}")),
+        PassedOver::NoSpeed { .. } | PassedOver::Unreachable { .. } => Advice::said(said),
     }
 }
 

@@ -258,6 +258,10 @@ state that git can't show:
   waiting-on-you  the work waits on a question or a step only the person can
                   take
   winding-down    the agent is on its last item, then its handoff
+  starting        `claim` and `new` set it, with the note "claimed; its item
+                  is not yet taken", on a claim for an item that `item take`
+                  has not started there; take clears it, `note` never sets
+                  it, and `health` never releases a claim that carries it
   held            the worktree is kept on purpose with no work running, such
                   as uncommitted work waiting for another change to land; the
                   note says why and until when. A held worktree needs a
@@ -1295,8 +1299,8 @@ STATUS, HEALTH AND THE DASHBOARD
                               measured, as `builds host setup` does without
                               its sudo steps; a claim that "builds release"
                               would accept on a worktree that nothing holds
-                              (the case listed below), once the claim is 10
-                              minutes old, is released. A host that does not
+                              (the case listed below) and that is not in the
+                              starting state (below) is released. A host that does not
                               answer, a host whose git fails and uncommitted
                               work stay findings, with the reason. It
                               exits 1 when something needs acting on, never

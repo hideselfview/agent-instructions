@@ -229,7 +229,7 @@ fn fitting_hosts(
     let mut lacks = Vec::new();
     for (host, probe) in probes {
         if let Some(why) = host::passed_over(host, probe, floor_kib) {
-            lacks.push(why);
+            lacks.push(why.to_string());
             continue;
         }
         let Ok(probe) = probe else {

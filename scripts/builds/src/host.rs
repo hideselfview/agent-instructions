@@ -562,28 +562,75 @@ pub fn refusal_finding(refusal: &Refusal) -> crate::health::Advice {
     }
 }
 
+/// Why a host cannot take a job.
+#[derive(Clone, Debug, PartialEq)]
+pub enum PassedOver {
+    /// The host did not answer its probe; <error> says why.
+    Unreachable { host: String, error: String },
+    /// The host has less free disk than the floor.
+    UnderFloor {
+        host: String,
+        free_kib: u64,
+        floor_kib: u64,
+    },
+    /// Git fails on the host, as <said>, so it refuses every job.
+    GitFails { host: String, said: String },
+    /// `builds host setup` has not measured the host's core speed.
+    NoSpeed { host: String },
+}
+
+impl std::fmt::Display for PassedOver {
+    fn fmt(&self, out: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            PassedOver::Unreachable { host, error } => {
+                write!(out, "{host} is unreachable ({error})")
+            }
+            PassedOver::UnderFloor {
+                host,
+                free_kib,
+                floor_kib,
+            } => write!(
+                out,
+                "{host} has {} free, under the floor of {}",
+                human(*free_kib),
+                human(*floor_kib)
+            ),
+            PassedOver::GitFails { host, said } => {
+                write!(out, "{host} refuses jobs (git fails there: {said})")
+            }
+            PassedOver::NoSpeed { host } => write!(
+                out,
+                "{host} has no measured core speed (`builds host setup {host}`)"
+            ),
+        }
+    }
+}
+
 /// Why <probe> keeps <host> from taking a job, or None when it can take one:
 /// it does not answer, its free disk is under <floor_kib>, or it refuses jobs.
 pub fn passed_over(
     host: &Host,
     probe: &std::result::Result<Probe, String>,
     floor_kib: u64,
-) -> Option<String> {
+) -> Option<PassedOver> {
+    let name = host.name.clone();
     match probe {
-        Err(error) => Some(format!("{} is unreachable ({error})", host.name)),
-        Ok(probe) if probe.free_kib < floor_kib => Some(format!(
-            "{} has {} free, under the floor of {}",
-            host.name,
-            human(probe.free_kib),
-            human(floor_kib)
-        )),
+        Err(error) => Some(PassedOver::Unreachable {
+            host: name,
+            error: error.clone(),
+        }),
+        Ok(probe) if probe.free_kib < floor_kib => Some(PassedOver::UnderFloor {
+            host: name,
+            free_kib: probe.free_kib,
+            floor_kib,
+        }),
         Ok(Probe {
             git_fails: Some(said),
             ..
-        }) => Some(format!(
-            "{} refuses jobs (git fails there: {said})",
-            host.name
-        )),
+        }) => Some(PassedOver::GitFails {
+            host: name,
+            said: said.clone(),
+        }),
         Ok(_) => None,
     }
 }
@@ -760,7 +807,7 @@ pub fn choose(
     let mut skipped = Vec::new();
     for (host, probe) in hosts {
         if let Some(why) = passed_over(host, probe, floor_kib) {
-            skipped.push(why);
+            skipped.push(why.to_string());
         } else if let Ok(probe) = probe
             && best.is_none_or(|(_, held)| probe.load_per_core() < held.load_per_core())
         {
@@ -802,7 +849,7 @@ pub fn takes_cargo<'a>(
     host: &Host,
     probe: &'a std::result::Result<Probe, String>,
     floor_kib: u64,
-) -> std::result::Result<(&'a Probe, f64), String> {
+) -> std::result::Result<(&'a Probe, f64), PassedOver> {
     if let Some(why) = passed_over(host, probe, floor_kib) {
         return Err(why);
     }
@@ -811,10 +858,9 @@ pub fn takes_cargo<'a>(
     };
     match host.speed {
         Some(speed) => Ok((probe, speed)),
-        None => Err(format!(
-            "{} has no measured core speed (`builds host setup {}`)",
-            host.name, host.name
-        )),
+        None => Err(PassedOver::NoSpeed {
+            host: host.name.clone(),
+        }),
     }
 }
 
@@ -838,7 +884,7 @@ pub fn rank_by_room(
     for (host, probe) in hosts {
         match takes_cargo(host, probe, floor_kib) {
             Ok((probe, speed)) => fits.push((host, probe, speed)),
-            Err(why) => skipped.push(why),
+            Err(why) => skipped.push(why.to_string()),
         }
     }
     let runs = |host: &Host| recent.get(&host.name).copied().unwrap_or(0);

@@ -385,7 +385,8 @@ pub fn take(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
                 kept_work::end(db, *id)?;
             }
             start(db, &ids, &running)?;
-            // Last, so a refusal above leaves the claims as they were.
+            // Last, so a refusal above leaves the claims as they were. The
+            // claim no longer waits for its item, and a held take notes why.
             if let Some(why) = &held {
                 for id in &ids {
                     open_span(db, *id, SpanKind::Held, stamp.at)?;
@@ -399,6 +400,19 @@ pub fn take(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
                         ..claim
                     }
                     .write(&file)?;
+                }
+            } else {
+                for place in &places {
+                    let file = place.checkout.claim_file();
+                    let claim = Claim::read(&file)?.expect("read above");
+                    if claim.note_state.as_deref() == Some(crate::claim::STARTING) {
+                        Claim {
+                            note: None,
+                            note_state: None,
+                            ..claim
+                        }
+                        .write(&file)?;
+                    }
                 }
             }
             Ok(())

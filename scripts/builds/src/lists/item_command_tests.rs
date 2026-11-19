@@ -414,6 +414,38 @@ fn release_is_refused_while_an_item_runs_in_the_worktree() {
     cmd_release(&demo.tool.places, &[side_arg]).unwrap();
 }
 
+/// A claim made for an item that is not yet taken carries the starting state,
+/// and `builds item take` clears it, so health releases no claim between the
+/// claim and the take.
+#[test]
+fn take_clears_the_starting_state_of_the_claim() {
+    let demo = demo("item-take-starting");
+    let side = demo.add_side(1, "agent A", "work");
+    let checkout = Checkout::find(&side.display().to_string()).unwrap();
+    crate::claim::write_claim(
+        &checkout,
+        "agent A",
+        crate::claim::Claim::read(&checkout.claim_file())
+            .unwrap()
+            .unwrap()
+            .since,
+        Some(crate::claim::STARTING_NOTE.to_string()),
+        Some(crate::claim::STARTING.to_string()),
+    )
+    .unwrap();
+    add(&demo, FIVE, &[]).unwrap();
+    let brief = demo.brief("b.md");
+    item(
+        &demo,
+        &take_args(side.to_str().unwrap(), &brief, &["1"], "work"),
+    )
+    .unwrap();
+    let claim = crate::claim::Claim::read(&checkout.claim_file())
+        .unwrap()
+        .unwrap();
+    assert_eq!((claim.note, claim.note_state), (None, None));
+}
+
 #[test]
 fn drop_refuses_a_waited_on_or_last_blocking_item() {
     let demo = demo("item-drop");
