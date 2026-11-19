@@ -2,7 +2,6 @@
 //! of the same thing replaced, the incremental folders only they used or
 //! nothing wrote to for hours, and the object files nothing reads.
 
-use std::cell::OnceCell;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
@@ -12,9 +11,10 @@ use serde_json::Value;
 
 use super::objects::dead_objects;
 use super::record::{fingerprint_values, recorded};
+use super::unit::{Unit, Units, units_in};
 use super::{
-    Guard, INCREMENTAL_DEPTH, OUTPUT_DIRS, OpenFiles, hashed_file, holds_any, lock_guard,
-    lock_profile, names_in, newest_mtime, profile_dirs, remove, unit_dir,
+    Guard, INCREMENTAL_DEPTH, OpenFiles, holds_any, lock_guard, lock_profile, names_in,
+    newest_mtime, profile_dirs, remove,
 };
 use crate::fail::Result;
 use crate::prune::Run;
@@ -62,129 +62,8 @@ impl Ages {
     }
 }
 
-/// One build copy: a crate target for one profile, target and feature set.
-pub struct Unit {
-    pub hash: String,
-    pub name: Option<String>,
-    pub fingerprint: Option<PathBuf>,
-    pub build: Option<PathBuf>,
-    pub outputs: Vec<PathBuf>,
-    last_use: OnceCell<f64>,
-}
-
-impl Unit {
-    fn new(hash: &str) -> Unit {
-        Unit {
-            hash: hash.to_string(),
-            name: None,
-            fingerprint: None,
-            build: None,
-            outputs: Vec::new(),
-            last_use: OnceCell::new(),
-        }
-    }
-
-    /// The fingerprint goes first: without it cargo rebuilds the unit before
-    /// anything reads its outputs, so a deletion cut off halfway leaves only
-    /// files the unit's next build overwrites. Until then those files count
-    /// as used when they were written (last_use).
-    pub fn paths(&self) -> Vec<PathBuf> {
-        let mut paths: Vec<PathBuf> = self.fingerprint.iter().cloned().collect();
-        paths.extend(self.outputs.iter().cloned());
-        paths.extend(self.build.iter().cloned());
-        paths
-    }
-
-    pub fn last_use(&self) -> Result<f64> {
-        if let Some(when) = self.last_use.get() {
-            return Ok(*when);
-        }
-        let when = match &self.fingerprint {
-            Some(fingerprint) => newest_mtime(fingerprint, 1)?,
-            None => {
-                let mut newest = 0.0f64;
-                for path in self.paths() {
-                    newest = newest.max(newest_mtime(&path, 1)?);
-                }
-                newest
-            }
-        };
-        Ok(*self.last_use.get_or_init(|| when))
-    }
-
-    /// When the last build that used it began: the fingerprint folder's own
-    /// modification time, which the recorder sets to the moment that build's
-    /// cargo began reporting, the same for every unit of one build. Files
-    /// cargo writes in the folder are newer, so for a unit a build rebuilt
-    /// this is older than its last use. A unit no recorded build used has
-    /// the time cargo last added a file to the folder.
-    fn began(&self) -> Result<f64> {
-        let Some(fingerprint) = &self.fingerprint else {
-            return self.last_use();
-        };
-        newest_mtime(fingerprint, 0)
-    }
-}
-
-/// The units of one profile folder, in the order they were found.
-#[derive(Default)]
-pub struct Units {
-    pub list: Vec<Unit>,
-    index: HashMap<String, usize>,
-}
-
-impl Units {
-    fn unit(&mut self, hash: &str) -> &mut Unit {
-        let at = match self.index.get(hash) {
-            Some(at) => *at,
-            None => {
-                self.list.push(Unit::new(hash));
-                self.index.insert(hash.to_string(), self.list.len() - 1);
-                self.list.len() - 1
-            }
-        };
-        &mut self.list[at]
-    }
-}
-
-/// Every unit in <profile>.
-pub fn units_in(profile: &Path) -> Result<Units> {
-    let mut units = Units::default();
-    for name in names_in(&profile.join(".fingerprint"))? {
-        if let Some((package, hash)) = unit_dir(&name) {
-            let found = units.unit(hash);
-            found.fingerprint = Some(profile.join(".fingerprint").join(&name));
-            found.name = Some(package.to_string());
-        }
-    }
-    let build = profile.join("build");
-    if build.is_dir() {
-        for name in names_in(&build)? {
-            if let Some((package, hash)) = unit_dir(&name) {
-                let found = units.unit(hash);
-                found.build = Some(build.join(&name));
-                found.name.get_or_insert_with(|| package.to_string());
-            }
-        }
-    }
-    for folder in OUTPUT_DIRS {
-        let outputs = profile.join(folder);
-        if !outputs.is_dir() {
-            continue;
-        }
-        for name in names_in(&outputs)? {
-            if let Some((krate, hash)) = hashed_file(&name) {
-                let found = units.unit(hash);
-                found.outputs.push(outputs.join(&name));
-                found.name.get_or_insert_with(|| krate.to_string());
-            }
-        }
-    }
-    Ok(units)
-}
-
 /// Each folder in <profile>/incremental with the hashes of the units whose
-/// deps files are hard links to its files (none: no unit's).
+/// output files are hard links to its files (none: no unit's).
 fn incremental_dirs(profile: &Path, units: &Units) -> Result<Vec<(PathBuf, BTreeSet<String>)>> {
     let incremental = profile.join("incremental");
     if !incremental.is_dir() {
@@ -765,9 +644,7 @@ fn prune_profile(
                 None => by_name.push((name, 1, unit_size)),
             }
             if !run.dry() {
-                for path in found.paths() {
-                    remove(&path)?;
-                }
+                found.delete()?;
             }
         }
         freed += size;
@@ -810,8 +687,8 @@ fn prune_profile(
         ));
     }
     if !idle_dirs.is_empty() {
-        // Not what deleting frees: rustc hard-links a unit's deps files into
-        // these folders, and those stay with the unit.
+        // Not what deleting frees: rustc hard-links a unit's output files
+        // into these folders, and those stay with the unit.
         let mut sizes = Vec::new();
         for crate_dir in &idle_dirs {
             sizes.push(freeable(crate_dir)?);

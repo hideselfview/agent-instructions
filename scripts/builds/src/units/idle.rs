@@ -58,7 +58,7 @@ pub fn idle_increments(folders: &[PathBuf], before: f64) -> Result<Vec<Increment
 /// What became of one incremental folder.
 pub enum Outcome {
     /// Deleted, or on a dry run would be, freeing this many bytes (not the
-    /// `deps/` files it hard-links, which stay with the unit).
+    /// unit's output files it hard-links, which stay with the unit).
     Deleted(u64),
     /// A build holds its profile's cargo lock.
     Locked,

@@ -3,12 +3,12 @@
 //!
 //! `du` counts a block once per file that holds it unless the files are hard
 //! links of one inode. APFS clones are separate inodes sharing blocks: cargo
-//! uplifts deps/libbae_bridge.a to debug/libbae_bridge.a as a clone, and `du`
-//! read bae's target-macos as 9.3 GB where it took 7.3 GB. A file of at least
+//! uplifts a unit's libbae_bridge.a to debug/libbae_bridge.a as a clone, and
+//! `du` read bae's target-macos as 9.3 GB where it took 7.3 GB. A file of at least
 //! `CLONE_MIN` is measured by its physical extents (fcntl F_LOG2PHYS_EXT),
 //! each counted once; a clone of a smaller file would shift a total by too
-//! little to look for. Hard-linked inodes (rustc links deps/ files into
-//! incremental/) count once.
+//! little to look for. Hard-linked inodes (rustc links a unit's output files
+//! into incremental/) count once.
 
 use std::collections::HashSet;
 use std::fs::Metadata;
@@ -279,7 +279,7 @@ pub fn bytes_with(seen: &Seen, path: &Path) -> Result<u64> {
 }
 
 /// Bytes deleting <path> frees: the blocks of its files nothing else hard
-/// links (rustc hard-links a unit's deps files into its incremental folder,
+/// links (rustc hard-links a unit's output files into its incremental folder,
 /// and those stay with the unit).
 pub fn freeable(path: &Path) -> Result<u64> {
     let meta = match std::fs::symlink_metadata(path) {

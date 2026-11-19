@@ -5,19 +5,40 @@
 //! Cargo builds each crate target as a unit and names the unit's files after
 //! a hash of everything that build depends on, dependency versions included,
 //! so a dependency bump builds a new copy of every unit above it and the old
-//! copies stay. In each profile folder (<target>/debug,
+//! copies stay. Units live in profile folders (<target>/debug,
 //! <target>/<triple>/release, and a nested target such as a `cargo install
-//! --target-dir` one) a unit owns
+//! --target-dir` one), in one of two layouts, which this reads from the
+//! folder itself. A profile folder can hold both: a checkout that moves to a
+//! newer cargo keeps the older cargo's units until they age out.
+//!
+//! Shared folders, the layout cargo wrote before 1.100, keeps each kind of
+//! file of every unit in one folder:
 //!
 //!     .fingerprint/<package>-<hash>/   cargo's record that the unit is built
 //!     deps/<crate>-<hash>*, deps/lib<crate>-<hash>*, examples/<name>-<hash>*
 //!     build/<package>-<hash>/          a build script, or what running it wrote
-//!     incremental/<crate>-<id>/        rustc's incremental state
 //!
 //! A cdylib or staticlib unit's files in deps carry no hash: each build of
 //! that crate overwrites them, so they never pile up and nothing here deletes
-//! them. The incremental folder's id is rustc's, not cargo's hash; it belongs
-//! to the unit whose deps files are hard links to its codegen and metadata
+//! them.
+//!
+//! Unit folders, the layout cargo writes from 1.100 on, gives each unit a
+//! folder of its own, build/<package>/<hash>/, holding
+//!
+//!     fingerprint/   cargo's record that the unit is built
+//!     out/           what rustc wrote (an rlib, a test binary, a binary,
+//!                    a cdylib, their object files), or for a build script's
+//!                    run, what it wrote (OUT_DIR)
+//!     run/           a build script's run: its output and stderr
+//!
+//! In both layouts cargo copies a binary, an example and a library it builds
+//! for the user (target/debug/<name>, target/debug/examples/<name>,
+//! target/debug/lib<crate>.rlib) out of the unit's files, keeping their size
+//! and modification time.
+//!
+//! In both, rustc's incremental state is in incremental/<crate>-<id>/ of the
+//! profile folder. The id is rustc's, not cargo's hash; the folder belongs to
+//! the unit whose output files are hard links to its codegen and metadata
 //! files.
 //!
 //! A unit's files are deleted only while this holds cargo's lock on the
@@ -43,6 +64,7 @@ pub mod idle;
 pub mod objects;
 pub mod prune;
 pub mod record;
+pub mod unit;
 
 use std::collections::HashSet;
 use std::fs::File;
@@ -54,7 +76,8 @@ use std::process::{Command, Stdio};
 use crate::fail;
 use crate::fail::{Context, Result};
 
-/// Folders a profile folder keeps per-unit files in, beside .fingerprint.
+/// Folders a profile folder in shared folders keeps per-unit files in, beside
+/// .fingerprint.
 pub const OUTPUT_DIRS: [&str; 2] = ["deps", "examples"];
 /// How deep below a build folder a profile folder can sit:
 /// owner-construction-check/<rev>/release.
@@ -116,8 +139,59 @@ fn is_hash(text: &str) -> bool {
             .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 
+/// Does <profile> hold units in shared folders (.fingerprint beside deps)?
+pub fn has_shared_folders(profile: &Path) -> bool {
+    profile.join(".fingerprint").is_dir()
+}
+
+/// The unit folders in <package>, a build/<package>/ folder of the unit
+/// folders layout: each folder in it named by a unit hash, with that hash.
+pub fn unit_folders(package: &Path) -> Result<Vec<(String, PathBuf)>> {
+    let mut found = Vec::new();
+    for name in names_in(package)? {
+        let path = package.join(&name);
+        if is_hash(&name) && path.is_dir() {
+            found.push((name, path));
+        }
+    }
+    Ok(found)
+}
+
+/// Does <profile> hold units in unit folders (build/<package>/<hash>/)?
+pub fn has_unit_folders(profile: &Path) -> bool {
+    let build = profile.join("build");
+    names_in(&build).is_ok_and(|names| {
+        names
+            .iter()
+            .any(|name| unit_folders(&build.join(name)).is_ok_and(|folders| !folders.is_empty()))
+    })
+}
+
+/// Does <path> hold units, in either layout?
 pub fn is_profile_dir(path: &Path) -> bool {
-    path.join(".fingerprint").is_dir()
+    has_shared_folders(path) || has_unit_folders(path)
+}
+
+/// How many units <profile> holds a fingerprint folder for, in either
+/// layout.
+pub fn fingerprint_count(profile: &Path) -> Result<usize> {
+    let mut count = 0;
+    if has_shared_folders(profile) {
+        count += names_in(&profile.join(".fingerprint"))?.len();
+    }
+    let build = profile.join("build");
+    if build.is_dir() {
+        for name in names_in(&build)? {
+            let package = build.join(name);
+            if package.is_dir() {
+                count += unit_folders(&package)?
+                    .iter()
+                    .filter(|(_, folder)| folder.join("fingerprint").is_dir())
+                    .count();
+            }
+        }
+    }
+    Ok(count)
 }
 
 /// Every profile folder in <folder>, at most PROFILE_DEPTH levels down.
@@ -126,17 +200,14 @@ pub fn profile_dirs(folder: &Path) -> Vec<PathBuf> {
         let Ok(entries) = std::fs::read_dir(path) else {
             return;
         };
-        let entries: Vec<_> = entries.filter_map(|entry| entry.ok()).collect();
-        if entries.iter().any(|entry| {
-            entry.file_name() == ".fingerprint" && entry.file_type().is_ok_and(|kind| kind.is_dir())
-        }) {
+        if is_profile_dir(path) {
             found.push(path.to_path_buf());
             return;
         }
         if depth == PROFILE_DEPTH {
             return;
         }
-        for entry in entries {
+        for entry in entries.flatten() {
             if entry.file_type().is_ok_and(|kind| kind.is_dir()) && entry.file_name() != "doc" {
                 walk(&entry.path(), depth + 1, found);
             }

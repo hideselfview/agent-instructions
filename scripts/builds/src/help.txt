@@ -1116,9 +1116,10 @@ removed in the background) and recreated empty, and the next build refills it,
 mostly from sccache. A cap is about twice a fresh build of its folder. A
 claimed worktree's folder is never deleted whole, since its agent is at work in
 it: status shows it over its cap as "claimed, kept". Sizes, against caps and in
-status, count each block once (`builds du`): cargo copies its libraries out of
-deps/ as APFS clones, which du counts once per file, and rustc hard-links deps/
-files into incremental/.
+status, count each block once (`builds du`): cargo copies each library and
+binary it builds for you out of its build copy's files as an APFS clone, which
+du counts once per file, and rustc hard-links a build copy's files into
+incremental/.
 
 Free-space floor. Caps bound each folder, not the volume: a checkout with every
 platform built takes 45-52 GB, and the build volume shares its APFS pool with

@@ -12,9 +12,9 @@
 //! read) whose `target` holds a built debug profile and fits the new
 //! worktree's cap, the one whose committed Cargo.lock is origin/main's (same
 //! dependencies the new worktree will build), then the one with the most units
-//! built (fingerprints in `debug/.fingerprint`), then the one whose last
-//! `builds cargo` build finished most recently (`.after-build.log`, written as
-//! each build exits). A copy is taken while holding the source's guard
+//! built (fingerprint folders in `debug`, in either of cargo's layouts), then
+//! the one whose last `builds cargo` build finished most recently
+//! (`.after-build.log`, written as each build exits). A copy is taken while holding the source's guard
 //! (`units::GUARD`, what `builds cargo` holds while cargo runs) and every
 //! `.cargo-lock` of its folder, exclusively and without waiting, so the clone
 //! is a state cargo itself left and no build starts in the source meanwhile.
@@ -51,7 +51,7 @@ use crate::manifest::build_dirs;
 use crate::prune::{Run, prune_root};
 use crate::text::note;
 use crate::tool::Tool;
-use crate::units::{GUARD, Guard, lock_guard_creating};
+use crate::units::{GUARD, Guard, fingerprint_count, is_profile_dir, lock_guard_creating};
 
 /// A checkout whose host `target` could be cloned.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -203,7 +203,7 @@ fn candidates(tool: &Tool, checkout: &Checkout, cap_kib: u64) -> Result<Vec<Cand
         if live.main != checkout.main || root.path == dest_root {
             continue;
         }
-        if !target_of(&root.path).join("debug/.fingerprint").is_dir() {
+        if !is_profile_dir(&target_of(&root.path).join("debug")) {
             continue;
         }
         found.push((root, live));
@@ -224,9 +224,7 @@ fn candidates(tool: &Tool, checkout: &Checkout, cap_kib: u64) -> Result<Vec<Cand
             .ok()
             .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
             .map_or(0, |since| since.as_secs() as i64);
-        let units = std::fs::read_dir(target_of(&root.path).join("debug/.fingerprint"))
-            .context(|| format!("listing the fingerprints of {}", root.path.display()))?
-            .count();
+        let units = fingerprint_count(&target_of(&root.path).join("debug"))?;
         candidates.push(Candidate {
             top: live.top.clone(),
             units,

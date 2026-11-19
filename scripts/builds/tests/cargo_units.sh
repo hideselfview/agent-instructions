@@ -5,8 +5,15 @@
 
 set -euo pipefail
 
-# cargo_units.rs runs this with BUILDS_BIN set to the built `builds`.
+# cargo_units.rs runs this with BUILDS_BIN set to the built `builds`, TOOLCHAIN
+# set to the Rust toolchain every cargo here runs, and LAYOUT set to the
+# layout that toolchain's cargo writes: shared (.fingerprint beside deps,
+# cargo before 1.100) or unit-folders (build/<package>/<hash>/, cargo 1.100
+# on). OLDER_TOOLCHAIN, when set, names a toolchain whose cargo writes shared
+# folders, for the steps on a profile folder that holds both layouts.
 builds="${BUILDS_BIN:?run through cargo test --test cargo_units}"
+export RUSTUP_TOOLCHAIN="${TOOLCHAIN:?run through cargo test --test cargo_units}"
+layout="${LAYOUT:?run through cargo test --test cargo_units}"
 export UNITS_CMD="$builds units"
 # The steps setup and prune run on cargo's folders, on the folders named.
 units() { $UNITS_CMD "$@"; }
@@ -118,8 +125,54 @@ for root, dirs, files in os.walk(sys.argv[2]):
 PY
 }
 
-fingerprints() { find "$profile/.fingerprint" -mindepth 1 -maxdepth 1 "$@" | sort; }
+# The fingerprint folder of every unit in the profile folder, in either
+# layout: .fingerprint/<package>-<hash> or build/<package>/<hash>/fingerprint.
+fingerprints() {
+    {
+        [ ! -d "$profile/.fingerprint" ] || find "$profile/.fingerprint" -mindepth 1 -maxdepth 1 "$@"
+        [ ! -d "$profile/build" ] || find "$profile/build" -mindepth 3 -maxdepth 3 -type d -name fingerprint "$@"
+    } | sort
+}
 recent() { fingerprints -newermt "$(date -v-1d '+%Y-%m-%d %H:%M')"; }
+# The hash of the unit whose fingerprint folder is $1.
+hash_of() {
+    case "$1" in
+        */fingerprint) basename "$(dirname "$1")" ;;
+        *) echo "${1##*-}" ;;
+    esac
+}
+# The files of the unit whose fingerprint folder is $1, besides that folder:
+# those named by its hash in deps, build and examples, or its own folder's.
+unit_files() {
+    case "$1" in
+        */fingerprint) [ ! -d "$(dirname "$1")" ] || find "$(dirname "$1")" -mindepth 1 -type f -not -path "$1/*" ;;
+        *) find "$profile/deps" "$profile/build" "$profile/examples" -maxdepth 1 -name "*-$(hash_of "$1")*" ;;
+    esac
+}
+# The first regular file among them, which a test can hold open.
+unit_file() {
+    local path first=""
+    while read -r path; do
+        if [ -z "$first" ] && [ -f "$path" ]; then first="$path"; fi
+    done < <(unit_files "$1")
+    echo "$first"
+}
+# The folders rustc writes units' outputs and object files in.
+output_dirs() {
+    if [ "$layout" = shared ]; then
+        echo "$profile/deps"
+        echo "$profile/examples"
+    else
+        find "$profile/build" -mindepth 3 -maxdepth 3 -type d -name out
+    fi
+}
+# The test binary of the unit whose fingerprint folder is $1.
+test_binary() {
+    case "$1" in
+        */fingerprint) echo "$(dirname "$1")/out/app-$(hash_of "$1")" ;;
+        *) echo "$profile/deps/app-$(hash_of "$1")" ;;
+    esac
+}
 
 # Prints the units a cargo command ($@) rebuilt.
 rebuilt() {
@@ -165,15 +218,28 @@ sed -i '' 's/^version = "0.1.9"/version = "0.1.0"/' dep/Cargo.toml
 
 # The build copies of the first version, then of a dependency bump.
 build_all cargo
+case "$layout" in
+    shared) [ -d "$profile/.fingerprint" ] && [ ! -d "$profile/build/dep" ] \
+        || fail "$TOOLCHAIN's cargo did not write shared folders: $(ls "$profile")" ;;
+    unit-folders) [ ! -e "$profile/.fingerprint" ] && [ -n "$(fingerprints)" ] \
+        || fail "$TOOLCHAIN's cargo did not write unit folders: $(ls "$profile")" ;;
+    *) fail "LAYOUT is $layout, not shared or unit-folders" ;;
+esac
 bump 0.1.0 0.1.1
 build_all cargo
 all="$(fingerprints)"
 
 # A build that finds everything up to date writes nothing `builds units`
-# could read its use from.
+# could read its use from. Cargo 1.100 records the newest time of a path
+# package's files in its documentation's fingerprint, so after aging moves
+# those times it documents the package again, once.
 age 5
 build_all cargo
-[ -z "$(recent)" ] || fail "an up-to-date build wrote in .fingerprint: $(recent)"
+since="$scratch/since"
+touch "$since"
+build_all cargo
+written="$(fingerprints -newer "$since")"
+[ -z "$written" ] || fail "an up-to-date build wrote in a fingerprint folder: $(for dir in $written; do ls -la "$dir"; done)"
 
 # builds cargo records the use of every unit the bumped build uses, rebuilt
 # or not, and of none of the first version's.
@@ -190,10 +256,20 @@ incremental_before="$(ls "$profile/incremental" | wc -l)"
 sed -i '' 's/dep::answer() }/dep::answer() + 0 }/' app/src/lib.rs
 sed -i '' 's/n == 0 {/n == 0 \&\& n < 1 {/' dep/src/lib.rs
 build_all "$builds" cargo
-deps_files() { (cd "$profile/deps" && printf '%s\n' *); }
-sets() { deps_files | grep "^$1[.-].*\.rcgu\.o$" | cut -d. -f1,3 | sort -u; }
-[ "$(sets app | grep -c '^app\.')" -gt 1 ] || fail "rebuilding the cdylib left one set of its object files: $(sets app)"
-deps_files | grep '^dep-.*\.rcgu\.o$' > /dev/null || fail "the dep rlib left no object files beside it"
+# Every object file in the output folders, as <folder>/<owner> <set>: the
+# owner is the part of its name before the first dot (a crate, or a crate and
+# its unit's hash).
+objects() {
+    output_dirs | while read -r dir; do
+        find "$dir" -maxdepth 1 -name '*.rcgu.o' | while read -r path; do
+            name="$(basename "$path")"
+            echo "$dir/${name%%.*} $(echo "$name" | cut -d. -f3)"
+        done
+    done | sort -u
+}
+sets() { objects | grep "/$1 " || true; }
+[ -n "$(sets app | cut -d' ' -f1 | uniq -d)" ] || fail "rebuilding the cdylib left one set of its object files: $(sets app)"
+objects | grep -q '/dep-[0-9a-f]* ' || fail "the dep rlib left no object files beside it"
 used="$(recent)"
 all="$(fingerprints)"
 old="$(comm -23 <(echo "$all") <(echo "$used"))"
@@ -214,8 +290,7 @@ PY
 
 # A process holding a file of an old unit keeps that unit.
 held_unit="${old%%$'\n'*}"
-held_hash="${held_unit##*-}"
-held_file="$(find "$profile/deps" -name "*-$held_hash*" -print -quit)"
+held_file="$(unit_file "$held_unit")"
 if [ -n "$held_file" ]; then
     exec 3< "$held_file"
 fi
@@ -230,27 +305,34 @@ fi
 [ "$remaining" = "$used" ] || fail "pruning kept $(comm -13 <(echo "$used") <(echo "$remaining")) and deleted $(comm -23 <(echo "$used") <(echo "$remaining"))"
 for unit in $old; do
     [ "$unit" = "$held_unit" ] && [ -n "$held_file" ] && continue
-    hash="${unit##*-}"
-    leftover="$(find "$profile/deps" "$profile/build" "$profile/examples" -maxdepth 1 -name "*-$hash*")"
+    leftover="$(unit_files "$unit")"
     [ -z "$leftover" ] || fail "pruning left files of $unit: $leftover"
+    case "$unit" in
+        */fingerprint) [ ! -e "$(dirname "$unit")" ] || fail "pruning left the folder of $unit" ;;
+    esac
 done
 [ "$(ls "$profile/incremental" | wc -l)" -lt "$incremental_before" ] || fail "pruning deleted no incremental folder"
 
 # Object files nothing reads are gone: an rlib's, which binaries read from
 # its members, and every set but the newest, which the cdylib, the tests and
 # the binaries were linked from.
-dep_rlib_objects="$(for rlib in "$profile"/deps/libdep-*.rlib; do
-    unit="$(basename "$rlib" .rlib)"; deps_files | grep "^${unit#lib}\..*\.rcgu\.o$" || true; done)"
+dep_rlib_objects="$(output_dirs | while read -r dir; do
+    for rlib in "$dir"/libdep-*.rlib; do
+        [ -e "$rlib" ] || continue
+        unit="$(basename "$rlib" .rlib)"
+        find "$dir" -maxdepth 1 -name "${unit#lib}.*.rcgu.o"
+    done
+done)"
 [ -z "$dep_rlib_objects" ] || fail "pruning left object files beside the dep rlib: $dep_rlib_objects"
-for owner in $(deps_files | grep '\.rcgu\.o$' | cut -d. -f1 | sort -u); do
-    [ "$(sets "$owner" | grep -c "^$owner\.")" = 1 ] || fail "pruning left $owner more than one set of object files: $(sets "$owner")"
+for owner in $(objects | cut -d' ' -f1 | sort -u); do
+    [ "$(objects | grep -c "^$owner ")" = 1 ] || fail "pruning left $owner more than one set of object files: $(objects | grep "^$owner ")"
 done
 # Every object file a debug map names is still there.
 while read -r binary; do
     for object in $(nm -ap "$binary" 2>/dev/null | awk '$5 == "OSO" { print $6 }' | sed 's/(.*//'); do
         [ -e "$object" ] || fail "$(basename "$binary")'s debug map names $object, which pruning deleted"
     done
-done < <(find "$profile/deps" "$profile/examples" -maxdepth 1 -type f -perm -0100)
+done < <(output_dirs | while read -r dir; do find "$dir" -maxdepth 1 -type f -perm -0100; done)
 # A panic's backtrace still names file and line in the test and in the rlib.
 trace="$(RUST_BACKTRACE=1 cargo test -q -p app --lib -- panics_in_dep 2>&1 || true)"
 echo "$trace" | grep -A1 ' dep::nonzero$' | grep -q 'at .*dep/src/lib.rs:[0-9]' \
@@ -302,15 +384,14 @@ current="$(recent)"
 replaced_now="$(comm -23 <(echo "$replaced_copies") <(echo "$current"))"
 [ -n "$replaced_now" ] || fail "the bump left no replaced copies"
 current_test="$(echo "$current" | while read -r dir; do
-    if [ -e "$dir/test-lib-app" ]; then echo "$profile/deps/app-${dir##*-}"; break; fi; done)"
+    if [ -e "$dir/test-lib-app" ]; then test_binary "$dir"; break; fi; done)"
 [ -x "$current_test" ] || fail "found no test binary of the current copy"
 # Held open, as a running test binary holds its file.
 exec 7< "$current_test"
 kept_unit="$(echo "$replaced_now" | while read -r dir; do
-    if [ -n "$(find "$profile/deps" -maxdepth 1 -name "*-${dir##*-}*" -type f)" ]; then echo "$dir"; break; fi; done)"
-kept_hash="${kept_unit##*-}"
-kept_files=("$profile"/deps/*-"$kept_hash"*)
-exec 8< "${kept_files[0]}"
+    if [ -n "$(unit_file "$dir")" ]; then echo "$dir"; break; fi; done)"
+[ -n "$kept_unit" ] || fail "found no replaced copy with an output file to hold"
+exec 8< "$(unit_file "$kept_unit")"
 prune_out="$(units prune 3 100000 0 "$ws/target" 2>&1 >/dev/null)"
 exec 7<&- 8<&-
 case "$prune_out" in
@@ -345,10 +426,15 @@ done
 printf '\n[features]\nextra = []\n' >> dep/Cargo.toml
 build_all "$builds" cargo
 units prune 3 100000 0 "$ws/target" > /dev/null 2>&1
+# The fingerprint folders of dep's library: one with the feature, one
+# without.
+lib_dep() { fingerprints | while read -r dir; do if [ -e "$dir/lib-dep" ]; then echo "$dir"; fi; done; }
+has_extra() { grep -qF '"features":"[\"extra\"]"' "$1/lib-dep.json"; }
+with_extra() { for dir in $(lib_dep); do if has_extra "$dir"; then echo "$dir"; fi; done; }
 "$builds" cargo build -q -p app --lib --features dep/extra
 "$builds" cargo build -q -p app --lib
-app_libs() { fingerprints | grep '/app-' | while read -r dir; do if [ -e "$dir/lib-app" ]; then echo "$dir"; fi; done; }
-[ "$(app_libs | wc -l)" -eq 2 ] || fail "the feature variant built no second copy of app's library: $(app_libs)"
+[ -n "$(with_extra)" ] && [ -n "$(comm -23 <(lib_dep) <(with_extra))" ] \
+    || fail "the feature variant built no second copy of dep's library: $(lib_dep)"
 variants="$(fingerprints)"
 units prune 3 100000 0 "$ws/target" > /dev/null 2>&1
 [ "$(fingerprints)" = "$variants" ] \
@@ -364,7 +450,6 @@ git -C "$ws" init -q
 echo "target 1G" > "$ws/.build-dirs"
 mv "$ws/target" "$volume/ws/main/target"
 ln -s "$volume/ws/main/target" "$ws/target"
-lib_dep() { fingerprints | while read -r dir; do if [ -e "$dir/lib-dep" ]; then echo "$dir"; fi; done; }
 bump 0.1.3 0.1.4
 [ -z "$(recent)" ] || fail "aging left recent copies: $(recent)"
 BUILDS_ROOT="$volume" "$builds" cargo build -q --all-targets
@@ -407,7 +492,13 @@ units git-checkouts "$home" 0 "$scratch/Cargo.lock" > /dev/null 2>&1
 # A dry run deletes nothing.
 idle_target="$scratch/idle/target"
 idle_profile="$idle_target/debug"
-mkdir -p "$idle_profile/.fingerprint" "$idle_profile/deps" "$idle_target/release/.fingerprint"
+for dir in "$idle_profile" "$idle_target/release"; do
+    if [ "$layout" = shared ]; then
+        mkdir -p "$dir/.fingerprint" "$dir/deps"
+    else
+        mkdir -p "$dir/build/dep/0123456789abcdef/fingerprint"
+    fi
+done
 for n in stale fresh deep held; do
     for dir in "$idle_profile" "$idle_target/release"; do
         mkdir -p "$dir/incremental/$n-id/s-1-abc"
@@ -447,5 +538,35 @@ case "$live_out" in
     *"deleted 1 incremental folder nothing wrote to in 6 hours from"*) ;;
     *) fail "pruning did not report the idle folder: $live_out" ;;
 esac
+
+# A profile folder that holds both layouts, as a checkout's does once it
+# moves from a cargo that writes shared folders to one that writes unit
+# folders: builds cargo records the newer cargo's units, and a prune deletes
+# the older cargo's units once no build has used them for the days, and keeps
+# every unit the newer cargo's builds use.
+if [ -n "${OLDER_TOOLCHAIN:-}" ]; then
+    ws="$scratch/mixed"
+    profile="$ws/target/debug"
+    mkdir -p "$ws"
+    cp -R "$scratch/ws/Cargo.toml" "$scratch/ws/Cargo.lock" "$scratch/ws/.cargo" "$scratch/ws/dep" "$scratch/ws/app" "$ws/"
+    cd "$ws"
+    RUSTUP_TOOLCHAIN="$OLDER_TOOLCHAIN" "$builds" cargo build -q --all-targets
+    [ -d "$profile/.fingerprint" ] || fail "$OLDER_TOOLCHAIN's cargo wrote no shared folders: $(ls "$profile")"
+    older="$(fingerprints)"
+    age 4
+    "$builds" cargo build -q --all-targets
+    newer="$(recent)"
+    [ -n "$(echo "$newer" | grep '/fingerprint$')" ] || fail "$TOOLCHAIN's cargo wrote no unit folders beside the shared ones"
+    [ "$(sort <(echo "$older") <(echo "$newer") | uniq)" = "$(fingerprints)" ] \
+        || fail "builds cargo recorded the use of none of $(comm -23 <(fingerprints) <(sort <(echo "$older") <(echo "$newer") | uniq))"
+    units prune 3 100000 0 "$ws/target" > /dev/null 2>&1
+    [ "$(fingerprints)" = "$newer" ] \
+        || fail "pruning both layouts kept $(comm -13 <(echo "$newer") <(fingerprints)) and deleted $(comm -23 <(echo "$newer") <(fingerprints))"
+    for unit in $older; do
+        leftover="$(unit_files "$unit")"
+        [ -z "$leftover" ] || fail "pruning left files of $unit: $leftover"
+    done
+    [ -z "$(rebuilt build --all-targets)" ] || fail "cargo build rebuilt after pruning both layouts: $(rebuilt build --all-targets)"
+fi
 
 echo "ok"

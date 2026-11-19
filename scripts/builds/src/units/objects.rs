@@ -1,22 +1,23 @@
 //! The object files in a profile folder that no build or debugger reads.
 //!
 //! With split-debuginfo "unpacked", macOS's default, rustc leaves each unit's
-//! object files in deps (<crate>-<hash>.<cgu>.<set>.rcgu.o, or
-//! <crate>.<crate>.<set>-cgu.NN.rcgu.o for a library whose files carry no
-//! hash), and a linked binary's debug map names the files it was linked from:
-//! a test's or binary's own, the members of each rlib it links
-//! (libtokio-<hash>.rlib(...)) rather than the rlib's loose objects, and for a
-//! dylib or cdylib its own. Each build of an incremental unit, and each build
-//! of an unhashed library, writes a new set under new names and leaves the old
-//! ones, which no build and no debugger reads. rustc reuses an incremental
-//! unit's objects from its incremental folder, never from deps.
+//! object files beside its outputs, in deps (shared folders) or in the unit's
+//! out folder (unit folders): <crate>-<hash>.<cgu>.<set>.rcgu.o, or
+//! <crate>.<cgu>.<set>.rcgu.o and <crate>.<crate>.<set>-cgu.NN.rcgu.o for a
+//! unit whose files carry no hash. A linked binary's debug map names the
+//! files it was linked from: a test's or binary's own, the members of each
+//! rlib it links (libtokio-<hash>.rlib(...)) rather than the rlib's loose
+//! objects, and for a dylib or cdylib its own. Each build of an incremental
+//! unit, and each build of an unhashed library, writes a new set under new
+//! names and leaves the old ones, which no build and no debugger reads. rustc reuses an incremental
+//! unit's objects from its incremental folder, never from beside its outputs.
 
 use std::collections::{HashMap, HashSet};
 use std::os::unix::fs::FileExt;
 use std::path::{Path, PathBuf};
 
 use super::hashed_file;
-use super::prune::Unit;
+use super::unit::Unit;
 use crate::fail::Result;
 
 const MH_MAGIC_64: u32 = 0xFEED_FACF;
@@ -122,9 +123,9 @@ fn unread_objects(objects: Vec<PathBuf>, binaries: &[PathBuf]) -> Vec<PathBuf> {
 }
 
 /// The object files in <profile> that no build or debugger reads, among
-/// <units>' and those of libraries whose files carry no hash: an rlib's
-/// (binaries name the rlib's members), and any other unit's that its binary
-/// or dylib doesn't name.
+/// <units>' and, in shared folders, those in deps of libraries whose files
+/// carry no hash: an rlib's (binaries name the rlib's members), and any other
+/// unit's that its binary or dylib doesn't name.
 pub fn dead_objects(profile: &Path, units: &[&Unit]) -> Result<Vec<PathBuf>> {
     let mut dead = Vec::new();
     for found in units {

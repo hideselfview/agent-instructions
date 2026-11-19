@@ -7,8 +7,8 @@
 //! `CLONE_MIN` or more also keeps its physical extents. A file with more than
 //! one link keeps its bytes per inode, so a write through one name is seen
 //! through every name. A folder's size counts each inode once (rustc
-//! hard-links deps/ files into incremental/) and each cloned extent once
-//! (cargo uplifts with clonefile), which `du` gets wrong both ways.
+//! hard-links a unit's output files into incremental/) and each cloned extent
+//! once (cargo uplifts with clonefile), which `du` gets wrong both ways.
 
 use std::collections::{HashMap, HashSet};
 use std::fs::Metadata;

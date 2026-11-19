@@ -8,12 +8,16 @@ use std::path::{Path, PathBuf};
 
 use serde_json::Value;
 
-use super::{OUTPUT_DIRS, hashed_file, is_profile_dir, names_in, unit_dir};
+use super::{
+    OUTPUT_DIRS, has_shared_folders, hashed_file, is_hash, is_profile_dir, names_in, unit_dir,
+    unit_folders,
+};
 use crate::fail::Result;
 use crate::text::note;
 
-/// The fingerprint folders of each profile folder, by unit hash. A build adds
-/// units while it reports them, so a hash not yet listed lists again.
+/// Finds units' fingerprint folders in either layout. For shared folders it
+/// keeps each profile folder's .fingerprint listing, by unit hash; a build
+/// adds units while it reports them, so a hash not yet listed lists again.
 #[derive(Default)]
 struct Fingerprints {
     listed: HashMap<PathBuf, HashMap<String, String>>,
@@ -22,9 +26,11 @@ struct Fingerprints {
 impl Fingerprints {
     fn list(&mut self, profile: &Path) -> Result<&HashMap<String, String>> {
         let mut units = HashMap::new();
-        for name in names_in(&profile.join(".fingerprint"))? {
-            if let Some((_, hash)) = unit_dir(&name) {
-                units.insert(hash.to_string(), name.clone());
+        if has_shared_folders(profile) {
+            for name in names_in(&profile.join(".fingerprint"))? {
+                if let Some((_, hash)) = unit_dir(&name) {
+                    units.insert(hash.to_string(), name.clone());
+                }
             }
         }
         self.listed.insert(profile.to_path_buf(), units);
@@ -46,6 +52,16 @@ impl Fingerprints {
             .map(|name| profile.join(".fingerprint").join(name)))
     }
 
+    /// The fingerprint folder of the unit <named> names, when it has one.
+    fn of(&mut self, named: &Named) -> Result<Option<PathBuf>> {
+        match named {
+            Named::Shared(profile, hash) => self.get(profile, hash),
+            Named::Own(fingerprint) => Ok(fingerprint.is_dir().then(|| fingerprint.clone())),
+        }
+    }
+
+    /// The fingerprint folders of <package>'s units in <profile>, in either
+    /// layout.
     fn by_package(&mut self, profile: &Path, package: &str) -> Result<Vec<PathBuf>> {
         let listed = self
             .listed
@@ -57,13 +73,20 @@ impl Fingerprints {
             self.list(profile)?
         };
         let prefix = format!("{package}-");
-        Ok(units
+        let mut found: Vec<PathBuf> = units
             .values()
             .filter(|name| {
                 name.starts_with(&prefix) && unit_dir(name).map(|(p, _)| p) == Some(package)
             })
             .map(|name| profile.join(".fingerprint").join(name))
-            .collect())
+            .collect();
+        let folder = profile.join("build").join(package);
+        if folder.is_dir() {
+            for (_, unit) in unit_folders(&folder)? {
+                found.push(unit.join("fingerprint"));
+            }
+        }
+        Ok(found)
     }
 }
 
@@ -77,60 +100,95 @@ fn dirname(path: &Path) -> &Path {
     path.parent().unwrap_or(Path::new(""))
 }
 
-/// (<profile folder>, <hash>) of a path cargo reported, when the path names
-/// its unit's hash: deps/<crate>-<hash>*, examples/<name>-<hash>*, or a file
-/// in build/<package>-<hash>/.
-fn hashed_unit(path: &Path) -> Option<(PathBuf, String)> {
+/// The unit a path cargo reported names, by where the path is.
+#[derive(Debug, PartialEq)]
+enum Named {
+    /// Shared folders: the profile folder and the unit's hash, which names
+    /// its folder in .fingerprint.
+    Shared(PathBuf, String),
+    /// Unit folders: the unit's fingerprint folder.
+    Own(PathBuf),
+}
+
+/// The unit a path cargo reported is in or names by its hash: a file in its
+/// unit folder (build/<package>/<hash>/), deps/<crate>-<hash>*,
+/// examples/<name>-<hash>*, or a file in build/<package>-<hash>/.
+fn hashed_unit(path: &Path) -> Option<Named> {
     let parent = dirname(path);
     if OUTPUT_DIRS.contains(&base(parent))
         && let Some((_, hash)) = hashed_file(base(path))
-        && is_profile_dir(dirname(parent))
+        && has_shared_folders(dirname(parent))
     {
-        return Some((dirname(parent).to_path_buf(), hash.to_string()));
+        return Some(Named::Shared(
+            dirname(parent).to_path_buf(),
+            hash.to_string(),
+        ));
     }
     let mut parent = parent;
     while !parent.as_os_str().is_empty() && parent != Path::new("/") {
         let above = dirname(parent);
+        if is_hash(base(parent))
+            && base(dirname(above)) == "build"
+            && parent.join("fingerprint").is_dir()
+        {
+            return Some(Named::Own(parent.join("fingerprint")));
+        }
         if base(above) == "build"
             && let Some((_, hash)) = unit_dir(base(parent))
-            && is_profile_dir(dirname(above))
+            && has_shared_folders(dirname(above))
         {
-            return Some((dirname(above).to_path_buf(), hash.to_string()));
+            return Some(Named::Shared(
+                dirname(above).to_path_buf(),
+                hash.to_string(),
+            ));
         }
         parent = above;
     }
     None
 }
 
-/// The (<profile folder>, <hash>) of each unit whose deps (or examples) file
-/// cargo copied to <path>, a target cargo put beside them
-/// (target/debug/loc-gen for deps/loc_gen-<hash>): the copy keeps the
-/// original's size and modification time, which no two builds share.
-fn copied_from(path: &Path) -> Vec<(PathBuf, String)> {
+/// The units whose output cargo copied to <path>, a file it put in a profile
+/// folder or its examples folder for the user (target/debug/loc-gen for
+/// deps/loc_gen-<hash>, or for build/loc-gen/<hash>/out/loc_gen): the copy
+/// keeps the original's size and modification time, which no two builds
+/// share. In unit folders, the units are <package>'s.
+fn copied_from(path: &Path, package: &str) -> Vec<Named> {
     let parent = dirname(path);
-    let (profile, outputs) = if is_profile_dir(parent) {
-        (parent.to_path_buf(), parent.join("deps"))
-    } else if base(parent) == "examples" && is_profile_dir(dirname(parent)) {
-        (dirname(parent).to_path_buf(), parent.to_path_buf())
+    let (profile, shared) = if base(parent) == "examples" && is_profile_dir(dirname(parent)) {
+        (dirname(parent), parent.to_path_buf())
+    } else if is_profile_dir(parent) {
+        (parent, parent.join("deps"))
     } else {
         return Vec::new();
     };
-    let (Ok(copy), Ok(names)) = (std::fs::metadata(path), names_in(&outputs)) else {
+    let Ok(copy) = std::fs::metadata(path) else {
         return Vec::new();
     };
+    let same = |original: &Path| {
+        std::fs::metadata(original).is_ok_and(|original| {
+            original.size() == copy.size()
+                && original.mtime() == copy.mtime()
+                && original.mtime_nsec() == copy.mtime_nsec()
+        })
+    };
     let mut found = Vec::new();
-    for name in names {
-        let Some((_, hash)) = hashed_file(&name) else {
-            continue;
-        };
-        let Ok(original) = std::fs::metadata(outputs.join(&name)) else {
-            continue;
-        };
-        if original.size() == copy.size()
-            && original.mtime() == copy.mtime()
-            && original.mtime_nsec() == copy.mtime_nsec()
+    if has_shared_folders(profile) {
+        for name in names_in(&shared).unwrap_or_default() {
+            if let Some((_, hash)) = hashed_file(&name)
+                && same(&shared.join(&name))
+            {
+                found.push(Named::Shared(profile.to_path_buf(), hash.to_string()));
+            }
+        }
+    }
+    for (_, unit) in unit_folders(&profile.join("build").join(package)).unwrap_or_default() {
+        let out = unit.join("out");
+        if names_in(&out)
+            .unwrap_or_default()
+            .iter()
+            .any(|name| same(&out.join(name)))
         {
-            found.push((profile.clone(), hash.to_string()));
+            found.push(Named::Own(unit.join("fingerprint")));
         }
     }
     found
@@ -387,11 +445,11 @@ fn units_of(
     let mut missing = Vec::new();
     let mut unnamed = Vec::new();
     for path in &paths {
-        let Some((profile, hash)) = hashed_unit(Path::new(path)) else {
+        let Some(named) = hashed_unit(Path::new(path)) else {
             unnamed.push(path.clone());
             continue;
         };
-        match fingerprints.get(&profile, &hash)? {
+        match fingerprints.of(&named)? {
             Some(dir) => {
                 if !found.contains(&dir) {
                     found.push(dir)
@@ -401,9 +459,10 @@ fn units_of(
         }
     }
     if found.is_empty() && reason == "compiler-artifact" {
+        let package = package_name(message["package_id"].as_str().unwrap_or(""));
         for path in &unnamed {
-            for (profile, hash) in copied_from(Path::new(path)) {
-                if let Some(dir) = fingerprints.get(&profile, &hash)?
+            for named in copied_from(Path::new(path), &package) {
+                if let Some(dir) = fingerprints.of(&named)?
                     && !found.contains(&dir)
                 {
                     found.push(dir);
@@ -625,6 +684,46 @@ mod tests {
             old,
             "a copy built against another dep was marked used"
         );
+    }
+
+    /// A path in a unit folder names that unit, a path in shared folders
+    /// names its unit by hash, and a copy cargo made for the user names the
+    /// unit folder it came from, in a profile folder that holds both layouts.
+    #[test]
+    fn paths_name_their_units_in_either_layout() {
+        let scratch = crate::testing::Scratch::new("record-layouts");
+        let profile = scratch.dir.join("debug");
+        let unit = profile.join("build/loc-gen/0123456789abcdef");
+        std::fs::create_dir_all(unit.join("fingerprint")).unwrap();
+        std::fs::create_dir_all(unit.join("out")).unwrap();
+        std::fs::write(unit.join("out/loc_gen"), "a binary").unwrap();
+        std::fs::create_dir_all(profile.join(".fingerprint/dep-fedcba9876543210")).unwrap();
+        std::fs::create_dir_all(profile.join("deps")).unwrap();
+        let own = Some(Named::Own(unit.join("fingerprint")));
+        assert_eq!(hashed_unit(&unit.join("out/loc_gen")), own);
+        // A build script's run reports its out folder.
+        assert_eq!(hashed_unit(&unit.join("out")), own);
+        assert_eq!(
+            hashed_unit(&profile.join("deps/libdep-fedcba9876543210.rlib")),
+            Some(Named::Shared(
+                profile.clone(),
+                "fedcba9876543210".to_string()
+            ))
+        );
+        assert_eq!(hashed_unit(&profile.join("loc-gen")), None);
+        let copy = profile.join("loc-gen");
+        std::fs::write(&copy, "a binary").unwrap();
+        let when = libc::timeval {
+            tv_sec: 1_000_000,
+            tv_usec: 0,
+        };
+        touch(&unit.join("out/loc_gen"), &when).unwrap();
+        touch(&copy, &when).unwrap();
+        assert_eq!(
+            copied_from(&copy, "loc-gen"),
+            vec![Named::Own(unit.join("fingerprint"))]
+        );
+        assert_eq!(copied_from(&copy, "other"), Vec::new());
     }
 
     #[test]
