@@ -197,11 +197,13 @@ pub fn builds_incrementally(checkout: &Checkout) -> bool {
 ///
 /// Every side worktree builds without incremental compilation. sccache
 /// refuses every incremental compile, so with it off sccache keeps each
-/// workspace crate any worktree built, and a build of the same sources in
-/// another worktree, or in the app checkout, where agents take turns on
-/// their own branches, comes from the cache; and the only incremental
-/// folders are those a repo's lint wrapper keeps for the crates it lints,
-/// which `prune` deletes after the idle hours (on 2026-11-10, before this,
+/// workspace crate a checkout built, and a build of the same sources in the
+/// same checkout, such as the app checkout, where agents take turns on their
+/// own branches, comes from the cache. sccache's key holds the folder cargo
+/// compiles in and CARGO_MANIFEST_DIR, which for a workspace crate are the
+/// checkout's, so no other checkout gets those entries. And the only
+/// incremental folders are those a repo's lint wrapper keeps for the crates
+/// it lints, which `prune` deletes after the idle hours (on 2026-11-10, before this,
 /// deleting the incremental folders nothing had written for ten minutes in
 /// five busy bae worktrees freed 38 GB).
 /// Main, the person's checkout, keeps incremental, which halves an

@@ -609,12 +609,17 @@ clean: run those with cargo itself.
 Every checkout but main builds without incremental compilation (`builds cargo`
 passes --config build.incremental=false), the app checkouts included. sccache
 refuses every incremental compile, so with incremental off sccache keeps each
-workspace crate any worktree built: a build of the same sources in another
-worktree, or in an app checkout that agents move between branches, comes from
-the cache, and the only incremental folders are those a repo's lint wrapper
-keeps for the crates it lints (DISK). A full build without incremental
-output is smaller, so the app checkouts' folders take lower caps. Main, the
-person's checkout, stays on one branch and keeps incremental. To turn
+workspace crate a checkout built, and the checkout gets it from the cache when
+it builds the same sources again, as an app checkout does when agents move it
+back to a branch it built before. sccache's key holds the folder cargo compiles
+a crate in and every CARGO_* variable, CARGO_MANIFEST_DIR among them, and cargo
+compiles each workspace crate in the checkout's top folder, so a workspace
+crate one checkout built never serves another checkout. A crate from a
+registry or a git source compiles in cargo's shared source folders, so its
+cached build serves every checkout. The only incremental folders are those a
+repo's lint wrapper keeps for the crates it lints (DISK). A full build without
+incremental output is smaller, so the app checkouts' folders take lower caps.
+Main, the person's checkout, stays on one branch and keeps incremental. To turn
 incremental on in a profile, set profile.dev.incremental in Cargo.toml, never
 CARGO_INCREMENTAL=1, with which sccache refuses every compile.
 
