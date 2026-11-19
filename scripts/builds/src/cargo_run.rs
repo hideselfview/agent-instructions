@@ -276,7 +276,7 @@ fn start_after_build(checkout: &Checkout, root: &Path) {
 /// An update builds nothing and runs as cargo_update.rs says, and a read as
 /// cargo_read.rs says.
 pub fn cmd_cargo(args: &[String]) -> Result<()> {
-    let (subcommand, format, runs): (&[String], &str, crate::host::Runs) = match args
+    let (subcommand, format, tool): (&[String], &str, cargo_place::CargoTool) = match args
         .first()
         .map(String::as_str)
     {
@@ -290,13 +290,13 @@ pub fn cmd_cargo(args: &[String]) -> Result<()> {
         ) => (
             &args[..1],
             "--message-format=json-render-diagnostics",
-            crate::host::Runs::Cargo,
+            cargo_place::CargoTool::Cargo,
         ),
         Some("nextest") => match args.get(1).map(String::as_str) {
             Some("run" | "list" | "archive") => (
                 &args[..2],
                 "--cargo-message-format=json-render-diagnostics",
-                crate::host::Runs::Nextest,
+                cargo_place::CargoTool::Nextest,
             ),
             other => fail!(
                 "cargo: cargo nextest {} builds nothing; run it without builds",
@@ -320,7 +320,7 @@ pub fn cmd_cargo(args: &[String]) -> Result<()> {
     let named = cargo_place::named_host(&env)?;
     let runner = crate::lake_run::Runner::from_env(&env)?;
     let ssh = Ssh::from_env();
-    let choice = match cargo_place::stays_here(args, runs, checkout.as_ref(), &env) {
+    let choice = match cargo_place::stays_here(args, tool, checkout.as_ref(), &env) {
         Some(why) => {
             cargo_place::note_runs_here(named.as_deref(), &why);
             Choice::Here(why)
@@ -348,7 +348,7 @@ pub fn cmd_cargo(args: &[String]) -> Result<()> {
                 Rules::from_env()?.floor_kib,
                 &checkout.repo(),
                 wanted,
-                runs,
+                tool.runs(),
                 crate::app_timing::now(),
             )?
         }

@@ -158,7 +158,7 @@ pub enum Choice {
 ///   (`BUILDS_CARGO_HOST=local`), stay where they are.
 pub fn stays_here(
     args: &[String],
-    runs: host::Runs,
+    tool: CargoTool,
     checkout: Option<&Checkout>,
     env: &dyn Fn(&str) -> Option<OsString>,
 ) -> Option<String> {
@@ -167,10 +167,9 @@ pub fn stays_here(
         Err(why) => return Some(why),
     };
     let subcommand = args.first().map(String::as_str).unwrap_or("");
-    let goes = match runs {
-        host::Runs::Nextest => matches!(args.get(1).map(String::as_str), Some("run" | "list")),
-        host::Runs::Cargo => matches!(subcommand, "test" | "clippy" | "check" | "doc"),
-        host::Runs::Lake => unreachable!("builds lake decides where lake runs (lake_run.rs)"),
+    let goes = match tool {
+        CargoTool::Nextest => matches!(args.get(1).map(String::as_str), Some("run" | "list")),
+        CargoTool::Cargo => matches!(subcommand, "test" | "clippy" | "check" | "doc"),
     };
     if !goes {
         return Some(format!(
@@ -224,6 +223,24 @@ pub fn stays_here(
         }
     }
     None
+}
+
+/// What a `builds cargo` command runs: a subcommand of cargo itself, or
+/// cargo-nextest.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CargoTool {
+    Cargo,
+    Nextest,
+}
+
+impl CargoTool {
+    /// What the run needs of the host that takes it.
+    pub fn runs(self) -> host::Runs {
+        match self {
+            CargoTool::Cargo => host::Runs::Cargo,
+            CargoTool::Nextest => host::Runs::Nextest,
+        }
+    }
 }
 
 /// <checkout>, when a build there may leave this Mac; else why it stays: a
