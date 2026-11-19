@@ -13,7 +13,9 @@ digest: >-
   which core moves and sizes around the rows the app reports on screen, holding
   only the latest result of the window's query and of its position's. SQL
   decides which rows a screen gets, reads every row a value needs in one
-  statement, and counts a list's rows. Rust and the apps never keep memory
+  statement, and counts a list's rows. A write computes each rule's result once
+  and stores it; reads select stored results and never compute a rule again.
+  Rust and the apps never keep memory
   between reads (incremental or lazy computation included), run a side pass,
   force a rerun, pick a read path by size, or filter, sort or join rows outside
   SQL, and nothing answers from the rows a screen has loaded. The apps draw the
@@ -103,12 +105,13 @@ and every fix is in SQL:
 - Filtering, sorting, joining, grouping, counting and ranking a list's rows:
   WHERE, ORDER BY, JOIN, GROUP BY, COUNT, a window function.
 - A slow query: a better query or an index.
-- A value too slow to compute on each read, or computed across tables that
-  SQLite can't index together: a device-local table that triggers write in the
-  same write that changes any table the value comes from, with an index on it.
-  The album grid sorts by `album_listing`, and the import list reads its tabs,
-  states, groups, dates and shown text from `import_list_placement`
-  (`bae-import/src/tables/import_list/placement.sql`).
+- A write computes each rule a read would otherwise compute (a decision, a
+  resolution, a merge, a grouping or an order) once, with the rule's one copy,
+  and stores the result in the same transaction.
+  - Every write that changes one of the rule's inputs rewrites the results that
+    input feeds.
+  - A read selects, joins, filters, sorts and counts stored rows and never
+    computes a rule again.
 
 Start from the plain query over the domain's own tables, and add an index or a
 trigger table when the plain query can't serve the screen.
