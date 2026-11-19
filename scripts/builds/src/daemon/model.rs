@@ -1102,7 +1102,7 @@ impl Model {
                             .and_then(|m| {
                                 m.queues
                                     .iter()
-                                    .find(|q| q.repo == repo_name && q.lane == lane.word())
+                                    .find(|q| q.repo == repo_name && q.lane == lane)
                             })
                             .map(|q| q.queue.iter().map(|waiting| waiting.pid).collect())
                             .unwrap_or_default()
@@ -1411,20 +1411,9 @@ impl Model {
             }
             _ => None,
         };
-        let build = match seen
+        let build = seen
             .branch
-            .map(|branch| super::app_builds::build_for(locks, queues, branch))
-            .transpose()
-        {
-            Ok(build) => build.flatten(),
-            Err(error) => {
-                errors.push(format!(
-                    "The daemon can't read the app builds of this worktree's branch: {}",
-                    error.text()
-                ));
-                None
-            }
-        };
+            .and_then(|branch| super::app_builds::build_for(locks, queues, branch));
         let shell = health.is_some_and(|h| {
             h.shells
                 .active

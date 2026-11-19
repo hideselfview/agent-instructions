@@ -185,20 +185,20 @@ fn run_words(run: Option<&RunTimes>) -> String {
 /// long it has built after how long a wait and the step it runs, or its
 /// place in the lane's queue and how long it has waited, then the steps it
 /// asked for. The running build first; None when no build of the branch runs
-/// or waits. Fails on a lock or queue whose lane is none builds knows.
+/// or waits.
 pub fn build_for(
     locks: &[LockHealth],
     queues: &[crate::health::LaneQueue],
     branch: &str,
-) -> Result<Option<ItemWait>> {
+) -> Option<ItemWait> {
     let named = |command: &str| asked(command).filter(|asked| asked.branch == branch);
     for lock in locks {
         let Some(holder) = lock.holder.as_ref().filter(|h| h.driver_running) else {
             continue;
         };
         if let Some(asked) = named(&holder.command) {
-            return Ok(Some(ItemWait::AppBuild {
-                lane: crate::lane::Lane::parse_or_fail(&lock.lane)?,
+            return Some(ItemWait::AppBuild {
+                lane: lock.lane,
                 running: true,
                 how: format!(
                     "builds in {}{}, {}",
@@ -207,7 +207,7 @@ pub fn build_for(
                     asked_words(&asked)
                 ),
                 queued: None,
-            }));
+            });
         }
     }
     for queue in queues {
@@ -223,8 +223,8 @@ pub fn build_for(
                         format!("to run {}", asked.steps.join(" ")),
                     )
                 };
-                return Ok(Some(ItemWait::AppBuild {
-                    lane: crate::lane::Lane::parse_or_fail(&queue.lane)?,
+                return Some(ItemWait::AppBuild {
+                    lane: queue.lane,
                     running: false,
                     how: format!(
                         "place {} in the queue, waiting {}, {}",
@@ -242,11 +242,11 @@ pub fn build_for(
                         ),
                         steps,
                     }),
-                }));
+                });
             }
         }
     }
-    Ok(None)
+    None
 }
 
 /// <command> without its program's folder and cut to a line.
@@ -333,7 +333,7 @@ fn local_row(repo: &RepoPage, c: &CheckoutPage, lane: &str) -> AppBuild {
     let holder = repo
         .locks
         .iter()
-        .find(|l| l.lane == lane && l.checkout == c.name)
+        .find(|l| l.lane.word() == lane && l.checkout == c.name)
         .and_then(|l| l.holder.as_ref());
     let programs = programs_of(c.activity.processes.iter().map(|p| p.name.as_str()));
     AppBuild {
@@ -385,7 +385,7 @@ fn remote_row(repo: &RepoPage, lock: &LockHealth) -> AppBuild {
 
 /// Who waits for the lane <lane> of <repo>, next first.
 fn waiting_in(repo: &RepoPage, lane: &str) -> Vec<Waiting> {
-    let Some(queue) = repo.queues.iter().find(|q| q.lane == lane) else {
+    let Some(queue) = repo.queues.iter().find(|q| q.lane.word() == lane) else {
         return Vec::new();
     };
     queue
@@ -427,7 +427,7 @@ pub fn build(repo: &RepoPage) -> Result<Vec<AppLane>> {
         checkouts.extend(
             repo.locks
                 .iter()
-                .filter(|l| l.lane == word && crate::app_remote::split(&l.checkout).is_some())
+                .filter(|l| l.lane == lane && crate::app_remote::split(&l.checkout).is_some())
                 .map(|l| remote_row(repo, l)),
         );
         if checkouts.is_empty() {

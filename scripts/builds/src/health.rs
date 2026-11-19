@@ -229,8 +229,9 @@ pub struct WorktreeHealth {
 #[derive(Clone, Serialize, Deserialize)]
 pub struct LockHealth {
     pub repo: String,
-    /// The app lane the lock is for (`mac`, `android`).
-    pub lane: String,
+    /// The app lane the lock is for.
+    #[serde(with = "crate::lane::as_word")]
+    pub lane: Lane,
     /// The app checkout (side-N) the lock is for.
     pub checkout: String,
     pub path: String,
@@ -242,7 +243,8 @@ pub struct LockHealth {
 #[derive(Clone, Serialize, Deserialize)]
 pub struct LaneQueue {
     pub repo: String,
-    pub lane: String,
+    #[serde(with = "crate::lane::as_word")]
+    pub lane: Lane,
     pub queue: Vec<Queued>,
 }
 
@@ -263,7 +265,8 @@ pub struct Queued {
 #[derive(Clone, Serialize, Deserialize)]
 pub struct InLine {
     pub repo: String,
-    pub lane: String,
+    #[serde(with = "crate::lane::as_word")]
+    pub lane: Lane,
     pub pid: i32,
     /// 1 for the next to take a lock.
     pub place: usize,
@@ -543,7 +546,7 @@ pub fn sample(
         });
         held.push(LockHealth {
             repo: repo.clone(),
-            lane: lane.word().to_string(),
+            lane: *lane,
             checkout: checkout.clone(),
             path: shown,
             holder,
@@ -554,10 +557,7 @@ pub fn sample(
         repo, lane, path, ..
     } in locks
     {
-        if queues
-            .iter()
-            .any(|q| q.repo == *repo && q.lane == lane.word())
-        {
+        if queues.iter().any(|q| q.repo == *repo && q.lane == *lane) {
             continue;
         }
         // `Queue::waiting` is those after the lane's holders.
@@ -594,7 +594,7 @@ pub fn sample(
         }
         queues.push(LaneQueue {
             repo: repo.clone(),
-            lane: lane.word().to_string(),
+            lane: *lane,
             queue,
         });
     }
@@ -873,7 +873,7 @@ pub fn assess(
                     .filter(|(_, waiting)| waiting.builds_for(&label, &git))
                     .map(|(at, waiting)| InLine {
                         repo: queue.repo.clone(),
-                        lane: queue.lane.clone(),
+                        lane: queue.lane,
                         pid: waiting.pid,
                         place: at + 1,
                         of: queue.queue.len(),
@@ -1242,7 +1242,7 @@ fn builds_line(w: &WorktreeHealth) -> String {
         parts.push(format!(
             "app build waiting in {}'s {} lane, {} of {} in line (pid {})",
             waiting.repo,
-            waiting.lane,
+            waiting.lane.word(),
             ordinal(waiting.place),
             waiting.of,
             waiting.pid
@@ -1347,7 +1347,7 @@ pub fn lines(health: &Health) -> Vec<String> {
             Some(holder) => out.push(format!(
                 "app lock {} ({} {}): held by pid {} ({}), {}{}",
                 lock.repo,
-                lock.lane,
+                lock.lane.word(),
                 lock.checkout,
                 holder.pid,
                 holder.command,
@@ -1360,7 +1360,9 @@ pub fn lines(health: &Health) -> Vec<String> {
             )),
             None => out.push(format!(
                 "app lock {} ({} {}): free",
-                lock.repo, lock.lane, lock.checkout
+                lock.repo,
+                lock.lane.word(),
+                lock.checkout
             )),
         }
     }
@@ -1368,7 +1370,7 @@ pub fn lines(health: &Health) -> Vec<String> {
         out.push(format!(
             "app queue {} ({}): {} waiting",
             q.repo,
-            q.lane,
+            q.lane.word(),
             q.queue.len()
         ));
     }
@@ -2201,7 +2203,7 @@ mod tests {
                 locks: Vec::new(),
                 queues: vec![LaneQueue {
                     repo: "demo".to_string(),
-                    lane: "android".to_string(),
+                    lane: Lane::Android,
                     queue,
                 }],
             };

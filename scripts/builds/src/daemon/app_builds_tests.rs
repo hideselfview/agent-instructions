@@ -51,7 +51,7 @@ fn claimed(who: &str) -> Claim {
 fn lock(checkout: &str, minutes: i64, from: &str, running: &[&str]) -> LockHealth {
     LockHealth {
         repo: "bae".into(),
-        lane: "mac".into(),
+        lane: Lane::Mac,
         checkout: checkout.into(),
         path: "/v/bae/app.locks/x".into(),
         holder: Some(Holder {
@@ -106,7 +106,7 @@ fn repo(checkouts: Vec<CheckoutPage>, locks: Vec<LockHealth>, queue: Vec<Queued>
                 .chain(
                     locks
                         .iter()
-                        .filter(|l| l.lane == lane.word())
+                        .filter(|l| l.lane == lane)
                         .map(|l| l.checkout.clone()),
                 )
                 .collect(),
@@ -122,7 +122,7 @@ fn repo(checkouts: Vec<CheckoutPage>, locks: Vec<LockHealth>, queue: Vec<Queued>
         locks,
         queues: vec![LaneQueue {
             repo: "bae".into(),
-            lane: "mac".into(),
+            lane: Lane::Mac,
             queue,
         }],
         runs: Vec::new(),
@@ -351,7 +351,7 @@ fn a_branch_with_a_running_or_queued_app_build_is_found_in_its_lane() {
         ],
     );
     assert_eq!(
-        flat(build_for(&page.locks, &page.queues, "mac-alerts").unwrap()),
+        flat(build_for(&page.locks, &page.queues, "mac-alerts")),
         Some(app_build(
             Lane::Mac,
             true,
@@ -359,17 +359,14 @@ fn a_branch_with_a_running_or_queued_app_build_is_found_in_its_lane() {
         ))
     );
     assert_eq!(
-        flat(build_for(&page.locks, &page.queues, "reads-import-count").unwrap()),
+        flat(build_for(&page.locks, &page.queues, "reads-import-count")),
         Some(app_build(
             Lane::Mac,
             false,
             "place 2 in the queue, waiting 1 minute, asked for every step"
         ))
     );
-    assert_eq!(
-        build_for(&page.locks, &page.queues, "no-build").unwrap(),
-        None
-    );
+    assert_eq!(build_for(&page.locks, &page.queues, "no-build"), None);
 }
 
 /// The mac lane's queue as the live one holds it: a ticket file named
@@ -441,7 +438,7 @@ fn the_lanes_real_queue_and_command_lines_name_each_waiting_branch() {
         queue,
     );
     assert_eq!(
-        flat(build_for(&page.locks, &page.queues, "mac-alerts").unwrap()),
+        flat(build_for(&page.locks, &page.queues, "mac-alerts")),
         Some(app_build(
             Lane::Mac,
             false,
@@ -449,16 +446,16 @@ fn the_lanes_real_queue_and_command_lines_name_each_waiting_branch() {
         ))
     );
     assert_eq!(
-        how_of(build_for(&page.locks, &page.queues, "reads-import-count").unwrap()),
+        how_of(build_for(&page.locks, &page.queues, "reads-import-count")),
         "place 2 in the queue, waiting 20 minutes, asked for macos macos-tests"
     );
     assert_eq!(
-        how_of(build_for(&page.locks, &page.queues, "reads-storage").unwrap()),
+        how_of(build_for(&page.locks, &page.queues, "reads-storage")),
         "place 3 in the queue, waiting 20 minutes, asked for macos macos-tests"
     );
     // The lock holder has no run record, so the build's line shows no times.
     assert_eq!(
-        flat(build_for(&page.locks, &page.queues, "reads-auto-picks").unwrap()),
+        flat(build_for(&page.locks, &page.queues, "reads-auto-picks")),
         Some(app_build(
             Lane::Mac,
             true,
@@ -495,7 +492,7 @@ fn a_queued_build_knows_its_place_the_queues_length_and_what_it_asked() {
         running: false,
         queued: Some(queued),
         ..
-    }) = build_for(&page.locks, &page.queues, "mine").unwrap()
+    }) = build_for(&page.locks, &page.queues, "mine")
     else {
         panic!("not a queued build");
     };
@@ -508,7 +505,7 @@ fn a_queued_build_knows_its_place_the_queues_length_and_what_it_asked() {
     let Some(ItemWait::AppBuild {
         queued: Some(every),
         ..
-    }) = build_for(&page.locks, &page.queues, "third").unwrap()
+    }) = build_for(&page.locks, &page.queues, "third")
     else {
         panic!("not a queued build");
     };

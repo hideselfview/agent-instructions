@@ -14,6 +14,23 @@
 use crate::fail;
 use crate::fail::Result;
 
+/// A lane as its word (`mac`, `android`) in JSON, for a field the page and
+/// the daemon's answers carry: `#[serde(with = "crate::lane::as_word")]`.
+pub mod as_word {
+    use super::Lane;
+
+    pub fn serialize<S: serde::Serializer>(lane: &Lane, to: S) -> Result<S::Ok, S::Error> {
+        to.serialize_str(lane.word())
+    }
+
+    pub fn deserialize<'de, D: serde::Deserializer<'de>>(from: D) -> Result<Lane, D::Error> {
+        let word = <String as serde::Deserialize>::deserialize(from)?;
+        Lane::parse(&word).ok_or_else(|| {
+            serde::de::Error::custom(format!("{word:?} is not a lane (mac | android)"))
+        })
+    }
+}
+
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize,
 )]
