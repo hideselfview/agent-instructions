@@ -1124,7 +1124,8 @@ indexes the build root.
                               (`local` is this Mac), as the line `band <name>
                               <low> <high>` in `hosts`; `clear` removes it.
                               Health says to start agents while the load is
-                              under <low> and to start nothing new while it
+                              under <low> and the host's CPU sits 5% idle or
+                              more, and to start nothing new while the load
                               is over <high>. A host with no band has 0.75
                               to 1.25 times its cores. `band` takes the host
                               name `band` for itself, so `add` refuses it.
@@ -1469,8 +1470,8 @@ STATUS, HEALTH AND THE DASHBOARD
   builds health [--json | --stop-junk]
                               what is stuck or needs acting on, from the
                               daemon when one runs, except the busy processes
-                              and each host's load, which it reads now (over
-                              ssh on other hosts). Before it lists
+                              and each host's load and CPU idle share, which
+                              it reads now (over ssh on other hosts). Before it lists
                               anything, it fixes each dispatch blocker that a
                               command fixes with no judgment call, and says
                               in one line what each fix did: a host under
@@ -1618,8 +1619,12 @@ STATUS, HEALTH AND THE DASHBOARD
                               5-minute load under the band's low end, while
                               items of any project are ready to dispatch
                               (`builds next`),
-                              when `builds cargo` can run there (start
-                              agents), and when it cannot, the reason it
+                              when `builds cargo` can run there and its CPU
+                              sat 5% idle or more over a second of `top`
+                              (start agents), when its CPU sat under 5% idle
+                              (it has no room: start nothing new, as for a
+                              host over its band), and when `builds cargo`
+                              cannot run there, the reason it
                               passes the host over (free disk under the
                               floor, git failing, no measured core speed)
                               with the fix (`builds prune`, git on the
@@ -1631,8 +1636,9 @@ STATUS, HEALTH AND THE DASHBOARD
                               new, unless another host that takes cargo work
                               is under its band, which `builds cargo` sends
                               the work to: the line names that host); each
-                              of these two lines gives the host's band and
-                              its memory next to its load;
+                              of these lines gives the host's band, its
+                              CPU's idle share and its memory next to its
+                              load;
                               this Mac or a host that did not
                               say its load, with what went wrong
   builds dashboard [--port <port>] [--listen <address>]

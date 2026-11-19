@@ -701,7 +701,8 @@ impl Model {
         // This daemon is the dashboard.
         let dashboard = std::process::id() as i32;
         let busy = crate::checkout::parallel_map(&hosts, |host| {
-            crate::stuck::read(ssh, host, host.target.is_none().then_some(dashboard))
+            let scan = crate::host_scan::read(ssh, host);
+            crate::stuck::read(ssh, host, &scan, host.target.is_none().then_some(dashboard))
         });
         let refusals = crate::host::refusals(&self.places)?;
         let installed = crate::host_installed::read_all_installed(&self.places, ssh, &hosts);

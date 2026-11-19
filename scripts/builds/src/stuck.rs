@@ -8,11 +8,12 @@
 //! ssh from this Mac, uses none either, so neither the busy rule nor the
 //! agent shells' idle rule (which spares a shell running a build) sees it.
 //!
-//! Both Macs are read the same way: one `ps` listing (run here, or over the
-//! ssh builds already uses for hosts), judged by `judge`, which only reads
-//! text. The working folders that place a process in a checkout come from
-//! libproc here and from `lsof` on a host, only for the busy processes and
-//! their ancestors. Nothing here stops a process: a finding says what to run.
+//! Both Macs are read the same way: the `ps` listing of a host's scan
+//! (host_scan.rs, run here or over the ssh builds already uses for hosts),
+//! judged by `judge`, which only reads text. The working folders that place
+//! a process in a checkout come from libproc here and from `lsof` on a host,
+//! only for the busy processes and their ancestors. Nothing here stops a
+//! process: a finding says what to run.
 
 use std::collections::HashMap;
 
@@ -655,12 +656,17 @@ pub fn now_seconds() -> i64 {
         .as_secs() as i64
 }
 
-/// Reads <host>'s processes and judges them, and skips the dashboard, whose
-/// pid on the host is <dashboard>.
-pub fn read(ssh: &Ssh, host: &Host, dashboard: Option<i32>) -> HostBusy {
+/// Judges the processes that <scan> read on <host>, and skips the dashboard,
+/// whose pid on the host is <dashboard>.
+pub fn read(
+    ssh: &Ssh,
+    host: &Host,
+    scan: &Result<crate::host_scan::Scan, String>,
+    dashboard: Option<i32>,
+) -> HostBusy {
     let read = (|| {
-        let rows = rows_on(ssh, host)?;
-        let pids = pids_to_place(&rows);
+        let rows = &scan.as_ref().map_err(String::clone)?.rows;
+        let pids = pids_to_place(rows);
         let cwds = if pids.is_empty() {
             HashMap::new()
         } else {
@@ -690,17 +696,17 @@ pub fn read(ssh: &Ssh, host: &Host, dashboard: Option<i32>) -> HostBusy {
         let wedged = match host.target {
             None => wedged(
                 &host.name,
-                &rows,
+                rows,
                 crate::daemon::fsevents::Stream::current_event_id(),
                 &sampling,
             ),
             Some(_) => None,
         };
         Ok(HostRead {
-            busy: judge(&host.name, &rows, &cwds, &sampling, dashboard),
+            busy: judge(&host.name, rows, &cwds, &sampling, dashboard),
             wedged,
-            hung: hung_tests(&host.name, &rows, &cwds, &sampling),
-            zombie_parents: crate::proc_limit::zombie_parents(&rows, &sampling),
+            hung: hung_tests(&host.name, rows, &cwds, &sampling),
+            zombie_parents: crate::proc_limit::zombie_parents(rows, &sampling),
         })
     })();
     HostBusy {

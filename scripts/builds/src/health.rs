@@ -1498,21 +1498,29 @@ pub fn cmd_health(tool: &Tool, args: &[String]) -> Result<()> {
     let lock = tool.places.daemon_lock();
     let dashboard = crate::daemon::live::daemon_pid(&lock)
         .context(|| format!("reading the dashboard's pid from {}", lock.display()))?;
-    // Each host's probe for its load, read with its busy processes: both
-    // wait on an ssh round trip.
-    let (busy, probes): (Vec<_>, Vec<_>) = parallel_map(&hosts, |host| {
+    // Each host's probe for its load, read with its scan and busy processes:
+    // each waits on an ssh round trip.
+    let mut scans = Vec::new();
+    let mut busy = Vec::new();
+    let mut probes = Vec::new();
+    for (scan, host_busy, probe) in parallel_map(&hosts, |host| {
+        let scan = crate::host_scan::read(&ssh, host);
+        let host_busy = crate::stuck::read(
+            &ssh,
+            host,
+            &scan,
+            host.target.is_none().then_some(dashboard).flatten(),
+        );
         (
-            crate::stuck::read(
-                &ssh,
-                host,
-                host.target.is_none().then_some(dashboard).flatten(),
-            ),
+            scan,
+            host_busy,
             crate::host::probe(&tool.places, &ssh, host),
         )
-    })
-    .into_iter()
-    .unzip();
-    let mut probes = probes;
+    }) {
+        scans.push(scan);
+        busy.push(host_busy);
+        probes.push(probe);
+    }
     let fixed = crate::health_fix::fix_hosts(
         &mut hosts,
         &mut probes,
@@ -1548,8 +1556,20 @@ pub fn cmd_health(tool: &Tool, args: &[String]) -> Result<()> {
     let loaded = crate::lists::store::load_all(&tool.places);
     let ready = crate::host_load::ready_items(&loaded);
     let probed: Vec<_> = hosts.iter().cloned().zip(probes).collect();
+    let measured: Vec<crate::host_load::Measured> = probed
+        .iter()
+        .zip(&scans)
+        .map(|((host, probe), scan)| crate::host_load::Measured {
+            host: host.clone(),
+            probe: probe.clone(),
+            idle: scan
+                .as_ref()
+                .map_err(String::clone)
+                .and_then(|scan| scan.cpu_idle.clone()),
+        })
+        .collect();
     health.findings.extend(
-        crate::host_load::findings(&probed, ready, tool.rules.floor_kib)
+        crate::host_load::findings(&measured, ready, tool.rules.floor_kib)
             .into_iter()
             .map(|advice| Finding::new(FindingKind::Load, advice)),
     );

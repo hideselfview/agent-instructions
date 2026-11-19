@@ -30,11 +30,11 @@ fn loaded(five: f64) -> std::result::Result<Probe, String> {
     })
 }
 
-/// The load part of a line: <five> on 10 cores, against <band>, with memory
-/// at rest.
+/// The load part of a line: <five> on 10 cores, against <band>, with the CPU
+/// half idle and memory at rest.
 fn load(five: &str, band: &str) -> String {
     format!(
-        "its 5-minute load is {five} on 10 cores, against a band of {band}; memory pressure normal, 80% free, swap 0M used"
+        "its 5-minute load is {five} on 10 cores, against a band of {band}; CPU 50% idle; memory pressure normal, 80% free, swap 0M used"
     )
 }
 
@@ -44,7 +44,23 @@ fn banded(mut host: Host, low: f64, high: f64) -> Host {
     host
 }
 
+/// <hosts>, each with its CPU half idle.
+fn measured(hosts: &[(Host, std::result::Result<Probe, String>)]) -> Vec<Measured> {
+    hosts
+        .iter()
+        .map(|(host, probe)| Measured {
+            host: host.clone(),
+            probe: probe.clone(),
+            idle: Ok(50.0),
+        })
+        .collect()
+}
+
 fn lines(hosts: &[(Host, std::result::Result<Probe, String>)], ready: usize) -> Vec<String> {
+    lines_of(&measured(hosts), ready)
+}
+
+fn lines_of(hosts: &[Measured], ready: usize) -> Vec<String> {
     findings(hosts, ready, 50)
         .iter()
         .map(Advice::line)
@@ -193,7 +209,7 @@ fn a_host_under_memory_pressure_is_over_its_band_whatever_its_load() {
     assert_eq!(
         lines(&[(host(LOCAL, Some(1.0)), swapping(9.0))], 0),
         [format!(
-            "this Mac is under memory pressure, which puts it over its band whatever its load: its 5-minute load is 9.0 on 10 cores, against a band of {DEFAULT_BAND}; {memory}; start nothing new, except builds items, which this does not hold back"
+            "this Mac is under memory pressure, which puts it over its band whatever its load: its 5-minute load is 9.0 on 10 cores, against a band of {DEFAULT_BAND}; CPU 50% idle; {memory}; start nothing new, except builds items, which this does not hold back"
         )]
     );
     // A load over the band says so first.
@@ -216,6 +232,51 @@ fn a_host_under_memory_pressure_is_over_its_band_whatever_its_load() {
         said[0].starts_with("this Mac is under memory pressure"),
         "{said:?}"
     );
+}
+
+/// A host whose CPU sits under 5% idle has no room while items are ready,
+/// though its load is under its band: the line says so in place of "start
+/// agents", and the host gives no room to another over its band. Inside its
+/// band, or with nothing ready, it needs nothing. An idle share health could
+/// not read leaves the host judged by its load, and the line says why.
+#[test]
+fn a_host_whose_cpu_sits_idle_under_5_percent_has_no_room() {
+    let m1 = |idle| Measured {
+        host: banded(host("m1", Some(0.8)), 20.0, 25.0),
+        probe: loaded(17.9),
+        idle,
+    };
+    let saturated = "host m1 is under its band by load, but its CPU sits under 5% idle, so it has no room while 3 items are ready: its 5-minute load is 17.9 on 10 cores, against a band of 20 to 25; CPU 0% idle; memory pressure normal, 80% free, swap 0M used";
+    assert_eq!(
+        lines_of(&[m1(Ok(0.4))], 3),
+        [format!(
+            "{saturated}; start nothing new, except builds items, which this does not hold back"
+        )]
+    );
+    assert!(lines_of(&[m1(Ok(0.4))], 0).is_empty());
+    let over_here = Measured {
+        host: host(LOCAL, Some(1.0)),
+        probe: loaded(12.6),
+        idle: Ok(30.0),
+    };
+    let said = lines_of(&[over_here, m1(Ok(0.4))], 3);
+    assert!(
+        said[0].ends_with("start nothing new, except builds items, which this does not hold back"),
+        "{said:?}"
+    );
+    assert!(said[1].starts_with(saturated), "{said:?}");
+    let unknown = lines_of(&[m1(Err("top failed".to_string()))], 3);
+    assert_eq!(
+        unknown,
+        [
+            "host m1 is under its band while 3 items are ready: its 5-minute load is 17.9 on 10 cores, against a band of 20 to 25; CPU idle share unknown (top failed); memory pressure normal, 80% free, swap 0M used; start agents"
+        ]
+    );
+    let inside = Measured {
+        probe: loaded(22.0),
+        ..m1(Ok(0.0))
+    };
+    assert!(lines_of(&[inside], 3).is_empty());
 }
 
 /// Idle cores that `builds cargo` never uses ask for no agents. Health says
@@ -242,7 +303,7 @@ fn a_host_that_takes_no_cargo_job_says_why_and_how_to_fix_it() {
         (host("new", None), Ok(roomy)),
     ];
     let floor_kib = 30 * 1024 * 1024;
-    let lines: Vec<String> = findings(&hosts, 5, floor_kib)
+    let lines: Vec<String> = findings(&measured(&hosts), 5, floor_kib)
         .iter()
         .map(Advice::line)
         .collect();
