@@ -5,7 +5,7 @@ fn row(pid: i32, ppid: i32, uid: u32, pcpu: f64, cpu: f64, age: i64, command: &s
         pid,
         ppid,
         uid,
-        cpu_percent: pcpu,
+        cpu_percent: Some(pcpu),
         cpu_seconds: cpu,
         age_seconds: age,
         zombie: false,
@@ -92,13 +92,25 @@ fn a_daemon_with_high_lifetime_cpu_and_low_recent_cpu_is_not_flagged() {
 }
 
 #[test]
+fn a_daemon_with_no_recent_share_yet_is_not_flagged() {
+    let mut daemon = row(617, 1, 0, 0.0, 21_360.0, 4 * 86_400, WINDOW_SERVER);
+    daemon.cpu_percent = None;
+    assert_eq!(
+        judge("local", &[daemon], &HashMap::new(), &sampling(), None),
+        vec![]
+    );
+}
+
+#[test]
 fn a_daemon_with_high_recent_cpu_is_flagged_with_the_sample_command() {
     let rows = vec![row(617, 1, 0, 85.0, 21_360.0, 4 * 86_400, WINDOW_SERVER)];
     let busy = judge("local", &rows, &HashMap::new(), &sampling(), None);
     assert_eq!(busy.len(), 1);
     let action = busy[0].action.as_ref().unwrap();
     assert!(
-        action.text.contains("85% of a core over the last 5s"),
+        action
+            .text
+            .contains("85% of a core since the host's previous reading"),
         "{action:?}"
     );
     assert!(

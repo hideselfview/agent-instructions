@@ -10,6 +10,7 @@ fn rows(text: &str) -> Vec<Row> {
 fn scan(rows: Vec<Row>, jobs: Vec<JobRun>) -> std::result::Result<Scan, String> {
     Ok(Scan {
         uid: 501,
+        at: 0,
         rows,
         cpu_idle: Ok(50.0),
         jobs,

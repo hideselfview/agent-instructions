@@ -754,7 +754,7 @@ impl Model {
         for (host, scan) in hosts
             .iter()
             .zip(crate::checkout::parallel_map(&hosts, |host| {
-                crate::host_scan::read(ssh, host)
+                crate::host_scan::read(ssh, host, &self.places.home)
             }))
         {
             busy.push(crate::stuck::read(

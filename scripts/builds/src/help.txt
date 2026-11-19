@@ -1740,10 +1740,13 @@ STATUS, HEALTH AND THE DASHBOARD
                                 and the cache's size against its most
                               - the busy processes on this Mac and every host
                                 that answers (over 50% of a core
-                                in the last 5 seconds, the window between the
-                                two process listings of a host's scan, with
-                                10+ minutes of CPU time, or 90%+ for 30+
-                                minutes):
+                                since the host's previous reading, which is
+                                10 seconds to 15 minutes old, with 10+
+                                minutes of CPU time, or 90%+ for 30+ minutes;
+                                a process that reading lacks has no share yet
+                                and is not listed; each host's readings are in
+                                ~/Library/Caches/builds/process-readings/,
+                                one every minute for 15 minutes):
                                 pid, host, CPU now, CPU time, age, command,
                                 and what each belongs to (a build with its
                                 worktree and step, an agent shell, a test
@@ -1844,8 +1847,9 @@ STATUS, HEALTH AND THE DASHBOARD
                               waiting on it use no CPU (with its worktree,
                               command and idle time, and `kill <pid>`, over
                               ssh on a host); a system daemon that
-                              used over 50% of a core in the last 5 seconds,
-                              whatever CPU it has used since boot (`sudo
+                              used over 50% of a core since the host's
+                              previous reading, whatever CPU it has used since
+                              boot (`sudo
                               sample <pid> 5 -file <file>` into
                               ~/Library/Application
                               Support/builds/samples, over ssh on a host, to

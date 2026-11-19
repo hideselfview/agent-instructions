@@ -13,38 +13,12 @@ fn listening() -> String {
 
 const PS: &str = "    1     0     0   0.0   1:00.00 9-00:00:00 S /sbin/launchd\n44790     1   501   0.0  10:00.00 2-07:02:40 S /Users/x/.cargo/bin/sccache\n";
 
-/// The CPU times that the script lists WINDOW_SECONDS before `PS`: launchd used
-/// nothing since, sccache used half a second.
-const EARLIER: &str = "ps_earlier=1\n    1   1:00.00\n44790   9:59.50\n";
-
-/// A scan's CPU share is what a process used in the window, so a daemon with
-/// hours of CPU time and a low share now reads low, and a process that used
-/// the whole window reads full.
-#[test]
-fn measures_each_cpu_share_over_the_window() {
-    let earlier = "ps_earlier=1\n  17  5:00:00.00\n  18  0:10.00\n";
-    let ps = "  17     1     0  90.0 5:00:00.50 4-00:00:00 S /System/WindowServer\n  18     1   501   0.0  0:15.00 10:00 R /usr/bin/busy\n  19     1   501   0.0  0:02.50 00:03 R /usr/bin/new\n";
-    let scan = parse(&format!("uid=501\ncpu=\n{earlier}\n{PS_FOLLOWS}\n{ps}")).unwrap();
-    let share = |pid| {
-        scan.rows
-            .iter()
-            .find(|row| row.pid == pid)
-            .unwrap()
-            .cpu_percent
-    };
-    assert!((share(17) - 10.0).abs() < 1e-9, "{}", share(17));
-    assert!((share(18) - 100.0).abs() < 1e-9, "{}", share(18));
-    // New in the window: all of its CPU time fell inside it.
-    assert!((share(19) - 50.0).abs() < 1e-9, "{}", share(19));
-    assert!(parse(&format!("uid=501\ncpu=\n{PS_FOLLOWS}\n{ps}")).is_err());
-}
-
 #[test]
 fn reads_what_a_host_printed() {
     let scan = parse(&format!(
-        "uid=501\ncpu=CPU usage: 95.17% user, 4.9% sys, 0.72% idle \njob=/Users/x/dev/bae-worktrees/remote-side-5 76647 17546-1795067690799282000\n{}{EARLIER}{PS_FOLLOWS}\n{PS}",
+        "uid=501\nnow=1000\ncpu=CPU usage: 95.17% user, 4.9% sys, 0.72% idle \njob=/Users/x/dev/bae-worktrees/remote-side-5 76647 17546-1795067690799282000\n{}{PS_FOLLOWS}\n{PS}",
         listening()
-    ))
+    ), &[])
     .unwrap();
     assert_eq!(scan.uid, 501);
     assert_eq!(scan.cpu_idle, Ok(0.72));
@@ -87,15 +61,15 @@ fn reads_what_a_host_printed() {
 #[test]
 fn reads_a_host_with_no_server_and_stats_it_cannot_read() {
     let none = format!(
-        "uid=501\ncpu=\nlistener_status=1\nlistener=\nlistener_said=\n{EARLIER}{PS_FOLLOWS}\n{PS}"
+        "uid=501\nnow=1000\ncpu=\nlistener_status=1\nlistener=\nlistener_said=\n{PS_FOLLOWS}\n{PS}"
     );
-    assert_eq!(parse(&none).unwrap().sccache, Ok(None));
+    assert_eq!(parse(&none, &[]).unwrap().sccache, Ok(None));
     let broken = format!(
-        "uid=501\ncpu=\n{}{EARLIER}{PS_FOLLOWS}\n{PS}",
+        "uid=501\nnow=1000\ncpu=\n{}{PS_FOLLOWS}\n{PS}",
         listening().replace(STATS, "{\"stats\":{}}")
     );
     assert!(
-        parse(&broken)
+        parse(&broken, &[])
             .unwrap()
             .sccache
             .unwrap_err()
@@ -107,25 +81,31 @@ fn reads_a_host_with_no_server_and_stats_it_cannot_read() {
 /// a reading with no process listing is an error.
 #[test]
 fn a_missing_idle_share_is_an_error_of_its_own() {
-    let scan = parse(&format!(
-        "uid=501\ncpu=CPU usage: 95.17% user, 4.9% sys\n{EARLIER}{PS_FOLLOWS}\n{PS}"
-    ))
+    let scan = parse(
+        &format!("uid=501\nnow=1000\ncpu=CPU usage: 95.17% user, 4.9% sys\n{PS_FOLLOWS}\n{PS}"),
+        &[],
+    )
     .unwrap();
     assert!(scan.cpu_idle.unwrap_err().contains("no idle share"));
     assert_eq!(scan.rows.len(), 2);
-    assert!(parse("uid=501\ncpu=\n").is_err());
-    assert!(parse(&format!("cpu=\n{EARLIER}{PS_FOLLOWS}\n{PS}")).is_err());
+    assert!(parse("uid=501\nnow=1000\ncpu=\n", &[]).is_err());
+    assert!(parse(&format!("cpu=\n{PS_FOLLOWS}\n{PS}"), &[]).is_err());
 }
 
 /// A Linux host prints the idle share it read from /proc/stat itself.
 #[test]
 fn a_linux_host_prints_its_idle_share() {
-    let scan = parse(&format!(
-        "uid=1000\ncpu_idle=12.5\n{EARLIER}{PS_FOLLOWS}\n{PS}"
-    ))
+    let scan = parse(
+        &format!("uid=1000\nnow=1000\ncpu_idle=12.5\n{PS_FOLLOWS}\n{PS}"),
+        &[],
+    )
     .unwrap();
     assert_eq!(scan.cpu_idle, Ok(12.5));
-    let scan = parse(&format!("uid=1000\ncpu_idle=\n{EARLIER}{PS_FOLLOWS}\n{PS}")).unwrap();
+    let scan = parse(
+        &format!("uid=1000\nnow=1000\ncpu_idle=\n{PS_FOLLOWS}\n{PS}"),
+        &[],
+    )
+    .unwrap();
     assert!(scan.cpu_idle.unwrap_err().contains("no idle share"));
 }
 
@@ -194,7 +174,7 @@ exit 1
             .env("HOME", &home)
             .output()
             .unwrap();
-        parse(&String::from_utf8_lossy(&output.stdout)).unwrap()
+        parse(&String::from_utf8_lossy(&output.stdout), &[]).unwrap()
     };
     let (started, release) = (running.join("started"), running.join("release"));
     crate::testing::fifo(&started);

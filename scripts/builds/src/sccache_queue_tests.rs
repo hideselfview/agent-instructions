@@ -105,6 +105,7 @@ fn m1_with_server(
         m1(),
         Ok(Scan {
             uid: 502,
+            at: 0,
             rows: crate::stuck::parse_ps(&ps).unwrap(),
             cpu_idle: Ok(0.0),
             jobs: Vec::new(),

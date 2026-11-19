@@ -51,10 +51,11 @@ pub struct Row {
     pub pid: i32,
     pub ppid: i32,
     pub uid: u32,
-    /// The share of a core the process used over the host scan's window
-    /// (`host_scan::WINDOW_SECONDS`), as a percentage. Rows from `parse_ps`
-    /// hold what `ps` prints, and a scan replaces it with the measured share.
-    pub cpu_percent: f64,
+    /// The share of a core the process used since the host's previous
+    /// reading (process_readings.rs), as a percentage, or None when that
+    /// reading has no such process. Rows from `parse_ps` hold what `ps`
+    /// prints, and a scan replaces it with the measured share.
+    pub cpu_percent: Option<f64>,
     pub cpu_seconds: f64,
     pub age_seconds: i64,
     /// Exited and waiting for its parent to reap it (state Z).
@@ -77,7 +78,7 @@ fn parse_elapsed(text: &str) -> Option<i64> {
 
 /// `[hh:]mm:ss.cc` (macOS) or `[dd-]hh:mm:ss` (Linux) as seconds; minutes may
 /// pass 59.
-pub fn parse_cpu_time(text: &str) -> Option<f64> {
+fn parse_cpu_time(text: &str) -> Option<f64> {
     let (days, text) = match text.split_once('-') {
         Some((days, clock)) => (days.parse::<f64>().ok()?, clock),
         None => (0.0, text),
@@ -118,7 +119,7 @@ pub fn parse_ps(text: &str) -> Result<Vec<Row>, String> {
             pid,
             ppid,
             uid,
-            cpu_percent,
+            cpu_percent: Some(cpu_percent),
             cpu_seconds,
             age_seconds,
             zombie,
@@ -212,8 +213,11 @@ pub struct Busy {
 }
 
 fn is_busy(row: &Row) -> bool {
-    (row.cpu_percent > BUSY_PERCENT && row.cpu_seconds > BUSY_CPU_SECONDS)
-        || (row.cpu_percent >= PEGGED_PERCENT && row.age_seconds >= PEGGED_SECONDS)
+    let Some(percent) = row.cpu_percent else {
+        return false;
+    };
+    (percent > BUSY_PERCENT && row.cpu_seconds > BUSY_CPU_SECONDS)
+        || (percent >= PEGGED_PERCENT && row.age_seconds >= PEGGED_SECONDS)
 }
 
 /// The pids whose working folders `judge` and `hung_tests` read: every busy
@@ -465,6 +469,7 @@ fn action_for(host: &str, owner: &Owner, row: &Row, sampling: &Sampling) -> Opti
     let limit = DEFAULT_STEP_LIMIT.as_secs() as i64;
     let kill = format!("kill {}", row.pid);
     let sample = sampling.command(host, row.pid);
+    let percent = row.cpu_percent.expect("a busy row has a CPU share");
     match owner {
         Owner::Builds { minutes: m, .. } if m * 60 >= limit => Some(Advice::run(
             format!(
@@ -492,16 +497,14 @@ fn action_for(host: &str, owner: &Owner, row: &Row, sampling: &Sampling) -> Opti
         Owner::System { name } if name == FSEVENTSD => Some(Advice::run(
             format!(
                 "fseventsd is busy ({:.0}% now, {} of CPU); read a sample of it before anyone kills fseventsd, and take the sample with",
-                row.cpu_percent,
+                percent,
                 duration(row.cpu_seconds as i64),
             ),
             sample,
         )),
         Owner::System { .. } => Some(Advice::run(
             format!(
-                "this system daemon used {:.0}% of a core over the last {}s; read a sample of it before anyone kills it, and take the sample with",
-                row.cpu_percent,
-                crate::host_scan::WINDOW_SECONDS,
+                "this system daemon used {percent:.0}% of a core since the host's previous reading; read a sample of it before anyone kills it, and take the sample with",
             ),
             sample,
         )),
@@ -531,7 +534,7 @@ pub fn judge(
             Busy {
                 host: host.to_string(),
                 pid: row.pid,
-                cpu_percent: row.cpu_percent,
+                cpu_percent: row.cpu_percent.expect("a busy row has a CPU share"),
                 cpu_seconds: row.cpu_seconds,
                 age_seconds: row.age_seconds,
                 command: row.command.clone(),

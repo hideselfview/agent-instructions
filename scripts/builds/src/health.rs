@@ -1611,7 +1611,7 @@ pub fn cmd_health(tool: &Tool, args: &[String]) -> Result<()> {
     let mut busy = Vec::new();
     let mut probes = Vec::new();
     for (scan, host_busy, probe) in parallel_map(&hosts, |host| {
-        let scan = crate::host_scan::read(&ssh, host);
+        let scan = crate::host_scan::read(&ssh, host, &tool.places.home);
         let host_busy = crate::stuck::read(
             &ssh,
             host,

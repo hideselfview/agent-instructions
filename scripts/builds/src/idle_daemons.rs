@@ -91,7 +91,12 @@ pub enum LaneUse {
 /// The daemons among <rows> that user <uid> runs and that do no work now.
 pub fn daemons(rows: &[Row], uid: u32) -> Vec<Daemon> {
     rows.iter()
-        .filter(|row| row.uid == uid && row.cpu_percent < WORKING_PERCENT)
+        .filter(|row| {
+            row.uid == uid
+                && row
+                    .cpu_percent
+                    .is_some_and(|percent| percent < WORKING_PERCENT)
+        })
         .filter_map(|row| {
             Some(Daemon {
                 pid: row.pid,

@@ -94,6 +94,7 @@ mod orphans;
 mod output_excerpt;
 mod places;
 mod proc_limit;
+mod process_readings;
 mod procs;
 mod prune;
 mod prune_schedule;
