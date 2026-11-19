@@ -203,8 +203,11 @@ pub struct DesignChange {
     /// it is amended.
     pub tip: Option<String>,
     /// Each design place the change touches, or a component a shared source
-    /// changes the drawing of, and how it is resolved.
-    pub places: BTreeMap<String, Resolution>,
+    /// changes the drawing of, and how it is resolved. A place has no
+    /// resolution until the design session names its app work, which happens
+    /// after the person approves the change; landing needs every place
+    /// resolved (`check_changes`).
+    pub places: BTreeMap<String, Option<Resolution>>,
     /// Each board place's canvas link, by the board's path; none in a
     /// project that publishes no canvas.
     pub boards: BTreeMap<String, Board>,
@@ -291,7 +294,7 @@ pub struct DesignRequest {
     pub details: Option<String>,
     pub worktree: String,
     pub range: String,
-    pub places: BTreeMap<String, PlaceAnswer>,
+    pub places: BTreeMap<String, Option<PlaceAnswer>>,
     pub boards: BTreeMap<String, Board>,
     pub review: Option<ReviewSection>,
     pub no_app_place: Option<String>,
@@ -310,10 +313,12 @@ struct RequestFields {
     pub worktree: String,
     /// The commits, e.g. `origin/main..HEAD`.
     pub range: String,
-    /// For every design place the range changes, and for each component a
-    /// changed shared source changes the drawing of.
+    /// The components a changed shared source changes the drawing of, each
+    /// with `null`, and the app work of any place that has it: the range's
+    /// changed places need no answer to record, and the design session gives
+    /// each its answer after the person approves the change.
     #[serde(default)]
-    pub places: BTreeMap<String, PlaceAnswer>,
+    pub places: BTreeMap<String, Option<PlaceAnswer>>,
     /// Each board place's canvas link, which a project that publishes a
     /// canvas gives for every board and any other project leaves out.
     #[serde(default)]
@@ -454,6 +459,7 @@ fn resolve(
     let mut resolutions = BTreeMap::new();
     let mut new_items = Vec::new();
     for (path, answer) in &request.places {
+        let Some(answer) = answer else { continue };
         let resolution = match answer {
             PlaceAnswer::Item(item) => {
                 open_item(db, *item)?;
@@ -515,21 +521,15 @@ fn resolve(
         section.boards.retain(|b| !dropped.contains(&b.board));
     }
     design.deleted = changes.deleted.clone();
-    design.places.extend(resolutions);
+    design
+        .places
+        .extend(resolutions.into_iter().map(|(path, how)| (path, Some(how))));
+    for path in changed.iter().copied().chain(request.places.keys()) {
+        design.places.entry(path.clone()).or_insert(None);
+    }
     design.boards.extend(request.boards.clone());
     if let Some(review) = &request.review {
         design.review = Some(review.clone());
-    }
-    let unresolved: Vec<&str> = changed
-        .iter()
-        .filter(|p| !design.places.contains_key(**p))
-        .map(|p| p.as_str())
-        .collect();
-    if !unresolved.is_empty() {
-        fail!(
-            "design places left unresolved: {}; give each `item` (an open item), `new` (an item draft) or `matches` (how it was checked)",
-            unresolved.join(", ")
-        );
     }
     let unlinked: Vec<&str> = design
         .places
@@ -658,7 +658,7 @@ fn needs_answer(designs: &[&DesignChange], changes: &Changes, what: &str) -> Res
             return Ok(());
         }
         fail!(
-            "{what} changes shared design-system sources ({}); list under `places` each component whose drawing changes (an item or `matches`), or say with `no_app_place` that no drawing changes",
+            "{what} changes shared design-system sources ({}); list under `places` each component whose drawing changes (with `null` or its app work), or say with `no_app_place` that no drawing changes",
             join(&changes.sources)
         );
     }
@@ -734,8 +734,9 @@ pub fn save(db: &Connection, design: &DesignChange) -> Result<()> {
     .sql()?;
     for (path, resolution) in &design.places {
         let (item, matches) = match resolution {
-            Resolution::Item(item) => (Some(*item), None),
-            Resolution::Matches(how) => (None, Some(how.as_str())),
+            Some(Resolution::Item(item)) => (Some(*item), None),
+            Some(Resolution::Matches(how)) => (None, Some(how.as_str())),
+            None => (None, None),
         };
         db.execute(
             "INSERT INTO design_place (design_id, path, item_id, matches) VALUES (?1, ?2, ?3, ?4)",
@@ -1119,8 +1120,8 @@ pub fn covers(designs: &[DrawnChange], changes: &Changes, now: &Drawing) -> Resu
     Ok(())
 }
 
-/// Do the open design changes <designs> cover <changes> (`covers`), and has
-/// the person approved each? `builds design check` runs this check, and
+/// Do the open design changes <designs> cover <changes> (`covers`), has the
+/// person approved each, and does each place name its app work? `builds design check` runs this check, and
 /// builds land runs that command before it lands design changes.
 pub fn check_changes(designs: &[DrawnChange], changes: &Changes, now: &Drawing) -> Result<()> {
     if !changes.is_design_change() {
@@ -1136,6 +1137,19 @@ pub fn check_changes(designs: &[DrawnChange], changes: &Changes, now: &Drawing) 
         if design.approved.is_none() {
             fail!(
                 "design change {id} waits on the person's review; once they have said to land it, `builds design approve {} --by-person` records that",
+                id.0
+            );
+        }
+        let unnamed: Vec<&str> = design
+            .places
+            .iter()
+            .filter(|(_, resolution)| resolution.is_none())
+            .map(|(path, _)| path.as_str())
+            .collect();
+        if !unnamed.is_empty() {
+            fail!(
+                "design change {id} names no app work for {}; give each under `places` in `builds design amend {}` as `item` (an open item), `new` (an item draft) or `matches` (how it was checked), which keeps the person's approval",
+                unnamed.join(", "),
                 id.0
             );
         }
@@ -1405,7 +1419,11 @@ fn describe(lists: &Lists, design: &DesignChange, closed: Option<&Closed>) -> Re
     }
     let _ = writeln!(out, "\n{}\n", design.details.trim_end());
     for (path, resolution) in &design.places {
-        let _ = writeln!(out, "  {path}  {}", resolution_words(lists, resolution));
+        let words = match resolution {
+            Some(resolution) => resolution_words(lists, resolution),
+            None => "no app work named yet".to_string(),
+        };
+        let _ = writeln!(out, "  {path}  {words}");
     }
     for path in &design.deleted {
         let _ = writeln!(out, "  deleted {path}");
@@ -1531,7 +1549,7 @@ pub fn read(
     opened: &BTreeMap<Id, Stamp>,
     closings: &BTreeMap<Id, (How, Stamp)>,
 ) -> Result<Vec<DesignChange>> {
-    let mut places: BTreeMap<Id, BTreeMap<String, Resolution>> = BTreeMap::new();
+    let mut places: BTreeMap<Id, BTreeMap<String, Option<Resolution>>> = BTreeMap::new();
     let mut statement = db
         .prepare("SELECT design_id, path, item_id, matches FROM design_place")
         .sql()?;
@@ -1548,10 +1566,8 @@ pub fn read(
     {
         let (design, path, item, matches) = row.sql()?;
         let resolution = match (item, matches) {
-            (Some(item), _) => Resolution::Item(item),
-            (None, how) => {
-                Resolution::Matches(how.expect("design_place_is_resolved_one_way holds"))
-            }
+            (Some(item), _) => Some(Resolution::Item(item)),
+            (None, how) => how.map(Resolution::Matches),
         };
         places.entry(design).or_default().insert(path, resolution);
     }
@@ -1814,6 +1830,29 @@ pub fn read(
         });
     }
     Ok(designs)
+}
+
+/// Makes `design_place` again as design.sql writes it, which lets a place name
+/// no app work yet, with every place it held. A store from before held every
+/// place resolved.
+pub fn allow_places_with_no_app_work(db: &Connection) -> Result<()> {
+    let schema = include_str!("design.sql");
+    crate::db::remake_table(
+        db,
+        "design_place",
+        crate::db::statement(schema, "CREATE TABLE design_place", ";"),
+        |db| {
+            db.execute_batch(
+                "INSERT INTO design_place (design_id, path, item_id, matches) SELECT design_id, path, item_id, matches FROM design_place_old",
+            )
+            .sql()
+        },
+        &[crate::db::statement(
+            schema,
+            "CREATE INDEX design_place_item",
+            ";",
+        )],
+    )
 }
 
 /// The tables design.rs owns.

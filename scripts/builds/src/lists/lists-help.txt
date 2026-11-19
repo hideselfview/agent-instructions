@@ -623,7 +623,7 @@ sent again.
 
   builds design record --request FILE       (`-` for standard input)
       FILE: {"title", "details", "worktree", "range": "origin/main..HEAD",
-      "places": {PLACE: {"item": N} | {"new": ITEM_DRAFT} | {"matches": HOW}},
+      "places": {PLACE: null | {"item": N} | {"new": ITEM_DRAFT} | {"matches": HOW}},
       "boards": {BOARD: {"link": CANVAS_URL}},
       "review": {"heading": H, "words": WORDS,
                  "boards": [{"board": BOARD_PATH, "caption": C,
@@ -639,20 +639,26 @@ sent again.
       Design changes to review by this title, and builds land uses it as the
       message of the commit that squashes the change. Record and amend refuse
       only a title that is empty, has several lines or has spaces at its ends.
-      `places` answers every design place the range changes (a board, a
-      component folder, a spec section) with an open item that does the app
-      work, a new item (which waits on this design change, so no one can take
-      it before the board lands), or how it was checked that the app already
-      matches. When the range changes shared design-system sources, `places`
+      Record stores every design place the range changes (a board, a
+      component folder, a spec section) with no app work, and `places` is
+      optional: no app work item exists for a change before the person
+      approves it (decision #304). After the person approves, the design
+      session names each place's app work with `builds design amend N`, by
+      giving `places` an open item that does the app work, a new item (which
+      waits on this design change, so no one can take it before the board
+      lands), or how it was checked that the app already matches. That amend
+      keeps the person's approval (see amend). `builds land --design N` and
+      `design check` refuse until every place of the change names its app
+      work. A request may also give a place `null`, to name it without app
+      work. When the range changes shared design-system sources, `places`
       also lists each component folder whose drawing changes, changed by the
-      range or not (it must exist), answered the same way; `no_app_place`
-      says instead that no component's drawing changes (a comment in the
-      source, or a design system with no components), and `places` still
-      answers each board the range changes. Record rejects `no_app_place`
-      when the request lists a component or the range changes one. Shared
-      files that are no source (a README, a build script) change
-      no drawing. For these files, the request gives only `no_app_place`,
-      unless `places` answers a place.
+      range or not (it must exist), with `null` or its app work;
+      `no_app_place` says instead that no component's drawing changes (a
+      comment in the source, or a design system with no components). Record
+      rejects `no_app_place` when the request lists a component or the range
+      changes one. Shared files that are no source (a README, a build script)
+      change no drawing. For these files, the request gives only
+      `no_app_place`, unless `places` names a place.
       `boards` gives every board place its canvas link in a project that
       publishes a canvas (`lists design-globs --canvas yes`); a request of
       any other project has no `boards`, and its change holds no links.
@@ -707,8 +713,8 @@ sent again.
       and the design/system/build-bundle.py that writes
       design/system/components/bundle.css and bundle.js) and each board's
       size in design/mocks/canvas.json.
-      Refused, naming each, when a changed place is left unresolved, an
-      answer names a place the range does not change, `matches` has no how,
+      Refused, naming each, when an answer names a place the range does not
+      change, `matches` has no how,
       an item is closed or missing, a board of a project that publishes a
       canvas has no link, a project that publishes none gives `boards`,
       `review` is missing, has a heading with no text or more than 25
@@ -721,8 +727,10 @@ sent again.
   builds design amend N --request FILE
       The same over a new range, which N then holds to: a stored place the
       range no longer changes (a board renamed before landing) drops out with
-      its board link and its place on the review page, and a place the range
-      does change needs an answer. `title` and `details` are optional;
+      its board link and its place on the review page. `places` sets the app
+      work of each place it answers, replacing any it had; a place it gives
+      `null` or leaves out keeps the app work it has. `title` and
+      `details` are optional;
       `worktree` replaces the one stored; `review`, when given, replaces the
       whole page (left out, the page stays, and must still hold every board
       of the change). The amend stores the new last commit and clears the
@@ -731,7 +739,9 @@ sent again.
       places, deleted boards and review page, and the new last commit holds
       every board, component and changed source byte for byte as the commit
       they approved did, as after a rebase onto a moved main that changed
-      none of them. Otherwise the amend clears the approval, since the person
+      none of them. Naming the app work of places changes none of these, so
+      the design session gives it after approval and the approval stays.
+      Otherwise the amend clears the approval, since the person
       approved the boards the session drew before; an amend of a fix without
       `fix`, or of a decided change without `decision`, clears it too.
 
@@ -747,8 +757,8 @@ sent again.
       (any of them, for a changed source) holds the same bytes for it at its
       last commit as the commits' last commit does; one of them answers for
       the shared files and sources; each change resolves or answers for
-      something the commits change; and the person has approved each.
-      Otherwise it names what does not hold. builds land runs it once with
+      something the commits change; the person has approved each; and each
+      place names its app work. Otherwise it names what does not hold. builds land runs it once with
       every change its --design flags name.
 
   builds design landed N DIR SHA...

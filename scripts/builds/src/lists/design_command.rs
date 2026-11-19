@@ -263,7 +263,7 @@ fn require_review_boards(scope: &Scope, request: &DesignRequest) -> Result<()> {
 /// check prints.
 fn require_drafts(tool: &Tool, scope: &Scope, request: &DesignRequest) -> Result<Vec<String>> {
     let mut drafts = Vec::new();
-    for answer in request.places.values() {
+    for answer in request.places.values().flatten() {
         if let PlaceAnswer::New(draft) = answer {
             crate::lists::draft::require_draft_briefs(
                 &tool.places,

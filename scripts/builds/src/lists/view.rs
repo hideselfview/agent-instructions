@@ -418,15 +418,20 @@ pub fn design_view(
             .places
             .iter()
             .map(|(path, resolution)| match resolution {
-                Resolution::Item(id) => PlaceView {
+                Some(Resolution::Item(id)) => PlaceView {
                     path: path.clone(),
                     item: Some(place_item(lists, *id)),
                     matches: None,
                 },
-                Resolution::Matches(how) => PlaceView {
+                Some(Resolution::Matches(how)) => PlaceView {
                     path: path.clone(),
                     item: None,
                     matches: Some(how.clone()),
+                },
+                None => PlaceView {
+                    path: path.clone(),
+                    item: None,
+                    matches: None,
                 },
             })
             .collect(),

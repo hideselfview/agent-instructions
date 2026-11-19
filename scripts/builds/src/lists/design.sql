@@ -43,15 +43,16 @@ CREATE TABLE design_decision (
     decision_id INTEGER NOT NULL REFERENCES decision (id)
 ) STRICT;
 
--- Each design place the change touches, resolved by the item that does the
--- app work or by how it was checked that none is needed.
+-- Each design place the change touches. The design session resolves it after
+-- the person approves the change, by the item that does the app work or by how
+-- it was checked that none is needed; until then it has neither.
 CREATE TABLE design_place (
     design_id INTEGER NOT NULL REFERENCES design (id) ON DELETE CASCADE,
     path TEXT NOT NULL,
     item_id INTEGER REFERENCES item (id),
     matches TEXT CONSTRAINT design_place_matches_says_something CHECK (matches IS NULL OR trim(matches) <> ''),
     PRIMARY KEY (design_id, path),
-    CONSTRAINT design_place_is_resolved_one_way CHECK ((item_id IS NULL) <> (matches IS NULL))
+    CONSTRAINT design_place_is_resolved_one_way CHECK (item_id IS NULL OR matches IS NULL)
 ) STRICT, WITHOUT ROWID;
 CREATE INDEX design_place_item ON design_place (item_id);
 

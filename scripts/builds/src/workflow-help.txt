@@ -501,7 +501,9 @@ decided (ROLES) records the edit with `decision`, the id of the person's
 decision in the log. builds approves the change as it records it, because the
 decision is the person's approval, so the change needs no review page. The
 implementing agent lands it with the item that built the change (`builds land
-<worktree> --done N --design M <sha>...`).
+<worktree> --done N --design M <sha>...`). That agent names each place's app
+work in the same request: its own item, or how it checked that the app
+already matches (`places`, `builds help lists`).
 
   1. While drawing, look at a board with `builds design render`, which draws
      it from the worktree as one page of HTML. It publishes nothing.
@@ -528,17 +530,22 @@ implementing agent lands it with the item that built the change (`builds land
      the boards again, commit and run `builds design amend`, which clears an
      approval unless every board comes out byte-identical. A rebase onto a
      moved main needs no amend: health and land compare the boards' files,
-     not commit hashes.
+     not commit hashes. The record names no app work: no item exists for a
+     change before the person approves it (decision #304).
   3. Everything the person reviews goes on that page: new boards, proposals,
      before and after examples. Never make a page of your own (a review.html,
      a page in the scratchpad) or open a browser tab; the person reloads the
      review page.
   4. The person approves with the page's Approve button, which sends "Design
      change #N of project P approved: land it." to the session that recorded
-     the change. That message is the cue to land: run `builds land <worktree>
-     --design N <sha>...` with the worktree where the design session drew the
-     boards (the Approve button recorded the approval; never run `builds design
-     approve` for it). Name every commit of the change, oldest first. When they
+     the change. That message is the cue to name the app work and land. First
+     name the app work of each place: for each place, an open item, a new
+     item or how you checked that the app already matches, with `builds design
+     amend N` (`builds help lists`), which keeps the approval. `builds land
+     --design N` refuses until each place names its app work. Then run
+     `builds land <worktree> --design N <sha>...` with the worktree where the
+     design session drew the boards (the Approve button recorded the approval;
+     never run `builds design approve` for it). Name every commit of the change, oldest first. When they
      are all design files, land squashes them into one commit with the
      change's title as its message, with or without --done N
      (decision #292), so main gets one commit for each design change. The

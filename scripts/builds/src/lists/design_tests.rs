@@ -331,29 +331,99 @@ fn places_in_a_repo_of_no_project_is_refused() {
     );
 }
 
+/// A change records with no app work for any place: no item exists for it
+/// before the person approves it (decision #304).
 #[test]
-fn record_refuses_each_unresolved_place_by_name_and_changes_nothing() {
-    let w = world("design-unresolved");
-    w.commit(&[
+fn record_stores_each_changed_place_with_no_app_work() {
+    let w = world("design-record-no-app-work");
+    let (a, b, row) = (
         "design/mocks/A.dc.html",
         "design/mocks/B.dc.html",
-        "design/system/components/MacRow/a.html",
-    ]);
-    let before = w.bytes();
-    let refused = message(w.request(base_request(
-        &w,
-        json!({ "design/mocks/A.dc.html": { "matches": "the app shows it" } }),
-    )));
+        "design/system/components/MacRow/",
+    );
+    w.commit(&[a, b, "design/system/components/MacRow/a.html"]);
+    let out = w
+        .request(base_request(&w, json!({ a: null, b: null, row: null })))
+        .unwrap();
+    assert!(out.contains("waits on the person's review"), "{out}");
+    let design = &w.state().designs[0];
+    assert_eq!(
+        design.places.iter().collect::<Vec<_>>(),
+        [
+            (&a.to_string(), &None),
+            (&b.to_string(), &None),
+            (&row.to_string(), &None)
+        ]
+    );
+    let shown = w.run("show 1").unwrap();
+    assert!(shown.contains("no app work named yet"), "{shown}");
+
+    // A request that answers one place and gives the other `null` records
+    // the other with no app work.
+    let w = world("design-record-one-answer");
+    w.commit(&[a, b]);
+    w.request(base_request(&w, json!({ a: { "matches": "x" }, b: null })))
+        .unwrap();
+    let design = &w.state().designs[0];
+    assert_eq!(design.places[a], Some(Resolution::Matches("x".into())));
+    assert_eq!(design.places[b], None);
+}
+
+/// Landing needs each place to name its app work: the design session gives
+/// it after the person approves, and giving it keeps the approval.
+#[test]
+fn landing_is_refused_until_each_place_names_its_app_work_and_naming_it_keeps_the_approval() {
+    let w = world("design-name-after-approval");
+    let (a, b) = ("design/mocks/A.dc.html", "design/mocks/B.dc.html");
+    let sha = w.commit(&[a, b]);
+    w.request(base_request(&w, json!({ a: null, b: null })))
+        .unwrap();
+    let wt = w.worktree();
+    let refused = message(w.run(&format!("check 1 {wt} {sha}")));
     assert!(
-        refused.contains("design/mocks/B.dc.html")
-            && refused.contains("design/system/components/MacRow/"),
+        refused.contains("waits on the person's review"),
         "{refused}"
     );
+    w.approve(1);
+    let approved = w.state().designs[0].approved.clone();
+    assert!(approved.is_some());
+    let refused = message(w.run(&format!("check 1 {wt} {sha}")));
     assert!(
-        !refused.contains("A.dc.html,") && !refused.contains("mocks/A.dc.html;"),
+        refused.contains("names no app work for")
+            && refused.contains(a)
+            && refused.contains(b)
+            && refused.contains("amend 1"),
         "{refused}"
     );
-    assert_eq!(w.bytes(), before);
+
+    let item = w
+        .store
+        .write(&stamp(NOON), "seed", |db| {
+            Ok(crate::lists::fixtures::item(db, vec![]))
+        })
+        .unwrap();
+    let out = w
+        .amend(
+            1,
+            json!({ "worktree": wt, "range": "base..HEAD", "places": { a: { "item": item.0 } } }),
+        )
+        .unwrap();
+    assert!(out.contains("approval stays"), "{out}");
+    assert_eq!(w.state().designs[0].approved, approved);
+    let still = message(w.run(&format!("check 1 {wt} {sha}")));
+    assert!(still.contains(b) && !still.contains(a), "{still}");
+
+    // Naming a place leaves the ones the request leaves out as they are.
+    w.amend(
+        1,
+        json!({ "worktree": wt, "range": "base..HEAD", "places": { b: { "matches": "the app shows it" } } }),
+    )
+    .unwrap();
+    let design = &w.state().designs[0];
+    assert_eq!(design.places[a], Some(Resolution::Item(item)));
+    assert_eq!(design.approved, approved);
+    let out = w.run(&format!("check 1 {wt} {sha}")).unwrap();
+    assert!(out.contains("and is approved"), "{out}");
 }
 
 #[test]
@@ -392,11 +462,11 @@ fn record_resolves_places_by_item_new_item_and_matches() {
     assert_eq!(new.origin, Some(design.id));
     assert_eq!(
         design.places["design/mocks/B.dc.html"],
-        Resolution::Item(new.id)
+        Some(Resolution::Item(new.id))
     );
     assert_eq!(
         design.places["design/mocks/A.dc.html"],
-        Resolution::Item(existing)
+        Some(Resolution::Item(existing))
     );
     assert!(
         out.contains(&format!("new items {} wait on it", new.id)),
@@ -568,14 +638,14 @@ fn amend_holds_a_change_to_what_its_new_range_changes_so_a_board_renamed_before_
         "and its place on the page"
     );
 
-    // A place the range does change is still refused until it is answered.
+    // A board the range does change still needs its canvas link.
     w.commit(&["design/mocks/third.dc.html"]);
     let refused = message(w.amend(
         1,
         json!({ "worktree": w.worktree(), "range": "base..HEAD", "places": {} }),
     ));
     assert!(
-        refused.contains("unresolved") && refused.contains("third.dc.html"),
+        refused.contains("canvas link") && refused.contains("third.dc.html"),
         "{refused}"
     );
 }
@@ -594,17 +664,10 @@ fn amend_answers_the_places_of_a_new_range_and_drops_those_it_no_longer_changes(
         "design/mocks/B.dc.html",
         "design/system/components/Sym/a.html",
     ]);
-    let before = w.bytes();
     let mut request = json!({ "worktree": w.worktree(), "range": format!("{first}..HEAD"),
                               "places": { "design/mocks/B.dc.html": { "new": draft("Build the grid the board shows") } },
                               "boards": { "design/mocks/B.dc.html": { "link": "https://canvas.example/#B" } },
                               "review": review_of(&["design/mocks/A.dc.html", "design/mocks/B.dc.html"]) });
-    let refused = message(w.amend(1, request.clone()));
-    assert!(
-        refused.contains("design/system/components/Sym/"),
-        "{refused}"
-    );
-    assert_eq!(w.bytes(), before);
     request["places"]["design/system/components/Sym/"] = json!({ "matches": "y" });
     let out = w.amend(1, request).unwrap();
     let design = &w.state().designs[0];
@@ -615,9 +678,11 @@ fn amend_answers_the_places_of_a_new_range_and_drops_those_it_no_longer_changes(
     );
     assert!(out.contains("wait on it"), "{out}");
     assert_eq!(w.state().items[0].waits, [Wait::Design(design.id)]);
-    // A range that changes A again needs A answered again: its earlier answer went with it.
-    let stale = json!({ "worktree": w.worktree(), "range": "base..HEAD", "places": {} });
-    assert!(message(w.amend(1, stale)).contains("unresolved: design/mocks/A.dc.html"));
+    // A range that changes A again holds A with no app work: its earlier answer went with it.
+    let stale = json!({ "worktree": w.worktree(), "range": "base..HEAD", "places": {},
+                        "boards": { "design/mocks/A.dc.html": { "link": "https://canvas.example/#A" } } });
+    w.amend(1, stale).unwrap();
+    assert_eq!(w.state().designs[0].places["design/mocks/A.dc.html"], None);
     let again = json!({ "worktree": w.worktree(), "range": "base..HEAD", "places": { "design/mocks/A.dc.html": { "matches": "again" } },
                         "boards": { "design/mocks/A.dc.html": { "link": "https://canvas.example/#A" } } });
     w.amend(1, again).unwrap();
@@ -1831,13 +1896,14 @@ fn spec_sections_a_design_change_touches_are_places_resolved_like_the_others() {
     );
     let mut request = base_request(&w, json!({ "design/mocks/A.dc.html": { "matches": "x" } }));
     request["range"] = json!("specced..HEAD");
-    let refused = message(w.request(request.clone()));
+    w.request(request.clone()).unwrap();
+    w.approve(1);
+    let refused = message(w.run(&format!("check 1 {wt} {sha}")));
     assert!(refused.contains("spec/bae.md#Sync"), "{refused}");
     request["places"]["spec/bae.md#Sync"] =
         json!({ "new": draft("Write the sync rule into the app") });
     request["places"]["spec/bae.md#bae"] = json!({ "matches": "the title line, no behaviour" });
-    w.request(request).unwrap();
-    w.approve(1);
+    w.amend(1, request).unwrap();
     assert!(w.run(&format!("check 1 {wt} {sha}")).is_ok());
     // A commit that changes only the spec is no design change.
     let spec_only = w.commit(&["spec/words.md"]);
@@ -2014,14 +2080,6 @@ fn every_named_constraint_of_the_design_tables_refuses_its_row() {
                 ("path", v("p")),
                 ("matches", v(" ")),
             ],
-        ),
-    );
-    refused.check(
-        "design_place_is_resolved_one_way",
-        plant(
-            &db,
-            "design_place",
-            &[("design_id", v(good.0)), ("path", v("p"))],
         ),
     );
     refused.check(

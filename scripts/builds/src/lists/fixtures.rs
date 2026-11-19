@@ -218,9 +218,10 @@ pub fn design_drawn(
     let mut change = read(db).design(id).unwrap().clone();
     change.worktree = worktree.to_string();
     for (path, link) in boards {
-        change
-            .places
-            .insert(path.to_string(), Resolution::Matches("checked".into()));
+        change.places.insert(
+            path.to_string(),
+            Some(Resolution::Matches("checked".into())),
+        );
         change.boards.insert(
             path.to_string(),
             Board {
@@ -281,7 +282,7 @@ pub fn sha(c: char) -> String {
 /// Resolves place <path> of open design change <design> as <resolution>.
 pub fn design_place(db: &Connection, design: Id, path: &str, resolution: Resolution) {
     let mut change = read(db).design(design).unwrap().clone();
-    change.places.insert(path.to_string(), resolution);
+    change.places.insert(path.to_string(), Some(resolution));
     save(db, &change).unwrap();
 }
 

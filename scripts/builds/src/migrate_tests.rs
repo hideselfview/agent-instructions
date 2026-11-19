@@ -156,6 +156,22 @@ pub fn before_review_text_rowid(schema: String) -> String {
     )
 }
 
+/// The check that lets a design place name no app work yet, as design.sql
+/// writes it.
+const PLACE_NAMING_CHECK: &str =
+    "CONSTRAINT design_place_is_resolved_one_way CHECK (item_id IS NULL OR matches IS NULL)";
+
+/// <schema>, which holds today's design tables, as a schema from before a
+/// design place could name no app work yet: the place resolves one way.
+pub fn before_design_place_naming(schema: String) -> String {
+    assert_eq!(schema.matches(PLACE_NAMING_CHECK).count(), 1);
+    schema.replacen(
+        PLACE_NAMING_CHECK,
+        "CONSTRAINT design_place_is_resolved_one_way CHECK ((item_id IS NULL) <> (matches IS NULL))",
+        1,
+    )
+}
+
 /// The column that names who ends a condition, as item.sql writes it.
 const CONDITION_ENDER_COLUMN: &str = "    until TEXT NOT NULL CONSTRAINT item_wait_condition_ender_known CHECK (until IN ('agent', 'coordinator', 'ci')),\n";
 
@@ -246,7 +262,9 @@ fn each_stamp_names_one_schema_and_before_counts_the_stamp_and_older_ones() {
 #[test]
 fn the_item_event_stamp_is_the_schema_before_the_item_events() {
     assert_eq!(
-        db::stamp_of_text(&before_landing_repo(db::schema_before_item_event())),
+        db::stamp_of_text(&before_design_place_naming(before_landing_repo(
+            db::schema_before_item_event()
+        ))),
         BEFORE_ITEM_EVENT_STAMP
     );
 }
@@ -286,7 +304,9 @@ fn a_store_from_before_the_item_events_gains_their_table_and_equals_a_fresh_sche
 #[test]
 fn the_land_run_stamp_is_the_schema_before_the_landings_record() {
     assert_eq!(
-        db::stamp_of_text(&before_landing_repo(db::schema_before_land_run())),
+        db::stamp_of_text(&before_design_place_naming(before_landing_repo(
+            db::schema_before_land_run()
+        ))),
         BEFORE_LAND_RUN_STAMP
     );
 }
@@ -322,7 +342,9 @@ fn a_store_from_before_the_landings_record_gains_their_tables_and_equals_a_fresh
 #[test]
 fn the_exchange_time_stamp_is_the_schema_before_the_reviewer_processes_times() {
     assert_eq!(
-        db::stamp_of_text(&before_landing_repo(db::schema_before_exchange_time())),
+        db::stamp_of_text(&before_design_place_naming(before_landing_repo(
+            db::schema_before_exchange_time()
+        ))),
         BEFORE_EXCHANGE_TIME_STAMP
     );
 }
@@ -360,7 +382,9 @@ fn a_store_from_before_the_exchange_times_gains_their_table_and_equals_a_fresh_s
 #[test]
 fn the_host_sample_stamp_is_the_schema_before_the_hosts_samples() {
     assert_eq!(
-        db::stamp_of_text(&before_landing_repo(db::schema_before_host_sample())),
+        db::stamp_of_text(&before_design_place_naming(before_landing_repo(
+            db::schema_before_host_sample()
+        ))),
         BEFORE_HOST_SAMPLE_STAMP
     );
 }
@@ -396,7 +420,9 @@ fn a_store_from_before_the_host_samples_gains_their_table_and_equals_a_fresh_sch
 #[test]
 fn the_cargo_run_crate_stamp_is_the_schema_before_the_cargo_runs_crates() {
     assert_eq!(
-        db::stamp_of_text(&before_landing_repo(db::schema_before_cargo_run_crate())),
+        db::stamp_of_text(&before_design_place_naming(before_landing_repo(
+            db::schema_before_cargo_run_crate()
+        ))),
         BEFORE_CARGO_RUN_CRATE_STAMP
     );
 }
@@ -434,7 +460,7 @@ fn a_store_from_before_the_cargo_run_crates_gains_their_table_and_equals_a_fresh
 #[test]
 fn the_condition_enders_stamp_is_the_schema_before_conditions_named_an_ender() {
     assert_eq!(
-        db::stamp_of_text(&schema_before_condition_enders()),
+        db::stamp_of_text(&before_design_place_naming(schema_before_condition_enders())),
         BEFORE_CONDITION_ENDERS_STAMP
     );
 }
@@ -515,7 +541,9 @@ fn a_store_from_before_condition_enders_gives_each_condition_the_coordinator() {
 #[test]
 fn the_judge_stamp_is_the_schema_before_the_judge() {
     assert_eq!(
-        db::stamp_of_text(&before_landing_repo(db::schema_before_judge())),
+        db::stamp_of_text(&before_design_place_naming(before_landing_repo(
+            db::schema_before_judge()
+        ))),
         BEFORE_JUDGE_STAMP
     );
 }
@@ -551,7 +579,9 @@ fn a_store_from_before_the_judge_gains_its_table_and_equals_a_fresh_schema() {
 #[test]
 fn the_landing_repo_stamp_is_the_schema_before_landings_were_found_by_repo() {
     assert_eq!(
-        db::stamp_of_text(&before_landing_repo(db::schema_before_card_state())),
+        db::stamp_of_text(&before_design_place_naming(before_landing_repo(
+            db::schema_before_card_state()
+        ))),
         BEFORE_LANDING_REPO_STAMP
     );
 }
@@ -638,7 +668,9 @@ fn a_store_with_two_open_landings_of_one_change_is_left_as_it_was() {
 #[test]
 fn the_card_states_stamp_is_the_schema_before_them() {
     assert_eq!(
-        db::stamp_of_text(&before_review_text_rowid(db::schema_before_card_state())),
+        db::stamp_of_text(&before_design_place_naming(before_review_text_rowid(
+            db::schema_before_card_state()
+        ))),
         BEFORE_CARD_STATE_STAMP
     );
 }
@@ -670,9 +702,9 @@ fn a_store_from_before_the_card_states_gains_their_tables_and_equals_a_fresh_sch
 #[test]
 fn the_cargo_run_outcomes_stamp_is_the_schema_before_them() {
     assert_eq!(
-        db::stamp_of_text(&before_review_text_rowid(
+        db::stamp_of_text(&before_design_place_naming(before_review_text_rowid(
             db::schema_before_cargo_run_outcome()
-        )),
+        ))),
         BEFORE_CARGO_RUN_OUTCOME_STAMP
     );
 }
@@ -706,7 +738,9 @@ fn a_store_from_before_the_cargo_run_outcomes_gains_their_tables_and_equals_a_fr
 #[test]
 fn the_step_commits_stamp_is_the_schema_before_them() {
     assert_eq!(
-        db::stamp_of_text(&before_review_text_rowid(db::schema_before_step_commits())),
+        db::stamp_of_text(&before_design_place_naming(before_review_text_rowid(
+            db::schema_before_step_commits()
+        ))),
         BEFORE_STEP_COMMITS_STAMP
     );
 }
@@ -738,9 +772,9 @@ fn a_store_from_before_the_step_commits_gains_their_tables_and_equals_a_fresh_sc
 #[test]
 fn the_review_text_stamp_is_the_schema_before_the_texts_had_row_ids() {
     assert_eq!(
-        db::stamp_of_text(&before_review_text_rowid(
+        db::stamp_of_text(&before_design_place_naming(before_review_text_rowid(
             db::schema_before_hook_check_failure()
-        )),
+        ))),
         BEFORE_REVIEW_TEXT_ROWID_STAMP
     );
 }
@@ -748,7 +782,9 @@ fn the_review_text_stamp_is_the_schema_before_the_texts_had_row_ids() {
 #[test]
 fn the_hook_check_failures_stamp_is_the_schema_before_them() {
     assert_eq!(
-        db::stamp_of_text(&db::schema_before_hook_check_failure()),
+        db::stamp_of_text(&before_design_place_naming(
+            db::schema_before_hook_check_failure()
+        )),
         BEFORE_HOOK_CHECK_FAILURE_STAMP
     );
 }
@@ -780,7 +816,9 @@ fn a_store_from_before_the_hook_check_failures_gains_their_tables_and_equals_a_f
 #[test]
 fn the_app_build_step_failures_stamp_is_the_schema_before_them() {
     assert_eq!(
-        db::stamp_of_text(&db::schema_before_app_build_step_failure()),
+        db::stamp_of_text(&before_design_place_naming(
+            db::schema_before_app_build_step_failure()
+        )),
         BEFORE_APP_BUILD_STEP_FAILURE_STAMP
     );
 }
@@ -812,7 +850,7 @@ fn a_store_from_before_the_app_build_step_failures_gains_their_tables_and_equals
 #[test]
 fn the_judge_told_stamp_is_the_schema_before_it() {
     assert_eq!(
-        db::stamp_of_text(&db::schema_before_judge_told()),
+        db::stamp_of_text(&before_design_place_naming(db::schema_before_judge_told())),
         BEFORE_JUDGE_TOLD_STAMP
     );
 }
@@ -843,7 +881,9 @@ fn a_store_from_before_the_judge_told_table_gains_it_and_equals_a_fresh_schema()
 #[test]
 fn the_design_circle_box_stamp_is_the_schema_before_it() {
     assert_eq!(
-        db::stamp_of_text(&db::schema_before_design_circle_box()),
+        db::stamp_of_text(&before_design_place_naming(
+            db::schema_before_design_circle_box()
+        )),
         BEFORE_DESIGN_CIRCLE_BOX_STAMP
     );
 }
@@ -862,6 +902,39 @@ fn a_store_from_before_the_design_circle_box_table_gains_it_and_equals_a_fresh_s
         conn.execute_batch(&db::schema_before_design_circle_box())
             .unwrap();
         conn.pragma_update(None, "user_version", BEFORE_DESIGN_CIRCLE_BOX_STAMP)
+            .unwrap();
+    }
+    migrate_stores(&places, 0).unwrap();
+    let conn = db::open(&path, db::Make::Never).unwrap();
+    assert_eq!(
+        db::schema_rows(&conn).unwrap(),
+        db::schema_rows(&db::memory()).unwrap()
+    );
+}
+
+#[test]
+fn the_design_place_naming_stamp_is_the_schema_before_it() {
+    assert_eq!(
+        db::stamp_of_text(&before_design_place_naming(db::schema())),
+        BEFORE_DESIGN_PLACE_NAMING_STAMP
+    );
+}
+
+/// A store from before a design place could name no app work yet keeps its
+/// places and equals a fresh schema.
+#[test]
+fn a_store_from_before_design_places_named_no_app_work_keeps_its_places_and_equals_a_fresh_schema()
+{
+    let scratch = Scratch::new("move-design-place-naming");
+    let places = scratch.places();
+    let dir = places.lists.join("bae");
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join(DATABASE);
+    {
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(&before_design_place_naming(db::schema()))
+            .unwrap();
+        conn.pragma_update(None, "user_version", BEFORE_DESIGN_PLACE_NAMING_STAMP)
             .unwrap();
     }
     migrate_stores(&places, 0).unwrap();

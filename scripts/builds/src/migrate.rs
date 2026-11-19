@@ -199,9 +199,12 @@ const BEFORE_JUDGE_TOLD_STAMP: i64 = 1_477_190_891;
 /// a box.
 const BEFORE_DESIGN_CIRCLE_BOX_STAMP: i64 = 1_621_364_442;
 
+/// The stamp of the schema before a design place could name no app work yet.
+const BEFORE_DESIGN_PLACE_NAMING_STAMP: i64 = 889_221_987;
+
 /// Every stamp a store can carry that `move_store` moves, oldest schema first.
 /// A new move adds the stamp of the schema before it at the end.
-const STAMPS: [i64; 16] = [
+const STAMPS: [i64; 17] = [
     BEFORE_CONDITION_ENDERS_STAMP,
     BEFORE_ITEM_EVENT_STAMP,
     BEFORE_LAND_RUN_STAMP,
@@ -218,6 +221,7 @@ const STAMPS: [i64; 16] = [
     BEFORE_APP_BUILD_STEP_FAILURE_STAMP,
     BEFORE_JUDGE_TOLD_STAMP,
     BEFORE_DESIGN_CIRCLE_BOX_STAMP,
+    BEFORE_DESIGN_PLACE_NAMING_STAMP,
 ];
 
 /// Whether a store stamped <found> comes before the move that follows the
@@ -391,6 +395,12 @@ fn move_store(path: &Path, now: i64) -> Result<()> {
     // table: no review board has one yet.
     if before(found, BEFORE_DESIGN_CIRCLE_BOX_STAMP) {
         tx.execute_batch(db::DESIGN_CIRCLE_BOX_PART).sql()?;
+    }
+    // Every store from before a design place could name no app work yet gets
+    // the place table again with the check that allows it; each place keeps
+    // its app work.
+    if before(found, BEFORE_DESIGN_PLACE_NAMING_STAMP) {
+        crate::lists::design::allow_places_with_no_app_work(&tx)?;
     }
     tx.pragma_update(None, "user_version", db::stamp()).sql()?;
     let broken: Option<String> = tx
