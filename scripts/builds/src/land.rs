@@ -15,6 +15,11 @@
 //! it to every record as `--by`, so the records after `builds item landed`
 //! still have the name after that command releases the claim.
 //!
+//! Land resolves each commit argument with git to the one commit's full id
+//! before it changes anything, and uses the full ids in every command and
+//! record after: the store records only full ids, so a landing given
+//! abbreviations would otherwise push and then fail to record.
+//!
 //! Land detaches HEAD at origin/main and builds the result there. After a
 //! refusal, land checks out the branch again. After the push, land leaves the
 //! worktree detached at the landed commit when its branch has nothing left to
@@ -336,18 +341,31 @@ fn require_clean(dir: &Path, out: &mut dyn Write) -> Result<()> {
     ))
 }
 
-/// Refuses a commit that is not on the worktree's HEAD: land puts a branch on
-/// origin/main only from the worktree that has the branch checked out.
-fn require_on_head(dir: &Path, start: &Start, shas: &[String], out: &mut dyn Write) -> Result<()> {
+/// Resolves each of <shas> to the full id of the one commit it names, so that
+/// everything after (the push, the records) uses full ids whatever the caller
+/// typed. Refuses an argument that names no commit or more than one (an
+/// ambiguous abbreviation), and a commit that is not on the worktree's HEAD:
+/// land puts a branch on origin/main only from the worktree that has the
+/// branch checked out.
+fn resolve_on_head(
+    dir: &Path,
+    start: &Start,
+    shas: &[String],
+    out: &mut dyn Write,
+) -> Result<Vec<String>> {
+    let mut full = Vec::new();
     for sha in shas {
         let commit = format!("{sha}^{{commit}}");
-        if git_text(dir, &["rev-parse", "--verify", "--quiet", &commit]).is_none() {
+        let Some(id) = git_text(dir, &["rev-parse", "--verify", "--quiet", &commit]) else {
             return Err(refuse(
                 out,
-                format!("refusing: {sha} is not a commit in {}", dir.display()),
+                format!(
+                    "refusing: {sha} does not name exactly one commit in {}",
+                    dir.display()
+                ),
             ));
-        }
-        if !git_ok(dir, &["merge-base", "--is-ancestor", sha, "HEAD"]) {
+        };
+        if !git_ok(dir, &["merge-base", "--is-ancestor", &id, "HEAD"]) {
             return Err(refuse(
                 out,
                 format!(
@@ -357,8 +375,9 @@ fn require_on_head(dir: &Path, start: &Start, shas: &[String], out: &mut dyn Wri
                 ),
             ));
         }
+        full.push(id);
     }
-    Ok(())
+    Ok(full)
 }
 
 fn parse(args: &[String], out: &mut dyn Write) -> Result<Request> {
@@ -1193,10 +1212,10 @@ fn open_landing<'a>(
     args: &[String],
     out: &mut dyn Write,
 ) -> Result<Landing<'a>> {
-    let request = parse(args, out)?;
+    let mut request = parse(args, out)?;
     let start = Start::read(&workdir)?;
     require_clean(&workdir, out)?;
-    require_on_head(&workdir, &start, &request.shas, out)?;
+    request.shas = resolve_on_head(&workdir, &start, &request.shas, out)?;
     Ok(Landing {
         program,
         workdir,

@@ -804,6 +804,34 @@ fn a_commit_not_on_the_worktrees_head_is_refused() {
 }
 
 #[test]
+fn short_ids_land_and_are_recorded_by_their_full_ids() {
+    let f = fixture("land-short-ids", "true\n", None);
+    let (one, a, _two, _b) = two_branches(&f);
+    let short = &a[..10];
+    let (code, run) = profiled(&f, &one, &["--done", "7", short], project());
+    assert_eq!(code, 0);
+    let run = run.expect("a repo in a project records its landing");
+    assert!(run.landed);
+    assert_eq!(run.commits.len(), 1);
+    assert_eq!(run.commits[0].0, a);
+    assert_eq!(run.commits[0].0.len(), 40);
+}
+
+#[test]
+fn an_argument_that_names_no_commit_is_refused_before_anything_moves() {
+    let f = fixture("land-no-such-commit", "true\n", None);
+    let (one, _a, _two, _b) = two_branches(&f);
+    let before = main_of(&f);
+    let (code, out, calls) = run_land(&f, &one, &["0123456789abcdef"], Cues::default());
+    assert!(
+        code == 1 && out.contains("0123456789abcdef does not name exactly one commit"),
+        "{out}"
+    );
+    assert!(calls.is_empty(), "{calls:?}");
+    assert_eq!(main_of(&f), before);
+}
+
+#[test]
 fn a_worktree_with_uncommitted_changes_is_refused_before_anything_moves() {
     let f = fixture("land-uncommitted", "true\n", None);
     let (one, a, _two, _b) = two_branches(&f);
