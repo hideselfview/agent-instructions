@@ -114,44 +114,37 @@ fn window_runs_on_two_hosts_run_at_once() {
     one.release();
 }
 
-extern "C" fn interrupt(_: libc::c_int) {}
-
 #[test]
-fn a_takeover_signal_ends_the_wait_for_the_display() {
+fn a_takeover_ends_the_wait_for_the_display() {
     let scratch = Scratch::new("window-takeover");
     let places = scratch.places();
     let held = take(&places, "m1", "test one", &|_| (), &|| false)
         .unwrap()
         .unwrap();
-    crate::lock::on_takeover_signal(interrupt).unwrap();
     let (announced, waiting) = channel();
     let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     let waiter_stop = stop.clone();
     let waiter_places = places.clone();
     let waiter = std::thread::spawn(move || {
-        let said = take(
+        take(
             &waiter_places,
             "m1",
             "test two",
-            &|_| {
-                announced
-                    .send(unsafe { libc::pthread_self() as usize })
-                    .unwrap()
-            },
+            &|_| announced.send(()).unwrap(),
             &|| waiter_stop.load(std::sync::atomic::Ordering::SeqCst),
         )
-        .unwrap();
-        said.is_none()
+        .unwrap()
+        .is_none()
     });
-    let thread = waiting.recv_timeout(Duration::from_secs(10)).unwrap();
+    waiting.recv_timeout(Duration::from_secs(10)).unwrap();
+    // What the takeover's signal handler does; the wait sees it whether it
+    // has started to sleep yet or not.
     stop.store(true, std::sync::atomic::Ordering::SeqCst);
-    // The announcement comes just before the wait starts: signal until the
-    // wait ends.
-    while !waiter.is_finished() {
-        unsafe { libc::pthread_kill(thread as libc::pthread_t, libc::SIGUSR2) };
-        std::thread::yield_now();
-    }
-    assert!(waiter.join().unwrap(), "the wait went on after the signal");
+    wake();
+    assert!(
+        waiter.join().unwrap(),
+        "the wait went on after the takeover"
+    );
     drop(held);
 }
 

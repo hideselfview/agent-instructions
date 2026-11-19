@@ -93,24 +93,9 @@ extern "C" fn take_over(_: libc::c_int) {
         return;
     }
     TAKEN_OVER.store(true, Ordering::SeqCst);
+    // A wait for a window lock looks at TAKEN_OVER again.
+    crate::window_lock::wake();
     pass_on(libc::SIGTERM);
-}
-
-/// Makes <handler> answer SIGUSR2, the takeover signal, and a blocking call it
-/// interrupts fail with EINTR instead of starting again.
-pub fn on_takeover_signal(handler: extern "C" fn(libc::c_int)) -> Result<()> {
-    unsafe {
-        let mut action = std::mem::zeroed::<libc::sigaction>();
-        action.sa_sigaction = handler as *const () as libc::sighandler_t;
-        libc::sigemptyset(&mut action.sa_mask);
-        if libc::sigaction(libc::SIGUSR2, &action, std::ptr::null_mut()) != 0 {
-            fail!(
-                "installing the takeover signal's handler: {}",
-                std::io::Error::last_os_error()
-            );
-        }
-    }
-    Ok(())
 }
 
 pub fn cmd_lock(places: &Places, args: &[String]) -> Result<()> {
@@ -570,9 +555,7 @@ fn take_in(
         );
     }
     queue::route_repoint_signal();
-    // Without SA_RESTART, so that a takeover ends a wait for a window lock
-    // (window_lock.rs).
-    on_takeover_signal(take_over)?;
+    unsafe { libc::signal(libc::SIGUSR2, take_over as *const () as libc::sighandler_t) };
     TAKEN_OVER.store(false, Ordering::SeqCst);
     QUEUED.store(true, Ordering::SeqCst);
     let queue = Queue::of(places, repo, lane);
