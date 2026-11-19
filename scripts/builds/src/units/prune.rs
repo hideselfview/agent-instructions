@@ -10,7 +10,7 @@ use std::rc::Rc;
 use serde_json::Value;
 
 use super::objects::dead_objects;
-use super::record::{fingerprint_values, recorded};
+use super::record::{Record, fingerprint_values, recorded, unreadable_note};
 use super::unit::{Unit, Units, units_in};
 use super::{
     Guard, INCREMENTAL_DEPTH, OpenFiles, holds_any, is_folder, lock_guard, lock_profile, lstat,
@@ -181,6 +181,9 @@ impl Sources {
 /// package and crate name alone, wherever it is named: its dependents rebuild
 /// in place too on their next build.
 struct Copies {
+    /// The units with a fingerprint record that holds no JSON: nothing tells
+    /// what they are copies of, so they stay.
+    unreadable: HashSet<Key>,
     /// Each fingerprint value cargo records, by the unit it is of: a
     /// dependent's JSON names each dependency by the value it had when the
     /// dependent was built.
@@ -202,6 +205,7 @@ impl Copies {
         let mut copies = Copies {
             unit_of: HashMap::new(),
             thing: HashMap::new(),
+            unreadable: HashSet::new(),
             own_sources: HashMap::new(),
             deps: HashMap::new(),
             in_place: HashSet::new(),
@@ -227,11 +231,20 @@ impl Copies {
                 };
                 names.sort();
                 let mut records: Vec<(String, Value)> = Vec::new();
+                let mut whole = true;
                 for name in &names {
-                    let record = recorded(fingerprint, &name[..name.len() - ".json".len()])?;
-                    records.push((name.clone(), record));
+                    match recorded(fingerprint, &name[..name.len() - ".json".len()])? {
+                        Record::Json(record) => records.push((name.clone(), record)),
+                        Record::Gone => whole = false,
+                        Record::Unreadable(path) => {
+                            note(unreadable_note(&path, "kept"));
+                            copies.unreadable.insert(key.clone());
+                            whole = false;
+                        }
+                    }
                 }
-                if records.is_empty() || !records.iter().all(|(_, record)| truthy(record)) {
+                if !whole || records.is_empty() || !records.iter().all(|(_, record)| truthy(record))
+                {
                     continue;
                 }
                 let shape: Vec<Value> = records
@@ -422,11 +435,17 @@ fn truthy(value: &Value) -> bool {
 /// copies of one thing built from other sources, but that build began before
 /// either's last use, so neither replaced the other; and a unit that stays
 /// keeps both.
-fn superseded(
-    every: &[(PathBuf, Units)],
-    free: &HashSet<usize>,
-    cutoff: f64,
-) -> Result<HashSet<Key>> {
+/// Which units of the profile folders a prune reads go and which stay
+/// whatever their age.
+struct Judged {
+    /// Out of date: a newer copy replaced them (`superseded`).
+    replaced: HashSet<Key>,
+    /// A fingerprint record of theirs holds no JSON, so nothing can tell
+    /// what they are; they stay.
+    unreadable: HashSet<Key>,
+}
+
+fn superseded(every: &[(PathBuf, Units)], free: &HashSet<usize>, cutoff: f64) -> Result<Judged> {
     let mut copies = Copies::new(every)?;
     // Each copy's last use, and when the last build that used it began.
     let mut times: HashMap<Key, (f64, f64)> = HashMap::new();
@@ -511,7 +530,10 @@ fn superseded(
             }
         }
     }
-    Ok(replaced)
+    Ok(Judged {
+        replaced,
+        unreadable: copies.unreadable,
+    })
 }
 
 fn single_link(path: &Path) -> Result<bool> {
@@ -522,18 +544,19 @@ fn single_link(path: &Path) -> Result<bool> {
 /// <replaced> (superseded), the incremental folders only they used, every
 /// incremental folder nothing wrote anywhere inside since the idle cutoff,
 /// and the other units' dead object files, but none a process holds a file
-/// of. Returns the bytes freed (or that would be).
+/// of, and none in <kept>. Returns the bytes freed (or that would be).
 fn prune_profile(
     profile: &Path,
     units: &Units,
     replaced: &HashSet<String>,
+    kept: &HashSet<String>,
     ages: &Ages,
     run: Run,
     open_files: &mut OpenFiles,
 ) -> Result<u64> {
     let mut stale: Vec<&Unit> = Vec::new();
     for found in &units.list {
-        if found.last_use()? < ages.cutoff {
+        if !kept.contains(&found.hash) && found.last_use()? < ages.cutoff {
             stale.push(found);
         }
     }
@@ -795,7 +818,7 @@ pub fn prune(ages: &Ages, run: Run, folders: &[PathBuf]) -> Result<Vec<(PathBuf,
         for profile in &profiles {
             every.push((profile.clone(), units_in(profile)?));
         }
-        let replaced = superseded(&every, &free, ages.cutoff)?;
+        let judged = superseded(&every, &free, ages.cutoff)?;
         for (at, (profile, units)) in every.iter().enumerate() {
             if free.contains(&at) {
                 continue;
@@ -835,12 +858,21 @@ pub fn prune(ages: &Ages, run: Run, folders: &[PathBuf]) -> Result<Vec<(PathBuf,
             if !free.contains(&at) {
                 continue;
             }
-            let replaced_here: HashSet<String> = replaced
-                .iter()
-                .filter(|(p, _)| *p == at)
-                .map(|(_, hash)| hash.clone())
-                .collect();
-            freed += prune_profile(profile, units, &replaced_here, ages, run, &mut open_files)?;
+            let here = |keys: &HashSet<Key>| -> HashSet<String> {
+                keys.iter()
+                    .filter(|(p, _)| *p == at)
+                    .map(|(_, hash)| hash.clone())
+                    .collect()
+            };
+            freed += prune_profile(
+                profile,
+                units,
+                &here(&judged.replaced),
+                &here(&judged.unreadable),
+                ages,
+                run,
+                &mut open_files,
+            )?;
         }
         drop(locks);
         result.push((folder.clone(), freed / 1024));
@@ -851,6 +883,53 @@ pub fn prune(ages: &Ages, run: Run, folders: &[PathBuf]) -> Result<Vec<(PathBuf,
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A unit whose fingerprint record holds no JSON stays, however long no
+    /// build used it, beside one that goes.
+    #[test]
+    fn a_unit_whose_record_holds_no_json_stays() {
+        let scratch = crate::testing::Scratch::new("prune-no-json");
+        let target = scratch.dir.join("target");
+        let unit = |hash: &str, json: &str| {
+            let folder = target.join("debug/build/dep").join(hash);
+            std::fs::create_dir_all(folder.join("fingerprint")).unwrap();
+            std::fs::write(folder.join("fingerprint/lib-dep"), "0000000000000000").unwrap();
+            std::fs::write(folder.join("fingerprint/lib-dep.json"), json).unwrap();
+            crate::testing::fill(&folder.join(format!("out/libdep-{hash}.rlib")), 1);
+            folder
+        };
+        let unreadable = unit("aaaaaaaaaaaaaaaa", "{\"rustc\":");
+        let unused = unit("bbbbbbbbbbbbbbbb", "{\"rustc\": 1}");
+        let long_ago = std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_000_000);
+        for folder in [&unreadable, &unused] {
+            for path in [
+                folder.join("fingerprint/lib-dep"),
+                folder.join("fingerprint/lib-dep.json"),
+                folder.join("fingerprint"),
+            ] {
+                std::fs::File::options()
+                    .read(true)
+                    .open(&path)
+                    .unwrap()
+                    .set_modified(long_ago)
+                    .unwrap();
+            }
+        }
+        prune(
+            &Ages::new(3, 100_000),
+            Run::Real,
+            std::slice::from_ref(&target),
+        )
+        .unwrap();
+        assert!(
+            unreadable.exists(),
+            "pruning deleted a unit whose record holds no JSON"
+        );
+        assert!(
+            !unused.exists(),
+            "pruning kept a unit no build used in days"
+        );
+    }
 
     #[test]
     fn truthiness() {

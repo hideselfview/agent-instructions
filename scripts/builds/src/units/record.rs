@@ -286,17 +286,37 @@ pub fn fingerprint_values(fingerprint_dir: &Path) -> Result<HashSet<u64>> {
     Ok(values)
 }
 
-/// The JSON cargo keeps beside a unit's fingerprint file; an empty object
-/// when the file no longer exists or holds no JSON, as when cargo is still
-/// writing it. Any other failure to read it is an error that names it.
-pub fn recorded(fingerprint_dir: &Path, file_name: &str) -> Result<Value> {
+/// What reading the JSON cargo keeps beside a unit's fingerprint file gave.
+pub enum Record {
+    Json(Value),
+    /// The file no longer exists.
+    Gone,
+    /// The file at this path holds no JSON, as when cargo is still writing
+    /// it. Nothing about the unit can be read from it.
+    Unreadable(PathBuf),
+}
+
+/// The JSON cargo keeps beside a unit's fingerprint file <file_name>. Any
+/// failure to read the file but its not existing is an error that names it.
+pub fn recorded(fingerprint_dir: &Path, file_name: &str) -> Result<Record> {
     let path = fingerprint_dir.join(format!("{file_name}.json"));
     let bytes = match std::fs::read(&path) {
         Ok(bytes) => bytes,
-        Err(error) if gone(&error) => return Ok(Value::Object(Default::default())),
+        Err(error) if gone(&error) => return Ok(Record::Gone),
         Err(error) => fail!("reading {}: {error}", path.display()),
     };
-    Ok(serde_json::from_slice(&bytes).unwrap_or_else(|_| Value::Object(Default::default())))
+    Ok(match serde_json::from_slice(&bytes) {
+        Ok(json) => Record::Json(json),
+        Err(_) => Record::Unreadable(path),
+    })
+}
+
+/// The warning builds prints for a unit whose record <path> holds no JSON.
+pub fn unreadable_note(path: &Path, what: &str) -> String {
+    format!(
+        "{what} the build copy whose fingerprint record {} holds no JSON (cargo may be writing it)",
+        path.display()
+    )
 }
 
 /// Does a unit's fingerprint JSON record <features>? It holds them in Rust's
@@ -380,7 +400,14 @@ fn units_by_name(
             if stat(&fingerprint_dir.join(&name))?.is_none() {
                 continue;
             }
-            let fingerprint = recorded(&fingerprint_dir, &name)?;
+            let fingerprint = match recorded(&fingerprint_dir, &name)? {
+                Record::Json(fingerprint) => fingerprint,
+                Record::Gone => continue,
+                Record::Unreadable(path) => {
+                    note(unreadable_note(&path, "recorded no use of"));
+                    continue;
+                }
+            };
             if same_features(&fingerprint, &features) {
                 candidates.push((fingerprint_dir, fingerprint));
             }
@@ -809,6 +836,39 @@ mod tests {
             "a fingerprint folder that cannot be read was recorded"
         );
         assert_eq!(output, b"after\n");
+    }
+
+    /// A fingerprint record that holds no JSON names no unit: the recorder
+    /// marks nothing for it, never reading it as a record with no features.
+    #[test]
+    fn a_record_that_holds_no_json_marks_nothing() {
+        let scratch = crate::testing::Scratch::new("record-no-json");
+        let target = scratch.dir.join("target");
+        let fingerprint = target.join("debug/build/app/0123456789abcdef/fingerprint");
+        std::fs::create_dir_all(&fingerprint).unwrap();
+        std::fs::write(fingerprint.join("doc-lib-app"), "0000000000000000").unwrap();
+        std::fs::write(fingerprint.join("doc-lib-app.json"), "{\"rustc\":").unwrap();
+        let long_ago = libc::timeval {
+            tv_sec: 1_000_000,
+            tv_usec: 0,
+        };
+        touch(&fingerprint, &long_ago).unwrap();
+        let page = target.join("doc/app/index.html");
+        crate::testing::fill(&page, 1);
+        let message = format!(
+            "{{\"reason\":\"compiler-artifact\",\"package_id\":\"path+file:///ws/app#app@0.1.0\",\"target\":{{\"kind\":[\"lib\"],\"name\":\"app\"}},\"profile\":{{}},\"features\":[],\"filenames\":[\"{}\"]}}\n",
+            page.display()
+        );
+        let code = record(std::io::Cursor::new(message), &mut Vec::new()).unwrap();
+        assert_eq!(
+            code, 1,
+            "a page of a unit with no readable record was recorded"
+        );
+        assert_eq!(
+            std::fs::metadata(&fingerprint).unwrap().modified().unwrap(),
+            std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_000_000),
+            "a unit whose record holds no JSON was marked used"
+        );
     }
 
     #[test]

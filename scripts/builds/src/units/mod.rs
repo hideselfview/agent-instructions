@@ -192,8 +192,7 @@ pub fn unit_folders(package: &Path) -> Result<Vec<(String, PathBuf)>> {
 pub fn has_unit_folders(profile: &Path) -> Result<bool> {
     let build = profile.join("build");
     for name in names_if_present(&build)? {
-        let package = build.join(name);
-        if is_folder(&package)? && !unit_folders(&package)?.is_empty() {
+        if !unit_folders(&build.join(name))?.is_empty() {
             return Ok(true);
         }
     }
@@ -269,10 +268,8 @@ pub fn mtime_of(meta: &std::fs::Metadata) -> f64 {
 /// The newest modification time of <path> and what it holds, <depth> levels
 /// down; 0 when it is missing.
 pub fn newest_mtime(path: &Path, depth: usize) -> Result<f64> {
-    let meta = match std::fs::symlink_metadata(path) {
-        Ok(meta) => meta,
-        Err(error) if gone(&error) => return Ok(0.0),
-        Err(error) => fail!("reading {}: {error}", path.display()),
+    let Some(meta) = lstat(path)? else {
+        return Ok(0.0);
     };
     let mut newest = mtime_of(&meta);
     if depth > 0 && meta.is_dir() {
