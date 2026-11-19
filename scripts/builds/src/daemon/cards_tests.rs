@@ -70,7 +70,7 @@ fn with_no_running_item_the_card_shows_the_agents_note_or_what_the_state_means()
     );
     assert_eq!(
         note("ready-to-land", None).as_deref(),
-        Some("Waits for the coordinator to land it.")
+        Some("Waits for its agent to land it.")
     );
     assert_eq!(
         note("ready-to-land", Some("Done.")).as_deref(),
@@ -614,12 +614,22 @@ fn commits_whose_rules_review_is_not_finished_are_in_review_and_the_card_says_wh
     assert_eq!(said(ReviewWait::NotRun), ("Needs review", None));
     assert_eq!(said(ReviewWait::Running), ("Reviewing", None));
     assert_eq!(
-        said(ReviewWait::ToSettle(3)),
+        said(ReviewWait::ToSettle(3, Settler::Coordinator)),
         (
             "Findings to settle",
             pill(
                 "3 findings",
                 "3 review findings wait on the coordinator to settle them."
+            )
+        )
+    );
+    assert_eq!(
+        said(ReviewWait::ToSettle(1, Settler::Judge)),
+        (
+            "Findings to settle",
+            pill(
+                "1 finding",
+                "1 review finding waits on the judge to settle it."
             )
         )
     );

@@ -377,12 +377,15 @@ change the person has not approved, or the worktree's commits are a design
 change the person has not approved), Paused (the claim's note has --state
 held: the card says what its running items wait on), Ready to land (commits
 waiting to land, claimed or not: an unclaimed worktree with such commits holds
-work an agent left behind), Winding down, Working (claimed) and Free. Commits
+work an agent left behind; a claimed one waits for its agent to land it),
+Winding down, Working (claimed) and Free. Commits
 waiting to land show as Ready to land only when `builds land` would take them
 as far as the rules review goes; until then the card shows the review's
 progress instead: Needs review (no review read these commits, or a group still
-has to answer: the coordinator runs `builds review`), Reviewing (a review of
-the branch's newest commit runs), Findings to settle (with the count), Open
+has to answer: the branch's agent runs `builds review`), Reviewing (a review
+of the branch's newest commit runs), Findings to settle (with the count, and
+whether they wait on the judge or, with no judge listening, the coordinator),
+Open
 findings (confirmed findings that wait for a review that closes them) or
 Unreviewed changes (with the count of files that changed since the last
 review, which `builds review` reads as a new run of the review). A commit

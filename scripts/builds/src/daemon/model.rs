@@ -1265,6 +1265,7 @@ impl Model {
                                     .and_then(|store| {
                                         self.review_reads.standing(
                                             &store,
+                                            &self.places.claude_sessions(),
                                             Path::new(&checkout.path),
                                             &git.ahead,
                                         )

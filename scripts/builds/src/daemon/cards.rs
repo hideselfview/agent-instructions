@@ -48,12 +48,12 @@ pub enum ItemWait {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ReviewWait {
     /// No review read these commits, or a group still has to answer over
-    /// them: the coordinator runs the review.
+    /// them: the branch's agent runs the review.
     NotRun,
     /// A review of the branch's newest commit runs now.
     Running,
-    /// This many findings wait for the coordinator to settle them.
-    ToSettle(usize),
+    /// This many findings wait for the settler to settle them.
+    ToSettle(usize, Settler),
     /// This many confirmed findings are open: they wait for a review that
     /// closes them.
     Open(usize),
@@ -62,13 +62,21 @@ pub enum ReviewWait {
     Unreviewed(usize),
 }
 
+/// Who settles a review's findings: the judge while one listens
+/// (review/judge.rs), else the coordinator.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Settler {
+    Judge,
+    Coordinator,
+}
+
 impl ReviewWait {
     /// The card's chip.
     fn chip(self) -> &'static str {
         match self {
             ReviewWait::NotRun => "Needs review",
             ReviewWait::Running => "Reviewing",
-            ReviewWait::ToSettle(_) => "Findings to settle",
+            ReviewWait::ToSettle(..) => "Findings to settle",
             ReviewWait::Open(_) => "Open findings",
             ReviewWait::Unreviewed(_) => "Unreviewed changes",
         }
@@ -78,7 +86,7 @@ impl ReviewWait {
     fn pill(self) -> Option<Pill> {
         let text = match self {
             ReviewWait::NotRun | ReviewWait::Running => return None,
-            ReviewWait::ToSettle(n) | ReviewWait::Open(n) => {
+            ReviewWait::ToSettle(n, _) | ReviewWait::Open(n) => {
                 crate::text::counted(n, "finding", "findings")
             }
             ReviewWait::Unreviewed(n) => crate::text::counted(n, "file", "files"),
@@ -99,9 +107,13 @@ impl ReviewWait {
             // The chip says it.
             ReviewWait::NotRun => String::new(),
             ReviewWait::Running => "The rules review of its commits runs.".to_string(),
-            ReviewWait::ToSettle(n) => format!(
-                "{} on the coordinator to settle {}.",
+            ReviewWait::ToSettle(n, settler) => format!(
+                "{} on the {} to settle {}.",
                 findings(n, "review"),
+                match settler {
+                    Settler::Judge => "judge",
+                    Settler::Coordinator => "coordinator",
+                },
                 if n == 1 { "it" } else { "them" }
             ),
             ReviewWait::Open(n) => format!(
@@ -471,7 +483,7 @@ pub fn words(checkout: &CheckoutPage, items: &[RunningItem], waits: &[ItemWait])
         Some("ready-to-land") => (
             Some("Ready to land"),
             None,
-            "Waits for the coordinator to land it.".to_string(),
+            "Waits for its agent to land it.".to_string(),
         ),
         Some("waiting-on-you") => (Some("Waiting on you"), None, "Waits on you.".to_string()),
         Some("held") => {

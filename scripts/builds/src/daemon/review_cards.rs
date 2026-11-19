@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use super::cards::{ItemWait, ReviewWait};
+use super::cards::{ItemWait, ReviewWait, Settler};
 use crate::fail::Fail;
 use crate::lists::store::Store;
 use crate::review::commits;
@@ -118,11 +118,14 @@ impl Reads {
     /// Where the review of <top>'s commits stands, for a worktree whose
     /// project's store is <store> and whose commits not on origin/main
     /// are <ahead> (newest first); None when land would take them as far as
-    /// the review goes, or when they need no review. Fails, saying why, when
-    /// git cannot read the commits or builds cannot open or read the store.
+    /// the review goes, or when they need no review. Findings to settle wait
+    /// on the judge while one listens, which Claude Code's running sessions
+    /// in <sessions> say. Fails, saying why, when git cannot read the commits
+    /// or builds cannot open or read the store or the sessions.
     pub fn standing(
         &self,
         store: &Store,
+        sessions: &Path,
         top: &Path,
         ahead: &[side_git::Commit],
     ) -> Result<Option<ItemWait>, String> {
@@ -143,21 +146,27 @@ impl Reads {
         let conn = store.open_existing().map_err(Fail::text)?;
         let key = crate::review::default_key(top).map_err(Fail::text)?;
         let check = CodeCheck::Branch("HEAD");
-        let wait =
-            match landing::judge(&conn, &key, top, &needs, check, &material).map_err(Fail::text)? {
-                Verdict::NotNeeded | Verdict::Takes(_) => return Ok(None),
-                Verdict::NoRun => ReviewWait::NotRun,
-                Verdict::Unfinished(_, unfinished) if !unfinished.unsettled.is_empty() => {
-                    ReviewWait::ToSettle(unfinished.unsettled.len())
-                }
-                Verdict::Unfinished(_, unfinished) if !unfinished.unanswered.is_empty() => {
-                    ReviewWait::NotRun
-                }
-                Verdict::Unfinished(_, unfinished) if !unfinished.unreviewed.is_empty() => {
-                    ReviewWait::Unreviewed(unfinished.unreviewed.len())
-                }
-                Verdict::Unfinished(_, unfinished) => ReviewWait::Open(unfinished.open.len()),
-            };
+        let wait = match landing::judge(&conn, &key, top, &needs, check, &material)
+            .map_err(Fail::text)?
+        {
+            Verdict::NotNeeded | Verdict::Takes(_) => return Ok(None),
+            Verdict::NoRun => ReviewWait::NotRun,
+            Verdict::Unfinished(_, unfinished) if !unfinished.unsettled.is_empty() => {
+                let settler =
+                    match crate::review::judge::listening(&conn, sessions).map_err(Fail::text)? {
+                        Some(_) => Settler::Judge,
+                        None => Settler::Coordinator,
+                    };
+                ReviewWait::ToSettle(unfinished.unsettled.len(), settler)
+            }
+            Verdict::Unfinished(_, unfinished) if !unfinished.unanswered.is_empty() => {
+                ReviewWait::NotRun
+            }
+            Verdict::Unfinished(_, unfinished) if !unfinished.unreviewed.is_empty() => {
+                ReviewWait::Unreviewed(unfinished.unreviewed.len())
+            }
+            Verdict::Unfinished(_, unfinished) => ReviewWait::Open(unfinished.open.len()),
+        };
         Ok(Some(ItemWait::RulesReview(wait)))
     }
 }

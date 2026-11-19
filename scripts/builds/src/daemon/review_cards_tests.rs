@@ -23,7 +23,14 @@ fn ahead(side: &Path) -> Vec<side_git::Commit> {
 }
 
 fn standing(reads: &Reads, demo: &Demo, side: &Path) -> Option<ItemWait> {
-    reads.standing(&demo.store, side, &ahead(side)).unwrap()
+    reads
+        .standing(
+            &demo.store,
+            &demo.tool.places.claude_sessions(),
+            side,
+            &ahead(side),
+        )
+        .unwrap()
 }
 
 fn review(demo: &Demo, root: &Path, program: &Path, side: &Path, key: &str) {
@@ -84,7 +91,10 @@ fn a_card_follows_the_review_from_none_to_findings_to_fixes_and_says_nothing_onc
     review(&demo, &fake.root, &fake.program, &side, "branch:work");
     assert_eq!(
         standing(&reads, &demo, &side),
-        Some(ItemWait::RulesReview(ReviewWait::ToSettle(1)))
+        Some(ItemWait::RulesReview(ReviewWait::ToSettle(
+            1,
+            Settler::Coordinator
+        )))
     );
     // The store's first finding.
     let settle: Vec<String> = [
@@ -130,7 +140,12 @@ fn a_card_whose_project_has_no_store_says_so_and_never_that_land_takes_its_commi
     demo.commit(&side, "a.rs");
     let ghost = Store::named(&demo.tool.places, "ghost").unwrap();
     assert_eq!(
-        reads.standing(&ghost, &side, &ahead(&side)),
+        reads.standing(
+            &ghost,
+            &demo.tool.places.claude_sessions(),
+            &side,
+            &ahead(&side)
+        ),
         Err("there is no store for project ghost".to_string())
     );
 }
@@ -145,11 +160,59 @@ fn a_card_whose_commits_git_cannot_read_says_why_and_asks_git_again_next_time() 
     let mut missing = ahead(&side);
     missing[0].full = "0".repeat(40);
     for _ in 0..2 {
-        let said = reads.standing(&demo.store, &side, &missing).unwrap_err();
+        let said = reads
+            .standing(
+                &demo.store,
+                &demo.tool.places.claude_sessions(),
+                &side,
+                &missing,
+            )
+            .unwrap_err();
         assert!(said.contains("reading the paths the commits of"), "{said}");
     }
     assert!(
         reads.commits.lock().unwrap().is_empty(),
         "Reads keeps no commits git could not read"
+    );
+}
+
+#[test]
+fn findings_to_settle_wait_on_the_judge_while_one_listens() {
+    let demo = demo("review-cards-judge");
+    let fake = fake(&demo.scratch.dir);
+    let reads = Reads::with_root(Some(fake.root.clone()));
+    let side = demo.add_side(1, "agent", "work");
+    demo.commit(&side, "a.rs");
+    fake.answer(
+        "alpha",
+        &[(
+            "rule-a",
+            Some(("Never do the bad thing here.", "a.rs", 1, "a.rs", "p")),
+        )],
+    );
+    review(&demo, &fake.root, &fake.program, &side, "branch:work");
+    let judge =
+        crate::inbox::Messaging::new(demo.scratch.dir.join("j.sock").to_str().unwrap(), None)
+            .unwrap();
+    let stamp = Stamp {
+        at: NOON,
+        by: "judge".to_string(),
+    };
+    let session = crate::ack::agent::Caller {
+        session: "s-judge".to_string(),
+        id: "s-judge".to_string(),
+    };
+    demo.store
+        .write(&stamp, "judge listen", |db| {
+            crate::review::judge::listen(db, &judge, &session, &stamp)
+        })
+        .unwrap();
+    crate::testing::running_session(&demo.tool.places, "s-judge");
+    assert_eq!(
+        standing(&reads, &demo, &side),
+        Some(ItemWait::RulesReview(ReviewWait::ToSettle(
+            1,
+            Settler::Judge
+        )))
     );
 }
