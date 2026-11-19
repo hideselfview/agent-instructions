@@ -35,7 +35,8 @@ const HERE: &str = "    1     0     0   0.0   1:00.00 9-00:00:00 S /sbin/launchd
   308     1   501   0.0   0:01.00    40:00 S ssh -o BatchMode=yes -o ConnectTimeout=10 u@m1 sh -c x\n\
   309     1     0   0.0   0:01.00    40:00 S cargo test\n\
   310     1   501   0.0   0:01.00    40:00 S /Applications/Safari.app/Contents/MacOS/Safari\n\
-  311     1   501   0.0   0:01.00    40:00 S /x/dev/bae-worktrees/side-2/target/debug/deps/bae_views-0123456789abcdef\n";
+  311     1   501   0.0   0:01.00    40:00 S /x/dev/bae-worktrees/side-2/target/debug/deps/bae_views-0123456789abcdef\n\
+  313     1   501   0.0   0:00.00    40:00 Z cargo test\n";
 
 /// The orphans among each host's processes, and the jobs whose caller on
 /// this Mac is gone; a job whose caller runs is none.

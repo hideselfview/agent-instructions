@@ -165,7 +165,11 @@ pub fn find(scans: &[(Host, std::result::Result<Scan, String>)], holders: &Holde
             continue;
         };
         for row in scan.rows.iter().filter(|row| {
-            row.ppid == LAUNCHD && row.uid == scan.uid && row.age_seconds >= ORPHAN_SECONDS
+            // A zombie has ended: only its parent's reap removes it.
+            row.ppid == LAUNCHD
+                && row.uid == scan.uid
+                && row.age_seconds >= ORPHAN_SECONDS
+                && !row.zombie
         }) {
             if let Some(stops) = judge(row, &targets) {
                 found.push(Orphan {
