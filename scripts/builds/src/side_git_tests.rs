@@ -54,3 +54,16 @@ fn a_commit_waits_until_origin_main_holds_a_copy_by_patch_or_by_author_and_subje
     assert_eq!(subjects(&found), ["Leave behind"]);
     assert!(waiting_to_land(&main, "origin/main").unwrap().is_empty());
 }
+
+#[test]
+fn a_side_read_of_a_checkout_read_as_main_says_so_instead_of_vanishing() {
+    let main = SideGit::Main { head: None };
+    assert_eq!(
+        main.side_read(),
+        Err("the daemon read only HEAD here, as it does for a main checkout".to_string())
+    );
+    let failed = SideGit::Failed {
+        error: "git failed".to_string(),
+    };
+    assert_eq!(failed.side_read(), Err("git failed".to_string()));
+}

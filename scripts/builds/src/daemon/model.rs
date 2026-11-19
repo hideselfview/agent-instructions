@@ -1617,9 +1617,7 @@ fn claimed_of(
         // just wrote one (`note --state held`) asks for health next, before
         // the change has come through FSEvents.
         let claim = Claim::read(&checkout.claim_file())?;
-        // A side worktree's git is a side read, never a main checkout's.
-        let (Some(claim), Some(git)) = (&claim, facts.git.as_ref().and_then(SideGit::side_read))
-        else {
+        let (Some(claim), Some(git)) = (&claim, facts.git.as_ref().map(SideGit::side_read)) else {
             continue;
         };
         let Some(place) = places.iter().position(|p| p.root == root.path) else {
@@ -1668,7 +1666,7 @@ fn unclaimed_of(
         let Some(git) = facts
             .get(&root.path)
             .and_then(|facts| facts.git.as_ref())
-            .and_then(SideGit::side_read)
+            .map(SideGit::side_read)
         else {
             continue;
         };

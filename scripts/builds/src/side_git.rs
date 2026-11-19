@@ -81,13 +81,15 @@ impl SideGit {
         }
     }
 
-    /// A side worktree's read, or what git said when a read failed; None for
-    /// a main checkout's read.
-    pub fn side_read(&self) -> Option<Result<SideRead, String>> {
+    /// A side worktree's read, or why there is none: what git said when the
+    /// read failed, or that only HEAD was read, as for a main checkout.
+    pub fn side_read(&self) -> Result<SideRead, String> {
         match self {
-            SideGit::Side(read) => Some(Ok(read.clone())),
-            SideGit::Failed { error } => Some(Err(error.clone())),
-            SideGit::Main { .. } => None,
+            SideGit::Side(read) => Ok(read.clone()),
+            SideGit::Failed { error } => Err(error.clone()),
+            SideGit::Main { .. } => {
+                Err("the daemon read only HEAD here, as it does for a main checkout".to_string())
+            }
         }
     }
 }
