@@ -2,17 +2,6 @@ use super::*;
 use crate::host::tests::fake_ssh;
 use crate::testing::{Scratch, git, gone_pid, host_builds};
 
-/// Runs a job that nothing stops.
-fn run_job(
-    places: &Places,
-    ssh: &Ssh,
-    host: &Host,
-    source: &Path,
-    request: &Request,
-) -> Result<i32> {
-    super::run_job(places, ssh, host, source, request, &AtomicBool::new(false))
-}
-
 fn args(words: &[&str]) -> Vec<String> {
     words.iter().map(|w| w.to_string()).collect()
 }
@@ -212,7 +201,6 @@ fn the_next_job_takes_over_a_claim_whose_process_is_gone() {
     std::fs::create_dir_all(&claim).unwrap();
     let dead = format!("{}-{}", gone_pid(), job_id().split_once('-').unwrap().1);
     std::fs::write(claim.join("id"), format!("{dead}\n")).unwrap();
-    std::fs::write(claim.join("pid"), "73910\n").unwrap();
 
     run_job(&places, &s.ssh, &s.host, &s.source, &job()).unwrap();
     let ran_in = std::fs::read_to_string(wts.join("where.txt")).unwrap();
@@ -323,6 +311,13 @@ fn this_mac_runs_a_job_without_pushing() {
     assert_eq!(refs(&s.source), "");
 }
 
+/// Sends SIGTERM to this test's own process, as a person or a parent stops
+/// `builds`.
+fn stop_this_process() {
+    stop_on_signals();
+    unsafe { libc::kill(libc::getpid(), libc::SIGTERM) };
+}
+
 #[test]
 fn a_stop_signal_stops_the_command_on_the_host() {
     let s = setup("remote-stop");
@@ -336,73 +331,22 @@ fn a_stop_signal_stops_the_command_on_the_host() {
             &format!("touch {}; exec tail -f /dev/null", marker.display()),
         ],
     );
-    let stop = std::sync::Arc::new(AtomicBool::new(false));
-    let stopper = stop.clone();
     let waiting = marker.clone();
     let signaller = std::thread::spawn(move || {
         while !waiting.exists() {
             std::thread::sleep(Duration::from_millis(20));
         }
-        // Give run_command a moment to record the pid, then stop.
-        std::thread::sleep(Duration::from_millis(300));
-        stopper.store(true, Ordering::SeqCst);
+        stop_this_process();
     });
-    let code = super::run_job(&places, &s.ssh, &s.host, &s.source, &job, &stop).unwrap();
+    let code = run_job(&places, &s.ssh, &s.host, &s.source, &job).unwrap();
     signaller.join().unwrap();
     assert_eq!(code, STOPPED_EXIT);
     assert!(!s.home.join("dev/demo-worktrees/remote-demo.job").exists());
     assert_eq!(refs(&s.home.join("dev/demo")), "");
 }
 
-/// A process in a process group of its own, as an earlier step's command
-/// was, whose pid an app checkout's claim folder still names.
-fn earlier_step() -> std::process::Child {
-    use std::os::unix::process::CommandExt;
-    Command::new("sleep")
-        .arg("60")
-        .process_group(0)
-        .spawn()
-        .unwrap()
-}
-
 #[test]
-fn a_stop_signals_only_the_process_group_of_the_run_it_stops() {
-    let s = setup("remote-stop-run");
-    let places = s.scratch.places();
-    let wt = app_checkout(&s);
-    let transport = Transport {
-        places: &places,
-        ssh: &s.ssh,
-        host: &s.host,
-    };
-    let mut earlier = earlier_step();
-    std::fs::write(
-        format!("{}.job/pid", wt.display()),
-        format!("{} earlier-run\n", earlier.id()),
-    )
-    .unwrap();
-    let wt = wt.display().to_string();
-    transport
-        .capture(&stop_script(&wt, "this-run"), "stopping the command")
-        .unwrap();
-    assert!(
-        earlier.try_wait().unwrap().is_none(),
-        "a stop of another run signals nothing"
-    );
-    assert_eq!(
-        std::fs::read_to_string(format!("{wt}.job/stop")).unwrap(),
-        "this-run\n",
-        "the stop records its run for the run script to read"
-    );
-    transport
-        .capture(&stop_script(&wt, "earlier-run"), "stopping the command")
-        .unwrap();
-    use std::os::unix::process::ExitStatusExt;
-    assert_eq!(earlier.wait().unwrap().signal(), Some(libc::SIGTERM));
-}
-
-#[test]
-fn a_stop_before_the_step_writes_its_pid_waits_for_it_and_spares_the_earlier_steps_pid() {
+fn a_stop_before_the_command_starts_stops_it() {
     let s = setup("remote-stop-early");
     let places = s.scratch.places();
     let wt = app_checkout(&s);
@@ -411,27 +355,18 @@ fn a_stop_before_the_step_writes_its_pid_waits_for_it_and_spares_the_earlier_ste
         ssh: &s.ssh,
         host: &s.host,
     };
-    let mut earlier = earlier_step();
-    std::fs::write(
-        format!("{}.job/pid", wt.display()),
-        format!("{} earlier-run\n", earlier.id()),
-    )
-    .unwrap();
+    // The stop comes before the step starts, as one during the send or the
+    // claim does.
+    stop_this_process();
     let started = std::time::Instant::now();
-    // The stop comes before the step starts.
     let ran = run_command(
         &transport,
-        &AtomicBool::new(true),
         &wt.display().to_string(),
         &args(&["sleep", "10"]),
         false,
     );
     let took = started.elapsed();
-    let spared = earlier.try_wait().unwrap().is_none();
-    let _ = earlier.kill();
-    let _ = earlier.wait();
     assert_eq!(ran.unwrap(), (STOPPED_EXIT, None));
-    assert!(spared, "the stop signals only this run's command");
     assert!(
         took < Duration::from_secs(5),
         "the stop stops the step: {took:?}"
@@ -471,7 +406,6 @@ fn killed_caller() {
     // As `builds cargo` runs it: builds reads the command's stderr.
     run_command(
         &transport,
-        &AtomicBool::new(false),
         &worktree,
         &args(&["sh", "-c", "echo $$ > group.pid; exec sleep 600"]),
         true,
@@ -681,7 +615,8 @@ fn a_remote_step_runs_with_the_hosts_root_and_path() {
     let wt = s.home.join("dev/demo-worktrees/app-1");
     std::fs::create_dir_all(wt.with_extension("job")).unwrap();
     std::fs::create_dir_all(&wt).unwrap();
-    // The claim folder the step records its pid in sits beside the worktree.
+    // The claim folder that holds the step's output FIFOs sits beside the
+    // worktree.
     std::fs::create_dir_all(format!("{}.job", wt.display())).unwrap();
     let transport = Transport {
         places: &places,
@@ -693,14 +628,7 @@ fn a_remote_step_runs_with_the_hosts_root_and_path() {
         "-c",
         "echo \"$BUILDS_ROOT\" > env.txt; echo \"$PATH\" >> env.txt",
     ]);
-    let ran = run_command(
-        &transport,
-        &AtomicBool::new(false),
-        &wt.display().to_string(),
-        &command,
-        false,
-    )
-    .unwrap();
+    let ran = run_command(&transport, &wt.display().to_string(), &command, false).unwrap();
     assert_eq!(ran, (0, None));
     // A cargo command's messages pass through builds, which times the
     // waits for cargo's file locks there.
@@ -709,14 +637,7 @@ fn a_remote_step_runs_with_the_hosts_root_and_path() {
         "-c",
         "echo '    Blocking waiting for file lock on build directory' >&2; sleep 0.3; echo '   Compiling demo' >&2",
     ]);
-    let (code, waited) = run_command(
-        &transport,
-        &AtomicBool::new(false),
-        &wt.display().to_string(),
-        &cargo,
-        true,
-    )
-    .unwrap();
+    let (code, waited) = run_command(&transport, &wt.display().to_string(), &cargo, true).unwrap();
     assert_eq!(code, 0);
     let waited = waited.expect("run_command reads cargo's messages");
     assert!(waited >= Duration::from_millis(300), "{waited:?}");
@@ -874,8 +795,8 @@ fn holding_ssh(dir: &Path, fake: &Ssh) -> Ssh {
     }
 }
 
-/// An app checkout on the host, with the claim folder a step records its pid
-/// in beside it.
+/// An app checkout on the host, with the claim folder that holds a step's
+/// output FIFOs beside it.
 fn app_checkout(s: &Setup) -> PathBuf {
     let wt = s.home.join("dev/demo-worktrees/app-1");
     std::fs::create_dir_all(&wt).unwrap();
@@ -902,13 +823,7 @@ fn a_command_that_leaves_a_process_holding_its_output_ends_with_its_status() {
         "set -m; sleep 60 & echo $! > left.pid; printf 'last words'; printf 'last error' >&2; exit 3",
     ]);
     let started = std::time::Instant::now();
-    let ran = run_command(
-        &transport,
-        &AtomicBool::new(false),
-        &wt.display().to_string(),
-        &command,
-        true,
-    );
+    let ran = run_command(&transport, &wt.display().to_string(), &command, true);
     let took = started.elapsed();
     let left = std::fs::read_to_string(wt.join("left.pid")).unwrap();
     unsafe { libc::kill(left.trim().parse().unwrap(), libc::SIGKILL) };

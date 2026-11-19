@@ -23,7 +23,7 @@
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 use std::time::Duration;
 
 use crate::checkout::Checkout;
@@ -49,22 +49,40 @@ pub const JOB_WORKTREE_PREFIX: &str = "remote-";
 const STOPPED_EXIT: i32 = 130;
 
 /// Set by the signal handler `stop_on_signals` installs: the person or a
-/// parent stopped this command. `cmd_remote` hands it to the job; every other
-/// caller gives its job a flag of its own.
+/// parent stopped this command.
 static STOPPED: AtomicBool = AtomicBool::new(false);
+
+/// The write end of the stdin of the command `run_command` runs, while the
+/// command runs, else -1: the command's lifeline (`run_script`). Whoever swaps
+/// it out closes it (`cut_lifeline`), so it is closed once.
+static LIFELINE: AtomicI32 = AtomicI32::new(-1);
+
+/// Closes the lifeline, when the command holds one, which stops the command
+/// on its host. The signal handler calls it, so it makes only
+/// async-signal-safe calls.
+fn cut_lifeline() {
+    let fd = LIFELINE.swap(-1, Ordering::SeqCst);
+    if fd >= 0 {
+        // SAFETY: the swap made this the only owner of the descriptor.
+        unsafe { libc::close(fd) };
+    }
+}
 
 extern "C" fn note_stop(_: libc::c_int) {
     STOPPED.store(true, Ordering::SeqCst);
+    cut_lifeline();
 }
 
-/// Makes SIGTERM, SIGINT and SIGHUP set `STOPPED`.
-pub fn stop_on_signals() -> &'static AtomicBool {
+/// Makes SIGTERM, SIGINT and SIGHUP set `STOPPED` and cut the lifeline of the
+/// command `run_command` runs. A caller that does work on the host before the
+/// command starts (the send, the claim) calls it first, so a stop during
+/// that work stops the command as soon as it starts.
+pub fn stop_on_signals() {
     unsafe {
         for signal in [libc::SIGTERM, libc::SIGINT, libc::SIGHUP] {
             libc::signal(signal, note_stop as *const () as libc::sighandler_t);
         }
     }
-    &STOPPED
 }
 
 /// What a job runs.
@@ -497,10 +515,7 @@ echo "worktree=$wt""#,
 }
 
 /// Runs <command> in <worktree> as a process group of its own, and exits with
-/// the command's exit status as soon as the command ends. The script writes
-/// the group leader's pid and <run> to `pid` in the claim folder for
-/// `stop_script`, then stops its own group when `stop` there names <run>: a
-/// stop that came before the pid was written.
+/// the command's exit status as soon as the command ends.
 ///
 /// ssh returns only once nothing on the host holds its output open, and a
 /// command can leave processes behind that do (a build daemon, a simulator's
@@ -514,13 +529,13 @@ echo "worktree=$wt""#,
 /// FIFO, but nothing holds ssh's output. When the script cannot stop what is
 /// left in the group, it says so and fails a command that passed.
 ///
-/// The command lives no longer than its caller. The script's stdin is the
-/// pipe `run_command` holds the only write end of (through ssh on a host), and
-/// nothing ever writes to it, so stdin reaches its end only when the caller's
-/// `builds` process ends, however it ends, SIGKILL included, or the
-/// connection to the host closes. A watcher reads stdin to its end, then
-/// stops the command's process group. Once the command has ended, the script
-/// stops the watcher.
+/// The command lives no longer than its caller wants it to. The script's
+/// stdin is the pipe `run_command` holds the only write end of (through ssh on
+/// a host), and nothing ever writes to it, so stdin reaches its end only when
+/// the caller closes it on a stop signal, when the caller's `builds` process
+/// ends, however it ends, SIGKILL included, or when the connection to the
+/// host closes. A watcher reads stdin to its end, then stops the command's
+/// process group. Once the command has ended, the script stops the watcher.
 fn run_script(host: &Host, worktree: &str, command: &[String], run: &str) -> String {
     let words: Vec<String> = command.iter().map(|word| sh_quote(word)).collect();
     format!(
@@ -547,8 +562,6 @@ pid=$!
 ( cat >/dev/null; kill -TERM -- "-$pid" ) <&5 >/dev/null 2>&1 3>&- 4>&- 5<&- &
 watcher=$!
 exec 5<&-
-echo "$pid "{run} > "$job/pid"
-if [ -e "$job/stop" ] && [ "$(cat "$job/stop")" = {run} ]; then kill -TERM -- "-$pid"; fi
 wait $pid 2>/dev/null
 status=$?
 kill -TERM -- "-$watcher" 2>/dev/null
@@ -568,31 +581,7 @@ exit $status"#,
         wt = sh_quote(worktree),
         words = words.join(" "),
         end = sh_quote(&format!("builds-end-of-run-{run}")),
-        run = sh_quote(run),
         host = host.name,
-    )
-}
-
-/// Stops the command of run <run> in <worktree>. The script first writes <run>
-/// to `stop` in the claim folder, then signals the process group whose
-/// leader's pid `run_script` wrote beside <run> in `pid`. The claim folder of
-/// an app checkout outlives each step, so its `pid` may still name an earlier
-/// step, whose pid the host may since have given to another process: when
-/// `pid` names another run, or is missing, the script signals nothing, and
-/// `run_script` reads `stop` once it has written its pid and stops its own
-/// group. The run script writes `pid` before it reads `stop`, and this script
-/// writes `stop` before it reads `pid`, so one of the two always stops the
-/// command.
-fn stop_script(worktree: &str, run: &str) -> String {
-    format!(
-        r#"job={wt}.job
-echo {run} > "$job/stop" || exit 1
-written=
-if [ -e "$job/pid" ]; then written=$(cat "$job/pid") || exit 1; fi
-set -- $written
-if [ "$2" = {run} ]; then kill -TERM -- "-$1"; fi"#,
-        wt = sh_quote(worktree),
-        run = sh_quote(run),
     )
 }
 
@@ -611,24 +600,27 @@ pub fn release_script(repo: &str, worktree: Option<&str>, id: &str) -> String {
 
 /// Runs the job's command on the host, passing its output through, and
 /// returns its exit status. A stop signal stops the command on the host, and
-/// so does the end of this process, by any signal (`run_script`). When
+/// so does the end of this process, by any signal: both close the command's
+/// stdin (`run_script`). One command runs at a time in a process. When
 /// <time_locks> is set (the command is cargo), builds reads the command's
 /// stderr as it passes through, and this function also returns how long
 /// cargo waited for its file locks (lock_wait.rs).
 pub fn run_command(
     transport: &Transport,
-    stop: &AtomicBool,
     worktree: &str,
     command: &[String],
     time_locks: bool,
 ) -> Result<(i32, Option<Duration>)> {
+    use std::os::unix::io::IntoRawFd;
     use std::os::unix::process::CommandExt;
+    stop_on_signals();
     let run = job_id();
     let mut child = transport
         .command(&run_script(transport.host, worktree, command, &run))
         // The command's lifeline (`run_script`): this process holds the
-        // pipe's only write end until the command has ended, and the kernel
-        // closes it when this process ends.
+        // pipe's only write end until the command has ended or a stop signal
+        // cuts it (`cut_lifeline`), and the kernel closes it when this
+        // process ends.
         .stdin(Stdio::piped())
         .stderr(if time_locks {
             Stdio::piped()
@@ -640,33 +632,22 @@ pub fn run_command(
         .process_group(0)
         .spawn()
         .context(|| format!("running the command on host {}", transport.host.name))?;
-    let lifeline = child.stdin.take().expect("stdin was piped");
+    let lifeline = child.stdin.take().expect("stdin was piped").into_raw_fd();
+    LIFELINE.store(lifeline, Ordering::SeqCst);
+    // A stop that came before the lifeline was stored found nothing to cut.
+    if STOPPED.load(Ordering::SeqCst) {
+        cut_lifeline();
+    }
     let relay = child
         .stderr
         .take()
         .map(|stderr| crate::lock_wait::relay(stderr, std::io::stderr()));
     let waited = || relay.map(|relay| relay.join().expect("the relay does not panic"));
-    let mut stopped = false;
-    let status = loop {
-        if let Some(status) = child
-            .try_wait()
-            .context(|| "waiting for the command".to_string())?
-        {
-            break status;
-        }
-        if stop.load(Ordering::SeqCst) && !stopped {
-            stopped = true;
-            if let Err(error) =
-                transport.capture(&stop_script(worktree, &run), "stopping the command")
-            {
-                note(error.text());
-            }
-        }
-        std::thread::sleep(Duration::from_millis(50));
-    };
-    drop(lifeline);
+    let status = child.wait();
+    cut_lifeline();
+    let status = status.context(|| "waiting for the command".to_string())?;
     let waited = waited();
-    if stopped {
+    if STOPPED.load(Ordering::SeqCst) {
         return Ok((STOPPED_EXIT, waited));
     }
     Ok((crate::fail::exit_code(status), waited))
@@ -792,28 +773,28 @@ impl Job<'_> {
 
     /// Runs the job's command on its host, passing its output through,
     /// removes the job's ref and claim, and returns the command's exit status.
-    pub fn run(self, stop: &AtomicBool) -> Result<i32> {
-        Ok(self.run_with(stop, false)?.0)
+    pub fn run(self) -> Result<i32> {
+        Ok(self.run_with(false)?.0)
     }
 
     /// Runs a cargo command like `run` and also returns how long cargo waited
     /// for its file locks on the host, which builds reads from cargo's
     /// messages as they pass through.
-    pub fn run_timing_locks(self, stop: &AtomicBool) -> Result<(i32, Duration)> {
-        let (code, waited) = self.run_with(stop, true)?;
+    pub fn run_timing_locks(self) -> Result<(i32, Duration)> {
+        let (code, waited) = self.run_with(true)?;
         Ok((
             code,
             waited.expect("run_command relays the command's stderr when it times locks"),
         ))
     }
 
-    fn run_with(self, stop: &AtomicBool, time_locks: bool) -> Result<(i32, Option<Duration>)> {
+    fn run_with(self, time_locks: bool) -> Result<(i32, Option<Duration>)> {
         let transport = Transport {
             places: self.places,
             ssh: self.ssh,
             host: &self.host,
         };
-        let ran = run_command(&transport, stop, &self.worktree, &self.command, time_locks);
+        let ran = run_command(&transport, &self.worktree, &self.command, time_locks);
         let released = transport.capture(
             &release_script(&self.repo, Some(&self.worktree), &self.id),
             "removing the job's ref and claim",
@@ -846,10 +827,9 @@ pub fn run_job(
     host: &Host,
     source: &Path,
     request: &Request,
-    stop: &AtomicBool,
 ) -> Result<i32> {
     match start_job(places, ssh, host, source, request)? {
-        Start::Started(job) => job.run(stop),
+        Start::Started(job) => job.run(),
         Start::Refused(said) => fail!("{said}"),
     }
 }
@@ -904,7 +884,7 @@ fn cmd_step(tool: &Tool, ssh: &Ssh, args: &[String]) -> Result<()> {
         ssh,
         host: &host,
     };
-    match run_command(&transport, stop_on_signals(), worktree, command, false)?.0 {
+    match run_command(&transport, worktree, command, false)?.0 {
         0 => Ok(()),
         code => Err(Fail::Exit(code)),
     }
@@ -923,14 +903,9 @@ pub fn cmd_remote(tool: &Tool, ssh: &Ssh, args: &[String]) -> Result<()> {
         request.host.as_deref(),
     )?;
     note(why);
-    match run_job(
-        &tool.places,
-        ssh,
-        &host,
-        &source,
-        &request,
-        stop_on_signals(),
-    )? {
+    // A stop during the send or the claim stops the command once it starts.
+    stop_on_signals();
+    match run_job(&tool.places, ssh, &host, &source, &request)? {
         0 => Ok(()),
         code => Err(Fail::Exit(code)),
     }

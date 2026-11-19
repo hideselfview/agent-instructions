@@ -650,7 +650,7 @@ pub fn start<'a>(
 /// host that stops answering fails the command, naming it.
 pub fn finish(job: Job) -> Result<crate::cargo_run::Exited> {
     let host = job.host_name().to_string();
-    let (code, lock_wait) = job.run_timing_locks(remote::stop_on_signals())?;
+    let (code, lock_wait) = job.run_timing_locks()?;
     if code == SSH_FAILED {
         fail!(
             "host {host} stopped answering while cargo ran (ssh exited {SSH_FAILED}); nothing ran the command again"
