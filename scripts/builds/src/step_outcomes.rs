@@ -6,7 +6,7 @@
 use std::collections::BTreeMap;
 use std::fmt::Write;
 
-use crate::step_failure::StepFailure;
+use crate::step_failure::{RunResult, StepFailure};
 
 /// The kinds of step whose runs pass or fail.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -47,17 +47,25 @@ pub struct Attempt {
     pub name: String,
     /// When it started, seconds since 1970.
     pub at: i64,
-    pub passed: bool,
+    /// How it ended. A failed run carries what it said: the excerpt of its
+    /// output, and the tests a cargo run reported failed, the staged files a
+    /// hook check's output named, or the shots an app build's shots run said
+    /// fail it.
+    pub result: RunResult,
     /// What the step ran on: the commit and the uncommitted changes, or for a
     /// hook check the commit and the staged files; None when builds did not
     /// record it.
     pub state: Option<String>,
-    /// What a failed run said: the excerpt of its output, and the tests a
-    /// cargo run reported failed, the staged files a hook check's output
-    /// named, or the shots an app build's shots run said fail it. None for a
-    /// run that passed, and for one that builds recorded before it kept what
-    /// failed runs said.
-    pub said: Option<StepFailure>,
+}
+
+impl Attempt {
+    /// What a failed run said, when builds kept it.
+    pub fn said(&self) -> Option<&StepFailure> {
+        match &self.result {
+            RunResult::Failed(said) => said.as_ref(),
+            RunResult::Passed => None,
+        }
+    }
 }
 
 /// What became of a failed run, from the next run of the same step on the
@@ -75,10 +83,14 @@ pub enum Outcome {
 /// The outcome of each failed run of <attempts>, which are in time order.
 pub fn failure_outcomes(attempts: &[Attempt]) -> Vec<(&Attempt, Outcome)> {
     let mut found = Vec::new();
-    for (at, run) in attempts.iter().enumerate().filter(|(_, run)| !run.passed) {
-        let next = attempts[at + 1..]
-            .iter()
-            .find(|later| later.kind == run.kind && later.name == run.name && later.passed);
+    for (at, run) in attempts
+        .iter()
+        .enumerate()
+        .filter(|(_, run)| !run.result.passed())
+    {
+        let next = attempts[at + 1..].iter().find(|later| {
+            later.kind == run.kind && later.name == run.name && later.result.passed()
+        });
         let outcome = match next {
             None => Outcome::Stood,
             Some(later) if later.state.is_some() && later.state == run.state => Outcome::Flaky,
@@ -115,12 +127,16 @@ pub fn text(cards: &[(&[Attempt], &[Finding])]) -> String {
     let mut runs: BTreeMap<(StepKind, &str), usize> = BTreeMap::new();
     let mut failed: BTreeMap<(StepKind, &str), [usize; 3]> = BTreeMap::new();
     let mut names_failed: BTreeMap<(StepKind, &str), usize> = BTreeMap::new();
+    let mut not_kept: BTreeMap<StepKind, usize> = BTreeMap::new();
     for (attempts, _) in cards {
         for attempt in attempts.iter() {
+            if attempt.result == RunResult::Failed(None) {
+                *not_kept.entry(attempt.kind).or_default() += 1;
+            }
             *runs
                 .entry((attempt.kind, attempt.name.as_str()))
                 .or_default() += 1;
-            for name in attempt.said.iter().flat_map(|said| &said.failed) {
+            for name in attempt.said().iter().flat_map(|said| &said.failed) {
                 *names_failed
                     .entry((attempt.kind, name.as_str()))
                     .or_default() += 1;
@@ -134,7 +150,7 @@ pub fn text(cards: &[(&[Attempt], &[Finding])]) -> String {
     }
     let _ = writeln!(
         out,
-        "steps that failed (runs, failures, then failures a fix followed, that passed again on the same commit and changes, and that stood)"
+        "steps that failed (runs, failures, then failures a fix followed, that passed again on the same commit and changes, and that stood, then failures with no output kept)"
     );
     for kind in [StepKind::Hook, StepKind::Cargo, StepKind::AppBuild] {
         let all: usize = runs
@@ -156,12 +172,13 @@ pub fn text(cards: &[(&[Attempt], &[Finding])]) -> String {
         });
         let _ = writeln!(
             out,
-            "  {}: {all} runs, {} failed, {} fixed, {} flaky, {} stood",
+            "  {}: {all} runs, {} failed, {} fixed, {} flaky, {} stood, {} with no output kept",
             kind.words(),
             sum(&total),
             total[Outcome::Fixed as usize],
             total[Outcome::Flaky as usize],
             total[Outcome::Stood as usize],
+            not_kept.get(&kind).copied().unwrap_or(0),
         );
         names.sort_by_key(|(_, counts)| std::cmp::Reverse(sum(counts)));
         for (name, counts) in names.into_iter().take(LISTED) {

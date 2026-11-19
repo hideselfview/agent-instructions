@@ -1,14 +1,17 @@
 use super::*;
-use crate::step_failure::StepFailure;
+use crate::step_failure::{RunResult, StepFailure};
 
 fn run(kind: StepKind, name: &str, passed: bool, state: &str) -> Attempt {
     Attempt {
         kind,
         name: name.into(),
         at: 0,
-        passed,
+        result: if passed {
+            RunResult::Passed
+        } else {
+            RunResult::Failed(Some(StepFailure::default()))
+        },
         state: Some(state.into()),
-        said: None,
     }
 }
 
@@ -39,13 +42,16 @@ fn a_failed_run_is_fixed_flaky_or_standing_by_the_next_pass_of_the_same_step() {
 #[test]
 fn the_text_counts_each_kind_the_names_that_failed_and_each_groups_findings() {
     let mut failing = run(StepKind::Cargo, "cargo nextest run", false, "a");
-    failing.said = Some(StepFailure::new(None, ["a::one".to_string()]));
+    failing.result = RunResult::Failed(Some(StepFailure::new(None, ["a::one".to_string()])));
     let mut check = run(StepKind::Hook, "rustfmt", false, "a");
-    check.said = Some(StepFailure::new(None, ["src/a.rs".to_string()]));
+    check.result = RunResult::Failed(Some(StepFailure::new(None, ["src/a.rs".to_string()])));
+    let mut unkept = run(StepKind::AppBuild, "mac build", false, "a");
+    unkept.result = RunResult::Failed(None);
     let attempts = vec![
         failing,
         run(StepKind::Cargo, "cargo nextest run", true, "b"),
         check,
+        unkept,
     ];
     let findings = vec![
         Finding {
@@ -65,6 +71,12 @@ fn the_text_counts_each_kind_the_names_that_failed_and_each_groups_findings() {
         "{text}"
     );
     assert!(text.contains("hook checks: 1 runs, 1 failed"), "{text}");
+    assert!(
+        text.contains(
+            "app build steps: 1 runs, 1 failed, 0 fixed, 0 flaky, 1 stood, 1 with no output kept"
+        ),
+        "{text}"
+    );
     assert!(
         text.contains(
             "tests that cargo runs reported failed most often (failed runs)\n      1  a::one"

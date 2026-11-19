@@ -34,7 +34,7 @@ use crate::checks::Kind;
 use crate::fail;
 use crate::fail::{Context, Result};
 use crate::host::Load;
-use crate::step_failure::StepFailure;
+use crate::step_failure::{RunResult, StepFailure};
 
 pub use crate::db::DATABASE;
 
@@ -90,21 +90,12 @@ impl StagedFile {
     }
 }
 
-/// How a check or fix that ran ended.
-#[derive(Clone, Debug, PartialEq)]
-pub enum CheckResult {
-    Passed,
-    /// It failed, saying what hook_check_failure.rs keeps; None for a check
-    /// that builds recorded before it kept what failed checks said.
-    Failed(Option<StepFailure>),
-}
-
 /// What a check or fix did in one run.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Outcome {
     /// It ran, and passed or failed.
     Ran {
-        result: CheckResult,
+        result: RunResult,
         /// The staged files and the workspace crates it was handed.
         handed: (u32, u32),
         /// Its time. `record` keeps it only for a passed check: a failed
@@ -128,11 +119,11 @@ impl Outcome {
     pub fn word(&self) -> &'static str {
         match self {
             Outcome::Ran {
-                result: CheckResult::Passed,
+                result: RunResult::Passed,
                 ..
             } => "passed",
             Outcome::Ran {
-                result: CheckResult::Failed(_),
+                result: RunResult::Failed(_),
                 ..
             } => "failed",
             Outcome::Skipped => "skipped",
@@ -143,7 +134,7 @@ impl Outcome {
         matches!(
             self,
             Outcome::Ran {
-                result: CheckResult::Passed,
+                result: RunResult::Passed,
                 ..
             }
         )
@@ -153,7 +144,7 @@ impl Outcome {
     pub fn failure(&self) -> Option<&StepFailure> {
         match self {
             Outcome::Ran {
-                result: CheckResult::Failed(failure),
+                result: RunResult::Failed(failure),
                 ..
             } => failure.as_ref(),
             _ => None,
@@ -739,8 +730,8 @@ fn runs_where(
             let (position, name, kind, outcome, files, crates, ms, cores, load) =
                 row.context(what)?;
             let result = match outcome.as_str() {
-                "passed" => CheckResult::Passed,
-                "failed" => CheckResult::Failed(failures.remove(&(position as u32))),
+                "passed" => RunResult::Passed,
+                "failed" => RunResult::Failed(failures.remove(&(position as u32))),
                 "skipped" => {
                     run.checks.push(CheckRecord {
                         name,

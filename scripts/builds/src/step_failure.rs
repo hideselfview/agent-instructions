@@ -31,6 +31,21 @@ impl StepFailure {
     }
 }
 
+/// How a run of a step that passed or failed ended.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum RunResult {
+    Passed,
+    /// It failed, saying what its kind keeps; None for a run that builds
+    /// recorded before it kept what failed runs said.
+    Failed(Option<StepFailure>),
+}
+
+impl RunResult {
+    pub fn passed(&self) -> bool {
+        matches!(self, RunResult::Passed)
+    }
+}
+
 /// The statements of the tables that keep one kind of step's failures, by
 /// the run's id and the step's position in it: a row for each failure with
 /// its excerpt, and a row for each name it failed.

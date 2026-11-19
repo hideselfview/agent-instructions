@@ -16,9 +16,9 @@ fn ran(name: &str, passed: bool, ms: u64) -> CheckRecord {
         kind: Kind::Check,
         outcome: Outcome::Ran {
             result: if passed {
-                CheckResult::Passed
+                RunResult::Passed
             } else {
-                CheckResult::Failed(Some(crate::step_failure::StepFailure::default()))
+                RunResult::Failed(Some(crate::step_failure::StepFailure::default()))
             },
             handed: (1, 0),
             ms: Some(ms),
@@ -64,7 +64,7 @@ fn database(scratch: &Scratch) -> std::path::PathBuf {
 fn a_failed_check_comes_back_with_what_it_said_or_as_not_kept() {
     let scratch = Scratch::new("hook-db-failure");
     let path = database(&scratch);
-    let failed = |name: &str, result: CheckResult| {
+    let failed = |name: &str, result: RunResult| {
         let mut check = ran(name, false, 60);
         if let Outcome::Ran { result: r, .. } = &mut check.outcome {
             *r = result;
@@ -78,16 +78,16 @@ fn a_failed_check_comes_back_with_what_it_said_or_as_not_kept() {
         vec![
             failed(
                 "clippy",
-                CheckResult::Failed(Some(crate::step_failure::StepFailure {
+                RunResult::Failed(Some(crate::step_failure::StepFailure {
                     excerpt: Some("error: unused variable".into()),
                     failed: vec!["src/a.rs".into(), "src/b.rs".into()],
                 })),
             ),
             failed(
                 "fmt",
-                CheckResult::Failed(Some(crate::step_failure::StepFailure::default())),
+                RunResult::Failed(Some(crate::step_failure::StepFailure::default())),
             ),
-            failed("docs", CheckResult::Failed(None)),
+            failed("docs", RunResult::Failed(None)),
         ],
     );
     record(&path, &written).unwrap();

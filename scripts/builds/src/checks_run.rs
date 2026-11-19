@@ -38,11 +38,12 @@ use crate::checks::{CONFIG, Kind, Line, Planned, parse, plan};
 use crate::fail;
 use crate::fail::{Context, Fail, Result};
 use crate::hook_impact;
-use crate::hook_stats::{self, Change, CheckRecord, CheckResult, Outcome, Run, StagedFile};
+use crate::hook_stats::{self, Change, CheckRecord, Outcome, Run, StagedFile};
 use crate::host::Load;
 use crate::lists::args::Args;
 use crate::lists::store::{Store, database_of};
 use crate::places::Places;
+use crate::step_failure::RunResult;
 use crate::text::note;
 use boards::{git, git_text};
 
@@ -675,9 +676,9 @@ fn finish_line<'a>(
             .expect("every picked line is recorded");
         record.outcome = Outcome::Ran {
             result: if ran.ok {
-                CheckResult::Passed
+                RunResult::Passed
             } else {
-                CheckResult::Failed(Some(crate::hook_check_failure::said(
+                RunResult::Failed(Some(crate::hook_check_failure::said(
                     &ran.output,
                     &planned.files,
                 )))

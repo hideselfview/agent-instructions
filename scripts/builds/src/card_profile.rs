@@ -23,7 +23,7 @@ use crate::host::LOCAL;
 use crate::lists::item_event::{self, Kind as EventKind};
 use crate::lists::{Closed, Id, Item, Lists, Record, SpanKind};
 use crate::review::short;
-use crate::step_failure::StepFailure;
+use crate::step_failure::{RunResult, StepFailure};
 use crate::step_outcomes::{Attempt, Finding, StepKind};
 use crate::text::{counted, duration, local_second};
 
@@ -412,13 +412,15 @@ fn read_cargo(db: &Connection, worktree: &str, from: i64, to: i64, card: &mut Ca
                 kind: StepKind::Cargo,
                 name: step,
                 at,
-                passed: outcome == "passed",
+                result: if outcome == "passed" {
+                    RunResult::Passed
+                } else {
+                    RunResult::Failed(Some(StepFailure::new(excerpt.clone(), failed.clone())))
+                },
                 state: commit
                     .0
                     .as_ref()
                     .map(|head| format!("{head} {}", commit.1.as_deref().unwrap_or(""))),
-                said: (outcome != "passed")
-                    .then(|| StepFailure::new(excerpt.clone(), failed.clone())),
             });
         }
         if let (Some(head), changes, run_branch, off) = commit {
@@ -575,9 +577,12 @@ fn read_hooks(
                 kind: StepKind::Hook,
                 name,
                 at,
-                passed,
+                result: if passed {
+                    RunResult::Passed
+                } else {
+                    RunResult::Failed(said.remove(&(position as u32)))
+                },
                 state: state.clone(),
-                said: said.remove(&(position as u32)),
             });
         }
         let mut checks = db
@@ -682,9 +687,12 @@ fn read_app_builds(
                     kind: StepKind::AppBuild,
                     name: format!("{lane} {name}"),
                     at: start,
-                    passed: result == "passed",
+                    result: if result == "passed" {
+                        RunResult::Passed
+                    } else {
+                        RunResult::Failed(said.remove(&(position as u32)))
+                    },
                     state: built.clone(),
-                    said: said.remove(&(position as u32)),
                 });
             }
             card.steps.push(Step {
@@ -1129,7 +1137,7 @@ pub fn card_text(db: &Connection, card: &Card) -> Result<String> {
         let _ = writeln!(out, "runs that failed, and what followed on the card");
         for (run, outcome) in failures {
             let mut what = format!("{} {}", run.kind.words(), run.name);
-            let failed = run.said.as_ref().map_or(&[][..], |said| &said.failed[..]);
+            let failed = run.said().map_or(&[][..], |said| &said.failed[..]);
             if !failed.is_empty() {
                 let _ = write!(what, " ({})", failed.join(", "));
             }
@@ -1141,10 +1149,16 @@ pub fn card_text(db: &Connection, card: &Card) -> Result<String> {
                 crate::step_outcomes::Outcome::Stood => "no later run passed",
             };
             let _ = writeln!(out, "  {}  {what}: {followed}", local_second(run.at));
-            if let Some(cause) =
-                first_line(run.said.as_ref().and_then(|said| said.excerpt.as_deref()))
-            {
-                let _ = writeln!(out, "      {cause}");
+            match &run.result {
+                RunResult::Failed(None) => {
+                    let _ = writeln!(out, "      no output kept");
+                }
+                RunResult::Failed(Some(said)) => {
+                    if let Some(cause) = first_line(said.excerpt.as_deref()) {
+                        let _ = writeln!(out, "      {cause}");
+                    }
+                }
+                RunResult::Passed => {}
             }
         }
     }

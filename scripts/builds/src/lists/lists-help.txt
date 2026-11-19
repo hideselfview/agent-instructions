@@ -399,7 +399,8 @@ runs in (plans are in no commit); an absolute path is itself.
       next run of the same step on the card passed on another commit or other
       uncommitted changes, or for a hook check other staged files), passed
       again on the same commit and changes (flaky), or stood (no later run
-      passed); for each kind, what its runs failed most (the tests cargo
+      passed), and how many have no output kept (builds recorded them
+      before it kept what failed runs said); for each kind, what its runs failed most (the tests cargo
       runs reported failed, the staged files a hook check's output named,
       the shots an app build's shots run said fail it);
       and for each review rule group,
@@ -408,7 +409,7 @@ runs in (plans are in no commit); an absolute path is itself.
       subcommand on the crates it named, and an app build's is its lane and
       step. For each item N, times lists the same failures of its card with
       what followed each, and the first line of each one's excerpt of its
-      output. Then it prints each
+      output, or "no output kept". Then it prints each
       running item, each item
       that landed in those days, and each branch on which a run goes on or
       whose last run ended with a landing in those days. For a branch, times
