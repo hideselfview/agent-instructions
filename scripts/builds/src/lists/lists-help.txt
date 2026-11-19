@@ -631,6 +631,12 @@ sent again.
                              "circles": [{"selector": CSS_SELECTOR,
                                           "label": WORDS}]}]},
       "no_app_place": WHY, "fix": WHAT, "decision": N}.
+      `title` names the part of the app the change draws in a few plain
+      words, such as "People rows" or "AirPlay wait", not a sentence that
+      starts with a verb (decision #297). The dashboard lists the change under
+      Design changes to review by this title, and builds land uses it as the
+      message of the commit that squashes the change. Record and amend refuse
+      only a title that is empty, has several lines or has spaces at its ends.
       `places` answers every design place the range changes (a board, a
       component folder, a spec section) with an open item that does the app
       work, a new item (which waits on this design change, so no one can take

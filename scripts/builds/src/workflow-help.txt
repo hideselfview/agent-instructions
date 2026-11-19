@@ -506,8 +506,11 @@ implementing agent lands it with the item that built the change (`builds land
   1. While drawing, look at a board with `builds design render`, which draws
      it from the worktree as one page of HTML. It publishes nothing.
   2. When the boards are drawn, record the change (`builds design record`):
-     what changed, each board's canvas link (in a project that publishes a
-     canvas), and the review page's heading, words and boards, with the
+     its title, which names the part of the app the change draws in a few
+     plain words, such as "People rows" or "AirPlay wait", and not a sentence
+     that starts with a verb (decision #297); what changed; each board's
+     canvas link (in a project that publishes a canvas); and the review
+     page's heading, words and boards, with the
      circles of each board: a CSS selector for each element that changed,
      and a label if the circle needs words. Keep the change short: the page
      has one heading, so record one change per concern, and its words are at

@@ -101,7 +101,7 @@ impl World {
         // in, which is no repo of the project here.
         if matches!(
             args.first().map(String::as_str),
-            Some("show" | "list" | "approve" | "drop")
+            Some("show" | "list" | "approve" | "drop" | "title")
         ) {
             args.extend(["--project".to_string(), "demo".to_string()]);
         }
@@ -449,6 +449,30 @@ fn record_refuses_bad_answers_and_changes_nothing() {
     );
     bad["places"][board]["new"]["brief"] = json!("plans/missing.md");
     assert!(message(w.request(bad)).contains("does not exist"));
+    assert_eq!(w.bytes(), before);
+}
+
+/// A design change's title names the part of the app it draws in a few plain
+/// words: record and amend take one of two words, refuse only a title that is
+/// no one line, and `title` prints it.
+#[test]
+fn a_design_change_takes_a_title_that_names_the_part_it_draws() {
+    let w = world("design-part-title");
+    let board = "design/mocks/A.dc.html";
+    w.commit(&[board]);
+    let mut request = base_request(&w, json!({ board: { "matches": "x" } }));
+    request["title"] = json!("People rows");
+    w.request(request).unwrap();
+    assert_eq!(w.run("title 1").unwrap().trim(), "People rows");
+    let amend = json!({ "title": "AirPlay wait", "worktree": w.worktree(), "range": "base..HEAD", "places": {} });
+    w.amend(1, amend).unwrap();
+    assert_eq!(w.run("title 1").unwrap().trim(), "AirPlay wait");
+    let before = w.bytes();
+    for bad in ["People rows ", "People\nrows"] {
+        let amend =
+            json!({ "title": bad, "worktree": w.worktree(), "range": "base..HEAD", "places": {} });
+        assert!(message(w.amend(1, amend)).contains("title"), "{bad:?}");
+    }
     assert_eq!(w.bytes(), before);
 }
 
