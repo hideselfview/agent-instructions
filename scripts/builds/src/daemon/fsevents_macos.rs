@@ -5,6 +5,8 @@ use std::ffi::{CStr, CString, c_void};
 use std::os::raw::c_char;
 use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
+use std::process::Command;
+use std::time::Instant;
 
 use super::{Event, Handler, flags};
 
@@ -159,6 +161,64 @@ fn paths_array(paths: &[&Path]) -> CFArrayRef {
     array
 }
 
+/// The predicate that picks fseventsd's refusals out of the unified log.
+/// fseventsd refuses a client past its limits, and says so only there: "too
+/// many clients for pid N (limit 512)" past the limit for one process, "too
+/// many clients in system (limit 1024)" past the limit for every process
+/// together. The FSEvents calls themselves return only NULL or false.
+const REFUSALS: &str = "process == \"fseventsd\" AND messageType == error \
+                        AND eventMessage CONTAINS \"too many clients\"";
+
+/// Why fseventsd refused this process a stream it asked for at <asked>, from
+/// what fseventsd wrote to the unified log since then.
+fn fseventsd_says(asked: Instant) -> String {
+    let seconds = asked.elapsed().as_secs() + 2;
+    let mut command = Command::new("/usr/bin/log");
+    command.args([
+        "show",
+        "--style",
+        "compact",
+        "--last",
+        &format!("{seconds}s"),
+        "--predicate",
+        REFUSALS,
+    ]);
+    match crate::host::output_of(command, "/usr/bin/log show", crate::host::Accept::Zero) {
+        Ok(text) => {
+            let refusals = refusals_of(&text, std::process::id());
+            if refusals.is_empty() {
+                format!(
+                    "fseventsd logged no client limit for this process in the last {seconds}s \
+                     (/usr/bin/log show --last 1m --predicate 'process == \"fseventsd\" AND \
+                     messageType == error' shows its other errors)"
+                )
+            } else {
+                format!("fseventsd says {}", refusals.join("; "))
+            }
+        }
+        Err(error) => format!("reading fseventsd's reason failed: {error}"),
+    }
+}
+
+/// The distinct refusals in <text>, `log show --style compact` lines of
+/// fseventsd's, that apply to process <pid>: its own limit, and the system's.
+fn refusals_of(text: &str, pid: u32) -> Vec<&str> {
+    let own = format!("too many clients for pid {pid} ");
+    let mut found: Vec<&str> = Vec::new();
+    for line in text.lines() {
+        let Some(at) = line.find("too many clients") else {
+            continue;
+        };
+        let message = line[at..].trim_end();
+        let applies =
+            message.starts_with("too many clients in system") || message.starts_with(&own);
+        if applies && !found.contains(&message) {
+            found.push(message);
+        }
+    }
+    found
+}
+
 impl Raw {
     /// Starts following <folders>, leaving out what happens under <excluded>
     /// (at most 8), replaying every event after <since>, and says why when the
@@ -170,14 +230,15 @@ impl Raw {
         latency: f64,
         handler: Handler,
     ) -> Result<Raw, String> {
+        let asked = Instant::now();
         let refused = |step: &str| {
             let id = unsafe { FSEventsGetCurrentEventId() };
-            let hint = if id == 0 {
-                "; fseventsd does not answer (its current event id is 0)"
+            let why = if id == 0 {
+                "fseventsd does not answer (its current event id is 0)".to_string()
             } else {
-                ""
+                fseventsd_says(asked)
             };
-            format!("FSEvents refused {step} (since {since}, fseventsd's event id {id}){hint}")
+            format!("FSEvents refused {step} (since {since}, fseventsd's event id {id}): {why}")
         };
         let array = paths_array(folders);
         let handler = Box::into_raw(Box::new(handler));
@@ -258,5 +319,41 @@ impl Drop for Raw {
             dispatch_async_f(self.queue, self.handler.cast(), free_handler);
             dispatch_release(self.queue);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::refusals_of;
+
+    /// What `log show --style compact` printed for fseventsd's refusals while
+    /// a probe opened streams past each limit on macOS 27.
+    const LOG: &str = "\
+Timestamp               Ty Process[PID:TID]
+2026-11-19 05:58:29.101 E  fseventsd[546:82f30f9] [com.apple.fsevents:daemon] too many clients for pid 37874 (limit 512)
+2026-11-19 05:58:29.240 E  fseventsd[546:82f30f9] [com.apple.fsevents:daemon] too many clients for pid 378 (limit 512)
+2026-11-19 05:59:06.017 E  fseventsd[546:82f30f9] [com.apple.fsevents:daemon] too many clients in system (limit 1024)
+2026-11-19 05:59:12.442 E  fseventsd[546:82f30f9] [com.apple.fsevents:daemon] too many clients in system (limit 1024)
+";
+
+    #[test]
+    fn a_refusal_names_this_process_s_limit_and_the_system_s_once_each() {
+        assert_eq!(
+            refusals_of(LOG, 378),
+            [
+                "too many clients for pid 378 (limit 512)",
+                "too many clients in system (limit 1024)"
+            ]
+        );
+    }
+
+    #[test]
+    fn another_process_s_limit_is_not_this_one_s_reason() {
+        let other = LOG
+            .lines()
+            .filter(|line| !line.contains("in system"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(refusals_of(&other, 3787).is_empty());
     }
 }

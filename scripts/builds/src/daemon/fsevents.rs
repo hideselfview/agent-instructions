@@ -2,15 +2,17 @@
 //! folders, delivered on a dispatch queue of its own. The system frameworks
 //! are declared here by hand; nothing else in the tool needs them.
 //!
-//! A `Stream` keeps itself following: when fseventsd refuses a stream (it
-//! does while it starts, and after it was killed: it answers every client
-//! with an error, and `FSEventsGetCurrentEventId` returns 0), the stream is
-//! opened again with a growing wait, and when fseventsd is found restarted
-//! (its event id is 0 or went backwards) or the owner says the stream went
-//! quiet (`restart`), the stream is made again. Event ids from before a
-//! restart mean nothing, so every opening after the first one hands the
-//! handler an EVENT_IDS_WRAPPED event for each followed folder, which owners
-//! take as "read this folder again". Each step is written to stderr.
+//! A `Stream` keeps itself following. fseventsd refuses a stream while it
+//! starts and after it was killed (it answers every client with an error,
+//! and `FSEventsGetCurrentEventId` returns 0), and past its limits of 512
+//! streams for one process and 1024 for the system (it names the limit in
+//! the unified log). The stream is then opened again with a growing wait,
+//! and each refusal's line gives fseventsd's reason. When fseventsd is found
+//! restarted (its event id is 0 or went backwards) or the owner says the
+//! stream went quiet (`restart`), the stream is made again. Event ids from
+//! before a restart mean nothing, so every opening after the first one hands
+//! the handler an EVENT_IDS_WRAPPED event for each followed folder, which
+//! owners take as "read this folder again". Each step is written to stderr.
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Condvar, Mutex};
