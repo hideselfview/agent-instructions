@@ -147,6 +147,37 @@ pub fn parse_diff(diff: &str) -> Vec<DiffFile> {
     files
 }
 
+/// The most reviewer processes a run starts at once.
+pub const REVIEWERS_AT_ONCE: usize = 3;
+
+/// <f> over <items>, one reviewer process each, at most `REVIEWERS_AT_ONCE`
+/// at a time, results in order.
+pub fn reviewers_map<T: Sync, R: Send>(items: &[T], f: impl Fn(&T) -> R + Sync) -> Vec<R> {
+    crate::checkout::parallel_map_at_most(REVIEWERS_AT_ONCE, items, f)
+}
+
+/// The most changed lines of diff text a `builds review` or `builds review
+/// audit` run sends its reviewers. Of the 1,286 review runs in the stores of
+/// bae and builds, 99% changed 7,180 lines or fewer, and the largest changed
+/// 21,018, so this is above nearly every ordinary branch.
+pub const MAX_CHANGED_LINES: i64 = 10_000;
+
+/// Fails, before any reviewer starts, when the diffs <diffs> hold more than
+/// `MAX_CHANGED_LINES` changed lines in all. No flag skips it: the person
+/// decides whether such a run goes ahead.
+pub fn within_the_cap<'a>(
+    what: &str,
+    diffs: impl IntoIterator<Item = &'a str>,
+) -> crate::fail::Result<()> {
+    let lines: i64 = diffs.into_iter().map(changed_lines).sum();
+    if lines > MAX_CHANGED_LINES {
+        crate::fail!(
+            "{what} would send its reviewers {lines} changed lines, over the cap of {MAX_CHANGED_LINES}, so no reviewer started. The person decides whether a run this large goes ahead: ask them, and give no flag to skip the cap."
+        );
+    }
+    Ok(())
+}
+
 /// How many lines the hunks of <diff> add and remove, leaving out each file's
 /// header lines.
 pub fn changed_lines(diff: &str) -> i64 {

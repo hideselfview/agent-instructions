@@ -118,3 +118,43 @@ fn a_quote_is_on_comment_lines_only_when_every_place_it_sits_is_a_comment() {
     assert!(!only_on_comment_lines(&files, "a.rs", "not in the diff"));
     assert!(!only_on_comment_lines(&files, "b.rs", "Sends the cover"));
 }
+
+fn diff_of_lines(lines: usize) -> String {
+    let mut diff = format!("diff --git a/f b/f\n--- a/f\n+++ b/f\n@@ -0,0 +1,{lines} @@\n");
+    diff.push_str(&"+x\n".repeat(lines));
+    diff
+}
+
+#[test]
+fn a_run_over_the_cap_of_changed_lines_is_refused_and_one_at_it_is_not() {
+    let at_the_cap = diff_of_lines(MAX_CHANGED_LINES as usize);
+    assert!(within_the_cap("the review", [at_the_cap.as_str()]).is_ok());
+    let one_more = diff_of_lines(1);
+    let refused = within_the_cap(
+        "the audit of landing 7",
+        [at_the_cap.as_str(), one_more.as_str()],
+    )
+    .unwrap_err()
+    .text();
+    assert!(refused.contains("the audit of landing 7"), "{refused}");
+    assert!(refused.contains("10001 changed lines"), "{refused}");
+    assert!(refused.contains("cap of 10000"), "{refused}");
+}
+
+#[test]
+fn at_most_three_reviewers_run_at_once() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let running = AtomicUsize::new(0);
+    let most = AtomicUsize::new(0);
+    let items: Vec<usize> = (0..12).collect();
+    let doubled = reviewers_map(&items, |n| {
+        let now = running.fetch_add(1, Ordering::SeqCst) + 1;
+        most.fetch_max(now, Ordering::SeqCst);
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        running.fetch_sub(1, Ordering::SeqCst);
+        n * 2
+    });
+    assert_eq!(doubled, items.iter().map(|n| n * 2).collect::<Vec<_>>());
+    assert_eq!(REVIEWERS_AT_ONCE, 3);
+    assert!(most.load(Ordering::SeqCst) <= REVIEWERS_AT_ONCE);
+}

@@ -7,10 +7,10 @@ use std::process::Stdio;
 
 use serde_json::json;
 
-use crate::checkout::parallel_map;
 use crate::fail;
 use crate::fail::{Context, Result};
 use crate::review::call;
+use crate::review::check::reviewers_map;
 use crate::review::check::{
     DiffFile, clause_in, code_in, names_file, only_on_comment_lines, parse_diff,
 };
@@ -661,11 +661,14 @@ pub fn ask_groups(
     let mut done: Vec<Vec<NewCall>> = units.iter().map(|_| Vec::new()).collect();
     for (i, call) in first
         .iter()
-        .zip(parallel_map(&first, |&i| one(&units[i], 0)))
+        .zip(reviewers_map(&first, |&i| one(&units[i], 0)))
     {
         done[*i].push(call);
     }
-    for (i, call) in rest.iter().zip(parallel_map(&rest, |&i| one(&units[i], 0))) {
+    for (i, call) in rest
+        .iter()
+        .zip(reviewers_map(&rest, |&i| one(&units[i], 0)))
+    {
         done[*i].push(call);
     }
     let most = units.iter().map(|u| u.group.passes).max().unwrap_or(1);
@@ -676,7 +679,7 @@ pub fn ask_groups(
             .collect();
         for (i, call) in again
             .iter()
-            .zip(parallel_map(&again, |&i| one(&units[i], pass)))
+            .zip(reviewers_map(&again, |&i| one(&units[i], pass)))
         {
             repeat.add(&call);
             done[*i].push(call);

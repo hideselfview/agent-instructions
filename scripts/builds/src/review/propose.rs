@@ -10,13 +10,14 @@
 
 use std::path::Path;
 
-use crate::checkout::{Checkout, parallel_map};
+use crate::checkout::Checkout;
 use crate::fail;
 use crate::fail::Result;
 use crate::lists::args::{Args, current_dir};
 use crate::lists::store::Store;
 use crate::review::audit::{candidate_misses, diff_read};
 use crate::review::cases::{self, Addition, SiteLabel, same_code, same_file};
+use crate::review::check::reviewers_map;
 use crate::review::check::{code_in, names_file, squash};
 use crate::review::files;
 use crate::review::model_check;
@@ -314,7 +315,7 @@ pub fn propose(inputs: &Inputs) -> Result<Proposed> {
                 )),
             }
         }
-        let checked = parallel_map(&asked, |(finding, _)| {
+        let checked = reviewers_map(&asked, |(finding, _)| {
             model_check::check(inputs.reviewer, inputs.model, &material, finding, &diff)
         });
         let mut additions: Vec<Addition> = Vec::new();

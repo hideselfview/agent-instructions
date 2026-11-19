@@ -18,6 +18,7 @@ use crate::fail::Result;
 use crate::lists::Stamp;
 use crate::lists::args::{Args, current_dir};
 use crate::lists::store::Store;
+use crate::review::check;
 use crate::review::files;
 use crate::review::groups::Group;
 use crate::review::model_check;
@@ -263,6 +264,10 @@ pub fn audit(inputs: &Inputs) -> Result<String> {
         );
     };
     let diff = run::diff_between(inputs.repo_dir, &last.base, &last.head)?.diff;
+    check::within_the_cap(
+        &format!("the audit of landing {}", inputs.landing),
+        [diff.text.as_str()],
+    )?;
     let material = Material::load(inputs.root, inputs.project)?;
     let ran = groups_ran(&conn, inputs.landing)?;
     let reviewed = material.groups.named(&material.rules, &ran);
@@ -380,7 +385,7 @@ pub fn settle_misses(
     model: &str,
     misses: &[(&Finding, &Diff)],
 ) -> Result<(String, bool)> {
-    let checked = crate::checkout::parallel_map(misses, |(miss, diff)| {
+    let checked = check::reviewers_map(misses, |(miss, diff)| {
         model_check::check(program, model, material, miss, diff)
     });
     let mut text = String::new();

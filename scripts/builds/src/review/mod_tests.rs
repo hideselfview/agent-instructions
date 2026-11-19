@@ -1203,6 +1203,33 @@ fn every_review_command_fails_for_a_project_with_no_store() {
 }
 
 #[test]
+fn a_review_over_the_cap_starts_no_reviewer_and_records_nothing() {
+    let demo = demo("review-over-cap");
+    let fake = fake(&demo.scratch.dir);
+    let side = demo.add_side(1, "agent", "work");
+    let lines = check::MAX_CHANGED_LINES as usize + 1;
+    std::fs::write(side.join("big.rs"), "x\n".repeat(lines)).unwrap();
+    crate::testing::git(&side, &["add", "big.rs"]);
+    crate::testing::git(&side, &["commit", "-q", "-m", "big"]);
+    let refused = try_review(&demo, &fake, &side, "k").unwrap_err().text();
+    assert!(refused.contains("10001 changed lines"), "{refused}");
+    assert!(refused.contains("no reviewer started"), "{refused}");
+    assert!(fake.prompts().is_empty());
+    let conn = demo.store.open_existing().unwrap();
+    assert!(
+        record::open_landing(
+            &conn,
+            record::Change {
+                repo: "demo",
+                key: "k"
+            }
+        )
+        .unwrap()
+        .is_none()
+    );
+}
+
+#[test]
 fn a_change_with_nothing_past_the_base_reviews_nothing() {
     let demo = demo("review-empty");
     let fake = fake(&demo.scratch.dir);

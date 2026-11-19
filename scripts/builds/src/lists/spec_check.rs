@@ -19,13 +19,13 @@ use rusqlite::{Connection, params};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
-use crate::checkout::parallel_map;
 use crate::db::Sql;
 use crate::fail;
 use crate::fail::Result;
 use crate::lists::design_paths::Globs;
 use crate::lists::{Id, Kind, Lists, Stamp};
 use crate::review::call::Usage;
+use crate::review::check::reviewers_map;
 use crate::review::check::{clause_in, squash};
 use boards::{git, git_text};
 
@@ -331,7 +331,7 @@ fn schema() -> Value {
 
 /// Runs the reviewer <program> over <brief> in each of <targets>, at once.
 pub fn check_all(program: &Path, setup: &Setup, brief: &Brief, targets: &[Target]) -> Vec<Checked> {
-    parallel_map(targets, |target| check(program, setup, brief, target))
+    reviewers_map(targets, |target| check(program, setup, brief, target))
 }
 
 /// Runs the reviewer <program> over <brief> in <target> and checks its quotes.

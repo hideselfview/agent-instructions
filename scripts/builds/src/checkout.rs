@@ -404,11 +404,20 @@ fn visible_dirs(dir: &Path) -> Result<Vec<PathBuf>> {
 
 /// <f> over <items>, eight at a time, results in order.
 pub fn parallel_map<T: Sync, R: Send>(items: &[T], f: impl Fn(&T) -> R + Sync) -> Vec<R> {
+    parallel_map_at_most(8, items, f)
+}
+
+/// <f> over <items>, <most> at a time, results in order.
+pub fn parallel_map_at_most<T: Sync, R: Send>(
+    most: usize,
+    items: &[T],
+    f: impl Fn(&T) -> R + Sync,
+) -> Vec<R> {
     let next = std::sync::atomic::AtomicUsize::new(0);
     let results: Vec<std::sync::Mutex<Option<R>>> =
         items.iter().map(|_| std::sync::Mutex::new(None)).collect();
     std::thread::scope(|scope| {
-        for _ in 0..8.min(items.len()) {
+        for _ in 0..most.min(items.len()) {
             scope.spawn(|| {
                 loop {
                     let i = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);

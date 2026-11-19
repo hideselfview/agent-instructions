@@ -320,6 +320,10 @@ pub fn review(inputs: &Inputs) -> Result<Reported> {
         }],
         Some(landing) => later_asks(&conn, inputs, &material, &change, landing, &open_findings)?,
     };
+    check::within_the_cap(
+        &format!("the review of {}", inputs.key),
+        asks.iter().map(|ask| ask.change.diff.text.as_str()),
+    )?;
     let mut running: Vec<(String, Running)> = Vec::new();
     let mut answers = Vec::new();
     for ask in &asks {
