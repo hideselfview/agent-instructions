@@ -34,9 +34,12 @@
 //! is rebuilt, as it must be.
 //!
 //! The clone is made beside its destination and renamed over the empty folder,
-//! so the folder is empty or whole. Incremental folders and the rest of what
-//! a side worktree's builds never read are then deleted by the same prune
-//! `setup` runs.
+//! so the folder is empty or whole. Every incremental folder is then deleted,
+//! whatever its age: the clone's folders were written by the source's builds
+//! (a new directory in a clone has a new mtime, so each would otherwise pass
+//! for written just now and stay for the idle hours), and a side worktree's
+//! builds name other crate paths. The same prune `setup` runs then deletes the
+//! rest of what a side worktree's builds never read.
 
 use std::ffi::CString;
 use std::fs::File;
@@ -52,8 +55,9 @@ use crate::manifest::build_dirs;
 use crate::prune::{Run, prune_root};
 use crate::text::note;
 use crate::tool::Tool;
+use crate::units::prune::Ages;
 use crate::units::unit::built_count;
-use crate::units::{GUARD, Guard, is_profile_dir, lock_guard_creating};
+use crate::units::{self, GUARD, Guard, is_profile_dir, lock_guard_creating};
 
 /// A checkout whose host `target` could be cloned.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -335,7 +339,12 @@ pub fn fill(tool: &Tool, checkout: &Checkout) -> Result<()> {
         dest.display()
     ));
     // The source's incremental folders and the like: a side worktree's
-    // builds read none of them.
+    // builds read none of them. 0 incremental hours deletes every one.
+    units::prune::prune(
+        &Ages::new(tool.rules.unused_days, 0),
+        Run::Real,
+        std::slice::from_ref(&dest),
+    )?;
     prune_root(tool, &root, checkout, Run::Real, 0, 0)
 }
 
