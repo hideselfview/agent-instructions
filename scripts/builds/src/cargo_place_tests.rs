@@ -1,6 +1,7 @@
 use super::*;
 use crate::host::tests::fake_ssh;
 use crate::host::{Probe, Runs};
+use crate::nextest::Has;
 use crate::testing::{Scratch, git, repo};
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
@@ -38,8 +39,14 @@ fn no_env(_: &str) -> Option<OsString> {
 fn only_commands_that_compile_and_report_leave_this_mac() {
     let scratch = Scratch::new("place-rules");
     let (main, side) = checkouts(&scratch);
-    let stays =
-        |words: &[&str], checkout: &Checkout| stays_here(&args(words), Some(checkout), &no_env);
+    let stays = |words: &[&str], checkout: &Checkout| {
+        let runs = if words[0] == "nextest" {
+            Runs::Nextest
+        } else {
+            Runs::Cargo
+        };
+        stays_here(&args(words), runs, Some(checkout), &no_env)
+    };
     for words in [
         &["test", "-p", "demo", "--features", "test-utils"][..],
         &["clippy", "--workspace", "--", "-D", "warnings"],
@@ -84,16 +91,19 @@ fn only_commands_that_compile_and_report_leave_this_mac() {
         "main stays"
     );
     assert!(
-        stays_here(&args(&["test"]), None, &no_env)
+        stays_here(&args(&["test"]), Runs::Cargo, None, &no_env)
             .unwrap()
             .contains("no git checkout")
     );
     let with =
         |name: &'static str| move |asked: &str| (asked == name).then(|| OsString::from("/x"));
     let bare = |asked: &str| (asked == "RUSTC_WRAPPER").then(|| OsString::from("sccache"));
-    assert_eq!(stays_here(&args(&["clippy"]), Some(&side), &bare), None);
+    assert_eq!(
+        stays_here(&args(&["clippy"]), Runs::Cargo, Some(&side), &bare),
+        None
+    );
     let outside = |asked: &str| (asked == "RUSTC_WRAPPER").then(|| OsString::from("/opt/wrap.sh"));
-    let said = stays_here(&args(&["clippy"]), Some(&side), &outside).unwrap();
+    let said = stays_here(&args(&["clippy"]), Runs::Cargo, Some(&side), &outside).unwrap();
     assert!(
         said.starts_with("RUSTC_WRAPPER names a program outside"),
         "{said}"
@@ -102,9 +112,12 @@ fn only_commands_that_compile_and_report_leave_this_mac() {
     let inside = |asked: &str| {
         (asked == "RUSTC_WORKSPACE_WRAPPER").then(|| inside_path.clone().into_os_string())
     };
-    assert_eq!(stays_here(&args(&["clippy"]), Some(&side), &inside), None);
+    assert_eq!(
+        stays_here(&args(&["clippy"]), Runs::Cargo, Some(&side), &inside),
+        None
+    );
     for name in ["CARGO_TARGET_DIR", "FFMPEG_DIR"] {
-        let said = stays_here(&args(&["clippy"]), Some(&side), &with(name)).unwrap();
+        let said = stays_here(&args(&["clippy"]), Runs::Cargo, Some(&side), &with(name)).unwrap();
         assert!(said.starts_with(name), "{said}");
     }
 }
@@ -155,7 +168,7 @@ fn probe(load: f64) -> std::result::Result<Probe, String> {
         load: [load, load, load],
         free_kib: 1 << 30,
         git_fails: None,
-        nextest: None,
+        nextest: crate::nextest::Has::Nothing,
     })
 }
 
@@ -171,7 +184,11 @@ fn run_on(
     match start(
         places,
         ssh,
-        Choice::On(host.clone(), probe(1.0).unwrap(), "named".to_string()),
+        Choice::On(
+            host.clone(),
+            Box::new(probe(1.0).unwrap()),
+            "named".to_string(),
+        ),
         checkout,
         args,
         env,
@@ -388,7 +405,7 @@ fn a_nextest_run_goes_only_to_a_host_with_cargo_nextest() {
     };
 
     let probes = ask();
-    assert_eq!(probes[1].1.as_ref().unwrap().nextest, None);
+    assert_eq!(probes[1].1.as_ref().unwrap().nextest, Has::Nothing);
     let Choice::Here(why) = pick_ranked(
         &places,
         &r.ssh,
@@ -432,8 +449,8 @@ fn a_nextest_run_goes_only_to_a_host_with_cargo_nextest() {
     crate::nextest::tests::fake_program(&r.home.join(".cargo/bin"), crate::nextest::VERSION);
     let probes = ask();
     assert_eq!(
-        probes[1].1.as_ref().unwrap().nextest.as_deref(),
-        Some(crate::nextest::VERSION)
+        probes[1].1.as_ref().unwrap().nextest,
+        Has::Version(crate::nextest::VERSION.to_string())
     );
     assert!(matches!(
         pick_ranked(
@@ -590,16 +607,19 @@ fn a_before_program_outside_the_checkout_keeps_the_command_here_and_runs_here() 
     let scratch = Scratch::new("place-before");
     let (_main, side) = checkouts(&scratch);
     let outside = |name: &str| (name == "BUILDS_CARGO_BEFORE").then(|| OsString::from("/opt/x.sh"));
-    let said = stays_here(&args(&["clippy"]), Some(&side), &outside).unwrap();
+    let said = stays_here(&args(&["clippy"]), Runs::Cargo, Some(&side), &outside).unwrap();
     assert!(
         said.starts_with("BUILDS_CARGO_BEFORE names a program outside"),
         "{said}"
     );
     let escapes = |name: &str| (name == "BUILDS_CARGO_BEFORE").then(|| OsString::from("../x.sh"));
-    assert!(stays_here(&args(&["clippy"]), Some(&side), &escapes).is_some());
+    assert!(stays_here(&args(&["clippy"]), Runs::Cargo, Some(&side), &escapes).is_some());
     let inside =
         |name: &str| (name == "BUILDS_CARGO_BEFORE").then(|| OsString::from("scripts/x.sh a"));
-    assert_eq!(stays_here(&args(&["clippy"]), Some(&side), &inside), None);
+    assert_eq!(
+        stays_here(&args(&["clippy"]), Runs::Cargo, Some(&side), &inside),
+        None
+    );
 
     // Here, the program runs in the checkout's top.
     let script = side.top.join("scripts/before.sh");
@@ -681,7 +701,11 @@ fn a_host_that_refuses_the_job_leaves_it_to_this_mac_and_is_passed_over_until_gi
     let job = start(
         &places,
         &ssh,
-        Choice::On(m1.clone(), probe(1.0).unwrap(), "most room".to_string()),
+        Choice::On(
+            m1.clone(),
+            Box::new(probe(1.0).unwrap()),
+            "most room".to_string(),
+        ),
         &side,
         &args(&["test"]),
         &no_env,
@@ -765,7 +789,7 @@ fn a_host_that_refuses_the_job_leaves_it_to_this_mac_and_is_passed_over_until_gi
     let job = start(
         &places,
         &ssh,
-        Choice::On(gone, probe(1.0).unwrap(), "most room".to_string()),
+        Choice::On(gone, Box::new(probe(1.0).unwrap()), "most room".to_string()),
         &side,
         &args(&["test"]),
         &no_env,

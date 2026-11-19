@@ -116,10 +116,6 @@ fn passed_over(place: &str, items: &str, why: &PassedOver) -> Advice {
             "builds prune".to_string(),
         ),
         PassedOver::GitFails { host, .. } => Advice::said(format!("{said}. Fix git on {host}")),
-        PassedOver::NoNextest { host, .. } => Advice::run(
-            format!("{said}. Install it with"),
-            format!("builds host setup {host}"),
-        ),
         PassedOver::NoSpeed { .. } | PassedOver::Unreachable { .. } => Advice::said(said),
     }
 }

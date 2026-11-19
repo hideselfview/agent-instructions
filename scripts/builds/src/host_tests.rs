@@ -62,7 +62,7 @@ fn reads_what_a_host_prints() {
                 pressure: Pressure::Warning,
             },
             git_fails: None,
-            nextest: None,
+            nextest: crate::nextest::Has::Nothing,
         }
     );
     assert!((probe.load_per_core() - 0.15).abs() < 1e-9);
@@ -79,15 +79,21 @@ fn reads_what_a_host_prints() {
 }
 
 #[test]
-fn a_probe_reads_the_cargo_nextest_version_a_host_prints() {
-    let said = "cores=10\nload=1.50 1.20 1.10\nfree_kib=4\n";
-    assert_eq!(parse_probe(said).unwrap().nextest, None);
+fn a_probe_reads_what_a_host_has_of_cargo_nextest() {
+    use crate::nextest::Has;
+    let said = "cores=10\nload=1.50 1.20 1.10\nfree_kib=4\nmemory_free_percent=61\nswap_used_mib=0\nmemory_pressure_level=1\n";
+    assert_eq!(parse_probe(said).unwrap().nextest, Has::Nothing);
     assert_eq!(
         parse_probe(&format!("{said}nextest=0.9.143\n"))
             .unwrap()
-            .nextest
-            .as_deref(),
-        Some("0.9.143")
+            .nextest,
+        Has::Version("0.9.143".to_string())
+    );
+    assert_eq!(
+        parse_probe(&format!("{said}nextest_fails=dyld: missing \n"))
+            .unwrap()
+            .nextest,
+        Has::Broken("dyld: missing".to_string())
     );
 }
 
@@ -95,47 +101,49 @@ fn a_probe_reads_the_cargo_nextest_version_a_host_prints() {
 /// installs, saying which, while a cargo run does not.
 #[test]
 fn a_nextest_run_passes_over_a_host_without_the_pinned_cargo_nextest() {
-    let with = |nextest: Option<&str>| {
+    use crate::nextest::Has;
+    let with = |nextest: Has| {
         Ok(Probe {
             cores: 10,
             load: [0.0; 3],
             free_kib: 100,
+            memory: crate::host_memory::Memory::at_rest(),
             git_fails: None,
-            nextest: nextest.map(str::to_string),
+            nextest,
         })
     };
     let hosts = vec![
-        (host("local"), with(Some(crate::nextest::VERSION))),
-        (host("m1"), with(None)),
-        (host("m2"), with(Some("0.9.1"))),
+        (
+            host("local"),
+            with(Has::Version(crate::nextest::VERSION.to_string())),
+        ),
+        (host("m1"), with(Has::Nothing)),
+        (host("m2"), with(Has::Version("0.9.1".to_string()))),
+        (host("m3"), with(Has::Broken("dyld: missing".to_string()))),
     ];
     let names = |runs| {
         let (ranked, why) = rank_by_room(&hosts, 50, &Default::default(), runs);
         let names: Vec<String> = ranked.into_iter().map(|(host, _)| host.name).collect();
         (names, why)
     };
-    assert_eq!(names(Runs::Cargo).0, ["local", "m1", "m2"]);
+    assert_eq!(names(Runs::Cargo).0, ["local", "m1", "m2", "m3"]);
     let (names, why) = names(Runs::Nextest);
     assert_eq!(names, ["local"]);
     assert!(
         why.contains("m1 has no cargo-nextest (`builds host setup m1` installs 0.9.143)")
             && why.contains(
                 "m2 has cargo-nextest 0.9.1, not 0.9.143 (`builds host setup m2` installs 0.9.143)"
-            ),
+            )
+            && why.contains("m3's cargo-nextest does not start: dyld: missing"),
         "{why}"
     );
     assert_eq!(
         takes_run(&hosts[1].0, &hosts[1].1, 50, Runs::Nextest).unwrap_err(),
-        PassedOver::NoNextest {
+        CannotRun::LacksNextest(LacksNextest {
             host: "m1".to_string(),
-            has: None
-        }
+            has: Has::Nothing
+        })
     );
-    assert_eq!(
-        Runs::of(&["nextest".to_string(), "run".to_string()]),
-        Runs::Nextest
-    );
-    assert_eq!(Runs::of(&["test".to_string()]), Runs::Cargo);
 }
 
 #[test]
@@ -147,7 +155,7 @@ fn a_host_whose_git_fails_is_passed_over_saying_what_git_said() {
             load: [0.0; 3],
             free_kib: 100,
             git_fails: Some("no license".to_string()),
-            nextest: None,
+            nextest: crate::nextest::Has::Nothing,
         })
     };
     let hosts = vec![
@@ -241,7 +249,7 @@ fn probe_of(load: f64, free_kib: u64) -> std::result::Result<Probe, String> {
         load: [load, load, load],
         free_kib,
         git_fails: None,
-        nextest: None,
+        nextest: crate::nextest::Has::Nothing,
     })
 }
 
@@ -329,7 +337,7 @@ fn probe_with(cores: u32, load: f64, free_kib: u64) -> std::result::Result<Probe
         load: [load, load, load],
         free_kib,
         git_fails: None,
-        nextest: None,
+        nextest: crate::nextest::Has::Nothing,
     })
 }
 

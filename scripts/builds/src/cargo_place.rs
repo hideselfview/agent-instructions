@@ -117,7 +117,7 @@ pub enum Choice {
     /// This Mac, and why.
     Here(String),
     /// A host, what it said when asked for its load, and why.
-    On(Host, host::Probe, String),
+    On(Host, Box<host::Probe>, String),
 }
 
 /// Why this command must run on this Mac, or None when a host may run it.
@@ -147,6 +147,7 @@ pub enum Choice {
 ///   (`BUILDS_CARGO_HOST=local`), stay where they are.
 pub fn stays_here(
     args: &[String],
+    runs: host::Runs,
     checkout: Option<&Checkout>,
     env: &dyn Fn(&str) -> Option<OsString>,
 ) -> Option<String> {
@@ -157,10 +158,9 @@ pub fn stays_here(
         return Some("main is the person's checkout".to_string());
     }
     let subcommand = args.first().map(String::as_str).unwrap_or("");
-    let goes = match subcommand {
-        "test" | "clippy" | "check" | "doc" => true,
-        "nextest" => matches!(args.get(1).map(String::as_str), Some("run" | "list")),
-        _ => false,
+    let goes = match runs {
+        host::Runs::Nextest => matches!(args.get(1).map(String::as_str), Some("run" | "list")),
+        host::Runs::Cargo => matches!(subcommand, "test" | "clippy" | "check" | "doc"),
     };
     if !goes {
         return Some(format!(
@@ -412,7 +412,7 @@ fn pick(
         }
         return Ok(Choice::On(
             found,
-            probe,
+            Box::new(probe),
             format!("named by {HOST_VARIABLE}"),
         ));
     }
@@ -449,7 +449,7 @@ fn pick_ranked(
             return Ok(Choice::Here(join(why, passed_over)));
         }
         match has_clone(places, ssh, &host, repo) {
-            Ok(()) => return Ok(Choice::On(host, probe, join(why, passed_over))),
+            Ok(()) => return Ok(Choice::On(host, Box::new(probe), join(why, passed_over))),
             Err(error) => passed_over.push(format!("{} cannot build {repo} ({error})", host.name)),
         }
     }

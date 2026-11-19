@@ -1,8 +1,8 @@
 //! cargo-nextest on a host: the one version builds installs on every host
 //! that takes cargo work (`install`, run by `builds install` here and by
 //! `builds host setup-here` on each host), and how a probe reads which version
-//! a host has (`PROBE_SCRIPT_LINES`, `parse_version`), so that a `builds cargo
-//! nextest` run goes only to a host that has it (`host::takes_nextest`).
+//! a host has (`PROBE_SCRIPT_LINES`, `parse_has`), so that a `builds cargo
+//! nextest` run goes only to a host that has it (`host::takes_run`).
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -20,59 +20,96 @@ fn bin_dir(home: &Path) -> PathBuf {
     home.join(".cargo/bin")
 }
 
-/// The line a probe's script prints when the host has cargo-nextest: its
-/// version, from the first line of `cargo-nextest nextest --version`
-/// (`cargo-nextest 0.9.143`). A host without it prints nothing.
-pub const PROBE_SCRIPT_LINES: &str = r#"if v=$("$HOME/.cargo/bin/cargo-nextest" nextest --version 2>/dev/null); then echo "nextest=$(printf '%s\n' "$v" | head -n 1 | awk '{print $2}')"; fi"#;
-
-/// The version a probe's answer reports, None when the host has no
-/// cargo-nextest.
-pub fn parse_version(text: &str) -> Option<String> {
-    text.lines()
-        .find_map(|line| line.strip_prefix("nextest="))
-        .map(|version| version.trim().to_string())
-        .filter(|version| !version.is_empty())
+/// What a host has of cargo-nextest.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Has {
+    /// No cargo-nextest program.
+    Nothing,
+    /// A program that reports this version.
+    Version(String),
+    /// A program that does not start, and what it said.
+    Broken(String),
 }
 
-/// The version of the cargo-nextest under <home>'s `.cargo/bin`, None when
-/// there is none or it does not run.
-pub fn installed_version(home: &Path) -> Option<String> {
+/// What a probe's script prints when the host has a cargo-nextest program:
+/// `nextest=<version>` from the first line of `cargo-nextest nextest
+/// --version` (`cargo-nextest 0.9.143`), or `nextest_fails=<what it said>`
+/// when the program does not start. A host without the program prints nothing.
+pub const PROBE_SCRIPT_LINES: &str = r#"if [ -e "$HOME/.cargo/bin/cargo-nextest" ]; then if v=$("$HOME/.cargo/bin/cargo-nextest" nextest --version 2>&1); then echo "nextest=$(printf '%s\n' "$v" | head -n 1 | awk '{print $2}')"; else echo "nextest_fails=$(printf '%s' "$v" | tr '\n' ' ')"; fi; fi"#;
+
+/// What a probe's answer says the host has.
+pub fn parse_has(text: &str) -> Has {
+    if let Some(said) = text
+        .lines()
+        .find_map(|line| line.strip_prefix("nextest_fails="))
+    {
+        return Has::Broken(said.trim().to_string());
+    }
+    match text
+        .lines()
+        .find_map(|line| line.strip_prefix("nextest="))
+        .map(str::trim)
+    {
+        Some("") => Has::Broken("`cargo-nextest nextest --version` printed no version".into()),
+        Some(version) => Has::Version(version.to_string()),
+        None => Has::Nothing,
+    }
+}
+
+/// What the cargo-nextest under <home>'s `.cargo/bin` is.
+pub fn has(home: &Path) -> Has {
     let program = bin_dir(home).join("cargo-nextest");
     if !program.exists() {
-        return None;
+        return Has::Nothing;
     }
-    let output = Command::new(&program)
+    let output = match Command::new(&program)
         .args(["nextest", "--version"])
         .stdin(Stdio::null())
         .output()
-        .ok()?;
-    output
-        .status
-        .success()
-        .then(|| {
-            String::from_utf8_lossy(&output.stdout)
-                .lines()
-                .next()
-                .and_then(|line| line.split_whitespace().nth(1))
-                .map(str::to_string)
-        })
-        .flatten()
+    {
+        Ok(output) => output,
+        Err(error) => return Has::Broken(format!("running {}: {error}", program.display())),
+    };
+    if !output.status.success() {
+        return Has::Broken(format!(
+            "{} failed ({}): {}",
+            program.display(),
+            output.status,
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+    match String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .next()
+        .and_then(|line| line.split_whitespace().nth(1))
+    {
+        Some(version) => Has::Version(version.to_string()),
+        None => Has::Broken(format!("{} printed no version", program.display())),
+    }
 }
 
 /// Installs cargo-nextest `VERSION` under <home>'s `.cargo/bin` when it has
 /// another version or none, and returns whether it did. <download> puts the
-/// release's `cargo-nextest` program in the folder it is given.
+/// release's `cargo-nextest` program in the folder it is given, a new one
+/// beside the program, so that the rename stays on one volume. Fails when
+/// the program there does not start, and when the new folder cannot be
+/// created or removed.
 pub fn install_with(home: &Path, download: impl FnOnce(&Path) -> Result<()>) -> Result<bool> {
-    if installed_version(home).as_deref() == Some(VERSION) {
-        return Ok(false);
+    match has(home) {
+        Has::Version(version) if version == VERSION => return Ok(false),
+        Has::Broken(said) => fail!(
+            "the cargo-nextest under {} does not start: {said}",
+            home.display()
+        ),
+        Has::Version(_) | Has::Nothing => {}
     }
     let bin = bin_dir(home);
     std::fs::create_dir_all(&bin).context(|| format!("creating {}", bin.display()))?;
-    // A folder beside the program, so that the rename stays on one volume
-    // and a run of `cargo nextest` finds a whole program or the old one.
-    let part = bin.join(format!(".cargo-nextest.{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&part);
-    std::fs::create_dir_all(&part).context(|| format!("creating {}", part.display()))?;
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |since| since.as_nanos());
+    let part = bin.join(format!(".cargo-nextest.{}.{nanos}", std::process::id()));
+    std::fs::create_dir(&part).context(|| format!("creating {}", part.display()))?;
     let placed = (|| -> Result<()> {
         download(&part)?;
         let program = part.join("cargo-nextest");
@@ -81,16 +118,20 @@ pub fn install_with(home: &Path, download: impl FnOnce(&Path) -> Result<()>) -> 
         }
         let target = bin.join("cargo-nextest");
         std::fs::rename(&program, &target).context(|| format!("replacing {}", target.display()))?;
-        match installed_version(home).as_deref() {
-            Some(VERSION) => Ok(()),
+        match has(home) {
+            Has::Version(version) if version == VERSION => Ok(()),
             other => fail!(
-                "{} reports version {other:?} after installing {VERSION}",
+                "{} is {other:?} after installing {VERSION}",
                 target.display()
             ),
         }
     })();
-    let _ = std::fs::remove_dir_all(&part);
-    placed.map(|()| true)
+    let removed = std::fs::remove_dir_all(&part).context(|| format!("removing {}", part.display()));
+    match (placed, removed) {
+        (Ok(()), Ok(())) => Ok(true),
+        (Err(error), Ok(())) | (Ok(()), Err(error)) => Err(error),
+        (Err(error), Err(also)) => fail!("{}; {}", error.text(), also.text()),
+    }
 }
 
 /// Downloads the release's universal macOS build of cargo-nextest into

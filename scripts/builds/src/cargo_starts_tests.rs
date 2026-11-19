@@ -19,7 +19,7 @@ fn probe(cores: u32, load: f64) -> std::result::Result<Probe, String> {
         load: [load, load, load],
         free_kib: 1 << 30,
         git_fails: None,
-        nextest: None,
+        nextest: crate::nextest::Has::Nothing,
     })
 }
 

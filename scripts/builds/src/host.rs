@@ -249,9 +249,9 @@ pub struct Probe {
     /// push reaches: every job runs git there, so the host refuses every job.
     /// None when git runs.
     pub git_fails: Option<String>,
-    /// The version of cargo-nextest the host has (`nextest::VERSION` is the
-    /// one builds installs); None when it has none.
-    pub nextest: Option<String>,
+    /// What the host has of cargo-nextest (`nextest::VERSION` is the version
+    /// builds installs).
+    pub nextest: crate::nextest::Has,
 }
 
 /// A host's cores and its one-minute load average at one moment.
@@ -372,7 +372,7 @@ pub fn parse_probe(text: &str) -> Result<Probe> {
         free_kib,
         memory: Memory::parse(text)?,
         git_fails,
-        nextest: crate::nextest::parse_version(text),
+        nextest: crate::nextest::parse_has(text),
     })
 }
 
@@ -408,7 +408,7 @@ pub fn probe_local(places: &Places) -> Result<Probe> {
         free_kib: volume_space(&places.home)?.free_kib,
         memory: crate::host_memory::here()?,
         git_fails: None,
-        nextest: crate::nextest::installed_version(&places.home),
+        nextest: crate::nextest::has(&places.home),
     })
 }
 
@@ -610,9 +610,6 @@ pub enum PassedOver {
     GitFails { host: String, said: String },
     /// `builds host setup` has not measured the host's core speed.
     NoSpeed { host: String },
-    /// A nextest run needs cargo-nextest at `nextest::VERSION`, and the host
-    /// has <has>, which is None when it has none.
-    NoNextest { host: String, has: Option<String> },
 }
 
 impl std::fmt::Display for PassedOver {
@@ -638,19 +635,6 @@ impl std::fmt::Display for PassedOver {
                 out,
                 "{host} has no measured core speed (`builds host setup {host}`)"
             ),
-            PassedOver::NoNextest { host, has } => {
-                let version = crate::nextest::VERSION;
-                match has {
-                    None => write!(
-                        out,
-                        "{host} has no cargo-nextest (`builds host setup {host}` installs {version})"
-                    ),
-                    Some(has) => write!(
-                        out,
-                        "{host} has cargo-nextest {has}, not {version} (`builds host setup {host}` installs {version})"
-                    ),
-                }
-            }
         }
     }
 }
@@ -1014,12 +998,44 @@ pub enum Runs {
     Nextest,
 }
 
-impl Runs {
-    /// What cargo's <args> run.
-    pub fn of(args: &[String]) -> Runs {
-        match args.first().map(String::as_str) {
-            Some("nextest") => Runs::Nextest,
-            _ => Runs::Cargo,
+/// Why a host cannot take a run that needs cargo-nextest: it has no
+/// cargo-nextest at `nextest::VERSION`, and has <has>.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LacksNextest {
+    pub host: String,
+    pub has: crate::nextest::Has,
+}
+
+impl std::fmt::Display for LacksNextest {
+    fn fmt(&self, out: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        use crate::nextest::Has;
+        let LacksNextest { host, has } = self;
+        let version = crate::nextest::VERSION;
+        let fix = format!("`builds host setup {host}` installs {version}");
+        match has {
+            Has::Nothing => write!(out, "{host} has no cargo-nextest ({fix})"),
+            Has::Version(has) => {
+                write!(out, "{host} has cargo-nextest {has}, not {version} ({fix})")
+            }
+            Has::Broken(said) => write!(out, "{host}'s cargo-nextest does not start: {said}"),
+        }
+    }
+}
+
+/// Why `builds cargo` cannot run <runs> on a host.
+#[derive(Clone, Debug, PartialEq)]
+pub enum CannotRun {
+    /// The host takes no cargo job.
+    PassedOver(PassedOver),
+    /// The host takes cargo jobs but lacks what the run needs.
+    LacksNextest(LacksNextest),
+}
+
+impl std::fmt::Display for CannotRun {
+    fn fmt(&self, out: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            CannotRun::PassedOver(why) => why.fmt(out),
+            CannotRun::LacksNextest(why) => why.fmt(out),
         }
     }
 }
@@ -1032,9 +1048,9 @@ pub fn takes_run<'a>(
     probe: &'a std::result::Result<Probe, String>,
     floor_kib: u64,
     runs: Runs,
-) -> std::result::Result<(&'a Probe, f64), PassedOver> {
-    let (probe, speed) = takes_cargo(host, probe, floor_kib)?;
-    has_what_runs_needs(host, probe, runs)?;
+) -> std::result::Result<(&'a Probe, f64), CannotRun> {
+    let (probe, speed) = takes_cargo(host, probe, floor_kib).map_err(CannotRun::PassedOver)?;
+    has_what_runs_needs(host, probe, runs).map_err(CannotRun::LacksNextest)?;
     Ok((probe, speed))
 }
 
@@ -1044,9 +1060,10 @@ pub fn has_what_runs_needs(
     host: &Host,
     probe: &Probe,
     runs: Runs,
-) -> std::result::Result<(), PassedOver> {
-    if runs == Runs::Nextest && probe.nextest.as_deref() != Some(crate::nextest::VERSION) {
-        return Err(PassedOver::NoNextest {
+) -> std::result::Result<(), LacksNextest> {
+    use crate::nextest::{Has, VERSION};
+    if runs == Runs::Nextest && probe.nextest != Has::Version(VERSION.to_string()) {
+        return Err(LacksNextest {
             host: host.name.clone(),
             has: probe.nextest.clone(),
         });
