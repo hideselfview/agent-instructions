@@ -42,9 +42,9 @@ pub fn record(db: &Connection, run: i64, top: &Path, state: &TreeState) -> Resul
         }
     };
     db.execute(
-        "INSERT INTO builds_cargo_run_commit (run_id, head, branch, changes, run_branch, off_branch) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-        params![run, state.head, state.branch, state.changes, run_branch, off],
+        "INSERT INTO builds_cargo_run_commit (run_id, head, changes, run_branch, off_branch) \
+         VALUES (?1, ?2, ?3, ?4, ?5)",
+        params![run, state.head, state.changes, run_branch, off],
     )
     .sql()?;
     Ok(())

@@ -7,8 +7,6 @@ CREATE TABLE builds_cargo_run_commit (
     run_id INTEGER PRIMARY KEY REFERENCES builds_cargo_runs (id) ON DELETE CASCADE,
     -- HEAD's commit when the run started.
     head TEXT NOT NULL CHECK (length(head) = 40 AND head NOT GLOB '*[^0-9a-f]*'),
-    -- The branch checked out; NULL for a detached HEAD.
-    branch TEXT CHECK (branch <> ''),
     -- A hash of the uncommitted changes, each changed path with its content
     -- (tree_state.rs); NULL for a clean tree.
     changes TEXT CHECK (changes <> ''),

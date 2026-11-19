@@ -739,8 +739,8 @@ restart the server.
                               puts the check's run start and position in
                               BUILDS_HOOK_CHECK), the crates its -p and
                               --package arguments named, the commit it ran
-                              on (HEAD as it started, the branch checked out,
-                              a hash of the uncommitted changes, and whether
+                              on (HEAD as it started, a hash of the
+                              uncommitted changes, and whether
                               HEAD was off the branch of the item running in
                               the worktree), and how it ended:
                               passed, failed, or stopped (a signal ended

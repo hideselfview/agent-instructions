@@ -76,8 +76,6 @@ struct Read {
     cause: Vec<String>,
     /// The last `EXCERPT_LINES` lines.
     last: VecDeque<String>,
-    /// Did any line pass through?
-    any: bool,
 }
 
 /// Reads cargo's output line by line, from every stream builds passes
@@ -116,7 +114,6 @@ impl Watch {
         let text = String::from_utf8_lossy(bytes);
         let text = text.trim_end_matches(['\n', '\r']);
         let mut read = self.0.lock().expect("no panic holding it");
-        read.any = true;
         if let Some(test) = failed_test(text)
             && !read.failed.iter().any(|known| known == test)
         {
@@ -153,8 +150,7 @@ impl Watch {
         Outcome {
             ended,
             failed: read.failed.clone(),
-            excerpt: (ended != Ended::Passed && read.any && !excerpt.trim().is_empty())
-                .then_some(excerpt),
+            excerpt: (ended != Ended::Passed && !excerpt.trim().is_empty()).then_some(excerpt),
         }
     }
 }
