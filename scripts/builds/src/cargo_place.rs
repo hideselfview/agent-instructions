@@ -226,9 +226,10 @@ pub fn stays_here(
 /// The compiler wrappers cargo reads from the environment.
 const WRAPPERS: [&str; 2] = ["RUSTC_WRAPPER", "RUSTC_WORKSPACE_WRAPPER"];
 
-/// <path> relative to the checkout's top, when it names a file inside it.
-fn inside(checkout: &Checkout, path: &OsString) -> Option<String> {
-    std::path::Path::new(path)
+/// <path> relative to the checkout's top, when it names a file or folder
+/// inside it other than the top.
+fn inside(checkout: &Checkout, path: impl AsRef<Path>) -> Option<String> {
+    path.as_ref()
         .strip_prefix(&checkout.top)
         .ok()
         .map(|rest| rest.to_string_lossy().into_owned())
@@ -298,7 +299,10 @@ impl Before {
 
 /// The words a host runs for <args>: `builds cargo` with the forwarded
 /// environment and `BUILDS_CARGO_HOST=local`, so the host's own `builds` runs
-/// it there.
+/// it there, in the folder of the host's worktree that matches <dir>, the
+/// caller's working directory in <checkout>: cargo picks the package of the
+/// folder it runs in, so a command run in a crate's folder builds that crate
+/// there as it would here.
 ///
 /// A wrapper that is a file inside <checkout> is named there by its path
 /// relative to the worktree the host runs in (the host `cd`s into it first),
@@ -306,6 +310,7 @@ impl Before {
 pub fn host_command(
     args: &[String],
     checkout: &Checkout,
+    dir: &Path,
     env: &dyn Fn(&str) -> Option<OsString>,
 ) -> Vec<String> {
     let mut script = String::new();
@@ -335,6 +340,10 @@ pub fn host_command(
                 host::sh_quote(&relative)
             ));
         }
+    }
+    // Last: the lines above name files from the worktree's top.
+    if let Some(within) = inside(checkout, dir) {
+        script.push_str(&format!("cd {} || exit $?\n", host::sh_quote(&within)));
     }
     let mut words = Vec::new();
     if !script.is_empty() {
@@ -596,8 +605,9 @@ fn join(why: String, more: Vec<String>) -> String {
 }
 
 /// Starts the command where <choice> says. On a host, that sends
-/// <checkout>'s working tree there and claims a worktree for <args>, and the
-/// job comes back to be run (`finish`). A host that refuses the job (the send
+/// <checkout>'s working tree there and claims a worktree for <args>, run in
+/// the folder there that matches <dir>, the caller's working directory, and
+/// the job comes back to be run (`finish`). A host that refuses the job (the send
 /// or the claim fails there) is recorded as refusing jobs (`remote::start_job`),
 /// and the command runs on this Mac instead, saying so on stderr. Returns
 /// None when the command runs on this Mac.
@@ -606,6 +616,7 @@ pub fn start<'a>(
     ssh: &'a Ssh,
     choice: Choice,
     checkout: &Checkout,
+    dir: &Path,
     args: &[String],
     env: &dyn Fn(&str) -> Option<OsString>,
 ) -> Result<Option<Job<'a>>> {
@@ -631,7 +642,7 @@ pub fn start<'a>(
         },
         what: What::Working,
         host: None,
-        command: host_command(args, checkout, env),
+        command: host_command(args, checkout, dir, env),
     };
     match remote::start_job(places, ssh, &host, &checkout.top, &request)? {
         Start::Started(job) => Ok(Some(job)),

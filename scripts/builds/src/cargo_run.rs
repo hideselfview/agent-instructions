@@ -357,7 +357,7 @@ pub fn cmd_cargo(args: &[String]) -> Result<()> {
         Choice::On(host, probe, _) => Some((host.name.clone(), probe.load())),
     };
     let job = match checkout.as_ref() {
-        Some(checkout) => cargo_place::start(&places, &ssh, choice, checkout, args, &env)?,
+        Some(checkout) => cargo_place::start(&places, &ssh, choice, checkout, &dir, args, &env)?,
         None => None,
     };
     // A host that refused the job leaves it to this Mac.

@@ -136,7 +136,7 @@ fn a_host_gets_the_forwarded_environment_and_runs_builds_as_local() {
     let scratch = Scratch::new("place-command");
     let (_main, side) = checkouts(&scratch);
     assert_eq!(
-        host_command(&args(&["doc", "--workspace"]), &side, &env),
+        host_command(&args(&["doc", "--workspace"]), &side, &side.top, &env),
         args(&[
             "env",
             "BUILDS_CARGO_HOST=local",
@@ -160,7 +160,7 @@ fn a_hook_checks_run_tells_the_host_it_runs_for_a_hook() {
     };
     let scratch = Scratch::new("place-hook");
     let (_main, side) = checkouts(&scratch);
-    let words = host_command(&args(&["check"]), &side, &env);
+    let words = host_command(&args(&["check"]), &side, &side.top, &env);
     assert_eq!(&words[..2], &args(&["sh", "-c"]));
     assert!(
         words[2].starts_with(
@@ -205,6 +205,19 @@ fn run_on(
     args: &[String],
     env: &dyn Fn(&str) -> Option<OsString>,
 ) -> Result<i32> {
+    run_in(places, ssh, host, checkout, &checkout.top, args, env)
+}
+
+/// `run_on`, run from <dir> in <checkout>.
+fn run_in(
+    places: &Places,
+    ssh: &Ssh,
+    host: &Host,
+    checkout: &Checkout,
+    dir: &Path,
+    args: &[String],
+    env: &dyn Fn(&str) -> Option<OsString>,
+) -> Result<i32> {
     match start(
         places,
         ssh,
@@ -214,6 +227,7 @@ fn run_on(
             "named".to_string(),
         ),
         checkout,
+        dir,
         args,
         env,
     )? {
@@ -669,6 +683,44 @@ fn a_host_builds_the_working_tree_and_its_exit_status_comes_back() {
 }
 
 #[test]
+fn a_command_run_in_a_folder_of_the_checkout_runs_in_the_same_folder_on_the_host() {
+    let (r, _main, side) = remote("place-folder", true, RECORDING_BUILDS);
+    let places = r.scratch.places();
+    let m1 = host("m1", Some("user@m1"));
+    let folder = side.top.join("crates/one");
+    std::fs::create_dir_all(&folder).unwrap();
+    std::fs::write(folder.join("marker.txt"), "the crate's folder\n").unwrap();
+    let env = |name: &str| (name == "BUILDS_CARGO_BEFORE").then(|| OsString::from("before.sh"));
+    let words = host_command(&args(&["test"]), &side, &folder, &env);
+    assert!(
+        words[2].starts_with("\"$PWD\"/'before.sh'  || exit $?\ncd 'crates/one' || exit $?\n"),
+        "the before program runs from the top, then the host moves into the folder: {}",
+        words[2]
+    );
+    let code = run_in(
+        &places,
+        &r.ssh,
+        &m1,
+        &side,
+        &folder,
+        &args(&["test"]),
+        &no_env,
+    )
+    .unwrap();
+    assert_eq!(code, 0);
+    // The fake `builds` writes beside the folder it runs in.
+    let ran = read(
+        &r.home
+            .join("dev/demo-worktrees/remote-side-1/crates/ran.txt"),
+    );
+    assert!(
+        ran.contains("demo-worktrees/remote-side-1/crates/one\n"),
+        "{ran}"
+    );
+    assert!(ran.ends_with("the crate's folder\n"), "{ran}");
+}
+
+#[test]
 fn a_host_that_drops_fails_loudly_naming_it() {
     let (r, _main, side) = remote("place-drop", true, "exit 255\n");
     let places = r.scratch.places();
@@ -696,7 +748,7 @@ fn a_wrapper_and_a_before_program_inside_the_checkout_run_from_the_hosts_worktre
         "BUILDS_CARGO_BEFORE" => Some(OsString::from("scripts/before.sh one two")),
         _ => None,
     };
-    let words = host_command(&args(&["clippy", "-p", "demo"]), &side, &env);
+    let words = host_command(&args(&["clippy", "-p", "demo"]), &side, &side.top, &env);
     assert_eq!(&words[..2], ["sh", "-c"]);
     assert!(
         words[2].starts_with("\"$PWD\"/'scripts/before.sh' 'one' 'two' || exit $?\n"),
@@ -858,6 +910,7 @@ fn a_host_that_refuses_the_job_leaves_it_to_this_mac_and_is_passed_over_until_gi
             "most room".to_string(),
         ),
         &side,
+        &side.top,
         &args(&["test"]),
         &no_env,
     )
@@ -936,6 +989,7 @@ fn a_host_that_refuses_the_job_leaves_it_to_this_mac_and_is_passed_over_until_gi
         &ssh,
         Choice::On(gone, Box::new(probe(1.0).unwrap()), "most room".to_string()),
         &side,
+        &side.top,
         &args(&["test"]),
         &no_env,
     )
