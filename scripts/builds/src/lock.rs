@@ -555,7 +555,14 @@ fn take_in(
         );
     }
     queue::route_repoint_signal();
-    unsafe { libc::signal(libc::SIGUSR2, take_over as *const () as libc::sighandler_t) };
+    if unsafe { libc::signal(libc::SIGUSR2, take_over as *const () as libc::sighandler_t) }
+        == libc::SIG_ERR
+    {
+        fail!(
+            "installing the takeover signal's handler: {}",
+            std::io::Error::last_os_error()
+        );
+    }
     TAKEN_OVER.store(false, Ordering::SeqCst);
     QUEUED.store(true, Ordering::SeqCst);
     let queue = Queue::of(places, repo, lane);

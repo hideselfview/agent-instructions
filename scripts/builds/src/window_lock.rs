@@ -83,6 +83,17 @@ fn holder_of(places: &Places, host: &str) -> Result<Option<String>> {
 static WAKE_WRITE: AtomicI32 = AtomicI32::new(-1);
 static WAKE_READ: AtomicI32 = AtomicI32::new(-1);
 
+/// Sets <flag> on <end> with `fcntl` <command>.
+fn set(end: libc::c_int, command: libc::c_int, flag: libc::c_int) -> Result<()> {
+    if unsafe { libc::fcntl(end, command, flag) } < 0 {
+        fail!(
+            "setting up the wake pipe: {}",
+            std::io::Error::last_os_error()
+        );
+    }
+    Ok(())
+}
+
 /// Makes the wake pipe the first time and returns its read end.
 fn wake_pipe() -> Result<libc::c_int> {
     static MADE: Mutex<()> = Mutex::new(());
@@ -95,10 +106,10 @@ fn wake_pipe() -> Result<libc::c_int> {
         fail!("making the wake pipe: {}", std::io::Error::last_os_error());
     }
     for end in ends {
-        unsafe { libc::fcntl(end, libc::F_SETFD, libc::FD_CLOEXEC) };
+        set(end, libc::F_SETFD, libc::FD_CLOEXEC)?;
     }
     // The writers never wait for room: a full pipe already wakes the reader.
-    unsafe { libc::fcntl(ends[1], libc::F_SETFL, libc::O_NONBLOCK) };
+    set(ends[1], libc::F_SETFL, libc::O_NONBLOCK)?;
     WAKE_READ.store(ends[0], Ordering::SeqCst);
     WAKE_WRITE.store(ends[1], Ordering::SeqCst);
     Ok(ends[0])
@@ -117,7 +128,8 @@ pub fn wake() {
 /// How the thread that waits for a lock on a file has done.
 enum Waiting {
     Waits,
-    Has,
+    /// The thread has the lock, on this descriptor.
+    Has(libc::c_int),
     Failed(String),
     /// The wait was given up: the thread closes the file when it ends.
     GivenUp,
@@ -142,65 +154,55 @@ fn wait_for(file: &std::path::Path, stopped: &dyn Fn() -> bool) -> Result<Option
             break;
         }
         let mut byte = 0u8;
-        unsafe { libc::read(read, (&mut byte as *mut u8).cast(), 1) };
+        if unsafe { libc::read(read, (&mut byte as *mut u8).cast(), 1) } <= 0 {
+            break;
+        }
     }
-    let name =
-        std::ffi::CString::new(file.as_os_str().as_encoded_bytes()).expect("a path holds no NUL");
     // Left open without close-on-exec, like an app lock: the step's
-    // processes hold the lock too.
-    let fd = unsafe { libc::open(name.as_ptr(), libc::O_RDONLY | libc::O_CREAT, 0o644) };
-    if fd < 0 {
-        fail!(
-            "opening {}: {}",
-            file.display(),
-            std::io::Error::last_os_error()
-        );
-    }
+    // processes hold the lock too. The thread opens the file and waits for
+    // the lock; `open_with` starts the wait again after a signal.
     let state = Arc::new(Mutex::new(Waiting::Waits));
     let waiter = state.clone();
-    let shown = file.display().to_string();
+    let path = file.to_path_buf();
     std::thread::spawn(move || {
-        let locked = loop {
-            if unsafe { libc::flock(fd, libc::LOCK_EX) } == 0 {
-                break Ok(());
-            }
-            let error = std::io::Error::last_os_error();
-            if error.kind() != std::io::ErrorKind::Interrupted {
-                break Err(format!("locking {shown}: {error}"));
-            }
-        };
+        let locked = queue::open_with(&path, libc::O_CREAT);
         let mut state = waiter.lock().expect("no thread panicked holding it");
-        if matches!(*state, Waiting::GivenUp) {
-            unsafe { libc::close(fd) };
-            return;
-        }
-        *state = match locked {
-            Ok(()) => Waiting::Has,
-            Err(error) => {
-                unsafe { libc::close(fd) };
-                Waiting::Failed(error)
+        match (&*state, locked) {
+            (Waiting::GivenUp, Ok(fd)) => unsafe {
+                libc::close(fd);
+                return;
+            },
+            (Waiting::GivenUp, Err(_)) => return,
+            (_, Ok(fd)) => *state = Waiting::Has(fd),
+            (_, Err(error)) => {
+                *state = Waiting::Failed(format!("locking {}: {error}", path.display()))
             }
-        };
+        }
         wake();
     });
     loop {
-        let mut state = state.lock().expect("no thread panicked holding it");
-        if stopped() {
-            if matches!(*state, Waiting::Has) {
-                unsafe { libc::close(fd) };
-            } else if !matches!(*state, Waiting::Failed(_)) {
+        {
+            let mut state = state.lock().expect("no thread panicked holding it");
+            if stopped() {
+                if let Waiting::Has(fd) = *state {
+                    unsafe { libc::close(fd) };
+                }
                 *state = Waiting::GivenUp;
+                return Ok(None);
             }
-            return Ok(None);
+            match &*state {
+                Waiting::Has(fd) => return Ok(Some(*fd)),
+                Waiting::Failed(error) => fail!("{error}"),
+                Waiting::Waits | Waiting::GivenUp => {}
+            }
         }
-        match &*state {
-            Waiting::Has => return Ok(Some(fd)),
-            Waiting::Failed(error) => fail!("{error}"),
-            Waiting::Waits | Waiting::GivenUp => {}
-        }
-        drop(state);
         let mut byte = 0u8;
-        unsafe { libc::read(read, (&mut byte as *mut u8).cast(), 1) };
+        if unsafe { libc::read(read, (&mut byte as *mut u8).cast(), 1) } < 0 {
+            let error = std::io::Error::last_os_error();
+            if error.kind() != std::io::ErrorKind::Interrupted {
+                fail!("waiting on the wake pipe: {error}");
+            }
+        }
     }
 }
 
