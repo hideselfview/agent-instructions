@@ -73,8 +73,8 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use crate::app_config::{
-    CONFIG, Config, PickKind, Picker, Step, check_out, parse_config, resolve, run_command_keeping,
-    run_git, show_duration,
+    CONFIG, CheckedOut, Config, PickKind, Picker, Step, check_out, parse_config, resolve,
+    run_command_keeping, run_git, show_duration,
 };
 use crate::app_remote::{RemoteApp, fetched_local_source, local_source};
 use crate::app_site::Site;
@@ -633,14 +633,16 @@ impl Site {
 
     /// Switches the checkout to <commit> (which must have no changes) and
     /// reads the repo's `.app-build` there.
-    pub fn check_out(&mut self, places: &Places, repo: &str, commit: &str) -> Result<Config> {
+    pub fn check_out(&mut self, places: &Places, repo: &str, commit: &str) -> Result<CheckedOut> {
         match self {
             Site::Local(top) => check_out(top, commit),
             Site::Remote(remote) => {
                 let source = fetched_local_source(places, repo)?;
                 let sha = resolve(&source, commit)?;
                 remote.switch_to(&source, &sha)?;
-                parse_config(&run_git(&source, &["show", &format!("{sha}:{CONFIG}")])?)
+                let config =
+                    parse_config(&run_git(&source, &["show", &format!("{sha}:{CONFIG}")])?)?;
+                Ok(CheckedOut { sha, config })
             }
         }
     }
@@ -1047,8 +1049,8 @@ fn build_lane(
             // The switch and the steps change what the checkout holds.
             Built::clear(&built_file)?;
         }
-        let config = site.check_out(places, repo, commit)?;
-        timing.commit = Some(site.head()?);
+        let CheckedOut { sha, config } = site.check_out(places, repo, commit)?;
+        timing.commit = Some(sha);
         let program_of = |class: &str| {
             let program = crate::derive::program_of(&source, &config, commit, lane, class)?;
             if let Some(program) = &program {

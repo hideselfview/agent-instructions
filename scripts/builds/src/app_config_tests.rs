@@ -69,7 +69,7 @@ fn the_commit_named_is_checked_out_and_built_in_the_checkout() {
     let scratch = Scratch::new("app-config-build");
     let top = checkout(&scratch, "demo");
     let commit = run_git(&top, &["rev-parse", "HEAD"]).unwrap();
-    let config = check_out(&top, commit.trim()).unwrap();
+    let config = check_out(&top, commit.trim()).unwrap().config;
     assert_eq!(run_git(&top, &["rev-parse", "HEAD"]).unwrap(), commit);
     assert!(
         run_git(&top, &["symbolic-ref", "-q", "HEAD"]).is_err(),

@@ -91,7 +91,7 @@ fn no_ref_builds_the_origin_main_the_fetch_brought_not_a_stale_local_main() {
     git(&other, &["push", "-q", "origin", "main"]);
     let newer = run_git(&other, &["rev-parse", "HEAD"]).unwrap();
 
-    let config = check_out(&top, default).unwrap();
+    let config = check_out(&top, default).unwrap().config;
     assert_eq!(
         run_git(&top, &["rev-parse", "HEAD"]).unwrap(),
         newer,

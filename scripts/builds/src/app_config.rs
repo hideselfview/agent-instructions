@@ -756,9 +756,15 @@ pub fn switch_to(top: &Path, commit: &str, force: bool) -> Result<()> {
     Ok(())
 }
 
-/// The ref checked out in the app checkout <top>, which must be clean, and its
-/// `.app-build`.
-pub fn check_out(top: &Path, commit: &str) -> Result<Config> {
+/// A commit an app checkout was switched to, and the `.app-build` it holds.
+pub struct CheckedOut {
+    pub sha: String,
+    pub config: Config,
+}
+
+/// Switches the app checkout <top>, which must be clean, to the commit that
+/// <commit> names after a fetch, and reads that commit's `.app-build`.
+pub fn check_out(top: &Path, commit: &str) -> Result<CheckedOut> {
     let changes = run_git(top, &["status", "--porcelain"])?;
     if !changes.trim().is_empty() {
         fail!(
@@ -766,9 +772,13 @@ pub fn check_out(top: &Path, commit: &str) -> Result<Config> {
         );
     }
     run_git(top, &["fetch", "-q", "origin"])?;
-    switch_to(top, commit, false)?;
+    let sha = resolve(top, commit)?;
+    switch_to(top, &sha, false)?;
     let file = top.join(CONFIG);
-    parse_config(&std::fs::read_to_string(&file).context(|| format!("reading {}", file.display()))?)
+    let config = parse_config(
+        &std::fs::read_to_string(&file).context(|| format!("reading {}", file.display()))?,
+    )?;
+    Ok(CheckedOut { sha, config })
 }
 
 /// The process that runs <command> in the checkout <top>.
