@@ -156,9 +156,7 @@ fn base_request(world: &World, places: serde_json::Value) -> serde_json::Value {
         .as_object()
         .unwrap()
         .keys()
-        .filter(|path| {
-            !path.ends_with('/') && !path.contains('#') && !path.ends_with("canvas.json")
-        })
+        .filter(|path| PlaceKind::of(path) == PlaceKind::Board)
         .map(|path| {
             (
                 path.clone(),
