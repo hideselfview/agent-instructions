@@ -1,9 +1,11 @@
 //! Whether the build hosts' cores do the work that waits. While items are
 //! ready to dispatch, the coordinator keeps every host's cores busy, and while
-//! a host's load is well over its cores, it starts nothing new, except items of project builds. `builds health`
-//! lists a host whose cores sit idle while items are ready, and a host over its
-//! cores, under "needs action", and every ready item of project builds that
-//! no agent runs.
+//! every host that takes cargo work is well over its cores, it starts nothing
+//! new, except items of project builds. `builds health` lists a host whose
+//! cores sit idle while items are ready, and a host over its cores, under
+//! "needs action", and every ready item of project builds that no agent runs.
+//! A host over its cores holds nothing back while another host that takes cargo
+//! work has idle cores, because `builds cargo` sends the work there.
 //!
 //! Both judge the 5-minute load average: health runs every 5 minutes, and the
 //! 1-minute average rises and falls with each build's steps.
@@ -30,6 +32,18 @@ pub fn findings(
     floor_kib: u64,
 ) -> Vec<Advice> {
     let mut found = Vec::new();
+    // The hosts `builds cargo` can give work to whose 5-minute load leaves
+    // idle cores, each with its place: while one exists, the others' load
+    // holds back nothing, since `builds cargo` sends the work there.
+    let roomy: Vec<(&str, String)> = hosts
+        .iter()
+        .filter_map(|(host, probe)| {
+            let answer = probe.as_ref().ok()?;
+            let idle = answer.load[1] < IDLE_SHARE * f64::from(answer.cores);
+            (idle && crate::host::takes_cargo(host, probe, floor_kib).is_ok())
+                .then(|| (host.name.as_str(), crate::host::place(&host.name)))
+        })
+        .collect();
     for (host, probe) in hosts {
         let answer = match probe {
             Ok(answer) => answer,
@@ -45,10 +59,22 @@ pub fn findings(
         let cores = f64::from(answer.cores);
         let load = format!("its 5-minute load is {five:.1} on {} cores", answer.cores);
         if five > OVER_SHARE * cores {
-            found.push(Advice::said(format!(
-                "{} is over its cores: {load}; start nothing new, except builds items, which this does not hold back",
-                crate::host::place(&host.name)
-            )));
+            let elsewhere: Vec<&str> = roomy
+                .iter()
+                .filter(|(name, _)| *name != host.name)
+                .map(|(_, place)| place.as_str())
+                .collect();
+            let place = crate::host::place(&host.name);
+            found.push(Advice::said(if elsewhere.is_empty() {
+                format!(
+                    "{place} is over its cores: {load}; start nothing new, except builds items, which this does not hold back"
+                )
+            } else {
+                format!(
+                    "{place} is over its cores: {load}; builds cargo sends its work to {}, which has idle cores, so this holds nothing back",
+                    elsewhere.join(" and ")
+                )
+            }));
         } else if ready > 0 && five < IDLE_SHARE * cores {
             let items = crate::text::counted(ready, "item is ready", "items are ready");
             let place = crate::host::place(&host.name);

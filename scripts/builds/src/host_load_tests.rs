@@ -64,26 +64,49 @@ fn idle_cores_with_nothing_ready_or_a_busy_host_need_nothing() {
 }
 
 /// A host whose 5-minute load is over five quarters of its cores is over
-/// them, whether or not items are ready.
+/// them, whether or not items are ready, and holds the queue back when no
+/// other host that takes cargo work has idle cores.
 #[test]
 fn a_host_over_its_cores_asks_to_start_nothing_new() {
     let hosts = [
         (host(LOCAL, Some(1.0)), loaded(12.6)),
-        (host("m1", Some(0.8)), loaded(2.0)),
+        (host("m1", Some(0.8)), loaded(9.0)),
     ];
+    assert_eq!(
+        lines(&hosts, 2),
+        [
+            "this Mac is over its cores: its 5-minute load is 12.6 on 10 cores; start nothing new, except builds items, which this does not hold back"
+        ]
+    );
     assert_eq!(
         lines(&hosts, 0),
         [
             "this Mac is over its cores: its 5-minute load is 12.6 on 10 cores; start nothing new, except builds items, which this does not hold back"
         ]
     );
+}
+
+/// This Mac over its cores while m1 sits idle: builds cargo sends the work to
+/// m1, so health says to start agents for m1 and does not hold the queue.
+#[test]
+fn a_host_over_its_cores_holds_nothing_back_while_another_host_has_room() {
+    let hosts = [
+        (host(LOCAL, Some(1.0)), loaded(12.6)),
+        (host("m1", Some(0.8)), loaded(2.0)),
+    ];
     assert_eq!(
         lines(&hosts, 2),
         [
-            "this Mac is over its cores: its 5-minute load is 12.6 on 10 cores; start nothing new, except builds items, which this does not hold back",
+            "this Mac is over its cores: its 5-minute load is 12.6 on 10 cores; builds cargo sends its work to host m1, which has idle cores, so this holds nothing back",
             "cores idle on host m1 while 2 items are ready: its 5-minute load is 2.0 on 10 cores; start agents",
         ]
     );
+    // An idle host that takes no cargo work gives the other no room.
+    let hosts = [
+        (host(LOCAL, Some(1.0)), loaded(12.6)),
+        (host("m1", None), loaded(2.0)),
+    ];
+    assert!(lines(&hosts, 0)[0].contains("start nothing new"));
 }
 
 /// Idle cores that `builds cargo` never uses ask for no agents. Health says

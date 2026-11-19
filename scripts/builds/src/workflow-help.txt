@@ -235,9 +235,11 @@ DISPATCH
     build folders are pruned.
   - Keep the cores of every build host busy while ready items wait: when
     `builds health` lists idle cores on a host, start agents on the next
-    ready items. While a host's load is well over its core count, start
-    nothing new, except items of project builds: they start whatever the
-    load.
+    ready items. While every host that takes cargo work is well over its
+    core count, start nothing new, except items of project builds: they
+    start whatever the load. A host over its cores holds nothing back while
+    another host that takes cargo work has idle cores, since `builds cargo`
+    sends the work there.
   - Flaky tests and speed work (profiling, benchmarks, timing a build) never go
     in the work queue. They need a quiet machine: on a loaded one, load hides
     the cause and skews every number, and repeated runs slow every other agent.
@@ -492,8 +494,10 @@ or a hold clears. A quiet check needs no message to the person.
   - Disk under the floor: hold the queue.
   - Cores idle on a host while items are ready: start agents on the next
     ready items (`builds next`).
-  - A host over its cores: start nothing new until its load falls under its
-    core count. Load never holds back items of project builds.
+  - Every host that takes cargo work over its cores: start nothing new until
+    one's load falls under its core count. A host over its cores while
+    another host that takes cargo work has idle cores needs nothing: start
+    agents for the idle host. Load never holds back items of project builds.
   - Builds items ready and not running: start them whatever the hosts' load
     (builds work goes first).
   - An app lock held long, or with agents waiting: check that the holder is

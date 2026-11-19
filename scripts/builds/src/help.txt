@@ -1411,7 +1411,10 @@ STATUS, HEALTH AND THE DASHBOARD
                               with the fix (`builds prune`, git on the
                               host, `builds host setup <name>`); this Mac or a host over its cores, its
                               5-minute load over five quarters of them (start
-                              nothing new); this Mac or a host that did not
+                              nothing new, unless another host that takes
+                              cargo work has idle cores, which `builds cargo`
+                              sends the work to: the line names that host);
+                              this Mac or a host that did not
                               say its load, with what went wrong
   builds dashboard [--port <port>] [--listen <address>]
                               run the daemon until it is killed. It follows
