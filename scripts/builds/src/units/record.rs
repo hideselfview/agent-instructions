@@ -289,8 +289,9 @@ pub fn fingerprint_values(fingerprint_dir: &Path) -> Result<HashSet<u64>> {
 /// What reading the JSON cargo keeps beside a unit's fingerprint file gave.
 pub enum Record {
     Json(Value),
-    /// The file no longer exists.
-    Gone,
+    /// The file at this path no longer exists: it went after its folder
+    /// was listed.
+    Gone(PathBuf),
     /// The file at this path holds no JSON, as when cargo is still writing
     /// it. Nothing about the unit can be read from it.
     Unreadable(PathBuf),
@@ -302,7 +303,7 @@ pub fn recorded(fingerprint_dir: &Path, file_name: &str) -> Result<Record> {
     let path = fingerprint_dir.join(format!("{file_name}.json"));
     let bytes = match std::fs::read(&path) {
         Ok(bytes) => bytes,
-        Err(error) if gone(&error) => return Ok(Record::Gone),
+        Err(error) if gone(&error) => return Ok(Record::Gone(path)),
         Err(error) => fail!("reading {}: {error}", path.display()),
     };
     Ok(match serde_json::from_slice(&bytes) {
@@ -311,12 +312,15 @@ pub fn recorded(fingerprint_dir: &Path, file_name: &str) -> Result<Record> {
     })
 }
 
-/// The warning builds prints for a unit whose record <path> holds no JSON.
-pub fn unreadable_note(path: &Path, what: &str) -> String {
-    format!(
-        "{what} the build copy whose fingerprint record {} holds no JSON (cargo may be writing it)",
-        path.display()
-    )
+/// Why builds read nothing from a record `recorded` gives as gone.
+pub const GONE: &str = "went while builds read its folder";
+/// Why builds read nothing from a record `recorded` gives as unreadable.
+pub const UNREADABLE: &str = "holds no JSON (cargo may be writing it)";
+
+/// The warning builds prints when it read nothing from a unit's fingerprint
+/// record <path>: <what> it did with the unit, and <why>.
+pub fn unread_note(what: &str, path: &Path, why: &str) -> String {
+    format!("{what}: its fingerprint record {} {why}", path.display())
 }
 
 /// Does a unit's fingerprint JSON record <features>? It holds them in Rust's
@@ -402,9 +406,16 @@ fn units_by_name(
             }
             let fingerprint = match recorded(&fingerprint_dir, &name)? {
                 Record::Json(fingerprint) => fingerprint,
-                Record::Gone => continue,
+                Record::Gone(path) => {
+                    note(unread_note("recorded no use of a build copy", &path, GONE));
+                    continue;
+                }
                 Record::Unreadable(path) => {
-                    note(unreadable_note(&path, "recorded no use of"));
+                    note(unread_note(
+                        "recorded no use of a build copy",
+                        &path,
+                        UNREADABLE,
+                    ));
                     continue;
                 }
             };

@@ -10,7 +10,7 @@ use std::rc::Rc;
 use serde_json::Value;
 
 use super::objects::dead_objects;
-use super::record::{Record, fingerprint_values, recorded, unreadable_note};
+use super::record::{GONE, Record, UNREADABLE, fingerprint_values, recorded, unread_note};
 use super::unit::{Unit, Units, units_in};
 use super::{
     Guard, INCREMENTAL_DEPTH, OpenFiles, holds_any, is_folder, lock_guard, lock_profile, lstat,
@@ -235,9 +235,16 @@ impl Copies {
                 for name in &names {
                     match recorded(fingerprint, &name[..name.len() - ".json".len()])? {
                         Record::Json(record) => records.push((name.clone(), record)),
-                        Record::Gone => whole = false,
+                        Record::Gone(path) => {
+                            note(unread_note(
+                                "left a build copy out of the replaced check",
+                                &path,
+                                GONE,
+                            ));
+                            whole = false;
+                        }
                         Record::Unreadable(path) => {
-                            note(unreadable_note(&path, "kept"));
+                            note(unread_note("kept a build copy", &path, UNREADABLE));
                             copies.unreadable.insert(key.clone());
                             whole = false;
                         }
