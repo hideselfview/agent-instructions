@@ -84,8 +84,8 @@ for want, cwd, cmd in CASES:
     print(("ok  " if got == want else "FAIL"), "deny " if got else "allow", cmd.replace("\n", " ")[:100])
     bad += got != want
 
-# End to end through the hook's stdin protocol, with a `builds` that refuses a command naming no agent, as
-# the real one does, and records one app checkout.
+# End to end through the hook's stdin protocol, with a `builds` that records one app checkout and, as the real
+# one does, lists it for `status --json --no-folders` only.
 import os
 import stat
 import tempfile
@@ -94,9 +94,9 @@ with tempfile.TemporaryDirectory() as folder:
     fake = Path(folder) / "builds"
     fake.write_text(f"""#!/bin/sh
 case "$*" in
-  *"--agent agent-7"*) echo '{json.dumps({"repos": [{"name": "bae", "checkouts": [
+  "status --json --no-folders") echo '{json.dumps({"repos": [{"name": "bae", "checkouts": [
       {"path": APP, "app_checkout": True, "app_lane": "mac"}]}]})}' ;;
-  *) echo "builds: names no agent" >&2; exit 1 ;;
+  *) echo "builds: has not acknowledged" >&2; exit 1 ;;
 esac
 """)
     fake.chmod(fake.stat().st_mode | stat.S_IXUSR)
@@ -109,7 +109,7 @@ esac
 
     for want, cmd, ids in [
         (True, f"cd {APP} && git checkout -q --detach origin/main", {"session_id": "agent-7"}),
-        (True, f"cd {APP} && git checkout -q --detach origin/main", {"session_id": "s", "agent_id": "agent-7"}),
+        (True, f"cd {APP} && git checkout -q --detach origin/main", {}),
         (False, f"{lock} sh -c 'cd {APP} && git checkout -q --detach x'", {"session_id": "agent-7"}),
         (False, f"git -C {APP} status", {"session_id": "agent-7"}),
     ]:
@@ -117,22 +117,24 @@ esac
         got = "deny" in out
         print(("ok  " if got == want else "FAIL"), "deny " if got else "allow", "[builds]", cmd[:90])
         bad += got != want
-    # A subagent's id is its agent_id, not the session's: builds refuses the session id here.
-    refused = run(f"cd {APP} && git checkout x", session_id="agent-7-session", agent_id="other")
-    ok = "deny" not in refused.stdout and refused.returncode == 1
-    print("ok  " if ok else "FAIL", "asks builds as the subagent, not the session")
-    bad += not ok
-    # Input that names no agent cannot ask builds: allowed with a warning.
-    nameless = run(f"cd {APP} && git checkout x")
-    ok = "deny" not in nameless.stdout and nameless.returncode == 1 and "agent_id" in nameless.stderr
-    print("ok  " if ok else "FAIL", "allow with a stderr warning when the input names no agent")
-    bad += not ok
 
-# When `builds` cannot be run, the command is allowed with a warning on stderr and exit 1.
-broken = subprocess.run([sys.executable, "-I", str(HOOK)], env={"PATH": "/nonexistent"},
-                        input=json.dumps({"tool_input": {"command": f"cd {APP} && git checkout x"}, "cwd": "/tmp",
-                                           "session_id": "agent-7"}),
-                        capture_output=True, text=True)
-ok = "deny" not in broken.stdout and "builds status --json" in broken.stderr and broken.returncode == 1
-print("ok  " if ok else "FAIL", "allow with a stderr warning when builds fails")
-sys.exit(bad + (not ok))
+# When `builds` cannot be run, the hook cannot tell the app checkouts: it refuses every git change, says why, and
+# lets other commands through without a word.
+def without_builds(cmd):
+    return subprocess.run([sys.executable, "-I", str(HOOK)], env={"PATH": "/nonexistent"},
+                          input=json.dumps({"tool_input": {"command": cmd}, "cwd": "/tmp"}),
+                          capture_output=True, text=True)
+
+for want, cmd in [
+    (True, f"cd {APP} && git checkout x"),
+    (True, "git checkout -b x origin/main"),
+    (True, f"builds lock bae sh -c 'cd {APP} && git checkout x'"),
+    (False, "git status --short"),
+    (False, "echo digit"),
+]:
+    broken = without_builds(cmd)
+    got = "deny" in broken.stdout
+    ok = got == want and broken.returncode == 0 and (not want or "builds status --json" in broken.stdout)
+    print("ok  " if ok else "FAIL", "deny " if got else "allow", "[no builds]", cmd[:90])
+    bad += not ok
+sys.exit(bad)

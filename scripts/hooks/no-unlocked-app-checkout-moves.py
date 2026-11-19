@@ -12,13 +12,12 @@ checkout (cd into it, `git -C <it>`, or a working directory inside it) is
 refused unless it is inside the `builds lock` of that checkout's lane.
 Read-only git is not affected.
 
-The checkouts, their repos and lanes come from `builds status --json`, which
-records them, so any repo with an app checkout recorded is covered. builds refuses a
-command that names no agent, so the hook passes `--agent` the id builds gives
-the agent: the hook input's `agent_id` for a subagent, else its `session_id`
-(the main agent's id). When `builds` fails, or the input names neither, the
-command is allowed, with a warning on stderr (exit 1, which Claude Code shows
-without blocking).
+The checkouts, their repos and lanes come from `builds status --json
+--no-folders`, which records them, so any repo with an app checkout recorded is
+covered. builds lets that one command through before the agent acknowledges its
+rules, since the list depends on none. When the hook cannot read the checkouts,
+it cannot tell which git commands touch one, so it refuses every git command
+that changes HEAD or the tree, wherever it runs, and says why.
 
 Known false refusal, kept because refusing too much is the safe side: a `cd`
 inside `( ... )` is read as lasting to the end of the command, so
@@ -54,18 +53,10 @@ SHELLS = {"sh", "bash", "zsh", "dash"}
 CD = {"cd", "pushd"}
 
 
-def agent_id(payload: dict) -> str:
-    """The id builds names the agent that ran the hook by: a subagent's `agent_id`, else the session id."""
-    agent = payload.get("agent_id") or payload.get("session_id")
-    if not agent:
-        raise ValueError("the hook input names neither agent_id nor session_id")
-    return agent
-
-
-def app_checkouts(agent: str) -> list[tuple[str, str, str]]:
-    """(app checkout path, repo name, lane) for each app checkout recorded, asked as agent <agent>.
+def app_checkouts() -> list[tuple[str, str, str]]:
+    """(app checkout path, repo name, lane) for each app checkout recorded.
     Raises OSError, ValueError, KeyError or SubprocessError when `builds` cannot say."""
-    result = subprocess.run(["builds", "status", "--json", "--no-folders", "--agent", agent],
+    result = subprocess.run(["builds", "status", "--json", "--no-folders"],
                             capture_output=True, text=True, timeout=8, check=True)
     repos = json.loads(result.stdout)["repos"]
     return [
@@ -74,6 +65,16 @@ def app_checkouts(agent: str) -> list[tuple[str, str, str]]:
         for c in repo.get("checkouts", [])
         if c.get("app_checkout")
     ]
+
+
+# Stands for the checkouts when builds cannot list them: the whole filesystem is one app checkout, and no
+# `builds lock` names its repo, so every change of HEAD or the tree is refused.
+UNKNOWN = [("/", "", "")]
+
+UNREADABLE_REASON = (
+    "This changes a git HEAD or tree, and the hook could not read the app checkouts from `builds status --json "
+    "--no-folders` to tell whether it is one ({error}), so it refuses. Fix `builds` and run it again."
+)
 
 
 def expand(path: str) -> str:
@@ -89,7 +90,7 @@ def resolve(path: str, cwd: str) -> str:
 
 def within(directory: str, root: str) -> bool:
     root = os.path.realpath(root)
-    return directory == root or directory.startswith(root + os.sep)
+    return directory == root or directory.startswith(root.rstrip(os.sep) + os.sep)
 
 
 def git_change(words: list[str], cwd: str):
@@ -161,17 +162,15 @@ def main():
     if "git" not in command:
         return
     try:
-        checkouts = app_checkouts(agent_id(payload))
+        checkouts, reason = app_checkouts(), REASON
     except (OSError, ValueError, KeyError, subprocess.SubprocessError) as error:
-        print(f"no-unlocked-app-checkout-moves: allowed unchecked, `builds status --json` failed: {error!r}",
-              file=sys.stderr)
-        sys.exit(1)
+        checkouts, reason = UNKNOWN, UNREADABLE_REASON.format(error=repr(error))
     if blocked(command, cwd, checkouts):
         print(json.dumps({
             "hookSpecificOutput": {
                 "hookEventName": "PreToolUse",
                 "permissionDecision": "deny",
-                "permissionDecisionReason": REASON,
+                "permissionDecisionReason": reason,
             }
         }))
 
