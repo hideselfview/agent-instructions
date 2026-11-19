@@ -152,13 +152,21 @@ pub struct Worktree {
     pub project: Option<String>,
     /// Is it one of the repo's recorded app checkouts?
     pub app_checkout: bool,
-    /// The commits origin/main has no copy of, oldest first.
-    pub ahead: Vec<String>,
-    /// How many files are not committed; None when git could not tell.
-    pub uncommitted: Option<usize>,
+    /// What it holds that origin/main lacks, or what git said when it could
+    /// not read the worktree.
+    pub work: std::result::Result<Work, String>,
     /// The pids of the `git commit`s that run in it, or why builds cannot
     /// tell.
     pub committing: std::result::Result<Vec<i32>, String>,
+}
+
+/// What a claimed worktree holds that origin/main lacks.
+#[derive(Clone, Debug)]
+pub struct Work {
+    /// The commits origin/main has no copy of, oldest first.
+    pub ahead: Vec<String>,
+    /// How many files are not committed.
+    pub uncommitted: usize,
 }
 
 impl Worktree {
@@ -170,7 +178,7 @@ impl Worktree {
         label: String,
         checkout: &Checkout,
         claim: &Claim,
-        git: &crate::side_git::SideGit,
+        git: &std::result::Result<crate::side_git::SideRead, String>,
         commits: &crate::procs::GitCommits,
     ) -> Result<Worktree> {
         Ok(Worktree {
@@ -182,11 +190,10 @@ impl Worktree {
             app_checkout: places
                 .app_lane_of(&checkout.repo(), &checkout.name())?
                 .is_some(),
-            ahead: git
-                .side()
-                .map(|git| git.ahead.iter().rev().map(|c| c.full.clone()).collect())
-                .unwrap_or_default(),
-            uncommitted: git.side().map(|git| git.uncommitted),
+            work: git.clone().map(|git| Work {
+                ahead: git.ahead.iter().rev().map(|c| c.full.clone()).collect(),
+                uncommitted: git.uncommitted,
+            }),
             committing: crate::procs::commits_in(commits, &checkout.top),
         })
     }
@@ -201,8 +208,10 @@ impl Worktree {
         !self.app_checkout
             && !self.claim.is_held()
             && !self.claim.is_starting()
-            && self.ahead.is_empty()
-            && self.uncommitted == Some(0)
+            && self
+                .work
+                .as_ref()
+                .is_ok_and(|work| work.ahead.is_empty() && work.uncommitted == 0)
             && self.committing.as_ref().is_ok_and(|pids| pids.is_empty())
             && nothing_runs
     }
@@ -231,8 +240,12 @@ pub fn awaiting_review(
             let Ok(Some(lists)) = worktree.lists(loaded) else {
                 return false;
             };
-            // `findings` names a worktree whose design files health can't read.
-            let Ok(commits) = design_commits(lists, &worktree.repo, &worktree.top, &worktree.ahead)
+            // `findings` names a worktree whose commits or design files
+            // health can't read.
+            let Ok(work) = &worktree.work else {
+                return false;
+            };
+            let Ok(commits) = design_commits(lists, &worktree.repo, &worktree.top, &work.ahead)
             else {
                 return false;
             };
@@ -311,8 +324,18 @@ pub fn findings(
                 continue;
             }
         };
+        let work = match &worktree.work {
+            Ok(work) => work,
+            Err(error) => {
+                found.push(Advice::said(format!(
+                    "lists: could not read the commits of {}, so health can't tell whether a design change covers them: {error}",
+                    worktree.label
+                )));
+                continue;
+            }
+        };
         let uncovered: Vec<DesignCommit> =
-            match design_commits(lists, &worktree.repo, &worktree.top, &worktree.ahead) {
+            match design_commits(lists, &worktree.repo, &worktree.top, &work.ahead) {
                 Err(error) => {
                     found.push(Advice::said(format!(
                         "lists: could not read the design files {} changes: {}",

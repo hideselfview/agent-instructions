@@ -190,7 +190,7 @@ pub fn release_idle_claims(tool: &Tool) -> Result<Vec<String>> {
             top.clone(),
             checkout,
             &claim,
-            &crate::side_git::read(&checkout.top).into(),
+            &crate::side_git::read(&checkout.top),
             &commits,
         )?;
         let nothing_runs = crate::lists::running::running_in_any(&every, &top).is_empty();

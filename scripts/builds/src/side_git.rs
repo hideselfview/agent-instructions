@@ -24,7 +24,7 @@ pub struct Commit {
 
 /// What git said of a checkout. The page reads each variant's fields, which
 /// serde writes beside the variant's name in `read`.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(tag = "read", rename_all = "snake_case")]
 pub enum SideGit {
     /// A side worktree's HEAD, commits waiting to land and uncommitted files.
@@ -81,28 +81,30 @@ impl SideGit {
         }
     }
 
-    /// What git said when the read failed.
-    pub fn error(&self) -> Option<&str> {
+    /// A side worktree's read, or what git said when a read failed; None for
+    /// a main checkout's read.
+    pub fn side_read(&self) -> Option<Result<SideRead, String>> {
         match self {
-            SideGit::Failed { error } => Some(error),
-            SideGit::Side(_) | SideGit::Main { .. } => None,
+            SideGit::Side(read) => Some(Ok(read.clone())),
+            SideGit::Failed { error } => Some(Err(error.clone())),
+            SideGit::Main { .. } => None,
         }
     }
+}
 
+impl SideRead {
     /// Is <full>, a full commit hash, one of this worktree's own commits:
     /// one on its HEAD that origin/main has no copy of? A commit origin/main
     /// has, such as HEAD right after a landing, belongs to every worktree
     /// based on it, so it tells no worktree apart.
     pub fn owns(&self, full: &str) -> bool {
-        self.side()
-            .is_some_and(|read| read.ahead.iter().any(|commit| commit.full == full))
+        self.ahead.iter().any(|commit| commit.full == full)
     }
 
     /// The newer of HEAD's commit time and the newest uncommitted write: the
     /// worktree's last activity.
     pub fn activity(&self) -> Option<i64> {
-        let head = self.head().map(|c| c.time);
-        match (head, self.side().and_then(|read| read.last_write)) {
+        match (self.head.as_ref().map(|c| c.time), self.last_write) {
             (Some(a), Some(b)) => Some(a.max(b)),
             (a, b) => a.or(b),
         }

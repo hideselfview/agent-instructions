@@ -44,7 +44,7 @@ use crate::procs::{
     load_average, open_files, place_of_process, usage,
 };
 use crate::shells::Shells;
-use crate::side_git::SideGit;
+use crate::side_git::SideRead;
 use crate::text::{human, local_minute, minutes_since};
 use crate::tool::Tool;
 
@@ -52,6 +52,9 @@ use crate::tool::Tool;
 const CLIENT_MINUTES: i64 = 10;
 /// A claimed worktree with no change and no build this long has stalled.
 const QUIET_MINUTES: i64 = 60;
+
+/// What git said of a side worktree, or what it said when the read failed.
+pub type GitRead = std::result::Result<SideRead, String>;
 
 /// What a finding is about, so the dashboard shows the ones nothing else on
 /// its page shows.
@@ -205,7 +208,7 @@ pub struct WorktreeHealth {
     pub path: String,
     pub claim: Claim,
     pub branch: Option<String>,
-    pub git: SideGit,
+    pub git: GitRead,
     /// Minutes since the newer of HEAD's commit and the newest uncommitted
     /// write.
     pub quiet_minutes: Option<i64>,
@@ -276,13 +279,13 @@ pub struct InLine {
 
 impl Queued {
     /// Does it build for the worktree <label> at <git>? When it was run from
-    /// there, or it builds a commit of that worktree's own (`SideGit::owns`).
-    fn builds_for(&self, label: &str, git: &SideGit) -> bool {
+    /// there, or it builds a commit of that worktree's own (`SideRead::owns`).
+    fn builds_for(&self, label: &str, git: &GitRead) -> bool {
         self.started_from.as_deref() == Some(label)
             || self
                 .commit
                 .as_deref()
-                .is_some_and(|commit| git.owns(commit))
+                .is_some_and(|commit| git.as_ref().is_ok_and(|git| git.owns(commit)))
     }
 }
 
@@ -338,9 +341,12 @@ impl Holder {
     /// there, or the app checkout is at a commit of that worktree's own (one
     /// origin/main has no copy of), as when it was run from elsewhere or its
     /// `builds lock` was killed and a process of its build holds the lock.
-    fn builds_for(&self, label: &str, git: &SideGit) -> bool {
+    fn builds_for(&self, label: &str, git: &GitRead) -> bool {
         self.started_from.as_deref() == Some(label)
-            || self.app_head.as_deref().is_some_and(|head| git.owns(head))
+            || self
+                .app_head
+                .as_deref()
+                .is_some_and(|head| git.as_ref().is_ok_and(|git| git.owns(head)))
     }
 }
 
@@ -687,7 +693,7 @@ pub struct Claimed {
     pub place: usize,
     pub claim: Claim,
     pub branch: Option<String>,
-    pub git: SideGit,
+    pub git: GitRead,
     /// Do its commits wait on the person's review of a design change?
     pub awaiting_review: bool,
 }
@@ -699,7 +705,7 @@ pub struct Claimed {
 /// (lists/kept_work.rs).
 pub struct Unclaimed {
     pub place: usize,
-    pub git: SideGit,
+    pub git: GitRead,
     /// Why builds cannot tell whether an item is kept there: a store that
     /// does not load. None when builds read every store.
     pub kept_unknown: Option<String>,
@@ -799,8 +805,8 @@ pub fn assess(
     {
         // A worktree git could not read, or one whose kept items builds
         // could not read, may hold commits health did not see.
-        schedule_needed |= git.error().is_some() || kept_unknown.is_some();
-        let ahead = git.side().map_or(0, |git| git.ahead.len());
+        schedule_needed |= git.is_err() || kept_unknown.is_some();
+        let ahead = git.as_ref().map_or(0, |git| git.ahead.len());
         if ahead > 0 {
             schedule_needed = true;
             let unknown = match kept_unknown {
@@ -850,11 +856,11 @@ pub fn assess(
             .filter(|run| run.builds_for(&label, &places[place].repo, branch.as_deref()))
             .cloned()
             .collect();
-        let quiet_minutes = git.activity().map(|when| minutes_since(now, when));
+        let activity = git.as_ref().ok().and_then(SideRead::activity);
+        let quiet_minutes = activity.map(|when| minutes_since(now, when));
         // A worktree claimed a few minutes ago is not idle, even when its
         // files have not changed for hours.
-        let idle_minutes = git
-            .activity()
+        let idle_minutes = activity
             .max(Some(claim.since))
             .map(|when| minutes_since(now, when));
         let app_build = machine
@@ -884,7 +890,7 @@ pub fn assess(
         // A held claim is quiet on purpose: its note says why. A worktree
         // whose design change waits on the person's review is waiting on them.
         let held = claim.is_held();
-        schedule_needed |= !held || git.error().is_some();
+        schedule_needed |= !held || git.is_err();
         let stalled = !held
             && !awaiting_review
             && building.is_empty()
@@ -1118,7 +1124,7 @@ pub fn health(tool: &Tool) -> Result<Health> {
         }
     }
     let unclaimed_gits = parallel_map(&unclaimed, |(_, checkout)| {
-        SideGit::from(crate::side_git::read(&checkout.top))
+        crate::side_git::read(&checkout.top)
     });
     let unclaimed: Vec<Unclaimed> = unclaimed
         .into_iter()
@@ -1130,7 +1136,7 @@ pub fn health(tool: &Tool) -> Result<Health> {
         })
         .collect();
     let gits = parallel_map(&claimed, |(_, checkout, _)| {
-        SideGit::from(crate::side_git::read(&checkout.top))
+        crate::side_git::read(&checkout.top)
     });
     let mut judged = Vec::new();
     let mut held_worktrees = Vec::new();
@@ -1325,13 +1331,12 @@ pub fn lines(health: &Health) -> Vec<String> {
     out.push(format!("claimed worktrees: {}", health.worktrees.len()));
     for w in &health.worktrees {
         let git = match &w.git {
-            SideGit::Side(git) => format!(
+            Ok(git) => format!(
                 "{} uncommitted, {} waiting to land",
                 git.uncommitted,
                 git.ahead.len()
             ),
-            SideGit::Main { .. } => "git: a main checkout".to_string(),
-            SideGit::Failed { error } => format!("git: {error}"),
+            Err(error) => format!("git: {error}"),
         };
         out.push(format!(
             "    {}  [{}]  {} since {}{}",
@@ -1771,7 +1776,7 @@ mod tests {
                 ),
             },
             branch: Some("work".to_string()),
-            git: SideGit::Side(SideRead {
+            git: Ok(SideRead {
                 head: None,
                 ahead: Vec::new(),
                 main: "0".repeat(40),
@@ -1860,10 +1865,8 @@ mod tests {
                 })
                 .collect();
             let git = |ahead: usize, unread: bool| match unread {
-                true => SideGit::Failed {
-                    error: "git could not read it".to_string(),
-                },
-                false => SideGit::Side(SideRead {
+                true => Err("git could not read it".to_string()),
+                false => Ok(SideRead {
                     head: None,
                     ahead: (0..ahead).map(|n| commit(n as u8)).collect(),
                     main: "0".repeat(40),
@@ -1978,7 +1981,7 @@ mod tests {
                 note: None,
             },
             branch: Some("work".to_string()),
-            git: SideGit::Side(SideRead {
+            git: Ok(SideRead {
                 head: None,
                 ahead: Vec::new(),
                 main: "0".repeat(40),
@@ -2063,7 +2066,7 @@ mod tests {
                 note: None,
             },
             branch: Some("work".to_string()),
-            git: SideGit::Side(SideRead {
+            git: Ok(SideRead {
                 head: None,
                 ahead: Vec::new(),
                 main: "0".repeat(40),
@@ -2143,7 +2146,7 @@ mod tests {
                     note: None,
                 },
                 branch: Some("work".to_string()),
-                git: SideGit::Side(SideRead {
+                git: Ok(SideRead {
                     head: None,
                     ahead: Vec::new(),
                     main: "0".repeat(40),
@@ -2239,7 +2242,7 @@ mod tests {
                     note: None,
                 },
                 branch: Some("work".to_string()),
-                git: SideGit::Side(SideRead {
+                git: Ok(SideRead {
                     head: Some(commit(mine)),
                     ahead: vec![commit(mine)],
                     main: "0".repeat(40),
@@ -2422,7 +2425,7 @@ mod tests {
             subject: "Work".into(),
         };
         let git = |ahead: Vec<Commit>| {
-            SideGit::Side(SideRead {
+            Ok(SideRead {
                 head: None,
                 ahead,
                 main: "0".repeat(40),
