@@ -337,6 +337,31 @@ fn step_word(name: &str, kind: StepKind) -> String {
     }
 }
 
+/// For each checkout that ran a <lane> build, the time its latest run in the
+/// database at <path> ended: the end of its last step, or the end of its wait
+/// when it ran none (seconds since 1970). The records outlive a checkout that
+/// builds removed. Empty when nothing was recorded.
+pub fn last_ends(path: &Path, lane: Lane) -> Result<Vec<(String, i64)>> {
+    let Some(conn) = crate::db::open_reader(path)? else {
+        return Ok(Vec::new());
+    };
+    let what = || format!("reading {}", path.display());
+    let mut statement = conn
+        .prepare(
+            "SELECT r.checkout, MAX(COALESCE(
+                 (SELECT MAX(s.started_at + s.wall_ms / 1000) FROM app_build_steps s WHERE s.run_id = r.id),
+                 r.started_at + r.wait_ms / 1000))
+             FROM app_build_runs r WHERE r.lane = ?1 GROUP BY r.checkout",
+        )
+        .context(what)?;
+    let rows = statement
+        .query_map([lane.word()], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+        })
+        .context(what)?;
+    rows.map(|row| row.context(what)).collect()
+}
+
 /// The figures of every repo with a run since <since> (seconds since 1970) in
 /// the database at <path>, by repo name; empty when nothing was recorded.
 pub fn stats(path: &Path, since: i64) -> Result<Vec<RepoStats>> {

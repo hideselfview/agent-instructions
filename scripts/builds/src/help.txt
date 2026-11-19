@@ -1426,7 +1426,16 @@ STATUS, HEALTH AND THE DASHBOARD
                               pruning" when another prune holds the lock); a
                               host with no measured core speed gets it
                               measured, as `builds host setup` does without
-                              its sudo steps; a claim that "builds release"
+                              its sudo steps; a host whose kernel reports
+                              memory pressure at warning or critical gets the
+                              Gradle daemon and Kotlin compile daemon
+                              (android lane) and the booted simulators (mac
+                              lane) stopped when no build of their lane has
+                              used the host for 60 minutes, judged by the
+                              lane's locks and run records (by the daemon's
+                              age when none is on record), and is probed
+                              again; a lane with a build running on the host
+                              keeps its daemons; a claim that "builds release"
                               would accept on a worktree that nothing holds
                               (the case listed below) and that is not in the
                               starting state (below) is released. A host that does not
@@ -1434,7 +1443,8 @@ STATUS, HEALTH AND THE DASHBOARD
                               work stay findings, with the reason. It
                               exits 1 when something needs acting on, never
                               runs sudo, and stops a process only with
-                              --stop-junk. It shows:
+                              --stop-junk, except those idle build daemons.
+                              It shows:
                               - the load, and free space against the floors
                               - whether sccache finished compiles since the
                                 last readings while clients wait 10+ minutes

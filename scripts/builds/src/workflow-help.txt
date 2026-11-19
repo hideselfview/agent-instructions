@@ -476,11 +476,14 @@ or a hold clears. A quiet check needs no message to the person.
 
 Health first fixes what blocks dispatch and a command fixes with no judgment
 call, and prints one line for each fix: it prunes a host under the free-disk
-floor and probes it again, measures the core speed of a host that has none, and
-releases a claim on a worktree that nothing holds. It lists only what is left,
-each with its reason: a host that does not answer, a host whose git fails,
-uncommitted work. It never runs sudo and stops a process only with
-`--stop-junk`. The lines below are what remains to act on.
+floor and probes it again, measures the core speed of a host that has none,
+stops the Gradle daemon, the Kotlin compile daemon and the booted simulators
+that no build has used for an hour on a host under memory pressure and probes
+it again, and releases a claim on a worktree that nothing holds. It lists only
+what is left, each with its reason: a host that does not answer, a host whose
+git fails, uncommitted work. It never runs sudo and stops a process only with
+`--stop-junk`, except those idle build daemons. The lines below are what
+remains to act on.
 
   - sccache finished no compiles while clients wait: restart it (`launchctl
     kickstart -k gui/$(id -u)/local.sccache-server`).

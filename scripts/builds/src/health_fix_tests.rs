@@ -43,6 +43,7 @@ fn a_host_under_the_floor_is_pruned_and_probed_again() {
             },
             probe: &|_| probe(50.0, None),
             measure: &|_| panic!("a host with a speed is not measured"),
+            stop_idle: &|_, _| panic!("no host is under memory pressure"),
         },
     );
     assert_eq!(*pruned.borrow(), ["m1"]);
@@ -72,6 +73,7 @@ fn a_prune_that_is_running_or_fails_is_said() {
                         probe(50.0, None)
                     },
                     measure: &|_| panic!("not measured"),
+                    stop_idle: &|_, _| panic!("no host is under memory pressure"),
                 },
             )
         }
@@ -117,6 +119,7 @@ fn a_host_with_no_speed_is_measured_and_a_host_needing_judgment_is_left() {
         &Fixes {
             prune: &|_| panic!("no host is under the floor"),
             probe: &|_| panic!("no host was pruned"),
+            stop_idle: &|_, _| panic!("no host is under memory pressure"),
             measure: &|host| {
                 measured.borrow_mut().push(host.name.clone());
                 Ok(0.8)
@@ -147,8 +150,85 @@ fn a_pruned_host_with_no_speed_is_measured_after_its_prune() {
             prune: &|_| Ok(()),
             probe: &|_| probe(60.0, None),
             measure: &|_| Ok(1.25),
+            stop_idle: &|_, _| panic!("no host is under memory pressure"),
         },
     );
     assert_eq!(lines.len(), 2, "{lines:?}");
     assert_eq!(hosts[0].speed, Some(1.25));
+}
+
+fn pressed(free_gib: f64) -> Probed {
+    let mut pressed = probe(free_gib, None).unwrap();
+    pressed.memory.pressure = crate::host_memory::Pressure::Warning;
+    Ok(pressed)
+}
+
+/// A host under memory pressure has its idle daemons stopped and says what it
+/// stopped, then is probed again so the dispatch judgment sees the result. A
+/// host at normal pressure is left alone.
+#[test]
+fn a_host_under_memory_pressure_has_its_idle_daemons_stopped_and_is_probed_again() {
+    let mut hosts = [host("m1", Some(0.8)), host("m2", Some(0.8))];
+    let mut probes = [pressed(100.0), probe(100.0, None)];
+    let asked = RefCell::new(Vec::new());
+    let lines = fix_hosts(
+        &mut hosts,
+        &mut probes,
+        30 * GIB,
+        &Fixes {
+            prune: &|_| panic!("no host is under the floor"),
+            probe: &|_| probe(100.0, None),
+            measure: &|_| panic!("not measured"),
+            stop_idle: &|host, pressure| {
+                asked
+                    .borrow_mut()
+                    .push((host.name.clone(), pressure.to_string()));
+                Ok(vec!["stopped the Gradle daemon".to_string()])
+            },
+        },
+    );
+    assert_eq!(
+        *asked.borrow(),
+        [(
+            "m1".to_string(),
+            "memory pressure warning, 80% free, swap 0M used".to_string()
+        )]
+    );
+    assert_eq!(lines, ["stopped the Gradle daemon"]);
+    assert!(!probes[0].as_ref().unwrap().memory.under_pressure());
+}
+
+/// A host with no idle daemon is not probed again, and a stop that fails is
+/// said.
+#[test]
+fn a_host_with_nothing_to_stop_is_left_and_a_failed_stop_is_said() {
+    let mut hosts = [host("m1", Some(0.8))];
+    let mut probes = [pressed(100.0)];
+    let none = fix_hosts(
+        &mut hosts,
+        &mut probes,
+        30 * GIB,
+        &Fixes {
+            prune: &|_| panic!("no prune"),
+            probe: &|_| panic!("nothing stopped, so no probe"),
+            measure: &|_| panic!("not measured"),
+            stop_idle: &|_, _| Ok(Vec::new()),
+        },
+    );
+    assert!(none.is_empty());
+    let failed = fix_hosts(
+        &mut hosts,
+        &mut probes,
+        30 * GIB,
+        &Fixes {
+            prune: &|_| panic!("no prune"),
+            probe: &|_| panic!("nothing stopped, so no probe"),
+            measure: &|_| panic!("not measured"),
+            stop_idle: &|_, _| Err("ssh to u@m1 failed".to_string()),
+        },
+    );
+    assert_eq!(
+        failed,
+        ["stopping the idle build daemons of host m1 failed: ssh to u@m1 failed"]
+    );
 }

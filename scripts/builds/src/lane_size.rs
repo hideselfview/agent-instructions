@@ -283,7 +283,7 @@ fn checkouts_on(places: &Places, host_name: &str) -> Result<usize> {
 /// added at <added_at>: the latest of that time, when the last build let its
 /// lock go, and the times in its last holder's record of its run (for a build
 /// that stopped before it could write when it let go). Seconds since 1970.
-fn last_use(at: RepoLane, entry: &str, added_at: i64) -> Result<i64> {
+pub fn last_use(at: RepoLane, entry: &str, added_at: i64) -> Result<i64> {
     let RepoLane {
         places, repo, lane, ..
     } = at;

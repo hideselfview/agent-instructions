@@ -1522,6 +1522,9 @@ pub fn cmd_health(tool: &Tool, args: &[String]) -> Result<()> {
                     .map(|set_up| set_up.speed)
                     .map_err(|fault| fault.text())
             },
+            stop_idle: &|host, pressure| {
+                crate::idle_daemons::stop_on(&tool.places, &ssh, host, pressure, tool.now)
+            },
         },
     );
     fixed.iter().for_each(crate::text::note);

@@ -2,7 +2,9 @@
 //! dispatch blocker that a command fixes with no judgment call. A build host
 //! under the free-disk floor gets the prune `builds prune` runs, a host with
 //! no measured core speed gets its speed measured (`builds host setup`, without
-//! its sudo steps), and a claim on a worktree that nothing holds is released.
+//! its sudo steps), a host under memory pressure gets the build daemons that
+//! no build uses stopped, and a claim on a worktree that nothing holds is
+//! released.
 //! Each fix says in one line what it did. Health never runs sudo and stops a
 //! process only with `--stop-junk`. A host that does not answer, a host whose
 //! git fails and a worktree with uncommitted work stay findings, with the
@@ -17,6 +19,9 @@ use crate::tool::Tool;
 /// What probing a host said.
 pub type Probed = std::result::Result<Probe, String>;
 
+/// The lines for the daemons a stop tried, or why it could not try.
+pub type Stopped = std::result::Result<Vec<String>, String>;
+
 /// How health fixes a host: `cmd_health` gives the real commands, and a test
 /// gives its own.
 pub struct Fixes<'a> {
@@ -26,12 +31,18 @@ pub struct Fixes<'a> {
     pub probe: &'a dyn Fn(&Host) -> Probed,
     /// Measures a host's core speed against this Mac's and records it.
     pub measure: &'a dyn Fn(&Host) -> std::result::Result<f64, String>,
+    /// Stops the build daemons on a host that no build uses (idle_daemons.rs),
+    /// given the host's memory as `Memory::text` says it, and returns one line
+    /// for each daemon it tried to stop.
+    pub stop_idle: &'a dyn Fn(&Host, &str) -> Stopped,
 }
 
 /// Fixes each host of <hosts> that `host::takes_cargo` passes over for a
 /// reason builds can fix, with <fixes>. <probes> holds each host's probe, in
 /// the order of <hosts>. A host it prunes gets its probe read again, and a
-/// host it measures gets its speed. Returns one line for each fix and each
+/// host it measures gets its speed. A host under memory pressure gets its
+/// idle build daemons stopped, and its probe read again when it stopped any,
+/// before anything judges whether the host takes work. Returns one line for each fix and each
 /// fix that failed.
 pub fn fix_hosts(
     hosts: &mut [Host],
@@ -82,6 +93,23 @@ pub fn fix_hosts(
                 }
                 Err(said) => lines.push(format!(
                     "measuring the core speed of {place} failed: {said}"
+                )),
+            }
+        }
+        let pressure = probe
+            .as_ref()
+            .ok()
+            .filter(|probe| probe.memory.under_pressure())
+            .map(|probe| probe.memory.text());
+        if let Some(pressure) = pressure {
+            match (fixes.stop_idle)(host, &pressure) {
+                Ok(stopped) if stopped.is_empty() => {}
+                Ok(stopped) => {
+                    lines.extend(stopped);
+                    *probe = (fixes.probe)(host);
+                }
+                Err(said) => lines.push(format!(
+                    "stopping the idle build daemons of {place} failed: {said}"
                 )),
             }
         }

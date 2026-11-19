@@ -45,7 +45,7 @@ const ANCESTORS: usize = 12;
 
 /// What `ps` prints, one process a line: pid, parent, user, CPU share, CPU
 /// time, time since start, command with its arguments.
-const PS_FORMAT: &str = "pid=,ppid=,uid=,pcpu=,cputime=,etime=,command=";
+pub const PS_FORMAT: &str = "pid=,ppid=,uid=,pcpu=,cputime=,etime=,command=";
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Row {
