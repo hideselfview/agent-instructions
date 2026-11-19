@@ -7,8 +7,12 @@ use crate::review::fakes::{
 };
 
 fn stamp() -> Stamp {
+    stamp_at(NOON)
+}
+
+fn stamp_at(at: i64) -> Stamp {
     Stamp {
-        at: NOON,
+        at,
         by: "tester".to_string(),
     }
 }
@@ -18,6 +22,11 @@ fn run_review(demo: &Demo, fake: &Fake, side: &Path, key: &str) -> Reported {
 }
 
 fn try_review(demo: &Demo, fake: &Fake, side: &Path, key: &str) -> Result<Reported> {
+    review_at(demo, fake, side, key, NOON)
+}
+
+/// The review of <side> under <key>, stamped at <at>.
+fn review_at(demo: &Demo, fake: &Fake, side: &Path, key: &str, at: i64) -> Result<Reported> {
     review(&Inputs {
         store: &demo.store,
         project: "demo",
@@ -28,7 +37,7 @@ fn try_review(demo: &Demo, fake: &Fake, side: &Path, key: &str) -> Result<Report
         key,
         root: &fake.root,
         reviewer: &fake.program,
-        stamp: &stamp(),
+        stamp: &stamp_at(at),
         brief: None,
         runner: None,
     })
@@ -697,27 +706,6 @@ fn a_fix_in_a_file_no_group_covers_asks_the_group_that_holds_the_finding() {
     assert!(read.refusal.is_none(), "{:?}", read.refusal);
 }
 
-/// The review of <side> under key k, stamped at <at>.
-fn review_at(demo: &Demo, fake: &Fake, side: &Path, at: i64) -> Result<Reported> {
-    review(&Inputs {
-        store: &demo.store,
-        project: "demo",
-        repo: "demo",
-        worktree: side,
-        base: "main",
-        head: None,
-        key: "k",
-        root: &fake.root,
-        reviewer: &fake.program,
-        stamp: &Stamp {
-            at,
-            by: "tester".to_string(),
-        },
-        brief: None,
-        runner: None,
-    })
-}
-
 /// A run that read the fix without asking the group that holds the finding,
 /// because the judge had not confirmed it yet, leaves that group behind.
 /// builds review runs again with no new commit, asks that group alone over
@@ -773,14 +761,14 @@ fn a_group_that_read_the_fix_before_its_finding_was_confirmed_reads_it_again_wit
     let side = demo.add_side(1, "agent", "work");
     demo.commit(&side, "a.rs");
     fake.answer("alpha", &[("rule-a", Some(BAD))]);
-    let landing = review_at(&demo, &fake, &side, NOON)
+    let landing = review_at(&demo, &fake, &side, "k", NOON)
         .unwrap()
         .landing
         .unwrap();
     let finding = findings_of(&demo, landing)[0].id;
     fake.answer("alpha", &[("rule-a", None)]);
     demo.commit(&side, "fix.rs");
-    review_at(&demo, &fake, &side, NOON + 10).unwrap();
+    review_at(&demo, &fake, &side, "k", NOON + 10).unwrap();
     let prompts = fake.prompts();
     assert!(
         prompts
@@ -788,17 +776,14 @@ fn a_group_that_read_the_fix_before_its_finding_was_confirmed_reads_it_again_wit
             .all(|(_, prompt)| !prompt.contains("Finding ")),
         "{prompts:?}"
     );
-    let stamp = Stamp {
-        at: NOON + 20,
-        by: "tester".to_string(),
-    };
+    let stamp = stamp_at(NOON + 20);
     demo.store
         .write(&stamp, "settle", |db| {
             record::settle(db, finding, "confirmed", "real", stamp.at, "tester")
         })
         .unwrap();
     closes(&fake, &[finding]);
-    let read = review_at(&demo, &fake, &side, NOON + 30).unwrap();
+    let read = review_at(&demo, &fake, &side, "k", NOON + 30).unwrap();
     let prompts = fake.prompts();
     assert_eq!(prompts.len(), 1, "{}", read.text);
     let (group, prompt) = &prompts[0];
