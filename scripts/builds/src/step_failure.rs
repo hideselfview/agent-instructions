@@ -44,6 +44,14 @@ impl RunResult {
     pub fn passed(&self) -> bool {
         matches!(self, RunResult::Passed)
     }
+
+    /// What a failed run said, when builds kept it.
+    pub fn failure(&self) -> Option<&StepFailure> {
+        match self {
+            RunResult::Failed(failure) => failure.as_ref(),
+            RunResult::Passed => None,
+        }
+    }
 }
 
 /// The statements of the tables that keep one kind of step's failures, by

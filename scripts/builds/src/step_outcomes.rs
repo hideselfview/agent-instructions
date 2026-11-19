@@ -6,7 +6,7 @@
 use std::collections::BTreeMap;
 use std::fmt::Write;
 
-use crate::step_failure::{RunResult, StepFailure};
+use crate::step_failure::RunResult;
 
 /// The kinds of step whose runs pass or fail.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -56,16 +56,6 @@ pub struct Attempt {
     /// hook check the commit and the staged files; None when builds did not
     /// record it.
     pub state: Option<String>,
-}
-
-impl Attempt {
-    /// What a failed run said, when builds kept it.
-    pub fn said(&self) -> Option<&StepFailure> {
-        match &self.result {
-            RunResult::Failed(said) => said.as_ref(),
-            RunResult::Passed => None,
-        }
-    }
 }
 
 /// What became of a failed run, from the next run of the same step on the
@@ -136,7 +126,12 @@ pub fn text(cards: &[(&[Attempt], &[Finding])]) -> String {
             *runs
                 .entry((attempt.kind, attempt.name.as_str()))
                 .or_default() += 1;
-            for name in attempt.said().iter().flat_map(|said| &said.failed) {
+            for name in attempt
+                .result
+                .failure()
+                .iter()
+                .flat_map(|said| &said.failed)
+            {
                 *names_failed
                     .entry((attempt.kind, name.as_str()))
                     .or_default() += 1;

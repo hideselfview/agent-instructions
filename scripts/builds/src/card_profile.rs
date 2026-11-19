@@ -1137,7 +1137,10 @@ pub fn card_text(db: &Connection, card: &Card) -> Result<String> {
         let _ = writeln!(out, "runs that failed, and what followed on the card");
         for (run, outcome) in failures {
             let mut what = format!("{} {}", run.kind.words(), run.name);
-            let failed = run.said().map_or(&[][..], |said| &said.failed[..]);
+            let failed = run
+                .result
+                .failure()
+                .map_or(&[][..], |said| &said.failed[..]);
             if !failed.is_empty() {
                 let _ = write!(what, " ({})", failed.join(", "));
             }

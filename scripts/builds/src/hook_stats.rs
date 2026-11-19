@@ -143,11 +143,8 @@ impl Outcome {
     /// What a check that ran and failed said, when builds kept it.
     pub fn failure(&self) -> Option<&StepFailure> {
         match self {
-            Outcome::Ran {
-                result: RunResult::Failed(failure),
-                ..
-            } => failure.as_ref(),
-            _ => None,
+            Outcome::Ran { result, .. } => result.failure(),
+            Outcome::Skipped => None,
         }
     }
 
