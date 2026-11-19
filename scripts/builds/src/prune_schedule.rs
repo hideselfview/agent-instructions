@@ -24,6 +24,9 @@ use crate::health::Advice;
 use crate::places::Places;
 use crate::text::{local_minute, minutes_since, note};
 
+/// What a prune says when another prune holds the prune lock.
+pub const BUSY: &str = "another builds prune is running";
+
 /// How often the daemon runs `builds prune`.
 pub const PRUNE_HOURS: i64 = 6;
 
@@ -65,10 +68,7 @@ pub fn hold(places: &Places) -> Result<Running> {
     let path = places.prune_lock();
     match crate::evict::try_lock_creating(&path)? {
         Some(lock) => Ok(Running { _lock: lock }),
-        None => fail!(
-            "prune: another builds prune is running and holds {}",
-            path.display()
-        ),
+        None => fail!("prune: {BUSY} and holds {}", path.display()),
     }
 }
 

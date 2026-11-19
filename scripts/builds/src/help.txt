@@ -1284,7 +1284,21 @@ STATUS, HEALTH AND THE DASHBOARD
                               what is stuck or needs acting on, from the
                               daemon when one runs, except the busy processes
                               and each host's load, which it reads now (over
-                              ssh on other hosts). It
+                              ssh on other hosts). Before it lists
+                              anything, it fixes each dispatch blocker that a
+                              command fixes with no judgment call, and says
+                              in one line what each fix did: a host under
+                              the free-disk floor gets the prune `builds
+                              prune` runs there and is probed again ("already
+                              pruning" when another prune holds the lock); a
+                              host with no measured core speed gets it
+                              measured, as `builds host setup` does without
+                              its sudo steps; a claim that "builds release"
+                              would accept on a worktree that nothing holds
+                              (the case listed below), once the claim is 10
+                              minutes old, is released. A host that does not
+                              answer, a host whose git fails and uncommitted
+                              work stay findings, with the reason. It
                               exits 1 when something needs acting on, never
                               runs sudo, and stops a process only with
                               --stop-junk. It shows:

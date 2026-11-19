@@ -471,6 +471,14 @@ held (it waits on an open record). The coordinator deletes the schedule
 (CronDelete) when the line says so, and creates it again when an agent starts
 or a hold clears. A quiet check needs no message to the person.
 
+Health first fixes what blocks dispatch and a command fixes with no judgment
+call, and prints one line for each fix: it prunes a host under the free-disk
+floor and probes it again, measures the core speed of a host that has none, and
+releases a claim on a worktree that nothing holds. It lists only what is left,
+each with its reason: a host that does not answer, a host whose git fails,
+uncommitted work. It never runs sudo and stops a process only with
+`--stop-junk`. The lines below are what remains to act on.
+
   - sccache finished no compiles while clients wait: restart it (`launchctl
     kickstart -k gui/$(id -u)/local.sccache-server`).
   - Junk shells: run `builds health --stop-junk`. When one agent keeps

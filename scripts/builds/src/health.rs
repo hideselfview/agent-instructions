@@ -1454,6 +1454,16 @@ pub fn cmd_health(tool: &Tool, args: &[String]) -> Result<()> {
         _ => crate::fail!("usage: builds health [--json | --stop-junk]"),
     };
     tool.places.require_volume()?;
+    if !stop_junk {
+        // Before health reads the claims, so the reading shows what is left.
+        match crate::health_fix::release_idle_claims(tool) {
+            Ok(lines) => lines.iter().for_each(crate::text::note),
+            Err(error) => crate::text::note(format!(
+                "could not check which claims nothing holds: {}",
+                error.text()
+            )),
+        }
+    }
     if stop_junk {
         // Judge the shells now, never from the daemon's last reading.
         let (lines, failed) = crate::shells::stop(&health(tool)?.shells, tool.places.uid)?;
@@ -1477,7 +1487,7 @@ pub fn cmd_health(tool: &Tool, args: &[String]) -> Result<()> {
     // holds none, and builds health prints every busy process, not only the
     // ones stuck.rs judges stuck.
     let ssh = crate::host::Ssh::from_env();
-    let hosts = crate::host::all(&tool.places)?;
+    let mut hosts = crate::host::all(&tool.places)?;
     let lock = tool.places.daemon_lock();
     let dashboard = crate::daemon::live::daemon_pid(&lock)
         .context(|| format!("reading the dashboard's pid from {}", lock.display()))?;
@@ -1495,6 +1505,29 @@ pub fn cmd_health(tool: &Tool, args: &[String]) -> Result<()> {
     })
     .into_iter()
     .unzip();
+    let mut probes = probes;
+    let fixed = crate::health_fix::fix_hosts(
+        &mut hosts,
+        &mut probes,
+        tool.rules.floor_kib,
+        &crate::health_fix::Fixes {
+            prune: &|host| {
+                if host.target.is_none() {
+                    return crate::prune::cmd_prune(tool, &[]).map_err(|fault| fault.text());
+                }
+                crate::host_setup::ask_builds_there(&tool.places, &ssh, host, "prune", "pruning")
+                    .map_err(|fault| fault.text())?
+                    .map(|_| ())
+            },
+            probe: &|host| crate::host::probe(&tool.places, &ssh, host),
+            measure: &|host| {
+                crate::host_setup::setup_host(&tool.places, &ssh, host)
+                    .map(|set_up| set_up.speed)
+                    .map_err(|fault| fault.text())
+            },
+        },
+    );
+    fixed.iter().for_each(crate::text::note);
     health.findings.extend(dashboard_finding(dashboard));
     let (prune_line, prune_late) = crate::prune_schedule::health(&tool.places, tool.now);
     health.findings.extend(
