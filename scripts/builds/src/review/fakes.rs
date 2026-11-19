@@ -159,6 +159,7 @@ pub fn fake(scratch: &Path) -> Fake {
     let fake = Fake { root, dir, program };
     fake.answer("alpha", &[("rule-a", None)]);
     fake.answer("beta", &[("rule-b", None)]);
+    fake.answer_task("rulings", serde_json::json!({"claims": []}));
     fake
 }
 

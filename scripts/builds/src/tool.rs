@@ -10,6 +10,7 @@ use crate::checkout::{Root, all_roots};
 use crate::daemon::client;
 use crate::fail::Result;
 use crate::places::{DiskSpace, Places, Rules};
+use crate::review::Reviewer;
 use crate::text::note;
 use crate::usage::{Measure, measure_many};
 
@@ -18,6 +19,8 @@ pub struct Tool {
     pub rules: Rules,
     /// Seconds since 1970 when the command started.
     pub now: i64,
+    /// The reviewer the commands that check text before they write it ask.
+    pub reviewer: Reviewer,
     /// Sizes measured ahead, for `status`, which reads every folder once.
     measured: HashMap<PathBuf, Measure>,
     /// A question to the daemon took longer than `DAEMON_SLOW` (or got no
@@ -37,6 +40,7 @@ impl Tool {
             .expect("the clock is after 1970")
             .as_secs() as i64;
         Tool {
+            reviewer: Reviewer::installed(&places.home),
             places,
             rules,
             now,

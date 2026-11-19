@@ -120,6 +120,24 @@ pub fn installed_rules_root(home: &Path) -> PathBuf {
     home.join(".codex/agent-instructions")
 }
 
+/// The reviewer program a command asks and the rules checkout it reads, for
+/// the commands that check text before they write it (`lists::rulings`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Reviewer {
+    pub program: PathBuf,
+    pub rules_root: PathBuf,
+}
+
+impl Reviewer {
+    /// `claude`, and the rules checkout `install.sh` links in <home>.
+    pub fn installed(home: &Path) -> Reviewer {
+        Reviewer {
+            program: PathBuf::from("claude"),
+            rules_root: installed_rules_root(home),
+        }
+    }
+}
+
 /// The section `builds help workflow` ends with: the rules the coordinator
 /// confirmed findings of most often on the first reviews of the recent
 /// branches of the project that holds <cwd>'s repo and of the other projects

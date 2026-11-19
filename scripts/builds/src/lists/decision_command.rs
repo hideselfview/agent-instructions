@@ -15,6 +15,7 @@ use crate::lists::decision::{self, NewDecision, add_decision};
 use crate::lists::derive;
 use crate::lists::draft::{require_draft_briefs, work_or_why};
 use crate::lists::item::ItemDraft;
+use crate::lists::rulings::{self, Source};
 use crate::lists::store::{self, Store};
 use crate::lists::{Decision, Id, Lists, PlanRef, Stamp, Standing, day};
 use crate::text::{local_minute, note};
@@ -62,6 +63,14 @@ fn add(tool: &Tool, args: &[String], cwd: &std::path::Path) -> Result<()> {
     require_draft_briefs(cwd, &work)?;
     let store = Store::resolve(&tool.places, &args, cwd)?;
     let stamp = Stamp::resolve(tool.now, &args, cwd)?;
+    // The decision is the record a citation names, so the check reads its
+    // work.
+    let cited = rulings::require_cited(
+        &tool.reviewer,
+        &store.load()?,
+        Source::Lists,
+        &rulings::draft_texts(&work),
+    )?;
     let new = NewDecision {
         title: request.title,
         by: request.by,
@@ -91,6 +100,7 @@ fn add(tool: &Tool, args: &[String], cwd: &std::path::Path) -> Result<()> {
     for item in made {
         note(format!("made item {item}"));
     }
+    cited.into_iter().for_each(note);
     Ok(())
 }
 

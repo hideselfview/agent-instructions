@@ -41,6 +41,20 @@ leaves the stack only with the person's answer, or with a stored reason that
 names the rule, spec text, earlier decision or code that settles it
 (`builds help lists`, DECISION STACK).
 
+No stack entry, work item or brief tells an agent or the person that the
+person decided something unless the sentence that says so names the decision
+that records it (`decision #N`) or the path of the rule that states it, such
+as rules/<group>/<rule>.md. An agent's brief, its own earlier summary or a
+line copied between briefs records nothing. Before `question ask`, `question
+edit`, the answer, settle and done requests, `item add`, `item edit`,
+`decision add` and `design record` and `amend` write, builds asks a reviewer
+for each sentence of their text that says the person decided, ruled, chose,
+prefers, forbids or allowed something, checks that each one names a decision
+of the log or a rule file, and refuses the command, quoting the sentence,
+when one names neither (`builds help lists`, RULINGS). When the person has not
+decided, ask them instead of stating what they want. `question show` and the
+dashboard print the title of each decision an entry cites.
+
 Work that waits on the person, such as a step only they can take at their Mac,
 goes on the stack as a your-step question (`builds question ask --kind
 your-step`), and each item or held worktree that waits on it waits on
@@ -125,8 +139,12 @@ PLAN, BRIEF, EXECUTE
     text on each behavior the change touches, and the brief points at it.
     The spec is a draft that the coding rules outrank, and the person
     decides each change to what it says. `builds item take` checks the brief
-    against the spec before the agent starts (DISPATCH). `builds help
-    briefs` is the instructions for a planner agent that writes briefs.
+    against the spec before the agent starts (DISPATCH). Each sentence of a
+    brief that states a ruling of the person's, or a prohibition meant to
+    hold beyond the task, names the decision or the rule path behind it
+    (ROLES), and a brief never copies such a sentence from another brief
+    without its citation. `builds help briefs` is the instructions for a
+    planner agent that writes briefs.
   - Execute: an agent that carries out a brief or a plan the strongest model
     settled runs a faster, cheaper model. Name that model on every such
     dispatch: an agent dispatched without a model runs the strongest one.
@@ -241,6 +259,10 @@ DISPATCH
     worktree and branch for the item; release a worktree by hand only when it holds nothing origin/main lacks
     (release refuses the rest). `builds item list --running` shows what runs
     after a compact.
+  - `builds item take` refuses a brief whose sentence states a ruling of the
+    person's, or a standing prohibition, and names no decision or rule that
+    records it, and quotes the sentence: cite the decision or the rule, or
+    take the sentence out of the brief and ask the person.
   - `builds item take` checks the brief against the product spec before it
     marks the items running. When the check finds a conflict, take refuses
     and quotes the brief's sentence and the spec's text: put the conflict on

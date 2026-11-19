@@ -23,6 +23,14 @@ READ FIRST
     `builds item take` checks each brief against the spec before an agent
     starts, and refuses a brief that states a behavior otherwise than the
     spec does.
+  - Each sentence of a brief that says the person decided, chose, prefers,
+    forbids or allowed something, or that states a prohibition meant to hold
+    beyond the task, names the decision that records it (`decision #N`) or
+    the rule file that states it (rules/<group>/<rule>.md, a project file
+    projects/<project>.md, or instructions-agent.md). `builds item take`
+    refuses a brief with such a sentence that names neither, or names a
+    decision or rule that does not exist. Never copy such a sentence from
+    another brief: find its decision or rule, or leave it out.
   - Every rule file the matching-rules script lists for the files your items
     touch:
       ~/.codex/agent-instructions/scripts/rules_review/matching_rules.py \

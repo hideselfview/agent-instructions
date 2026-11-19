@@ -88,7 +88,8 @@ no open item waits on, they give the reason the entry stays on the stack
 anyway.
 Each view works out what an entry blocks from the open items that wait on it,
 every time it shows the entry. The opened dashboard row and `question show` add
-the entry's plan and details.
+the entry's plan, each decision its title and details cite (`decision #N`)
+with that decision's title, and its details.
 
 To rank the stack as the person orders it, place each entry first, from the
 person's last choice to their first: each `place N first` puts N above every
@@ -245,8 +246,12 @@ runs in (plans are in no commit); an absolute path is itself.
       an item that waits on an open question, item, design change or
       condition (and only such an item), and notes each worktree held with WHY
       in the same write: work kept for an answer, with no agent running.
-      Before the items start, take checks brief P against the product spec of
-      each W whose repo has spec files (`lists design-globs --spec-files`),
+      Before the items start, take runs the rulings check over brief P
+      (RULINGS), which also lists each sentence of P that states a
+      prohibition meant to hold beyond the task, and refuses the items when a
+      sentence names no decision or rule. Then take checks brief P against
+      the product spec of each W whose repo has spec files (`lists
+      design-globs --spec-files`),
       with a reviewer that runs in W with read-only tools, as `builds review`
       runs one (LANDING AND REVIEW in `builds help`). The reviewer lists each
       sentence of P that states a behavior the spec states otherwise (a
@@ -261,10 +266,10 @@ runs in (plans are in no commit); an absolute path is itself.
       items. take
       records every check in the project's store, and `item show` lists the
       checks of each item. A take in a project with no spec files for W's repo
-      runs no check and refuses --spec-decided. --rules-root names the
-      agent-instructions checkout that holds the spec rule (default
-      ~/.codex/agent-instructions), and --reviewer the program take runs in
-      place of claude.
+      runs no spec check and refuses --spec-decided. --rules-root names the
+      agent-instructions checkout that holds the spec rule and the rules a
+      brief cites (default ~/.codex/agent-instructions), and --reviewer the
+      program both checks run in place of claude.
 
   builds item handoff N --brief P
       Sets a running item's brief for its next agent, in every worktree it
@@ -471,6 +476,45 @@ replaces it.
   builds decision list [--plan PATH] [--since YYYY-MM-DD]
       The log, newest first, one line each; --plan keeps the decisions
       recorded against that plan, with their plan numbers.
+
+
+RULINGS
+
+No text that builds keeps for the person or an agent says the person decided
+something unless the sentence names the record of it. Before each command
+below writes, builds asks a reviewer (claude, with no tools) to quote each
+sentence of the command's text that says the person decided, ruled, chose,
+prefers, forbids or allowed something:
+
+  question ask        the title and details, and the reasons of --first and
+                      --blocks-nothing
+  question edit       the new title, details and --blocks-nothing reason
+  question answer,    the request's `by_rule`, its item drafts, and each
+  settle, done        blocked item's edit and drop reason; an answer's
+                      `decision` is the record a citation names, and done's
+                      `shown_by` records the person's words, so the check
+                      reads neither
+  item add, item edit the title and details
+  decision add        the item drafts; the decision is the record
+  design record,      the item drafts of the request's places
+  amend
+  item take           the brief, where the reviewer also quotes each
+                      sentence that states a prohibition meant to hold
+                      beyond the task
+
+builds finds each quote in the text and sets aside one it does not find,
+printing it. In each quoted sentence, builds reads every citation: `decision
+#N` must name a decision of the log, and a path that ends in .md must name a
+rule of the rules checkout (rules/<group>/<rule>.md or
+projects/<project>-rules/<group>/<rule>.md), a project file
+(projects/<project>.md) or instructions-agent.md, written as that path or as
+a longer path that ends with it. builds refuses the command, writes nothing
+and quotes each sentence that names no citation or names one that is no
+decision or rule. Otherwise builds prints each quoted sentence with the title
+of each decision it cites, and writes. When the reviewer gives no usable
+answer, builds refuses the command. The check records nothing in the store.
+The rules checkout is ~/.codex/agent-instructions; `item take` takes
+--rules-root and --reviewer in place of it and of claude.
 
 
 DESIGN CHANGES

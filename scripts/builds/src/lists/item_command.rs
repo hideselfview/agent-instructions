@@ -20,6 +20,7 @@ use crate::lists::item::{
     add_note, add_wait, open_item, remove_wait, require_open_wait, set_priority,
 };
 use crate::lists::record::close;
+use crate::lists::rulings::{self, Source};
 use crate::lists::show::wait_words;
 use crate::lists::store::{self, Store};
 use crate::lists::{
@@ -180,6 +181,12 @@ fn add(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     require_draft_briefs(cwd, std::slice::from_ref(&draft))?;
     let store = Store::resolve(&tool.places, &args, cwd)?;
     let stamp = Stamp::resolve(tool.now, &args, cwd)?;
+    let cited = rulings::require_cited(
+        &tool.reviewer,
+        &store.load()?,
+        Source::Lists,
+        &rulings::draft_texts(std::slice::from_ref(&draft)),
+    )?;
     let (id, state) = store.write(&stamp, &format!("item add {}", draft.title), |db| {
         let id = add_item(db, &draft, origin, &stamp)?;
         let lists = store::read(db)?;
@@ -190,6 +197,7 @@ fn add(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
         draft.title,
         state.label()
     ));
+    cited.into_iter().for_each(note);
     Ok(())
 }
 
@@ -234,6 +242,12 @@ fn edit(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     }
     let store = Store::resolve(&tool.places, &args, cwd)?;
     let stamp = Stamp::resolve(tool.now, &args, cwd)?;
+    let cited = rulings::require_cited(
+        &tool.reviewer,
+        &store.load()?,
+        Source::Lists,
+        &rulings::edit_texts(id, &edit),
+    )?;
     store.write(&stamp, &format!("item edit {id}"), |db| {
         let lists = store::read(db)?;
         if fields {
@@ -258,6 +272,7 @@ fn edit(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
         tag::add_tags(db, id, &tags)
     })?;
     note(format!("edited {id}"));
+    cited.into_iter().for_each(note);
     Ok(())
 }
 

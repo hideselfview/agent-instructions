@@ -17,6 +17,7 @@ use crate::lists::args::{Args, read_request};
 use crate::lists::design::{self, DesignRequest, Drawn, Landed, PlaceAnswer, Settlement};
 use crate::lists::design_paths::{self, Changes, Globs, PlaceKind};
 use crate::lists::design_session;
+use crate::lists::rulings::{self, Source};
 use crate::lists::store::{self, Store, project_of};
 use crate::lists::{Id, Lists, Stamp};
 use crate::text::local_minute;
@@ -256,14 +257,29 @@ fn require_review_boards(scope: &Scope, request: &DesignRequest) -> Result<()> {
     Ok(())
 }
 
-/// The briefs of new items are looked for under the main checkout.
-fn require_briefs(scope: &Scope, request: &DesignRequest) -> Result<()> {
+/// The request's new items: each one's brief exists under the main
+/// checkout, and its title and details cite the decision or rule behind each
+/// ruling of the person's they state (`rulings`). Returns what the rulings
+/// check prints.
+fn require_drafts(tool: &Tool, scope: &Scope, request: &DesignRequest) -> Result<Vec<String>> {
+    let mut drafts = Vec::new();
     for answer in request.places.values() {
         if let PlaceAnswer::New(draft) = answer {
             draft.require_brief(&scope.checkout.main)?;
+            drafts.push(draft.clone());
         }
     }
-    Ok(())
+    rulings::require_cited(
+        &tool.reviewer,
+        &scope.lists,
+        Source::Lists,
+        &rulings::draft_texts(&drafts),
+    )
+}
+
+/// <cited>, what the rulings check prints, one line each.
+fn cited_lines(cited: Vec<String>) -> String {
+    cited.into_iter().map(|line| format!("{line}\n")).collect()
 }
 
 /// Where a recorded or amended change stands with the person's review.
@@ -324,7 +340,7 @@ fn record(tool: &Tool, args: &[String], cwd: &Path, session: Option<&Messaging>)
     args.exactly(0, USAGE)?;
     let request: DesignRequest = read_request(args.require("request")?)?;
     let scope = request_scope(tool, &args, &request)?;
-    require_briefs(&scope, &request)?;
+    let cited = require_drafts(tool, &scope, &request)?;
     require_review_boards(&scope, &request)?;
     let affected = affected_components(&scope, &request)?;
     let stamp = Stamp::resolve(tool.now, &args, cwd)?;
@@ -358,7 +374,7 @@ fn record(tool: &Tool, args: &[String], cwd: &Path, session: Option<&Messaging>)
         Settlement::Decision(decision) => Review::Decided(decision),
         Settlement::Review => Review::Waits,
     };
-    Ok(recorded_words("recorded", &recorded, &title, review))
+    Ok(recorded_words("recorded", &recorded, &title, review) + &cited_lines(cited))
 }
 
 fn amend(tool: &Tool, args: &[String], cwd: &Path, session: Option<&Messaging>) -> Result<String> {
@@ -369,7 +385,7 @@ fn amend(tool: &Tool, args: &[String], cwd: &Path, session: Option<&Messaging>) 
     let id = Id::parse(id)?;
     let request: DesignRequest = read_request(args.require("request")?)?;
     let scope = request_scope(tool, &args, &request)?;
-    require_briefs(&scope, &request)?;
+    let cited = require_drafts(tool, &scope, &request)?;
     require_review_boards(&scope, &request)?;
     let affected = affected_components(&scope, &request)?;
     let stamp = Stamp::resolve(tool.now, &args, cwd)?;
@@ -409,7 +425,7 @@ fn amend(tool: &Tool, args: &[String], cwd: &Path, session: Option<&Messaging>) 
                 };
                 Ok((recorded, design.title.clone(), review))
             })?;
-    Ok(recorded_words("amended", &recorded, &title, review))
+    Ok(recorded_words("amended", &recorded, &title, review) + &cited_lines(cited))
 }
 
 /// The last commit of open change <id> of the scope's repo, when the range's

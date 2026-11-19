@@ -9,6 +9,7 @@ use serde::Serialize;
 use crate::fail::Result;
 use crate::lists::Ender;
 use crate::lists::derive::{self, FLOW_DAYS, FlowDay, Times};
+use crate::lists::rulings::{CitedDecision, question_cites};
 use crate::lists::trail::{Trail, trail};
 use crate::lists::{
     Audience, DesignChange, Effect, Id, Item, LandedPart, Lists, Located, Note, Placement, PlanRef,
@@ -43,6 +44,9 @@ pub struct StackView {
     pub kind: QuestionKind,
     pub effect: Effect,
     pub details: String,
+    /// The decisions its title and details cite (`decision #N`), with their
+    /// titles.
+    pub cites: Vec<CitedDecision>,
     /// The open items that wait on it directly.
     pub blocks: Vec<BlockedView>,
     pub blocked_count: usize,
@@ -256,6 +260,7 @@ impl View {
                         kind: entry.question.kind,
                         effect: entry.question.effect,
                         details: entry.question.details.clone(),
+                        cites: question_cites(lists, entry.question),
                         blocks: entry
                             .blocks
                             .iter()

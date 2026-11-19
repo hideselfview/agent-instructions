@@ -1,7 +1,8 @@
 //! `builds question ask | answer | settle | done | drop | defer | place |
 //! edit | show | list`: the decision stack. Each write is one `Store::write`,
 //! so it lands whole or not at all; what a step needs is checked inside it,
-//! and outside work (a brief file, GitHub) before the lock.
+//! and outside work (a brief file, GitHub, the rulings check of the text the
+//! write keeps) before the lock.
 
 use std::path::Path;
 
@@ -18,6 +19,7 @@ use crate::lists::issue::{GhRunner, real_gh, require_open_issue};
 use crate::lists::item::{ItemDraft, RecordWait, add_item, add_wait, move_waits_to_question};
 use crate::lists::question::{self, Blocked, BlockedMap, NewQuestion, Spot, apply_blocked};
 use crate::lists::record::close;
+use crate::lists::rulings::{self, Source, Text};
 use crate::lists::show::{blocks_lines, kind_words, stack_entry, stack_line};
 use crate::lists::store::{self, Store};
 use crate::lists::trail::{self, trail_line, trail_wanted};
@@ -177,6 +179,17 @@ fn ask(tool: &Tool, args: &[String], cwd: &Path, words: &str) -> Result<String> 
     };
     let store = Store::resolve(&tool.places, &args, cwd)?;
     let stamp = Stamp::resolve(tool.now, &args, cwd)?;
+    let mut texts = vec![
+        Text::new("the question's title", &title),
+        Text::new("the question's details", &details),
+    ];
+    if let Some(why) = &blocks_nothing {
+        texts.push(Text::new("why the question blocks nothing", why));
+    }
+    if let Some(why) = &first {
+        texts.push(Text::new("why the question goes first", why));
+    }
+    let cited = rulings::require_cited(&tool.reviewer, &store.load()?, Source::Lists, &texts)?;
     let id = store.write(&stamp, words, |db| {
         let lists = &store::read(db)?;
         if let Some(from) = from_item {
@@ -247,6 +260,9 @@ fn ask(tool: &Tool, args: &[String], cwd: &Path, words: &str) -> Result<String> 
     })?;
     let lists = store.load()?;
     let mut out = format!("asked question {id}\n");
+    for line in cited {
+        out.push_str(&format!("{line}\n"));
+    }
     if let Some(from) = from_item {
         out.push_str(&format!(
             "item {from} moved to the stack; what waited on it now waits on {id}\n"
@@ -408,6 +424,15 @@ fn resolve(tool: &Tool, args: &[String], cwd: &Path, words: &str, verb: Verb) ->
     let blocked = request.blocked;
     let store = Store::resolve(&tool.places, &args, cwd)?;
     let stamp = Stamp::resolve(tool.now, &args, cwd)?;
+    // The decision of an answer is the record a citation names, so the check
+    // reads the rest of the request.
+    let mut texts = Vec::new();
+    if let Closing::Settle(rule) = &closing {
+        texts.push(Text::new("the reason that settles the question", rule));
+    }
+    texts.extend(rulings::draft_texts(&drafts));
+    texts.extend(rulings::blocked_texts(&blocked));
+    let cited = rulings::require_cited(&tool.reviewer, &store.load()?, Source::Lists, &texts)?;
     let resolved = store.write(&stamp, words, |db| {
         let lists = &store::read(db)?;
         let question = open_question(lists, id)?.clone();
@@ -467,6 +492,9 @@ fn resolve(tool: &Tool, args: &[String], cwd: &Path, words: &str, verb: Verb) ->
         (Verb::Settle, _) => format!("settled question {id} by rule (no decision recorded)\n"),
         _ => format!("question {id} done\n"),
     };
+    for line in cited {
+        out.push_str(&format!("{line}\n"));
+    }
     if !items.is_empty() {
         let named: Vec<String> = items.iter().map(Id::to_string).collect();
         out.push_str(&format!("made items {}\n", named.join(", ")));
@@ -643,6 +671,17 @@ fn edit(tool: &Tool, args: &[String], cwd: &Path, words: &str) -> Result<String>
     }
     let store = Store::resolve(&tool.places, &args, cwd)?;
     let stamp = Stamp::resolve(tool.now, &args, cwd)?;
+    let mut texts = Vec::new();
+    if let Some(title) = &title {
+        texts.push(Text::new("the question's new title", title));
+    }
+    if let Some(details) = &details {
+        texts.push(Text::new("the question's new details", details));
+    }
+    if let Some(why) = &blocks_nothing {
+        texts.push(Text::new("why the question blocks nothing", why));
+    }
+    let cited = rulings::require_cited(&tool.reviewer, &store.load()?, Source::Lists, &texts)?;
     store.write(&stamp, words, |db| {
         let lists = &store::read(db)?;
         if fields {
@@ -667,7 +706,12 @@ fn edit(tool: &Tool, args: &[String], cwd: &Path, words: &str) -> Result<String>
         tag::add_tags(db, id, &tags)
     })?;
     let lists = store.load()?;
-    Ok(format!("edited question {id}\n{}\n", stack_top(&lists)?))
+    let mut out = format!("edited question {id}\n");
+    for line in cited {
+        out.push_str(&format!("{line}\n"));
+    }
+    out.push_str(&format!("{}\n", stack_top(&lists)?));
+    Ok(out)
 }
 
 /// Gives open question <id> of <store> the effect <effect>, as `question
@@ -690,6 +734,9 @@ fn show(tool: &Tool, args: &[String], cwd: &Path) -> Result<String> {
         let mut out = stack_entry(&lists, at + 1, entry)?;
         if let Some(plan) = &entry.question.plan {
             out.push_str(&format!("       plan {} {}\n", plan.path, plan.number));
+        }
+        for cited in rulings::question_cites(&lists, entry.question) {
+            out.push_str(&format!("       {}\n", rulings::cited_line(&cited)));
         }
         out.push_str(&format!("\n{}\n", entry.question.details.trim_end()));
         return Ok(out);

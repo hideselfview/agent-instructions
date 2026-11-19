@@ -12,12 +12,17 @@
 //! records them when its run ends with work left there) is taken in them,
 //! without --worktree and --branch, and nowhere else.
 //!
-//! Before the take's write, take checks the brief against the product spec
-//! of each named worktree's repo that has spec files (spec_check.rs) and
-//! records each check in its own write. A conflict refuses the take unless
-//! `--spec-decided` names the decision or question that records the person's
-//! choice on it; take prints each behavior the spec doesn't state and takes
-//! the items.
+//! Before the take's write, take checks that each sentence of the brief that
+//! states a ruling of the person's or a standing prohibition cites the
+//! decision or rule behind it (rulings.rs), and refuses the take when one
+//! cites nothing or names what builds does not keep. Then it checks the
+//! brief against the product spec of each named worktree's repo that has
+//! spec files (spec_check.rs) and records each check in its own write. A
+//! conflict refuses the take unless `--spec-decided` names the decision or
+//! question that records the person's choice on it; take prints each
+//! behavior the spec doesn't state and takes the items. `--reviewer` and
+//! `--rules-root` name the reviewer program and the rules checkout both
+//! checks use in place of the tool's.
 
 use std::path::Path;
 
@@ -31,12 +36,14 @@ use crate::lists::held::waits_on_open;
 use crate::lists::item::{Item, open_item};
 use crate::lists::item_command::blocking_words;
 use crate::lists::kept_work::{self, kept_in, places_words};
+use crate::lists::rulings::{self, Source, Text};
 use crate::lists::running::{
     PlaceTable, Running, SpanKind, insert_places, open_span, place_in_repo, running_in, start,
 };
 use crate::lists::spec_check::{self, Brief, Setup};
 use crate::lists::store::{self, Store};
 use crate::lists::{Audience, Id, Kind, Lists, Stamp};
+use crate::review::Reviewer;
 use crate::text::note;
 use crate::tool::Tool;
 
@@ -285,6 +292,36 @@ fn require_joinable(item: &Item, places: &[Place], brief: &str) -> Result<()> {
     Ok(())
 }
 
+/// What the take's checks of the brief run with, from its flags: the
+/// reviewer program and rules checkout (`--reviewer`, `--rules-root`, else
+/// the tool's), and the record of the person's choice on a spec conflict
+/// (`--spec-decided`).
+struct Checks {
+    reviewer: Reviewer,
+    decided: Option<(Id, Kind)>,
+}
+
+impl Checks {
+    fn of(tool: &Tool, lists: &Lists, args: &Args) -> Result<Checks> {
+        Ok(Checks {
+            reviewer: Reviewer {
+                program: match args.value("reviewer")? {
+                    Some(program) => std::path::PathBuf::from(program),
+                    None => tool.reviewer.program.clone(),
+                },
+                rules_root: match args.value("rules-root")? {
+                    Some(root) => std::path::PathBuf::from(root),
+                    None => tool.reviewer.rules_root.clone(),
+                },
+            },
+            decided: match args.value("spec-decided")? {
+                Some(text) => Some(spec_check::decided_ref(lists, text)?),
+                None => None,
+            },
+        })
+    }
+}
+
 /// Checks <brief> against the product spec of each of <places>' repos that
 /// has spec files in <lists>, records each check, and fails the take when a
 /// check failed or found a conflict that `--spec-decided` does not settle.
@@ -296,12 +333,9 @@ fn check_spec(
     places: &[Place],
     ids: &[Id],
     brief: &Brief,
-    args: &Args,
+    checks: &Checks,
 ) -> Result<()> {
-    let decided: Option<(Id, Kind)> = match args.value("spec-decided")? {
-        Some(text) => Some(spec_check::decided_ref(lists, text)?),
-        None => None,
-    };
+    let (reviewer, decided) = (&checks.reviewer, checks.decided);
     let worktrees: Vec<(String, std::path::PathBuf)> = places
         .iter()
         .map(|place| (place.checkout.repo(), place.checkout.top.clone()))
@@ -323,13 +357,8 @@ fn check_spec(
         ));
         return Ok(());
     }
-    let root = match args.value("rules-root")? {
-        Some(root) => std::path::PathBuf::from(root),
-        None => crate::review::default_rules_root()?,
-    };
-    let setup = Setup::load(&root)?;
-    let reviewer = std::path::PathBuf::from(args.value("reviewer")?.unwrap_or("claude"));
-    let checked = spec_check::check_all(&reviewer, &setup, brief, &targets);
+    let setup = Setup::load(&reviewer.rules_root)?;
+    let checked = spec_check::check_all(&reviewer.program, &setup, brief, &targets);
     let check_ids = store.write(stamp, &format!("spec check of {}", brief.name), |db| {
         spec_check::record(db, stamp, brief, ids, &checked, decided)
     })?;
@@ -431,7 +460,19 @@ pub fn take(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
         design_session,
         held.is_some(),
     )?;
-    check_spec(&store, &stamp, &lists, &places, &ids, &read_brief, &args)?;
+    let checks = Checks::of(tool, &lists, &args)?;
+    for line in rulings::require_cited(
+        &checks.reviewer,
+        &lists,
+        Source::Brief,
+        &[Text::new(
+            format!("the brief {}", read_brief.name),
+            &read_brief.text,
+        )],
+    )? {
+        note(line);
+    }
+    check_spec(&store, &stamp, &lists, &places, &ids, &read_brief, &checks)?;
     let take = store.write(
         &stamp,
         &format!(

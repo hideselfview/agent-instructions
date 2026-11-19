@@ -84,8 +84,10 @@ impl Scratch {
         crate::install::Programs { builds, shots }
     }
 
+    /// A tool whose places are in the scratch folder, and whose reviewer
+    /// (`no_rulings_reviewer`) finds no ruling in any text.
     pub fn tool(&self, floor_gib: u64) -> Tool {
-        Tool::new(
+        let mut tool = Tool::new(
             self.places(),
             Rules {
                 floor_kib: floor_gib * 1024 * 1024,
@@ -94,7 +96,33 @@ impl Scratch {
                 unused_days: 3,
                 incremental_hours: 6,
             },
-        )
+        );
+        tool.reviewer = self.no_rulings_reviewer();
+        tool
+    }
+
+    /// A reviewer stand-in that answers every rulings check with no claim,
+    /// over a rules checkout in the scratch folder. The program is written
+    /// to another name and moved into place, so no test runs it while it is
+    /// still open for writing.
+    pub fn no_rulings_reviewer(&self) -> crate::review::Reviewer {
+        use std::os::unix::fs::PermissionsExt;
+        let program = self.dir.join("no-rulings-reviewer");
+        if !program.exists() {
+            let writing = self.dir.join("no-rulings-reviewer.writing");
+            std::fs::write(
+                &writing,
+                "#!/bin/sh\ncat > /dev/null\necho '{\"is_error\": false, \"structured_output\": {\"claims\": []}}'\n",
+            )
+            .expect("the scratch folder is writable");
+            std::fs::set_permissions(&writing, std::fs::Permissions::from_mode(0o755))
+                .expect("the scratch folder is writable");
+            std::fs::rename(&writing, &program).expect("the scratch folder is writable");
+        }
+        crate::review::Reviewer {
+            program,
+            rules_root: self.dir.join("instructions"),
+        }
     }
 }
 

@@ -122,11 +122,13 @@ impl Bench {
         self.demo.store.load().unwrap()
     }
 
-    /// The prompts the take gave the reviewer.
+    /// The prompts of the spec check the take gave the reviewer, without
+    /// those of the rulings check.
     fn prompts(&self) -> Vec<String> {
         std::fs::read_dir(self.fake.dir.join("calls"))
             .unwrap()
             .map(|entry| std::fs::read_to_string(entry.unwrap().path()).unwrap())
+            .filter(|prompt| prompt.starts_with(TASK))
             .collect()
     }
 
