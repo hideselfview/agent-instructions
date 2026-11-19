@@ -35,8 +35,8 @@ fn card(
     }
 }
 
-/// The card state the page's word <word> stood for before the page took its
-/// state from `card_state`.
+/// The card state that the page group <word> names in these tests: in-review
+/// stands for Needs review, and queued for Waiting on Mac.
 fn st(word: &str) -> CardState {
     match word {
         "working" => CardState::Working,
