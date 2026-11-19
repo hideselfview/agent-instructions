@@ -19,6 +19,7 @@ fn probe(cores: u32, load: f64) -> std::result::Result<Probe, String> {
         load: [load, load, load],
         free_kib: 1 << 30,
         git_fails: None,
+        nextest: None,
     })
 }
 
@@ -47,7 +48,7 @@ fn a_burst_of_runs_picks_both_hosts() {
     let mut picks = Vec::new();
     for at in 0..3 {
         let starts = read(&places, now + at).unwrap();
-        let (ranked, _) = rank_by_room(&hosts, 0, &starts.recent);
+        let (ranked, _) = rank_by_room(&hosts, 0, &starts.recent, crate::host::Runs::Cargo);
         let run = running();
         starts
             .record(run.id(), &ranked[0].0.name, now + at)
@@ -59,7 +60,7 @@ fn a_burst_of_runs_picks_both_hosts() {
     let starts = read(&places, now + 3).unwrap();
     assert_eq!(starts.recent.get("local"), Some(&2));
     assert_eq!(starts.recent.get("m1"), Some(&1));
-    let (_, why) = rank_by_room(&hosts, 0, &starts.recent);
+    let (_, why) = rank_by_room(&hosts, 0, &starts.recent, crate::host::Runs::Cargo);
     assert!(
         why.contains("m1 has -3.0 cores of room after 1 cargo run that started in the last minute"),
         "{why}"

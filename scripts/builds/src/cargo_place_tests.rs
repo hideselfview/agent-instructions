@@ -1,6 +1,6 @@
 use super::*;
-use crate::host::Probe;
 use crate::host::tests::fake_ssh;
+use crate::host::{Probe, Runs};
 use crate::testing::{Scratch, git, repo};
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
@@ -155,6 +155,7 @@ fn probe(load: f64) -> std::result::Result<Probe, String> {
         load: [load, load, load],
         free_kib: 1 << 30,
         git_fails: None,
+        nextest: None,
     })
 }
 
@@ -232,9 +233,16 @@ fn the_first_host_by_room_that_has_the_clone_runs_it_and_this_mac_is_the_fallbac
 
     // m1 ranks first and has the clone.
     let probes = vec![(local.clone(), probe(9.0)), (m1.clone(), probe(1.0))];
-    let Choice::On(picked, _, why) =
-        pick_ranked(&places, &r.ssh, "demo", &probes, 0, &Default::default()).unwrap()
-    else {
+    let Choice::On(picked, _, why) = pick_ranked(
+        &places,
+        &r.ssh,
+        "demo",
+        &probes,
+        0,
+        Runs::Cargo,
+        &Default::default(),
+    )
+    .unwrap() else {
         panic!("expected a host");
     };
     assert_eq!(picked, m1);
@@ -248,16 +256,32 @@ fn the_first_host_by_room_that_has_the_clone_runs_it_and_this_mac_is_the_fallbac
     // This Mac ranks first: it runs here.
     let probes = vec![(local.clone(), probe(1.0)), (m1.clone(), probe(5.0))];
     assert!(matches!(
-        pick_ranked(&places, &r.ssh, "demo", &probes, 0, &Default::default()).unwrap(),
+        pick_ranked(
+            &places,
+            &r.ssh,
+            "demo",
+            &probes,
+            0,
+            Runs::Cargo,
+            &Default::default()
+        )
+        .unwrap(),
         Choice::Here(_)
     ));
 
     // A host without the clone is passed over for the next.
     std::fs::remove_dir_all(r.home.join("dev/demo")).unwrap();
     let probes = vec![(local.clone(), probe(6.0)), (no_clone.clone(), probe(0.0))];
-    let Choice::Here(why) =
-        pick_ranked(&places, &r.ssh, "demo", &probes, 0, &Default::default()).unwrap()
-    else {
+    let Choice::Here(why) = pick_ranked(
+        &places,
+        &r.ssh,
+        "demo",
+        &probes,
+        0,
+        Runs::Cargo,
+        &Default::default(),
+    )
+    .unwrap() else {
         panic!("expected this Mac");
     };
     assert!(why.contains("m2 cannot build demo"), "{why}");
@@ -265,9 +289,16 @@ fn the_first_host_by_room_that_has_the_clone_runs_it_and_this_mac_is_the_fallbac
     // An unreachable host is skipped and named.
     let gone = host("gone", Some("unreachable"));
     let probes = host::probe_all(&places, &r.ssh, vec![local, gone]);
-    let Choice::Here(why) =
-        pick_ranked(&places, &r.ssh, "demo", &probes, 0, &Default::default()).unwrap()
-    else {
+    let Choice::Here(why) = pick_ranked(
+        &places,
+        &r.ssh,
+        "demo",
+        &probes,
+        0,
+        Runs::Cargo,
+        &Default::default(),
+    )
+    .unwrap() else {
         panic!("expected this Mac");
     };
     assert!(why.contains("gone is unreachable"), "{why}");
@@ -279,27 +310,157 @@ fn a_named_host_must_answer_and_this_mac_can_be_named() {
     let places = r.scratch.places();
     // No other host is recorded.
     assert!(matches!(
-        choose(&places, &r.ssh, 0, "demo", None, 1_800_000_000).unwrap(),
+        choose(&places, &r.ssh, 0, "demo", None, Runs::Cargo, 1_800_000_000).unwrap(),
         Choice::Here(_)
     ));
     let file = host::hosts_file(&places);
     std::fs::create_dir_all(file.parent().unwrap()).unwrap();
     std::fs::write(&file, "gone unreachable 4\nm1 user@m1 10\n").unwrap();
-    let Err(crate::fail::Fail::Message(message)) =
-        choose(&places, &r.ssh, 0, "demo", Some("gone"), 1_800_000_000)
-    else {
+    let Err(crate::fail::Fail::Message(message)) = choose(
+        &places,
+        &r.ssh,
+        0,
+        "demo",
+        Some("gone"),
+        Runs::Cargo,
+        1_800_000_000,
+    ) else {
         panic!("expected a failure");
     };
     assert!(message.contains("host gone is not reachable"), "{message}");
     assert!(matches!(
-        choose(&places, &r.ssh, 0, "demo", Some("local"), 1_800_000_000).unwrap(),
+        choose(
+            &places,
+            &r.ssh,
+            0,
+            "demo",
+            Some("local"),
+            Runs::Cargo,
+            1_800_000_000
+        )
+        .unwrap(),
         Choice::Here(_)
     ));
     assert!(matches!(
-        choose(&places, &r.ssh, 0, "demo", Some("m1"), 1_800_000_000).unwrap(),
+        choose(
+            &places,
+            &r.ssh,
+            0,
+            "demo",
+            Some("m1"),
+            Runs::Cargo,
+            1_800_000_000
+        )
+        .unwrap(),
         Choice::On(..)
     ));
-    assert!(choose(&places, &r.ssh, 0, "demo", Some("nobody"), 1_800_000_000).is_err());
+    assert!(
+        choose(
+            &places,
+            &r.ssh,
+            0,
+            "demo",
+            Some("nobody"),
+            Runs::Cargo,
+            1_800_000_000
+        )
+        .is_err()
+    );
+}
+
+/// A nextest run goes to a host that has the pinned cargo-nextest, which the
+/// probe finds by asking the host, and a host without it is passed over, and
+/// fails when `BUILDS_CARGO_HOST` names it.
+#[test]
+fn a_nextest_run_goes_only_to_a_host_with_cargo_nextest() {
+    let (r, _main, _side) = remote("place-nextest", true, RECORDING_BUILDS);
+    let places = r.scratch.places();
+    let file = host::hosts_file(&places);
+    std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+    std::fs::write(&file, "m1 user@m1 10 1.0\n").unwrap();
+    let m1 = host("m1", Some("user@m1"));
+    let local = host("local", None);
+    let ask = || host::probe_all(&places, &r.ssh, vec![local.clone(), m1.clone()]);
+    let with_local_load = |probes: Vec<(Host, std::result::Result<Probe, String>)>| {
+        // This Mac's probe reads this Mac's own load, so the test gives it a
+        // load of 1000 and m1 has more room however busy this Mac is.
+        vec![(local.clone(), probe(1000.0)), probes[1].clone()]
+    };
+
+    let probes = ask();
+    assert_eq!(probes[1].1.as_ref().unwrap().nextest, None);
+    let Choice::Here(why) = pick_ranked(
+        &places,
+        &r.ssh,
+        "demo",
+        &with_local_load(probes.clone()),
+        0,
+        Runs::Nextest,
+        &Default::default(),
+    )
+    .unwrap() else {
+        panic!("expected this Mac");
+    };
+    assert!(why.contains("m1 has no cargo-nextest"), "{why}");
+    assert!(matches!(
+        pick_ranked(
+            &places,
+            &r.ssh,
+            "demo",
+            &with_local_load(probes),
+            0,
+            Runs::Cargo,
+            &Default::default()
+        )
+        .unwrap(),
+        Choice::On(..)
+    ));
+    let Err(crate::fail::Fail::Message(message)) = choose(
+        &places,
+        &r.ssh,
+        0,
+        "demo",
+        Some("m1"),
+        Runs::Nextest,
+        1_800_000_000,
+    ) else {
+        panic!("expected a failure");
+    };
+    assert!(message.contains("m1 has no cargo-nextest"), "{message}");
+
+    // The host gets the pinned version and takes nextest runs.
+    crate::nextest::tests::fake_program(&r.home.join(".cargo/bin"), crate::nextest::VERSION);
+    let probes = ask();
+    assert_eq!(
+        probes[1].1.as_ref().unwrap().nextest.as_deref(),
+        Some(crate::nextest::VERSION)
+    );
+    assert!(matches!(
+        pick_ranked(
+            &places,
+            &r.ssh,
+            "demo",
+            &with_local_load(probes),
+            0,
+            Runs::Nextest,
+            &Default::default()
+        )
+        .unwrap(),
+        Choice::On(..)
+    ));
+    assert!(matches!(
+        choose(
+            &places,
+            &r.ssh,
+            0,
+            "demo",
+            Some("m1"),
+            Runs::Nextest,
+            1_800_000_000
+        )
+        .unwrap(),
+        Choice::On(..)
+    ));
 }
 
 fn read(path: &Path) -> String {
@@ -557,9 +718,16 @@ fn a_host_that_refuses_the_job_leaves_it_to_this_mac_and_is_passed_over_until_gi
     let probes = host::probe_all(&places, &ssh, vec![local.clone(), m1.clone()]);
     assert!(probes[1].1.as_ref().unwrap().git_fails.is_some());
     let probes: Vec<_> = vec![(local.clone(), probe(1000.0)), probes[1].clone()];
-    let Choice::Here(why) =
-        pick_ranked(&places, &ssh, "demo", &probes, 0, &Default::default()).unwrap()
-    else {
+    let Choice::Here(why) = pick_ranked(
+        &places,
+        &ssh,
+        "demo",
+        &probes,
+        0,
+        Runs::Cargo,
+        &Default::default(),
+    )
+    .unwrap() else {
         panic!("expected this Mac");
     };
     assert!(
@@ -575,7 +743,16 @@ fn a_host_that_refuses_the_job_leaves_it_to_this_mac_and_is_passed_over_until_gi
     assert!(host::refusals(&places).unwrap().is_empty());
     let probes = vec![(local, probe(1000.0)), probes[0].clone()];
     assert!(matches!(
-        pick_ranked(&places, &ssh, "demo", &probes, 0, &Default::default()).unwrap(),
+        pick_ranked(
+            &places,
+            &ssh,
+            "demo",
+            &probes,
+            0,
+            Runs::Cargo,
+            &Default::default()
+        )
+        .unwrap(),
         Choice::On(..)
     ));
     assert_eq!(

@@ -273,6 +273,7 @@ fn a_host_that_cannot_build_the_mac_lane_takes_no_mac_checkout() {
             load: [0.0; 3],
             free_kib: 900_000_000,
             git_fails: None,
+            nextest: None,
         }),
     )];
     let (fits, _) = fitting_hosts(Lane::Mac, 0, &probes, &[]);

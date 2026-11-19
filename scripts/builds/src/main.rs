@@ -63,6 +63,7 @@ mod lock_wait;
 mod main_checkout;
 mod manifest;
 mod migrate;
+mod nextest;
 mod places;
 mod procs;
 mod prune;

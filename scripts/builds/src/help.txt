@@ -500,7 +500,11 @@ In a side worktree, `builds cargo` runs test, clippy, check, doc and nextest
 run|list on the host with the most free cores, each counted at the host's
 core speed. builds skips a host that does not answer, is under the free-disk
 floor, refuses jobs (HOSTS), has no measured core speed (`builds host setup`)
-or has no clone of the repo. A host's free cores are its cores minus its
+or has no clone of the repo. For a nextest run, builds also skips a host
+without cargo-nextest at the version builds installs (0.9.143, installed by
+`builds install` on this Mac and by `builds host setup` on each host), and
+names the host and the version it has; `BUILDS_CARGO_HOST` naming such a host
+fails. A host's free cores are its cores minus its
 one-minute load, less the host's cores again for each `builds cargo` run that
 started there in the last minute and still runs: cargo runs a compile job per
 core, and the load average shows a run only after a while. A host's core
@@ -1069,7 +1073,11 @@ indexes the build root.
                               status` there names what a host keeps in place
                               of the caches folder), writes the host's
                               sccache config with builds' cap and runs its
-                              sccache server under launchd, as `builds
+                              sccache server under launchd, installs
+                              cargo-nextest at the one version builds pins (it
+                              downloads the release from get.nexte.st into
+                              ~/.cargo/bin, and changes nothing on a host that
+                              has that version), as `builds
                               install` does here, first
                               stopping a server a client started there (it
                               needs the host's user logged in to its desktop,

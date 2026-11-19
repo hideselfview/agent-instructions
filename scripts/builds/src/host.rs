@@ -249,6 +249,9 @@ pub struct Probe {
     /// push reaches: every job runs git there, so the host refuses every job.
     /// None when git runs.
     pub git_fails: Option<String>,
+    /// The version of cargo-nextest the host has (`nextest::VERSION` is the
+    /// one builds installs); None when it has none.
+    pub nextest: Option<String>,
 }
 
 /// A host's cores and its one-minute load average at one moment.
@@ -318,12 +321,17 @@ echo free_kib=$(df -k "$HOME" | awk 'NR==2{print $4}')
 if ! said=$(git --version 2>&1); then echo "git_fails=$(printf '%s' "$said" | tr '\n' ' ')"; fi
 "#;
 
-/// The script a remote host runs: `PROBE_SCRIPT`, then the memory script.
+/// The script a remote host runs: `PROBE_SCRIPT`, then the memory script, then
+/// the cargo-nextest lines.
 fn probe_script() -> String {
-    format!("{PROBE_SCRIPT}{}", crate::host_memory::SCRIPT)
+    format!(
+        "{PROBE_SCRIPT}{}\n{}",
+        crate::host_memory::SCRIPT,
+        crate::nextest::PROBE_SCRIPT_LINES
+    )
 }
 
-/// Reads what `PROBE_SCRIPT` printed.
+/// Reads what `probe_script` printed.
 pub fn parse_probe(text: &str) -> Result<Probe> {
     let value = |key: &str| -> Result<&str> {
         match text
@@ -364,6 +372,7 @@ pub fn parse_probe(text: &str) -> Result<Probe> {
         free_kib,
         memory: Memory::parse(text)?,
         git_fails,
+        nextest: crate::nextest::parse_version(text),
     })
 }
 
@@ -399,6 +408,7 @@ pub fn probe_local(places: &Places) -> Result<Probe> {
         free_kib: volume_space(&places.home)?.free_kib,
         memory: crate::host_memory::here()?,
         git_fails: None,
+        nextest: crate::nextest::installed_version(&places.home),
     })
 }
 
@@ -600,6 +610,9 @@ pub enum PassedOver {
     GitFails { host: String, said: String },
     /// `builds host setup` has not measured the host's core speed.
     NoSpeed { host: String },
+    /// A nextest run needs cargo-nextest at `nextest::VERSION`, and the host
+    /// has <has>, which is None when it has none.
+    NoNextest { host: String, has: Option<String> },
 }
 
 impl std::fmt::Display for PassedOver {
@@ -625,6 +638,19 @@ impl std::fmt::Display for PassedOver {
                 out,
                 "{host} has no measured core speed (`builds host setup {host}`)"
             ),
+            PassedOver::NoNextest { host, has } => {
+                let version = crate::nextest::VERSION;
+                match has {
+                    None => write!(
+                        out,
+                        "{host} has no cargo-nextest (`builds host setup {host}` installs {version})"
+                    ),
+                    Some(has) => write!(
+                        out,
+                        "{host} has cargo-nextest {has}, not {version} (`builds host setup {host}` installs {version})"
+                    ),
+                }
+            }
         }
     }
 }
@@ -978,9 +1004,59 @@ pub fn takes_cargo<'a>(
     }
 }
 
+/// What a `builds cargo` command runs, as far as the hosts that may take it
+/// are concerned.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Runs {
+    /// A subcommand that cargo itself provides.
+    Cargo,
+    /// `cargo nextest`, which needs cargo-nextest at `nextest::VERSION`.
+    Nextest,
+}
+
+impl Runs {
+    /// What cargo's <args> run.
+    pub fn of(args: &[String]) -> Runs {
+        match args.first().map(String::as_str) {
+            Some("nextest") => Runs::Nextest,
+            _ => Runs::Cargo,
+        }
+    }
+}
+
+/// Whether `builds cargo` may run <runs> on <host>, given its <probe>: what
+/// `takes_cargo` returns when the host may take cargo builds, and for a
+/// nextest run also has cargo-nextest at `nextest::VERSION`.
+pub fn takes_run<'a>(
+    host: &Host,
+    probe: &'a std::result::Result<Probe, String>,
+    floor_kib: u64,
+    runs: Runs,
+) -> std::result::Result<(&'a Probe, f64), PassedOver> {
+    let (probe, speed) = takes_cargo(host, probe, floor_kib)?;
+    has_what_runs_needs(host, probe, runs)?;
+    Ok((probe, speed))
+}
+
+/// Whether <host>, which answered with <probe>, has the programs <runs>
+/// needs: cargo-nextest at `nextest::VERSION` for a nextest run.
+pub fn has_what_runs_needs(
+    host: &Host,
+    probe: &Probe,
+    runs: Runs,
+) -> std::result::Result<(), PassedOver> {
+    if runs == Runs::Nextest && probe.nextest.as_deref() != Some(crate::nextest::VERSION) {
+        return Err(PassedOver::NoNextest {
+            host: host.name.clone(),
+            has: probe.nextest.clone(),
+        });
+    }
+    Ok(())
+}
+
 /// The hosts a cargo build may run on, each with its probe, the one with the
 /// most room first: the reachable hosts above the free-disk floor with a
-/// measured core speed,
+/// measured core speed (and, for a nextest run, cargo-nextest: `takes_run`),
 /// ordered by `Probe::room_after`, given the number of runs that <recent>
 /// counts on each host, times the host's core speed against this Mac's.
 /// Hosts whose weighed room is equal to the hundredth of a core keep the
@@ -992,11 +1068,12 @@ pub fn rank_by_room(
     hosts: &[(Host, std::result::Result<Probe, String>)],
     floor_kib: u64,
     recent: &crate::cargo_starts::Recent,
+    runs: Runs,
 ) -> (Vec<(Host, Probe)>, String) {
     let mut skipped = Vec::new();
     let mut fits: Vec<(&Host, &Probe, f64)> = Vec::new();
     for (host, probe) in hosts {
-        match takes_cargo(host, probe, floor_kib) {
+        match takes_run(host, probe, floor_kib, runs) {
             Ok((probe, speed)) => fits.push((host, probe, speed)),
             Err(why) => skipped.push(why.to_string()),
         }
@@ -1085,6 +1162,7 @@ pub fn cmd_host(tool: &Tool, ssh: &Ssh, args: &[String]) -> Result<()> {
         [word, name] if word == "setup" => crate::host_setup::cmd_setup(tool, ssh, name),
         [word] if word == "setup-here" => {
             tool.places.mark_host()?;
+            crate::nextest::install(&tool.places.home)?;
             crate::install::run_sccache_under_launchd(&tool.places.home, tool.places.uid)
         }
         [word] if word == "speed-here" => crate::host_setup::cmd_speed_here(),

@@ -368,10 +368,11 @@ pub fn choose(
     floor_kib: u64,
     repo: &str,
     named: Option<&str>,
+    runs: host::Runs,
     now: i64,
 ) -> Result<Choice> {
     let starts = cargo_starts::read(places, now)?;
-    let choice = pick(places, ssh, floor_kib, repo, named, &starts.recent)?;
+    let choice = pick(places, ssh, floor_kib, repo, named, runs, &starts.recent)?;
     let host = match &choice {
         Choice::Here(_) => host::LOCAL,
         Choice::On(host, _, _) => host.name.as_str(),
@@ -388,6 +389,7 @@ fn pick(
     floor_kib: u64,
     repo: &str,
     named: Option<&str>,
+    runs: host::Runs,
     recent: &cargo_starts::Recent,
 ) -> Result<Choice> {
     let hosts = host::all(places)?;
@@ -402,6 +404,9 @@ fn pick(
             Ok(probe) => probe,
             Err(error) => fail!("host {name} is not reachable: {error}"),
         };
+        if let Err(why) = host::has_what_runs_needs(&found, &probe, runs) {
+            fail!("{HOST_VARIABLE} names host {name}, which cannot run this: {why}");
+        }
         if let Err(error) = has_clone(places, ssh, &found, repo) {
             fail!("host {name} cannot build {repo}: {error}");
         }
@@ -420,6 +425,7 @@ fn pick(
         repo,
         &host::probe_all(places, ssh, hosts),
         floor_kib,
+        runs,
         recent,
     )
 }
@@ -433,9 +439,10 @@ fn pick_ranked(
     repo: &str,
     probes: &[(Host, std::result::Result<host::Probe, String>)],
     floor_kib: u64,
+    runs: host::Runs,
     recent: &cargo_starts::Recent,
 ) -> Result<Choice> {
-    let (ranked, why) = host::rank_by_room(probes, floor_kib, recent);
+    let (ranked, why) = host::rank_by_room(probes, floor_kib, recent, runs);
     let mut passed_over = Vec::new();
     for (host, probe) in ranked {
         if host.target.is_none() {

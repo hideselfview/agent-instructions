@@ -62,6 +62,7 @@ fn reads_what_a_host_prints() {
                 pressure: Pressure::Warning,
             },
             git_fails: None,
+            nextest: None,
         }
     );
     assert!((probe.load_per_core() - 0.15).abs() < 1e-9);
@@ -78,6 +79,66 @@ fn reads_what_a_host_prints() {
 }
 
 #[test]
+fn a_probe_reads_the_cargo_nextest_version_a_host_prints() {
+    let said = "cores=10\nload=1.50 1.20 1.10\nfree_kib=4\n";
+    assert_eq!(parse_probe(said).unwrap().nextest, None);
+    assert_eq!(
+        parse_probe(&format!("{said}nextest=0.9.143\n"))
+            .unwrap()
+            .nextest
+            .as_deref(),
+        Some("0.9.143")
+    );
+}
+
+/// A nextest run skips a host that has no cargo-nextest at the version builds
+/// installs, saying which, while a cargo run does not.
+#[test]
+fn a_nextest_run_passes_over_a_host_without_the_pinned_cargo_nextest() {
+    let with = |nextest: Option<&str>| {
+        Ok(Probe {
+            cores: 10,
+            load: [0.0; 3],
+            free_kib: 100,
+            git_fails: None,
+            nextest: nextest.map(str::to_string),
+        })
+    };
+    let hosts = vec![
+        (host("local"), with(Some(crate::nextest::VERSION))),
+        (host("m1"), with(None)),
+        (host("m2"), with(Some("0.9.1"))),
+    ];
+    let names = |runs| {
+        let (ranked, why) = rank_by_room(&hosts, 50, &Default::default(), runs);
+        let names: Vec<String> = ranked.into_iter().map(|(host, _)| host.name).collect();
+        (names, why)
+    };
+    assert_eq!(names(Runs::Cargo).0, ["local", "m1", "m2"]);
+    let (names, why) = names(Runs::Nextest);
+    assert_eq!(names, ["local"]);
+    assert!(
+        why.contains("m1 has no cargo-nextest (`builds host setup m1` installs 0.9.143)")
+            && why.contains(
+                "m2 has cargo-nextest 0.9.1, not 0.9.143 (`builds host setup m2` installs 0.9.143)"
+            ),
+        "{why}"
+    );
+    assert_eq!(
+        takes_run(&hosts[1].0, &hosts[1].1, 50, Runs::Nextest).unwrap_err(),
+        PassedOver::NoNextest {
+            host: "m1".to_string(),
+            has: None
+        }
+    );
+    assert_eq!(
+        Runs::of(&["nextest".to_string(), "run".to_string()]),
+        Runs::Nextest
+    );
+    assert_eq!(Runs::of(&["test".to_string()]), Runs::Cargo);
+}
+
+#[test]
 fn a_host_whose_git_fails_is_passed_over_saying_what_git_said() {
     let refusing = || {
         Ok(Probe {
@@ -86,13 +147,14 @@ fn a_host_whose_git_fails_is_passed_over_saying_what_git_said() {
             load: [0.0; 3],
             free_kib: 100,
             git_fails: Some("no license".to_string()),
+            nextest: None,
         })
     };
     let hosts = vec![
         (host("local"), probe_with(8, 6.0, 100)),
         (host("m1"), refusing()),
     ];
-    let (ranked, why) = rank_by_room(&hosts, 50, &Default::default());
+    let (ranked, why) = rank_by_room(&hosts, 50, &Default::default(), crate::host::Runs::Cargo);
     let names: Vec<&str> = ranked.iter().map(|(h, _)| h.name.as_str()).collect();
     assert_eq!(names, ["local"]);
     assert!(
@@ -179,6 +241,7 @@ fn probe_of(load: f64, free_kib: u64) -> std::result::Result<Probe, String> {
         load: [load, load, load],
         free_kib,
         git_fails: None,
+        nextest: None,
     })
 }
 
@@ -266,6 +329,7 @@ fn probe_with(cores: u32, load: f64, free_kib: u64) -> std::result::Result<Probe
         load: [load, load, load],
         free_kib,
         git_fails: None,
+        nextest: None,
     })
 }
 
@@ -278,7 +342,7 @@ fn ranks_hosts_by_cores_minus_load_and_this_mac_wins_a_tie() {
         (host("full"), probe_with(10, 0.0, 5)),
         (host("gone"), Err("refused".to_string())),
     ];
-    let (ranked, why) = rank_by_room(&hosts, 50, &Default::default());
+    let (ranked, why) = rank_by_room(&hosts, 50, &Default::default(), crate::host::Runs::Cargo);
     let names: Vec<&str> = ranked.iter().map(|(h, _)| h.name.as_str()).collect();
     assert_eq!(names, ["m1", "local", "big"]);
     assert!(
@@ -295,20 +359,29 @@ fn ranks_hosts_by_cores_minus_load_and_this_mac_wins_a_tie() {
         (host("m1"), probe_with(8, 2.0, 100)),
     ];
     assert_eq!(
-        rank_by_room(&tie, 0, &Default::default()).0[0].0.name,
+        rank_by_room(&tie, 0, &Default::default(), crate::host::Runs::Cargo).0[0]
+            .0
+            .name,
         "local"
     );
 
     let loaded = vec![(host("m1"), probe_with(10, 14.0, 100))];
     assert_eq!(
-        rank_by_room(&loaded, 0, &Default::default()).0.len(),
+        rank_by_room(&loaded, 0, &Default::default(), crate::host::Runs::Cargo)
+            .0
+            .len(),
         1,
         "a host with no room still ranks"
     );
     assert!(
-        rank_by_room(&[(host("m1"), Err("x".into()))], 0, &Default::default())
-            .0
-            .is_empty()
+        rank_by_room(
+            &[(host("m1"), Err("x".into()))],
+            0,
+            &Default::default(),
+            crate::host::Runs::Cargo
+        )
+        .0
+        .is_empty()
     );
 }
 
@@ -327,7 +400,7 @@ fn ranks_hosts_by_their_room_at_their_core_speed() {
         (at("slower", Some(0.25)), probe_with(10, 2.0, 100)),
         (at("new", None), probe_with(10, 0.0, 100)),
     ];
-    let (ranked, why) = rank_by_room(&hosts, 50, &Default::default());
+    let (ranked, why) = rank_by_room(&hosts, 50, &Default::default(), crate::host::Runs::Cargo);
     let names: Vec<&str> = ranked.iter().map(|(h, _)| h.name.as_str()).collect();
     // 8 free cores at half speed are 4 of this Mac's, ahead of its own 2; at
     // a quarter they are 2, a tie this Mac wins.
@@ -348,7 +421,7 @@ fn ranks_hosts_by_their_room_at_their_core_speed() {
         (at("slow", Some(0.5)), probe_with(10, 14.0, 100)),
         (at("local", Some(1.0)), probe_with(10, 15.0, 100)),
     ];
-    let (ranked, _) = rank_by_room(&busy, 50, &Default::default());
+    let (ranked, _) = rank_by_room(&busy, 50, &Default::default(), crate::host::Runs::Cargo);
     let names: Vec<&str> = ranked.iter().map(|(h, _)| h.name.as_str()).collect();
     assert_eq!(names, ["local", "slow"]);
 }
