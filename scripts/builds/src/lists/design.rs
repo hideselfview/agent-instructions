@@ -20,6 +20,7 @@ use crate::fail::Result;
 use crate::lists::derive::{self, ItemState};
 use crate::lists::design_paths::{Changes, Drawing, Globs, PlaceKind, changes_of, drawing_at};
 use crate::lists::design_session::{self, SessionState};
+use crate::lists::design_variants::{self, Variants};
 use crate::lists::item::{ItemDraft, RecordWait, add_item};
 use crate::lists::record;
 use crate::lists::store;
@@ -228,6 +229,10 @@ pub struct DesignChange {
     pub settlement: Settlement,
     /// The session that recorded it, and whether the approval reached it.
     pub session: SessionState,
+    /// The versions of one part of a board that its review page shows side
+    /// by side (`design_variants`); none once it has closed.
+    #[serde(default)]
+    pub variants: Option<Variants>,
     pub opened: Stamp,
     pub landed: Vec<DesignLanding>,
 }
@@ -879,7 +884,7 @@ fn keep_settled(db: &Connection, id: Id, request: &DesignRequest, stamp: &Stamp)
 }
 
 /// The open design change <id>.
-fn open_design(lists: &Lists, id: Id) -> Result<&DesignChange> {
+pub(in crate::lists) fn open_design(lists: &Lists, id: Id) -> Result<&DesignChange> {
     Ok(match lists.locate(id) {
         None => fail!("{id} is not a record"),
         Some(Located { kind, .. }) if kind != Kind::Design => {
@@ -1309,8 +1314,8 @@ pub fn already_landed(lists: &Lists, id: Id, repo: &str, commits: &[String]) -> 
     Ok(true)
 }
 
-/// Records that design change <id> landed as <commits> (full hashes) and
-/// closes it. The same commits again are recorded once; other commits for a
+/// Records that design change <id> landed as <commits> (full hashes),
+/// closes it and deletes its variants. The same commits again are recorded once; other commits for a
 /// change that landed are refused.
 pub fn landed(
     db: &Connection,
@@ -1328,6 +1333,7 @@ pub fn landed(
     }
     open_design_of(&before, id, repo)?;
     record::close(db, id, How::Landed(commits.to_vec()), stamp)?;
+    design_variants::clear(db, id)?;
     let lists = &store::read(db)?;
     let ready = lists
         .items
@@ -1341,15 +1347,17 @@ pub fn landed(
     Ok(Landed::Closed { ready })
 }
 
-/// Closes open design change <id> without landing it and records <why> as
-/// the reason. drop refuses a change that is already closed, and one that an
-/// open item waits on: closing that change would leave the item waiting on a
-/// change that never lands.
+/// Closes open design change <id> without landing it, records <why> as the
+/// reason and deletes its variants. drop refuses a change that is already
+/// closed, and one that an open item waits on: closing that change would
+/// leave the item waiting on a change that never lands.
 pub fn drop(db: &Connection, id: Id, why: &str, stamp: &Stamp) -> Result<()> {
     let lists = &store::read(db)?;
     open_design(lists, id)?;
     lists.require_none_waits_on(RecordWait::Design(id), "drop")?;
-    record::close(db, id, How::Dropped(why.to_string()), stamp)
+    record::close(db, id, How::Dropped(why.to_string()), stamp)?;
+    design_variants::clear(db, id)?;
+    Ok(())
 }
 
 fn resolution_words(lists: &Lists, resolution: &Resolution) -> String {
@@ -1456,6 +1464,9 @@ fn describe(lists: &Lists, design: &DesignChange, closed: Option<&Closed>) -> Re
                 }
             }
         }
+    }
+    if let Some(variants) = &design.variants {
+        out.push_str(&design_variants::describe(variants));
     }
     if let Some(why) = &design.no_app_place {
         let _ = writeln!(out, "  no drawing changes: {why}");
@@ -1777,6 +1788,7 @@ pub fn read(
         decisions.insert(design, decision);
     }
     let mut sessions = design_session::states(db)?;
+    let mut variants = design_variants::all(db)?;
     let mut statement = db
         .prepare("SELECT id, title, details, repo, worktree, no_app_place FROM design ORDER BY id")
         .sql()?;
@@ -1825,6 +1837,7 @@ pub fn read(
             approved: approvals.remove(&id),
             settlement,
             session: sessions.remove(&id).unwrap_or(SessionState::Unrecorded),
+            variants: variants.remove(&id),
             opened: opened[&id].clone(),
             landed,
         });

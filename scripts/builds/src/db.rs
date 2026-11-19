@@ -1,7 +1,8 @@
 //! `builds.sqlite`, the one database in each project's store folder: the
 //! lists (every table of `lists/*.sql`), the hook-run stats (`hook_stats.sql`
 //! and `hook_check_starts.sql`), the app-build timings (`app_timing.sql`), the
-//! design changes' recording sessions (`lists/design_session.sql`), the shot
+//! design changes' recording sessions (`lists/design_session.sql`) and
+//! variants (`lists/design_variants.sql`), the shot
 //! findings, the review's tables, the `builds cargo` runs
 //! (`cargo_run.sql`), the spec checks (`lists/spec_check.sql`), the agents'
 //! acknowledgements (`ack/record.sql`), the judge (`review/judge.sql`). This module does all opening:
@@ -156,6 +157,11 @@ pub const JUDGE_TOLD_PART: &str = include_str!("review/judge_told.sql");
 /// the judge.
 pub const DESIGN_CIRCLE_BOX_PART: &str = include_str!("lists/design_circle_box.sql");
 
+/// The variants of a design change that its review page shows side by side
+/// (lists/design_variants.sql); the schema holds it after the circles of a
+/// review board that surround a box.
+pub const DESIGN_VARIANTS_PART: &str = include_str!("lists/design_variants.sql");
+
 /// The whole schema: the lists' tables, then the hook stats', then the
 /// app-build timings', then the design changes' recording sessions', then the
 /// stored shot findings, then the review's, then the hook checks' starting
@@ -168,8 +174,16 @@ pub const DESIGN_CIRCLE_BOX_PART: &str = include_str!("lists/design_circle_box.s
 /// the commits of the cargo runs and the app builds, then what the failed
 /// hook checks said, then what the failed app build steps said, then what
 /// builds told the judge, then the circles of a review board that surround a
-/// box.
+/// box, then the variants of a design change.
 pub fn schema() -> String {
+    format!(
+        "{}\n{DESIGN_VARIANTS_PART}",
+        schema_before_design_variants()
+    )
+}
+
+/// The schema as it was before the variants of a design change joined it.
+pub fn schema_before_design_variants() -> String {
     format!(
         "{}\n{DESIGN_CIRCLE_BOX_PART}",
         schema_before_design_circle_box()

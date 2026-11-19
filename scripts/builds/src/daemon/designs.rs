@@ -21,6 +21,7 @@ use crate::design_canvas::{CANVASES, page_of, pages_of, parse_canvases, placed};
 use crate::design_render::{FRAMES_SCRIPT, NOW, fill, render_board, render_preview};
 use crate::fail;
 use crate::fail::{Fail, Result};
+use crate::lists::design_variants::Props;
 use crate::lists::publish::{Request, Standing, ask_and_tell};
 use crate::lists::store::Store;
 use crate::lists::{Stamp, Theme};
@@ -217,6 +218,7 @@ pub fn board(repo: &Path, commit: &str, name: &str, cache: &Path) -> Result<Stri
         Source::Commit { repo, rev: commit },
         name,
         Theme::Dark,
+        &Props::new(),
         cache,
     )
 }

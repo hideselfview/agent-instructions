@@ -915,7 +915,9 @@ fn a_store_from_before_the_design_circle_box_table_gains_it_and_equals_a_fresh_s
 #[test]
 fn the_design_place_naming_stamp_is_the_schema_before_it() {
     assert_eq!(
-        db::stamp_of_text(&before_design_place_naming(db::schema())),
+        db::stamp_of_text(&before_design_place_naming(
+            db::schema_before_design_variants()
+        )),
         BEFORE_DESIGN_PLACE_NAMING_STAMP
     );
 }
@@ -932,9 +934,43 @@ fn a_store_from_before_design_places_named_no_app_work_keeps_its_places_and_equa
     let path = dir.join(DATABASE);
     {
         let conn = Connection::open(&path).unwrap();
-        conn.execute_batch(&before_design_place_naming(db::schema()))
-            .unwrap();
+        conn.execute_batch(&before_design_place_naming(
+            db::schema_before_design_variants(),
+        ))
+        .unwrap();
         conn.pragma_update(None, "user_version", BEFORE_DESIGN_PLACE_NAMING_STAMP)
+            .unwrap();
+    }
+    migrate_stores(&places, 0).unwrap();
+    let conn = db::open(&path, db::Make::Never).unwrap();
+    assert_eq!(
+        db::schema_rows(&conn).unwrap(),
+        db::schema_rows(&db::memory()).unwrap()
+    );
+}
+
+#[test]
+fn the_design_variants_stamp_is_the_schema_before_it() {
+    assert_eq!(
+        db::stamp_of_text(&db::schema_before_design_variants()),
+        BEFORE_DESIGN_VARIANTS_STAMP
+    );
+}
+
+/// A store from before the variants of a design change gains their empty
+/// tables and equals a fresh schema.
+#[test]
+fn a_store_from_before_the_design_variants_tables_gains_them_and_equals_a_fresh_schema() {
+    let scratch = Scratch::new("move-design-variants");
+    let places = scratch.places();
+    let dir = places.lists.join("bae");
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join(DATABASE);
+    {
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(&db::schema_before_design_variants())
+            .unwrap();
+        conn.pragma_update(None, "user_version", BEFORE_DESIGN_VARIANTS_STAMP)
             .unwrap();
     }
     migrate_stores(&places, 0).unwrap();

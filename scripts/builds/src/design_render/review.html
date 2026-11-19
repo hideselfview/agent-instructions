@@ -39,6 +39,7 @@ figcaption a { color: var(--accent); font-weight: 400; font-size: 12px; margin-l
 .circle { position: absolute; box-sizing: border-box; border: 2px solid #f5d90a; border-radius: 16px; pointer-events: auto; }
 .status { margin: 0 0 6px; color: var(--dim); font-size: 13px; max-width: 700px; }
 .status .bad { color: var(--bad); }
+.status code { font: 12px ui-monospace, Menlo, monospace; }
 .problem { color: var(--bad); border: 1px solid var(--bad); border-radius: 6px; padding: 8px 12px; max-width: 700px; }
 .work { max-width: 1100px; padding-left: 18px; }
 .work li { margin: 3px 0; }
@@ -64,6 +65,9 @@ figcaption a { color: var(--accent); font-weight: 400; font-size: 12px; margin-l
 <script type="application/json" id="data">@@DATA@@</script>
 <script>
 @@CIRCLES@@
+</script>
+<script>
+@@VARIANTS@@
 </script>
 <script>
 @@FRAMES@@
@@ -186,6 +190,13 @@ window.addEventListener("message", e => {
   const sent = e.data && e.data.designBoxes;
   if (!sent || !Array.isArray(sent.found)) return;
   const entry = frames.find(f => f.frame.contentWindow === e.source && f.b.src === sent.src);
+  if (entry && entry.variant) {
+    const answer = variantCrop(entry.variant.selector, sent.found[0], entry.b.w, entry.b.h);
+    entry.crop = answer.crop || null;
+    entry.variant.problem.replaceChildren(...(answer.problem ? [h("div", {class: "bad"}, answer.problem)] : []));
+    layout();
+    return;
+  }
   if (!entry || !entry.pair) return;
   entry.found = sent.found;
   settle(entry.pair);
@@ -227,6 +238,31 @@ function gone(d) {
     h("div", {class: "pair"}, side("Now (origin/main)", d.now, "This board is not on origin/main."),
       h("div", {class: "side"}, h("h3", {}, "Proposed (the change)"), h("div", {class: "note"}, "The change deletes this board."))));
 }
+// A drawing of the change's variants: the board drawn with one set of
+// props, in a frame cropped to the first element the selector finds
+// (variants.js). Each load of the frame asks its board page what the selector
+// finds, as a board with circles does, and the page shows the whole board
+// until the board page answers.
+function variant(d, v) {
+  const label = h("h3", {}, d.label);
+  if (d.error) return h("div", {class: "side"}, label, h("div", {class: "problem"}, d.error));
+  const problem = h("div", {class: "status"});
+  const {frame, box} = boardFrame(d.src, d.w, d.h, false);
+  const entry = {b: d, frame, box, circles: [], crop: null, variant: {selector: v.selector, problem}};
+  frames.push(entry);
+  frame.addEventListener("load", () => {
+    entry.crop = null;
+    frame.contentWindow.postMessage({designCircles: [v.selector]}, "*");
+  });
+  return h("div", {class: "side"}, label, problem, box);
+}
+function variants(v) {
+  return h("section", {}, h("h2", {}, "Variants"),
+    h("p", {class: "status"}, "The page draws ", h("code", {}, v.board), " at commit ",
+      h("code", {}, v.tip.slice(0, 10)), " in the " + v.theme + " theme once for each set of props, and crops each drawing to the first element that ",
+      h("code", {}, v.selector), " finds."),
+    h("div", {class: "pair"}, v.drawings.map(d => variant(d, v))));
+}
 function scaleOf(b) {
   const room = (document.documentElement.clientWidth - 42 - 16) / 2;
   if (zoom === "fit") return Math.min(1, room / b.w);
@@ -234,7 +270,15 @@ function scaleOf(b) {
 }
 function layout() {
   for (const entry of frames) {
-    const {b, circles} = entry;
+    const {b, circles, crop} = entry;
+    if (crop) {
+      // A cropped frame moves the board so the crop's corner is the box's.
+      const s = scaleOf(crop);
+      entry.frame.style.transform = "translate(" + (-crop.x * s) + "px, " + (-crop.y * s) + "px) scale(" + s + ")";
+      entry.box.style.width = Math.round(crop.w * s) + "px";
+      entry.box.style.height = Math.round(crop.h * s) + "px";
+      continue;
+    }
     const s = scaleOf(b);
     scaleFrame(entry, b.w, b.h, s);
     for (const {el, box} of circles) {
@@ -254,6 +298,7 @@ if (data.section) {
   main.append(h("section", {}, h("h2", {}, s.heading), s.words.trim() ? md(s.words) : null,
     s.boards.length ? h("div", {class: "boards"}, s.boards.map(board)) : null));
 }
+if (data.variants) main.append(variants(data.variants));
 if (data.deleted.length) {
   main.append(h("section", {}, h("h2", {}, "Deleted boards"),
     h("div", {class: "boards"}, data.deleted.map(gone))));

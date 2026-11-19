@@ -582,8 +582,9 @@ The review page shows the change's words under its heading, with every board
 of the change drawn twice, side by side, in frames the person can zoom (never
 an image): now, the board as it stands on origin/main, and proposed, the board
 at the last commit of the change's range, each drawn with its own commit's
-design system. A board the change adds says it has no now; a board it deletes
-shows only its now. The dashboard serves the page at /design/PROJECT/N, with the
+design system. Under them, the page shows the change's variants, if it has
+any (`design variants`). A board the change adds says it has no now; a board it
+deletes shows only its now. The dashboard serves the page at /design/PROJECT/N, with the
 project's name before the change's id, since each project counts its own ids;
 the change's card in the Waiting on you tab opens it, and the page draws each board again on
 every request from the files at those commits, read with git, so a worktree
@@ -780,8 +781,41 @@ sent again.
       design:N` command that removes the item's wait.
 
   builds design show N | builds design list
-      `show` prints one design change, whether open, landed or dropped;
-      `list` prints the open ones, one line each.
+      `show` prints one design change, whether open, landed or dropped,
+      with its variants while it is open; `list` prints the open ones, one
+      line each.
+
+  builds design variants N --board BOARD --selector CSS_SELECTOR --props JSON
+                           [--theme light|dark] [--at REV]
+  builds design variants N --clear
+      Shows versions of one part of a board side by side on open design
+      change N's review page, while the person and the design session
+      compare them, with no commit for each version. The review page's
+      Variants section draws BOARD once for each object of the JSON array
+      --props, labels each drawing with its props (`name: value`, in name
+      order), and crops it to the first element that CSS_SELECTOR finds
+      there that a person sees, with 16 board pixels around it, within the
+      board. A board takes props as a board that mounts it with dc-import
+      passes its attributes: its script reads them from this.props, by the
+      names the script uses (keyOwner, not key-owner), so one board with a
+      prop for each version draws them all: `--props '[{"layout": "rows"},
+      {"layout": "grid"}]'`. An object with no props, {}, draws the board
+      with its own values.
+      BOARD is a name (mac.welcome.open-failed) or a path
+      (design/mocks/mac.welcome.open-failed.dc.html) and must be a board
+      place of the change's repo and a file at the commit. The page draws
+      the board at commit REV of the change's worktree, its HEAD unless
+      given, with that commit's design system and canvas size, dark unless
+      --theme says light: commit each redraw of the board, then run
+      `variants` again. The page shows each drawing's problem in its place:
+      a selector that is no CSS selector or finds nothing (the page then
+      shows the whole board), or a board with no size at the commit.
+      Each change has one set of variants: `variants` again replaces it
+      whole, and --clear deletes it. The store keeps the variants with the
+      change, never the repo. They change nothing the person approves: an
+      amend leaves them as they are and they never clear an approval, and
+      `design check` and builds land read none of them. Landing or dropping
+      the change deletes them.
 
   builds design render DIR BOARD [--theme light|dark] [--now | --at REV]
       Prints board BOARD of worktree DIR as one page of HTML, the way the

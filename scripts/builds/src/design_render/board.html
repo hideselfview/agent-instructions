@@ -133,7 +133,9 @@ function Drawn(props) {
   }, []);
   return props.children;
 }
-ReactDOM.createRoot(document.getElementById('r')).render(h(Drawn, null, render('__main__', {})));
+// The props the board is drawn with: none, or a variant's (design_variants.rs).
+var PROPS = @@PROPS@@;
+ReactDOM.createRoot(document.getElementById('r')).render(h(Drawn, null, render('__main__', PROPS)));
 </script>
 </body>
 </html>

@@ -39,6 +39,10 @@
 //!                   a board of that page as it stands on origin/main (now)
 //!                   or at the change's last commit (proposed), drawn now;
 //!                   the page's frames load these
+//!     /design/<project>/<design id>/variant/<k>
+//!                   the change's <k>th variant: the variants' board drawn
+//!                   with its <k>th set of props at the variants' commit,
+//!                   drawn now; the page's frames load these
 //!     /designs/<project>
 //!                   the Designs page of the project: every board of the
 //!                   repo that holds its design files as it stands on
@@ -282,6 +286,7 @@ fn handle(mut stream: TcpStream, names: &[String], model: &Model) -> std::io::Re
                     model.design_board(project, id, n, side)
                 }
                 DesignRoute::Deleted(project, id, k) => model.design_deleted_board(project, id, k),
+                DesignRoute::Variant(project, id, k) => model.design_variant(project, id, k),
             });
             drawn_page(&mut stream, drawn, b"no such open design change or board\n")
         }
@@ -360,12 +365,14 @@ enum DesignRoute<'a> {
     Board(&'a str, u32, usize, Side),
     /// The now of the <k>th board it deletes.
     Deleted(&'a str, u32, usize),
+    /// Its <k>th variant.
+    Variant(&'a str, u32, usize),
 }
 
 /// <rest> is the path after `/design/`: `<project>/<id>`,
-/// `<project>/<id>/board/<n>/now`, `.../board/<n>/proposed` or
-/// `<project>/<id>/deleted/<k>/now`. Ids count per project, so the project
-/// is in every address.
+/// `<project>/<id>/board/<n>/now`, `.../board/<n>/proposed`,
+/// `<project>/<id>/deleted/<k>/now` or `<project>/<id>/variant/<k>`. Ids
+/// count per project, so the project is in every address.
 fn design_route(rest: &str) -> Option<DesignRoute<'_>> {
     let parts: Vec<&str> = rest.split('/').collect();
     match parts.as_slice() {
@@ -383,6 +390,11 @@ fn design_route(rest: &str) -> Option<DesignRoute<'_>> {
             Side::Proposed,
         )),
         [project, id, "deleted", k, "now"] => Some(DesignRoute::Deleted(
+            project,
+            id.parse().ok()?,
+            k.parse().ok()?,
+        )),
+        [project, id, "variant", k] => Some(DesignRoute::Variant(
             project,
             id.parse().ok()?,
             k.parse().ok()?,

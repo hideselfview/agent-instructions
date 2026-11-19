@@ -397,6 +397,10 @@ fn a_design_path_is_a_page_or_a_board_of_a_page() {
         design_route("demo/7/deleted/2/now"),
         Some(DesignRoute::Deleted("demo", 7, 2))
     );
+    assert_eq!(
+        design_route("demo/7/variant/1"),
+        Some(DesignRoute::Variant("demo", 7, 1))
+    );
     for bad in [
         "",
         "demo/7/",
@@ -413,6 +417,9 @@ fn a_design_path_is_a_page_or_a_board_of_a_page() {
         "demo/7/deleted/2/proposed",
         "demo/7/boards/1",
         "demo/7/board/1/2/3",
+        "demo/7/variant",
+        "demo/7/variant/x",
+        "demo/7/variant/1/now",
     ] {
         assert_eq!(design_route(bad), None, "{bad:?}");
     }
@@ -818,4 +825,54 @@ fn the_publish_events_follow_the_store_and_a_project_with_no_design_files_has_no
         serde_json::from_str(&next_event(&mut reader, "publish")).unwrap();
     assert_eq!(next["latest"]["id"], serde_json::json!(1));
     assert_eq!(inbox.unwrap().received().len(), 1);
+}
+
+#[test]
+fn the_daemon_draws_each_variant_of_a_design_change_with_its_props_at_the_variants_commit() {
+    use crate::lists::design_variants::{Variants, keep};
+    use crate::lists::fixtures::{NOON, stamp};
+    let s = server_with("http-variants", |scratch, places| {
+        design_store(scratch, places);
+        let wt = scratch.dir.join("wt");
+        let tip = crate::lists::design_paths::full_sha(&wt, "HEAD").unwrap();
+        let props = |value: serde_json::Value| value.as_object().unwrap().clone();
+        crate::lists::store::Store::named(places, "demo")
+            .unwrap()
+            .write(&stamp(NOON), "design variants 1", |db| {
+                keep(
+                    db,
+                    crate::lists::Id(1),
+                    &Variants {
+                        board: "design/mocks/A.dc.html".into(),
+                        selector: "p".into(),
+                        theme: crate::lists::Theme::Dark,
+                        tip: tip.clone(),
+                        props: vec![
+                            props(serde_json::json!({ "storage": "dropbox" })),
+                            props(serde_json::json!({})),
+                        ],
+                    },
+                )
+            })
+            .unwrap();
+    });
+    let (_, _, page) = s.get("/design/demo/1");
+    assert!(
+        page.contains("/design/demo/1/variant/0") && page.contains("/design/demo/1/variant/1"),
+        "{page}"
+    );
+    let (status, kind, first) = s.get("/design/demo/1/variant/0");
+    assert_eq!((status, kind.as_str()), (200, "text/html; charset=utf-8"));
+    assert!(
+        first.contains("board A as drawn")
+            && first.contains(r#"var PROPS = {"storage":"dropbox"};"#)
+            && first.contains("data-theme=\"dark\""),
+        "{first}"
+    );
+    assert!(
+        s.get("/design/demo/1/variant/1")
+            .2
+            .contains("var PROPS = {};")
+    );
+    assert_eq!(s.get("/design/demo/1/variant/2").0, 404);
 }
