@@ -233,6 +233,7 @@ fn a_worktree_a_job_claimed_since_the_listing_stays() {
     let ssh = fake_ssh(&scratch.dir.join("bin"), &home);
     host_worktree(&home, &clone, "remote-3", Some("41-17"));
     let host = Host {
+        band: None,
         name: "m1".to_string(),
         target: Some("u@m1".to_string()),
         cores: 10,

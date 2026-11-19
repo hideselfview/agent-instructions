@@ -4,6 +4,7 @@ use crate::testing::Scratch;
 
 fn host(name: &str) -> Host {
     Host {
+        band: None,
         name: name.to_string(),
         target: Some(format!("u@{name}")),
         cores: 10,
@@ -161,6 +162,7 @@ fn a_host_whose_builds_is_not_this_macs_is_a_finding() {
     std::fs::write(mine.with_file_name("builds-shots"), "shots").unwrap();
     let m1 = host("m1");
     let gone = Host {
+        band: None,
         name: "gone".to_string(),
         target: Some("unreachable".to_string()),
         cores: 1,

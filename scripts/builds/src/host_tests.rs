@@ -1,5 +1,7 @@
 use super::*;
 use crate::fail::Fail;
+use crate::host_band::Band;
+use crate::host_memory::Memory;
 use crate::testing::Scratch;
 use std::os::unix::fs::PermissionsExt;
 
@@ -44,13 +46,20 @@ use std::path::Path;
 
 #[test]
 fn reads_what_a_host_prints() {
-    let probe = parse_probe("cores=10\nload=1.50 1.20 1.10 \nfree_kib=447000000\n").unwrap();
+    let probe = parse_probe(
+        "cores=10\nload=1.50 1.20 1.10 \nfree_kib=447000000\nmemory_free_percent=61\nswap_used_mib=12.50\n",
+    )
+    .unwrap();
     assert_eq!(
         probe,
         Probe {
             cores: 10,
             load: [1.5, 1.2, 1.1],
             free_kib: 447_000_000,
+            memory: Memory {
+                free_percent: 61,
+                swap_used_mib: 12.5,
+            },
             git_fails: None,
         }
     );
@@ -58,7 +67,7 @@ fn reads_what_a_host_prints() {
     assert!(parse_probe("cores=10\n").is_err());
     assert!(parse_probe("cores=10\nload=1.50\nfree_kib=4\n").is_err());
     let refusing = parse_probe(
-        "cores=10\nload=1.50 1.20 1.10\nfree_kib=4\ngit_fails=You have not agreed to the Xcode license agreements. \n",
+        "cores=10\nload=1.50 1.20 1.10\nfree_kib=4\nmemory_free_percent=61\nswap_used_mib=0\ngit_fails=You have not agreed to the Xcode license agreements. \n",
     )
     .unwrap();
     assert_eq!(
@@ -71,6 +80,7 @@ fn reads_what_a_host_prints() {
 fn a_host_whose_git_fails_is_passed_over_saying_what_git_said() {
     let refusing = || {
         Ok(Probe {
+            memory: crate::host_memory::Memory::at_rest(),
             cores: 10,
             load: [0.0; 3],
             free_kib: 100,
@@ -153,6 +163,7 @@ fn refusals_keep_the_first_time_and_go_with_their_host() {
 
 fn host(name: &str) -> Host {
     Host {
+        band: None,
         name: name.to_string(),
         target: Some(format!("u@{name}")),
         cores: 10,
@@ -162,6 +173,7 @@ fn host(name: &str) -> Host {
 
 fn probe_of(load: f64, free_kib: u64) -> std::result::Result<Probe, String> {
     Ok(Probe {
+        memory: crate::host_memory::Memory::at_rest(),
         cores: 10,
         load: [load, load, load],
         free_kib,
@@ -248,6 +260,7 @@ fn an_unreachable_host_is_not_added() {
 
 fn probe_with(cores: u32, load: f64, free_kib: u64) -> std::result::Result<Probe, String> {
     Ok(Probe {
+        memory: crate::host_memory::Memory::at_rest(),
         cores,
         load: [load, load, load],
         free_kib,
@@ -351,7 +364,7 @@ fn the_hosts_file_keeps_each_hosts_speed() {
     let hosts = read_remote(&places).unwrap();
     let speeds: Vec<Option<f64>> = hosts.iter().map(|h| h.speed).collect();
     assert_eq!(speeds, [Some(0.712), None]);
-    write_remote(&places, &hosts).unwrap();
+    write_file(&places, &read_file(&places).unwrap()).unwrap();
     assert_eq!(
         std::fs::read_to_string(&file).unwrap(),
         "m1 u@m1 10 0.712\nnew u@new 8\n"
@@ -362,6 +375,73 @@ fn the_hosts_file_keeps_each_hosts_speed() {
     assert!(read_remote(&places).is_err());
 }
 
+/// The hosts file keeps a band for this Mac and for a recorded host, `all`
+/// gives each host its band, and a host with none has none.
+#[test]
+fn the_hosts_file_keeps_each_hosts_load_band() {
+    let scratch = Scratch::new("host-bands");
+    let places = scratch.places();
+    let file = hosts_file(&places);
+    std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+    std::fs::write(&file, "m1 u@m1 10 0.712\nnew u@new 8\n").unwrap();
+    assert!(all(&places).unwrap().iter().all(|host| host.band.is_none()));
+
+    let local = Band::parse("25", "30").unwrap();
+    let m1 = Band::parse("20", "25").unwrap();
+    set_band(&places, LOCAL, Some(local)).unwrap();
+    set_band(&places, "m1", Some(m1)).unwrap();
+    assert_eq!(
+        std::fs::read_to_string(&file).unwrap(),
+        "m1 u@m1 10 0.712\nnew u@new 8\nband local 25 30\nband m1 20 25\n"
+    );
+    let bands: Vec<Option<Band>> = all(&places).unwrap().iter().map(|h| h.band).collect();
+    assert_eq!(bands, [Some(local), Some(m1), None]);
+
+    // Another write to the file keeps the bands.
+    record_speed(&places, "new", 0.5).unwrap();
+    let bands: Vec<Option<Band>> = all(&places).unwrap().iter().map(|h| h.band).collect();
+    assert_eq!(bands, [Some(local), Some(m1), None]);
+
+    // Removing a host removes its band, and clearing a band removes its line.
+    remove(&places, "m1").unwrap();
+    set_band(&places, LOCAL, None).unwrap();
+    assert_eq!(
+        std::fs::read_to_string(&file).unwrap(),
+        "new u@new 8 0.500\n"
+    );
+    let fault = set_band(&places, "gone", Some(local)).unwrap_err().text();
+    assert!(fault.contains("no host named gone"), "{fault}");
+}
+
+/// A host with no band has the shares of its cores; a band that is not two
+/// numbers with the low end under the high end, or that names a host that is
+/// not recorded, is an error.
+#[test]
+fn a_host_without_a_band_keeps_the_shares_of_its_cores_and_a_bad_band_fails() {
+    let band = host("m1").band_for(10);
+    assert_eq!((band.low, band.high), (7.5, 12.5));
+    for (low, high) in [
+        ("30", "25"),
+        ("25", "25"),
+        ("0", "5"),
+        ("x", "5"),
+        ("5", "inf"),
+    ] {
+        assert!(Band::parse(low, high).is_err(), "{low} {high}");
+    }
+    let scratch = Scratch::new("host-bad-bands");
+    let places = scratch.places();
+    let file = hosts_file(&places);
+    std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+    for text in [
+        "m1 u@m1 10\nband m1 30 25\n",
+        "m1 u@m1 10\nband gone 20 25\n",
+    ] {
+        std::fs::write(&file, text).unwrap();
+        assert!(read_file(&places).is_err(), "{text}");
+    }
+}
+
 /// A script run at the terminal runs on the host through `ssh -t`.
 #[test]
 fn a_script_at_the_terminal_runs_on_the_host() {
@@ -369,6 +449,7 @@ fn a_script_at_the_terminal_runs_on_the_host() {
     let home = scratch.dir.join("remote-home");
     let ssh = fake_ssh(&scratch.dir.join("bin"), &home);
     let m1 = Host {
+        band: None,
         name: "m1".to_string(),
         target: Some("u@m1".to_string()),
         cores: 10,

@@ -950,6 +950,8 @@ indexes the build root.
   builds host setup local
   builds host setup-here
   builds host speed-here
+  builds host band <name> <low> <high>
+  builds host band <name> clear
   builds host list
   builds host remove <name>
   builds host clear-xcode <name>
@@ -957,6 +959,15 @@ indexes the build root.
                               by key, with no password) for its cores and
                               records it in the file `hosts` beside the lists
                               folder (`<name> <target> <cores> [<speed>]`).
+                              `band` sets the band of 5-minute load that
+                              `builds health` aims to keep host <name> in
+                              (`local` is this Mac), as the line `band <name>
+                              <low> <high>` in `hosts`; `clear` removes it.
+                              Health says to start agents while the load is
+                              under <low> and to start nothing new while it
+                              is over <high>. A host with no band has 0.75
+                              to 1.25 times its cores. `band` takes the host
+                              name `band` for itself, so `add` refuses it.
                               `setup` copies this Mac's builds and
                               builds-shots programs to ~/.local/bin on the
                               host (both are arm64 macOS), links builds-linker to it there,
@@ -991,8 +1002,10 @@ indexes the build root.
                               host the same way, without the sccache step, the
                               timing or the settings. `list`
                               asks every host for its load average per core,
-                              its free disk, whether it answers and whether it
-                              refuses jobs, and keeps each host's record of
+                              its load band, its memory (the share
+                              `memory_pressure` calls free and the swap in
+                              use), its free disk, whether it answers and
+                              whether it refuses jobs, and keeps each host's record of
                               refusing jobs current with the answer.
                               `clear-xcode` removes the record that the host's
                               Xcode cannot start, once the fix xcodebuild
@@ -1418,20 +1431,24 @@ STATUS, HEALTH AND THE DASHBOARD
                               config's (`builds host setup <name>`, or
                               `builds install` here); a
                               build host that builds could not ask what it
-                              has installed, with what went wrong; cores idle
-                              on this Mac or a host, its 5-minute load under
-                              three quarters of its cores, while items of any
-                              project are ready to dispatch (`builds next`),
+                              has installed, with what went wrong; this Mac
+                              or a host under its load band (HOSTS), its
+                              5-minute load under the band's low end, while
+                              items of any project are ready to dispatch
+                              (`builds next`),
                               when `builds cargo` can run there (start
                               agents), and when it cannot, the reason it
                               passes the host over (free disk under the
                               floor, git failing, no measured core speed)
                               with the fix (`builds prune`, git on the
-                              host, `builds host setup <name>`); this Mac or a host over its cores, its
-                              5-minute load over five quarters of them (start
-                              nothing new, unless another host that takes
-                              cargo work has idle cores, which `builds cargo`
-                              sends the work to: the line names that host);
+                              host, `builds host setup <name>`); this Mac or a host over its band, its
+                              5-minute load over the band's high end or any
+                              swap in use, whatever its load (start nothing
+                              new, unless another host that takes cargo work
+                              is under its band, which `builds cargo` sends
+                              the work to: the line names that host); each
+                              of these two lines gives the host's band and
+                              its memory next to its load;
                               this Mac or a host that did not
                               say its load, with what went wrong
   builds dashboard [--port <port>] [--listen <address>]

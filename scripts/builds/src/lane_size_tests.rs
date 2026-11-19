@@ -64,7 +64,7 @@ cd '{home}' && HOME='{home}' BUILDS_VOLUME='{home}/no-volume' exec sh -c "$*"
     fn host_has(&self, cores: u32, load: f64, free_kib: u64) {
         std::fs::write(
             self.scratch.dir.join("probe"),
-            format!("cores={cores}\nload={load} 0 0\nfree_kib={free_kib}\n"),
+            format!("cores={cores}\nload={load} 0 0\nfree_kib={free_kib}\nmemory_free_percent=80\nswap_used_mib=0\n"),
         )
         .unwrap();
     }
@@ -261,12 +261,14 @@ fn two_lanes_that_add_at_once_never_pass_the_host_cap() {
 fn a_host_that_cannot_build_the_mac_lane_takes_no_mac_checkout() {
     let probes = vec![(
         Host {
+            band: None,
             name: "m1".to_string(),
             target: Some("user@m1".to_string()),
             cores: 10,
             speed: None,
         },
         Ok(Probe {
+            memory: crate::host_memory::Memory::at_rest(),
             cores: 10,
             load: [0.0; 3],
             free_kib: 900_000_000,

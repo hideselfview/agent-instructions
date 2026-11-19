@@ -136,6 +136,7 @@ fn a_host_gets_the_forwarded_environment_and_runs_builds_as_local() {
 
 fn host(name: &str, target: Option<&str>) -> Host {
     Host {
+        band: None,
         name: name.to_string(),
         target: target.map(str::to_string),
         cores: 10,
@@ -145,6 +146,7 @@ fn host(name: &str, target: Option<&str>) -> Host {
 
 fn probe(load: f64) -> std::result::Result<Probe, String> {
     Ok(Probe {
+        memory: crate::host_memory::Memory::at_rest(),
         cores: 10,
         load: [load, load, load],
         free_kib: 1 << 30,

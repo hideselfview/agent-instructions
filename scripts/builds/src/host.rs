@@ -1,7 +1,9 @@
 //! Hosts: the Macs builds can run a job on. This Mac is always one (`local`);
 //! `builds host add` records another, reached over ssh. builds keeps the list
-//! in the file `hosts` beside the lists folder, one `<name> <target> <cores>`
-//! per line, and asks each host for its load, cores and free disk, and whether
+//! in the file `hosts` beside the lists folder, one `<name> <target> <cores>
+//! [<speed>]` per line, with a line `band <name> <low> <high>` for each host
+//! (this Mac included) that has a load band (host_band.rs). builds asks each
+//! host for its load, cores, free disk and memory, and whether
 //! git runs there, when `builds host list` or `builds remote run` needs them.
 //!
 //! A host refuses jobs when it answers but cannot start one: git fails there
@@ -32,6 +34,8 @@ use std::process::{Command, Stdio};
 use crate::checkout::parallel_map;
 use crate::fail;
 use crate::fail::{Context, Result};
+use crate::host_band::Band;
+use crate::host_memory::Memory;
 use crate::places::Places;
 use crate::text::{human, local_minute};
 use crate::tool::{Tool, volume_space};
@@ -202,6 +206,10 @@ pub struct Host {
     /// (`core_speed`), measured by `builds host setup`: 1 for this Mac, None
     /// for a host added and not yet set up.
     pub speed: Option<f64>,
+    /// The 5-minute load that health aims to keep the host in
+    /// (`builds host band`); None for a host that keeps the shares of its
+    /// cores.
+    pub band: Option<Band>,
 }
 
 impl Host {
@@ -212,7 +220,13 @@ impl Host {
             target: None,
             cores: std::thread::available_parallelism().map_or(1, |n| n.get() as u32),
             speed: Some(1.0),
+            band: None,
         }
+    }
+
+    /// The host's band, or the shares of <cores> when it has none.
+    pub fn band_for(&self, cores: u32) -> Band {
+        self.band.unwrap_or_else(|| Band::of_cores(cores))
     }
 
     pub fn describe(&self) -> String {
@@ -230,6 +244,7 @@ pub struct Probe {
     /// The 1, 5 and 15-minute load averages.
     pub load: [f64; 3],
     pub free_kib: u64,
+    pub memory: Memory,
     /// What git printed when it failed on the host, in the shell that a job's
     /// push reaches: every job runs git there, so the host refuses every job.
     /// None when git runs.
@@ -300,7 +315,13 @@ impl Probe {
 const PROBE_SCRIPT: &str = r#"echo cores=$(sysctl -n hw.ncpu)
 echo load=$(sysctl -n vm.loadavg | tr -d '{}')
 echo free_kib=$(df -k "$HOME" | awk 'NR==2{print $4}')
-if ! said=$(git --version 2>&1); then echo "git_fails=$(printf '%s' "$said" | tr '\n' ' ')"; fi"#;
+if ! said=$(git --version 2>&1); then echo "git_fails=$(printf '%s' "$said" | tr '\n' ' ')"; fi
+"#;
+
+/// The script a remote host runs: `PROBE_SCRIPT`, then the memory script.
+fn probe_script() -> String {
+    format!("{PROBE_SCRIPT}{}", crate::host_memory::SCRIPT)
+}
 
 /// Reads what `PROBE_SCRIPT` printed.
 pub fn parse_probe(text: &str) -> Result<Probe> {
@@ -341,6 +362,7 @@ pub fn parse_probe(text: &str) -> Result<Probe> {
         cores,
         load,
         free_kib,
+        memory: Memory::parse(text)?,
         git_fails,
     })
 }
@@ -349,7 +371,7 @@ pub fn parse_probe(text: &str) -> Result<Probe> {
 /// what ssh printed.
 pub fn probe_target(ssh: &Ssh, target: &str) -> std::result::Result<Probe, String> {
     let output = ssh
-        .command(target, PROBE_SCRIPT, Terminal::None)
+        .command(target, &probe_script(), Terminal::None)
         .stdin(Stdio::null())
         .output()
         .map_err(|error| format!("running {}: {error}", ssh.program))?;
@@ -375,6 +397,7 @@ pub fn probe_local(places: &Places) -> Result<Probe> {
         cores: Host::local().cores,
         load: loads,
         free_kib: volume_space(&places.home)?.free_kib,
+        memory: crate::host_memory::here()?,
         git_fails: None,
     })
 }
@@ -640,22 +663,55 @@ pub fn hosts_file(places: &Places) -> PathBuf {
     places.lists.parent().unwrap_or(&places.lists).join("hosts")
 }
 
+/// What the hosts file holds: the recorded remote hosts, in the order they
+/// were added, each with its band, and this Mac's band.
+#[derive(Clone, Debug, PartialEq)]
+pub struct HostsFile {
+    pub remote: Vec<Host>,
+    pub local_band: Option<Band>,
+}
+
 /// The recorded remote hosts, in the order they were added.
 pub fn read_remote(places: &Places) -> Result<Vec<Host>> {
+    Ok(read_file(places)?.remote)
+}
+
+/// Reads the hosts file; a file that is not there holds nothing.
+pub fn read_file(places: &Places) -> Result<HostsFile> {
     let file = hosts_file(places);
     let text = match std::fs::read_to_string(&file) {
         Ok(text) => text,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(HostsFile {
+                remote: Vec::new(),
+                local_band: None,
+            });
+        }
         Err(error) => fail!("reading {}: {error}", file.display()),
     };
-    let mut hosts = Vec::new();
+    let mut hosts: Vec<Host> = Vec::new();
+    let mut bands: Vec<(String, Band)> = Vec::new();
     for line in text.lines().filter(|line| !line.trim().is_empty()) {
         let fields: Vec<&str> = line.split_whitespace().collect();
+        if let [word, name, low, high] = fields[..]
+            && word == crate::host_band::LINE_WORD
+        {
+            let band = match Band::parse(low, high) {
+                Ok(band) => band,
+                Err(fault) => fail!(
+                    "{} has a band that is not valid ({}): {line}",
+                    file.display(),
+                    fault.text()
+                ),
+            };
+            bands.push((name.to_string(), band));
+            continue;
+        }
         let (name, target, cores, speed) = match fields[..] {
             [name, target, cores] => (name, target, cores, None),
             [name, target, cores, speed] => (name, target, cores, Some(speed)),
             _ => fail!(
-                "{} has a line that is not `<name> <target> <cores> [<speed>]`: {line}",
+                "{} has a line that is not `<name> <target> <cores> [<speed>]` or `band <name> <low> <high>`: {line}",
                 file.display()
             ),
         };
@@ -676,16 +732,34 @@ pub fn read_remote(places: &Places) -> Result<Vec<Host>> {
                 .parse()
                 .context(|| format!("reading the cores in {}", file.display()))?,
             speed,
+            band: None,
         });
     }
-    Ok(hosts)
+    let mut local_band = None;
+    for (name, band) in bands {
+        if name == LOCAL {
+            local_band = Some(band);
+        } else if let Some(host) = hosts.iter_mut().find(|host| host.name == name) {
+            host.band = Some(band);
+        } else {
+            fail!(
+                "{} has a band for {name}, which is not a recorded host",
+                file.display()
+            );
+        }
+    }
+    Ok(HostsFile {
+        remote: hosts,
+        local_band,
+    })
 }
 
-fn write_remote(places: &Places, hosts: &[Host]) -> Result<()> {
+fn write_file(places: &Places, hosts: &HostsFile) -> Result<()> {
     let file = hosts_file(places);
     let dir = file.parent().expect("a file has a folder");
     std::fs::create_dir_all(dir).context(|| format!("creating {}", dir.display()))?;
-    let text: String = hosts
+    let mut text: String = hosts
+        .remote
         .iter()
         .map(|host| {
             let target = host
@@ -698,23 +772,55 @@ fn write_remote(places: &Places, hosts: &[Host]) -> Result<()> {
             }
         })
         .collect();
+    let bands = std::iter::once((LOCAL, hosts.local_band)).chain(
+        hosts
+            .remote
+            .iter()
+            .map(|host| (host.name.as_str(), host.band)),
+    );
+    for (name, band) in bands {
+        if let Some(band) = band {
+            text.push_str(&band.line(name));
+        }
+    }
     crate::whole_file::write(&file, text)
 }
 
 /// Records <speed> as host <name>'s core speed against this Mac's.
 pub fn record_speed(places: &Places, name: &str, speed: f64) -> Result<()> {
-    let mut hosts = read_remote(places)?;
-    let Some(recorded) = hosts.iter_mut().find(|recorded| recorded.name == name) else {
+    let mut file = read_file(places)?;
+    let Some(recorded) = file
+        .remote
+        .iter_mut()
+        .find(|recorded| recorded.name == name)
+    else {
         fail!("host {name} is no longer recorded");
     };
     recorded.speed = Some(speed);
-    write_remote(places, &hosts)
+    write_file(places, &file)
+}
+
+/// Records <band> as host <name>'s load band, or removes the band when
+/// <band> is None. <name> is `local` for this Mac or a recorded host.
+pub fn set_band(places: &Places, name: &str, band: Option<Band>) -> Result<()> {
+    let mut file = read_file(places)?;
+    if name == LOCAL {
+        file.local_band = band;
+    } else if let Some(host) = file.remote.iter_mut().find(|host| host.name == name) {
+        host.band = band;
+    } else {
+        fail!("no host named {name} (`builds host list`)");
+    }
+    write_file(places, &file)
 }
 
 /// This Mac, then every recorded host.
 pub fn all(places: &Places) -> Result<Vec<Host>> {
-    let mut hosts = vec![Host::local()];
-    hosts.extend(read_remote(places)?);
+    let file = read_file(places)?;
+    let mut local = Host::local();
+    local.band = file.local_band;
+    let mut hosts = vec![local];
+    hosts.extend(file.remote);
     Ok(hosts)
 }
 
@@ -734,11 +840,16 @@ pub fn add(places: &Places, ssh: &Ssh, name: &str, target: &str) -> Result<Host>
     if name == LOCAL {
         fail!("{LOCAL} is this Mac, which is always a host");
     }
+    if name == crate::host_band::LINE_WORD {
+        fail!(
+            "{name:?} starts the lines of the hosts file that hold load bands, so no host may take it"
+        );
+    }
     if target.is_empty() || target.starts_with('-') || target.contains(char::is_whitespace) {
         fail!("{target:?} is not an ssh target (user@machine)");
     }
-    let mut hosts = read_remote(places)?;
-    if hosts.iter().any(|host| host.name == name) {
+    let mut file = read_file(places)?;
+    if file.remote.iter().any(|host| host.name == name) {
         fail!("host {name} is already recorded; `builds host remove {name}` first");
     }
     let probe = match probe_target(ssh, target) {
@@ -750,22 +861,23 @@ pub fn add(places: &Places, ssh: &Ssh, name: &str, target: &str) -> Result<Host>
         target: Some(target.to_string()),
         cores: probe.cores,
         speed: None,
+        band: None,
     };
-    hosts.push(host.clone());
-    write_remote(places, &hosts)?;
+    file.remote.push(host.clone());
+    write_file(places, &file)?;
     Ok(host)
 }
 
 pub fn remove(places: &Places, name: &str) -> Result<()> {
-    let mut hosts = read_remote(places)?;
-    let Some(at) = hosts.iter().position(|host| host.name == name) else {
+    let mut file = read_file(places)?;
+    let Some(at) = file.remote.iter().position(|host| host.name == name) else {
         if name == LOCAL {
             fail!("{LOCAL} is this Mac, which is always a host");
         }
         fail!("no host named {name}");
     };
-    hosts.remove(at);
-    write_remote(places, &hosts)?;
+    file.remote.remove(at);
+    write_file(places, &file)?;
     for refused in Refused::ALL {
         clear_refusal(places, refused, name)?;
     }
@@ -776,11 +888,13 @@ pub fn remove(places: &Places, name: &str) -> Result<()> {
 pub fn list_line(host: &Host, probe: &std::result::Result<Probe, String>) -> String {
     match probe {
         Ok(probe) => format!(
-            "{}  {}  {} cores  load {:.2} per core  free {}  {}",
+            "{}  {}  {} cores  load {:.2} per core  load band {}  {}  free {}  {}",
             host.name,
             host.describe(),
             probe.cores,
             probe.load_per_core(),
+            host.band_for(probe.cores).text(),
+            probe.memory.text(),
             human(probe.free_kib),
             match &probe.git_fails {
                 Some(said) => format!("refuses jobs: git fails there: {said}"),
@@ -946,7 +1060,7 @@ pub fn probe_all(
     hosts.into_iter().zip(probes).collect()
 }
 
-const USAGE: &str = "usage: builds host add <name> <ssh target> | setup <name> | setup-here | speed-here | list | remove <name> | clear-xcode <name>";
+const USAGE: &str = "usage: builds host add <name> <ssh target> | setup <name> | setup-here | speed-here | band <name> <low> <high> | band <name> clear | list | remove <name> | clear-xcode <name>";
 
 /// The build volume, where a host that has one keeps its builds root, as this
 /// Mac does.
@@ -974,6 +1088,7 @@ pub fn cmd_host(tool: &Tool, ssh: &Ssh, args: &[String]) -> Result<()> {
             crate::install::run_sccache_under_launchd(&tool.places.home, tool.places.uid)
         }
         [word] if word == "speed-here" => crate::host_setup::cmd_speed_here(),
+        [word, rest @ ..] if word == "band" => crate::host_band::cmd_band(tool, rest),
         [word, name] if word == "clear-xcode" => {
             if !all(&tool.places)?.iter().any(|host| host.name == *name) {
                 fail!("no host named {name} (`builds host list`)");

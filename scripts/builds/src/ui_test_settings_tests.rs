@@ -32,6 +32,7 @@ fn settings(missing: &[Setting]) -> UiTestSettings {
 
 fn host(name: &str) -> Host {
     Host {
+        band: None,
         name: name.to_string(),
         target: Some(format!("u@{name}")),
         cores: 10,

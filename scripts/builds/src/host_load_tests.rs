@@ -1,8 +1,11 @@
 use super::*;
 use crate::host::LOCAL;
+use crate::host_band::Band;
+use crate::host_memory::Memory;
 
 fn host(name: &str, speed: Option<f64>) -> Host {
     Host {
+        band: None,
         name: name.to_string(),
         target: (name != LOCAL).then(|| format!("u@{name}")),
         cores: 10,
@@ -14,11 +17,26 @@ fn host(name: &str, speed: Option<f64>) -> Host {
 /// 15-minute loads that would judge the host otherwise.
 fn loaded(five: f64) -> std::result::Result<Probe, String> {
     Ok(Probe {
+        memory: crate::host_memory::Memory::at_rest(),
         cores: 10,
         load: [30.0, five, 0.0],
         free_kib: 100,
         git_fails: None,
     })
+}
+
+/// The load part of a line: <five> on 10 cores, against <band>, with memory
+/// at rest.
+fn load(five: &str, band: &str) -> String {
+    format!(
+        "its 5-minute load is {five} on 10 cores, against a band of {band}; memory 80% free, swap 0M used"
+    )
+}
+
+/// <host> with a band of <low> to <high>.
+fn banded(mut host: Host, low: f64, high: f64) -> Host {
+    host.band = Some(Band { low, high });
+    host
 }
 
 fn lines(hosts: &[(Host, std::result::Result<Probe, String>)], ready: usize) -> Vec<String> {
@@ -28,10 +46,13 @@ fn lines(hosts: &[(Host, std::result::Result<Probe, String>)], ready: usize) -> 
         .collect()
 }
 
-/// Cores sit idle on a host whose 5-minute load is under three quarters of its
-/// cores while items are ready: health names the host and the ready items.
+const DEFAULT_BAND: &str = "7.5 to 12.5";
+
+/// A host with no band is under it while its 5-minute load is under three
+/// quarters of its cores and items are ready: health names the host and the
+/// ready items.
 #[test]
-fn idle_cores_on_a_host_while_items_are_ready_ask_for_agents() {
+fn a_host_under_its_band_while_items_are_ready_asks_for_agents() {
     let hosts = [
         (host(LOCAL, Some(1.0)), loaded(2.0)),
         (host("m1", Some(0.8)), loaded(7.4)),
@@ -39,22 +60,29 @@ fn idle_cores_on_a_host_while_items_are_ready_ask_for_agents() {
     assert_eq!(
         lines(&hosts, 3),
         [
-            "cores idle on this Mac while 3 items are ready: its 5-minute load is 2.0 on 10 cores; start agents",
-            "cores idle on host m1 while 3 items are ready: its 5-minute load is 7.4 on 10 cores; start agents",
+            format!(
+                "this Mac is under its band while 3 items are ready: {}; start agents",
+                load("2.0", DEFAULT_BAND)
+            ),
+            format!(
+                "host m1 is under its band while 3 items are ready: {}; start agents",
+                load("7.4", DEFAULT_BAND)
+            ),
         ]
     );
     assert_eq!(
         lines(&[(host("m1", Some(0.8)), loaded(2.0))], 1),
-        [
-            "cores idle on host m1 while 1 item is ready: its 5-minute load is 2.0 on 10 cores; start agents"
-        ]
+        [format!(
+            "host m1 is under its band while 1 item is ready: {}; start agents",
+            load("2.0", DEFAULT_BAND)
+        )]
     );
 }
 
-/// Idle cores with nothing ready need nothing, and a host loaded between
-/// three quarters and five quarters of its cores needs nothing either.
+/// Nothing ready needs nothing, and a host loaded inside its band needs
+/// nothing either.
 #[test]
-fn idle_cores_with_nothing_ready_or_a_busy_host_need_nothing() {
+fn a_host_under_its_band_with_nothing_ready_or_inside_it_needs_nothing() {
     assert!(lines(&[(host(LOCAL, Some(1.0)), loaded(0.0))], 0).is_empty());
     let busy = [
         (host(LOCAL, Some(1.0)), loaded(7.5)),
@@ -63,33 +91,28 @@ fn idle_cores_with_nothing_ready_or_a_busy_host_need_nothing() {
     assert!(lines(&busy, 4).is_empty());
 }
 
-/// A host whose 5-minute load is over five quarters of its cores is over
-/// them, whether or not items are ready, and holds the queue back when no
-/// other host that takes cargo work has idle cores.
+/// A host whose 5-minute load is over its band is over it, whether or not
+/// items are ready, and holds the queue back when no other host that takes
+/// cargo work is under its band.
 #[test]
-fn a_host_over_its_cores_asks_to_start_nothing_new() {
+fn a_host_over_its_band_asks_to_start_nothing_new() {
     let hosts = [
         (host(LOCAL, Some(1.0)), loaded(12.6)),
         (host("m1", Some(0.8)), loaded(9.0)),
     ];
-    assert_eq!(
-        lines(&hosts, 2),
-        [
-            "this Mac is over its cores: its 5-minute load is 12.6 on 10 cores; start nothing new, except builds items, which this does not hold back"
-        ]
+    let said = format!(
+        "this Mac is over its band: {}; start nothing new, except builds items, which this does not hold back",
+        load("12.6", DEFAULT_BAND)
     );
-    assert_eq!(
-        lines(&hosts, 0),
-        [
-            "this Mac is over its cores: its 5-minute load is 12.6 on 10 cores; start nothing new, except builds items, which this does not hold back"
-        ]
-    );
+    assert_eq!(lines(&hosts, 2), std::slice::from_ref(&said));
+    assert_eq!(lines(&hosts, 0), [said]);
 }
 
-/// This Mac over its cores while m1 sits idle: builds cargo sends the work to
-/// m1, so health says to start agents for m1 and does not hold the queue.
+/// This Mac over its band while m1 is under its own: builds cargo sends the
+/// work to m1, so health says to start agents for m1 and does not hold the
+/// queue.
 #[test]
-fn a_host_over_its_cores_holds_nothing_back_while_another_host_has_room() {
+fn a_host_over_its_band_holds_nothing_back_while_another_host_is_under_its_band() {
     let hosts = [
         (host(LOCAL, Some(1.0)), loaded(12.6)),
         (host("m1", Some(0.8)), loaded(2.0)),
@@ -97,8 +120,14 @@ fn a_host_over_its_cores_holds_nothing_back_while_another_host_has_room() {
     assert_eq!(
         lines(&hosts, 2),
         [
-            "this Mac is over its cores: its 5-minute load is 12.6 on 10 cores; builds cargo sends its work to host m1, which has idle cores, so this holds nothing back",
-            "cores idle on host m1 while 2 items are ready: its 5-minute load is 2.0 on 10 cores; start agents",
+            format!(
+                "this Mac is over its band: {}; builds cargo sends its work to host m1, which is under its band, so this holds nothing back",
+                load("12.6", DEFAULT_BAND)
+            ),
+            format!(
+                "host m1 is under its band while 2 items are ready: {}; start agents",
+                load("2.0", DEFAULT_BAND)
+            ),
         ]
     );
     // An idle host that takes no cargo work gives the other no room.
@@ -107,6 +136,72 @@ fn a_host_over_its_cores_holds_nothing_back_while_another_host_has_room() {
         (host("m1", None), loaded(2.0)),
     ];
     assert!(lines(&hosts, 0)[0].contains("start nothing new"));
+}
+
+/// A host's own band replaces the shares of its cores: this Mac aims for 25
+/// to 30 and m1 for 20 to 25, whatever their cores.
+#[test]
+fn a_hosts_band_sets_where_it_is_under_and_over() {
+    let hosts = |local: f64, m1: f64| {
+        [
+            (banded(host(LOCAL, Some(1.0)), 25.0, 30.0), loaded(local)),
+            (banded(host("m1", Some(0.8)), 20.0, 25.0), loaded(m1)),
+        ]
+    };
+    // Inside both bands, and exactly on their edges: nothing to say.
+    assert!(lines(&hosts(25.0, 20.0), 3).is_empty());
+    assert!(lines(&hosts(30.0, 25.0), 3).is_empty());
+    // A load that the default shares would call over is under this band.
+    assert_eq!(
+        lines(&hosts(24.9, 25.0), 1),
+        [format!(
+            "this Mac is under its band while 1 item is ready: {}; start agents",
+            load("24.9", "25 to 30")
+        )]
+    );
+    // Over the high end of m1's band while this Mac has room: nothing new
+    // waits on m1.
+    assert_eq!(
+        lines(&hosts(27.0, 25.1), 0),
+        [format!(
+            "host m1 is over its band: {}; start nothing new, except builds items, which this does not hold back",
+            load("25.1", "20 to 25")
+        )]
+    );
+}
+
+/// A host in swap is over its band whatever its load, and its line says why.
+/// Another host under its band takes the work, as for a host over by load.
+#[test]
+fn a_host_in_swap_is_over_its_band_whatever_its_load() {
+    let swapping = |five: f64| {
+        let mut probe = loaded(five).unwrap();
+        probe.memory = Memory {
+            free_percent: 4,
+            swap_used_mib: 2048.0,
+        };
+        Ok(probe)
+    };
+    let memory = "memory 4% free, swap 2048M used";
+    assert_eq!(
+        lines(&[(host(LOCAL, Some(1.0)), swapping(9.0))], 0),
+        [format!(
+            "this Mac is in swap, which puts it over its band whatever its load: its 5-minute load is 9.0 on 10 cores, against a band of {DEFAULT_BAND}; {memory}; start nothing new, except builds items, which this does not hold back"
+        )]
+    );
+    // A load over the band says so first.
+    assert!(
+        lines(&[(host(LOCAL, Some(1.0)), swapping(13.0))], 0)[0]
+            .starts_with("this Mac is over its band: ")
+    );
+    // A host in swap is never idle, however low its load.
+    let hosts = [
+        (host(LOCAL, Some(1.0)), swapping(1.0)),
+        (host("m1", Some(0.8)), loaded(9.0)),
+    ];
+    let said = lines(&hosts, 2);
+    assert_eq!(said.len(), 1, "{said:?}");
+    assert!(said[0].starts_with("this Mac is in swap"), "{said:?}");
 }
 
 /// Idle cores that `builds cargo` never uses ask for no agents. Health says
@@ -139,9 +234,9 @@ fn a_host_that_takes_no_cargo_job_says_why_and_how_to_fix_it() {
     assert_eq!(
         lines,
         [
-            "cores idle on host refusing while 5 items are ready, but builds cargo passes it over: refusing refuses jobs (git fails there: no license). Fix git on refusing",
-            "cores idle on host full while 5 items are ready, but builds cargo passes it over: full has 29.0G free, under the floor of 30.0G. Free disk there (builds help, DISK), starting with `builds prune`",
-            "cores idle on host new while 5 items are ready, but builds cargo passes it over: new has no measured core speed (`builds host setup new`)",
+            "host refusing is under its band while 5 items are ready, but builds cargo passes it over: refusing refuses jobs (git fails there: no license). Fix git on refusing",
+            "host full is under its band while 5 items are ready, but builds cargo passes it over: full has 29.0G free, under the floor of 30.0G. Free disk there (builds help, DISK), starting with `builds prune`",
+            "host new is under its band while 5 items are ready, but builds cargo passes it over: new has no measured core speed (`builds host setup new`)",
         ]
     );
 }
@@ -172,7 +267,7 @@ fn a_host_whose_probe_fails_is_named_with_the_error() {
     assert_eq!(
         lines(&hosts, 0),
         [
-            "host m1 did not say its load, so health cannot tell whether its cores are idle or over: ssh to u@m1 failed"
+            "host m1 did not say its load, so health cannot tell whether it is under or over its band: ssh to u@m1 failed"
         ]
     );
 }

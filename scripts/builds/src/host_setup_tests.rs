@@ -8,6 +8,7 @@ use std::path::Path;
 
 fn host(name: &str) -> Host {
     Host {
+        band: None,
         name: name.to_string(),
         target: Some(format!("u@{name}")),
         cores: 10,
@@ -21,6 +22,7 @@ fn install_program_copies_both_programs_to_the_host_and_makes_its_root() {
     let home = scratch.dir.join("remote-home");
     let ssh = fake_ssh(&scratch.dir.join("bin"), &home);
     let host = Host {
+        band: None,
         name: "m1".to_string(),
         target: Some("user@m1".to_string()),
         cores: 10,
@@ -52,6 +54,7 @@ fn install_program_copies_both_programs_to_the_host_and_makes_its_root() {
     );
     assert!(install_program(&ssh, &Host::local(), &programs).is_err());
     let gone = Host {
+        band: None,
         name: "gone".to_string(),
         target: Some("unreachable".to_string()),
         cores: 1,

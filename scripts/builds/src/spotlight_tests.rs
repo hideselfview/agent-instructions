@@ -19,6 +19,7 @@ spotlight_said=Indexing enabled.
 
 fn host(name: &str) -> Host {
     Host {
+        band: None,
         name: name.to_string(),
         target: Some(format!("u@{name}")),
         cores: 10,

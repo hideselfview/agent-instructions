@@ -45,6 +45,7 @@ fn setup(name: &str) -> Setup {
     fake_builds(&home);
     let ssh = fake_ssh(&scratch.dir.join("bin"), &home);
     let host = Host {
+        band: None,
         name: "m1".to_string(),
         target: Some("user@m1".to_string()),
         cores: 10,

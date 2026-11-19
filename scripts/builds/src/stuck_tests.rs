@@ -324,6 +324,7 @@ fn a_busy_fseventsd_is_flagged_at_once_with_the_sample_command() {
 #[test]
 fn a_busy_fseventsd_on_another_host_is_sampled_over_ssh_there() {
     let host = Host {
+        band: None,
         name: "m1".into(),
         target: Some("me@m1.local".into()),
         cores: 8,

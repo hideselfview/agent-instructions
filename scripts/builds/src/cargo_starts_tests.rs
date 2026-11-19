@@ -4,6 +4,7 @@ use crate::testing::Scratch;
 
 fn host(name: &str) -> Host {
     Host {
+        band: None,
         name: name.to_string(),
         target: (name != "local").then(|| format!("user@{name}")),
         cores: 0,
@@ -13,6 +14,7 @@ fn host(name: &str) -> Host {
 
 fn probe(cores: u32, load: f64) -> std::result::Result<Probe, String> {
     Ok(Probe {
+        memory: crate::host_memory::Memory::at_rest(),
         cores,
         load: [load, load, load],
         free_kib: 1 << 30,

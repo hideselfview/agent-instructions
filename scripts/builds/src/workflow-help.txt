@@ -233,13 +233,16 @@ DISPATCH
   - Disk is a queue limit, never a question for the person: under the floor,
     start nothing new, and start the next work as agents finish and their
     build folders are pruned.
-  - Keep the cores of every build host busy while ready items wait: when
-    `builds health` lists idle cores on a host, start agents on the next
-    ready items. While every host that takes cargo work is well over its
-    core count, start nothing new, except items of project builds: they
-    start whatever the load. A host over its cores holds nothing back while
-    another host that takes cargo work has idle cores, since `builds cargo`
-    sends the work there.
+  - Keep the 5-minute load of every build host in its band while ready items
+    wait: when `builds health` says a host is under its band, start agents
+    on the next ready items. While every host that takes cargo work is over
+    its band, start nothing new, except items of project builds: they start
+    whatever the load. A host over its band holds nothing back while another
+    host that takes cargo work is under its band, since `builds cargo` sends
+    the work there. The person sets each host's band (`builds host band`);
+    a host with none has 0.75 to 1.25 times its cores. A host with swap in
+    use is over its band whatever its load, and health says its memory next
+    to its load.
   - Flaky tests and speed work (profiling, benchmarks, timing a build) never go
     in the work queue. They need a quiet machine: on a loaded one, load hides
     the cause and skews every number, and repeated runs slow every other agent.
@@ -500,12 +503,15 @@ uncommitted work. It never runs sudo and stops a process only with
     no item names: check it out in a worktree (`builds new <repo> --resume
     <branch>`) and land it or take an item there, or ask the person whether to drop it.
   - Disk under the floor: hold the queue.
-  - Cores idle on a host while items are ready: start agents on the next
+  - A host under its band while items are ready: start agents on the next
     ready items (`builds next`).
-  - Every host that takes cargo work over its cores: start nothing new until
-    one's load falls under its core count. A host over its cores while
-    another host that takes cargo work has idle cores needs nothing: start
-    agents for the idle host. Load never holds back items of project builds.
+  - Every host that takes cargo work over its band, or in swap: start
+    nothing new until one's 5-minute load falls under the high end of its
+    band and it has no swap in use. A host over its band while another host
+    that takes cargo work is under its band needs nothing: start agents for
+    the host under its band. Load never holds back items of project builds.
+    The line gives the host's band and memory, so a host whose load is
+    inside its band but that swaps shows up as over it.
   - Builds items ready and not running: start them whatever the hosts' load
     (builds work goes first).
   - An app lock held long, or with agents waiting: check that the holder is

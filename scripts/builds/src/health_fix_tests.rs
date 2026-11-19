@@ -6,6 +6,7 @@ const GIB: u64 = 1024 * 1024;
 
 fn host(name: &str, speed: Option<f64>) -> Host {
     Host {
+        band: None,
         name: name.to_string(),
         target: (name != LOCAL).then(|| format!("u@{name}")),
         cores: 10,
@@ -15,6 +16,7 @@ fn host(name: &str, speed: Option<f64>) -> Host {
 
 fn probe(free_gib: f64, git_fails: Option<&str>) -> Probed {
     Ok(Probe {
+        memory: crate::host_memory::Memory::at_rest(),
         cores: 10,
         load: [1.0; 3],
         free_kib: (free_gib * GIB as f64) as u64,
