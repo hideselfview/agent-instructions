@@ -318,6 +318,7 @@ pub fn cmd_cargo(args: &[String]) -> Result<()> {
         .map(|checkout| RunKey::of(checkout, subcommand));
     let env = |name: &str| std::env::var_os(name);
     let named = cargo_place::named_host(&env)?;
+    let runner = crate::lake_run::Runner::from_env(&env)?;
     let ssh = Ssh::from_env();
     let choice = match cargo_place::stays_here(args, runs, checkout.as_ref(), &env) {
         Some(why) => {
@@ -376,7 +377,10 @@ pub fn cmd_cargo(args: &[String]) -> Result<()> {
     let exited = match job {
         None => prepare_here(checkout.as_ref(), &env)
             .and_then(|()| run_before_here(checkout.as_ref(), &env))
-            .and_then(|()| run_here(&places, checkout.as_ref(), subcommand, format, args))?,
+            .and_then(|()| build_runner_here(&places, checkout.as_ref(), runner.as_ref(), &env))
+            .and_then(|runner| {
+                run_here(&places, checkout.as_ref(), subcommand, format, args, runner)
+            })?,
         Some(job) => cargo_place::finish(job)?,
     };
     if let (Some(checkout), Some(key)) = (&checkout, key) {
@@ -553,6 +557,28 @@ pub fn guard(places: &Places, checkout: Option<&Checkout>) -> Result<Option<std:
     }
 }
 
+/// Builds <runner>, the Lean executable `BUILDS_CARGO_LEAN` names, in
+/// <checkout> on this Mac (`Runner::build_here`), and returns the variable to
+/// set for cargo and its path; None when no runner is named.
+fn build_runner_here(
+    places: &Places,
+    checkout: Option<&Checkout>,
+    runner: Option<&crate::lake_run::Runner>,
+    env: &dyn Fn(&str) -> Option<std::ffi::OsString>,
+) -> Result<Option<(String, std::path::PathBuf)>> {
+    let Some(runner) = runner else {
+        return Ok(None);
+    };
+    let Some(checkout) = checkout else {
+        fail!(
+            "{} names a Lean package of the checkout, and the working directory is in none",
+            crate::lake_run::RUNNER_VARIABLE
+        );
+    };
+    let path = runner.build_here(places, checkout, env)?;
+    Ok(Some((runner.variable.clone(), path)))
+}
+
 /// Runs cargo here, with the recorder reading its output. When this process's
 /// stderr is no terminal, cargo's messages pass through builds, which times
 /// cargo's waits for its file locks; to a terminal, cargo prints them itself,
@@ -564,6 +590,7 @@ fn run_here(
     subcommand: &[String],
     format: &str,
     args: &[String],
+    runner: Option<(String, std::path::PathBuf)>,
 ) -> Result<Exited> {
     let config = role_config(checkout);
     let linker = crate::linker::cargo_config(&places.home);
@@ -583,6 +610,7 @@ fn run_here(
         .args(locked_flag(args))
         .args(linker)
         .args(&args[subcommand.len()..])
+        .envs(runner)
         .env_remove(HOOK_CHECK_VARIABLE)
         .envs(wrapper.map(|wrapper| ("RUSTC_WRAPPER", wrapper)))
         .stdout(Stdio::piped())

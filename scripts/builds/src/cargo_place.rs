@@ -105,7 +105,11 @@ fn runs_here_note(named: Option<&str>, why: &str) -> Option<String> {
 /// what the compilers or tests print or check and holds no path of this Mac.
 /// CLIPPY_ARGS holds the lint levels of a clippy driver that runs as the
 /// workspace's rustc wrapper, as coven's typed lints' driver does.
-const FORWARDED: [&str; 6] = [
+/// BUILDS_CARGO_LEAN names a Lean package by its folder in the checkout, which
+/// the host's worktree holds too, and the host's `builds cargo` builds the
+/// runner there (lake_run.rs).
+const FORWARDED: [&str; 7] = [
+    "BUILDS_CARGO_LEAN",
     "CLIPPY_ARGS",
     "RUSTDOCFLAGS",
     "RUSTFLAGS",

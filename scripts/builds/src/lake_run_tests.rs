@@ -142,3 +142,98 @@ fn here_lake_runs_in_the_folder_with_elans_home_and_its_status_comes_back() {
     );
     assert_eq!(failed.unwrap(), 3);
 }
+
+#[test]
+fn a_runner_names_a_variable_a_package_inside_the_checkout_and_an_executable() {
+    let named = |value: &'static str| {
+        move |name: &str| (name == RUNNER_VARIABLE).then(|| OsString::from(value))
+    };
+    assert_eq!(
+        Runner::from_env(&named(
+            "SQLIVE_NARROWING_LEAN=crates/sqlive/proofs:narrowingRunner"
+        ))
+        .unwrap(),
+        Some(Runner {
+            variable: "SQLIVE_NARROWING_LEAN".into(),
+            package: "crates/sqlive/proofs".into(),
+            executable: "narrowingRunner".into(),
+        })
+    );
+    assert_eq!(Runner::from_env(&|_| None).unwrap(), None);
+    assert_eq!(Runner::from_env(&named("")).unwrap(), None);
+    for bad in [
+        "crates/sqlive/proofs:narrowingRunner",
+        "X=crates/sqlive/proofs",
+        "X=:runner",
+        "X=/abs/proofs:runner",
+        "X=../proofs:runner",
+        "X=proofs:",
+        "=proofs:runner",
+        "X Y=proofs:runner",
+    ] {
+        let message = Runner::from_env(&named(bad)).unwrap_err().text();
+        assert!(
+            message.contains("not <variable>=<package>:<executable>"),
+            "{bad}: {message}"
+        );
+    }
+}
+
+#[test]
+fn a_runner_is_built_with_lake_query_in_its_package_and_its_path_comes_back() {
+    let scratch = Scratch::new("lake-runner");
+    let places = scratch.places();
+    let (_main, side) = checkouts(&scratch);
+    let proofs = side.top.join("proofs");
+    std::fs::create_dir_all(&proofs).unwrap();
+    let lake = crate::lean::lake(&places.home);
+    std::fs::create_dir_all(lake.parent().unwrap()).unwrap();
+    // lake query builds the executable and prints its path; an executable
+    // named `broken` fails to build.
+    std::fs::write(
+        &lake,
+        "#!/bin/sh\n[ \"$1\" = query ] || exit 2\n[ \"$2\" = broken ] && exit 1\nmkdir -p .lake/build/bin && touch .lake/build/bin/\"$2\"\necho building >&2\necho \"$PWD/.lake/build/bin/$2\"\n",
+    )
+    .unwrap();
+    std::fs::set_permissions(&lake, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let runner = |executable: &str| Runner {
+        variable: "RUNNER".into(),
+        package: "proofs".into(),
+        executable: executable.into(),
+    };
+    let none = |_: &str| None;
+    assert_eq!(
+        runner("narrowingRunner")
+            .build_here(&places, &side, &none)
+            .unwrap(),
+        proofs.join(".lake/build/bin/narrowingRunner")
+    );
+    let message = runner("broken")
+        .build_here(&places, &side, &none)
+        .unwrap_err()
+        .text();
+    assert!(
+        message.contains("lake could not build broken in proofs"),
+        "{message}"
+    );
+}
+
+#[test]
+fn a_host_gets_the_runner_variable_and_builds_the_runner_itself() {
+    let scratch = Scratch::new("lake-runner-forwarded");
+    let (_main, side) = checkouts(&scratch);
+    let env = |name: &str| {
+        (name == RUNNER_VARIABLE).then(|| OsString::from("RUNNER=proofs:narrowingRunner"))
+    };
+    assert_eq!(
+        cargo_place::host_command(&args(&["test"]), &side, &side.top, &env),
+        args(&[
+            "env",
+            "BUILDS_CARGO_HOST=local",
+            "BUILDS_CARGO_LEAN=RUNNER=proofs:narrowingRunner",
+            "builds",
+            "cargo",
+            "test"
+        ])
+    );
+}

@@ -135,6 +135,116 @@ pub fn run_here(
     Ok(crate::fail::exit_code(status))
 }
 
+/// The environment variable that names a Lean executable a cargo run needs
+/// (`Runner`).
+pub const RUNNER_VARIABLE: &str = "BUILDS_CARGO_LEAN";
+
+/// A Lean executable that a `builds cargo` run's tests run, such as coven's
+/// narrowing differential's runner, named by
+/// `BUILDS_CARGO_LEAN=<variable>=<package>:<executable>`. On whichever Mac
+/// runs cargo, builds builds the executable with lake in the checkout's Lean
+/// package <package> before cargo starts, and sets <variable> to its path
+/// there for cargo and the tests it runs. The runner and the tests that run
+/// it so always come from the same Mac and the same working tree.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Runner {
+    pub variable: String,
+    /// The package's folder, relative to the checkout's top.
+    pub package: String,
+    pub executable: String,
+}
+
+impl Runner {
+    /// The runner `RUNNER_VARIABLE` names in <env>, None when it is unset or
+    /// empty; a value of another shape fails, naming the shape.
+    pub fn from_env(env: &dyn Fn(&str) -> Option<OsString>) -> Result<Option<Runner>> {
+        let Some(value) = env(RUNNER_VARIABLE).filter(|value| !value.is_empty()) else {
+            return Ok(None);
+        };
+        let Some(value) = value.to_str() else {
+            fail!("{RUNNER_VARIABLE} is not UTF-8: {value:?}");
+        };
+        let parsed = value.split_once('=').and_then(|(variable, rest)| {
+            let (package, executable) = rest.rsplit_once(':')?;
+            let named = |word: &str| {
+                !word.is_empty() && word.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
+            };
+            let inside = !package.is_empty()
+                && Path::new(package)
+                    .components()
+                    .all(|part| matches!(part, std::path::Component::Normal(_)));
+            (named(variable) && inside && named(executable)).then(|| Runner {
+                variable: variable.to_string(),
+                package: package.to_string(),
+                executable: executable.to_string(),
+            })
+        });
+        match parsed {
+            Some(runner) => Ok(Some(runner)),
+            None => fail!(
+                "{RUNNER_VARIABLE} is {value:?}, not <variable>=<package>:<executable>, with the package's folder inside the checkout"
+            ),
+        }
+    }
+
+    /// Builds the runner on this Mac with `lake query`, in its package in
+    /// <checkout>, and returns its path. It first installs the checkout's
+    /// Lean toolchains, unless a pre-commit hook check started the run, and
+    /// holds the checkout's guard while lake runs. lake's progress goes to
+    /// stderr.
+    pub fn build_here(
+        &self,
+        places: &Places,
+        checkout: &Checkout,
+        env: &dyn Fn(&str) -> Option<OsString>,
+    ) -> Result<std::path::PathBuf> {
+        if !crate::cargo_run::in_hook(env) {
+            crate::lean::ensure(places, &checkout.top)?;
+        }
+        let lake = crate::lean::lake(&places.home);
+        if !lake.exists() {
+            fail!(
+                "this Mac has no {} to build {}: `builds setup` installs elan and the toolchains of the checkout's Lean packages",
+                lake.display(),
+                self.executable
+            );
+        }
+        let package = checkout.top.join(&self.package);
+        let _guard = crate::cargo_run::guard(places, Some(checkout))?;
+        let output = crate::lean::elan_command(&places.home, &lake)
+            .args(["query", &self.executable])
+            .current_dir(&package)
+            .env_remove(crate::cargo_run::HOOK_CHECK_VARIABLE)
+            .stdin(std::process::Stdio::null())
+            .stderr(std::process::Stdio::inherit())
+            .output()
+            .context(|| format!("running {} in {}", lake.display(), package.display()))?;
+        if !output.status.success() {
+            fail!(
+                "lake could not build {} in {} ({}), so cargo did not run",
+                self.executable,
+                self.package,
+                output.status
+            );
+        }
+        // lake query prints the executable's path as its last line.
+        let printed = String::from_utf8_lossy(&output.stdout);
+        let path = printed
+            .lines()
+            .rev()
+            .find(|line| !line.trim().is_empty())
+            .map(|line| package.join(line.trim()));
+        match path {
+            Some(path) if path.is_file() => Ok(path),
+            _ => fail!(
+                "lake query {} in {} printed no path of a file: {printed:?}",
+                self.executable,
+                self.package
+            ),
+        }
+    }
+}
+
 #[cfg(test)]
 #[path = "lake_run_tests.rs"]
 mod tests;

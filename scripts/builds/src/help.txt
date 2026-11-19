@@ -293,6 +293,20 @@ toolchains, unless a pre-commit hook check runs it, and holds the checkout's
 guard while lake runs, so no prune deletes the .lake folder under it.
 BUILDS_CARGO_HOST picks the host for one command, as for `builds cargo`.
 
+A cargo test that runs a Lean executable, such as coven's narrowing
+differentials, which run the runner that SQLIVE_NARROWING_LEAN names, names it
+in BUILDS_CARGO_LEAN instead of building it first:
+
+  BUILDS_CARGO_LEAN=SQLIVE_NARROWING_LEAN=crates/sqlive/proofs:narrowingRunner \
+    scripts/cargo.sh nextest run -p sqlive --all-features --run-ignored only \
+    -E 'test(term_matches_lean)'
+
+The Mac that runs cargo, a host or this Mac, builds the runner from the same
+working tree with `lake query`, under the checkout's guard, and gives cargo
+the runner's path there, so the tests and the runner they run always come
+from one Mac. The host gets BUILDS_CARGO_LEAN as it is, since it names the
+package by its folder in the checkout.
+
   builds lake build [<args>...]
                               run lake build with these arguments in the Lean
                               package of the working directory, on this Mac or
@@ -587,8 +601,8 @@ and files git neither tracks nor ignores) as a commit to the host's clone only,
 runs cargo in a remote worktree there that keeps its build between runs, in the
 folder that matches the one the command ran in (cargo picks the package of the
 folder it runs in), prints the same output and exits with the same status. The host's cargo gets
-CLIPPY_ARGS, RUSTDOCFLAGS, RUSTFLAGS, RUST_BACKTRACE, RUST_LOG and
-RUST_TEST_THREADS from the caller's environment; one line on stderr names the
+BUILDS_CARGO_LEAN, CLIPPY_ARGS, RUSTDOCFLAGS, RUSTFLAGS, RUST_BACKTRACE,
+RUST_LOG and RUST_TEST_THREADS from the caller's environment; one line on stderr names the
 host. When the host refuses the job before cargo starts there (sending the
 commit or claiming a worktree fails there), builds records the host as
 refusing jobs, says so on stderr with what the host said, and runs the command
@@ -672,6 +686,14 @@ restart the server.
                               program runs without BUILDS_CARGO_BEFORE in its
                               environment, so a `builds cargo` it runs runs no
                               program first.
+                              BUILDS_CARGO_LEAN=<variable>=<package>:<exe>
+                              builds the Lean executable <exe> with lake in
+                              the checkout's Lean package <package> (a folder
+                              path from the checkout's top) before cargo, on
+                              whichever host runs cargo, and sets <variable>
+                              to its path there, for a test that runs it
+                              (LEAN). A failed build stops the command before
+                              cargo starts.
                               BUILDS_CARGO_HOST=<name> picks the host for one
                               command (local is this Mac); a command that must
                               stay here runs here, with a note on stderr.
