@@ -1,9 +1,8 @@
 //! How a `builds cargo` run ended (cargo_run_outcome.sql): passed, failed or
 //! stopped, the tests it reported failed, and an excerpt of its output that
-//! says why. A `Watch` reads each line of cargo's output as builds passes it
+//! says why (output_excerpt.rs). A `Watch` reads each line of cargo's output as builds passes it
 //! through (`Tee`), and cargo_run.rs writes the outcome with the run.
 
-use std::collections::VecDeque;
 use std::io::Write;
 use std::sync::{Arc, Mutex};
 
@@ -11,12 +10,7 @@ use rusqlite::{Connection, params};
 
 use crate::db::Sql;
 use crate::fail::Result;
-
-/// The most lines an excerpt holds.
-const EXCERPT_LINES: usize = 20;
-
-/// The most bytes an excerpt holds.
-const EXCERPT_BYTES: usize = 4000;
+use crate::output_excerpt::Excerpt;
 
 /// How a run ended.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -71,11 +65,7 @@ impl Outcome {
 #[derive(Default)]
 struct Read {
     failed: Vec<String>,
-    /// The lines from the first test panic or compiler error, at most
-    /// `EXCERPT_LINES`.
-    cause: Vec<String>,
-    /// The last `EXCERPT_LINES` lines.
-    last: VecDeque<String>,
+    excerpt: Excerpt,
 }
 
 /// Reads cargo's output line by line, from every stream builds passes
@@ -102,12 +92,6 @@ pub fn failed_test(line: &str) -> Option<&str> {
     after.split_whitespace().last()
 }
 
-/// Does <line> start the part of the output that says why the run failed: a
-/// test's panic or a compiler error?
-fn starts_cause(line: &str) -> bool {
-    line.contains("panicked at") || line.starts_with("error:") || line.starts_with("error[")
-}
-
 impl Watch {
     /// Reads one line of output, its newline included or not.
     pub fn line(&self, bytes: &[u8]) {
@@ -119,38 +103,19 @@ impl Watch {
         {
             read.failed.push(test.to_string());
         }
-        if (read.cause.is_empty() && starts_cause(text))
-            || (!read.cause.is_empty() && read.cause.len() < EXCERPT_LINES)
-        {
-            read.cause.push(text.to_string());
-        }
-        read.last.push_back(text.to_string());
-        if read.last.len() > EXCERPT_LINES {
-            read.last.pop_front();
-        }
+        read.excerpt.line(text);
     }
 
     /// How the run ended, given cargo's exit <code>.
     pub fn outcome(&self, code: i32) -> Outcome {
         let read = self.0.lock().expect("no panic holding it");
         let ended = Ended::of_code(code);
-        let lines: Vec<&str> = if read.cause.is_empty() {
-            read.last.iter().map(String::as_str).collect()
-        } else {
-            read.cause.iter().map(String::as_str).collect()
-        };
-        let mut excerpt = lines.join("\n");
-        if excerpt.len() > EXCERPT_BYTES {
-            let mut cut = EXCERPT_BYTES;
-            while !excerpt.is_char_boundary(cut) {
-                cut -= 1;
-            }
-            excerpt.truncate(cut);
-        }
         Outcome {
             ended,
             failed: read.failed.clone(),
-            excerpt: (ended != Ended::Passed && !excerpt.trim().is_empty()).then_some(excerpt),
+            excerpt: (ended != Ended::Passed)
+                .then(|| read.excerpt.text())
+                .flatten(),
         }
     }
 }

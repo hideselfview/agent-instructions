@@ -85,6 +85,7 @@ mod manifest;
 mod migrate;
 mod nextest;
 mod orphans;
+mod output_excerpt;
 mod places;
 mod proc_limit;
 mod procs;
