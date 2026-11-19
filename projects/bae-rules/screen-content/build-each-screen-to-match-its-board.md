@@ -1,5 +1,5 @@
 ---
-digest: Boards are the target and the apps follow them; a board never copies the app. For a change the person decided to an existing screen that existing design-system parts can draw, the implementing agent edits the board in the same commit and names the decision; the design session draws new screens, new layouts and new or changed parts. A plan that builds a board transcribes its markup; every built board has a shot of the real view, named from its board or component and checked by a program, never by reading pictures. Screens show one thing, put the action under what it acts on, wait without a button, use design-system parts, and take every colour from the design system.
+digest: 'A board of a screen the app already has draws it as the app draws it today unless the person decided a change to it, and copying the app there needs no other decision (decision #992); a board of a decided change or a new screen leads, the app follows it, and the board never copies the app. For a change the person decided to an existing screen that existing design-system parts can draw, the implementing agent edits the board in the same commit and names the decision; the design session draws new screens, new layouts and new or changed parts. A plan that builds a board transcribes its markup; every built board has a shot of the real view, named from its board or component and checked by a program, never by reading pictures. Screens show one thing, put the action under what it acts on, wait without a button, use design-system parts, and take every colour from the design system.'
 paths:
   - design/**
   - bae-macos/**
@@ -11,21 +11,37 @@ blocking: true
 
 ## Build each screen to match its board
 
-Each screen has a board, and each app builds the screen to match it. Where a
-board and an app differ, the app changes. Never copy a board's words, sizes,
-names (accessible names included), punctuation or layout from the app, its
-strings, its shots or a test's sample data, not even to make a shot check pass
-or two platforms agree: put the difference on the app's work queue. Where a
-board leaves something out (a placeholder, a control with no name), draw what
-the design calls for and say so.
+Each screen has a board, and each app builds the screen to match it. Whether the
+board or the app leads depends on what the person decided (decision #992 in
+bae's decision log):
 
-A board changes only when the person decides it or when it breaks a written rule
-(the words check, the design system), and the commit says which. When the person
-decides a change to an existing screen that the design system's existing parts
-can draw, such as new words or a button added to an alert, the implementing
-agent edits the board in the same commit and names the decision. The design
-session draws new screens, new layouts, and anything that needs a new part or a
-change to the design system.
+- A board of a screen the app already has draws the screen as the app draws it
+  today, unless the person decided a change to it.
+  - The board takes the app's words, sizes, names, punctuation and layout.
+  - A board that copies the app this way needs no other decision.
+- A board of a change the person decided, or of a new screen, leads, and the app
+  follows it.
+  - Where the board and the app differ, the app changes: put the difference on
+    the app's work queue.
+  - Never copy the board's words, sizes, names (accessible names included),
+    punctuation or layout from the app, its strings, its shots or a test's
+    sample data, not even to make a shot check pass or two platforms agree.
+
+Where a board leaves something out (a placeholder, a control with no name), draw
+what the design calls for and say so.
+
+A board changes only in these cases, and the commit says which:
+
+- The person decided a change.
+- The board breaks a written rule (the words check, the design system).
+- The board draws a screen the app already has differently from how the app
+  draws it today, and the person decided nothing about the difference.
+
+When the person decides a change to an existing screen that the design system's
+existing parts can draw, such as new words or a button added to an alert, the
+implementing agent edits the board in the same commit and names the decision.
+The design session draws new screens, new layouts, and anything that needs a new
+part or a change to the design system.
 
 ### Laying out a screen
 
@@ -64,10 +80,11 @@ change to the design system.
 
 ### Drawing a board
 
-Start from what the code does today, then draw the screen the way the product
-should work, including what the code can't do yet. In a note beside the board,
-name each thing the code needs for it, with the file and line of what the code
-does today.
+Start from what the code does today. For a screen the app already has, draw what
+the code draws. Where the person decided a change, and for a new screen, draw
+the screen the way the product should work, including what the code can't do
+yet. In a note beside the board, name each thing the code needs for it, with the
+file and line of what the code does today.
 
 ### Building a board
 
