@@ -169,7 +169,7 @@ function side(label, d, absent, pair, which) {
   return h("div", {class: "side"}, h("h3", {}, label), body);
 }
 function drawn(d, pair, which) {
-  const {frame, box} = boardFrame(d.src, d.w, d.h, false);
+  const {frame, box} = boardFrame(d.src, d.w, d.h);
   const entry = {b: d, frame, box, circles: [], found: null};
   frames.push(entry);
   if (pair) {
@@ -247,7 +247,7 @@ function variant(d, v) {
   const label = h("h3", {}, d.label);
   if (d.error) return h("div", {class: "side"}, label, h("div", {class: "problem"}, d.error));
   const problem = h("div", {class: "status"});
-  const {frame, box} = boardFrame(d.src, d.w, d.h, false);
+  const {frame, box} = boardFrame(d.src, d.w, d.h);
   const entry = {b: d, frame, box, circles: [], crop: null, variant: {selector: v.selector, problem}};
   frames.push(entry);
   frame.addEventListener("load", () => {

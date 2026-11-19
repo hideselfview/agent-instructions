@@ -2022,9 +2022,19 @@ STATUS, HEALTH AND THE DASHBOARD
                               every board of the repo that holds them as it
                               stands on origin/main, in a tab per page of
                               design/mocks/canvas.json, each drawn in the
-                              dark as a review page draws it, and a Design
-                              system tab with the design system's colors in
-                              its first theme, its text styles, and each
+                              dark as a review page draws it. A page's
+                              boards stand on a canvas at the x, y, width
+                              and height that canvas.json gives them,
+                              scaled to fit, with the board's title under
+                              it. Dragging or scrolling pans the canvas, a
+                              pinch or ctrl-scroll zooms it about the
+                              pointer, and Fit or a double click shows
+                              every board again. A board's frame loads when
+                              it first comes into view, and a board that
+                              canvas.json gives no size or no place shows
+                              as that problem above the canvas. The Design
+                              system tab shows the design system's colors
+                              in its first theme, its text styles, and each
                               component's preview at the height its
                               preview.html gives the card. For a project
                               whose design places are in several repos, the

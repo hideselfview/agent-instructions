@@ -5,7 +5,8 @@
 //! reads origin/main as one commit and names it, and each board and each
 //! component is a frame that loads its own page drawn from that commit, so
 //! the page and its frames show the same commit when origin/main moves. A
-//! board is drawn the way the review page's frames draw it
+//! page's boards stand on a canvas the person pans and zooms, each at the x,
+//! y, width and height that the index gives it. A board is drawn the way the review page's frames draw it
 //! (`design_render::render_board`, in the dark), and a component's preview the
 //! way the Design System page draws its card
 //! (`design_render::render_preview`).
@@ -18,7 +19,7 @@ use boards::{BOARD_SUFFIX, CANVAS, Source, TOKENS_JSON, canvas_size};
 use serde_json::{Value, json};
 
 use crate::design_canvas::{CANVASES, page_of, pages_of, parse_canvases, placed};
-use crate::design_render::{FRAMES_SCRIPT, NOW, fill, render_board, render_preview};
+use crate::design_render::{NOW, fill, render_board, render_preview};
 use crate::fail;
 use crate::fail::{Fail, Result};
 use crate::lists::design_variants::Props;
@@ -87,22 +88,23 @@ pub fn page(
             );
         };
         let title = entry["title"].as_str();
-        let drawn = match canvas_size(&index, file) {
-            Ok((w, h)) => json!({ "name": name, "title": title, "w": w, "h": h }),
-            Err(error) => json!({ "name": name, "title": title, "error": error.text() }),
+        let drawn = match (canvas_place(&index, file), canvas_size(&index, file)) {
+            (Ok((x, y)), Ok((w, h))) => {
+                json!({ "name": name, "title": title, "x": x, "y": y, "w": w, "h": h })
+            }
+            (Err(error), _) => {
+                json!({ "name": name, "title": title, "error": error.text() })
+            }
+            (_, Err(error)) => {
+                json!({ "name": name, "title": title, "error": error.text() })
+            }
         };
-        // The canvas's rows, top to bottom and left to right.
-        let at = (entry["y"].as_f64(), entry["x"].as_f64());
-        boards.push((at, drawn));
+        boards.push(drawn);
         count += 1;
     }
     let pages: Vec<Value> = pages
         .into_iter()
-        .map(|(id, name, mut boards)| {
-            boards.sort_by(|(a, _), (b, _)| canvas_order(*a, *b));
-            let boards: Vec<Value> = boards.into_iter().map(|(_, drawn)| drawn).collect();
-            json!({ "id": id, "name": name, "boards": boards })
-        })
+        .map(|(id, name, boards)| json!({ "id": id, "name": name, "boards": boards }))
         .collect();
     let system = match from
         .read(TOKENS_JSON, "the design system's tokens")
@@ -151,7 +153,6 @@ pub fn page(
             ("CONTROLS", CONTROLS),
             ("CONTROLS_JS", CONTROLS_JS),
             ("DATA", &data),
-            ("FRAMES", FRAMES_SCRIPT),
         ],
     ))
 }
@@ -198,17 +199,13 @@ pub fn ask(places: &Places, project: &str, repo: &Path, rev: &str, now: i64) -> 
     ask_and_tell(&store, &commit, &stamp)
 }
 
-/// Which of two boards at <a> and <b> (each its y and x on the canvas)
-/// comes first in the canvas's rows: the higher, then the one further left.
-/// A board the index gives no place comes before the placed ones.
-fn canvas_order(
-    a: (Option<f64>, Option<f64>),
-    b: (Option<f64>, Option<f64>),
-) -> std::cmp::Ordering {
-    let key = |at: Option<f64>| at.unwrap_or(f64::NEG_INFINITY);
-    key(a.0)
-        .total_cmp(&key(b.0))
-        .then(key(a.1).total_cmp(&key(b.1)))
+/// Where the canvas index <canvas> puts board <file>: its x and y.
+fn canvas_place(canvas: &Value, file: &str) -> Result<(f64, f64)> {
+    let board = &canvas["boards"][file];
+    match (board["x"].as_f64(), board["y"].as_f64()) {
+        (Some(x), Some(y)) => Ok((x, y)),
+        _ => fail!("{CANVAS} gives no x and y for {file}"),
+    }
 }
 
 /// Board <name> of commit <commit> of the repo <repo> is in, drawn in the

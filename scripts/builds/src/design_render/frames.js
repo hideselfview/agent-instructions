@@ -3,15 +3,12 @@
 // sharp. The frame runs the page's scripts in a sandbox that cannot reach
 // the page holding it. `boardFrame` makes the frame and its box, and
 // `scaleFrame` scales the frame and sizes the box to match.
-function boardFrame(src, w, h, lazy) {
+function boardFrame(src, w, h) {
   const frame = document.createElement("iframe");
   frame.setAttribute("sandbox", "allow-scripts");
   frame.setAttribute("title", src);
   frame.setAttribute("width", w);
   frame.setAttribute("height", h);
-  // Set before the src, so the browser loads the page only once the frame
-  // comes near the view.
-  if (lazy) frame.setAttribute("loading", "lazy");
   frame.setAttribute("src", src);
   Object.assign(frame.style, {display: "block", border: "0", background: "transparent", transformOrigin: "0 0"});
   const box = document.createElement("div");

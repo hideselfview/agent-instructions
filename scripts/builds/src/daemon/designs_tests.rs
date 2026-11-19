@@ -47,6 +47,7 @@ fn designs_repo(scratch: &Scratch) -> (PathBuf, String) {
                 "B.dc.html": { "page": "two", "title": "Left", "x": 0, "y": 0, "w": 412, "h": 916 },
                 "C.dc.html": { "x": 0, "y": 0, "w": 100, "h": 100 },
                 "D.dc.html": { "page": "one", "title": "No size", "x": 0, "y": 900 },
+                "E.dc.html": { "page": "one", "title": "No place", "w": 100, "h": 100 },
             },
         })
         .to_string(),
@@ -71,7 +72,7 @@ fn page_data(page: &str) -> Value {
 }
 
 #[test]
-fn the_page_has_each_page_of_the_index_with_its_boards_in_the_canvas_rows_at_origin_main() {
+fn the_page_has_each_page_of_the_index_with_its_boards_at_their_canvas_places_at_origin_main() {
     let scratch = Scratch::new("designs-page");
     let (dir, commit) = designs_repo(&scratch);
     let page = page(
@@ -84,19 +85,21 @@ fn the_page_has_each_page_of_the_index_with_its_boards_in_the_canvas_rows_at_ori
     assert!(!page.contains("@@"), "every marker is filled");
     let data = page_data(&page);
     assert_eq!(data["commit"], json!(commit));
-    assert_eq!(data["boards"], json!(4));
+    assert_eq!(data["boards"], json!(5));
     assert_eq!(data["base"], json!(format!("/designs/demo/{commit}")));
     assert_eq!(
         data["pages"],
         json!([
             { "id": "one", "name": "One", "boards": [
-                { "name": "C", "title": null, "w": 100, "h": 100 },
+                { "name": "C", "title": null, "x": 0.0, "y": 0.0, "w": 100, "h": 100 },
                 { "name": "D", "title": "No size",
                   "error": "design/mocks/canvas.json gives no width and height for D.dc.html" },
+                { "name": "E", "title": "No place",
+                  "error": "design/mocks/canvas.json gives no x and y for E.dc.html" },
             ] },
             { "id": "two", "name": "Two", "boards": [
-                { "name": "B", "title": "Left", "w": 412, "h": 916 },
-                { "name": "A", "title": "Right", "w": 400, "h": 300 },
+                { "name": "A", "title": "Right", "x": 500.0, "y": 0.0, "w": 400, "h": 300 },
+                { "name": "B", "title": "Left", "x": 0.0, "y": 0.0, "w": 412, "h": 916 },
             ] },
         ])
     );
