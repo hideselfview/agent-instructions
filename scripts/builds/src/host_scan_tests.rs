@@ -90,6 +90,15 @@ fn a_missing_idle_share_is_an_error_of_its_own() {
     assert!(parse(&format!("cpu=\n{PS_FOLLOWS}\n{PS}")).is_err());
 }
 
+/// A Linux host prints the idle share it read from /proc/stat itself.
+#[test]
+fn a_linux_host_prints_its_idle_share() {
+    let scan = parse(&format!("uid=1000\ncpu_idle=12.5\n{PS_FOLLOWS}\n{PS}")).unwrap();
+    assert_eq!(scan.cpu_idle, Ok(12.5));
+    let scan = parse(&format!("uid=1000\ncpu_idle=\n{PS_FOLLOWS}\n{PS}")).unwrap();
+    assert!(scan.cpu_idle.unwrap_err().contains("no idle share"));
+}
+
 #[test]
 fn finds_a_processs_tree() {
     let rows = parse_ps(

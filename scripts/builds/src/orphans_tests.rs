@@ -76,7 +76,7 @@ fn finds_the_processes_whose_caller_is_gone() {
             ("local".to_string(), Some("kill -TERM 311".to_string())),
             (
                 "m1".to_string(),
-                Some("ssh u@m1 'kill -TERM -- -6000'".to_string())
+                Some("ssh u@m1 'kill -TERM -6000'".to_string())
             ),
         ]
     );
@@ -132,7 +132,7 @@ fn a_finding_names_the_orphan_and_how_to_stop_it() {
     };
     assert_eq!(
         job.finding().line(),
-        "orphan: the job in bae/remote-side-5 on host m1 (process group 6000), which process 999999 on this Mac ran: its caller is gone, so nothing reads what it prints; stop it with `ssh u@m1 'kill -TERM -- -6000'`"
+        "orphan: the job in bae/remote-side-5 on host m1 (process group 6000), which process 999999 on this Mac ran: its caller is gone, so nothing reads what it prints; stop it with `ssh u@m1 'kill -TERM -6000'`"
     );
 }
 

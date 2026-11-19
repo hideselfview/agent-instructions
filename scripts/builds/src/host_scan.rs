@@ -84,20 +84,27 @@ impl JobRun {
     }
 }
 
-/// The script a host runs. `top` takes two samples a second apart, and the
-/// second one says what the CPU did in that second; the first counts from
-/// boot. A job's claim folder whose `pid` file names a group that no longer
-/// runs is a job that ended, or an app checkout between steps, so the script
-/// prints only the groups that run.
+/// The script a host runs. On macOS `top` takes two samples a second apart,
+/// and the second one says what the CPU did in that second; the first counts
+/// from boot. On Linux the script reads the CPU's counters in /proc/stat a
+/// second apart and prints the idle share of that second (`cpu_idle`): the
+/// idle and the I/O-wait time, over the time of every state but the guests',
+/// which the user time already counts. A job's claim folder whose `pid` file
+/// names a group that no longer runs is a job that ended, or an app checkout
+/// between steps, so the script prints only the groups that run. dash, Linux's
+/// sh, takes no `--` before a process group.
 pub fn script(host: &Host) -> String {
     format!(
         r#"{root}echo "uid=$(id -u)"
-echo "cpu=$(top -l 2 -n 0 -s 1 2>&1 | awk '/^CPU usage/{{line=$0}} END{{print line}}')"
+case "$(uname -s)" in
+Darwin) echo "cpu=$(top -l 2 -n 0 -s 1 2>&1 | awk '/^CPU usage/{{line=$0}} END{{print line}}')" ;;
+*) echo "cpu_idle=$( (head -n 1 /proc/stat; sleep 1; head -n 1 /proc/stat) | awk '{{t = 0; for (i = 2; i <= 9; i++) t += $i; if (NR == 1) {{ t1 = t; i1 = $5 + $6 }} else if (t > t1) printf "%.1f", ($5 + $6 - i1) * 100 / (t - t1)}}')" ;;
+esac
 for claim in "$HOME"/dev/*-worktrees/*.job; do
   [ -f "$claim/pid" ] || continue
   set -- $(cat "$claim/pid" 2>/dev/null)
   case "$1" in ''|*[!0-9]*) continue;; esac
-  kill -0 -- "-$1" 2>/dev/null && echo "job=${{claim%.job}} $1 $2"
+  kill -0 "-$1" 2>/dev/null && echo "job=${{claim%.job}} $1 $2"
 done
 {listener}
 echo {PS_FOLLOWS}
@@ -152,7 +159,12 @@ pub fn parse(text: &str) -> std::result::Result<Scan, String> {
     Ok(Scan {
         uid,
         rows: parse_ps(ps)?,
-        cpu_idle: parse_cpu(value("cpu").unwrap_or_default()),
+        cpu_idle: match value("cpu_idle") {
+            Some(idle) => idle
+                .parse()
+                .map_err(|_| format!("/proc/stat gave no idle share: {idle:?}")),
+            None => parse_cpu(value("cpu").unwrap_or_default()),
+        },
         jobs,
         sccache,
     })

@@ -1791,6 +1791,7 @@ STATUS, HEALTH AND THE DASHBOARD
                               (`builds next`),
                               when `builds cargo` can run there and its CPU
                               sat 5% idle or more over a second of `top`
+                              (on Linux, of the counters in /proc/stat)
                               (start agents), when its CPU sat under 5% idle
                               (it has no room: start nothing new, as for a
                               host over its band), and when `builds cargo`

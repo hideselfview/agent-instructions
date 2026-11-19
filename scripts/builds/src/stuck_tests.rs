@@ -41,6 +41,9 @@ fn parses_ps_lines() {
     assert!(rows[2].zombie && !rows[0].zombie);
     assert_eq!(rows[2].command, "(sleep)");
     assert!(parse_ps("1 2 3\n").is_err());
+    // Linux's ps prints CPU time as [dd-]hh:mm:ss.
+    let linux = parse_ps("  901     1  1000  2.0 1-02:03:04 3-00:00:01 S /usr/bin/x\n").unwrap();
+    assert_eq!(linux[0].cpu_seconds, 86_400.0 + 7_384.0);
 }
 
 #[test]

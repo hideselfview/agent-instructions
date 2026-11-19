@@ -86,8 +86,12 @@ fn this_mac_counts_its_processes_with_the_same_lines() {
 #[test]
 fn the_remote_probe_script_asks_for_the_process_lines() {
     let script = PROBE_LINES;
-    assert!(script.contains("kern.maxprocperuid") && script.contains("ps -U"));
-    let text = "cores=8\nload=1.0 1.0 1.0\nfree_kib=100\nmemory_free_percent=61\nswap_used_mib=0\nmemory_pressure_level=1\nprocs=7300\nmax_procs=8000\n";
+    assert!(
+        script.contains("kern.maxprocperuid")
+            && script.contains("/proc/self/limits")
+            && script.contains("ps -U")
+    );
+    let text = "os=Linux\narch=x86_64\ncores=8\nload=1.0 1.0 1.0\nfree_kib=100\nmemory_free_percent=61\nswap_used_mib=0\nmemory_pressure_level=1\nprocs=7300\nmax_procs=8000\n";
     let probe = crate::host::parse_probe(text).unwrap();
     assert_eq!(
         probe.processes,

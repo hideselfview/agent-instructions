@@ -74,13 +74,18 @@ fn parse_elapsed(text: &str) -> Option<i64> {
     Some(days * 86_400 + seconds)
 }
 
-/// `[hh:]mm:ss.cc` as seconds; minutes may pass 59.
+/// `[hh:]mm:ss.cc` (macOS) or `[dd-]hh:mm:ss` (Linux) as seconds; minutes may
+/// pass 59.
 fn parse_cpu_time(text: &str) -> Option<f64> {
+    let (days, text) = match text.split_once('-') {
+        Some((days, clock)) => (days.parse::<f64>().ok()?, clock),
+        None => (0.0, text),
+    };
     let mut seconds = 0.0;
     for part in text.split(':') {
         seconds = seconds * 60.0 + part.parse::<f64>().ok()?;
     }
-    Some(seconds)
+    Some(days * 86_400.0 + seconds)
 }
 
 /// The rows of <text>, `ps`'s output for `PS_ARGS`. A line that does not read

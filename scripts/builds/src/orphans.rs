@@ -91,7 +91,7 @@ impl Orphan {
             .iter()
             .map(|target| match target.strip_prefix('-') {
                 Some(group) => format!(
-                    "kill -TERM -- {target} 2>/dev/null || {{ ps -axo pgid= | awk -v g={group} '$1 == g {{ found = 1 }} END {{ exit !found }}' && echo refused={target}; }}"
+                    "kill -TERM {target} 2>/dev/null || {{ ps -axo pgid= | awk -v g={group} '$1 == g {{ found = 1 }} END {{ exit !found }}' && echo refused={target}; }}"
                 ),
                 None => format!(
                     "kill -TERM {target} 2>/dev/null || {{ ps -p {target} >/dev/null 2>&1 && echo refused={target}; }}"
@@ -104,7 +104,7 @@ impl Orphan {
     /// The command that stops it, as the person runs it: over ssh on a host.
     fn stop_command(&self) -> Option<String> {
         let script = match &self.kind {
-            Kind::Job { .. } => format!("kill -TERM -- {}", self.targets()?.join(" ")),
+            Kind::Job { .. } => format!("kill -TERM {}", self.targets()?.join(" ")),
             Kind::Process { .. } => format!("kill -TERM {}", self.targets()?.join(" ")),
         };
         Some(match &self.host.target {

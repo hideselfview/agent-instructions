@@ -29,9 +29,14 @@ const PARENTS: usize = 3;
 
 /// Prints `procs=<the user's processes, zombies included>` (or
 /// `procs_fails=<what ps said>` when `ps` fails) and `max_procs=<the per-user
-/// limit>`, for `parse`.
+/// limit>`, for `parse`. Linux keeps the limit in the shell's own limits (its
+/// soft "Max processes"), or, when that is unlimited, in the kernel's
+/// threads-max; dash's ulimit has no option that prints it.
 pub const PROBE_LINES: &str = r#"if listed=$(ps -U $(id -u) -o pid= 2>&1); then echo procs=$(printf '%s\n' "$listed" | grep -c .); else echo "procs_fails=$(printf '%s' "$listed" | tr '\n' ' ')"; fi
-echo max_procs=$(sysctl -n kern.maxprocperuid)"#;
+case "$(uname -s)" in
+Darwin) echo max_procs=$(sysctl -n kern.maxprocperuid) ;;
+*) max=$(awk '/^Max processes/{print $3}' /proc/self/limits); [ "$max" = unlimited ] && max=$(cat /proc/sys/kernel/threads-max); echo max_procs=$max ;;
+esac"#;
 
 /// A host's process count and per-user limit at one moment.
 #[derive(Clone, Copy, Debug, PartialEq)]
