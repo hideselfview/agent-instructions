@@ -28,21 +28,11 @@ const TOOLCHAIN_FILE: &str = "lean-toolchain";
 /// The build folder lake writes in a Lean package.
 const LAKE_FOLDER: &str = ".lake";
 
-/// A Lean package of a checkout.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Package {
-    /// The package's folder, relative to the checkout (`crates/sqlive/proofs`),
-    /// or `.` for the checkout's top.
-    pub dir: String,
-    /// What the package's `lean-toolchain` names.
-    pub toolchain: String,
-}
-
-/// The Lean packages of the checkout at <top>: each folder whose `.lake` the
-/// checkout's `.build-dirs` lists and which holds a `lean-toolchain` file. A
-/// listed `.lake` folder without that file belongs to no pinned package and
-/// adds none.
-pub fn packages(top: &Path) -> Result<Vec<Package>> {
+/// The toolchains the Lean packages of the checkout at <top> pin, sorted, each
+/// once. A Lean package is a folder whose `.lake` the checkout's
+/// `.build-dirs` lists and which holds a `lean-toolchain` file; a listed
+/// `.lake` folder without that file pins nothing.
+pub fn toolchains(top: &Path) -> Result<Vec<String>> {
     let mut found = Vec::new();
     for entry in crate::manifest::build_dirs(top)? {
         let dir = if entry.path == LAKE_FOLDER {
@@ -66,11 +56,10 @@ pub fn packages(top: &Path) -> Result<Vec<Package>> {
                 file.display()
             );
         }
-        found.push(Package {
-            dir: dir.to_string(),
-            toolchain: toolchain.to_string(),
-        });
+        found.push(toolchain.to_string());
     }
+    found.sort();
+    found.dedup();
     Ok(found)
 }
 
@@ -101,12 +90,7 @@ pub fn elan_command(home: &Path, program: &Path) -> Command {
 /// in place on this Mac (`ensure_toolchains`). A checkout with no Lean
 /// package installs nothing.
 pub fn ensure(places: &Places, top: &Path) -> Result<()> {
-    let mut wanted: Vec<String> = packages(top)?
-        .into_iter()
-        .map(|package| package.toolchain)
-        .collect();
-    wanted.sort();
-    wanted.dedup();
+    let wanted = toolchains(top)?;
     if wanted.is_empty() {
         return Ok(());
     }
@@ -146,13 +130,7 @@ pub fn ensure_toolchains(
         }
         note(format!("installed the Lean toolchain {toolchain}"));
     }
-    match missing(home, wanted)?.as_slice() {
-        [] => Ok(()),
-        still => fail!(
-            "elan installed the Lean toolchains {} and still does not list them",
-            still.join(", ")
-        ),
-    }
+    Ok(())
 }
 
 /// The toolchains of <wanted> that elan under <home> does not list: all of

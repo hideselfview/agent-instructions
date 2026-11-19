@@ -3,12 +3,12 @@ use crate::testing::{Scratch, repo};
 use std::os::unix::fs::PermissionsExt;
 
 #[test]
-fn a_lean_package_is_a_listed_lake_folder_beside_a_lean_toolchain_file() {
+fn each_listed_lake_folder_beside_a_lean_toolchain_file_pins_its_toolchain_once() {
     let scratch = Scratch::new("lean-packages");
     let top = scratch.dir.join("demo");
     repo(
         &top,
-        "target 1G\nproofs/a/.lake 1G\nproofs/b/.lake 1G\n.lake 1G\n",
+        "target 1G\nproofs/a/.lake 1G\nproofs/b/.lake 1G\n.lake 1G\nproofs/d/.lake 1G\n",
     );
     std::fs::create_dir_all(top.join("proofs/a")).unwrap();
     std::fs::write(
@@ -17,23 +17,23 @@ fn a_lean_package_is_a_listed_lake_folder_beside_a_lean_toolchain_file() {
     )
     .unwrap();
     std::fs::write(top.join("lean-toolchain"), "leanprover/lean4:v4.36.0").unwrap();
+    std::fs::create_dir_all(top.join("proofs/d")).unwrap();
+    std::fs::write(
+        top.join("proofs/d/lean-toolchain"),
+        "leanprover/lean4:v4.34.1",
+    )
+    .unwrap();
     assert_eq!(
-        packages(&top).unwrap(),
+        toolchains(&top).unwrap(),
         vec![
-            Package {
-                dir: "proofs/a".into(),
-                toolchain: "leanprover/lean4:v4.34.1".into()
-            },
-            Package {
-                dir: ".".into(),
-                toolchain: "leanprover/lean4:v4.36.0".into()
-            },
+            "leanprover/lean4:v4.34.1".to_string(),
+            "leanprover/lean4:v4.36.0".to_string()
         ],
-        "proofs/b has no lean-toolchain, and target is no .lake folder"
+        "proofs/d pins proofs/a's toolchain, proofs/b has no lean-toolchain, and target is no .lake folder"
     );
     std::fs::write(top.join("lean-toolchain"), "\n").unwrap();
     assert!(
-        packages(&top).is_err(),
+        toolchains(&top).is_err(),
         "an empty lean-toolchain names none"
     );
 }
