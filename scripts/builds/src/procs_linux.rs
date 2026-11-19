@@ -183,7 +183,21 @@ pub fn args(pid: i32) -> Option<Vec<String>> {
 /// The environment <pid> started with (/proc/<pid>/environ), as `NAME=value`
 /// strings; None when it exited or can't be read.
 pub fn environment(pid: i32) -> Option<Vec<String>> {
-    let bytes = std::fs::read(format!("/proc/{pid}/environ")).ok()?;
+    let bytes = match std::fs::read(format!("/proc/{pid}/environ")) {
+        Ok(bytes) => bytes,
+        Err(error)
+            if error.kind() == std::io::ErrorKind::NotFound
+                || error.raw_os_error() == Some(libc::ESRCH) =>
+        {
+            return None;
+        }
+        Err(error) => {
+            crate::text::note(format!(
+                "builds cannot read the environment of pid {pid}: {error}"
+            ));
+            return None;
+        }
+    };
     Some(
         bytes
             .split(|b| *b == 0)

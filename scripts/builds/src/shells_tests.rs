@@ -591,6 +591,10 @@ fn the_agent_comes_from_the_environment_or_the_command_text() {
         text("export BUILDS_AGENT=\"a1b2\" && ls"),
         Some("a1b2".to_string())
     );
+    assert_eq!(
+        text("BUILDS_AGENT=e9a7-5b05_x ls"),
+        Some("e9a7-5b05_x".to_string())
+    );
     assert_eq!(text("echo $BUILDS_AGENT; sleep 5"), None);
     assert_eq!(text("MY_BUILDS_AGENT=a1 ls"), None);
     assert_eq!(text("sleep 590; date +%s"), None);

@@ -18,6 +18,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+use crate::ack::agent::{VARIABLE, is_id_char};
 use crate::procs::{Place, Processes, args, cwd, environment, place_of, tree_cpu};
 use crate::text::tilde;
 
@@ -52,7 +53,6 @@ pub struct Junk {
     /// shell's environment or its command text says. Every subagent of one
     /// Claude Code session shares the parent process, so only this tells which
     /// agent left the shell.
-    #[serde(default)]
     pub agent: Option<String>,
     pub minutes: i64,
     /// The checkout the command runs in, else its folder.
@@ -108,7 +108,7 @@ pub struct Entry {
 fn agent_in_environment(environment: &[String]) -> Option<String> {
     environment
         .iter()
-        .find_map(|var| var.strip_prefix("BUILDS_AGENT="))
+        .find_map(|var| var.strip_prefix(VARIABLE)?.strip_prefix('='))
         .filter(|id| !id.is_empty())
         .map(str::to_string)
 }
@@ -116,14 +116,14 @@ fn agent_in_environment(environment: &[String]) -> Option<String> {
 /// The agent id a command's text sets: the first `BUILDS_AGENT=<id>`, as
 /// `export BUILDS_AGENT=<id>` or `BUILDS_AGENT=<id> command` does.
 fn agent_in_text(text: &str) -> Option<String> {
-    const NAME: &str = "BUILDS_AGENT=";
+    let name = format!("{VARIABLE}=");
     let mut from = 0;
-    while let Some(at) = text[from..].find(NAME) {
-        let start = from + at + NAME.len();
+    while let Some(at) = text[from..].find(&name) {
+        let start = from + at + name.len();
         let id: String = text[start..]
             .trim_start_matches(['"', '\''])
             .chars()
-            .take_while(|c| c.is_ascii_alphanumeric())
+            .take_while(|c| is_id_char(*c))
             .collect();
         // `XBUILDS_AGENT=` is another variable.
         let named = text[..from + at]

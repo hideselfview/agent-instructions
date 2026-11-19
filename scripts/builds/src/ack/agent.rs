@@ -34,16 +34,17 @@ pub fn dir(places: &Places) -> Result<PathBuf> {
     Ok(parent.join("agents"))
 }
 
+/// Whether <c> may appear in a session or agent id.
+pub fn is_id_char(c: char) -> bool {
+    c.is_ascii_alphanumeric() || c == '-' || c == '_'
+}
+
 /// The file that registers agent <agent> of <session>. Fails for an id
 /// that holds anything but letters, digits, `-` and `_`, since the ids name
 /// folders and files.
 fn file(places: &Places, session: &str, agent: &str) -> Result<PathBuf> {
     for (what, id) in [("session id", session), ("agent id", agent)] {
-        if id.is_empty()
-            || !id
-                .chars()
-                .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
-        {
+        if id.is_empty() || !id.chars().all(is_id_char) {
             fail!("{id:?} is no {what}: an id holds only letters, digits, - and _");
         }
     }
