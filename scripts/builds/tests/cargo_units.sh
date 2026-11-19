@@ -452,13 +452,24 @@ mv "$ws/target" "$volume/ws/main/target"
 ln -s "$volume/ws/main/target" "$ws/target"
 bump 0.1.3 0.1.4
 [ -z "$(recent)" ] || fail "aging left recent copies: $(recent)"
+before_libs="$(lib_dep)"
+# What the build leaves besides the copy it builds: the copy with the feature,
+# and the plain copy the doc build made, which only checks dep (no rlib) and
+# which no build here replaces. The plain copy with an rlib is the one the
+# bump replaces.
+left_over=""
+for dir in $before_libs; do
+    if has_extra "$dir" || [ -z "$(unit_files "$dir" | grep '\.rlib$')" ]; then left_over="$left_over$dir"$'\n'; fi
+done
 BUILDS_ROOT="$volume" "$builds" cargo build -q --all-targets
 [ -f "$volume/ws/main/.builds-cargo.lock" ] || fail "builds cargo took no guard in the checkout's build root"
 lockf -k -t 60 "$volume/ws/main/.after-build.log" true || fail "the prune after the build ran for over a minute"
 bumped_libs="$(comm -12 <(lib_dep) <(recent))"
 [ -n "$bumped_libs" ] || fail "the bumped build left no library copy of dep"
-[ "$(lib_dep)" = "$(sort <(echo "$bumped_libs") <(comm -23 <(lib_dep) <(recent) | while read -r dir; do if grep -q extra "$dir/lib-dep.json"; then echo "$dir"; fi; done) | uniq)" ] \
-    || fail "the prune after the build left $(comm -13 <(echo "$bumped_libs") <(lib_dep)): $(cat "$volume/ws/main/.after-build.log")"
+[ "$(echo "$left_over" | grep -c .)" -eq 2 ] || fail "expected two copies of dep's library to stay besides the bumped one, among: $before_libs"
+expected="$(sort <(echo "$bumped_libs") <(echo "$left_over" | grep .))"
+[ "$(lib_dep)" = "$expected" ] \
+    || fail "the prune after the build left $(comm -13 <(echo "$expected") <(lib_dep)) and deleted $(comm -23 <(echo "$expected") <(lib_dep)): $(cat "$volume/ws/main/.after-build.log")"
 case "$(cat "$volume/ws/main/.after-build.log")" in
     *"a later build from other sources replaced"*) ;;
     *) fail "the prune after the build said: $(cat "$volume/ws/main/.after-build.log")" ;;
