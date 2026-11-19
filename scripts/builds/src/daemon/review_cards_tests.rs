@@ -320,3 +320,31 @@ fn a_card_whose_rules_cannot_be_read_says_why_and_never_that_land_takes_its_comm
         "{said}"
     );
 }
+
+#[test]
+fn the_rules_are_read_once_and_again_only_after_their_files_change() {
+    let demo = demo("review-cards-rules-change");
+    let fake = fake(&demo.scratch.dir);
+    let reads = Reads::with_root(Ok(fake.root.clone()));
+    let side = demo.add_side(1, "agent", "work");
+    demo.commit(&side, "a.rs");
+    let not_run = Some(ItemWait::RulesReview(ReviewWait::NotRun));
+    assert_eq!(standing(&reads, &demo, &side), not_run);
+    // With the rules gone, only the rules read before answer.
+    std::fs::rename(fake.root.join("rules"), demo.scratch.dir.join("rules-away")).unwrap();
+    assert_eq!(standing(&reads, &demo, &side), not_run);
+    reads.rules_changed();
+    let said = standing_at(
+        &reads,
+        &demo,
+        &side,
+        "work",
+        &read_git(&side, ahead(&side)),
+        demo.store.revision().unwrap(),
+    )
+    .unwrap_err();
+    assert!(
+        said.starts_with("reading the rules of demo from "),
+        "{said}"
+    );
+}

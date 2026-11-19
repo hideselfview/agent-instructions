@@ -14,8 +14,8 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
 
 use super::cards::{ItemWait, ReviewWait, Settler};
 use crate::fail::Fail;
@@ -26,10 +26,6 @@ use crate::review::record::Change;
 use crate::review::run::Material;
 use crate::side_git::SideRead;
 
-/// How long the rules read from the rules checkout are used before they are
-/// read again.
-const RULES_FOR: Duration = Duration::from_secs(10);
-
 /// A worktree and its commits (full hashes, oldest first).
 type ReadKey = (PathBuf, Vec<String>);
 
@@ -37,9 +33,10 @@ type ReadKey = (PathBuf, Vec<String>);
 type Read = Vec<Vec<String>>;
 
 /// A project's rules as `Material::load` last read them, or why it failed,
-/// and when. A read that finds the same rules keeps the earlier `Arc`, so a
-/// worktree judged against them need not be judged again.
-type Rules = (Instant, Result<Arc<Material>, String>);
+/// and the count of changes to the rules files the read came after. A read
+/// that finds the same rules keeps the earlier `Arc`, so a worktree judged
+/// against them need not be judged again.
+type Rules = (u64, Result<Arc<Material>, String>);
 
 /// A side worktree whose card shows where its rules review stands, as the
 /// daemon last read it.
@@ -97,6 +94,8 @@ pub struct Reads {
     root: Result<PathBuf, String>,
     commits: Mutex<HashMap<ReadKey, Read>>,
     rules: Mutex<HashMap<String, Rules>>,
+    /// How many times the rules files changed (`rules_changed`).
+    rules_changes: AtomicU64,
     judged: Mutex<HashMap<PathBuf, Judged>>,
 }
 
@@ -114,6 +113,7 @@ impl Reads {
             root,
             commits: Mutex::new(HashMap::new()),
             rules: Mutex::new(HashMap::new()),
+            rules_changes: AtomicU64::new(0),
             judged: Mutex::new(HashMap::new()),
         }
     }
@@ -141,14 +141,33 @@ impl Reads {
         Ok(read)
     }
 
-    /// <project>'s rules, read from the rules checkout at most every
-    /// `RULES_FOR`, or why they can't be read.
+    /// The folders of the rules checkout whose files `Material::load`
+    /// reads; none when there is no rules checkout. Whoever follows them
+    /// calls `rules_changed` after each change under them.
+    pub fn rules_folders(&self) -> Vec<PathBuf> {
+        match &self.root {
+            Ok(root) => vec![root.join("rules"), root.join("projects")],
+            Err(_) => Vec::new(),
+        }
+    }
+
+    /// Files under `rules_folders` changed: the next ask reads the rules
+    /// again.
+    pub fn rules_changed(&self) {
+        self.rules_changes.fetch_add(1, Ordering::SeqCst);
+    }
+
+    /// <project>'s rules, read from the rules checkout once and again after
+    /// each change to its files, or why they can't be read.
     fn rules(&self, project: &str) -> Result<Arc<Material>, String> {
         let root = self.root.as_ref().map_err(Clone::clone)?;
         let mut rules = self.rules.lock().expect("no panic holding it");
+        // Taken before the read: a change during the read moves it, and the
+        // next ask reads again.
+        let changes = self.rules_changes.load(Ordering::SeqCst);
         let held = rules.get(project).cloned();
-        if let Some((at, material)) = &held
-            && at.elapsed() < RULES_FOR
+        if let Some((read_after, material)) = &held
+            && *read_after == changes
         {
             return material.clone();
         }
@@ -165,7 +184,7 @@ impl Reads {
                 )
             }),
         };
-        rules.insert(project.to_string(), (Instant::now(), material.clone()));
+        rules.insert(project.to_string(), (changes, material.clone()));
         material
     }
 

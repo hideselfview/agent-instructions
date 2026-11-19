@@ -154,6 +154,8 @@ pub struct Model {
     /// The process reading ends at its next turn.
     stopped: AtomicBool,
     git_stream: Mutex<Option<(Vec<PathBuf>, Stream)>>,
+    /// Follows the rules files the rules review reads, while it runs.
+    rules_stream: Mutex<Option<Stream>>,
     lists: Arc<Feed>,
     /// Each worktree's design commits, which its card and health's findings
     /// both read.
@@ -201,6 +203,7 @@ impl Model {
             sampling: Mutex::new(()),
             stopped: AtomicBool::new(false),
             git_stream: Mutex::new(None),
+            rules_stream: Mutex::new(None),
             lists: Feed::start(places),
             design_reads: Default::default(),
             review_reads: Default::default(),
@@ -225,6 +228,7 @@ impl Model {
                 model.publish();
             }
         }));
+        model.follow_rules();
         let refresher = model.clone();
         std::thread::Builder::new()
             .name("builds-refresh".into())
@@ -337,6 +341,36 @@ impl Model {
                 }
             }
         });
+    }
+
+    /// Follows the rules files the rules review reads: after each change
+    /// under them, the cards' review standing reads the rules again. Started
+    /// before any page asks for a card, so no change goes unseen.
+    fn follow_rules(self: &Arc<Self>) {
+        // FSEvents follows the folder a link names, not the link.
+        let folders: Vec<PathBuf> = self
+            .review_reads
+            .rules_folders()
+            .into_iter()
+            .map(|folder| std::fs::canonicalize(&folder).unwrap_or(folder))
+            .collect();
+        if folders.is_empty() {
+            return;
+        }
+        let weak = Arc::downgrade(self);
+        let refs: Vec<&Path> = folders.iter().map(PathBuf::as_path).collect();
+        let started = Stream::start(
+            &refs,
+            &[],
+            0.2,
+            Box::new(move |_| {
+                if let Some(model) = weak.upgrade() {
+                    model.review_reads.rules_changed();
+                    model.publish();
+                }
+            }),
+        );
+        *self.rules_stream.lock().expect("no panic holding it") = Some(started);
     }
 
     /// Follows the folders holding every checkout, restarting the stream
