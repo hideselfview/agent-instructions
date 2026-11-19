@@ -1,5 +1,5 @@
 ---
-digest: A bug fix starts with a test that fails on the real code, fixes the bad value where it comes from rather than in the consumer that trips on it, and commits only the change for the confirmed cause; investigation logs and mechanisms built for a disproved cause come out.
+digest: A bug fix starts with a test that fails on the real code, finds the cause in the current code and spec, never by bisecting or digging through history unless the user asks, fixes the bad value where it comes from rather than in the consumer that trips on it, and commits only the change for the confirmed cause; investigation logs and mechanisms built for a disproved cause come out.
 paths:
   - '**/*.rs'
   - '**/*.swift'
@@ -28,6 +28,15 @@ The test calls the real function or service that has the bug. A test that
 rebuilds the conditions by hand, calling sub-functions in the order you think
 causes the bug, tests another program
 (`never-re-implement-production-logic-in-tests-mocks-or-previews`).
+
+### Debug the code as it is
+
+Find the cause in the current code: run the failing test, read why it fails, and
+follow the code and the spec from there. Which commit introduced the bug doesn't
+change the fix, so don't bisect or search `git log`, `git blame` or old commits
+for it unless the user asks. Each bisect step recompiles, and a bisect over a
+day of commits can take an hour to name a commit whose change the current code
+already shows.
 
 ### Fix where the bad value comes from
 

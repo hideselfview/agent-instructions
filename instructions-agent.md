@@ -55,6 +55,12 @@ process output) instead of trusting a notification's text or a matched
 substring, and read the whole call chain. When behaviour is unclear, add logs
 and read them.
 
+**Work from the code as it is, not its history.** To fix a failure, run it, read
+why it fails, and read the current code and the spec: fix whatever is wrong now.
+Which commit broke it doesn't change the fix. Never bisect, and never dig
+through `git log`, `git blame` or old commits to find a cause, unless the user
+asks; a brief never tells an agent to.
+
 **Read the product spec before you plan, brief or build.** Before you write a
 plan or a brief, settle a choice, or change a behavior, search the project's
 spec for that behavior and read the whole section. The spec is a draft that
