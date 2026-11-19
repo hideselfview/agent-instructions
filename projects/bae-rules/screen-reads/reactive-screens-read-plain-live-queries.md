@@ -190,18 +190,38 @@ WHERE (sort) >= (:from) ORDER BY sort LIMIT :limit
 ```
 
 coven reruns such a statement, once it returns as many rows as its LIMIT, only
-for a write at or before its last row, when every condition holds:
+for a write at or before its last row, when every condition holds (coven's
+`spec/coven.md`, §4):
 
-- The statement is one SELECT with an ORDER BY and a LIMIT, and no OFFSET.
-- Each ORDER BY term is a stored column of one table in the statement (not a
-  subquery, an expression or the right side of a LEFT JOIN), with BINARY
-  collation.
-- The statement returns each ORDER BY column as a result column, before any `*`.
-- The statement has no GROUP BY and no aggregate or window function.
+- The statement is one SELECT with an ORDER BY and a LIMIT, and has no OFFSET,
+  no GROUP BY, and no aggregate or window function in its result columns.
+- The statement returns each ORDER BY term as a result column before any `*`,
+  spelled as the ORDER BY spells it.
+- Each term reads one table, with no COLLATE and no NULLS FIRST or LAST, and is
+  one of these:
+  - a stored column whose collation is BINARY;
+  - an expression over that table's stored BINARY columns, such as
+    `year IS NULL` or `coalesce(year, 0) + 1`, that holds no subquery, no
+    `rowid`, no clock and no function that isn't deterministic;
+  - a generated column whose collation is BINARY and whose expression names only
+    that table's stored BINARY columns.
+- No table a term reads is the right side of a LEFT JOIN.
 
-A statement that breaks a condition reruns for every write to what it reads, so
-a list's window statement meets them wherever its order allows. `OFFSET` reruns
-for every change at all.
+The terms can read more than one table. The ORDER BY's terms then fall into runs
+of consecutive terms over one table:
+`ORDER BY ar.sort_key, ar.id, al.title, al.id` has a run over `artists` and then
+a run over `albums`. coven narrows the first run's table by that run's terms.
+coven narrows a later run's table too only when coven reads that table after the
+table of each earlier run and an equality with a column of that earlier table
+narrows it, as `JOIN albums AS al ON al.artist_id = ar.id` does. When a
+condition on the later table alone makes coven read that table first, only the
+earlier runs' bound narrows the window.
+
+Any other statement, such as one that orders by a result column's position, by a
+NOCASE column or by an expression over two tables, or one with an OFFSET,
+narrows by its WHERE alone: a write to any row the WHERE allows reruns the
+statement, wherever that row sorts. So a list's window statement meets the
+conditions wherever its order allows.
 
 The app reports the first and last row on screen: when it opens the list, from
 its own height and row height before any row arrives, and again each time the
