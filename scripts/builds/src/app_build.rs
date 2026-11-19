@@ -331,7 +331,7 @@ fn lane_steps(
 
 /// Where a lane's checkout must be to run all of <steps>: where each of them
 /// may run. Fails, naming two of them, when no checkout can run both.
-fn place_of(steps: &[Step]) -> Result<lock::Where> {
+pub fn place_of(steps: &[Step]) -> Result<lock::Where> {
     let mut narrowed: Option<&Step> = None;
     for step in steps
         .iter()

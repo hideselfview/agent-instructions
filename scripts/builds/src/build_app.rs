@@ -14,8 +14,8 @@ use std::process::Command;
 use std::thread::sleep;
 use std::time::Duration;
 
-use crate::app_build::config_at;
-use crate::app_config::{CONFIG, Config, MacApp, run_command};
+use crate::app_build::{config_at, place_of};
+use crate::app_config::{CONFIG, Config, MacApp, Step, run_command};
 use crate::app_site::Site;
 use crate::fail;
 use crate::fail::{Context, Result};
@@ -57,17 +57,19 @@ impl Platform {
     /// command is one a `here` line names (a step only this Mac can run, such
     /// as the signed app); the Android build installs the app on the device
     /// of the Mac it runs on.
-    fn allowed(self, config: &Config) -> Where {
+    fn allowed(self, config: &Config) -> Result<Where> {
         match self {
             Platform::Mac => {
-                let command = config.mac.as_ref().map(|mac| &mac.build);
-                let here = config
+                let build = self.build(config)?;
+                let named: Vec<Step> = config
                     .steps
                     .iter()
-                    .any(|step| step.place == Where::Here && Some(&step.command) == command);
-                if here { Where::Here } else { Where::Anywhere }
+                    .filter(|step| step.command == build)
+                    .cloned()
+                    .collect();
+                place_of(&named)
             }
-            Platform::Android => Where::Here,
+            Platform::Android => Ok(Where::Here),
         }
     }
 
@@ -229,7 +231,7 @@ pub fn cmd_build_app(tool: &Tool, args: &[String]) -> Result<()> {
         platform.word(),
         platform.word()
     ));
-    let allowed = platform.allowed(&config_at(places, repo, commit)?);
+    let allowed = platform.allowed(&config_at(places, repo, commit)?)?;
     let mut held = lock::take_where(
         places,
         &ssh,
