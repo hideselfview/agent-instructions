@@ -114,7 +114,10 @@ fn a_nextest_run_passes_over_a_host_without_the_pinned_cargo_nextest() {
             memory: crate::host_memory::Memory::at_rest(),
             git_fails: None,
             nextest,
-            processes: Default::default(),
+            processes: crate::proc_limit::ProcessUse {
+                count: 100,
+                limit: 10_000,
+            },
         })
     };
     let hosts = vec![
@@ -161,7 +164,10 @@ fn a_host_whose_git_fails_is_passed_over_saying_what_git_said() {
             free_kib: 100,
             git_fails: Some("no license".to_string()),
             nextest: crate::nextest::Has::Nothing,
-            processes: Default::default(),
+            processes: crate::proc_limit::ProcessUse {
+                count: 100,
+                limit: 10_000,
+            },
         })
     };
     let hosts = vec![
@@ -256,7 +262,10 @@ fn probe_of(load: f64, free_kib: u64) -> std::result::Result<Probe, String> {
         free_kib,
         git_fails: None,
         nextest: crate::nextest::Has::Nothing,
-        processes: Default::default(),
+        processes: crate::proc_limit::ProcessUse {
+            count: 100,
+            limit: 10_000,
+        },
     })
 }
 
@@ -345,7 +354,10 @@ fn probe_with(cores: u32, load: f64, free_kib: u64) -> std::result::Result<Probe
         free_kib,
         git_fails: None,
         nextest: crate::nextest::Has::Nothing,
-        processes: Default::default(),
+        processes: crate::proc_limit::ProcessUse {
+            count: 100,
+            limit: 10_000,
+        },
     })
 }
 

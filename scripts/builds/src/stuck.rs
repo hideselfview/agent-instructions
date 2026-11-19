@@ -619,6 +619,16 @@ pub struct HostRead {
     pub zombie_parents: Vec<crate::proc_limit::ZombieParent>,
 }
 
+/// The rows of <host>'s processes, from one `ps` there.
+pub fn rows_on(ssh: &Ssh, host: &Host) -> Result<Vec<Row>, String> {
+    let listing = output_of(
+        command_at(ssh, host, &ps_script(), crate::host::Terminal::None),
+        &format!("ps on {}", crate::host::place(&host.name)),
+        Accept::Zero,
+    )?;
+    parse_ps(&listing)
+}
+
 /// The `ps` line of a host, as the script `ssh` runs.
 fn ps_script() -> String {
     format!("ps -axww -o {PS_FORMAT}")
@@ -638,7 +648,7 @@ pub fn parse_lsof(text: &str) -> HashMap<i32, String> {
     found
 }
 
-fn now_seconds() -> i64 {
+pub fn now_seconds() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .expect("the clock is after 1970")
@@ -649,12 +659,7 @@ fn now_seconds() -> i64 {
 /// pid on the host is <dashboard>.
 pub fn read(ssh: &Ssh, host: &Host, dashboard: Option<i32>) -> HostBusy {
     let read = (|| {
-        let listing = output_of(
-            command_at(ssh, host, &ps_script(), crate::host::Terminal::None),
-            &format!("ps on {}", crate::host::place(&host.name)),
-            Accept::Zero,
-        )?;
-        let rows = parse_ps(&listing)?;
+        let rows = rows_on(ssh, host)?;
         let pids = pids_to_place(&rows);
         let cwds = if pids.is_empty() {
             HashMap::new()

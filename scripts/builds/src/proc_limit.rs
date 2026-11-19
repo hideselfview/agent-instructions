@@ -19,7 +19,7 @@ use crate::fail::{Context, Fail, Result};
 use crate::health::Advice;
 use crate::host::{Accept, Host, Probe, Ssh, Terminal, answer_value, command_at, output_of, place};
 use crate::shells::{basename, shown};
-use crate::stuck::{HostBusy, PS_FORMAT, Row, Sampling, is_test_binary, parse_ps};
+use crate::stuck::{HostBusy, Row, Sampling, is_test_binary, now_seconds, rows_on};
 use crate::text::duration;
 
 /// A host above this share of its process limit needs action.
@@ -27,13 +27,14 @@ pub const WARN_SHARE: f64 = 0.6;
 /// How many zombie parents a finding names.
 const PARENTS: usize = 3;
 
-/// Prints `procs=<the user's processes, zombies included>` and
-/// `max_procs=<the per-user limit>`, for `parse`.
-pub const PROBE_LINES: &str = r#"echo procs=$(ps -U $(id -u) -o pid= | wc -l | tr -d ' ')
+/// Prints `procs=<the user's processes, zombies included>` (or
+/// `procs_fails=<what ps said>` when `ps` fails) and `max_procs=<the per-user
+/// limit>`, for `parse`.
+pub const PROBE_LINES: &str = r#"if listed=$(ps -U $(id -u) -o pid= 2>&1); then echo procs=$(printf '%s\n' "$listed" | grep -c .); else echo "procs_fails=$(printf '%s' "$listed" | tr '\n' ' ')"; fi
 echo max_procs=$(sysctl -n kern.maxprocperuid)"#;
 
 /// A host's process count and per-user limit at one moment.
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ProcessUse {
     pub count: u64,
     pub limit: u64,
@@ -51,6 +52,9 @@ impl ProcessUse {
 
 /// Reads what `PROBE_LINES` printed.
 pub fn parse(text: &str) -> Result<ProcessUse> {
+    if let Some(said) = answer_value(text, "procs_fails") {
+        fail!("the host could not list its processes: {said}");
+    }
     let value = |key: &str| -> Result<u64> {
         match answer_value(text, key) {
             Some(value) => value
@@ -83,7 +87,7 @@ pub fn local() -> Result<ProcessUse> {
 }
 
 /// A process that has zombie children.
-#[derive(Clone, Debug, PartialEq, serde::Serialize)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct ZombieParent {
     pub pid: i32,
     pub uid: u32,
@@ -137,6 +141,16 @@ fn parent_text(parent: &ZombieParent) -> String {
     )
 }
 
+fn head_of(host: &Host, used: &ProcessUse) -> String {
+    format!(
+        "processes: {} runs {} of its {} processes per user ({:.0}%), and every fork fails at the limit",
+        place(&host.name),
+        used.count,
+        used.limit,
+        used.share() * 100.0
+    )
+}
+
 /// The "needs action" lines for <hosts>, each with its probe: one for each
 /// host whose process count is near its limit, naming the parents in
 /// <reads> that hold the most zombies. The line suggests stopping the top
@@ -152,18 +166,28 @@ pub fn findings(
         if !used.near_limit() {
             continue;
         }
-        let parents: &[ZombieParent] = reads
+        let parents = match reads
             .iter()
             .find(|read| read.host == host.name)
-            .and_then(|read| read.read.as_ref().ok())
-            .map_or(&[], |read| &read.zombie_parents);
-        let head = format!(
-            "processes: {} runs {} of its {} processes per user ({:.0}%), and every fork fails at the limit",
-            place(&host.name),
-            used.count,
-            used.limit,
-            used.share() * 100.0
-        );
+            .map(|read| &read.read)
+        {
+            Some(Ok(read)) => &read.zombie_parents[..],
+            Some(Err(error)) => {
+                found.push(Advice::said(format!(
+                    "{}; reading its processes failed, so the parents of zombies are unknown: {error}",
+                    head_of(host, &used)
+                )));
+                continue;
+            }
+            None => {
+                found.push(Advice::said(format!(
+                    "{}; no reading of its processes exists, so the parents of zombies are unknown",
+                    head_of(host, &used)
+                )));
+                continue;
+            }
+        };
+        let head = head_of(host, &used);
         found.push(match parents.first() {
             None => Advice::said(format!(
                 "{head}; no process there holds zombie children, so read `ps` on it for what holds the rest"
@@ -199,19 +223,8 @@ pub fn stop(uid: u32) -> Result<(Vec<String>, usize)> {
     if !used.near_limit() {
         return Ok((Vec::new(), 0));
     }
-    let listing = output_of(
-        command_at(
-            &Ssh::from_env(),
-            &Host::local(),
-            &format!("ps -axww -o {PS_FORMAT}"),
-            Terminal::None,
-        ),
-        "ps",
-        Accept::Zero,
-    )
-    .map_err(Fail::Message)?;
-    let rows = parse_ps(&listing).map_err(Fail::Message)?;
-    let sampling = Sampling::new(&Host::local(), 0);
+    let rows = rows_on(&Ssh::from_env(), &Host::local()).map_err(Fail::Message)?;
+    let sampling = Sampling::new(&Host::local(), now_seconds());
     let mut lines = Vec::new();
     let mut failed = 0;
     for parent in zombie_parents(&rows, &sampling) {

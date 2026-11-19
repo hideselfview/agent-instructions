@@ -170,3 +170,50 @@ fn a_non_test_top_parent_gets_no_stop_command() {
     let found = findings(&[(host("local"), Ok(probe(7000, 8000)))], &reads);
     assert_eq!(found[0].command, None);
 }
+
+#[test]
+fn a_failed_ps_fails_the_probe_instead_of_counting_zero() {
+    let error = parse("procs_fails=fork: Resource temporarily unavailable \nmax_procs=8000\n")
+        .unwrap_err()
+        .text();
+    assert!(
+        error.contains("Resource temporarily unavailable"),
+        "{error}"
+    );
+    let script = format!("ps() {{ echo 'ps: fork failed' >&2; return 1; }}\n{PROBE_LINES}");
+    let printed = std::process::Command::new("sh")
+        .arg("-c")
+        .arg(&script)
+        .output()
+        .unwrap();
+    let text = String::from_utf8_lossy(&printed.stdout);
+    assert!(text.contains("procs_fails=ps: fork failed"), "{text}");
+    assert!(
+        !text.lines().any(|line| line.starts_with("procs=")),
+        "{text}"
+    );
+}
+
+#[test]
+fn a_host_whose_processes_could_not_be_read_says_so() {
+    let hosts = vec![
+        (host("local"), Ok(probe(7300, 8000))),
+        (host("m1"), Ok(probe(7300, 8000))),
+    ];
+    let reads = vec![HostBusy {
+        host: "local".into(),
+        read: Err("ps failed".to_string()),
+    }];
+    let found = findings(&hosts, &reads);
+    assert_eq!(found.len(), 2);
+    assert!(
+        found[0].text.contains("reading its processes failed")
+            && found[0].text.contains("ps failed")
+    );
+    assert!(found[1].text.contains("no reading of its processes exists"));
+    assert!(
+        found
+            .iter()
+            .all(|f| !f.text.contains("no process there holds"))
+    );
+}
