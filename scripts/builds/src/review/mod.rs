@@ -589,8 +589,9 @@ fn later_asks(
     Ok(asks)
 }
 
-/// The first 10 characters of commit <rev>, as the review's reports print it.
-pub(super) fn short(rev: &str) -> &str {
+/// The first 10 characters of commit <rev>, as the review's reports and
+/// `builds item times` print it.
+pub fn short(rev: &str) -> &str {
     &rev[..rev.len().min(10)]
 }
 

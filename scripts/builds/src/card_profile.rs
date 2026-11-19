@@ -22,6 +22,7 @@ use crate::hook_stats::seconds;
 use crate::host::LOCAL;
 use crate::lists::item_event::{self, Kind as EventKind};
 use crate::lists::{Closed, Id, Item, Lists, Record, SpanKind};
+use crate::review::short;
 use crate::step_outcomes::{Attempt, Finding, StepKind};
 use crate::text::{counted, duration, local_second};
 
@@ -493,7 +494,9 @@ fn read_hooks(
             };
             let base = base
                 .as_deref()
-                .map_or("an unread commit".to_string(), short);
+                .map_or("an unread commit".to_string(), |base| {
+                    short(base).to_string()
+                });
             card.off_branch.push((
                 at,
                 format!("commit hook on {base} of {on}, off branch {run_branch}"),
@@ -826,7 +829,7 @@ fn read_landings(db: &Connection, id: Id, card: &mut Card) -> Result<()> {
         for (sha, at) in &found {
             card.moments.push(Moment {
                 at: *at,
-                words: format!("commit {}", &sha[..sha.len().min(10)]),
+                words: format!("commit {}", short(sha)),
             });
         }
     }
@@ -949,11 +952,6 @@ pub fn dashboard_seconds(card: &Card) -> BTreeMap<&str, i64> {
         *seconds.entry(stretch.state.as_str()).or_default() += stretch.end - stretch.start;
     }
     seconds
-}
-
-/// The first 10 characters of commit <sha>.
-fn short(sha: &str) -> String {
-    sha.chars().take(10).collect()
 }
 
 /// What a host did over [<from>, <to>], in words; None when it has no sample
