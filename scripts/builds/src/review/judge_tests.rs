@@ -233,7 +233,7 @@ impl Reviewed {
         tell(
             &self.demo.store.open_existing().unwrap(),
             &self.demo.tool.places.claude_sessions(),
-            &self.to_settle(),
+            &self.to_settle().notice().unwrap(),
             caller,
             own,
         )
@@ -360,15 +360,10 @@ fn with_no_judge_a_main_agent_or_the_person_settles_and_nobody_is_told() {
     }
     let mut empty = r.to_settle();
     empty.findings.clear();
-    let said = tell(
-        &r.demo.store.open_existing().unwrap(),
-        &r.demo.tool.places.claude_sessions(),
-        &empty,
-        None,
-        None,
-    )
-    .unwrap();
-    assert_eq!(said, "", "a review with nothing to settle tells nobody");
+    assert!(
+        empty.notice().is_none(),
+        "a review with nothing to settle tells nobody"
+    );
 }
 
 #[test]
@@ -552,11 +547,11 @@ impl Reviewed {
     /// settler of it says to <caller>.
     fn dispute(&self, caller: Option<&Caller>, own: Option<&Messaging>) -> String {
         let conn = self.demo.store.open_existing().unwrap();
-        tell_dispute(
+        let finding = record::finding_of(&conn, self.finding).unwrap();
+        tell(
             &conn,
             &self.demo.tool.places.claude_sessions(),
-            "demo",
-            &record::finding_of(&conn, self.finding).unwrap(),
+            &dispute_notice(&conn, "demo", &finding).unwrap(),
             caller,
             own,
         )

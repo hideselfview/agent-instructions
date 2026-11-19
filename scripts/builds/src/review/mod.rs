@@ -533,13 +533,15 @@ fn run_command(tool: &Tool, args: &[String]) -> Result<()> {
             println!("builds review show {landing} lists every run of this landing");
         }
     }
-    if let Some((store, to_settle)) = to_settle {
+    if let Some((store, to_settle)) = to_settle
+        && let Some(notice) = to_settle.notice()
+    {
         print!(
             "{}",
             judge::tell(
                 &*store.open_existing()?,
                 &tool.places.claude_sessions(),
-                &to_settle,
+                &notice,
                 caller.as_ref(),
                 crate::inbox::Messaging::from_env()?.as_ref(),
             )?
@@ -808,11 +810,10 @@ fn dispute_command(
     })?;
     print!(
         "{}",
-        judge::tell_dispute(
+        judge::tell(
             &conn,
             &tool.places.claude_sessions(),
-            &store.project,
-            &finding,
+            &judge::dispute_notice(&conn, &store.project, &finding)?,
             caller,
             own,
         )?

@@ -276,55 +276,130 @@ fn tell_settler(
     })
 }
 
-/// Tells the session that settles <to>'s findings of them (`tell_settler`),
-/// and returns what to tell <caller>, the agent that ran the review: whom
-/// builds told, and that it waits for the settles with `builds review
-/// wait`. A session's main agent or the person, with no judge listening,
-/// settles the findings itself.
+/// What an agent tells the session that settles: the findings of a review
+/// to settle, or a dispute of a confirmed finding to answer.
+pub struct Notice {
+    project: String,
+    landing: i64,
+    /// What the agent did, as the coordinator's message says it.
+    did: &'static str,
+    /// The message after its opening, given the `--by` that the settler's
+    /// commands carry.
+    message: Box<dyn Fn(&str) -> String>,
+    /// What builds told the settler, as the agent reads it: "to settle
+    /// findings 3, 4".
+    asked: String,
+    /// What the agent's wait ends on and prints.
+    wait_ends: &'static str,
+    /// What the agent does when it settles findings itself.
+    yourself: String,
+}
+
+impl ToSettle {
+    /// The notice of these findings; None when there are none.
+    pub fn notice(&self) -> Option<Notice> {
+        if self.findings.is_empty() {
+            return None;
+        }
+        let to = self.clone();
+        Some(Notice {
+            project: self.project.clone(),
+            landing: self.landing,
+            did: "ran a review",
+            message: Box::new(move |by| {
+                format!(
+                    "findings {} of review landing #{} of project {} ({} in {}) wait for you to settle them. List them with `builds review show {} --project {}`, judge each against the code and its rule, and settle each with `builds review settle N confirmed|dropped --why TEXT --project {} --by {by}`.",
+                    to.ids(),
+                    to.landing,
+                    to.project,
+                    to.key,
+                    to.worktree.display(),
+                    to.landing,
+                    to.project,
+                    to.project,
+                )
+            }),
+            asked: format!("to settle findings {}", self.ids()),
+            wait_ends: "the review has no finding left to settle, and prints each settle with its reason",
+            yourself: format!(
+                "settle findings {} yourself with `builds review settle N confirmed|dropped --why TEXT`.",
+                self.ids()
+            ),
+        })
+    }
+}
+
+/// The notice of the dispute of <finding> of <project>. Fails when nobody
+/// disputed it, and when it belongs to no review landing.
+pub fn dispute_notice(db: &Connection, project: &str, finding: &Finding) -> Result<Notice> {
+    let (id, landing) = (finding.id, landing_of(finding)?);
+    let Some(dispute) = dispute_of(db, id)? else {
+        fail!("nobody disputed finding {id}");
+    };
+    let (project_owned, rule, file, line) = (
+        project.to_string(),
+        finding.rule.clone(),
+        finding.file.clone(),
+        finding.line,
+    );
+    Ok(Notice {
+        project: project.to_string(),
+        landing,
+        did: "disputes a finding",
+        message: Box::new(move |by| {
+            let project = &project_owned;
+            format!(
+                "{} thinks confirmed finding {id} of review landing #{landing} ({rule}, {file}:{line}) is wrong: {}. Answer once: settle it again as dropped with `builds review settle {id} --again --why TEXT --project {project} --by {by}`, or keep it with `builds review keep {id} --why TEXT --project {project} --by {by}`.",
+                dispute.by,
+                crate::text::one_line(&dispute.why),
+            )
+        }),
+        asked: format!("of your dispute of finding {id}"),
+        wait_ends: "the dispute has its answer, and prints the answer",
+        yourself: format!(
+            "you settle findings yourself: settle finding {id} again as dropped, or keep it with `builds review keep {id} --why TEXT`."
+        ),
+    })
+}
+
+/// Sends <notice> to the session that settles (`tell_settler`), and returns
+/// what to tell <caller>, the agent that sent it: whom builds told, and
+/// that it waits with `builds review wait`. A session's main agent or the
+/// person, with no judge listening, settles itself.
 pub fn tell(
     db: &Connection,
     sessions: &Path,
-    to: &ToSettle,
+    notice: &Notice,
     caller: Option<&Caller>,
     own: Option<&Messaging>,
 ) -> Result<String> {
-    if to.findings.is_empty() {
-        return Ok(String::new());
-    }
+    let project = &notice.project;
     let told = tell_settler(db, sessions, caller, own, |settler| {
         format!(
-            "{}: findings {} of review landing #{} of project {} ({} in {}) wait for you to settle them. List them with `builds review show {} --project {}`, judge each against the code and its rule, and settle each with `builds review settle N confirmed|dropped --why TEXT --project {} --by {}`.",
-            settler.opening(&to.project, "ran a review"),
-            to.ids(),
-            to.landing,
-            to.project,
-            to.key,
-            to.worktree.display(),
-            to.landing,
-            to.project,
-            to.project,
-            settler.by(),
+            "{}: {}",
+            settler.opening(project, notice.did),
+            (notice.message)(settler.by())
         )
     })?;
     let waits = format!(
-        "Run `{}` as a background task: it ends once the review has no finding left to settle, and prints each settle with its reason.\n",
-        wait_command(&to.project, to.landing)
+        "Run `{}` as a background task: it ends once {}.\n",
+        wait_command(project, notice.landing),
+        notice.wait_ends
     );
-    let (project, ids) = (&to.project, to.ids());
+    let asked = &notice.asked;
     Ok(match told {
         Told::Judge(by) => {
-            format!(
-                "builds told the judge of project {project} ({by}) to settle findings {ids}. {waits}"
-            )
+            format!("builds told the judge of project {project} ({by}) {asked}. {waits}")
         }
         Told::Coordinator => format!(
-            "No judge listens for project {project}, so builds told your coordinator to settle findings {ids}. {waits}"
+            "No judge listens for project {project}, so builds told your coordinator {asked}. {waits}"
         ),
         Told::Caller => format!(
-            "No judge listens for project {project}: settle findings {ids} yourself with `builds review settle N confirmed|dropped --why TEXT`.\n"
+            "No judge listens for project {project}: {}\n",
+            notice.yourself
         ),
         Told::Nobody => format!(
-            "No judge listens for project {project}, and nothing reads your session's inbox, so builds told nobody: tell your coordinator to settle findings {ids}, then {}",
+            "No judge listens for project {project}, and nothing reads your session's inbox, so builds told nobody: tell your coordinator {asked}, then {}",
             waits.replacen("Run", "run", 1)
         ),
     })
@@ -430,57 +505,6 @@ pub fn keep(db: &Connection, id: i64, why: &str, stamp: &Stamp) -> Result<()> {
     )
     .sql()?;
     Ok(())
-}
-
-/// Tells the session that settles of the dispute of <finding> of
-/// <project> (`tell_settler`), and returns what to tell <caller>, who
-/// disputed it: whom builds told, and that it waits for the answer with
-/// `builds review wait`.
-pub fn tell_dispute(
-    db: &Connection,
-    sessions: &Path,
-    project: &str,
-    finding: &Finding,
-    caller: Option<&Caller>,
-    own: Option<&Messaging>,
-) -> Result<String> {
-    let (id, landing) = (finding.id, landing_of(finding)?);
-    let Some(dispute) = dispute_of(db, id)? else {
-        fail!("nobody disputed finding {id}");
-    };
-    let told = tell_settler(db, sessions, caller, own, |settler| {
-        let by = settler.by();
-        format!(
-            "{}: {} thinks confirmed finding {id} of review landing #{landing} ({}, {}:{}) is wrong: {}. Answer once: settle it again as dropped with `builds review settle {id} --again --why TEXT --project {project} --by {by}`, or keep it with `builds review keep {id} --why TEXT --project {project} --by {by}`.",
-            settler.opening(project, "disputes a finding"),
-            dispute.by,
-            finding.rule,
-            finding.file,
-            finding.line,
-            crate::text::one_line(&dispute.why),
-        )
-    })?;
-    let waits = format!(
-        "Run `{}` as a background task: it ends once the dispute has its answer, and prints the answer.\n",
-        wait_command(project, landing)
-    );
-    Ok(match told {
-        Told::Judge(by) => {
-            format!(
-                "builds told the judge of project {project} ({by}) of your dispute of finding {id}. {waits}"
-            )
-        }
-        Told::Coordinator => format!(
-            "No judge listens for project {project}, so builds told your coordinator of your dispute of finding {id}. {waits}"
-        ),
-        Told::Caller => format!(
-            "No judge listens for project {project}, and you settle findings yourself: settle finding {id} again as dropped, or keep it with `builds review keep {id} --why TEXT`.\n"
-        ),
-        Told::Nobody => format!(
-            "No judge listens for project {project}, and nothing reads your session's inbox, so builds told nobody: tell your coordinator of your dispute of finding {id}, then {}",
-            waits.replacen("Run", "run", 1)
-        ),
-    })
 }
 
 /// How long `builds review wait` waits for the settles before it fails.
