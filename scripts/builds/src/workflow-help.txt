@@ -13,8 +13,13 @@ RULES). The rest of `builds help` says what each command does.
 
 ROLES
 
-A coordinator session plans work, dispatches background agents with a brief
-each, reviews their work and lands it. The agents implement. A design session
+A coordinator session plans work and dispatches background agents with a brief
+each. The agents implement, review their own branches and land them. A judge
+session settles the findings of those reviews: when it starts, it runs `builds
+judge listen --project P` for each project it judges, and while it runs,
+builds tells it of each review's findings to settle, and only it and the
+person give a verdict on a finding (REVIEW). When no judge listens, the
+coordinator settles them. A design session
 draws the boards (pictures of screens, kept in the repo) that the apps are
 built to match: new screens, new layouts, and anything that needs a new part or
 a change to the design system. It takes its items from `builds next --for
@@ -130,8 +135,9 @@ PLAN, BRIEF, EXECUTE
     to hold goes to such an agent; its brief says what the coordinator read
     and what stays unknown, and it writes a plan for the faster model to
     execute.
-  - Review: the coordinator reviews each branch against the rules before it
-    lands the branch (REVIEW).
+  - Review: each agent reviews its branch against the rules, the judge
+    settles the findings, and the agent lands the branch once no confirmed
+    finding is open (REVIEW, LANDING).
   - At every step, check the shape against the project's standing rules,
     which a plan's author never loads by touching files; the project file
     names them. A plan that proposes a shape they forbid is rewritten before
@@ -183,9 +189,17 @@ WHAT AN IMPLEMENTING AGENT DOES
      the decision's id as its `decision` (DESIGN CHANGES), and amend the
      change with the same `decision` after any later commit that changes the
      board again.
-  8. Report the SHA, the base and the checks. Leave nothing uncommitted: the
-     coordinator runs `builds land` in this worktree, which refuses a
-     worktree with uncommitted changes.
+  8. Once the work is committed, review the branch (REVIEW): run `builds
+     review <worktree> --item N` as a background task, then, when it tells
+     the judge or the coordinator of findings, `builds review wait <landing>`
+     as a background task, which ends once no finding waits for a settle. Fix
+     each confirmed finding in a new commit and run `builds review` again,
+     until no confirmed finding is open. When a confirmed finding looks
+     wrong, dispute it once (`builds review dispute`) instead of fixing it.
+  9. Land the branch with `builds land` in this worktree, with the brief's
+     items (LANDING), once nothing is unreviewed and no confirmed finding is
+     open. Land refuses a worktree with uncommitted changes.
+ 10. Report the landed commits and the checks, or what stopped the landing.
 
 Agents share their coordinator's scratchpad folder, so each keeps its scratch
 files (commit messages, probes) in a folder of its own, named for its branch.
@@ -206,7 +220,8 @@ DISPATCH
   - Each brief names its worktree, its items, the rules to read, the
     project's hard limits (the person's checkouts, the keychain, devices,
     cargo through the wrapper, no `git add -A` or stash, no --no-verify), the
-    model's commit trailer, and "report each commit; don't push main".
+    model's commit trailer, and "review and land through builds; don't push
+    main".
   - Critical work starts first. Critical work is what the person sees in the
     apps (a screen, a bug, a feature the person asked for), builds work that
     blocks or slows the agents, and the cleanups the person marks critical. The
@@ -269,34 +284,54 @@ DISPATCH
     suite in a loop.
   - Another worktree may keep an app build while the work of several agents
     needs it; clear it once those agents finish (`builds help`, APP BUILDS).
-  - When an agent finishes, land its commits and start the next work in the
-    same turn, before writing up anything else.
+  - When an agent finishes, start the next work in the same turn, before
+    writing up anything else. The agent landed its own commits; land them
+    yourself only when the agent ended before it could.
 
 
 REVIEW
 
-In a repo of a project with lists, the coordinator reviews every branch against
-agent-instructions' rules with `builds review` before it lands the branch, and
-`builds land` refuses the branch until the review finishes. builds splits the
-rules into groups and runs one reviewer per group that covers a changed path. A
-review shows the changes since the last review, and nothing else: builds never
-sends a reviewer the same diff twice. The review checks code and whether text
-is accurate, never word choice, grammar or style: the person reviews copy by
-hand, and the copy review (`builds review copy`) is theirs to run.
+In a repo of a project with lists, each implementing agent reviews its branch
+against agent-instructions' rules with `builds review` before it lands the
+branch, and `builds land` refuses the branch until the review finishes. The
+judge settles the findings, and never the agent whose branch holds them. builds
+splits the rules into groups and runs one reviewer per group that covers a
+changed path. A review shows the changes since the last review, and nothing
+else: builds never sends a reviewer the same diff twice. The review checks code
+and whether text is accurate, never word choice, grammar or style: the person
+reviews copy by hand, and the copy review (`builds review copy`) is theirs to
+run.
 
-  1. The coordinator runs `builds review <worktree> --item N` on the branch,
-     which gives the reviewers the item's brief. The first review reads the
-     branch's whole net change.
-  2. The coordinator judges each finding against the code and the rule, and
+  1. The agent runs `builds review <worktree> --item N` on its branch, which
+     gives the reviewers the item's brief. The first review reads the
+     branch's whole net change. builds records the agent as the agent of the
+     branch, and tells the judge of the findings nobody has settled, in one
+     message that names the landing, the findings and the worktree. With no
+     judge listening, builds tells the agent's coordinator instead.
+  2. The agent runs `builds review wait <landing>` as a background task. No
+     message reaches an agent that a session dispatched, so the wait's end
+     tells it: the wait ends once no finding waits for a settle, and prints
+     each settle with its reason.
+  3. The judge judges each finding against the code and the rule, and
      settles it as confirmed or dropped, with why (`builds review settle`).
-  3. The coordinator sends each confirmed finding back to the agent that made
-     it, and the agent fixes it in a new commit.
-  4. The coordinator runs `builds review` again. That run reads only the
-     changes since the last review, the fixes among them, and closes each
-     open confirmed finding whose problem the code no longer has. The
-     coordinator settles what the run finds as for the first run.
-  5. The coordinator lands the branch once the agent is done there, nothing
-     is unreviewed and no confirmed finding is open (LANDING).
+     While a judge listens, builds takes a verdict only from the judge and
+     the person, and it never takes a settle from the agent of the
+     finding's branch.
+  4. The agent fixes each confirmed finding in a new commit and runs `builds
+     review` again. That run reads only the changes since the last review,
+     the fixes among them, and closes each open confirmed finding whose
+     problem the code no longer has. The judge settles what the run finds as
+     for the first run.
+  5. The agent lands the branch once nothing is unreviewed and no confirmed
+     finding is open (LANDING).
+
+An agent that thinks a confirmed finding is wrong disputes it once, with why
+(`builds review dispute N --why TEXT`): builds tells the judge, and the
+agent's `builds review wait` ends once the judge answers. The judge settles the
+finding again as dropped, or keeps it (`builds review keep N --why TEXT`). A
+second disagreement goes to the coordinator, which builds tells nothing: the
+agent reports it, and the coordinator asks the person whether to allow the
+finding to land, or tells the agent to fix it.
 
 In a later run, only the groups that hold open findings in a file read that
 file, whether or not their rules cover it, and every group that covers any
@@ -330,14 +365,15 @@ Each settle, with its --why, is the record that scores the reviews. The
 settled findings stay in the project's store as the record of what reviews
 catch and miss: a confirmed finding counts as a true positive and a dropped
 one as a false positive (`builds review scores`), and `builds review replay
---landing` scores other models and prompts against them. So the coordinator
+--landing` scores other models and prompts against them. So the judge
 settles each finding on what the code does, and its why says what makes the
 finding real or wrong. A confirmed finding stays open until one of these
 happens:
 
   - A later review closes it.
-  - The coordinator learns that the finding is wrong and settles it again as
-    dropped (`builds review settle N --again --why TEXT`). The record keeps
+  - The judge learns that the finding is wrong, from a dispute or otherwise,
+    and settles it again as dropped (`builds review settle N --again --why
+    TEXT`). The record keeps
     both settles, with who made each and why, and the finding counts as
     dropped from then on.
   - The person allows its code to land as it is. Only the person allows a
@@ -347,8 +383,8 @@ happens:
     finding stays confirmed and counts as a true positive.
 
 builds refuses to settle a closed or allowed finding again. A branch that adds
-code that nothing outside tests calls does not land: the coordinator confirms
-the review's finding on that code, and the agent deletes the code or adds its
+code that nothing outside tests calls does not land: the judge confirms the
+review's finding on that code, and the agent deletes the code or adds its
 caller. `builds help` (LANDING AND REVIEW) says how builds finds the changes
 since the last review and what each reviewer reads, and gives the review
 commands.
@@ -356,9 +392,10 @@ commands.
 
 LANDING
 
-Run `builds land` for each branch in its own worktree, the claimed side
-worktree its agent worked in, once the agent is done there: land checks out
-other commits in that worktree while it builds and checks the result. The land
+The branch's agent runs `builds land` for its branch in its own worktree, the
+claimed side worktree it worked in, once its work is done there: land checks
+out other commits in that worktree while it builds and checks the result. The
+coordinator lands a branch only when its agent ended before it could. The land
 help says what it checks. Review each branch first (REVIEW): land refuses the
 commits unless a finished review read the branch's net change as it is now.
 
@@ -378,6 +415,8 @@ commits unless a finished review read the branch's net change as it is now.
     there.
   - When `builds land` prints `LANDED, NOT RECORDED:`, run the `rerun:`
     command it prints.
+  - When a landing fails its checks or its cherry-pick, the branch's agent
+    fixes the branch in a new commit, reviews the fix and lands again.
   - A CI run on main that fails or stalls is the coordinator's to run down.
   - After each landing, `builds land` fast-forwards the repo's main checkout to
     origin/main, so the person and the agents who read code there see what
@@ -412,7 +451,7 @@ An implementing agent that edits an existing board for a change the person
 decided (ROLES) records the edit with `decision`, the id of the person's
 decision in the log. builds approves the change as it records it, because the
 decision is the person's approval, so the change needs no review page. The
-coordinator lands it with the item that built the change (`builds land
+implementing agent lands it with the item that built the change (`builds land
 <worktree> --done N --design M <sha>...`).
 
   1. While drawing, look at a board with `builds design render`, which draws

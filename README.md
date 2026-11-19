@@ -158,9 +158,9 @@ edits.
 
 Every branch is reviewed against the rules before it lands, with one reviewer
 per group of rules, one folder of `rules/` each. No diff is reviewed more than
-once. Each change gets one review; the coordinator reads the fixes for its
-confirmed findings. `builds land` refuses a commit that is neither read by a
-finished review nor named as the fix of one of its confirmed findings on a
-changed file. The `code-rules-review` skill says how to run the review, settle
-its findings and name their fixes, and `builds help` describes each review
-command.
+once. Each change gets one review, whose later runs read the fixes. The branch's
+agent runs the review and lands the branch, and a judge session settles the
+findings. `builds land` refuses a branch until its review has read the branch as
+it is and no confirmed finding is open. The `code-rules-review` skill says how
+to run the review, wait for the settles and land, and `builds help` describes
+each review command.

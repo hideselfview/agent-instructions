@@ -250,8 +250,8 @@ keychain only when they ask, for that task.
 
 ## How work is tracked
 
-The person decides what bae does. A coordinator session, its agents and a design
-session do the work (`builds help workflow`, ROLES).
+The person decides what bae does. A coordinator session, its agents, a judge
+session and a design session do the work (`builds help workflow`, ROLES).
 
 ### Decision stack and work queue
 
@@ -290,8 +290,9 @@ Each item's title is for the person to read. An agent's brief names the item ids
 it takes, and its work lands (is rebased onto `main` and pushed) through
 `builds land` with those ids. An item with an implementation brief names its
 file, `plans/briefs/<area>.md` in the main checkout (git ignores `plans/`). The
-coordinator runs `builds land` in the side worktree the branch's agent worked
-in, once the agent is done there.
+branch's agent reviews its branch, waits for the judge session to settle the
+review's findings, and runs `builds land` in the side worktree it worked in once
+no confirmed finding is open.
 
 ### Design-session items
 
