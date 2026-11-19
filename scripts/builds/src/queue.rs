@@ -393,12 +393,7 @@ impl Queue {
         })();
         // No thread of this wait reports from here on; what was reported and
         // not read is let go.
-        shared.lock().expect("no panic holding it").open = false;
-        while let Some((_, code)) = wake.message() {
-            if code >= 0 {
-                unsafe { libc::close(code) };
-            }
-        }
+        wake.end(&shared);
         result
     }
 

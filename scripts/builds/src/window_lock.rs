@@ -110,12 +110,7 @@ fn wait_for(file: &std::path::Path, stopped: &dyn Fn() -> bool) -> Result<Option
         }
     })();
     // No thread reports from here on, and a report not read is let go.
-    shared.lock().expect("no thread panicked holding it").open = false;
-    while let Some((_, code)) = wake.message() {
-        if code >= 0 {
-            unsafe { libc::close(code) };
-        }
-    }
+    wake.end(&shared);
     let Some(lock) = taken? else {
         return Ok(None);
     };

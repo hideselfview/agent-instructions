@@ -152,6 +152,17 @@ impl Wake {
         Ok(())
     }
 
+    /// Ends the wait: no thread of it reports from now on, and a report not
+    /// read yet is let go.
+    pub fn end(&self, shared: &Arc<Mutex<Shared>>) {
+        shared.lock().expect("no panic holding it").open = false;
+        while let Some((_, code)) = self.message() {
+            if code >= 0 {
+                unsafe { libc::close(code) };
+            }
+        }
+    }
+
     /// Blocks until the signal came or a thread reported.
     #[cfg(target_os = "macos")]
     pub fn wait(&self) -> Result<Woke> {
