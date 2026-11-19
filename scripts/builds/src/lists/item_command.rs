@@ -98,14 +98,14 @@ fn parse_ref(text: &str) -> Result<WaitRef> {
 
 /// The waits that <refs> name, each condition ended by the next of <untils>
 /// (`--until`, one for each condition in the order given).
-pub fn parse_waits(refs: &[&str], untils: &[&str]) -> Result<Vec<Wait>> {
+fn waits_of(refs: &[WaitRef], untils: &[&str]) -> Result<Vec<Wait>> {
     let mut untils = untils.iter();
     let waits = refs
         .iter()
-        .map(|text| match parse_ref(text)? {
-            WaitRef::Record(wait) => Ok(wait),
+        .map(|wait_ref| match wait_ref {
+            WaitRef::Record(wait) => Ok(wait.clone()),
             WaitRef::Condition(text) => match untils.next() {
-                Some(word) => Ok(Wait::condition(text, Ender::parse(word)?)),
+                Some(word) => Ok(Wait::condition(text.clone(), Ender::parse(word)?)),
                 None => fail!(
                     "a wait on a condition says who ends it: add `--until {}` (a wait on the person is a your-step question: `builds question ask --kind your-step ...`, then `--on question:N`)",
                     Ender::NAMES.replace(" or ", "|").replace(", ", "|")
@@ -117,6 +117,15 @@ pub fn parse_waits(refs: &[&str], untils: &[&str]) -> Result<Vec<Wait>> {
         fail!("--until goes with a `condition:TEXT` wait, and each condition takes one");
     }
     Ok(waits)
+}
+
+/// The waits that the reference texts <refs> name (see `waits_of`).
+pub fn parse_waits(refs: &[&str], untils: &[&str]) -> Result<Vec<Wait>> {
+    let refs = refs
+        .iter()
+        .map(|text| parse_ref(text))
+        .collect::<Result<Vec<_>>>()?;
+    waits_of(&refs, untils)
 }
 
 fn one_id(args: &Args, usage: &str) -> Result<Id> {
@@ -310,7 +319,7 @@ fn wait(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     }
     let wait_ref = parse_ref(reference)?;
     let new_wait = if on {
-        Some(parse_waits(&[reference], &untils)?.remove(0))
+        Some(waits_of(std::slice::from_ref(&wait_ref), &untils)?.remove(0))
     } else {
         None
     };
