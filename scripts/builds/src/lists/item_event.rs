@@ -71,16 +71,6 @@ pub struct Event {
     pub detail: Option<String>,
 }
 
-/// <wait> as `builds item wait` takes it.
-fn wait_ref(wait: &Wait) -> String {
-    match wait {
-        Wait::Item(id) => format!("item:{}", id.0),
-        Wait::Question(id) => format!("question:{}", id.0),
-        Wait::Design(id) => format!("design:{}", id.0),
-        Wait::Condition { text, .. } => format!("condition:{text}"),
-    }
-}
-
 /// Records event <kind> for item <id> at <at>.
 pub fn record(db: &Connection, id: Id, at: i64, kind: Kind, detail: Option<&str>) -> Result<()> {
     db.execute(
@@ -200,7 +190,10 @@ pub fn follow(db: &Connection, lists: &Lists, at: i64) -> Result<()> {
         if events.is_empty() && from.is_some_and(|from| item.opened.at < from) {
             continue;
         }
-        let unmet: BTreeSet<String> = unmet_waits(lists, item).into_iter().map(wait_ref).collect();
+        let unmet: BTreeSet<String> = unmet_waits(lists, item)
+            .into_iter()
+            .map(Wait::arg)
+            .collect();
         let noted = noted_waits(events);
         for lost in noted.difference(&unmet) {
             record(db, item.id, at, Kind::WaitLost, Some(lost))?;

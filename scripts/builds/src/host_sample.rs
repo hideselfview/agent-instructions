@@ -25,25 +25,27 @@ pub const KEEP_DAYS: i64 = 30;
 pub struct Sample {
     pub host: String,
     pub cores: u32,
-    /// The 1 and 5-minute load averages.
+    /// The 1-minute load average.
     pub load_1: f64,
-    pub load_5: f64,
     pub memory: Pressure,
 }
 
-/// The samples of the hosts that answered in <answers>.
+/// The samples of the hosts that answered in <answers>. A host that did
+/// not answer is said, with its error, and has none.
 pub fn samples_of(answers: &[(Host, std::result::Result<Probe, String>)]) -> Vec<Sample> {
     answers
         .iter()
-        .filter_map(|(host, probe)| {
-            let probe = probe.as_ref().ok()?;
-            Some(Sample {
+        .filter_map(|(host, probe)| match probe {
+            Ok(probe) => Some(Sample {
                 host: host.name.clone(),
                 cores: probe.cores,
                 load_1: probe.load[0],
-                load_5: probe.load[1],
                 memory: probe.memory.pressure,
-            })
+            }),
+            Err(error) => {
+                crate::text::note(format!("host {} gave no sample: {error}", host.name));
+                None
+            }
         })
         .collect()
 }
@@ -54,13 +56,12 @@ pub fn record(db: &mut Connection, at: i64, samples: &[Sample]) -> Result<()> {
     let tx = db.transaction().sql()?;
     for sample in samples {
         tx.execute(
-            "INSERT INTO host_sample (host, at, cores, load_1, load_5, memory) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            "INSERT INTO host_sample (host, at, cores, load_1, memory) VALUES (?1, ?2, ?3, ?4, ?5)",
             params![
                 sample.host,
                 at,
                 sample.cores,
                 sample.load_1,
-                sample.load_5,
                 sample.memory.word()
             ],
         )

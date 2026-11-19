@@ -91,7 +91,6 @@ fn landed_card(scratch: &Scratch) -> (crate::lists::store::Store, Id) {
             host: "m1".into(),
             cores: 10,
             load_1: 12.0,
-            load_5: 9.0,
             memory: crate::host_memory::Pressure::Warning,
         }],
     )
@@ -239,7 +238,6 @@ fn a_landed_card_gives_every_second_to_one_kind() {
     let db = store.open_existing().unwrap();
     let card = gather(&db, &lists, id, T0 + 9_999).unwrap();
     assert_eq!((card.from, card.to), (T0, T0 + 640));
-    assert!(card.landed);
     let kinds = attribute(&card);
     assert_eq!(kinds.values().sum::<i64>(), 640, "{kinds:?}");
     assert_eq!(seconds_of(&kinds, Kind::Queued), 60, "{kinds:?}");

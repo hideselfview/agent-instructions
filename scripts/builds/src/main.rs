@@ -299,7 +299,7 @@ fn run(command: &str, args: &[String]) -> Result<()> {
         "setup" => setup::cmd_setup(&tool, &host::Ssh::from_env(), args),
         "new" => worktree::cmd_new(&tool, &host::Ssh::from_env(), args),
         "retire" => worktree::cmd_retire(&tool, args),
-        "land" => land::cmd_land(args),
+        "land" => land::cmd_land(&tool.places, args),
         "review" => review::cmd_review(&tool, args),
         "claim" => claim::cmd_claim(&tool.places, args, tool.now),
         "note" => claim::cmd_note(&tool.places, args, tool.now),

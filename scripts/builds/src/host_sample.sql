@@ -12,9 +12,8 @@ CREATE TABLE host_sample (
     -- When the host answered, seconds since 1970.
     at INTEGER NOT NULL CHECK (at > 0),
     cores INTEGER NOT NULL CHECK (cores > 0),
-    -- The 1 and 5-minute load averages.
+    -- The 1-minute load average.
     load_1 REAL NOT NULL CHECK (load_1 >= 0),
-    load_5 REAL NOT NULL CHECK (load_5 >= 0),
     -- The kernel's memory pressure level.
     memory TEXT NOT NULL CHECK (memory IN ('normal', 'warning', 'critical')),
     PRIMARY KEY (host, at)

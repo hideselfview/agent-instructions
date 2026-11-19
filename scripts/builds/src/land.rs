@@ -119,25 +119,23 @@ const USAGE: &str = "usage: builds land <worktree> [--done N]... [--part N]... [
 /// How many times a refused push is tried again from a fresh fetch.
 const ATTEMPTS: usize = 5;
 
-pub fn cmd_land(args: &[String]) -> Result<()> {
+pub fn cmd_land(places: &crate::places::Places, args: &[String]) -> Result<()> {
     let program = std::env::current_exe().context(|| "finding this program".to_string())?;
     let stdout = std::io::stdout();
     let (result, run) = land_profiled(&program, args, &mut stdout.lock());
     if let Some(run) = run {
-        record_run(&run);
+        record_run(places, &run);
     }
     result
 }
 
 /// Writes <run> to its project's store; a failure is said and changes
 /// nothing about the landing's result.
-fn record_run(run: &LandRun) {
-    let written = crate::places::Places::from_env().and_then(|places| {
-        crate::land_run::record(
-            &places.lists.join(&run.project).join(crate::db::DATABASE),
-            run,
-        )
-    });
+fn record_run(places: &crate::places::Places, run: &LandRun) {
+    let written = crate::land_run::record(
+        &places.lists.join(&run.project).join(crate::db::DATABASE),
+        run,
+    );
     if let Err(error) = written {
         crate::text::note(format!("this landing was not recorded: {}", error.text()));
     }
@@ -1083,27 +1081,30 @@ impl Landing<'_> {
     /// What the landing recorded of itself, once it ended: None when the repo
     /// is in no project. <started_at> and <began> mark the start of the run,
     /// before its first step.
-    fn run_record(&self, started_at: i64, began: Instant) -> Option<LandRun> {
-        let Recording { project, by, .. } = self.recording.as_ref()?;
-        let checkout = crate::checkout::Checkout::at(&self.workdir)
-            .ok()
-            .flatten()?;
+    fn run_record(&self, started_at: i64, began: Instant) -> Result<Option<LandRun>> {
+        let Some(Recording { project, by, .. }) = self.recording.as_ref() else {
+            return Ok(None);
+        };
+        let Some(checkout) = crate::checkout::Checkout::at(&self.workdir)? else {
+            fail!("git finds no checkout at {}", self.workdir.display());
+        };
         let items = self
             .request
             .items
             .chunks(2)
-            .filter_map(|pair| Id::parse(pair.get(1)?).ok())
-            .collect();
-        let commits = self
-            .request
-            .shas
-            .iter()
-            .filter_map(|sha| {
-                let time = git_text(&self.workdir, &["log", "-1", "--format=%ct", sha])?;
-                Some((sha.clone(), time.parse().ok()?))
-            })
-            .collect();
-        Some(LandRun {
+            .map(|pair| Id::parse(&pair[1]))
+            .collect::<Result<Vec<_>>>()?;
+        let mut commits = Vec::new();
+        for sha in &self.request.shas {
+            let Some(time) = git_text(&self.workdir, &["log", "-1", "--format=%ct", sha]) else {
+                fail!("git could not read the commit time of {sha}");
+            };
+            let Ok(time) = time.parse() else {
+                fail!("git gave {time:?} as the commit time of {sha}");
+            };
+            commits.push((sha.clone(), time));
+        }
+        Ok(Some(LandRun {
             project: project.clone(),
             started_at,
             repo: checkout.repo(),
@@ -1118,7 +1119,7 @@ impl Landing<'_> {
             items,
             commits,
             steps: self.steps.borrow().clone(),
-        })
+        }))
     }
 }
 
@@ -1175,7 +1176,13 @@ pub fn land_profiled(
     };
     landing.steps.borrow_mut().push(lock_step);
     let result = landing.proceed(out);
-    let run = landing.run_record(started_at, began);
+    let run = match landing.run_record(started_at, began) {
+        Ok(run) => run,
+        Err(error) => {
+            crate::text::note(format!("this landing was not recorded: {}", error.text()));
+            None
+        }
+    };
     (result, run)
 }
 

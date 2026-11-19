@@ -89,6 +89,17 @@ impl Wait {
             until,
         }
     }
+
+    /// The wait as `builds item wait` takes it: `item:N`, `question:N`,
+    /// `design:N` or `condition:TEXT`.
+    pub fn arg(&self) -> String {
+        match self {
+            Wait::Item(id) => format!("item:{}", id.0),
+            Wait::Question(id) => format!("question:{}", id.0),
+            Wait::Design(id) => format!("design:{}", id.0),
+            Wait::Condition { text, .. } => format!("condition:{text}"),
+        }
+    }
 }
 
 /// A wait on a record: the waits that closing an item, a question or a
@@ -112,11 +123,7 @@ impl RecordWait {
     /// The wait as `builds item wait` takes it: `item:N`, `question:N` or
     /// `design:N`.
     fn arg(self) -> String {
-        match self {
-            RecordWait::Item(id) => format!("item:{}", id.0),
-            RecordWait::Question(id) => format!("question:{}", id.0),
-            RecordWait::Design(id) => format!("design:{}", id.0),
-        }
+        self.wait().arg()
     }
 
     fn id(self) -> Id {

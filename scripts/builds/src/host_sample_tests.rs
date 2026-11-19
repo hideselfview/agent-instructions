@@ -7,7 +7,6 @@ fn sample(host: &str, load_1: f64) -> Sample {
         host: host.to_string(),
         cores: 10,
         load_1,
-        load_5: load_1 / 2.0,
         memory: Pressure::Normal,
     }
 }
@@ -58,7 +57,6 @@ fn only_the_hosts_that_answered_have_a_sample() {
             host: "m1".into(),
             cores: 8,
             load_1: 3.0,
-            load_5: 2.0,
             memory: Pressure::Warning,
         }]
     );

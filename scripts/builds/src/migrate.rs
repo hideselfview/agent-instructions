@@ -346,7 +346,7 @@ const BEFORE_HOST_SAMPLE_STAMP: i64 = 1_996_518_111;
 
 /// The stamp of the schema before builds recorded the crates each `builds
 /// cargo` run named.
-const BEFORE_CARGO_RUN_CRATE_STAMP: i64 = 2_054_022_177;
+const BEFORE_CARGO_RUN_CRATE_STAMP: i64 = 277_344_443;
 
 /// Every stamp a store can carry that `move_store` moves, oldest schema first.
 /// A new move adds the stamp of the schema before it at the end.

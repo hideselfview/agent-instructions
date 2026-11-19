@@ -121,7 +121,6 @@ pub struct Card {
     /// From the card's opening to its landing, or to now while it is open.
     pub from: i64,
     pub to: i64,
-    pub landed: bool,
     pub moments: Vec<Moment>,
     pub steps: Vec<Step>,
     /// Each run of an agent, from its start to its end or now.
@@ -193,7 +192,7 @@ struct RunPlaces {
 }
 
 /// The runs of <item>, the ended ones first, then the one that goes on.
-fn runs_of(item: &Item) -> Vec<RunPlaces> {
+fn runs_of(item: &Item) -> Result<Vec<RunPlaces>> {
     let mut runs: Vec<RunPlaces> = item
         .runs
         .iter()
@@ -214,14 +213,17 @@ fn runs_of(item: &Item) -> Vec<RunPlaces> {
             places: item
                 .running
                 .iter()
-                .filter_map(|running| {
-                    let (repo, _) = crate::lists::side_worktree_parts(&running.worktree)?;
-                    Some((repo, running.worktree.clone(), running.branch.clone()))
+                .map(|running| {
+                    let Some((repo, _)) = crate::lists::side_worktree_parts(&running.worktree)
+                    else {
+                        fail!("{} is no side worktree", running.worktree);
+                    };
+                    Ok((repo, running.worktree.clone(), running.branch.clone()))
                 })
-                .collect(),
+                .collect::<Result<_>>()?,
         });
     }
-    runs
+    Ok(runs)
 }
 
 /// <host> for a checkout entry of an app build lane: the host an entry
@@ -233,7 +235,6 @@ fn host_of_checkout(entry: &str) -> String {
 /// Reads what the store recorded of item <id> at <now>.
 pub fn gather(db: &Connection, lists: &Lists, id: Id, now: i64) -> Result<Card> {
     let (item, closed) = find(lists, id)?;
-    let landed = closed.is_some_and(|closed| matches!(closed.how, crate::lists::How::Landed(_)));
     let to = closed
         .map_or(now, |closed| closed.closed.at)
         .max(item.opened.at);
@@ -242,7 +243,6 @@ pub fn gather(db: &Connection, lists: &Lists, id: Id, now: i64) -> Result<Card> 
         title: item.title.clone(),
         from: item.opened.at,
         to,
-        landed,
         moments: Vec::new(),
         steps: Vec::new(),
         runs: Vec::new(),
@@ -278,7 +278,7 @@ pub fn gather(db: &Connection, lists: &Lists, id: Id, now: i64) -> Result<Card> 
         since,
         ended,
         places,
-    } in runs_of(item)
+    } in runs_of(item)?
     {
         let end = ended.unwrap_or(to.max(since));
         card.runs.push((since, end));
@@ -382,7 +382,10 @@ fn read_cargo(db: &Connection, worktree: &str, from: i64, to: i64, card: &mut Ca
         }
         card.steps.push(Step {
             kind: Kind::Cargo,
-            name: format!("cargo {}", subcommand.as_deref().unwrap_or("run")),
+            name: match subcommand.as_deref() {
+                Some(subcommand) => format!("cargo {subcommand}"),
+                None => "cargo (subcommand not recorded)".to_string(),
+            },
             start: at,
             end: at + (ms + 999) / 1000,
             host: Some(host),
