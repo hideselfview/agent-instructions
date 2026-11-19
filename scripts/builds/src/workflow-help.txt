@@ -147,8 +147,11 @@ WHAT AN IMPLEMENTING AGENT DOES
   2. Branch from origin/main in its claimed worktree.
   3. Implement to the brief. A bug fix starts with its failing test. Before
      the first draft, read WHAT REVIEWS CONFIRM MOST OFTEN at the end of this
-     page, which builds reads from the project's review records each time it
-     prints the page. Write the draft so it has none of those findings.
+     page. Each time builds prints the page, it counts the confirmed findings
+     of recent first reviews by rule, in the project's records and, for the
+     rules every project shares, in the other projects' records, and lists
+     each rule with two or more, with the paragraphs its findings quote most.
+     Write the draft so it has none of those findings.
   4. Review its own diff once, against the brief and the matching rules.
   5. Check only what the change touches: the hook, the tests of the changed
      code, and `builds app-build <repo> <branch>` for app changes, which picks

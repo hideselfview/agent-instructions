@@ -1,11 +1,13 @@
-//! The kinds of findings the coordinator confirms most often on a branch's
+//! The rules the coordinator confirms findings of most often on a branch's
 //! first review. `builds help workflow` shows them to each implementing agent
-//! before it writes its first draft. A kind is the paragraph or list item of a
-//! rule's text that holds the clause a finding quotes (`check::clause_in`).
-//! builds counts each kind over the first reviews of the last `BRANCHES`
-//! branches and weighs each finding by how new its branch is: the weight
-//! halves every `HALF_LIFE` branches back. A kind that no recent first review
-//! has leaves the list, and comes back when agents make it again.
+//! before it writes its first draft. builds counts the confirmed findings of
+//! each rule over the first reviews of the last `BRANCHES` branches of every
+//! project's store, and weighs each finding by how new its branch is: the
+//! weight halves every `HALF_LIFE` branches back. A rule with `LEAST_FINDINGS`
+//! findings in that window is listed, with the paragraphs or list items of its
+//! text that its findings quote most (`check::clause_in`). A rule that no
+//! recent first review confirms leaves the list, and comes back when agents
+//! break it again.
 
 use rusqlite::Connection;
 
@@ -19,43 +21,55 @@ use crate::text::note;
 pub const BRANCHES: usize = 30;
 /// How many branches back a finding's weight halves.
 pub const HALF_LIFE: f64 = 10.0;
-/// The most kinds the list shows.
-const SHOWN: usize = 6;
-/// The least weight a kind needs for the list: one finding on the newest
-/// branch weighs 1.
-const LEAST_WEIGHT: f64 = 1.0;
-/// How many characters of a kind's text the list shows, cut at the end of a
+/// The fewest findings a rule needs on the counted branches to be listed.
+const LEAST_FINDINGS: usize = 2;
+/// The most quoted paragraphs the list shows under a rule.
+const QUOTED_SHOWN: usize = 3;
+/// How many characters of a paragraph the list shows, cut at the end of a
 /// sentence.
 const TEXT_LENGTH: usize = 200;
 
-/// One kind of finding, as the list shows it.
+/// One rule, as the list shows it.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Frequent {
     pub rule: String,
-    /// The opening sentences of the paragraph or list item, without markdown
-    /// marks.
-    pub text: String,
-    /// How many confirmed findings of this kind the counted first reviews
+    /// How many confirmed findings of this rule the counted first reviews
     /// hold.
     pub findings: usize,
     /// The findings, each weighed by how new its branch is.
     pub weight: f64,
+    /// The paragraphs or list items of the rule that its findings quote, the
+    /// most quoted first. A finding whose clause no paragraph holds any more
+    /// counts in `findings` and appears here under no paragraph.
+    pub quoted: Vec<Quoted>,
 }
 
-/// What `frequent` counted: the kinds with the most weight, heaviest first,
-/// and a line for each finding it left out of the counts, saying why.
+/// A paragraph or list item of a rule, as the list shows it, and how many of
+/// the rule's findings quote it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Quoted {
+    /// The opening sentences of the paragraph or list item, without markdown
+    /// marks.
+    pub text: String,
+    pub findings: usize,
+}
+
+/// What `frequent` counted: the rules with at least `LEAST_FINDINGS`
+/// findings, heaviest first, and a line for each finding it left out of the
+/// counts, saying why.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Counted {
-    pub kinds: Vec<Frequent>,
+    pub rules: Vec<Frequent>,
     pub left_out: Vec<String>,
 }
 
-/// Counts the kinds of the confirmed findings of <reviews>, the first reviews
-/// of the branches opened last, newest first. `frequent` leaves out a
-/// finding whose rule is not among <rules>, or whose clause no paragraph of
-/// its rule holds, since the rule no longer has that text.
+/// Counts the confirmed findings of <reviews>, the first reviews of the
+/// branches opened last, newest first, by rule. `frequent` leaves out a
+/// finding whose rule is not among <rules>, since the checkout no longer has
+/// that rule. A finding whose clause no paragraph of its rule holds any more
+/// still counts under its rule.
 pub fn frequent(reviews: &[&FirstReview], rules: &[Rule]) -> Counted {
-    let mut found: Vec<(String, Frequent)> = Vec::new();
+    let mut found: Vec<Frequent> = Vec::new();
     let mut left_out = Vec::new();
     for (age, review) in reviews.iter().enumerate() {
         let weight = 0.5_f64.powf(age as f64 / HALF_LIFE);
@@ -67,44 +81,44 @@ pub fn frequent(reviews: &[&FirstReview], rules: &[Rule]) -> Counted {
                 ));
                 continue;
             };
+            let at = match found.iter().position(|held| held.rule == finding.rule) {
+                Some(at) => at,
+                None => {
+                    found.push(Frequent {
+                        rule: finding.rule.clone(),
+                        findings: 0,
+                        weight: 0.0,
+                        quoted: Vec::new(),
+                    });
+                    found.len() - 1
+                }
+            };
+            let frequent = &mut found[at];
+            frequent.findings += 1;
+            frequent.weight += weight;
             let Some(piece) = pieces(rule.body())
                 .into_iter()
                 .find(|piece| clause_in(&finding.clause, piece))
             else {
-                left_out.push(format!(
-                    "WHAT REVIEWS CONFIRM MOST OFTEN leaves out finding {}, whose clause no paragraph of rule {} holds",
-                    finding.id, finding.rule
-                ));
                 continue;
             };
-            match found
-                .iter_mut()
-                .find(|(held, kind)| kind.rule == finding.rule && *held == piece)
-            {
-                Some((_, kind)) => {
-                    kind.findings += 1;
-                    kind.weight += weight;
-                }
-                None => found.push((
-                    piece.clone(),
-                    Frequent {
-                        rule: finding.rule.clone(),
-                        text: opening(&piece),
-                        findings: 1,
-                        weight,
-                    },
-                )),
+            let text = opening(&piece);
+            match frequent.quoted.iter_mut().find(|held| held.text == text) {
+                Some(held) => held.findings += 1,
+                None => frequent.quoted.push(Quoted { text, findings: 1 }),
             }
         }
     }
-    let mut kinds: Vec<Frequent> = found
+    let mut rules: Vec<Frequent> = found
         .into_iter()
-        .map(|(_, kind)| kind)
-        .filter(|kind| kind.weight >= LEAST_WEIGHT)
+        .filter(|rule| rule.findings >= LEAST_FINDINGS)
         .collect();
-    kinds.sort_by(|a, b| b.weight.total_cmp(&a.weight));
-    kinds.truncate(SHOWN);
-    Counted { kinds, left_out }
+    for rule in &mut rules {
+        rule.quoted
+            .sort_by_key(|quoted| std::cmp::Reverse(quoted.findings));
+    }
+    rules.sort_by(|a, b| b.weight.total_cmp(&a.weight));
+    Counted { rules, left_out }
 }
 
 /// The paragraphs and top-level list items of a rule's <body>, without its
@@ -155,33 +169,76 @@ fn opening(piece: &str) -> String {
     text[..end].to_string()
 }
 
-/// The section of `builds help workflow` that lists the kinds of findings
-/// the coordinator confirmed most often on the first reviews of <project>'s
-/// recent branches.
-pub fn section(db: &Connection, project: &str, rules: &[Rule]) -> Result<String> {
-    let reviews = record::first_reviews(db)?;
+/// The first reviews the list counts: those of <own>, the store of
+/// <project>, and, from each store of <others>, only the confirmed findings
+/// of the rules that <rules> holds under `rules/`, since those rules apply to
+/// every project. A project's own rules count only in its own store. The
+/// result is oldest first.
+fn counted_reviews(
+    own: Vec<FirstReview>,
+    others: Vec<Vec<FirstReview>>,
+    rules: &[Rule],
+) -> Vec<FirstReview> {
+    let shared = |slug: &str| {
+        rules
+            .iter()
+            .any(|rule| rule.slug == slug && rule.path.starts_with("rules/"))
+    };
+    let mut all = own;
+    for mut reviews in others {
+        for review in &mut reviews {
+            review.confirmed.retain(|finding| shared(&finding.rule));
+        }
+        all.extend(reviews);
+    }
+    all.sort_by_key(|review| review.at);
+    all
+}
+
+/// The section of `builds help workflow` that lists the rules the
+/// coordinator confirmed findings of most often on the first reviews of the
+/// recent branches of <project> and of the other projects, whose findings of
+/// shared rules count too. <db> is the store of <project>, <others> the
+/// stores of the other projects.
+pub fn section(
+    db: &Connection,
+    others: &[&Connection],
+    project: &str,
+    rules: &[Rule],
+) -> Result<String> {
+    let own = record::first_reviews(db)?;
+    let others = others
+        .iter()
+        .map(|db| record::first_reviews(db))
+        .collect::<Result<Vec<_>>>()?;
+    let reviews = counted_reviews(own, others, rules);
     let newest: Vec<&FirstReview> = reviews.iter().rev().take(BRANCHES).collect();
-    let Counted { kinds, left_out } = frequent(&newest, rules);
+    let Counted {
+        rules: counted,
+        left_out,
+    } = frequent(&newest, rules);
     for why in left_out {
         note(why);
     }
     let mut out = String::from("\n\nWHAT REVIEWS CONFIRM MOST OFTEN\n\n");
-    if kinds.is_empty() {
+    if counted.is_empty() {
         out.push_str(&format!(
-            "The first reviews of the last {BRANCHES} branches of project {project} hold too\nfew confirmed findings of any one kind to list here.\n"
+            "The first reviews of the last {BRANCHES} branches of project {project} and the\nother projects hold no rule with {LEAST_FINDINGS} confirmed findings, so none is listed here.\n"
         ));
         return Ok(out);
     }
     out.push_str(&format!(
-        "The coordinator confirmed these kinds of findings most often on the first\nreview of the last {BRANCHES} branches of project {project}, and the list weighs newer\nbranches more. Each line names the rule, the number of such findings on\nthose branches, and the rule's text that the findings quote. Reread your\ndraft against each one before you commit.\n\n"
+        "The coordinator confirmed findings of these rules most often on the first\nreview of the last {BRANCHES} branches of project {project} and of the other projects\n(the other projects count only the rules that every project shares). A rule\nis listed when it has {LEAST_FINDINGS} or more confirmed findings on those branches. A\nfinding on a newer branch counts more toward a rule's place in the order: its\nweight halves every {HALF_LIFE} branches back. Each rule shows its number of\nfindings, then the paragraphs of its text that those findings quote most, with\nhow many findings quote each. Reread your draft against each rule before you\ncommit.\n\n"
     ));
-    for kind in kinds {
+    for rule in counted {
         out.push_str(&format!(
-            "  {}, {}: {}\n",
-            kind.rule,
-            crate::text::counted(kind.findings, "finding", "findings"),
-            kind.text
+            "  {}, {}:\n",
+            rule.rule,
+            crate::text::counted(rule.findings, "finding", "findings"),
         ));
+        for quoted in rule.quoted.iter().take(QUOTED_SHOWN) {
+            out.push_str(&format!("    {}x {}\n", quoted.findings, quoted.text));
+        }
     }
     Ok(out)
 }

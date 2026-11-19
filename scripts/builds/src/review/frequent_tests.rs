@@ -71,11 +71,11 @@ fn store(branches: &[Vec<Vec<&str>>]) -> rusqlite::Connection {
 }
 
 fn shown(db: &rusqlite::Connection) -> String {
-    section(db, "demo", &rules()).unwrap()
+    section(db, &[], "demo", &rules()).unwrap()
 }
 
 #[test]
-fn a_kind_found_only_on_first_reviews_older_than_the_last_branches_is_not_shown() {
+fn a_paragraph_quoted_only_on_first_reviews_older_than_the_last_branches_is_not_shown() {
     let mut branches = vec![vec![vec!["Name the actor"; 5]]];
     for _ in 0..BRANCHES {
         branches.push(vec![vec!["Use the words"]]);
@@ -93,7 +93,7 @@ fn a_kind_found_only_on_first_reviews_older_than_the_last_branches_is_not_shown(
 }
 
 #[test]
-fn a_kind_that_comes_back_on_a_recent_first_review_is_shown_again() {
+fn a_paragraph_that_comes_back_on_a_recent_first_review_is_shown_again() {
     let mut branches = vec![vec![vec!["Name the actor"; 5]]];
     for _ in 0..BRANCHES {
         branches.push(vec![vec!["Use the words"]]);
@@ -101,10 +101,13 @@ fn a_kind_that_comes_back_on_a_recent_first_review_is_shown_again() {
     branches.push(vec![vec!["Name the actor", "Name the actor"]]);
     let text = shown(&store(&branches));
     assert!(
-        text.contains("plain, 2 findings: Active. Name the actor and the action."),
+        text.contains("    2x Active. Name the actor and the action."),
         "{text}"
     );
-    assert!(text.contains("Literal."), "{text}");
+    assert!(
+        text.contains("    29x Literal. Use the words for what happens."),
+        "{text}"
+    );
 }
 
 /// A first review that confirmed <findings>, each a rule and a clause,
@@ -143,38 +146,88 @@ fn review(findings: &[(&str, &str)]) -> FirstReview {
 }
 
 #[test]
-fn a_kind_is_the_paragraph_or_list_item_that_holds_the_clause() {
+fn a_rule_counts_its_findings_across_paragraphs_and_names_the_most_quoted_first() {
     let reviews = [review(&[
         ("plain", "Name what the code does."),
-        ("plain", "a clause no rule holds"),
+        ("plain", "Name the actor"),
+        ("plain", "Use the words"),
+        ("plain", "Name the actor"),
+        ("plain", "a clause no paragraph holds any more"),
         ("gone", "Name the actor"),
     ])];
     let counted = frequent(&reviews.iter().collect::<Vec<_>>(), &rules());
-    assert_eq!(counted.kinds.len(), 1, "{counted:?}");
-    assert_eq!(counted.kinds[0].text, "Name what the code does.");
-    assert_eq!(counted.kinds[0].findings, 1);
+    assert_eq!(counted.rules.len(), 1, "{counted:?}");
+    let plain = &counted.rules[0];
+    assert_eq!(plain.rule, "plain");
+    assert_eq!(plain.findings, 5);
+    assert_eq!(
+        plain
+            .quoted
+            .iter()
+            .map(|quoted| (quoted.text.as_str(), quoted.findings))
+            .collect::<Vec<_>>(),
+        [
+            ("Active. Name the actor and the action.", 2),
+            ("Name what the code does.", 1),
+            ("Literal. Use the words for what happens.", 1),
+        ]
+    );
     assert_eq!(
         counted.left_out,
         [
-            "WHAT REVIEWS CONFIRM MOST OFTEN leaves out finding 2, whose clause no paragraph of rule plain holds",
-            "WHAT REVIEWS CONFIRM MOST OFTEN leaves out finding 3, whose rule gone the rules checkout no longer holds",
+            "WHAT REVIEWS CONFIRM MOST OFTEN leaves out finding 6, whose rule gone the rules checkout no longer holds"
         ]
     );
 }
 
 #[test]
-fn newer_first_reviews_count_more() {
-    let mut reviews = vec![review(&[("plain", "Use the words")])];
-    reviews.extend(vec![review(&[]); 2 * HALF_LIFE as usize - 1]);
-    reviews.push(review(&[("plain", "Name the actor"); 2]));
+fn a_rule_with_one_finding_is_not_listed() {
+    let reviews = [review(&[("plain", "Name the actor")])];
     let counted = frequent(&reviews.iter().collect::<Vec<_>>(), &rules());
+    assert_eq!(counted.rules, []);
+}
+
+#[test]
+fn a_rule_with_newer_findings_comes_first() {
+    let other = RULE.replace("Write plainly", "Other");
+    let rules = vec![Rule::parse("plain", RULE), Rule::parse("other", &other)];
+    let mut reviews = vec![review(&[("other", "Name the actor"); 2])];
+    reviews.extend(vec![review(&[]); HALF_LIFE as usize]);
+    reviews.push(review(&[("plain", "Name the actor"); 2]));
+    reviews.reverse();
+    let counted = frequent(&reviews.iter().collect::<Vec<_>>(), &rules);
     assert_eq!(
-        counted.kinds[0].text,
-        "Literal. Use the words for what happens."
+        counted
+            .rules
+            .iter()
+            .map(|r| r.rule.as_str())
+            .collect::<Vec<_>>(),
+        ["plain", "other"]
     );
+}
+
+#[test]
+fn other_projects_count_only_findings_of_shared_rules() {
+    let mut shared = Rule::parse("plain", RULE);
+    shared.path = "rules/text/plain.md".to_string();
+    let mut own = Rule::parse("mine", RULE);
+    own.path = "projects/demo-rules/mine.md".to_string();
+    let rules = vec![shared, own];
+    let from_other = vec![review(&[
+        ("plain", "Name the actor"),
+        ("mine", "Name the actor"),
+    ])];
+    let merged = counted_reviews(Vec::new(), vec![from_other], &rules);
+    assert_eq!(merged.len(), 1);
     assert_eq!(
-        counted.kinds.len(),
-        1,
-        "frequent leaves out a kind whose findings weigh less than one: {counted:?}"
+        merged[0]
+            .confirmed
+            .iter()
+            .map(|f| f.rule.as_str())
+            .collect::<Vec<_>>(),
+        ["plain"]
     );
+    let own_store = vec![review(&[("mine", "Name the actor")])];
+    let merged = counted_reviews(own_store, Vec::new(), &rules);
+    assert_eq!(merged[0].confirmed.len(), 1);
 }
