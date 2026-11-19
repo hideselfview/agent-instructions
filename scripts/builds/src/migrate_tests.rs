@@ -2111,11 +2111,31 @@ fn a_store_with_parked_items_keeps_their_places_and_equals_a_fresh_schema() {
             .unwrap();
         }
         plant_old_park(&conn, 1, "/d", "side-2", "work");
-        conn.execute_batch(
-            "INSERT INTO item_run (id, item_id, since_at, since_by, how, ended_at, ended_by)
-                 VALUES (1, 2, 5, 'tester', 'parked', 6, 'tester'), (2, 2, 7, 'tester', 'stopped', 8, 'tester');
-             INSERT INTO item_run_place (run_id, repo, worktree, branch)
-                 VALUES (1, 'bae', '/d/bae-worktrees/side-3', 'other');",
+        for (id, how, at) in [(1, "parked", 5), (2, "stopped", 7)] {
+            crate::lists::running::plant(
+                &conn,
+                "item_run",
+                &[
+                    ("id", v(id)),
+                    ("item_id", v(2)),
+                    ("since_at", v(at)),
+                    ("since_by", v("tester")),
+                    ("how", v(how)),
+                    ("ended_at", v(at + 1)),
+                    ("ended_by", v("tester")),
+                ],
+            )
+            .unwrap();
+        }
+        crate::lists::running::plant(
+            &conn,
+            "item_run_place",
+            &[
+                ("run_id", v(1)),
+                ("repo", v("bae")),
+                ("worktree", v("/d/bae-worktrees/side-3")),
+                ("branch", v("other")),
+            ],
         )
         .unwrap();
     }
@@ -5237,6 +5257,7 @@ fn the_done_reason_stamp_is_the_schema_before_a_question_closed_as_done_with_a_r
 /// closing as it was, and equals a fresh schema.
 #[test]
 fn a_store_with_questions_closed_as_done_marks_them_and_equals_a_fresh_schema() {
+    use crate::lists::fixtures::v;
     let scratch = Scratch::new("move-done-reason");
     let places = scratch.places();
     let dir = places.lists.join("bae");
@@ -5248,14 +5269,28 @@ fn a_store_with_questions_closed_as_done_marks_them_and_equals_a_fresh_schema() 
         conn.pragma_update(None, "user_version", BEFORE_DONE_REASON_STAMP)
             .unwrap();
         for (id, how, reason) in [(1, "done", None), (2, "settled", Some("a rule"))] {
-            conn.execute(
-                "INSERT INTO record (id, kind, opened_at, opened_by) VALUES (?1, 'question', 5, 'tester')",
-                [id],
+            crate::lists::record::plant(
+                &conn,
+                "record",
+                &[
+                    ("id", v(id)),
+                    ("kind", v("question")),
+                    ("opened_at", v(5)),
+                    ("opened_by", v("tester")),
+                ],
             )
             .unwrap();
-            conn.execute(
-                "INSERT INTO closing (record_id, kind, how, at, by, reason) VALUES (?1, 'question', ?2, 9, 'tester', ?3)",
-                rusqlite::params![id, how, reason],
+            crate::lists::record::plant(
+                &conn,
+                "closing",
+                &[
+                    ("record_id", v(id)),
+                    ("kind", v("question")),
+                    ("how", v(how)),
+                    ("at", v(9)),
+                    ("by", v("tester")),
+                    ("reason", v(reason)),
+                ],
             )
             .unwrap();
         }
