@@ -12,7 +12,6 @@
 //! `<host>.run` while it holds the lock, for a waiter to name.
 
 use std::path::PathBuf;
-use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
@@ -76,46 +75,78 @@ fn holder_of(places: &Places, host: &str) -> Result<Option<String>> {
     Ok(crate::procs::runs(holder.pid).then_some(holder.what))
 }
 
-/// Takes <host>'s window lock for the step <what> describes, waiting while
-/// another run holds it, and says on stderr which run it waits for. Returns
-/// None when <stopped> says a takeover stopped this build while it waited.
+/// Waits for the lock on <file> and takes it. A signal that interrupts the
+/// wait ends it with None when <stopped> says a takeover sent it, and
+/// otherwise the wait goes on.
+fn wait_for(file: &std::path::Path, stopped: &dyn Fn() -> bool) -> Result<Option<libc::c_int>> {
+    let name =
+        std::ffi::CString::new(file.as_os_str().as_encoded_bytes()).expect("a path holds no NUL");
+    // Left open without close-on-exec, like an app lock: the step's
+    // processes hold the lock too.
+    let fd = unsafe { libc::open(name.as_ptr(), libc::O_RDONLY | libc::O_CREAT, 0o644) };
+    if fd < 0 {
+        fail!(
+            "opening {}: {}",
+            file.display(),
+            std::io::Error::last_os_error()
+        );
+    }
+    loop {
+        if unsafe { libc::flock(fd, libc::LOCK_EX) } == 0 {
+            return Ok(Some(fd));
+        }
+        let error = std::io::Error::last_os_error();
+        if error.kind() != std::io::ErrorKind::Interrupted {
+            unsafe { libc::close(fd) };
+            fail!("locking {}: {error}", file.display());
+        }
+        if stopped() {
+            unsafe { libc::close(fd) };
+            return Ok(None);
+        }
+    }
+}
+
+/// Takes <host>'s window lock for the step <what> describes. While another
+/// run holds it, `take` gives <announce> the words that name that run, then
+/// waits for the lock to free. Returns None when <stopped> says a takeover
+/// stopped this build while it waited.
 pub fn take(
     places: &Places,
     host: &str,
     what: &str,
+    announce: &dyn Fn(&str),
     stopped: &dyn Fn() -> bool,
 ) -> Result<Option<Window>> {
     let file = places.app_window_lock_file(host);
     let dir = file.parent().expect("a lock file has a folder");
     std::fs::create_dir_all(dir).context(|| format!("creating {}", dir.display()))?;
-    let mut told: Option<String> = None;
-    loop {
-        if let Some(lock) = queue::try_lock(&file)? {
-            let run_file = Window::holder_file(places, host);
-            let holder = Holder {
-                pid: std::process::id() as i32,
-                what: what.to_string(),
-            };
-            let window = Window { lock, run_file };
-            crate::whole_file::write(
-                &window.run_file,
-                serde_json::to_vec(&holder).expect("a holder serializes"),
-            )?;
-            return Ok(Some(window));
-        }
-        if stopped() {
-            return Ok(None);
-        }
-        if let Some(other) = holder_of(places, host)?
-            && told.as_deref() != Some(&other)
-        {
-            note(format!(
+    let lock = match queue::try_lock(&file)? {
+        Some(lock) => lock,
+        None => {
+            let other = holder_of(places, host)?.unwrap_or_else(|| "another run".to_string());
+            announce(&format!(
                 "waiting for {other} to end, since only one run that opens windows takes {host}'s display at a time"
             ));
-            told = Some(other);
+            match wait_for(&file, stopped)? {
+                Some(lock) => lock,
+                None => return Ok(None),
+            }
         }
-        std::thread::sleep(Duration::from_millis(100));
-    }
+    };
+    let window = Window {
+        lock,
+        run_file: Window::holder_file(places, host),
+    };
+    let holder = Holder {
+        pid: std::process::id() as i32,
+        what: what.to_string(),
+    };
+    crate::whole_file::write(
+        &window.run_file,
+        serde_json::to_vec(&holder).expect("a holder serializes"),
+    )?;
+    Ok(Some(window))
 }
 
 #[cfg(test)]

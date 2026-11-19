@@ -200,6 +200,7 @@ impl Held {
             &self.places,
             host_of(&self.checkout),
             &format!("{}'s {}, step {step}", self.repo, self.checkout),
+            &|words| note(words),
             &|| TAKEN_OVER.load(Ordering::SeqCst),
         )
     }
@@ -552,7 +553,14 @@ fn take_in(
         );
     }
     queue::route_repoint_signal();
-    unsafe { libc::signal(libc::SIGUSR2, take_over as *const () as libc::sighandler_t) };
+    // Without SA_RESTART, so that a takeover ends a wait for a window lock
+    // (window_lock.rs).
+    unsafe {
+        let mut action = std::mem::zeroed::<libc::sigaction>();
+        action.sa_sigaction = take_over as *const () as libc::sighandler_t;
+        libc::sigemptyset(&mut action.sa_mask);
+        libc::sigaction(libc::SIGUSR2, &action, std::ptr::null_mut());
+    }
     TAKEN_OVER.store(false, Ordering::SeqCst);
     QUEUED.store(true, Ordering::SeqCst);
     let queue = Queue::of(places, repo, lane);

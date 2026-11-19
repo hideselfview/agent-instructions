@@ -4,6 +4,7 @@ use crate::lane::Lane;
 use crate::lock::{Where, take_where};
 use crate::testing::Scratch;
 use std::sync::mpsc::channel;
+use std::time::Duration;
 
 const SETTLE: Duration = Duration::from_millis(300);
 
@@ -55,7 +56,7 @@ fn a_second_window_run_on_one_host_waits_for_the_first_and_names_it() {
     );
 
     let (said, heard) = channel();
-    let (found_held, waiting) = channel();
+    let (announced, waiting) = channel();
     let host = host_of_checkout(&second_held).to_string();
     let waiter_places = places.clone();
     let waiter = std::thread::spawn(move || {
@@ -63,10 +64,8 @@ fn a_second_window_run_on_one_host_waits_for_the_first_and_names_it() {
             &waiter_places,
             &host,
             "demo's second, step test two",
-            &|| {
-                let _ = found_held.send(());
-                false
-            },
+            &|words| announced.send(words.to_string()).unwrap(),
+            &|| false,
         )
         .unwrap()
         .unwrap();
@@ -74,9 +73,13 @@ fn a_second_window_run_on_one_host_waits_for_the_first_and_names_it() {
         drop(window);
         second_held.release();
     });
-    waiting
+    let words = waiting
         .recv_timeout(Duration::from_secs(10))
         .expect("the second run never found the display held");
+    assert!(
+        words.contains(&format!("demo's {}, step test one", first_held.checkout)),
+        "{words}"
+    );
     assert!(
         heard.recv_timeout(SETTLE).is_err(),
         "the second run took the display while the first held it"
@@ -111,14 +114,50 @@ fn window_runs_on_two_hosts_run_at_once() {
     one.release();
 }
 
+extern "C" fn interrupt(_: libc::c_int) {}
+
 #[test]
-fn a_takeover_ends_the_wait_for_the_display() {
+fn a_takeover_signal_ends_the_wait_for_the_display() {
     let scratch = Scratch::new("window-takeover");
     let places = scratch.places();
-    let held = take(&places, "m1", "test one", &|| false).unwrap().unwrap();
-    assert!(take(&places, "m1", "test two", &|| true).unwrap().is_none());
+    let held = take(&places, "m1", "test one", &|_| (), &|| false)
+        .unwrap()
+        .unwrap();
+    unsafe {
+        let mut action = std::mem::zeroed::<libc::sigaction>();
+        action.sa_sigaction = interrupt as *const () as libc::sighandler_t;
+        libc::sigemptyset(&mut action.sa_mask);
+        libc::sigaction(libc::SIGUSR2, &action, std::ptr::null_mut());
+    }
+    let (announced, waiting) = channel();
+    let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let waiter_stop = stop.clone();
+    let waiter_places = places.clone();
+    let waiter = std::thread::spawn(move || {
+        let said = take(
+            &waiter_places,
+            "m1",
+            "test two",
+            &|_| {
+                announced
+                    .send(unsafe { libc::pthread_self() as usize })
+                    .unwrap()
+            },
+            &|| waiter_stop.load(std::sync::atomic::Ordering::SeqCst),
+        )
+        .unwrap();
+        said.is_none()
+    });
+    let thread = waiting.recv_timeout(Duration::from_secs(10)).unwrap();
+    stop.store(true, std::sync::atomic::Ordering::SeqCst);
+    // The announcement comes just before the wait starts: signal until the
+    // wait ends.
+    while !waiter.is_finished() {
+        unsafe { libc::pthread_kill(thread as libc::pthread_t, libc::SIGUSR2) };
+        std::thread::yield_now();
+    }
+    assert!(waiter.join().unwrap(), "the wait went on after the signal");
     drop(held);
-    assert!(take(&places, "m1", "test two", &|| true).unwrap().is_some());
 }
 
 fn host_of_checkout(held: &crate::lock::Held) -> &str {
