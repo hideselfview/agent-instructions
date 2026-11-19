@@ -1374,19 +1374,41 @@ pub fn lines(health: &Health) -> Vec<String> {
 }
 
 /// What health read of the hosts as a whole for `host_findings`.
-pub struct Scanned<'a> {
+pub struct Scanned {
     /// Each host's scan (host_scan.rs), this Mac's among them.
-    pub scans: &'a [(Host, std::result::Result<crate::host_scan::Scan, String>)],
+    pub scans: Vec<(Host, std::result::Result<crate::host_scan::Scan, String>)>,
     /// What a running install waits for (install_gate.rs).
-    pub install: &'a std::result::Result<Option<crate::install_gate::Waiting>, String>,
-    /// The processes whose caller is gone that health left running
-    /// (orphans.rs).
-    pub orphans: &'a [crate::orphans::Orphan],
+    pub install: std::result::Result<Option<crate::install_gate::Waiting>, String>,
+    /// The processes whose caller is gone (orphans.rs) that health has not
+    /// stopped.
+    pub orphans: Vec<crate::orphans::Orphan>,
     /// Each host's sccache server (sccache_queue.rs), or why health could
     /// not judge them.
-    pub caches: &'a std::result::Result<Vec<crate::sccache_queue::Cache>, String>,
+    pub caches: std::result::Result<Vec<crate::sccache_queue::Cache>, String>,
     /// Seconds since 1970.
     pub now: i64,
+}
+
+impl Scanned {
+    /// Judges each host's <scans>, given this Mac's processes as <holders>
+    /// read them before the scans, at <now>: what a running install waits
+    /// for, the processes whose caller is gone, and each host's compile
+    /// cache, whose reading joins the record under <places>' home.
+    pub fn judge(
+        places: &crate::places::Places,
+        scans: Vec<(Host, std::result::Result<crate::host_scan::Scan, String>)>,
+        holders: &crate::job_claim::Holders,
+        now: i64,
+    ) -> Scanned {
+        Scanned {
+            install: crate::install_gate::waiting(places).map_err(|fault| fault.text()),
+            orphans: crate::orphans::find(&scans, holders),
+            caches: crate::sccache_queue::judge(&places.home, &scans, now)
+                .map_err(|fault| fault.text()),
+            scans,
+            now,
+        }
+    }
 }
 
 /// The findings that come from the hosts: from <scanned>, the work that has
@@ -1413,13 +1435,13 @@ pub fn host_findings(
         crate::procs::cwd(pid)
             .and_then(|dir| crate::stuck::checkout_label(&dir.display().to_string()))
     };
-    let caches = match scanned.caches {
+    let caches = match &scanned.caches {
         Ok(caches) => crate::sccache_queue::findings(caches),
         Err(error) => vec![Advice::said(format!(
             "sccache: health could not judge the hosts' compile caches: {error}"
         ))],
     };
-    crate::long_waits::findings(scanned.scans, scanned.install, &checkout, scanned.now)
+    crate::long_waits::findings(&scanned.scans, &scanned.install, &checkout, scanned.now)
         .into_iter()
         .map(|advice| Finding::new(FindingKind::Waits, advice))
         .chain(
@@ -1576,11 +1598,15 @@ pub fn cmd_health(tool: &Tool, args: &[String]) -> Result<()> {
     let loaded = crate::lists::store::load_all(&tool.places);
     let ready = crate::host_load::ready_items(&loaded);
     let probed: Vec<_> = hosts.iter().cloned().zip(probes).collect();
-    let scanned: Vec<(Host, std::result::Result<crate::host_scan::Scan, String>)> =
-        hosts.iter().cloned().zip(scans).collect();
+    let mut scanned = Scanned::judge(
+        &tool.places,
+        hosts.iter().cloned().zip(scans).collect(),
+        &holders,
+        tool.now,
+    );
     let measured: Vec<crate::host_load::Measured> = probed
         .iter()
-        .zip(scanned.iter().map(|(_, scan)| scan))
+        .zip(scanned.scans.iter().map(|(_, scan)| scan))
         .map(|((host, probe), scan)| crate::host_load::Measured {
             host: host.clone(),
             probe: probe.clone(),
@@ -1608,32 +1634,19 @@ pub fn cmd_health(tool: &Tool, args: &[String]) -> Result<()> {
     // written or removed one.
     let refusals = crate::host::refusals(&tool.places)?;
     let installed = crate::host_installed::read_all_installed(&tool.places, &ssh, &hosts);
-    let install = crate::install_gate::waiting(&tool.places).map_err(|fault| fault.text());
-    let (stopped, orphans) = crate::health_fix::stop_orphans(
-        crate::orphans::find(&scanned, &holders),
-        &|host, script| {
+    let (stopped, orphans) =
+        crate::health_fix::stop_orphans(std::mem::take(&mut scanned.orphans), &|host, script| {
             crate::host::output_of(
                 crate::host::command_at(&ssh, host, script, crate::host::Terminal::None),
                 &format!("the stop script on {}", crate::host::place(&host.name)),
                 crate::host::Accept::Zero,
             )
-        },
-    );
+        });
     stopped.iter().for_each(crate::text::note);
-    let caches = crate::sccache_queue::judge(&tool.places.home, &scanned, tool.now)
-        .map_err(|fault| fault.text());
-    health.findings.extend(host_findings(
-        &Scanned {
-            scans: &scanned,
-            install: &install,
-            orphans: &orphans,
-            caches: &caches,
-            now: tool.now,
-        },
-        &busy,
-        &refusals,
-        &installed,
-    ));
+    scanned.orphans = orphans;
+    health
+        .findings
+        .extend(host_findings(&scanned, &busy, &refusals, &installed));
     if json {
         let mut value = serde_json::to_value(&health).expect("health serializes");
         value["busy"] = serde_json::json!(
@@ -1662,7 +1675,7 @@ pub fn cmd_health(tool: &Tool, args: &[String]) -> Result<()> {
             prune_line,
         ];
         before.extend(crate::stuck::lines(&busy));
-        if let Ok(caches) = &caches {
+        if let Ok(caches) = &scanned.caches {
             before.extend(crate::sccache_queue::lines(caches));
         }
         out.splice(at..at, before);
@@ -2352,16 +2365,13 @@ mod tests {
         );
     }
 
-    /// A reading of the hosts that found nothing, with <caches> as its
-    /// caches.
-    fn nothing_scanned(
-        caches: &std::result::Result<Vec<crate::sccache_queue::Cache>, String>,
-    ) -> Scanned<'_> {
+    /// A reading of the hosts that found nothing.
+    fn nothing_scanned() -> Scanned {
         Scanned {
-            scans: &[],
-            install: &Ok(None),
-            orphans: &[],
-            caches,
+            scans: Vec::new(),
+            install: Ok(None),
+            orphans: Vec::new(),
+            caches: Ok(Vec::new()),
             now: 0,
         }
     }
@@ -2381,7 +2391,7 @@ mod tests {
             host: "m1".to_string(),
             read: Err("ssh failed".to_string()),
         }];
-        let found = host_findings(&nothing_scanned(&Ok(Vec::new())), &busy, &[refusal], &[]);
+        let found = host_findings(&nothing_scanned(), &busy, &[refusal], &[]);
         assert_eq!(found.len(), 1, "{found:?}");
         assert_eq!(found[0].kind, FindingKind::Host);
         assert_eq!(found[0].advice.command.as_deref(), Some("builds host list"));
@@ -2406,7 +2416,7 @@ mod tests {
             at: 1_800_000_000,
             said: "A required plugin failed to load. Please ensure system content is up-to-date, try running 'xcodebuild -runFirstLaunch'.".to_string(),
         };
-        let found = host_findings(&nothing_scanned(&Ok(Vec::new())), &[], &[refusal], &[]);
+        let found = host_findings(&nothing_scanned(), &[], &[refusal], &[]);
         assert_eq!(found.len(), 1, "{found:?}");
         assert_eq!(found[0].kind, FindingKind::Host);
         assert_eq!(
@@ -2435,7 +2445,7 @@ mod tests {
             crate::host::refusal_finding(&refusal).command.as_deref(),
             Some("builds host setup m1")
         );
-        let found = host_findings(&nothing_scanned(&Ok(Vec::new())), &[], &[refusal], &[]);
+        let found = host_findings(&nothing_scanned(), &[], &[refusal], &[]);
         assert_eq!(found.len(), 1, "{found:?}");
         assert_eq!(
             found[0].advice.command.as_deref(),
