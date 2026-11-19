@@ -5,6 +5,7 @@
 //! checkout's own facts.
 
 use super::model::CheckoutPage;
+use crate::lane::Lane;
 use crate::lists::Ender;
 
 /// What a running item waits on that is not met.
@@ -234,34 +235,112 @@ pub fn ranked(waits: impl IntoIterator<Item = ItemWait>) -> Vec<ItemWait> {
     ranked
 }
 
-/// The state a worktree's card shows. <state> is what its claim and commits
-/// say (model.rs worktree_state), <shell> says whether an agent shell is
-/// active in it, and <waits> is what it waits on as `ranked` orders it, or
-/// None when the daemon could not read what its running items wait on: then
-/// no wait can set the state, and the state is waits-unread. A main
-/// checkout has no state.
+/// The state a side worktree's card shows, first match wins in `card_state`.
+/// Its chip names it, and the page groups and orders cards by its `word`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CardState {
+    /// Unclaimed, nothing waiting to land.
+    Free,
+    /// Claimed, and none of the states below.
+    Working,
+    /// Its claim note says winding-down: the agent's last item, then its
+    /// handoff.
+    WindingDown,
+    /// A running item's app build waits in this lane's queue.
+    Queued(Lane),
+    /// The claim note says so, or the first wait is one only the person ends.
+    WaitingOnYou,
+    /// The claim note says held: kept on purpose with no work running.
+    Paused,
+    /// Commits wait to land, and nothing else goes on.
+    ReadyToLand,
+    /// Commits wait to land and their rules review would keep `builds land`
+    /// from taking them.
+    InReview(ReviewWait),
+    /// The daemon could not read what its running items wait on.
+    WaitsUnread,
+    /// An open item keeps the worktree with no agent, and has no waits.
+    Kept,
+    /// An open item keeps the worktree with no agent, and waits on an open
+    /// record.
+    KeptWaiting,
+    /// An open item keeps the worktree with no agent, and every wait is met.
+    KeptMet,
+}
+
+impl CardState {
+    /// The group the page sorts and colors the card by.
+    pub fn word(self) -> &'static str {
+        match self {
+            CardState::Free => "free",
+            CardState::Working => "working",
+            CardState::WindingDown => "winding-down",
+            CardState::Queued(_) => "queued",
+            CardState::WaitingOnYou => "waiting-on-you",
+            CardState::Paused => "held",
+            CardState::ReadyToLand => "ready-to-land",
+            CardState::InReview(_) => "in-review",
+            CardState::WaitsUnread => "waits-unread",
+            CardState::Kept => "kept",
+            CardState::KeptWaiting => "kept-waiting",
+            CardState::KeptMet => "kept-met",
+        }
+    }
+
+    /// The chip at the left of the card's top bar; None for a free worktree.
+    pub fn chip(self) -> Option<&'static str> {
+        Some(match self {
+            CardState::Free => return None,
+            CardState::Working | CardState::WindingDown => "Working",
+            CardState::Queued(Lane::Mac) => "Waiting on Mac",
+            CardState::Queued(Lane::Android) => "Waiting on Android",
+            CardState::WaitingOnYou => "Waiting on you",
+            CardState::Paused => "Paused",
+            CardState::ReadyToLand => "Ready to land",
+            CardState::InReview(review) => review.chip(),
+            CardState::WaitsUnread => "Can't read what this worktree waits on",
+            CardState::Kept => "Ready",
+            CardState::KeptWaiting => "Waiting",
+            CardState::KeptMet => "Waits met",
+        })
+    }
+}
+
+/// The state of a live side worktree's card. <worktree> is what its claim
+/// and commits say (model.rs worktree_state, or Needs review when the
+/// daemon could not read the rules review of its commits), <shell> says
+/// whether an agent shell is active in it, <waits> is what it waits on as
+/// `ranked` orders it, or None when the daemon could not read what its
+/// running items wait on, and <kept> is what the waits of the item that keeps
+/// the worktree with no agent stand at, or None when no item keeps it that
+/// way (Err when the daemon could not read them).
 pub fn card_state(
-    state: Option<&'static str>,
+    worktree: CardState,
     shell: bool,
     waits: Option<&[ItemWait]>,
-) -> Option<&'static str> {
-    state?;
+    kept: Option<Result<&KeptCard, ()>>,
+) -> CardState {
+    match kept {
+        Some(Ok(card)) => return kept_state(card),
+        Some(Err(())) => return CardState::WaitsUnread,
+        None => {}
+    }
     let Some(waits) = waits else {
-        return Some("waits-unread");
+        return CardState::WaitsUnread;
     };
     let wait = waits.first();
     if wait.is_some_and(ItemWait::needs_person) {
-        return Some("waiting-on-you");
+        return CardState::WaitingOnYou;
     }
-    let mut state = state;
+    let mut state = worktree;
     if keeps_working(state, shell, wait) {
-        state = Some("working");
+        state = CardState::Working;
     }
-    if in_review(state, wait) {
-        state = Some("in-review");
+    if let (CardState::ReadyToLand, Some(ItemWait::RulesReview(review))) = (state, wait) {
+        state = CardState::InReview(*review);
     }
-    if waits_in_queue(state, wait) {
-        state = Some("queued");
+    if let Some(lane) = waits_in_queue(state, wait) {
+        state = CardState::Queued(lane);
     }
     state
 }
@@ -271,8 +350,8 @@ pub fn card_state(
 /// shell active in the worktree (<shell>), no app build of its branch and no
 /// running item that waits on another item or on a design change to land
 /// (<wait>).
-fn keeps_working(state: Option<&str>, shell: bool, wait: Option<&ItemWait>) -> bool {
-    state == Some("ready-to-land")
+fn keeps_working(state: CardState, shell: bool, wait: Option<&ItemWait>) -> bool {
+    state == CardState::ReadyToLand
         && (shell
             || matches!(
                 wait,
@@ -280,18 +359,25 @@ fn keeps_working(state: Option<&str>, shell: bool, wait: Option<&ItemWait>) -> b
             ))
 }
 
-/// Is a worktree in <state> in review instead of Ready to land? Its commits
-/// wait to land and the rules review <wait> stands in the way.
-fn in_review(state: Option<&str>, wait: Option<&ItemWait>) -> bool {
-    state == Some("ready-to-land") && matches!(wait, Some(ItemWait::RulesReview(_)))
-}
-
-/// Does a worktree in <state> wait for an app build that has not started? Its
-/// running item's build waits in a lane's queue, so the card says so in place
-/// of Working.
-fn waits_in_queue(state: Option<&str>, wait: Option<&ItemWait>) -> bool {
-    matches!(state, Some("working"))
-        && matches!(wait, Some(ItemWait::AppBuild { running: false, .. }))
+/// The lane a Working card in <state> waits on, when its running item's app
+/// build waits in that lane's queue and has not started; the card says so in
+/// place of Working.
+fn waits_in_queue(state: CardState, wait: Option<&ItemWait>) -> Option<Lane> {
+    match (state, wait) {
+        (
+            CardState::Working,
+            Some(ItemWait::AppBuild {
+                running: false,
+                lane,
+                ..
+            }),
+        ) => Some(if lane == "Android" {
+            Lane::Android
+        } else {
+            Lane::Mac
+        }),
+        _ => None,
+    }
 }
 
 /// A running item, as its card lists it.
@@ -366,41 +452,35 @@ pub enum KeptCard {
 }
 
 /// The state a worktree that an item keeps shows, with no agent in it: an
-/// item with no waits waits only for an agent (`kept`), one with an open wait
-/// waits on it (`kept-waiting`), and one whose waits are all met waits for
-/// the coordinator to resume its agent or land its commits (`kept-met`).
-pub fn kept_state(card: &KeptCard) -> &'static str {
+/// item with no waits waits only for an agent (Kept), one with an open wait
+/// waits on it (KeptWaiting), and one whose waits are all met waits for the
+/// coordinator to resume its agent or land its commits (KeptMet).
+pub fn kept_state(card: &KeptCard) -> CardState {
     match card {
-        KeptCard::None => "kept",
-        KeptCard::Open(_) => "kept-waiting",
-        KeptCard::Met(_) => "kept-met",
+        KeptCard::None => CardState::Kept,
+        KeptCard::Open(_) => CardState::KeptWaiting,
+        KeptCard::Met(_) => CardState::KeptMet,
     }
 }
 
 /// The words of <checkout>, a worktree that <item> keeps with no agent in
 /// it, given what its waits stand at.
 pub fn kept_words(checkout: &CheckoutPage, item: RunningItem, card: &KeptCard) -> Words {
-    let (chip, note) = match card {
-        KeptCard::None => ("Ready", None),
-        KeptCard::Open(open) => (
-            "Waiting",
-            Some(
-                open.iter()
-                    .map(ItemWait::sentence)
-                    .collect::<Vec<_>>()
-                    .join(". "),
-            ),
+    let note = match card {
+        KeptCard::None => None,
+        KeptCard::Open(open) => Some(
+            open.iter()
+                .map(ItemWait::sentence)
+                .collect::<Vec<_>>()
+                .join(". "),
         ),
-        KeptCard::Met(met) => (
-            "Waits met",
-            Some(format!(
-                "Every wait is met: {}. Land its commits, or resume its agent with builds item take.",
-                met.join("; ")
-            )),
-        ),
+        KeptCard::Met(met) => Some(format!(
+            "Every wait is met: {}. Land its commits, or resume its agent with builds item take.",
+            met.join("; ")
+        )),
     };
     Words {
-        chip: Some(chip),
+        chip: kept_state(card).chip(),
         pill: None,
         items: vec![item],
         note,
@@ -409,84 +489,80 @@ pub fn kept_words(checkout: &CheckoutPage, item: RunningItem, card: &KeptCard) -
     }
 }
 
-/// The words of <checkout>, a live checkout that is not an app checkout:
-/// <items> are its running items and <waits> is what the worktree waits on,
-/// as `ranked` orders it: the daemon set the card's state from the first.
-pub fn words(checkout: &CheckoutPage, items: &[RunningItem], waits: &[ItemWait]) -> Words {
+/// The words of <checkout>, the person's main checkout, which has no state.
+pub fn main_words(checkout: &CheckoutPage) -> Words {
+    Words {
+        chip: None,
+        pill: None,
+        items: Vec::new(),
+        note: Some("Your checkout. No agent works or builds here.".into()),
+        uncommitted: uncommitted(checkout),
+        queued: None,
+    }
+}
+
+/// The words of <checkout>, a live side worktree that is not an app checkout
+/// and that no item keeps without an agent: <state> is its card's state
+/// (`card_state`), <items> are its running items and <waits> is what the
+/// worktree waits on, as `ranked` orders it.
+pub fn words(
+    checkout: &CheckoutPage,
+    state: CardState,
+    items: &[RunningItem],
+    waits: &[ItemWait],
+) -> Words {
     let wait = waits.first();
     let uncommitted = uncommitted(checkout);
-    if checkout.main {
-        return Words {
-            chip: None,
-            pill: None,
-            items: Vec::new(),
-            note: Some("Your checkout. No agent works or builds here.".into()),
-            uncommitted,
-            queued: None,
-        };
-    }
     let claim_note = checkout
         .claim
         .as_ref()
         .and_then(|claim| claim.note_text().map(str::to_string))
         .filter(|note| !note.is_empty());
+    let queued = match (state, wait) {
+        (
+            CardState::Queued(_),
+            Some(ItemWait::AppBuild {
+                queued: Some(queued),
+                ..
+            }),
+        ) => Some(queued.clone()),
+        _ => None,
+    };
     // <said> is the sentence the card falls back on when no item runs, the
     // agent left no note and the card has no pill, whose title holds its own
     // sentence.
-    let (chip, pill, said) = match checkout.state {
-        Some("queued") => match wait {
-            Some(ItemWait::AppBuild {
-                lane,
-                queued: Some(queued),
-                ..
-            }) => (Some(queued_chip(lane)), None, queued.line.clone()),
-            Some(ItemWait::AppBuild { lane, .. }) => (Some(queued_chip(lane)), None, String::new()),
-            _ => (Some("Working"), None, String::new()),
-        },
-        Some("waiting-on-you") if wait.is_some_and(ItemWait::needs_person) => (
-            Some("Waiting on you"),
-            wait.and_then(ItemWait::pill),
-            String::new(),
+    let (pill, said) = match state {
+        CardState::Queued(_) => (
+            None,
+            queued
+                .as_ref()
+                .map(|queued| queued.line.clone())
+                .unwrap_or_default(),
         ),
-        Some("ready-to-land") if wait == Some(&ItemWait::Unrecorded) => (
-            Some("Ready to land"),
-            wait.and_then(ItemWait::pill),
-            String::new(),
-        ),
-        Some("working") if wait.is_some() => (
-            Some("Working"),
+        CardState::WaitingOnYou if wait.is_some_and(ItemWait::needs_person) => {
+            (wait.and_then(ItemWait::pill), String::new())
+        }
+        CardState::ReadyToLand if wait == Some(&ItemWait::Unrecorded) => {
+            (wait.and_then(ItemWait::pill), String::new())
+        }
+        CardState::Working if wait.is_some() => (
             wait.and_then(ItemWait::pill),
             wait.map(ItemWait::sentence).unwrap_or_default(),
         ),
-        Some("in-review") => match wait {
-            Some(ItemWait::RulesReview(review)) => {
-                (Some(review.chip()), review.pill(), review.sentence())
-            }
-            _ => (Some("Needs review"), None, String::new()),
-        },
+        CardState::InReview(review) => (review.pill(), review.sentence()),
         // The card's errors say why.
-        Some("waits-unread") => (
-            Some("Can't read what this worktree waits on"),
-            None,
-            String::new(),
-        ),
-        Some("free") => (
-            None,
+        CardState::WaitsUnread => (None, String::new()),
+        CardState::Free => (
             None,
             "No agent claims this worktree and every commit has landed.".to_string(),
         ),
-        Some("ready-to-land") if checkout.claim.is_none() => (
-            Some("Ready to land"),
+        CardState::ReadyToLand if checkout.claim.is_none() => (
             None,
             "Commits wait to land and no agent claims this worktree.".to_string(),
         ),
-        Some("ready-to-land") => (
-            Some("Ready to land"),
-            None,
-            "Waits for its agent to land it.".to_string(),
-        ),
-        Some("waiting-on-you") => (Some("Waiting on you"), None, "Waits on you.".to_string()),
-        Some("held") => {
+        CardState::ReadyToLand => (None, "Waits for its agent to land it.".to_string()),
+        CardState::WaitingOnYou => (None, "Waits on you.".to_string()),
+        CardState::Paused => {
             let note = if waits.is_empty() {
                 claim_note.clone().unwrap_or_else(|| {
                     "Its agent holds this worktree on purpose and runs no work.".to_string()
@@ -499,7 +575,7 @@ pub fn words(checkout: &CheckoutPage, items: &[RunningItem], waits: &[ItemWait])
                     .join(". ")
             };
             return Words {
-                chip: Some("Paused"),
+                chip: state.chip(),
                 pill: None,
                 items: items.to_vec(),
                 note: Some(note),
@@ -507,16 +583,10 @@ pub fn words(checkout: &CheckoutPage, items: &[RunningItem], waits: &[ItemWait])
                 queued: None,
             };
         }
-        Some("winding-down") => (
-            Some("Working"),
-            None,
-            "Finishing its last item.".to_string(),
-        ),
-        _ => (
-            Some("Working"),
-            None,
-            "Working; its agent left no note.".to_string(),
-        ),
+        CardState::WindingDown => (None, "Finishing its last item.".to_string()),
+        CardState::Working | CardState::Kept | CardState::KeptWaiting | CardState::KeptMet => {
+            (None, "Working; its agent left no note.".to_string())
+        }
     };
     // The note never repeats the pill's title.
     let note = match (items, &pill) {
@@ -525,31 +595,12 @@ pub fn words(checkout: &CheckoutPage, items: &[RunningItem], waits: &[ItemWait])
         _ => None,
     };
     Words {
-        chip,
+        chip: state.chip(),
         pill,
         items: items.to_vec(),
         note,
         uncommitted,
-        queued: match (checkout.state, wait) {
-            (
-                Some("queued"),
-                Some(ItemWait::AppBuild {
-                    queued: Some(queued),
-                    ..
-                }),
-            ) => Some(queued.clone()),
-            _ => None,
-        },
-    }
-}
-
-/// The chip of a worktree that waits for the app build lane <lane> to start
-/// its build.
-fn queued_chip(lane: &str) -> &'static str {
-    if lane == "Android" {
-        "Waiting on Android"
-    } else {
-        "Waiting on Mac"
+        queued,
     }
 }
 

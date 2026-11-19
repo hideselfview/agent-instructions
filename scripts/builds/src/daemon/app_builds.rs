@@ -179,13 +179,18 @@ fn run_words(run: Option<&RunTimes>) -> String {
     )
 }
 
-/// What <repo>'s app build lanes do for <branch>: the lane, whether the
+/// What a repo's app build lanes, whose locks are <locks> and whose queues
+/// are <queues>, do for <branch>: the lane, whether the
 /// build runs, and in words how far it is: the checkout that builds it, how
 /// long it has built after how long a wait and the step it runs, or its
 /// place in the lane's queue and how long it has waited, then the steps it
 /// asked for. The running build first; None when no build of the branch runs
 /// or waits.
-pub fn build_for(repo: &RepoPage, branch: &str) -> Option<ItemWait> {
+pub fn build_for(
+    locks: &[LockHealth],
+    queues: &[crate::health::LaneQueue],
+    branch: &str,
+) -> Option<ItemWait> {
     let lane_name = |lane: &str| {
         let mut word = lane.to_string();
         if let Some(first) = word.get_mut(..1) {
@@ -194,7 +199,7 @@ pub fn build_for(repo: &RepoPage, branch: &str) -> Option<ItemWait> {
         word
     };
     let named = |command: &str| asked(command).filter(|asked| asked.branch == branch);
-    for lock in &repo.locks {
+    for lock in locks {
         let Some(holder) = lock.holder.as_ref().filter(|h| h.driver_running) else {
             continue;
         };
@@ -212,7 +217,7 @@ pub fn build_for(repo: &RepoPage, branch: &str) -> Option<ItemWait> {
             });
         }
     }
-    for queue in &repo.queues {
+    for queue in queues {
         for (at, waiting) in queue.queue.iter().enumerate() {
             if let Some(asked) = named(&waiting.command) {
                 let (steps, sentence) = if asked.test_app {

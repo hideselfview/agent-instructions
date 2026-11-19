@@ -12,6 +12,7 @@ use std::time::{Duration, Instant};
 
 use serde::Serialize;
 
+use super::cards::{CardState, ItemWait, KeptCard, ReviewWait, RunningItem};
 use super::fsevents::{Stream, flags};
 use super::lists::{Feed, compose, running_worktrees};
 use super::runs::{RunPage, Runs};
@@ -1165,8 +1166,8 @@ impl Model {
                         branch: facts.branch.clone(),
                         app_checkout: root.is_app_checkout(&self.places)?,
                         app_lane: root.app_lane(&self.places)?.map(crate::lane::Lane::word),
-                        state: (!live.is_main())
-                            .then(|| worktree_state(facts.claim.as_ref(), facts.git.as_ref())),
+                        // The card's state, which `judge` gives below.
+                        state: None,
                         claim: facts.claim.clone(),
                         git: facts.git.clone(),
                         folders: facts.folders.clone(),
@@ -1211,167 +1212,50 @@ impl Model {
         }
         for repo in &mut repos {
             repo.app_builds = super::app_builds::build(repo)?;
-            let builds: HashMap<String, super::cards::ItemWait> = repo
-                .checkouts
-                .iter()
-                .filter(|c| c.live && !c.app_checkout && !c.main)
-                .filter_map(|c| {
-                    let wait = super::app_builds::build_for(repo, c.branch.as_deref()?)?;
-                    Some((c.name.clone(), wait))
-                })
-                .collect();
             for checkout in &mut repo.checkouts {
-                if checkout.live && !checkout.app_checkout {
-                    let claimed = match state
-                        .roots
-                        .iter()
-                        .filter_map(|root| root.live.as_ref())
-                        .find(|live| live.top == Path::new(&checkout.path))
-                        .map(Checkout::claimed_project)
-                        .transpose()
-                    {
-                        Ok(claimed) => Ok(claimed.flatten()),
-                        Err(error) => Err(error.text()),
-                    };
-                    let project = claimed.and_then(|claimed| {
-                        crate::lists::store::lists_of(
-                            &snapshot,
-                            Path::new(&checkout.path),
-                            &repo.name,
-                            claimed.as_deref(),
-                        )
-                    });
-                    let project = match project {
-                        Ok(project) => project,
-                        Err(error) => {
-                            checkout.errors.push(format!(
-                                "The daemon can't choose this worktree's lists: {error}"
-                            ));
-                            None
-                        }
-                    };
-                    let items = project
-                        .map(|lists| super::lists::running_items(lists, &checkout.path))
-                        .unwrap_or_default();
-                    let design = match (project, &checkout.git) {
-                        (Some(lists), Some(git)) if !checkout.main && git.error.is_none() => {
-                            let standing = self.design_reads.standing(
-                                lists,
-                                &repo.name,
-                                Path::new(&checkout.path),
-                                &git.ahead,
-                            );
-                            match standing {
-                                Ok(standing) => standing,
-                                Err(error) => {
-                                    checkout.errors.push(format!(
-                                        "The daemon can't read which design changes cover this worktree's commits: {}",
-                                        error.text()
-                                    ));
-                                    None
-                                }
-                            }
-                        }
-                        _ => None,
-                    };
-                    // The rules review stands only between commits waiting
-                    // to land and Ready to land.
-                    let review = match (project, &checkout.git) {
-                        (Some(lists), Some(git))
-                            if checkout.state == Some("ready-to-land") && git.error.is_none() =>
-                        {
-                            let standing =
-                                crate::lists::store::Store::named(&self.places, &lists.project)
-                                    .map_err(crate::fail::Fail::text)
-                                    .and_then(|store| {
-                                        self.review_reads.standing(
-                                            &store,
-                                            &self.places.claude_sessions(),
-                                            &repo.name,
-                                            Path::new(&checkout.path),
-                                            &git.ahead,
-                                        )
-                                    });
-                            match standing {
-                                Ok(standing) => standing,
-                                Err(error) => {
-                                    checkout.errors.push(format!(
-                                        "The daemon can't read the rules review of this worktree's commits: {error}"
-                                    ));
-                                    // The review the daemon could not read may not take the
-                                    // commits, so the card says Needs review, never Ready to land.
-                                    checkout.state = Some("in-review");
-                                    None
-                                }
-                            }
-                        }
-                        _ => None,
-                    };
-                    let build = builds.get(&checkout.name).cloned();
-                    checkout.stalled = state.health.as_ref().is_some_and(|h| {
-                        h.worktrees
-                            .iter()
-                            .any(|w| w.stalled && w.path == checkout.path)
-                    });
-                    let shell = state.health.as_ref().is_some_and(|h| {
-                        h.shells
-                            .active
-                            .contains(&format!("{}/{}", repo.name, checkout.name))
-                    });
-                    let waits = match project
-                        .map(|lists| super::lists::running_waits(lists, &checkout.path))
-                        .transpose()
-                    {
-                        Ok(running) => Some(super::cards::ranked(
-                            running
-                                .unwrap_or_default()
-                                .into_iter()
-                                .chain(design)
-                                .chain(build)
-                                .chain(review),
-                        )),
-                        Err(error) => {
-                            checkout.errors.push(format!(
-                                "The daemon can't read what this worktree's running items wait on: {error}"
-                            ));
-                            None
-                        }
-                    };
-                    checkout.state =
-                        super::cards::card_state(checkout.state, shell, waits.as_deref());
-                    let waits = waits.unwrap_or_default();
-                    // A worktree an item keeps, with no agent, holds that
-                    // item's work: its card says what the item waits on.
-                    let kept = project
-                        .and_then(|lists| {
-                            crate::lists::kept_work::kept_in(lists, &checkout.path)
-                                .map(|item| (lists, item))
-                        })
-                        .filter(|_| checkout.claim.is_none());
-                    checkout.words = match kept {
-                        Some((lists, item)) => {
-                            let running = super::cards::RunningItem {
-                                id: item.id.0,
-                                title: item.title.clone(),
-                            };
-                            let read = super::lists::kept_card(lists, item);
-                            match read {
-                                Ok(card) => {
-                                    checkout.state = Some(super::cards::kept_state(&card));
-                                    super::cards::kept_words(checkout, running, &card)
-                                }
-                                Err(error) => {
-                                    checkout.errors.push(format!(
-                                        "The daemon can't read what the item this worktree keeps waits on: {error}"
-                                    ));
-                                    checkout.state = Some("waits-unread");
-                                    super::cards::words(checkout, &[running], &[])
-                                }
-                            }
-                        }
-                        None => super::cards::words(checkout, &items, &waits),
-                    };
+                if checkout.main {
+                    checkout.words = super::cards::main_words(checkout);
+                    continue;
                 }
+                if !checkout.live || checkout.app_checkout {
+                    continue;
+                }
+                let Some(live) = state
+                    .roots
+                    .iter()
+                    .filter_map(|root| root.live.as_ref())
+                    .find(|live| live.top == Path::new(&checkout.path))
+                else {
+                    continue;
+                };
+                let seen = Seen {
+                    live,
+                    name: &checkout.name,
+                    repo: &repo.name,
+                    claim: checkout.claim.as_ref(),
+                    git: checkout.git.as_ref(),
+                    branch: checkout.branch.as_deref(),
+                };
+                let judged = self.judge_card(
+                    &snapshot,
+                    &seen,
+                    &repo.locks,
+                    &repo.queues,
+                    state.health.as_ref(),
+                );
+                checkout.stalled = state.health.as_ref().is_some_and(|h| {
+                    h.worktrees
+                        .iter()
+                        .any(|w| w.stalled && w.path == checkout.path)
+                });
+                checkout.errors.extend(judged.errors);
+                checkout.state = Some(judged.state.word());
+                checkout.words = match &judged.kept {
+                    Some((item, card)) => super::cards::kept_words(checkout, item.clone(), card),
+                    None => {
+                        super::cards::words(checkout, judged.state, &judged.items, &judged.waits)
+                    }
+                };
             }
         }
         Ok(Page {
@@ -1399,6 +1283,188 @@ impl Model {
             repos,
         })
     }
+}
+
+impl Model {
+    /// Judges the card of the live side worktree <seen>, whose repo's app
+    /// build lanes have <locks> and <queues>, from the lists in <snapshot>
+    /// and the last health reading <health>. The dashboard draws its card
+    /// from what this returns, and nothing else judges a card.
+    fn judge_card(
+        &self,
+        snapshot: &std::result::Result<Vec<crate::lists::store::Loaded>, String>,
+        seen: &Seen,
+        locks: &[crate::health::LockHealth],
+        queues: &[crate::health::LaneQueue],
+        health: Option<&Health>,
+    ) -> Judged {
+        let mut errors = Vec::new();
+        let top = Path::new(&seen.live.top);
+        let path = seen.live.top.display().to_string();
+        let claimed = match seen.live.claimed_project() {
+            Ok(claimed) => Ok(claimed),
+            Err(error) => Err(error.text()),
+        };
+        let project = claimed.and_then(|claimed| {
+            crate::lists::store::lists_of(snapshot, top, seen.repo, claimed.as_deref())
+        });
+        let project = match project {
+            Ok(project) => project,
+            Err(error) => {
+                errors.push(format!(
+                    "The daemon can't choose this worktree's lists: {error}"
+                ));
+                None
+            }
+        };
+        let mut worktree = worktree_state(seen.claim, seen.git);
+        let items = project
+            .map(|lists| super::lists::running_items(lists, &path))
+            .unwrap_or_default();
+        let design = match (project, seen.git) {
+            (Some(lists), Some(git)) if git.error.is_none() => {
+                match self
+                    .design_reads
+                    .standing(lists, seen.repo, top, &git.ahead)
+                {
+                    Ok(standing) => standing,
+                    Err(error) => {
+                        errors.push(format!(
+                            "The daemon can't read which design changes cover this worktree's commits: {}",
+                            error.text()
+                        ));
+                        None
+                    }
+                }
+            }
+            _ => None,
+        };
+        // The rules review stands only between commits waiting to land and
+        // Ready to land.
+        let review = match (project, seen.git) {
+            (Some(lists), Some(git))
+                if worktree == CardState::ReadyToLand && git.error.is_none() =>
+            {
+                let standing = crate::lists::store::Store::named(&self.places, &lists.project)
+                    .map_err(crate::fail::Fail::text)
+                    .and_then(|store| {
+                        self.review_reads.standing(
+                            &store,
+                            &self.places.claude_sessions(),
+                            seen.repo,
+                            top,
+                            &git.ahead,
+                        )
+                    });
+                match standing {
+                    Ok(standing) => standing,
+                    Err(error) => {
+                        errors.push(format!(
+                            "The daemon can't read the rules review of this worktree's commits: {error}"
+                        ));
+                        // The review the daemon could not read may not take the
+                        // commits, so the card says Needs review, never Ready to land.
+                        worktree = CardState::InReview(ReviewWait::NotRun);
+                        None
+                    }
+                }
+            }
+            _ => None,
+        };
+        let build = seen
+            .branch
+            .and_then(|branch| super::app_builds::build_for(locks, queues, branch));
+        let shell = health.is_some_and(|h| {
+            h.shells
+                .active
+                .contains(&format!("{}/{}", seen.repo, seen.name))
+        });
+        let waits = match project
+            .map(|lists| super::lists::running_waits(lists, &path))
+            .transpose()
+        {
+            Ok(running) => Some(super::cards::ranked(
+                running
+                    .unwrap_or_default()
+                    .into_iter()
+                    .chain(design)
+                    .chain(build)
+                    .chain(review),
+            )),
+            Err(error) => {
+                errors.push(format!(
+                    "The daemon can't read what this worktree's running items wait on: {error}"
+                ));
+                None
+            }
+        };
+        // A worktree an item keeps, with no agent, holds that item's work:
+        // its card says what the item waits on.
+        let kept = project
+            .and_then(|lists| {
+                crate::lists::kept_work::kept_in(lists, &path).map(|item| (lists, item))
+            })
+            .filter(|_| seen.claim.is_none())
+            .map(|(lists, item)| {
+                let running = RunningItem {
+                    id: item.id.0,
+                    title: item.title.clone(),
+                };
+                match super::lists::kept_card(lists, item) {
+                    Ok(card) => Ok((running, card)),
+                    Err(error) => {
+                        errors.push(format!(
+                            "The daemon can't read what the item this worktree keeps waits on: {error}"
+                        ));
+                        Err(running)
+                    }
+                }
+            });
+        let state = super::cards::card_state(
+            worktree,
+            shell,
+            waits.as_deref(),
+            kept.as_ref()
+                .map(|kept| kept.as_ref().map(|(_, card)| card).map_err(|_| ())),
+        );
+        let (items, kept) = match kept {
+            Some(Ok(kept)) => (items, Some(kept)),
+            // The card lists the item it could not read the waits of.
+            Some(Err(running)) => (vec![running], None),
+            None => (items, None),
+        };
+        Judged {
+            state,
+            items,
+            waits: waits.unwrap_or_default(),
+            kept,
+            errors,
+        }
+    }
+}
+
+/// What the daemon reads of a live side worktree to judge its card.
+struct Seen<'a> {
+    live: &'a Checkout,
+    name: &'a str,
+    repo: &'a str,
+    claim: Option<&'a Claim>,
+    git: Option<&'a SideGit>,
+    branch: Option<&'a str>,
+}
+
+/// A side worktree's card as `Model::judge_card` finds it.
+struct Judged {
+    state: CardState,
+    /// The items it lists: the running items, or the item that keeps it
+    /// when the daemon could not read that item's waits.
+    items: Vec<RunningItem>,
+    /// What it waits on, as `cards::ranked` orders it.
+    waits: Vec<ItemWait>,
+    /// The item that keeps it with no agent, and what its waits stand at.
+    kept: Option<(RunningItem, KeptCard)>,
+    /// What the daemon could not read, which the card shows.
+    errors: Vec<String>,
 }
 
 fn folder_facts(
@@ -1519,43 +1585,44 @@ fn unclaimed_of(
     Ok(unclaimed)
 }
 
-/// The one state the page shows for a live side worktree, first match wins:
+/// What the claim and commits of a live side worktree say of its card,
+/// first match wins:
 ///
-///     waiting-on-you  its note says so: a question or step only the person
-///                     can take
-///     held            its note says so: kept on purpose with no work
-///                     running, commits waiting to land or not
-///     ready-to-land   commits waiting to land, claimed or not: unclaimed
-///                     ones are work an agent left behind. The page turns
-///                     it into in-review while the rules review would keep
-///                     `builds land` from taking them (cards::in_review)
-///     winding-down    its note says so: the agent's last item, then its
-///                     handoff
-///     working         claimed, none of the above
-///     free            unclaimed, nothing waiting to land
+///     WaitingOnYou  its note says so: a question or step only the person
+///                   can take
+///     Paused        its note says held: kept on purpose with no work
+///                   running, commits waiting to land or not
+///     ReadyToLand   commits waiting to land, claimed or not: unclaimed
+///                   ones are work an agent left behind
+///     WindingDown   its note says so: the agent's last item, then its
+///                   handoff
+///     Working       claimed, none of the above
+///     Free          unclaimed, nothing waiting to land
 ///
-/// The page then turns an unclaimed worktree an open item keeps into
-/// kept, whatever it holds (lists/kept_work.rs). The page also gives the state
-/// waits-unread to a worktree when the daemon could not read what its running
-/// items wait on (cards::card_state).
-pub fn worktree_state(claim: Option<&Claim>, git: Option<&SideGit>) -> &'static str {
+/// `cards::card_state` then gives the card its state from this and what the
+/// worktree waits on.
+pub fn worktree_state(claim: Option<&Claim>, git: Option<&SideGit>) -> CardState {
     let ahead = git.is_some_and(|g| !g.ahead.is_empty());
     let Some(claim) = claim else {
-        return if ahead { "ready-to-land" } else { "free" };
+        return if ahead {
+            CardState::ReadyToLand
+        } else {
+            CardState::Free
+        };
     };
     if claim.state() == Some("waiting-on-you") {
-        return "waiting-on-you";
+        return CardState::WaitingOnYou;
     }
     if claim.is_held() {
-        return "held";
+        return CardState::Paused;
     }
     if ahead {
-        return "ready-to-land";
+        return CardState::ReadyToLand;
     }
     if claim.state() == Some("winding-down") {
-        return "winding-down";
+        return CardState::WindingDown;
     }
-    "working"
+    CardState::Working
 }
 
 #[derive(Serialize)]
