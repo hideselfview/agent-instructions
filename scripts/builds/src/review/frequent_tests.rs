@@ -138,6 +138,7 @@ fn review(findings: &[(&str, &str)]) -> FirstReview {
                     how: "confirmed".to_string(),
                     why: "real".to_string(),
                     by: "tester".to_string(),
+                    at: 0,
                 })),
                 closed_by: None,
             })

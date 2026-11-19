@@ -2035,9 +2035,14 @@ lacks: the groups that gave no answer (their reviewer failed), over the diff
 they did not answer, and, in a new run that becomes the last review, the
 changes since the last review (`builds help workflow`, REVIEW). The run asks
 the groups that cover a changed path, the groups that hold an open confirmed
-finding in a changed file, whether or not their rules cover it, and, when a
-commit message changed, each group that reads commit messages (commit_text)
-and whose rules cover a path the branch changes. A reviewer reads the commit
+finding, over every changed file, whether or not their rules cover it, and,
+when a commit message changed, each group that reads commit messages
+(commit_text) and whose rules cover a path the branch changes. A group that
+holds an open confirmed finding reads every change since the run that raised
+it, with the finding: when a run read some of those changes without the
+finding (the judge confirmed it later, for example), a run of that group alone
+reads the changes since the last net change the group read with the finding,
+even when nothing changed since the last review. A reviewer reads the commit
 messages as one more file, named COMMIT_MESSAGE. Only groups whose rules judge
 what a message says read the messages (in agent-instructions, the group
 Commits and repo contents, whose rules ask whether the text is accurate).

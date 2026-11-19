@@ -591,8 +591,10 @@ fn a_changed_file_with_no_open_finding_is_read_by_every_group_that_covers_it() {
     );
 }
 
+/// A group that holds open findings reads every changed file, since a fix
+/// of its finding may be in any of them.
 #[test]
-fn each_group_reads_only_the_files_where_it_holds_findings_and_both_run_in_one_run() {
+fn each_group_that_holds_findings_reads_every_changed_file_and_both_run_in_one_run() {
     let (demo, fake, side, landing) =
         found_in("review-finder-example", &["a.rs", "b.rs"], &["c.rs"]);
     fix(&side, &["a.rs", "b.rs", "c.rs"]);
@@ -600,8 +602,8 @@ fn each_group_reads_only_the_files_where_it_holds_findings_and_both_run_in_one_r
     assert_eq!(
         read_by_group(&fake),
         vec![
-            ("alpha".to_string(), vec!["c.rs"]),
-            ("writing".to_string(), vec!["a.rs", "b.rs"])
+            ("alpha".to_string(), vec!["a.rs", "b.rs", "c.rs"]),
+            ("writing".to_string(), vec!["a.rs", "b.rs", "c.rs"])
         ]
     );
     let conn = demo.store.open_existing().unwrap();
@@ -655,6 +657,156 @@ fn a_fix_of_a_file_no_rule_covers_asks_the_group_that_holds_its_finding() {
             .contains(&format!("closed finding {}", found[0].id)),
         "{}",
         read.text
+    );
+    assert!(read.refusal.is_none(), "{:?}", read.refusal);
+}
+
+/// A fix may change a file that no rule covers and where no finding sits. A
+/// later run asks the group that holds the open finding over the whole fix,
+/// and asks no group that holds nothing and covers no changed file.
+#[test]
+fn a_fix_in_a_file_no_group_covers_asks_the_group_that_holds_the_finding() {
+    let demo = demo("review-fix-elsewhere");
+    let fake = fake(&demo.scratch.dir);
+    let side = demo.add_side(1, "agent", "work");
+    demo.commit(&side, "a.rs");
+    demo.commit(&side, "b.swift");
+    fake.answer("alpha", &[("rule-a", Some(BAD))]);
+    let landing = run_review(&demo, &fake, &side, "k").landing.unwrap();
+    let finding = findings_of(&demo, landing)[0].id;
+    settle_as(&demo, finding, "confirmed", "real");
+    fake.prompts();
+    demo.commit(&side, "fix.js");
+    closes(&fake, &[finding]);
+    let read = run_review(&demo, &fake, &side, "k");
+    let prompts = fake.prompts();
+    assert_eq!(prompts.len(), 1, "{}", read.text);
+    let (group, prompt) = &prompts[0];
+    assert_eq!(group, "alpha");
+    assert!(
+        prompt.contains("+fix.js")
+            && !prompt.contains("+a.rs")
+            && prompt.contains(&format!("Finding {finding} (rule-a), a.rs:1")),
+        "{prompt}"
+    );
+    assert!(
+        read.text.contains(&format!("closed finding {finding}")),
+        "{}",
+        read.text
+    );
+    assert!(read.refusal.is_none(), "{:?}", read.refusal);
+}
+
+/// The review of <side> under key k, stamped at <at>.
+fn review_at(demo: &Demo, fake: &Fake, side: &Path, at: i64) -> Result<Reported> {
+    review(&Inputs {
+        store: &demo.store,
+        project: "demo",
+        repo: "demo",
+        worktree: side,
+        base: "main",
+        head: None,
+        key: "k",
+        root: &fake.root,
+        reviewer: &fake.program,
+        stamp: &Stamp {
+            at,
+            by: "tester".to_string(),
+        },
+        brief: None,
+        runner: None,
+    })
+}
+
+/// A run that read the fix without asking the group that holds the finding,
+/// because the judge had not confirmed it yet, leaves that group behind.
+/// builds review runs again with no new commit, asks that group alone over
+/// every change since the run that raised the finding, and closes it.
+#[test]
+fn a_group_never_asked_over_the_fix_is_asked_again_with_no_new_commit() {
+    let demo = demo("review-fix-unasked");
+    let fake = fake(&demo.scratch.dir);
+    let side = demo.add_side(1, "agent", "work");
+    demo.commit(&side, "a.rs");
+    fake.answer("alpha", &[("rule-a", Some(BAD))]);
+    let landing = run_review(&demo, &fake, &side, "k").landing.unwrap();
+    let finding = findings_of(&demo, landing)[0].id;
+    fake.prompts();
+    fake.answer("alpha", &[("rule-a", None)]);
+    demo.commit(&side, "fix.js");
+    demo.commit(&side, "c.swift");
+    run_review(&demo, &fake, &side, "k");
+    let asked: Vec<String> = fake.prompts().into_iter().map(|(group, _)| group).collect();
+    assert_eq!(asked, ["beta"]);
+    settle_as(&demo, finding, "confirmed", "real");
+    closes(&fake, &[finding]);
+    let read = run_review(&demo, &fake, &side, "k");
+    let prompts = fake.prompts();
+    assert_eq!(prompts.len(), 1, "{}", read.text);
+    let (group, prompt) = &prompts[0];
+    assert_eq!(group, "alpha");
+    assert!(
+        prompt.contains("+fix.js") && prompt.contains("+c.swift") && !prompt.contains("+a.rs"),
+        "{prompt}"
+    );
+    assert!(
+        read.text
+            .contains("asked the groups that hold open findings over the changes since run")
+            && read.text.contains(&format!("closed finding {finding}")),
+        "{}",
+        read.text
+    );
+    assert!(read.refusal.is_none(), "{:?}", read.refusal);
+    let refused = try_review(&demo, &fake, &side, "k").unwrap_err().text();
+    assert!(fake.prompts().is_empty());
+    assert!(refused.contains(landing::ONE_REVIEW), "{refused}");
+}
+
+/// A group asked over the fix before the judge confirmed its finding was not
+/// given the finding. Once the judge confirms it, builds review asks the
+/// group again over every change since the run that raised it, with the
+/// finding.
+#[test]
+fn a_group_that_read_the_fix_before_its_finding_was_confirmed_reads_it_again_with_it() {
+    let demo = demo("review-fix-before-confirmed");
+    let fake = fake(&demo.scratch.dir);
+    let side = demo.add_side(1, "agent", "work");
+    demo.commit(&side, "a.rs");
+    fake.answer("alpha", &[("rule-a", Some(BAD))]);
+    let landing = review_at(&demo, &fake, &side, NOON)
+        .unwrap()
+        .landing
+        .unwrap();
+    let finding = findings_of(&demo, landing)[0].id;
+    fake.answer("alpha", &[("rule-a", None)]);
+    demo.commit(&side, "fix.rs");
+    review_at(&demo, &fake, &side, NOON + 10).unwrap();
+    let prompts = fake.prompts();
+    assert!(
+        prompts
+            .iter()
+            .all(|(_, prompt)| !prompt.contains("Finding ")),
+        "{prompts:?}"
+    );
+    let stamp = Stamp {
+        at: NOON + 20,
+        by: "tester".to_string(),
+    };
+    demo.store
+        .write(&stamp, "settle", |db| {
+            record::settle(db, finding, "confirmed", "real", stamp.at, "tester")
+        })
+        .unwrap();
+    closes(&fake, &[finding]);
+    let read = review_at(&demo, &fake, &side, NOON + 30).unwrap();
+    let prompts = fake.prompts();
+    assert_eq!(prompts.len(), 1, "{}", read.text);
+    let (group, prompt) = &prompts[0];
+    assert_eq!(group, "alpha");
+    assert!(
+        prompt.contains("+fix.rs")
+            && prompt.contains(&format!("Finding {finding} (rule-a), a.rs:1")),
+        "{prompt}"
     );
     assert!(read.refusal.is_none(), "{:?}", read.refusal);
 }

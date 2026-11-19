@@ -155,16 +155,17 @@ fn settling_again_drops_a_confirmed_finding_and_keeps_both_settles() {
     );
     settle_again(&db, again, "another crate calls it", 8, "second").unwrap();
     let found = finding_of(&db, again).unwrap();
-    let settle_of = |how: &str, why: &str, by: &str| Settle {
+    let settle_of = |how: &str, why: &str, by: &str, at: i64| Settle {
         how: how.to_string(),
         why: why.to_string(),
         by: by.to_string(),
+        at,
     };
     assert_eq!(
         found.settled,
         Some(Settled::Again {
-            first: settle_of("confirmed", "the code does it", "first"),
-            second: settle_of("dropped", "another crate calls it", "second"),
+            first: settle_of("confirmed", "the code does it", "first", 7),
+            second: settle_of("dropped", "another crate calls it", "second", 8),
         })
     );
     assert!(found.settled_as("dropped") && !found.settled_as("confirmed"));
@@ -277,6 +278,7 @@ fn the_person_allows_an_open_confirmed_finding_which_stays_confirmed_and_is_no_l
                 how: "confirmed".to_string(),
                 why: "real".to_string(),
                 by: "me".to_string(),
+                at: 7,
             },
             allowed: Allowed {
                 why: "the person: land it".to_string(),

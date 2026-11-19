@@ -54,6 +54,7 @@ fn finding(
                 how: how.to_string(),
                 why: "why".to_string(),
                 by: "tester".to_string(),
+                at: 0,
             })
         }),
         closed_by: None,
@@ -72,6 +73,7 @@ fn run(id: i64, kind: &str, head: &str) -> RunRow {
     RunRow {
         id,
         kind: kind.to_string(),
+        at: 0,
         base: "b".to_string(),
         head: head.to_string(),
         since: None,

@@ -336,15 +336,26 @@ second disagreement goes to the coordinator, which builds tells nothing: the
 agent reports it, and the coordinator asks the person whether to allow the
 finding to land, or tells the agent to fix it.
 
-In a later run, only the groups that hold open findings in a file read that
-file, whether or not their rules cover it, and every group that covers any
-other changed file reads that file, as on a first review. The groups run at
-the same time, in the same run, and builds asks no group that reads none of the
-changed files. For example, the necessary-code group (Necessary code) holds
-findings in a.rs and b.rs, and the errors group (Errors and invalid state)
-holds one in c.rs. After the fix, the necessary-code group reads only a.rs and
-b.rs, and the errors group reads only c.rs. The run's report names each group
-that did not read a file, with the files it did not read.
+In a later run, each group that holds open findings reads every file that
+changed since the last review, whether or not its rules cover the file,
+because the fix of a finding may be in any file. Each other group reads each
+changed file its rules cover, as on a first review, except a file where a
+group that holds open findings has one: only the groups that hold findings
+there read that file. The groups run at the same time, in the same run, and
+builds asks no group that holds no open finding and covers no changed file.
+For example, the necessary-code group (Necessary code) holds a finding in
+a.rs, the errors group (Errors and invalid state) holds none, and the fix
+changes a.rs and .land-compile, which no rule covers. The necessary-code group
+reads both files and can close its finding, and the errors group, whose rules
+cover a.rs, reads neither. The run's report names each group that did not read
+a file, with the files it did not read.
+
+A group that holds an open finding reads every change since the run that
+raised the finding, with the finding in its message. When the group has not
+read some of those changes with the finding, because a run read them before
+the judge confirmed it, for example, `builds review` asks that group alone
+over the changes since the last net change it read with the finding, even
+when nothing changed since the last review.
 
 The changes since the last review are the lines the branch adds or removes that
 it did not add or remove at the last review, the lines it no longer changes,
@@ -362,7 +373,8 @@ rewords a message and changes no file, the run reads only the changed messages
 and closes each finding on the commit messages that they fix. When the agent
 drops the commit that held a confirmed finding's code, the next review reads
 that change and closes the finding. `builds review` refuses a run when the
-branch has no change that the review has not read.
+branch has no change that the review has not read and each group that holds
+an open finding has read every change since the run that raised it.
 
 Each settle, with its --why, is the record that scores the reviews. The
 settled findings stay in the project's store as the record of what reviews

@@ -153,13 +153,14 @@ impl Settled {
     }
 }
 
-/// How the coordinator settled a finding, and who did.
+/// How the coordinator settled a finding, who did, and when.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Settle {
     /// `confirmed` or `dropped`.
     pub how: String,
     pub why: String,
     pub by: String,
+    pub at: i64,
 }
 
 impl Finding {
@@ -311,8 +312,8 @@ pub struct NewRun<'a> {
     pub at: i64,
     pub base: &'a str,
     pub head: &'a str,
-    /// For a review run that reads only the changes since the last review,
-    /// the run of that last review.
+    /// For a review run that reads only the changes since an earlier run's
+    /// net change, that earlier run.
     pub since: Option<i64>,
     /// The commit of the rules checkout the run read.
     pub rules_version: &'a str,
@@ -510,7 +511,7 @@ pub fn allow(db: &Connection, id: i64, why: &str, now: i64, by: &str) -> Result<
     Ok(())
 }
 
-const FINDING_COLUMNS: &str = "f.id, c.run_id, r.kind, r.landing_id, c.group_name, f.rule, f.clause, f.file, f.line, f.code, f.problem, f.blocking, f.check_failed, f.settled, f.settled_why, f.settled_by, a.why, a.by, z.run_id, w.why, w.by";
+const FINDING_COLUMNS: &str = "f.id, c.run_id, r.kind, r.landing_id, c.group_name, f.rule, f.clause, f.file, f.line, f.code, f.problem, f.blocking, f.check_failed, f.settled, f.settled_why, f.settled_by, a.why, a.by, z.run_id, w.why, w.by, f.settled_at, a.at";
 
 fn finding_from(row: &rusqlite::Row) -> rusqlite::Result<Finding> {
     let settled: Option<String> = row.get(13)?;
@@ -520,15 +521,21 @@ fn finding_from(row: &rusqlite::Row) -> rusqlite::Result<Finding> {
     let again_by: Option<String> = row.get(17)?;
     let allowed_why: Option<String> = row.get(19)?;
     let allowed_by: Option<String> = row.get(20)?;
-    let first = match (settled, why, by) {
-        (Some(how), Some(why), Some(by)) => Some(Settle { how, why, by }),
+    let at: Option<i64> = row.get(21)?;
+    let again_at: Option<i64> = row.get(22)?;
+    let first = match (settled, why, by, at) {
+        (Some(how), Some(why), Some(by), Some(at)) => Some(Settle { how, why, by, at }),
         _ => None,
     };
-    let again = again_why.zip(again_by).map(|(why, by)| Settle {
-        how: "dropped".to_string(),
-        why,
-        by,
-    });
+    let again = match (again_why, again_by, again_at) {
+        (Some(why), Some(by), Some(at)) => Some(Settle {
+            how: "dropped".to_string(),
+            why,
+            by,
+            at,
+        }),
+        _ => None,
+    };
     let allowed = allowed_why
         .zip(allowed_by)
         .map(|(why, by)| Allowed { why, by });
@@ -740,10 +747,12 @@ pub fn landing(db: &Connection, landing: i64) -> Result<LandingRow> {
 pub struct RunRow {
     pub id: i64,
     pub kind: String,
+    /// When the run started.
+    pub at: i64,
     pub base: String,
     pub head: String,
-    /// The run of the last review, when this review run read only the changes
-    /// since that run; None for a run that read the whole net change.
+    /// The earlier run, when this review run read only the changes since that
+    /// run's net change; None for a run that read the whole net change.
     pub since: Option<i64>,
     /// The commit of the rules checkout the run read.
     pub rules_version: String,
@@ -753,24 +762,31 @@ impl RunRow {
     /// Whether this run and <other> read the same diff: the same net change,
     /// read whole or as the difference from the same earlier run's.
     pub fn same_diff(&self, other: &RunRow) -> bool {
-        self.base == other.base && self.head == other.head && self.since == other.since
+        self.reads_up_to(other) && self.since == other.since
+    }
+
+    /// Whether this run and <other> read up to the same net change, whole or
+    /// as the difference from any earlier run's.
+    pub fn reads_up_to(&self, other: &RunRow) -> bool {
+        self.base == other.base && self.head == other.head
     }
 }
 
 /// The runs of <landing>.
 pub fn runs_of_landing(db: &Connection, landing: i64) -> Result<Vec<RunRow>> {
     let mut statement = db
-        .prepare("SELECT id, kind, base, head, since_run, rules_version FROM review_run WHERE landing_id = ?1 ORDER BY id")
+        .prepare("SELECT id, kind, at, base, head, since_run, rules_version FROM review_run WHERE landing_id = ?1 ORDER BY id")
         .sql()?;
     let rows = statement
         .query_map(params![landing], |row| {
             Ok(RunRow {
                 id: row.get(0)?,
                 kind: row.get(1)?,
-                base: row.get(2)?,
-                head: row.get(3)?,
-                since: row.get(4)?,
-                rules_version: row.get(5)?,
+                at: row.get(2)?,
+                base: row.get(3)?,
+                head: row.get(4)?,
+                since: row.get(5)?,
+                rules_version: row.get(6)?,
             })
         })
         .sql()?;

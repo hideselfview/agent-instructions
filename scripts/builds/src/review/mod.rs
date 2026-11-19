@@ -36,12 +36,17 @@
 //! answer, over the diff they did not answer, and reads the changes since the
 //! last review in a new run, which becomes the last review. Each reviewer also gets the open confirmed
 //! findings of its group's rules, checks the code at each one's place, and
-//! closes each one whose problem is gone. Only the groups that hold open
-//! findings in a file read that file, whether or not their rules cover it,
-//! and every group that covers any other changed file reads that file
-//! (`run::ask_groups`). `landing::Coverage` says
-//! what the review read, for this run and for `builds land`. The run refuses
-//! when the review lacks nothing.
+//! closes each one whose problem is gone. A group that holds open findings
+//! reads every change since the run that raised them, whatever files the
+//! changes touch, so that it sees a fix in any file: it reads every file of
+//! the changes since the last review, and when it has not read every change
+//! up to the last review with its findings given, a run of its own reads the
+//! changes since the last net change it did read so. Of the other groups of
+//! a run, none reads a file where a group of the run holds open findings,
+//! and each reads every other changed file its rules cover
+//! (`run::ask_groups`). `landing::Coverage`
+//! says what the review read, for this run and for `builds land`. The run
+//! refuses when the review lacks nothing.
 //!
 //! `run` asks no copy group (`groups::Group::copy`), whose rules judge word
 //! choice, grammar and style. `copy` asks only those, over the worktree's net
@@ -416,12 +421,14 @@ pub fn review(inputs: &Inputs) -> Result<Reported> {
 /// One run of a review: the diff its reviewers read and the groups it asks.
 struct Ask {
     change: run::NetChange,
-    /// The run of the last review, when the diff holds the changes since that
-    /// run; None for a diff of the whole net change.
+    /// The earlier run, when the diff holds the changes since that run's net
+    /// change; None for a diff of the whole net change.
     since: Option<i64>,
-    /// Whether the run reads the branch's net change as it is now, so the
+    /// Whether the run reads the changes since the last review, so the
     /// landing records the run as its last review. A run that asks again the
-    /// groups that gave an earlier run no answer reads that run's diff.
+    /// groups that gave an earlier run no answer reads that run's diff, and a
+    /// run that asks the groups that hold open findings over the changes
+    /// since an earlier run reads up to the branch's head from there.
     last_review: bool,
     groups: Vec<String>,
     /// What the run asked, for a run of a change that has a review already.
@@ -429,15 +436,19 @@ struct Ask {
 }
 
 /// The runs a change whose review <landing> holds gets now, so that the
-/// review reads <diff>, the branch's net change: for each diff a
-/// run read, the groups asked over it that gave no answer over it, asked over
-/// that diff again; and, when the changes since the last review touch a path
-/// a group covers, a file where a group holds a finding of <open> or a commit
-/// message, the groups that cover a changed path, the groups that hold a
-/// finding of <open> in a changed file and the groups that read the changed
-/// messages, asked over those changes (`run::diff_since`). No reviewer reads
-/// a diff twice. Fails with why builds review reviews no change twice when
-/// the review lacks nothing.
+/// review reads <change>, the branch's net change: for each diff a run read,
+/// the groups asked over it that gave no answer over it, asked over that diff
+/// again; for each group that holds a finding of <open> and has not read
+/// every change since the run that raised it with that finding given
+/// (`landing::Coverage::read_with`), that group asked over the changes since
+/// the last net change it read so; and, when the changes since the last
+/// review touch a path a group covers or a commit message, or change
+/// anything while a group that holds a finding of <open> has read up to the
+/// last review, the groups that cover a changed path, the groups that read
+/// the changed messages and those groups that hold findings, asked over
+/// those changes (`run::diff_since`). No reviewer reads a diff twice. Fails
+/// with why builds review reviews no change twice when the review lacks
+/// nothing.
 fn later_asks(
     conn: &rusqlite::Connection,
     inputs: &Inputs,
@@ -449,8 +460,9 @@ fn later_asks(
     let coverage = landing::Coverage::of(conn, &record::landing(conn, landing)?)?;
     let calls = record::calls_of_landing(conn, landing)?;
     let read: Vec<&record::RunRow> = coverage.runs.iter().collect();
+    let unanswered = coverage.unanswered(&calls);
     let mut asks = Vec::new();
-    for (run, missing) in coverage.unanswered(&calls) {
+    for (run, missing) in &unanswered {
         asks.push(Ask {
             change: run::diff_of_run(inputs.worktree, &read, run, |run| {
                 Ok((run.base.clone(), run.head.clone()))
@@ -462,30 +474,90 @@ fn later_asks(
                 run.id,
                 missing.join(", ")
             )),
-            groups: missing,
+            groups: missing.clone(),
         });
     }
     let last = &coverage.last_review;
-    let mut since = run::diff_since(
-        inputs.worktree,
-        &last.base,
-        &last.head,
-        &change.base,
-        &change.head,
-    )?;
-    if let (Some(source), Some(read)) = (&mut since.diff.source, &change.diff.source) {
-        source.in_place = read.in_place;
+    // The changes since <from>'s net change, read in place when the
+    // branch's net change is.
+    let since_run = |from: &record::RunRow| -> Result<run::NetChange> {
+        let mut since = run::diff_since(
+            inputs.worktree,
+            &from.base,
+            &from.head,
+            &change.base,
+            &change.head,
+        )?;
+        if let (Some(source), Some(read)) = (&mut since.diff.source, &change.diff.source) {
+            source.in_place = read.in_place;
+        }
+        Ok(since)
+    };
+    // Each group that holds open findings, with the run since which it reads
+    // the changes: the earliest net change it read every change up to with
+    // each of its findings.
+    let mut holders: Vec<(String, &record::RunRow)> = Vec::new();
+    for (group, findings) in material.holding_groups(open) {
+        let mut from: Option<&record::RunRow> = None;
+        for finding in findings {
+            let reached = coverage.read_with(&calls, &unanswered, finding, &group)?;
+            if from.is_none_or(|from| reached.id < from.id) {
+                from = Some(reached);
+            }
+        }
+        if let Some(from) = from {
+            holders.push((group, from));
+        }
     }
+    let behind: Vec<&(String, &record::RunRow)> = holders
+        .iter()
+        .filter(|(_, from)| !from.reads_up_to(last))
+        .collect();
+    let mut froms: Vec<&record::RunRow> = Vec::new();
+    for (_, from) in &behind {
+        if !froms.iter().any(|f| f.id == from.id) {
+            froms.push(from);
+        }
+    }
+    for from in froms {
+        let since = since_run(from)?;
+        if since.diff.is_empty() {
+            continue;
+        }
+        let groups: Vec<String> = behind
+            .iter()
+            .filter(|(_, f)| f.id == from.id)
+            .map(|(group, _)| group.clone())
+            .collect();
+        asks.push(Ask {
+            note: Some(format!(
+                "asked the groups that hold open findings over the changes since run {} over {}...{}, the last net change they read with those findings: {}\n",
+                from.id,
+                short(&from.base),
+                short(&from.head),
+                groups.join(", ")
+            )),
+            change: since,
+            since: Some(from.id),
+            last_review: false,
+            groups,
+        });
+    }
+    let since = since_run(last)?;
     let mut groups = material.group_names(&since.diff.changed);
-    for group in material
-        .holding_groups(open, &since.diff.changed)
-        .into_iter()
-        .chain(material.commit_text_groups(&since.diff, &change.diff.changed))
-    {
+    for group in material.commit_text_groups(&since.diff, &change.diff.changed) {
         if !groups.contains(&group) {
             groups.push(group);
         }
     }
+    if !since.diff.is_empty() {
+        for (group, _) in &holders {
+            if !groups.contains(group) {
+                groups.push(group.clone());
+            }
+        }
+    }
+    groups.retain(|group| !behind.iter().any(|(name, _)| name == group));
     if !groups.is_empty() {
         asks.push(Ask {
             note: Some(format!(
@@ -502,7 +574,7 @@ fn later_asks(
     }
     if asks.is_empty() {
         fail!(
-            "{}\nrun {} of review landing {landing} ({}) is the last review, over {}...{}; every group answered, and nothing changed since the last review on a path a group's rules cover, in a file where a group holds an open finding or in a commit message a group reads, so builds review does not review it again.\nbuilds review show {landing} lists the review and its findings.",
+            "{}\nrun {} of review landing {landing} ({}) is the last review, over {}...{}; every group answered, nothing changed since the last review on a path a group's rules cover or in a commit message a group reads, and each group that holds an open finding has read every change since the run that raised it, so builds review does not review it again.\nbuilds review show {landing} lists the review and its findings.",
             landing::ONE_REVIEW,
             last.id,
             inputs.key,
