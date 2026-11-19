@@ -415,11 +415,18 @@ fn read_cargo(db: &Connection, worktree: &str, from: i64, to: i64, card: &mut Ca
             if changes.is_some() {
                 detail.push_str(" with uncommitted changes");
             }
-            if off == Some(true) {
-                let run_branch = run_branch.unwrap_or_default();
-                detail.push_str(&format!(", off branch {run_branch}"));
-                card.off_branch
-                    .push((at, format!("{name} on {head}, off branch {run_branch}")));
+            match (off, run_branch) {
+                (Some(true), Some(run_branch)) => {
+                    detail.push_str(&format!(", off branch {run_branch}"));
+                    card.off_branch
+                        .push((at, format!("{name} on {head}, off branch {run_branch}")));
+                }
+                (Some(true), None) => {
+                    fail!(
+                        "the store marks the cargo run at {at} off its run's branch and names no branch"
+                    )
+                }
+                _ => {}
             }
         }
         if let Some(lock_wait) = lock_wait.filter(|wait| *wait > 0) {
