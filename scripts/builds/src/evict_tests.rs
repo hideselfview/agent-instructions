@@ -1,7 +1,6 @@
 use super::*;
 use crate::testing::{Scratch, fill};
 use std::os::unix::process::CommandExt;
-use std::time::Duration;
 
 /// Kills <build> and the `sleep` its `lockf` runs: killing `lockf` alone
 /// leaves the child alive, holding the test's output open for its 60 seconds.
@@ -128,56 +127,6 @@ fn a_folder_another_process_renamed_away_first_is_not_this_eviction_s() {
     assert!(!gone.exists());
 }
 
-/// A process that got into the folder before it was renamed (its file
-/// descriptor follows the rename) and keeps creating files in it: what a build
-/// starting between the in-use check and the rename does.
-struct Writer {
-    stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
-    thread: Option<std::thread::JoinHandle<()>>,
-}
-
-impl Writer {
-    fn start(folder: &Path) -> Writer {
-        use std::sync::atomic::{AtomicBool, Ordering};
-        let dir = CString::new(folder.as_os_str().as_bytes()).unwrap();
-        let fd = unsafe {
-            libc::open(
-                dir.as_ptr(),
-                libc::O_RDONLY | libc::O_DIRECTORY | libc::O_CLOEXEC,
-            )
-        };
-        assert!(fd >= 0, "opening the folder");
-        let stop = std::sync::Arc::new(AtomicBool::new(false));
-        let flag = stop.clone();
-        let thread = std::thread::spawn(move || {
-            let mut n = 0u64;
-            while !flag.load(Ordering::SeqCst) {
-                let name = CString::new(format!("late-{n}")).unwrap();
-                let made = unsafe {
-                    libc::openat(fd, name.as_ptr(), libc::O_CREAT | libc::O_WRONLY, 0o644)
-                };
-                if made >= 0 {
-                    unsafe { libc::close(made) };
-                }
-                n += 1;
-                std::thread::sleep(Duration::from_micros(200));
-            }
-            unsafe { libc::close(fd) };
-        });
-        Writer {
-            stop,
-            thread: Some(thread),
-        }
-    }
-
-    fn stop(&mut self) {
-        self.stop.store(true, std::sync::atomic::Ordering::SeqCst);
-        if let Some(thread) = self.thread.take() {
-            thread.join().unwrap();
-        }
-    }
-}
-
 /// A checkout's build root as `builds cargo` finds it before its first build:
 /// a `.checkout` marker and a target folder, with no guard file.
 fn root_without_a_guard(scratch: &Scratch) -> (crate::places::Places, PathBuf, PathBuf) {
@@ -226,23 +175,35 @@ fn an_eviction_of_a_build_root_without_a_guard_makes_the_guard_and_moves_the_fol
 
 #[test]
 fn a_removal_that_never_completes_leaves_the_slot_to_the_next_emptier() {
-    let scratch = Scratch::new("evict-stuck-writer");
+    // A folder the removal cannot empty: its files cannot be unlinked while
+    // their directory is read-only. No process holds anything in the folder,
+    // so nothing another test forks can make the eviction find it in use.
+    use std::os::unix::fs::PermissionsExt;
+    let scratch = Scratch::new("evict-stuck-removal");
     let places = scratch.places();
     let folder = places.root.join("DerivedData/entry");
     fill(&folder.join("Build/blob"), 4);
-    let mut writer = Writer::start(&folder);
+    let read_only = std::fs::Permissions::from_mode(0o500);
+    std::fs::set_permissions(folder.join("Build"), read_only).unwrap();
     let moved = evict(&places, &folder, Recreate::No, Removal::Now);
-    writer.stop();
+    let slots: Vec<PathBuf> = std::fs::read_dir(places.trash())
+        .unwrap()
+        .map(|slot| slot.unwrap().path())
+        .collect();
+    // Let the emptier below remove it.
+    for slot in &slots {
+        std::fs::set_permissions(
+            slot.join("entry/Build"),
+            std::fs::Permissions::from_mode(0o700),
+        )
+        .unwrap();
+    }
     assert!(
         moved.expect("a removal that could not finish failed the build"),
         "the folder had been moved"
     );
     assert!(!folder.exists());
-    assert_eq!(
-        std::fs::read_dir(places.trash()).unwrap().count(),
-        1,
-        "the slot is the trash's to empty"
-    );
+    assert_eq!(slots.len(), 1, "the slot is the trash's to empty");
     crate::trash::empty_now(&places).unwrap();
     assert_eq!(
         std::fs::read_dir(places.trash()).map_or(0, |dir| dir.count()),
