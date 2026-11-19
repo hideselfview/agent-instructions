@@ -8,8 +8,8 @@ use serde::Serialize;
 
 use crate::fail::Result;
 use crate::lists::Ender;
+use crate::lists::citation::{CitedDecision, question_cites};
 use crate::lists::derive::{self, FLOW_DAYS, FlowDay, Times};
-use crate::lists::rulings::{CitedDecision, question_cites};
 use crate::lists::trail::{Trail, trail};
 use crate::lists::{
     Audience, DesignChange, Effect, Id, Item, LandedPart, Lists, Located, Note, Placement, PlanRef,

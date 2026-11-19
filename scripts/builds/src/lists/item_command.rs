@@ -183,6 +183,7 @@ fn add(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     let stamp = Stamp::resolve(tool.now, &args, cwd)?;
     let cited = rulings::require_cited(
         &tool.reviewer,
+        &tool.places.home,
         &store.load()?,
         Source::Lists,
         &rulings::draft_texts(std::slice::from_ref(&draft)),
@@ -244,6 +245,7 @@ fn edit(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     let stamp = Stamp::resolve(tool.now, &args, cwd)?;
     let cited = rulings::require_cited(
         &tool.reviewer,
+        &tool.places.home,
         &store.load()?,
         Source::Lists,
         &rulings::edit_texts(id, &edit),

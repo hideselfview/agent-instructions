@@ -12,6 +12,7 @@ use crate::fail;
 use crate::fail::{Context, Result};
 use crate::lists::args::{Args, parse_named, read_input, read_request};
 use crate::lists::check::title_fault;
+use crate::lists::citation;
 use crate::lists::decision::{NewDecision, add_decision};
 use crate::lists::derive::{self, ItemState};
 use crate::lists::draft::{require_draft_briefs, work_or_why};
@@ -189,7 +190,13 @@ fn ask(tool: &Tool, args: &[String], cwd: &Path, words: &str) -> Result<String> 
     if let Some(why) = &first {
         texts.push(Text::new("why the question goes first", why));
     }
-    let cited = rulings::require_cited(&tool.reviewer, &store.load()?, Source::Lists, &texts)?;
+    let cited = rulings::require_cited(
+        &tool.reviewer,
+        &tool.places.home,
+        &store.load()?,
+        Source::Lists,
+        &texts,
+    )?;
     let id = store.write(&stamp, words, |db| {
         let lists = &store::read(db)?;
         if let Some(from) = from_item {
@@ -430,7 +437,13 @@ fn resolve(tool: &Tool, args: &[String], cwd: &Path, words: &str, verb: Verb) ->
     }
     texts.extend(rulings::draft_texts(&drafts));
     texts.extend(rulings::blocked_texts(&blocked));
-    let cited = rulings::require_cited(&tool.reviewer, &store.load()?, Source::Lists, &texts)?;
+    let cited = rulings::require_cited(
+        &tool.reviewer,
+        &tool.places.home,
+        &store.load()?,
+        Source::Lists,
+        &texts,
+    )?;
     let resolved = store.write(&stamp, words, |db| {
         let lists = &store::read(db)?;
         let question = open_question(lists, id)?.clone();
@@ -677,7 +690,13 @@ fn edit(tool: &Tool, args: &[String], cwd: &Path, words: &str) -> Result<String>
     if let Some(why) = &blocks_nothing {
         texts.push(Text::new("why the question blocks nothing", why));
     }
-    let cited = rulings::require_cited(&tool.reviewer, &store.load()?, Source::Lists, &texts)?;
+    let cited = rulings::require_cited(
+        &tool.reviewer,
+        &tool.places.home,
+        &store.load()?,
+        Source::Lists,
+        &texts,
+    )?;
     store.write(&stamp, words, |db| {
         let lists = &store::read(db)?;
         if fields {
@@ -729,8 +748,8 @@ fn show(tool: &Tool, args: &[String], cwd: &Path) -> Result<String> {
         if let Some(plan) = &entry.question.plan {
             out.push_str(&format!("       plan {} {}\n", plan.path, plan.number));
         }
-        for cited in rulings::question_cites(&lists, entry.question) {
-            out.push_str(&format!("       {}\n", rulings::cited_line(&cited)));
+        for cited in citation::question_cites(&lists, entry.question) {
+            out.push_str(&format!("       {}\n", citation::cited_line(&cited)));
         }
         out.push_str(&format!("\n{}\n", entry.question.details.trim_end()));
         return Ok(out);

@@ -2263,7 +2263,7 @@ tokens and cost, each finding, and the --spec-decided record (`builds help
 lists`, item take). Before the spec check, take runs the rulings check over
 the brief with a reviewer that has no tools, and refuses a brief whose
 sentence states a ruling of the person's or a standing prohibition and names
-no decision or rule (`builds help lists`, RULINGS).
+no source that records it (`builds help lists`, RULINGS).
 
 Every review command but `review groups` reads or writes a project's store:
 the one --project names, else the project of the worktree or current

@@ -271,6 +271,7 @@ fn require_drafts(tool: &Tool, scope: &Scope, request: &DesignRequest) -> Result
     }
     rulings::require_cited(
         &tool.reviewer,
+        &tool.places.home,
         &scope.lists,
         Source::Lists,
         &rulings::draft_texts(&drafts),

@@ -249,7 +249,7 @@ runs in (plans are in no commit); an absolute path is itself.
       Before the items start, take runs the rulings check over brief P
       (RULINGS), which also lists each sentence of P that states a
       prohibition meant to hold beyond the task, and refuses the items when a
-      sentence names no decision or rule. Then take checks brief P against
+      sentence names no source that records it. Then take checks brief P against
       the product spec of each W whose repo has spec files (`lists
       design-globs --spec-files`),
       with a reviewer that runs in W with read-only tools, as `builds review`
@@ -503,18 +503,34 @@ prefers, forbids or allowed something:
                       beyond the task
 
 builds finds each quote in the text and sets aside one it does not find,
-printing it. In each quoted sentence, builds reads every citation: `decision
-#N` must name a decision of the log, and a path that ends in .md must name a
-rule of the rules checkout (rules/<group>/<rule>.md or
-projects/<project>-rules/<group>/<rule>.md), a project file
-(projects/<project>.md) or instructions-agent.md, written as that path or as
-a longer path that ends with it. builds refuses the command, writes nothing
-and quotes each sentence that names no citation or names one that is no
-decision or rule. Otherwise builds prints each quoted sentence with the title
-of each decision it cites, and writes. When the reviewer gives no usable
-answer, builds refuses the command. The check records nothing in the store.
-The rules checkout is ~/.codex/agent-instructions; `item take` takes
---rules-root and --reviewer in place of it and of claude.
+printing it. In each quoted sentence, builds reads every citation, and each
+must name a source that exists:
+
+  decision #N         a decision of the log
+  a rule file         a path that ends in .md and names a rule of the rules
+                      checkout (rules/<group>/<rule>.md or
+                      projects/<project>-rules/<group>/<rule>.md), a
+                      project file (projects/<project>.md) or
+                      instructions-agent.md, written as that path or as a
+                      longer path that ends with it
+  ~/.claude/CLAUDE.md the instructions every agent loads, which must exist
+  a repo's CLAUDE.md  `CLAUDE.md of repo <repo>`, or the file's path at the
+                      top of the repo's checkout ~/dev/<repo>, which must
+                      exist; no other CLAUDE.md counts
+  a builds help       `builds help`, the page's topic (lists, workflow or
+  section             briefs) when the section is on one of those pages, and
+                      the section's heading in capitals, such as `builds
+                      help workflow, DISPATCH` or `builds help`, CARGO; the
+                      page must hold a section of that heading. A mention of
+                      builds help that no heading follows cites nothing.
+
+builds refuses the command, writes nothing and quotes each sentence that
+names no citation or names one that does not exist. Otherwise builds prints
+each quoted sentence with what it cites, with the title of each decision, and
+writes. When the reviewer gives no usable answer, builds refuses the command.
+The check records nothing in the store. The rules checkout is
+~/.codex/agent-instructions; `item take` takes --rules-root and --reviewer in
+place of it and of claude.
 
 
 DESIGN CHANGES

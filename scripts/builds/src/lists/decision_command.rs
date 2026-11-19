@@ -67,6 +67,7 @@ fn add(tool: &Tool, args: &[String], cwd: &std::path::Path) -> Result<()> {
     // work.
     let cited = rulings::require_cited(
         &tool.reviewer,
+        &tool.places.home,
         &store.load()?,
         Source::Lists,
         &rulings::draft_texts(&work),

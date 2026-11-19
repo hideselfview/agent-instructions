@@ -1,4 +1,5 @@
 use super::*;
+use crate::lists::citation::CitedDecision;
 use crate::lists::cmd_item;
 use crate::lists::decision::{NewDecision, add_decision};
 use crate::lists::fixtures::{NOON, stamp};
@@ -83,6 +84,45 @@ impl Bench {
         )
     }
 
+    /// Takes item 1, which it adds, in side worktree 1 with a brief that
+    /// holds <brief>.
+    fn take(&self, brief: &str) -> Result<()> {
+        let side = self
+            .demo
+            .add_side(1, "agent A", "work")
+            .display()
+            .to_string();
+        let item = self.demo.brief("item.md");
+        cmd_item(
+            &self.demo.tool,
+            &words(&[
+                "add",
+                "--title",
+                "Do the first thing now",
+                "--area",
+                "Alpha",
+                "--details-file",
+                &item,
+            ]),
+        )
+        .unwrap();
+        let file = self.demo.scratch.dir.join("brief.md");
+        std::fs::write(&file, brief).unwrap();
+        cmd_item(
+            &self.demo.tool,
+            &words(&[
+                "take",
+                "1",
+                "--worktree",
+                &side,
+                "--branch",
+                "work",
+                "--brief",
+                &file.display().to_string(),
+            ]),
+        )
+    }
+
     /// The prompts of the rulings check the commands gave the reviewer.
     fn prompts(&self) -> Vec<String> {
         self.fake
@@ -105,7 +145,7 @@ fn a_question_whose_ruling_cites_nothing_is_refused_quoting_the_sentence() {
         "{refused}"
     );
     assert!(
-        refused.contains("it names no decision (`decision #N`) and no rule path"),
+        refused.contains("it names no decision, rule file, CLAUDE.md or builds help section"),
         "{refused}"
     );
     assert_eq!(b.demo.state(), before, "a refused ask writes nothing");
@@ -248,42 +288,9 @@ fn an_item_whose_details_state_an_uncited_ruling_is_not_added() {
 #[test]
 fn a_brief_whose_standing_prohibition_cites_nothing_refuses_the_take() {
     let b = bench("rulings-brief");
-    let side = b.demo.add_side(1, "agent A", "work").display().to_string();
-    let item = b.demo.brief("item.md");
-    cmd_item(
-        &b.demo.tool,
-        &words(&[
-            "add",
-            "--title",
-            "Do the first thing now",
-            "--area",
-            "Alpha",
-            "--details-file",
-            &item,
-        ]),
-    )
-    .unwrap();
     let prohibition = "Agents never reword commit messages.";
-    let brief = b.demo.scratch.dir.join("brief.md");
-    std::fs::write(
-        &brief,
-        format!("# Brief\n\nFix the parser. {prohibition}\n"),
-    )
-    .unwrap();
     b.quotes(&[prohibition]);
-    let refused = refusal(cmd_item(
-        &b.demo.tool,
-        &words(&[
-            "take",
-            "1",
-            "--worktree",
-            &side,
-            "--branch",
-            "work",
-            "--brief",
-            &brief.display().to_string(),
-        ]),
-    ));
+    let refused = refusal(b.take(&format!("# Brief\n\nFix the parser. {prohibition}\n")));
     assert!(refused.contains(&format!("\"{prohibition}\"")), "{refused}");
     assert!(
         b.demo.store.load().unwrap().items[0].running.is_empty(),
@@ -298,22 +305,30 @@ fn a_brief_whose_standing_prohibition_cites_nothing_refuses_the_take() {
     );
 }
 
-#[test]
-fn decision_citations_name_decision_and_a_number() {
-    assert_eq!(
-        decision_ids("Decision #12 and decision#3, not decisions #4, and decision #12 again"),
-        vec![Id(12), Id(3)]
-    );
-    assert_eq!(decision_ids("the decision is yours"), Vec::<Id>::new());
-}
+/// The hard limits of the coordinator's brief template, each citing where
+/// it is written.
+const HARD_LIMITS: [&str; 6] = [
+    "Never edit, build or commit in ~/dev/bae, ~/dev/coven or ~/dev/agent-instructions (builds help workflow, WORKTREES).",
+    "Cargo only through the repo's wrapper (`builds help`, CARGO).",
+    "Stage by path; no `git add -A`, no stash, no --no-verify (builds help workflow, DISPATCH).",
+    "Never write to the person's keychain (CLAUDE.md of repo demo).",
+    "Pass `--agent <your id>` on every builds command (builds help, ACKNOWLEDGING THE RULES).",
+    "Commit messages stay brief (~/.claude/CLAUDE.md).",
+];
 
 #[test]
-fn markdown_paths_lose_the_marks_around_them() {
-    assert_eq!(
-        md_paths("(`rules/a/b.md`), see ~/x/projects/bae.md. and README"),
-        vec![
-            "rules/a/b.md".to_string(),
-            "~/x/projects/bae.md".to_string()
-        ]
-    );
+fn a_brief_whose_hard_limits_cite_claude_md_and_builds_help_is_taken() {
+    let b = bench("rulings-hard-limits");
+    let home = &b.demo.tool.places.home;
+    for file in [".claude/CLAUDE.md", "dev/demo/CLAUDE.md"] {
+        std::fs::create_dir_all(home.join(file).parent().unwrap()).unwrap();
+        std::fs::write(home.join(file), "The person's instructions.").unwrap();
+    }
+    b.quotes(&HARD_LIMITS);
+    b.take(&format!(
+        "# Brief\n\nFix the parser.\n\n{}\n",
+        HARD_LIMITS.join(" ")
+    ))
+    .unwrap();
+    assert_eq!(b.demo.store.load().unwrap().items[0].running.len(), 1);
 }

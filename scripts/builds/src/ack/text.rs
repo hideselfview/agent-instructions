@@ -80,11 +80,11 @@ impl Text {
         }
         sections.push(Section {
             name: "builds help workflow".to_string(),
-            text: crate::WORKFLOW_HELP.to_string(),
+            text: crate::help::WORKFLOW_HELP.to_string(),
         });
         sections.push(Section {
             name: "builds help lists overview".to_string(),
-            text: crate::LISTS_OVERVIEW.to_string(),
+            text: crate::help::LISTS_OVERVIEW.to_string(),
         });
         let root = crate::review::installed_rules_root(&places.home);
         for rule in rules::load(&root, Some(project))? {

@@ -25,12 +25,14 @@ READ FIRST
     spec does.
   - Each sentence of a brief that says the person decided, chose, prefers,
     forbids or allowed something, or that states a prohibition meant to hold
-    beyond the task, names the decision that records it (`decision #N`) or
-    the rule file that states it (rules/<group>/<rule>.md, a project file
-    projects/<project>.md, or instructions-agent.md). `builds item take`
-    refuses a brief with such a sentence that names neither, or names a
-    decision or rule that does not exist. Never copy such a sentence from
-    another brief: find its decision or rule, or leave it out.
+    beyond the task, names where it is written: the decision that records it
+    (`decision #N`), the rule file that states it (rules/<group>/<rule>.md,
+    a project file projects/<project>.md, or instructions-agent.md),
+    ~/.claude/CLAUDE.md, the CLAUDE.md of repo <repo>, or a section of a
+    builds help page (builds help workflow, DISPATCH). `builds item take`
+    refuses a brief with such a sentence that names none, or names one that
+    does not exist. Never copy such a sentence from another brief: find its
+    source, or leave it out.
   - Every rule file the matching-rules script lists for the files your items
     touch:
       ~/.codex/agent-instructions/scripts/rules_review/matching_rules.py \

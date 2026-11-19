@@ -47,6 +47,7 @@ mod free_worktrees;
 mod glob;
 mod health;
 mod health_fix;
+mod help;
 mod holder_run;
 mod hook_check_failure;
 mod hook_check_starts;
@@ -138,18 +139,6 @@ use fail::{Fail, Result};
 use places::{Places, Rules};
 use tool::Tool;
 
-const HELP: &str = include_str!("help.txt");
-/// What the lists are and who writes them, which every agent reads.
-const LISTS_OVERVIEW: &str = include_str!("lists/lists-overview.txt");
-/// `builds help lists`: the overview, then each command.
-const LISTS_HELP: &str = concat!(
-    include_str!("lists/lists-overview.txt"),
-    "\n\n",
-    include_str!("lists/lists-help.txt")
-);
-const WORKFLOW_HELP: &str = include_str!("workflow-help.txt");
-const BRIEFS_HELP: &str = include_str!("briefs-help.txt");
-
 fn main() -> ExitCode {
     let mut argv = std::env::args_os();
     let program = argv.next().unwrap_or_default();
@@ -177,7 +166,7 @@ fn main() -> ExitCode {
         Err(fail) => return exit_code(fail),
     };
     let Some((command, rest)) = args.split_first() else {
-        print!("{HELP}");
+        print!("{}", help::HELP);
         return ExitCode::from(2);
     };
     let _use = match enter_stores(command, &args) {
@@ -320,20 +309,16 @@ fn run(command: &str, args: &[String]) -> Result<()> {
         "queue" => return queue::cmd_queue(&Places::from_env()?, args),
         "takeover" => return queue::cmd_takeover(&Places::from_env()?, args),
         "-h" | "--help" | "help" => {
-            match args {
-                [topic] if topic == "lists" => print!("{LISTS_HELP}"),
-                [topic] if topic == "workflow" => {
-                    print!("{WORKFLOW_HELP}");
-                    print!(
-                        "{}",
-                        review::workflow_section(
-                            &Places::from_env()?,
-                            &lists::args::current_dir()?
-                        )?
-                    );
-                }
-                [topic] if topic == "briefs" => print!("{BRIEFS_HELP}"),
-                _ => print!("{HELP}"),
+            let topic = match args {
+                [topic] => help::page(Some(topic.as_str())).map(|_| topic.as_str()),
+                _ => None,
+            };
+            print!("{}", help::page(topic).expect("builds help has a page"));
+            if topic == Some("workflow") {
+                print!(
+                    "{}",
+                    review::workflow_section(&Places::from_env()?, &lists::args::current_dir()?)?
+                );
             }
             return Ok(());
         }

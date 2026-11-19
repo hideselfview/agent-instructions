@@ -13,9 +13,9 @@
 //! without --worktree and --branch, and nowhere else.
 //!
 //! Before the take's write, take checks that each sentence of the brief that
-//! states a ruling of the person's or a standing prohibition cites the
-//! decision or rule behind it (rulings.rs), and refuses the take when one
-//! cites nothing or names what builds does not keep. Then it checks the
+//! states a ruling of the person's or a standing prohibition cites where it
+//! is written (rulings.rs), and refuses the take when one cites nothing or
+//! names what does not exist. Then it checks the
 //! brief against the product spec of each named worktree's repo that has
 //! spec files (spec_check.rs) and records each check in its own write. A
 //! conflict refuses the take unless `--spec-decided` names the decision or
@@ -463,6 +463,7 @@ pub fn take(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     let checks = Checks::of(tool, &lists, &args)?;
     for line in rulings::require_cited(
         &checks.reviewer,
+        &tool.places.home,
         &lists,
         Source::Brief,
         &[Text::new(

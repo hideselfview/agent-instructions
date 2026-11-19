@@ -17,13 +17,14 @@
 //! transaction and the snapshot read, `check` the checks the tables cannot
 //! hold, `derive` what is computed and never stored, `view` the JSON the page
 //! reads, `draft` what a command that makes work checks before the write,
-//! `rulings` the check that text a command writes cites the decision or rule
-//! behind each ruling of the person's it states, `args` the flag parsing
-//! every command uses.
+//! `rulings` the check that text a command writes cites where each ruling of
+//! the person's it states is written down, `citation` what such a citation
+//! names, `args` the flag parsing every command uses.
 
 pub mod area;
 pub mod args;
 pub mod check;
+pub mod citation;
 mod command;
 pub mod day;
 pub mod decision;
