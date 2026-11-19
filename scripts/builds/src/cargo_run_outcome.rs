@@ -177,16 +177,34 @@ impl<W: Write> Tee<W> {
     }
 }
 
-impl<W: Write> Write for Tee<W> {
-    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        let written = self.inner.write(buf)?;
-        for byte in &buf[..written] {
+impl<W: Write> Tee<W> {
+    /// Gives each whole line of <buf> to the watch, then, when <print> is
+    /// set, writes <buf> to the inner writer: the watch reads every line
+    /// even after a write failed.
+    pub fn write_all_watched(&mut self, buf: &[u8], print: bool) -> std::io::Result<()> {
+        self.watch_bytes(buf);
+        if print {
+            self.inner.write_all(buf)?;
+            self.inner.flush()?;
+        }
+        Ok(())
+    }
+
+    fn watch_bytes(&mut self, buf: &[u8]) {
+        for byte in buf {
             self.partial.push(*byte);
             if *byte == b'\n' {
                 self.watch.line(&self.partial);
                 self.partial.clear();
             }
         }
+    }
+}
+
+impl<W: Write> Write for Tee<W> {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        let written = self.inner.write(buf)?;
+        self.watch_bytes(&buf[..written]);
         Ok(written)
     }
 

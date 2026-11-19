@@ -711,17 +711,11 @@ pub fn run_command(
             crate::cargo_run_outcome::Tee::new(std::io::stderr(), watch.clone()),
         )
     });
-    // If writing to stdout fails, nobody can read the output, so the relay
-    // ignores the error.
-    let out = child.stdout.take().zip(cargo).map(|(mut stdout, watch)| {
-        let watch = watch.clone();
-        std::thread::spawn(move || {
-            let _ = std::io::copy(
-                &mut stdout,
-                &mut crate::cargo_run_outcome::Tee::new(std::io::stdout(), watch),
-            );
-        })
-    });
+    let out = child
+        .stdout
+        .take()
+        .zip(cargo)
+        .map(|(stdout, watch)| relay_stdout(stdout, watch.clone()));
     let waited = || {
         if let Some(out) = out {
             out.join().expect("the relay does not panic");
@@ -736,6 +730,36 @@ pub fn run_command(
         return Ok((STOPPED_EXIT, waited));
     }
     Ok((crate::fail::exit_code(status), waited))
+}
+
+/// Passes the host's stdout <from> on to this process's stdout, giving each
+/// line to <watch>, until the host closes it. A read that fails ends the
+/// relay, and a write that fails leaves the rest unprinted while <watch>
+/// still reads it; the relay says each.
+fn relay_stdout(
+    mut from: impl std::io::Read + Send + 'static,
+    watch: crate::cargo_run_outcome::Watch,
+) -> std::thread::JoinHandle<()> {
+    std::thread::spawn(move || {
+        let mut to = crate::cargo_run_outcome::Tee::new(std::io::stdout(), watch);
+        let mut printing = true;
+        let mut chunk = [0u8; 8192];
+        loop {
+            let read = match from.read(&mut chunk) {
+                Ok(0) => break,
+                Ok(read) => read,
+                Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+                Err(error) => {
+                    note(format!("reading the command's output stopped: {error}"));
+                    break;
+                }
+            };
+            if let Err(error) = to.write_all_watched(&chunk[..read], printing) {
+                note(format!("printing the command's output stopped: {error}"));
+                printing = false;
+            }
+        }
+    })
 }
 
 /// The worktree path the claim script printed.

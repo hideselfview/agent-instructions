@@ -63,3 +63,30 @@ fn a_passed_run_keeps_no_excerpt_and_a_signal_stops_a_run() {
         "builds read no output"
     );
 }
+
+/// A writer whose every write fails.
+struct Closed;
+
+impl Write for Closed {
+    fn write(&mut self, _: &[u8]) -> std::io::Result<usize> {
+        Err(std::io::Error::other("closed"))
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+#[test]
+fn the_watch_reads_every_line_even_after_printing_failed() {
+    let watch = Watch::default();
+    let mut tee = Tee::new(Closed, watch.clone());
+    assert!(
+        tee.write_all_watched(b"test a::one ... FAILED\n", true)
+            .is_err()
+    );
+    tee.write_all_watched(b"test a::two ... FAILED\n", false)
+        .unwrap();
+    drop(tee);
+    assert_eq!(watch.outcome(101).failed, vec!["a::one", "a::two"]);
+}
