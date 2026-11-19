@@ -70,7 +70,7 @@ pub fn cmd_band(tool: &crate::tool::Tool, args: &[String]) -> Result<()> {
     crate::host::set_band(&tool.places, name, band)?;
     match band {
         Some(band) => println!(
-            "{} keeps its 5-minute load between {}",
+            "{} has a 5-minute load band of {}",
             crate::host::place(name),
             band.text()
         ),
