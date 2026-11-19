@@ -445,8 +445,7 @@ pub fn sample(
     places: &[Place],
     hosts: &[Host],
     locks: &[AppLock],
-    uid: u32,
-    home: &Path,
+    machine: &crate::places::Places,
     now: i64,
     sccache: (bool, Option<u64>, Option<Reading>),
 ) -> Result<Machine> {
@@ -535,7 +534,7 @@ pub fn sample(
         // taken, since reading every process's open files costs.
         let driver_running = holding.is_some();
         if holding.is_none() && taken(path) {
-            holding = topmost(&processes, uid, opened);
+            holding = topmost(&processes, machine.uid, opened);
         }
         let run = match holding.filter(|_| driver_running) {
             None => None,
@@ -623,12 +622,19 @@ pub fn sample(
         .iter()
         .flat_map(|q| q.queue.iter().map(|w| w.pid))
         .collect();
+    let sessions = match crate::claude_sessions::pids(&machine.claude_sessions()) {
+        Ok(sessions) => sessions,
+        Err(error) => crate::fail!(
+            "reading the running Claude Code sessions failed, so health cannot tell which shells a session waits on: {error}"
+        ),
+    };
     let shells = crate::shells::judge(
-        &crate::shells::gather(&processes, uid),
+        &crate::shells::gather(&processes, machine.uid),
         now,
-        home,
+        &machine.home,
         places,
         &queued,
+        &sessions,
     );
     Ok(Machine {
         at: now,
@@ -1097,8 +1103,7 @@ pub fn health(tool: &Tool) -> Result<Health> {
         &places,
         &crate::host::all(&tool.places)?,
         &locks_of(&tool.places, &roots)?,
-        tool.places.uid,
-        &tool.places.home,
+        &tool.places,
         now,
         sccache,
     )?;

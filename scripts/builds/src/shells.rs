@@ -22,7 +22,8 @@ use crate::procs::{Place, Processes, args, cwd, place_of, tree_cpu};
 use crate::text::tilde;
 
 /// A shell this old, whose whole tree has used less than IDLE_SHARE of a
-/// core, is stuck on input or a lock.
+/// core, and that no live Claude Code session waits on, is stuck on input or
+/// a lock.
 pub const IDLE_MINUTES: i64 = 20;
 pub const IDLE_SHARE: f64 = 0.02;
 /// A copy younger than this may be a command run twice on purpose.
@@ -64,7 +65,8 @@ pub enum Reason {
     WholeDisk(String),
     /// The same command runs in the same worktree in an older shell.
     Duplicate { of: i32 },
-    /// Used this share of a core over its life, as a percentage.
+    /// Used this share of a core over its life, as a percentage, and its
+    /// session has ended: nothing waits on it.
     Idle { percent: f64 },
 }
 
@@ -514,6 +516,10 @@ struct Candidate {
     junk: Option<Reason>,
     cpu_seconds: f64,
     queued: bool,
+    /// A live Claude Code session started the shell and waits on it. A
+    /// command that waits for outside work, such as `gh run watch`, uses no
+    /// CPU on purpose, so its CPU use says nothing.
+    awaited: bool,
     /// A compiler runs under it: the compile may be in the sccache server's
     /// tree, so the shell's own CPU says nothing.
     compiling: bool,
@@ -526,12 +532,16 @@ struct Candidate {
 /// Judges every agent shell in <entries> at <now>: which are junk, and why.
 /// <queued> holds the pids of `builds` processes waiting in an app queue
 /// (`Queue::waiting`): a shell with one in its tree waits on purpose.
+/// <sessions> holds the pids of the running Claude Code processes
+/// (`claude_sessions::pids`): a session waits on every shell it started, so a
+/// shell whose parent is one is never idle.
 pub fn judge(
     entries: &[Entry],
     now: i64,
     home: &Path,
     places: &[Place],
     queued: &HashSet<i32>,
+    sessions: &HashSet<i32>,
 ) -> Shells {
     let mut children: HashMap<i32, Vec<&Entry>> = HashMap::new();
     for entry in entries {
@@ -606,6 +616,7 @@ pub fn judge(
             junk,
             cpu_seconds: tree.iter().map(|e| e.cpu_seconds).sum(),
             queued: tree.iter().any(|e| queued.contains(&e.pid)),
+            awaited: sessions.contains(&top.ppid),
             building: members.iter().any(|e| {
                 e.argv.first().is_some_and(|a| basename(a) == "builds") && runs_a_build(&e.argv)
             }),
@@ -632,6 +643,7 @@ pub fn judge(
             Some(Reason::Duplicate { of: oldest.pid })
         } else if age >= IDLE_MINUTES * 60
             && !this.queued
+            && !this.awaited
             && !this.compiling
             && !this.building
             && this.cpu_seconds / (age as f64) < IDLE_SHARE

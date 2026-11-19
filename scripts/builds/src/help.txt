@@ -1453,8 +1453,11 @@ STATUS, HEALTH AND THE DASHBOARD
                                 that started the shell, reason, command): a
                                 wait loop, a search of the whole disk, a copy
                                 of an older shell's command in the same
-                                worktree, or a shell idle for 20+ minutes (a
-                                build waiting in an app queue is not idle).
+                                worktree, or a shell idle for 20+ minutes
+                                (a build waiting in an app queue is not
+                                idle, and neither is a shell that a running
+                                Claude Code session started: the session
+                                waits on it, as on `gh run watch`).
                                 --stop-junk stops each junk shell and
                                 everything under it, printing each pid it
                                 stopped and why

@@ -51,7 +51,14 @@ fn child(pid: i32, parent: &Entry, cpu: f64, argv: &[&str]) -> Entry {
 }
 
 fn judge_all(entries: &[Entry]) -> Shells {
-    judge(entries, NOW, Path::new(HOME), &places(), &HashSet::new())
+    judge(
+        entries,
+        NOW,
+        Path::new(HOME),
+        &places(),
+        &HashSet::new(),
+        &HashSet::new(),
+    )
 }
 
 fn reasons(shells: &Shells) -> Vec<(i32, Reason)> {
@@ -382,6 +389,63 @@ fn a_shell_that_used_next_to_no_cpu_for_long_is_idle() {
     );
 }
 
+/// The Claude Code process <pid> that started <shell>.
+fn started_by(pid: i32, mut shell: Entry) -> Entry {
+    shell.ppid = pid;
+    shell
+}
+
+#[test]
+fn a_watch_that_a_live_session_waits_on_is_not_idle() {
+    // `builds health --stop-junk` once stopped an agent's `gh run watch`
+    // for using 1% of a core: a watch uses none on purpose.
+    let command = "gh run watch 44466974160 --exit-status";
+    let watch = started_by(4000, shell(1, 90, &side(1), command));
+    let gh = child(
+        11,
+        &watch,
+        0.4,
+        &["gh", "run", "watch", "44466974160", "--exit-status"],
+    );
+    let entries = [watch, gh];
+    let live = HashSet::from([4000]);
+    let found = judge(
+        &entries,
+        NOW,
+        Path::new(HOME),
+        &places(),
+        &HashSet::new(),
+        &live,
+    );
+    assert!(found.junk.is_empty(), "{} junk", found.junk.len());
+    assert_eq!(found.active, vec!["demo/side-1".to_string()]);
+}
+
+#[test]
+fn the_same_watch_under_an_ended_session_is_idle() {
+    let command = "gh run watch 44466974160 --exit-status";
+    let watch = started_by(4000, shell(1, 90, &side(1), command));
+    let gh = child(
+        11,
+        &watch,
+        0.4,
+        &["gh", "run", "watch", "44466974160", "--exit-status"],
+    );
+    let entries = [watch, gh];
+    // Another session runs; the one that started the watch does not.
+    let live = HashSet::from([4001]);
+    let found = judge(
+        &entries,
+        NOW,
+        Path::new(HOME),
+        &places(),
+        &HashSet::new(),
+        &live,
+    );
+    assert_eq!(found.junk.len(), 1);
+    assert!(matches!(found.junk[0].reason, Reason::Idle { .. }));
+}
+
 #[test]
 fn a_wait_in_the_app_build_queue_is_not_idle() {
     let queued = shell(1, 60, &side(1), "builds app-build demo work macos");
@@ -393,7 +457,14 @@ fn a_wait_in_the_app_build_queue_is_not_idle() {
     );
     let entries = [queued, queued_child];
     let waiting = HashSet::from([11]);
-    let found = judge(&entries, NOW, Path::new(HOME), &places(), &waiting);
+    let found = judge(
+        &entries,
+        NOW,
+        Path::new(HOME),
+        &places(),
+        &waiting,
+        &HashSet::new(),
+    );
     assert!(found.junk.is_empty(), "{} junk", found.junk.len());
 }
 

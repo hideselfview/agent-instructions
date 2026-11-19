@@ -481,47 +481,14 @@ pub fn prune_scratchpads(tool: &Tool, run: Run) -> Result<()> {
     Ok(())
 }
 
-/// The ids of the Claude Code sessions still running: each
-/// <sessions>/<pid>.json whose process is alive names its session. A pid a
-/// later process took keeps a session counted as running, which only keeps
-/// its scratchpad.
+/// The ids of the Claude Code sessions still running.
 fn live_sessions(
     sessions: &Path,
 ) -> std::result::Result<std::collections::HashSet<std::ffi::OsString>, String> {
-    #[derive(serde::Deserialize)]
-    struct Registered {
-        pid: i32,
-        #[serde(rename = "sessionId")]
-        session_id: String,
-    }
-    let mut live = std::collections::HashSet::new();
-    let entries = match std::fs::read_dir(sessions) {
-        Ok(entries) => entries,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(live),
-        Err(error) => return Err(format!("{}: {error}", sessions.display())),
-    };
-    for entry in entries {
-        let path = entry
-            .map_err(|error| format!("{}: {error}", sessions.display()))?
-            .path();
-        if path.extension().and_then(|e| e.to_str()) != Some("json") {
-            continue;
-        }
-        let bytes = match std::fs::read(&path) {
-            Ok(bytes) => bytes,
-            // A session that ended between the listing and the read.
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
-            Err(error) => return Err(format!("{}: {error}", path.display())),
-        };
-        let registered: Registered = serde_json::from_slice(&bytes)
-            .map_err(|error| format!("{}: {error}", path.display()))?;
-        let alive = unsafe { libc::kill(registered.pid, 0) } == 0
-            || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM);
-        if alive {
-            live.insert(registered.session_id.into());
-        }
-    }
-    Ok(live)
+    Ok(crate::claude_sessions::running(sessions)?
+        .into_iter()
+        .map(|running| running.session_id.into())
+        .collect())
 }
 
 /// The names a shell's `*` matches in <dir>; none when it can't be listed.

@@ -19,6 +19,7 @@ mod checkout;
 mod checks;
 mod checks_run;
 mod claim;
+mod claude_sessions;
 mod core_speed;
 mod daemon;
 mod db;

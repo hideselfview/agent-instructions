@@ -807,8 +807,7 @@ impl Model {
             &places,
             &crate::host::all(&self.places)?,
             &locks_of(&self.places, &roots)?,
-            self.places.uid,
-            &self.places.home,
+            &self.places,
             now,
             sccache,
         )?;
