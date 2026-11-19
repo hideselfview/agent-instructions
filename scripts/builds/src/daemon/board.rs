@@ -69,7 +69,7 @@ fn job(agent: &str) -> &str {
 /// Does <item> wait on the person's answer or review
 /// (`derive::wait_on_person`)?
 fn waits_on_person(item: &ItemView) -> bool {
-    item.waits.iter().any(|wait| wait.on_person)
+    item.waits.iter().any(|wait| wait.on_person())
 }
 
 /// The tab counts of <view>.

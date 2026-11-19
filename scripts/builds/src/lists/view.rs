@@ -7,6 +7,7 @@ use std::collections::BTreeMap;
 use serde::Serialize;
 
 use crate::fail::Result;
+use crate::lists::Ender;
 use crate::lists::derive::{self, FLOW_DAYS, FlowDay, Times};
 use crate::lists::trail::{Trail, trail};
 use crate::lists::{
@@ -65,22 +66,44 @@ pub struct BlockedView {
     pub opened: Stamp,
 }
 
+/// What an item waits on, one variant for each kind of wait; the JSON names
+/// the kind in `kind`.
 #[derive(Clone, Debug, Serialize)]
-pub struct WaitView {
-    /// `item`, `question`, `design` or `condition`.
-    pub kind: &'static str,
-    pub id: Option<Id>,
+#[serde(tag = "kind", rename_all = "lowercase")]
+pub enum WaitView {
+    Item(RecordWaitView),
+    Question(RecordWaitView),
+    Design(RecordWaitView),
+    /// A condition, which is never met until its ender removes it.
+    Condition {
+        text: String,
+        until: Ender,
+    },
+}
+
+/// A wait on a record.
+#[derive(Clone, Debug, Serialize)]
+pub struct RecordWaitView {
+    pub id: Id,
     pub title: Option<String>,
-    pub text: Option<String>,
-    /// Who ends a condition: `agent`, `coordinator` or `ci`; None for any
-    /// other wait.
-    pub until: Option<&'static str>,
     pub met: bool,
     /// How the question it names left the stack, with the reason or the
     /// decision that closed it; None for any other wait.
     pub closing: Option<String>,
     /// Does it wait on the person (`derive::wait_on_person`)?
     pub on_person: bool,
+}
+
+impl WaitView {
+    /// Does it wait on the person? A condition never does.
+    pub fn on_person(&self) -> bool {
+        match self {
+            WaitView::Item(record) | WaitView::Question(record) | WaitView::Design(record) => {
+                record.on_person
+            }
+            WaitView::Condition { .. } => false,
+        }
+    }
 }
 
 /// What the daemon joins to a running item from the worktree's claim and
@@ -270,34 +293,24 @@ impl View {
 }
 
 fn wait_view(lists: &Lists, wait: &Wait) -> Result<WaitView> {
-    let named = |kind: &'static str, id: Id| {
-        let title = lists.locate(id).map(|found| found.title.to_string());
-        Ok(WaitView {
-            kind,
-            id: Some(id),
-            title,
-            text: None,
-            until: None,
+    let record = |id: Id| -> Result<RecordWaitView> {
+        Ok(RecordWaitView {
+            id,
+            title: lists.locate(id).map(|found| found.title.to_string()),
             met: derive::wait_met(lists, wait),
             closing: crate::lists::show::question_closing_words(lists, wait)?,
             on_person: derive::wait_on_person(lists, wait),
         })
     };
-    match wait {
-        Wait::Item(id) => named("item", *id),
-        Wait::Question(id) => named("question", *id),
-        Wait::Design(id) => named("design", *id),
-        Wait::Condition { text, until } => Ok(WaitView {
-            kind: "condition",
-            id: None,
-            title: None,
-            text: Some(text.clone()),
-            until: Some(until.word()),
-            met: false,
-            closing: None,
-            on_person: false,
-        }),
-    }
+    Ok(match wait {
+        Wait::Item(id) => WaitView::Item(record(*id)?),
+        Wait::Question(id) => WaitView::Question(record(*id)?),
+        Wait::Design(id) => WaitView::Design(record(*id)?),
+        Wait::Condition { text, until } => WaitView::Condition {
+            text: text.clone(),
+            until: *until,
+        },
+    })
 }
 
 /// The view of open <item>, with <branches> the times of every branch
