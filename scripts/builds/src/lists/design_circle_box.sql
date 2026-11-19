@@ -1,6 +1,6 @@
 -- A circle of a review board that surrounds a box on the board, not the
--- elements of a selector (design.rs owns this table and is the only code that
--- writes it). `review_circle` holds the circles of a selector. A board's
+-- elements of a selector (design_circle_box.rs owns this table and is the only
+-- code that writes it). `review_circle` holds the circles of a selector. A board's
 -- circles read in the order of their positions across both tables, and a
 -- position is in one of them.
 CREATE TABLE review_circle_box (

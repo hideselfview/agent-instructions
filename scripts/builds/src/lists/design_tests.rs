@@ -2207,43 +2207,6 @@ fn every_named_constraint_of_the_design_tables_refuses_its_row() {
         plant(&db, "review_circle", &row(&circle, &[("board", v(1))])),
     );
     plant(&db, "review_circle", &circle).unwrap();
-    let mut boxes = Refusals::new(include_str!("design_circle_box.sql"));
-    let boxed = [
-        ("design_id", v(good.0)),
-        ("board", v(0)),
-        ("position", v(1)),
-        ("x", v(10)),
-        ("y", v(20)),
-        ("width", v(300)),
-        ("height", v(40)),
-    ];
-    boxes.check(
-        "review_circle_box_position_not_negative",
-        plant(
-            &db,
-            "review_circle_box",
-            &row(&boxed, &[("position", v(-1))]),
-        ),
-    );
-    boxes.check(
-        "review_circle_box_width_is_positive",
-        plant(&db, "review_circle_box", &row(&boxed, &[("width", v(0))])),
-    );
-    boxes.check(
-        "review_circle_box_height_is_positive",
-        plant(&db, "review_circle_box", &row(&boxed, &[("height", v(0))])),
-    );
-    boxes.check(
-        "review_circle_box_label_says_something",
-        plant(&db, "review_circle_box", &row(&boxed, &[("label", v(" "))])),
-    );
-    boxes.check_as(
-        "review_circle_box_is_on_a_board",
-        "FOREIGN KEY",
-        plant(&db, "review_circle_box", &row(&boxed, &[("board", v(1))])),
-    );
-    plant(&db, "review_circle_box", &boxed).unwrap();
-    boxes.done();
     refused.covered_without_a_name(&["design_repo_is_the_projects"]);
     refused.done();
 }

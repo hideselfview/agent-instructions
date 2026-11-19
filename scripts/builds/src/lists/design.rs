@@ -18,6 +18,7 @@ use crate::db::Sql;
 use crate::fail;
 use crate::fail::Result;
 use crate::lists::derive::{self, ItemState};
+use crate::lists::design_circle_box;
 use crate::lists::design_paths::{Changes, Drawing, Globs, PlaceKind, changes_of, drawing_at};
 use crate::lists::design_session::{self, SessionState};
 use crate::lists::design_variants::{self, Variants};
@@ -790,16 +791,22 @@ pub fn save(db: &Connection, design: &DesignChange) -> Result<()> {
             .sql()?;
             for (n, circle) in board.circles.iter().enumerate() {
                 match &circle.around {
-                    Around::Selector(selector) => db.execute(
-                        "INSERT INTO review_circle (design_id, board, position, selector, label) VALUES (?1, ?2, ?3, ?4, ?5)",
-                        params![design.id, at as i64, n as i64, selector, circle.label],
-                    ),
-                    Around::Box(b) => db.execute(
-                        "INSERT INTO review_circle_box (design_id, board, position, x, y, width, height, label) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-                        params![design.id, at as i64, n as i64, b.x, b.y, b.width, b.height, circle.label],
-                    ),
+                    Around::Selector(selector) => {
+                        db.execute(
+                            "INSERT INTO review_circle (design_id, board, position, selector, label) VALUES (?1, ?2, ?3, ?4, ?5)",
+                            params![design.id, at as i64, n as i64, selector, circle.label],
+                        )
+                        .sql()?;
+                    }
+                    Around::Box(area) => design_circle_box::write(
+                        db,
+                        design.id,
+                        at as i64,
+                        n as i64,
+                        area,
+                        circle.label.as_deref(),
+                    )?,
                 }
-                .sql()?;
             }
         }
     }
@@ -1649,38 +1656,7 @@ pub fn read(
     }
     // A board's circles in the order of their positions, which the two
     // tables share between them.
-    let mut circles: BTreeMap<(Id, i64), Vec<(i64, Circle)>> = BTreeMap::new();
-    let mut statement = db
-        .prepare(
-            "SELECT design_id, board, position, x, y, width, height, label FROM review_circle_box",
-        )
-        .sql()?;
-    for row in statement
-        .query_map([], |row| {
-            Ok((
-                row.get::<_, Id>(0)?,
-                row.get::<_, i64>(1)?,
-                row.get::<_, i64>(2)?,
-                BoardBox {
-                    x: row.get(3)?,
-                    y: row.get(4)?,
-                    width: row.get(5)?,
-                    height: row.get(6)?,
-                },
-                row.get::<_, Option<String>>(7)?,
-            ))
-        })
-        .sql()?
-    {
-        let (design, board, position, area, label) = row.sql()?;
-        circles.entry((design, board)).or_default().push((
-            position,
-            Circle {
-                around: Around::Box(area),
-                label,
-            },
-        ));
-    }
+    let mut circles = design_circle_box::all(db)?;
     let mut statement = db
         .prepare("SELECT design_id, board, position, selector, label FROM review_circle")
         .sql()?;
@@ -1874,7 +1850,7 @@ pub fn allow_places_with_no_app_work(db: &Connection) -> Result<()> {
 
 /// The tables design.rs owns.
 #[cfg(test)]
-const TABLES: [&str; 13] = [
+const TABLES: [&str; 12] = [
     "design",
     "design_session",
     "design_tip",
@@ -1887,7 +1863,6 @@ const TABLES: [&str; 13] = [
     "review_section",
     "review_board",
     "review_circle",
-    "review_circle_box",
 ];
 
 /// Writes a row of one of design.rs's tables as given, the constraints still

@@ -31,6 +31,7 @@ pub mod decision;
 mod decision_command;
 pub mod derive;
 pub mod design;
+pub mod design_circle_box;
 mod design_command;
 pub mod design_paths;
 pub mod design_reads;
