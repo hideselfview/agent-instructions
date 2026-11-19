@@ -126,6 +126,11 @@ Then say what the user would see in the app either way, in plain words, with no
 item numbers or code names, and give each option as what the app does, with your
 pick and one clause of why.
 
+Before you ask a question or describe a design or a change to the user, read
+what the app's code does today and say it first. A design that draws what the
+app already does is the boards catching up, not a change, and a question the
+code already answers is not the user's.
+
 **Never ask the user for routine work.** Do it. Routine work includes landing
 reviewed work and pushing it to main, rewording or splitting your own commits,
 starting a session or an agent, anything in the user's own repos (bae-fm's,
