@@ -1105,7 +1105,17 @@ from the store, never built again.
                               design/shots.toml; `lint` names each declared
                               shot and each record entry with no board;
                               `runtime` names the canvas runtime copy that
-                              draws the boards. The program reads the
+                              draws the boards. A component shot is named
+                              <platform>.component.<thing>.<state> and draws
+                              the component <Platform><Thing> (`mac.component.row.label` draws
+                              MacRow). When the
+                              repo's design system has no preview for
+                              <Platform><Thing> but has one for <Thing>, the
+                              shot draws that component, which both platforms
+                              share (`android.component.artwork.default`
+                              draws Artwork); the platform shows only in the
+                              shot's @<platform> file suffix. The program
+                              reads the
                               .app-build lines that start with shots- (other
                               than shots-source): `shots-capture <platform>
                               <command>...` takes a platform's shots,

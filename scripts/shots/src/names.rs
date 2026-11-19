@@ -1,6 +1,7 @@
 //! Board and shot names: `<platform>.<area>.<screen>[.<state>]` for a screen
 //! and `<platform>.component.<thing>.<state>` for a design-system component's
-//! state. Each segment is lower-case words joined by `-`.
+//! state. A component both platforms share (`Artwork`) has the same form, with
+//! the platform of the shot it draws. Each segment is lower-case words joined by `-`.
 
 use std::fmt;
 
@@ -190,18 +191,35 @@ impl Prefix {
 }
 
 impl ComponentName {
-    /// The design-system component the shot draws: `cast-row` on Android is
-    /// `AndroidCastRow`.
-    pub(crate) fn component(&self) -> String {
-        let words = self.thing.split('-').map(|word| {
-            let mut chars = word.chars();
-            chars
-                .next()
-                .map(|first| first.to_uppercase().chain(chars).collect::<String>())
-                .unwrap_or_default()
-        });
-        std::iter::once(self.platform.component_prefix().to_string())
-            .chain(words)
+    /// The design-system component the shot draws, as a folder of the repo at
+    /// <root>. `cast-row` on Android is `AndroidCastRow`. A thing with no
+    /// preview under its platform's name but one under the bare name, such as
+    /// `artwork` (`Artwork`), is a component both platforms share; the shot's
+    /// platform stays in its `@<platform>` file suffix. A thing with neither
+    /// preview names the platform's component, so a missing preview is
+    /// reported under that name.
+    pub(crate) fn component(&self, root: &std::path::Path) -> String {
+        let shared = self.shared_component();
+        let platform = format!("{}{shared}", self.platform.component_prefix());
+        let has_preview = |name: &str| root.join(boards::preview::preview_path(name)).is_file();
+        if !has_preview(&platform) && has_preview(&shared) {
+            shared
+        } else {
+            platform
+        }
+    }
+
+    /// The thing in PascalCase, the name of a component both platforms share.
+    fn shared_component(&self) -> String {
+        self.thing
+            .split('-')
+            .map(|word| {
+                let mut chars = word.chars();
+                chars
+                    .next()
+                    .map(|first| first.to_uppercase().chain(chars).collect::<String>())
+                    .unwrap_or_default()
+            })
             .collect()
     }
 

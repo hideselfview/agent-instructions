@@ -13,17 +13,75 @@ fn a_screen_name_has_an_area_a_screen_and_maybe_a_state() {
     }
 }
 
+fn preview(root: &std::path::Path, component: &str) {
+    let path = root.join(boards::preview::preview_path(component));
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(path, "").unwrap();
+}
+
+fn component_of(text: &str) -> ComponentName {
+    let Name::Component(c) = Name::parse(text).unwrap() else {
+        panic!("not a component");
+    };
+    c
+}
+
 #[test]
-fn a_component_name_names_its_component_and_state() {
-    let Name::Component(c) = Name::parse("android.component.cast-row.long-name").unwrap() else {
-        panic!("not a component");
-    };
-    assert_eq!(c.component(), "AndroidCastRow");
+fn a_component_name_names_its_platforms_component_and_state() {
+    let root = tempfile::tempdir().unwrap();
+    preview(root.path(), "AndroidCastRow");
+    preview(root.path(), "MacRow");
+    let c = component_of("android.component.cast-row.long-name");
+    assert_eq!(c.component(root.path()), "AndroidCastRow");
     assert_eq!(c.state(), "long-name");
-    let Name::Component(c) = Name::parse("mac.component.row.nested-off").unwrap() else {
-        panic!("not a component");
-    };
-    assert_eq!(c.component(), "MacRow");
+    let c = component_of("mac.component.row.nested-off");
+    assert_eq!(c.component(root.path()), "MacRow");
+}
+
+#[test]
+fn a_shared_component_is_named_without_a_platform_on_both_platforms() {
+    let root = tempfile::tempdir().unwrap();
+    preview(root.path(), "StatusChip");
+    for text in [
+        "mac.component.status-chip.done",
+        "android.component.status-chip.done",
+    ] {
+        assert_eq!(component_of(text).component(root.path()), "StatusChip");
+    }
+    let mac = Name::parse("mac.component.status-chip.done").unwrap();
+    let android = Name::parse("android.component.status-chip.done").unwrap();
+    assert_eq!(
+        mac.file_name("png"),
+        "mac.component.status-chip.done@macos.png"
+    );
+    assert_eq!(
+        android.file_name("png"),
+        "android.component.status-chip.done@android.png"
+    );
+}
+
+#[test]
+fn a_platform_preview_wins_over_a_shared_one_of_the_same_thing() {
+    let root = tempfile::tempdir().unwrap();
+    preview(root.path(), "Row");
+    preview(root.path(), "MacRow");
+    assert_eq!(
+        component_of("mac.component.row.label").component(root.path()),
+        "MacRow"
+    );
+    assert_eq!(
+        component_of("android.component.row.label").component(root.path()),
+        "Row"
+    );
+}
+
+#[test]
+fn a_component_with_no_preview_is_named_for_its_platform() {
+    let root = tempfile::tempdir().unwrap();
+    assert_eq!(
+        component_of("android.component.nothing.default").component(root.path()),
+        "AndroidNothing"
+    );
 }
 
 #[test]

@@ -76,7 +76,8 @@ fn no_board(root: &Path, calls: &[String], name: &Name) -> Option<String> {
             }
         }
         Name::Component(c) => {
-            let preview = std::path::PathBuf::from(boards::preview::preview_path(&c.component()));
+            let component = c.component(root);
+            let preview = std::path::PathBuf::from(boards::preview::preview_path(&component));
             let html = match std::fs::read_to_string(root.join(&preview)) {
                 Ok(html) => html,
                 Err(error) => return Some(unreadable(&preview, &error)),
@@ -86,7 +87,7 @@ fn no_board(root: &Path, calls: &[String], name: &Name) -> Option<String> {
                 states.push("default".to_string());
             }
             (!states.iter().any(|s| s == c.state()))
-                .then(|| format!("{} has the states {}", c.component(), states.join(", ")))
+                .then(|| format!("{component} has the states {}", states.join(", ")))
         }
     }
 }

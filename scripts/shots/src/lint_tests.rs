@@ -63,6 +63,25 @@ fn a_component_shot_needs_a_row_of_that_name() {
 }
 
 #[test]
+fn a_shared_component_shot_needs_a_row_of_that_name_in_the_shared_preview() {
+    let root = tempfile::tempdir().unwrap();
+    write(
+        root.path(),
+        "design/system/components/StatusChip/preview.html",
+        "W('Done', a), W('Failed', b)",
+    );
+    let shots = [
+        declared("mac.component.status-chip.done"),
+        declared("android.component.status-chip.failed"),
+        declared("android.component.status-chip.missing"),
+    ];
+    let problems = sentences(root.path(), &shots);
+    assert_eq!(problems.len(), 1, "{problems:?}");
+    assert!(problems[0].contains("android.component.status-chip.missing"));
+    assert!(problems[0].contains("StatusChip has the states done, failed"));
+}
+
+#[test]
 fn a_screen_shot_needs_its_board_file() {
     let root = tempfile::tempdir().unwrap();
     write(

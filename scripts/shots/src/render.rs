@@ -38,7 +38,7 @@ pub(crate) fn hashes(
                 chrome::PINNED,
             ),
             Name::Component(c) => {
-                design::preview_hash(root, &c.component(), design, chrome::PINNED)
+                design::preview_hash(root, &c.component(root), design, chrome::PINNED)
             }
         }
         .map_err(|e| format!("{name}: {e}"))?;
@@ -110,7 +110,7 @@ async fn draw_with(
                 draw_screen(root, settings, &board, &page, server, name.platform()).await
             }
             Name::Component(component) => {
-                draw_component(settings, component, &page, server, name.platform()).await
+                draw_component(root, settings, component, &page, server, name.platform()).await
             }
         };
         if let Err(error) = page.close().await {
@@ -169,13 +169,14 @@ async fn draw_screen(
 }
 
 async fn draw_component(
+    root: &Path,
     settings: &Settings,
     name: &names::ComponentName,
     page: &chromiumoxide::Page,
     server: &serve::Server,
     platform: names::Platform,
 ) -> Result<Drawn, String> {
-    let component = name.component();
+    let component = name.component(root);
     let marks = settings.preview(&component).map_err(|e| e.to_string())?;
     let row = preview::render_row(
         page,
