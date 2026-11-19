@@ -119,6 +119,13 @@ of these phrases.
 **One question at a time.** When several items each need a decision, present
 one, wait for the answer, apply it, then present the next.
 
+**Say why a question comes to the user.** Every question to the user, in chat or
+on the decision stack, opens with one line on what happened and why only the
+user can decide it ("The designer's new board undoes a placement you chose").
+Then say what the user would see in the app either way, in plain words, with no
+item numbers or code names, and give each option as what the app does, with your
+pick and one clause of why.
+
 **Never ask the user for routine work.** Do it. Routine work includes landing
 reviewed work and pushing it to main, rewording or splitting your own commits,
 starting a session or an agent, anything in the user's own repos (bae-fm's,
