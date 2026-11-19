@@ -655,7 +655,7 @@ fn a_failed_step_keeps_what_its_output_said() {
     );
     assert_eq!(log[0].failure, None);
     let failure = log[1].failure.clone().unwrap();
-    assert_eq!(failure.shots, vec!["mac.a.one"]);
+    assert_eq!(failure.failed, vec!["mac.a.one"]);
     let excerpt = failure.excerpt.unwrap();
     assert!(
         excerpt.contains("building") && excerpt.contains("fail the run: mac.a.one"),

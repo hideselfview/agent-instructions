@@ -33,8 +33,8 @@ use rusqlite::{Connection, params};
 use crate::checks::Kind;
 use crate::fail;
 use crate::fail::{Context, Result};
-use crate::hook_check_failure::CheckFailure;
 use crate::host::Load;
+use crate::step_failure::StepFailure;
 
 pub use crate::db::DATABASE;
 
@@ -98,7 +98,7 @@ pub enum Outcome {
         /// What it said when it failed (hook_check_failure.rs); None when it
         /// passed. A check that builds recorded failing before it kept what
         /// checks said has a failure with no excerpt and no files.
-        failure: Option<CheckFailure>,
+        failure: Option<StepFailure>,
         /// The staged files and the workspace crates it was handed.
         handed: (u32, u32),
         /// Its time. `record` keeps it only for a passed check: a failed
@@ -134,7 +134,7 @@ impl Outcome {
     }
 
     /// What a check that ran and failed said.
-    pub fn failure(&self) -> Option<&CheckFailure> {
+    pub fn failure(&self) -> Option<&StepFailure> {
         match self {
             Outcome::Ran { failure, .. } => failure.as_ref(),
             Outcome::Skipped => None,

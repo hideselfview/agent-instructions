@@ -12,7 +12,7 @@ fn a_step_read_keeps_the_excerpt_and_the_shots_that_fail_the_run() {
         each(line);
     }
     let failure = read.failure();
-    assert_eq!(failure.shots, vec!["mac.a.two", "mac.b.one"]);
+    assert_eq!(failure.failed, vec!["mac.a.two", "mac.b.one"]);
     assert!(
         failure
             .excerpt

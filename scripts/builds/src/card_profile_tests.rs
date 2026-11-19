@@ -518,9 +518,9 @@ fn a_failed_hook_check_names_its_files_and_why_in_the_cards_failures() {
                 name: "rustfmt".into(),
                 kind: crate::checks::Kind::Check,
                 outcome: crate::hook_stats::Outcome::Ran {
-                    failure: Some(crate::hook_check_failure::CheckFailure {
+                    failure: Some(crate::step_failure::StepFailure {
                         excerpt: Some("\nDiff in src/a.rs at line 3:".into()),
-                        files: vec!["src/a.rs".into()],
+                        failed: vec!["src/a.rs".into()],
                     }),
                     handed: (1, 0),
                     ms: None,
@@ -566,9 +566,9 @@ fn a_failed_shots_step_names_its_shots_in_the_cards_failures_and_totals() {
                 wall_ms: 10_000,
                 cpu_ms: 0,
                 result: crate::app_timing::StepResult::Failed,
-                failure: Some(crate::app_build_step_failure::StepFailure {
+                failure: Some(crate::step_failure::StepFailure {
                     excerpt: Some("builds shots: 1 pair(s) fail the run: mac.a.one".into()),
-                    shots: vec!["mac.a.one".into()],
+                    failed: vec!["mac.a.one".into()],
                 }),
             }],
         },

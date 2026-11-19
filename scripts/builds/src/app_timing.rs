@@ -95,7 +95,7 @@ pub struct StepRecord {
     /// What a step that failed or ran past its limit said
     /// (app_build_step_failure.rs); None for one that passed or that another
     /// build took over.
-    pub failure: Option<crate::app_build_step_failure::StepFailure>,
+    pub failure: Option<crate::step_failure::StepFailure>,
 }
 
 /// One lane's run, as `record` writes it.
@@ -157,7 +157,7 @@ impl Timer {
         name: &str,
         kind: StepKind,
         result: StepResult,
-        failure: Option<crate::app_build_step_failure::StepFailure>,
+        failure: Option<crate::step_failure::StepFailure>,
     ) -> StepRecord {
         StepRecord {
             name: name.to_string(),

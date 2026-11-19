@@ -37,7 +37,6 @@ use crate::checkout::{Checkout, git_local_env_vars};
 use crate::checks::{CONFIG, Kind, Line, Planned, parse, plan};
 use crate::fail;
 use crate::fail::{Context, Fail, Result};
-use crate::hook_check_failure::CheckFailure;
 use crate::hook_impact;
 use crate::hook_stats::{self, Change, CheckRecord, Outcome, Run, StagedFile};
 use crate::host::Load;
@@ -675,7 +674,8 @@ fn finish_line<'a>(
             .find(|c| c.name == name)
             .expect("every picked line is recorded");
         record.outcome = Outcome::Ran {
-            failure: (!ran.ok).then(|| CheckFailure::of(&ran.output, &planned.files)),
+            failure: (!ran.ok)
+                .then(|| crate::hook_check_failure::said(&ran.output, &planned.files)),
             handed: (
                 if planned.line.command.iter().any(|arg| arg == "{files}") {
                     planned.files.len() as u32

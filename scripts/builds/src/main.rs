@@ -111,6 +111,7 @@ mod side_git;
 mod spotlight;
 mod sql_shape;
 mod status;
+mod step_failure;
 mod step_outcomes;
 mod stuck;
 mod temp_builds;

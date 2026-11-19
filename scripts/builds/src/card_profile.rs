@@ -578,7 +578,7 @@ fn read_hooks(
                 passed,
                 state: state.clone(),
                 cause: first_line(failure.excerpt.as_deref()),
-                failed: failure.files,
+                failed: failure.failed,
             });
         }
         let mut checks = db
@@ -686,7 +686,7 @@ fn read_app_builds(
                     at: start,
                     passed: result == "passed",
                     state: built.clone(),
-                    failed: failure.shots,
+                    failed: failure.failed,
                     cause: first_line(failure.excerpt.as_deref()),
                 });
             }

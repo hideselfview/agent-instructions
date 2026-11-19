@@ -15,7 +15,7 @@ fn ran(name: &str, passed: bool, ms: u64) -> CheckRecord {
         name: name.into(),
         kind: Kind::Check,
         outcome: Outcome::Ran {
-            failure: (!passed).then(crate::hook_check_failure::CheckFailure::default),
+            failure: (!passed).then(crate::step_failure::StepFailure::default),
             handed: (1, 0),
             ms: Some(ms),
             started: None,
@@ -62,9 +62,9 @@ fn a_failed_check_comes_back_with_its_excerpt_and_files() {
     let path = database(&scratch);
     let mut said = ran("clippy", false, 60);
     if let Outcome::Ran { failure, .. } = &mut said.outcome {
-        *failure = Some(crate::hook_check_failure::CheckFailure {
+        *failure = Some(crate::step_failure::StepFailure {
             excerpt: Some("error: unused variable".into()),
-            files: vec!["src/a.rs".into(), "src/b.rs".into()],
+            failed: vec!["src/a.rs".into(), "src/b.rs".into()],
         });
     }
     let written = run(5, 100, false, vec![said, ran("fmt", false, 40)]);
