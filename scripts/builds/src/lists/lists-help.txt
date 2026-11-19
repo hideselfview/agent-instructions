@@ -741,6 +741,10 @@ sent again.
       again record once; other commits for a landed change are refused. Who
       landed is --by, else DIR's claim.
 
+  builds design title N
+      Prints the title of open design change N. builds land reads it as the
+      message of the commit that squashes the change's commits.
+
   builds design drop N --why WHY
       Closes open change N, which will not land, and records WHY as the
       reason. The change leaves the Waiting on you tab and the open lists,

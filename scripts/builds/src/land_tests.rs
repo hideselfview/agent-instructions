@@ -116,10 +116,12 @@ fn claim(dir: &Path) {
 
 /// What the stand-in `builds` answers: the project `lists project-of` prints
 /// (nothing when none), the lines `design places` prints, and the command
-/// ("<group> <command>") it refuses, saying `says` when that is set.
+/// ("<group> <command>") it refuses, saying `says` when that is set. `title`
+/// is what `design title` prints.
 #[derive(Default)]
 struct Cues {
     project: &'static str,
+    title: &'static str,
     places: &'static str,
     refuse: &'static str,
     says: &'static str,
@@ -131,7 +133,7 @@ fn stub(f: &Fixture, cues: &Cues) -> (PathBuf, PathBuf) {
     let stub = f.scratch.dir.join("stub-builds");
     let log = f.scratch.dir.join("calls.log");
     let script = format!(
-        "#!/bin/bash\necho \"$*\" >> '{log}'\n[ '{refuse}' = \"$1 $2\" ] && {{ echo '{says}'; exit 1; }}\ncase \"$1 $2\" in\n  'lists project-of') echo '{project}' ;;\n  'design places') printf '%s' '{places}' ;;\nesac\nexit 0\n",
+        "#!/bin/bash\necho \"$*\" >> '{log}'\n[ '{refuse}' = \"$1 $2\" ] && {{ echo '{says}'; exit 1; }}\ncase \"$1 $2\" in\n  'lists project-of') echo '{project}' ;;\n  'design places') printf '%s' '{places}' ;;\n  'design title') echo '{title}' ;;\nesac\nexit 0\n",
         log = log.display(),
         refuse = cues.refuse,
         says = if cues.says.is_empty() {
@@ -140,6 +142,7 @@ fn stub(f: &Fixture, cues: &Cues) -> (PathBuf, PathBuf) {
             cues.says.replace('\'', "'\\''")
         },
         project = cues.project,
+        title = cues.title,
         places = cues.places,
     );
     std::fs::write(&stub, script).unwrap();
@@ -1550,4 +1553,143 @@ fn an_install_that_moves_the_store_waits_until_the_landing_records_its_run() {
         "the install moved the store only after the landing recorded its run"
     );
     assert_eq!(landings_and_stamp(&store.database()), (1, NEWER_STAMP));
+}
+
+const BOARDS: &str = "place design/mocks/button";
+
+/// Side-1 on branch `a` with three commits, one for each round of a design
+/// change: it adds a.txt, rewrites it, and adds b.txt.
+fn three_rounds(f: &Fixture) -> (PathBuf, [String; 3]) {
+    let dir = f.side(1, "a");
+    let one = commit_file(&dir, "a.txt", "a\n", "draw the button");
+    let two = commit_file(&dir, "a.txt", "a2\n", "redraw the button");
+    let three = commit_file(&dir, "b.txt", "b\n", "draw the row");
+    (dir, [one, two, three])
+}
+
+#[test]
+fn a_design_change_with_several_amends_lands_as_one_commit_titled_by_the_change() {
+    let f = fixture("land-design-squash", "true\n", None);
+    let (dir, rounds) = three_rounds(&f);
+    let base = main_of(&f);
+    let tree = git_out(&dir, &["rev-parse", &format!("{}^{{tree}}", rounds[2])]);
+    let shown = dir.display();
+    let (code, out, calls) = run_land(
+        &f,
+        &dir,
+        &["--design", "3", &rounds[0], &rounds[1], &rounds[2]],
+        Cues {
+            title: "Draw the button and the row",
+            places: BOARDS,
+            ..project()
+        },
+    );
+    assert_eq!(code, 0, "{out}");
+    let landed = main_of(&f);
+    assert_eq!(
+        git_out(
+            &f.origin,
+            &["rev-list", "--count", &format!("{base}..{landed}")]
+        ),
+        "1"
+    );
+    assert_eq!(
+        git_out(&f.origin, &["log", "-1", "--format=%B", &landed]),
+        "Draw the button and the row"
+    );
+    assert_eq!(
+        git_out(&f.origin, &["rev-parse", &format!("{landed}^{{tree}}")]),
+        tree
+    );
+    assert_eq!(
+        git_out(&f.origin, &["rev-parse", &format!("{landed}^")]),
+        base
+    );
+    assert!(
+        calls.contains(&"design title 3 --project bae".to_string()),
+        "{calls:?}"
+    );
+    assert!(
+        calls.contains(&format!("design check 3 {shown} {landed} --project bae")),
+        "{calls:?}"
+    );
+    assert!(calls.contains(&format!(
+        "design landed 3 {shown} {landed} --project bae --by agent A"
+    )));
+    assert!(
+        out.contains("squashed 3 commits of design change 3"),
+        "{out}"
+    );
+}
+
+#[test]
+fn a_design_change_with_one_commit_lands_as_it_is() {
+    let f = fixture("land-design-one-commit", "true\n", None);
+    let dir = f.side(1, "a");
+    let only = commit_file(&dir, "a.txt", "a\n", "draw the button");
+    let (code, out, calls) = run_land(
+        &f,
+        &dir,
+        &["--design", "3", &only],
+        Cues {
+            title: "Draw the button",
+            places: BOARDS,
+            ..project()
+        },
+    );
+    assert_eq!(code, 0, "{out}");
+    assert_eq!(main_of(&f), only);
+    assert!(
+        !calls.iter().any(|c| c.starts_with("design title")),
+        "{calls:?}"
+    );
+}
+
+#[test]
+fn a_squash_that_would_change_the_tree_is_refused_before_anything_moves() {
+    let f = fixture("land-design-squash-tree", "true\n", None);
+    let (dir, rounds) = three_rounds(&f);
+    let base = main_of(&f);
+    // The middle round is not named, so the squash would drop its rewrite.
+    let (code, out, calls) = run_land(
+        &f,
+        &dir,
+        &["--design", "3", &rounds[0], &rounds[2]],
+        Cues {
+            title: "Draw the button and the row",
+            places: BOARDS,
+            ..project()
+        },
+    );
+    assert!(
+        code == 1 && out.contains("cannot squash") && out.contains("not named"),
+        "{out}"
+    );
+    assert_eq!(main_of(&f), base);
+    assert_eq!(head_of(&dir), rounds[2], "the branch stays where it was");
+    assert_eq!(branch_of(&dir).as_deref(), Some("a"));
+    assert!(
+        !calls.iter().any(|c| c.starts_with("design check")),
+        "{calls:?}"
+    );
+}
+
+#[test]
+fn a_squash_is_refused_when_the_branch_has_commits_after_the_last_one_named() {
+    let f = fixture("land-design-squash-later", "true\n", None);
+    let (dir, rounds) = three_rounds(&f);
+    let base = main_of(&f);
+    let (code, out, _) = run_land(
+        &f,
+        &dir,
+        &["--design", "3", &rounds[0], &rounds[1]],
+        Cues {
+            title: "Draw the button",
+            places: BOARDS,
+            ..project()
+        },
+    );
+    assert!(code == 1 && out.contains("has commits after"), "{out}");
+    assert_eq!(main_of(&f), base);
+    assert_eq!(head_of(&dir), rounds[2]);
 }

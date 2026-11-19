@@ -1,5 +1,5 @@
 //! `builds design places | only | record | amend | approve | check | landed |
-//! drop | show | list | render | tokens-css | publish-find | publish-files |
+//! drop | show | title | list | render | tokens-css | publish-find | publish-files |
 //! publish-last | listen | publish take | publish done | publish failed`.
 //!
 //! The commands that read git (`places`, `record`, `amend`, `check`,
@@ -23,7 +23,7 @@ use crate::lists::{Id, Lists, Stamp};
 use crate::text::local_minute;
 use crate::tool::Tool;
 
-const USAGE: &str = "usage: builds design places DIR REV...\n       builds design only DIR REV...\n       builds design record --request FILE\n       builds design amend N --request FILE\n       builds design approve N --by-person\n       builds design check N[,N...] DIR REV...\n       builds design landed N DIR SHA...\n       builds design drop N --why WHY\n       builds design show N\n       builds design list\n       builds design render DIR BOARD [--theme light|dark] [--now | --at REV]\n       builds design tokens-css DIR\n       builds design publish-find DIR --artifacts FILE [--at REV]\n       builds design publish-files DIR OUT --artifacts FILE (--index FILE | --no-index) [--at REV]\n       builds design publish-last FOLDER --listing FILE [(--index FILE | --no-index) --by WHO [--uploaded FILE]]\n       builds design listen --project P\n       builds design publish take N [--project P] [--by WHO]\n       builds design publish done N --link TITLE=URL... [--project P] [--by WHO]\n       builds design publish failed N --why WHY [--project P] [--by WHO]";
+const USAGE: &str = "usage: builds design places DIR REV...\n       builds design only DIR REV...\n       builds design record --request FILE\n       builds design amend N --request FILE\n       builds design approve N --by-person\n       builds design check N[,N...] DIR REV...\n       builds design landed N DIR SHA...\n       builds design drop N --why WHY\n       builds design show N\n       builds design title N\n       builds design list\n       builds design render DIR BOARD [--theme light|dark] [--now | --at REV]\n       builds design tokens-css DIR\n       builds design publish-find DIR --artifacts FILE [--at REV]\n       builds design publish-files DIR OUT --artifacts FILE (--index FILE | --no-index) [--at REV]\n       builds design publish-last FOLDER --listing FILE [(--index FILE | --no-index) --by WHO [--uploaded FILE]]\n       builds design listen --project P\n       builds design publish take N [--project P] [--by WHO]\n       builds design publish done N --link TITLE=URL... [--project P] [--by WHO]\n       builds design publish failed N --why WHY [--project P] [--by WHO]";
 
 pub fn cmd_design(tool: &Tool, args: &[String]) -> Result<()> {
     print!("{}", run_to_text(tool, args)?);
@@ -57,6 +57,7 @@ pub fn run_in_session(
         "landed" => landed(tool, rest),
         "drop" => drop(tool, rest, &cwd),
         "show" => show(tool, rest, &cwd),
+        "title" => title(tool, rest, &cwd),
         "list" => list(tool, rest, &cwd),
         "render" => render(tool, rest),
         "tokens-css" => tokens_css(rest),
@@ -586,6 +587,22 @@ fn show(tool: &Tool, args: &[String], cwd: &Path) -> Result<String> {
     };
     let store = Store::resolve(&tool.places, &args, cwd)?;
     design::show(&store.load()?, Id::parse(id)?)
+}
+
+/// `title N`: the title of open design change N, which `builds land` gives
+/// the commit that squashes the change's commits.
+fn title(tool: &Tool, args: &[String], cwd: &Path) -> Result<String> {
+    let args = Args::parse(args, &[], &[])?;
+    let [id] = args.exactly(1, USAGE)? else {
+        unreachable!("exactly one")
+    };
+    let id = Id::parse(id)?;
+    let store = Store::resolve(&tool.places, &args, cwd)?;
+    let lists = store.load()?;
+    match lists.design(id) {
+        Some(design) => Ok(format!("{}\n", design.title)),
+        None => fail!("{id} is no open design change"),
+    }
 }
 
 fn list(tool: &Tool, args: &[String], cwd: &Path) -> Result<String> {

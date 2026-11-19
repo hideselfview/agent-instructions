@@ -58,6 +58,14 @@
 //! requirement: the design changes hold the app work. A repo in no project
 //! takes none of these flags and lands as before.
 //!
+//! A landing that names one `--design N` and no item, with two or more commits,
+//! lands them as one commit (land_squash.rs, decision #292): land builds a
+//! commit with the change's title as its message (`builds design title`) on
+//! the parent of the first commit, moves the branch to it, and goes on with
+//! that commit alone. It refuses before it moves anything when the squashed
+//! tree is not the last commit's tree, or when the branch has commits after the
+//! last one named.
+//!
 //! A cherry-picked result is a tree no hook has seen, so before it is pushed
 //! the repo's whole-tree checks run: every `whole` line of the repo's `.checks`
 //! (the static checks that read the whole tree, which the pre-commit hook
@@ -687,6 +695,82 @@ impl Landing<'_> {
             let _ = writeln!(out, "LANDING REFUSED, land fetched and pushed nothing:");
             return Err(refuse(out, said));
         }
+        Ok(())
+    }
+
+    /// Squashes the commits of a landing that holds only one design change
+    /// into one commit with the change's title as its message (decision #292,
+    /// land_squash.rs), and moves the branch to it. Two or more commits that
+    /// share one design change are its rounds; a landing of several changes
+    /// has no one title for its commits, and one that names an item lands
+    /// app work with them, so neither squashes. The branch must end at the
+    /// last commit, since land moves it only there. Refuses, before it
+    /// changes anything, when the squash would change a file.
+    fn squash_design(&mut self, out: &mut dyn Write) -> Result<()> {
+        let Some(Recording { project, .. }) = &self.recording else {
+            return Ok(());
+        };
+        let [design] = self.request.designs.as_slice() else {
+            return Ok(());
+        };
+        if !self.request.items.is_empty() || self.request.shas.len() < 2 {
+            return Ok(());
+        }
+        let (ok, title) = self.builds(&[
+            "design",
+            "title",
+            &design.0.to_string(),
+            "--project",
+            project,
+        ]);
+        if !ok {
+            return Err(refuse(
+                out,
+                format!("refusing: builds design title failed: {title}"),
+            ));
+        }
+        let last = self.request.shas.last().expect("two commits").clone();
+        if git_text(&self.workdir, &["rev-parse", "HEAD"]).as_deref() != Some(last.as_str()) {
+            return Err(refuse(
+                out,
+                format!(
+                    "refusing: design change {} lands as one commit, but {} has commits after {last}; name the branch's last commit last",
+                    design.0,
+                    self.workdir.display()
+                ),
+            ));
+        }
+        let squashed = match crate::land_squash::squash(&self.workdir, &self.request.shas, &title) {
+            Ok(squashed) => squashed,
+            Err(said) => {
+                return Err(refuse(
+                    out,
+                    format!(
+                        "refusing: land cannot squash the commits of design change {}: {said}",
+                        design.0
+                    ),
+                ));
+            }
+        };
+        if !git_ok(&self.workdir, &["reset", "-q", "--hard", &squashed]) {
+            return Err(refuse(
+                out,
+                format!(
+                    "refusing: git could not move {} to the squashed commit {squashed}",
+                    self.workdir.display()
+                ),
+            ));
+        }
+        if let Start::Detached(sha) = &mut self.start {
+            *sha = squashed.clone();
+        }
+        let _ = writeln!(
+            out,
+            "squashed {} commits of design change {} into {squashed}, which has the tree of {last}; the branch is now at it, so a later landing names {squashed}",
+            self.request.shas.len(),
+            design.0
+        );
+        self.request.shas = vec![squashed];
         Ok(())
     }
 
@@ -1366,6 +1450,7 @@ impl Landing<'_> {
             let key = crate::review::default_key(&self.workdir)?;
             self.recording = Some(Recording { project, by, key });
         }
+        self.squash_design(out)?;
         {
             let _timing = self.timing(StepKind::ListsCheck);
             self.check_lists(out)?;

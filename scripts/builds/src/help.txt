@@ -2389,7 +2389,15 @@ run `review replay --rules-root` on it.
                               together the changes must resolve every place,
                               and land records each one as landed. Commits
                               that are all design files take --design alone
-                              (`builds help lists`). In a repo of a
+                              (`builds help lists`). A landing that names one
+                              --design and no item, with two or more commits,
+                              squashes them into one commit whose message is
+                              the change's title (decision 292): land builds
+                              it on the first commit's parent, moves the
+                              branch to it, and refuses, changing nothing,
+                              when the squash would give a tree other than
+                              the last commit's, or when the branch has
+                              commits after the last one named. In a repo of a
                               project, land runs `review check-landing` before
                               it fetches anything, and a refusal ends the
                               landing. Land passes the change's key, read
