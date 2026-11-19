@@ -449,6 +449,42 @@ fn a_hook_check_only_links_a_build_this_mac_has() {
 }
 
 #[test]
+fn a_workspace_wrapper_under_a_tools_link_names_the_build_of_the_checkouts_key() {
+    let scratch = Scratch::new("tools-workspace-wrapper");
+    let places = scratch.places();
+    let top = scratch.dir.join("demo");
+    let line = tool_repo(&top, "tc1 src1", PASSING);
+    let wrapper = top.join("built/tool");
+    let Err(Fail::Message(message)) = cargo_workspace_wrapper(&top, &wrapper) else {
+        panic!("a wrapper under a link that points nowhere passed");
+    };
+    assert!(message.contains("builds tool lints"), "{message}");
+
+    let first = ensure(&places, &no_ssh(), &top, &line, Prepare::Yes).unwrap();
+    assert_eq!(
+        cargo_workspace_wrapper(&top, &wrapper).unwrap(),
+        Some(first.join("tool"))
+    );
+    std::fs::write(top.join("key.txt"), "tc1 src2\n").unwrap();
+    let second = ensure(&places, &no_ssh(), &top, &line, Prepare::Yes).unwrap();
+    assert_eq!(
+        cargo_workspace_wrapper(&top, &wrapper).unwrap(),
+        Some(second.join("tool")),
+        "the wrapper names the build the link points at now"
+    );
+    assert_ne!(first, second);
+
+    for other in [top.join("scripts/wrapper.sh"), top.join("builtin/tool")] {
+        assert_eq!(
+            cargo_workspace_wrapper(&top, &other).unwrap(),
+            None,
+            "{} is under no tool's link",
+            other.display()
+        );
+    }
+}
+
+#[test]
 fn setup_copies_this_macs_builds_to_each_host_and_without_prepare_does_nothing_of_it() {
     let scratch = Scratch::new("tools-setup-hosts");
     let tool = scratch.tool(0);

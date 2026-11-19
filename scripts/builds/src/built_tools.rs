@@ -333,6 +333,38 @@ fn point(link: &Path, dest: &Path) -> Result<()> {
     crate::setup::replace_link(dest, link)
 }
 
+/// The `RUSTC_WORKSPACE_WRAPPER` that `builds cargo` gives cargo in <top>
+/// for the caller's <wrapper>, when <wrapper> is a file under the link of
+/// one of <top>'s tools: the same file in the key's build that the link
+/// points at (`point` writes the build's whole path). None leaves the
+/// caller's wrapper as it is.
+///
+/// cargo mixes the wrapper's path into the name of each workspace crate's
+/// output, and replays the last warnings of a crate whose sources did not
+/// change. Through the link, the path stays the same when the link moves to
+/// another key's build, so cargo would replay the lints of the build the
+/// link pointed at before. With the key's own path, each key's lints get
+/// outputs of their own: another key lints every crate again, and a second
+/// run of the same key replays that key's results.
+pub fn cargo_workspace_wrapper(top: &Path, wrapper: &Path) -> Result<Option<PathBuf>> {
+    for line in built_tools(top)? {
+        let link = top.join(&line.link);
+        let Ok(within) = wrapper.strip_prefix(&link) else {
+            continue;
+        };
+        let build = std::fs::read_link(&link).context(|| {
+            format!(
+                "RUSTC_WORKSPACE_WRAPPER names {}, under tool {}'s link, and the link points at no build (`builds tool {}` points it)",
+                wrapper.display(),
+                line.name,
+                line.name
+            )
+        })?;
+        return Ok(Some(build.join(within)));
+    }
+    Ok(None)
+}
+
 /// The other hosts: every recorded host but this Mac. A Mac that is itself
 /// a host records none.
 fn other_hosts(places: &Places) -> Result<Vec<Host>> {

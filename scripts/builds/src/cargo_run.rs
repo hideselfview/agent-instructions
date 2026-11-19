@@ -612,7 +612,10 @@ fn build_runner_here(
 /// cargo's waits for its file locks and gives each line to <watch>; to a
 /// terminal, cargo prints them itself, with its colors and progress bar.
 /// cargo compiles through builds-rustc unless the caller names a wrapper of
-/// its own (`rustc_wrapper::cargo_env`).
+/// its own (`rustc_wrapper::cargo_env`). A workspace wrapper under a tool's
+/// link reaches cargo as the path of the key's build the link points at
+/// (`built_tools::cargo_workspace_wrapper`), so cargo keeps each key's lint
+/// results apart.
 fn run_here(
     places: &Places,
     checkout: Option<&Checkout>,
@@ -626,6 +629,12 @@ fn run_here(
     let linker = crate::linker::cargo_config(&places.home);
     let wrapper =
         crate::rustc_wrapper::cargo_env(std::env::var_os("RUSTC_WRAPPER").as_deref(), &places.home);
+    let workspace_wrapper = match (checkout, std::env::var_os("RUSTC_WORKSPACE_WRAPPER")) {
+        (Some(checkout), Some(caller)) => {
+            crate::built_tools::cargo_workspace_wrapper(&checkout.top, Path::new(&caller))?
+        }
+        _ => None,
+    };
     // Held until cargo has exited and the recorder has read its last line.
     let guard = crate::units::hold_guard(places, checkout)?;
     let root = checkout
@@ -643,6 +652,7 @@ fn run_here(
         .envs(runner)
         .env_remove(HOOK_CHECK_VARIABLE)
         .envs(wrapper.map(|wrapper| ("RUSTC_WRAPPER", wrapper)))
+        .envs(workspace_wrapper.map(|wrapper| ("RUSTC_WORKSPACE_WRAPPER", wrapper)))
         .stdout(Stdio::piped())
         .stderr(if relayed {
             Stdio::piped()

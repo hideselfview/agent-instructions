@@ -373,6 +373,20 @@ and each toolchain's folder with its work folder, that no live checkout's key
 names. They delete nothing of a tool whose key a checkout fails to print, and
 nothing of any tool while a checkout's `.build-dirs` cannot be read.
 
+A repo's script may run a tool as cargo's workspace wrapper through the tool's
+link: coven's clippy sets RUSTC_WORKSPACE_WRAPPER to
+tools/typed-lints/built/typed-lints-driver. cargo puts the wrapper's path
+into the name of each workspace crate's output, and when a crate's sources
+have not changed it prints that crate's last warnings again instead of
+compiling it. The link's path stays the same when the link moves to a new
+key's build, so cargo would print the old build's lints for each crate whose
+sources did not change. So `builds cargo`, on the machine that runs cargo and
+after the BUILDS_CARGO_BEFORE program, gives cargo the same file in the
+key's build folder that the link points at. A new key lints every crate
+again, with no source file touched, and a second run with the same key prints
+the warnings cargo kept. A wrapper under a link that points at no build fails
+the command, naming `builds tool`.
+
   builds tool <name> [<checkout>]
                               put the checkout's key of tool <name> in place
                               on this machine, point the checkout's link at it and
