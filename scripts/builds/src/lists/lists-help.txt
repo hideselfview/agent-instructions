@@ -393,11 +393,18 @@ runs in (plans are in no commit); an absolute path is itself.
       for each kind, the number of items that had it, the median and the
       90th percentile among them and its share of the items' time, for each
       step, its runs, median, 90th percentile and share, and the same for
-      each dashboard state. It also prints, for
-      each commit hook check, its runs, its failed runs, and how many of the
-      failures a fix commit followed (the check passed later on another
-      commit), passed again on the same commit (flaky), or stood (no later
-      run passed). Then it prints each
+      each dashboard state. It also prints what the steps caught: for hook
+      checks, cargo runs and app build steps, and for each such step, its
+      runs, its failed runs, and how many of the failures a fix followed (the
+      next run of the same step on the card passed on another commit or other
+      uncommitted changes, or for a hook check other staged files), passed
+      again on the same commit and changes (flaky), or stood (no later run
+      passed); the tests that failed most; and for each review rule group,
+      its findings confirmed, dropped and not settled, and the confirmed ones
+      a later review closed after a fix. A cargo run's step is its
+      subcommand on the crates it named, and an app build's is its lane and
+      step. For each item N, times lists the same failures of its card with
+      what followed each. Then it prints each
       running item, each item
       that landed in those days, and each branch on which a run goes on or
       whose last run ended with a landing in those days. For a branch, times

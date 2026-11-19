@@ -368,7 +368,9 @@ fn the_timeline_shows_each_step_with_its_hosts_load_and_the_time_by_kind() {
         "{text}"
     );
     assert!(
-        text.contains("builds; load 4/10 when it started; on bbbbbbbbbb with uncommitted changes"),
+        text.contains(
+            "builds; load 4/10 when it started; passed; on bbbbbbbbbb with uncommitted changes"
+        ),
         "{text}"
     );
     assert!(!text.contains("off their run's branch"), "{text}");
@@ -440,26 +442,58 @@ fn an_item_that_never_ran_is_queued_from_its_first_event_and_a_closed_record_tha
 }
 
 #[test]
-fn a_failed_check_is_fixed_flaky_or_standing_by_the_next_pass() {
-    let run = |name: &str, passed: bool, base: &str| CheckRun {
-        name: name.into(),
-        passed,
-        base: Some(base.into()),
-    };
-    let checks = vec![
-        run("clippy", false, "a"),
-        run("clippy", true, "b"),
-        run("fmt", false, "b"),
-        run("fmt", true, "b"),
-        run("spec", false, "b"),
-    ];
-    assert_eq!(
-        failure_outcomes(&checks),
-        vec![
-            ("clippy".to_string(), Outcome::Fixed),
-            ("fmt".to_string(), Outcome::Flaky),
-            ("spec".to_string(), Outcome::Stood),
-        ]
+fn a_failed_cargo_run_that_a_later_run_passed_after_a_fix_shows_as_fixed() {
+    let scratch = Scratch::new("card-profile-failures");
+    let (store, id) = landed_card(&scratch);
+    crate::cargo_run::record_run(
+        &store.database(),
+        &crate::cargo_run::CargoRun {
+            worktree: WORKTREE.into(),
+            started_at: T0 + 90,
+            subcommand: Some("nextest run".into()),
+            host: "m1".into(),
+            load: crate::host::Load {
+                cores: 10,
+                one_minute: 4.0,
+            },
+            lock_wait: None,
+            took: std::time::Duration::from_millis(5_000),
+            hook_check: None,
+        },
+        &["builds".into()],
+        &crate::cargo_run_outcome::Outcome {
+            ended: crate::cargo_run_outcome::Ended::Failed,
+            failed: vec!["a::one".into()],
+            excerpt: Some("thread 'a::one' panicked at src/a.rs:3:5:".into()),
+        },
+        Some(&crate::tree_state::TreeState {
+            head: sha('b'),
+            branch: Some("work".into()),
+            changes: Some("fedcba9876543210".into()),
+        }),
+    )
+    .unwrap();
+    let lists = store.load().unwrap();
+    let db = store.open_existing().unwrap();
+    let text = text(&db, &lists, &[id], T0 + 9_999).unwrap();
+    assert!(
+        text.contains("failed: a::one (thread 'a::one' panicked at src/a.rs:3:5:)"),
+        "{text}"
+    );
+    assert!(
+        text.contains(
+            "cargo runs cargo nextest run -p builds (a::one): a later run passed after a fix"
+        ),
+        "{text}"
+    );
+    let totals = super::text(&db, &lists, &[], T0 + 3_600).unwrap();
+    assert!(
+        totals.contains("cargo runs: 2 runs, 1 failed, 1 fixed, 0 flaky, 0 stood"),
+        "{totals}"
+    );
+    assert!(
+        totals.contains("   2 confirmed     0 dropped     0 not settled     0 closed  Errors"),
+        "{totals}"
     );
 }
 

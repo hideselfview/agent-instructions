@@ -22,6 +22,7 @@ use crate::hook_stats::seconds;
 use crate::host::LOCAL;
 use crate::lists::item_event::{self, Kind as EventKind};
 use crate::lists::{Closed, Id, Item, Lists, Record, SpanKind};
+use crate::step_outcomes::{Attempt, Finding, StepKind};
 use crate::text::{counted, duration, local_second};
 
 /// How many days back the totals reach.
@@ -135,8 +136,11 @@ pub struct Card {
     pub runs: Vec<(i64, i64)>,
     /// The item's state events that say whether it was ready or blocked.
     pub states: Vec<(i64, Kind)>,
-    /// Each hook check that ran, in time order.
-    pub checks: Vec<CheckRun>,
+    /// Each run of a hook check, a cargo run or an app build step that passed
+    /// or failed, in time order.
+    pub attempts: Vec<Attempt>,
+    /// Each finding of the card's review runs.
+    pub findings: Vec<Finding>,
     /// Each stretch of dashboard state of the cards that listed the item
     /// (card_state.rs), cut to the card's time.
     pub dashboard: Vec<crate::card_state::Stretch>,
@@ -144,44 +148,6 @@ pub struct Card {
     /// started: on neither that branch nor origin/main since the branch left
     /// it, as a bisect or an old checkout does.
     pub off_branch: Vec<(i64, String)>,
-}
-
-/// One hook check that ran: its hook run's commit (HEAD when the run
-/// started) tells whether a later run saw the same commit.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct CheckRun {
-    pub name: String,
-    pub passed: bool,
-    pub base: Option<String>,
-}
-
-/// What became of a failed check, from the next run of the same check on
-/// the same card.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Outcome {
-    /// It passed on a different commit: the agent fixed what it caught.
-    Fixed,
-    /// It passed on the same commit.
-    Flaky,
-    /// No later run passed.
-    Stood,
-}
-
-/// The outcome of each failed run in <checks>, with its check's name.
-pub fn failure_outcomes(checks: &[CheckRun]) -> Vec<(String, Outcome)> {
-    let mut found = Vec::new();
-    for (at, run) in checks.iter().enumerate().filter(|(_, run)| !run.passed) {
-        let next = checks[at + 1..]
-            .iter()
-            .find(|later| later.name == run.name && later.passed);
-        let outcome = match next {
-            None => Outcome::Stood,
-            Some(later) if later.base.is_some() && later.base == run.base => Outcome::Flaky,
-            Some(_) => Outcome::Fixed,
-        };
-        found.push((run.name.clone(), outcome));
-    }
-    found
 }
 
 fn find(lists: &Lists, id: Id) -> Result<(&Item, Option<&Closed>)> {
@@ -262,7 +228,8 @@ pub fn gather(db: &Connection, lists: &Lists, id: Id, now: i64) -> Result<Card> 
         steps: Vec::new(),
         runs: Vec::new(),
         states: Vec::new(),
-        checks: Vec::new(),
+        attempts: Vec::new(),
+        findings: Vec::new(),
         dashboard: Vec::new(),
         off_branch: Vec::new(),
     };
@@ -354,6 +321,7 @@ pub fn gather(db: &Connection, lists: &Lists, id: Id, now: i64) -> Result<Card> 
     card.moments.sort_by_key(|moment| moment.at);
     card.steps.sort_by_key(|step| (step.start, step.end));
     card.states.sort_by_key(|(at, _)| *at);
+    card.attempts.sort_by_key(|attempt| attempt.at);
     Ok(card)
 }
 
@@ -364,8 +332,10 @@ fn read_cargo(db: &Connection, worktree: &str, from: i64, to: i64, card: &mut Ca
             "SELECT r.started_at, r.subcommand, r.host, r.cores, r.load, r.lock_wait_ms, r.ms, \
                     r.hook_started_at IS NOT NULL, \
                     (SELECT group_concat(crate, ',') FROM builds_cargo_run_crate WHERE run_id = r.id), \
-                    c.head, c.changes IS NOT NULL, c.run_branch, c.off_branch \
+                    c.head, c.changes, c.run_branch, c.off_branch, o.outcome, o.excerpt, \
+                    (SELECT group_concat(test, ',') FROM builds_cargo_run_failed_test WHERE run_id = r.id) \
              FROM builds_cargo_runs r LEFT JOIN builds_cargo_run_commit c ON c.run_id = r.id \
+             LEFT JOIN builds_cargo_run_outcome o ON o.run_id = r.id \
              WHERE r.worktree = ?1 AND r.started_at >= ?2 AND r.started_at <= ?3",
         )
         .sql()?;
@@ -383,28 +353,66 @@ fn read_cargo(db: &Connection, worktree: &str, from: i64, to: i64, card: &mut Ca
                 row.get::<_, Option<String>>(8)?,
                 (
                     row.get::<_, Option<String>>(9)?,
-                    row.get::<_, Option<bool>>(10)?,
+                    row.get::<_, Option<String>>(10)?,
                     row.get::<_, Option<String>>(11)?,
                     row.get::<_, Option<bool>>(12)?,
+                ),
+                (
+                    row.get::<_, Option<String>>(13)?,
+                    row.get::<_, Option<String>>(14)?,
+                    row.get::<_, Option<String>>(15)?,
                 ),
             ))
         })
         .sql()?;
     for row in rows {
-        let (at, subcommand, host, cores, load, lock_wait, ms, in_hook, crates, commit) =
+        let (at, subcommand, host, cores, load, lock_wait, ms, in_hook, crates, commit, ended) =
             row.sql()?;
         let name = match subcommand.as_deref() {
             Some(subcommand) => format!("cargo {subcommand}"),
             None => "cargo (subcommand not recorded)".to_string(),
         };
+        // The step a later run repeats: the subcommand on the same crates.
+        let step = match &crates {
+            Some(crates) => format!("{name} -p {crates}"),
+            None => name.clone(),
+        };
         let mut detail = format!("load {load:.0}/{cores} when it started");
-        if let Some(crates) = crates {
+        if let Some(crates) = &crates {
             detail = format!("{crates}; {detail}");
         }
-        if let (Some(head), changed, run_branch, off) = commit {
+        let (outcome, excerpt, failed) = ended;
+        let failed: Vec<String> = failed
+            .map(|failed| failed.split(',').map(str::to_string).collect())
+            .unwrap_or_default();
+        if let Some(outcome) = &outcome {
+            let _ = write!(detail, "; {outcome}");
+            if !failed.is_empty() {
+                let _ = write!(detail, ": {}", failed.join(", "));
+            }
+            if let Some(first) = excerpt.as_deref().and_then(|e| e.lines().next()) {
+                let _ = write!(detail, " ({})", first.trim());
+            }
+        }
+        if !in_hook
+            && let Some(outcome) = outcome.as_deref().filter(|outcome| *outcome != "stopped")
+        {
+            card.attempts.push(Attempt {
+                kind: StepKind::Cargo,
+                name: step,
+                at,
+                passed: outcome == "passed",
+                state: commit
+                    .0
+                    .as_ref()
+                    .map(|head| format!("{head} {}", commit.1.as_deref().unwrap_or(""))),
+                failed: failed.clone(),
+            });
+        }
+        if let (Some(head), changes, run_branch, off) = commit {
             let head = short(&head);
             let _ = write!(detail, "; on {head}");
-            if changed == Some(true) {
+            if changes.is_some() {
                 detail.push_str(" with uncommitted changes");
             }
             if off == Some(true) {
@@ -513,24 +521,38 @@ fn read_hooks(
             false,
             true,
         ));
+        // What the checks ran on: the commit and the staged files.
+        let staged: String = db
+            .query_row(
+                "SELECT ifnull(group_concat(path || ' ' || change || ' ' || ifnull(added, '') \
+                        || ' ' || ifnull(removed, ''), ','), '') \
+                 FROM (SELECT * FROM hook_run_files WHERE run_id = ?1 ORDER BY path)",
+                [id],
+                |row| row.get(0),
+            )
+            .sql()?;
+        let state = base.as_ref().map(|base| format!("{base} {staged}"));
         let mut outcomes = db
             .prepare(
-                "SELECT c.name, c.outcome = 'passed', r.base FROM hook_run_checks c \
-                 JOIN hook_runs r ON r.id = c.run_id \
-                 WHERE c.run_id = ?1 AND c.kind = 'check' AND c.outcome <> 'skipped' ORDER BY c.position",
+                "SELECT name, outcome = 'passed' FROM hook_run_checks \
+                 WHERE run_id = ?1 AND kind = 'check' AND outcome <> 'skipped' ORDER BY position",
             )
             .sql()?;
         let found = outcomes
             .query_map([id], |row| {
-                Ok(CheckRun {
-                    name: row.get(0)?,
-                    passed: row.get(1)?,
-                    base: row.get(2)?,
-                })
+                Ok((row.get::<_, String>(0)?, row.get::<_, bool>(1)?))
             })
             .sql()?;
         for check in found {
-            card.checks.push(check.sql()?);
+            let (name, passed) = check.sql()?;
+            card.attempts.push(Attempt {
+                kind: StepKind::Hook,
+                name,
+                at,
+                passed,
+                state: state.clone(),
+                failed: Vec::new(),
+            });
         }
         let mut checks = db
             .prepare(
@@ -592,7 +614,7 @@ fn read_app_builds(
     for row in rows {
         let (id, at, lane, checkout, wait_ms, passed, built) = row.sql()?;
         let host = host_of_checkout(&checkout);
-        let built = built
+        let built_words = built
             .as_deref()
             .map_or(String::new(), |sha| format!(" {}", short(sha)));
         card.steps.push(Step {
@@ -602,7 +624,7 @@ fn read_app_builds(
             end: at + (wait_ms + 999) / 1000,
             host: Some(host.clone()),
             detail: format!(
-                "then built{built} in {checkout}; {}",
+                "then built{built_words} in {checkout}; {}",
                 if passed { "passed" } else { "failed" }
             ),
             attributed: true,
@@ -626,6 +648,17 @@ fn read_app_builds(
             .sql()?;
         for step in rows {
             let (name, start, wall_ms, result) = step.sql()?;
+            // A step another build took over says nothing of the change.
+            if result != "taken over" {
+                card.attempts.push(Attempt {
+                    kind: StepKind::AppBuild,
+                    name: format!("{lane} {name}"),
+                    at: start,
+                    passed: result == "passed",
+                    state: built.clone(),
+                    failed: Vec::new(),
+                });
+            }
             card.steps.push(Step {
                 kind: Kind::AppBuildStep,
                 name: format!("app build {lane} {name}"),
@@ -716,6 +749,7 @@ fn read_reviews(
             });
         }
         read_settles(db, id, card)?;
+        read_findings(db, id, card)?;
     }
     Ok(())
 }
@@ -825,6 +859,35 @@ fn read_settles(db: &Connection, run: i64, card: &mut Card) -> Result<()> {
             at,
             words: format!("finding {finding} {how} by {by}"),
         });
+    }
+    Ok(())
+}
+
+/// The findings of review run <run> that builds' own checks kept, with how
+/// each counts now and whether a later run closed it.
+fn read_findings(db: &Connection, run: i64, card: &mut Card) -> Result<()> {
+    let mut statement = db
+        .prepare(
+            "SELECT c.group_name, \
+                    CASE WHEN a.finding_id IS NOT NULL THEN 'dropped' ELSE f.settled END, \
+                    z.finding_id IS NOT NULL \
+             FROM review_finding f JOIN review_call c ON c.id = f.call_id \
+             LEFT JOIN review_settle_again a ON a.finding_id = f.id \
+             LEFT JOIN review_closed z ON z.finding_id = f.id \
+             WHERE c.run_id = ?1 AND f.check_failed IS NULL",
+        )
+        .sql()?;
+    let rows = statement
+        .query_map([run], |row| {
+            Ok(Finding {
+                group: row.get(0)?,
+                settled: row.get(1)?,
+                closed: row.get(2)?,
+            })
+        })
+        .sql()?;
+    for finding in rows {
+        card.findings.push(finding.sql()?);
     }
     Ok(())
 }
@@ -1038,6 +1101,24 @@ pub fn card_text(db: &Connection, card: &Card) -> Result<String> {
         );
     }
     out.push_str(&states_text(card, total));
+    let failures = crate::step_outcomes::failure_outcomes(&card.attempts);
+    if !failures.is_empty() {
+        let _ = writeln!(out, "runs that failed, and what followed on the card");
+        for (run, outcome) in failures {
+            let mut what = format!("{} {}", run.kind.words(), run.name);
+            if !run.failed.is_empty() {
+                let _ = write!(what, " ({})", run.failed.join(", "));
+            }
+            let followed = match outcome {
+                crate::step_outcomes::Outcome::Fixed => "a later run passed after a fix",
+                crate::step_outcomes::Outcome::Flaky => {
+                    "a later run passed on the same commit and changes"
+                }
+                crate::step_outcomes::Outcome::Stood => "no later run passed",
+            };
+            let _ = writeln!(out, "  {}  {what}: {followed}", local_second(run.at));
+        }
+    }
     if !card.off_branch.is_empty() {
         let _ = writeln!(
             out,
@@ -1183,42 +1264,11 @@ pub fn totals_text(cards: &[Card]) -> String {
             times.len(),
         );
     }
-    out.push_str(&failures_text(cards));
-    out
-}
-
-/// For each hook check over <cards>: its runs that failed, and how many of
-/// the failures a fix commit followed, passed again on the same commit, or
-/// stood, the checks that fail most first.
-fn failures_text(cards: &[Card]) -> String {
-    let mut runs: BTreeMap<String, usize> = BTreeMap::new();
-    let mut failed: BTreeMap<String, [usize; 3]> = BTreeMap::new();
-    for card in cards {
-        for check in &card.checks {
-            *runs.entry(check.name.clone()).or_default() += 1;
-        }
-        for (name, outcome) in failure_outcomes(&card.checks) {
-            failed.entry(name).or_default()[outcome as usize] += 1;
-        }
-    }
-    let mut names: Vec<(&String, &[usize; 3])> = failed.iter().collect();
-    names.sort_by_key(|(_, counts)| std::cmp::Reverse(counts.iter().sum::<usize>()));
-    let mut out = String::new();
-    let _ = writeln!(
-        out,
-        "hook checks that failed (runs, failures, then failures a fix commit followed, that passed again on the same commit, and that stood)"
-    );
-    for (name, counts) in names {
-        let _ = writeln!(
-            out,
-            "  {:>5} runs  {:>4} failed  {:>4} fixed  {:>4} flaky  {:>4} stood  {name}",
-            runs[name],
-            counts.iter().sum::<usize>(),
-            counts[Outcome::Fixed as usize],
-            counts[Outcome::Flaky as usize],
-            counts[Outcome::Stood as usize],
-        );
-    }
+    let caught: Vec<(&[Attempt], &[Finding])> = cards
+        .iter()
+        .map(|card| (card.attempts.as_slice(), card.findings.as_slice()))
+        .collect();
+    out.push_str(&crate::step_outcomes::text(&caught));
     out
 }
 
