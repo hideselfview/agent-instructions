@@ -121,6 +121,8 @@ fn a_takeover_ends_the_wait_for_the_display() {
     let held = take(&places, "m1", "test one", &|_| (), &|| false)
         .unwrap()
         .unwrap();
+    // The signal reaches the wait's kqueue even when the process ignores it.
+    unsafe { libc::signal(libc::SIGUSR2, libc::SIG_IGN) };
     let (announced, waiting) = channel();
     let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     let waiter_stop = stop.clone();
@@ -137,10 +139,10 @@ fn a_takeover_ends_the_wait_for_the_display() {
         .is_none()
     });
     waiting.recv_timeout(Duration::from_secs(10)).unwrap();
-    // What the takeover's signal handler does; the wait sees it whether it
-    // has started to sleep yet or not.
+    // What a takeover does: it sets the flag and signals the process. The
+    // wait sees it whether it has started to sleep yet or not.
     stop.store(true, std::sync::atomic::Ordering::SeqCst);
-    wake();
+    unsafe { libc::kill(libc::getpid(), libc::SIGUSR2) };
     assert!(
         waiter.join().unwrap(),
         "the wait went on after the takeover"

@@ -93,8 +93,6 @@ extern "C" fn take_over(_: libc::c_int) {
         return;
     }
     TAKEN_OVER.store(true, Ordering::SeqCst);
-    // A wait for a window lock looks at TAKEN_OVER again.
-    crate::window_lock::wake();
     pass_on(libc::SIGTERM);
 }
 

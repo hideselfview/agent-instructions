@@ -12,13 +12,13 @@
 //! `<host>.run` while it holds the lock, for a waiter to name.
 
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicI32, Ordering};
 use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
 
 use crate::fail;
 use crate::fail::{Context, Result};
+use crate::lock_wake::{Shared, Wake};
 use crate::places::Places;
 use crate::queue;
 use crate::text::note;
@@ -77,134 +77,61 @@ fn holder_of(places: &Places, host: &str) -> Result<Option<String>> {
     Ok(crate::procs::runs(holder.pid).then_some(holder.what))
 }
 
-/// The pipe that wakes a wait: the end the takeover's signal handler and a
-/// finished lock wait write a byte to, and the end a wait reads. It lasts as
-/// long as the process, so a signal that comes at any time finds it open.
-static WAKE_WRITE: AtomicI32 = AtomicI32::new(-1);
-static WAKE_READ: AtomicI32 = AtomicI32::new(-1);
-
-/// Sets <flag> on <end> with `fcntl` <command>.
-fn set(end: libc::c_int, command: libc::c_int, flag: libc::c_int) -> Result<()> {
-    if unsafe { libc::fcntl(end, command, flag) } < 0 {
-        fail!(
-            "setting up the wake pipe: {}",
-            std::io::Error::last_os_error()
-        );
-    }
-    Ok(())
-}
-
-/// Makes the wake pipe the first time and returns its read end.
-fn wake_pipe() -> Result<libc::c_int> {
-    static MADE: Mutex<()> = Mutex::new(());
-    let _made = MADE.lock().expect("no thread panicked holding it");
-    if WAKE_READ.load(Ordering::SeqCst) >= 0 {
-        return Ok(WAKE_READ.load(Ordering::SeqCst));
-    }
-    let mut ends = [0 as libc::c_int; 2];
-    if unsafe { libc::pipe(ends.as_mut_ptr()) } != 0 {
-        fail!("making the wake pipe: {}", std::io::Error::last_os_error());
-    }
-    for end in ends {
-        set(end, libc::F_SETFD, libc::FD_CLOEXEC)?;
-    }
-    // The writers never wait for room: a full pipe already wakes the reader.
-    set(ends[1], libc::F_SETFL, libc::O_NONBLOCK)?;
-    WAKE_READ.store(ends[0], Ordering::SeqCst);
-    WAKE_WRITE.store(ends[1], Ordering::SeqCst);
-    Ok(ends[0])
-}
-
-/// Wakes a wait for a window lock so that it looks at `stopped` again. The
-/// takeover's signal handler calls it, so it only does what a signal handler
-/// may.
-pub fn wake() {
-    let end = WAKE_WRITE.load(Ordering::SeqCst);
-    if end >= 0 {
-        unsafe { libc::write(end, [1u8].as_ptr().cast(), 1) };
-    }
-}
-
-/// How the thread that waits for a lock on a file has done.
-enum Waiting {
-    Waits,
-    /// The thread has the lock, on this descriptor.
-    Has(libc::c_int),
-    Failed(String),
-    /// The wait was given up: the thread closes the file when it ends.
-    GivenUp,
-}
-
-/// Waits for the lock on <file> and takes it, or returns None as soon as
-/// <stopped> says a takeover stopped this build. A thread waits in `flock`;
-/// the waiter sleeps on the wake pipe, which the thread writes when it has
-/// the lock and the takeover's signal handler writes (`wake`). The waiter
-/// looks at <stopped> after the pipe is open and before it reads from it, so
-/// no takeover goes unseen, and no timer stands in for knowing.
+/// Waits for the lock on <file>, which exists, and takes it, or returns None
+/// as soon as <stopped> says a takeover stopped this build. The wait is
+/// `Wake`'s, as the queue's is, with the takeover's signal: a thread blocks in
+/// `flock` and reports through a pipe, and the waiter sleeps in a kqueue that
+/// counts SIGUSR2 from the moment it exists. The waiter looks at <stopped>
+/// after that, so a takeover is seen whether its signal came before or after.
 fn wait_for(file: &std::path::Path, stopped: &dyn Fn() -> bool) -> Result<Option<libc::c_int>> {
-    let read = wake_pipe()?;
-    // Bytes left from an earlier wait or signal wake nothing new.
-    loop {
-        let mut ready = libc::pollfd {
-            fd: read,
-            events: libc::POLLIN,
-            revents: 0,
-        };
-        if unsafe { libc::poll(&mut ready, 1, 0) } <= 0 {
-            break;
-        }
-        let mut byte = 0u8;
-        if unsafe { libc::read(read, (&mut byte as *mut u8).cast(), 1) } <= 0 {
-            break;
-        }
-    }
-    // Left open without close-on-exec, like an app lock: the step's
-    // processes hold the lock too. The thread opens the file and waits for
-    // the lock; `open_with` starts the wait again after a signal.
-    let state = Arc::new(Mutex::new(Waiting::Waits));
-    let waiter = state.clone();
-    let path = file.to_path_buf();
-    std::thread::spawn(move || {
-        let locked = queue::open_with(&path, libc::O_CREAT);
-        let mut state = waiter.lock().expect("no thread panicked holding it");
-        match (&*state, locked) {
-            (Waiting::GivenUp, Ok(fd)) => unsafe {
-                libc::close(fd);
-                return;
-            },
-            (Waiting::GivenUp, Err(_)) => return,
-            (_, Ok(fd)) => *state = Waiting::Has(fd),
-            (_, Err(error)) => {
-                *state = Waiting::Failed(format!("locking {}: {error}", path.display()))
-            }
-        }
-        wake();
-    });
-    loop {
-        {
-            let mut state = state.lock().expect("no thread panicked holding it");
+    let wake = Wake::new(libc::SIGUSR2)?;
+    let shared = Arc::new(Mutex::new(Shared {
+        current: std::collections::HashSet::from([WAIT]),
+        open: true,
+    }));
+    wake.block_on(file.to_path_buf(), WAIT, shared.clone())?;
+    let taken = (|| -> Result<Option<libc::c_int>> {
+        loop {
             if stopped() {
-                if let Waiting::Has(fd) = *state {
-                    unsafe { libc::close(fd) };
-                }
-                *state = Waiting::GivenUp;
                 return Ok(None);
             }
-            match &*state {
-                Waiting::Has(fd) => return Ok(Some(*fd)),
-                Waiting::Failed(error) => fail!("{error}"),
-                Waiting::Waits | Waiting::GivenUp => {}
+            if wake.wait()?.ready
+                && let Some((_, code)) = wake.message()
+            {
+                if code < 0 {
+                    fail!(
+                        "locking {}: {}",
+                        file.display(),
+                        std::io::Error::from_raw_os_error(-code)
+                    );
+                }
+                return Ok(Some(code));
             }
         }
-        let mut byte = 0u8;
-        if unsafe { libc::read(read, (&mut byte as *mut u8).cast(), 1) } < 0 {
-            let error = std::io::Error::last_os_error();
-            if error.kind() != std::io::ErrorKind::Interrupted {
-                fail!("waiting on the wake pipe: {error}");
-            }
+    })();
+    // No thread reports from here on, and a report not read is let go.
+    shared.lock().expect("no thread panicked holding it").open = false;
+    while let Some((_, code)) = wake.message() {
+        if code >= 0 {
+            unsafe { libc::close(code) };
         }
     }
+    let Some(lock) = taken? else {
+        return Ok(None);
+    };
+    // The wait's descriptor closes on exec, since a queue wait never holds
+    // the lock. This one holds it for the step, so every process the step
+    // starts holds it too.
+    if unsafe { libc::fcntl(lock, libc::F_SETFD, 0) } < 0 {
+        let error = std::io::Error::last_os_error();
+        unsafe { libc::close(lock) };
+        fail!("keeping {} for the step: {error}", file.display());
+    }
+    Ok(Some(lock))
 }
+
+/// The number of the one wait this module starts.
+const WAIT: u64 = 1;
 
 /// Takes <host>'s window lock for the step <what> describes. While another
 /// run holds it, `take` gives <announce> the words that name that run, then
