@@ -1,7 +1,8 @@
 -- The record of every `builds land` run that reached a project's lists, in
 -- `builds.sqlite` in the project's store folder. land_run.rs owns these tables
--- and is the only code that writes them. Each run is written once, when land
--- ends, whether the commits landed or land refused them. Nothing here is
+-- and is the only code that writes them. Each run is written once, when the
+-- landing ends and before land fast-forwards the main checkout, whether the
+-- commits landed or land refused them. Nothing here is
 -- derived: when each step began and how long it took are facts the run
 -- observed.
 
@@ -48,7 +49,8 @@ CREATE TABLE land_run_commit (
 -- cherry-pick onto origin/main), `checks` (the whole-tree checks and the
 -- compile check of the result) and `push`: one of each for every attempt, so
 -- a refused push shows as another round. `records`: the records after the
--- push. `finish`: releasing the worktree and fast-forwarding the main checkout.
+-- push. `finish`: leaving the worktree on the landed commit or its branch, and
+-- releasing it.
 CREATE TABLE land_step (
     land_id INTEGER NOT NULL REFERENCES land_run (id) ON DELETE CASCADE,
     position INTEGER NOT NULL CHECK (position >= 0),

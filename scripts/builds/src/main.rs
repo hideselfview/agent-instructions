@@ -207,7 +207,10 @@ fn exit_code(fail: Fail) -> ExitCode {
 /// runs under a holder's use: `builds cargo` records a run only for a hook
 /// check, under the hook run's use. An app build's lane records its findings
 /// and its run after long work too, and takes its use once it holds the
-/// lane's lock (app_build.rs).
+/// lane's lock (app_build.rs). A landing records its run after long work, and
+/// holds its use from its start until it has written that record, then ends
+/// it before it fast-forwards the main checkout, whose post-merge hook may run
+/// an install (land.rs).
 fn holds_for_life(command: &str, rest: &[String]) -> bool {
     match command {
         // Records the hook run once its checks end (hook_stats.rs).

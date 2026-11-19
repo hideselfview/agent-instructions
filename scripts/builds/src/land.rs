@@ -91,11 +91,22 @@
 //! as landed and starts the audit of a sampled one, which never fails the
 //! landing.
 //!
-//! After the records, land fast-forwards the repo's main checkout to
+//! A landing holds a use of the stores (install_gate.rs) from before it takes
+//! the worktree's lock until it has written the record of its run
+//! (land_run.rs), so a `builds install` that moves a store to another schema
+//! waits for the landing, and every record the landing writes, in this program
+//! and in the `builds` commands it runs, meets the schema it started with.
+//! When an install ran after this program started and before it took the use,
+//! land runs the installed builds in its place.
+//!
+//! After the record of its run, land ends its use of the stores and releases
+//! the worktree's lock, then fast-forwards the repo's main checkout to
 //! origin/main (`git merge --ff-only`), so the person and the agents who read
 //! code there see what landed (main_checkout.rs). In agent-instructions the
 //! checkout's post-merge hook then runs install.sh, which installs the landed
-//! builds and links the landed rules and skills. The main checkout is the
+//! builds and links the landed rules and skills; that install may move the
+//! stores, so it comes after every record, and it would wait forever for a
+//! use the landing still held. The main checkout is the
 //! person's: when it is not on main, or git refuses the fast-forward because
 //! the person's commits or uncommitted edits there are in the way, land
 //! leaves it as it is and prints a line that starts with MAIN CHECKOUT
@@ -127,12 +138,51 @@ const ATTEMPTS: usize = 5;
 
 pub fn cmd_land(places: &crate::places::Places, args: &[String]) -> Result<()> {
     let program = std::env::current_exe().context(|| "finding this program".to_string())?;
+    let stores = hold_stores()?;
     let stdout = std::io::stdout();
-    let (result, run) = land_profiled(&program, args, &mut stdout.lock());
-    if let Some(run) = run {
-        record_run(places, &run);
+    land_recorded(places, &program, args, &mut stdout.lock(), stores)
+}
+
+/// Takes the use of the stores that the landing holds until it has written
+/// the record of its run (install_gate.rs), so an install that moves a store
+/// to another schema waits for the landing. When an install ran after this
+/// program started, this program writes a store of another schema, so it runs
+/// the installed builds in its place.
+fn hold_stores() -> Result<Option<crate::install_gate::Holding<'static>>> {
+    let stores = crate::install_gate::hold()?;
+    if crate::install_gate::install_ran()? {
+        drop(stores);
+        crate::text::note(
+            "builds install ran before this landing began, so the landing runs the installed builds program in its place",
+        );
+        return Err(crate::install_gate::run_again());
     }
-    result
+    Ok(stores)
+}
+
+/// Lands <args> with <program> answering the `builds` commands the landing
+/// runs, writes the record of the run to its project's store in <places>,
+/// ends <stores>, the landing's use of the stores, and then fast-forwards the
+/// repo's main checkout when the landing pushed. In agent-instructions the
+/// main checkout's post-merge hook installs the landed builds, which may move
+/// the store to another schema, so every record comes before it, and the use
+/// ends first because install waits for every use.
+fn land_recorded(
+    places: &crate::places::Places,
+    program: &Path,
+    args: &[String],
+    out: &mut dyn Write,
+    stores: Option<crate::install_gate::Holding<'_>>,
+) -> Result<()> {
+    let ended = land_profiled(program, args, out);
+    if let Some(run) = &ended.run {
+        record_run(places, run);
+    }
+    drop(stores);
+    if let Some(workdir) = &ended.pushed_from {
+        forward_main_checkout(workdir, out);
+    }
+    ended.result
 }
 
 /// Writes <run> to its project's store; a failure is said and changes
@@ -1004,84 +1054,9 @@ impl Landing<'_> {
         }
     }
 
-    /// Fast-forwards the repo's main checkout to origin/main, and prints a
-    /// MAIN CHECKOUT BEHIND line, which says why and gives the command to
-    /// run, when the checkout is not on main or git refuses the fast-forward
-    /// (the person's commits or uncommitted edits there stop it).
-    fn forward_main_checkout(&self, out: &mut dyn Write) {
-        let behind = |out: &mut dyn Write, what: String| {
-            let _ = writeln!(
-                out,
-                "MAIN CHECKOUT BEHIND: the landing is on origin/main, but {what}"
-            );
-        };
-        let main = match crate::checkout::Checkout::at(&self.workdir) {
-            Ok(Some(checkout)) => checkout.main,
-            found => {
-                let why = match found {
-                    Err(error) => error.text(),
-                    _ => "git finds no checkout there".to_string(),
-                };
-                behind(
-                    out,
-                    format!(
-                        "land could not find the main checkout of {}: {why}",
-                        self.workdir.display()
-                    ),
-                );
-                return;
-            }
-        };
-        let command = crate::main_checkout::forward_command(&main);
-        let Some(on) = git_text(&main, &["branch", "--show-current"]) else {
-            behind(
-                out,
-                format!(
-                    "git could not say which branch the main checkout {} is on",
-                    main.display()
-                ),
-            );
-            return;
-        };
-        let on = (!on.is_empty()).then_some(on);
-        if let Some(why) = crate::main_checkout::off_main(on.as_deref()) {
-            behind(
-                out,
-                format!(
-                    "the main checkout {} {why}, so land left it as it is; once the person checks out main there, run: {command}",
-                    main.display()
-                ),
-            );
-            return;
-        }
-        let mut merge = git(&main);
-        merge.args(["merge", "--ff-only", "origin/main"]);
-        let (ok, said) = merged(merge);
-        if ok {
-            let _ = writeln!(
-                out,
-                "fast-forwarded the main checkout {} to origin/main",
-                main.display()
-            );
-            if !said.is_empty() {
-                let _ = writeln!(out, "{said}");
-            }
-        } else {
-            behind(
-                out,
-                format!(
-                    "git did not fast-forward the main checkout {}:\n{said}\nThe person's commits or uncommitted edits there stop the fast-forward; once the person pushes, commits or removes them, run: {command}",
-                    main.display()
-                ),
-            );
-        }
-    }
-
-    /// After the push: leaves the worktree, records the landing, releases the
-    /// worktree when its agent has nothing left there, and fast-forwards the
-    /// repo's main checkout. Land fast-forwards the main checkout last,
-    /// because in agent-instructions its post-merge hook may install a new
-    /// builds, and the records run as this program.
+    /// After the push: leaves the worktree, records the landing, and releases
+    /// the worktree when its agent has nothing left there. The main checkout
+    /// moves only after land writes the record of the run (`land_recorded`).
     fn finish(&self, on_main: &[String], out: &mut dyn Write) -> Result<()> {
         let waiting = {
             let _timing = self.timing(StepKind::Finish);
@@ -1091,12 +1066,9 @@ impl Landing<'_> {
             let _timing = self.timing(StepKind::Records);
             self.record(on_main, waiting, out)
         };
-        {
+        if recorded && !waiting && !self.request.has_part() {
             let _timing = self.timing(StepKind::Finish);
-            if recorded && !waiting && !self.request.has_part() {
-                self.release(out);
-            }
-            self.forward_main_checkout(out);
+            self.release(out);
         }
         if recorded { Ok(()) } else { Err(Fail::Exit(1)) }
     }
@@ -1165,19 +1137,109 @@ fn require_claim(workdir: &Path, out: &mut dyn Write) -> Result<String> {
     }
 }
 
+/// Fast-forwards the main checkout of the repo of <workdir> to origin/main,
+/// and prints a MAIN CHECKOUT BEHIND line, which says why and gives the
+/// command to run, when the checkout is not on main or git refuses the
+/// fast-forward (the person's commits or uncommitted edits there stop it).
+fn forward_main_checkout(workdir: &Path, out: &mut dyn Write) {
+    let behind = |out: &mut dyn Write, what: String| {
+        let _ = writeln!(
+            out,
+            "MAIN CHECKOUT BEHIND: the landing is on origin/main, but {what}"
+        );
+    };
+    let main = match crate::checkout::Checkout::at(workdir) {
+        Ok(Some(checkout)) => checkout.main,
+        found => {
+            let why = match found {
+                Err(error) => error.text(),
+                _ => "git finds no checkout there".to_string(),
+            };
+            behind(
+                out,
+                format!(
+                    "land could not find the main checkout of {}: {why}",
+                    workdir.display()
+                ),
+            );
+            return;
+        }
+    };
+    let command = crate::main_checkout::forward_command(&main);
+    let Some(on) = git_text(&main, &["branch", "--show-current"]) else {
+        behind(
+            out,
+            format!(
+                "git could not say which branch the main checkout {} is on",
+                main.display()
+            ),
+        );
+        return;
+    };
+    let on = (!on.is_empty()).then_some(on);
+    if let Some(why) = crate::main_checkout::off_main(on.as_deref()) {
+        behind(
+            out,
+            format!(
+                "the main checkout {} {why}, so land left it as it is; once the person checks out main there, run: {command}",
+                main.display()
+            ),
+        );
+        return;
+    }
+    let mut merge = git(&main);
+    merge.args(["merge", "--ff-only", "origin/main"]);
+    let (ok, said) = merged(merge);
+    if ok {
+        let _ = writeln!(
+            out,
+            "fast-forwarded the main checkout {} to origin/main",
+            main.display()
+        );
+        if !said.is_empty() {
+            let _ = writeln!(out, "{said}");
+        }
+    } else {
+        behind(
+            out,
+            format!(
+                "git did not fast-forward the main checkout {}:\n{said}\nThe person's commits or uncommitted edits there stop the fast-forward; once the person pushes, commits or removes them, run: {command}",
+                main.display()
+            ),
+        );
+    }
+}
+
+/// How a landing ended, before land writes the record of its run and moves
+/// the main checkout.
+struct Ended {
+    result: Result<()>,
+    /// The record of the run, when the repo is in a project and the run got
+    /// as far as reading which one.
+    run: Option<LandRun>,
+    /// The worktree the landing pushed from, whose repo's main checkout land
+    /// fast-forwards; None when the landing pushed nothing.
+    pushed_from: Option<PathBuf>,
+}
+
+impl Ended {
+    fn before_landing(result: Result<()>) -> Ended {
+        Ended {
+            result,
+            run: None,
+            pushed_from: None,
+        }
+    }
+}
+
 /// The landing, with the program that answers the `builds` commands it runs
-/// (this program; tests pass a stand-in) and <out> for what it says, and the
-/// record of the run when the repo is in a project and the run got as far as
-/// reading which one.
-pub fn land_profiled(
-    program: &Path,
-    args: &[String],
-    out: &mut dyn Write,
-) -> (Result<()>, Option<LandRun>) {
+/// (this program; tests pass a stand-in) and <out> for what it says, up to
+/// the record of its run. Land holds the worktree's lock only until then.
+fn land_profiled(program: &Path, args: &[String], out: &mut dyn Write) -> Ended {
     let started_at = crate::app_timing::now();
     let began = Instant::now();
     let Some((worktree, rest)) = args.split_first() else {
-        return (Err(refuse(out, USAGE)), None);
+        return Ended::before_landing(Err(refuse(out, USAGE)));
     };
     let waiting = (crate::app_timing::now(), Instant::now());
     let (workdir, lock) = match std::path::absolute(worktree)
@@ -1185,7 +1247,7 @@ pub fn land_profiled(
         .and_then(|workdir| Ok((workdir.clone(), lock_worktree(&workdir, rest, out)?)))
     {
         Ok(held) => held,
-        Err(error) => return (Err(error), None),
+        Err(error) => return Ended::before_landing(Err(error)),
     };
     let lock_step = Step {
         kind: StepKind::Lock,
@@ -1195,7 +1257,7 @@ pub fn land_profiled(
     let _lock = lock;
     let mut landing = match open_landing(program, workdir, rest, out) {
         Ok(landing) => landing,
-        Err(error) => return (Err(error), None),
+        Err(error) => return Ended::before_landing(Err(error)),
     };
     landing.steps.borrow_mut().push(lock_step);
     let result = landing.proceed(out);
@@ -1206,7 +1268,11 @@ pub fn land_profiled(
             None
         }
     };
-    (result, run)
+    Ended {
+        result,
+        run,
+        pushed_from: landing.pushed.get().then(|| landing.workdir.clone()),
+    }
 }
 
 /// The landing of <args>, once the worktree is clean and on the commits.

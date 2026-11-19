@@ -1,6 +1,9 @@
 //! The record of every `builds land` run that reached a project's lists
-//! (land_run.sql). land.rs times each step of the run and, when land ends,
-//! the program writes the run here, in one transaction. A write that fails
+//! (land_run.sql). land.rs times each step of the run and, once the landing
+//! ends and before land fast-forwards the main checkout, whose post-merge
+//! hook in agent-instructions may install a builds that moves the store, the
+//! program writes the run here, in one transaction, while the landing still
+//! holds its use of the stores (install_gate.rs). A write that fails
 //! is said on stderr and changes nothing about the landing's result, as with
 //! the hook's and the app builds' records.
 
@@ -27,7 +30,9 @@ pub enum StepKind {
     Push,
     /// The records after the push.
     Records,
-    /// Releasing the worktree and fast-forwarding the main checkout.
+    /// Leaving the worktree on the landed commit or the branch, and releasing
+    /// it. The fast-forward of the main checkout comes after the run's record,
+    /// so no step times it.
     Finish,
 }
 

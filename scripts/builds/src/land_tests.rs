@@ -1,9 +1,10 @@
 use super::*;
 use crate::testing::{Scratch, git_out};
 
-/// The landing, without the record of the run.
-fn land(program: &Path, args: &[String], out: &mut dyn Write) -> Result<()> {
-    land_profiled(program, args, out).0
+/// The landing in <f>, which records its run in the store of its project in
+/// <f>'s places, when there is one.
+fn land(f: &Fixture, program: &Path, args: &[String], out: &mut dyn Write) -> Result<()> {
+    land_recorded(&f.scratch.places(), program, args, out, None)
 }
 
 /// A fixture: a bare origin and the repo's main checkout, cloned from it,
@@ -153,7 +154,7 @@ fn run_land(f: &Fixture, dir: &Path, args: &[&str], cues: Cues) -> (i32, String,
     let mut all = vec![dir.display().to_string()];
     all.extend(args.iter().map(|a| a.to_string()));
     let mut out = Vec::new();
-    let code = match land(&stub, &all, &mut out) {
+    let code = match land(f, &stub, &all, &mut out) {
         Ok(()) => 0,
         Err(Fail::Exit(code)) => code,
         Err(Fail::Message(message)) => panic!("landing failed: {message}"),
@@ -173,7 +174,7 @@ fn profiled(f: &Fixture, dir: &Path, args: &[&str], cues: Cues) -> (i32, Option<
     let mut all = vec![dir.display().to_string()];
     all.extend(args.iter().map(|a| a.to_string()));
     let mut out = Vec::new();
-    let (result, run) = land_profiled(&stub, &all, &mut out);
+    let Ended { result, run, .. } = land_profiled(&stub, &all, &mut out);
     let code = match result {
         Ok(()) => 0,
         Err(Fail::Exit(code)) => code,
@@ -498,7 +499,7 @@ fn a_refused_release_keeps_the_claim_and_fails_nothing() {
         "7".into(),
         a.clone(),
     ];
-    let result = land(&refusing, &args, &mut out);
+    let result = land(&f, &refusing, &args, &mut out);
     let out = String::from_utf8_lossy(&out);
     assert!(result.is_ok() && main_of(&f) == a, "{out}");
     assert!(
@@ -1146,9 +1147,10 @@ read -t 60 mark <&4 || { echo "the landing in $other did not reach its check"; e
     let landing = |dir: &Path, sha: String| {
         let args = vec![dir.display().to_string(), sha];
         let stub = stub.clone();
+        let places = f.scratch.places();
         std::thread::spawn(move || {
             let mut out = Vec::new();
-            let result = land(&stub, &args, &mut out);
+            let result = land_recorded(&places, &stub, &args, &mut out, None);
             (result.is_ok(), String::from_utf8_lossy(&out).into_owned())
         })
     };
@@ -1173,9 +1175,10 @@ fn two_landings_started_together_in_one_worktree_run_one_after_the_other() {
     let landing = |sha: String| {
         let args = vec![one.display().to_string(), sha];
         let stub = stub.clone();
+        let places = f.scratch.places();
         std::thread::spawn(move || {
             let mut out = Vec::new();
-            let result = land(&stub, &args, &mut out);
+            let result = land_recorded(&places, &stub, &args, &mut out, None);
             (result.is_ok(), String::from_utf8_lossy(&out).into_owned())
         })
     };
@@ -1358,4 +1361,125 @@ fn a_repo_in_no_project_records_no_landing() {
     let (code, run) = profiled(&f, &one, &[&a], Cues::default());
     assert_eq!(code, 0);
     assert_eq!(run, None);
+}
+
+/// The store of project "bae" in <f>'s places, with one item, and the item.
+fn store_with_item(f: &Fixture) -> (crate::lists::store::Store, Id) {
+    use crate::lists::fixtures::{NOON, item, make_store_named, stamp};
+    let store = make_store_named(&f.scratch.places(), "bae", &["repo"]);
+    let id = store
+        .write(&stamp(NOON), "add item", |db| Ok(item(db, vec![])))
+        .unwrap();
+    (store, id)
+}
+
+/// The landings recorded in the store at <database>, read past its schema
+/// stamp, and the stamp.
+fn landings_and_stamp(database: &Path) -> (i64, i64) {
+    let conn = rusqlite::Connection::open(database).unwrap();
+    let landed: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM land_run WHERE landed = 1",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    let stamp: i64 = conn
+        .pragma_query_value(None, "user_version", |row| row.get(0))
+        .unwrap();
+    (landed, stamp)
+}
+
+/// A stamp no builds schema has, which stands for the schema of a newer
+/// builds that an install moves the store to.
+const NEWER_STAMP: i64 = 12_345;
+
+#[test]
+fn a_landing_records_its_run_before_the_install_its_main_checkout_runs_moves_the_store() {
+    let f = fixture("land-record-before-install", "true\n", None);
+    let (store, id) = store_with_item(&f);
+    // The main checkout's post-merge hook stands for install.sh: it moves the
+    // store to a newer schema, as `builds install` of a landed builds does.
+    // Like the real hook, it acts only in the main checkout.
+    let hooks = f.scratch.dir.join("hooks");
+    std::fs::create_dir_all(&hooks).unwrap();
+    let hook = hooks.join("post-merge");
+    std::fs::write(
+        &hook,
+        format!(
+            "#!/bin/bash\n[ \"$(git rev-parse --show-toplevel)\" = \"$(cd '{main}' && pwd -P)\" ] || exit 0\nexec /usr/bin/sqlite3 '{db}' 'PRAGMA user_version = {NEWER_STAMP}'\n",
+            main = f.main.display(),
+            db = store.database().display()
+        ),
+    )
+    .unwrap();
+    std::fs::set_permissions(&hook, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+    git_out(
+        &f.main,
+        &["config", "core.hooksPath", hooks.to_str().unwrap()],
+    );
+    let one = f.side(1, "a");
+    let a = commit_file(&one, "a.txt", "a\n", "add a");
+    let (code, out, _) = run_land(&f, &one, &["--done", &id.0.to_string(), &a], project());
+    assert!(
+        code == 0 && out.contains("fast-forwarded the main checkout"),
+        "{out}"
+    );
+    assert_eq!(
+        landings_and_stamp(&store.database()),
+        (1, NEWER_STAMP),
+        "the landing wrote its run before the hook moved the store"
+    );
+}
+
+#[test]
+fn an_install_that_moves_the_store_waits_until_the_landing_records_its_run() {
+    use crate::install_gate::{PerConnection, begin};
+    let f = fixture("land-record-install-waits", "true\n", None);
+    let (store, id) = store_with_item(&f);
+    let places = f.scratch.places();
+    let landing = PerConnection::new(places.clone(), 4242, "land", "10:00:00").unwrap();
+    let stores = landing.hold().unwrap();
+    // An install starts while the landing holds its use: it waits for the
+    // use, then counts the landings the store holds and moves the store.
+    let (events, said) = std::sync::mpsc::channel();
+    let database = store.database();
+    let install = std::thread::spawn({
+        let places = places.clone();
+        move || {
+            let say = &mut |line: String| {
+                let _ = events.send(line);
+            };
+            let closed = begin(&places, say).unwrap().close(say).unwrap();
+            let (landed, _) = landings_and_stamp(&database);
+            let conn = rusqlite::Connection::open(&database).unwrap();
+            conn.pragma_update(None, "user_version", NEWER_STAMP)
+                .unwrap();
+            drop(closed);
+            landed
+        }
+    });
+    let waiting = said
+        .recv_timeout(std::time::Duration::from_secs(30))
+        .expect("the install says it waits");
+    assert!(waiting.contains("process 4242"), "{waiting}");
+    let one = f.side(1, "a");
+    let a = commit_file(&one, "a.txt", "a\n", "add a");
+    let (stub, _) = stub(&f, &project());
+    let args = vec![
+        one.display().to_string(),
+        "--done".to_string(),
+        id.0.to_string(),
+        a,
+    ];
+    let mut out = Vec::new();
+    let result = land_recorded(&places, &stub, &args, &mut out, Some(stores));
+    let out = String::from_utf8_lossy(&out);
+    assert!(result.is_ok(), "{out}");
+    assert_eq!(
+        install.join().unwrap(),
+        1,
+        "the install moved the store only after the landing recorded its run"
+    );
+    assert_eq!(landings_and_stamp(&store.database()), (1, NEWER_STAMP));
 }

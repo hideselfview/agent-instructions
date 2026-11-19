@@ -2360,8 +2360,13 @@ run `review replay --rules-root` on it.
                               items, each commit's time, and the time of each
                               step (the wait for an earlier landing, the
                               lists' checks, each fetch, pick, result check
-                              and push attempt, the records and the finish),
-                              which `builds item times` shows.
+                              and push attempt, the records, and leaving and
+                              releasing the worktree), which `builds item
+                              times` shows. Land holds a use of the stores
+                              from its start until it writes the run, so an
+                              install that moves a store waits for the
+                              landing, and the landing writes every record
+                              with the schema it started with (INSTALLING).
                               Each record names the worktree, and land reads
                               who landed from the worktree's claim and passes
                               it to each record as --by, so in a repo of a
@@ -2378,7 +2383,8 @@ run `review replay --rules-root` on it.
                               nothing to land and names no --part releases the
                               worktree (`builds release`; when release refuses,
                               the worktree keeps its claim and the landing
-                              still succeeds). Land then fast-forwards the
+                              still succeeds). Once land writes the run and
+                              ends its use of the stores, it fast-forwards the
                               repo's main checkout (such as ~/dev/bae) to
                               origin/main, so the person and the agents who
                               read code there see what landed; in
@@ -2693,7 +2699,8 @@ INSTALLING
                               builds command will write a store with the
                               schema it started with, naming each and when it
                               started: first every hook run
-                              (`checks run`), review that asks reviewers, and
+                              (`checks run`), review that asks reviewers,
+                              landing (`land`) until it records its run, and
                               app build lane that holds its lane's lock, each
                               of which records after long work; then every
                               other command's open store connection, which
