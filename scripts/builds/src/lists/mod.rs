@@ -30,6 +30,7 @@ pub mod derive;
 pub mod design;
 mod design_command;
 pub mod design_paths;
+pub mod design_reads;
 pub mod design_session;
 pub mod draft;
 pub mod dropped;

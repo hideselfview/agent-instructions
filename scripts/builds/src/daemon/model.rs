@@ -155,8 +155,9 @@ pub struct Model {
     stopped: AtomicBool,
     git_stream: Mutex<Option<(Vec<PathBuf>, Stream)>>,
     lists: Arc<Feed>,
-    /// What git said the commits of design branches change.
-    design_reads: super::design_cards::Reads,
+    /// Each worktree's design commits, which its card and health's findings
+    /// both read.
+    design_reads: crate::lists::design_reads::DesignReads,
     /// What git said of each branch's commits for its rules review.
     review_reads: super::review_cards::Reads,
     /// The build-app runs the page starts.
@@ -774,6 +775,7 @@ impl Model {
             &places,
             &mut claimed,
             &held,
+            &self.design_reads,
         )?;
         let mut loose: Vec<crate::unlanded::LooseBranch> = Vec::new();
         let mut unread: Vec<crate::health::Finding> = Vec::new();
@@ -1370,9 +1372,7 @@ impl Model {
             .unwrap_or_default();
         let design = match (project, seen.git) {
             (Some(lists), Some(SideGit::Side(Ok(git)))) => {
-                match self
-                    .design_reads
-                    .standing(lists, seen.repo, top, &git.ahead)
+                match super::design_cards::standing(&self.design_reads, lists, seen.repo, top, git)
                 {
                     Ok(standing) => standing,
                     Err(error) => {

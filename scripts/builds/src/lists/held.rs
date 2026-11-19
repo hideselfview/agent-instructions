@@ -12,7 +12,8 @@ use crate::claim::Claim;
 use crate::fail;
 use crate::fail::Result;
 use crate::health::Advice;
-use crate::lists::design::{DesignChange, DesignCommit, design_commits};
+use crate::lists::design::{DesignChange, DesignCommit};
+use crate::lists::design_reads::DesignReads;
 use crate::lists::running::{SpanKind, end_span, open_span, running_in, running_in_any};
 use crate::lists::store::{Loaded, Store, lists_of};
 use crate::lists::{Id, Item, Lists, Located, Stamp, Standing, Wait};
@@ -165,6 +166,8 @@ pub struct Worktree {
 pub struct Work {
     /// The commits origin/main has no copy of, oldest first.
     pub ahead: Vec<String>,
+    /// origin/main's commit, read just before `ahead`.
+    pub main: String,
     /// How many files are not committed.
     pub uncommitted: usize,
 }
@@ -192,6 +195,7 @@ impl Worktree {
                 .is_some(),
             work: git.clone().map(|git| Work {
                 ahead: git.ahead.iter().rev().map(|c| c.full.clone()).collect(),
+                main: git.main,
                 uncommitted: git.uncommitted,
             }),
             committing: crate::procs::commits_in(commits, &checkout.top),
@@ -228,10 +232,12 @@ impl Worktree {
 /// The labels of the worktrees whose commits an open design change covers
 /// and that waits on the person's review: they wait on the person, so they
 /// are not quiet. Once the person approves, the change waits on landing and
-/// the worktree is quiet again.
+/// the worktree is quiet again. <reads> holds the design commits read so
+/// far.
 pub fn awaiting_review(
     loaded: &std::result::Result<Vec<Loaded>, String>,
     worktrees: &[Worktree],
+    reads: &DesignReads,
 ) -> Vec<String> {
     worktrees
         .iter()
@@ -245,13 +251,21 @@ pub fn awaiting_review(
             let Ok(work) = &worktree.work else {
                 return false;
             };
-            let Ok(commits) = design_commits(lists, &worktree.repo, &worktree.top, &work.ahead)
-            else {
+            let Ok(commits) = reads.of(
+                lists,
+                &worktree.repo,
+                &worktree.top,
+                &work.ahead,
+                &work.main,
+            ) else {
                 return false;
             };
-            commits
-                .iter()
-                .any(|commit| commit.covered_by.is_some_and(DesignChange::waits_on_person))
+            commits.iter().any(|commit| {
+                commit
+                    .covered_by
+                    .and_then(|id| lists.design(id))
+                    .is_some_and(DesignChange::waits_on_person)
+            })
         })
         .map(|worktree| worktree.label.clone())
         .collect()
@@ -267,10 +281,12 @@ pub fn awaiting_review(
 /// names none of the two that do, or names a project whose store fails its
 /// check. `running::findings` names the stores when builds can't list them
 /// and each store that fails its check, so `findings` says nothing more when
-/// builds can't list the stores.
+/// builds can't list the stores. <reads> holds the design commits read so
+/// far.
 pub fn findings(
     loaded: &std::result::Result<Vec<Loaded>, String>,
     worktrees: &[Worktree],
+    reads: &DesignReads,
 ) -> Vec<Advice> {
     let Ok(every) = loaded else {
         return Vec::new();
@@ -334,21 +350,27 @@ pub fn findings(
                 continue;
             }
         };
-        let uncovered: Vec<DesignCommit> =
-            match design_commits(lists, &worktree.repo, &worktree.top, &work.ahead) {
-                Err(error) => {
-                    found.push(Advice::said(format!(
-                        "lists: could not read the design files {} changes: {}",
-                        worktree.label,
-                        error.text()
-                    )));
-                    continue;
-                }
-                Ok(commits) => commits
-                    .into_iter()
-                    .filter(|commit| commit.covered_by.is_none())
-                    .collect(),
-            };
+        let commits = match reads.of(
+            lists,
+            &worktree.repo,
+            &worktree.top,
+            &work.ahead,
+            &work.main,
+        ) {
+            Err(error) => {
+                found.push(Advice::said(format!(
+                    "lists: could not read the design files {} changes: {}",
+                    worktree.label,
+                    error.text()
+                )));
+                continue;
+            }
+            Ok(commits) => commits,
+        };
+        let uncovered: Vec<&DesignCommit> = commits
+            .iter()
+            .filter(|commit| commit.covered_by.is_none())
+            .collect();
         if uncovered.is_empty() {
             continue;
         }

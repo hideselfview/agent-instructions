@@ -174,6 +174,7 @@ fn worktree(top: &std::path::Path, who: &str, state: Option<&str>, ahead: Vec<St
         app_checkout: false,
         work: Ok(crate::lists::held::Work {
             ahead,
+            main: "0".repeat(40),
             uncommitted: 0,
         }),
         committing: Ok(Vec::new()),
@@ -202,22 +203,37 @@ fn health_names_a_hold_whose_wait_closed() {
     let id = item(&db, vec![Wait::Question(q)]);
     running_in_db(&db, id, "/w/bae-worktrees/side-1");
     let mut tree = bae_worktree(Some("held"));
-    assert!(findings(&loaded(read(&db)), std::slice::from_ref(&tree)).is_empty());
+    assert!(
+        findings(
+            &loaded(read(&db)),
+            std::slice::from_ref(&tree),
+            &DesignReads::default()
+        )
+        .is_empty()
+    );
     crate::lists::record::close(&db, q, How::Done("shown".into()), &stamp(NOON)).unwrap();
-    let found = findings(&loaded(read(&db)), std::slice::from_ref(&tree));
+    let found = findings(
+        &loaded(read(&db)),
+        std::slice::from_ref(&tree),
+        &DesignReads::default(),
+    );
     assert_eq!(found.len(), 1, "{found:?}");
     assert!(
         found[0].text.contains("is held") && found[0].text.contains("waits on nothing open"),
         "{found:?}"
     );
     tree.claim.note = Some(Note::Plain("kept".into()));
-    assert!(findings(&loaded(read(&db)), &[tree]).is_empty());
+    assert!(findings(&loaded(read(&db)), &[tree], &DesignReads::default()).is_empty());
 }
 
 #[test]
 fn health_names_a_hold_with_no_item() {
     let db = db();
-    let found = findings(&loaded(read(&db)), &[bae_worktree(Some("held"))]);
+    let found = findings(
+        &loaded(read(&db)),
+        &[bae_worktree(Some("held"))],
+        &DesignReads::default(),
+    );
     assert!(found[0].text.contains("runs no item"), "{found:?}");
     assert_eq!(
         found[0].command.as_deref(),
@@ -295,9 +311,9 @@ fn health_counts_a_commit_covered_by_any_change_whose_range_holds_it() {
         .design_places
         .insert("demo".into(), vec!["design/mocks/*.dc.html".into()]);
     let covered = worktree(&top, "agent", None, vec![a.clone(), b.clone()]);
-    assert!(findings(&loaded(lists.clone()), &[covered]).is_empty());
+    assert!(findings(&loaded(lists.clone()), &[covered], &DesignReads::default()).is_empty());
     let after = worktree(&top, "agent", None, vec![a.clone(), b, c.clone()]);
-    let found = findings(&loaded(lists), &[after]);
+    let found = findings(&loaded(lists), &[after], &DesignReads::default());
     assert_eq!(found.len(), 1, "{found:?}");
     assert!(
         found[0].text.contains(&c[..10])
@@ -310,7 +326,7 @@ fn health_counts_a_commit_covered_by_any_change_whose_range_holds_it() {
 #[test]
 fn health_names_design_commits_no_design_change_covers() {
     let (_demo, tree, lists) = design_branch("held-design-no", false);
-    let found = findings(&loaded(lists), &[tree]);
+    let found = findings(&loaded(lists), &[tree], &DesignReads::default());
     assert_eq!(found.len(), 1, "{found:?}");
     assert!(
         found[0].text.contains("design/mocks/a.dc.html")
@@ -323,7 +339,11 @@ fn health_names_design_commits_no_design_change_covers() {
 fn health_names_a_worktree_whose_commits_git_cannot_read_and_never_calls_it_covered() {
     let (_demo, mut tree, lists) = design_branch("held-design-unread", false);
     tree.work = Err("git could not read it".into());
-    let found = findings(&loaded(lists.clone()), std::slice::from_ref(&tree));
+    let found = findings(
+        &loaded(lists.clone()),
+        std::slice::from_ref(&tree),
+        &DesignReads::default(),
+    );
     assert_eq!(found.len(), 1, "{found:?}");
     assert!(
         found[0]
@@ -336,13 +356,13 @@ fn health_names_a_worktree_whose_commits_git_cannot_read_and_never_calls_it_cove
         !tree.claim_is_idle(true),
         "commits git could not read may wait to land"
     );
-    assert!(awaiting_review(&loaded(lists), &[tree]).is_empty());
+    assert!(awaiting_review(&loaded(lists), &[tree], &DesignReads::default()).is_empty());
 }
 
 #[test]
 fn health_accepts_design_commits_an_open_design_change_covers() {
     let (_demo, tree, lists) = design_branch("held-design-yes", true);
-    assert!(findings(&loaded(lists), &[tree]).is_empty());
+    assert!(findings(&loaded(lists), &[tree], &DesignReads::default()).is_empty());
 }
 
 #[test]
@@ -351,7 +371,7 @@ fn health_skips_branches_with_no_design_files() {
     let top = demo.add_side(2, "agent", "other");
     let sha = demo.commit(&top, "src.rs");
     let plain = worktree(&top, "agent", None, vec![sha]);
-    assert!(findings(&loaded(lists), &[plain]).is_empty());
+    assert!(findings(&loaded(lists), &[plain], &DesignReads::default()).is_empty());
 }
 
 #[test]
@@ -369,7 +389,7 @@ fn an_app_checkout_is_held_with_no_item_and_health_leaves_it() {
     held(&demo, &top).unwrap();
     let mut tree = bae_worktree(Some("held"));
     tree.app_checkout = true;
-    assert!(findings(&loaded(read(&db())), &[tree]).is_empty());
+    assert!(findings(&loaded(read(&db())), &[tree], &DesignReads::default()).is_empty());
 }
 
 fn take_held(demo: &Demo, id: &str, top: &std::path::Path, extra: &[&str]) -> Result<()> {
@@ -431,7 +451,7 @@ fn an_item_waiting_on_the_persons_question_is_taken_held_and_health_leaves_it() 
     );
     let mut tree = worktree(&top, "agent", Some("held"), Vec::new());
     tree.repo = "demo".into();
-    assert!(findings(&loaded(lists), &[tree]).is_empty());
+    assert!(findings(&loaded(lists), &[tree], &DesignReads::default()).is_empty());
 }
 
 #[test]
@@ -454,19 +474,19 @@ fn a_worktree_whose_design_change_waits_on_review_awaits_review_until_approved()
     let (_demo, tree, mut lists) = design_branch("held-review", true);
     let trees = [tree];
     assert_eq!(
-        awaiting_review(&loaded(lists.clone()), &trees),
+        awaiting_review(&loaded(lists.clone()), &trees, &DesignReads::default()),
         vec!["demo/side-1".to_string()]
     );
     for design in &mut lists.designs {
         design.approved = Some(stamp(NOON));
     }
-    assert!(awaiting_review(&loaded(lists), &trees).is_empty());
+    assert!(awaiting_review(&loaded(lists), &trees, &DesignReads::default()).is_empty());
 }
 
 #[test]
 fn a_worktree_with_no_design_change_does_not_await_review() {
     let (_demo, tree, lists) = design_branch("held-review-none", false);
-    assert!(awaiting_review(&loaded(lists), &[tree]).is_empty());
+    assert!(awaiting_review(&loaded(lists), &[tree], &DesignReads::default()).is_empty());
 }
 
 #[test]
@@ -475,9 +495,20 @@ fn health_names_a_claimed_worktree_whose_items_closed_and_has_nothing_to_land() 
     let id = item(&db, vec![]);
     running_in_db(&db, id, "/w/bae-worktrees/side-1");
     let tree = bae_worktree(None);
-    assert!(findings(&loaded(read(&db)), std::slice::from_ref(&tree)).is_empty());
+    assert!(
+        findings(
+            &loaded(read(&db)),
+            std::slice::from_ref(&tree),
+            &DesignReads::default()
+        )
+        .is_empty()
+    );
     crate::lists::running::end(&db, id, crate::lists::Ended::Closed, &stamp(NOON)).unwrap();
-    let found = findings(&loaded(read(&db)), std::slice::from_ref(&tree));
+    let found = findings(
+        &loaded(read(&db)),
+        std::slice::from_ref(&tree),
+        &DesignReads::default(),
+    );
     assert_eq!(found.len(), 1, "{found:?}");
     assert!(
         found[0].text.contains("no item runs there") && !found[0].text.contains('`'),
@@ -497,9 +528,13 @@ fn health_names_a_claimed_worktree_whose_items_closed_and_has_nothing_to_land() 
     unknown.committing = Err("builds cannot read process 4242".into());
     for busy in [waiting, editing, committing, unknown] {
         assert!(
-            findings(&loaded(read(&db)), std::slice::from_ref(&busy))
-                .iter()
-                .all(|line| !line.text.contains("no item runs there")),
+            findings(
+                &loaded(read(&db)),
+                std::slice::from_ref(&busy),
+                &DesignReads::default()
+            )
+            .iter()
+            .all(|line| !line.text.contains("no item runs there")),
             "{busy:?}"
         );
     }
@@ -522,11 +557,25 @@ fn health_sees_an_item_of_either_project_in_a_repo_two_projects_hold() {
     let loaded = Ok(vec![named("first", &first), named("second", &second)]);
     let mut tree = bae_worktree(None);
     tree.project = Some("second".into());
-    assert!(findings(&loaded, std::slice::from_ref(&tree)).is_empty());
+    assert!(
+        findings(
+            &loaded,
+            std::slice::from_ref(&tree),
+            &DesignReads::default()
+        )
+        .is_empty()
+    );
     // The item of the second project holds the worktree whatever project
     // the claim names.
     tree.project = Some("first".into());
-    assert!(findings(&loaded, std::slice::from_ref(&tree)).is_empty());
+    assert!(
+        findings(
+            &loaded,
+            std::slice::from_ref(&tree),
+            &DesignReads::default()
+        )
+        .is_empty()
+    );
     // A claim that names no project, or one that does not hold the repo, is a
     // finding of its own.
     for (named, fault) in [
@@ -534,7 +583,11 @@ fn health_sees_an_item_of_either_project_in_a_repo_two_projects_hold() {
         (Some("third"), "does not hold repo bae"),
     ] {
         tree.project = named.map(str::to_string);
-        let found = findings(&loaded, std::slice::from_ref(&tree));
+        let found = findings(
+            &loaded,
+            std::slice::from_ref(&tree),
+            &DesignReads::default(),
+        );
         assert!(
             found.len() == 1
                 && found[0]
@@ -579,12 +632,20 @@ fn health_advises_no_release_of_a_claim_waiting_for_its_item() {
     let db = db();
     let top = std::path::Path::new("/w");
     let loaded = loaded(read(&db));
-    let idle = findings(&loaded, &[worktree(top, "a", None, Vec::new())]);
+    let idle = findings(
+        &loaded,
+        &[worktree(top, "a", None, Vec::new())],
+        &DesignReads::default(),
+    );
     assert!(
         idle.iter().any(|f| f.line().contains("release it with")),
         "{idle:?}"
     );
-    let starting = findings(&loaded, &[worktree(top, "a", Some("starting"), Vec::new())]);
+    let starting = findings(
+        &loaded,
+        &[worktree(top, "a", Some("starting"), Vec::new())],
+        &DesignReads::default(),
+    );
     assert!(
         starting
             .iter()

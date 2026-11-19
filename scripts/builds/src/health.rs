@@ -1058,7 +1058,8 @@ fn held_for(holder: &Holder) -> String {
 /// each kept item whose worktree is gone (lists/kept_work.rs), and each repo with a design folder and no design globs
 /// (lists/project.rs). Also
 /// marks the worktrees whose design change waits on the person's review, so
-/// <claimed> is judged with that known.
+/// <claimed> is judged with that known. Both read the worktrees' design
+/// commits through <designs>.
 pub fn lists_findings(
     places_in: &crate::places::Places,
     integrity: Vec<String>,
@@ -1066,14 +1067,15 @@ pub fn lists_findings(
     places: &[Place],
     claimed: &mut [Claimed],
     worktrees: &[crate::lists::held::Worktree],
+    designs: &crate::lists::design_reads::DesignReads,
 ) -> Result<Vec<Advice>> {
-    let reviewing = crate::lists::held::awaiting_review(loaded, worktrees);
+    let reviewing = crate::lists::held::awaiting_review(loaded, worktrees, designs);
     for one in claimed.iter_mut() {
         one.awaiting_review = reviewing.contains(&places[one.place].label);
     }
     let mut lists = crate::lists::running::findings(integrity, loaded)?;
     lists.extend(crate::lists::kept_work::findings(loaded)?);
-    lists.extend(crate::lists::held::findings(loaded, worktrees));
+    lists.extend(crate::lists::held::findings(loaded, worktrees, designs));
     lists.extend(crate::lists::rust_check::findings(places_in));
     lists.extend(crate::lists::project::missing_globs_findings(
         &places_in.home,
@@ -1164,6 +1166,7 @@ pub fn health(tool: &Tool) -> Result<Health> {
         &places,
         &mut judged,
         &held_worktrees,
+        &Default::default(),
     )?;
     let mut loose = Vec::new();
     for main in mains_of(&roots) {

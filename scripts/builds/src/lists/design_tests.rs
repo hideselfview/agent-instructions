@@ -636,6 +636,12 @@ fn rebase_onto_moved_main(w: &World) {
     git(&w.dir, &["rebase", "-q", "moved"]);
 }
 
+/// The commit that stands for origin/main in <range>: its start.
+fn main_of(w: &World, range: &str) -> String {
+    let (main, _) = range.split_once("..").expect("a range");
+    crate::lists::design_paths::full_sha(&w.dir, main).unwrap()
+}
+
 /// What `builds health` says about the worktree of <w> whose commits past
 /// origin/main are those of <range>.
 fn health_of(w: &World, range: &str) -> Vec<String> {
@@ -652,6 +658,7 @@ fn health_of(w: &World, range: &str) -> Vec<String> {
         app_checkout: false,
         work: Ok(crate::lists::held::Work {
             ahead: crate::lists::design_paths::commits_of_range(&w.dir, range).unwrap(),
+            main: main_of(w, range),
             uncommitted: 0,
         }),
         committing: Ok(Vec::new()),
@@ -660,7 +667,7 @@ fn health_of(w: &World, range: &str) -> Vec<String> {
         project: "demo".into(),
         lists: Ok(w.state()),
     }]);
-    crate::lists::held::findings(&loaded, &[tree])
+    crate::lists::held::findings(&loaded, &[tree], &Default::default())
         .into_iter()
         .map(|advice| advice.text)
         .collect()
@@ -682,8 +689,14 @@ fn card_of(w: &World, range: &str) -> Option<crate::daemon::cards::ItemWait> {
                 subject: "a commit".into(),
             })
             .collect();
-    crate::daemon::design_cards::Reads::default()
-        .standing(&w.state(), "bae", &w.dir, &ahead)
+    let git = crate::side_git::SideRead {
+        head: ahead.first().cloned(),
+        ahead,
+        main: main_of(w, range),
+        uncommitted: 0,
+        last_write: None,
+    };
+    crate::daemon::design_cards::standing(&Default::default(), &w.state(), "bae", &w.dir, &git)
         .unwrap()
 }
 

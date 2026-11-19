@@ -1059,12 +1059,13 @@ fn drawn_by<'a>(
     }
 }
 
-/// One commit past origin/main that changes design files, and the open
-/// design change that covers it, if one does.
-pub struct DesignCommit<'a> {
+/// One commit past origin/main that changes design files, and the id of the
+/// open design change that covers it, if one does.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DesignCommit {
     pub sha: String,
     pub changes: Changes,
-    pub covered_by: Option<&'a DesignChange>,
+    pub covered_by: Option<Id>,
 }
 
 /// Each commit of <ahead> (the commits past origin/main, oldest first) in
@@ -1077,12 +1078,12 @@ pub struct DesignCommit<'a> {
 /// still covers its commits after an agent rebases them onto a moved main.
 /// Health and the dashboard's design card both read coverage here. Empty
 /// when the lists name no design globs for the repo.
-pub fn design_commits<'a>(
-    lists: &'a Lists,
+pub fn design_commits(
+    lists: &Lists,
     repo: &str,
     top: &Path,
     ahead: &[String],
-) -> Result<Vec<DesignCommit<'a>>> {
+) -> Result<Vec<DesignCommit>> {
     let globs = Globs::of(lists, repo);
     if globs.places.is_empty() && globs.sources.is_empty() {
         return Ok(Vec::new());
@@ -1110,7 +1111,7 @@ pub fn design_commits<'a>(
                 .changes
                 .iter()
                 .find(|drawn| covers(std::slice::from_ref(*drawn), &changes, &drawings.now).is_ok())
-                .map(|drawn| drawn.design);
+                .map(|drawn| drawn.design.id);
             DesignCommit {
                 sha: sha.clone(),
                 changes,
