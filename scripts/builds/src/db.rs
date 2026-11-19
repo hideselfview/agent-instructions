@@ -13,7 +13,7 @@
 //! database whose stamp differs was made by another builds schema and is
 //! refused; there is no version number and no chain of changes.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use rusqlite::{Connection, OpenFlags};
@@ -447,6 +447,72 @@ pub fn open_reader(path: &Path) -> Result<Option<Held>> {
     }
     let taken = crate::install_gate::for_connection()?;
     Ok(open_read_only(path)?.map(|conn| Held { conn, _use: taken }))
+}
+
+/// What tells a reader that runs for long, such as the daemon, that the
+/// database at a path changed: a read-only connection it holds open, whose
+/// `data_version` moves with every commit another connection makes, and the
+/// file's identity, size and modification time, which move when something
+/// outside SQLite rewrites or replaces the file. The held connection reads no
+/// table and checks no schema stamp. While it is open, the reader's other
+/// connections never open as the database's only one, which is when SQLite
+/// resets the shared-memory file and writes into the database's folder.
+pub struct Watch {
+    path: PathBuf,
+    conn: Connection,
+    file: FileMark,
+    data_version: i64,
+}
+
+/// A file's device, inode, size and modification time.
+#[derive(PartialEq, Eq)]
+struct FileMark(u64, u64, u64, i64, i64);
+
+impl FileMark {
+    fn of(path: &Path) -> Result<FileMark> {
+        use std::os::unix::fs::MetadataExt;
+        let meta = std::fs::metadata(path).context(|| format!("reading {}", path.display()))?;
+        Ok(FileMark(
+            meta.dev(),
+            meta.ino(),
+            meta.size(),
+            meta.mtime(),
+            meta.mtime_nsec(),
+        ))
+    }
+}
+
+impl Watch {
+    /// Starts watching the database at <path>.
+    pub fn open(path: &Path) -> Result<Watch> {
+        let conn = connect_read_only(path)?;
+        let data_version = data_version(&conn, path)?;
+        Ok(Watch {
+            path: path.to_path_buf(),
+            file: FileMark::of(path)?,
+            conn,
+            data_version,
+        })
+    }
+
+    /// Whether the database changed since the watch opened or since the last
+    /// call that said so. Fails when the file or the connection can't be
+    /// read, which leaves whether it changed unknown.
+    pub fn moved(&mut self) -> Result<bool> {
+        let file = FileMark::of(&self.path)?;
+        let data_version = data_version(&self.conn, &self.path)?;
+        let moved = file != self.file || data_version != self.data_version;
+        self.file = file;
+        self.data_version = data_version;
+        Ok(moved)
+    }
+}
+
+/// The connection's `data_version`, which moves each time another connection
+/// commits to the database.
+fn data_version(conn: &Connection, path: &Path) -> Result<i64> {
+    conn.pragma_query_value(None, "data_version", |row| row.get(0))
+        .context(|| format!("reading {}", path.display()))
 }
 
 /// A read-only connection to the database at <path> that waits while

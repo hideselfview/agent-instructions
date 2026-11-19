@@ -3,15 +3,22 @@
 //! running item's worktree.
 //!
 //! `Feed` follows `Places::lists` with an FSEvents stream and, after the
-//! settle delay, asks each store for its last write's version: a store that
-//! has not moved is not read again (a hook run's write wakes the feed and
-//! reads nothing more), and the reads that found a store changed are counted.
-//! Each project's hook runs are read again too. A store that fails its check
-//! is served as the JSON's `error`; nothing repairs it.
+//! settle delay, asks each store's database whether anything committed to it
+//! since the last read (`db::Watch`). Events alone prove nothing: a review's
+//! log and SQLite's own files sit in the same folders, and opening a
+//! connection changes those files. When a database changed, the feed asks
+//! each store for its last write's version: a store that has not moved is not
+//! read again (a hook run's write reads no lists), and the reads that found a
+//! store changed are counted. The hook runs' figures are read again whenever
+//! a database changed, and each minute, since they count the runs of a window
+//! that ends now. A store that fails its check is served as the JSON's
+//! `error`; nothing repairs it.
 
+use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
+use std::time::Duration;
 
 use super::fsevents::Stream;
 use super::model::SETTLE;
@@ -29,9 +36,15 @@ pub struct Feed {
     current: Mutex<(u64, Arc<Snapshot>)>,
     /// The hook runs' JSON (hook_stats.rs) as the last read built it.
     hooks: Mutex<Arc<String>>,
+    /// The minute (seconds since 1970 over 60) the hook runs' JSON was built
+    /// in.
+    hooks_minute: AtomicI64,
     /// The time the hook runs' 12-hour window ends at, in seconds since
     /// 1970; the wall clock, except in a test that sets it.
     clock: Box<dyn Fn() -> i64 + Send + Sync>,
+    /// Each database file in a store's folder, by path, with what tells
+    /// whether it changed.
+    watches: Mutex<HashMap<PathBuf, crate::db::Watch>>,
     dirty: AtomicBool,
     wake: Condvar,
     wake_lock: Mutex<()>,
@@ -59,13 +72,16 @@ impl Feed {
         // Taken before the first read: a write after it is reported by the
         // stream, one before it is in the read.
         let since = Stream::current_event_id();
+        // Opened before the first read, so a write after them moves them.
+        let mut watches = HashMap::new();
+        databases_moved(&places, &mut watches);
+        let now = clock();
         let feed = Arc::new(Feed {
             current: Mutex::new((1, Arc::new(load_all(&places)))),
-            hooks: Mutex::new(Arc::new(crate::hook_stats::dashboard_json_at(
-                &places,
-                clock(),
-            ))),
+            hooks: Mutex::new(Arc::new(crate::hook_stats::dashboard_json_at(&places, now))),
+            hooks_minute: AtomicI64::new(now.div_euclid(60)),
             clock,
+            watches: Mutex::new(watches),
             places,
             dirty: AtomicBool::new(false),
             wake: Condvar::new(),
@@ -113,39 +129,101 @@ impl Feed {
         self.hooks.lock().expect("no panic holding it").clone()
     }
 
+    /// Reads after each burst of events, and at the start of each minute of
+    /// the clock, when the hook runs' window moves.
     fn read_loop(self: Arc<Self>) {
         loop {
             {
-                let mut guard = self.wake_lock.lock().expect("no panic holding it");
-                while !self.dirty.load(Ordering::SeqCst) {
-                    guard = self.wake.wait(guard).expect("no panic holding it");
-                }
+                let guard = self.wake_lock.lock().expect("no panic holding it");
+                let minute_ends = (self.clock)().rem_euclid(60);
+                let _ = self
+                    .wake
+                    .wait_timeout_while(
+                        guard,
+                        Duration::from_secs((60 - minute_ends) as u64),
+                        |_| !self.dirty.load(Ordering::SeqCst),
+                    )
+                    .expect("no panic holding it");
             }
-            // Debouncing: let a burst of writes finish.
-            std::thread::sleep(SETTLE);
-            self.dirty.store(false, Ordering::SeqCst);
+            if self.dirty.load(Ordering::SeqCst) {
+                // Debouncing: let a burst of writes finish.
+                std::thread::sleep(SETTLE);
+                self.dirty.store(false, Ordering::SeqCst);
+            }
             self.read();
         }
     }
 
-    /// Reads the stores whose version moved and the hook runs again; when
+    /// When a database changed, reads the stores whose version moved and the
+    /// hook runs again; in a new minute, reads the hook runs again. When
     /// either differs from the last read, it calls the listener, and it moves
     /// the version when the stores differ.
     fn read(&self) {
-        let previous = self.current.lock().expect("no panic holding it").1.clone();
-        let (read, stores_changed) = reload(&self.places, &previous);
-        let hooks = crate::hook_stats::dashboard_json_at(&self.places, (self.clock)());
+        let now = (self.clock)();
+        let moved = databases_moved(
+            &self.places,
+            &mut self.watches.lock().expect("no panic holding it"),
+        );
+        let new_minute =
+            self.hooks_minute.swap(now.div_euclid(60), Ordering::SeqCst) != now.div_euclid(60);
         let mut changed = false;
-        if stores_changed {
-            let mut current = self.current.lock().expect("no panic holding it");
-            *current = (current.0 + 1, Arc::new(read));
-            changed = true;
+        if moved {
+            let previous = self.current.lock().expect("no panic holding it").1.clone();
+            let (read, stores_changed) = reload(&self.places, &previous);
+            if stores_changed {
+                let mut current = self.current.lock().expect("no panic holding it");
+                *current = (current.0 + 1, Arc::new(read));
+                changed = true;
+            }
         }
-        changed |= replace_if_changed(&self.hooks, hooks);
+        if moved || new_minute {
+            let hooks = crate::hook_stats::dashboard_json_at(&self.places, now);
+            changed |= replace_if_changed(&self.hooks, hooks);
+        }
         if changed && let Some(listener) = &*self.listener.lock().expect("no panic holding it") {
             listener();
         }
     }
+}
+
+/// Whether any database in a folder of <places>'s stores folder changed since
+/// <watches> last looked: one was added or removed, or its watch says it
+/// moved. Keeps <watches> to the databases there now. A database whose watch
+/// can't be opened or read counts as changed, so the feed reads it again,
+/// and the read says what is wrong with the store.
+fn databases_moved(places: &Places, watches: &mut HashMap<PathBuf, crate::db::Watch>) -> bool {
+    let Ok(folders) = std::fs::read_dir(&places.lists) else {
+        // The read of the stores says why the folder can't be listed.
+        let had = !watches.is_empty();
+        watches.clear();
+        return had;
+    };
+    let databases: Vec<PathBuf> = folders
+        .flatten()
+        .map(|entry| entry.path().join(crate::db::DATABASE))
+        .filter(|path| path.is_file())
+        .collect();
+    let before = watches.len();
+    watches.retain(|path, _| databases.contains(path));
+    let mut moved = watches.len() != before;
+    for path in databases {
+        let changed = match watches.get_mut(&path) {
+            Some(watch) => watch.moved(),
+            None => crate::db::Watch::open(&path).map(|watch| {
+                watches.insert(path.clone(), watch);
+                true
+            }),
+        };
+        match changed {
+            Ok(false) => {}
+            Ok(true) => moved = true,
+            Err(_) => {
+                watches.remove(&path);
+                moved = true;
+            }
+        }
+    }
+    moved
 }
 
 /// Puts <read> in <held> when it differs from what <held> holds, and returns

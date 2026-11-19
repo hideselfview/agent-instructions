@@ -188,6 +188,33 @@ fn a_write_to_the_store_moves_the_version_the_feed_reports() {
 }
 
 #[test]
+fn a_feed_with_no_write_to_its_stores_reads_them_no_more() {
+    let scratch = Scratch::new("daemon-quiet");
+    let places = scratch.places();
+    make_store(&places, &["bae", "coven"]);
+    // The feed asks the clock once each time it wakes; a feed whose own reads
+    // woke it would ask again and again.
+    let asked = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let counted = asked.clone();
+    let _feed = Feed::start_with_clock(
+        places,
+        Box::new(move || {
+            counted.fetch_add(1, Ordering::SeqCst);
+            NOON
+        }),
+    );
+    // The events of the reads at start arrive and settle.
+    std::thread::sleep(Duration::from_secs(2));
+    let settled = asked.load(Ordering::SeqCst);
+    std::thread::sleep(Duration::from_secs(3));
+    assert_eq!(
+        asked.load(Ordering::SeqCst),
+        settled,
+        "the feed woke with no write to its stores"
+    );
+}
+
+#[test]
 fn an_open_design_change_is_found_by_id_with_its_view_and_a_landed_or_missing_one_is_not() {
     let db = db();
     let id = design(&db);
