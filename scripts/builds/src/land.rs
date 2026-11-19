@@ -534,6 +534,9 @@ struct Landing<'a> {
     steps: RefCell<Vec<Step>>,
     /// Did the push succeed?
     pushed: Cell<bool>,
+    /// What `builds design only` said of the landing's commits, once
+    /// `squash_design` has asked it, so `check_lists` does not ask again.
+    design_only: RefCell<Option<(bool, String)>>,
 }
 
 /// A step that is running: it joins the landing's steps when it is dropped,
@@ -639,8 +642,11 @@ impl Landing<'_> {
                     ),
                 ));
             }
-            let (only, said) =
-                self.run_line(&self.with_items(&["design", "only"], false, &request.shas, project));
+            // The squash asked this of the same commits, unless it did not apply.
+            let asked = self.design_only.borrow_mut().take();
+            let (only, said) = asked.unwrap_or_else(|| {
+                self.run_line(&self.with_items(&["design", "only"], false, &request.shas, project))
+            });
             if !only {
                 let _ = writeln!(
                     out,
@@ -727,6 +733,7 @@ impl Landing<'_> {
             &self.request.shas,
             project,
         ));
+        *self.design_only.borrow_mut() = Some((only, said.clone()));
         if !only {
             // A broken check fails again in the lists check that follows.
             let _ = writeln!(
@@ -1436,6 +1443,7 @@ fn open_landing<'a>(
         recording: None,
         steps: RefCell::new(Vec::new()),
         pushed: Cell::new(false),
+        design_only: RefCell::new(None),
     })
 }
 
