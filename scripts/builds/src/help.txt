@@ -456,6 +456,14 @@ Mac:
     sccache, is the host's own)
   - every command in a main checkout
 
+To test builds itself, run `builds cargo nextest run --bin builds -E
+'test(/^trees::/)'` with a filter for the modules you changed. nextest runs
+each test in a process of its own. `cargo test` runs the tests of a binary as
+threads of one process, which share one descriptor table: a child that one
+test starts holds a copy of every file another test has open, locks included,
+until the child execs, so a test that takes a lock without waiting can find it
+held and fail only in a run with other tests.
+
 One sccache server serves every checkout. launchd runs it
 (local.sccache-server) on sccache's default port, 4226, with the system's
 TMPDIR and no idle timeout; its cache is caches/sccache, capped in
