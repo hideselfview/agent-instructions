@@ -299,13 +299,23 @@ fn lock_crates(top: &Path, crates: &[Crate], base: Option<&str>) -> Result<Vec<S
 }
 
 /// Root files that configure every crate: the workspace manifest, with its
-/// lints and patches, and clippy's configuration.
-const ROOT_CONFIGS: [&str; 3] = ["Cargo.toml", "clippy.toml", ".clippy.toml"];
+/// lints and patches, clippy's configuration, the toolchain rustup picks,
+/// which compiles every crate and holds the clippy that lints them, and
+/// cargo's configuration.
+const ROOT_CONFIGS: [&str; 7] = [
+    "Cargo.toml",
+    "clippy.toml",
+    ".clippy.toml",
+    "rust-toolchain.toml",
+    "rust-toolchain",
+    ".cargo/config.toml",
+    ".cargo/config",
+];
 
 /// The names of the crates that hold some of <files> (the deepest crate whose
-/// folder contains one), sorted. A root `Cargo.toml`, `clippy.toml` or
-/// `.clippy.toml` counts as every crate, and the root
-/// `Cargo.lock` as the crates <lock> names (`lock_crates`).
+/// folder contains one), sorted. A root file of `ROOT_CONFIGS` counts as
+/// every crate, and the root `Cargo.lock` as the crates <lock> names
+/// (`lock_crates`).
 fn crates_holding(crates: &[Crate], files: &[String], lock: &[String]) -> Vec<String> {
     let mut names: Vec<String> = Vec::new();
     for file in files {

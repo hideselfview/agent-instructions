@@ -89,7 +89,7 @@ fn workspace(scratch: &Scratch) -> std::path::PathBuf {
 
 fn crates_argv(top: &Path, staged: &[&str]) -> Vec<String> {
     let lines =
-        parse("check c *.rs,Cargo.toml,clippy.toml,.clippy.toml,Cargo.lock cargo clippy {crates} -- -D warnings\n").unwrap();
+        parse("check c *.rs,Cargo.toml,clippy.toml,.clippy.toml,Cargo.lock,rust-toolchain.toml,rust-toolchain,.cargo/** cargo clippy {crates} -- -D warnings\n").unwrap();
     let planned = plan(
         top,
         &lines,
@@ -205,6 +205,25 @@ fn a_root_cargo_toml_clippy_toml_or_lock_counts_as_every_crate() {
         crates_argv(&top, &["crates/b/Cargo.toml"]),
         files(&["cargo", "clippy", "-p", "b", "--", "-D", "warnings"])
     );
+}
+
+#[test]
+fn the_root_toolchain_file_or_cargo_config_counts_as_every_crate() {
+    let scratch = Scratch::new("checks-toolchain");
+    let top = workspace(&scratch);
+    std::fs::create_dir_all(top.join(".cargo")).unwrap();
+    let every = files(&[
+        "cargo", "clippy", "-p", "a", "-p", "b", "--", "-D", "warnings",
+    ]);
+    for config in [
+        "rust-toolchain.toml",
+        "rust-toolchain",
+        ".cargo/config.toml",
+        ".cargo/config",
+    ] {
+        std::fs::write(top.join(config), "").unwrap();
+        assert_eq!(crates_argv(&top, &[config]), every, "{config}");
+    }
 }
 
 #[test]

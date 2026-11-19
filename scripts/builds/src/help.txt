@@ -1979,7 +1979,9 @@ matches the file name anywhere. The program is not run by a shell. As a whole
 argument, {files} is the matching staged files that still exist, and {crates}
 is `-p <crate>` for each workspace crate holding one (a root Cargo.toml,
 clippy.toml or .clippy.toml counts as every crate, since each configures the
-workspace's lints; a root
+workspace's lints, and so do a root rust-toolchain.toml or rust-toolchain,
+which picks the compiler and the clippy of every crate, and .cargo/config.toml
+or .cargo/config, cargo's settings for every crate; a root
 Cargo.lock counts as each crate whose resolved dependencies changed against
 HEAD, or against the commit `builds checks tests --since` names: its own lock
 entry or one it depends on at any depth); a check with neither runs whole
