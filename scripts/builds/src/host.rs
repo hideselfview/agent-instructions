@@ -113,22 +113,41 @@ pub enum Terminal {
     Person,
 }
 
-/// Runs <script> on <host> with this terminal as its input and output, so
-/// sudo there can ask the person for the password.
-pub fn run_at_terminal(ssh: &Ssh, host: &Host, script: &str) -> Result<()> {
-    let mut command = match &host.target {
-        Some(target) => ssh.command(
-            target,
-            &format!("sh -c {}", sh_quote(script)),
-            Terminal::Person,
-        ),
+/// The command that runs <script> on <host>: `ssh` to its target, or `sh -c`
+/// here. <terminal> says whether a person at this terminal can answer it.
+pub fn command_at(ssh: &Ssh, host: &Host, script: &str, terminal: Terminal) -> Command {
+    match &host.target {
+        Some(target) => ssh.command(target, &format!("sh -c {}", sh_quote(script)), terminal),
         None => {
             let mut command = Command::new("sh");
             command.arg("-c").arg(script);
             command
         }
-    };
-    let status = command
+    }
+}
+
+/// What <command> printed. It fails, naming <what>, when it cannot run, or
+/// exits non-zero having printed nothing; a non-zero exit after output is
+/// still that output.
+pub fn output_of(mut command: Command, what: &str) -> std::result::Result<String, String> {
+    let output = command
+        .stdin(std::process::Stdio::null())
+        .output()
+        .map_err(|error| format!("running {what}: {error}"))?;
+    if !output.status.success() && output.stdout.is_empty() {
+        return Err(format!(
+            "{what} failed ({}): {}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+}
+
+/// Runs <script> on <host> with this terminal as its input and output, so
+/// sudo there can ask the person for the password.
+pub fn run_at_terminal(ssh: &Ssh, host: &Host, script: &str) -> Result<()> {
+    let status = command_at(ssh, host, script, Terminal::Person)
         .status()
         .context(|| format!("running sudo on {}", place(&host.name)))?;
     if !status.success() {

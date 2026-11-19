@@ -15,13 +15,12 @@
 //! their ancestors. Nothing here stops a process: a finding says what to run.
 
 use std::collections::HashMap;
-use std::process::{Command, Stdio};
 
 use serde::Serialize;
 
 use crate::app_config::DEFAULT_STEP_LIMIT;
 use crate::health::Advice;
-use crate::host::{Host, Ssh};
+use crate::host::{Host, Ssh, command_at, output_of};
 use crate::shells::{IDLE_MINUTES, IDLE_SHARE, basename, command_of, is_agent_argv, shown};
 use crate::text::duration;
 
@@ -614,12 +613,6 @@ pub struct HostRead {
     pub hung: Vec<Hung>,
 }
 
-fn ps_command() -> Command {
-    let mut command = Command::new("ps");
-    command.args(["-axww", "-o", PS_FORMAT]);
-    command
-}
-
 /// The `ps` line of a host, as the script `ssh` runs.
 fn ps_script() -> String {
     format!("ps -axww -o {PS_FORMAT}")
@@ -639,21 +632,6 @@ pub fn parse_lsof(text: &str) -> HashMap<i32, String> {
     found
 }
 
-fn output_of(mut command: Command, what: &str) -> Result<String, String> {
-    let output = command
-        .stdin(Stdio::null())
-        .output()
-        .map_err(|error| format!("running {what}: {error}"))?;
-    if !output.status.success() && output.stdout.is_empty() {
-        return Err(format!(
-            "{what} failed ({}): {}",
-            output.status,
-            String::from_utf8_lossy(&output.stderr).trim()
-        ));
-    }
-    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
-}
-
 fn now_seconds() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -665,24 +643,22 @@ fn now_seconds() -> i64 {
 /// pid on the host is <dashboard>.
 pub fn read(ssh: &Ssh, host: &Host, dashboard: Option<i32>) -> HostBusy {
     let read = (|| {
-        let listing = match &host.target {
-            Some(target) => output_of(
-                ssh.command(target, &ps_script(), crate::host::Terminal::None),
-                &format!("ps on host {}", host.name),
-            )?,
-            None => output_of(ps_command(), "ps")?,
-        };
+        let listing = output_of(
+            command_at(ssh, host, &ps_script(), crate::host::Terminal::None),
+            &format!("ps on {}", crate::host::place(&host.name)),
+        )?;
         let rows = parse_ps(&listing)?;
         let pids = pids_to_place(&rows);
         let cwds = if pids.is_empty() {
             HashMap::new()
         } else {
             match &host.target {
-                Some(target) => {
+                Some(_) => {
                     let list: Vec<String> = pids.iter().map(|p| p.to_string()).collect();
                     parse_lsof(&output_of(
-                        ssh.command(
-                            target,
+                        command_at(
+                            ssh,
+                            host,
                             &format!("lsof -a -d cwd -Fpn -p {}", list.join(",")),
                             crate::host::Terminal::None,
                         ),

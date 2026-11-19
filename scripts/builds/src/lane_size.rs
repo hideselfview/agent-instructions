@@ -279,28 +279,28 @@ fn checkouts_on(places: &Places, host_name: &str) -> Result<usize> {
     Ok(count)
 }
 
-/// When a build last used <entry>, a checkout of <at>'s lane that builds
-/// added at <added_at>: the latest of that time, when the last build let its
-/// lock go, and the times in its last holder's record of its run (for a build
-/// that stopped before it could write when it let go). Seconds since 1970.
-pub fn last_use(at: RepoLane, entry: &str, added_at: i64) -> Result<i64> {
+/// When a build last used <entry>, a checkout of <at>'s lane: the later of
+/// when the last build let its lock go and the times in its last holder's
+/// record of its run (for a build that stopped before it could write when it
+/// let go). Seconds since 1970; None when neither record exists.
+pub fn last_use(at: RepoLane, entry: &str) -> Result<Option<i64>> {
     let RepoLane {
         places, repo, lane, ..
     } = at;
-    let mut last = added_at;
+    let mut last: Option<i64> = None;
     let ended = places.app_lock_ended_file(repo, lane, entry);
     match std::fs::read_to_string(&ended) {
         Ok(text) => match text.trim().parse::<i64>() {
-            Ok(at) => last = last.max(at),
+            Ok(at) => last = last.max(Some(at)),
             Err(_) => fail!("{} holds no time: {text:?}", ended.display()),
         },
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
         Err(error) => fail!("reading {}: {error}", ended.display()),
     }
     if let Some(run) = HolderRun::read(&places.app_lock_run_file(repo, lane, entry))? {
-        last = last.max(run.joined_at + (run.waited_ms / 1000) as i64);
+        last = last.max(Some(run.joined_at + (run.waited_ms / 1000) as i64));
         if let Some(step) = run.step {
-            last = last.max(step.started_at);
+            last = last.max(Some(step.started_at));
         }
     }
     Ok(last)
@@ -348,7 +348,10 @@ fn remove_if_idle(at: RepoLane, lock: &CheckoutLock, times: Idle, run: Run) -> R
         lane,
     } = at;
     let Idle { added_at, now } = times;
-    let idle = minutes_since(now, last_use(at, entry, added_at)?);
+    let idle = minutes_since(
+        now,
+        last_use(at, entry)?.map_or(added_at, |used| used.max(added_at)),
+    );
     if idle < IDLE_MINUTES {
         return Ok(());
     }

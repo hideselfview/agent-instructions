@@ -17,8 +17,6 @@
 //! `judge` reads a `ps` listing and the lane's use, and decides; `stop_on`
 //! reads and stops on a real host.
 
-use std::process::{Command, Stdio};
-
 use crate::app_remote::split;
 use crate::app_timing;
 use crate::fail::Result;
@@ -232,7 +230,7 @@ pub fn lane_use(places: &Places, ssh: &Ssh, host: &Host, lane: Lane) -> Result<L
                 repo: &repo,
                 lane,
             };
-            last = last.max(Some(last_use(at, entry, 0)?).filter(|end| *end > 0));
+            last = last.max(last_use(at, entry)?);
         }
         if let Some(database) = app_timing::database_of(places, &repo)? {
             for (entry, end) in app_timing::last_ends(&database, lane)? {
@@ -245,31 +243,11 @@ pub fn lane_use(places: &Places, ssh: &Ssh, host: &Host, lane: Lane) -> Result<L
     Ok(LaneUse::LastBuild(last))
 }
 
-/// Runs <script> on <host>: here in `sh`, or over ssh. Returns what it
-/// printed.
 fn run_script(ssh: &Ssh, host: &Host, script: &str) -> std::result::Result<String, String> {
-    let mut command = match &host.target {
-        Some(target) => ssh.command(target, script, Terminal::None),
-        None => {
-            let mut command = Command::new("sh");
-            command.arg("-c").arg(script);
-            command
-        }
-    };
-    let output = command
-        .stdin(Stdio::null())
-        .output()
-        .map_err(|error| format!("running a command on {}: {error}", host.name))?;
-    if output.status.success() {
-        Ok(String::from_utf8_lossy(&output.stdout).into_owned())
-    } else {
-        Err(format!(
-            "`{script}` failed on {} ({}): {}",
-            host.name,
-            output.status,
-            String::from_utf8_lossy(&output.stderr).trim()
-        ))
-    }
+    crate::host::output_of(
+        crate::host::command_at(ssh, host, script, Terminal::None),
+        &format!("`{script}` on {}", host.name),
+    )
 }
 
 /// The user id on the first line of <listing> (`LISTING_SCRIPT`'s output) and
@@ -305,17 +283,11 @@ pub fn stop_on(
     }
     // One reading of each lane, taken after the listing, so a build that
     // started since the listing keeps its daemons.
-    let mut uses = Vec::new();
-    for lane in Lane::ALL {
-        uses.push((
-            lane,
-            lane_use(places, ssh, host, lane).map_err(|fault| fault.text())?,
-        ));
-    }
-    let use_of = |lane: Lane| {
-        uses.iter()
-            .find(|(of, _)| *of == lane)
-            .map_or(LaneUse::Building, |(_, used)| *used)
+    let android = lane_use(places, ssh, host, Lane::Android).map_err(|fault| fault.text())?;
+    let mac = lane_use(places, ssh, host, Lane::Mac).map_err(|fault| fault.text())?;
+    let use_of = |lane: Lane| match lane {
+        Lane::Android => android,
+        Lane::Mac => mac,
     };
     let idle = judge(found, &use_of, now);
     Ok(stop(
