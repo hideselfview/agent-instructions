@@ -116,7 +116,7 @@ pub fn git_out(dir: &Path, args: &[&str]) -> String {
 /// installs it: a shell script that runs the lines <body>.
 pub fn host_builds(home: &Path, body: &str) {
     use std::os::unix::fs::PermissionsExt;
-    let bin = home.join(".local/bin");
+    let bin = crate::links::bin(home);
     std::fs::create_dir_all(&bin).expect("creatable");
     let program = bin.join("builds");
     std::fs::write(&program, format!("#!/bin/sh\n{body}\n")).expect("writable");

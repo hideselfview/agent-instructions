@@ -38,11 +38,6 @@ const SCCACHE: &str = "sccache";
 /// The path an OUT_DIR becomes in what rustc writes.
 const REMAPPED: &str = "/OUT_DIR";
 
-/// The wrapper's path on a Mac whose home is <home>.
-pub fn path(home: &Path) -> PathBuf {
-    home.join(".local/bin").join(NAME)
-}
-
 /// The `RUSTC_WRAPPER` that `builds cargo` gives cargo when the caller's,
 /// <caller>, is unset or sccache itself: this wrapper. None leaves the
 /// caller's own wrapper in place, such as bae's clippy wrapper, which runs
@@ -51,38 +46,38 @@ pub fn path(home: &Path) -> PathBuf {
 /// `build.rustc-wrapper = "sccache"`.
 pub fn cargo_env(caller: Option<&OsStr>, home: &Path) -> Option<PathBuf> {
     match caller {
-        None => Some(path(home)),
-        Some(caller) if caller == OsStr::new(SCCACHE) => Some(path(home)),
+        None => Some(crate::links::path(home, NAME)),
+        Some(caller) if caller == OsStr::new(SCCACHE) => Some(crate::links::path(home, NAME)),
         Some(_) => None,
     }
 }
 
-/// The arguments to add to rustc's for a crate whose OUT_DIR is <out_dir>
+/// The argument to add to rustc's for a crate whose OUT_DIR is <out_dir>
 /// (None when it has no build script): the remap of that folder, when the
 /// build script wrote anything there.
-pub fn added_args(out_dir: Option<&Path>) -> Result<Vec<OsString>> {
+pub fn added_arg(out_dir: Option<&Path>) -> Result<Option<OsString>> {
     let Some(out_dir) = out_dir else {
-        return Ok(Vec::new());
+        return Ok(None);
     };
     let mut entries =
         std::fs::read_dir(out_dir).context(|| format!("reading {}", out_dir.display()))?;
     if entries.next().is_none() {
-        return Ok(Vec::new());
+        return Ok(None);
     }
     let mut remap = OsString::from("--remap-path-prefix=");
     remap.push(out_dir);
     remap.push("=");
     remap.push(REMAPPED);
-    Ok(vec![remap])
+    Ok(Some(remap))
 }
 
 /// Runs sccache with <args> (the compiler, then its arguments) and what
-/// `added_args` adds for the OUT_DIR in this process's environment, in this
+/// `added_arg` adds for the OUT_DIR in this process's environment, in this
 /// process. `run` returns only when it cannot start sccache.
 pub fn run(args: &[OsString]) -> Result<std::convert::Infallible> {
     use std::os::unix::process::CommandExt;
     let out_dir = std::env::var_os("OUT_DIR").map(PathBuf::from);
-    let added = added_args(out_dir.as_deref())?;
+    let added = added_arg(out_dir.as_deref())?;
     let error = std::process::Command::new(SCCACHE)
         .args(args)
         .args(added)
@@ -100,20 +95,17 @@ mod tests {
         let scratch = Scratch::new("rustc-wrapper-remap");
         let out = scratch.dir.join("target/debug/build/serde/0d7b/out");
         std::fs::create_dir_all(&out).unwrap();
-        assert!(added_args(None).unwrap().is_empty());
-        assert!(
-            added_args(Some(&out)).unwrap().is_empty(),
-            "an empty OUT_DIR"
-        );
+        assert_eq!(added_arg(None).unwrap(), None);
+        assert_eq!(added_arg(Some(&out)).unwrap(), None, "an empty OUT_DIR");
         std::fs::write(out.join("private.rs"), "").unwrap();
         assert_eq!(
-            added_args(Some(&out)).unwrap(),
-            vec![OsString::from(format!(
+            added_arg(Some(&out)).unwrap(),
+            Some(OsString::from(format!(
                 "--remap-path-prefix={}=/OUT_DIR",
                 out.display()
-            ))]
+            )))
         );
-        assert!(added_args(Some(&scratch.dir.join("gone"))).is_err());
+        assert!(added_arg(Some(&scratch.dir.join("gone"))).is_err());
     }
 
     #[test]

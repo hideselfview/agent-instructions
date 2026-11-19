@@ -265,22 +265,22 @@ fn put_in(bin: &Path, program: &Path, name: &str) -> Result<()> {
 /// builds that runs it never finds it missing. Returns whether it replaced
 /// the binary (always, now: running from the installed binary fails).
 fn put_on_path(home: &Path) -> Result<bool> {
-    let bin = home.join(".local/bin");
+    let bin = crate::links::bin(home);
     std::fs::create_dir_all(&bin).context(|| format!("creating {}", bin.display()))?;
     let programs = Programs::of_this()?;
     require_new_build(&programs.builds, &bin.join("builds"))?;
     put_in(&bin, &programs.shots, crate::shots_program::PROGRAM)?;
     put_in(&bin, &programs.builds, "builds")?;
-    for name in crate::LINKS {
-        link_to_builds(home, name)?;
+    for link in crate::links::LINKS {
+        link_to_builds(home, link.name)?;
     }
     Ok(true)
 }
 
 /// Makes ~/.local/bin/<name> a symlink to builds, which runs as the program
-/// that name stands for (`crate::LINKS`).
+/// that name stands for (`links::LINKS`).
 fn link_to_builds(home: &Path, name: &str) -> Result<()> {
-    let link = home.join(".local/bin").join(name);
+    let link = crate::links::path(home, name);
     if std::fs::read_link(&link).is_ok_and(|target| target == Path::new("builds")) {
         return Ok(());
     }

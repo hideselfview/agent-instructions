@@ -28,11 +28,6 @@ pub const NAME: &str = "builds-linker";
 /// The symbol rustc exports from a proc-macro dylib, and from no other kind.
 const PROC_MACRO_SYMBOL: &str = "_rustc_proc_macro_decls_";
 
-/// The linker's path on a Mac whose home is <home>.
-pub fn path(home: &Path) -> PathBuf {
-    home.join(".local/bin").join(NAME)
-}
-
 /// The `--config` arguments that make cargo link this Mac's own target with
 /// `builds-linker`. Every checkout gets the same path, so the setting gives
 /// every checkout the same sccache keys.
@@ -42,7 +37,7 @@ pub fn cargo_config(home: &Path) -> [String; 2] {
         format!(
             "target.{}-apple-darwin.linker={:?}",
             std::env::consts::ARCH,
-            path(home).display().to_string()
+            crate::links::path(home, NAME).display().to_string()
         ),
     ]
 }

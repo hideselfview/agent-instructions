@@ -97,7 +97,7 @@ pub fn install_on_host(
 
 /// Copies <programs>, this Mac's, to `~/.local/bin` on <host>, builds-shots
 /// first, and creates the host's builds root, which it returns. Each install
-/// writes a program and the links of `crate::LINKS` under names of its own and renames
+/// writes a program and the links of `links::LINKS` under names of its own and renames
 /// them into place, so installs that run at the same time on one host, as two
 /// landings' do, each leave whole programs. The repo's own
 /// `scripts/build-layout.sh` and `scripts/cargo.sh` find builds there, so a
@@ -113,9 +113,10 @@ pub fn install_program(ssh: &Ssh, host: &Host, programs: &Programs) -> Result<St
             "bin=\"$HOME/.local/bin\" && mkdir -p \"$bin\" && part=$(mktemp \"$bin/{shots}.XXXXXX\") && trap 'rm -f \"$part\"' EXIT && cat > \"$part\" && chmod 755 \"$part\" && mv \"$part\" \"$bin/{shots}\""
         ),
     )?;
-    let links: String = crate::LINKS
+    let links: String = crate::links::LINKS
         .iter()
-        .map(|name| {
+        .map(|link| {
+            let name = link.name;
             format!(
                 " && link=$(mktemp -u \"$bin/{name}.XXXXXX\") && links=\"$links $link\" && ln -s builds \"$link\" && mv \"$link\" \"$bin/{name}\""
             )

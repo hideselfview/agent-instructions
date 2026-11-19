@@ -30,20 +30,21 @@ fn install_program_copies_both_programs_to_the_host_and_makes_its_root() {
     };
     let programs = scratch.programs();
     install_program(&ssh, &host, &programs).unwrap();
-    let installed = home.join(".local/bin/builds");
+    let installed = crate::links::path(&home, "builds");
     assert_eq!(
         std::fs::read(&installed).unwrap(),
         std::fs::read(std::env::current_exe().unwrap()).unwrap()
     );
     assert_eq!(
-        std::fs::read_to_string(home.join(".local/bin/builds-shots")).unwrap(),
+        std::fs::read_to_string(crate::links::path(&home, "builds-shots")).unwrap(),
         "shots"
     );
     assert!(home.join(REMOTE_ROOT).is_dir());
-    assert!(!home.join(".local/bin/builds.part").exists());
-    for name in crate::LINKS {
+    assert!(!crate::links::path(&home, "builds.part").exists());
+    for link in crate::links::LINKS {
+        let name = link.name;
         assert_eq!(
-            std::fs::read_link(home.join(".local/bin").join(name)).unwrap(),
+            std::fs::read_link(crate::links::path(&home, name)).unwrap(),
             Path::new("builds"),
             "{name} runs the host's builds"
         );
@@ -51,7 +52,7 @@ fn install_program_copies_both_programs_to_the_host_and_makes_its_root() {
     // A second install leaves the link as it is.
     install_program(&ssh, &host, &programs).unwrap();
     assert_eq!(
-        std::fs::read_link(crate::linker::path(&home)).unwrap(),
+        std::fs::read_link(crate::links::path(&home, crate::linker::NAME)).unwrap(),
         Path::new("builds")
     );
     assert!(install_program(&ssh, &Host::local(), &programs).is_err());
@@ -91,21 +92,22 @@ fn installs_at_the_same_time_on_one_host_all_succeed() {
         result.unwrap();
     }
     assert_eq!(
-        std::fs::read(home.join(".local/bin/builds")).unwrap(),
+        std::fs::read(crate::links::path(&home, "builds")).unwrap(),
         std::fs::read(&programs.builds).unwrap()
     );
-    for name in crate::LINKS {
+    for link in crate::links::LINKS {
+        let name = link.name;
         assert_eq!(
-            std::fs::read_link(home.join(".local/bin").join(name)).unwrap(),
+            std::fs::read_link(crate::links::path(&home, name)).unwrap(),
             Path::new("builds")
         );
     }
-    let left: Vec<String> = std::fs::read_dir(home.join(".local/bin"))
+    let left: Vec<String> = std::fs::read_dir(crate::links::bin(&home))
         .unwrap()
         .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
         .filter(|name| {
             name != "builds"
-                && !crate::LINKS.contains(&name.as_str())
+                && !crate::links::LINKS.iter().any(|link| link.name == name)
                 && name != crate::shots_program::PROGRAM
         })
         .collect();
@@ -120,7 +122,7 @@ fn a_builds_command_on_a_host_returns_its_output_or_fails_with_it() {
     let places = scratch.places();
     let home = scratch.dir.join("remote-home");
     let ssh = fake_ssh(&scratch.dir.join("bin"), &home);
-    let builds = home.join(".local/bin/builds");
+    let builds = crate::links::path(&home, "builds");
     std::fs::create_dir_all(builds.parent().unwrap()).unwrap();
     std::fs::write(
         &builds,

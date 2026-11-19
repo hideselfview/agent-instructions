@@ -62,6 +62,7 @@ mod land_run;
 mod lane;
 mod lane_size;
 mod linker;
+mod links;
 mod lists;
 mod lock;
 mod lock_diff;
@@ -123,27 +124,14 @@ const LISTS_HELP: &str = concat!(
     "\n\n",
     include_str!("lists/lists-help.txt")
 );
-/// The names builds runs under besides its own: each is a symlink to builds
-/// in ~/.local/bin, which `builds install` and `builds host setup` make, and
-/// `main` runs the part of builds a name stands for.
-pub const LINKS: [&str; 2] = [linker::NAME, rustc_wrapper::NAME];
-
 const WORKFLOW_HELP: &str = include_str!("workflow-help.txt");
 const BRIEFS_HELP: &str = include_str!("briefs-help.txt");
 
 fn main() -> ExitCode {
     let mut argv = std::env::args_os();
     let program = argv.next().unwrap_or_default();
-    let name = std::path::Path::new(&program).file_name();
-    if name == Some(std::ffi::OsStr::new(linker::NAME)) {
-        let args: Vec<std::ffi::OsString> = argv.collect();
-        let Err(fail) = linker::run(&args);
-        text::note(fail.text());
-        return ExitCode::from(1);
-    }
-    if name == Some(std::ffi::OsStr::new(rustc_wrapper::NAME)) {
-        let args: Vec<std::ffi::OsString> = argv.collect();
-        let Err(fail) = rustc_wrapper::run(&args);
+    let args: Vec<std::ffi::OsString> = argv.collect();
+    if let Some(fail) = links::run_as(&program, &args) {
         text::note(fail.text());
         return ExitCode::from(1);
     }
