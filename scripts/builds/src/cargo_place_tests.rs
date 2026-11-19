@@ -488,6 +488,7 @@ fn a_named_host_must_answer_and_this_mac_can_be_named() {
             "demo",
             Wanted::Room,
             Runs::Cargo,
+            None,
             1_800_000_000
         )
         .unwrap(),
@@ -503,6 +504,7 @@ fn a_named_host_must_answer_and_this_mac_can_be_named() {
         "demo",
         Wanted::Named("gone"),
         Runs::Cargo,
+        None,
         1_800_000_000,
     ) else {
         panic!("expected a failure");
@@ -516,6 +518,7 @@ fn a_named_host_must_answer_and_this_mac_can_be_named() {
             "demo",
             Wanted::Named("local"),
             Runs::Cargo,
+            None,
             1_800_000_000
         )
         .unwrap(),
@@ -529,6 +532,7 @@ fn a_named_host_must_answer_and_this_mac_can_be_named() {
             "demo",
             Wanted::Named("m1"),
             Runs::Cargo,
+            None,
             1_800_000_000
         )
         .unwrap(),
@@ -542,6 +546,7 @@ fn a_named_host_must_answer_and_this_mac_can_be_named() {
             "demo",
             Wanted::Named("nobody"),
             Runs::Cargo,
+            None,
             1_800_000_000
         )
         .is_err()
@@ -608,6 +613,7 @@ fn a_nextest_run_goes_only_to_a_host_with_cargo_nextest() {
         "demo",
         Wanted::Named("m1"),
         Runs::Nextest,
+        None,
         1_800_000_000,
     ) else {
         panic!("expected a failure");
@@ -645,6 +651,7 @@ fn a_nextest_run_goes_only_to_a_host_with_cargo_nextest() {
             "demo",
             Wanted::Named("m1"),
             Runs::Nextest,
+            None,
             1_800_000_000
         )
         .unwrap(),
@@ -1066,4 +1073,30 @@ fn only_a_named_other_host_gets_the_note_that_the_command_runs_here() {
         runs_here_note(Some("m1"), "why").unwrap(),
         format!("{HOST_VARIABLE} names host m1; this command runs on this Mac: why")
     );
+}
+
+/// A job that builds a package a `macos` line names goes to no Linux host,
+/// and the line that says why names the host and the package.
+#[test]
+fn a_job_that_builds_a_macos_package_stays_off_linux_hosts() {
+    let host = Host {
+        band: None,
+        name: "box".to_string(),
+        target: Some("user@box".to_string()),
+        cores: 10,
+        speed: Some(1.0),
+    };
+    let mut probe = probe(0.0).unwrap();
+    assert_eq!(
+        needs_mac(&host, &probe, Some("bae-playback")),
+        None,
+        "a Mac"
+    );
+    probe.platform.os = crate::host_platform::Os::Linux;
+    let why = needs_mac(&host, &probe, Some("bae-playback")).unwrap();
+    assert!(
+        why.starts_with("box runs Linux, and this job builds bae-playback"),
+        "{why}"
+    );
+    assert_eq!(needs_mac(&host, &probe, None), None, "no such package");
 }

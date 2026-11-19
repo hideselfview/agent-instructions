@@ -54,6 +54,7 @@ pub fn cmd_lake(args: &[String]) -> Result<()> {
                 None => cargo_place::Wanted::Room,
             },
             Runs::Lake,
+            None,
             crate::app_timing::now(),
         )?,
     };

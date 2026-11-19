@@ -342,23 +342,29 @@ fn other_hosts(places: &Places) -> Result<Vec<Host>> {
         .collect())
 }
 
-/// Does <host> have <remote>, a key's folder there? An error says why
-/// builds could not ask: the host did not answer, or the question failed
-/// there.
-fn host_has(transport: &Transport, host: &Host, remote: &str) -> Result<bool> {
+/// Does <host> have <remote>, a key's folder there? None when the host is
+/// of another platform than this machine (host_platform.rs): a build of a
+/// tool runs only on its own platform, so builds copies it only between
+/// hosts of one platform, and each other platform builds its own. An error
+/// says why builds could not ask: the host did not answer, or the question
+/// failed there.
+fn host_has(transport: &Transport, host: &Host, remote: &str) -> Result<Option<bool>> {
     let script = format!(
-        "{}if [ -d {remote} ]; then echo present; else echo absent; fi",
-        root_script(host)
+        "{}{}\nif [ -d {remote} ]; then echo present=yes; else echo present=no; fi",
+        root_script(host),
+        crate::host_platform::SCRIPT
     );
-    match transport
+    let said = transport
         .ask(&script, "looking for the tool")?
-        .map_err(Fail::Message)?
-        .trim()
-    {
-        "present" => Ok(true),
-        "absent" => Ok(false),
-        other => fail!(
-            "host {} answered {other:?} when asked for the tool",
+        .map_err(Fail::Message)?;
+    if crate::host_platform::Platform::parse(&said)? != crate::host_platform::Platform::here() {
+        return Ok(None);
+    }
+    match host::answer_value(&said, "present") {
+        Some("yes") => Ok(Some(true)),
+        Some("no") => Ok(Some(false)),
+        _ => fail!(
+            "host {} answered {said:?} when asked for the tool",
             host.name
         ),
     }
@@ -393,9 +399,16 @@ fn fetch(places: &Places, ssh: &Ssh, name: &str, key: &Key, toolchain: &Path) ->
         };
         let remote = key_dir_on(name, key);
         match host_has(&transport, &host, &remote) {
-            Ok(true) => {}
-            Ok(false) => {
+            Ok(Some(true)) => {}
+            Ok(Some(false)) => {
                 misses.push(format!("host {} does not have it", host.name));
+                continue;
+            }
+            Ok(None) => {
+                misses.push(format!(
+                    "host {} is of another platform than this machine",
+                    host.name
+                ));
                 continue;
             }
             Err(error) => {
@@ -459,8 +472,8 @@ pub fn send_to_hosts(places: &Places, ssh: &Ssh, top: &Path) -> Result<()> {
 }
 
 /// Before a job from <top> runs on <host>: copies there each key of the
-/// checkout's tools that this Mac has and the host lacks, and checks it
-/// there. A failure is said on stderr and leaves the host to build the key
+/// checkout's tools that this Mac has and the host lacks, when the host is
+/// of this Mac's platform, and checks it there. A failure is said on stderr and leaves the host to build the key
 /// when its setup runs.
 pub fn send_to(places: &Places, ssh: &Ssh, host: &Host, top: &Path) {
     let tools = match built_tools(top) {
@@ -479,7 +492,7 @@ pub fn send_to(places: &Places, ssh: &Ssh, host: &Host, top: &Path) {
         let sent = key(top, &line).and_then(|key| {
             let here = key_dir(places, &line.name, &key);
             let remote = key_dir_on(&line.name, &key);
-            if !here.is_dir() || host_has(&transport, host, &remote)? {
+            if !here.is_dir() || host_has(&transport, host, &remote)? != Some(false) {
                 return Ok(false);
             }
             send_key(&transport, host, &line.name, &remote, &here)?;

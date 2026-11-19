@@ -121,6 +121,14 @@ pub fn linux_packages(top: &Path) -> Result<Vec<String>> {
     Ok(parse(top)?.linux_packages)
 }
 
+/// The cargo packages the `macos` lines of <top>'s manifest name: packages
+/// part of whose code compiles only for macOS, so a cargo job that builds one
+/// on Linux checks other code than on a Mac, and `builds cargo` runs it on a
+/// Mac (cargo_needs.rs); none without one.
+pub fn macos_packages(top: &Path) -> Result<Vec<String>> {
+    Ok(parse(top)?.macos_packages)
+}
+
 /// What a manifest's lines say, in its order.
 struct Manifest {
     dirs: Vec<BuildDir>,
@@ -129,6 +137,7 @@ struct Manifest {
     prepare: Vec<String>,
     tools: Vec<BuiltTool>,
     linux_packages: Vec<String>,
+    macos_packages: Vec<String>,
 }
 
 /// Does relative <path> lead out of the folder it is relative to?
@@ -145,6 +154,7 @@ fn parse(top: &Path) -> Result<Manifest> {
         prepare: Vec::new(),
         tools: Vec::new(),
         linux_packages: Vec::new(),
+        macos_packages: Vec::new(),
     };
     let text = match std::fs::read_to_string(&file) {
         Ok(text) => text,
@@ -170,7 +180,7 @@ fn parse(top: &Path) -> Result<Manifest> {
             manifest.kept.push(kept_path.to_string());
             continue;
         }
-        if path == "linux-package" {
+        if path == "linux-package" || path == "macos" {
             let names: Vec<String> = fields.map(str::to_string).collect();
             if names.is_empty() {
                 fail!(
@@ -178,7 +188,11 @@ fn parse(top: &Path) -> Result<Manifest> {
                     file.display()
                 );
             }
-            manifest.linux_packages.extend(names);
+            if path == "macos" {
+                manifest.macos_packages.extend(names);
+            } else {
+                manifest.linux_packages.extend(names);
+            }
             continue;
         }
         if path == "prepare" {
@@ -495,7 +509,7 @@ mod tests {
     }
 
     #[test]
-    fn linux_package_lines_name_what_a_linux_host_installs() {
+    fn package_lines_name_what_a_linux_host_installs_and_what_needs_a_mac() {
         let dir =
             std::env::temp_dir().join(format!("builds-manifest-packages-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
@@ -509,11 +523,19 @@ mod tests {
             ["clang", "nasm", "libasound2-dev"]
         );
         assert_eq!(build_dirs(&dir).unwrap().len(), 1);
-        std::fs::write(dir.join(MANIFEST), "linux-package\n").unwrap();
-        assert!(
-            linux_packages(&dir).is_err(),
-            "a line with no package passed"
+        std::fs::write(
+            dir.join(MANIFEST),
+            "macos bae-playback\nmacos bae-import bae-util\n",
+        )
+        .unwrap();
+        assert_eq!(
+            macos_packages(&dir).unwrap(),
+            ["bae-playback", "bae-import", "bae-util"]
         );
+        for bad in ["linux-package\n", "macos\n"] {
+            std::fs::write(dir.join(MANIFEST), bad).unwrap();
+            assert!(linux_packages(&dir).is_err(), "{bad} passed");
+        }
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

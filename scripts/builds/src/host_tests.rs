@@ -292,6 +292,20 @@ fn picks_the_lowest_load_per_core_above_the_floor() {
     assert!(why.contains("d is unreachable (ssh failed)"), "{why}");
 }
 
+/// `builds remote run` runs its command only on a host of this machine's
+/// OS, however idle another is.
+#[test]
+fn a_host_of_another_os_runs_no_remote_command() {
+    let mut linux = probe_of(0.0, 100);
+    if let Ok(probe) = &mut linux {
+        probe.platform.os = crate::host_platform::Os::Linux;
+    }
+    let hosts = vec![(host("a"), probe_of(5.0, 100)), (host("box"), linux)];
+    let (picked, why) = choose(&hosts, 50).unwrap();
+    assert_eq!(picked.name, "a");
+    assert!(why.contains("box runs Linux, not macOS"), "{why}");
+}
+
 #[test]
 fn equal_loads_pick_the_first() {
     let hosts = vec![

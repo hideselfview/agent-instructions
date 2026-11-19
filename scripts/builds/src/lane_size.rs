@@ -217,7 +217,7 @@ pub fn grow(at: RepoLane, floor_kib: u64, need: Need, now: i64) -> Result<Option
 
 /// The hosts that may take a checkout of <lane>, the one with the most cores
 /// free first: of the hosts in <probes>, those that answer, take jobs, are
-/// not in <refusing>, have `FREE_CORES` free and would keep their free disk
+/// Macs, are not in <refusing>, have `FREE_CORES` free and would keep their free disk
 /// above <floor_kib> with one more checkout of the lane. With them, what each
 /// other host lacks. The caller checks `HOST_CAP` under the host's guard.
 fn fitting_hosts(
@@ -236,7 +236,13 @@ fn fitting_hosts(
         let Ok(probe) = probe else {
             unreachable!("passed_over passes over a host that does not answer");
         };
-        if refusing.contains(&host.name) {
+        if probe.platform.os != crate::host_platform::Os::Mac {
+            lacks.push(format!(
+                "{} runs {}, and app builds run only on a Mac",
+                host.name,
+                probe.platform.os.word()
+            ));
+        } else if refusing.contains(&host.name) {
             lacks.push(format!(
                 "{} cannot build the mac lane (`builds health` says why)",
                 host.name

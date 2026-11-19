@@ -989,18 +989,30 @@ pub fn list_line(host: &Host, probe: &std::result::Result<Probe, String>) -> Str
     }
 }
 
-/// The host to run on: the reachable one above the free-disk floor with the
-/// lowest load average per core (the first of equals), and the line that says
-/// why. Fails, naming each host and what is wrong with it, when none fits.
+/// The host to run on: the reachable one above the free-disk floor, of this
+/// machine's OS, with the lowest load average per core (the first of
+/// equals), and the line that says why. A command `builds remote run` is
+/// given is one for this machine's OS. Fails, naming each host and what is
+/// wrong with it, when none fits.
 pub fn choose(
     hosts: &[(Host, std::result::Result<Probe, String>)],
     floor_kib: u64,
 ) -> Result<(Host, String)> {
+    let here = crate::host_platform::Os::here();
     let mut best: Option<(&Host, &Probe)> = None;
     let mut skipped = Vec::new();
     for (host, probe) in hosts {
         if let Some(why) = passed_over(host, probe, floor_kib) {
             skipped.push(why.to_string());
+        } else if let Ok(probe) = probe
+            && probe.platform.os != here
+        {
+            skipped.push(format!(
+                "{} runs {}, not {}",
+                host.name,
+                probe.platform.os.word(),
+                here.word()
+            ));
         } else if let Ok(probe) = probe
             && best.is_none_or(|(_, held)| probe.load_per_core() < held.load_per_core())
         {
@@ -1020,6 +1032,7 @@ pub fn choose(
         if other.name != host.name
             && passed_over(other, other_probe, floor_kib).is_none()
             && let Ok(other_probe) = other_probe
+            && other_probe.platform.os == here
         {
             why.push_str(&format!(
                 "; {} {:.2}",

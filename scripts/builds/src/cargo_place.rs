@@ -462,9 +462,11 @@ pub enum Wanted<'a> {
 /// Chooses where the command, run by this process, runs: the host <wanted>
 /// names when it can take the command, else the one with the most room that
 /// can, counting the runs that started on each host in the last minute
-/// (cargo_starts.rs). The choice joins that record at <now> before the next
-/// pick reads it. The caller has already found that the command may leave
-/// this Mac (`stays_here`).
+/// (cargo_starts.rs). A job that builds <macos>, a package part of whose code
+/// compiles only for macOS (cargo_needs.rs), goes only to a Mac. The choice
+/// joins that record at <now> before the next pick reads it. The caller has
+/// already found that the command may leave this Mac (`stays_here`).
+#[allow(clippy::too_many_arguments)]
 pub fn choose(
     places: &Places,
     ssh: &Ssh,
@@ -472,10 +474,20 @@ pub fn choose(
     repo: &str,
     wanted: Wanted,
     runs: host::Runs,
+    macos: Option<&str>,
     now: i64,
 ) -> Result<Choice> {
     let starts = cargo_starts::read(places, now)?;
-    let choice = pick(places, ssh, floor_kib, repo, wanted, runs, &starts.counts)?;
+    let choice = pick(
+        places,
+        ssh,
+        floor_kib,
+        repo,
+        wanted,
+        runs,
+        macos,
+        &starts.counts,
+    )?;
     let host = match &choice {
         Choice::Here(_) => host::LOCAL,
         Choice::On(host, _, _) => host.name.as_str(),
@@ -486,6 +498,7 @@ pub fn choose(
 
 /// Chooses the host as `choose` does, counting the runs <counts> holds on
 /// each host (`rank`).
+#[allow(clippy::too_many_arguments)]
 fn pick(
     places: &Places,
     ssh: &Ssh,
@@ -493,6 +506,7 @@ fn pick(
     repo: &str,
     wanted: Wanted,
     runs: host::Runs,
+    macos: Option<&str>,
     counts: &cargo_starts::Counts,
 ) -> Result<Choice> {
     let hosts = host::all(places)?;
@@ -508,6 +522,9 @@ fn pick(
             Err(error) => fail!("host {name} is not reachable: {error}"),
         };
         if let Err(why) = host::has_what_runs_needs(&found, &probe, runs) {
+            fail!("{HOST_VARIABLE} names host {name}, which cannot run this: {why}");
+        }
+        if let Some(why) = needs_mac(&found, &probe, macos) {
             fail!("{HOST_VARIABLE} names host {name}, which cannot run this: {why}");
         }
         if let Err(error) = has_clone(places, ssh, &found, repo) {
@@ -526,18 +543,51 @@ fn pick(
         Wanted::Warm(warm) => Some(warm),
         Wanted::Named(_) | Wanted::Room => None,
     };
+    let mut kept_off = Vec::new();
+    let probes: Vec<_> = host::probe_all(places, ssh, hosts)
+        .into_iter()
+        .filter(|(host, probe)| {
+            match probe
+                .as_ref()
+                .ok()
+                .and_then(|probe| needs_mac(host, probe, macos))
+            {
+                Some(why) => {
+                    kept_off.push(why);
+                    false
+                }
+                None => true,
+            }
+        })
+        .collect();
+    // A job that keeps off a host for a reason of its own says so: the agent
+    // sees why it runs where it does.
+    if !kept_off.is_empty() {
+        note(format!(
+            "builds cargo passes over these hosts: {}",
+            kept_off.join("; ")
+        ));
+    }
     pick_ranked(
         places,
         ssh,
         repo,
-        rank(
-            &host::probe_all(places, ssh, hosts),
-            floor_kib,
-            counts,
-            runs,
-            warm,
-        ),
+        rank(&probes, floor_kib, counts, runs, warm),
     )
+}
+
+/// Why <host>, which answered <probe>, cannot run a job that builds
+/// <macos>, a package part of whose code compiles only for macOS; None when
+/// it can: the job builds no such package, or the host is a Mac.
+fn needs_mac(host: &Host, probe: &host::Probe, macos: Option<&str>) -> Option<String> {
+    let package = macos?;
+    (probe.platform.os != crate::host_platform::Os::Mac).then(|| {
+        format!(
+            "{} runs {}, and this job builds {package}, part of whose code compiles only for macOS (its repo's .build-dirs names it in a `macos` line)",
+            host.name,
+            probe.platform.os.word()
+        )
+    })
 }
 
 /// The hosts of <probes> that can take a run, in the order builds tries

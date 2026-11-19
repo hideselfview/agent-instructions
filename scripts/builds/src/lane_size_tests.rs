@@ -289,6 +289,15 @@ fn a_host_that_cannot_build_the_mac_lane_takes_no_mac_checkout() {
     let (fits, lacks) = fitting_hosts(Lane::Mac, 0, &probes, &["m1".to_string()]);
     assert!(fits.is_empty());
     assert!(lacks[0].contains("cannot build the mac lane"), "{lacks:?}");
+    let mut linux = probes.clone();
+    if let Ok(probe) = &mut linux[0].1 {
+        probe.platform.os = crate::host_platform::Os::Linux;
+    }
+    for lane in Lane::ALL {
+        let (fits, lacks) = fitting_hosts(lane, 0, &linux, &[]);
+        assert!(fits.is_empty(), "a Linux host takes no {lane:?} checkout");
+        assert!(lacks[0].contains("m1 runs Linux"), "{lacks:?}");
+    }
 }
 
 #[test]
