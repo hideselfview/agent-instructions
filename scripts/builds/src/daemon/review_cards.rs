@@ -36,10 +36,10 @@ type ReadKey = (PathBuf, Vec<String>);
 /// The paths each commit of a worktree changes.
 type Read = Vec<Vec<String>>;
 
-/// A project's rules as `Material::load` last read them, and when; None when
-/// `Material::load` failed. A read that finds the same rules keeps the
-/// earlier `Arc`, so a worktree judged against them need not be judged again.
-type Rules = (Instant, Option<Arc<Material>>);
+/// A project's rules as `Material::load` last read them, or why it failed,
+/// and when. A read that finds the same rules keeps the earlier `Arc`, so a
+/// worktree judged against them need not be judged again.
+type Rules = (Instant, Result<Arc<Material>, String>);
 
 /// A side worktree whose card shows where its rules review stands, as the
 /// daemon last read it.
@@ -93,8 +93,8 @@ struct Judged {
 /// rules of each project as last read, and each worktree's judgment, kept
 /// until its tip or the rules differ.
 pub struct Reads {
-    /// The rules checkout; None when HOME is not set.
-    root: Option<PathBuf>,
+    /// The rules checkout, or why there is none (HOME is not set).
+    root: Result<PathBuf, String>,
     commits: Mutex<HashMap<ReadKey, Read>>,
     rules: Mutex<HashMap<String, Rules>>,
     judged: Mutex<HashMap<PathBuf, Judged>>,
@@ -102,13 +102,14 @@ pub struct Reads {
 
 impl Default for Reads {
     fn default() -> Reads {
-        Reads::with_root(crate::review::default_rules_root().ok())
+        Reads::with_root(crate::review::default_rules_root().map_err(Fail::text))
     }
 }
 
 impl Reads {
-    /// Reads that take the rules from the checkout at <root>.
-    pub fn with_root(root: Option<PathBuf>) -> Reads {
+    /// Reads that take the rules from the checkout at <root>, or that say
+    /// why there is none.
+    pub fn with_root(root: Result<PathBuf, String>) -> Reads {
         Reads {
             root,
             commits: Mutex::new(HashMap::new()),
@@ -141,9 +142,9 @@ impl Reads {
     }
 
     /// <project>'s rules, read from the rules checkout at most every
-    /// `RULES_FOR`; None when HOME is not set or the rules can't be read.
-    fn rules(&self, project: &str) -> Option<Arc<Material>> {
-        let root = self.root.as_ref()?;
+    /// `RULES_FOR`, or why they can't be read.
+    fn rules(&self, project: &str) -> Result<Arc<Material>, String> {
+        let root = self.root.as_ref().map_err(Clone::clone)?;
         let mut rules = self.rules.lock().expect("no panic holding it");
         let held = rules.get(project).cloned();
         if let Some((at, material)) = &held
@@ -152,11 +153,17 @@ impl Reads {
             return material.clone();
         }
         let material = match (
-            held.and_then(|(_, material)| material),
+            held.and_then(|(_, material)| material.ok()),
             Material::load(root, project),
         ) {
-            (Some(before), Ok(read)) if *before == read => Some(before),
-            (_, read) => read.ok().map(Arc::new),
+            (Some(before), Ok(read)) if *before == read => Ok(before),
+            (_, read) => read.map(Arc::new).map_err(|why| {
+                format!(
+                    "reading the rules of {project} from {}: {}",
+                    root.display(),
+                    why.text()
+                )
+            }),
         };
         rules.insert(project.to_string(), (Instant::now(), material.clone()));
         material
@@ -179,9 +186,7 @@ impl Reads {
         let Some(newest) = worktree.git.ahead.first() else {
             return Ok(None);
         };
-        let Some(rules) = self.rules(&store.project) else {
-            return Ok(None);
-        };
+        let rules = self.rules(&store.project)?;
         let tip = Tip {
             branch: worktree.branch.map(str::to_string),
             head: worktree.git.head.as_ref().map(|head| head.full.clone()),
