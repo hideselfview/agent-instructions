@@ -170,14 +170,25 @@ pub struct Health {
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct SccacheHealth {
-    pub listening: bool,
-    /// "Compile requests executed" now.
-    pub executed: Option<u64>,
-    /// The reading compared against: the newest one at least
-    /// `sccache_readings::READING_MINUTES` old.
-    pub compared: Option<crate::sccache_readings::Reading>,
+    pub server: SccacheServer,
     /// Clients waiting CLIENT_MINUTES or more.
     pub waiting: Vec<Client>,
+}
+
+/// What health read of the sccache server on this Mac.
+#[derive(Clone, Serialize, Deserialize)]
+pub enum SccacheServer {
+    /// No process listens on sccache's port.
+    Silent,
+    /// A server listens, and reading its stats failed with this error.
+    Unread(String),
+    /// The server's count of executed compiles now ("Compile requests
+    /// executed"), and the reading compared against: the newest one at least
+    /// `sccache_readings::READING_MINUTES` old.
+    Read {
+        executed: u64,
+        compared: Option<crate::sccache_readings::Reading>,
+    },
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -377,21 +388,19 @@ pub struct Machine {
     pub queues: Vec<LaneQueue>,
 }
 
-/// Whether a server listens on sccache's port on this Mac, its count of
-/// executed compiles now, and the newest reading of that server at least
+/// What the sccache server on this Mac says now: its count of executed
+/// compiles and the newest reading of that server at least
 /// `sccache_readings::READING_MINUTES` old; this reading joins the record
 /// when the newest of this Mac in it is a minute old or more
-/// (sccache_readings.rs). A server that does not say its stats has no count.
-pub fn sccache_reading(
-    home: &Path,
-    now: i64,
-) -> Result<(bool, Option<u64>, Option<crate::sccache_readings::Reading>)> {
+/// (sccache_readings.rs).
+pub fn sccache_reading(home: &Path, now: i64) -> Result<SccacheServer> {
     use crate::sccache_readings::{Reading, compared, read, record, write};
     let Some(server) = crate::sccache::listener()? else {
-        return Ok((false, None, None));
+        return Ok(SccacheServer::Silent);
     };
-    let Ok(stats) = crate::sccache::running_stats() else {
-        return Ok((true, None, None));
+    let stats = match crate::sccache::running_stats() {
+        Ok(stats) => stats,
+        Err(error) => return Ok(SccacheServer::Unread(error.text())),
     };
     let server = server as i32;
     let mut readings = read(home)?;
@@ -402,7 +411,10 @@ pub fn sccache_reading(
     ) {
         write(home, &readings)?;
     }
-    Ok((true, Some(stats.executed), before))
+    Ok(SccacheServer::Read {
+        executed: stats.executed,
+        compared: before,
+    })
 }
 
 /// Reads the processes now: build processes placed in <places>, the
@@ -416,7 +428,7 @@ pub fn sample(
     locks: &[AppLock],
     machine: &crate::places::Places,
     now: i64,
-    sccache: (bool, Option<u64>, Option<crate::sccache_readings::Reading>),
+    sccache: SccacheServer,
 ) -> Result<Machine> {
     let processes = Processes::read()?;
     let builds = build_processes(&processes, places, &BUILD_NAMES);
@@ -444,7 +456,6 @@ pub fn sample(
             })
         })
         .collect();
-    let (listening, executed, compared) = sccache;
     let mut waiting = Vec::new();
     for process in &processes.list {
         if process.name != "sccache" || minutes_since(now, process.started) < CLIENT_MINUTES {
@@ -615,9 +626,7 @@ pub fn sample(
         unread,
         commits: crate::procs::git_commits(&processes),
         sccache: SccacheHealth {
-            listening,
-            executed,
-            compared,
+            server: sccache,
             waiting,
         },
         shells,
@@ -737,15 +746,25 @@ pub fn assess(
     }
     let s = &machine.sccache;
     if let Some(oldest) = s.waiting.first().map(|c| c.minutes) {
-        match (s.listening, s.executed, &s.compared) {
-            (false, _, _) => findings.push(Finding::new(
+        match &s.server {
+            SccacheServer::Silent => findings.push(Finding::new(
                 FindingKind::Sccache,
                 Advice::said(format!(
                     "sccache: no server is listening and {} clients have waited {CLIENT_MINUTES}+ min (oldest {oldest}m)",
                     s.waiting.len()
                 )),
             )),
-            (true, Some(now_count), Some(before)) if now_count == before.executed => findings.push(Finding::new(
+            SccacheServer::Unread(error) => findings.push(Finding::new(
+                FindingKind::Sccache,
+                Advice::said(format!(
+                    "sccache: {} clients have waited {CLIENT_MINUTES}+ min (oldest {oldest}m), and health cannot tell whether the server finishes compiles, because reading its stats failed: {error}",
+                    s.waiting.len()
+                )),
+            )),
+            SccacheServer::Read {
+                executed,
+                compared: Some(before),
+            } if *executed == before.executed => findings.push(Finding::new(
                 FindingKind::Sccache,
                 Advice::said(format!(
                     "sccache: {} clients have waited {CLIENT_MINUTES}+ min (oldest {oldest}m) and the server finished no compile since {} ({}m ago)",
@@ -1257,10 +1276,12 @@ pub fn lines(health: &Health) -> Vec<String> {
         human(health.disk.hard_floor_kib)
     ));
     let s = &health.sccache;
-    let mut line = match (s.listening, s.executed) {
-        (false, _) => "sccache: no server listening".to_string(),
-        (true, None) => "sccache: the server did not say how many compiles it executed".to_string(),
-        (true, Some(executed)) => match &s.compared {
+    let mut line = match &s.server {
+        SccacheServer::Silent => "sccache: no server listening".to_string(),
+        SccacheServer::Unread(error) => {
+            format!("sccache: reading the server's stats failed: {error}")
+        }
+        SccacheServer::Read { executed, compared } => match compared {
             Some(before) => format!(
                 "sccache: {executed} compiles executed, {} since {} ({}m ago)",
                 executed.saturating_sub(before.executed),
@@ -1711,9 +1732,10 @@ mod tests {
             unread: Vec::new(),
             commits: Default::default(),
             sccache: SccacheHealth {
-                listening: true,
-                executed: Some(1),
-                compared: None,
+                server: SccacheServer::Read {
+                    executed: 1,
+                    compared: None,
+                },
                 waiting: Vec::new(),
             },
             shells: Shells::default(),
@@ -1806,9 +1828,10 @@ mod tests {
                 unread: Vec::new(),
                 commits: Default::default(),
                 sccache: SccacheHealth {
-                    listening: true,
-                    executed: Some(1),
-                    compared: None,
+                    server: SccacheServer::Read {
+                        executed: 1,
+                        compared: None,
+                    },
                     waiting: Vec::new(),
                 },
                 shells: Shells::default(),
@@ -1913,9 +1936,10 @@ mod tests {
             unread: Vec::new(),
             commits: Default::default(),
             sccache: SccacheHealth {
-                listening: true,
-                executed: Some(1),
-                compared: None,
+                server: SccacheServer::Read {
+                    executed: 1,
+                    compared: None,
+                },
                 waiting: Vec::new(),
             },
             shells: Shells::default(),
@@ -1996,9 +2020,10 @@ mod tests {
             unread: Vec::new(),
             commits: Default::default(),
             sccache: SccacheHealth {
-                listening: true,
-                executed: Some(1),
-                compared: None,
+                server: SccacheServer::Read {
+                    executed: 1,
+                    compared: None,
+                },
                 waiting: Vec::new(),
             },
             shells: Shells::default(),
@@ -2075,9 +2100,10 @@ mod tests {
                 unread: Vec::new(),
                 commits: Default::default(),
                 sccache: SccacheHealth {
-                    listening: true,
-                    executed: Some(1),
-                    compared: None,
+                    server: SccacheServer::Read {
+                        executed: 1,
+                        compared: None,
+                    },
                     waiting: Vec::new(),
                 },
                 shells: Shells::default(),
@@ -2166,9 +2192,10 @@ mod tests {
                 unread: Vec::new(),
                 commits: Default::default(),
                 sccache: SccacheHealth {
-                    listening: true,
-                    executed: Some(1),
-                    compared: None,
+                    server: SccacheServer::Read {
+                        executed: 1,
+                        compared: None,
+                    },
                     waiting: Vec::new(),
                 },
                 shells: Shells::default(),
@@ -2245,9 +2272,10 @@ mod tests {
             unread: vec![line.to_string()],
             commits: Default::default(),
             sccache: SccacheHealth {
-                listening: true,
-                executed: Some(1),
-                compared: None,
+                server: SccacheServer::Read {
+                    executed: 1,
+                    compared: None,
+                },
                 waiting: Vec::new(),
             },
             shells: Shells::default(),
@@ -2276,6 +2304,66 @@ mod tests {
         );
     }
 
+    /// A server whose stats did not read says why in its line, and, while
+    /// clients wait on it, in a finding.
+    #[test]
+    fn a_server_whose_stats_did_not_read_says_why() {
+        let now = 1_800_000_000;
+        let error = "sccache --show-stats exited 2 and said: no server";
+        let oldest = CLIENT_MINUTES + 3;
+        let machine = Machine {
+            at: now,
+            load: [1.0; 3],
+            cores: 8,
+            builds: Vec::new(),
+            remote_runs: Vec::new(),
+            app_builds: Vec::new(),
+            unread: Vec::new(),
+            commits: Default::default(),
+            sccache: SccacheHealth {
+                server: SccacheServer::Unread(error.to_string()),
+                waiting: vec![Client {
+                    pid: 41,
+                    minutes: oldest,
+                    cpu_seconds: 0.1,
+                    checkout: None,
+                }],
+            },
+            shells: Shells::default(),
+            locks: Vec::new(),
+            queues: Vec::new(),
+        };
+        let health = assess(
+            now,
+            DiskSpace {
+                free_kib: 100 << 20,
+                floor_kib: 30 << 20,
+                hard_floor_kib: 10 << 20,
+            },
+            machine,
+            &[],
+            Vec::new(),
+            LeftBehind::default(),
+            Vec::new(),
+        );
+        assert_eq!(
+            health.findings,
+            [Finding::new(
+                FindingKind::Sccache,
+                Advice::said(format!(
+                    "sccache: 1 clients have waited {CLIENT_MINUTES}+ min (oldest {oldest}m), and health cannot tell whether the server finishes compiles, because reading its stats failed: {error}"
+                ))
+            )]
+        );
+        let lines = lines(&health);
+        assert!(
+            lines.contains(&format!(
+                "sccache: reading the server's stats failed: {error}; 1 clients waiting {CLIENT_MINUTES}+ min"
+            )),
+            "{lines:?}"
+        );
+    }
+
     /// An unclaimed worktree holding commits missing from origin/main is
     /// work left behind; one holding none is not a finding.
     #[test]
@@ -2291,9 +2379,10 @@ mod tests {
             unread: Vec::new(),
             commits: Default::default(),
             sccache: SccacheHealth {
-                listening: true,
-                executed: Some(1),
-                compared: None,
+                server: SccacheServer::Read {
+                    executed: 1,
+                    compared: None,
+                },
                 waiting: Vec::new(),
             },
             shells: Shells::default(),

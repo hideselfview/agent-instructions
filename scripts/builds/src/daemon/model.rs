@@ -112,7 +112,7 @@ struct State {
     load: VecDeque<(i64, f64)>,
     health: Option<Health>,
     sccache_at: Option<Instant>,
-    sccache: Option<(bool, Option<u64>, Option<crate::sccache_readings::Reading>)>,
+    sccache: Option<crate::health::SccacheServer>,
     /// The other hosts' load cards (hosts.rs), empty before the first reading.
     hosts: Vec<super::hosts::HostPage>,
     /// What the hosts' reading found that `assess` does not (busy processes,
