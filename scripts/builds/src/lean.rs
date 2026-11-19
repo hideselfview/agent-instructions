@@ -192,12 +192,16 @@ fn install_elan(home: &Path, download: impl FnOnce(&Path) -> Result<()>) -> Resu
     })
 }
 
-/// Downloads elan `ELAN_VERSION`'s installer for this Mac's processor into
-/// <dir>.
+/// Downloads elan `ELAN_VERSION`'s installer for this machine's OS and
+/// processor into <dir>.
 fn download_elan(dir: &Path) -> Result<()> {
+    let system = match crate::host_platform::Os::here() {
+        crate::host_platform::Os::Mac => "apple-darwin",
+        crate::host_platform::Os::Linux => "unknown-linux-gnu",
+    };
     crate::download::unpack_tarball(
         &format!(
-            "https://github.com/leanprover/elan/releases/download/v{ELAN_VERSION}/elan-{}-apple-darwin.tar.gz",
+            "https://github.com/leanprover/elan/releases/download/v{ELAN_VERSION}/elan-{}-{system}.tar.gz",
             std::env::consts::ARCH
         ),
         dir,
