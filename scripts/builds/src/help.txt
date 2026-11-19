@@ -269,9 +269,12 @@ A note set without --state has no state, so writing the next note clears the
 state. Claiming the worktree again for the same <who> renews the claim's date
 and keeps the note.
 
-The dashboard gives each side worktree the first state that matches: Ready
-(no claim, and an open item keeps the worktree with its unfinished work:
-`builds item stop`, `builds help lists`), Can't read what this worktree waits on (the daemon could
+The dashboard gives each side worktree the first state that matches: Waits met
+(no claim, and an open item keeps the worktree with every wait met: land its
+commits or resume its agent), Waiting (no claim, and an open item keeps the
+worktree while it waits on an open record: the card names each), Ready (no
+claim, and an open item with no waits keeps the worktree with its unfinished
+work: `builds item stop`, `builds help lists`), Can't read what this worktree waits on (the daemon could
 not read what a running item waits on, and the card says why), Waiting on you
 (the claim's note says so, a running item waits on a question or on a design
 change the person has not approved, or the worktree's commits are a design

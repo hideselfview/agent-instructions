@@ -626,19 +626,42 @@ fn commits_whose_rules_review_is_not_finished_are_in_review_and_the_card_says_wh
     );
 }
 
-/// The card of a worktree an item keeps says Ready and lists the item.
+/// The card of a worktree an item keeps says what the item waits on.
 #[test]
-fn a_worktree_an_item_keeps_says_ready_and_lists_its_item() {
+fn a_worktree_an_item_keeps_says_what_its_item_waits_on() {
     let item = RunningItem {
         id: 7,
         title: "Do the kept thing now".into(),
     };
-    let said = words(
-        &card(Some("kept"), None, Some(2)),
-        std::slice::from_ref(&item),
-        &[],
+    let page = card(Some("kept"), None, Some(2));
+    let said = kept_words(&page, item.clone(), &KeptWaits::None);
+    assert_eq!(
+        (said.chip, said.items.clone(), said.note),
+        (Some("Ready"), vec![item.clone()], None)
     );
-    assert_eq!(said.chip, Some("Ready"));
-    assert_eq!(said.items, [item]);
-    assert_eq!(said.note, None);
+    let open = KeptWaits::Open(vec![
+        "item #793 (ready): Keep the tool running".into(),
+        "question #816 (waits on you): Which way".into(),
+    ]);
+    assert_eq!(kept_state(&open), "kept-waiting");
+    let said = kept_words(&page, item.clone(), &open);
+    assert_eq!(said.chip, Some("Waiting"));
+    assert_eq!(
+        said.note.as_deref(),
+        Some(
+            "Waits on item #793 (ready): Keep the tool running; question #816 (waits on you): Which way."
+        )
+    );
+    let met = KeptWaits::Met(vec![
+        "question #816 answered by decision #9: Which way".into(),
+    ]);
+    assert_eq!(kept_state(&met), "kept-met");
+    let said = kept_words(&page, item, &met);
+    assert_eq!(said.chip, Some("Waits met"));
+    assert_eq!(
+        said.note.as_deref(),
+        Some(
+            "Every wait is met: question #816 answered by decision #9: Which way. Land its commits, or resume its agent with builds item take."
+        )
+    );
 }

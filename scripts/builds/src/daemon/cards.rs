@@ -5,6 +5,7 @@
 //! checkout's own facts.
 
 use super::model::CheckoutPage;
+use crate::lists::kept_work::KeptWaits;
 
 /// What a running item waits on that is not met.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -331,6 +332,42 @@ fn uncommitted(checkout: &CheckoutPage) -> Option<Uncommitted> {
     })
 }
 
+/// The state a worktree that an item keeps shows, with no agent in it: an
+/// item with no waits waits only for an agent (`kept`), one with an open wait
+/// waits on it (`kept-waiting`), and one whose waits are all met waits for
+/// the coordinator to resume its agent or land its commits (`kept-met`).
+pub fn kept_state(waits: &KeptWaits) -> &'static str {
+    match waits {
+        KeptWaits::None => "kept",
+        KeptWaits::Open(_) => "kept-waiting",
+        KeptWaits::Met(_) => "kept-met",
+    }
+}
+
+/// The words of <checkout>, a worktree that <item> keeps with no agent in
+/// it, given what its waits <waits> stand at (`kept_state`).
+pub fn kept_words(checkout: &CheckoutPage, item: RunningItem, waits: &KeptWaits) -> Words {
+    let (chip, note) = match waits {
+        KeptWaits::None => ("Ready", None),
+        KeptWaits::Open(open) => ("Waiting", Some(format!("Waits on {}.", open.join("; ")))),
+        KeptWaits::Met(met) => (
+            "Waits met",
+            Some(format!(
+                "Every wait is met: {}. Land its commits, or resume its agent with builds item take.",
+                met.join("; ")
+            )),
+        ),
+    };
+    Words {
+        chip: Some(chip),
+        pill: None,
+        items: vec![item],
+        note,
+        uncommitted: uncommitted(checkout),
+        queued: None,
+    }
+}
+
 /// The words of <checkout>, a live checkout that is not an app checkout:
 /// <items> are its running items and <waits> is what the worktree waits on,
 /// as `ranked` orders it: the daemon set the card's state from the first.
@@ -386,18 +423,6 @@ pub fn words(checkout: &CheckoutPage, items: &[RunningItem], waits: &[ItemWait])
             }
             _ => (Some("Needs review"), None, String::new()),
         },
-        // An item that keeps the worktree waits only for an agent: work that
-        // waits on something is held, and its card says what.
-        Some("kept") => {
-            return Words {
-                chip: Some("Ready"),
-                pill: None,
-                items: items.to_vec(),
-                note: None,
-                uncommitted,
-                queued: None,
-            };
-        }
         // The card's errors say why.
         Some("waits-unread") => (
             Some("Can't read what this worktree waits on"),

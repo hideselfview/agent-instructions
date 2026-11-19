@@ -1319,21 +1319,28 @@ impl Model {
                         super::cards::card_state(checkout.state, shell, waits.as_deref());
                     let waits = waits.unwrap_or_default();
                     // A worktree an item keeps, with no agent, holds that
-                    // item's work: its card shows the item as Ready.
+                    // item's work: its card says what the item waits on.
                     let kept = project
-                        .and_then(|lists| crate::lists::kept_work::kept_in(lists, &checkout.path))
+                        .and_then(|lists| {
+                            crate::lists::kept_work::kept_in(lists, &checkout.path).map(|item| {
+                                (item, crate::lists::kept_work::kept_waits(lists, item))
+                            })
+                        })
                         .filter(|_| checkout.claim.is_none());
-                    let items = match kept {
-                        Some(item) => {
-                            checkout.state = Some("kept");
-                            vec![super::cards::RunningItem {
-                                id: item.id.0,
-                                title: item.title.clone(),
-                            }]
+                    checkout.words = match kept {
+                        Some((item, kept_waits)) => {
+                            checkout.state = Some(super::cards::kept_state(&kept_waits));
+                            super::cards::kept_words(
+                                checkout,
+                                super::cards::RunningItem {
+                                    id: item.id.0,
+                                    title: item.title.clone(),
+                                },
+                                &kept_waits,
+                            )
                         }
-                        None => items,
+                        None => super::cards::words(checkout, &items, &waits),
                     };
-                    checkout.words = super::cards::words(checkout, &items, &waits);
                 }
             }
         }
