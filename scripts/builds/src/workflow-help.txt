@@ -338,8 +338,9 @@ run.
      message that names the landing, the findings and the worktree. With no
      judge listening, builds tells the agent's coordinator instead. When a
      judge starts listening, and after each settle, dispute and answer,
-     builds also sends the judge each finding that waits for it and that
-     builds has not told the judge's session of.
+     builds also sends the judge each finding that waits for it, that builds
+     has not told the judge's session of, and that no running builds process
+     is telling it of.
   2. The agent runs `builds review wait <landing>` as a background task. No
      message reaches an agent that a session dispatched, so the wait's end
      tells it: the wait ends once no finding waits for a settle, and prints
@@ -581,8 +582,8 @@ floor and probes it again, measures the core speed of a host that has none,
 stops the Gradle daemon, the Kotlin compile daemon and the booted simulators
 that no build has used for an hour on a host under memory pressure and probes
 it again, releases a claim on a worktree that nothing holds, sends the judge
-again each finding that waited 5 minutes for a settle and that builds never
-told the judge's session of, forgets a judge whose session ended so that the
+again each finding that waits for a settle and that no running builds
+process is telling the judge's session of, forgets a judge whose session ended so that the
 coordinator settles, and stops each
 process whose caller is gone and whose only work is what it prints (a cargo
 run, a compile, a test, a job on a host whose builds command here ended). It

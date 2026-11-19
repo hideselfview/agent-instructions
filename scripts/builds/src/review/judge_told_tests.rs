@@ -1,6 +1,5 @@
 use super::*;
 use crate::inbox::Messaging;
-use crate::lists::fixtures::NOON;
 use crate::review::fakes::fake;
 use crate::review::judge::tests::{Reviewed, TOKEN, caller, confirmed, message, reviewed, stamp};
 use crate::testing::{FakeInbox, running_session};
@@ -15,7 +14,7 @@ fn told_sessions(r: &Reviewed, finding: i64, matter: &str) -> Vec<String> {
         .store
         .open_existing()
         .unwrap()
-        .prepare("SELECT session FROM review_judge_told WHERE finding_id = ?1 AND matter = ?2")
+        .prepare("SELECT told_session FROM review_judge_told WHERE finding_id = ?1 AND matter = ?2 AND told_session IS NOT NULL")
         .unwrap()
         .query_map(params![finding, matter], |row| row.get(0))
         .unwrap()
@@ -39,6 +38,7 @@ fn listen(r: &Reviewed, session: &str, inbox: &Messaging) -> String {
 #[test]
 fn a_finding_raised_before_the_judge_listens_reaches_it_when_it_starts_listening() {
     let r = reviewed("told-listen", Some(&caller("s1", "a1")));
+    end_writers(&r.demo.store);
     running_session(&r.demo.tool.places, "s-judge");
     let inbox = r.inbox("j.sock");
     let received = FakeInbox::listen(Path::new(inbox.socket()));
@@ -70,6 +70,7 @@ fn a_finding_raised_before_the_judge_listens_reaches_it_when_it_starts_listening
 #[test]
 fn a_judge_in_another_session_is_told_again_of_what_the_earlier_one_was_told() {
     let r = reviewed("told-replaced", Some(&caller("s1", "a1")));
+    end_writers(&r.demo.store);
     running_session(&r.demo.tool.places, "s-old");
     let old = r.inbox("old.sock");
     let received = FakeInbox::listen(Path::new(old.socket()));
@@ -184,6 +185,7 @@ fn settle_as_judge(r: &Reviewed, finding: i64) {
 fn a_settle_sends_the_judge_a_finding_that_waits_and_reached_it_in_no_message() {
     let r = reviewed("told-settle", Some(&caller("s1", "a1")));
     let other = another_review(&r, 2, "work2");
+    end_writers(&r.demo.store);
     // The judge listens as a session that started before this review ran:
     // nothing told it of either finding.
     let judge = r.inbox("j.sock");
@@ -212,6 +214,7 @@ fn a_dispute_that_reached_no_judge_is_sent_when_the_judge_settles_another_findin
         .unwrap();
     assert!(told_sessions(&r, r.finding, "answer").is_empty());
     let other = another_review(&r, 2, "work2");
+    end_writers(&r.demo.store);
     let received = FakeInbox::listen(Path::new(r.inbox("j.sock").socket()));
     settle_as_judge(&r, other);
     let told = message(&received.received());
@@ -225,22 +228,52 @@ fn a_dispute_that_reached_no_judge_is_sent_when_the_judge_settles_another_findin
     assert_eq!(told_sessions(&r, r.finding, "answer"), ["s-judge"]);
 }
 
-fn health_tool(r: &Reviewed, seconds_after_noon: i64) -> crate::tool::Tool {
-    let mut tool = r.demo.scratch.tool(0);
-    tool.now = NOON + seconds_after_noon;
-    tool
+/// Runs `builds health`'s fix for the judges, in the scratch folder of <r>.
+fn health(r: &Reviewed) -> Vec<String> {
+    crate::health_fix::tell_judges(&r.demo.scratch.tool(0)).unwrap()
 }
 
 #[test]
-fn health_sends_the_judge_again_what_waited_longer_than_a_few_minutes() {
+fn health_sends_nothing_while_the_process_that_made_the_finding_wait_runs() {
+    let r = reviewed("told-alive", Some(&caller("s1", "a1")));
+    r.listen_as_judge(&r.inbox("j.sock"));
+    running_session(&r.demo.tool.places, "s-judge");
+    // This test process wrote the rows and runs: it is telling the judge.
+    // Nothing listens on the judge's inbox, so a send would say it is gone.
+    assert!(health(&r).is_empty());
+    let said = listen(&r, "s-judge", &r.inbox("j.sock"));
+    assert!(!said.contains("gone"), "{said}");
+    assert!(!said.contains("builds told the judge"), "{said}");
+    assert!(told_sessions(&r, r.finding, "settle").is_empty());
+}
+
+#[test]
+fn a_process_with_the_pid_of_the_writer_and_another_start_time_is_another_process() {
+    let r = reviewed("told-reused-pid", Some(&caller("s1", "a1")));
+    r.listen_as_judge(&r.inbox("j.sock"));
+    running_session(&r.demo.tool.places, "s-judge");
+    let me = std::process::id();
+    reuse_writers_pids(&r.demo.store);
+    let received = FakeInbox::listen(Path::new(r.inbox("j.sock").socket()));
+    let lines = health(&r);
+    assert_eq!(lines.len(), 1, "pid {me} is another process now: {lines:?}");
+    received.received();
+}
+
+#[test]
+fn health_sends_the_judge_again_what_no_running_process_is_telling_it_of() {
     let r = reviewed("told-health", Some(&caller("s1", "a1")));
+    end_writers(&r.demo.store);
     let judge = r.inbox("j.sock");
     r.listen_as_judge(&judge);
     running_session(&r.demo.tool.places, "s-judge");
-    let early = crate::health_fix::tell_judges(&health_tool(&r, QUIET_SECONDS - 1)).unwrap();
-    assert!(early.is_empty(), "{early:?}");
     let received = FakeInbox::listen(Path::new(judge.socket()));
-    let lines = crate::health_fix::tell_judges(&health_tool(&r, QUIET_SECONDS)).unwrap();
+    let lines = health(&r);
+    assert_eq!(lines.len(), 1, "{lines:?}");
+    assert!(
+        lines[0].contains("builds told the judge judge"),
+        "{lines:?}"
+    );
     let told = message(&received.received());
     assert!(
         told.contains(&format!(
@@ -249,29 +282,31 @@ fn health_sends_the_judge_again_what_waited_longer_than_a_few_minutes() {
         )),
         "{told}"
     );
-    assert_eq!(lines.len(), 1, "{lines:?}");
-    assert!(
-        lines[0].contains("builds told the judge judge"),
-        "{lines:?}"
-    );
     assert_eq!(told_sessions(&r, r.finding, "settle"), ["s-judge"]);
-    let quiet = crate::health_fix::tell_judges(&health_tool(&r, QUIET_SECONDS + 60)).unwrap();
-    assert!(
-        quiet.is_empty(),
-        "told once it reaches the judge: {quiet:?}"
-    );
 }
 
 #[test]
-fn health_sends_the_judge_again_a_dispute_that_waited_for_its_answer() {
+fn health_sends_nothing_for_a_finding_it_already_told_the_judges_session_of() {
+    let r = reviewed("told-told", Some(&caller("s1", "a1")));
+    end_writers(&r.demo.store);
+    let judge = r.inbox("j.sock");
+    r.listen_as_judge(&judge);
+    running_session(&r.demo.tool.places, "s-judge");
+    let received = FakeInbox::listen(Path::new(judge.socket()));
+    assert_eq!(health(&r).len(), 1);
+    received.received();
+    // The inbox is gone now, so a second send would say so.
+    assert!(health(&r).is_empty());
+}
+
+#[test]
+fn health_sends_the_judge_again_a_dispute_whose_writer_ended() {
     let (r, agent) = confirmed("told-health-dispute");
     r.answer_as("dispute", Some(&agent), "the rule allows it here", "agent")
         .unwrap();
+    end_writers(&r.demo.store);
     let received = FakeInbox::listen(Path::new(r.inbox("j.sock").socket()));
-    // The dispute began at the tool's own clock, not at NOON.
-    let mut tool = r.demo.scratch.tool(0);
-    tool.now = r.demo.tool.now + QUIET_SECONDS;
-    let lines = crate::health_fix::tell_judges(&tool).unwrap();
+    let lines = health(&r);
     // Checked before reading the inbox: a send that never happened would
     // leave the read waiting for a connection.
     assert!(lines[0].contains("the dispute of finding"), "{lines:?}");
@@ -283,7 +318,7 @@ fn health_sends_the_judge_again_a_dispute_that_waited_for_its_answer() {
 fn health_forgets_a_judge_whose_session_ended_so_the_coordinator_settles() {
     let r = reviewed("told-health-ended", Some(&caller("s1", "a1")));
     r.listen_as_judge(&r.inbox("j.sock"));
-    let lines = crate::health_fix::tell_judges(&health_tool(&r, 0)).unwrap();
+    let lines = health(&r);
     assert_eq!(lines.len(), 1, "{lines:?}");
     assert!(lines[0].contains("ended"), "{lines:?}");
     assert!(
@@ -298,6 +333,5 @@ fn health_forgets_a_judge_whose_session_ended_so_the_coordinator_settles() {
         .query_row("SELECT count(*) FROM review_judge", [], |row| row.get(0))
         .unwrap();
     assert_eq!(kept, 0);
-    let again = crate::health_fix::tell_judges(&health_tool(&r, 0)).unwrap();
-    assert!(again.is_empty(), "{again:?}");
+    assert!(health(&r).is_empty());
 }

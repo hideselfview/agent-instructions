@@ -381,6 +381,14 @@ pub fn review(inputs: &Inputs) -> Result<Reported> {
                 if let Some(runner) = inputs.runner {
                     judge::record_branch_agent(db, run_id, runner)?;
                 }
+                judge_told::begin(
+                    db,
+                    &record::findings_of_run(db, run_id)?
+                        .iter()
+                        .filter(|finding| finding.is_unsettled())
+                        .map(|finding| (finding.id, judge_told::Matter::Settle))
+                        .collect::<Vec<_>>(),
+                )?;
                 runs.push((
                     run_id,
                     record::calls_of_run(db, run_id)?,
@@ -663,7 +671,7 @@ fn run_command(tool: &Tool, args: &[String]) -> Result<()> {
 /// dispute or answer can put a finding there that no review run told of
 /// (judge_told.rs).
 fn tell_judge_waiting(tool: &Tool, store: &Store, stamp: &Stamp) -> Result<()> {
-    for line in judge_told::tell_waiting(store, stamp, &tool.places.claude_sessions(), 0)? {
+    for line in judge_told::tell_waiting(store, stamp, &tool.places.claude_sessions())? {
         println!("{line}");
     }
     Ok(())

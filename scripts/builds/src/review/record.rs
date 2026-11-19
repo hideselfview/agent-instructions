@@ -628,18 +628,6 @@ pub fn finding_of(db: &Connection, id: i64) -> Result<Finding> {
         .ok_or_else(|| crate::fail::Fail::Message(format!("there is no finding {id}")))
 }
 
-/// When run <run> started, in seconds since 1970.
-pub fn run_started(db: &Connection, run: i64) -> Result<i64> {
-    db.query_row(
-        "SELECT at FROM review_run WHERE id = ?1",
-        params![run],
-        |row| row.get(0),
-    )
-    .optional()
-    .sql()?
-    .ok_or_else(|| crate::fail::Fail::Message(format!("there is no review run {run}")))
-}
-
 /// The calls of <landing>'s runs, in the order made.
 pub fn calls_of_landing(db: &Connection, landing: i64) -> Result<Vec<Call>> {
     calls_where(db, "r.landing_id = ?1", landing)

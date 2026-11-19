@@ -206,8 +206,8 @@ pub fn release_idle_claims(tool: &Tool) -> Result<Vec<String>> {
     Ok(lines)
 }
 
-/// Tells each project's judge again of each finding that waited
-/// `QUIET_SECONDS` or more and that builds never told the judge's session of,
+/// Tells each project's judge again of each finding that waits and that no
+/// running builds process is telling the judge's session of,
 /// and forgets each judge whose session ended, so that the coordinator
 /// settles the findings that wait (review/judge_told.rs). Returns one line
 /// for each message it sent, each judge it forgot and each store it could not
@@ -224,12 +224,7 @@ pub fn tell_judges(tool: &Tool) -> Result<Vec<String>> {
         let done =
             crate::review::judge_told::forget_ended(&store, &stamp, &sessions).and_then(|forgot| {
                 lines.extend(forgot);
-                crate::review::judge_told::tell_waiting(
-                    &store,
-                    &stamp,
-                    &sessions,
-                    crate::review::judge_told::QUIET_SECONDS,
-                )
+                crate::review::judge_told::tell_waiting(&store, &stamp, &sessions)
             });
         match done {
             Ok(told) => lines.extend(told),

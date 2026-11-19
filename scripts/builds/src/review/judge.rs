@@ -39,8 +39,9 @@
 //! builds records each matter it told a judge's session of (`judge_told.rs`),
 //! and sends a judge that listens every matter it has not told that session
 //! of: when the session starts listening, and after each settle, dispute or
-//! answer, whichever put the matter there. `builds health` sends them again
-//! once they have waited a few minutes.
+//! answer, whichever put the matter there. A matter whose builds process
+//! still runs is left to that process, which tells the judge itself;
+//! `builds health` sends the others again.
 
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
@@ -452,7 +453,6 @@ fn wait_command(project: &str, landing: i64) -> String {
 pub struct Dispute {
     pub why: String,
     pub by: String,
-    pub at: i64,
     /// The judge's answer that kept the finding confirmed: why, and who.
     pub kept: Option<(String, String)>,
 }
@@ -460,14 +460,13 @@ pub struct Dispute {
 /// The dispute of finding <id>, if anyone disputed it.
 pub(super) fn dispute_of(db: &Connection, id: i64) -> Result<Option<Dispute>> {
     db.query_row(
-        "SELECT d.why, d.by, k.why, k.by, d.at FROM review_dispute d LEFT JOIN review_kept k ON k.finding_id = d.finding_id WHERE d.finding_id = ?1",
+        "SELECT d.why, d.by, k.why, k.by FROM review_dispute d LEFT JOIN review_kept k ON k.finding_id = d.finding_id WHERE d.finding_id = ?1",
         [id],
         |row| {
             let kept: (Option<String>, Option<String>) = (row.get(2)?, row.get(3)?);
             Ok(Dispute {
                 why: row.get(0)?,
                 by: row.get(1)?,
-                at: row.get(4)?,
                 kept: kept.0.zip(kept.1),
             })
         },
@@ -521,6 +520,7 @@ pub fn dispute(db: &Connection, id: i64, why: &str, stamp: &Stamp) -> Result<Fin
         params![id, why, stamp.at, stamp.by],
     )
     .sql()?;
+    judge_told::begin(db, &[(id, Matter::Answer)])?;
     Ok(finding)
 }
 
@@ -580,11 +580,9 @@ pub(super) fn waiting_matters(db: &Connection, landing: i64) -> Result<Vec<Waiti
     let mut found = Vec::new();
     for finding in record::findings_of_landing(db, landing)? {
         if finding.is_unsettled() {
-            let since = record::run_started(db, finding.run_id)?;
             found.push(Waiting {
                 finding,
                 matter: Matter::Settle,
-                since,
             });
         } else if let Some(dispute) = dispute_of(db, finding.id)?
             && waits_for_answer(&finding, &dispute)
@@ -592,18 +590,16 @@ pub(super) fn waiting_matters(db: &Connection, landing: i64) -> Result<Vec<Waiti
             found.push(Waiting {
                 finding,
                 matter: Matter::Answer,
-                since: dispute.at,
             });
         }
     }
     Ok(found)
 }
 
-/// A finding that waits on the judge, why, and since when.
+/// A finding that waits on the judge, and why.
 pub(super) struct Waiting {
     pub finding: Finding,
     pub matter: Matter,
-    pub since: i64,
 }
 
 /// The findings of review landing <landing> that wait on the judge.
@@ -780,7 +776,7 @@ pub fn listen_command(
     let mut said = format!(
         "this session is project {project}'s judge while it runs: builds tells it of each review's findings to settle, and only it settles them\n"
     );
-    for line in judge_told::tell_waiting(&store, &stamp, &tool.places.claude_sessions(), 0)? {
+    for line in judge_told::tell_waiting(&store, &stamp, &tool.places.claude_sessions())? {
         said.push_str(&line);
         said.push('\n');
     }
