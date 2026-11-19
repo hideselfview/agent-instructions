@@ -10,15 +10,16 @@ use std::collections::BTreeMap;
 use rusqlite::{Connection, params};
 use serde::{Deserialize, Serialize};
 
+use crate::checkout::Checkout;
 use crate::db::Sql;
 use crate::fail;
 use crate::fail::Result;
 use crate::health::Advice;
-use crate::lists::derive::{item_state, unmet_waits, wait_on_person};
+use crate::lists::derive::unmet_waits;
 use crate::lists::item::{self, Item};
 use crate::lists::running::{PlaceTable, insert_places};
 use crate::lists::store::Loaded;
-use crate::lists::{Id, Kind, Lists, Located, Stamp, Standing, Wait};
+use crate::lists::{Closed, Id, Lists, Record, Stamp, Wait};
 
 /// A worktree an open item keeps, in one repo (an item that spans repos has
 /// one of these per repo): its work waits there on the branch.
@@ -118,87 +119,63 @@ pub fn kept_worktrees(
     Ok(kept)
 }
 
-/// What the waits of an item that keeps a worktree stand at, in words that
-/// name each record's kind, id and title.
+/// What the waits of an item that keeps a worktree stand at.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum KeptWaits {
     /// The item has no waits: it waits only for an agent.
     None,
-    /// Each wait that is not met, and what it stands at.
-    Open(Vec<String>),
+    /// A wait is not met (`daemon::lists::item_waits` says which).
+    Open,
     /// Every wait is met: each record that met one, and how it closed.
     Met(Vec<String>),
 }
 
-/// What the waits of <item>, which keeps a worktree, stand at.
-pub fn kept_waits(lists: &Lists, item: &Item) -> KeptWaits {
+/// What the waits of <item>, which keeps a worktree, stand at. Fails when a
+/// wait names a record that is missing or of another kind.
+pub fn kept_waits(lists: &Lists, item: &Item) -> Result<KeptWaits> {
     if item.waits.is_empty() {
-        return KeptWaits::None;
+        return Ok(KeptWaits::None);
     }
-    let open = unmet_waits(lists, item);
-    if open.is_empty() {
-        let met = item
-            .waits
-            .iter()
-            .map(|wait| match wait {
-                Wait::Item(id) | Wait::Question(id) | Wait::Design(id) => lists
-                    .closed_record(*id)
-                    .map(|closed| {
-                        format!(
-                            "{} {id} {}: {}",
-                            closed.record.kind().name(),
-                            closed.how.words(),
-                            closed.record.title()
-                        )
-                    })
-                    .unwrap_or_else(|| format!("{id} is met")),
-                Wait::Condition(text) => format!("condition removed: {text}"),
-            })
-            .collect();
-        return KeptWaits::Met(met);
+    if !unmet_waits(lists, item).is_empty() {
+        return Ok(KeptWaits::Open);
     }
-    KeptWaits::Open(
-        open.into_iter()
-            .map(|wait| open_wait(lists, item, wait))
-            .collect(),
-    )
+    let mut met = Vec::new();
+    for wait in &item.waits {
+        let closed = met_by(lists, wait)?;
+        met.push(format!(
+            "{} {} {}: {}",
+            closed.record.kind().name(),
+            closed.record.id(),
+            closed.how.words(),
+            closed.record.title()
+        ));
+    }
+    Ok(KeptWaits::Met(met))
 }
 
-/// One wait that is not met, as `kept_waits` words it.
-fn open_wait(lists: &Lists, item: &Item, wait: &Wait) -> String {
-    let (Wait::Item(id) | Wait::Question(id) | Wait::Design(id)) = wait else {
-        let Wait::Condition(text) = wait else {
-            unreachable!("a wait names a record or a condition")
-        };
-        return format!("condition: {text}");
+/// The record that met <wait>, which is met, so it names a closed record of
+/// the kind it waits on: a question, an item or a design change. A condition
+/// is never met, so it never reaches here.
+fn met_by<'a>(lists: &'a Lists, wait: &Wait) -> Result<&'a Closed> {
+    let (Wait::Question(id) | Wait::Item(id) | Wait::Design(id)) = wait else {
+        unreachable!("only a wait on a record is met, never a condition")
     };
-    let Some(Located {
-        kind,
-        standing,
-        title,
-    }) = lists.locate(*id)
-    else {
-        return format!("{id}, which the lists do not hold");
+    let Some(closed) = lists.closed_record(*id) else {
+        fail!("a met wait names {id}, which no closed record holds");
     };
-    match standing {
-        Standing::Closed(closed) => format!(
-            "{} {id}, {}, which does not free item {}: {title}",
-            kind.name(),
-            closed.how.words(),
-            item.id
+    match (wait, &closed.record) {
+        (Wait::Question(_), Record::Question(_))
+        | (Wait::Item(_), Record::Item(_))
+        | (Wait::Design(_), Record::Design(_)) => Ok(closed),
+        _ => fail!(
+            "a wait on a {} names {id}, which is a {}",
+            match wait {
+                Wait::Question(_) => "question",
+                Wait::Item(_) => "item",
+                _ => "design change",
+            },
+            closed.record.kind().name()
         ),
-        Standing::Open => {
-            let state = match kind {
-                Kind::Item => lists
-                    .item(*id)
-                    .map(|other| item_state(lists, other).label())
-                    .unwrap_or("open"),
-                _ if wait_on_person(lists, wait) => "waits on you",
-                Kind::Design => "approved, not landed",
-                _ => "open",
-            };
-            format!("{} {id} ({state}): {title}", kind.name())
-        }
     }
 }
 
@@ -224,13 +201,12 @@ pub fn findings(loaded: &std::result::Result<Vec<Loaded>, String>) -> Result<Vec
     for project in loaded {
         let Ok(lists) = &project.lists else { continue };
         for item in &lists.items {
-            if let KeptWaits::Met(met) = kept_waits(lists, item)
-                && let Some(advice) = met_advice(item, &met)?
-            {
-                findings.push(advice);
-            }
+            let mut lives = Vec::new();
             for kept in &item.kept {
-                if let Some(checkout) = crate::lists::running::live_worktree(&kept.worktree)? {
+                lives.push((kept, crate::lists::running::live_worktree(&kept.worktree)?));
+            }
+            for (kept, live) in &lives {
+                if let Some(checkout) = live {
                     if let Some(claim) = crate::claim::Claim::read(&checkout.claim_file())?
                         .filter(|claim| is_stale_claim(kept, claim))
                     {
@@ -255,6 +231,16 @@ pub fn findings(loaded: &std::result::Result<Vec<Loaded>, String>) -> Result<Vec
                     format!("builds item show {}", item.id.0),
                 ));
             }
+            let live: Option<Vec<(&KeptWork, &Checkout)>> = lives
+                .iter()
+                .map(|(kept, live)| live.as_ref().map(|checkout| (*kept, checkout)))
+                .collect();
+            if !item.kept.is_empty()
+                && let Some(live) = live
+                && let KeptWaits::Met(met) = kept_waits(lists, item)?
+            {
+                findings.push(met_advice(item, &met, &live));
+            }
         }
     }
     Ok(findings)
@@ -262,15 +248,12 @@ pub fn findings(loaded: &std::result::Result<Vec<Loaded>, String>) -> Result<Vec
 
 /// The line that says <item>, whose waits <met> says are all met, keeps
 /// commits that wait for the coordinator: the worktrees, the commits
-/// origin/main lacks in each, what met the waits and what to do. None when a
-/// kept worktree is not live, which its own line says.
-fn met_advice(item: &Item, met: &[String]) -> Result<Option<Advice>> {
+/// origin/main lacks in each, what met the waits and what to do. <live> is
+/// each worktree the item keeps with its checkout.
+fn met_advice(item: &Item, met: &[String], live: &[(&KeptWork, &Checkout)]) -> Advice {
     let mut places = Vec::new();
     let mut take = format!("builds item take {}", item.id.0);
-    for kept in &item.kept {
-        let Some(checkout) = crate::lists::running::live_worktree(&kept.worktree)? else {
-            return Ok(None);
-        };
+    for (kept, checkout) in live {
         let git = crate::side_git::read(&checkout.top);
         let commits = match &git.error {
             Some(error) => format!("commits git could not read ({error})"),
@@ -298,7 +281,7 @@ fn met_advice(item: &Item, met: &[String]) -> Result<Option<Advice>> {
         " --brief {}",
         item.brief.as_deref().unwrap_or("BRIEF")
     ));
-    Ok(Some(Advice::run(
+    Advice::run(
         format!(
             "lists: item {} \"{}\" keeps {}, and every wait is met ({}), so it waits for the coordinator; land its commits, or resume its agent with",
             item.id.0,
@@ -307,7 +290,7 @@ fn met_advice(item: &Item, met: &[String]) -> Result<Option<Advice>> {
             met.join("; ")
         ),
         take,
-    )))
+    )
 }
 
 /// An item and the worktree and branch of each place it keeps.

@@ -25,7 +25,12 @@ pub enum ItemWait {
         queued: Option<QueuedBuild>,
     },
     /// Another item.
-    Item { id: u32, title: String },
+    Item {
+        id: u32,
+        title: String,
+        /// The item's state, or how it closed without freeing this one.
+        state: &'static str,
+    },
     /// A design change the person approved, which has not landed.
     Landing { id: u32, title: String },
     /// Commits of a design branch that no recorded design change covers.
@@ -186,7 +191,7 @@ impl ItemWait {
             ItemWait::AppBuild { lane, how, .. } => {
                 format!("Waits on the {lane} app build: {how}")
             }
-            ItemWait::Item { id, title } => format!("Waits on #{id}: {title}"),
+            ItemWait::Item { id, title, .. } => format!("Waits on #{id}: {title}"),
             ItemWait::Landing { id, title } => {
                 format!("Waits on design change {id} to land: {title}")
             }
@@ -339,17 +344,43 @@ fn uncommitted(checkout: &CheckoutPage) -> Option<Uncommitted> {
 pub fn kept_state(waits: &KeptWaits) -> &'static str {
     match waits {
         KeptWaits::None => "kept",
-        KeptWaits::Open(_) => "kept-waiting",
+        KeptWaits::Open => "kept-waiting",
         KeptWaits::Met(_) => "kept-met",
     }
 }
 
+/// One open wait of a kept item: its kind, id, title and standing.
+fn kept_line(wait: &ItemWait) -> String {
+    match wait {
+        ItemWait::Answer { id, title } => format!("question #{id} (waits on you): {title}"),
+        ItemWait::Review { id, title } => format!("design change #{id} (waits on you): {title}"),
+        ItemWait::Landing { id, title } => {
+            format!("design change #{id} (approved, not landed): {title}")
+        }
+        ItemWait::Item { id, title, state } => format!("item #{id} ({state}): {title}"),
+        ItemWait::Condition(text) => format!("condition: {text}"),
+        other => other.sentence(),
+    }
+}
+
 /// The words of <checkout>, a worktree that <item> keeps with no agent in
-/// it, given what its waits <waits> stand at (`kept_state`).
-pub fn kept_words(checkout: &CheckoutPage, item: RunningItem, waits: &KeptWaits) -> Words {
+/// it, given what its waits <waits> stand at (`kept_state`); <open> is what
+/// it waits on when a wait is open.
+pub fn kept_words(
+    checkout: &CheckoutPage,
+    item: RunningItem,
+    waits: &KeptWaits,
+    open: &[ItemWait],
+) -> Words {
     let (chip, note) = match waits {
         KeptWaits::None => ("Ready", None),
-        KeptWaits::Open(open) => ("Waiting", Some(format!("Waits on {}.", open.join("; ")))),
+        KeptWaits::Open => (
+            "Waiting",
+            Some(format!(
+                "Waits on {}.",
+                open.iter().map(kept_line).collect::<Vec<_>>().join("; ")
+            )),
+        ),
         KeptWaits::Met(met) => (
             "Waits met",
             Some(format!(

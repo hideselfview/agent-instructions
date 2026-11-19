@@ -1322,22 +1322,34 @@ impl Model {
                     // item's work: its card says what the item waits on.
                     let kept = project
                         .and_then(|lists| {
-                            crate::lists::kept_work::kept_in(lists, &checkout.path).map(|item| {
-                                (item, crate::lists::kept_work::kept_waits(lists, item))
-                            })
+                            crate::lists::kept_work::kept_in(lists, &checkout.path)
+                                .map(|item| (lists, item))
                         })
                         .filter(|_| checkout.claim.is_none());
                     checkout.words = match kept {
-                        Some((item, kept_waits)) => {
-                            checkout.state = Some(super::cards::kept_state(&kept_waits));
-                            super::cards::kept_words(
-                                checkout,
-                                super::cards::RunningItem {
-                                    id: item.id.0,
-                                    title: item.title.clone(),
-                                },
-                                &kept_waits,
-                            )
+                        Some((lists, item)) => {
+                            let running = super::cards::RunningItem {
+                                id: item.id.0,
+                                title: item.title.clone(),
+                            };
+                            let read = crate::lists::kept_work::kept_waits(lists, item)
+                                .map_err(crate::fail::Fail::text)
+                                .and_then(|waits| {
+                                    super::lists::item_waits(lists, item).map(|open| (waits, open))
+                                });
+                            match read {
+                                Ok((waits, open)) => {
+                                    checkout.state = Some(super::cards::kept_state(&waits));
+                                    super::cards::kept_words(checkout, running, &waits, &open)
+                                }
+                                Err(error) => {
+                                    checkout.errors.push(format!(
+                                        "The daemon can't read what the item this worktree keeps waits on: {error}"
+                                    ));
+                                    checkout.state = Some("waits-unread");
+                                    super::cards::words(checkout, &[running], &[])
+                                }
+                            }
                         }
                         None => super::cards::words(checkout, &items, &waits),
                     };

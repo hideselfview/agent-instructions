@@ -106,15 +106,11 @@ fn the_waits_of_a_kept_item_say_each_open_record_or_each_that_met_them() {
     let none = item(&db, vec![]);
     let lists = read(&db);
     assert_eq!(
-        kept_waits(&lists, lists.item(none).unwrap()),
+        kept_waits(&lists, lists.item(none).unwrap()).unwrap(),
         KeptWaits::None
     );
     assert_eq!(
-        kept_waits(&lists, lists.item(kept_item).unwrap()),
-        KeptWaits::Open(vec![
-            "question #1 (waits on you): Which way for number 1".into(),
-            "item #2 (ready): Do the work numbered 2".into(),
-            "condition: the person is back".into(),
-        ])
+        kept_waits(&lists, lists.item(kept_item).unwrap()).unwrap(),
+        KeptWaits::Open
     );
 }

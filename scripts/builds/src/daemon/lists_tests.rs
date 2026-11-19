@@ -398,6 +398,7 @@ fn a_running_items_waits_come_in_the_order_it_lists_them_and_a_lost_record_fails
             crate::daemon::cards::ItemWait::Item {
                 id: other.0,
                 title: lists.item(other).unwrap().title.clone(),
+                state: "ready",
             },
         ]
     );

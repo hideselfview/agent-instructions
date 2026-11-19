@@ -225,6 +225,7 @@ fn an_item_that_waits_on_another_item_names_it_in_the_pill_and_stays_working() {
         ItemWait::Item {
             id: 1320,
             title: "Store the library id".into(),
+            state: "ready",
         },
     );
     assert_eq!(card.chip, Some("Working"));
@@ -347,6 +348,7 @@ fn a_held_worktree_says_paused_and_what_its_running_items_wait_on() {
         ItemWait::Item {
             id: 1320,
             title: "Store the library id".into(),
+            state: "ready",
         },
         ItemWait::Condition("builds #122, #121 and #125 land".into()),
     ];
@@ -379,6 +381,7 @@ fn a_condition_ranks_after_every_other_wait_and_has_no_pill() {
         ItemWait::Item {
             id: 1,
             title: "Other".into(),
+            state: "ready",
         },
         ItemWait::Unrecorded,
         ItemWait::RulesReview(ReviewWait::NotRun),
@@ -394,6 +397,7 @@ fn ranked_waits_come_once_each_in_rank_order() {
     let item = |id| ItemWait::Item {
         id,
         title: "Other".into(),
+        state: "ready",
     };
     let answer = ItemWait::Answer {
         id: 438,
@@ -463,6 +467,7 @@ fn ready_to_land_needs_no_active_shell_no_app_build_and_no_waiting_item() {
     let item = ItemWait::Item {
         id: 1,
         title: "Other".into(),
+        state: "ready",
     };
     assert!(!keeps_working(Some("ready-to-land"), false, None));
     assert!(keeps_working(Some("ready-to-land"), true, None));
@@ -506,6 +511,7 @@ fn a_worktree_whose_waits_the_daemon_read_takes_its_state_from_the_first() {
     let item = ItemWait::Item {
         id: 1,
         title: "Other".into(),
+        state: "ready",
     };
     let answer = ItemWait::Answer {
         id: 438,
@@ -634,17 +640,24 @@ fn a_worktree_an_item_keeps_says_what_its_item_waits_on() {
         title: "Do the kept thing now".into(),
     };
     let page = card(Some("kept"), None, Some(2));
-    let said = kept_words(&page, item.clone(), &KeptWaits::None);
+    let said = kept_words(&page, item.clone(), &KeptWaits::None, &[]);
     assert_eq!(
         (said.chip, said.items.clone(), said.note),
         (Some("Ready"), vec![item.clone()], None)
     );
-    let open = KeptWaits::Open(vec![
-        "item #793 (ready): Keep the tool running".into(),
-        "question #816 (waits on you): Which way".into(),
-    ]);
-    assert_eq!(kept_state(&open), "kept-waiting");
-    let said = kept_words(&page, item.clone(), &open);
+    let open = [
+        ItemWait::Item {
+            id: 793,
+            title: "Keep the tool running".into(),
+            state: "ready",
+        },
+        ItemWait::Answer {
+            id: 816,
+            title: "Which way".into(),
+        },
+    ];
+    assert_eq!(kept_state(&KeptWaits::Open), "kept-waiting");
+    let said = kept_words(&page, item.clone(), &KeptWaits::Open, &open);
     assert_eq!(said.chip, Some("Waiting"));
     assert_eq!(
         said.note.as_deref(),
@@ -656,7 +669,7 @@ fn a_worktree_an_item_keeps_says_what_its_item_waits_on() {
         "question #816 answered by decision #9: Which way".into(),
     ]);
     assert_eq!(kept_state(&met), "kept-met");
-    let said = kept_words(&page, item, &met);
+    let said = kept_words(&page, item, &met, &[]);
     assert_eq!(said.chip, Some("Waits met"));
     assert_eq!(
         said.note.as_deref(),
