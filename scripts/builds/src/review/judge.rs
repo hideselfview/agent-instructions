@@ -388,9 +388,6 @@ fn waits_for_answer(finding: &Finding, dispute: &Dispute) -> bool {
 /// returns the finding. A finding has one dispute: builds refuses a second,
 /// and a finding that is no open confirmed finding of a review.
 pub fn dispute(db: &Connection, id: i64, why: &str, stamp: &Stamp) -> Result<Finding> {
-    if why.trim().is_empty() {
-        fail!("--why says nothing");
-    }
     let finding = record::finding_of(db, id)?;
     if !finding.is_open() {
         fail!(
@@ -418,9 +415,6 @@ pub fn dispute(db: &Connection, id: i64, why: &str, stamp: &Stamp) -> Result<Fin
 /// Records the answer that keeps disputed finding <id> confirmed, with
 /// <why>. Refuses a finding with no dispute that waits for an answer.
 pub fn keep(db: &Connection, id: i64, why: &str, stamp: &Stamp) -> Result<()> {
-    if why.trim().is_empty() {
-        fail!("--why says nothing");
-    }
     let finding = record::finding_of(db, id)?;
     let Some(dispute) = dispute_of(db, id)? else {
         fail!("nobody disputed finding {id}, so there is no dispute to answer");
