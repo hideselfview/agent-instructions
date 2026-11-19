@@ -619,21 +619,6 @@ pub struct HostRead {
     pub zombie_parents: Vec<crate::proc_limit::ZombieParent>,
 }
 
-/// The rows of this Mac's processes.
-pub fn local_rows() -> Result<Vec<Row>, String> {
-    let listing = output_of(
-        command_at(
-            &Ssh::from_env(),
-            &Host::local(),
-            &ps_script(),
-            crate::host::Terminal::None,
-        ),
-        "ps",
-        Accept::Zero,
-    )?;
-    parse_ps(&listing)
-}
-
 /// The `ps` line of a host, as the script `ssh` runs.
 fn ps_script() -> String {
     format!("ps -axww -o {PS_FORMAT}")

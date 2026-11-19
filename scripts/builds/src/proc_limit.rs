@@ -13,14 +13,13 @@
 //! --stop-junk`.
 
 use std::collections::HashMap;
-use std::process::{Command, Stdio};
 
 use crate::fail;
-use crate::fail::{Context, Result};
+use crate::fail::{Context, Fail, Result};
 use crate::health::Advice;
-use crate::host::{Host, Probe, answer_value, place};
+use crate::host::{Accept, Host, Probe, Ssh, Terminal, answer_value, command_at, output_of, place};
 use crate::shells::{basename, shown};
-use crate::stuck::{HostBusy, Row, Sampling, is_test_binary};
+use crate::stuck::{HostBusy, PS_FORMAT, Row, Sampling, is_test_binary, parse_ps};
 use crate::text::duration;
 
 /// A host above this share of its process limit needs action.
@@ -69,20 +68,18 @@ pub fn parse(text: &str) -> Result<ProcessUse> {
 /// This Mac's process count and limit, read by the lines the probe script
 /// runs on other hosts.
 pub fn local() -> Result<ProcessUse> {
-    let output = Command::new("sh")
-        .arg("-c")
-        .arg(PROBE_LINES)
-        .stdin(Stdio::null())
-        .output()
-        .context(|| "counting this Mac's processes".to_string())?;
-    if !output.status.success() {
-        fail!(
-            "counting this Mac's processes failed ({}): {}",
-            output.status,
-            String::from_utf8_lossy(&output.stderr).trim()
-        );
-    }
-    parse(&String::from_utf8_lossy(&output.stdout))
+    let printed = output_of(
+        command_at(
+            &Ssh::from_env(),
+            &Host::local(),
+            PROBE_LINES,
+            Terminal::None,
+        ),
+        "counting this Mac's processes",
+        Accept::Zero,
+    )
+    .map_err(Fail::Message)?;
+    parse(&printed)
 }
 
 /// A process that has zombie children.
@@ -202,7 +199,18 @@ pub fn stop(uid: u32) -> Result<(Vec<String>, usize)> {
     if !used.near_limit() {
         return Ok((Vec::new(), 0));
     }
-    let rows = crate::stuck::local_rows().map_err(crate::fail::Fail::Message)?;
+    let listing = output_of(
+        command_at(
+            &Ssh::from_env(),
+            &Host::local(),
+            &format!("ps -axww -o {PS_FORMAT}"),
+            Terminal::None,
+        ),
+        "ps",
+        Accept::Zero,
+    )
+    .map_err(Fail::Message)?;
+    let rows = parse_ps(&listing).map_err(Fail::Message)?;
     let sampling = Sampling::new(&Host::local(), 0);
     let mut lines = Vec::new();
     let mut failed = 0;
