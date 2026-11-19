@@ -191,11 +191,13 @@ window.addEventListener("message", e => {
   settle(entry.pair);
 });
 function settle(pair) {
+  // Each side draws its circles when its own drawing has answered, without
+  // waiting for the other side.
   const sides = [pair.now, pair.proposed].filter(Boolean);
-  if (sides.some(entry => !entry.found)) return;
-  const marks = circleMarks(pair.circles, pair.now ? pair.now.found : null, pair.proposed ? pair.proposed.found : null);
+  const waiting = sides.some(entry => !entry.found);
+  const marks = circleMarks(pair.circles, pair.now ? pair.now.found : null, pair.proposed ? pair.proposed.found : null, waiting);
   for (const [entry, list] of [[pair.now, marks.now], [pair.proposed, marks.proposed]]) {
-    if (!entry) continue;
+    if (!entry || !entry.found) continue;
     for (const c of entry.circles) c.el.remove();
     entry.circles = list.map(m => {
       const el = h("div", {class: "circle", title: m.title});
@@ -203,7 +205,7 @@ function settle(pair) {
       return {el, box: m.box};
     });
   }
-  pair.problems.replaceChildren(...marks.problems.map(p => h("div", {class: "bad"}, p)));
+  if (!waiting) pair.problems.replaceChildren(...marks.problems.map(p => h("div", {class: "bad"}, p)));
   layout();
 }
 function board(b) {

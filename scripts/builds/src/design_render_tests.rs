@@ -581,6 +581,19 @@ fn a_box_circle_marks_its_box_on_each_side_the_page_draws_and_finds_no_selector(
 }
 
 #[test]
+fn a_side_that_has_answered_gets_its_marks_before_the_other_answers() {
+    let circles = json!([
+        { "selector": ".row", "name": ".row" },
+        { "box": { "x": 1, "y": 2, "width": 3, "height": 4 }, "name": "box 1,2 3x4" }
+    ]);
+    // Only the proposed side has answered: it has its marks and the other none.
+    let proposed = json!([found(&[(1, 2)]), found(&[])]);
+    let marks = circle_marks(&circles, &Value::Null, &proposed);
+    assert_eq!(marks["now"], json!([]));
+    assert_eq!(marks["proposed"].as_array().unwrap().len(), 2);
+}
+
+#[test]
 fn a_circle_that_finds_nothing_or_is_no_selector_is_a_problem_and_a_side_with_no_drawing_is_skipped()
  {
     let circles = json!([

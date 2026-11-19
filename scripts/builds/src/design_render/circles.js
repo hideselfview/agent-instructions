@@ -1,14 +1,16 @@
 // Where the review page circles what the designer says changed on a board.
 // Each circle is a CSS selector or a box (x, y, width, height in board
-// pixels), an optional label and the name the core gives it. A box is marked on each drawing the page
-// has. Each drawing of the
-// board (now and proposed) answers, for each selector in order, the boxes (x,
+// pixels), an optional label and the name the core gives it. A box is marked on
+// each drawing that has answered. Each drawing of the board (now and
+// proposed) answers, for each selector in order, the boxes (x,
 // y, w, h in board pixels) of the elements it finds, or the error that stops
 // the selector (board.html's `foundBy`). `circleMarks` takes the circles and
-// each side's answers, null for a side the page has no drawing of, and returns
-// the marks to draw on each side, each a box and the title the circle shows,
-// and the problems to show above the board: a selector that is no selector,
-// or one that finds nothing on any side.
+// each side's answers, null for a side with no drawing or no answer yet, and
+// returns the marks to draw on each side, each a box and the title the circle
+// shows, and the problems to show above the board: a selector that is no
+// selector, or one that finds nothing on any side. A side that has not
+// answered is null and gets no marks, so each side draws its marks when its
+// own drawing answers; the page shows the problems once every drawing has.
 function circleMarks(circles, now, proposed) {
   const out = {now: [], proposed: [], problems: []};
   circles.forEach((circle, i) => {
