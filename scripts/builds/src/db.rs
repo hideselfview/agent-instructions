@@ -122,6 +122,10 @@ pub const CARGO_RUN_CRATE_PART: &str = include_str!("cargo_run_crate.sql");
 /// it after the crates of the cargo runs.
 pub const JUDGE_PART: &str = include_str!("review/judge.sql");
 
+/// Each change of a worktree card's dashboard state (card_state.sql); the
+/// schema holds it after the judge's tables.
+pub const CARD_STATE_PART: &str = include_str!("card_state.sql");
+
 /// The whole schema: the lists' tables, then the hook stats', then the
 /// app-build timings', then the design changes' recording sessions', then the
 /// stored shot findings, then the review's, then the hook checks' starting
@@ -130,8 +134,13 @@ pub const JUDGE_PART: &str = include_str!("review/judge.sql");
 /// publish requests', then the Rust release items', then the Rust checks',
 /// then the items' events, then the landings', then the reviewer processes'
 /// times, then the hosts' samples, then the crates of the cargo runs, then
-/// the judge's.
+/// the judge's, then the cards' states.
 pub fn schema() -> String {
+    format!("{}\n{CARD_STATE_PART}", schema_before_card_state())
+}
+
+/// The schema as it was before the cards' states joined it.
+pub fn schema_before_card_state() -> String {
     format!("{}\n{JUDGE_PART}", schema_before_judge())
 }
 

@@ -1286,10 +1286,79 @@ impl Model {
 }
 
 impl Model {
+    /// The cards of the live side worktrees that are not app checkouts, as
+    /// the dashboard judges them now (`judge_card`): each with the project whose
+    /// lists it shows under; None before the daemon's first reading of the
+    /// processes, which says where agent shells are active and which app
+    /// builds run. The recorder of the cards' states (card_recorder.rs)
+    /// reads them.
+    pub fn cards(&self) -> crate::fail::Result<Option<Vec<CardNow>>> {
+        let (_, snapshot) = self.lists.current();
+        let state = self.state.lock().expect("no panic holding it");
+        let Some(machine) = state.sample.as_ref().map(|sample| &sample.machine) else {
+            return Ok(None);
+        };
+        let mut cards = Vec::new();
+        for root in &state.roots {
+            let Some(live) = &root.live else { continue };
+            if live.is_main() || root.is_app_checkout(&self.places)? {
+                continue;
+            }
+            let Some(facts) = state.facts.get(&root.path) else {
+                // The daemon has not read the worktree yet.
+                cards.push(CardNow {
+                    worktree: live.top.display().to_string(),
+                    lists: CardLists::Unread,
+                    state: CardState::WaitsUnread,
+                    items: Vec::new(),
+                });
+                continue;
+            };
+            let repo = root
+                .path
+                .parent()
+                .map(crate::checkout::file_name)
+                .unwrap_or_default();
+            let locks: Vec<crate::health::LockHealth> = machine
+                .locks
+                .iter()
+                .filter(|l| l.repo == repo)
+                .cloned()
+                .collect();
+            let queues: Vec<crate::health::LaneQueue> = machine
+                .queues
+                .iter()
+                .filter(|q| q.repo == repo)
+                .cloned()
+                .collect();
+            let name = root.name();
+            let seen = Seen {
+                live,
+                name: &name,
+                repo: &repo,
+                claim: facts.claim.as_ref(),
+                git: facts.git.as_ref(),
+                branch: facts.branch.as_deref(),
+            };
+            let judged = self.judge_card(&snapshot, &seen, &locks, &queues, state.health.as_ref());
+            cards.push(CardNow {
+                worktree: live.top.display().to_string(),
+                lists: judged.lists,
+                state: judged.state,
+                items: match &judged.kept {
+                    Some((item, _)) => vec![item.id],
+                    None => judged.items.iter().map(|item| item.id).collect(),
+                },
+            });
+        }
+        Ok(Some(cards))
+    }
+
     /// Judges the card of the live side worktree <seen>, whose repo's app
     /// build lanes have <locks> and <queues>, from the lists in <snapshot>
     /// and the last health reading <health>. The dashboard draws its card
-    /// from what this returns, and nothing else judges a card.
+    /// from what this returns, and the recorder of the cards' states records
+    /// its state, so the two never disagree.
     fn judge_card(
         &self,
         snapshot: &std::result::Result<Vec<crate::lists::store::Loaded>, String>,
@@ -1308,13 +1377,14 @@ impl Model {
         let project = claimed.and_then(|claimed| {
             crate::lists::store::lists_of(snapshot, top, seen.repo, claimed.as_deref())
         });
-        let project = match project {
-            Ok(project) => project,
+        let (project, lists) = match project {
+            Ok(Some(project)) => (Some(project), CardLists::Project(project.project.clone())),
+            Ok(None) => (None, CardLists::None),
             Err(error) => {
                 errors.push(format!(
                     "The daemon can't choose this worktree's lists: {error}"
                 ));
-                None
+                (None, CardLists::Unread)
             }
         };
         let mut worktree = worktree_state(seen.claim, seen.git);
@@ -1434,6 +1504,7 @@ impl Model {
             None => (items, None),
         };
         Judged {
+            lists,
             state,
             items,
             waits: waits.unwrap_or_default(),
@@ -1455,6 +1526,8 @@ struct Seen<'a> {
 
 /// A side worktree's card as `Model::judge_card` finds it.
 struct Judged {
+    /// The project whose lists the card shows under.
+    lists: CardLists,
     state: CardState,
     /// The items it lists: the running items, or the item that keeps it
     /// when the daemon could not read that item's waits.
@@ -1465,6 +1538,27 @@ struct Judged {
     kept: Option<(RunningItem, KeptCard)>,
     /// What the daemon could not read, which the card shows.
     errors: Vec<String>,
+}
+
+/// The lists a card shows under.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum CardLists {
+    /// Those of this project.
+    Project(String),
+    /// None: no project holds the worktree's repo.
+    None,
+    /// The daemon could not choose the project, and the card says why.
+    Unread,
+}
+
+/// A side worktree's card now, for the recorder of the cards' states.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CardNow {
+    pub worktree: String,
+    pub lists: CardLists,
+    pub state: CardState,
+    /// The ids of the items the card lists.
+    pub items: Vec<u32>,
 }
 
 fn folder_facts(

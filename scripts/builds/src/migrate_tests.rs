@@ -533,7 +533,7 @@ fn a_store_from_before_the_judge_gains_its_table_and_equals_a_fresh_schema() {
 #[test]
 fn the_landing_repo_stamp_is_the_schema_before_landings_were_found_by_repo() {
     assert_eq!(
-        db::stamp_of_text(&before_landing_repo(db::schema())),
+        db::stamp_of_text(&before_landing_repo(db::schema_before_card_state())),
         BEFORE_LANDING_REPO_STAMP
     );
 }
@@ -545,7 +545,7 @@ fn store_before_landing_repo(places: &Places, rows: &str) -> std::path::PathBuf 
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join(DATABASE);
     let conn = Connection::open(&path).unwrap();
-    conn.execute_batch(&before_landing_repo(db::schema()))
+    conn.execute_batch(&before_landing_repo(db::schema_before_card_state()))
         .unwrap();
     conn.execute_batch(rows).unwrap();
     conn.pragma_update(None, "user_version", BEFORE_LANDING_REPO_STAMP)
@@ -602,5 +602,36 @@ INSERT INTO review_landing (key, repo, opened_at) VALUES ('branch:work', 'bae', 
     assert_eq!(
         db::stamp_of(&conn, &path).unwrap(),
         BEFORE_LANDING_REPO_STAMP
+    );
+}
+
+#[test]
+fn the_card_states_stamp_is_the_schema_before_them() {
+    assert_eq!(
+        db::stamp_of_text(&db::schema_before_card_state()),
+        BEFORE_CARD_STATE_STAMP
+    );
+}
+
+/// A store from before the cards' states gains their empty tables and equals
+/// a fresh schema.
+#[test]
+fn a_store_from_before_the_card_states_gains_their_tables_and_equals_a_fresh_schema() {
+    let scratch = Scratch::new("move-card-states");
+    let places = scratch.places();
+    let dir = places.lists.join("bae");
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join(DATABASE);
+    {
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(&db::schema_before_card_state()).unwrap();
+        conn.pragma_update(None, "user_version", BEFORE_CARD_STATE_STAMP)
+            .unwrap();
+    }
+    migrate_stores(&places, 0).unwrap();
+    let conn = db::open(&path, db::Make::Never).unwrap();
+    assert_eq!(
+        db::schema_rows(&conn).unwrap(),
+        db::schema_rows(&db::memory()).unwrap()
     );
 }

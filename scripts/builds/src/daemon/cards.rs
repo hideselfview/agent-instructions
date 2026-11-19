@@ -236,7 +236,8 @@ pub fn ranked(waits: impl IntoIterator<Item = ItemWait>) -> Vec<ItemWait> {
 }
 
 /// The state a side worktree's card shows, first match wins in `card_state`.
-/// Its chip names it, and the page groups and orders cards by its `word`.
+/// Its chip names it, the page groups and orders cards by its `word`, and
+/// builds records each change of its `name` (card_state.rs).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CardState {
     /// Unclaimed, nothing waiting to land.
@@ -287,6 +288,22 @@ impl CardState {
         }
     }
 
+    /// The state's name, as builds records it: one per chip, and the review's
+    /// counts left out.
+    pub fn name(self) -> &'static str {
+        match self {
+            CardState::Queued(Lane::Mac) => "waiting-on-mac",
+            CardState::Queued(Lane::Android) => "waiting-on-android",
+            CardState::Paused => "paused",
+            CardState::InReview(ReviewWait::NotRun) => "needs-review",
+            CardState::InReview(ReviewWait::Running) => "reviewing",
+            CardState::InReview(ReviewWait::ToSettle(..)) => "findings-to-settle",
+            CardState::InReview(ReviewWait::Open(_)) => "open-findings",
+            CardState::InReview(ReviewWait::Unreviewed(_)) => "unreviewed-changes",
+            other => other.word(),
+        }
+    }
+
     /// The chip at the left of the card's top bar; None for a free worktree.
     pub fn chip(self) -> Option<&'static str> {
         Some(match self {
@@ -313,7 +330,9 @@ impl CardState {
 /// `ranked` orders it, or None when the daemon could not read what its
 /// running items wait on, and <kept> is what the waits of the item that keeps
 /// the worktree with no agent stand at, or None when no item keeps it that
-/// way (Err when the daemon could not read them).
+/// way (Err when the daemon could not read them). The dashboard and the
+/// recorder of the states (card_recorder.rs) both reach this through
+/// `Model::judge_card`.
 pub fn card_state(
     worktree: CardState,
     shell: bool,

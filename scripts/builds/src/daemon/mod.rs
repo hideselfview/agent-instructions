@@ -9,6 +9,7 @@
 pub mod app_builds;
 pub mod approve;
 pub mod board;
+pub mod card_recorder;
 pub mod cards;
 pub mod client;
 pub mod design_cards;
@@ -214,6 +215,7 @@ pub fn cmd_dashboard(tool: &Tool, args: &[String]) -> Result<()> {
     crate::rust_stable::start(tool.places.clone())?;
     crate::host_sample::start(tool.places.clone())?;
     let model = Model::start(tool.places.clone(), tool.rules.clone(), tracker, runs);
+    card_recorder::start(model.clone())?;
     let questions = model.clone();
     let given = tool.places.root.clone();
     std::thread::Builder::new()

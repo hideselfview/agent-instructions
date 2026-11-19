@@ -167,9 +167,13 @@ const BEFORE_JUDGE_STAMP: i64 = 836_393_942;
 /// and key.
 const BEFORE_LANDING_REPO_STAMP: i64 = 34_147_721;
 
+/// The stamp of the schema before builds recorded each change of a worktree
+/// card's dashboard state.
+const BEFORE_CARD_STATE_STAMP: i64 = 21_217_016;
+
 /// Every stamp a store can carry that `move_store` moves, oldest schema first.
 /// A new move adds the stamp of the schema before it at the end.
-const STAMPS: [i64; 8] = [
+const STAMPS: [i64; 9] = [
     BEFORE_CONDITION_ENDERS_STAMP,
     BEFORE_ITEM_EVENT_STAMP,
     BEFORE_LAND_RUN_STAMP,
@@ -178,6 +182,7 @@ const STAMPS: [i64; 8] = [
     BEFORE_CARGO_RUN_CRATE_STAMP,
     BEFORE_JUDGE_STAMP,
     BEFORE_LANDING_REPO_STAMP,
+    BEFORE_CARD_STATE_STAMP,
 ];
 
 /// Whether a store stamped <found> comes before the move that follows the
@@ -328,6 +333,10 @@ fn move_store(path: &Path, now: i64) -> Result<()> {
             )
         ))
         .sql()?;
+    }
+    // Every store from before the cards' states gets their empty tables.
+    if before(found, BEFORE_CARD_STATE_STAMP) {
+        tx.execute_batch(db::CARD_STATE_PART).sql()?;
     }
     tx.pragma_update(None, "user_version", db::stamp()).sql()?;
     let broken: Option<String> = tx

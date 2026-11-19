@@ -11,6 +11,7 @@ mod app_timing;
 mod build_app;
 mod built_tools;
 mod card_profile;
+mod card_state;
 mod cargo_needs;
 mod cargo_place;
 mod cargo_read;

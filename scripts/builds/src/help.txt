@@ -457,6 +457,11 @@ review, which `builds review` reads as a new run of the review). A commit
 waits to land while origin/main has no commit with the same change (`git log
 --cherry-pick --right-only origin/main...HEAD`), because landing rebases or
 cherry-picks it.
+The dashboard daemon records each change of a card's state, at most every 5
+seconds, in the store of the card's project: the time, the state and the items
+the card lists. The daemon judges the state with the same code that draws the
+card, and records nothing until it has read the processes once. `builds item
+times` reads these records.
 
   builds new [<repo>] [-b <branch> | --resume <branch>] [--for <who>]
              [--project P]
