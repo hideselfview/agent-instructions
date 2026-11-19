@@ -414,11 +414,14 @@ fn units_by_name(
 /// dependencies, and cargo writes a unit's fingerprint after it reports the
 /// unit (a pipelined library is reported when its metadata is ready), so
 /// the fingerprints read so far can lack a dependency's. Those paths go to
-/// <late>, to resolve once cargo has finished.
+/// <late>, to resolve once cargo has finished. A compiler-artifact message
+/// without a package id names no package to look for those outputs in, so
+/// its unresolved paths go to <failures>.
 fn units_of(
     message: &Value,
     fingerprints: &mut Fingerprints,
     late: &mut Vec<(Value, String)>,
+    failures: &mut Vec<String>,
 ) -> Result<(Vec<PathBuf>, Vec<String>)> {
     let reason = message["reason"].as_str().unwrap_or("");
     let paths: Vec<String> = match reason {
@@ -458,7 +461,16 @@ fn units_of(
         }
     }
     if found.is_empty() && reason == "compiler-artifact" {
-        let package = package_name(message["package_id"].as_str().unwrap_or(""));
+        let Some(package_id) = message["package_id"].as_str() else {
+            failures.extend(unnamed.iter().map(|path| {
+                format!(
+                    "cargo reported {path} in a compiler-artifact message without a package_id, so builds cannot tell which package's build copy it is"
+                )
+            }));
+            found.sort();
+            return Ok((found, missing));
+        };
+        let package = package_name(package_id);
         for path in &unnamed {
             for named in copied_from(Path::new(path), &package)? {
                 if let Some(dir) = fingerprints.of(&named)?
@@ -568,7 +580,7 @@ pub fn record(mut input: impl BufRead, output: &mut impl Write) -> Result<i32> {
             continue;
         };
         let when = *began.get_or_insert_with(now);
-        let (found, missing) = units_of(&message, &mut fingerprints, &mut late)?;
+        let (found, missing) = units_of(&message, &mut fingerprints, &mut late, &mut failures)?;
         mark(&message, found, missing, &when, &mut touched, &mut failures)?;
     }
     // Cargo has finished: every unit's fingerprint is written, so the units
@@ -723,6 +735,37 @@ mod tests {
             vec![Named::Own(unit.join("fingerprint"))]
         );
         assert_eq!(copied_from(&copy, "other").unwrap(), Vec::new());
+    }
+
+    /// A compiler-artifact message without a package id is reported as a
+    /// failure, never looked up under an empty package name, which would
+    /// search build/ itself.
+    #[test]
+    fn an_artifact_without_a_package_id_is_a_failure() {
+        let scratch = crate::testing::Scratch::new("record-no-package-id");
+        let profile = scratch.dir.join("debug");
+        let original = profile.join("build/0123456789abcdef/out/libx.a");
+        crate::testing::fill(&profile.join("build/0123456789abcdef/fingerprint/lib-x"), 1);
+        crate::testing::fill(&original, 1);
+        // A unit folder that makes debug a profile folder.
+        crate::testing::fill(
+            &profile.join("build/y/fedcba9876543210/fingerprint/lib-y"),
+            1,
+        );
+        let copy = profile.join("libx.a");
+        std::fs::copy(&original, &copy).unwrap();
+        let when = libc::timeval {
+            tv_sec: 1_000_000,
+            tv_usec: 0,
+        };
+        touch(&original, &when).unwrap();
+        touch(&copy, &when).unwrap();
+        let message = format!(
+            "{{\"reason\":\"compiler-artifact\",\"target\":{{\"kind\":[\"staticlib\"],\"name\":\"x\"}},\"profile\":{{}},\"filenames\":[\"{}\"]}}\n",
+            copy.display()
+        );
+        let code = record(std::io::Cursor::new(message), &mut Vec::new()).unwrap();
+        assert_eq!(code, 1);
     }
 
     #[test]
