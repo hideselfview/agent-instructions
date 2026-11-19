@@ -302,6 +302,17 @@ pub fn host_command(
     env: &dyn Fn(&str) -> Option<OsString>,
 ) -> Vec<String> {
     let mut script = String::new();
+    // The host's before program and cargo know a hook check started the run,
+    // so they install, fetch and build nothing (cargo_run::in_hook).
+    if let Some(check) =
+        env(crate::cargo_run::HOOK_CHECK_VARIABLE).filter(|value| !value.is_empty())
+    {
+        script.push_str(&format!(
+            "{name}={}; export {name}\n",
+            host::sh_quote(&check.to_string_lossy()),
+            name = crate::cargo_run::HOOK_CHECK_VARIABLE
+        ));
+    }
     if let Some(relative) = Before::from_env(env).and_then(|before| {
         before.in_checkout(checkout).map(|relative| {
             let args: Vec<String> = before.args.iter().map(|arg| host::sh_quote(arg)).collect();
@@ -485,9 +496,15 @@ pub fn start<'a>(
     // A stop signal during the send or the claim stops the job once its
     // command starts, and the job removes what it left on the host.
     remote::stop_on_signals();
-    crate::built_tools::send_to(places, ssh, &host, &checkout.top);
+    // A hook check copies no tool: `builds setup` copies this Mac's builds to
+    // every host, and the host's setup for a hook's job prepares nothing.
+    let hook = crate::cargo_run::in_hook(env);
+    if !hook {
+        crate::built_tools::send_to(places, ssh, &host, &checkout.top);
+    }
     let request = Request {
         repo: checkout.repo(),
+        prepare: !hook,
         what: What::Working,
         host: None,
         command: host_command(args, checkout, env),

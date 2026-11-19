@@ -151,6 +151,26 @@ fn a_host_gets_the_forwarded_environment_and_runs_builds_as_local() {
     );
 }
 
+#[test]
+fn a_hook_checks_run_tells_the_host_it_runs_for_a_hook() {
+    let env = |name: &str| match name {
+        "BUILDS_HOOK_CHECK" => Some(OsString::from("1700000000:2")),
+        "BUILDS_CARGO_BEFORE" => Some(OsString::from("tools/before.sh")),
+        _ => None,
+    };
+    let scratch = Scratch::new("place-hook");
+    let (_main, side) = checkouts(&scratch);
+    let words = host_command(&args(&["check"]), &side, &env);
+    assert_eq!(&words[..2], &args(&["sh", "-c"]));
+    assert!(
+        words[2].starts_with(
+            "BUILDS_HOOK_CHECK='1700000000:2'; export BUILDS_HOOK_CHECK\n\"$PWD\"/'tools/before.sh'"
+        ),
+        "{}",
+        words[2]
+    );
+}
+
 fn host(name: &str, target: Option<&str>) -> Host {
     Host {
         band: None,

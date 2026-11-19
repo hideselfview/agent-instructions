@@ -417,3 +417,58 @@ fn a_failed_build_builds_cannot_delete_says_both_failures() {
         }
     }
 }
+
+#[test]
+fn a_hook_check_only_links_a_build_this_mac_has() {
+    let scratch = Scratch::new("tools-hook");
+    let places = scratch.places();
+    let top = scratch.dir.join("demo");
+    let line = tool_repo(&top, "tc1 src1", PASSING);
+    let Err(Fail::Message(message)) = linked(&places, &top, &line) else {
+        panic!("a missing build passed");
+    };
+    assert!(message.contains("builds setup"), "{message}");
+    assert_eq!(
+        builds_count(&places, "tc1"),
+        0,
+        "a hook check built the tool"
+    );
+    assert!(!top.join("built").exists());
+
+    let dest = ensure(&places, &no_ssh(), &top, &line).unwrap();
+    std::fs::remove_file(top.join("built")).unwrap();
+    assert_eq!(linked(&places, &top, &line).unwrap(), dest);
+    assert_eq!(std::fs::read_link(top.join("built")).unwrap(), dest);
+}
+
+#[test]
+fn setup_copies_this_macs_builds_to_each_host_and_without_prepare_does_nothing_of_it() {
+    let scratch = Scratch::new("tools-setup-hosts");
+    let tool = scratch.tool(0);
+    let top = scratch.dir.join("demo");
+    tool_repo(&top, "tc1 src1", PASSING);
+    executable(
+        &top.join("prepare.sh"),
+        "#!/bin/sh\necho ran >> prepared.txt\n",
+    );
+    std::fs::write(
+        top.join(".build-dirs"),
+        format!("{MANIFEST}prepare prepare.sh\n"),
+    )
+    .unwrap();
+    let (ssh, _, there) = host_m1(&scratch, &tool.places);
+    let checkout = Checkout::find(&top.display().to_string()).unwrap();
+
+    crate::setup::setup_with(&tool, &ssh, &checkout, crate::setup::Prepare::No).unwrap();
+    assert!(!top.join("prepared.txt").exists());
+    assert!(!top.join("built").exists());
+    assert!(!there.join("tc1/src1").exists());
+
+    crate::setup::setup(&tool, &ssh, &checkout).unwrap();
+    assert!(top.join("prepared.txt").is_file());
+    assert!(top.join("built").is_symlink());
+    assert!(
+        there.join("tc1/src1/tool").is_file(),
+        "setup copied nothing to the host"
+    );
+}

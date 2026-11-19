@@ -133,17 +133,36 @@ pub fn replace_link(dest: &Path, link: &Path) -> Result<()> {
     std::fs::rename(&staged, link).context(|| format!("linking {}", link.display()))
 }
 
-/// `builds setup [<checkout>]`.
-pub fn cmd_setup(tool: &Tool, ssh: &Ssh, args: &[String]) -> Result<()> {
-    let arg = match args {
-        [] => ".",
-        [arg] => arg.as_str(),
-        _ => fail!("usage: builds setup [<checkout>]"),
-    };
-    setup(tool, ssh, &Checkout::find(arg)?)
+/// Whether setup prepares the checkout for its builds: runs its `prepare`
+/// programs, puts its tools' builds in place and copies them to the hosts.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Prepare {
+    Yes,
+    /// For a host's job that a pre-commit hook check started: a hook
+    /// installs, fetches and builds nothing.
+    No,
 }
 
+/// `builds setup [--no-prepare] [<checkout>]`.
+pub fn cmd_setup(tool: &Tool, ssh: &Ssh, args: &[String]) -> Result<()> {
+    let (prepare, rest) = match args {
+        [flag, rest @ ..] if flag == "--no-prepare" => (Prepare::No, rest),
+        rest => (Prepare::Yes, rest),
+    };
+    let arg = match rest {
+        [] => ".",
+        [arg] => arg.as_str(),
+        _ => fail!("usage: builds setup [--no-prepare] [<checkout>]"),
+    };
+    setup_with(tool, ssh, &Checkout::find(arg)?, prepare)
+}
+
+/// Sets <checkout> up and prepares it (`Prepare::Yes`).
 pub fn setup(tool: &Tool, ssh: &Ssh, checkout: &Checkout) -> Result<()> {
+    setup_with(tool, ssh, checkout, Prepare::Yes)
+}
+
+pub fn setup_with(tool: &Tool, ssh: &Ssh, checkout: &Checkout, prepare: Prepare) -> Result<()> {
     if !has_manifest(&checkout.top) {
         note(format!(
             "{} has no {MANIFEST}; nothing to link",
@@ -186,16 +205,22 @@ pub fn setup(tool: &Tool, ssh: &Ssh, checkout: &Checkout) -> Result<()> {
     prune_installed(tool, &roots, Run::Real)?;
     crate::built_tools::prune_tools(&tool.places, &roots, Run::Real)?;
     keep_floor(tool, &roots, Keeper::Setup, Run::Real)?;
+    if prepare == Prepare::No {
+        return Ok(());
+    }
     // Last, so what they install or build lands after the floor is kept.
-    prepare(&checkout.top)?;
-    crate::built_tools::ensure_all(&tool.places, ssh, &checkout.top)
+    self::prepare(&checkout.top)?;
+    crate::built_tools::ensure_all(&tool.places, ssh, &checkout.top)?;
+    crate::built_tools::send_to_hosts(&tool.places, ssh, &checkout.top);
+    Ok(())
 }
 
 /// Runs each program the `prepare` lines of <top>'s manifest name, in its
 /// top folder, its output on stderr: each puts in place what the checkout's
 /// builds need beyond their folders and finishes at once when that is in
 /// place. Setup runs them, and so does `builds cargo` on the Mac that runs
-/// cargo; the pre-commit hook's checks only check that the pieces are there.
+/// cargo, unless a pre-commit hook check started it: the hook's checks only
+/// check that the pieces are there.
 /// A program never runs `builds cargo`, which would run it again. The first
 /// that fails stops the rest and fails, naming it.
 pub fn prepare(top: &Path) -> Result<()> {

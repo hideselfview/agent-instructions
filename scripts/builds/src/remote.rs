@@ -82,6 +82,10 @@ pub struct Request {
     pub what: What,
     pub host: Option<String>,
     pub command: Vec<String>,
+    /// Does the host's setup of the worktree prepare it (the repo's
+    /// `prepare` programs and tools, setup.rs)? Not for a job a pre-commit
+    /// hook check started.
+    pub prepare: bool,
 }
 
 pub fn parse(args: &[String]) -> Result<Request> {
@@ -134,6 +138,7 @@ pub fn parse(args: &[String]) -> Result<Request> {
         what,
         host,
         command: command.to_vec(),
+        prepare: true,
     })
 }
 
@@ -446,6 +451,7 @@ fn claim_script(
     sha: &str,
     id: &str,
     holders: &Holders,
+    prepare: bool,
 ) -> String {
     format!(
         r#"{root}{claims}set -e
@@ -467,7 +473,7 @@ if [ -e "$wt/.git" ]; then
 else
   git -C "$clone" worktree add -q --detach "$wt" {sha}
 fi || {{ rm -rf "$wt.job"; exit 91; }}
-if ! said=$("$HOME/.local/bin/builds" setup "$wt" 2>&1); then
+if ! said=$("$HOME/.local/bin/builds" setup {setup_flags}"$wt" 2>&1); then
   echo "builds setup failed in $wt: $said" >&2
   rm -rf "$wt.job"
   exit 94
@@ -487,6 +493,7 @@ echo "worktree=$wt""#,
         pinned = sh_quote(pinned),
         sha = sh_quote(sha),
         id = sh_quote(id),
+        setup_flags = if prepare { "" } else { "--no-prepare " },
     )
 }
 
@@ -704,7 +711,15 @@ pub fn start_job<'a>(
             return Ok(Err(said));
         }
         let claimed = match transport.ask(
-            &claim_script(host, &request.repo, &pinned, &sha, &id, &Holders::read()?),
+            &claim_script(
+                host,
+                &request.repo,
+                &pinned,
+                &sha,
+                &id,
+                &Holders::read()?,
+                request.prepare,
+            ),
             "claiming a worktree",
         )? {
             Ok(claimed) => claimed,

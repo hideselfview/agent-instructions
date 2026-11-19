@@ -369,7 +369,7 @@ pub fn cmd_cargo(args: &[String]) -> Result<()> {
         _ => (LOCAL.to_string(), Load::here()),
     };
     let exited = match job {
-        None => prepare_here(checkout.as_ref())
+        None => prepare_here(checkout.as_ref(), &env)
             .and_then(|()| run_before_here(checkout.as_ref(), &env))
             .and_then(|()| run_here(&places, checkout.as_ref(), subcommand, format, args))?,
         Some(job) => cargo_place::finish(job)?,
@@ -432,13 +432,24 @@ pub struct Exited {
     pub lock_wait: Option<Duration>,
 }
 
+/// Does <env> belong to a run that a pre-commit hook check started
+/// (`HOOK_CHECK_VARIABLE`)?
+pub fn in_hook(env: &dyn Fn(&str) -> Option<std::ffi::OsString>) -> bool {
+    env(HOOK_CHECK_VARIABLE).is_some_and(|value| !value.is_empty())
+}
+
 /// Runs the checkout's `prepare` programs (setup.rs) on the Mac that runs
 /// cargo, before cargo: a host that runs cargo for a job runs `builds cargo`
-/// itself, so its own run prepares its worktree.
-fn prepare_here(checkout: Option<&Checkout>) -> Result<()> {
+/// itself, so its own run prepares its worktree. A run a hook check started
+/// runs none: a hook installs and fetches nothing, and its checks fail when
+/// what they need is missing.
+fn prepare_here(
+    checkout: Option<&Checkout>,
+    env: &dyn Fn(&str) -> Option<std::ffi::OsString>,
+) -> Result<()> {
     match checkout {
-        Some(checkout) => crate::setup::prepare(&checkout.top),
-        None => Ok(()),
+        Some(checkout) if !in_hook(env) => crate::setup::prepare(&checkout.top),
+        _ => Ok(()),
     }
 }
 
@@ -623,12 +634,21 @@ mod tests {
         let program = top.join("prepare.sh");
         std::fs::write(&program, "#!/bin/sh\necho ran >> prepared.txt\n").unwrap();
         std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
-        prepare_here(Checkout::at(&top).unwrap().as_ref()).unwrap();
+        let checkout = Checkout::at(&top).unwrap();
+        prepare_here(checkout.as_ref(), &|_| None).unwrap();
         assert_eq!(
             std::fs::read_to_string(top.join("prepared.txt")).unwrap(),
             "ran\n"
         );
-        prepare_here(None).unwrap();
+        prepare_here(None, &|_| None).unwrap();
+
+        // A run a hook check started runs none.
+        let hook = |name: &str| (name == HOOK_CHECK_VARIABLE).then(|| "1700000000:2".into());
+        prepare_here(checkout.as_ref(), &hook).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(top.join("prepared.txt")).unwrap(),
+            "ran\n"
+        );
     }
 
     #[test]

@@ -144,8 +144,34 @@ pub fn cmd_tool(places: &Places, ssh: &Ssh, args: &[String]) -> Result<()> {
             crate::manifest::MANIFEST
         );
     };
-    println!("{}", ensure(places, ssh, &checkout.top, line)?.display());
+    let env = |name: &str| std::env::var_os(name);
+    let dest = if crate::cargo_run::in_hook(&env) {
+        linked(places, &checkout.top, line)?
+    } else {
+        ensure(places, ssh, &checkout.top, line)?
+    };
+    println!("{}", dest.display());
     Ok(())
+}
+
+/// Points the checkout's link at the build of tool <line> for <top>'s key
+/// that this Mac already has, for a run a pre-commit hook check started,
+/// which installs, fetches and builds nothing; fails at once, naming
+/// `builds setup`, when this Mac has none.
+pub fn linked(places: &Places, top: &Path, line: &BuiltTool) -> Result<PathBuf> {
+    let key = key(top, line)?;
+    let dest = key_dir(places, &line.name, &key);
+    if !dest.is_dir() {
+        fail!(
+            "this Mac has no build of tool {} for the checkout's key ({} {}), and a hook check builds and copies none. Run `builds setup {}` on the Mac you work on: it builds the key, or copies it from a host, and copies it to every host",
+            line.name,
+            key.toolchain,
+            key.sources,
+            top.display()
+        );
+    }
+    point(&top.join(&line.link), &dest)?;
+    Ok(dest)
 }
 
 /// Puts each tool <top>'s manifest declares in place and links it (setup).
@@ -409,6 +435,25 @@ fn fetch(places: &Places, ssh: &Ssh, name: &str, key: &Key, toolchain: &Path) ->
         }
     }
     Ok(Fetched { copy: None, misses })
+}
+
+/// Copies each key of <top>'s tools that this Mac has to every host that
+/// lacks it (setup), each failure said on stderr.
+pub fn send_to_hosts(places: &Places, ssh: &Ssh, top: &Path) {
+    if !built_tools(top).is_ok_and(|tools| !tools.is_empty()) {
+        return;
+    }
+    match other_hosts(places) {
+        Ok(hosts) => {
+            for host in hosts {
+                send_to(places, ssh, &host, top);
+            }
+        }
+        Err(error) => note(format!(
+            "builds could not read the hosts, so it copied no tool to them: {}",
+            error.text()
+        )),
+    }
 }
 
 /// Before a job from <top> runs on <host>: copies there each key of the

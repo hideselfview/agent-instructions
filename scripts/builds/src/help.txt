@@ -194,8 +194,12 @@ for each program that puts in place what the checkout's builds need, and a
                             pin, never runs `builds cargo`, which would run it
                             again, and never asks for a password, since nobody
                             is at a host's screen. When it fails, setup and
-                            `builds cargo` fail, naming it. A pre-commit check
-                            only checks that its pieces are in place (coven:
+                            `builds cargo` fail, naming it. A `builds cargo`
+                            that a pre-commit hook check runs (COMMIT CHECKS)
+                            runs no prepare program, since a hook installs and
+                            fetches nothing: the check only checks that the
+                            pieces are in place and fails, naming `builds
+                            setup`, when they are not (coven:
                             tools/typed-lints/check-prepared.sh)
   tool <name> <program> <link>
                             a tool the repo builds from its own sources for
@@ -242,17 +246,22 @@ in its checkout. The plugin passes these options at initialization, because
 rust-analyzer reads a repo's rust-analyzer.toml only after its first build has
 started into target.
 
-  builds setup [<checkout>]   link the checkout's build folders, recreate any
+  builds setup [--no-prepare] [<checkout>]
+                              link the checkout's build folders, recreate any
                               that is missing, delete folders an older layout
                               left behind, apply the disk rules (DISK, below)
                               to the checkout, DerivedData and the shared
                               caches, delete idle build output in the
                               temporary folders, keep the free-space floor,
-                              and then run the checkout's `prepare` programs
-                              and put the build of each of its tools in place
+                              and then run the checkout's `prepare` programs,
+                              put the build of each of its tools in place and
+                              copy those builds to each host that lacks them
                               (BUILT TOOLS). builds runs it when `builds new`
                               hands out a worktree, on a host before each
-                              job, and from each repo script that calls it
+                              job, and from each repo script that calls it.
+                              --no-prepare leaves out the prepare programs and
+                              the tools: a host's setup for a job that a
+                              pre-commit hook check started takes it
 
 
 BUILT TOOLS
@@ -288,10 +297,13 @@ Each copy and each build goes into a staging folder of its own, and takes its
 place only once its check passes on the Mac it lands on. builds deletes a
 rejected staging folder before it tries the next way, and when it cannot, it
 stops with an error that says both why it rejected the folder and why the
-deletion failed. Before a `builds cargo` job runs on a host, builds copies
-there each key of the checkout that this Mac has and the host lacks, and runs
-its check there; when that fails, it says so and the host builds the key in
-the job's setup. `builds setup` and `builds prune` delete each key's folder,
+deletion failed. `builds setup` copies each key of the checkout that this Mac
+has to each host that lacks it, and so does a `builds cargo` job before it runs
+on a host, and each copy runs its check on the host; when that fails, builds
+says so and the host builds the key in the job's setup. A pre-commit hook
+check installs, fetches, copies and builds nothing: a `builds cargo` it runs
+sends no key to the host, the host's setup for its job prepares nothing, and
+`builds tool` only points the link at a build the Mac already has. `builds setup` and `builds prune` delete each key's folder,
 and each toolchain's folder with its work folder, that no live checkout's key
 names. They delete nothing of a tool whose key a checkout fails to print, and
 nothing of any tool while a checkout's `.build-dirs` cannot be read.
@@ -302,7 +314,11 @@ nothing of any tool while a checkout's `.build-dirs` cannot be read.
                               print its folder. A repo's script runs it before
                               it runs the tool, wherever cargo runs: coven's
                               clippy names a script that runs it in
-                              BUILDS_CARGO_BEFORE
+                              BUILDS_CARGO_BEFORE. Run by a pre-commit hook
+                              check (BUILDS_HOOK_CHECK set), it only points the
+                              link at the build this Mac has for the key, and
+                              when this Mac has none it fails at once, naming
+                              `builds setup`
 
 
 WORKTREES AND CLAIMS
@@ -581,7 +597,8 @@ restart the server.
                               exits starts `builds units after-build`, which
                               deletes the copies the build replaced.
                               On the Mac that runs cargo it first runs the
-                              checkout's `prepare` programs (BUILD FOLDERS).
+                              checkout's `prepare` programs (BUILD FOLDERS),
+                              unless a pre-commit hook check runs it.
                               BUILDS_CARGO_BEFORE=<path> [<args>] runs a
                               program of the checkout in its top folder before
                               cargo, on whichever host runs cargo, and a
