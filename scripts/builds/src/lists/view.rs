@@ -174,11 +174,20 @@ pub struct PlaceItem {
     pub state: &'static str,
 }
 
+/// How a design place is resolved: by the item that does the app work, or by
+/// how it was checked that the app already matches.
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PlaceResolution {
+    Item(PlaceItem),
+    Matches(String),
+}
+
 #[derive(Clone, Debug, Serialize)]
 pub struct PlaceView {
     pub path: String,
-    pub item: Option<PlaceItem>,
-    pub matches: Option<String>,
+    /// None until the design session names the place's app work.
+    pub resolution: Option<PlaceResolution>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -417,22 +426,12 @@ pub fn design_view(
         places: design
             .places
             .iter()
-            .map(|(path, resolution)| match resolution {
-                Some(Resolution::Item(id)) => PlaceView {
-                    path: path.clone(),
-                    item: Some(place_item(lists, *id)),
-                    matches: None,
-                },
-                Some(Resolution::Matches(how)) => PlaceView {
-                    path: path.clone(),
-                    item: None,
-                    matches: Some(how.clone()),
-                },
-                None => PlaceView {
-                    path: path.clone(),
-                    item: None,
-                    matches: None,
-                },
+            .map(|(path, resolution)| PlaceView {
+                path: path.clone(),
+                resolution: resolution.as_ref().map(|resolution| match resolution {
+                    Resolution::Item(id) => PlaceResolution::Item(place_item(lists, *id)),
+                    Resolution::Matches(how) => PlaceResolution::Matches(how.clone()),
+                }),
             })
             .collect(),
         deleted: design.deleted.iter().cloned().collect(),

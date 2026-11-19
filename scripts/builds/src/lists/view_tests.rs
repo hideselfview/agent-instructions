@@ -134,12 +134,12 @@ fn the_json_has_the_pages_shape() {
         .iter()
         .find(|p| p["path"] == json!("design/mocks/A.dc.html"))
         .unwrap();
-    assert_eq!(item_place["item"]["state"], json!("waiting"));
+    assert_eq!(item_place["resolution"]["item"]["state"], json!("waiting"));
     let matches_place = places
         .iter()
-        .find(|p| p["matches"] == json!("diffed"))
+        .find(|p| p["resolution"]["matches"] == json!("diffed"))
         .unwrap();
-    assert_eq!(matches_place["item"], Value::Null);
+    assert_eq!(matches_place["resolution"]["item"], Value::Null);
     assert_eq!(
         (&design_json["approved"], &design_json["blocks"]),
         (&Value::Null, &json!([]))
@@ -195,7 +195,7 @@ fn a_closed_item_a_place_names_reads_closed() {
     )
     .unwrap();
     assert_eq!(
-        view_json(&read(&db))["designs"][0]["places"][0]["item"]["state"],
+        view_json(&read(&db))["designs"][0]["places"][0]["resolution"]["item"]["state"],
         json!("closed")
     );
 }

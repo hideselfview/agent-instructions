@@ -262,7 +262,9 @@ if (data.places.length || data.no_app_place) {
   main.append(h("section", {}, h("h2", {}, "App work"),
     data.no_app_place ? md("No drawing changes: " + data.no_app_place) : null,
     h("ul", {class: "work"}, data.places.map(p => h("li", {}, h("code", {}, p.path), " ",
-      p.item ? "item #" + p.item.id + " [" + p.item.state + "] " + p.item.title : p.matches ? "matches: " + p.matches : "no app work named yet")))));
+      !p.resolution ? "no app work named yet"
+        : p.resolution.item ? "item #" + p.resolution.item.id + " [" + p.resolution.item.state + "] " + p.resolution.item.title
+        : "matches: " + p.resolution.matches)))));
 }
 document.getElementById("tools").addEventListener("click", e => {
   const b = e.target.closest("button");
