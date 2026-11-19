@@ -13,6 +13,7 @@ mod built_tools;
 mod cargo_place;
 mod cargo_read;
 mod cargo_run;
+mod cargo_run_crate;
 mod cargo_starts;
 mod cargo_update;
 mod checkout;

@@ -114,6 +114,10 @@ pub const EXCHANGE_TIME_PART: &str = include_str!("review/exchange_time.sql");
 /// (host_sample.sql); the schema holds it after the reviewer processes' times.
 pub const HOST_SAMPLE_PART: &str = include_str!("host_sample.sql");
 
+/// The crates each `builds cargo` run named (cargo_run_crate.sql); the schema
+/// holds it after the hosts' samples.
+pub const CARGO_RUN_CRATE_PART: &str = include_str!("cargo_run_crate.sql");
+
 /// The whole schema: the lists' tables, then the hook stats', then the
 /// app-build timings', then the design changes' recording sessions', then the
 /// stored shot findings, then the review's, then the hook checks' starting
@@ -121,8 +125,16 @@ pub const HOST_SAMPLE_PART: &str = include_str!("host_sample.sql");
 /// items' work, then the spec checks', then the acknowledgements', then the
 /// publish requests', then the Rust release items', then the Rust checks',
 /// then the items' events, then the landings', then the reviewer processes'
-/// times, then the hosts' samples.
+/// times, then the hosts' samples, then the crates of the cargo runs.
 pub fn schema() -> String {
+    format!(
+        "{}\n{CARGO_RUN_CRATE_PART}",
+        schema_before_cargo_run_crate()
+    )
+}
+
+/// The schema as it was before the cargo runs' crates joined it.
+pub fn schema_before_cargo_run_crate() -> String {
     format!("{}\n{HOST_SAMPLE_PART}", schema_before_host_sample())
 }
 

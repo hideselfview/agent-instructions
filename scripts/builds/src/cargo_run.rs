@@ -146,12 +146,14 @@ pub struct CargoRun {
     pub hook_check: Option<(i64, u32)>,
 }
 
-/// Writes <run> to the database at <path>, and creates the database with its
-/// schema if it does not exist.
-pub fn record_run(path: &Path, run: &CargoRun) -> Result<()> {
-    let conn = crate::db::open(path, crate::db::Make::Allowed)?;
+/// Writes <run>, which named <crates>, to the database at <path>, and creates
+/// the database with its schema if it does not exist.
+pub fn record_run(path: &Path, run: &CargoRun, crates: &[String]) -> Result<()> {
+    let mut conn = crate::db::open(path, crate::db::Make::Allowed)?;
+    let what = || format!("writing {}", path.display());
+    let tx = conn.transaction().context(what)?;
     let ms = |took: Duration| took.as_millis() as i64;
-    conn.execute(
+    tx.execute(
         "INSERT INTO builds_cargo_runs (worktree, started_at, subcommand, host, cores, load, lock_wait_ms, ms, hook_started_at, hook_position)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
         params![
@@ -167,8 +169,9 @@ pub fn record_run(path: &Path, run: &CargoRun) -> Result<()> {
             run.hook_check.map(|(_, position)| position),
         ],
     )
-    .context(|| format!("writing {}", path.display()))?;
-    Ok(())
+    .context(what)?;
+    crate::cargo_run_crate::record(&tx, tx.last_insert_rowid(), crates)?;
+    tx.commit().context(what)
 }
 
 /// Makes `builds_cargo_runs` again as cargo_run.sql writes it today, with
@@ -410,6 +413,7 @@ pub fn cmd_cargo(args: &[String]) -> Result<()> {
                     took: began.elapsed(),
                     hook_check,
                 },
+                &crate::cargo_run_crate::named(args),
             )
         });
         if let Err(error) = recorded {
@@ -498,11 +502,16 @@ pub fn last_host(conn: &Connection, key: &RunKey, path: &Path) -> Result<Option<
 
 /// Records <run> in the database of <checkout>'s project; a repo in no
 /// project records nothing.
-fn record_finished(places: &Places, checkout: &Checkout, run: &CargoRun) -> Result<()> {
+fn record_finished(
+    places: &Places,
+    checkout: &Checkout,
+    run: &CargoRun,
+    crates: &[String],
+) -> Result<()> {
     let Some(database) = crate::lists::store::database_of(places, checkout)? else {
         return Ok(());
     };
-    record_run(&database, run)
+    record_run(&database, run, crates)
 }
 
 /// How cargo ended: its exit status (or the recorder's, `run_here`), and how
@@ -664,7 +673,7 @@ mod tests {
             took: Duration::from_secs(30),
             hook_check: None,
         };
-        record_run(&path, &run).unwrap();
+        record_run(&path, &run, &["builds".to_string(), "boards".to_string()]).unwrap();
         let conn = crate::db::open_reader(&path).unwrap().unwrap();
         let row: (i64, String, Option<i64>, i64) = conn
             .query_row(
@@ -674,6 +683,14 @@ mod tests {
             )
             .unwrap();
         assert_eq!(row, (100, "nextest run".to_string(), None, 30_000));
+        let crates: Vec<String> = conn
+            .prepare("SELECT crate FROM builds_cargo_run_crate ORDER BY crate")
+            .unwrap()
+            .query_map([], |row| row.get(0))
+            .unwrap()
+            .map(|row| row.unwrap())
+            .collect();
+        assert_eq!(crates, ["boards", "builds"]);
         assert!(hook_runs(&conn, "/d/bae", 100, &path).unwrap().is_empty());
     }
 
