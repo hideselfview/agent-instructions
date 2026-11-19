@@ -414,7 +414,7 @@ pub fn choose(
     now: i64,
 ) -> Result<Choice> {
     let starts = cargo_starts::read(places, now)?;
-    let choice = pick(places, ssh, floor_kib, repo, wanted, runs, &starts.recent)?;
+    let choice = pick(places, ssh, floor_kib, repo, wanted, runs, &starts.counts)?;
     let host = match &choice {
         Choice::Here(_) => host::LOCAL,
         Choice::On(host, _, _) => host.name.as_str(),
@@ -423,8 +423,8 @@ pub fn choose(
     Ok(choice)
 }
 
-/// Chooses the host as `choose` does, counting the recent runs in <recent>
-/// against each host's room.
+/// Chooses the host as `choose` does, counting the runs <counts> holds on
+/// each host (`rank`).
 fn pick(
     places: &Places,
     ssh: &Ssh,
@@ -432,7 +432,7 @@ fn pick(
     repo: &str,
     wanted: Wanted,
     runs: host::Runs,
-    recent: &cargo_starts::Recent,
+    counts: &cargo_starts::Counts,
 ) -> Result<Choice> {
     let hosts = host::all(places)?;
     if let Wanted::Named(name) = wanted {
@@ -472,7 +472,7 @@ fn pick(
         rank(
             &host::probe_all(places, ssh, hosts),
             floor_kib,
-            recent,
+            counts,
             runs,
             warm,
         ),
@@ -480,18 +480,41 @@ fn pick(
 }
 
 /// The hosts of <probes> that can take a run, in the order builds tries
-/// them, and why: the <warm> host first when it can take the run, then the
-/// rest by room after the runs <recent> counts (`host::rank_by_room`).
+/// them, and why. The hosts that run no more than their share of the live
+/// runs <counts> holds (`over_share`) come first, and the others after them:
+/// the load average never shows the compiles that wait in sccache's queue on
+/// a host whose cores are all busy, so a host that runs more than its share
+/// takes no new run while another host runs no more than its own. The
+/// <warm> host comes first when it is within its share, and the hosts of each
+/// group come by room after the recent runs <counts> holds
+/// (`host::rank_by_room`).
 fn rank(
     probes: &[(Host, std::result::Result<host::Probe, String>)],
     floor_kib: u64,
-    recent: &cargo_starts::Recent,
+    counts: &cargo_starts::Counts,
     runs: host::Runs,
     warm: Option<Warm>,
 ) -> (Vec<(Host, host::Probe)>, String) {
-    let (mut ranked, why) = host::rank_by_room(probes, floor_kib, recent, runs);
+    let (ranked, mut why) = host::rank_by_room(probes, floor_kib, &counts.recent, runs);
+    // The live runs and this one split by cores always leave at least one
+    // host within its share: `over_share`.
+    let over = over_share(&ranked, &counts.live);
+    let (mut ranked, beyond): (Vec<_>, Vec<_>) = ranked
+        .into_iter()
+        .partition(|(host, _)| !over.iter().any(|over| over.host == host.name));
+    let first_group = ranked.len();
+    ranked.extend(beyond);
+    for over in &over {
+        why.push_str(&format!(
+            "; {} runs {}, more than its share of {} by cores, and takes no new run while another host runs no more than its share",
+            over.host,
+            crate::text::counted(over.live as usize, "live cargo run", "live cargo runs"),
+            over.share
+        ));
+    }
+    // The warm host goes first unless it runs more than its share.
     let Some((warm, at)) = warm.and_then(|warm| {
-        ranked
+        ranked[..first_group]
             .iter()
             .position(|(host, _)| host.name == warm.host)
             .map(|at| (warm, at))
@@ -505,6 +528,42 @@ fn rank(
         warm.host, warm.subcommand
     );
     (ranked, why)
+}
+
+/// A host that runs more than its share of the live runs.
+#[derive(Debug, PartialEq, Eq)]
+struct OverShare {
+    host: String,
+    /// The live runs builds placed there that still run.
+    live: u32,
+    /// Its share of all the live runs and this one, by its cores against
+    /// the cores of all of <ranked>, rounded up.
+    share: u32,
+}
+
+/// The hosts of <ranked> whose live runs (<live>) and this run would pass
+/// their share: all the live runs on <ranked> and this one, split by cores,
+/// rounded up. The shares add up to at least all those runs, so at least
+/// one host stays within its share.
+fn over_share(ranked: &[(Host, host::Probe)], live: &cargo_starts::Recent) -> Vec<OverShare> {
+    let runs_on = |host: &Host| live.get(&host.name).copied().unwrap_or(0);
+    let all = ranked.iter().map(|(host, _)| runs_on(host)).sum::<u32>() + 1;
+    let cores: u32 = ranked.iter().map(|(_, probe)| probe.cores).sum();
+    if cores == 0 {
+        return Vec::new();
+    }
+    ranked
+        .iter()
+        .filter_map(|(host, probe)| {
+            let share = (u64::from(all) * u64::from(probe.cores)).div_ceil(u64::from(cores)) as u32;
+            let live = runs_on(host);
+            (live + 1 > share).then(|| OverShare {
+                host: host.name.clone(),
+                live,
+                share,
+            })
+        })
+        .collect()
 }
 
 /// The first host of <ranked> (`rank`) that can build <repo>; this Mac when

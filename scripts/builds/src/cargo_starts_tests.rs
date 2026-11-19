@@ -52,7 +52,7 @@ fn a_burst_of_runs_picks_both_hosts() {
     let mut picks = Vec::new();
     for at in 0..3 {
         let starts = read(&places, now + at).unwrap();
-        let (ranked, _) = rank_by_room(&hosts, 0, &starts.recent, crate::host::Runs::Cargo);
+        let (ranked, _) = rank_by_room(&hosts, 0, &starts.counts.recent, crate::host::Runs::Cargo);
         let run = running();
         starts
             .record(run.id(), &ranked[0].0.name, now + at)
@@ -62,9 +62,9 @@ fn a_burst_of_runs_picks_both_hosts() {
     }
     assert_eq!(picks, ["local", "m1", "local"]);
     let starts = read(&places, now + 3).unwrap();
-    assert_eq!(starts.recent.get("local"), Some(&2));
-    assert_eq!(starts.recent.get("m1"), Some(&1));
-    let (_, why) = rank_by_room(&hosts, 0, &starts.recent, crate::host::Runs::Cargo);
+    assert_eq!(starts.counts.recent.get("local"), Some(&2));
+    assert_eq!(starts.counts.recent.get("m1"), Some(&1));
+    let (_, why) = rank_by_room(&hosts, 0, &starts.counts.recent, crate::host::Runs::Cargo);
     assert!(
         why.contains("m1 has -3.0 cores of room after 1 cargo run that started in the last minute"),
         "{why}"
@@ -76,10 +76,11 @@ fn a_burst_of_runs_picks_both_hosts() {
     }
 }
 
-/// A pick does not count a run whose process ended, and `read` deletes the
-/// file of any run that started a minute ago or earlier.
+/// A pick counts a run while its process runs: as recent while it is under
+/// a minute old, and as live whatever its age. `read` deletes the file of a
+/// run whose process ended.
 #[test]
-fn only_runs_under_a_minute_old_that_still_run_count() {
+fn runs_count_while_they_run_and_recent_ones_under_a_minute() {
     let scratch = Scratch::new("cargo-starts-window");
     let places = scratch.places();
     let now = 1_800_000_000;
@@ -87,14 +88,23 @@ fn only_runs_under_a_minute_old_that_still_run_count() {
     ended.kill().unwrap();
     ended.wait().unwrap();
     let mut old = running();
+    let mut new = running();
     let starts = read(&places, now).unwrap();
     starts.record(ended.id(), "m1", now).unwrap();
     let starts = read(&places, now).unwrap();
     starts.record(old.id(), "m1", now - WINDOW_SECONDS).unwrap();
     let starts = read(&places, now).unwrap();
-    assert!(starts.recent.is_empty(), "{:?}", starts.recent);
-    assert!(!dir_of(&places).join(old.id().to_string()).exists());
-    assert!(dir_of(&places).join(ended.id().to_string()).exists());
-    old.kill().unwrap();
-    old.wait().unwrap();
+    starts.record(new.id(), "m1", now).unwrap();
+    let starts = read(&places, now).unwrap();
+    assert_eq!(starts.counts.recent.get("m1"), Some(&1));
+    assert_eq!(starts.counts.live.get("m1"), Some(&2));
+    assert!(dir_of(&places).join(old.id().to_string()).exists());
+    assert!(!dir_of(&places).join(ended.id().to_string()).exists());
+    drop(starts);
+    for run in [&mut old, &mut new] {
+        run.kill().unwrap();
+        run.wait().unwrap();
+    }
+    let starts = read(&places, now).unwrap();
+    assert_eq!(starts.counts, Counts::default());
 }

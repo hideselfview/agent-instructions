@@ -536,7 +536,12 @@ one core, which `builds host setup` times on both, so a job goes where it
 finishes first.
 This Mac wins a tie. When several runs start at
 the same time, builds picks a host for one run at a time, so the runs go to
-different hosts. builds sends the checkout's HEAD plus its working tree (staged and unstaged edits, deletions,
+different hosts. The load average never shows the compiles that wait in
+sccache's queue on a host whose cores are all busy, so builds also counts the
+`builds cargo` runs it placed on each host that still run. Each host's share
+of those runs and the new one is their number split by the hosts' cores,
+rounded up, and a host that would pass its share takes no new run, not even a
+run whose last run went there, while another host stays within its share. builds sends the checkout's HEAD plus its working tree (staged and unstaged edits, deletions,
 and files git neither tracks nor ignores) as a commit to the host's clone only,
 runs cargo in a remote worktree there that keeps its build between runs, prints
 the same output and exits with the same status. The host's cargo gets

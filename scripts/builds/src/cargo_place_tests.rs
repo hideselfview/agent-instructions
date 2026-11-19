@@ -401,6 +401,59 @@ fn the_host_of_the_checkouts_last_run_takes_the_run_while_it_can() {
     assert_eq!(ranked[0].0, m1);
 }
 
+/// A host that runs more than its share of the live runs, by cores, takes
+/// no new run while another host runs no more than its share, even when it
+/// has more room by load or ran the checkout's last run.
+#[test]
+fn a_host_over_its_share_of_live_runs_takes_no_new_run() {
+    let m1 = Host {
+        cores: 10,
+        ..host("m1", Some("user@m1"))
+    };
+    let local = Host {
+        cores: 14,
+        ..host("local", None)
+    };
+    let probe_of = |cores: u32, load: f64| {
+        Ok(Probe {
+            cores,
+            ..probe(load).unwrap()
+        })
+    };
+    let warm = Some(Warm {
+        host: "m1",
+        subcommand: "clippy",
+    });
+    let counts = |local_runs: u32, m1_runs: u32| crate::cargo_starts::Counts {
+        recent: Default::default(),
+        live: [
+            ("local".to_string(), local_runs),
+            ("m1".to_string(), m1_runs),
+        ]
+        .into_iter()
+        .collect(),
+    };
+
+    // Fifteen runs on m1 and three here: m1's share of the nineteen is 8.
+    let probes = vec![
+        (local.clone(), probe_of(14, 30.0)),
+        (m1.clone(), probe_of(10, 18.0)),
+    ];
+    let (ranked, why) = rank(&probes, 0, &counts(3, 15), Runs::Cargo, warm);
+    assert_eq!(ranked[0].0, local);
+    assert!(
+        why.contains("m1 runs 15 live cargo runs, more than its share of 8 by cores"),
+        "{why}"
+    );
+    assert!(!why.contains("ran this checkout's last cargo"), "{why}");
+
+    // One run here and none on m1: each host is within its share, and the
+    // warm host comes first.
+    let (ranked, why) = rank(&probes, 0, &counts(1, 0), Runs::Cargo, warm);
+    assert_eq!(ranked[0].0, m1);
+    assert!(!why.contains("more than its share"), "{why}");
+}
+
 #[test]
 fn a_named_host_must_answer_and_this_mac_can_be_named() {
     let (r, _main, _side) = remote("place-named", true, RECORDING_BUILDS);
