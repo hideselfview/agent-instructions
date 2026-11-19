@@ -189,6 +189,7 @@ fn host(name: &str, target: Option<&str>) -> Host {
 
 fn probe(load: f64) -> std::result::Result<Probe, String> {
     Ok(Probe {
+        platform: crate::host_platform::Platform::here(),
         memory: crate::host_memory::Memory::at_rest(),
         cores: 10,
         load: [load, load, load],

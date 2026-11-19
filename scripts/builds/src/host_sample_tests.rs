@@ -25,6 +25,7 @@ fn rows(db: &Connection) -> Vec<(String, i64, f64, String)> {
 #[test]
 fn only_the_hosts_that_answered_have_a_sample() {
     let probe = Probe {
+        platform: crate::host_platform::Platform::here(),
         cores: 8,
         load: [3.0, 2.0, 1.0],
         free_kib: 0,

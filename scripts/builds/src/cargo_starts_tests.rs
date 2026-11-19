@@ -14,6 +14,7 @@ fn host(name: &str) -> Host {
 
 fn probe(cores: u32, load: f64) -> std::result::Result<Probe, String> {
     Ok(Probe {
+        platform: crate::host_platform::Platform::here(),
         memory: crate::host_memory::Memory::at_rest(),
         cores,
         load: [load, load, load],

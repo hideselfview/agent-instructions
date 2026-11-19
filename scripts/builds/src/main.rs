@@ -52,6 +52,7 @@ mod host_load;
 mod host_memory;
 mod host_sample;
 mod host_scan;
+mod host_platform;
 mod host_setup;
 mod idle_daemons;
 mod inbox;

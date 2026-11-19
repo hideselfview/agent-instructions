@@ -271,6 +271,7 @@ fn a_host_that_cannot_build_the_mac_lane_takes_no_mac_checkout() {
             speed: None,
         },
         Ok(Probe {
+            platform: crate::host_platform::Platform::here(),
             memory: crate::host_memory::Memory::at_rest(),
             cores: 10,
             load: [0.0; 3],

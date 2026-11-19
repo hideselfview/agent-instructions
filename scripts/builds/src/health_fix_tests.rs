@@ -16,6 +16,7 @@ fn host(name: &str, speed: Option<f64>) -> Host {
 
 fn probe(free_gib: f64, git_fails: Option<&str>) -> Probed {
     Ok(Probe {
+        platform: crate::host_platform::Platform::here(),
         memory: crate::host_memory::Memory::at_rest(),
         cores: 10,
         load: [1.0; 3],

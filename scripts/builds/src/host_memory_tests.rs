@@ -86,7 +86,7 @@ fn the_script_reads_memory_pressure_and_swap_in_any_unit() {
         );
         let output = std::process::Command::new("sh")
             .arg("-c")
-            .arg(SCRIPT)
+            .arg(format!("os=Darwin\n{SCRIPT}"))
             .env("PATH", format!("{}:/usr/bin:/bin", bin.display()))
             .output()
             .unwrap();

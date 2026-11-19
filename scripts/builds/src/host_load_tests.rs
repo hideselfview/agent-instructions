@@ -17,6 +17,7 @@ fn host(name: &str, speed: Option<f64>) -> Host {
 /// 15-minute loads that would judge the host otherwise.
 fn loaded(five: f64) -> std::result::Result<Probe, String> {
     Ok(Probe {
+        platform: crate::host_platform::Platform::here(),
         memory: crate::host_memory::Memory::at_rest(),
         cores: 10,
         load: [30.0, five, 0.0],

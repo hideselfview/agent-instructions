@@ -47,12 +47,16 @@ use std::path::Path;
 #[test]
 fn reads_what_a_host_prints() {
     let probe = parse_probe(
-        "cores=10\nload=1.50 1.20 1.10 \nfree_kib=447000000\nmemory_free_percent=61\nswap_used_mib=12.50\nmemory_pressure_level=2\nprocs=300\nmax_procs=8000\n",
+        "os=Linux\narch=x86_64\ncores=10\nload=1.50 1.20 1.10 \nfree_kib=447000000\nmemory_free_percent=61\nswap_used_mib=12.50\nmemory_pressure_level=2\nprocs=300\nmax_procs=8000\n",
     )
     .unwrap();
     assert_eq!(
         probe,
         Probe {
+            platform: crate::host_platform::Platform {
+                os: crate::host_platform::Os::Linux,
+                arch: "x86_64".to_string(),
+            },
             cores: 10,
             load: [1.5, 1.2, 1.1],
             free_kib: 447_000_000,
@@ -73,7 +77,7 @@ fn reads_what_a_host_prints() {
     assert!(parse_probe("cores=10\n").is_err());
     assert!(parse_probe("cores=10\nload=1.50\nfree_kib=4\n").is_err());
     let refusing = parse_probe(
-        "cores=10\nload=1.50 1.20 1.10\nfree_kib=4\nmemory_free_percent=61\nswap_used_mib=0\nmemory_pressure_level=1\nprocs=1\nmax_procs=2\ngit_fails=You have not agreed to the Xcode license agreements. \n",
+        "os=Darwin\narch=arm64\ncores=10\nload=1.50 1.20 1.10\nfree_kib=4\nmemory_free_percent=61\nswap_used_mib=0\nmemory_pressure_level=1\nprocs=1\nmax_procs=2\ngit_fails=You have not agreed to the Xcode license agreements. \n",
     )
     .unwrap();
     assert_eq!(
@@ -85,7 +89,7 @@ fn reads_what_a_host_prints() {
 #[test]
 fn a_probe_reads_what_a_host_has_of_cargo_nextest() {
     use crate::nextest::Has;
-    let said = "cores=10\nload=1.50 1.20 1.10\nfree_kib=4\nmemory_free_percent=61\nswap_used_mib=0\nmemory_pressure_level=1\nprocs=1\nmax_procs=2\n";
+    let said = "os=Darwin\narch=arm64\ncores=10\nload=1.50 1.20 1.10\nfree_kib=4\nmemory_free_percent=61\nswap_used_mib=0\nmemory_pressure_level=1\nprocs=1\nmax_procs=2\n";
     assert_eq!(parse_probe(said).unwrap().nextest, Has::Nothing);
     assert_eq!(
         parse_probe(&format!("{said}nextest=0.9.143\n"))
@@ -108,6 +112,7 @@ fn a_nextest_run_passes_over_a_host_without_the_pinned_cargo_nextest() {
     use crate::nextest::Has;
     let with = |nextest: Has| {
         Ok(Probe {
+            platform: crate::host_platform::Platform::here(),
             cores: 10,
             load: [0.0; 3],
             free_kib: 100,
@@ -158,6 +163,7 @@ fn a_nextest_run_passes_over_a_host_without_the_pinned_cargo_nextest() {
 fn a_host_whose_git_fails_is_passed_over_saying_what_git_said() {
     let refusing = || {
         Ok(Probe {
+            platform: crate::host_platform::Platform::here(),
             memory: crate::host_memory::Memory::at_rest(),
             cores: 10,
             load: [0.0; 3],
@@ -256,6 +262,7 @@ fn host(name: &str) -> Host {
 
 fn probe_of(load: f64, free_kib: u64) -> std::result::Result<Probe, String> {
     Ok(Probe {
+        platform: crate::host_platform::Platform::here(),
         memory: crate::host_memory::Memory::at_rest(),
         cores: 10,
         load: [load, load, load],
@@ -348,6 +355,7 @@ fn an_unreachable_host_is_not_added() {
 
 fn probe_with(cores: u32, load: f64, free_kib: u64) -> std::result::Result<Probe, String> {
     Ok(Probe {
+        platform: crate::host_platform::Platform::here(),
         memory: crate::host_memory::Memory::at_rest(),
         cores,
         load: [load, load, load],

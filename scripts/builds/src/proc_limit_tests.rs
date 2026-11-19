@@ -30,6 +30,7 @@ const TEST: &str = "/Volumes/Builds/x/target/debug/deps/leak-0123456789abcdef";
 
 fn probe(count: u64, limit: u64) -> Probe {
     Probe {
+        platform: crate::host_platform::Platform::here(),
         cores: 8,
         load: [0.0; 3],
         free_kib: 1,

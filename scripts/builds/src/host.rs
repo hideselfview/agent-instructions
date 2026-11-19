@@ -288,6 +288,8 @@ impl Host {
 /// What a host said about itself when asked.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Probe {
+    /// The host's OS and processor.
+    pub platform: crate::host_platform::Platform,
     pub cores: u32,
     /// The 1, 5 and 15-minute load averages.
     pub load: [f64; 3],
@@ -362,20 +364,31 @@ impl Probe {
     }
 }
 
-/// Runs on the host to print what `parse_probe` reads. git runs in the shell
-/// ssh starts, with no PATH of builds' own, as the `git-receive-pack` that a
-/// job's push starts there does.
-const PROBE_SCRIPT: &str = r#"echo cores=$(sysctl -n hw.ncpu)
-echo load=$(sysctl -n vm.loadavg | tr -d '{}')
-echo free_kib=$(df -k "$HOME" | awk 'NR==2{print $4}')
+/// Runs on the host to print what `parse_probe` reads, after the lines that
+/// name its platform (`host_platform::SCRIPT`), which set `os`: macOS's
+/// sysctl names the cores and load, and Linux's nproc and /proc/loadavg do.
+/// git runs in the shell ssh starts, with no PATH of builds' own, as the
+/// `git-receive-pack` that a job's push starts there does.
+const PROBE_SCRIPT: &str = r#"case "$os" in
+Darwin)
+  echo cores=$(sysctl -n hw.ncpu)
+  echo load=$(sysctl -n vm.loadavg | tr -d '{}')
+  ;;
+*)
+  echo cores=$(nproc)
+  echo load=$(cut -d ' ' -f 1-3 /proc/loadavg)
+  ;;
+esac
+echo free_kib=$(df -Pk "$HOME" | awk 'NR==2{print $4}')
 if ! said=$(git --version 2>&1); then echo "git_fails=$(printf '%s' "$said" | tr '\n' ' ')"; fi
 "#;
 
-/// The script a remote host runs: `PROBE_SCRIPT`, then the memory script, then
-/// the cargo-nextest lines and the process lines.
+/// The script a remote host runs: the platform's lines, `PROBE_SCRIPT`, then
+/// the memory script, then the cargo-nextest lines and the process lines.
 fn probe_script() -> String {
     format!(
-        "{PROBE_SCRIPT}{}\n{}\n{}",
+        "{}\n{PROBE_SCRIPT}{}\n{}\n{}",
+        crate::host_platform::SCRIPT,
         crate::host_memory::SCRIPT,
         crate::nextest::PROBE_SCRIPT_LINES,
         crate::proc_limit::PROBE_LINES
@@ -418,6 +431,7 @@ pub fn parse_probe(text: &str) -> Result<Probe> {
         .find_map(|line| line.strip_prefix("git_fails="))
         .map(|said| said.trim().to_string());
     Ok(Probe {
+        platform: crate::host_platform::Platform::parse(text)?,
         cores,
         load,
         free_kib,
@@ -455,6 +469,7 @@ pub fn probe_local(places: &Places) -> Result<Probe> {
     }
     // A job here runs in this Mac's own clone: nothing is pushed.
     Ok(Probe {
+        platform: crate::host_platform::Platform::here(),
         cores: Host::local().cores,
         load: loads,
         free_kib: volume_space(&places.home)?.free_kib,
@@ -951,9 +966,10 @@ pub fn remove(places: &Places, name: &str) -> Result<()> {
 pub fn list_line(host: &Host, probe: &std::result::Result<Probe, String>) -> String {
     match probe {
         Ok(probe) => format!(
-            "{}  {}  {} cores  load {:.2} per core  load band {}  {}  free {}  {}",
+            "{}  {}  {}  {} cores  load {:.2} per core  load band {}  {}  free {}  {}",
             host.name,
             host.describe(),
+            probe.platform.text(),
             probe.cores,
             probe.load_per_core(),
             host.band_for(probe.cores).text(),
