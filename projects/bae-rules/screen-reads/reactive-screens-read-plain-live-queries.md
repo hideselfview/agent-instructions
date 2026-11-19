@@ -11,7 +11,9 @@ digest: >-
   changes is one coven live query; any other read is a plain SQL read. A long
   list has one window, a live query of the rows from a sort key with a LIMIT,
   which core moves and sizes around the rows the app reports on screen, holding
-  only the latest result of the window's query and of its position's. SQL
+  only the latest result of the window's query and of its position's. The one
+  list read by offset is a page that a platform asks for by number (Android's media
+  browser, for Android Auto and media controllers). SQL
   decides which rows a screen gets, reads every row a value needs in one
   statement, and counts a list's rows. A write computes each rule's result once
   and stores it; reads select stored results and never compute a rule again.
@@ -241,6 +243,16 @@ draws each row at that position plus its place in the window, draws placeholders
 outside the window, and keeps the top row on screen still when rows change above
 it. The app never pages the list itself: it holds no chain of windows and reads
 no key.
+
+One read goes by offset instead of by sort values: a page that a platform asks
+for by number, such as Android's media browser, which Android Auto and media
+controllers use. The platform asks for page N, which starts at a fixed place in
+the list, so bae reads that page with `LIMIT :size OFFSET :place`. A window that
+starts at sort values cannot keep a numbered page at its place after a write
+above the page moves its rows. coven reruns this read for every write its WHERE
+allows, as it does any statement with an OFFSET (above). No other read of a
+list's rows goes by offset, apart from the jump's one-time read of sort values
+(above), and the app still never pages a list itself.
 
 ```text
 subscribe_list_view(list, first: 0, last: 19)   -- the window and its position
