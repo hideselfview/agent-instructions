@@ -1092,22 +1092,10 @@ impl Model {
                 repos.push(RepoPage {
                     lanes: crate::status::lanes_of(&self.places, &repo_name)?,
                     locks: machine
-                        .map(|m| {
-                            m.locks
-                                .iter()
-                                .filter(|l| l.repo == repo_name)
-                                .cloned()
-                                .collect()
-                        })
+                        .map(|m| repo_locks(m, &repo_name))
                         .unwrap_or_default(),
                     queues: machine
-                        .map(|m| {
-                            m.queues
-                                .iter()
-                                .filter(|q| q.repo == repo_name)
-                                .cloned()
-                                .collect()
-                        })
+                        .map(|m| repo_queues(m, &repo_name))
                         .unwrap_or_default(),
                     runs: self.runs.pages(&repo_name, &|lane| {
                         machine
@@ -1146,7 +1134,7 @@ impl Model {
                     .collect(),
                 _ => Vec::new(),
             };
-            let checkout = match &root.live {
+            let mut checkout = match &root.live {
                 Some(live) => {
                     let total = facts.folders.as_ref().and_then(|folders| {
                         folders.iter().try_fold(0u64, |sum, f| {
@@ -1166,7 +1154,7 @@ impl Model {
                         branch: facts.branch.clone(),
                         app_checkout: root.is_app_checkout(&self.places)?,
                         app_lane: root.app_lane(&self.places)?.map(crate::lane::Lane::word),
-                        // The card's state, which `judge` gives below.
+                        // The card's state, which `judge_card` gives below.
                         state: None,
                         claim: facts.claim.clone(),
                         git: facts.git.clone(),
@@ -1203,60 +1191,56 @@ impl Model {
                     errors: Vec::new(),
                 },
             };
-            repos
+            let repo = repos
                 .iter_mut()
                 .find(|r| r.name == repo_name)
-                .expect("added above")
-                .checkouts
-                .push(checkout);
+                .expect("added above");
+            match &root.live {
+                Some(live) if live.is_main() => {
+                    checkout.words = super::cards::main_words(&checkout);
+                }
+                Some(live) if !checkout.app_checkout => {
+                    let seen = Seen {
+                        live,
+                        name: &checkout.name,
+                        repo: &repo.name,
+                        claim: checkout.claim.as_ref(),
+                        git: checkout.git.as_ref(),
+                        branch: checkout.branch.as_deref(),
+                    };
+                    let judged = self.judge_card(
+                        &snapshot,
+                        &seen,
+                        &repo.locks,
+                        &repo.queues,
+                        state.health.as_ref(),
+                    );
+                    checkout.stalled = state.health.as_ref().is_some_and(|h| {
+                        h.worktrees
+                            .iter()
+                            .any(|w| w.stalled && w.path == checkout.path)
+                    });
+                    checkout.errors.extend(judged.errors);
+                    checkout.state = Some(judged.state.word());
+                    checkout.words = match &judged.kept {
+                        Some((item, card)) => {
+                            super::cards::kept_words(&checkout, item.clone(), card)
+                        }
+                        None => super::cards::words(
+                            &checkout,
+                            judged.state,
+                            &judged.items,
+                            &judged.waits,
+                        ),
+                    };
+                }
+                // A gone root and an app checkout have no card.
+                _ => {}
+            }
+            repo.checkouts.push(checkout);
         }
         for repo in &mut repos {
             repo.app_builds = super::app_builds::build(repo)?;
-            for checkout in &mut repo.checkouts {
-                if checkout.main {
-                    checkout.words = super::cards::main_words(checkout);
-                    continue;
-                }
-                if !checkout.live || checkout.app_checkout {
-                    continue;
-                }
-                let Some(live) = state
-                    .roots
-                    .iter()
-                    .filter_map(|root| root.live.as_ref())
-                    .find(|live| live.top == Path::new(&checkout.path))
-                else {
-                    continue;
-                };
-                let seen = Seen {
-                    live,
-                    name: &checkout.name,
-                    repo: &repo.name,
-                    claim: checkout.claim.as_ref(),
-                    git: checkout.git.as_ref(),
-                    branch: checkout.branch.as_deref(),
-                };
-                let judged = self.judge_card(
-                    &snapshot,
-                    &seen,
-                    &repo.locks,
-                    &repo.queues,
-                    state.health.as_ref(),
-                );
-                checkout.stalled = state.health.as_ref().is_some_and(|h| {
-                    h.worktrees
-                        .iter()
-                        .any(|w| w.stalled && w.path == checkout.path)
-                });
-                checkout.errors.extend(judged.errors);
-                checkout.state = Some(judged.state.word());
-                checkout.words = match &judged.kept {
-                    Some((item, card)) => super::cards::kept_words(checkout, item.clone(), card),
-                    None => {
-                        super::cards::words(checkout, judged.state, &judged.items, &judged.waits)
-                    }
-                };
-            }
         }
         Ok(Page {
             version: state.version,
@@ -1314,23 +1298,9 @@ impl Model {
                 });
                 continue;
             };
-            let repo = root
-                .path
-                .parent()
-                .map(crate::checkout::file_name)
-                .unwrap_or_default();
-            let locks: Vec<crate::health::LockHealth> = machine
-                .locks
-                .iter()
-                .filter(|l| l.repo == repo)
-                .cloned()
-                .collect();
-            let queues: Vec<crate::health::LaneQueue> = machine
-                .queues
-                .iter()
-                .filter(|q| q.repo == repo)
-                .cloned()
-                .collect();
+            let repo = live.repo();
+            let locks = repo_locks(machine, &repo);
+            let queues = repo_queues(machine, &repo);
             let name = root.name();
             let seen = Seen {
                 live,
@@ -1455,7 +1425,6 @@ impl Model {
                 None
             }
         };
-
         let shell = health.is_some_and(|h| {
             h.shells
                 .active
@@ -1571,6 +1540,28 @@ pub struct CardNow {
     pub state: CardState,
     /// The ids of the items the card lists.
     pub items: Vec<u32>,
+}
+
+/// The app checkouts' locks of repo <repo> in <machine>, as the page and the
+/// recorder of the cards' states read them.
+fn repo_locks(machine: &Machine, repo: &str) -> Vec<crate::health::LockHealth> {
+    machine
+        .locks
+        .iter()
+        .filter(|lock| lock.repo == repo)
+        .cloned()
+        .collect()
+}
+
+/// The app build lanes' queues of repo <repo> in <machine>, as the page and
+/// the recorder of the cards' states read them.
+fn repo_queues(machine: &Machine, repo: &str) -> Vec<crate::health::LaneQueue> {
+    machine
+        .queues
+        .iter()
+        .filter(|queue| queue.repo == repo)
+        .cloned()
+        .collect()
 }
 
 fn folder_facts(
