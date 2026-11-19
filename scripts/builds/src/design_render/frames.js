@@ -3,13 +3,14 @@
 // sharp. The frame runs the page's scripts in a sandbox that cannot reach
 // the page holding it. `boardFrame` makes the frame and its box, and
 // `scaleFrame` scales the frame and sizes the box to match.
+// With no src, the frame loads nothing until the caller sets one.
 function boardFrame(src, w, h) {
   const frame = document.createElement("iframe");
   frame.setAttribute("sandbox", "allow-scripts");
   frame.setAttribute("title", src);
   frame.setAttribute("width", w);
   frame.setAttribute("height", h);
-  frame.setAttribute("src", src);
+  if (src) frame.setAttribute("src", src);
   Object.assign(frame.style, {display: "block", border: "0", background: "transparent", transformOrigin: "0 0"});
   const box = document.createElement("div");
   box.className = "frame";

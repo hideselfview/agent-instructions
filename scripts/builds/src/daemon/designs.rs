@@ -15,11 +15,11 @@ use std::path::Path;
 
 use boards::preview::cards;
 use boards::tokens::specimen;
-use boards::{BOARD_SUFFIX, CANVAS, Source, TOKENS_JSON, canvas_size};
+use boards::{BOARD_SUFFIX, CANVAS, Source, TOKENS_JSON, canvas_place, canvas_size};
 use serde_json::{Value, json};
 
 use crate::design_canvas::{CANVASES, page_of, pages_of, parse_canvases, placed};
-use crate::design_render::{NOW, fill, render_board, render_preview};
+use crate::design_render::{FRAMES_SCRIPT, NOW, fill, render_board, render_preview};
 use crate::fail;
 use crate::fail::{Fail, Result};
 use crate::lists::design_variants::Props;
@@ -92,10 +92,7 @@ pub fn page(
             (Ok((x, y)), Ok((w, h))) => {
                 json!({ "name": name, "title": title, "x": x, "y": y, "w": w, "h": h })
             }
-            (Err(error), _) => {
-                json!({ "name": name, "title": title, "error": error.text() })
-            }
-            (_, Err(error)) => {
+            (Err(error), _) | (_, Err(error)) => {
                 json!({ "name": name, "title": title, "error": error.text() })
             }
         };
@@ -153,6 +150,7 @@ pub fn page(
             ("CONTROLS", CONTROLS),
             ("CONTROLS_JS", CONTROLS_JS),
             ("DATA", &data),
+            ("FRAMES", FRAMES_SCRIPT),
         ],
     ))
 }
@@ -197,15 +195,6 @@ pub fn ask(places: &Places, project: &str, repo: &Path, rev: &str, now: i64) -> 
         by: super::approve::BY.to_string(),
     };
     ask_and_tell(&store, &commit, &stamp)
-}
-
-/// Where the canvas index <canvas> puts board <file>: its x and y.
-fn canvas_place(canvas: &Value, file: &str) -> Result<(f64, f64)> {
-    let board = &canvas["boards"][file];
-    match (board["x"].as_f64(), board["y"].as_f64()) {
-        (Some(x), Some(y)) => Ok((x, y)),
-        _ => fail!("{CANVAS} gives no x and y for {file}"),
-    }
 }
 
 /// Board <name> of commit <commit> of the repo <repo> is in, drawn in the

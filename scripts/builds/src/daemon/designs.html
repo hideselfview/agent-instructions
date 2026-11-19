@@ -30,8 +30,8 @@ body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 var
 .dz-view.panning { cursor: grabbing; }
 .dz-world { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
 .dz-board { position: absolute; }
-.dz-board .frame { width: 100%; height: 100%; }
-.dz-board iframe { display: block; border: 0; background: transparent; transform-origin: 0 0; pointer-events: none; }
+.dz-board .frame { width: 100%; height: 100%; border: 0; }
+.dz-board iframe { pointer-events: none; }
 .dz-board .dz-title { position: absolute; left: 0; top: 100%; margin-top: calc(6px / var(--k)); max-width: 100%; font-size: min(calc(13px / var(--k)), 48px); }
 .dz-board .problem { position: absolute; inset: 0; overflow: hidden; }
 .dz-zoom { position: absolute; right: 10px; bottom: 10px; display: flex; gap: 8px; align-items: center; color: var(--muted); font-size: 12px; cursor: default; }
@@ -68,6 +68,9 @@ body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 var
 <script type="application/json" id="data">@@DATA@@</script>
 <script>
 @@CONTROLS_JS@@
+</script>
+<script>
+@@FRAMES@@
 </script>
 <script>
 const data = JSON.parse(document.getElementById("data").textContent);
@@ -108,9 +111,9 @@ function renderTabs() {
 const MIN_ZOOM = 0.02, MAX_ZOOM = 4, FIT_MARGIN = 40;
 function boardView(b) {
   const box = h("div", {class: "dz-board", style: "left: " + b.x + "px; top: " + b.y + "px; width: " + b.w + "px; height: " + b.h + "px"});
-  const frame = h("iframe", {sandbox: "allow-scripts", width: b.w, height: b.h, title: b.name,
-    style: "width: " + b.w + "px; height: " + b.h + "px"});
-  box.append(h("div", {class: "frame"}, frame), h("span", {class: "dz-title", title: b.name}, b.title || b.name));
+  const {frame, box: framed} = boardFrame(null, b.w, b.h);
+  frame.setAttribute("title", b.name);
+  box.append(framed, h("span", {class: "dz-title", title: b.name}, b.title || b.name));
   return {b, box, frame, loaded: false};
 }
 function canvasView(boards) {
@@ -194,8 +197,12 @@ function canvasView(boards) {
   view.addEventListener("pointercancel", release);
   fitButton.addEventListener("click", fit);
   view.addEventListener("dblclick", e => { if (!e.target.closest(".dz-zoom")) fit(); });
-  new ResizeObserver(show).observe(view);
-  requestAnimationFrame(fit);
+  // The first size the view gets, once it is in the page, fits the boards.
+  let fitted = false;
+  new ResizeObserver(() => {
+    if (!fitted && view.clientWidth > 0 && view.clientHeight > 0) { fitted = true; fit(); }
+    else show();
+  }).observe(view);
   return view;
 }
 function pageView(page) {

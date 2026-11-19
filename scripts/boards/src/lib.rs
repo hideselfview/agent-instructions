@@ -13,7 +13,8 @@ pub mod source;
 pub mod tokens;
 
 pub use board::{
-    BOARD_SUFFIX, CANVAS, MOCKS, board_name, board_path, canvas_size, design_namespace, imports,
+    BOARD_SUFFIX, CANVAS, MOCKS, board_name, board_path, canvas_place, canvas_size,
+    design_namespace, imports,
 };
 pub use source::{Source, exists_in, export, git, git_text, in_scratch};
 pub use tokens::{TOKENS_CSS, TOKENS_JSON, tokens_css};

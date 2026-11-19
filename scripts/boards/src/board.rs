@@ -48,6 +48,16 @@ pub fn imports(body: &str) -> Vec<String> {
     names
 }
 
+/// The x and y that <canvas>, a parsed `canvas.json`, gives board file
+/// <file>.
+pub fn canvas_place(canvas: &Value, file: &str) -> Result<(f64, f64)> {
+    let board = &canvas["boards"][file];
+    match (board["x"].as_f64(), board["y"].as_f64()) {
+        (Some(x), Some(y)) => Ok((x, y)),
+        _ => fail!("{CANVAS} gives no x and y for {file}"),
+    }
+}
+
 /// The width and height that <canvas>, a parsed `canvas.json`, gives board
 /// file <file>.
 pub fn canvas_size(canvas: &Value, file: &str) -> Result<(u64, u64)> {

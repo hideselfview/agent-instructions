@@ -37,6 +37,16 @@ fn a_boards_size_comes_from_the_canvas_index() {
 }
 
 #[test]
+fn a_boards_place_comes_from_the_canvas_index() {
+    let canvas = json!({"boards": {"A.dc.html": {"x": 500, "y": 20.5}, "B.dc.html": {"x": 10}}});
+    assert_eq!(canvas_place(&canvas, "A.dc.html").unwrap(), (500.0, 20.5));
+    assert_eq!(
+        canvas_place(&canvas, "B.dc.html").unwrap_err().text(),
+        "design/mocks/canvas.json gives no x and y for B.dc.html"
+    );
+}
+
+#[test]
 fn the_design_systems_namespace_is_the_one_the_canvas_index_names() {
     let named = |namespace: &str| json!({"designSystems": [{"namespace": namespace}]});
     assert_eq!(design_namespace(&named("bae")).unwrap(), "bae");
