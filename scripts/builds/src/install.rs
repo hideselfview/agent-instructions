@@ -1,5 +1,6 @@
 //! `builds install`: puts `builds` and `builds-shots` (shots_program.rs) on
-//! PATH and links `builds-linker` to builds (see the `linker` module), creates the shared caches and the links to
+//! PATH and links `builds-linker` and `builds-rustc` to builds (see the
+//! `linker` and `rustc_wrapper` modules), creates the shared caches and the links to
 //! them, writes the sccache config, runs the sccache server under launchd,
 //! points Xcode's default DerivedData at the volume, and copies both
 //! programs to every recorded host. `builds install` runs from a fresh build,
@@ -270,14 +271,16 @@ fn put_on_path(home: &Path) -> Result<bool> {
     require_new_build(&programs.builds, &bin.join("builds"))?;
     put_in(&bin, &programs.shots, crate::shots_program::PROGRAM)?;
     put_in(&bin, &programs.builds, "builds")?;
-    link_linker(home)?;
+    for name in crate::LINKS {
+        link_to_builds(home, name)?;
+    }
     Ok(true)
 }
 
-/// Makes ~/.local/bin/builds-linker a symlink to builds, which runs as the
-/// linker by that name (`linker`).
-fn link_linker(home: &Path) -> Result<()> {
-    let link = crate::linker::path(home);
+/// Makes ~/.local/bin/<name> a symlink to builds, which runs as the program
+/// that name stands for (`crate::LINKS`).
+fn link_to_builds(home: &Path, name: &str) -> Result<()> {
+    let link = home.join(".local/bin").join(name);
     if std::fs::read_link(&link).is_ok_and(|target| target == Path::new("builds")) {
         return Ok(());
     }
@@ -288,10 +291,7 @@ fn link_linker(home: &Path) -> Result<()> {
     }
     std::os::unix::fs::symlink("builds", &link)
         .context(|| format!("linking {} to builds", link.display()))?;
-    note(format!(
-        "linked ~/.local/bin/{} to builds",
-        crate::linker::NAME
-    ));
+    note(format!("linked ~/.local/bin/{name} to builds"));
     Ok(())
 }
 

@@ -562,7 +562,8 @@ fn run_before_here(
 /// Runs cargo here, with the recorder reading its output. When this process's
 /// stderr is no terminal, cargo's messages pass through builds, which times
 /// cargo's waits for its file locks; to a terminal, cargo prints them itself,
-/// with its colors and progress bar.
+/// with its colors and progress bar. cargo compiles through builds-rustc
+/// unless the caller names a wrapper of its own (`rustc_wrapper::cargo_env`).
 fn run_here(
     places: &Places,
     checkout: Option<&Checkout>,
@@ -572,6 +573,8 @@ fn run_here(
 ) -> Result<Exited> {
     let config = role_config(checkout);
     let linker = crate::linker::cargo_config(&places.home);
+    let wrapper =
+        crate::rustc_wrapper::cargo_env(std::env::var_os("RUSTC_WRAPPER").as_deref(), &places.home);
     // Held until cargo has exited and the recorder has read its last line.
     let root = checkout
         .map(|checkout| checkout.build_root(places))
@@ -590,6 +593,7 @@ fn run_here(
         .args(linker)
         .args(&args[subcommand.len()..])
         .env_remove(HOOK_CHECK_VARIABLE)
+        .envs(wrapper.map(|wrapper| ("RUSTC_WRAPPER", wrapper)))
         .stdout(Stdio::piped())
         .stderr(if watch {
             Stdio::piped()

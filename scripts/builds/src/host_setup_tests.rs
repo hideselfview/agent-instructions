@@ -41,11 +41,13 @@ fn install_program_copies_both_programs_to_the_host_and_makes_its_root() {
     );
     assert!(home.join(REMOTE_ROOT).is_dir());
     assert!(!home.join(".local/bin/builds.part").exists());
-    assert_eq!(
-        std::fs::read_link(crate::linker::path(&home)).unwrap(),
-        Path::new("builds"),
-        "builds-linker runs the host's builds"
-    );
+    for name in crate::LINKS {
+        assert_eq!(
+            std::fs::read_link(home.join(".local/bin").join(name)).unwrap(),
+            Path::new("builds"),
+            "{name} runs the host's builds"
+        );
+    }
     // A second install leaves the link as it is.
     install_program(&ssh, &host, &programs).unwrap();
     assert_eq!(
@@ -92,15 +94,19 @@ fn installs_at_the_same_time_on_one_host_all_succeed() {
         std::fs::read(home.join(".local/bin/builds")).unwrap(),
         std::fs::read(&programs.builds).unwrap()
     );
-    assert_eq!(
-        std::fs::read_link(crate::linker::path(&home)).unwrap(),
-        Path::new("builds")
-    );
+    for name in crate::LINKS {
+        assert_eq!(
+            std::fs::read_link(home.join(".local/bin").join(name)).unwrap(),
+            Path::new("builds")
+        );
+    }
     let left: Vec<String> = std::fs::read_dir(home.join(".local/bin"))
         .unwrap()
         .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
         .filter(|name| {
-            name != "builds" && name != crate::linker::NAME && name != crate::shots_program::PROGRAM
+            name != "builds"
+                && !crate::LINKS.contains(&name.as_str())
+                && name != crate::shots_program::PROGRAM
         })
         .collect();
     assert!(left.is_empty(), "{left:?}");

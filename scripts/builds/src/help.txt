@@ -585,7 +585,17 @@ that starts it and fails every compile once that folder is deleted, and the
 Unix-socket mode (SCCACHE_SERVER_UDS) races when clients start at once and
 leaves orphaned servers. sccache never caches build scripts, an incremental
 compile or a crate clippy lints, and a crate that reads OUT_DIR misses in each
-new checkout. sccache hashes each proc-macro a crate names, and ld names a
+new checkout. sccache also hashes the bytes of each library a crate names,
+and a crate that includes a file its build script wrote, as serde does,
+records the OUT_DIR path in its library. So `builds cargo` gives cargo
+~/.local/bin/builds-rustc as RUSTC_WRAPPER (a symlink to builds that `builds
+install` and `builds host setup` make), unless the caller names a wrapper
+other than sccache. builds-rustc runs sccache, and for a crate whose build
+script wrote files into its OUT_DIR it adds
+`--remap-path-prefix=<OUT_DIR>=/OUT_DIR`, so that crate's library is the same
+bytes in every checkout and the crates above it come from the cache. A
+repo's own wrapper, such as bae's clippy wrapper, runs builds-rustc where it
+would run sccache. sccache hashes each proc-macro a crate names, and ld names a
 dylib by its path, so `builds cargo` links this Mac's own target with
 ~/.local/bin/builds-linker (a symlink to builds that `builds install` and
 `builds host setup` make): it runs cc and names each proc-macro dylib
@@ -1109,7 +1119,7 @@ indexes the build root.
                               name `band` for itself, so `add` refuses it.
                               `setup` copies this Mac's builds and
                               builds-shots programs to ~/.local/bin on the
-                              host (both are arm64 macOS), links builds-linker to it there,
+                              host (both are arm64 macOS), links builds-linker and builds-rustc to it there,
                               makes its builds root, and has
                               that copy run `builds host setup-here` there,
                               which records that the Mac is a host (the file
@@ -2416,7 +2426,8 @@ INSTALLING
                               one rename (a failed build leaves the installed
                               ones; install fails when no builds-shots sits
                               beside this builds), link
-                              ~/.local/bin/builds-linker to it, and let the
+                              ~/.local/bin/builds-linker and
+                              ~/.local/bin/builds-rustc to it, and let the
                               waiting commands start. Then create the
                               shared caches and their links (moving a real
                               folder already there onto the volume), write the
