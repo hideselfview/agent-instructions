@@ -123,12 +123,7 @@ fn a_takeover_signal_ends_the_wait_for_the_display() {
     let held = take(&places, "m1", "test one", &|_| (), &|| false)
         .unwrap()
         .unwrap();
-    unsafe {
-        let mut action = std::mem::zeroed::<libc::sigaction>();
-        action.sa_sigaction = interrupt as *const () as libc::sighandler_t;
-        libc::sigemptyset(&mut action.sa_mask);
-        libc::sigaction(libc::SIGUSR2, &action, std::ptr::null_mut());
-    }
+    crate::lock::on_signal_without_restart(libc::SIGUSR2, interrupt);
     let (announced, waiting) = channel();
     let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     let waiter_stop = stop.clone();

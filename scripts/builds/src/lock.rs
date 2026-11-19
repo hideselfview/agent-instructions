@@ -96,6 +96,17 @@ extern "C" fn take_over(_: libc::c_int) {
     pass_on(libc::SIGTERM);
 }
 
+/// Makes <handler> answer <signal>, and a blocking call it interrupts fail
+/// with EINTR instead of starting again.
+pub fn on_signal_without_restart(signal: libc::c_int, handler: extern "C" fn(libc::c_int)) {
+    unsafe {
+        let mut action = std::mem::zeroed::<libc::sigaction>();
+        action.sa_sigaction = handler as *const () as libc::sighandler_t;
+        libc::sigemptyset(&mut action.sa_mask);
+        libc::sigaction(signal, &action, std::ptr::null_mut());
+    }
+}
+
 pub fn cmd_lock(places: &Places, args: &[String]) -> Result<()> {
     const USAGE: &str = "usage: builds lock <repo> [--lane mac|android] <command> [<args>...]";
     let (lane, args) = match args {
@@ -555,12 +566,7 @@ fn take_in(
     queue::route_repoint_signal();
     // Without SA_RESTART, so that a takeover ends a wait for a window lock
     // (window_lock.rs).
-    unsafe {
-        let mut action = std::mem::zeroed::<libc::sigaction>();
-        action.sa_sigaction = take_over as *const () as libc::sighandler_t;
-        libc::sigemptyset(&mut action.sa_mask);
-        libc::sigaction(libc::SIGUSR2, &action, std::ptr::null_mut());
-    }
+    on_signal_without_restart(libc::SIGUSR2, take_over);
     TAKEN_OVER.store(false, Ordering::SeqCst);
     QUEUED.store(true, Ordering::SeqCst);
     let queue = Queue::of(places, repo, lane);

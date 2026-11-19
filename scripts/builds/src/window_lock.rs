@@ -92,6 +92,12 @@ fn wait_for(file: &std::path::Path, stopped: &dyn Fn() -> bool) -> Result<Option
         );
     }
     loop {
+        // A takeover that came before the wait started sent its signal too
+        // early to interrupt it.
+        if stopped() {
+            unsafe { libc::close(fd) };
+            return Ok(None);
+        }
         if unsafe { libc::flock(fd, libc::LOCK_EX) } == 0 {
             return Ok(Some(fd));
         }
@@ -99,10 +105,6 @@ fn wait_for(file: &std::path::Path, stopped: &dyn Fn() -> bool) -> Result<Option
         if error.kind() != std::io::ErrorKind::Interrupted {
             unsafe { libc::close(fd) };
             fail!("locking {}: {error}", file.display());
-        }
-        if stopped() {
-            unsafe { libc::close(fd) };
-            return Ok(None);
         }
     }
 }
