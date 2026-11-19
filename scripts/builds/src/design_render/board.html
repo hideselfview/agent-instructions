@@ -123,7 +123,7 @@ window.addEventListener('message', function (e) {
   var asked = e.data && e.data.designCircles;
   if (e.source !== parent || !Array.isArray(asked)) return;
   drawn.then(function () {
-    parent.postMessage({ designBoxes: { src: location.pathname, found: asked.map(foundBy) } }, '*');
+    parent.postMessage({ designBoxes: { src: location.pathname, found: asked.map(function (s) { return s === null ? { boxes: [] } : foundBy(s); }) } }, '*');
   });
 });
 // The board is drawn once React has drawn it and the fonts are in.

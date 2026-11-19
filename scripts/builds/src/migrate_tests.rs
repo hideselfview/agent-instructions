@@ -839,3 +839,35 @@ fn a_store_from_before_the_judge_told_table_gains_it_and_equals_a_fresh_schema()
         db::schema_rows(&db::memory()).unwrap()
     );
 }
+
+#[test]
+fn the_design_circle_box_stamp_is_the_schema_before_it() {
+    assert_eq!(
+        db::stamp_of_text(&db::schema_before_design_circle_box()),
+        BEFORE_DESIGN_CIRCLE_BOX_STAMP
+    );
+}
+
+/// A store from before the circles around a box gains the empty table and
+/// equals a fresh schema.
+#[test]
+fn a_store_from_before_the_design_circle_box_table_gains_it_and_equals_a_fresh_schema() {
+    let scratch = Scratch::new("move-design-circle-box");
+    let places = scratch.places();
+    let dir = places.lists.join("bae");
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join(DATABASE);
+    {
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(&db::schema_before_design_circle_box())
+            .unwrap();
+        conn.pragma_update(None, "user_version", BEFORE_DESIGN_CIRCLE_BOX_STAMP)
+            .unwrap();
+    }
+    migrate_stores(&places, 0).unwrap();
+    let conn = db::open(&path, db::Make::Never).unwrap();
+    assert_eq!(
+        db::schema_rows(&conn).unwrap(),
+        db::schema_rows(&db::memory()).unwrap()
+    );
+}

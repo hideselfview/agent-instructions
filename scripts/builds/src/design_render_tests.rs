@@ -1,5 +1,5 @@
 use super::*;
-use crate::lists::design::{Circle, ReviewSection};
+use crate::lists::design::{Around, Circle, ReviewSection};
 use crate::lists::fixtures::{db, design_drawn, design_tipped, read};
 use crate::lists::view::design_view;
 use crate::testing::{Scratch, design_system, git, repo};
@@ -535,8 +535,8 @@ fn found(boxes: &[(i64, i64)]) -> Value {
 #[test]
 fn each_circle_marks_what_its_selector_finds_on_each_side_with_its_label() {
     let circles = json!([
-        { "selector": "#disc-1", "label": "The Disc 1 heading goes" },
-        { "selector": ".row:first-child" }
+        { "selector": "#disc-1", "name": "#disc-1", "label": "The Disc 1 heading goes" },
+        { "selector": ".row:first-child", "name": ".row:first-child" }
     ]);
     // The heading is only on now; the first row is on both sides, moved up.
     let now = json!([found(&[(10, 10)]), found(&[(10, 40)])]);
@@ -557,12 +557,36 @@ fn each_circle_marks_what_its_selector_finds_on_each_side_with_its_label() {
 }
 
 #[test]
+fn a_box_circle_marks_its_box_on_each_side_the_page_draws_and_finds_no_selector() {
+    let circles = json!([
+        { "box": { "x": 10, "y": 20, "width": 300, "height": 40 }, "name": "box 10,20 300x40", "label": "The sheet" },
+        { "box": { "x": 1, "y": 2, "width": 3, "height": 4 }, "name": "box 1,2 3x4" },
+        { "selector": ".row", "name": ".row" }
+    ]);
+    // The board page answers an empty list for a box, as it is no selector.
+    let now = json!([found(&[]), found(&[]), found(&[(5, 6)])]);
+    let marks = circle_marks(&circles, &now, &Value::Null);
+    assert_eq!(
+        marks,
+        json!({
+            "now": [
+                { "box": { "x": 10, "y": 20, "w": 300, "h": 40 }, "title": "The sheet" },
+                { "box": { "x": 1, "y": 2, "w": 3, "h": 4 }, "title": "box 1,2 3x4" },
+                { "box": { "x": 5, "y": 6, "w": 100, "h": 20 }, "title": ".row" }
+            ],
+            "proposed": [],
+            "problems": []
+        })
+    );
+}
+
+#[test]
 fn a_circle_that_finds_nothing_or_is_no_selector_is_a_problem_and_a_side_with_no_drawing_is_skipped()
  {
     let circles = json!([
-        { "selector": "#gone" },
-        { "selector": "[[" },
-        { "selector": "#here" }
+        { "selector": "#gone", "name": "#gone" },
+        { "selector": "[[", "name": "[[" },
+        { "selector": "#here", "name": "#here" }
     ]);
     let proposed = json!([
         found(&[]),
@@ -589,7 +613,7 @@ fn the_review_page_gives_each_board_its_circles_and_each_board_page_answers_what
     set_origin_main(&dir, &tip);
     let (mut change, view) = review_of(&dir, &tip);
     let circle = Circle {
-        selector: ".a-only".into(),
+        around: Around::Selector(".a-only".into()),
         label: Some("The greeting".into()),
     };
     change.review.as_mut().unwrap().boards[0].circles = vec![circle];
@@ -598,7 +622,7 @@ fn the_review_page_gives_each_board_its_circles_and_each_board_page_answers_what
     let data = page_data(&page);
     assert_eq!(
         data["section"]["boards"][0]["circles"],
-        json!([{ "selector": ".a-only", "label": "The greeting" }])
+        json!([{ "selector": ".a-only", "label": "The greeting", "name": ".a-only" }])
     );
     assert_eq!(data["section"]["boards"][1]["circles"], json!([]));
     let board = render_board(

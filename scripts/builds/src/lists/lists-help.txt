@@ -628,7 +628,9 @@ sent again.
       "review": {"heading": H, "words": WORDS,
                  "boards": [{"board": BOARD_PATH, "caption": C,
                              "theme": "light" | "dark",
-                             "circles": [{"selector": CSS_SELECTOR,
+                             "circles": [{"selector": CSS_SELECTOR |
+                                          "box": {"x": X, "y": Y,
+                                                  "width": W, "height": H},
                                           "label": WORDS}]}]},
       "no_app_place": WHY, "fix": WHAT, "decision": N}.
       `title` names the part of the app the change draws in a few plain
@@ -681,11 +683,16 @@ sent again.
       board place of the change must be on the page. A board file the range
       deletes needs no answer, link or place on the page: it is listed as
       deleted, and the page shows only its now.
-      `circles` on a board (optional) names what changed on it: the page
-      circles each element that a circle's CSS selector finds, on each side
-      (now and proposed) where the selector finds it, and circles nothing
-      else. To circle an element the board's markup has no selector for,
-      give the element an id or a class in the board. `label` (optional) is
+      `circles` on a board names what changed on it, and a board that the
+      range changes needs at least one (decision #299): one circle per
+      change, around the area that holds it, not one circle on each element
+      in it. A board the range leaves as it is, shown to compare, takes
+      none. A circle gives the `selector` of a containing element or a `box`
+      on the board in pixels (x, y, width, height), and one of them. The page
+      circles each element that a circle's selector finds, on each side (now
+      and proposed) where the selector finds it, and draws a box on each side
+      it draws. To circle an element the board's markup has no selector for,
+      give the element an id or a class in the board, or give a box. `label` (optional) is
       the words the circle shows when the person points at it, which the
       page also lists under the board's caption. The page names each circle
       whose selector is no CSS selector or finds nothing on either side. A
@@ -706,7 +713,7 @@ sent again.
       canvas has no link, a project that publishes none gives `boards`,
       `review` is missing, has a heading with no text or more than 25
       words, a board of it is no file, no board place or has no caption, a
-      circle has no selector or an empty label, a board of the change is not on it, or the range
+      circle has no selector, an empty label or a box with no width or height, or gives both or neither of a selector and a box, a board that the range changes has no circle, a board of the change is not on it, or the range
       changes no design files. A canvas.json the range changes is a place
       to answer like any other, and is no board: it takes no link and no
       place on the review page.

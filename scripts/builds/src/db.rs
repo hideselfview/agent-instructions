@@ -151,6 +151,11 @@ pub const APP_BUILD_STEP_FAILURE_PART: &str = include_str!("app_build_step_failu
 /// build steps said.
 pub const JUDGE_TOLD_PART: &str = include_str!("review/judge_told.sql");
 
+/// The circles of a review board that surround a box
+/// (lists/design_circle_box.sql); the schema holds it after what builds told
+/// the judge.
+pub const DESIGN_CIRCLE_BOX_PART: &str = include_str!("lists/design_circle_box.sql");
+
 /// The whole schema: the lists' tables, then the hook stats', then the
 /// app-build timings', then the design changes' recording sessions', then the
 /// stored shot findings, then the review's, then the hook checks' starting
@@ -162,8 +167,17 @@ pub const JUDGE_TOLD_PART: &str = include_str!("review/judge_told.sql");
 /// the judge's, then the cards' states, then the cargo runs' outcomes, then
 /// the commits of the cargo runs and the app builds, then what the failed
 /// hook checks said, then what the failed app build steps said, then what
-/// builds told the judge.
+/// builds told the judge, then the circles of a review board that surround a
+/// box.
 pub fn schema() -> String {
+    format!(
+        "{}\n{DESIGN_CIRCLE_BOX_PART}",
+        schema_before_design_circle_box()
+    )
+}
+
+/// The schema as it was before the boxes' circles joined it.
+pub fn schema_before_design_circle_box() -> String {
     format!("{}\n{JUDGE_TOLD_PART}", schema_before_judge_told())
 }
 

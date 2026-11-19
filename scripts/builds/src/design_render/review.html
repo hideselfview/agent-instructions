@@ -175,7 +175,7 @@ function drawn(d, pair, which) {
     // what the designer's selectors find (board.html).
     if (pair.circles.length) frame.addEventListener("load", () => {
       entry.found = null;
-      frame.contentWindow.postMessage({designCircles: pair.circles.map(c => c.selector)}, "*");
+      frame.contentWindow.postMessage({designCircles: pair.circles.map(c => c.box ? null : c.selector)}, "*");
     });
   }
   return box;

@@ -511,12 +511,17 @@ implementing agent lands it with the item that built the change (`builds land
      that starts with a verb (decision #297); what changed; each board's
      canvas link (in a project that publishes a canvas); and the review
      page's heading, words and boards, with the
-     circles of each board: a CSS selector for each element that changed,
-     and a label if the circle needs words. Keep the change short: the page
+     circles of each board. Circle one area per change (decision #299): one
+     large circle around the area that holds the change, never a circle on
+     each element in it. A circle takes the CSS selector of a containing
+     element, or a box (x, y, width, height) on the board, and a label if
+     the circle needs words. `builds design record` and `amend` refuse a
+     board the change changes that has no circle; a board the change leaves
+     as it is, shown to compare, takes none. Keep the change short: the page
      has one heading, so record one change per concern, and its words are at
      most 25. Circle what the person must look at, not every element the
      change moves: when one heading goes and every row below it moves up,
-     circle the heading. The change shows in the dashboard's Waiting on you
+     circle the area that holds the heading and the rows. The change shows in the dashboard's Waiting on you
      tab as a card, and its Details opens the review page, which shows each
      board now and proposed side by side, circles on each side the elements
      the selectors find there, and draws it again on each load. To change

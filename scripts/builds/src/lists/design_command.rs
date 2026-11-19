@@ -224,7 +224,9 @@ fn affected_components(scope: &Scope, request: &DesignRequest) -> Result<BTreeSe
 /// Every board on the request's review page is one of the repo's board
 /// places and a file at the range's last commit, which the dashboard draws it
 /// from. A board that is no file on origin/main is new, and its circles mark
-/// what it adds on the page's Proposed side.
+/// what it adds on the page's Proposed side. A board the range changes has a
+/// circle around the area that holds its change; a board it leaves as it is,
+/// shown to compare, has none.
 fn require_review_boards(scope: &Scope, request: &DesignRequest) -> Result<()> {
     if let Some(section) = &request.review {
         for board in &section.boards {
@@ -242,6 +244,12 @@ fn require_review_boards(scope: &Scope, request: &DesignRequest) -> Result<()> {
                     "`review` names {}, which is no file at the range's last commit {}",
                     board.board,
                     scope.tip
+                );
+            }
+            if board.circles.is_empty() && scope.changes.places.contains(&board.board) {
+                fail!(
+                    "`review` shows {}, which the change changes, with no circle: circle the area that holds the change with the `selector` of a containing element or a `box` (x, y, width, height) on the board",
+                    board.board
                 );
             }
         }

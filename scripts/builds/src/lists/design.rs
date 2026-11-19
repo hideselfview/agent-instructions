@@ -86,16 +86,93 @@ pub struct ReviewBoard {
     pub circles: Vec<Circle>,
 }
 
-/// An element the designer circles on a review board: the CSS selector that
-/// finds it on the board's pages, now and proposed, and the words the circle
-/// shows. The page circles every element the selector finds, on each side
-/// where it finds one.
+/// A circle the designer draws on a review board: the area it surrounds and
+/// the words it shows. The review page marks a change with one circle around
+/// the area that holds it, not one on each element in it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde(try_from = "CircleFields", into = "CircleFields")]
 pub struct Circle {
-    pub selector: String,
-    #[serde(default)]
+    pub around: Around,
     pub label: Option<String>,
+}
+
+/// The area a circle surrounds.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Around {
+    /// The elements a CSS selector finds on the board's pages, now and
+    /// proposed: the page circles each one on each side where it finds one.
+    /// A selector for a containing element surrounds the area it holds.
+    Selector(String),
+    /// A box on the board, on each side the page draws.
+    Box(BoardBox),
+}
+
+/// A box on a board, in board pixels: its left and top edge, its width and
+/// its height.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BoardBox {
+    pub x: i64,
+    pub y: i64,
+    pub width: i64,
+    pub height: i64,
+}
+
+impl Circle {
+    /// What the circle surrounds, as a person reads it.
+    pub fn named(&self) -> String {
+        match &self.around {
+            Around::Selector(selector) => selector.clone(),
+            Around::Box(b) => format!("box {},{} {}x{}", b.x, b.y, b.width, b.height),
+        }
+    }
+}
+
+/// A circle's JSON fields: a `selector` or a `box`, and a `label`.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CircleFields {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    selector: Option<String>,
+    #[serde(default, rename = "box", skip_serializing_if = "Option::is_none")]
+    area: Option<BoardBox>,
+    #[serde(default)]
+    label: Option<String>,
+}
+
+impl TryFrom<CircleFields> for Circle {
+    type Error = String;
+
+    /// Refuses a circle that gives both a selector and a box, or neither.
+    fn try_from(fields: CircleFields) -> std::result::Result<Circle, String> {
+        let around = match (fields.selector, fields.area) {
+            (Some(selector), None) => Around::Selector(selector),
+            (None, Some(area)) => Around::Box(area),
+            _ => {
+                return Err(
+                    "a circle gives the `selector` of a containing element or a `box` (x, y, width, height) on the board, and one of them".to_string(),
+                );
+            }
+        };
+        Ok(Circle {
+            around,
+            label: fields.label,
+        })
+    }
+}
+
+impl From<Circle> for CircleFields {
+    fn from(circle: Circle) -> CircleFields {
+        let (selector, area) = match circle.around {
+            Around::Selector(selector) => (Some(selector), None),
+            Around::Box(area) => (None, Some(area)),
+        };
+        CircleFields {
+            selector,
+            area,
+            label: circle.label,
+        }
+    }
 }
 
 /// The heading of a review page, the words under it, and the boards.
@@ -541,16 +618,26 @@ fn check_review(section: &ReviewSection) -> Result<()> {
             );
         }
         for circle in &board.circles {
-            if circle.selector.trim().is_empty() {
-                fail!(
-                    "a circle on the board {} has an empty selector",
-                    board.board
-                );
+            match &circle.around {
+                Around::Selector(selector) if selector.trim().is_empty() => {
+                    fail!(
+                        "a circle on the board {} has an empty selector",
+                        board.board
+                    );
+                }
+                Around::Box(b) if b.width <= 0 || b.height <= 0 => {
+                    fail!(
+                        "the circle {} on the board {} has no width or no height; a box is at least 1 pixel each way",
+                        circle.named(),
+                        board.board
+                    );
+                }
+                _ => {}
             }
             if circle.label.as_ref().is_some_and(|l| l.trim().is_empty()) {
                 fail!(
                     "the circle {} on the board {} has an empty label; leave the label out or say what changed",
-                    circle.selector,
+                    circle.named(),
                     board.board
                 );
             }
@@ -688,10 +775,16 @@ pub fn save(db: &Connection, design: &DesignChange) -> Result<()> {
             )
             .sql()?;
             for (n, circle) in board.circles.iter().enumerate() {
-                db.execute(
-                    "INSERT INTO review_circle (design_id, board, position, selector, label) VALUES (?1, ?2, ?3, ?4, ?5)",
-                    params![design.id, at as i64, n as i64, circle.selector, circle.label],
-                )
+                match &circle.around {
+                    Around::Selector(selector) => db.execute(
+                        "INSERT INTO review_circle (design_id, board, position, selector, label) VALUES (?1, ?2, ?3, ?4, ?5)",
+                        params![design.id, at as i64, n as i64, selector, circle.label],
+                    ),
+                    Around::Box(b) => db.execute(
+                        "INSERT INTO review_circle_box (design_id, board, position, x, y, width, height, label) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                        params![design.id, at as i64, n as i64, b.x, b.y, b.width, b.height, circle.label],
+                    ),
+                }
                 .sql()?;
             }
         }
@@ -1337,10 +1430,10 @@ fn describe(lists: &Lists, design: &DesignChange, closed: Option<&Closed>) -> Re
             for circle in &board.circles {
                 match &circle.label {
                     Some(label) => {
-                        let _ = writeln!(out, "      circles {}: {label}", circle.selector);
+                        let _ = writeln!(out, "      circles {}: {label}", circle.named());
                     }
                     None => {
-                        let _ = writeln!(out, "      circles {}", circle.selector);
+                        let _ = writeln!(out, "      circles {}", circle.named());
                     }
                 }
             }
@@ -1519,26 +1612,63 @@ pub fn read(
             },
         );
     }
-    let mut circles: BTreeMap<(Id, i64), Vec<Circle>> = BTreeMap::new();
+    // A board's circles in the order of their positions, which the two
+    // tables share between them.
+    let mut circles: BTreeMap<(Id, i64), Vec<(i64, Circle)>> = BTreeMap::new();
     let mut statement = db
-        .prepare("SELECT design_id, board, selector, label FROM review_circle ORDER BY design_id, board, position")
+        .prepare(
+            "SELECT design_id, board, position, x, y, width, height, label FROM review_circle_box",
+        )
         .sql()?;
     for row in statement
         .query_map([], |row| {
             Ok((
                 row.get::<_, Id>(0)?,
                 row.get::<_, i64>(1)?,
-                row.get::<_, String>(2)?,
-                row.get::<_, Option<String>>(3)?,
+                row.get::<_, i64>(2)?,
+                BoardBox {
+                    x: row.get(3)?,
+                    y: row.get(4)?,
+                    width: row.get(5)?,
+                    height: row.get(6)?,
+                },
+                row.get::<_, Option<String>>(7)?,
             ))
         })
         .sql()?
     {
-        let (design, board, selector, label) = row.sql()?;
-        circles
-            .entry((design, board))
-            .or_default()
-            .push(Circle { selector, label });
+        let (design, board, position, area, label) = row.sql()?;
+        circles.entry((design, board)).or_default().push((
+            position,
+            Circle {
+                around: Around::Box(area),
+                label,
+            },
+        ));
+    }
+    let mut statement = db
+        .prepare("SELECT design_id, board, position, selector, label FROM review_circle")
+        .sql()?;
+    for row in statement
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, Id>(0)?,
+                row.get::<_, i64>(1)?,
+                row.get::<_, i64>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, Option<String>>(4)?,
+            ))
+        })
+        .sql()?
+    {
+        let (design, board, position, selector, label) = row.sql()?;
+        circles.entry((design, board)).or_default().push((
+            position,
+            Circle {
+                around: Around::Selector(selector),
+                label,
+            },
+        ));
     }
     let mut statement = db
         .prepare("SELECT design_id, position, board, caption, theme FROM review_board ORDER BY design_id, position")
@@ -1569,7 +1699,11 @@ pub fn read(
                 board,
                 caption,
                 theme,
-                circles: circles.remove(&(design, position)).unwrap_or_default(),
+                circles: {
+                    let mut held = circles.remove(&(design, position)).unwrap_or_default();
+                    held.sort_by_key(|(at, _)| *at);
+                    held.into_iter().map(|(_, circle)| circle).collect()
+                },
             });
     }
     let mut tips: BTreeMap<Id, String> = BTreeMap::new();
@@ -1684,7 +1818,7 @@ pub fn read(
 
 /// The tables design.rs owns.
 #[cfg(test)]
-const TABLES: [&str; 12] = [
+const TABLES: [&str; 13] = [
     "design",
     "design_session",
     "design_tip",
@@ -1697,6 +1831,7 @@ const TABLES: [&str; 12] = [
     "review_section",
     "review_board",
     "review_circle",
+    "review_circle_box",
 ];
 
 /// Writes a row of one of design.rs's tables as given, the constraints still

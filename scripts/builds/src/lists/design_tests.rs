@@ -143,11 +143,12 @@ fn draft(title: &str) -> serde_json::Value {
     json!({ "title": title, "area": "Alpha", "details": "do it", "for": "coordinator", "waits": [] })
 }
 
-/// A review page holding <boards>, each in the dark.
+/// A review page holding <boards>, each in the dark with one circle around
+/// its root.
 fn review_of(boards: &[&str]) -> serde_json::Value {
     let boards: Vec<serde_json::Value> = boards
         .iter()
-        .map(|b| json!({ "board": b, "caption": format!("the {b}"), "theme": "dark" }))
+        .map(|b| json!({ "board": b, "caption": format!("the {b}"), "theme": "dark", "circles": [{ "selector": "#r" }] }))
         .collect();
     json!({ "heading": "What changed", "words": "the words under it", "boards": boards })
 }
@@ -835,7 +836,7 @@ fn an_amend_whose_boards_come_out_the_same_keeps_the_approval() {
     assert_eq!(design.tip, Some(w.sha("HEAD")));
 
     let mut new_page = request.clone();
-    new_page["review"] = json!({ "heading": "Other words", "boards": [{ "board": a, "caption": "A", "theme": "light" }] });
+    new_page["review"] = json!({ "heading": "Other words", "boards": [{ "board": a, "caption": "A", "theme": "light", "circles": [{ "selector": "#r" }] }] });
     let amended = w.amend(1, new_page).unwrap();
     assert!(amended.contains("approval is cleared"), "{amended}");
     w.approve(1);
@@ -2148,6 +2149,43 @@ fn every_named_constraint_of_the_design_tables_refuses_its_row() {
         plant(&db, "review_circle", &row(&circle, &[("board", v(1))])),
     );
     plant(&db, "review_circle", &circle).unwrap();
+    let mut boxes = Refusals::new(include_str!("design_circle_box.sql"));
+    let boxed = [
+        ("design_id", v(good.0)),
+        ("board", v(0)),
+        ("position", v(1)),
+        ("x", v(10)),
+        ("y", v(20)),
+        ("width", v(300)),
+        ("height", v(40)),
+    ];
+    boxes.check(
+        "review_circle_box_position_not_negative",
+        plant(
+            &db,
+            "review_circle_box",
+            &row(&boxed, &[("position", v(-1))]),
+        ),
+    );
+    boxes.check(
+        "review_circle_box_width_is_positive",
+        plant(&db, "review_circle_box", &row(&boxed, &[("width", v(0))])),
+    );
+    boxes.check(
+        "review_circle_box_height_is_positive",
+        plant(&db, "review_circle_box", &row(&boxed, &[("height", v(0))])),
+    );
+    boxes.check(
+        "review_circle_box_label_says_something",
+        plant(&db, "review_circle_box", &row(&boxed, &[("label", v(" "))])),
+    );
+    boxes.check_as(
+        "review_circle_box_is_on_a_board",
+        "FOREIGN KEY",
+        plant(&db, "review_circle_box", &row(&boxed, &[("board", v(1))])),
+    );
+    plant(&db, "review_circle_box", &boxed).unwrap();
+    boxes.done();
     refused.covered_without_a_name(&["design_repo_is_the_projects"]);
     refused.done();
 }
@@ -2168,7 +2206,7 @@ fn dropping_a_place_takes_its_board_with_it_and_a_section_its_review_boards_and_
                 caption: "c".into(),
                 theme: Theme::Dark,
                 circles: vec![Circle {
-                    selector: "#disc-1".into(),
+                    around: Around::Selector("#disc-1".into()),
                     label: None,
                 }],
             }],
@@ -2236,13 +2274,17 @@ fn a_review_board_keeps_the_circles_the_designer_names_and_so_does_a_board_the_c
         request
     };
     let before = w.bytes();
-    let refused = message(w.request(with(json!([{ "selector": " " }]), json!([]))));
+    let on_b = json!([{ "selector": "#y" }]);
+    let refused = message(w.request(with(json!([{ "selector": " " }]), on_b.clone())));
     assert!(refused.contains("empty selector"), "{refused}");
-    let refused = message(w.request(with(json!([{ "selector": "#x", "label": " " }]), json!([]))));
+    let refused = message(w.request(with(
+        json!([{ "selector": "#x", "label": " " }]),
+        on_b.clone(),
+    )));
     assert!(refused.contains("empty label"), "{refused}");
     let refused = message(w.request(with(
         json!([{ "selector": "#x", "kind": "moved" }]),
-        json!([]),
+        on_b.clone(),
     )));
     assert!(refused.contains("unknown field `kind`"), "{refused}");
     assert_eq!(w.bytes(), before);
@@ -2258,11 +2300,11 @@ fn a_review_board_keeps_the_circles_the_designer_names_and_so_does_a_board_the_c
         page.boards[0].circles,
         vec![
             Circle {
-                selector: "#disc-1".into(),
+                around: Around::Selector("#disc-1".into()),
                 label: Some("The Disc 1 heading goes".into()),
             },
             Circle {
-                selector: ".row".into(),
+                around: Around::Selector(".row".into()),
                 label: None,
             },
         ]
@@ -2270,7 +2312,7 @@ fn a_review_board_keeps_the_circles_the_designer_names_and_so_does_a_board_the_c
     assert_eq!(
         page.boards[1].circles,
         vec![Circle {
-            selector: ".empty".into(),
+            around: Around::Selector(".empty".into()),
             label: Some("The empty state it adds".into()),
         }],
         "a board that is no file on origin/main takes circles too"
@@ -2294,6 +2336,104 @@ fn a_review_board_keeps_the_circles_the_designer_names_and_so_does_a_board_the_c
     };
     assert!(amend(circles));
     assert!(!amend(json!([{ "selector": "#disc-1" }])));
+}
+
+/// A board the range changes takes a circle; a board it leaves as it is,
+/// shown to compare, takes none. A circle takes the selector of a containing
+/// element or a box on the board, and the page keeps their order.
+#[test]
+fn a_changed_board_needs_a_circle_and_a_circle_takes_a_selector_or_a_box() {
+    let w = world("design-circle-areas");
+    let (a, b) = ("design/mocks/A.dc.html", "design/mocks/B.dc.html");
+    w.commit(&[a]);
+    git(&w.dir, &["tag", "-f", "base"]);
+    git(&w.dir, &["update-ref", "refs/remotes/origin/main", "base"]);
+    // The change adds B and leaves A as it is.
+    w.commit(&[b]);
+    let places = json!({ b: { "matches": "x" } });
+    let page = |on_a: serde_json::Value, on_b: serde_json::Value| {
+        let mut request = base_request(&w, places.clone());
+        request["review"]["boards"] = json!([
+            { "board": a, "caption": "A as it is", "theme": "dark", "circles": on_a },
+            { "board": b, "caption": "B", "theme": "dark", "circles": on_b },
+        ]);
+        request
+    };
+    let before = w.bytes();
+    let refused = message(w.request(page(json!([]), json!([]))));
+    assert!(
+        refused.contains(b) && refused.contains("with no circle") && !refused.contains(a),
+        "{refused}"
+    );
+    for (circle, expect) in [
+        (
+            json!({ "selector": "#x", "box": { "x": 1, "y": 2, "width": 3, "height": 4 } }),
+            "one of them",
+        ),
+        (json!({ "label": "words" }), "one of them"),
+        (
+            json!({ "box": { "x": 1, "y": 2, "width": 0, "height": 4 } }),
+            "no width or no height",
+        ),
+        (json!({ "box": { "x": 1, "y": 2, "width": 3 } }), "height"),
+        (
+            json!({ "box": { "x": 1, "y": 2, "width": 3, "height": 4, "depth": 5 } }),
+            "depth",
+        ),
+    ] {
+        let refused = message(w.request(page(json!([]), json!([circle]))));
+        assert!(refused.contains(expect), "{refused}");
+    }
+    assert_eq!(w.bytes(), before);
+
+    let mixed = json!([
+        { "box": { "x": 10, "y": 20, "width": 300, "height": 40 }, "label": "The sheet" },
+        { "selector": ".sheet" },
+        { "box": { "x": 0, "y": 0, "width": 5, "height": 5 } },
+    ]);
+    w.request(page(json!([]), mixed)).unwrap();
+    let held = w.state().designs[0].review.clone().unwrap();
+    assert!(held.boards[0].circles.is_empty());
+    let around: Vec<Around> = held.boards[1]
+        .circles
+        .iter()
+        .map(|c| c.around.clone())
+        .collect();
+    assert_eq!(
+        around,
+        vec![
+            Around::Box(BoardBox {
+                x: 10,
+                y: 20,
+                width: 300,
+                height: 40
+            }),
+            Around::Selector(".sheet".into()),
+            Around::Box(BoardBox {
+                x: 0,
+                y: 0,
+                width: 5,
+                height: 5
+            }),
+        ]
+    );
+    assert_eq!(
+        held.boards[1].circles[0].label.as_deref(),
+        Some("The sheet")
+    );
+    let shown = w.run("show 1").unwrap();
+    assert!(
+        shown.contains("      circles box 10,20 300x40: The sheet\n")
+            && shown.contains("      circles .sheet\n")
+            && shown.contains("      circles box 0,0 5x5\n"),
+        "{shown}"
+    );
+    // The page's JSON gives a box circle its `box`.
+    let json = serde_json::to_value(&held.boards[1].circles[0]).unwrap();
+    assert_eq!(
+        json,
+        json!({ "box": { "x": 10, "y": 20, "width": 300, "height": 40 }, "label": "The sheet" })
+    );
 }
 
 #[test]

@@ -37,6 +37,7 @@ use serde_json::{Value, json};
 
 use crate::fail;
 use crate::fail::{Context, Result};
+use crate::lists::design::Circle;
 use crate::lists::view::DesignView;
 use crate::lists::{DesignChange, ReviewBoard, Theme};
 
@@ -302,6 +303,14 @@ fn drawing(design: &DesignChange, side: Side, board: &str, src: &str) -> Value {
     }
 }
 
+/// A circle as the review page reads it: its `selector` or `box`, its `label`
+/// and its `name`, which the page shows when the circle has no label.
+fn circle_json(circle: &Circle) -> Value {
+    let mut value = serde_json::to_value(circle).expect("a circle is JSON");
+    value["name"] = json!(circle.named());
+    value
+}
+
 /// <design>'s review page. <view> is the design as the dashboard's lists JSON
 /// has it, which holds the app work its places resolve to. A board whose size
 /// or file can't be read shows as that problem in its place, not as a page
@@ -318,7 +327,7 @@ pub fn review_page(design: &DesignChange, view: &DesignView, project: &str) -> R
                     "path": board.board,
                     "caption": board.caption,
                     "theme": board.theme.word(),
-                    "circles": board.circles,
+                    "circles": board.circles.iter().map(circle_json).collect::<Vec<_>>(),
                     "link": design.boards.get(&board.board).map(|b| b.link.clone()),
                     "now": drawing(design, Side::Now, &board.board, &src),
                     "proposed": drawing(design, Side::Proposed, &board.board, &src),
