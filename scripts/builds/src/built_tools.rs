@@ -41,6 +41,7 @@ use crate::manifest::{BuiltTool, built_tools};
 use crate::places::Places;
 use crate::prune::{Run, prune_listed};
 use crate::remote::{Transport, root_script};
+use crate::setup::Prepare;
 use crate::text::note;
 
 /// The variable that names the toolchain's work folder to `<program> build`.
@@ -145,51 +146,50 @@ pub fn cmd_tool(places: &Places, ssh: &Ssh, args: &[String]) -> Result<()> {
         );
     };
     let env = |name: &str| std::env::var_os(name);
-    let dest = if crate::cargo_run::in_hook(&env) {
-        linked(places, &checkout.top, line)?
+    let prepare = if crate::cargo_run::in_hook(&env) {
+        Prepare::No
     } else {
-        ensure(places, ssh, &checkout.top, line)?
+        Prepare::Yes
     };
+    let dest = ensure(places, ssh, &checkout.top, line, prepare)?;
     println!("{}", dest.display());
     Ok(())
-}
-
-/// Points the checkout's link at the build of tool <line> for <top>'s key
-/// that this Mac already has, for a run a pre-commit hook check started,
-/// which installs, fetches and builds nothing; fails at once, naming
-/// `builds setup`, when this Mac has none.
-pub fn linked(places: &Places, top: &Path, line: &BuiltTool) -> Result<PathBuf> {
-    let key = key(top, line)?;
-    let dest = key_dir(places, &line.name, &key);
-    if !dest.is_dir() {
-        fail!(
-            "this Mac has no build of tool {} for the checkout's key ({} {}), and a hook check builds and copies none. Run `builds setup {}` on the Mac you work on: it builds the key, or copies it from a host, and copies it to every host",
-            line.name,
-            key.toolchain,
-            key.sources,
-            top.display()
-        );
-    }
-    point(&top.join(&line.link), &dest)?;
-    Ok(dest)
 }
 
 /// Puts each tool <top>'s manifest declares in place and links it (setup).
 pub fn ensure_all(places: &Places, ssh: &Ssh, top: &Path) -> Result<()> {
     for line in built_tools(top)? {
-        ensure(places, ssh, top, &line)?;
+        ensure(places, ssh, top, &line, Prepare::Yes)?;
     }
     Ok(())
 }
 
-/// Puts the key of tool <line> that <top> names in place on this Mac, from
-/// another Mac or by building it, and points the checkout's link at it.
-/// Returns the key's folder.
-pub fn ensure(places: &Places, ssh: &Ssh, top: &Path, line: &BuiltTool) -> Result<PathBuf> {
+/// Points the checkout's link at the build of tool <line> for <top>'s key
+/// on this Mac, and returns that folder. With `Prepare::Yes` a missing key
+/// is put in place first, from another Mac or by building it. With
+/// `Prepare::No`, for a run a pre-commit hook check started, which installs,
+/// fetches and builds nothing, a missing key fails at once, naming `builds
+/// setup`.
+pub fn ensure(
+    places: &Places,
+    ssh: &Ssh,
+    top: &Path,
+    line: &BuiltTool,
+    prepare: Prepare,
+) -> Result<PathBuf> {
     let key = key(top, line)?;
     let dest = key_dir(places, &line.name, &key);
     if !dest.is_dir() {
-        obtain(places, ssh, top, line, &key, &dest)?;
+        match prepare {
+            Prepare::Yes => obtain(places, ssh, top, line, &key, &dest)?,
+            Prepare::No => fail!(
+                "this Mac has no build of tool {} for the checkout's key ({} {}), and a hook check builds and copies none. Run `builds setup {}` on the Mac you work on: it builds the key, or copies it from a host, and copies it to every host",
+                line.name,
+                key.toolchain,
+                key.sources,
+                top.display()
+            ),
+        }
     }
     point(&top.join(&line.link), &dest)?;
     Ok(dest)
@@ -438,10 +438,11 @@ fn fetch(places: &Places, ssh: &Ssh, name: &str, key: &Key, toolchain: &Path) ->
 }
 
 /// Copies each key of <top>'s tools that this Mac has to every host that
-/// lacks it (setup), each failure said on stderr.
-pub fn send_to_hosts(places: &Places, ssh: &Ssh, top: &Path) {
-    if !built_tools(top).is_ok_and(|tools| !tools.is_empty()) {
-        return;
+/// lacks it (setup), each failed copy said on stderr. A manifest that can't
+/// be read is an error.
+pub fn send_to_hosts(places: &Places, ssh: &Ssh, top: &Path) -> Result<()> {
+    if built_tools(top)?.is_empty() {
+        return Ok(());
     }
     match other_hosts(places) {
         Ok(hosts) => {
@@ -454,6 +455,7 @@ pub fn send_to_hosts(places: &Places, ssh: &Ssh, top: &Path) {
             error.text()
         )),
     }
+    Ok(())
 }
 
 /// Before a job from <top> runs on <host>: copies there each key of the

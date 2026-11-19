@@ -72,7 +72,7 @@ fn request(what: What, command: &[&str]) -> Request {
         what,
         host: None,
         command: args(command),
-        prepare: true,
+        prepare: crate::setup::Prepare::Yes,
     }
 }
 
@@ -106,7 +106,7 @@ fn parses_a_request() {
             what: What::Ref("origin/main".to_string()),
             host: Some("m1".to_string()),
             command: args(&["ls", "-l"]),
-            prepare: true,
+            prepare: crate::setup::Prepare::Yes,
         }
     );
     let staged = parse(&args(&["run", "bae", "--staged", "--", "true"])).unwrap();
@@ -534,7 +534,7 @@ fn a_hook_checks_job_sets_its_worktree_up_without_preparing_it() {
     let s = setup("remote-setup-hook");
     let places = s.scratch.places();
     let mut job = request(What::Ref("main".to_string()), &["true"]);
-    job.prepare = false;
+    job.prepare = crate::setup::Prepare::No;
     assert_eq!(
         run_job(&places, &s.ssh, &s.host, &s.source, &job).unwrap(),
         0

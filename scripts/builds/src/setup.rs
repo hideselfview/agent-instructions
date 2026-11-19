@@ -211,8 +211,7 @@ pub fn setup_with(tool: &Tool, ssh: &Ssh, checkout: &Checkout, prepare: Prepare)
     // Last, so what they install or build lands after the floor is kept.
     self::prepare(&checkout.top)?;
     crate::built_tools::ensure_all(&tool.places, ssh, &checkout.top)?;
-    crate::built_tools::send_to_hosts(&tool.places, ssh, &checkout.top);
-    Ok(())
+    crate::built_tools::send_to_hosts(&tool.places, ssh, &checkout.top)
 }
 
 /// Runs each program the `prepare` lines of <top>'s manifest name, in its

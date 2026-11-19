@@ -3,6 +3,7 @@ use std::os::unix::fs::PermissionsExt;
 use super::*;
 use crate::checkout::Checkout;
 use crate::host::tests::fake_ssh;
+use crate::setup::Prepare;
 use crate::testing::{Scratch, git, repo};
 
 const MANIFEST: &str = "target 1G\ntool lints tool.sh built\n";
@@ -96,7 +97,7 @@ fn builds_a_missing_key_once_and_links_every_checkout_to_it() {
         std::fs::copy(main.join(file), side.join(file)).unwrap();
     }
 
-    let dest = ensure(&places, &no_ssh(), &main, &line).unwrap();
+    let dest = ensure(&places, &no_ssh(), &main, &line, Prepare::Yes).unwrap();
     assert_eq!(dest, key_dir(&places, "lints", &key_of("tc1 src1")));
     assert!(dest.join("tool").is_file());
     assert_eq!(std::fs::read_link(main.join("built")).unwrap(), dest);
@@ -106,7 +107,10 @@ fn builds_a_missing_key_once_and_links_every_checkout_to_it() {
         "the build ran its check before it took its place"
     );
 
-    assert_eq!(ensure(&places, &no_ssh(), &side, &line).unwrap(), dest);
+    assert_eq!(
+        ensure(&places, &no_ssh(), &side, &line, Prepare::Yes).unwrap(),
+        dest
+    );
     assert_eq!(std::fs::read_link(side.join("built")).unwrap(), dest);
     assert_eq!(
         builds_count(&places, "tc1"),
@@ -115,7 +119,7 @@ fn builds_a_missing_key_once_and_links_every_checkout_to_it() {
     );
 
     std::fs::write(side.join("key.txt"), "tc1 src2\n").unwrap();
-    let other = ensure(&places, &no_ssh(), &side, &line).unwrap();
+    let other = ensure(&places, &no_ssh(), &side, &line, Prepare::Yes).unwrap();
     assert_eq!(other, key_dir(&places, "lints", &key_of("tc1 src2")));
     assert_eq!(std::fs::read_link(side.join("built")).unwrap(), other);
     assert_eq!(builds_count(&places, "tc1"), 2);
@@ -131,7 +135,7 @@ fn a_build_whose_check_fails_never_takes_its_place() {
         "tc1 src1",
         "#!/bin/sh\necho no toolchain >&2\nexit 1\n",
     );
-    let Err(Fail::Message(message)) = ensure(&places, &no_ssh(), &top, &line) else {
+    let Err(Fail::Message(message)) = ensure(&places, &no_ssh(), &top, &line, Prepare::Yes) else {
         panic!("a failing check passed");
     };
     assert!(message.contains("no toolchain"), "{message}");
@@ -174,7 +178,7 @@ fn copies_a_key_from_a_host_that_has_it_instead_of_building_it() {
     std::fs::write(remote.join("tool"), "tool\n").unwrap();
     executable(&remote.join("check"), PASSING);
 
-    let dest = ensure(&places, &ssh, &top, &line).unwrap();
+    let dest = ensure(&places, &ssh, &top, &line, Prepare::Yes).unwrap();
     assert_eq!(
         std::fs::read_to_string(dest.join("tool")).unwrap(),
         "tool\n"
@@ -198,7 +202,7 @@ fn sends_a_key_the_host_lacks_and_checks_it_there() {
     let top = scratch.dir.join("demo");
     let line = tool_repo(&top, "tc1 src1", PASSING);
     let (ssh, host, there) = host_m1(&scratch, &places);
-    let here = ensure(&places, &no_ssh(), &top, &line).unwrap();
+    let here = ensure(&places, &no_ssh(), &top, &line, Prepare::Yes).unwrap();
 
     send_to(&places, &ssh, &host, &top);
     let remote = there.join("tc1/src1");
@@ -352,7 +356,7 @@ fn a_rejected_copy_builds_cannot_delete_is_an_error() {
         "#!/bin/sh\nmkdir locked && touch locked/file && chmod 555 locked\nexit 1\n",
     );
 
-    let Err(Fail::Message(message)) = ensure(&places, &ssh, &top, &line) else {
+    let Err(Fail::Message(message)) = ensure(&places, &ssh, &top, &line, Prepare::Yes) else {
         panic!("a copy that could not be deleted passed");
     };
     assert!(
@@ -404,7 +408,7 @@ fn a_failed_build_builds_cannot_delete_says_both_failures() {
         &top.join("tool.sh"),
         "#!/bin/sh\ncase \"$1\" in\nkey) cat key.txt ;;\nbuild) mkdir \"$2/locked\" && touch \"$2/locked/file\" && chmod 555 \"$2/locked\"; echo no compiler >&2; exit 4 ;;\nesac\n",
     );
-    let Err(Fail::Message(message)) = ensure(&places, &no_ssh(), &top, &line) else {
+    let Err(Fail::Message(message)) = ensure(&places, &no_ssh(), &top, &line, Prepare::Yes) else {
         panic!("a failed build passed");
     };
     assert!(message.contains("build failed"), "{message}");
@@ -424,7 +428,7 @@ fn a_hook_check_only_links_a_build_this_mac_has() {
     let places = scratch.places();
     let top = scratch.dir.join("demo");
     let line = tool_repo(&top, "tc1 src1", PASSING);
-    let Err(Fail::Message(message)) = linked(&places, &top, &line) else {
+    let Err(Fail::Message(message)) = ensure(&places, &no_ssh(), &top, &line, Prepare::No) else {
         panic!("a missing build passed");
     };
     assert!(message.contains("builds setup"), "{message}");
@@ -435,9 +439,12 @@ fn a_hook_check_only_links_a_build_this_mac_has() {
     );
     assert!(!top.join("built").exists());
 
-    let dest = ensure(&places, &no_ssh(), &top, &line).unwrap();
+    let dest = ensure(&places, &no_ssh(), &top, &line, Prepare::Yes).unwrap();
     std::fs::remove_file(top.join("built")).unwrap();
-    assert_eq!(linked(&places, &top, &line).unwrap(), dest);
+    assert_eq!(
+        ensure(&places, &no_ssh(), &top, &line, Prepare::No).unwrap(),
+        dest
+    );
     assert_eq!(std::fs::read_link(top.join("built")).unwrap(), dest);
 }
 
@@ -471,4 +478,18 @@ fn setup_copies_this_macs_builds_to_each_host_and_without_prepare_does_nothing_o
         there.join("tc1/src1/tool").is_file(),
         "setup copied nothing to the host"
     );
+}
+
+#[test]
+fn copying_to_the_hosts_fails_on_a_manifest_it_cannot_read() {
+    let scratch = Scratch::new("tools-send-unread");
+    let places = scratch.places();
+    let top = scratch.dir.join("demo");
+    tool_repo(&top, "tc1 src1", PASSING);
+    let (ssh, _, _) = host_m1(&scratch, &places);
+    std::fs::write(top.join(".build-dirs"), "target 1G\ntool lints\n").unwrap();
+    let Err(Fail::Message(message)) = send_to_hosts(&places, &ssh, &top) else {
+        panic!("an unread manifest counted as no tools");
+    };
+    assert!(message.contains("'tool' takes a name"), "{message}");
 }

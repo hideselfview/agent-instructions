@@ -504,7 +504,11 @@ pub fn start<'a>(
     }
     let request = Request {
         repo: checkout.repo(),
-        prepare: !hook,
+        prepare: if hook {
+            crate::setup::Prepare::No
+        } else {
+            crate::setup::Prepare::Yes
+        },
         what: What::Working,
         host: None,
         command: host_command(args, checkout, env),

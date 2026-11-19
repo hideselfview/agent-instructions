@@ -30,6 +30,7 @@ use crate::fail::{Context, Fail, Result};
 use crate::host::{self, Host, REMOTE_ROOT, Ssh, VOLUME, choose, clone_path, sh_quote};
 use crate::job_claim::Holders;
 use crate::places::Places;
+use crate::setup::Prepare;
 use crate::text::note;
 use crate::tool::Tool;
 use boards::{git, git_text};
@@ -82,10 +83,10 @@ pub struct Request {
     pub what: What,
     pub host: Option<String>,
     pub command: Vec<String>,
-    /// Does the host's setup of the worktree prepare it (the repo's
-    /// `prepare` programs and tools, setup.rs)? Not for a job a pre-commit
-    /// hook check started.
-    pub prepare: bool,
+    /// Whether the host's setup of the worktree prepares it (the repo's
+    /// `prepare` programs and tools, setup.rs): `Prepare::No` for a job a
+    /// pre-commit hook check started.
+    pub prepare: Prepare,
 }
 
 pub fn parse(args: &[String]) -> Result<Request> {
@@ -138,7 +139,7 @@ pub fn parse(args: &[String]) -> Result<Request> {
         what,
         host,
         command: command.to_vec(),
-        prepare: true,
+        prepare: Prepare::Yes,
     })
 }
 
@@ -451,7 +452,7 @@ fn claim_script(
     sha: &str,
     id: &str,
     holders: &Holders,
-    prepare: bool,
+    prepare: Prepare,
 ) -> String {
     format!(
         r#"{root}{claims}set -e
@@ -493,7 +494,10 @@ echo "worktree=$wt""#,
         pinned = sh_quote(pinned),
         sha = sh_quote(sha),
         id = sh_quote(id),
-        setup_flags = if prepare { "" } else { "--no-prepare " },
+        setup_flags = match prepare {
+            Prepare::Yes => "",
+            Prepare::No => "--no-prepare ",
+        },
     )
 }
 
