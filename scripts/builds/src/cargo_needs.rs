@@ -39,28 +39,25 @@ pub fn macos_package(args: &[String], checkout: &Checkout, dir: &Path) -> Result
 /// The packages cargo's own arguments name (those before any `--`).
 #[derive(Debug, Default, PartialEq)]
 struct Selection {
+    /// Those `-p` and `--package` name (`cargo_run_crate::named`).
     named: Vec<String>,
     workspace: bool,
     excluded: Vec<String>,
 }
 
 fn selection(args: &[String]) -> Selection {
-    let mut selected = Selection::default();
+    let mut selected = Selection {
+        named: crate::cargo_run_crate::named(args),
+        ..Selection::default()
+    };
     let mut words = args.iter().take_while(|arg| *arg != "--");
     while let Some(word) = words.next() {
-        let (flag, value) = match word.split_once('=') {
-            Some((flag, value)) => (flag, Some(value.to_string())),
-            None => (word.as_str(), None),
-        };
-        let mut value = || value.clone().or_else(|| words.next().cloned());
-        match flag {
-            "-p" | "--package" => selected.named.extend(value()),
-            "--exclude" => selected.excluded.extend(value()),
+        match word.as_str() {
+            "--exclude" => selected.excluded.extend(words.next().cloned()),
             "--workspace" | "--all" => selected.workspace = true,
-            short if short.starts_with("-p") && short.len() > 2 => {
-                selected.named.push(short[2..].to_string())
-            }
-            _ => {}
+            other => selected
+                .excluded
+                .extend(other.strip_prefix("--exclude=").map(str::to_string)),
         }
     }
     selected

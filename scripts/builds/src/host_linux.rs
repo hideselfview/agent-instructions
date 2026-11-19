@@ -193,29 +193,22 @@ pub fn install_builds(ssh: &Ssh, host: &Host) -> Result<String> {
     let script = format!(
         r#"{root}set -e
 share="$HOME/.local/share/builds"
+bin="$HOME/.local/bin"
+links=
 new=$(mktemp -d)
-trap 'rm -rf "$new"' EXIT
+trap 'rm -rf "$new" $links' EXIT
 tar -xf - -C "$new"
-mkdir -p "$share/source" "$HOME/.local/bin" "$BUILDS_ROOT"
+mkdir -p "$share/source" "$bin" "$BUILDS_ROOT"
 rsync -rc --delete "$new/" "$share/source/"
 cargo build --release --locked --quiet --manifest-path "$share/source/builds/Cargo.toml" --target-dir "$share/target" >&2
-part=$(mktemp "$HOME/.local/bin/builds.XXXXXX")
+part=$(mktemp "$bin/builds.XXXXXX")
 cp "$share/target/release/builds" "$part"
 chmod 755 "$part"
-mv "$part" "$HOME/.local/bin/builds"
-for name in {links}; do
-  link=$(mktemp -u "$HOME/.local/bin/$name.XXXXXX")
-  ln -s builds "$link"
-  mv -T "$link" "$HOME/.local/bin/$name"
-done
-echo "version=$("$HOME/.local/bin/builds" version)"
+mv "$part" "$bin/builds"{links}
+echo "version=$("$bin/builds" version)"
 echo "root=$BUILDS_ROOT""#,
         root = crate::remote::root_script(host),
-        links = crate::links::LINKS
-            .iter()
-            .map(|link| link.name)
-            .collect::<Vec<_>>()
-            .join(" ")
+        links = crate::host_setup::link_steps()
     );
     let printed = crate::host_setup::send(ssh, host, "builds' sources", crate::SOURCE, &script)?;
     let built = host::answer_value(&printed, "version").unwrap_or("");

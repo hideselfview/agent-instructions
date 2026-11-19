@@ -141,15 +141,7 @@ pub fn install_program(ssh: &Ssh, host: &Host, programs: &Programs) -> Result<St
             "bin=\"$HOME/.local/bin\" && mkdir -p \"$bin\" && part=$(mktemp \"$bin/{shots}.XXXXXX\") && trap 'rm -f \"$part\"' EXIT && cat > \"$part\" && chmod 755 \"$part\" && mv \"$part\" \"$bin/{shots}\""
         ),
     )?;
-    let links: String = crate::links::LINKS
-        .iter()
-        .map(|link| {
-            let name = link.name;
-            format!(
-                " && link=$(mktemp -u \"$bin/{name}.XXXXXX\") && links=\"$links $link\" && ln -s builds \"$link\" && mv \"$link\" \"$bin/{name}\""
-            )
-        })
-        .collect();
+    let links = link_steps();
     send(
         ssh,
         host,
@@ -160,6 +152,22 @@ pub fn install_program(ssh: &Ssh, host: &Host, programs: &Programs) -> Result<St
             root = crate::remote::root_script(host)
         ),
     )
+}
+
+/// The shell steps, each after `&&`, that link each name of `links::LINKS`
+/// to builds in `$bin`, each under a name of its own renamed into place. Each
+/// step adds its link's name to `$links`, which the caller's script deletes
+/// when it exits, so a link a failed step left goes too.
+pub fn link_steps() -> String {
+    crate::links::LINKS
+        .iter()
+        .map(|link| {
+            let name = link.name;
+            format!(
+                " && link=$(mktemp -u \"$bin/{name}.XXXXXX\") && links=\"$links $link\" && ln -s builds \"$link\" && mv \"$link\" \"$bin/{name}\""
+            )
+        })
+        .collect()
 }
 
 /// Runs <script> on <host> with <bytes>, which hold <name>, on its stdin,

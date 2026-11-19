@@ -156,11 +156,7 @@ const SYSTEMD_PROPERTIES: [&str; 4] = ["LoadState", "SubState", "MainPID", "Exec
 /// the server runs), its main process and the status that process last
 /// exited with.
 pub fn parse_systemd_job(text: &str) -> Result<Option<Job>> {
-    let field = |key: &str| {
-        text.lines()
-            .find_map(|line| line.strip_prefix(key)?.strip_prefix('='))
-            .map(str::trim)
-    };
+    let field = |key: &str| crate::host::answer_value(text, key);
     let Some(load) = field("LoadState") else {
         fail!("systemctl show printed no LoadState for the unit: {text:?}");
     };
