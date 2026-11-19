@@ -44,7 +44,7 @@ the pink accent, the ones a new installation starts with, in Dark and Light;
   measured from NSColor.secondaryLabelColor), which follows Increase Contrast
   and translucent backgrounds there; the Mac code uses it directly.
   `text-secondary` is Android's. Every Mac window draws the system colour, and a
-  Mac part board or preview outside a window is marked `bae-mac`.
+  Mac shared board or preview outside a window is marked `bae-mac`.
 - The text styles are macOS points. iOS follows Dynamic Type, and the Android
   components set Android's sizes. No font files ship: each platform uses its own
   face. `title`, `hero` and `display` are for pages and the welcome screen, not

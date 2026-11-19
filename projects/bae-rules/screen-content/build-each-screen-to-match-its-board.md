@@ -1,5 +1,5 @@
 ---
-digest: Every board draws the app as it should be, never as the app is today; the app changes to match the board, and a board never copies the app's words, sizes, names or layout. For a change the person decided to an existing screen that existing design-system parts can draw, the implementing agent edits the board in the same commit and names the decision; the design session draws new screens, new layouts and new or changed parts. A plan that builds a board transcribes its markup; every built board has a shot of the real view, named from its board or component and checked by a program, never by reading pictures. Screens show one thing, put the action under what it acts on, wait without a button, use design-system parts, and take every colour from the design system.
+digest: Every board draws the app as it should be, never as the app is today; the app changes to match the board, and a board never copies the app's words, sizes, names or layout. For a change the person decided to an existing screen that existing design-system components can draw, the implementing agent edits the board in the same commit and names the decision; the design session draws new screens, new layouts and new or changed components. A plan that builds a board transcribes its markup; every built board has a shot of the real view, named from its board or component and checked by a program, never by reading pictures. Screens show one thing, put the action under what it acts on, wait without a button, use design-system components, and take every colour from the design system.
 paths:
   - design/**
   - bae-macos/**
@@ -33,10 +33,10 @@ A board changes only in these cases, and the commit says which:
   guidelines).
 
 When the person decides a change to an existing screen that the design system's
-existing parts can draw, such as new words or a button added to an alert, the
-implementing agent edits the board in the same commit and names the decision.
-The design session draws new screens, new layouts, and anything that needs a new
-part or a change to the design system.
+existing components can draw, such as new words or a button added to an alert,
+the implementing agent edits the board in the same commit and names the
+decision. The design session draws new screens, new layouts, and anything that
+needs a new component or a change to the design system.
 
 ### Laying out a screen
 
@@ -62,10 +62,10 @@ part or a change to the design system.
     nothing about.
   - When the wait ends, the next screen says so and what to do.
 - Anything that appears on more than one screen (a code, a step's layout, a row
-  of buttons) is a design-system part, used everywhere it appears.
+  of buttons) is a design-system component, used everywhere it appears.
   - Drawing it by hand on a board is a bug, even when the pixels match.
-  - Before you add a part, look for one the design system has, and use or extend
-    it.
+  - Before you add a component, look for one the design system has, and use or
+    extend it.
 - Every colour an app shows comes from the design system: the accent the person
   chose, the surfaces, the text.
   - None comes from the platform (the Mac's accent, Material's dynamic colour).

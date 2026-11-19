@@ -672,7 +672,7 @@ sent again.
       without `fix` makes the change wait on the person's review again.
       `decision` is the id of the decision in the log in which the person
       decided the change a board edit draws: a change to an existing screen
-      that the design system's existing parts can draw, such as new words or
+      that the design system's existing components can draw, such as new words or
       a button added to an alert. The implementing agent edits the board in
       the commit that builds the change and records the edit with
       `decision`. The decision is the person's approval, so the change needs

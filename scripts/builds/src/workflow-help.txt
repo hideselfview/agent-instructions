@@ -21,14 +21,14 @@ builds tells it of each review's findings to settle, and only it and the
 person give a verdict on a finding (REVIEW). When no judge listens, the
 coordinator settles them. A design session
 draws the boards (pictures of screens, kept in the repo) that the apps are
-built to match: new screens, new layouts, and anything that needs a new part or
+built to match: new screens, new layouts, and anything that needs a new component or
 a change to the design system. It takes its items from `builds next --for
 design-session`, from the top, in the order the coordinator takes its own. When
 it starts, it runs `builds design listen --project P` for each project it draws
 for, so that the dashboard can pass the person's publish requests to it
 (PUBLISHING DESIGNS).
 When the person decides a change to an existing screen that the design system's
-existing parts can draw, such as new words or a button added to an alert, the
+existing components can draw, such as new words or a button added to an alert, the
 implementing agent edits the board in the same commit and names the decision. "Design" alone is ambiguous: write "board" or
 "product design" for screens and how they look, and "software plan" for the
 shape of code and data.
@@ -478,6 +478,41 @@ commits unless a finished review read the branch's net change as it is now.
     BEHIND (the checkout is not on main, or the person's commits or uncommitted
     edits there stop the fast-forward), tell the person and give them the
     command it prints; never stash or reset their edits.
+
+
+DESIGN TERMS
+
+Agents use one word for each design thing (decision #309), in chat, items,
+briefs, review pages and commit messages, and no other word for it:
+
+  - board: a picture of one screen of an app, kept in the repo
+    (design/mocks/<name>.dc.html). The app is built to match it.
+  - shared board: a board that draws one piece several screens show, such as a
+    row or a sheet. The canvas shows it on its Shared page.
+  - canvas: the published page on claude.ai that shows every board. The
+    repo's boards are its source (PUBLISHING DESIGNS).
+  - design system: the tokens and the components, in design/system.
+  - token: a named color, size or type style in the design system
+    (design/system/tokens.json).
+  - component: a reusable piece that boards are built from, such as a row or
+    a button.
+  - preview: a picture of one component on its own, drawn in each of its
+    configurations.
+  - design change: one concern that the person reviews and approves, recorded
+    with `builds design record` (DESIGN CHANGES).
+  - review page: the page where the person reviews a design change. It shows
+    each board now and proposed, with one circle around what changed.
+  - round: one redraw of the boards on a review page, after the person asks
+    for a change.
+  - approve: the person's approval of a design change, which lets it land.
+  - land: put a design change's commits on main with `builds land`, as for
+    any branch.
+  - shot: a test's screenshot of the real app view, which a program compares
+    with its board.
+  - app work: the work that makes the app match a landed design change.
+
+"Part", "mock", "mockup" and "card" never name a component. Say "component"
+for a reusable piece and "shared board" for the board that draws one.
 
 
 DESIGN CHANGES
