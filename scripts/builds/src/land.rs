@@ -742,7 +742,8 @@ impl Landing<'_> {
         }
         let squashed = match crate::land_squash::squash(&self.workdir, &self.request.shas, &title) {
             Ok(squashed) => squashed,
-            Err(said) => {
+            Err(error) => {
+                let said = error.text();
                 return Err(refuse(
                     out,
                     format!(
