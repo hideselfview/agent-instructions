@@ -1,4 +1,5 @@
 use super::*;
+use crate::review::record::{Change, add_landing};
 use crate::testing::Scratch;
 use rusqlite::Connection;
 use std::os::unix::fs::MetadataExt;
@@ -539,23 +540,41 @@ fn the_landing_repo_stamp_is_the_schema_before_landings_were_found_by_repo() {
 }
 
 /// A store from before builds found a review's landing by its repo and key,
-/// written as <rows>, with that schema's text and stamp.
-fn store_before_landing_repo(places: &Places, rows: &str) -> std::path::PathBuf {
+/// with that schema's text and stamp: project `bae` over repos `bae` and
+/// `coven`, and an open landing of `branch:work` for each repo that
+/// <landings> names, opened at 1, 2 and on. The owners' own writes make the
+/// rows, since that schema's tables of the project and the landings are
+/// today's.
+fn store_before_landing_repo(places: &Places, landings: &[&str]) -> std::path::PathBuf {
     let dir = places.lists.join("bae");
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join(DATABASE);
     let conn = Connection::open(&path).unwrap();
     conn.execute_batch(&before_landing_repo(db::schema_before_card_state()))
         .unwrap();
-    conn.execute_batch(rows).unwrap();
+    crate::lists::project::init(
+        &conn,
+        &crate::lists::project::NewProject {
+            name: "bae".into(),
+            canvas: true,
+            repos: vec!["bae".into(), "coven".into()],
+            places: Default::default(),
+            sources: Default::default(),
+            specs: Default::default(),
+        },
+    )
+    .unwrap();
+    for (at, repo) in (1..).zip(landings) {
+        let change = Change {
+            repo,
+            key: "branch:work",
+        };
+        add_landing(&conn, change, at).unwrap();
+    }
     conn.pragma_update(None, "user_version", BEFORE_LANDING_REPO_STAMP)
         .unwrap();
     path
 }
-
-/// The repos `bae` and `coven`, and open landings of `branch:work` in each.
-const LANDINGS_IN_TWO_REPOS: &str = "INSERT INTO repo (name) VALUES ('bae'), ('coven');
-INSERT INTO review_landing (key, repo, opened_at) VALUES ('branch:work', 'bae', 1), ('branch:work', 'coven', 2);";
 
 /// A store from before builds found a review's landing by its repo and key
 /// gains the indexes that find it so, keeps its landings, and equals a fresh
@@ -564,7 +583,7 @@ INSERT INTO review_landing (key, repo, opened_at) VALUES ('branch:work', 'bae', 
 fn a_store_from_before_landings_were_found_by_repo_gains_their_indexes() {
     let scratch = Scratch::new("move-landing-repo");
     let places = scratch.places();
-    let path = store_before_landing_repo(&places, LANDINGS_IN_TWO_REPOS);
+    let path = store_before_landing_repo(&places, &["bae", "coven"]);
     migrate_stores(&places, 0).unwrap();
     let conn = db::open(&path, db::Make::Never).unwrap();
     assert_eq!(
@@ -575,13 +594,11 @@ fn a_store_from_before_landings_were_found_by_repo_gains_their_indexes() {
         .query_row("SELECT count(*) FROM review_landing", [], |row| row.get(0))
         .unwrap();
     assert_eq!(landings, 2);
-    let second = conn
-        .execute(
-            "INSERT INTO review_landing (key, repo, opened_at) VALUES ('branch:work', 'bae', 3)",
-            [],
-        )
-        .unwrap_err()
-        .to_string();
+    let change = Change {
+        repo: "bae",
+        key: "branch:work",
+    };
+    let second = add_landing(&conn, change, 3).unwrap_err().text();
     assert!(second.contains("UNIQUE constraint failed"), "{second}");
 }
 
@@ -591,11 +608,7 @@ fn a_store_from_before_landings_were_found_by_repo_gains_their_indexes() {
 fn a_store_with_two_open_landings_of_one_change_is_left_as_it_was() {
     let scratch = Scratch::new("move-landing-repo-twice");
     let places = scratch.places();
-    let path = store_before_landing_repo(
-        &places,
-        "INSERT INTO repo (name) VALUES ('bae');
-INSERT INTO review_landing (key, repo, opened_at) VALUES ('branch:work', 'bae', 1), ('branch:work', 'bae', 2);",
-    );
+    let path = store_before_landing_repo(&places, &["bae", "bae"]);
     let refused = migrate_stores(&places, 0).unwrap_err().text();
     assert!(refused.contains("UNIQUE constraint failed"), "{refused}");
     let conn = Connection::open(&path).unwrap();
