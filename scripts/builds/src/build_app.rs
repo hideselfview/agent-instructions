@@ -2,7 +2,8 @@
 //! in an app checkout of the platform's lane (lane.rs), whose build stays
 //! warm, taking turns on that lane's app lock. Nothing is opened. The Mac
 //! build takes a checkout on this Mac or on a host, as `builds app-build`
-//! does, and a build on a host copies the built app back here. The Mac app is
+//! does, except when its command is a step that a `here` line names, which
+//! takes only a checkout on this Mac, and a build on a host copies the built app back here. The Mac app is
 //! copied out to `~/Applications/<repo>-test`, since the next build there
 //! replaces it, in place of the copy there, the running one quit first. The
 //! Android build is the repo's own script, which installs the app where it
@@ -13,6 +14,7 @@ use std::process::Command;
 use std::thread::sleep;
 use std::time::Duration;
 
+use crate::app_build::config_at;
 use crate::app_config::{CONFIG, Config, MacApp, run_command};
 use crate::app_site::Site;
 use crate::fail;
@@ -51,11 +53,20 @@ impl Platform {
     }
 
     /// Which of the lane's checkouts the build may take: the Mac build, on
-    /// any host's too, since the build copies its app back here; the Android
-    /// build installs the app on the device of the Mac it runs on.
-    fn allowed(self) -> Where {
+    /// any host's too, since the build copies its app back here, unless its
+    /// command is one a `here` line names (a step only this Mac can run, such
+    /// as the signed app); the Android build installs the app on the device
+    /// of the Mac it runs on.
+    fn allowed(self, config: &Config) -> Where {
         match self {
-            Platform::Mac => Where::Anywhere,
+            Platform::Mac => {
+                let command = config.mac.as_ref().map(|mac| &mac.build);
+                let here = config
+                    .steps
+                    .iter()
+                    .any(|step| step.place == Where::Here && Some(&step.command) == command);
+                if here { Where::Here } else { Where::Anywhere }
+            }
             Platform::Android => Where::Here,
         }
     }
@@ -218,12 +229,13 @@ pub fn cmd_build_app(tool: &Tool, args: &[String]) -> Result<()> {
         platform.word(),
         platform.word()
     ));
+    let allowed = platform.allowed(&config_at(places, repo, commit)?);
     let mut held = lock::take_where(
         places,
         &ssh,
         repo,
         platform.lane(),
-        platform.allowed(),
+        allowed,
         tool.rules.floor_kib,
     )?;
     // A takeover stops the build; it runs again from a checkout, behind the

@@ -102,7 +102,15 @@ fn no_ref_builds_the_origin_main_the_fetch_brought_not_a_stale_local_main() {
 }
 
 #[test]
-fn the_mac_build_may_take_a_hosts_checkout_and_the_android_build_may_not() {
-    assert_eq!(Platform::Mac.allowed(), Where::Anywhere);
-    assert_eq!(Platform::Android.allowed(), Where::Here);
+fn the_mac_build_may_take_a_hosts_checkout_unless_it_runs_a_here_step() {
+    let mac = "mac build ./run.sh --no-open\nmac app out.app\nmac bundle demo.test\nstep mac signed ./run.sh --no-open\n";
+    let free = parse_config(mac).unwrap();
+    assert_eq!(Platform::Mac.allowed(&free), Where::Anywhere);
+
+    let here = parse_config(&format!("{mac}here signed\n")).unwrap();
+    assert_eq!(Platform::Mac.allowed(&here), Where::Here);
+
+    let other = parse_config(&format!("{mac}step mac other ./other.sh\nhere other\n")).unwrap();
+    assert_eq!(Platform::Mac.allowed(&other), Where::Anywhere);
+    assert_eq!(Platform::Android.allowed(&free), Where::Here);
 }

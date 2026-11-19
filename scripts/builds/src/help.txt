@@ -966,7 +966,7 @@ file builds-app-lane in the checkout's git dir on the host: when a person adds
 a checkout the host already has, and when a build makes a new one there. The
 host's own `builds setup` and `builds prune` read the file and keep the
 checkout's builds warm, as this Mac does for its own app checkouts.
-The android build-app, `builds lock` and a build that runs a `here` step never
+The android build-app, a mac build-app whose build is a `here` step, `builds lock` and a build that runs a `here` step never
 take a checkout on a host. A build that runs a test class through a line an
 `opens-windows` line names, or a --shots or --all-shots run of a `shots` line
 that passes --windows (bae's mac line), takes only a checkout on a host, never one on this
@@ -1142,7 +1142,10 @@ from the store, never built again.
                               checkout, which must be clean, and run the
                               lane's build that .app-build names. The mac
                               build takes a free checkout on this Mac or on a
-                              host, as `app-build` does, and a build on a host
+                              host, as `app-build` does, except that a mac
+                              build whose command is a step a `here` line
+                              names takes only a checkout on this Mac. A
+                              build on a host
                               copies the built app back to this Mac; for mac,
                               replace the app in ~/Applications/<repo>-test,
                               quitting the copy running. The android build

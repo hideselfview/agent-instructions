@@ -605,7 +605,7 @@ fn run_steps_with(
 /// The repo's `.app-build` at <commit>, read without touching a checkout's
 /// tree, to tell which lanes the steps are in before any lock is taken. A
 /// lane's own run reads it again from its checkout, under its lock.
-fn config_at(places: &Places, repo: &str, commit: &str) -> Result<Config> {
+pub fn config_at(places: &Places, repo: &str, commit: &str) -> Result<Config> {
     let source = fetched_local_source(places, repo)?;
     parse_config(&run_git(&source, &["show", &format!("{commit}:{CONFIG}")])?)
 }
