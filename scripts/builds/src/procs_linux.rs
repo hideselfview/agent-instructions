@@ -28,23 +28,43 @@ struct Stat {
     rss_pages: u64,
 }
 
-fn read_stat(pid: i32) -> Option<Stat> {
-    let text = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
-    let open = text.find('(')?;
-    let close = text.rfind(')')?;
-    let name = text.get(open + 1..close)?.to_string();
-    let rest: Vec<&str> = text.get(close + 1..)?.split_whitespace().collect();
-    Some(Stat {
-        name,
-        state: rest.first()?.to_string(),
-        ppid: field(&rest, 4)?,
-        utime: field(&rest, 14)?,
-        stime: field(&rest, 15)?,
-        cutime: field(&rest, 16)?,
-        cstime: field(&rest, 17)?,
-        start_ticks: field(&rest, 22)?,
-        rss_pages: field(&rest, 24)?,
-    })
+/// The stat of <pid>; None when the process has exited (its folder in /proc
+/// is gone). Fails when the file cannot be read for another reason or does
+/// not hold the fields `Stat` names.
+fn read_stat(pid: i32) -> Result<Option<Stat>> {
+    let path = format!("/proc/{pid}/stat");
+    let text = match std::fs::read_to_string(&path) {
+        Ok(text) => text,
+        // ESRCH: the process exited while the kernel wrote the file.
+        Err(error)
+            if error.kind() == std::io::ErrorKind::NotFound
+                || error.raw_os_error() == Some(libc::ESRCH) =>
+        {
+            return Ok(None);
+        }
+        Err(error) => fail!("reading {path}: {error}"),
+    };
+    let parsed = (|| {
+        let open = text.find('(')?;
+        let close = text.rfind(')')?;
+        let name = text.get(open + 1..close)?.to_string();
+        let rest: Vec<&str> = text.get(close + 1..)?.split_whitespace().collect();
+        Some(Stat {
+            name,
+            state: rest.first()?.to_string(),
+            ppid: field(&rest, 4)?,
+            utime: field(&rest, 14)?,
+            stime: field(&rest, 15)?,
+            cutime: field(&rest, 16)?,
+            cstime: field(&rest, 17)?,
+            start_ticks: field(&rest, 22)?,
+            rss_pages: field(&rest, 24)?,
+        })
+    })();
+    match parsed {
+        Some(stat) => Ok(Some(stat)),
+        None => fail!("{path} does not hold the fields builds reads: {text:?}"),
+    }
 }
 
 /// Field <number> of a stat file, counted from 1, out of <rest>, the fields
@@ -53,10 +73,30 @@ fn field<T: std::str::FromStr>(rest: &[&str], number: usize) -> Option<T> {
     rest.get(number - 3)?.parse().ok()
 }
 
+/// The value of sysconf's <name>, which <what> names; fails when the system
+/// does not give one.
+fn sysconf(name: libc::c_int, what: &str) -> Result<u64> {
+    // SAFETY: sysconf reads a system setting and touches no memory of ours.
+    let value = unsafe { libc::sysconf(name) };
+    match u64::try_from(value) {
+        Ok(value) if value > 0 => Ok(value),
+        _ => fail!(
+            "sysconf gave no {what} ({value}): {}",
+            std::io::Error::last_os_error()
+        ),
+    }
+}
+
 /// The kernel's clock ticks per second.
-fn ticks_per_second() -> f64 {
-    let ticks = unsafe { libc::sysconf(libc::_SC_CLK_TCK) };
-    if ticks > 0 { ticks as f64 } else { 100.0 }
+fn ticks_per_second() -> Result<f64> {
+    Ok(sysconf(libc::_SC_CLK_TCK, "clock ticks per second")? as f64)
+}
+
+/// <result>'s value, for the readings that answer None when a process cannot
+/// be read: a failure says why on stderr, so a reading that fails for a
+/// reason other than the process's exit is not silent.
+fn or_note<T>(result: Result<T>) -> Option<T> {
+    result.map_err(|error| crate::text::note(error.text())).ok()
 }
 
 /// When the machine booted, seconds since 1970 (`btime` in /proc/stat).
@@ -77,7 +117,7 @@ fn boot_time() -> Result<i64> {
 /// no caller takes a short list for the whole machine.
 pub fn list() -> Result<Vec<Process>> {
     let booted = boot_time()?;
-    let ticks = ticks_per_second();
+    let ticks = ticks_per_second()?;
     let entries = std::fs::read_dir("/proc").context(|| "listing /proc".to_string())?;
     let mut list = Vec::new();
     for entry in entries {
@@ -90,8 +130,13 @@ pub fn list() -> Result<Vec<Process>> {
             continue;
         };
         // A process that exited since it was listed has nothing to say.
-        let (Some(stat), Ok(meta)) = (read_stat(pid), entry.metadata()) else {
+        let Some(stat) = read_stat(pid)? else {
             continue;
+        };
+        let meta = match entry.metadata() {
+            Ok(meta) => meta,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(error) => fail!("reading /proc/{pid}: {error}"),
         };
         list.push(Process {
             pid,
@@ -108,7 +153,7 @@ pub fn list() -> Result<Vec<Process>> {
 /// The kernel keeps a zombie's pid, so `runs` says it runs, but it has no
 /// arguments or working directory left to read.
 pub fn ended(pid: i32) -> bool {
-    match read_stat(pid) {
+    match or_note(read_stat(pid)).flatten() {
         Some(stat) => stat.state == "Z",
         None => !super::runs(pid),
     }
@@ -137,10 +182,10 @@ pub fn args(pid: i32) -> Option<Vec<String>> {
 
 /// CPU time used so far, in seconds, and the resident memory in bytes.
 pub fn usage(pid: i32) -> Option<(f64, u64)> {
-    let stat = read_stat(pid)?;
-    let page = unsafe { libc::sysconf(libc::_SC_PAGESIZE) }.max(1) as u64;
+    let stat = or_note(read_stat(pid)).flatten()?;
+    let page = or_note(sysconf(libc::_SC_PAGESIZE, "page size"))?;
     Some((
-        (stat.utime + stat.stime) as f64 / ticks_per_second(),
+        (stat.utime + stat.stime) as f64 / or_note(ticks_per_second())?,
         stat.rss_pages * page,
     ))
 }
@@ -149,8 +194,10 @@ pub fn usage(pid: i32) -> Option<(f64, u64)> {
 /// a finished child's time counts in its parent's, so the sum over a live
 /// tree is all the CPU the tree has used.
 pub fn tree_cpu(pid: i32) -> Option<f64> {
-    let stat = read_stat(pid)?;
-    Some((stat.utime + stat.stime + stat.cutime + stat.cstime) as f64 / ticks_per_second())
+    let stat = or_note(read_stat(pid)).flatten()?;
+    Some(
+        (stat.utime + stat.stime + stat.cutime + stat.cstime) as f64 / or_note(ticks_per_second())?,
+    )
 }
 
 /// The paths of the files <pid> has open: each descriptor in

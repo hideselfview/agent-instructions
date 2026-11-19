@@ -47,10 +47,13 @@ fn main() {
 }
 
 /// Adds <path> (shown as <shown>), or every file under it when it is a
-/// folder, to <files>. A part a crate lacks adds nothing.
+/// folder, to <files>. A part a crate lacks adds nothing; any other failure
+/// to read a part stops the build.
 fn collect(path: &Path, shown: &str, files: &mut Vec<(String, PathBuf)>) {
-    let Ok(meta) = std::fs::metadata(path) else {
-        return;
+    let meta = match std::fs::metadata(path) {
+        Ok(meta) => meta,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return,
+        Err(error) => panic!("reading {}: {error}", path.display()),
     };
     if meta.is_file() {
         files.push((shown.to_string(), path.to_path_buf()));
