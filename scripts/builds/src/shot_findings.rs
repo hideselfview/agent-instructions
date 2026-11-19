@@ -29,7 +29,9 @@
 //! `builds shots findings <repo> <ref> <platform> <prefix>` prints a stored
 //! run. `builds app-build <repo> <ref> --shots <prefix>` (or, in its lane form,
 //! `--shots <platform> <prefix>` with no build step) prints it too, in
-//! place of taking the lane's lock, unless the command has `--fresh`.
+//! place of taking the lane's lock, unless the command has `--fresh`. A run of
+//! a platform's full set of shots (`--all-shots <platform>`) is kept under the
+//! prefix every shot of the platform starts with (`mac.`).
 
 use std::path::Path;
 
@@ -369,9 +371,19 @@ fn age(seconds: i64) -> String {
 
 const USAGE: &str = "usage: builds shots findings <repo> <ref> mac|android <prefix>";
 
-/// The command a missing run is made with.
-pub fn how_to_make(repo: &str, git_ref: &str, prefix: &str) -> String {
-    format!("builds app-build {repo} {git_ref} --shots {prefix}")
+/// The command a missing run of <prefix> on <lane> is made with: the
+/// lane's full set of shots for the prefix every shot of the lane starts
+/// with.
+pub fn how_to_make(repo: &str, git_ref: &str, lane: Lane, prefix: &str) -> String {
+    if prefix == lane.all_shots_prefix() {
+        format!(
+            "builds app-build {repo} {git_ref} {} {}",
+            app_build::ALL_SHOTS,
+            lane.word()
+        )
+    } else {
+        format!("builds app-build {repo} {git_ref} --shots {prefix}")
+    }
 }
 
 /// `builds shots findings`, given the arguments after `findings`.
@@ -398,7 +410,7 @@ pub fn cmd_findings(places: &Places, args: &[String]) -> Result<()> {
             lane.word(),
             &key.commit[..12.min(key.commit.len())],
             &key.version[..12.min(key.version.len())],
-            how_to_make(repo, git_ref, prefix)
+            how_to_make(repo, git_ref, lane, prefix)
         ),
     }
 }

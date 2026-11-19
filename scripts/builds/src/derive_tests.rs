@@ -144,6 +144,25 @@ fn a_shots_prefix_that_selects_every_shot_of_its_lane_is_refused_naming_the_rule
 }
 
 #[test]
+fn all_shots_names_its_lane_and_picks_every_shot_of_it_where_the_refusal_says_so() {
+    assert_eq!(
+        picks_of(&["--all-shots", "mac", "--shots", "android.welcome."]).unwrap(),
+        vec![
+            (Lane::Mac, PickKind::Shots, "mac.".to_string()),
+            (
+                Lane::Android,
+                PickKind::Shots,
+                "android.welcome.".to_string()
+            )
+        ]
+    );
+    assert!(picks_of(&["--all-shots"]).is_err());
+    assert!(picks_of(&["--all-shots", "ios"]).is_err());
+    let refused = picks_of(&["--shots", "mac."]).unwrap_err().text();
+    assert!(refused.contains("--all-shots mac"), "{refused}");
+}
+
+#[test]
 fn a_test_that_names_no_type_is_refused_naming_the_same_rule() {
     let refused = picks_of(&["--test", "Foo*"]).unwrap_err().text();
     assert!(

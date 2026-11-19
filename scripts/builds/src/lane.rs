@@ -54,6 +54,12 @@ impl Lane {
         }
     }
 
+    /// The shots prefix that every shot name of the lane starts with
+    /// (`mac.`): the prefix of a run of the lane's full set of shots.
+    pub fn all_shots_prefix(self) -> String {
+        format!("{}.", self.word())
+    }
+
     /// What the lane's file names carry between `app` and the extension: the
     /// mac lane's carry nothing.
     fn tag(self) -> &'static str {

@@ -55,9 +55,10 @@
 //! run.
 //!
 //! A `ci-only <step>...` line names steps that only CI runs, such as a whole
-//! test suite or a lane's shots: `builds app-build` refuses such a step when a
-//! caller names it, leaves it out when it runs every step of a lane, and
-//! refuses an `on` or `needs` line that names it.
+//! test suite: `builds app-build` refuses such a step when a caller names it,
+//! leaves it out when it runs every step of a lane, and refuses an `on` or
+//! `needs` line that names it. A lane's full set of shots needs no step: the
+//! lane's `shots` line runs it (`--all-shots`, app_build.rs).
 //!
 //! Three kinds of line let `builds app-build` with no step named (derive.rs) choose the steps of a
 //! branch, so no caller names one:

@@ -34,6 +34,10 @@
 //! An app build runs only what a change touches, so every form refuses a
 //! `--shots` prefix that selects every shot of its lane (`mac.`) and a step
 //! that a `ci-only` line names (app_config.rs); CI runs the full suites.
+//! `--all-shots <lane>` is how a caller asks for a lane's full set of shots,
+//! as CI's screenshot workflow takes them: the run of the lane's `shots` line
+//! with the prefix every shot of the lane starts with, kept like any other
+//! shots run under that prefix.
 //!
 //! A run of picks with no step named tests what the checkout holds, so it
 //! refuses unless the checkout's last build (`Built`, kept beside the lock's
@@ -87,7 +91,7 @@ use crate::places::Places;
 use crate::shot_findings;
 use crate::text::note;
 
-const USAGE: &str = "usage: builds app-build <repo> <ref> [--test <Class>]... [--shots <prefix>]... [--fresh] | builds app-build <repo> <ref> <step>... [--test mac|android <Class>]... [--shots mac|android <prefix>]... [--fresh] | builds app-build <repo> --list | builds app-build <repo> --lane mac|android <ref> [<step>...] [--test mac|android <Class>]... [--shots mac|android <prefix>]...";
+const USAGE: &str = "usage: builds app-build <repo> <ref> [--test <Class>]... [--shots <prefix>]... [--all-shots mac|android]... [--fresh] | builds app-build <repo> <ref> <step>... [--test mac|android <Class>]... [--shots mac|android <prefix>]... [--all-shots mac|android]... [--fresh] | builds app-build <repo> --list | builds app-build <repo> --lane mac|android <ref> [<step>...] [--test mac|android <Class>]... [--shots mac|android <prefix>]... [--all-shots mac|android]...";
 
 /// Set by the parent in each lane's process: print the marker line below once
 /// the checkout is known.
@@ -118,7 +122,7 @@ fn step_named<'a>(config: &'a Config, name: &str) -> Result<&'a Step> {
     };
     if step.ci_only {
         fail!(
-            "step {name} is CI-only in {CONFIG}, and builds refuses it: {ONLY_WHAT_A_CHANGE_TOUCHES}. Name the change's test classes with --test and its screens' shots with --shots"
+            "step {name} is CI-only in {CONFIG}, and builds refuses it: {ONLY_WHAT_A_CHANGE_TOUCHES}. Name the change's test classes with --test and its screens' shots with --shots, or run a lane's full set of shots with {ALL_SHOTS} mac|android"
         );
     }
     Ok(step)
@@ -162,15 +166,36 @@ pub const ONLY_WHAT_A_CHANGE_TOUCHES: &str = "an app build runs only the test cl
 
 /// Refuses a shots <prefix> in <lane> that selects every shot of the lane:
 /// one that `<lane>.` starts with (`mac.`, `mac`), since every shot name of
-/// the lane starts with `<lane>.`.
+/// the lane starts with `<lane>.`. `--all-shots <lane>` asks for that run.
 pub fn refuse_whole_lane(lane: Lane, prefix: &str) -> Result<()> {
     let word = lane.word();
-    if format!("{word}.").starts_with(prefix) {
+    if lane.all_shots_prefix().starts_with(prefix) {
         fail!(
-            "the shots prefix {prefix} selects every shot of the {word} lane, and builds refuses a whole lane's shots: {ONLY_WHAT_A_CHANGE_TOUCHES}. Give a prefix that names the screens the change touches, such as {word}.welcome. for the welcome screens"
+            "the shots prefix {prefix} selects every shot of the {word} lane, and builds refuses it in --shots: {ONLY_WHAT_A_CHANGE_TOUCHES}. Give a prefix that names the screens the change touches, such as {word}.welcome. for the welcome screens. To check a change to the shots program or a fix for CI's shot jobs, {ALL_SHOTS} {word} runs every shot of the lane, as CI's screenshot workflow does"
         );
     }
     Ok(())
+}
+
+/// The flag that asks for a lane's full set of shots: `--all-shots mac`.
+pub const ALL_SHOTS: &str = "--all-shots";
+
+/// The pick of <lane>'s full set of shots: the run of the lane's `shots` line
+/// with the prefix every shot of the lane starts with.
+pub fn all_shots(lane: Lane) -> Pick {
+    (lane, PickKind::Shots, lane.all_shots_prefix())
+}
+
+/// The command-line words that ask for <pick> in a lane's process:
+/// `--all-shots <lane>` for a lane's full set of shots, else the kind's flag,
+/// the lane and the argument.
+fn pick_words(pick: &Pick) -> Vec<&str> {
+    let (lane, kind, arg) = pick;
+    if *pick == all_shots(*lane) {
+        vec![ALL_SHOTS, lane.word()]
+    } else {
+        vec![kind.flag(), lane.word(), arg.as_str()]
+    }
 }
 
 /// The kind of step <name> is, when it is the run of a pick.
@@ -181,15 +206,25 @@ fn pick_kind_of(name: &str) -> Option<PickKind> {
 }
 
 /// <args> (the steps, then `--test` and `--shots` flags, each with a lane and
-/// an argument) as the step names and the flags.
+/// an argument, and `--all-shots` flags, each with a lane) as the step names
+/// and the flags.
 fn split_picks(args: &[String]) -> Result<(Vec<String>, Vec<Pick>)> {
-    let is_flag = |arg: &String| PickKind::ALL.iter().any(|kind| arg == kind.flag());
+    let is_flag =
+        |arg: &String| arg == ALL_SHOTS || PickKind::ALL.iter().any(|kind| arg == kind.flag());
     let at = args.iter().position(is_flag).unwrap_or(args.len());
     let (names, mut flags) = (args[..at].to_vec(), &args[at..]);
     let mut picks = Vec::new();
     while let Some((flag, rest)) = flags.split_first() {
+        if flag == ALL_SHOTS {
+            let [lane, after @ ..] = rest else {
+                fail!("{ALL_SHOTS} needs a lane\n{USAGE}");
+            };
+            picks.push(all_shots(Lane::parse_or_fail(lane)?));
+            flags = after;
+            continue;
+        }
         let Some(kind) = PickKind::ALL.into_iter().find(|kind| flag == kind.flag()) else {
-            fail!("{flag:?} where --test or --shots goes\n{USAGE}");
+            fail!("{flag:?} where --test, --shots or {ALL_SHOTS} goes\n{USAGE}");
         };
         let [lane, arg, after @ ..] = rest else {
             fail!(
@@ -1254,7 +1289,7 @@ pub fn run_lanes(
                 picks
                     .iter()
                     .filter(|(own, _, _)| own == lane)
-                    .flat_map(|(own, kind, arg)| [kind.flag(), own.word(), arg.as_str()]),
+                    .flat_map(pick_words),
             )
             .env(PREFIXED, "1")
             .stdin(Stdio::null())

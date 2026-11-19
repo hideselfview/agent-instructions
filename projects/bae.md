@@ -140,14 +140,28 @@ builds app-build bae <branch> [--test <Class>]... [--shots <prefix>]...
 `--shots <prefix>` runs the shots (pictures of app views, each checked against
 its board) whose names start with the prefix. Name the screens the change
 touches, such as `mac.welcome.`: builds refuses `mac.` and `android.`, which
-select every Mac shot or every Android shot, and CI runs every shot.
-`builds help` (APP BUILDS) says how builds picks what to build and where.
+select every Mac shot or every Android shot. `builds help` (APP BUILDS) says how
+builds picks what to build and where.
 
-The `ci-only` line of `.app-build` names the steps that run a whole test suite
-or a fixed set of shots (`macos-tests-run`, `macos-tests-all`, `android-tests`,
-`mac-shots`, `mac-window-shots` and `android-shots`). builds refuses them, and
-CI runs them. To build something else in an app checkout, add a `step` line and
-an `on` line to `.app-build`.
+To check a change to the shot tooling or a fix for CI's shot jobs, run one
+platform's full set of shots, as CI's Screenshots workflow takes them, with
+`builds app-build bae <branch> --all-shots mac` (or `android`) as a background
+task. builds runs the `shots` line of `.app-build` with every shot of the
+platform selected and keeps the findings and the report, which
+`builds shots findings bae <branch> mac mac.` prints again. The report holds the
+same pairs and findings as that platform's part of CI's report. The local run
+fails only on the pairs that are new or changed against origin/main's record,
+and CI's check fails on every pair with findings. A Mac run takes the window
+shots on the display of the host whose app checkout it runs in, and bae's shot
+renderer fails a scene whose window does not fit that display's free area (the
+M1's is 1728 by 994 points). Each host's display and CI's runner's differ in
+size, so a scene that fits one can fail on another: check a fix for a window
+that fails on CI's display on CI.
+
+The `ci-only` line of `.app-build` names steps that only CI runs, such as the
+whole test suites (`macos-tests-run`, `macos-tests-all`, `android-tests`), and
+builds refuses them. To build something else in an app checkout, add a `step`
+line and an `on` line to `.app-build`.
 
 Notarized macOS releases come only from `main`, and `scripts/release-macos.sh`
 builds them on CI.

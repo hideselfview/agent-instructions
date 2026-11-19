@@ -1240,6 +1240,60 @@ fn app_build_with_no_step_named_builds_both_lanes_and_runs_each_class_and_shots_
     assert_eq!(count("end droid"), 3, "{log:?}\n{said}");
 }
 
+/// `--all-shots mac` runs the mac lane's shots line once, with the prefix
+/// every mac shot starts with, after the steps the lane needs; `--shots mac.`
+/// stays refused and names `--all-shots mac`.
+#[test]
+fn all_shots_runs_the_lanes_shots_line_for_every_shot_of_the_lane() {
+    let volume = Volume::new("all-shots");
+    volume.app_repo_with(
+        "step mac one ./one.sh\nneeds mac one\nshots mac ./shot.sh --windows --select {select}\n",
+    );
+    let top = volume.dir.join("checkout");
+    let shot = top.join("shot.sh");
+    std::fs::write(
+        &shot,
+        "#!/bin/sh\necho \"shots $*\" >> \"$QUEUE_TEST_DIR/log\"\n",
+    )
+    .unwrap();
+    let mut mode = std::fs::metadata(&shot).unwrap().permissions();
+    std::os::unix::fs::PermissionsExt::set_mode(&mut mode, 0o755);
+    std::fs::set_permissions(&shot, mode).unwrap();
+    for args in [
+        &["add", "shot.sh"][..],
+        &["commit", "-q", "-m", "Add the shots program"],
+        &["push", "-q", "origin", "main"],
+    ] {
+        let out = Command::new("git")
+            .arg("-C")
+            .arg(&top)
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "git {args:?}: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+    let refused = volume.run(&["app-build", "demo", "main", "--shots", "mac."]);
+    let said = String::from_utf8_lossy(&refused.stderr).into_owned();
+    assert!(
+        !refused.status.success() && said.contains("--all-shots mac"),
+        "{said}"
+    );
+    assert!(volume.log().is_empty(), "{:?}", volume.log());
+    volume.open_gate("one");
+    let built = volume.run(&["app-build", "demo", "main", "--all-shots", "mac"]);
+    let said = String::from_utf8_lossy(&built.stderr).into_owned();
+    assert!(built.status.success(), "{said}");
+    assert_eq!(
+        volume.log(),
+        lines(&["start one", "end one", "shots --windows --select mac."]),
+        "{said}"
+    );
+}
+
 #[test]
 fn queue_shows_every_checkout_and_why_builds_added_or_removed_one() {
     let volume = Volume::new("lane-why");

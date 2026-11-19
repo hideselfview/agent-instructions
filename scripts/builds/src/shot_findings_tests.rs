@@ -96,3 +96,15 @@ fn only_the_newest_reports_are_kept() {
     assert_eq!(left, KEEP_REPORTS);
     assert!(!shots.join("run-000").exists() && shots.join("run-032").exists());
 }
+
+#[test]
+fn a_missing_run_of_a_lanes_whole_prefix_is_made_with_all_shots() {
+    assert_eq!(
+        how_to_make("bae", "main", Lane::Mac, "mac."),
+        "builds app-build bae main --all-shots mac"
+    );
+    assert_eq!(
+        how_to_make("bae", "main", Lane::Android, "android.welcome."),
+        "builds app-build bae main --shots android.welcome."
+    );
+}

@@ -11,11 +11,12 @@
 //! A `--test <Class>` run goes to the lane whose `sources` folders declare the
 //! class at <ref>; a `--shots <prefix>` run goes to the lane its prefix starts
 //! with (`mac.welcome.`), and app-build refuses a prefix that selects every
-//! shot of the lane (`mac.`). A lane with such a run builds what its changed
-//! paths need, or, when they need nothing in that lane, what its `needs` line
-//! names, so the run has a build of <ref> to run against. A `--shots` run
-//! whose findings for <ref> are already stored prints them instead of running,
-//! unless `--fresh`.
+//! shot of the lane (`mac.`). `--all-shots <lane>` runs that whole set in the
+//! lane, as CI's screenshot workflow takes it. A lane with such a run builds
+//! what its changed paths need, or, when they need nothing in that lane, what
+//! its `needs` line names, so the run has a build of <ref> to run against. A
+//! `--shots` or `--all-shots` run whose findings for <ref> are already stored
+//! prints them instead of running, unless `--fresh`.
 //!
 //! The lane's process (app_build.rs) then picks the checkout: the free one on
 //! the less loaded host, `here`-only steps staying on this Mac (lock.rs).
@@ -32,8 +33,7 @@ use crate::places::Places;
 use crate::text::note;
 use boards::git;
 
-const USAGE: &str =
-    "usage: builds app-build <repo> <ref> [--test <Class>]... [--shots <prefix>]... [--fresh]";
+const USAGE: &str = "usage: builds app-build <repo> <ref> [--test <Class>]... [--shots <prefix>]... [--all-shots mac|android]... [--fresh]";
 
 /// The steps each lane builds: the steps of every `on` line that matches a
 /// path of <changed>, in the order the steps are written, and for a lane with
@@ -201,7 +201,8 @@ fn lane_of_prefix(prefix: &str) -> Result<Lane> {
 }
 
 /// <args> after the repo and the ref: the picks, each with the lane it runs
-/// in, and whether `--fresh` was given.
+/// in (an `--all-shots <lane>` names its lane), and whether `--fresh` was
+/// given.
 fn parse_picks(
     args: &[String],
     mut lane_of: impl FnMut(PickKind, &str) -> Result<Lane>,
@@ -214,8 +215,19 @@ fn parse_picks(
             rest = after;
             continue;
         }
+        if flag == app_build::ALL_SHOTS {
+            let [lane, after @ ..] = after else {
+                fail!("{} needs a lane\n{USAGE}", app_build::ALL_SHOTS);
+            };
+            picks.push(app_build::all_shots(Lane::parse_or_fail(lane)?));
+            rest = after;
+            continue;
+        }
         let Some(kind) = PickKind::ALL.into_iter().find(|kind| flag == kind.flag()) else {
-            fail!("{flag:?} where --test, --shots or --fresh goes\n{USAGE}");
+            fail!(
+                "{flag:?} where --test, --shots, {} or --fresh goes\n{USAGE}",
+                app_build::ALL_SHOTS
+            );
         };
         let [arg, after @ ..] = after else {
             fail!("{} needs a {}\n{USAGE}", kind.flag(), kind.what());

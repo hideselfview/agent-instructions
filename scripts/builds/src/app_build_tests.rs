@@ -339,6 +339,10 @@ fn a_shots_prefix_that_selects_every_shot_of_its_lane_is_refused_naming_the_rule
             .text();
         assert!(refused.contains(prefix), "{refused}");
         assert!(refused.contains(ONLY_WHAT_A_CHANGE_TOUCHES), "{refused}");
+        assert!(
+            refused.contains(&format!("--all-shots {lane}")),
+            "{refused}"
+        );
     }
     assert_eq!(
         split_picks(&args(&["one", "--shots", "mac", "mac.import"]))
@@ -346,6 +350,56 @@ fn a_shots_prefix_that_selects_every_shot_of_its_lane_is_refused_naming_the_rule
             .1,
         vec![(Lane::Mac, PickKind::Shots, "mac.import".to_string())]
     );
+}
+
+#[test]
+fn all_shots_asks_a_lanes_process_for_every_shot_of_the_lane_and_reads_back_the_same() {
+    let (names, picks) = split_picks(&args(&[
+        "one",
+        "--all-shots",
+        "android",
+        "--shots",
+        "mac",
+        "mac.import.",
+    ]))
+    .unwrap();
+    assert_eq!(names, args(&["one"]));
+    assert_eq!(
+        picks,
+        vec![
+            (Lane::Android, PickKind::Shots, "android.".to_string()),
+            (Lane::Mac, PickKind::Shots, "mac.import.".to_string()),
+        ]
+    );
+    let words: Vec<String> = picks
+        .iter()
+        .flat_map(pick_words)
+        .map(str::to_string)
+        .collect();
+    assert_eq!(
+        words,
+        args(&["--all-shots", "android", "--shots", "mac", "mac.import."])
+    );
+    assert_eq!(split_picks(&words).unwrap(), (Vec::new(), picks));
+    assert!(split_picks(&args(&["--all-shots"])).is_err());
+    assert!(split_picks(&args(&["--all-shots", "ios"])).is_err());
+}
+
+#[test]
+fn a_lanes_full_set_of_shots_runs_through_its_shots_line_and_is_kept_as_a_shots_run() {
+    let config =
+        parse_config("step mac one ./one\nshots mac ./s --windows --select {select}\n").unwrap();
+    let steps = lane_steps(&config, Lane::Mac, &[], &[all_shots(Lane::Mac)], &|_| {
+        Ok(None)
+    })
+    .unwrap();
+    assert_eq!(steps.len(), 1);
+    assert_eq!(steps[0].name, "shots mac.");
+    assert_eq!(
+        steps[0].command,
+        args(&["./s", "--windows", "--select", "mac."])
+    );
+    assert_eq!(pick_kind_of(&steps[0].name), Some(PickKind::Shots));
 }
 
 #[test]

@@ -651,6 +651,20 @@ a prefix (mac.welcome. for the Mac welcome screens). CI runs the full suites.
 `builds app-build` refuses a --shots prefix that selects every shot of a lane
 (mac. or android.) and a step that a `ci-only` line names, and says why.
 
+To run every shot of one lane, as CI's screenshot workflow takes them, pass
+`--all-shots mac` or `--all-shots android`. Run it to check a change to the
+shots program or a fix for CI's shot jobs without waiting for CI; for a
+change to screens, name their prefixes with --shots instead. builds runs the
+lane's `shots` line once, with the prefix that every shot of the lane starts
+with (mac.), so the run goes where any --shots run of the lane goes: it waits in
+the lane's queue, holds a lock of the lane, and takes the free app checkout on
+the less loaded host, this Mac or a host. builds keeps its findings and report
+under that prefix like any other shots run's (below), and `builds shots
+findings <repo> <ref> mac mac.` prints them again. The shots program takes a
+window's shot on the display of the host it runs on, whose size may differ
+from that of CI's runner, so a window that fits one display and not the other
+can pass on one and fail on the other.
+
 App builds (an Xcode app, a Gradle app, a bridge cross-compiled for a platform)
 take 10-20 GB per platform per checkout, so a repo keeps them built only in
 main, for the person's installs and releases, and in its app checkouts, one or
@@ -751,9 +765,9 @@ A repo's `.app-build` at its root says what its app builds run, one line each:
                     on this Mac, where the windows would cover the person's
                     screen, only on a host
   ci-only <step>...
-                    steps that only CI runs, such as a whole test suite or a
-                    lane's shots (bae's macos-tests-all, mac-shots);
-                    app-build refuses such a step when a caller names it,
+                    steps that only CI runs, such as a whole test suite
+                    (bae's macos-tests-all); app-build refuses such a step
+                    when a caller names it,
                     leaves it out when it runs every step of a lane, and
                     refuses an `on` or `needs` line that names it
   limit <step> <time>
@@ -763,7 +777,8 @@ A repo's `.app-build` at its root says what its app builds run, one line each:
 A step that runs past its limit gets SIGTERM to its whole process group and
 SIGKILL ten seconds later, and fails the build, which gives up the lock.
 builds limits each run of a test line, with all of its classes, to 10 minutes,
-and each --shots run to 20. `builds build-app` and `builds lock` set no limit.
+and each --shots or --all-shots run to 20. `builds build-app` and `builds
+lock` set no limit.
 
 An app checkout may be on another host (`builds host`). Its lock, queue and
 record of its last build stay on this Mac, under the entry <host>:<name>. A
@@ -811,16 +826,16 @@ beside the file `hosts` and runs the lane again on another host in the same
 way, until `builds host setup <name>` finds the settings on and removes the
 record.
 
-Each --shots run's findings (what the shots program printed) are stored in the
-project's store under the repo, the full commit, the lane, the prefix and the
-shots version, and its report (index.html and pictures) is copied to the
-store's folder, in shots/<commit>-<lane>-<prefix>-<version>/, the newest 30
-runs, so the next run in the checkout cannot overwrite it. A run that died
-before it made findings stores nothing, and a repo with no `shots-source` line
-stores none. The "before" side of a shots check is read from the store, never
-built again.
+Each --shots and --all-shots run's findings (what the shots program printed)
+are stored in the project's store under the repo, the full commit, the lane,
+the prefix and the shots version, and its report (index.html and pictures) is
+copied to the store's folder, in shots/<commit>-<lane>-<prefix>-<version>/,
+the newest 30 runs, so the next run in the checkout cannot overwrite it. A run
+that died before it made findings stores nothing, and a repo with no
+`shots-source` line stores none. The "before" side of a shots check is read
+from the store, never built again.
 
-  builds app-build <repo> <ref> [--test <Class>]... [--shots <prefix>]... [--fresh]
+  builds app-build <repo> <ref> [--test <Class>]... [--shots <prefix>]... [--all-shots mac|android]... [--fresh]
                               build <ref> where it is needed; builds picks the
                               steps, lanes and hosts, and no caller names them.
                               The paths <ref> changes since its merge-base
@@ -830,21 +845,24 @@ built again.
                               `sources` folders hold it and a --shots prefix to
                               the lane it starts with (mac.welcome. goes to the
                               mac lane, and app-build refuses mac. alone, which
-                              selects every shot of the lane); a
+                              selects every shot of the lane, which
+                              --all-shots mac runs); a
                               lane with runs and no step builds its `needs`
                               steps; each lane takes the free app checkout on
                               the less loaded host (only a host's for a test
-                              line that opens windows). A --shots pick whose
-                              findings are already stored prints them and
-                              takes no lock; --fresh runs it anyway
-  builds app-build <repo> <ref> <step>... [--test mac|android <Class>]... [--shots mac|android <prefix>]... [--fresh]
+                              line that opens windows). A --shots or
+                              --all-shots pick whose findings are already
+                              stored prints them and takes no lock; --fresh
+                              runs it anyway
+  builds app-build <repo> <ref> <step>... [--test mac|android <Class>]... [--shots mac|android <prefix>]... [--all-shots mac|android]... [--fresh]
                               check out <ref> in a free app checkout of each
                               lane the steps are in, holding that checkout's
                               lock, and run the steps in the order given,
                               stopping at the first failure; then run each
                               `test` line of the lane once with all of its
                               --test classes and its `shots` line once per
-                              --shots prefix (in any order, after
+                              --shots prefix and once for each --all-shots
+                              lane (in any order, after
                               the steps; the lane must have the line). A class
                               or prefix is one argument, never read by a
                               shell. app-build refuses a prefix that selects
@@ -867,12 +885,13 @@ built again.
                               the checkout, its wait in the queue, and each
                               step's start, wall time, CPU time and result;
                               the dashboard shows the last 12 hours
-  builds app-build <repo> --lane mac|android <ref> [<step>...] [--test <lane> <Class>]... [--shots <lane> <prefix>]...
+  builds app-build <repo> --lane mac|android <ref> [<step>...] [--test <lane> <Class>]... [--shots <lane> <prefix>]... [--all-shots <lane>]...
                               one lane's part of the above, in this process.
-                              With no step named, only the --test and --shots
-                              runs happen, and only when the app checkout's
-                              last build finished and is of <ref>; otherwise it
-                              refuses, naming what was built
+                              With no step named, only the --test, --shots
+                              and --all-shots runs happen, and only when the
+                              app checkout's last build finished and is of
+                              <ref>; otherwise it refuses, naming what was
+                              built
   builds app-build <repo> --list
                               print the steps (lane, name, command, and "(CI
                               only)" for a step a `ci-only` line names) and
