@@ -194,12 +194,8 @@ pub fn findings(
             )));
             None
         }
-        None => {
-            found.push(Advice::said(
-                "waits: health did not read this Mac, so it cannot tell how long the hook runs, landings and cargo runs here have run, or what each waits on".to_string(),
-            ));
-            None
-        }
+        // A caller that reads no host asks about none.
+        None => None,
     };
     let rows = local.unwrap_or_default();
     let read = Read {
