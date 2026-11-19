@@ -1,5 +1,5 @@
 ---
-digest: The apps never swizzle or monkeypatch a system framework's methods (Objective-C method exchange, reflection into a framework's private members, undocumented defaults); a framework fault is fixed through its documented API.
+digest: The apps never swizzle or monkeypatch a system framework's methods (Objective-C method exchange, reflection into a framework's private members, undocumented defaults); a framework fault is fixed through its documented API. The Mac shot tool alone may use CGVirtualDisplay.
 paths:
   - bae-macos/**
   - bae-ios/**
@@ -23,3 +23,10 @@ declares what the framework handles, or move to the layer whose documented
 behavior fits. bae's macOS menus, for example, are an AppKit shell (an
 `NSApplicationDelegate` and a plain `NSMenu` of AppKit's standard Edit items),
 because SwiftUI's App lifecycle crashed in the Edit menu.
+
+The Mac shot tool (`bae-macos/bae/baeShots`) is test code that never ships, and
+it may use CoreGraphics' private `CGVirtualDisplay` classes to draw window
+scenes on a virtual display larger than the Mac's own: macOS has no documented
+way to make one, and CI's Mac screen is smaller than some of bae's windows. The
+person decided this. Everything else in the shot tool, and all of the app,
+follows this rule.
