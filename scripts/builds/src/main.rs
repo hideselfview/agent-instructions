@@ -99,6 +99,7 @@ mod procs;
 mod prune;
 mod prune_schedule;
 mod queue;
+mod readings_file;
 mod remote;
 mod remote_worktrees;
 mod review;

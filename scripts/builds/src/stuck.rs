@@ -212,12 +212,17 @@ pub struct Busy {
     pub action: Option<Advice>,
 }
 
+/// The CPU share of <row> when it is busy, and None when it is not or its
+/// share is not known yet.
+fn busy_share(row: &Row) -> Option<f64> {
+    let percent = row.cpu_percent?;
+    ((percent > BUSY_PERCENT && row.cpu_seconds > BUSY_CPU_SECONDS)
+        || (percent >= PEGGED_PERCENT && row.age_seconds >= PEGGED_SECONDS))
+        .then_some(percent)
+}
+
 fn is_busy(row: &Row) -> bool {
-    let Some(percent) = row.cpu_percent else {
-        return false;
-    };
-    (percent > BUSY_PERCENT && row.cpu_seconds > BUSY_CPU_SECONDS)
-        || (percent >= PEGGED_PERCENT && row.age_seconds >= PEGGED_SECONDS)
+    busy_share(row).is_some()
 }
 
 /// The pids whose working folders `judge` and `hung_tests` read: every busy
@@ -465,11 +470,16 @@ fn is_fseventsd(row: &Row) -> bool {
 }
 
 /// What the person does about <busy>, when it looks stuck.
-fn action_for(host: &str, owner: &Owner, row: &Row, sampling: &Sampling) -> Option<Advice> {
+fn action_for(
+    host: &str,
+    owner: &Owner,
+    row: &Row,
+    percent: f64,
+    sampling: &Sampling,
+) -> Option<Advice> {
     let limit = DEFAULT_STEP_LIMIT.as_secs() as i64;
     let kill = format!("kill {}", row.pid);
     let sample = sampling.command(host, row.pid);
-    let percent = row.cpu_percent.expect("a busy row has a CPU share");
     match owner {
         Owner::Builds { minutes: m, .. } if m * 60 >= limit => Some(Advice::run(
             format!(
@@ -527,14 +537,15 @@ pub fn judge(
     let by_pid: HashMap<i32, &Row> = rows.iter().map(|r| (r.pid, r)).collect();
     let mut found: Vec<Busy> = rows
         .iter()
-        .filter(|row| is_busy(row) && Some(row.pid) != dashboard)
-        .map(|row| {
+        .filter(|row| Some(row.pid) != dashboard)
+        .filter_map(|row| Some((row, busy_share(row)?)))
+        .map(|(row, percent)| {
             let owner = owner_of(&by_pid, row, cwds);
-            let action = action_for(host, &owner, row, sampling);
+            let action = action_for(host, &owner, row, percent, sampling);
             Busy {
                 host: host.to_string(),
                 pid: row.pid,
-                cpu_percent: row.cpu_percent.expect("a busy row has a CPU share"),
+                cpu_percent: percent,
                 cpu_seconds: row.cpu_seconds,
                 age_seconds: row.age_seconds,
                 command: row.command.clone(),

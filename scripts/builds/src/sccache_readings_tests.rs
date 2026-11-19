@@ -58,7 +58,7 @@ fn writes_of_the_readings_in_one_process_all_complete() {
             let file = file.clone();
             std::thread::spawn(move || {
                 for at in 0..100 {
-                    write_file(&file, &[reading("local", 7, at, 1, 1)]).unwrap();
+                    crate::readings_file::write(&file, &[reading("local", 7, at, 1, 1)]).unwrap();
                 }
             })
         })
