@@ -5389,7 +5389,8 @@ fn a_store_from_before_the_rust_checks_gains_their_table_and_equals_a_fresh_sche
 
 #[test]
 fn the_shape_stamp_is_the_schema_before_stamps_followed_the_shape() {
-    // This commit changed no table, so the schema before it is today's.
+    // The schema from before stamps followed the shape has the same tables as
+    // today's, and differs only in the canvas comment that legacy_stamp restores.
     assert_eq!(legacy_stamp(&db::schema()), BEFORE_SHAPE_STAMP);
 }
 
