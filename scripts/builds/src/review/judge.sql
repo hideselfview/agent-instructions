@@ -33,3 +33,23 @@ CREATE TABLE review_branch_agent (
     agent TEXT NOT NULL CONSTRAINT review_branch_agent_agent_is_named CHECK (agent <> ''),
     CONSTRAINT review_branch_agent_is_dispatched CHECK (agent <> session)
 ) STRICT;
+
+-- A confirmed finding that someone disputed: they think the judge settled it
+-- wrongly, and ask the judge once. The judge answers by settling the finding
+-- again as dropped (`review_settle_again`), or by keeping it (`review_kept`).
+-- A finding has one dispute: a second disagreement goes to the coordinator,
+-- who asks the person whether to allow the finding to land.
+CREATE TABLE review_dispute (
+    finding_id INTEGER PRIMARY KEY REFERENCES review_finding (id),
+    why TEXT NOT NULL CONSTRAINT review_dispute_why_says_something CHECK (trim(why) <> ''),
+    at INTEGER NOT NULL,
+    by TEXT NOT NULL CONSTRAINT review_dispute_by_says_something CHECK (trim(by) <> '')
+) STRICT;
+
+-- The judge's answer to a dispute that keeps the finding confirmed, and why.
+CREATE TABLE review_kept (
+    finding_id INTEGER PRIMARY KEY REFERENCES review_dispute (finding_id),
+    why TEXT NOT NULL CONSTRAINT review_kept_why_says_something CHECK (trim(why) <> ''),
+    at INTEGER NOT NULL,
+    by TEXT NOT NULL CONSTRAINT review_kept_by_says_something CHECK (trim(by) <> '')
+) STRICT;

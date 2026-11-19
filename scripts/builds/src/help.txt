@@ -2251,6 +2251,23 @@ run `review replay --rules-root` on it.
                               their words in --why; the finding stays
                               confirmed, and land no longer waits on it. Pass
                               --by-person only once the person has said so
+  builds review dispute <finding> --why <text>
+                              say that an open confirmed finding is wrong,
+                              with why, and ask the judge once: builds records
+                              the dispute and tells the judge, or, with no
+                              judge listening, the coordinator, as `review`
+                              tells it of findings. `review wait` then waits
+                              for the answer too. The judge answers by
+                              settling the finding again as dropped (`settle
+                              --again`) or by keeping it (`review keep`).
+                              builds refuses a second dispute of a finding: a
+                              second disagreement goes to the coordinator, who
+                              asks the person whether to allow the finding to
+                              land
+  builds review keep <finding> --why <text>
+                              the judge's answer to a dispute that keeps the
+                              finding confirmed, with why; builds takes it
+                              from whoever may give a verdict on the finding
   builds judge listen --project P [--by WHO]
                               keep the inbox of the Claude Code session that
                               runs it as project P's judge, in place of any
@@ -2269,9 +2286,11 @@ run `review replay --rules-root` on it.
                               dispatched, which shares that session's inbox
   builds review wait <landing>
                               wait until the review landing has no finding
-                              left to settle, then print each settle of the
-                              findings that waited, with who settled each and
-                              why, and each open confirmed finding. The agent
+                              left to settle and no dispute left to answer
+                              (`review dispute`), then print each settle and
+                              answer of the findings that waited, with who
+                              gave each and why, and each open confirmed
+                              finding. The agent
                               that ran the review runs it as a background
                               task. Each settle tells every wait of the store
                               through the store folder's review-settles

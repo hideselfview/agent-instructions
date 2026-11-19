@@ -201,7 +201,7 @@ fn reviewed(name: &str, runner: Option<&Caller>) -> Reviewed {
     .unwrap();
     let landing = reported.landing.unwrap();
     let conn = demo.store.open_existing().unwrap();
-    let finding = unsettled(&conn, landing).unwrap()[0].id;
+    let finding = waiting(&conn, landing).unwrap()[0].id;
     Reviewed {
         demo,
         landing,
@@ -340,7 +340,9 @@ fn with_no_judge_a_dispatched_agents_coordinator_is_told() {
     let said = r.tell(Some(&agent), Some(&own));
     let told = message(&received.received());
     assert!(
-        told.starts_with("No judge listens for project demo, and your agent a1 ran this review"),
+        told.starts_with(
+            "No judge listens for project demo, and your agent a1 ran a review: findings"
+        ),
         "{told}"
     );
     assert!(said.contains("builds told your coordinator"), "{said}");
@@ -398,7 +400,7 @@ fn a_wait_whose_limit_ends_first_fails_and_one_with_nothing_to_wait_for_ends_at_
         .text();
     assert!(
         refused.contains(&format!(
-            "nobody has settled findings {} of review landing {}",
+            "findings {} of review landing {} still wait for a settle",
             r.finding, r.landing
         )),
         "{refused}"
@@ -522,4 +524,167 @@ fn the_person_settles_whether_or_not_a_judge_listens() {
     r.settle_as(None, &["dropped", "--why", "wrong"], "person")
         .unwrap();
     assert_eq!(r.last_settle().as_deref(), Some("dropped by person"));
+}
+
+impl Reviewed {
+    /// Runs `builds review <command> <finding> --why <why> --project demo
+    /// --by <by>` as <caller>, for `dispute` or `keep`.
+    fn answer_as(&self, command: &str, caller: Option<&Caller>, why: &str, by: &str) -> Result<()> {
+        let args: Vec<String> = [
+            &self.finding.to_string(),
+            "--why",
+            why,
+            "--project",
+            "demo",
+            "--by",
+            by,
+        ]
+        .map(String::from)
+        .to_vec();
+        match command {
+            "dispute" => crate::review::dispute_command(&self.demo.tool, &args, caller, None),
+            "keep" => crate::review::keep_command(&self.demo.tool, &args, caller),
+            other => panic!("no command {other}"),
+        }
+    }
+
+    /// The dispute the store records with its answer, and what telling the
+    /// settler of it says to <caller>.
+    fn dispute(&self, caller: Option<&Caller>, own: Option<&Messaging>) -> String {
+        let conn = self.demo.store.open_existing().unwrap();
+        tell_dispute(
+            &conn,
+            &self.demo.tool.places.claude_sessions(),
+            "demo",
+            &record::finding_of(&conn, self.finding).unwrap(),
+            caller,
+            own,
+        )
+        .unwrap()
+    }
+}
+
+/// A review by agent a1 whose finding the judge confirmed, with the judge
+/// listening on its inbox j.sock.
+fn confirmed(name: &str) -> (Reviewed, Caller) {
+    let agent = caller("s1", "a1");
+    let r = reviewed(name, Some(&agent));
+    r.listen_as_judge(&r.inbox("j.sock"));
+    running_session(&r.demo.tool.places, "s-judge");
+    r.settle_as(
+        Some(&caller("s-judge", "s-judge")),
+        &["confirmed", "--why", "the file does the bad thing"],
+        "judge",
+    )
+    .unwrap();
+    (r, agent)
+}
+
+#[test]
+fn a_dispute_tells_the_judge_and_the_wait_ends_when_the_judge_keeps_the_finding() {
+    let (r, agent) = confirmed("judge-dispute");
+    r.answer_as("dispute", Some(&agent), "the rule allows it here", "agent")
+        .unwrap();
+    let judge = r.inbox("j.sock");
+    let received = FakeInbox::listen(Path::new(judge.socket()));
+    let said = r.dispute(Some(&agent), None);
+    let told = message(&received.received());
+    assert!(
+        told.contains(&format!(
+            "agent thinks confirmed finding {} of review landing #{}",
+            r.finding, r.landing
+        )),
+        "{told}"
+    );
+    assert!(told.contains("is wrong: the rule allows it here"), "{told}");
+    assert!(
+        told.contains(&format!(
+            "builds review keep {} --why TEXT --project demo --by judge",
+            r.finding
+        )),
+        "{told}"
+    );
+    assert!(said.contains("of your dispute of finding"), "{said}");
+    assert!(said.contains("builds review wait"), "{said}");
+
+    let store = Store::named(&r.demo.tool.places, "demo").unwrap();
+    let landing = r.landing;
+    let waiting = std::thread::spawn(move || wait(&store, landing, Duration::from_secs(300)));
+    let refused = r
+        .answer_as("keep", Some(&caller("s1", "s1")), "real", "coordinator")
+        .unwrap_err()
+        .text();
+    assert!(
+        refused.contains("only the judge settles a finding"),
+        "{refused}"
+    );
+    r.answer_as(
+        "keep",
+        Some(&caller("s-judge", "s-judge")),
+        "the rule names this case",
+        "judge",
+    )
+    .unwrap();
+    let said = waiting.join().unwrap().unwrap();
+    assert!(
+        said.contains("disputed by agent: the rule allows it here"),
+        "{said}"
+    );
+    assert!(
+        said.contains("kept by judge after the dispute: the rule names this case"),
+        "{said}"
+    );
+    assert!(said.contains("1 confirmed finding is open"), "{said}");
+}
+
+#[test]
+fn a_finding_has_one_dispute_and_a_second_disagreement_goes_to_the_coordinator() {
+    let (r, agent) = confirmed("judge-dispute-once");
+    let judge = caller("s-judge", "s-judge");
+    let refused = r
+        .answer_as("keep", Some(&judge), "real", "judge")
+        .unwrap_err()
+        .text();
+    assert!(refused.contains("nobody disputed finding"), "{refused}");
+    // Nothing reads the judge's inbox, and the agent's session has none:
+    // builds records the dispute and tells nobody.
+    r.answer_as("dispute", Some(&agent), "wrong", "agent")
+        .unwrap();
+    let waits = r
+        .answer_as("dispute", Some(&agent), "wrong again", "agent")
+        .unwrap_err()
+        .text();
+    assert!(waits.contains("waits for its answer"), "{waits}");
+    r.answer_as("keep", Some(&judge), "real", "judge").unwrap();
+    let second = r
+        .answer_as("dispute", Some(&agent), "still wrong", "agent")
+        .unwrap_err()
+        .text();
+    assert!(
+        second.contains("a second disagreement goes to the coordinator"),
+        "{second}"
+    );
+}
+
+#[test]
+fn settling_a_disputed_finding_again_as_dropped_answers_the_dispute() {
+    let (r, agent) = confirmed("judge-dispute-drop");
+    r.answer_as("dispute", Some(&agent), "the rule allows it here", "agent")
+        .unwrap();
+    let conn = r.demo.store.open_existing().unwrap();
+    assert_eq!(waiting(&conn, r.landing).unwrap().len(), 1);
+    r.settle_as(
+        Some(&caller("s-judge", "s-judge")),
+        &["--again", "--why", "the rule allows it here"],
+        "judge",
+    )
+    .unwrap();
+    assert!(waiting(&conn, r.landing).unwrap().is_empty());
+    let said = wait(&r.demo.store, r.landing, Duration::ZERO).unwrap();
+    assert!(said.contains("No confirmed finding is open."), "{said}");
+    let refused = r
+        .answer_as("dispute", Some(&agent), "x", "agent")
+        .unwrap_err()
+        .text();
+    assert!(refused.contains("no open confirmed finding"), "{refused}");
 }

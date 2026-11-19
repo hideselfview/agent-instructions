@@ -205,6 +205,8 @@ fn holds_for_life(command: &str, rest: &[String]) -> bool {
                 "groups"
                     | "wait"
                     | "settle"
+                    | "dispute"
+                    | "keep"
                     | "fixed"
                     | "show"
                     | "check-landing"

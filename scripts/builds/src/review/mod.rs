@@ -9,6 +9,8 @@
 //! builds review settle FINDING confirmed|dropped --why TEXT
 //! builds review settle FINDING --again --why TEXT
 //! builds review settle FINDING allowed --by-person --why TEXT
+//! builds review dispute FINDING --why TEXT
+//! builds review keep FINDING --why TEXT
 //! builds review show LANDING
 //! builds review check-landing | landed DIR --project P SHA... [--landing KEY]
 //! builds review groups [--rules-root DIR] [--project P] [--changed PATH]...
@@ -89,7 +91,7 @@ use boards::git;
 
 use record::Kind;
 
-const USAGE: &str = "usage: builds review [run] WORKTREE [BASE] [--landing KEY] [--item N]... [--head SHA] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review copy WORKTREE [BASE] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review wait LANDING\n       builds review settle FINDING confirmed|dropped --why TEXT\n       builds review settle FINDING --again --why TEXT\n       builds review settle FINDING allowed --by-person --why TEXT\n       builds review show LANDING\n       builds review check-landing DIR --project P SHA... [--landing KEY] [--rules-root DIR]\n       builds review landed DIR --project P SHA... [--landing KEY] [--more-to-land] [--rules-root DIR]\n       builds review groups [--rules-root DIR] [--project P] [--changed PATH]...\n       builds review replay [--case NAME]... [--source REPO] [--model opus|sonnet|haiku] [--rules-root DIR] [--compare] [--reviewer PROGRAM]\n       builds review replay --landing N... --repo-dir DIR [--group NAME]... [--model opus|sonnet|haiku] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review audit LANDING --repo-dir DIR [--rules-root DIR] [--reviewer PROGRAM]\n       builds review misses [--check [--model opus|sonnet|haiku] [--rules-root DIR] [--reviewer PROGRAM]]\n       builds review rates [--rules-root DIR]\n       builds review scores\n       builds review case propose --repo-dir DIR --rules-root DIR [--per-group N] [--model opus|sonnet|haiku] [--reviewer PROGRAM]\n       builds review case add LANDING FINDING --repo-dir DIR --rules-root DIR [--name NAME]\n       builds review case add --rule SLUG --file PATH --commits BASE..HEAD --project P --name NAME --repo-dir DIR --rules-root DIR\n       builds review case add --clean-for SLUG --commits BASE..HEAD --project P --name NAME --repo-dir DIR --rules-root DIR";
+const USAGE: &str = "usage: builds review [run] WORKTREE [BASE] [--landing KEY] [--item N]... [--head SHA] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review copy WORKTREE [BASE] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review wait LANDING\n       builds review settle FINDING confirmed|dropped --why TEXT\n       builds review settle FINDING --again --why TEXT\n       builds review settle FINDING allowed --by-person --why TEXT\n       builds review dispute FINDING --why TEXT\n       builds review keep FINDING --why TEXT\n       builds review show LANDING\n       builds review check-landing DIR --project P SHA... [--landing KEY] [--rules-root DIR]\n       builds review landed DIR --project P SHA... [--landing KEY] [--more-to-land] [--rules-root DIR]\n       builds review groups [--rules-root DIR] [--project P] [--changed PATH]...\n       builds review replay [--case NAME]... [--source REPO] [--model opus|sonnet|haiku] [--rules-root DIR] [--compare] [--reviewer PROGRAM]\n       builds review replay --landing N... --repo-dir DIR [--group NAME]... [--model opus|sonnet|haiku] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review audit LANDING --repo-dir DIR [--rules-root DIR] [--reviewer PROGRAM]\n       builds review misses [--check [--model opus|sonnet|haiku] [--rules-root DIR] [--reviewer PROGRAM]]\n       builds review rates [--rules-root DIR]\n       builds review scores\n       builds review case propose --repo-dir DIR --rules-root DIR [--per-group N] [--model opus|sonnet|haiku] [--reviewer PROGRAM]\n       builds review case add LANDING FINDING --repo-dir DIR --rules-root DIR [--name NAME]\n       builds review case add --rule SLUG --file PATH --commits BASE..HEAD --project P --name NAME --repo-dir DIR --rules-root DIR\n       builds review case add --clean-for SLUG --commits BASE..HEAD --project P --name NAME --repo-dir DIR --rules-root DIR";
 
 /// The checkout the rules and groups are read from: `--rules-root`, else the
 /// one `install.sh` links at ~/.codex/agent-instructions.
@@ -183,6 +185,13 @@ pub fn cmd_review(tool: &Tool, args: &[String]) -> Result<()> {
         "groups" => list_groups(rest),
         "wait" => wait_command(tool, rest),
         "settle" => settle(tool, rest, Caller::from_env()?.as_ref()),
+        "dispute" => dispute_command(
+            tool,
+            rest,
+            Caller::from_env()?.as_ref(),
+            crate::inbox::Messaging::from_env()?.as_ref(),
+        ),
+        "keep" => keep_command(tool, rest, Caller::from_env()?.as_ref()),
         "show" => show(tool, rest),
         "run" => run_command(tool, rest),
         "copy" => copy_command(tool, rest),
@@ -766,6 +775,67 @@ fn settle(tool: &Tool, args: &[String], caller: Option<&Caller>) -> Result<()> {
     })?;
     judge::tell_waits(&store.dir);
     println!("finding {id} settled {how}");
+    Ok(())
+}
+
+/// The finding a command names: its one positional argument.
+fn finding_named(args: &Args) -> Result<i64> {
+    let [finding] = args.exactly(1, USAGE)? else {
+        unreachable!("exactly one")
+    };
+    finding
+        .parse()
+        .map_err(|_| Fail::Message(format!("'{finding}' is not a finding number")))
+}
+
+/// `builds review dispute FINDING --why TEXT`, run by <caller>, whose
+/// session's inbox is <own>: records that <caller> thinks the judge
+/// confirmed the finding wrongly, and tells the judge, or the coordinator,
+/// once (judge.rs).
+fn dispute_command(
+    tool: &Tool,
+    args: &[String],
+    caller: Option<&Caller>,
+    own: Option<&crate::inbox::Messaging>,
+) -> Result<()> {
+    let args = Args::parse(args, &["why"], &[])?;
+    let id = finding_named(&args)?;
+    let why = args.why()?;
+    let (store, conn) = store_of(tool, &args)?;
+    let stamp = Stamp::resolve(tool.now, &args, &current_dir()?)?;
+    let finding = store.write(&stamp, &format!("review dispute {id}"), |db| {
+        judge::dispute(db, id, why, &stamp)
+    })?;
+    print!(
+        "{}",
+        judge::tell_dispute(
+            &conn,
+            &tool.places.claude_sessions(),
+            &store.project,
+            &finding,
+            caller,
+            own,
+        )?
+    );
+    Ok(())
+}
+
+/// `builds review keep FINDING --why TEXT`, run by <caller>: the judge's
+/// answer to a dispute that keeps the finding confirmed. Only whoever may
+/// give a verdict on the finding answers (judge.rs).
+fn keep_command(tool: &Tool, args: &[String], caller: Option<&Caller>) -> Result<()> {
+    let args = Args::parse(args, &["why"], &[])?;
+    let id = finding_named(&args)?;
+    let why = args.why()?;
+    let (store, _) = store_of(tool, &args)?;
+    let stamp = Stamp::resolve(tool.now, &args, &current_dir()?)?;
+    let sessions = tool.places.claude_sessions();
+    store.write(&stamp, &format!("review keep {id}"), |db| {
+        judge::may_judge(db, &sessions, id, caller)?;
+        judge::keep(db, id, why, &stamp)
+    })?;
+    judge::tell_waits(&store.dir);
+    println!("finding {id} stays confirmed: you kept it after its dispute");
     Ok(())
 }
 
