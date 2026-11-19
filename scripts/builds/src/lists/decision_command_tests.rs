@@ -94,7 +94,7 @@ fn add_makes_its_work_from_the_decision() {
     let scratch = Scratch::new("decision-work");
     let tool = tool_with(&scratch, |_| ());
     let work = r#"[{"title": "Build the one store now", "area": "Alpha", "details": "d", "for": "coordinator",
-                    "waits": [{"condition": "a quiet machine"}], "brief": null, "priority": null}]"#;
+                    "waits": [{"condition": {"text": "a quiet machine", "until": "coordinator"}}], "brief": null, "priority": null}]"#;
     add(
         &tool,
         &scratch,
@@ -108,7 +108,10 @@ fn add_makes_its_work_from_the_decision() {
     assert_eq!(after.items[0].origin, Some(decision.id));
     assert_eq!(
         after.items[0].waits,
-        [Wait::Condition("a quiet machine".into())]
+        [Wait::condition(
+            "a quiet machine",
+            crate::lists::Ender::Coordinator
+        )]
     );
 }
 

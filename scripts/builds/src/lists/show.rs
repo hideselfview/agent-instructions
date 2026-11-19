@@ -26,7 +26,7 @@ pub fn wait_words(lists: &Lists, wait: &Wait) -> String {
         Wait::Item(id) => named("item", *id),
         Wait::Question(id) => named("question", *id),
         Wait::Design(id) => named("design change", *id),
-        Wait::Condition(text) => format!("condition: {text}"),
+        Wait::Condition { text, until } => format!("condition for the {}: {text}", until.word()),
     }
 }
 

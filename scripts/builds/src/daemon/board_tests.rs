@@ -159,7 +159,13 @@ fn each_tab_counts_what_it_holds() {
     start(&db, second, "side-3");
     // Queue: items nobody has started.
     item(&db, vec![]);
-    item(&db, vec![Wait::Condition("a quiet machine".into())]);
+    item(
+        &db,
+        vec![Wait::condition(
+            "a quiet machine",
+            crate::lists::Ender::Coordinator,
+        )],
+    );
 
     let board = board_of(&db, &[("side-1", Some("waiting-on-you"))]);
     assert_eq!(board.waiting, 1 + 1 + 2);

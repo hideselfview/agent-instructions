@@ -101,7 +101,10 @@ fn a_hold_on_an_open_question_or_condition_is_taken() {
     let other = demo("held-condition");
     let top = other.add_side(1, "agent", "work");
     start(&other, &top, |_| {
-        vec![Wait::Condition("the screen is unlocked".into())]
+        vec![Wait::condition(
+            "the screen is unlocked",
+            crate::lists::Ender::Coordinator,
+        )]
     });
     held(&other, &top).unwrap();
 }

@@ -23,7 +23,7 @@ use crate::places::Places;
 /// (dropped, deferred) holds nothing either.
 pub fn wait_open(lists: &Lists, wait: &Wait) -> bool {
     let id = match wait {
-        Wait::Condition(_) => return true,
+        Wait::Condition { .. } => return true,
         Wait::Item(id) | Wait::Question(id) | Wait::Design(id) => *id,
     };
     matches!(
@@ -80,7 +80,7 @@ pub fn require_hold_allowed(places: &Places, checkout: &Checkout) -> Result<()> 
     match hold_fault(&running_in_any(&every, &top), &top) {
         None => Ok(()),
         Some(fault) => fail!(
-            "{fault}; a held worktree waits on an open record. Make the running item wait on one with `builds item wait N --on REF` (REF is question:N, item:N, design:N or condition:TEXT), then note it held"
+            "{fault}; a held worktree waits on an open record. Make the running item wait on one with `builds item wait N --on REF` (REF is question:N, item:N, design:N or condition:TEXT with --until agent|coordinator|ci; work that waits on the person waits on a your-step question), then note it held"
         ),
     }
 }

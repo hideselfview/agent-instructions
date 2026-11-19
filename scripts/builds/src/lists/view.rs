@@ -72,6 +72,9 @@ pub struct WaitView {
     pub id: Option<Id>,
     pub title: Option<String>,
     pub text: Option<String>,
+    /// Who ends a condition: `agent`, `coordinator` or `ci`; None for any
+    /// other wait.
+    pub until: Option<&'static str>,
     pub met: bool,
     /// How the question it names left the stack, with the reason or the
     /// decision that closed it; None for any other wait.
@@ -274,6 +277,7 @@ fn wait_view(lists: &Lists, wait: &Wait) -> Result<WaitView> {
             id: Some(id),
             title,
             text: None,
+            until: None,
             met: derive::wait_met(lists, wait),
             closing: crate::lists::show::question_closing_words(lists, wait)?,
             on_person: derive::wait_on_person(lists, wait),
@@ -283,11 +287,12 @@ fn wait_view(lists: &Lists, wait: &Wait) -> Result<WaitView> {
         Wait::Item(id) => named("item", *id),
         Wait::Question(id) => named("question", *id),
         Wait::Design(id) => named("design", *id),
-        Wait::Condition(text) => Ok(WaitView {
+        Wait::Condition { text, until } => Ok(WaitView {
             kind: "condition",
             id: None,
             title: None,
             text: Some(text.clone()),
+            until: Some(until.word()),
             met: false,
             closing: None,
             on_person: false,

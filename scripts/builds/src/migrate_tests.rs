@@ -24,6 +24,68 @@ fn legacy_stamp(text: &str) -> i64 {
     db::stamp_of_hashed(&text.replace(CANVAS_COMMENT, LEGACY_CANVAS_COMMENT))
 }
 
+/// The column that names who ends a condition, as item.sql writes it today.
+const CONDITION_ENDER_COLUMN: &str = "    until TEXT NOT NULL CONSTRAINT item_wait_condition_ender_known CHECK (until IN ('agent', 'coordinator', 'ci')),\n";
+
+/// The comment above `item_wait_condition` in item.sql today, and as it read
+/// before a condition named who ends it (a stamp from before stamps followed
+/// the schema's shape hashes the comments).
+const CONDITION_COMMENT: &str =
+    "-- A condition is met only when its ender removes it. The person is never an
+-- ender: work that waits on the person waits on a your-step question.
+";
+const LEGACY_CONDITION_COMMENT: &str = "-- A condition is met only when removed.
+";
+
+/// <schema> as it read before a condition named who ends it.
+fn without_condition_enders(schema: String) -> String {
+    assert_eq!(schema.matches(CONDITION_ENDER_COLUMN).count(), 1);
+    assert_eq!(schema.matches(CONDITION_COMMENT).count(), 1);
+    schema.replacen(CONDITION_ENDER_COLUMN, "", 1).replacen(
+        CONDITION_COMMENT,
+        LEGACY_CONDITION_COMMENT,
+        1,
+    )
+}
+
+/// The schemas of `db` as they read before a condition named who ends it:
+/// every older store's conditions have no ender.
+mod old_schema {
+    use super::{db, without_condition_enders};
+
+    pub fn schema() -> String {
+        without_condition_enders(db::schema())
+    }
+
+    pub fn schema_before_rust_check() -> String {
+        without_condition_enders(db::schema_before_rust_check())
+    }
+
+    pub fn schema_before_rust_release() -> String {
+        without_condition_enders(db::schema_before_rust_release())
+    }
+
+    pub fn schema_before_publish() -> String {
+        without_condition_enders(db::schema_before_publish())
+    }
+
+    pub fn schema_before_review() -> String {
+        without_condition_enders(db::schema_before_review())
+    }
+
+    pub fn schema_before_shot_findings() -> String {
+        without_condition_enders(db::schema_before_shot_findings())
+    }
+
+    pub fn schema_before_design_session() -> String {
+        without_condition_enders(db::schema_before_design_session())
+    }
+
+    pub fn schema_before_app_timing() -> String {
+        without_condition_enders(db::schema_before_app_timing())
+    }
+}
+
 /// A volume with an old-layout android lane for repo `demo`, its lock file and
 /// an empty queue.
 fn old_volume(scratch: &Scratch) -> Places {
@@ -164,7 +226,9 @@ fn plant_run(conn: &Connection) {
 /// comment above it.
 fn schema_before_design_tip() -> String {
     let schema = without_design_fix(without_canvas(without_blocks_from_waits(without_effects(
-        without_run_times(with_done_without_reason(db::schema_before_app_timing())),
+        without_run_times(with_done_without_reason(
+            old_schema::schema_before_app_timing(),
+        )),
     ))));
     let from = schema
         .find("\n-- The last commit of the range")
@@ -411,7 +475,7 @@ fn store_before_app_timing(dir: &std::path::Path) -> std::path::PathBuf {
     let conn = Connection::open(&path).unwrap();
     conn.execute_batch(&without_design_fix(without_canvas(
         without_blocks_from_waits(without_loads(without_effects(without_run_times(
-            with_done_without_reason(db::schema_before_app_timing()),
+            with_done_without_reason(old_schema::schema_before_app_timing()),
         )))),
     )))
     .unwrap();
@@ -443,7 +507,7 @@ fn the_app_timing_stamp_is_the_schema_before_app_timings() {
     assert_eq!(
         legacy_stamp(&without_design_fix(without_canvas(
             without_blocks_from_waits(without_loads(without_effects(without_run_times(
-                with_done_without_reason(db::schema_before_app_timing())
+                with_done_without_reason(old_schema::schema_before_app_timing())
             ))))
         ))),
         BEFORE_APP_TIMING_STAMP
@@ -458,7 +522,7 @@ fn store_before_design_session(dir: &std::path::Path) -> std::path::PathBuf {
     let conn = Connection::open(&path).unwrap();
     conn.execute_batch(&without_design_fix(without_canvas(
         without_blocks_from_waits(without_loads(without_effects(without_run_times(
-            with_done_without_reason(db::schema_before_design_session()),
+            with_done_without_reason(old_schema::schema_before_design_session()),
         )))),
     )))
     .unwrap();
@@ -491,7 +555,7 @@ fn the_design_session_stamp_is_the_schema_before_design_sessions() {
     assert_eq!(
         legacy_stamp(&without_design_fix(without_canvas(
             without_blocks_from_waits(without_loads(without_effects(without_run_times(
-                with_done_without_reason(db::schema_before_design_session())
+                with_done_without_reason(old_schema::schema_before_design_session())
             ))))
         ))),
         BEFORE_DESIGN_SESSION_STAMP
@@ -506,7 +570,7 @@ fn store_before_shot_findings(dir: &std::path::Path) -> std::path::PathBuf {
     let conn = Connection::open(&path).unwrap();
     conn.execute_batch(&without_design_fix(without_canvas(
         without_blocks_from_waits(without_loads(without_effects(without_run_times(
-            with_done_without_reason(db::schema_before_shot_findings()),
+            with_done_without_reason(old_schema::schema_before_shot_findings()),
         )))),
     )))
     .unwrap();
@@ -538,7 +602,7 @@ fn the_shot_findings_stamp_is_the_schema_before_shot_findings() {
     assert_eq!(
         legacy_stamp(&without_design_fix(without_canvas(
             without_blocks_from_waits(without_loads(without_effects(without_run_times(
-                with_done_without_reason(db::schema_before_shot_findings())
+                with_done_without_reason(old_schema::schema_before_shot_findings())
             ))))
         ))),
         BEFORE_SHOT_FINDINGS_STAMP
@@ -553,7 +617,7 @@ fn store_before_review(dir: &std::path::Path) -> std::path::PathBuf {
     let conn = Connection::open(&path).unwrap();
     conn.execute_batch(&without_design_fix(without_canvas(
         without_blocks_from_waits(without_loads(without_effects(without_run_times(
-            with_done_without_reason(db::schema_before_review()),
+            with_done_without_reason(old_schema::schema_before_review()),
         )))),
     )))
     .unwrap();
@@ -593,7 +657,7 @@ fn the_review_stamp_is_the_schema_before_the_review() {
     assert_eq!(
         legacy_stamp(&without_design_fix(without_canvas(
             without_blocks_from_waits(without_loads(without_effects(without_run_times(
-                with_done_without_reason(db::schema_before_review())
+                with_done_without_reason(old_schema::schema_before_review())
             ))))
         ))),
         BEFORE_REVIEW_STAMP
@@ -5235,13 +5299,13 @@ fn with_done_without_reason(schema: String) -> String {
 /// The schema as it was before the publish requests' tables joined it, and
 /// before a question could close as done only with a reason.
 fn schema_before_publish() -> String {
-    with_done_without_reason(db::schema_before_publish())
+    with_done_without_reason(old_schema::schema_before_publish())
 }
 
 /// The schema as it was before a question could close as done only with a
 /// reason.
 fn schema_before_done_reason() -> String {
-    with_done_without_reason(db::schema_before_rust_release())
+    with_done_without_reason(old_schema::schema_before_rust_release())
 }
 
 #[test]
@@ -5352,7 +5416,7 @@ fn a_store_from_before_the_publish_requests_gains_their_tables_and_equals_a_fres
 #[test]
 fn the_rust_release_stamp_is_the_schema_before_the_rust_release_items() {
     assert_eq!(
-        legacy_stamp(&db::schema_before_rust_release()),
+        legacy_stamp(&old_schema::schema_before_rust_release()),
         BEFORE_RUST_RELEASE_STAMP
     );
 }
@@ -5368,7 +5432,7 @@ fn a_store_from_before_the_rust_release_items_gains_their_table_and_equals_a_fre
     let path = dir.join(DATABASE);
     {
         let conn = Connection::open(&path).unwrap();
-        conn.execute_batch(&db::schema_before_rust_release())
+        conn.execute_batch(&old_schema::schema_before_rust_release())
             .unwrap();
         conn.pragma_update(None, "user_version", BEFORE_RUST_RELEASE_STAMP)
             .unwrap();
@@ -5390,7 +5454,7 @@ fn a_store_from_before_the_rust_release_items_gains_their_table_and_equals_a_fre
 #[test]
 fn the_rust_check_stamp_is_the_schema_before_the_rust_checks() {
     assert_eq!(
-        legacy_stamp(&db::schema_before_rust_check()),
+        legacy_stamp(&old_schema::schema_before_rust_check()),
         BEFORE_RUST_CHECK_STAMP
     );
 }
@@ -5406,7 +5470,8 @@ fn a_store_from_before_the_rust_checks_gains_their_table_and_equals_a_fresh_sche
     let path = dir.join(DATABASE);
     {
         let conn = Connection::open(&path).unwrap();
-        conn.execute_batch(&db::schema_before_rust_check()).unwrap();
+        conn.execute_batch(&old_schema::schema_before_rust_check())
+            .unwrap();
         conn.pragma_update(None, "user_version", BEFORE_RUST_CHECK_STAMP)
             .unwrap();
     }
@@ -5426,7 +5491,7 @@ fn a_store_from_before_the_rust_checks_gains_their_table_and_equals_a_fresh_sche
 fn the_shape_stamp_is_the_schema_before_stamps_followed_the_shape() {
     // The schema from before stamps followed the shape has the same tables as
     // today's, and differs only in the canvas comment that legacy_stamp restores.
-    assert_eq!(legacy_stamp(&db::schema()), BEFORE_SHAPE_STAMP);
+    assert_eq!(legacy_stamp(&old_schema::schema()), BEFORE_SHAPE_STAMP);
 }
 
 /// A store stamped by its schema's whole text keeps its tables and gets the
@@ -5440,7 +5505,7 @@ fn a_store_stamped_by_its_text_gets_the_stamp_of_its_shape_and_equals_a_fresh_sc
     let path = dir.join(DATABASE);
     {
         let conn = Connection::open(&path).unwrap();
-        conn.execute_batch(&db::schema().replace(CANVAS_COMMENT, LEGACY_CANVAS_COMMENT))
+        conn.execute_batch(&old_schema::schema().replace(CANVAS_COMMENT, LEGACY_CANVAS_COMMENT))
             .unwrap();
         conn.pragma_update(None, "user_version", BEFORE_SHAPE_STAMP)
             .unwrap();
@@ -5451,5 +5516,85 @@ fn a_store_stamped_by_its_text_gets_the_stamp_of_its_shape_and_equals_a_fresh_sc
     assert_eq!(
         db::schema_rows(&conn).unwrap(),
         db::schema_rows(&db::memory()).unwrap()
+    );
+}
+
+#[test]
+fn the_condition_enders_stamp_is_the_schema_before_conditions_named_an_ender() {
+    assert_eq!(
+        db::stamp_of_text(&old_schema::schema()),
+        BEFORE_CONDITION_ENDERS_STAMP
+    );
+}
+
+/// A store from before conditions named an ender gives each condition the
+/// coordinator as its ender and equals a fresh schema.
+#[test]
+fn a_store_from_before_condition_enders_gives_each_condition_the_coordinator() {
+    let scratch = Scratch::new("move-condition-enders");
+    let places = scratch.places();
+    let dir = places.lists.join("bae");
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join(DATABASE);
+    {
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(&old_schema::schema()).unwrap();
+        conn.pragma_update(None, "user_version", BEFORE_CONDITION_ENDERS_STAMP)
+            .unwrap();
+        use crate::lists::fixtures::v;
+        crate::lists::area::plant(&conn, &[("name", v("lists")), ("position", v(0))]).unwrap();
+        crate::lists::record::plant(
+            &conn,
+            "record",
+            &[
+                ("id", v(1)),
+                ("kind", v("item")),
+                ("opened_at", v(5)),
+                ("opened_by", v("tester")),
+            ],
+        )
+        .unwrap();
+        crate::lists::item::plant(
+            &conn,
+            "item",
+            &[
+                ("id", v(1)),
+                ("record_kind", v("item")),
+                ("title", v("Wait for a landing")),
+                ("area", v("lists")),
+                ("details", v("d")),
+                ("audience", v("coordinator")),
+            ],
+        )
+        .unwrap();
+        crate::lists::item::plant(
+            &conn,
+            "item_wait_condition",
+            &[
+                ("item_id", v(1)),
+                ("condition", v("builds lands the change")),
+            ],
+        )
+        .unwrap();
+    }
+    migrate_stores(&places, 0).unwrap();
+    let conn = db::open(&path, db::Make::Never).unwrap();
+    assert_eq!(
+        db::schema_rows(&conn).unwrap(),
+        db::schema_rows(&db::memory()).unwrap()
+    );
+    let enders: Vec<(String, String)> = conn
+        .prepare("SELECT condition, until FROM item_wait_condition")
+        .unwrap()
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+        .unwrap()
+        .collect::<std::result::Result<_, _>>()
+        .unwrap();
+    assert_eq!(
+        enders,
+        [(
+            "builds lands the change".to_string(),
+            "coordinator".to_string()
+        )]
     );
 }

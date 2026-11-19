@@ -32,14 +32,69 @@ pub enum Audience {
     DesignSession,
 }
 
-/// What an item waits on. A condition is met only when removed.
+/// Who ends a condition: whoever removes it once it holds. The person is
+/// never one: work that waits on the person waits on a question of the kind
+/// your-step (`builds question ask`), which the dashboard shows under Waiting
+/// on you and which closes when they do the step.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Ender {
+    /// The agent that works the item.
+    Agent,
+    /// The coordinator, such as when another item lands.
+    Coordinator,
+    /// A CI run.
+    Ci,
+}
+
+impl Ender {
+    /// The enders' words, as `--until` and a refusal of an unknown word name
+    /// them.
+    pub const NAMES: &str = "agent, coordinator or ci";
+
+    pub fn word(self) -> &'static str {
+        match self {
+            Ender::Agent => "agent",
+            Ender::Coordinator => "coordinator",
+            Ender::Ci => "ci",
+        }
+    }
+
+    /// The ender <word> names. Refuses "person" with the way to wait on the
+    /// person, and any other word with the ones that exist.
+    pub fn parse(word: &str) -> Result<Ender> {
+        Ok(match word {
+            "agent" => Ender::Agent,
+            "coordinator" => Ender::Coordinator,
+            "ci" => Ender::Ci,
+            "person" => fail!(
+                "a condition cannot wait on the person: ask a your-step question (`builds question ask --kind your-step ...`) and wait on it with `--on question:N`, so that it shows under Waiting on you"
+            ),
+            other => fail!(
+                "'{other}' is not who ends a condition: say {}",
+                Ender::NAMES
+            ),
+        })
+    }
+}
+
+/// What an item waits on. A condition is met only when its ender removes it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Wait {
     Item(Id),
     Question(Id),
     Design(Id),
-    Condition(String),
+    Condition { text: String, until: Ender },
+}
+
+impl Wait {
+    pub fn condition(text: impl Into<String>, until: Ender) -> Wait {
+        Wait::Condition {
+            text: text.into(),
+            until,
+        }
+    }
 }
 
 /// A wait on a record: the waits that closing an item, a question or a
@@ -211,10 +266,10 @@ pub fn require_open_wait(db: &Connection, wait: &Wait) -> Result<()> {
         Wait::Item(id) => (*id, Kind::Item),
         Wait::Question(id) => (*id, Kind::Question),
         Wait::Design(id) => (*id, Kind::Design),
-        Wait::Condition(text) if text.trim().is_empty() => {
+        Wait::Condition { text, .. } if text.trim().is_empty() => {
             fail!("a wait on a condition needs the condition's text")
         }
-        Wait::Condition(_) => return Ok(()),
+        Wait::Condition { .. } => return Ok(()),
     };
     match record::standing(db, id)? {
         None => fail!("a wait names {id}, which no record has"),
@@ -373,9 +428,9 @@ fn insert_wait(db: &Connection, id: Id, wait: &Wait) -> Result<()> {
             "INSERT OR IGNORE INTO item_wait_design (item_id, on_design) VALUES (?1, ?2)",
             params![id, on],
         ),
-        Wait::Condition(text) => db.execute(
-            "INSERT OR IGNORE INTO item_wait_condition (item_id, condition) VALUES (?1, ?2)",
-            params![id, text],
+        Wait::Condition { text, until } => db.execute(
+            "INSERT OR IGNORE INTO item_wait_condition (item_id, condition, until) VALUES (?1, ?2, ?3)",
+            params![id, text, until.word()],
         ),
     }
     .sql()?;
@@ -465,7 +520,7 @@ pub fn remove_wait(db: &Connection, id: Id, wait: &Wait) -> Result<()> {
             "DELETE FROM item_wait_design WHERE item_id = ?1 AND on_design = ?2",
             params![id, on],
         ),
-        Wait::Condition(text) => db.execute(
+        Wait::Condition { text, .. } => db.execute(
             "DELETE FROM item_wait_condition WHERE item_id = ?1 AND condition = ?2",
             params![id, text],
         ),
@@ -554,20 +609,29 @@ pub fn read(
     for list in waits.values_mut() {
         list.sort_by_key(|wait| match wait {
             Wait::Item(id) | Wait::Question(id) | Wait::Design(id) => id.0,
-            Wait::Condition(_) => u32::MAX,
+            Wait::Condition { .. } => u32::MAX,
         });
     }
     let mut statement = db
-        .prepare("SELECT item_id, condition FROM item_wait_condition ORDER BY condition, item_id")
+        .prepare(
+            "SELECT item_id, condition, until FROM item_wait_condition ORDER BY condition, item_id",
+        )
         .sql()?;
     for row in statement
         .query_map([], |row| {
-            Ok((row.get::<_, Id>(0)?, row.get::<_, String>(1)?))
+            Ok((
+                row.get::<_, Id>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+            ))
         })
         .sql()?
     {
-        let (item, text) = row.sql()?;
-        waits.entry(item).or_default().push(Wait::Condition(text));
+        let (item, text, until) = row.sql()?;
+        waits
+            .entry(item)
+            .or_default()
+            .push(Wait::condition(text, Ender::parse(&until)?));
     }
     let mut priorities: BTreeMap<Id, Priority> = BTreeMap::new();
     let mut statement = db
@@ -731,6 +795,31 @@ pub fn move_to_origins(db: &Connection) -> Result<()> {
             crate::db::statement(SQL, "CREATE INDEX item_origin", ";"),
             crate::db::statement(SQL, "CREATE INDEX item_area", ";"),
         ],
+    )
+}
+
+/// Makes `item_wait_condition` again with `until`, the ender of each
+/// condition, as item.sql writes it. A store from before conditions named an
+/// ender kept the conditions someone removed by hand, and the move gives each
+/// one the coordinator, who removed them.
+pub fn move_to_condition_enders(db: &Connection) -> Result<()> {
+    const SQL: &str = include_str!("item.sql");
+    crate::db::remake_table(
+        db,
+        "item_wait_condition",
+        crate::db::statement(
+            SQL,
+            "CREATE TABLE item_wait_condition (",
+            "STRICT, WITHOUT ROWID;",
+        ),
+        |db| {
+            db.execute_batch(
+                "INSERT INTO item_wait_condition (item_id, condition, until)
+    SELECT item_id, condition, 'coordinator' FROM item_wait_condition_old;",
+            )
+            .sql()
+        },
+        &[],
     )
 }
 

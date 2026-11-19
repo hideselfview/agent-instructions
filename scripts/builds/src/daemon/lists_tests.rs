@@ -423,7 +423,10 @@ fn a_running_items_condition_is_one_of_its_waits() {
     let db = db();
     let waiting = item(
         &db,
-        vec![Wait::Condition("builds #122, #121 and #125 land".into())],
+        vec![Wait::condition(
+            "builds #122, #121 and #125 land",
+            crate::lists::Ender::Coordinator,
+        )],
     );
     let here = "/d/bae-worktrees/side-2";
     crate::lists::running::start(
@@ -439,9 +442,10 @@ fn a_running_items_condition_is_one_of_its_waits() {
     .unwrap();
     assert_eq!(
         running_waits(&read(&db), here).unwrap(),
-        [crate::daemon::cards::ItemWait::Condition(
-            "builds #122, #121 and #125 land".into()
-        )]
+        [crate::daemon::cards::ItemWait::Condition {
+            text: "builds #122, #121 and #125 land".into(),
+            until: crate::lists::Ender::Coordinator
+        }]
     );
 }
 

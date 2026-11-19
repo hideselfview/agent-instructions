@@ -15,7 +15,10 @@ fn the_json_has_the_pages_shape() {
     let q = question(&db);
     let waiting = item(
         &db,
-        vec![Wait::Question(q), Wait::Condition("a quiet machine".into())],
+        vec![
+            Wait::Question(q),
+            Wait::condition("a quiet machine", crate::lists::Ender::Coordinator),
+        ],
     );
     let running = item(&db, vec![]);
     crate::lists::running::start(
@@ -106,11 +109,11 @@ fn the_json_has_the_pages_shape() {
     );
     assert_eq!(
         item_json["waits"][0],
-        json!({"kind": "question", "id": q.0, "title": lists.question(q).unwrap().title, "text": null, "met": false, "closing": null, "on_person": true})
+        json!({"kind": "question", "id": q.0, "title": lists.question(q).unwrap().title, "text": null, "until": null, "met": false, "closing": null, "on_person": true})
     );
     assert_eq!(
         item_json["waits"][1],
-        json!({"kind": "condition", "id": null, "title": null, "text": "a quiet machine", "met": false, "closing": null, "on_person": false})
+        json!({"kind": "condition", "id": null, "title": null, "text": "a quiet machine", "until": "coordinator", "met": false, "closing": null, "on_person": false})
     );
     let running_json = json["items"]
         .as_array()

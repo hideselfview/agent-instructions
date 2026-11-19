@@ -80,6 +80,8 @@ fn add_takes_waits_a_brief_a_priority_and_the_design_sessions_audience() {
             "item:1",
             "--wait",
             "condition:a quiet machine",
+            "--until",
+            "coordinator",
             "--brief",
             &brief,
             "--priority",
@@ -94,7 +96,10 @@ fn add_takes_waits_a_brief_a_priority_and_the_design_sessions_audience() {
     let second = &open(&demo).items[1];
     assert_eq!(
         second.waits,
-        [Wait::Item(Id(1)), Wait::Condition("a quiet machine".into())]
+        [
+            Wait::Item(Id(1)),
+            Wait::condition("a quiet machine", crate::lists::Ender::Coordinator)
+        ]
     );
     assert_eq!(
         (second.brief.as_deref(), second.r#for),
@@ -173,9 +178,62 @@ fn wait_adds_and_removes_and_refuses_a_cycle_or_a_closed_record() {
     assert!(refusal(item(&demo, &["wait", "1"])).contains("exactly one of --on REF and --off REF"));
     assert_eq!(demo.state(), before);
     item(&demo, &["wait", "2", "--off", "item:1"]).unwrap();
-    item(&demo, &["wait", "2", "--on", "condition:a quiet machine"]).unwrap();
+    item(
+        &demo,
+        &[
+            "wait",
+            "2",
+            "--on",
+            "condition:a quiet machine",
+            "--until",
+            "ci",
+        ],
+    )
+    .unwrap();
+    assert_eq!(
+        open(&demo).items[1].waits,
+        [Wait::condition("a quiet machine", crate::lists::Ender::Ci)]
+    );
     item(&demo, &["wait", "2", "--off", "condition:a quiet machine"]).unwrap();
     assert!(open(&demo).items[1].waits.is_empty());
+}
+
+/// A condition names who ends it, and the person is never that one: a wait
+/// on the person is a your-step question.
+#[test]
+fn a_condition_needs_an_ender_that_is_not_the_person() {
+    let demo = demo("wait-ender");
+    add(&demo, "Do the first thing now", &[]).unwrap();
+    let without = refusal(item(&demo, &["wait", "1", "--on", "condition:later"]));
+    assert!(without.contains("says who ends it"), "{without}");
+    let person = refusal(item(
+        &demo,
+        &["wait", "1", "--on", "condition:later", "--until", "person"],
+    ));
+    assert!(
+        person.contains("builds question ask --kind your-step")
+            && person.contains("--on question:N"),
+        "{person}"
+    );
+    let unknown = refusal(item(
+        &demo,
+        &["wait", "1", "--on", "condition:later", "--until", "someone"],
+    ));
+    assert!(unknown.contains("agent, coordinator or ci"), "{unknown}");
+    let stray = refusal(item(
+        &demo,
+        &["wait", "1", "--on", "item:1", "--until", "ci"],
+    ));
+    assert!(
+        stray.contains("--until goes with a `condition:TEXT` wait"),
+        "{stray}"
+    );
+    let off = refusal(item(
+        &demo,
+        &["wait", "1", "--off", "condition:later", "--until", "ci"],
+    ));
+    assert!(off.contains("--until goes with --on"), "{off}");
+    assert!(open(&demo).items[0].waits.is_empty());
 }
 
 #[test]

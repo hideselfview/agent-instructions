@@ -55,11 +55,13 @@ fn a_draft_waits_only_on_open_records() {
     };
     assert!(with(Wait::Question(q)).is_ok());
     assert!(with(Wait::Item(open)).is_ok());
-    assert!(with(Wait::Condition("quiet".into())).is_ok());
+    assert!(with(Wait::condition("quiet", crate::lists::Ender::Coordinator)).is_ok());
     assert!(refusal(with(Wait::Item(gone))).contains("is closed (landed)"));
     assert!(refusal(with(Wait::Item(Id(99)))).contains("no record has"));
     assert!(refusal(with(Wait::Item(q))).contains("as a item, but it is a question"));
-    assert!(refusal(with(Wait::Condition(" ".into()))).contains("condition"));
+    assert!(
+        refusal(with(Wait::condition(" ", crate::lists::Ender::Coordinator))).contains("condition")
+    );
 }
 
 #[test]
@@ -247,7 +249,23 @@ fn every_named_constraint_of_the_item_tables_refuses_its_row() {
         plant(
             &db,
             "item_wait_condition",
-            &[("item_id", v(good.0)), ("condition", v(" "))],
+            &[
+                ("item_id", v(good.0)),
+                ("condition", v(" ")),
+                ("until", v("agent")),
+            ],
+        ),
+    );
+    refused.check(
+        "item_wait_condition_ender_known",
+        plant(
+            &db,
+            "item_wait_condition",
+            &[
+                ("item_id", v(good.0)),
+                ("condition", v("a quiet machine")),
+                ("until", v("person")),
+            ],
         ),
     );
     refused.check_as(

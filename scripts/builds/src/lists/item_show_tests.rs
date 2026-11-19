@@ -64,7 +64,7 @@ fn next_order_is_first_then_area_order_and_leaves_out_waiting_running_and_design
         &demo,
         "Do the waiting thing now",
         "Alpha",
-        &["--wait", "condition:later"],
+        &["--wait", "condition:later", "--until", "agent"],
     );
     add(
         &demo,

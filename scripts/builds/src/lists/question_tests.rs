@@ -87,7 +87,7 @@ fn blocked_reads_from_json() {
     assert!(serde_json::from_str::<BlockedMap>(r#"{"12":{"edit":{"colour":"x"}}}"#).is_err());
     let draft: ItemDraft = serde_json::from_str(
         r#"{"title":"A b c d e","area":"Alpha","details":"d","for":"coordinator",
-            "waits":[{"item":412},{"question":3},{"condition":"a quiet machine"}],
+            "waits":[{"item":412},{"question":3},{"condition":{"text":"a quiet machine","until":"ci"}}],
             "brief":"plans/briefs/import.md#Filtered list","priority":null}"#,
     )
     .unwrap();

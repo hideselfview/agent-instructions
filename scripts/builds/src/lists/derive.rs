@@ -59,7 +59,7 @@ pub fn replaced_by(lists: &Lists, decision: Id) -> Option<Id> {
 pub fn wait_met(lists: &Lists, wait: &Wait) -> bool {
     let id = match wait {
         Wait::Item(id) | Wait::Question(id) | Wait::Design(id) => *id,
-        Wait::Condition(_) => return false,
+        Wait::Condition { .. } => return false,
     };
     match lists.locate(id) {
         Some(Located {
@@ -78,7 +78,7 @@ pub fn wait_on_person(lists: &Lists, wait: &Wait) -> bool {
     match wait {
         Wait::Question(_) => !wait_met(lists, wait),
         Wait::Design(id) => lists.design(*id).is_some_and(DesignChange::waits_on_person),
-        Wait::Item(_) | Wait::Condition(_) => false,
+        Wait::Item(_) | Wait::Condition { .. } => false,
     }
 }
 

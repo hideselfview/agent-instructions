@@ -273,7 +273,13 @@ fn ask_with_a_plan_keeps_its_link() {
 fn ask_from_an_item_moves_it_to_the_stack_and_its_waiters_follow() {
     let (scratch, tool, store, (mine, waiter, other)) = setup("q-ask-from", |l| {
         let mine = item(l, vec![]);
-        let waiter = item(l, vec![Wait::Item(mine), Wait::Condition("quiet".into())]);
+        let waiter = item(
+            l,
+            vec![
+                Wait::Item(mine),
+                Wait::condition("quiet", crate::lists::Ender::Coordinator),
+            ],
+        );
         let other = item(l, vec![]);
         (mine, waiter, other)
     });
@@ -284,7 +290,10 @@ fn ask_from_an_item_moves_it_to_the_stack_and_its_waiters_follow() {
     assert_eq!(closed_as(&lists, mine), &How::MovedToStack(q));
     assert_eq!(
         lists.item(waiter).unwrap().waits,
-        [Wait::Question(q), Wait::Condition("quiet".into())]
+        [
+            Wait::Question(q),
+            Wait::condition("quiet", crate::lists::Ender::Coordinator)
+        ]
     );
     assert_eq!(lists.item(other).unwrap().waits, [Wait::Question(q)]);
     assert!(
@@ -395,7 +404,13 @@ fn answer_writes_the_decision_the_work_the_fates_and_the_close_in_one_step() {
             let proceeds = item(l, vec![Wait::Question(q)]);
             let edited = item(l, vec![Wait::Question(q)]);
             let dropped = item(l, vec![Wait::Question(q)]);
-            let ready_later = item(l, vec![Wait::Question(q), Wait::Condition("quiet".into())]);
+            let ready_later = item(
+                l,
+                vec![
+                    Wait::Question(q),
+                    Wait::condition("quiet", crate::lists::Ender::Coordinator),
+                ],
+            );
             (q, proceeds, edited, dropped, ready_later)
         });
     let request = answer_request(&format!(

@@ -90,7 +90,10 @@ fn a_wait_is_met_by_the_way_its_record_closed() {
     .unwrap();
     assert!(waits(&read(&db), Wait::Design(board)));
     assert!(!waits(&read(&db), Wait::Design(open_board)));
-    assert!(!waits(&read(&db), Wait::Condition("c".into())));
+    assert!(!waits(
+        &read(&db),
+        Wait::condition("c", crate::lists::Ender::Coordinator)
+    ));
     assert!(!waits(&read(&db), Wait::Item(Id(900))));
 }
 
@@ -100,7 +103,10 @@ fn an_items_state() {
     let q = question(&db);
     let ready = item(&db, vec![]);
     let waiting = item(&db, vec![Wait::Question(q)]);
-    let condition = item(&db, vec![Wait::Condition("quiet".into())]);
+    let condition = item(
+        &db,
+        vec![Wait::condition("quiet", crate::lists::Ender::Coordinator)],
+    );
     let design_session = item(&db, vec![]);
     set_audience(&db, design_session, Audience::DesignSession);
     let running = item(&db, vec![Wait::Question(q)]);

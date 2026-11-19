@@ -16,7 +16,7 @@ use crate::lists::check::faults;
 use crate::lists::derive::{item_state, unmet_waits, waits_for_others};
 use crate::lists::draft::{require_brief_from, require_draft_briefs};
 use crate::lists::item::{
-    Audience, Item, ItemDraft, ItemEdit, Level, Note, Priority, RecordWait, Wait, add_item,
+    Audience, Ender, Item, ItemDraft, ItemEdit, Level, Note, Priority, RecordWait, Wait, add_item,
     add_note, add_wait, open_item, remove_wait, require_open_wait, set_priority,
 };
 use crate::lists::project;
@@ -30,7 +30,7 @@ use crate::lists::{
 use crate::text::note;
 use crate::tool::Tool;
 
-const USAGE: &str = "usage: builds item add --title T --area A --details-file F [--for design-session] [--wait REF]... [--brief P] [--priority first|last --why WHY] [--origin N] [--tag T]...\n       builds item edit N [--title T] [--area A] [--details-file F] [--brief P] [--for F] [--origin N] [--tag T]... [--untag T]...\n       builds item note N TEXT\n       builds item wait N (--on REF | --off REF [--blocks-nothing WHY])\n       builds item take N [M...] [--worktree W --branch B] --brief P [--as design-session]\n       builds item handoff N --brief P\n       builds item stop N --why WHY\n       builds item finished N --made WHAT\n       builds item drop N --why WHY\n       builds item defer N --issue URL\n       builds item place N first|last|none --why WHY\n       builds item check-landing DIR [--done N]... [--part N]... SHA...\n       builds item landed DIR [--done N]... [--part N]... SHA...\n       builds item show N\n       builds item list [--running] [--ready] [--area A] [--for F] [--tag T]\n       builds item times [N...]\n(REF is item:N, question:N, design:N or condition:TEXT)";
+const USAGE: &str = "usage: builds item add --title T --area A --details-file F [--for design-session] [--wait REF [--until ENDER]]... [--brief P] [--priority first|last --why WHY] [--origin N] [--tag T]...\n       builds item edit N [--title T] [--area A] [--details-file F] [--brief P] [--for F] [--origin N] [--tag T]... [--untag T]...\n       builds item note N TEXT\n       builds item wait N (--on REF [--until ENDER] | --off REF [--blocks-nothing WHY])\n       builds item take N [M...] [--worktree W --branch B] --brief P [--as design-session]\n       builds item handoff N --brief P\n       builds item stop N --why WHY\n       builds item finished N --made WHAT\n       builds item drop N --why WHY\n       builds item defer N --issue URL\n       builds item place N first|last|none --why WHY\n       builds item check-landing DIR [--done N]... [--part N]... SHA...\n       builds item landed DIR [--done N]... [--part N]... SHA...\n       builds item show N\n       builds item list [--running] [--ready] [--area A] [--for F] [--tag T]\n       builds item times [N...]\n(REF is item:N, question:N, design:N or condition:TEXT, and a condition takes --until agent|coordinator|ci)";
 
 pub fn cmd_item(tool: &Tool, args: &[String]) -> Result<()> {
     let cwd = current_dir()?;
@@ -63,18 +63,60 @@ pub fn cmd_next(tool: &Tool, args: &[String]) -> Result<()> {
     item_show::next(tool, args, &current_dir()?)
 }
 
+/// A wait as the command line names it: a record, or a condition's text,
+/// whose ender `--until` gives when the wait is made.
+enum WaitRef {
+    Record(Wait),
+    Condition(String),
+}
+
+impl WaitRef {
+    /// Does <wait> have the name this reference gives? A condition is named
+    /// by its text alone.
+    fn names(&self, wait: &Wait) -> bool {
+        match (self, wait) {
+            (WaitRef::Record(named), wait) => named == wait,
+            (WaitRef::Condition(text), Wait::Condition { text: held, .. }) => text == held,
+            (WaitRef::Condition(_), _) => false,
+        }
+    }
+}
+
 /// `item:N`, `question:N`, `design:N` or `condition:TEXT`.
-pub fn parse_wait(text: &str) -> Result<Wait> {
+fn parse_ref(text: &str) -> Result<WaitRef> {
     let Some((kind, rest)) = text.split_once(':') else {
         fail!("'{text}' is not a wait: say item:N, question:N, design:N or condition:TEXT");
     };
     Ok(match kind {
-        "item" => Wait::Item(Id::parse(rest)?),
-        "question" => Wait::Question(Id::parse(rest)?),
-        "design" => Wait::Design(Id::parse(rest)?),
-        "condition" => Wait::Condition(rest.to_string()),
+        "item" => WaitRef::Record(Wait::Item(Id::parse(rest)?)),
+        "question" => WaitRef::Record(Wait::Question(Id::parse(rest)?)),
+        "design" => WaitRef::Record(Wait::Design(Id::parse(rest)?)),
+        "condition" => WaitRef::Condition(rest.to_string()),
         _ => fail!("'{text}' is not a wait: the kind is item, question, design or condition"),
     })
+}
+
+/// The waits that <refs> name, each condition ended by the next of <untils>
+/// (`--until`, one for each condition in the order given).
+pub fn parse_waits(refs: &[&str], untils: &[&str]) -> Result<Vec<Wait>> {
+    let mut untils = untils.iter();
+    let waits = refs
+        .iter()
+        .map(|text| match parse_ref(text)? {
+            WaitRef::Record(wait) => Ok(wait),
+            WaitRef::Condition(text) => match untils.next() {
+                Some(word) => Ok(Wait::condition(text, Ender::parse(word)?)),
+                None => fail!(
+                    "a wait on a condition says who ends it: add `--until {}` (a wait on the person is a your-step question: `builds question ask --kind your-step ...`, then `--on question:N`)",
+                    Ender::NAMES.replace(" or ", "|").replace(", ", "|")
+                ),
+            },
+        })
+        .collect::<Result<Vec<_>>>()?;
+    if untils.next().is_some() {
+        fail!("--until goes with a `condition:TEXT` wait, and each condition takes one");
+    }
+    Ok(waits)
 }
 
 fn one_id(args: &Args, usage: &str) -> Result<Id> {
@@ -93,6 +135,7 @@ fn add(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
             "details-file",
             "for",
             "wait",
+            "until",
             "brief",
             "priority",
             "why",
@@ -120,11 +163,7 @@ fn add(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
         area: args.require("area")?.to_string(),
         details: read_input(args.require("details-file")?)?,
         r#for: args.choice("for")?.unwrap_or(Audience::Coordinator),
-        waits: args
-            .values("wait")
-            .into_iter()
-            .map(parse_wait)
-            .collect::<Result<_>>()?,
+        waits: parse_waits(&args.values("wait"), &args.values("until"))?,
         brief: args.value("brief")?.map(str::to_string),
         priority,
         tags: tag::parse_tags(args.values("tag"))?,
@@ -253,22 +292,32 @@ fn require_state_holds(db: &Connection, what: &str) -> Result<()> {
 }
 
 fn wait(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
-    let args = Args::parse(args, &["on", "off", "blocks-nothing"], &[])?;
+    let args = Args::parse(args, &["on", "off", "until", "blocks-nothing"], &[])?;
     let id = one_id(
         &args,
-        "builds item wait N (--on REF | --off REF [--blocks-nothing WHY])",
+        "builds item wait N (--on REF [--until ENDER] | --off REF [--blocks-nothing WHY])",
     )?;
     let (verb, reference, on) = match (args.value("on")?, args.value("off")?) {
         (Some(reference), None) => ("wait on", reference, true),
         (None, Some(reference)) => ("stop waiting on", reference, false),
         _ => fail!(
-            "give exactly one of --on REF and --off REF (REF is item:N, question:N, design:N or condition:TEXT)"
+            "give exactly one of --on REF and --off REF (REF is item:N, question:N, design:N or condition:TEXT, and a condition takes --until agent|coordinator|ci)"
         ),
     };
-    let wait = parse_wait(reference)?;
+    let untils = args.values("until");
+    if !on && !untils.is_empty() {
+        fail!("--until goes with --on: a condition is removed by its text");
+    }
+    let wait_ref = parse_ref(reference)?;
+    let new_wait = if on {
+        Some(parse_waits(&[reference], &untils)?.remove(0))
+    } else {
+        None
+    };
+    let wait_ref_is_question = matches!(wait_ref, WaitRef::Record(Wait::Question(_)));
     let blocks_nothing = args.value("blocks-nothing")?.map(str::to_string);
     if let Some(why) = &blocks_nothing {
-        if on || !matches!(wait, Wait::Question(_)) {
+        if on || !wait_ref_is_question {
             fail!(
                 "--blocks-nothing goes with --off question:N: it gives the reason the question stays open once no open item waits on it"
             );
@@ -286,17 +335,18 @@ fn wait(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
             let lists = store::read(db)?;
             let lists = &lists;
             let item = open_item(lists, id)?;
-            if on {
-                if wait == Wait::Item(id) {
+            let held = item.waits.iter().find(|held| wait_ref.names(held));
+            if let Some(new) = &new_wait {
+                if *new == Wait::Item(id) {
                     fail!("{id} cannot wait on itself");
                 }
-                require_open_wait(db, &wait)?;
-                if item.waits.contains(&wait) {
+                require_open_wait(db, new)?;
+                if held.is_some() {
                     fail!("{id} already waits on {reference}");
                 }
-                add_wait(db, id, wait.clone())?;
+                add_wait(db, id, new.clone())?;
             } else {
-                if !item.waits.contains(&wait) {
+                let Some(held) = held else {
                     let current: Vec<String> =
                         item.waits.iter().map(|w| wait_words(lists, w)).collect();
                     let current = if current.is_empty() {
@@ -305,9 +355,9 @@ fn wait(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
                         current.join("; ")
                     };
                     fail!("{id} does not wait on {reference}; it waits on {current}");
-                }
-                remove_wait(db, id, &wait)?;
-                if let (Wait::Question(asked), Some(why)) = (&wait, &blocks_nothing) {
+                };
+                remove_wait(db, id, held)?;
+                if let (Wait::Question(asked), Some(why)) = (held, &blocks_nothing) {
                     crate::lists::question::edit(db, *asked, None, None, None, Some(why.clone()))?;
                 }
             }

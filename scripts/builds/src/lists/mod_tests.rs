@@ -21,7 +21,7 @@ fn a_side_worktree_path_names_its_repo_and_checkout() {
 #[test]
 fn wire_shapes_are_the_plans() {
     let wait: Vec<Wait> =
-        serde_json::from_str(r#"[{"item":4},{"question":3},{"design":9},{"condition":"quiet"}]"#)
+        serde_json::from_str(r#"[{"item":4},{"question":3},{"design":9},{"condition":{"text":"quiet","until":"coordinator"}}]"#)
             .unwrap();
     assert_eq!(
         wait,
@@ -29,7 +29,7 @@ fn wire_shapes_are_the_plans() {
             Wait::Item(Id(4)),
             Wait::Question(Id(3)),
             Wait::Design(Id(9)),
-            Wait::Condition("quiet".into())
+            Wait::condition("quiet", crate::lists::Ender::Coordinator)
         ]
     );
     assert_eq!(

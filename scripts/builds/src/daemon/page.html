@@ -1664,8 +1664,9 @@ function stackItems() {
 function isRunning(it) { return it.running.length > 0; }
 function isReady(it) { return !isRunning(it) && it.for === "coordinator" && it.state === "ready"; }
 function unmet(it) { return it.waits.filter(w => !w.met); }
-function waitName(w) { return w.kind === "condition" ? w.text : w.title + " #" + w.id; }
-function waitLink(w) { return w.kind === "condition" ? document.createTextNode(w.text) : recLink(w.id, w.title + " #" + w.id); }
+function conditionWords(w) { return w.text + " (the " + w.until + " ends this wait)"; }
+function waitName(w) { return w.kind === "condition" ? conditionWords(w) : w.title + " #" + w.id; }
+function waitLink(w) { return w.kind === "condition" ? document.createTextNode(conditionWords(w)) : recLink(w.id, w.title + " #" + w.id); }
 // An item's row line: its priority, how many items wait behind it, the
 // worktree it keeps and what it waits on.
 function itemFacts(it) {

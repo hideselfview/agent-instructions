@@ -352,7 +352,10 @@ fn a_held_worktree_says_paused_and_what_its_running_items_wait_on() {
             title: "Store the library id".into(),
             state: "ready",
         },
-        ItemWait::Condition("builds #122, #121 and #125 land".into()),
+        ItemWait::Condition {
+            text: "builds #122, #121 and #125 land".into(),
+            until: crate::lists::Ender::Coordinator,
+        },
     ];
     let card = words(
         &card(Some("held"), claim(Some("Until the store lands.")), Some(0)),
@@ -365,7 +368,7 @@ fn a_held_worktree_says_paused_and_what_its_running_items_wait_on() {
     assert_eq!(
         card.note.as_deref(),
         Some(
-            "Waits on #1320 (ready): Store the library id. Waits until builds #122, #121 and #125 land"
+            "Waits on #1320 (ready): Store the library id. Waits until builds #122, #121 and #125 land; the coordinator ends this wait"
         )
     );
     let noted = listed("held", Some("Until the store lands."), &[(3, "Item")]);
@@ -380,7 +383,10 @@ fn a_held_worktree_says_paused_and_what_its_running_items_wait_on() {
 
 #[test]
 fn a_condition_ranks_after_every_other_wait_and_has_no_pill() {
-    let condition = ItemWait::Condition("builds #122 lands".into());
+    let condition = ItemWait::Condition {
+        text: "builds #122 lands".into(),
+        until: crate::lists::Ender::Coordinator,
+    };
     for other in [
         ItemWait::Item {
             id: 1,
@@ -397,7 +403,10 @@ fn a_condition_ranks_after_every_other_wait_and_has_no_pill() {
 
 #[test]
 fn ranked_waits_come_once_each_in_rank_order() {
-    let condition = ItemWait::Condition("builds #122 lands".into());
+    let condition = ItemWait::Condition {
+        text: "builds #122 lands".into(),
+        until: crate::lists::Ender::Coordinator,
+    };
     let item = |id| ItemWait::Item {
         id,
         title: "Other".into(),

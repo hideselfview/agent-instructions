@@ -67,7 +67,7 @@ pub use decision::Decision;
 pub use decision_command::cmd_decision;
 pub use design::{DesignChange, DesignLanding, Resolution, ReviewBoard, Theme};
 pub use design_command::cmd_design;
-pub use item::{Audience, Item, Level, Note, Priority, Wait};
+pub use item::{Audience, Ender, Item, Level, Note, Priority, Wait};
 pub use item_command::{cmd_item, cmd_next};
 pub use landing::LandedPart;
 pub use question::{Effect, Placement, PlanRef, Position, Question, QuestionKind};

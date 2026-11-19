@@ -5,6 +5,7 @@
 //! checkout's own facts.
 
 use super::model::CheckoutPage;
+use crate::lists::Ender;
 
 /// What a running item waits on that is not met.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -37,9 +38,9 @@ pub enum ItemWait {
     /// Commits waiting to land whose rules review `builds land` would not
     /// take yet (review_cards.rs).
     RulesReview(ReviewWait),
-    /// A condition in words, which holds until someone removes it from the
+    /// A condition in words, which holds until its ender removes it from the
     /// item.
-    Condition(String),
+    Condition { text: String, until: Ender },
 }
 
 /// Where the rules review of a branch stands while `builds land` would refuse
@@ -141,7 +142,7 @@ impl ItemWait {
             ItemWait::Item { .. } | ItemWait::Landing { .. } => 3,
             ItemWait::Unrecorded => 4,
             ItemWait::RulesReview(_) => 5,
-            ItemWait::Condition(_) => 6,
+            ItemWait::Condition { .. } => 6,
         }
     }
 
@@ -166,7 +167,7 @@ impl ItemWait {
             ItemWait::Item { id, .. } | ItemWait::Landing { id, .. } => format!("After #{id}"),
             ItemWait::Unrecorded => "No design change".to_string(),
             ItemWait::RulesReview(review) => return review.pill(),
-            ItemWait::Condition(_) => return None,
+            ItemWait::Condition { .. } => return None,
         };
         Some(Pill {
             text,
@@ -201,7 +202,9 @@ impl ItemWait {
                     .to_string()
             }
             ItemWait::RulesReview(review) => review.sentence(),
-            ItemWait::Condition(text) => format!("Waits until {text}"),
+            ItemWait::Condition { text, until } => {
+                format!("Waits until {text}; the {} ends this wait", until.word())
+            }
         }
     }
 }

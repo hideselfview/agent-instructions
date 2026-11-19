@@ -100,7 +100,7 @@ fn the_waits_of_a_kept_item_say_each_open_record_or_each_that_met_them() {
         vec![
             Wait::Question(asked),
             Wait::Item(blocker),
-            Wait::Condition("the person is back".into()),
+            Wait::condition("the person is back", crate::lists::Ender::Coordinator),
         ],
     );
     let none = item(&db, vec![]);

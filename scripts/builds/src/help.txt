@@ -437,7 +437,7 @@ cherry-picks it.
                               held is refused unless every item running in the
                               worktree waits on an open question, item, design
                               change or condition (`builds item wait N --on
-                              REF`); note never refuses it for an app
+                              REF`, a condition with `--until`); note never refuses it for an app
                               checkout, which runs no item. A note that makes
                               the worktree held, or ends its hold, starts or
                               ends the held time of each item running there

@@ -182,9 +182,12 @@ WORK QUEUE
 
 An item waits on records (REF: item:N, question:N, design:N or condition:TEXT).
 A wait is met when its question was answered, settled or done, or its item or
-design change landed; a condition is met only when someone removes it. A wait
-on a question waits on the person until the question closes as answered,
-settled or done. A wait on a design change waits on the person until they
+design change landed; a condition is met only when its ender removes it. A
+condition names its ender, one of agent, coordinator or ci (`--until`), and
+never the person: work that waits on the person waits on a your-step question
+(`builds question ask --kind your-step`), so that it shows under Waiting on you
+and not under Paused. A wait on a question waits on the person until the
+question closes as answered, settled or done. A wait on a design change waits on the person until they
 approve the change, and then only on its landing. The dashboard lists a
 running item's work under Waiting on you while a wait of the item waits on the
 person. An open item is then, in order: running; the design session's (shown
@@ -194,7 +197,8 @@ command looks up a relative brief path in the main checkout of the repo it
 runs in (plans are in no commit); an absolute path is itself.
 
   builds item add --title T --area A --details-file F [--for design-session]
-                  [--wait REF]... [--brief P] [--priority first|last --why WHY]
+                  [--wait REF [--until ENDER]]... [--brief P]
+                  [--priority first|last --why WHY]
                   [--origin N] [--tag T]...
       Needs a title of five to seven words, a known area (otherwise refused,
       naming the areas and `area add`), details, waits on open records, and a
@@ -207,9 +211,13 @@ runs in (plans are in no commit); an absolute path is itself.
   builds item note N TEXT
       A lasting progress line on the item (`builds note` is the claim's).
 
-  builds item wait N --on REF | --off REF [--blocks-nothing WHY]
+  builds item wait N --on REF [--until ENDER] | --off REF [--blocks-nothing WHY]
       Refused when it would make items wait on each other in a circle, or on
-      a closed record. A wait on a question, from `item wait --on`, `item add
+      a closed record. --until names who ends a condition: agent, coordinator
+      or ci. A condition needs it, and it goes with a condition only (item add
+      takes one --until for each condition --wait, in order). It refuses
+      `person` and says to ask a your-step question and wait on it with
+      `--on question:N`. --off names a condition by its text alone. A wait on a question, from `item wait --on`, `item add
       --wait` or an item draft, clears the reason the question blocks
       nothing in the same write. --off question:N on the last open item that
       waits on N needs --blocks-nothing WHY, the reason N stays open, and wait

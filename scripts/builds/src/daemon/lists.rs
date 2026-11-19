@@ -264,7 +264,10 @@ pub fn item_waits(
                 },
                 (None, None) => return Err(missing(*id)),
             },
-            Wait::Condition(text) => ItemWait::Condition(text.clone()),
+            Wait::Condition { text, until } => ItemWait::Condition {
+                text: text.clone(),
+                until: *until,
+            },
         });
     }
     Ok(found)

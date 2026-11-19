@@ -53,10 +53,12 @@ CREATE TABLE item_wait_design (
 ) STRICT, WITHOUT ROWID;
 CREATE INDEX item_wait_design_target ON item_wait_design (on_design);
 
--- A condition is met only when removed.
+-- A condition is met only when its ender removes it. The person is never an
+-- ender: work that waits on the person waits on a your-step question.
 CREATE TABLE item_wait_condition (
     item_id INTEGER NOT NULL REFERENCES item (id),
     condition TEXT NOT NULL CONSTRAINT item_wait_condition_says_something CHECK (trim(condition) <> ''),
+    until TEXT NOT NULL CONSTRAINT item_wait_condition_ender_known CHECK (until IN ('agent', 'coordinator', 'ci')),
     PRIMARY KEY (item_id, condition)
 ) STRICT, WITHOUT ROWID;
 

@@ -1085,7 +1085,7 @@ fn a_design_change_waited_on_by_an_item_that_also_waits_elsewhere_stays_waiting(
     let w = world("design-landed-waits");
     w.commit(&["design/mocks/A.dc.html"]);
     let mut grid = draft("Build the grid the board shows");
-    grid["waits"] = json!([{ "condition": "a quiet machine" }]);
+    grid["waits"] = json!([{ "condition": { "text": "a quiet machine", "until": "coordinator" } }]);
     w.request(base_request(
         &w,
         json!({ "design/mocks/A.dc.html": { "new": grid } }),

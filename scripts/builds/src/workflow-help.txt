@@ -36,6 +36,14 @@ leaves the stack only with the person's answer, or with a stored reason that
 names the rule, spec text, earlier decision or code that settles it
 (`builds help lists`, DECISION STACK).
 
+Work that waits on the person, such as a step only they can take at their Mac,
+goes on the stack as a your-step question (`builds question ask --kind
+your-step`), and each item or held worktree that waits on it waits on
+`question:N`. The dashboard shows such a wait under Waiting on you, and shows a
+wait on a condition under Paused. So a condition names who ends it (`--until
+agent|coordinator|ci`), never the person, and builds refuses one that waits on
+the person.
+
 
 WORKTREES
 

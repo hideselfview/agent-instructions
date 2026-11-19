@@ -11,7 +11,10 @@ fn the_text_lists_the_stack_then_the_queue() {
         .unwrap();
     let blocked = item(
         &db,
-        vec![Wait::Question(q), Wait::Condition("quiet".into())],
+        vec![
+            Wait::Question(q),
+            Wait::condition("quiet", crate::lists::Ender::Coordinator),
+        ],
     );
     let first = item(&db, vec![]);
     crate::lists::item::set_priority(
@@ -39,7 +42,7 @@ fn the_text_lists_the_stack_then_the_queue() {
         "Alpha",
         &format!("  {blocked} [waiting]"),
         &format!("waits on question {q}"),
-        "condition: quiet",
+        "condition for the coordinator: quiet",
         "1 closed",
     ] {
         assert!(text.contains(expected), "missing '{expected}' in:\n{text}");
