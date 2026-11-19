@@ -204,7 +204,8 @@ cargo build --release --locked --quiet --manifest-path "$share/source/builds/Car
 part=$(mktemp "$bin/builds.XXXXXX")
 cp "$share/target/release/builds" "$part"
 chmod 755 "$part"
-mv "$part" "$bin/builds"{links}
+# set -e stops at no failure inside an && list but its last command.
+mv "$part" "$bin/builds"{links} || exit 1
 echo "version=$("$bin/builds" version)"
 echo "root=$BUILDS_ROOT""#,
         root = crate::remote::root_script(host),
