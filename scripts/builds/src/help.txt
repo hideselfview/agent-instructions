@@ -254,14 +254,30 @@ started into target.
                               caches, delete idle build output in the
                               temporary folders, keep the free-space floor,
                               and then run the checkout's `prepare` programs,
-                              put the build of each of its tools in place and
-                              copy those builds to each host that lacks them
-                              (BUILT TOOLS). builds runs it when `builds new`
-                              hands out a worktree, on a host before each
-                              job, and from each repo script that calls it.
-                              --no-prepare leaves out the prepare programs and
+                              install elan and the toolchain each of its Lean
+                              packages pins (LEAN), put the build of each of
+                              its tools in place and copy those builds to
+                              each host that lacks them (BUILT TOOLS). builds
+                              runs it when `builds new` hands out a worktree,
+                              on a host before each job, and from each repo
+                              script that calls it. --no-prepare leaves out
+                              the prepare programs, the Lean toolchains and
                               the tools: a host's setup for a job that a
                               pre-commit hook check started takes it
+
+
+LEAN
+
+A Lean package of a checkout is a folder whose .lake build folder the repo's
+`.build-dirs` lists and which holds a lean-toolchain file, the toolchain that
+lake builds the package with (coven: crates/sqlive/proofs and each package in
+spec/proofs). `builds setup` installs elan, Lean's toolchain manager, under
+~/.elan on the Mac it runs on when that Mac has none (elan 4.2.4), and then
+each toolchain the checkout's packages pin that elan does not list. Setup runs
+on a host before each job, so every host that builds a checkout with Lean
+packages has their toolchains. elan downloads each toolchain once per Mac,
+and every checkout shares it. A Mac that already has another version of elan
+keeps it. A `.lake` folder with no lean-toolchain beside it pins nothing.
 
 
 BUILT TOOLS

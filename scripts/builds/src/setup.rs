@@ -1,7 +1,8 @@
 //! `builds setup`: links a checkout's build paths into its build root,
 //! bounds what builds left behind and keeps the free-space floor, then runs
-//! the checkout's `prepare` programs and puts the builds of its tools in
-//! place (built_tools.rs).
+//! the checkout's `prepare` programs, installs the Lean toolchains its Lean
+//! packages pin (lean.rs) and puts the builds of its tools in place
+//! (built_tools.rs).
 //!
 //! Each path the repo's `.build-dirs` lists is a symlink in the checkout to
 //! the same path under the checkout's build root (target ->
@@ -134,7 +135,8 @@ pub fn replace_link(dest: &Path, link: &Path) -> Result<()> {
 }
 
 /// Whether setup prepares the checkout for its builds: runs its `prepare`
-/// programs, puts its tools' builds in place and copies them to the hosts.
+/// programs, installs its Lean toolchains, puts its tools' builds in place
+/// and copies them to the hosts.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Prepare {
     Yes,
@@ -210,6 +212,7 @@ pub fn setup_with(tool: &Tool, ssh: &Ssh, checkout: &Checkout, prepare: Prepare)
     }
     // Last, so what they install or build lands after the floor is kept.
     self::prepare(&checkout.top)?;
+    crate::lean::ensure(&tool.places, &checkout.top)?;
     crate::built_tools::ensure_all(&tool.places, ssh, &checkout.top)?;
     crate::built_tools::send_to_hosts(&tool.places, ssh, &checkout.top)
 }
