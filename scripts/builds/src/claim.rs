@@ -64,6 +64,16 @@ impl Note {
         })
     }
 
+    /// The note of <text> and <state> as a claim file or JSON holds them:
+    /// None when both are absent, and a refusal for a state with no note.
+    pub fn from_fields(text: Option<String>, state: Option<String>) -> Result<Option<Note>> {
+        match (text, state) {
+            (Some(text), state) => Note::with_state(state.as_deref(), text).map(Some),
+            (None, None) => Ok(None),
+            (None, Some(_)) => fail!("a note's state needs a note"),
+        }
+    }
+
     pub fn text(&self) -> &str {
         match self {
             Note::Plain(text)
@@ -144,13 +154,7 @@ impl TryFrom<ClaimJson> for Claim {
     type Error = String;
 
     fn try_from(json: ClaimJson) -> std::result::Result<Claim, String> {
-        let note = match (json.note, json.note_state) {
-            (Some(text), state) => {
-                Some(Note::with_state(state.as_deref(), text).map_err(|fault| fault.text())?)
-            }
-            (None, None) => None,
-            (None, Some(_)) => return Err("a note's state needs a note".to_string()),
-        };
+        let note = Note::from_fields(json.note, json.note_state).map_err(|fault| fault.text())?;
         Ok(Claim {
             who: json.who,
             since: json.since,
@@ -193,14 +197,10 @@ impl Claim {
                 file.display()
             );
         };
-        let note = match (field(fields.next()), field(fields.next())) {
-            (Some(text), state) => {
-                Some(Note::with_state(state.as_deref(), text).map_err(|fault| {
-                    fail::Fail::Message(format!("reading {}: {}", file.display(), fault.text()))
-                })?)
-            }
-            (None, _) => None,
-        };
+        let note =
+            Note::from_fields(field(fields.next()), field(fields.next())).map_err(|fault| {
+                fail::Fail::Message(format!("reading {}: {}", file.display(), fault.text()))
+            })?;
         Ok(Some(Claim { who, since, note }))
     }
 
@@ -479,3 +479,7 @@ fn remove_if_present(path: &Path) -> Result<()> {
         Err(error) => fail!("removing {}: {error}", path.display()),
     }
 }
+
+#[cfg(test)]
+#[path = "claim_tests.rs"]
+mod tests;
