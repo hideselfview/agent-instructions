@@ -146,7 +146,7 @@ impl Reads {
     /// calls `rules_changed` after each change under them.
     pub fn rules_folders(&self) -> Vec<PathBuf> {
         match &self.root {
-            Ok(root) => vec![root.join("rules"), root.join("projects")],
+            Ok(root) => Material::folders(root),
             Err(_) => Vec::new(),
         }
     }

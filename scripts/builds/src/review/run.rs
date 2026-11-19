@@ -2,7 +2,7 @@
 //! parallel, checks each finding's quotes, and says what came back. It writes
 //! nothing; `mod.rs` records the calls.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
 
 use serde_json::json;
@@ -47,6 +47,13 @@ impl Material {
             rules,
             project_text,
         })
+    }
+
+    /// The folders of the checkout at <root> whose files `load` reads: the
+    /// groups and rules of `rules/`, and the projects' files and rules of
+    /// `projects/`.
+    pub fn folders(root: &Path) -> Vec<PathBuf> {
+        vec![root.join("rules"), root.join("projects")]
     }
 
     /// The names of the groups whose rules cover one of <changed>.
