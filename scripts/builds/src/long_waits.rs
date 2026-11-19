@@ -45,10 +45,10 @@ fn limit_of(row: &Row) -> Option<(&'static str, i64)> {
     }
 }
 
-/// What health read: this Mac's processes, and each host that answered with
-/// its scan, this Mac among them.
+/// What health read: this Mac's processes, None when its scan failed, and
+/// each host that answered with its scan, this Mac among them.
 struct Read<'a> {
-    local: &'a [Row],
+    local: Option<&'a [Row]>,
     hosts: Vec<(&'a Host, &'a Scan)>,
     /// The checkout a process on this Mac works in, from its working folder.
     checkout: &'a dyn Fn(i32) -> Option<String>,
@@ -71,7 +71,10 @@ impl Read<'_> {
     /// What runs under process <pid> on this Mac, as the words after "it
     /// waits on".
     fn waits_on(&self, pid: i32) -> String {
-        let under = tree(self.local, pid);
+        let Some(local) = self.local else {
+            return "health could not read what it waits on".to_string();
+        };
+        let under = tree(local, pid);
         let pids: Vec<i32> = under.iter().map(|row| row.pid).collect();
         let jobs: Vec<String> = self
             .hosts
@@ -182,25 +185,33 @@ pub fn findings(
         .iter()
         .filter_map(|(host, scan)| Some((host, scan.as_ref().ok()?)))
         .collect();
-    // stuck.rs lists a host whose scan failed, so a line here would repeat it.
-    let Some(local) = hosts
-        .iter()
-        .find(|(host, _)| host.target.is_none())
-        .map(|(_, scan)| scan.rows.as_slice())
-    else {
-        return Vec::new();
+    let mut found = Vec::new();
+    let local = match scans.iter().find(|(host, _)| host.target.is_none()) {
+        Some((_, Ok(scan))) => Some(scan.rows.as_slice()),
+        Some((_, Err(error))) => {
+            found.push(Advice::said(format!(
+                "waits: health could not read this Mac's processes, so it cannot tell how long the hook runs, landings and cargo runs here have run, or what each waits on: {error}"
+            )));
+            None
+        }
+        None => {
+            found.push(Advice::said(
+                "waits: health did not read this Mac, so it cannot tell how long the hook runs, landings and cargo runs here have run, or what each waits on".to_string(),
+            ));
+            None
+        }
     };
+    let rows = local.unwrap_or_default();
     let read = Read {
         local,
         hosts: hosts.clone(),
         checkout,
         now,
     };
-    let mut found = Vec::new();
     // The processes on this Mac whose trees a line already names.
     let mut named: Vec<i32> = Vec::new();
     let name_tree = |pid: i32, named: &mut Vec<i32>| {
-        named.extend(tree(local, pid).iter().map(|row| row.pid));
+        named.extend(tree(rows, pid).iter().map(|row| row.pid));
     };
     match install {
         Err(error) => found.push(Advice::said(format!(
@@ -208,7 +219,7 @@ pub fn findings(
         ))),
         Ok(None) => {}
         Ok(Some(waiting)) => {
-            let installer = local
+            let installer = rows
                 .iter()
                 .find(|row| program(row) == "builds" && arguments(row).first() == Some(&"install"));
             if installer.is_none_or(|row| row.age_seconds >= INSTALL_MINUTES * 60) {
@@ -242,7 +253,7 @@ pub fn findings(
             }
         }
     }
-    let mut long: Vec<(&Row, &str, i64)> = local
+    let mut long: Vec<(&Row, &str, i64)> = rows
         .iter()
         .filter_map(|row| {
             let (kind, limit) = limit_of(row)?;
@@ -264,23 +275,27 @@ pub fn findings(
         )));
     }
     for (host, scan) in &hosts {
-        for job in scan.jobs.iter().filter(|job| job.is_cargo_job()) {
-            let Some(started) = job.started() else {
+        for job in &scan.jobs {
+            let (Some(pid), Some(started)) = (job.caller(), job.started()) else {
+                found.push(Advice::said(format!(
+                    "job: {} runs a job in {} whose run id {:?} is not <pid>-<nanoseconds>, so health cannot tell which builds command here runs it or how long it has run",
+                    place(&host.name),
+                    job.label(),
+                    job.run
+                )));
                 continue;
             };
-            if now - started < JOB_MINUTES * 60
-                || job.caller().is_some_and(|caller| named.contains(&caller))
-            {
+            if !job.is_cargo_job() || now - started < JOB_MINUTES * 60 || named.contains(&pid) {
                 continue;
             }
-            // orphans.rs lists a job whose caller here is gone.
-            let Some(caller) = job
-                .caller()
-                .and_then(|caller| local.iter().find(|row| row.pid == caller))
-            else {
-                continue;
+            let caller = match local {
+                // orphans.rs lists a job whose caller here is gone.
+                Some(rows) => match rows.iter().find(|row| row.pid == pid) {
+                    Some(row) => format!("for {} on this Mac", read.named(row)),
+                    None => continue,
+                },
+                None => format!("for process {pid} on this Mac"),
             };
-            let caller = format!("for {} on this Mac", read.named(caller));
             found.push(Advice::said(format!(
                 "job: {} has run a job in {} for {}, longer than {JOB_MINUTES}m, {caller}: {}",
                 place(&host.name),

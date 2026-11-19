@@ -177,3 +177,42 @@ fn a_new_install_is_no_finding_and_an_unread_one_is() {
         ]
     );
 }
+
+/// A scan of this Mac that failed is a finding, and the install line stays,
+/// with what it waits for as the gate's files say it; a job on a host whose
+/// caller health cannot check here names the caller's pid.
+#[test]
+fn a_failed_scan_of_this_mac_is_a_finding_and_keeps_the_install_line() {
+    let mut scans = jam();
+    scans[0].1 = Err("ps on this Mac failed (exit 1)".to_string());
+    assert_eq!(
+        lines(&scans, Ok(Some(waiting_for_the_hook_run()))),
+        [
+            "waits: health could not read this Mac's processes, so it cannot tell how long the hook runs, landings and cargo runs here have run, or what each waits on: ps on this Mac failed (exit 1)",
+            "install: a builds install runs and waits for process 200, builds checks run, since 01:00:00 (health could not read what it waits on); every hook run, review and app build lane that starts waits for it",
+            "job: host m1 has run a job in bae/remote-side-3 for 36m, longer than 30m, for process 210 on this Mac: 3 compiles through sccache",
+        ]
+    );
+}
+
+/// A job whose run id is not `<pid>-<nanoseconds>` is a finding that names
+/// it, whatever its worktree.
+#[test]
+fn a_job_whose_run_id_does_not_read_is_a_finding() {
+    let mut scans = jam();
+    let Ok(m1) = &mut scans[1].1 else {
+        panic!("m1's scan reads");
+    };
+    m1.jobs = vec![JobRun {
+        worktree: "/Users/u/dev/bae-worktrees/mac-1".to_string(),
+        leader: 7000,
+        run: "step-7".to_string(),
+    }];
+    assert_eq!(
+        lines(&scans, Ok(None)),
+        [
+            "hook run: builds checks run (pid 200, in bae/side-3) has run 22m, longer than 10m; it waits on builds cargo clippy --all-targets (pid 210, in bae/side-3)",
+            "job: host m1 runs a job in bae/mac-1 whose run id \"step-7\" is not <pid>-<nanoseconds>, so health cannot tell which builds command here runs it or how long it has run",
+        ]
+    );
+}
