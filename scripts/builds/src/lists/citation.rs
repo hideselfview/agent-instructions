@@ -139,10 +139,7 @@ impl<'a> Sources<'a> {
 
     /// The CLAUDE.md of repo <repo>: the file in its checkout ~/dev/<repo>.
     fn repo_cite(&self, repo: &str) -> Cite {
-        let file = self
-            .home
-            .join(crate::host::clone_path(repo))
-            .join("CLAUDE.md");
+        let file = self.repo_instructions_file(repo);
         if file.is_file() {
             Cite::Instructions(format!("the CLAUDE.md of repo {repo}"))
         } else {
@@ -178,12 +175,20 @@ impl<'a> Sources<'a> {
         }
         let Some(repo) = file
             .parent()
-            .filter(|top| top.parent() == Some(&self.home.join("dev")))
             .and_then(Path::file_name)
+            .map(|name| name.to_string_lossy().into_owned())
+            .filter(|repo| file == self.repo_instructions_file(repo))
         else {
             return neither();
         };
-        self.repo_cite(&repo.to_string_lossy())
+        self.repo_cite(&repo)
+    }
+
+    /// The CLAUDE.md at the top of <repo>'s checkout in the home folder.
+    fn repo_instructions_file(&self, repo: &str) -> PathBuf {
+        self.home
+            .join(crate::host::clone_path(repo))
+            .join("CLAUDE.md")
     }
 }
 

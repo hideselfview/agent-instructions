@@ -135,7 +135,7 @@ fn a_builds_help_section_is_cited_by_its_page_and_heading() {
 }
 
 #[test]
-fn rule_files_and_decisions_are_cited_as_before() {
+fn rule_files_are_cited_by_path_and_decisions_by_number() {
     let b = Bench::new("citation-rules");
     assert_eq!(
         named(&b.cites("Do it (rules/alpha/rule-a.md, projects/bae.md, decision #9).")),
