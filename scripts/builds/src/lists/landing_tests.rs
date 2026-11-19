@@ -483,6 +483,44 @@ fn a_landing_from_the_second_repo_is_accepted_and_the_first_repos_commit_is_not_
     assert!(refused.contains("not a commit"), "{refused}");
 }
 
+#[test]
+fn done_from_one_repo_waits_until_the_other_repos_worktree_lands() {
+    let t = two_repos("landing-two-done-waits");
+    let done = land_args(&t.other_agent, &["--done", "1", &t.other_commit]);
+    let before = t.demo.state();
+    let refused = refusal(check_landing(&t.demo.tool, &done));
+    assert!(
+        refused.contains(&format!(
+            "#1 also runs in {}, whose branch work holds commits origin/main lacks",
+            t.demo_agent.display()
+        )) && refused.contains(&t.demo_commit[..7])
+            && refused.contains(&format!(
+                "Land that worktree first (`builds land {} --part 1 SHA...`), or land this repo with --part 1",
+                t.demo_agent.display()
+            )),
+        "{refused}"
+    );
+    assert_eq!(t.demo.state(), before);
+    // A part from this repo is no refusal: the item keeps running in both.
+    check_landing(
+        &t.demo.tool,
+        &land_args(&t.other_agent, &["--part", "1", &t.other_commit]),
+    )
+    .unwrap();
+
+    // The other repo's worktree lands its commit as a part.
+    run_git(&t.demo_agent, &["push", "-q", "origin", "HEAD:main"]);
+    super::landed(
+        &t.demo.tool,
+        &land_args(&t.demo_agent, &["--part", "1", &t.demo_commit]),
+    )
+    .unwrap();
+    check_landing(&t.demo.tool, &done).unwrap();
+    run_git(&t.other_agent, &["push", "-q", "origin", "HEAD:main"]);
+    super::landed(&t.demo.tool, &done).unwrap();
+    assert!(t.demo.store.load().unwrap().item(Id(1)).is_none());
+}
+
 /// `item take` of <ids> in <worktree> on <branch> with <brief>.
 fn take_in(
     demo: &Demo,

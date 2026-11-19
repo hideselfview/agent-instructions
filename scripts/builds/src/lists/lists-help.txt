@@ -323,7 +323,10 @@ runs in (plans are in no commit); an absolute path is itself.
       anything: each N is open and running in DIR itself, the worktree whose
       branch holds the commits (an item that runs in worktrees of two repos
       accepts a landing from either), and each SHA is on the branch of one of
-      them. landed, after the push: each SHA is on origin/main; --part records
+      them. check-landing refuses --done N while N's branch in another
+      worktree it runs in holds commits origin/main lacks, and names that
+      worktree: land it first, or land this repo with --part N. landed, after
+      the push: each SHA is on origin/main; --part records
       a landed part and leaves the item running, and --done closes the item as
       landed and ends its running everywhere, so an item that spans two repos
       takes --part in the landing from one repo and --done in the landing from

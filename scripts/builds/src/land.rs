@@ -48,7 +48,8 @@
 //! fetches or cherry-picks anything, and records each after the push. `builds
 //! item check-landing` refuses an item that runs in another worktree of the
 //! repo, since landing it here would check out other commits in the worktree
-//! that item's agent works in. `builds design places`
+//! that item's agent works in, and refuses `--done N` while N's branch in a
+//! worktree of another repo holds commits origin/main lacks. `builds design places`
 //! prints one line per changed design path (`place`, `source`, `spec` or
 //! `shared`, then the path), nothing when none;
 //! any line, shared-only included, requires `--design`. When every commit's

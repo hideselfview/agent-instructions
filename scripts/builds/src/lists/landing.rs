@@ -11,7 +11,9 @@
 //! so the SHAs are the agent's branch commits and must be reachable from the
 //! branch the named item runs on in DIR's repo (an item that spans repos runs
 //! in a worktree of each, and check-landing accepts a landing from any of them;
-//! `--part` leaves it running everywhere, `--done` closes it). The item must
+//! `--part` leaves it running everywhere, `--done` closes it, so check-landing
+//! refuses `--done` while the item's branch in another of its worktrees holds
+//! commits origin/main lacks). The item must
 //! run in DIR itself: builds land checks out other commits in DIR while it
 //! builds the result, so landing an item from a worktree where another item's
 //! agent works would change that agent's checkout without the agent knowing.
@@ -217,6 +219,37 @@ fn running_in_repo<'a>(running: &'a [Running], checkout: &Checkout, id: Id) -> R
     }
 }
 
+/// Refuses to close item <id> from the landing at <here>, one of the places
+/// <running> it runs in, while the item's branch in another of them holds
+/// commits origin/main lacks: --done ends the item's running everywhere, and
+/// those commits would then belong to no item.
+fn require_landed_elsewhere(id: Id, running: &[Running], here: &Running) -> Result<()> {
+    for place in running.iter().filter(|r| r.worktree != here.worktree) {
+        let unlanded = crate::side_git::waiting_to_land(
+            Path::new(&place.worktree),
+            &format!("refs/heads/{}", place.branch),
+        )
+        .context(|| {
+            format!(
+                "reading the commits of branch {} in {}",
+                place.branch, place.worktree
+            )
+        })?;
+        if !unlanded.is_empty() {
+            fail!(
+                "{id} also runs in {}, whose branch {} holds commits origin/main lacks: {}. Land that worktree first (`builds land {} --part {} SHA...`), or land this repo with --part {}",
+                place.worktree,
+                place.branch,
+                crate::unlanded::commit_words(&unlanded),
+                place.worktree,
+                id.0,
+                id.0
+            );
+        }
+    }
+    Ok(())
+}
+
 pub fn check_landing(tool: &Tool, args: &[String]) -> Result<()> {
     let landing = parse(args)?;
     let store = Store::resolve(&tool.places, &landing.args, &landing.checkout.top)?;
@@ -238,6 +271,9 @@ pub fn check_landing(tool: &Tool, args: &[String]) -> Result<()> {
                 running.worktree,
                 landing.checkout.top.display()
             );
+        }
+        if named.finishes {
+            require_landed_elsewhere(named.id, &item.running, running)?;
         }
         branches.push((
             named.id,

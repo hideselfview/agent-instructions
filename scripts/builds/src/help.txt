@@ -2351,7 +2351,11 @@ run `review replay --rules-root` on it.
                               it fetches anything. `item check-landing` refuses
                               an item that runs in another worktree, since
                               landing it there would check out other commits in
-                              the worktree that item's agent works in. Once
+                              the worktree that item's agent works in, and
+                              refuses --done N while N's branch in a
+                              worktree of another repo holds commits
+                              origin/main lacks: land that worktree first, or
+                              land this repo with --part N. Once
                               land writes every record, a landing that leaves
                               nothing to land and names no --part releases the
                               worktree (`builds release`; when release refuses,
