@@ -237,14 +237,14 @@ fn a_host_with_nothing_to_stop_is_left_and_a_failed_stop_is_said() {
     );
 }
 
-/// The fix stops each orphan whose only work is what it prints, counts one
-/// already gone as stopped, and leaves the rest to list: one health leaves
-/// to run, and one whose stop failed.
+/// The fix stops each orphan whose only work is what it prints, and leaves
+/// the rest to list: one health leaves to run, one with a pid that refused
+/// the signal, and one whose script could not run.
 #[test]
 fn stops_the_orphans_health_stops_and_lists_the_rest() {
     use crate::orphans::{Kind, Orphan};
     let rows = crate::stuck::parse_ps(
-        "300 1 501 0.0 0:01.00 40:00 S cargo test\n301 1 501 0.0 0:01.00 40:00 S builds land side-3\n302 1 501 0.0 0:01.00 40:00 S rustc x\n303 1 501 0.0 0:01.00 40:00 S git status\n",
+        "300 1 501 0.0 0:01.00 40:00 S cargo test\n301 1 501 0.0 0:01.00 40:00 S builds land side-3\n302 1 501 0.0 0:01.00 40:00 S rustc x\n303 1 501 0.0 0:01.00 40:00 S git status\n304 1 501 0.0 0:01.00 40:00 S cargo check\n",
     )
     .unwrap();
     let orphan = |at: usize, stops: bool| Orphan {
@@ -257,11 +257,16 @@ fn stops_the_orphans_health_stops_and_lists_the_rest() {
     };
     let ran = std::cell::RefCell::new(Vec::new());
     let stop = |_: &Host, script: &str| {
-        ran.borrow_mut().push(script.to_string());
-        match script {
-            "kill -TERM 302" => Err("kill: 302: No such process".to_string()),
-            "kill -TERM 303" => Err("kill: 303: Operation not permitted".to_string()),
-            _ => Ok(()),
+        let pid = rows
+            .iter()
+            .find(|row| script.contains(&format!("kill -TERM {} ", row.pid)))
+            .map(|row| row.pid)
+            .expect("the script signals one of the rows");
+        ran.borrow_mut().push(pid);
+        match pid {
+            303 => Ok("refused=303\n".to_string()),
+            304 => Err("ssh to the host failed".to_string()),
+            _ => Ok(String::new()),
         }
     };
     let (lines, left) = stop_orphans(
@@ -270,20 +275,19 @@ fn stops_the_orphans_health_stops_and_lists_the_rest() {
             orphan(1, false),
             orphan(2, true),
             orphan(3, true),
+            orphan(4, true),
         ],
         &stop,
     );
-    assert_eq!(
-        *ran.borrow(),
-        ["kill -TERM 300", "kill -TERM 302", "kill -TERM 303"]
-    );
+    assert_eq!(*ran.borrow(), [300, 302, 303, 304]);
     assert_eq!(
         lines,
         [
             "stopped this Mac pid 300 (cargo test), 40m old: its caller was gone",
             "stopped this Mac pid 302 (rustc x), 40m old: its caller was gone",
-            "stopping this Mac pid 303 (git status), 40m old failed: kill: 303: Operation not permitted",
+            "stopping this Mac pid 303 (git status), 40m old failed: 303 still runs and refused the signal",
+            "stopping this Mac pid 304 (cargo check), 40m old failed: ssh to the host failed",
         ]
     );
-    assert_eq!(left, [orphan(1, false), orphan(3, true)]);
+    assert_eq!(left, [orphan(1, false), orphan(3, true), orphan(4, true)]);
 }

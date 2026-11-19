@@ -118,14 +118,15 @@ pub fn fix_hosts(
     lines
 }
 
-/// Stops each of <orphans> that health stops (`Orphan::stop_script`), with
-/// <stop>, which runs a script on a host and says why it failed. A stop that
-/// fails because a process already ended counts as done. Returns one line for
-/// each orphan it stopped and each stop that failed, and the orphans left to
-/// list: those health leaves to run and those whose stop failed.
+/// Stops each of <orphans> that health stops, with <stop>, which runs an
+/// orphan's `stop_script` on its host and returns what it printed or why it
+/// could not run it. An orphan is stopped when the script names no target
+/// that refused its signal. Returns one line for each orphan it stopped and
+/// each stop that failed, and the orphans left to list: those health leaves
+/// to run and those whose stop failed.
 pub fn stop_orphans(
     orphans: Vec<crate::orphans::Orphan>,
-    stop: &dyn Fn(&Host, &str) -> std::result::Result<(), String>,
+    stop: &dyn Fn(&Host, &str) -> std::result::Result<String, String>,
 ) -> (Vec<String>, Vec<crate::orphans::Orphan>) {
     let mut lines = Vec::new();
     let mut left = Vec::new();
@@ -134,10 +135,25 @@ pub fn stop_orphans(
             left.push(orphan);
             continue;
         };
-        match stop(&orphan.host, &script) {
-            Ok(()) => lines.push(format!("stopped {}: its caller was gone", orphan.what())),
-            Err(said) if said.contains("No such process") => {
+        let refused = stop(&orphan.host, &script).map(|printed| {
+            printed
+                .lines()
+                .filter_map(|line| line.strip_prefix("refused="))
+                .map(str::to_string)
+                .collect::<Vec<_>>()
+        });
+        match refused {
+            Ok(refused) if refused.is_empty() => {
                 lines.push(format!("stopped {}: its caller was gone", orphan.what()))
+            }
+            Ok(refused) => {
+                lines.push(format!(
+                    "stopping {} failed: {} still {} and refused the signal",
+                    orphan.what(),
+                    refused.join(", "),
+                    if refused.len() == 1 { "runs" } else { "run" }
+                ));
+                left.push(orphan);
             }
             Err(said) => {
                 lines.push(format!("stopping {} failed: {said}", orphan.what()));

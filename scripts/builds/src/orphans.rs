@@ -55,8 +55,9 @@ pub enum Kind {
         /// nothing.
         stops: bool,
     },
-    /// A job's command on a host whose `builds` process on this Mac is gone.
-    Job { job: JobRun },
+    /// A job's command on a host whose `builds` process on this Mac, the
+    /// one with pid <caller>, is gone.
+    Job { job: JobRun, caller: i32 },
 }
 
 /// A process, or a job's process group, whose caller is gone.
@@ -67,21 +68,45 @@ pub struct Orphan {
 }
 
 impl Orphan {
-    /// The script that stops it on its host, or None when health leaves it
-    /// to run.
-    pub fn stop_script(&self) -> Option<String> {
+    /// The `kill` arguments that stop it on its host (its pid and every pid
+    /// under it, or its job's process group as `-<leader>`), or None when
+    /// health leaves it to run.
+    fn targets(&self) -> Option<Vec<String>> {
         match &self.kind {
-            Kind::Process { tree, stops, .. } => stops.then(|| {
-                let pids: Vec<String> = tree.iter().map(i32::to_string).collect();
-                format!("kill -TERM {}", pids.join(" "))
-            }),
-            Kind::Job { job } => Some(format!("kill -TERM -- -{}", job.leader)),
+            Kind::Process { tree, stops, .. } => {
+                stops.then(|| tree.iter().map(i32::to_string).collect())
+            }
+            Kind::Job { job, .. } => Some(vec![format!("-{}", job.leader)]),
         }
     }
 
-    /// The stop script as the person runs it: over ssh on a host.
+    /// The script that health's fix pass runs on the host to stop it, or
+    /// None when health leaves it to run. It signals each target on its own
+    /// and prints `refused=<target>` for each signal that failed while the
+    /// target still runs, so a target that ended first counts as stopped and
+    /// one that refused the signal does not.
+    pub fn stop_script(&self) -> Option<String> {
+        let lines: Vec<String> = self
+            .targets()?
+            .iter()
+            .map(|target| match target.strip_prefix('-') {
+                Some(group) => format!(
+                    "kill -TERM -- {target} 2>/dev/null || {{ ps -axo pgid= | awk -v g={group} '$1 == g {{ found = 1 }} END {{ exit !found }}' && echo refused={target}; }}"
+                ),
+                None => format!(
+                    "kill -TERM {target} 2>/dev/null || {{ ps -p {target} >/dev/null 2>&1 && echo refused={target}; }}"
+                ),
+            })
+            .collect();
+        Some(format!("{}\nexit 0", lines.join("\n")))
+    }
+
+    /// The command that stops it, as the person runs it: over ssh on a host.
     fn stop_command(&self) -> Option<String> {
-        let script = self.stop_script()?;
+        let script = match &self.kind {
+            Kind::Job { .. } => format!("kill -TERM -- {}", self.targets()?.join(" ")),
+            Kind::Process { .. } => format!("kill -TERM {}", self.targets()?.join(" ")),
+        };
         Some(match &self.host.target {
             Some(target) => format!("ssh {target} '{script}'"),
             None => script,
@@ -105,11 +130,10 @@ impl Orphan {
                     ),
                 }
             ),
-            Kind::Job { job } => format!(
-                "the job in {} on {place} (process group {}), which process {} on this Mac ran",
+            Kind::Job { job, caller } => format!(
+                "the job in {} on {place} (process group {}), which process {caller} on this Mac ran",
                 job.label(),
                 job.leader,
-                job.caller().unwrap_or_default()
             ),
         }
     }
@@ -193,10 +217,14 @@ pub fn find(scans: &[(Host, std::result::Result<Scan, String>)], holders: &Holde
             }) {
                 continue;
             }
-            if holders.holder(&job.run) == Some(Holder::Gone) {
+            // A run id that names a pid is one `holder` can judge.
+            if let (Some(caller), Some(Holder::Gone)) = (job.caller(), holders.holder(&job.run)) {
                 found.push(Orphan {
                     host: host.clone(),
-                    kind: Kind::Job { job: job.clone() },
+                    kind: Kind::Job {
+                        job: job.clone(),
+                        caller,
+                    },
                 });
             }
         }

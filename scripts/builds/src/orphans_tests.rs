@@ -65,7 +65,7 @@ fn finds_the_processes_whose_caller_is_gone() {
     let found = find(&scans, &holders);
     let shown: Vec<(String, Option<String>)> = found
         .iter()
-        .map(|orphan| (orphan.host.name.clone(), orphan.stop_script()))
+        .map(|orphan| (orphan.host.name.clone(), orphan.stop_command()))
         .collect();
     assert_eq!(
         shown,
@@ -74,10 +74,19 @@ fn finds_the_processes_whose_caller_is_gone() {
             ("local".to_string(), None),
             ("local".to_string(), Some("kill -TERM 308".to_string())),
             ("local".to_string(), Some("kill -TERM 311".to_string())),
-            ("m1".to_string(), Some("kill -TERM -- -6000".to_string())),
+            (
+                "m1".to_string(),
+                Some("ssh u@m1 'kill -TERM -- -6000'".to_string())
+            ),
         ]
     );
-    assert_eq!(found[4].kind, Kind::Job { job: gone });
+    assert_eq!(
+        found[4].kind,
+        Kind::Job {
+            job: gone,
+            caller: 999_999
+        }
+    );
 }
 
 /// A finding says what the orphan is and, for one health stops, the command
@@ -113,6 +122,7 @@ fn a_finding_names_the_orphan_and_how_to_stop_it() {
     let job = Orphan {
         host: m1(),
         kind: Kind::Job {
+            caller: 999999,
             job: JobRun {
                 worktree: "/Users/u/dev/bae-worktrees/remote-side-5".to_string(),
                 leader: 6000,
@@ -124,4 +134,31 @@ fn a_finding_names_the_orphan_and_how_to_stop_it() {
         job.finding().line(),
         "orphan: the job in bae/remote-side-5 on host m1 (process group 6000), which process 999999 on this Mac ran: its caller is gone, so nothing reads what it prints; stop it with `ssh u@m1 'kill -TERM -- -6000'`"
     );
+}
+
+/// The stop script signals each target on its own and names only a target
+/// that refused the signal and still runs: a pid that ended first counts as
+/// stopped (no pid reaches 999999 on macOS). launchd (pid 1) refuses a
+/// signal from any user but root.
+#[test]
+fn the_stop_script_names_only_a_target_that_refused() {
+    // As root, the signal to launchd would go through.
+    if unsafe { libc::getuid() } == 0 {
+        return;
+    }
+    let rows = crate::stuck::parse_ps("1 0 0 0.0 0:01.00 40:00 S cargo test\n").unwrap();
+    let orphan = Orphan {
+        host: Host::local(),
+        kind: Kind::Process {
+            row: rows[0].clone(),
+            tree: vec![999_999, 1],
+            stops: true,
+        },
+    };
+    let output = std::process::Command::new("sh")
+        .args(["-c", &orphan.stop_script().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "refused=1\n");
 }

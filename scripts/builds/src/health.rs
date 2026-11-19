@@ -1651,10 +1651,9 @@ pub fn cmd_health(tool: &Tool, args: &[String]) -> Result<()> {
         &|host, script| {
             crate::host::output_of(
                 crate::host::command_at(&ssh, host, script, crate::host::Terminal::None),
-                &format!("{script} on {}", crate::host::place(&host.name)),
+                &format!("the stop script on {}", crate::host::place(&host.name)),
                 crate::host::Accept::Zero,
             )
-            .map(drop)
         },
     );
     stopped.iter().for_each(crate::text::note);
