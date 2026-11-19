@@ -1180,7 +1180,11 @@ fn a_fix_that_changes_no_design_is_approved_when_recorded_and_needs_no_review_pa
     request.as_object_mut().unwrap().remove("review");
     request["fix"] = json!("");
     let before = w.bytes();
-    assert!(message(w.request(request.clone())).contains("fix is empty"));
+    let said = message(w.request(request.clone()));
+    assert!(
+        said.contains("fix is empty") && said.contains("what the app draws today"),
+        "{said}"
+    );
     assert_eq!(w.bytes(), before);
 
     request["fix"] = json!("the row heights follow the design system's measures");

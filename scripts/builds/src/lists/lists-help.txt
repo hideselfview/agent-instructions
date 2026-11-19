@@ -649,8 +649,11 @@ sent again.
       publishes a canvas (`lists design-globs --canvas yes`); a request of
       any other project has no `boards`, and its change holds no links.
       `fix` says what a change that changes no design fixes: boards made to
-      follow the design system's measures, a drawing mistake corrected, or
-      a board deleted because the app can no longer reach the state it draws.
+      follow the design system's measures, a drawing mistake corrected, a
+      board deleted because the app can no longer reach the state it draws,
+      or a board redrawn to draw what the app draws today, when the person
+      decided nothing about the difference (the board rule in
+      projects/bae-rules/screen-content/build-each-screen-to-match-its-board.md).
       Such a change needs no `review` and is approved when recorded. An amend
       without `fix` makes the change wait on the person's review again.
       `decision` is the id of the decision in the log in which the person
