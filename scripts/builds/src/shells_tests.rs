@@ -397,8 +397,8 @@ fn started_by(pid: i32, mut shell: Entry) -> Entry {
 
 #[test]
 fn a_watch_that_a_live_session_waits_on_is_not_idle() {
-    // `builds health --stop-junk` once stopped an agent's `gh run watch`
-    // for using 1% of a core: a watch uses none on purpose.
+    // A watch uses next to no CPU on purpose, so a shell that a live session
+    // waits on is not idle, whatever its CPU use.
     let command = "gh run watch 44466974160 --exit-status";
     let watch = started_by(4000, shell(1, 90, &side(1), command));
     let gh = child(

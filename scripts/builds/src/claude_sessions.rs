@@ -47,9 +47,7 @@ pub fn running(dir: &Path) -> Result<Vec<Running>, String> {
         };
         let registered: Registered = serde_json::from_slice(&bytes)
             .map_err(|error| format!("{}: {error}", path.display()))?;
-        let alive = unsafe { libc::kill(registered.pid, 0) } == 0
-            || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM);
-        if alive {
+        if crate::procs::runs(registered.pid) {
             live.push(Running {
                 pid: registered.pid,
                 session_id: registered.session_id,
