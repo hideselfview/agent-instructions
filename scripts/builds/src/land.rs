@@ -928,11 +928,10 @@ impl Landing<'_> {
                 pick.arg("cherry-pick").args(todo);
                 let (picked, said) = merged(pick);
                 if !picked {
-                    let paths = git_text(dir, &["diff", "--name-only", "--diff-filter=U"])
-                        .unwrap_or_default();
+                    let paths = git_text(dir, &["diff", "--name-only", "--diff-filter=U"]);
                     git_ok(dir, &["cherry-pick", "--abort"]);
                     self.go_back(out);
-                    return Err(refuse(out, self.pick_refusal(&paths, &said)));
+                    return Err(refuse(out, self.pick_refusal(paths.as_deref(), &said)));
                 }
             }
             let landed = git_text(dir, &["rev-parse", "HEAD"]).unwrap_or_default();
@@ -993,15 +992,24 @@ impl Landing<'_> {
     }
 
     /// What land says when the cherry-pick onto origin/main failed: the files
-    /// that conflict (<paths>, one per line), or git's own words when no file
-    /// conflicts, and what the agent does next.
-    fn pick_refusal(&self, paths: &str, said: &str) -> String {
+    /// that conflict (<paths>, one per line, None when git could not list
+    /// them), or git's own words when none are listed, and what the agent
+    /// does next.
+    fn pick_refusal(&self, paths: Option<&str>, said: &str) -> String {
         let start = self.start.name();
         let dir = self.workdir.display();
-        let what = if paths.is_empty() {
-            format!("git's cherry-pick onto origin/main failed:\n{said}")
+        let what = if paths.is_none() {
+            format!(
+                "the cherry-pick onto origin/main failed and git could not list the conflicting files:\n{said}"
+            )
+        } else if paths.is_some_and(str::is_empty) {
+            format!("the cherry-pick onto origin/main failed with no conflicting file:\n{said}")
         } else {
-            let list: String = paths.lines().map(|path| format!("\n  {path}")).collect();
+            let list: String = paths
+                .unwrap_or_default()
+                .lines()
+                .map(|path| format!("\n  {path}"))
+                .collect();
             format!("these files conflict with origin/main:{list}")
         };
         format!(
