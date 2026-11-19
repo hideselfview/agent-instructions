@@ -6,11 +6,9 @@
 //! runs tests or lints goes to the host that ran the checkout's last run of
 //! the same subcommand, while that host can take it (`Warm`): each host keeps
 //! a build folder of its own for the checkout, and only that host's folder
-//! holds the build the run starts from, so on any other host cargo compiles
-//! again everything that changed since that host's last build of it (on
-//! 2026-11-19 a clippy of one changed crate in a bae worktree took 1165 s on
-//! the host its last clippy had not run on, after a toolchain move, where
-//! the same check had taken 135 s on this Mac twelve minutes before). A
+//! holds the build the run starts from. Another host's folder for the
+//! checkout may be cold, and there cargo compiles again everything that
+//! changed since that host's last build of it. A
 //! command that no host ran for the checkout before, or whose host cannot
 //! take it now, goes to whichever reachable host has the most free cores
 //! (cores minus load, less the cores of each run that started there in the

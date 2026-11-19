@@ -516,10 +516,9 @@ In a side worktree, `builds cargo` runs test, clippy, check, doc and nextest
 run|list on the host that ran the checkout's last run of the same subcommand,
 which `builds cargo` reads from the runs it records, while that host can take
 the run. Each host keeps its own build folder for the checkout, and only the
-host of the last run has that run's build, so another host compiles again
-everything that changed since its own last build for the checkout: after a
-toolchain move, a clippy of one changed bae crate took 1165 seconds on a host
-whose folder held no build from the new toolchain. When no host ran the
+host of the last run has that run's build. Another host's folder for the
+checkout may be cold, and there cargo compiles again everything that changed
+since that host's last build for the checkout. When no host ran the
 subcommand for the checkout, or that host cannot take the run now, builds
 runs it on the host with the most free cores, each counted at the host's core
 speed. builds skips a host that does not answer, is under the free-disk

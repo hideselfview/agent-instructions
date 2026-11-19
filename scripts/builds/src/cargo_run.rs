@@ -337,6 +337,9 @@ pub fn cmd_cargo(args: &[String]) -> Result<()> {
     let dir = std::env::current_dir().context(|| "reading the working directory".to_string())?;
     let places = Places::from_env()?;
     let checkout = Checkout::at_keeping_env(&dir)?;
+    let key = checkout
+        .as_ref()
+        .map(|checkout| RunKey::of(checkout, subcommand));
     let env = |name: &str| std::env::var_os(name);
     let named = cargo_place::named_host(&env)?;
     let ssh = Ssh::from_env();
@@ -347,16 +350,16 @@ pub fn cmd_cargo(args: &[String]) -> Result<()> {
         }
         None => {
             let checkout = checkout.as_ref().expect("a checkout was found");
-            let subcommand = subcommand.join(" ");
+            let key = key.as_ref().expect("a checkout was found");
             let warm;
             let wanted = match named.as_deref() {
                 Some(name) => cargo_place::Wanted::Named(name),
                 None => {
-                    warm = warm_host(&places, checkout, &subcommand);
+                    warm = warm_host(&places, checkout, key);
                     match warm.as_deref() {
                         Some(host) => cargo_place::Wanted::Warm(cargo_place::Warm {
                             host,
-                            subcommand: &subcommand,
+                            subcommand: &key.subcommand,
                         }),
                         None => cargo_place::Wanted::Room,
                     }
@@ -392,15 +395,15 @@ pub fn cmd_cargo(args: &[String]) -> Result<()> {
             .and_then(|()| run_here(&places, checkout.as_ref(), subcommand, format, args))?,
         Some(job) => cargo_place::finish(job)?,
     };
-    if let Some(checkout) = &checkout {
+    if let (Some(checkout), Some(key)) = (&checkout, key) {
         let recorded = hook_check(&env).and_then(|hook_check| {
             record_finished(
                 &places,
                 checkout,
                 &CargoRun {
-                    worktree: checkout.top.display().to_string(),
+                    worktree: key.worktree,
                     started_at,
-                    subcommand: Some(subcommand.join(" ")),
+                    subcommand: Some(key.subcommand),
                     host,
                     load,
                     lock_wait: exited.lock_wait,
@@ -434,12 +437,32 @@ fn hook_check(env: &dyn Fn(&str) -> Option<std::ffi::OsString>) -> Result<Option
     }
 }
 
-/// The host that ran <checkout>'s last recorded `cargo <subcommand>`, whose
+/// What `builds_cargo_runs` records a run under: the checkout's top folder
+/// and cargo's subcommand (`clippy`, `nextest run`). `builds cargo` records
+/// each run under its key and finds the checkout's last run of a subcommand
+/// by it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RunKey {
+    pub worktree: String,
+    pub subcommand: String,
+}
+
+impl RunKey {
+    /// The key of a run in <checkout> of cargo's <subcommand> words.
+    pub fn of(checkout: &Checkout, subcommand: &[String]) -> RunKey {
+        RunKey {
+            worktree: checkout.top.display().to_string(),
+            subcommand: subcommand.join(" "),
+        }
+    }
+}
+
+/// The host that ran the last recorded run of <key> in <checkout>, whose
 /// build folder for the checkout holds that build, from the store of its
 /// project; None for a repo in no project or a checkout with no such run.
 /// When the store cannot be read, builds says so on stderr and places the
 /// run by room alone.
-fn warm_host(places: &Places, checkout: &Checkout, subcommand: &str) -> Option<String> {
+fn warm_host(places: &Places, checkout: &Checkout, key: &RunKey) -> Option<String> {
     let read = || -> Result<Option<String>> {
         let Some(path) = crate::lists::store::database_of(places, checkout)? else {
             return Ok(None);
@@ -447,35 +470,26 @@ fn warm_host(places: &Places, checkout: &Checkout, subcommand: &str) -> Option<S
         let Some(conn) = crate::db::open_reader(&path)? else {
             return Ok(None);
         };
-        last_host(
-            &conn,
-            &checkout.top.display().to_string(),
-            subcommand,
-            &path,
-        )
+        last_host(&conn, key, &path)
     };
     read().unwrap_or_else(|error| {
         crate::text::note(format!(
-            "builds could not read where this checkout's last cargo {subcommand} ran, so it places the run by room alone: {}",
+            "builds could not read where this checkout's last cargo {} ran, so it places the run by room alone: {}",
+            key.subcommand,
             error.text()
         ));
         None
     })
 }
 
-/// The host of the newest run of `cargo <subcommand>` in <worktree> that the
-/// database at <path> records, or None when it records none.
-pub fn last_host(
-    conn: &Connection,
-    worktree: &str,
-    subcommand: &str,
-    path: &Path,
-) -> Result<Option<String>> {
+/// The host of the newest run of <key> that the database at <path> records,
+/// or None when it records none.
+pub fn last_host(conn: &Connection, key: &RunKey, path: &Path) -> Result<Option<String>> {
     use rusqlite::OptionalExtension;
     conn.query_row(
         "SELECT host FROM builds_cargo_runs WHERE worktree = ?1 AND subcommand = ?2
          ORDER BY started_at DESC, id DESC LIMIT 1",
-        params![worktree, subcommand],
+        params![key.worktree, key.subcommand],
         |row| row.get(0),
     )
     .optional()
@@ -686,7 +700,11 @@ mod tests {
         record_run(&path, &run("/d/other", 400, "clippy", "local")).unwrap();
         let conn = crate::db::open_reader(&path).unwrap().unwrap();
         let last = |worktree: &str, subcommand: &str| {
-            last_host(&conn, worktree, subcommand, &path).unwrap()
+            let key = RunKey {
+                worktree: worktree.to_string(),
+                subcommand: subcommand.to_string(),
+            };
+            last_host(&conn, &key, &path).unwrap()
         };
         assert_eq!(last("/d/bae", "clippy"), Some("m1".to_string()));
         assert_eq!(last("/d/bae", "test"), Some("local".to_string()));
