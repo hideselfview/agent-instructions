@@ -80,13 +80,19 @@ fn elan_home(home: &Path) -> PathBuf {
     home.join(".elan")
 }
 
+/// The `lake` that elan installs under <home>, which runs the toolchain the
+/// package it runs in pins.
+pub fn lake(home: &Path) -> PathBuf {
+    elan_home(home).join("bin/lake")
+}
+
 fn elan(home: &Path) -> PathBuf {
     elan_home(home).join("bin/elan")
 }
 
 /// A command that runs <program>, one of elan's, with elan's home under
 /// <home>.
-fn elan_command(home: &Path, program: &Path) -> Command {
+pub fn elan_command(home: &Path, program: &Path) -> Command {
     let mut command = Command::new(program);
     command.env("ELAN_HOME", elan_home(home));
     command

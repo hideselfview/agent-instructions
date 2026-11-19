@@ -227,8 +227,8 @@ fn run_in(
             "named".to_string(),
         ),
         checkout,
-        dir,
-        args,
+        "cargo",
+        host_command(args, checkout, dir, env),
         env,
     )? {
         Some(job) => finish(job).map(|exited| exited.code),
@@ -721,6 +721,39 @@ fn a_command_run_in_a_folder_of_the_checkout_runs_in_the_same_folder_on_the_host
 }
 
 #[test]
+fn a_lake_job_runs_builds_lake_in_the_callers_folder_on_the_host() {
+    let (r, _main, side) = remote("place-lake", true, RECORDING_BUILDS);
+    let places = r.scratch.places();
+    let m1 = host("m1", Some("user@m1"));
+    let folder = side.top.join("proofs");
+    std::fs::create_dir_all(&folder).unwrap();
+    std::fs::write(folder.join("marker.txt"), "the package's folder\n").unwrap();
+    let words = crate::lake_run::host_command(&args(&["build", "runner"]), &side, &folder, &no_env);
+    let job = start(
+        &places,
+        &r.ssh,
+        Choice::On(m1, Box::new(probe(1.0).unwrap()), "named".to_string()),
+        &side,
+        "lake",
+        words,
+        &no_env,
+    )
+    .unwrap()
+    .expect("the host takes the job");
+    assert_eq!(finish_untimed(job).unwrap(), 0);
+    let ran = read(&r.home.join("dev/demo-worktrees/remote-side-1/ran.txt"));
+    assert!(
+        ran.starts_with("host=local args=lake build runner flags=\n"),
+        "{ran}"
+    );
+    assert!(
+        ran.contains("demo-worktrees/remote-side-1/proofs\n"),
+        "{ran}"
+    );
+    assert!(ran.ends_with("the package's folder\n"), "{ran}");
+}
+
+#[test]
 fn a_host_that_drops_fails_loudly_naming_it() {
     let (r, _main, side) = remote("place-drop", true, "exit 255\n");
     let places = r.scratch.places();
@@ -910,8 +943,8 @@ fn a_host_that_refuses_the_job_leaves_it_to_this_mac_and_is_passed_over_until_gi
             "most room".to_string(),
         ),
         &side,
-        &side.top,
-        &args(&["test"]),
+        "cargo",
+        host_command(&args(&["test"]), &side, &side.top, &no_env),
         &no_env,
     )
     .unwrap();
@@ -989,8 +1022,8 @@ fn a_host_that_refuses_the_job_leaves_it_to_this_mac_and_is_passed_over_until_gi
         &ssh,
         Choice::On(gone, Box::new(probe(1.0).unwrap()), "most room".to_string()),
         &side,
-        &side.top,
-        &args(&["test"]),
+        "cargo",
+        host_command(&args(&["test"]), &side, &side.top, &no_env),
         &no_env,
     )
     .unwrap();

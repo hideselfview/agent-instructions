@@ -354,7 +354,7 @@ impl Probe {
         f64::from(self.cores) - self.load[0]
     }
 
-    /// `room`, less the load of <runs> cargo runs that started too recently
+    /// `room`, less the load of <runs> builds that started too recently
     /// for the load average to show them (cargo_starts.rs): cargo runs one
     /// compile job per core, so each counts as the host's cores.
     pub fn room_after(&self, runs: u32) -> f64 {
@@ -1041,14 +1041,17 @@ pub fn takes_cargo<'a>(
     }
 }
 
-/// What a `builds cargo` command runs, as far as the hosts that may take it
-/// are concerned.
+/// What a `builds cargo` or `builds lake` command runs, as far as the hosts
+/// that may take it are concerned.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Runs {
     /// A subcommand that cargo itself provides.
     Cargo,
     /// `cargo nextest`, which needs cargo-nextest at `nextest::VERSION`.
     Nextest,
+    /// `lake build`, which needs Lean's toolchains: the host's setup for the
+    /// job installs them (lean.rs).
+    Lake,
 }
 
 /// Why a host cannot take a run that needs cargo-nextest: it has no
@@ -1183,7 +1186,7 @@ pub fn rank_by_room(
                     "{} has {:.1} cores of room after {} that started in the last minute, {at_speed}",
                     host.name,
                     probe.room_after(started),
-                    crate::text::counted(started as usize, "cargo run", "cargo runs")
+                    crate::text::counted(started as usize, "build", "builds")
                 ),
             }
         })

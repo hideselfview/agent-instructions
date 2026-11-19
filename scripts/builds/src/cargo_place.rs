@@ -158,16 +158,15 @@ pub fn stays_here(
     checkout: Option<&Checkout>,
     env: &dyn Fn(&str) -> Option<OsString>,
 ) -> Option<String> {
-    let Some(checkout) = checkout else {
-        return Some("the working directory is in no git checkout".to_string());
+    let checkout = match placeable(checkout) {
+        Ok(checkout) => checkout,
+        Err(why) => return Some(why),
     };
-    if checkout.is_main() {
-        return Some("main is the person's checkout".to_string());
-    }
     let subcommand = args.first().map(String::as_str).unwrap_or("");
     let goes = match runs {
         host::Runs::Nextest => matches!(args.get(1).map(String::as_str), Some("run" | "list")),
         host::Runs::Cargo => matches!(subcommand, "test" | "clippy" | "check" | "doc"),
+        host::Runs::Lake => unreachable!("builds lake decides where lake runs (lake_run.rs)"),
     };
     if !goes {
         return Some(format!(
@@ -221,6 +220,19 @@ pub fn stays_here(
         }
     }
     None
+}
+
+/// <checkout>, when a build there may leave this Mac; else why it stays: a
+/// working directory in no checkout, and a main checkout, the person's, keep
+/// their builds where they are.
+pub fn placeable(checkout: Option<&Checkout>) -> std::result::Result<&Checkout, String> {
+    let Some(checkout) = checkout else {
+        return Err("the working directory is in no git checkout".to_string());
+    };
+    if checkout.is_main() {
+        return Err("main is the person's checkout".to_string());
+    }
+    Ok(checkout)
 }
 
 /// The compiler wrappers cargo reads from the environment.
@@ -313,9 +325,47 @@ pub fn host_command(
     dir: &Path,
     env: &dyn Fn(&str) -> Option<OsString>,
 ) -> Vec<String> {
+    let mut lines = String::new();
+    if let Some(relative) = Before::from_env(env).and_then(|before| {
+        before.in_checkout(checkout).map(|relative| {
+            let args: Vec<String> = before.args.iter().map(|arg| host::sh_quote(arg)).collect();
+            format!("\"$PWD\"/{} {}", host::sh_quote(&relative), args.join(" "))
+        })
+    }) {
+        lines.push_str(&format!("{relative} || exit $?\n"));
+    }
+    for variable in WRAPPERS {
+        if let Some(relative) = env(variable).and_then(|value| inside(checkout, &value)) {
+            lines.push_str(&format!(
+                "{variable}=\"$PWD\"/{}; export {variable}\n",
+                host::sh_quote(&relative)
+            ));
+        }
+    }
+    let forwarded = FORWARDED
+        .iter()
+        .filter_map(|name| Some(format!("{name}={}", env(name)?.to_string_lossy())))
+        .collect();
+    job_words("cargo", &lines, forwarded, args, checkout, dir, env)
+}
+
+/// The words a host runs for `builds <command> <args>`, which it runs itself
+/// with `BUILDS_CARGO_HOST=local` and the settings <forwarded> (`NAME=value`),
+/// in the folder of its worktree that matches <dir>, the caller's working
+/// directory in <checkout>. The shell lines <lines> run first, from the
+/// worktree's top; each ends with a newline.
+pub fn job_words(
+    command: &str,
+    lines: &str,
+    forwarded: Vec<String>,
+    args: &[String],
+    checkout: &Checkout,
+    dir: &Path,
+    env: &dyn Fn(&str) -> Option<OsString>,
+) -> Vec<String> {
     let mut script = String::new();
-    // The host's before program and cargo know a hook check started the run,
-    // so they install, fetch and build nothing (cargo_run::in_hook).
+    // What the host runs knows a hook check started the run, so it installs,
+    // fetches and builds nothing (cargo_run::in_hook).
     if let Some(check) =
         env(crate::cargo_run::HOOK_CHECK_VARIABLE).filter(|value| !value.is_empty())
     {
@@ -325,22 +375,7 @@ pub fn host_command(
             name = crate::cargo_run::HOOK_CHECK_VARIABLE
         ));
     }
-    if let Some(relative) = Before::from_env(env).and_then(|before| {
-        before.in_checkout(checkout).map(|relative| {
-            let args: Vec<String> = before.args.iter().map(|arg| host::sh_quote(arg)).collect();
-            format!("\"$PWD\"/{} {}", host::sh_quote(&relative), args.join(" "))
-        })
-    }) {
-        script.push_str(&format!("{relative} || exit $?\n"));
-    }
-    for variable in WRAPPERS {
-        if let Some(relative) = env(variable).and_then(|value| inside(checkout, &value)) {
-            script.push_str(&format!(
-                "{variable}=\"$PWD\"/{}; export {variable}\n",
-                host::sh_quote(&relative)
-            ));
-        }
-    }
+    script.push_str(lines);
     // Last: the lines above name files from the worktree's top.
     if let Some(within) = inside(checkout, dir) {
         script.push_str(&format!("cd {} || exit $?\n", host::sh_quote(&within)));
@@ -356,13 +391,9 @@ pub fn host_command(
     }
     words.push("env".to_string());
     words.push(format!("{HOST_VARIABLE}=local"));
-    for name in FORWARDED {
-        if let Some(value) = env(name) {
-            words.push(format!("{name}={}", value.to_string_lossy()));
-        }
-    }
+    words.extend(forwarded);
     words.push("builds".to_string());
-    words.push("cargo".to_string());
+    words.push(command.to_string());
     words.extend(args.iter().cloned());
     words
 }
@@ -604,26 +635,29 @@ fn join(why: String, more: Vec<String>) -> String {
         .join("; ")
 }
 
-/// Starts the command where <choice> says. On a host, that sends
-/// <checkout>'s working tree there and claims a worktree for <args>, run in
-/// the folder there that matches <dir>, the caller's working directory, and
-/// the job comes back to be run (`finish`). A host that refuses the job (the send
-/// or the claim fails there) is recorded as refusing jobs (`remote::start_job`),
-/// and the command runs on this Mac instead, saying so on stderr. Returns
-/// None when the command runs on this Mac.
+/// Starts `builds <command>` where <choice> says. On a host, that sends
+/// <checkout>'s working tree there and claims a worktree, where the job runs
+/// <words> (`host_command`, `job_words`), and the job comes back to be run
+/// (`finish`, `finish_untimed`). A host that refuses the job (the send or the
+/// claim fails there) is recorded as refusing jobs (`remote::start_job`), and
+/// the command runs on this Mac instead, saying so on stderr. Returns None
+/// when the command runs on this Mac.
 pub fn start<'a>(
     places: &'a Places,
     ssh: &'a Ssh,
     choice: Choice,
     checkout: &Checkout,
-    dir: &Path,
-    args: &[String],
+    command: &str,
+    words: Vec<String>,
     env: &dyn Fn(&str) -> Option<OsString>,
 ) -> Result<Option<Job<'a>>> {
     let Choice::On(host, _, why) = choice else {
         return Ok(None);
     };
-    note(format!("builds cargo runs on host {}: {why}", host.name));
+    note(format!(
+        "builds {command} runs on host {}: {why}",
+        host.name
+    ));
     // A stop signal during the send or the claim stops the job once its
     // command starts, and the job removes what it left on the host.
     remote::stop_on_signals();
@@ -642,13 +676,13 @@ pub fn start<'a>(
         },
         what: What::Working,
         host: None,
-        command: host_command(args, checkout, dir, env),
+        command: words,
     };
     match remote::start_job(places, ssh, &host, &checkout.top, &request)? {
         Start::Started(job) => Ok(Some(job)),
         Start::Refused(said) => {
             note(format!(
-                "host {name} refused the job: {said}\nbuilds cargo runs it on this Mac, and passes over host {name} until a probe finds it answering with git running (`builds health` says what to do)",
+                "host {name} refused the job: {said}\nbuilds {command} runs it on this Mac, and passes over host {name} until a probe finds it answering with git running (`builds health` says what to do)",
                 name = host.name
             ));
             Ok(None)
@@ -662,42 +696,65 @@ pub fn start<'a>(
 pub fn finish(job: Job) -> Result<crate::cargo_run::Exited> {
     let host = job.host_name().to_string();
     let (code, lock_wait) = job.run_timing_locks()?;
-    if code == SSH_FAILED {
-        fail!(
-            "host {host} stopped answering while cargo ran (ssh exited {SSH_FAILED}); nothing ran the command again"
-        );
-    }
+    answered(&host, code)?;
     Ok(crate::cargo_run::Exited {
         code,
         lock_wait: Some(lock_wait),
     })
 }
 
-/// A `builds cargo` run on this Mac that uses another host: cargo runs on the
-/// host, so no build process of the run runs here. The run belongs to the
-/// checkout its `builds cargo` process runs in.
+/// Runs a started job whose command builds does not time, passing the output
+/// through, and returns its exit status. A host that stops answering fails
+/// the command, naming it.
+pub fn finish_untimed(job: Job) -> Result<i32> {
+    let host = job.host_name().to_string();
+    let code = job.run()?;
+    answered(&host, code)?;
+    Ok(code)
+}
+
+/// Fails, naming <host>, when <code> is ssh's own failure: the host stopped
+/// answering while the job ran.
+fn answered(host: &str, code: i32) -> Result<()> {
+    if code == SSH_FAILED {
+        fail!(
+            "host {host} stopped answering while the command ran (ssh exited {SSH_FAILED}); nothing ran the command again"
+        );
+    }
+    Ok(())
+}
+
+/// A `builds cargo` or `builds lake` run on this Mac that uses another host:
+/// cargo or lake runs on the host, so no build process of the run runs here.
+/// The run belongs to the checkout its `builds` process runs in.
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct RemoteRun {
-    /// The `builds cargo` process on this Mac.
+    /// The `builds` process on this Mac.
     pub pid: i32,
     /// The index in <places> of the place that holds the working directory
-    /// of the `builds cargo` process.
+    /// of the `builds` process.
     #[serde(skip)]
     pub place: usize,
     /// The name of the host.
     pub host: String,
+    /// What the run runs there: `cargo` or `lake`.
+    pub command: String,
 }
 
-/// The `builds cargo` runs among <processes> that use one of <hosts>: each
-/// `builds cargo` whose working directory is in one of <places> and whose
-/// child is an ssh to the host, which names the host's target as one
-/// argument (`Ssh::command`). `builds cargo` reaches its host through such a
-/// child at every step: it asks the host for its load, sends the job, claims
-/// a worktree there, runs cargo there and releases the worktree. While it
-/// asks several hosts for their load before it picks one, the run uses each
-/// of them. Also returns what builds could not read: the arguments of a
-/// `builds` process or of a `builds cargo` child that still runs, one line
-/// each, since without them builds cannot tell whether a run uses a host.
+/// The `builds` commands that run their build on a host (`start`).
+const PLACED: [&str; 2] = ["cargo", "lake"];
+
+/// The `builds cargo` and `builds lake` runs among <processes> that use one
+/// of <hosts>: each such `builds` whose working directory is in one of
+/// <places> and whose child is an ssh to the host, which names the host's
+/// target as one argument (`Ssh::command`). Such a `builds` reaches its host
+/// through such a child at every step: it asks the host for its load, sends
+/// the job, claims a worktree there, runs its build there and releases the
+/// worktree. While it asks several hosts for their load before it picks one,
+/// the run uses each of them. Also returns what builds could not read: the
+/// arguments of a `builds` process or of a child of such a run that still
+/// runs, one line each, since without them builds cannot tell whether a run
+/// uses a host.
 pub fn remote_runs(
     processes: &Processes,
     places: &[Place],
@@ -719,14 +776,17 @@ pub fn remote_runs(
             Ok(None) => continue,
             Err(error) => {
                 unread.push(format!(
-                    "{error}, so health cannot tell whether it is a `builds cargo` that uses another host"
+                    "{error}, so health cannot tell whether it is a `builds cargo` or `builds lake` that uses another host"
                 ));
                 continue;
             }
         };
-        if argv.get(1).map(String::as_str) != Some("cargo") {
+        let Some(command) = argv
+            .get(1)
+            .filter(|command| PLACED.contains(&command.as_str()))
+        else {
             continue;
-        }
+        };
         let Some(place) = place_of_process(places, process.pid) else {
             continue;
         };
@@ -736,7 +796,7 @@ pub fn remote_runs(
                 Ok(None) => continue,
                 Err(error) => {
                     unread.push(format!(
-                        "{error}; it is a child of `builds cargo` (pid {}) in {}, so health cannot tell whether that run uses another host",
+                        "{error}; it is a child of `builds {command}` (pid {}) in {}, so health cannot tell whether that run uses another host",
                         process.pid, places[place].label
                     ));
                     continue;
@@ -750,6 +810,7 @@ pub fn remote_runs(
                     pid: process.pid,
                     place,
                     host: name.to_string(),
+                    command: command.clone(),
                 };
                 if !found.contains(&run) {
                     found.push(run);

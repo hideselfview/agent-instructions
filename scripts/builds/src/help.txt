@@ -279,6 +279,27 @@ packages has their toolchains. elan downloads each toolchain once per Mac,
 and every checkout shares it. A Mac that already has another version of elan
 keeps it. A `.lake` folder with no lean-toolchain beside it pins nothing.
 
+`builds lake build` runs lake build in the package of the working directory,
+on the host with the most room, as `builds cargo` runs a test (CARGO): builds
+skips the same hosts, sends the checkout's HEAD plus its working tree, and
+runs lake in the matching folder of the host's remote worktree, whose .lake
+folder stays between jobs in the host's builds root. The host's setup for the
+job installs the toolchains, so a host needs nothing else. One line on stderr
+names the host, and the command prints lake's output and exits with lake's
+status. These stay on this Mac: every command in a main checkout, a command
+run outside a checkout, and a command with an argument that is an absolute
+path. On the Mac that runs lake, builds first installs the checkout's
+toolchains, unless a pre-commit hook check runs it, and holds the checkout's
+guard while lake runs, so no prune deletes the .lake folder under it.
+BUILDS_CARGO_HOST picks the host for one command, as for `builds cargo`.
+
+  builds lake build [<args>...]
+                              run lake build with these arguments in the Lean
+                              package of the working directory, on this Mac or
+                              the host with the most room; builds refuses
+                              every other lake command: run those with lake
+                              itself (~/.elan/bin/lake)
+
 
 BUILT TOOLS
 
@@ -547,9 +568,10 @@ without cargo-nextest at the version builds installs (0.9.143, installed by
 `builds install` on this Mac and by `builds host setup` on each host), and
 names the host and the version it has; `BUILDS_CARGO_HOST` naming such a host
 fails. A host's free cores are its cores minus its
-one-minute load, less the host's cores again for each `builds cargo` run that
-started there in the last minute and still runs: cargo runs a compile job per
-core, and the load average shows a run only after a while. A host's core
+one-minute load, less the host's cores again for each `builds cargo` or
+`builds lake` run that started there in the last minute and still runs: cargo
+and lake run a compile job per core, and the load average shows a run only
+after a while. A host's core
 speed is this Mac's time divided by the host's time for one fixed compile on
 one core, which `builds host setup` times on both, so a job goes where it
 finishes first.

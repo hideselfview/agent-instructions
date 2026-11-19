@@ -66,7 +66,7 @@ fn a_burst_of_runs_picks_both_hosts() {
     assert_eq!(starts.counts.recent.get("m1"), Some(&1));
     let (_, why) = rank_by_room(&hosts, 0, &starts.counts.recent, crate::host::Runs::Cargo);
     assert!(
-        why.contains("m1 has -3.0 cores of room after 1 cargo run that started in the last minute"),
+        why.contains("m1 has -3.0 cores of room after 1 build that started in the last minute"),
         "{why}"
     );
     drop(starts);

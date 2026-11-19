@@ -357,7 +357,15 @@ pub fn cmd_cargo(args: &[String]) -> Result<()> {
         Choice::On(host, probe, _) => Some((host.name.clone(), probe.load())),
     };
     let job = match checkout.as_ref() {
-        Some(checkout) => cargo_place::start(&places, &ssh, choice, checkout, &dir, args, &env)?,
+        Some(checkout) => cargo_place::start(
+            &places,
+            &ssh,
+            choice,
+            checkout,
+            "cargo",
+            cargo_place::host_command(args, checkout, &dir, &env),
+            &env,
+        )?,
         None => None,
     };
     // A host that refused the job leaves it to this Mac.
@@ -532,6 +540,19 @@ fn run_before_here(
     }
 }
 
+/// Takes <checkout>'s guard, shared, which keeps `builds` from deleting the
+/// checkout's build folders while a build writes them (units/mod.rs), and
+/// returns it; None when the checkout has no build root.
+pub fn guard(places: &Places, checkout: Option<&Checkout>) -> Result<Option<std::fs::File>> {
+    let root = checkout
+        .map(|checkout| checkout.build_root(places))
+        .filter(|root| root.is_dir());
+    match root {
+        Some(root) => Ok(Some(crate::evict::lock_shared_creating(&root.join(GUARD))?)),
+        None => Ok(None),
+    }
+}
+
 /// Runs cargo here, with the recorder reading its output. When this process's
 /// stderr is no terminal, cargo's messages pass through builds, which times
 /// cargo's waits for its file locks; to a terminal, cargo prints them itself,
@@ -549,13 +570,10 @@ fn run_here(
     let wrapper =
         crate::rustc_wrapper::cargo_env(std::env::var_os("RUSTC_WRAPPER").as_deref(), &places.home);
     // Held until cargo has exited and the recorder has read its last line.
+    let guard = guard(places, checkout)?;
     let root = checkout
         .map(|checkout| checkout.build_root(places))
         .filter(|root| root.is_dir());
-    let guard = match &root {
-        Some(root) => Some(crate::evict::lock_shared_creating(&root.join(GUARD))?),
-        None => None,
-    };
     // SAFETY: isatty(2) reads nothing but the descriptor's kind.
     let watch = unsafe { libc::isatty(libc::STDERR_FILENO) } == 0;
     let mut child = Command::new("cargo")

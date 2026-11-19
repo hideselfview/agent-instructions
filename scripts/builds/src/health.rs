@@ -1221,7 +1221,7 @@ fn ordinal(n: usize) -> String {
 }
 
 /// What builds for worktree <w>: its build processes here, its `builds
-/// cargo` runs on other hosts, the `builds app-build` requests for it, the
+/// cargo` and `builds lake` runs on other hosts, the `builds app-build` requests for it, the
 /// app lock's holder building for it, and its app builds waiting in a lane's
 /// queue with their places in line.
 fn builds_line(w: &WorktreeHealth) -> String {
@@ -1231,8 +1231,10 @@ fn builds_line(w: &WorktreeHealth) -> String {
     }
     for run in &w.remote_runs {
         parts.push(format!(
-            "running cargo on host {} (builds cargo, pid {})",
-            run.host, run.pid
+            "running {command} on host {} (builds {command}, pid {})",
+            run.host,
+            run.pid,
+            command = run.command
         ));
     }
     for run in &w.app_builds {
@@ -2015,6 +2017,7 @@ mod tests {
                 pid: 4242,
                 place: 0,
                 host: "m1".to_string(),
+                command: "cargo".to_string(),
             }],
             app_builds: Vec::new(),
             unread: Vec::new(),
