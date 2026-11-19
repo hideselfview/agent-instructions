@@ -79,10 +79,14 @@ fn m1() -> Host {
     }
 }
 
-/// m1 during the jam: its server (pid 44790) runs <running> compiles while
-/// <clients> clients name a compiler, and its cache holds <size> bytes of
+/// m1 with 10 cores, whose server (pid 44790) runs <running> compiles while
+/// <clients> clients name a compiler, and whose cache holds <size> bytes of
 /// 50 GiB.
-fn jam(running: usize, clients: usize, size: u64) -> (Host, std::result::Result<Scan, String>) {
+fn m1_with_server(
+    running: usize,
+    clients: usize,
+    size: u64,
+) -> (Host, std::result::Result<Scan, String>) {
     let mut ps =
         String::from("44790 1 502 0.0 10:00.00 2-07:02:40 S /Users/u/.cargo/bin/sccache\n");
     for at in 0..running {
@@ -118,7 +122,11 @@ fn jam(running: usize, clients: usize, size: u64) -> (Host, std::result::Result<
 #[test]
 fn a_host_whose_clients_wait_more_than_twice_its_cores_has_too_much_compile_work() {
     let mut readings = vec![reading("m1", 44790, 10, 35000, 34000)];
-    let (caches, changed) = judge_with(&[jam(10, 119, 53_670_801_410)], &mut readings, NOW);
+    let (caches, changed) = judge_with(
+        &[m1_with_server(10, 119, 53_670_801_410)],
+        &mut readings,
+        NOW,
+    );
     assert!(changed);
     assert_eq!(readings.len(), 2);
     let since = local_minute(NOW - 10 * 60);
@@ -137,7 +145,7 @@ fn a_host_whose_clients_wait_more_than_twice_its_cores_has_too_much_compile_work
             "sccache: host m1's server has 109 clients waiting while it runs 10 compiles, more than 2 for each of the host's 10 cores, so the host has more compile work than it can run; its cache answered 32% of 1135 Rust compiles since {since}; its cache is full (50.0G of 50.0G), so each new entry pushes an old one out; start nothing new for host m1"
         )]
     );
-    let (calm, _) = judge_with(&[jam(10, 30, 10 << 30)], &mut Vec::new(), NOW);
+    let (calm, _) = judge_with(&[m1_with_server(10, 30, 10 << 30)], &mut Vec::new(), NOW);
     assert!(findings(&calm).is_empty());
 }
 
@@ -145,7 +153,7 @@ fn a_host_whose_clients_wait_more_than_twice_its_cores_has_too_much_compile_work
 /// a line that says so and no finding.
 #[test]
 fn a_host_with_no_server_or_an_unread_one_gets_a_line() {
-    let (host, scan) = jam(0, 0, 0);
+    let (host, scan) = m1_with_server(0, 0, 0);
     let mut none = scan.clone().unwrap();
     none.sccache = Ok(None);
     let mut unread = scan.unwrap();

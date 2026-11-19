@@ -37,10 +37,10 @@ fn job(worktree: &str, leader: i32, caller: i32, minutes: i64) -> JobRun {
     }
 }
 
-/// This Mac during the jam: an install that has waited 20 minutes for a hook
-/// run, whose clippy runs as a job on m1 that has run 36 minutes and waits
-/// on 3 compiles through sccache.
-fn jam() -> Vec<(Host, std::result::Result<Scan, String>)> {
+/// This Mac and m1 while an install waits behind a hook run: the install
+/// has run 20 minutes; the hook run's clippy runs as a job on m1 that has run
+/// 36 minutes and waits on 3 compiles through sccache.
+fn install_behind_a_hook_run() -> Vec<(Host, std::result::Result<Scan, String>)> {
     let here = rows(
         "100 1 501 0.0 0:01.00 20:00 S /Users/x/.local/bin/builds install\n\
          200 150 501 0.0 0:01.00 22:00 S builds checks run\n\
@@ -90,7 +90,10 @@ fn waiting_for_the_hook_run() -> Waiting {
 #[test]
 fn an_install_names_what_it_waits_for_down_to_the_job_on_a_host() {
     assert_eq!(
-        lines(&jam(), Ok(Some(waiting_for_the_hook_run()))),
+        lines(
+            &install_behind_a_hook_run(),
+            Ok(Some(waiting_for_the_hook_run()))
+        ),
         [
             "install: builds install (pid 100) has run 20m and waits for process 200, builds checks run, since 01:00:00 (it waits on its job on host m1 in bae/remote-side-3, which has run 36m: 3 compiles through sccache); every hook run, review and app build lane that starts waits for it"
         ]
@@ -98,7 +101,7 @@ fn an_install_names_what_it_waits_for_down_to_the_job_on_a_host() {
     let mut stores = waiting_for_the_hook_run();
     stores.connections_closed = true;
     assert!(
-        lines(&jam(), Ok(Some(stores)))[0]
+        lines(&install_behind_a_hook_run(), Ok(Some(stores)))[0]
             .ends_with("; every builds command that opens a store waits for it")
     );
 }
@@ -108,7 +111,7 @@ fn an_install_names_what_it_waits_for_down_to_the_job_on_a_host() {
 #[test]
 fn a_long_hook_run_names_the_job_it_waits_on() {
     assert_eq!(
-        lines(&jam(), Ok(None)),
+        lines(&install_behind_a_hook_run(), Ok(None)),
         [
             "hook run: builds checks run (pid 200, in bae/side-3) has run 22m, longer than 10m; it waits on its job on host m1 in bae/remote-side-3, which has run 36m: 3 compiles through sccache"
         ]
@@ -182,7 +185,7 @@ fn a_new_install_is_no_finding_and_an_unread_one_is() {
 /// caller health cannot check here names the caller's pid.
 #[test]
 fn a_failed_scan_of_this_mac_is_a_finding_and_keeps_the_install_line() {
-    let mut scans = jam();
+    let mut scans = install_behind_a_hook_run();
     scans[0].1 = Err("ps on this Mac failed (exit 1)".to_string());
     assert_eq!(
         lines(&scans, Ok(Some(waiting_for_the_hook_run()))),
@@ -198,7 +201,7 @@ fn a_failed_scan_of_this_mac_is_a_finding_and_keeps_the_install_line() {
 /// it, whatever its worktree.
 #[test]
 fn a_job_whose_run_id_does_not_read_is_a_finding() {
-    let mut scans = jam();
+    let mut scans = install_behind_a_hook_run();
     let Ok(m1) = &mut scans[1].1 else {
         panic!("m1's scan reads");
     };
