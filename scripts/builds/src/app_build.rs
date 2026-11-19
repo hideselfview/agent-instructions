@@ -558,12 +558,10 @@ fn run_steps_with(
         let result = match &outcome {
             Ok(Within::Ran(Ran::Finished)) => StepResult::Passed,
             Ok(Within::Ran(Ran::TakenOver)) => StepResult::TakenOver,
-            Ok(Within::TimedOut) => StepResult::TimedOut,
-            Err(_) => StepResult::Failed,
+            Ok(Within::TimedOut) => StepResult::TimedOut(read.failure()),
+            Err(_) => StepResult::Failed(read.failure()),
         };
-        let failure =
-            matches!(result, StepResult::Failed | StepResult::TimedOut).then(|| read.failure());
-        log.push(timer.finish(&step.name, kind, result, failure));
+        log.push(timer.finish(&step.name, kind, result));
         match outcome {
             Ok(Within::Ran(Ran::Finished)) => {}
             Ok(Within::Ran(Ran::TakenOver)) => return Ok(Ended::TakenOver),

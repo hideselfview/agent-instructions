@@ -16,7 +16,6 @@ fn step(name: &str, kind: StepKind, at: i64, wall_ms: u64, result: StepResult) -
         wall_ms,
         cpu_ms: wall_ms / 2,
         result,
-        failure: None,
     }
 }
 
@@ -207,7 +206,7 @@ fn a_steps_figures_count_passing_runs_in_the_window_and_total_runs_times_median(
                 StepKind::Step,
                 NOW - 5,
                 500_000,
-                StepResult::Failed,
+                StepResult::Failed(crate::step_failure::StepFailure::default()),
             )],
         ),
     )

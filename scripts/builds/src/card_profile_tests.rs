@@ -257,7 +257,6 @@ fn landed_card(scratch: &Scratch) -> (crate::lists::store::Store, Id) {
                 wall_ms: 50_000,
                 cpu_ms: 0,
                 result: crate::app_timing::StepResult::Passed,
-                failure: None,
             }],
         },
     )
@@ -567,8 +566,7 @@ fn a_failed_shots_step_names_its_shots_in_the_cards_failures_and_totals() {
                 started_at: T0 + 300,
                 wall_ms: 10_000,
                 cpu_ms: 0,
-                result: crate::app_timing::StepResult::Failed,
-                failure: Some(crate::step_failure::StepFailure {
+                result: crate::app_timing::StepResult::Failed(crate::step_failure::StepFailure {
                     excerpt: Some("builds shots: 1 pair(s) fail the run: mac.a.one".into()),
                     failed: vec!["mac.a.one".into()],
                 }),

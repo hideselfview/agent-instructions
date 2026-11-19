@@ -69,7 +69,7 @@ pub fn record(tx: &Transaction, run_id: i64, steps: &[StepRecord]) -> Result<()>
         steps
             .iter()
             .enumerate()
-            .filter_map(|(position, step)| Some((position, step.failure.as_ref()?))),
+            .filter_map(|(position, step)| Some((position, step.result.failure()?))),
     )
 }
 

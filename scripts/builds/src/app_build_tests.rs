@@ -618,16 +618,16 @@ fn running_fake_steps_times_each_one_with_its_kind_and_result() {
     ];
     let mut log = Vec::new();
     let _ = run_steps(&scratch.dir, &held, &steps, &mut log, None, false);
-    let seen: Vec<(&str, StepKind, StepResult)> = log
+    let seen: Vec<(&str, StepKind, &str)> = log
         .iter()
-        .map(|s| (s.name.as_str(), s.kind, s.result))
+        .map(|s| (s.name.as_str(), s.kind, s.result.word()))
         .collect();
     assert_eq!(
         seen,
         vec![
-            ("build", StepKind::Step, StepResult::Passed),
-            ("test Foo", StepKind::Test, StepResult::Passed),
-            ("shots mac.a.", StepKind::Shots, StepResult::Failed),
+            ("build", StepKind::Step, "passed"),
+            ("test Foo", StepKind::Test, "passed"),
+            ("shots mac.a.", StepKind::Shots, "failed"),
         ],
         "a step after the failure is not started, so it has no row"
     );
@@ -653,8 +653,10 @@ fn a_failed_step_keeps_what_its_output_said() {
         None,
         false,
     );
-    assert_eq!(log[0].failure, None);
-    let failure = log[1].failure.clone().unwrap();
+    assert_eq!(log[0].result, StepResult::Passed);
+    let StepResult::Failed(failure) = log[1].result.clone() else {
+        panic!("{:?}", log[1].result)
+    };
     assert_eq!(failure.failed, vec!["mac.a.one"]);
     let excerpt = failure.excerpt.unwrap();
     assert!(
@@ -725,7 +727,7 @@ fn a_fake_step_that_burns_cpu_records_cpu_time_and_one_past_its_limit_records_a_
         None,
         false,
     );
-    assert_eq!(log[0].result, StepResult::TimedOut);
+    assert_eq!(log[0].result.word(), "timed out");
 }
 
 #[test]

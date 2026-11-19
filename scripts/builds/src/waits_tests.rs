@@ -155,7 +155,6 @@ fn a_store_gives_each_kind_its_own_rows_and_leaves_out_other_cargo_runs() {
         wall_ms,
         cpu_ms: 1,
         result: crate::app_timing::StepResult::Passed,
-        failure: None,
     };
     crate::app_timing::record(
         &path,
