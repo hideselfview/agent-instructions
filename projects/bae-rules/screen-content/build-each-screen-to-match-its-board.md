@@ -1,5 +1,5 @@
 ---
-digest: 'A board of a screen the app already has draws it as the app draws it today unless the person decided a change to it, and copying the app there needs no other decision (decision #992); a board of a decided change or a new screen leads, the app follows it, and the board never copies the app. For a change the person decided to an existing screen that existing design-system parts can draw, the implementing agent edits the board in the same commit and names the decision; the design session draws new screens, new layouts and new or changed parts. A plan that builds a board transcribes its markup; every built board has a shot of the real view, named from its board or component and checked by a program, never by reading pictures. Screens show one thing, put the action under what it acts on, wait without a button, use design-system parts, and take every colour from the design system.'
+digest: A board of a screen the app already has draws it as the app draws it today unless the person decided a change to it, and copying the app there needs no other decision; a board of a decided change or a new screen leads, the app follows it, and the board never copies the app. For a change the person decided to an existing screen that existing design-system parts can draw, the implementing agent edits the board in the same commit and names the decision; the design session draws new screens, new layouts and new or changed parts. A plan that builds a board transcribes its markup; every built board has a shot of the real view, named from its board or component and checked by a program, never by reading pictures. Screens show one thing, put the action under what it acts on, wait without a button, use design-system parts, and take every colour from the design system.
 paths:
   - design/**
   - bae-macos/**
@@ -12,13 +12,13 @@ blocking: true
 ## Build each screen to match its board
 
 Each screen has a board, and each app builds the screen to match it. Whether the
-board or the app leads depends on what the person decided (decision #992 in
-bae's decision log):
+board or the app leads depends on what the person decided:
 
 - A board of a screen the app already has draws the screen as the app draws it
   today, unless the person decided a change to it.
   - The board takes the app's words, sizes, names, punctuation and layout.
-  - A board that copies the app this way needs no other decision.
+  - The person decided this rule, so a board that copies the app this way needs
+    no other decision.
 - A board of a change the person decided, or of a new screen, leads, and the app
   follows it.
   - Where the board and the app differ, the app changes: put the difference on
