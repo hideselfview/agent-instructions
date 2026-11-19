@@ -171,6 +171,7 @@ fn a_board_the_commits_delete_is_listed_as_deleted_and_is_no_place() {
         "boards",
     );
     git(&dir, &["tag", "drawn"]);
+    git(&dir, &["update-ref", "refs/remotes/origin/main", "HEAD"]);
     git(&dir, &["rm", "-q", "design/mocks/A.dc.html"]);
     git(&dir, &["commit", "-q", "-m", "delete A"]);
     let deleted = full_sha(&dir, "HEAD").unwrap();
@@ -185,6 +186,30 @@ fn a_board_the_commits_delete_is_listed_as_deleted_and_is_no_place() {
     let changes = changes_of(&dir, &globs(), &[deleted, back]).unwrap();
     assert_eq!(changes.places, set(&["design/mocks/A.dc.html"]));
     assert!(changes.deleted.is_empty());
+}
+
+#[test]
+fn a_board_the_range_adds_and_deletes_is_neither_a_place_nor_deleted() {
+    let scratch = Scratch::new("design-paths-added-deleted");
+    let dir = scratch.dir.join("bae");
+    repo(&dir, "target 1\n");
+    commit(&dir, &[("design/mocks/Kept.dc.html", "1")], "on main");
+    git(&dir, &["update-ref", "refs/remotes/origin/main", "HEAD"]);
+    let added = commit(&dir, &[("design/mocks/New.dc.html", "1")], "add New");
+    git(
+        &dir,
+        &[
+            "rm",
+            "-q",
+            "design/mocks/New.dc.html",
+            "design/mocks/Kept.dc.html",
+        ],
+    );
+    git(&dir, &["commit", "-q", "-m", "delete both"]);
+    let removed = full_sha(&dir, "HEAD").unwrap();
+    let changes = changes_of(&dir, &globs(), &[added, removed]).unwrap();
+    assert!(changes.places.is_empty());
+    assert_eq!(changes.deleted, set(&["design/mocks/Kept.dc.html"]));
 }
 
 #[test]

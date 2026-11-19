@@ -201,6 +201,7 @@ fn a_deleted_board_needs_no_answer_no_link_and_no_place_on_the_review_page() {
     let (a, b) = ("design/mocks/A.dc.html", "design/mocks/B.dc.html");
     w.commit(&[a, b]);
     git(&w.dir, &["tag", "-f", "base"]);
+    git(&w.dir, &["update-ref", "refs/remotes/origin/main", "HEAD"]);
     delete_boards(&w, &[a]);
     w.commit(&[b]);
     let wt = w.worktree();
@@ -226,6 +227,7 @@ fn a_range_that_only_deletes_boards_records_with_a_review_page_of_words() {
     let (a, b) = ("design/mocks/A.dc.html", "design/mocks/B.dc.html");
     w.commit(&[a, b]);
     git(&w.dir, &["tag", "-f", "base"]);
+    git(&w.dir, &["update-ref", "refs/remotes/origin/main", "HEAD"]);
     let sha = delete_boards(&w, &[a, b]);
     let wt = w.worktree();
     assert!(w.run(&format!("only {wt} {sha}")).is_ok());
@@ -252,6 +254,22 @@ fn a_range_that_only_deletes_boards_records_with_a_review_page_of_words() {
     assert_eq!(design.deleted, BTreeSet::from([b.to_string()]));
     assert!(design.places.contains_key(a));
     let _ = back;
+}
+
+#[test]
+fn places_lists_no_board_that_the_range_adds_and_deletes() {
+    let w = world("design-places-added-deleted");
+    let (kept, added) = ("design/mocks/A.dc.html", "design/mocks/B.dc.html");
+    w.commit(&[kept]);
+    git(&w.dir, &["update-ref", "refs/remotes/origin/main", "HEAD"]);
+    w.commit(&[added]);
+    let sha = delete_boards(&w, &[added]);
+    let wt = w.worktree();
+    assert_eq!(w.run(&format!("places {wt} {sha}")).unwrap(), "");
+    assert_eq!(
+        w.run(&format!("places {wt} origin/main..HEAD")).unwrap(),
+        ""
+    );
 }
 
 #[test]

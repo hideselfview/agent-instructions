@@ -114,8 +114,8 @@ pub struct Changes {
     /// Changed files under the globs' root directories that are none of
     /// the above.
     pub shared: BTreeSet<String>,
-    /// Board files the commits delete: a board place that is no file at the
-    /// last commit. It needs no answer, canvas link or place on the review
+    /// Board files the commits delete: a board place that is a file on
+    /// origin/main and no file at the last commit. It needs no answer, canvas link or place on the review
     /// page, and is not among `places`.
     pub deleted: BTreeSet<String>,
     /// Changed paths that are no design file.
@@ -412,7 +412,11 @@ pub fn changes_of(top: &Path, globs: &Globs, shas: &[String]) -> Result<Changes>
         for board in boards {
             if !boards::exists_in(top, tip, &board)? {
                 changes.places.remove(&board);
-                changes.deleted.insert(board);
+                // A board the range adds and deletes again was never on
+                // origin/main, so the change deletes nothing.
+                if boards::exists_in(top, crate::design_render::NOW, &board)? {
+                    changes.deleted.insert(board);
+                }
             }
         }
     }
