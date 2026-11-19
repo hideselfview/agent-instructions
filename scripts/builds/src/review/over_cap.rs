@@ -7,6 +7,7 @@
 use rusqlite::{Connection, OptionalExtension, params};
 
 use crate::db::Sql;
+use crate::fail;
 use crate::fail::Result;
 use crate::lists::question::{self, Effect, NewQuestion, QuestionKind};
 use crate::lists::record::{self as lists_record, How, Kind};
@@ -54,21 +55,20 @@ pub fn standing(db: &Connection, branch: Branch) -> Result<Option<Standing>> {
     let id = question.expect("the table holds a mechanical word or a question");
     Ok(Some(match lists_record::standing(db, id)? {
         Some((Kind::Question, None)) => Standing::Asked(id),
-        Some((_, Some(How::Answered(_)))) => Standing::Approved(id),
-        _ => Standing::Declined(id),
+        Some((Kind::Question, Some(How::Answered(_)))) => Standing::Approved(id),
+        Some((Kind::Question, Some(_))) => Standing::Declined(id),
+        other => fail!("review_over_cap names {id} as a question, and the store has {other:?}"),
     }))
 }
 
-/// Records <branch>, which adds <added> lines, as needing no review for
-/// <why>.
+/// Records <branch> as needing no review for <why>.
 pub fn record_mechanical(
     db: &Connection,
     branch: Branch,
-    added: i64,
     why: Mechanical,
     stamp: &Stamp,
 ) -> Result<()> {
-    insert(db, branch, added, stamp, Some(why.word()), None)
+    insert(db, branch, stamp, Some(why.word()), None)
 }
 
 /// Records <branch>, which adds <added> lines, and asks the person whether
@@ -102,26 +102,23 @@ pub fn record_asked(db: &Connection, branch: Branch, added: i64, stamp: &Stamp) 
         },
         stamp,
     )?;
-    insert(db, branch, added, stamp, None, Some(id))?;
+    insert(db, branch, stamp, None, Some(id))?;
     Ok(id)
 }
 
 fn insert(
     db: &Connection,
     branch: Branch,
-    added: i64,
     stamp: &Stamp,
     mechanical: Option<&str>,
     question: Option<Id>,
 ) -> Result<()> {
     db.execute(
-        "INSERT INTO review_over_cap (repo, key, patch_id, added_lines, cap, at, mechanical, question_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+        "INSERT INTO review_over_cap (repo, key, patch_id, at, mechanical, question_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
         params![
             branch.change.repo,
             branch.change.key,
             branch.patch_id,
-            added,
-            crate::review::check::MAX_ADDED_LINES,
             stamp.at,
             mechanical,
             question
@@ -154,9 +151,7 @@ pub fn waiting_text(branch: &str, added: i64, standing: Standing) -> String {
         Standing::Declined(id) => format!(
             "{branch} adds {added} lines, over the review cap of {cap}. The person closed question {id} without approving a review, so builds starts no reviewer and builds land takes no commits of it.\n"
         ),
-        Standing::Approved(id) => format!(
-            "{branch} adds {added} lines, over the review cap of {cap}. The person answered question {id}, so builds reviews it.\n"
-        ),
+        Standing::Approved(_) => unreachable!("a review runs for a branch the person approved"),
         Standing::Mechanical(why) => format!(
             "{branch} adds {added} lines, over the review cap of {cap}, and {}, so no reviewer started and builds land takes it with no review.\n",
             why.says()

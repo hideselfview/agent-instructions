@@ -277,6 +277,7 @@ fn over_the_cap(
     conn: &Connection,
     branch: over_cap::Branch,
     added: i64,
+    net: &str,
     shas: &[String],
 ) -> Result<Option<Reported>> {
     let name = inputs.key;
@@ -284,7 +285,6 @@ fn over_the_cap(
         Some(over_cap::Standing::Approved(_)) => return Ok(None),
         Some(standing) => standing,
         None => {
-            let head = inputs.head.unwrap_or("HEAD");
             let mechanical = if crate::lists::change_is_design_only(
                 inputs.store,
                 inputs.worktree,
@@ -292,11 +292,7 @@ fn over_the_cap(
                 shas,
             )? {
                 Some(mechanical::Mechanical::Design)
-            } else if mechanical::only_renames(&mechanical::renaming_diff(
-                inputs.worktree,
-                inputs.base,
-                head,
-            )?) {
+            } else if mechanical::only_renames(net) {
                 Some(mechanical::Mechanical::Rename)
             } else {
                 None
@@ -306,15 +302,14 @@ fn over_the_cap(
                 stamp,
                 &format!("review over the cap {name}"),
                 |db| match mechanical {
-                    Some(why) => over_cap::record_mechanical(db, branch, added, why, stamp),
-                    None => over_cap::record_asked(db, branch, added, stamp).map(|_| ()),
+                    Some(why) => {
+                        over_cap::record_mechanical(db, branch, why, stamp)?;
+                        Ok(over_cap::Standing::Mechanical(why))
+                    }
+                    None => over_cap::record_asked(db, branch, added, stamp)
+                        .map(over_cap::Standing::Asked),
                 },
-            )?;
-            let fresh = inputs.store.open_existing()?;
-            match over_cap::standing(&fresh, branch)? {
-                Some(standing) => standing,
-                None => fail!("the store lost the record of {name} over the review cap"),
-            }
+            )?
         }
     };
     let refusal = match standing {
@@ -383,18 +378,14 @@ pub fn review(inputs: &Inputs) -> Result<Reported> {
         }],
         Some(landing) => later_asks(&conn, inputs, &material, &change, landing, &open_findings)?,
     };
-    let added = asks
-        .iter()
-        .map(|ask| check::added_lines(&ask.change.diff.text))
-        .sum::<i64>();
-    if added > check::MAX_ADDED_LINES {
+    if let Some(added) = check::over_the_cap(asks.iter().map(|ask| ask.change.diff.text.as_str())) {
         let net = run::diff_between(inputs.worktree, inputs.base, inputs.head.unwrap_or("HEAD"))?;
         let patch_id = over_cap::patch_id(&net.diff.text)?;
         let branch = over_cap::Branch {
             change: under_review,
             patch_id: &patch_id,
         };
-        if let Some(reported) = over_the_cap(inputs, &conn, branch, added, &shas)? {
+        if let Some(reported) = over_the_cap(inputs, &conn, branch, added, &net.diff.text, &shas)? {
             return Ok(reported);
         }
     }

@@ -217,6 +217,7 @@ pub fn diff_between(worktree: &Path, base: &str, head: &str) -> Result<NetChange
         "diff",
         "--no-color",
         "--no-ext-diff",
+        "-M",
         &range,
         "--",
         ".",

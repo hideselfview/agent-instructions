@@ -68,7 +68,10 @@ fn a_rename_in_a_real_repo_is_found_with_git_rename_detection() {
     std::fs::write(top.join("b.rs"), body.replace("total", "sum")).unwrap();
     crate::testing::git(&top, &["add", "b.rs"]);
     crate::testing::git(&top, &["commit", "-q", "-m", "rename"]);
-    let text = renaming_diff(&top, "HEAD~1", "HEAD").unwrap();
+    let text = crate::review::run::diff_between(&top, "HEAD~1", "HEAD")
+        .unwrap()
+        .diff
+        .text;
     assert!(text.contains("rename from a.rs"), "{text}");
     assert!(only_renames(&text), "{text}");
 }

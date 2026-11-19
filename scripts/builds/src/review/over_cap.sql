@@ -9,8 +9,6 @@ CREATE TABLE review_over_cap (
     repo TEXT NOT NULL REFERENCES repo (name),
     key TEXT NOT NULL CONSTRAINT review_over_cap_key_says_something CHECK (trim(key) <> ''),
     patch_id TEXT NOT NULL CONSTRAINT review_over_cap_patch_id_is_a_hash CHECK (length(patch_id) = 40 AND patch_id NOT GLOB '*[^0-9a-f]*'),
-    added_lines INTEGER NOT NULL CONSTRAINT review_over_cap_adds_lines CHECK (added_lines > 0),
-    cap INTEGER NOT NULL CONSTRAINT review_over_cap_cap_is_positive CHECK (cap > 0),
     at INTEGER NOT NULL,
     mechanical TEXT CONSTRAINT review_over_cap_mechanical_known CHECK (mechanical IN ('design', 'rename')),
     question_id INTEGER REFERENCES question (id),

@@ -164,18 +164,7 @@ pub const MAX_ADDED_LINES: i64 = 2_000;
 
 /// How many lines the hunks of <diff> add.
 pub fn added_lines(diff: &str) -> i64 {
-    let mut in_hunk = false;
-    let mut added = 0;
-    for line in diff.lines() {
-        if line.starts_with("diff --git ") {
-            in_hunk = false;
-        } else if line.starts_with("@@") {
-            in_hunk = true;
-        } else if in_hunk && line.starts_with('+') {
-            added += 1;
-        }
-    }
-    added
+    hunk_lines(diff, |line| line.starts_with('+'))
 }
 
 /// The lines <diffs> add in all, when that is over `MAX_ADDED_LINES`.
@@ -187,18 +176,23 @@ pub fn over_the_cap<'a>(diffs: impl IntoIterator<Item = &'a str>) -> Option<i64>
 /// How many lines the hunks of <diff> add and remove, leaving out each file's
 /// header lines.
 pub fn changed_lines(diff: &str) -> i64 {
+    hunk_lines(diff, |line| line.starts_with('+') || line.starts_with('-'))
+}
+
+/// How many lines in the hunks of <diff> satisfy <counts>.
+fn hunk_lines(diff: &str, counts: impl Fn(&str) -> bool) -> i64 {
     let mut in_hunk = false;
-    let mut changed = 0;
+    let mut found = 0;
     for line in diff.lines() {
         if line.starts_with("diff --git ") {
             in_hunk = false;
         } else if line.starts_with("@@") {
             in_hunk = true;
-        } else if in_hunk && (line.starts_with('+') || line.starts_with('-')) {
-            changed += 1;
+        } else if in_hunk && counts(line) {
+            found += 1;
         }
     }
-    changed
+    found
 }
 
 /// Whether the path <path> is the file <file> a finding names: the whole

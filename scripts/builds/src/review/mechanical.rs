@@ -1,14 +1,9 @@
-//! Whether a change over the review's size cap (`check::MAX_CHANGED_LINES`)
+//! Whether a change over the review's size cap (`check::MAX_ADDED_LINES`)
 //! is mechanical work that the compiler and the hook check, so that `builds
 //! land` takes it with no review: commits that change design files only, or
 //! a rename that changes identifiers and nothing else.
 
 use std::collections::HashMap;
-use std::path::Path;
-
-use crate::fail::Result;
-use crate::review::commits;
-
 /// Why a change over the cap needs no review.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Mechanical {
@@ -44,25 +39,7 @@ impl Mechanical {
     }
 }
 
-/// The change of <head> past <base> in <worktree> as git writes it with
-/// rename detection, for `only_renames`.
-pub fn renaming_diff(worktree: &Path, base: &str, head: &str) -> Result<String> {
-    let merge_base = commits::git_text(worktree, &["merge-base", base, head])?
-        .trim()
-        .to_string();
-    commits::git_text(
-        worktree,
-        &[
-            "diff",
-            "--no-color",
-            "--no-ext-diff",
-            "-M",
-            &format!("{merge_base}...{head}"),
-        ],
-    )
-}
-
-/// Does <diff>, written with `-M`, change nothing but file names and
+/// Does <diff>, a net change that git wrote with rename detection (-M), change nothing but file names and
 /// identifiers? Each run of changed lines must hold as many removed as added
 /// lines, and each removed line must equal its added line once its
 /// identifiers are replaced, with one new name for each old name across the

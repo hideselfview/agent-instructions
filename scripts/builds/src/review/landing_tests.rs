@@ -932,12 +932,11 @@ fn a_landing_of_design_files_only_starts_no_audit() {
 }
 
 /// <body> repeated past the review cap, committed as <file> in <side>.
-fn big_commit(demo: &Demo, side: &Path, file: &str, body: &str) -> String {
+fn big_commit(side: &Path, file: &str, body: &str) -> String {
     let path = side.join(file);
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
     let lines = check::MAX_ADDED_LINES as usize + 1;
     std::fs::write(&path, body.repeat(lines)).unwrap();
-    let _ = demo;
     crate::testing::git(side, &["add", file]);
     crate::testing::git(side, &["commit", "-q", "-m", file]);
     crate::testing::git_out(side, &["rev-parse", "HEAD"])
@@ -972,7 +971,7 @@ fn a_branch_over_the_cap_that_needs_no_review_lands_with_land_saying_why() {
             )
         })
         .unwrap();
-    let board = big_commit(&demo, &side, "design/board.rs", "let x = 1;\n");
+    let board = big_commit(&side, "design/board.rs", "let x = 1;\n");
     let reported = review_of(&demo, &fake, &side);
     assert!(reported.refusal.is_none(), "{}", reported.text);
     assert!(fake.prompts().is_empty());
@@ -984,7 +983,7 @@ fn a_branch_over_the_cap_that_needs_no_review_lands_with_land_saying_why() {
     assert!(said.contains("patch id"), "{said}");
     // A rebase that keeps the lines keeps the answer: another commit that
     // changes a line makes it another branch.
-    let code = big_commit(&demo, &side, "a.rs", "let x = 1;\n");
+    let code = big_commit(&side, "a.rs", "let x = 1;\n");
     assert!(matches!(
         over_the_cap_of(&demo, &fake, &side, &code),
         Over::Under
@@ -996,7 +995,7 @@ fn a_branch_over_the_cap_that_waits_on_the_person_does_not_land() {
     let demo = demo("landing-over-cap-asked");
     let fake = fake(&demo.scratch.dir);
     let side = demo.add_side(1, "agent", "work");
-    let code = big_commit(&demo, &side, "a.rs", "let x = 1;\n");
+    let code = big_commit(&side, "a.rs", "let x = 1;\n");
     let reported = review_of(&demo, &fake, &side);
     assert!(reported.refusal.is_some());
     let Over::Waits(said) = over_the_cap_of(&demo, &fake, &side, &code) else {
