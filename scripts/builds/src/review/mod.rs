@@ -281,9 +281,9 @@ fn over_the_cap(
     shas: &[String],
 ) -> Result<Option<Reported>> {
     let name = inputs.key;
-    let standing = match over_cap::standing(conn, branch)? {
+    let waiting = match over_cap::standing(conn, branch)? {
         Some(over_cap::Standing::Approved(_)) => return Ok(None),
-        Some(standing) => standing,
+        Some(over_cap::Standing::Waiting(waiting)) => waiting,
         None => {
             let mechanical = if crate::lists::change_is_design_only(
                 inputs.store,
@@ -304,21 +304,21 @@ fn over_the_cap(
                 |db| match mechanical {
                     Some(why) => {
                         over_cap::record_mechanical(db, branch, why, stamp)?;
-                        Ok(over_cap::Standing::Mechanical(why))
+                        Ok(over_cap::Waiting::Mechanical(why))
                     }
                     None => over_cap::record_asked(db, branch, added, stamp)
-                        .map(over_cap::Standing::Asked),
+                        .map(over_cap::Waiting::Asked),
                 },
             )?
         }
     };
-    let refusal = match standing {
-        over_cap::Standing::Mechanical(_) => None,
-        _ => Some(over_cap::waiting_text(name, added, standing)),
+    let refusal = match waiting {
+        over_cap::Waiting::Mechanical(_) => None,
+        _ => Some(over_cap::waiting_text(name, added, waiting)),
     };
     Ok(Some(Reported {
         landing: None,
-        text: over_cap::waiting_text(name, added, standing),
+        text: over_cap::waiting_text(name, added, waiting),
         refusal,
     }))
 }

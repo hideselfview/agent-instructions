@@ -15,15 +15,22 @@ use crate::lists::{Id, Stamp};
 use crate::review::mechanical::Mechanical;
 use crate::review::record::Change;
 
-/// What a branch over the cap is waiting on.
+/// Where a branch over the cap stands.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Standing {
+    /// The review does not run, for the reason <Waiting> gives.
+    Waiting(Waiting),
+    /// The person answered the question: the review runs.
+    Approved(Id),
+}
+
+/// Why a branch over the cap is not reviewed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Waiting {
     /// The change needs no review.
     Mechanical(Mechanical),
     /// The person has not answered the question about it yet.
     Asked(Id),
-    /// The person answered the question: the review runs.
-    Approved(Id),
     /// The person closed the question without approving the review.
     Declined(Id),
 }
@@ -50,13 +57,13 @@ pub fn standing(db: &Connection, branch: Branch) -> Result<Option<Standing>> {
     };
     if let Some(word) = mechanical {
         let known = Mechanical::parse(&word).expect("the table holds a known word");
-        return Ok(Some(Standing::Mechanical(known)));
+        return Ok(Some(Standing::Waiting(Waiting::Mechanical(known))));
     }
     let id = question.expect("the table holds a mechanical word or a question");
     Ok(Some(match lists_record::standing(db, id)? {
-        Some((Kind::Question, None)) => Standing::Asked(id),
+        Some((Kind::Question, None)) => Standing::Waiting(Waiting::Asked(id)),
         Some((Kind::Question, Some(How::Answered(_)))) => Standing::Approved(id),
-        Some((Kind::Question, Some(_))) => Standing::Declined(id),
+        Some((Kind::Question, Some(_))) => Standing::Waiting(Waiting::Declined(id)),
         other => fail!("review_over_cap names {id} as a question, and the store has {other:?}"),
     }))
 }
@@ -142,17 +149,16 @@ pub fn taken_text(added: i64, why: Mechanical, patch_id: &str) -> String {
 
 /// What `builds review` and `builds review check-landing` say of a branch
 /// over the cap that waits on the person.
-pub fn waiting_text(branch: &str, added: i64, standing: Standing) -> String {
+pub fn waiting_text(branch: &str, added: i64, waiting: Waiting) -> String {
     let cap = crate::review::check::MAX_ADDED_LINES;
-    match standing {
-        Standing::Asked(id) => format!(
+    match waiting {
+        Waiting::Asked(id) => format!(
             "{branch} adds {added} lines, over the review cap of {cap}, and is no design change or rename, so no reviewer started. Question {id} asks the person whether to review it, and builds land waits on their answer.\n"
         ),
-        Standing::Declined(id) => format!(
+        Waiting::Declined(id) => format!(
             "{branch} adds {added} lines, over the review cap of {cap}. The person closed question {id} without approving a review, so builds starts no reviewer and builds land takes no commits of it.\n"
         ),
-        Standing::Approved(_) => unreachable!("a review runs for a branch the person approved"),
-        Standing::Mechanical(why) => format!(
+        Waiting::Mechanical(why) => format!(
             "{branch} adds {added} lines, over the review cap of {cap}, and {}, so no reviewer started and builds land takes it with no review.\n",
             why.says()
         ),

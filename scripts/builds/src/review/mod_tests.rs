@@ -1239,7 +1239,9 @@ fn a_branch_over_the_cap_starts_no_reviewer_and_asks_the_person_until_they_answe
     assert!(asked.text.contains("adds 2001 lines"), "{}", asked.text);
     assert!(fake.prompts().is_empty());
     assert!(asked.landing.is_none());
-    let Some(over_cap::Standing::Asked(question)) = over_cap_standing(&demo, &side) else {
+    let Some(over_cap::Standing::Waiting(over_cap::Waiting::Asked(question))) =
+        over_cap_standing(&demo, &side)
+    else {
         panic!("{:?}", over_cap_standing(&demo, &side))
     };
     let lists = demo.store.load().unwrap();
@@ -1280,7 +1282,9 @@ fn a_branch_over_the_cap_that_the_person_closed_without_answering_is_not_reviewe
     let side = demo.add_side(1, "agent", "work");
     big_commit(&side, "big.rs", "let x = 1;\n");
     run_review(&demo, &fake, &side, "k");
-    let Some(over_cap::Standing::Asked(question)) = over_cap_standing(&demo, &side) else {
+    let Some(over_cap::Standing::Waiting(over_cap::Waiting::Asked(question))) =
+        over_cap_standing(&demo, &side)
+    else {
         panic!("asked")
     };
     demo.store

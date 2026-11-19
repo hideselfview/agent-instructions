@@ -590,12 +590,12 @@ fn over_the_cap(asked: &Asked, verdict: &Verdict) -> Result<Over> {
         patch_id: &patch_id,
     };
     Ok(match over_cap::standing(&asked.conn, branch)? {
-        Some(over_cap::Standing::Mechanical(why)) if !findings_wait => {
+        Some(over_cap::Standing::Waiting(over_cap::Waiting::Mechanical(why))) if !findings_wait => {
             Over::Takes(over_cap::taken_text(added, why, &patch_id))
         }
-        Some(standing @ (over_cap::Standing::Asked(_) | over_cap::Standing::Declined(_))) => {
-            Over::Waits(over_cap::waiting_text(&asked.key, added, standing))
-        }
+        Some(over_cap::Standing::Waiting(
+            waiting @ (over_cap::Waiting::Asked(_) | over_cap::Waiting::Declined(_)),
+        )) => Over::Waits(over_cap::waiting_text(&asked.key, added, waiting)),
         _ => Over::Under,
     })
 }

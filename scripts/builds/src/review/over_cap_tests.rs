@@ -31,7 +31,7 @@ fn a_branch_nobody_recorded_has_no_standing_and_a_mechanical_one_needs_no_review
     record_mechanical(&db, branch(ONE), Mechanical::Rename, &stamp()).unwrap();
     assert_eq!(
         standing(&db, branch(ONE)).unwrap(),
-        Some(Standing::Mechanical(Mechanical::Rename))
+        Some(Standing::Waiting(Waiting::Mechanical(Mechanical::Rename)))
     );
     // Another net change of the same branch is another branch.
     assert_eq!(standing(&db, branch(TWO)).unwrap(), None);
@@ -44,7 +44,7 @@ fn the_answer_to_the_question_decides_whether_the_branch_is_reviewed() {
     let dropped = record_asked(&db, branch(TWO), 2500, &stamp()).unwrap();
     assert_eq!(
         standing(&db, branch(ONE)).unwrap(),
-        Some(Standing::Asked(answered))
+        Some(Standing::Waiting(Waiting::Asked(answered)))
     );
     let decision = decision_answering(&db, answered);
     lists_record::close(&db, answered, How::Answered(decision), &stamp()).unwrap();
@@ -55,7 +55,7 @@ fn the_answer_to_the_question_decides_whether_the_branch_is_reviewed() {
     );
     assert_eq!(
         standing(&db, branch(TWO)).unwrap(),
-        Some(Standing::Declined(dropped))
+        Some(Standing::Waiting(Waiting::Declined(dropped)))
     );
 }
 
