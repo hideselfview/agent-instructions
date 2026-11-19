@@ -47,6 +47,7 @@ mod glob;
 mod health;
 mod health_fix;
 mod holder_run;
+mod hook_check_failure;
 mod hook_check_starts;
 mod hook_impact;
 mod hook_stats;

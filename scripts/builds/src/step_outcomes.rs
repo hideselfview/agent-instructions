@@ -25,6 +25,15 @@ impl StepKind {
             StepKind::AppBuild => "app build steps",
         }
     }
+
+    /// What its runs name as failed.
+    pub fn failed_words(self) -> &'static str {
+        match self {
+            StepKind::Hook => "staged files that hook checks failed on",
+            StepKind::Cargo => "tests that cargo runs reported failed",
+            StepKind::AppBuild => "shots that app build steps failed",
+        }
+    }
 }
 
 /// One run of a step that passed or failed.
@@ -41,8 +50,12 @@ pub struct Attempt {
     /// hook check the commit and the staged files; None when builds did not
     /// record it.
     pub state: Option<String>,
-    /// What failed in it: the tests a cargo run reported failed.
+    /// What failed in it: the tests a cargo run reported failed, or the
+    /// staged files a hook check's output named.
     pub failed: Vec<String>,
+    /// The first line of the excerpt of a failed run's output, when it has
+    /// one: why it failed.
+    pub cause: Option<String>,
 }
 
 /// What became of a failed run, from the next run of the same step on the
@@ -91,21 +104,24 @@ const LISTED: usize = 15;
 /// What the steps of the cards caught: for each kind of step and each step,
 /// its runs, its failed runs and how many of the failures a fix followed,
 /// passed again on the same commit, or stood, the steps that fail most first;
-/// then the tests that failed most; then each review group's findings and
+/// then for each kind the names its runs failed most (tests, files, shots);
+/// then each review group's findings and
 /// how they were settled. <cards> gives each card's attempts, in time order,
 /// and its review findings.
 pub fn text(cards: &[(&[Attempt], &[Finding])]) -> String {
     let mut out = String::new();
     let mut runs: BTreeMap<(StepKind, &str), usize> = BTreeMap::new();
     let mut failed: BTreeMap<(StepKind, &str), [usize; 3]> = BTreeMap::new();
-    let mut tests: BTreeMap<&str, usize> = BTreeMap::new();
+    let mut names_failed: BTreeMap<(StepKind, &str), usize> = BTreeMap::new();
     for (attempts, _) in cards {
         for attempt in attempts.iter() {
             *runs
                 .entry((attempt.kind, attempt.name.as_str()))
                 .or_default() += 1;
-            for test in &attempt.failed {
-                *tests.entry(test.as_str()).or_default() += 1;
+            for name in &attempt.failed {
+                *names_failed
+                    .entry((attempt.kind, name.as_str()))
+                    .or_default() += 1;
             }
         }
         for (attempt, outcome) in failure_outcomes(attempts) {
@@ -158,12 +174,19 @@ pub fn text(cards: &[(&[Attempt], &[Finding])]) -> String {
             );
         }
     }
-    if !tests.is_empty() {
-        let _ = writeln!(out, "tests that failed most (failed runs)");
-        let mut tests: Vec<(&str, usize)> = tests.into_iter().collect();
-        tests.sort_by_key(|(_, n)| std::cmp::Reverse(*n));
-        for (test, n) in tests.into_iter().take(LISTED) {
-            let _ = writeln!(out, "  {n:>5}  {test}");
+    for kind in [StepKind::Hook, StepKind::Cargo, StepKind::AppBuild] {
+        let mut names: Vec<(&str, usize)> = names_failed
+            .iter()
+            .filter(|((k, _), _)| *k == kind)
+            .map(|((_, name), n)| (*name, *n))
+            .collect();
+        if names.is_empty() {
+            continue;
+        }
+        let _ = writeln!(out, "{} most often (failed runs)", kind.failed_words());
+        names.sort_by_key(|(_, n)| std::cmp::Reverse(*n));
+        for (name, n) in names.into_iter().take(LISTED) {
+            let _ = writeln!(out, "  {n:>5}  {name}");
         }
     }
     let mut groups: BTreeMap<&str, [usize; 4]> = BTreeMap::new();

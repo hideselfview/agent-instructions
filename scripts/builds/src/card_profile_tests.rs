@@ -90,7 +90,7 @@ fn landed_card(scratch: &Scratch) -> (crate::lists::store::Store, Id) {
                 name: "clippy".into(),
                 kind: crate::checks::Kind::Check,
                 outcome: crate::hook_stats::Outcome::Ran {
-                    passed: true,
+                    failure: None,
                     handed: (1, 1),
                     ms: Some(25_000),
                     started: None,
@@ -494,6 +494,50 @@ fn a_failed_cargo_run_that_a_later_run_passed_after_a_fix_shows_as_fixed() {
     assert!(
         totals.contains("   2 confirmed     0 dropped     0 not settled     0 closed  Errors"),
         "{totals}"
+    );
+}
+
+#[test]
+fn a_failed_hook_check_names_its_files_and_why_in_the_cards_failures() {
+    let scratch = Scratch::new("card-profile-hook-failure");
+    let (store, id) = landed_card(&scratch);
+    crate::hook_stats::record(
+        &store.database(),
+        &crate::hook_stats::Run {
+            at: T0 + 250,
+            repo: "bae".into(),
+            worktree: WORKTREE.into(),
+            branch: Some("work".into()),
+            base: Some(sha('c')),
+            passed: false,
+            plan_ms: 1_000,
+            total_ms: 2_000,
+            files: Vec::new(),
+            checks: vec![crate::hook_stats::CheckRecord {
+                name: "rustfmt".into(),
+                kind: crate::checks::Kind::Check,
+                outcome: crate::hook_stats::Outcome::Ran {
+                    failure: Some(crate::hook_check_failure::CheckFailure {
+                        excerpt: Some("\nDiff in src/a.rs at line 3:".into()),
+                        files: vec!["src/a.rs".into()],
+                    }),
+                    handed: (1, 0),
+                    ms: None,
+                    started: None,
+                    cargo: None,
+                },
+            }],
+        },
+    )
+    .unwrap();
+    let lists = store.load().unwrap();
+    let db = store.open_existing().unwrap();
+    let text = text(&db, &lists, &[id], T0 + 9_999).unwrap();
+    assert!(
+        text.contains(
+            "hook checks rustfmt (src/a.rs): no later run passed\n      Diff in src/a.rs at line 3:"
+        ),
+        "{text}"
     );
 }
 

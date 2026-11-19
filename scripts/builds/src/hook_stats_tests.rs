@@ -15,7 +15,7 @@ fn ran(name: &str, passed: bool, ms: u64) -> CheckRecord {
         name: name.into(),
         kind: Kind::Check,
         outcome: Outcome::Ran {
-            passed,
+            failure: (!passed).then(crate::hook_check_failure::CheckFailure::default),
             handed: (1, 0),
             ms: Some(ms),
             started: None,
@@ -52,6 +52,32 @@ fn run(at: i64, total_ms: u64, passed: bool, checks: Vec<CheckRecord>) -> Run {
 
 fn database(scratch: &Scratch) -> std::path::PathBuf {
     scratch.dir.join(DATABASE)
+}
+
+/// A failed check comes back with what it said; one with nothing recorded
+/// comes back failed with an empty failure.
+#[test]
+fn a_failed_check_comes_back_with_its_excerpt_and_files() {
+    let scratch = Scratch::new("hook-db-failure");
+    let path = database(&scratch);
+    let mut said = ran("clippy", false, 60);
+    if let Outcome::Ran { failure, .. } = &mut said.outcome {
+        *failure = Some(crate::hook_check_failure::CheckFailure {
+            excerpt: Some("error: unused variable".into()),
+            files: vec!["src/a.rs".into(), "src/b.rs".into()],
+        });
+    }
+    let written = run(5, 100, false, vec![said, ran("fmt", false, 40)]);
+    record(&path, &written).unwrap();
+    let mut expected = written;
+    expected.files.sort_by(|a, b| a.path.cmp(&b.path));
+    // A failed check's time is not kept.
+    for check in &mut expected.checks {
+        if let Outcome::Ran { ms, .. } = &mut check.outcome {
+            *ms = None;
+        }
+    }
+    assert_eq!(recorded_runs(&path, "bae"), vec![expected]);
 }
 
 #[test]

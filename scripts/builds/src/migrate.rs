@@ -183,9 +183,13 @@ const BEFORE_STEP_COMMITS_STAMP: i64 = 96_262_301;
 /// ids.
 const BEFORE_REVIEW_TEXT_ROWID_STAMP: i64 = 116_876_965;
 
+/// The stamp of the schema before builds recorded what each failed hook check
+/// said.
+const BEFORE_HOOK_CHECK_FAILURE_STAMP: i64 = 321_616_823;
+
 /// Every stamp a store can carry that `move_store` moves, oldest schema first.
 /// A new move adds the stamp of the schema before it at the end.
-const STAMPS: [i64; 12] = [
+const STAMPS: [i64; 13] = [
     BEFORE_CONDITION_ENDERS_STAMP,
     BEFORE_ITEM_EVENT_STAMP,
     BEFORE_LAND_RUN_STAMP,
@@ -198,6 +202,7 @@ const STAMPS: [i64; 12] = [
     BEFORE_CARGO_RUN_OUTCOME_STAMP,
     BEFORE_STEP_COMMITS_STAMP,
     BEFORE_REVIEW_TEXT_ROWID_STAMP,
+    BEFORE_HOOK_CHECK_FAILURE_STAMP,
 ];
 
 /// Whether a store stamped <found> comes before the move that follows the
@@ -351,6 +356,11 @@ fn move_store(path: &Path, now: i64) -> Result<()> {
     // whole texts.
     if before(found, BEFORE_REVIEW_TEXT_ROWID_STAMP) {
         crate::review::record::move_texts_to_table_with_row_ids(&tx)?;
+    }
+    // Every store from before the failed hook checks' words gets their empty
+    // tables: the checks it holds have none.
+    if before(found, BEFORE_HOOK_CHECK_FAILURE_STAMP) {
+        tx.execute_batch(db::HOOK_CHECK_FAILURE_PART).sql()?;
     }
     tx.pragma_update(None, "user_version", db::stamp()).sql()?;
     let broken: Option<String> = tx

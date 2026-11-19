@@ -326,6 +326,15 @@ pub fn gather(db: &Connection, lists: &Lists, id: Id, now: i64) -> Result<Card> 
     Ok(card)
 }
 
+/// The first line of <excerpt> that holds more than blanks, trimmed.
+fn first_line(excerpt: Option<&str>) -> Option<String> {
+    excerpt?
+        .lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty())
+        .map(str::to_string)
+}
+
 /// The `builds cargo` runs of <worktree> that started in [<from>, <to>].
 fn read_cargo(db: &Connection, worktree: &str, from: i64, to: i64, card: &mut Card) -> Result<()> {
     let mut statement = db
@@ -391,8 +400,8 @@ fn read_cargo(db: &Connection, worktree: &str, from: i64, to: i64, card: &mut Ca
             if !failed.is_empty() {
                 let _ = write!(detail, ": {}", failed.join(", "));
             }
-            if let Some(first) = excerpt.as_deref().and_then(|e| e.lines().next()) {
-                let _ = write!(detail, " ({})", first.trim());
+            if let Some(first) = first_line(excerpt.as_deref()) {
+                let _ = write!(detail, " ({first})");
             }
         }
         if !in_hook
@@ -408,6 +417,7 @@ fn read_cargo(db: &Connection, worktree: &str, from: i64, to: i64, card: &mut Ca
                     .as_ref()
                     .map(|head| format!("{head} {}", commit.1.as_deref().unwrap_or(""))),
                 failed: failed.clone(),
+                cause: first_line(excerpt.as_deref()),
             });
         }
         if let (Some(head), changes, run_branch, off) = commit {
@@ -542,26 +552,33 @@ fn read_hooks(
             )
             .sql()?;
         let state = base.as_ref().map(|base| format!("{base} {staged}"));
+        let mut said = crate::hook_check_failure::read(db, id)?;
         let mut outcomes = db
             .prepare(
-                "SELECT name, outcome = 'passed' FROM hook_run_checks \
+                "SELECT position, name, outcome = 'passed' FROM hook_run_checks \
                  WHERE run_id = ?1 AND kind = 'check' AND outcome <> 'skipped' ORDER BY position",
             )
             .sql()?;
         let found = outcomes
             .query_map([id], |row| {
-                Ok((row.get::<_, String>(0)?, row.get::<_, bool>(1)?))
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, bool>(2)?,
+                ))
             })
             .sql()?;
         for check in found {
-            let (name, passed) = check.sql()?;
+            let (position, name, passed) = check.sql()?;
+            let failure = said.remove(&(position as u32)).unwrap_or_default();
             card.attempts.push(Attempt {
                 kind: StepKind::Hook,
                 name,
                 at,
                 passed,
                 state: state.clone(),
-                failed: Vec::new(),
+                cause: first_line(failure.excerpt.as_deref()),
+                failed: failure.files,
             });
         }
         let mut checks = db
@@ -667,6 +684,7 @@ fn read_app_builds(
                     passed: result == "passed",
                     state: built.clone(),
                     failed: Vec::new(),
+                    cause: None,
                 });
             }
             card.steps.push(Step {
@@ -1122,6 +1140,9 @@ pub fn card_text(db: &Connection, card: &Card) -> Result<String> {
                 crate::step_outcomes::Outcome::Stood => "no later run passed",
             };
             let _ = writeln!(out, "  {}  {what}: {followed}", local_second(run.at));
+            if let Some(cause) = &run.cause {
+                let _ = writeln!(out, "      {cause}");
+            }
         }
     }
     if !card.off_branch.is_empty() {

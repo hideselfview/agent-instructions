@@ -138,6 +138,10 @@ pub const CARGO_RUN_COMMIT_PART: &str = include_str!("cargo_run_commit.sql");
 /// holds it after the cargo runs' commits.
 pub const APP_BUILD_COMMIT_PART: &str = include_str!("app_build_commit.sql");
 
+/// What each failed hook check said (hook_check_failure.sql); the schema
+/// holds it after the commits of the cargo runs and the app builds.
+pub const HOOK_CHECK_FAILURE_PART: &str = include_str!("hook_check_failure.sql");
+
 /// The whole schema: the lists' tables, then the hook stats', then the
 /// app-build timings', then the design changes' recording sessions', then the
 /// stored shot findings, then the review's, then the hook checks' starting
@@ -147,8 +151,17 @@ pub const APP_BUILD_COMMIT_PART: &str = include_str!("app_build_commit.sql");
 /// then the items' events, then the landings', then the reviewer processes'
 /// times, then the hosts' samples, then the crates of the cargo runs, then
 /// the judge's, then the cards' states, then the cargo runs' outcomes, then
-/// the commits of the cargo runs and the app builds.
+/// the commits of the cargo runs and the app builds, then what the failed
+/// hook checks said.
 pub fn schema() -> String {
+    format!(
+        "{}\n{HOOK_CHECK_FAILURE_PART}",
+        schema_before_hook_check_failure()
+    )
+}
+
+/// The schema as it was before what the failed hook checks said joined it.
+pub fn schema_before_hook_check_failure() -> String {
     format!(
         "{}\n{CARGO_RUN_COMMIT_PART}\n{APP_BUILD_COMMIT_PART}",
         schema_before_step_commits()

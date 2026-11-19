@@ -1,6 +1,7 @@
 //! The lines of a step's output that say why it failed: from the first line
 //! that starts a cause (a test's panic or a compiler's error), else the last
-//! lines. A cargo run that fails keeps one (cargo_run_outcome.rs).
+//! lines. A cargo run (cargo_run_outcome.rs) and a hook check
+//! (hook_check_failure.rs) that fail keep one.
 
 use std::collections::VecDeque;
 
@@ -26,6 +27,15 @@ pub struct Excerpt {
 }
 
 impl Excerpt {
+    /// The excerpt of all of <output>.
+    pub fn of(output: &str) -> Option<String> {
+        let mut excerpt = Excerpt::default();
+        for line in output.lines() {
+            excerpt.line(line);
+        }
+        excerpt.text()
+    }
+
     /// Reads one line, without its newline.
     pub fn line(&mut self, text: &str) {
         if (self.cause.is_empty() && starts_cause(text))

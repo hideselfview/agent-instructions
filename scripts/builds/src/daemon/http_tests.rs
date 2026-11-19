@@ -437,7 +437,7 @@ fn hook_store(_scratch: &Scratch, places: &crate::places::Places) {
             name: "clippy".into(),
             kind: Kind::Check,
             outcome: Outcome::Ran {
-                passed: true,
+                failure: None,
                 handed: (1, 4),
                 ms: Some(clippy_ms),
                 started: None,

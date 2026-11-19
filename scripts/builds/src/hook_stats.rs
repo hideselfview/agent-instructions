@@ -33,6 +33,7 @@ use rusqlite::{Connection, params};
 use crate::checks::Kind;
 use crate::fail;
 use crate::fail::{Context, Result};
+use crate::hook_check_failure::CheckFailure;
 use crate::host::Load;
 
 pub use crate::db::DATABASE;
@@ -94,7 +95,10 @@ impl StagedFile {
 pub enum Outcome {
     /// It ran, and passed or failed.
     Ran {
-        passed: bool,
+        /// What it said when it failed (hook_check_failure.rs); None when it
+        /// passed. A check that builds recorded failing before it kept what
+        /// checks said has a failure with no excerpt and no files.
+        failure: Option<CheckFailure>,
         /// The staged files and the workspace crates it was handed.
         handed: (u32, u32),
         /// Its time. `record` keeps it only for a passed check: a failed
@@ -117,14 +121,24 @@ impl Outcome {
     /// `passed`, `failed` or `skipped`, as the database keeps it.
     pub fn word(&self) -> &'static str {
         match self {
-            Outcome::Ran { passed: true, .. } => "passed",
-            Outcome::Ran { passed: false, .. } => "failed",
+            Outcome::Ran { failure: None, .. } => "passed",
+            Outcome::Ran {
+                failure: Some(_), ..
+            } => "failed",
             Outcome::Skipped => "skipped",
         }
     }
 
     pub fn passed(&self) -> bool {
-        matches!(self, Outcome::Ran { passed: true, .. })
+        matches!(self, Outcome::Ran { failure: None, .. })
+    }
+
+    /// What a check that ran and failed said.
+    pub fn failure(&self) -> Option<&CheckFailure> {
+        match self {
+            Outcome::Ran { failure, .. } => failure.as_ref(),
+            Outcome::Skipped => None,
+        }
     }
 
     /// The staged files and crates a check that ran was handed.
@@ -295,6 +309,7 @@ pub fn record(path: &Path, run: &Run) -> Result<()> {
         }
     }
     crate::hook_check_starts::record(&tx, id, &run.checks)?;
+    crate::hook_check_failure::record(&tx, id, &run.checks)?;
     tx.commit().context(what)
 }
 
@@ -700,12 +715,13 @@ fn runs_where(
             })
             .context(what)?;
         let mut cargo = crate::cargo_run::hook_runs(conn, &run.worktree, run.at, path)?;
+        let mut failures = crate::hook_check_failure::read(conn, id)?;
         for row in rows {
             let (position, name, kind, outcome, files, crates, ms, cores, load) =
                 row.context(what)?;
-            let passed = match outcome.as_str() {
-                "passed" => true,
-                "failed" => false,
+            let failure = match outcome.as_str() {
+                "passed" => None,
+                "failed" => Some(failures.remove(&(position as u32)).unwrap_or_default()),
                 "skipped" => {
                     run.checks.push(CheckRecord {
                         name,
@@ -722,7 +738,7 @@ fn runs_where(
             run.checks.push(CheckRecord {
                 kind: kind_of(&kind)?,
                 outcome: Outcome::Ran {
-                    passed,
+                    failure,
                     handed: (handed.0 as u32, handed.1 as u32),
                     ms: ms.map(|ms| ms as u64),
                     started: Load::from_columns(cores, load),

@@ -8,6 +8,7 @@ fn run(kind: StepKind, name: &str, passed: bool, state: &str) -> Attempt {
         passed,
         state: Some(state.into()),
         failed: Vec::new(),
+        cause: None,
     }
 }
 
@@ -36,12 +37,15 @@ fn a_failed_run_is_fixed_flaky_or_standing_by_the_next_pass_of_the_same_step() {
 }
 
 #[test]
-fn the_text_counts_each_kind_the_tests_that_failed_and_each_groups_findings() {
+fn the_text_counts_each_kind_the_names_that_failed_and_each_groups_findings() {
     let mut failing = run(StepKind::Cargo, "cargo nextest run", false, "a");
     failing.failed = vec!["a::one".into()];
+    let mut check = run(StepKind::Hook, "rustfmt", false, "a");
+    check.failed = vec!["src/a.rs".into()];
     let attempts = vec![
         failing,
         run(StepKind::Cargo, "cargo nextest run", true, "b"),
+        check,
     ];
     let findings = vec![
         Finding {
@@ -60,8 +64,19 @@ fn the_text_counts_each_kind_the_tests_that_failed_and_each_groups_findings() {
         text.contains("cargo runs: 2 runs, 1 failed, 1 fixed, 0 flaky, 0 stood"),
         "{text}"
     );
-    assert!(text.contains("hook checks: 0 runs, 0 failed"), "{text}");
-    assert!(text.contains("      1  a::one"), "{text}");
+    assert!(text.contains("hook checks: 1 runs, 1 failed"), "{text}");
+    assert!(
+        text.contains(
+            "tests that cargo runs reported failed most often (failed runs)\n      1  a::one"
+        ),
+        "{text}"
+    );
+    assert!(
+        text.contains(
+            "staged files that hook checks failed on most often (failed runs)\n      1  src/a.rs"
+        ),
+        "{text}"
+    );
     assert!(
         text.contains("   1 confirmed     1 dropped     0 not settled     1 closed  Errors"),
         "{text}"

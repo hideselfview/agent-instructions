@@ -1987,7 +1987,11 @@ whenever a matching file is staged.
                               (its change and lines added and removed), each
                               line (run with its time, its result and this
                               Mac's cores and one-minute load when it started,
-                              or skipped), the planning time and the total. For
+                              or skipped), for a line that failed an excerpt
+                              of its output (the lines from the first test
+                              panic or compiler error, else the last lines)
+                              and the staged files it was handed that its
+                              output names, the planning time and the total. For
                               each check it sets BUILDS_HOOK_CHECK to the run's
                               start and the check's position, so a `builds
                               cargo` the check runs records which check started
