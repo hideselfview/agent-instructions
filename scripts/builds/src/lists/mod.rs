@@ -6,7 +6,7 @@
 //! re-exported. Each owner holds its types, its tables (the `.sql` file beside
 //! it) and every write to them: `record` (ids, stamps, closing), `project`,
 //! `area`, `item` with `running`, `kept_work`, `landing` and `dropped`,
-//! `rust_release` (the item made for each stable Rust release), `rust_check`
+//! `item_event` (the moments an item changed state or gained or lost a wait), `rust_release` (the item made for each stable Rust release), `rust_check`
 //! (how the last check for one ended), `question`,
 //! `decision`,
 //! `design`, `tag` (the tags of questions and items), `spec_check` (the
@@ -39,6 +39,7 @@ pub mod held;
 pub mod issue;
 pub mod item;
 mod item_command;
+pub mod item_event;
 #[cfg(test)]
 pub mod item_fixtures;
 mod item_show;

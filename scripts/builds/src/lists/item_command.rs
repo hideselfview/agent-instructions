@@ -19,7 +19,6 @@ use crate::lists::item::{
     Audience, Ender, Item, ItemDraft, ItemEdit, Level, Note, Priority, RecordWait, Wait, add_item,
     add_note, add_wait, open_item, remove_wait, require_open_wait, set_priority,
 };
-use crate::lists::project;
 use crate::lists::record::close;
 use crate::lists::show::wait_words;
 use crate::lists::store::{self, Store};
@@ -27,6 +26,7 @@ use crate::lists::{
     How, Id, Kind, Lists, Located, Stamp, dropped, issue, item_show, kept_work, landing, running,
     tag, take, trail,
 };
+use crate::lists::{item_event, project};
 use crate::text::note;
 use crate::tool::Tool;
 
@@ -396,7 +396,8 @@ fn handoff(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     let stamp = Stamp::resolve(tool.now, &args, cwd)?;
     store.write(&stamp, &format!("item handoff {id}"), |db| {
         open_item(&store::read(db)?, id)?;
-        running::handoff(db, id, &brief)
+        running::handoff(db, id, &brief)?;
+        item_event::record(db, id, stamp.at, item_event::Kind::HandedOff, Some(&brief))
     })?;
     note(format!("{id} is handed to the brief {brief}"));
     Ok(())

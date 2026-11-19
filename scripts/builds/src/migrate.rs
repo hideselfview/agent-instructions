@@ -329,9 +329,13 @@ const BEFORE_SHAPE_STAMP: i64 = 882_817_755;
 /// The stamp of the schema before a condition named who ends it.
 const BEFORE_CONDITION_ENDERS_STAMP: i64 = 1_173_303_068;
 
+/// The stamp of the schema before builds recorded the moments an item changed
+/// state or gained or lost a wait.
+const BEFORE_ITEM_EVENT_STAMP: i64 = 2_055_393_844;
+
 /// Every stamp a store can carry that `move_store` moves, oldest schema first.
 /// A new move adds the stamp of the schema before it at the end.
-const STAMPS: [i64; 50] = [
+const STAMPS: [i64; 51] = [
     BEFORE_DESIGN_DELETED_STAMP,
     BEFORE_CHECK_TIMES_STAMP,
     BEFORE_DESIGN_TIP_STAMP,
@@ -382,6 +386,7 @@ const STAMPS: [i64; 50] = [
     BEFORE_RUST_CHECK_STAMP,
     BEFORE_SHAPE_STAMP,
     BEFORE_CONDITION_ENDERS_STAMP,
+    BEFORE_ITEM_EVENT_STAMP,
 ];
 
 /// Whether a store stamped <found> comes before the move that follows the
@@ -509,7 +514,9 @@ const DESIGN_DELETED: &str = "CREATE TABLE design_deleted (
 /// items made for stable Rust releases (none made yet), and the empty table of
 /// the checks' outcomes (no check recorded yet). Every store gets
 /// `item_wait_condition` with an ender for each condition, which the move sets
-/// to the coordinator (`lists::item::move_to_condition_enders`).
+/// to the coordinator (`lists::item::move_to_condition_enders`). Every store
+/// gets the empty table of item events with the mark of when the store began
+/// to record them.
 /// The moves run in one transaction, the store
 /// is stamped as today's schema, and it must then equal a fresh database's schema or the transaction rolls back. A
 /// store already at today's stamp, or with no database, is left alone; any
@@ -1006,6 +1013,12 @@ fn move_store(places: &Places, path: &Path, now: i64) -> Result<()> {
     // coordinator as the ender of each condition it holds.
     if before(found, BEFORE_CONDITION_ENDERS_STAMP) {
         crate::lists::item::move_to_condition_enders(&tx)?;
+    }
+    // Every store from before the item events gets their empty table, and the
+    // mark that says it records them from now on.
+    if before(found, BEFORE_ITEM_EVENT_STAMP) {
+        tx.execute_batch(db::ITEM_EVENT_PART).sql()?;
+        crate::lists::item_event::start_recording(&tx, now)?;
     }
     // A store from before stamps followed the shape has today's tables, and
     // gets only the stamp below.

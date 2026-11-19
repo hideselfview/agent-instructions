@@ -253,10 +253,13 @@ fn commit<T>(
 
 /// What every write of <project>'s store does after its own changes in
 /// <tx>: opens a `waiting` span on each running item that now waits on the
-/// person and ends the span of each that no longer does, logs the write as
-/// <words> by <stamp>, and checks the whole state.
+/// person and ends the span of each that no longer does, records each item's
+/// change of state and of unmet waits, logs the write as <words> by <stamp>,
+/// and checks the whole state.
 fn finish(tx: &Connection, project: &str, stamp: &Stamp, words: &str) -> Result<()> {
-    crate::lists::running::follow_waits(tx, &read(tx)?, stamp.at)?;
+    let lists = read(tx)?;
+    crate::lists::running::follow_waits(tx, &lists, stamp.at)?;
+    crate::lists::item_event::follow(tx, &lists, stamp.at)?;
     log_write(tx, stamp, words)?;
     refuse_faults(project, &faults(tx, project)?)
 }

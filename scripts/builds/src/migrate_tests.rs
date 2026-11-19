@@ -54,7 +54,7 @@ mod old_schema {
     use super::{db, without_condition_enders};
 
     pub fn schema() -> String {
-        without_condition_enders(db::schema())
+        without_condition_enders(db::schema_before_item_event())
     }
 
     pub fn schema_before_rust_check() -> String {
@@ -5485,6 +5485,45 @@ fn a_store_from_before_the_rust_checks_gains_their_table_and_equals_a_fresh_sche
         .query_row("SELECT count(*) FROM rust_check", [], |row| row.get(0))
         .unwrap();
     assert_eq!(checks, 0);
+}
+
+#[test]
+fn the_item_event_stamp_is_the_schema_before_the_item_events() {
+    assert_eq!(
+        db::stamp_of_text(&db::schema_before_item_event()),
+        BEFORE_ITEM_EVENT_STAMP
+    );
+}
+
+/// A store from before the item events gains their empty table and the mark of
+/// the move's time, and equals a fresh schema.
+#[test]
+fn a_store_from_before_the_item_events_gains_their_table_and_equals_a_fresh_schema() {
+    let scratch = Scratch::new("move-item-event");
+    let places = scratch.places();
+    let dir = places.lists.join("bae");
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join(DATABASE);
+    {
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(&db::schema_before_item_event()).unwrap();
+        conn.pragma_update(None, "user_version", BEFORE_ITEM_EVENT_STAMP)
+            .unwrap();
+    }
+    migrate_stores(&places, 1_790_000_000).unwrap();
+    let conn = db::open(&path, db::Make::Never).unwrap();
+    assert_eq!(
+        db::schema_rows(&conn).unwrap(),
+        db::schema_rows(&db::memory()).unwrap()
+    );
+    let events: i64 = conn
+        .query_row("SELECT count(*) FROM item_event", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(events, 0);
+    assert_eq!(
+        crate::lists::item_event::read_from(&conn).unwrap(),
+        Some(1_790_000_000)
+    );
 }
 
 #[test]
