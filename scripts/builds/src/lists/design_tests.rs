@@ -1,6 +1,6 @@
 use super::*;
 use crate::fail::Fail;
-use crate::lists::design_command::run_to_text;
+use crate::lists::design_command::run_in_session;
 use crate::lists::fixtures::{NOON, stamp};
 use crate::lists::project::NewProject;
 use crate::lists::store::Store;
@@ -105,7 +105,9 @@ impl World {
         ) {
             args.extend(["--project".to_string(), "demo".to_string()]);
         }
-        run_to_text(&self.tool, &args)
+        // No session's inbox: the test process's own environment may name a
+        // live session's, which a test never keeps.
+        run_in_session(&self.tool, &args, || Ok(None))
     }
 
     fn request(&self, body: serde_json::Value) -> Result<String> {
@@ -963,7 +965,7 @@ fn landed_records_the_worktrees_claim_wherever_it_runs() {
         .iter()
         .map(|word| word.to_string())
         .collect();
-    run_to_text(&w.tool, &args).unwrap();
+    run_in_session(&w.tool, &args, || Ok(None)).unwrap();
     let state = w.state();
     assert_eq!(
         state.closed_record(Id(1)).unwrap().closed.by,

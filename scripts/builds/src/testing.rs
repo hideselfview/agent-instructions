@@ -11,6 +11,20 @@ pub struct Scratch {
     pub dir: PathBuf,
 }
 
+/// The folder every scratch folder is in, and the start of its name.
+fn scratch_prefix() -> PathBuf {
+    std::fs::canonicalize(std::env::temp_dir())
+        .expect("the temp dir resolves")
+        .join("builds-test-")
+}
+
+/// Whether <path> is in a test's scratch folder (`Scratch::new`).
+pub fn in_scratch(path: &Path) -> bool {
+    path.to_str()
+        .zip(scratch_prefix().to_str())
+        .is_some_and(|(path, prefix)| path.starts_with(prefix))
+}
+
 impl Scratch {
     pub fn new(name: &str) -> Scratch {
         // `cargo test` runs the tests as threads of one process, which share
@@ -22,8 +36,8 @@ impl Scratch {
             std::env::var_os("NEXTEST").is_some(),
             "builds' tests run one process each: use `builds cargo nextest run --bin builds -E 'test(/^<module>::/)'`, not `cargo test`"
         );
-        let base = std::fs::canonicalize(std::env::temp_dir()).expect("the temp dir resolves");
-        let dir = base.join(format!("builds-test-{name}-{}", std::process::id()));
+        let prefix = scratch_prefix().display().to_string();
+        let dir = PathBuf::from(format!("{prefix}{name}-{}", std::process::id()));
         if dir.exists() {
             std::fs::remove_dir_all(&dir).expect("an old scratch folder is removable");
         }

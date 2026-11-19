@@ -93,6 +93,15 @@ pub enum Sent {
 /// line. A socket with no file or no listener is `Gone`; any other failure is
 /// the error. The message is sent once and never again.
 pub fn send(to: &Messaging, text: &str) -> Result<Sent> {
+    // A test never reaches a live session: it sends only to a socket in a
+    // test's scratch folder.
+    #[cfg(test)]
+    if !crate::testing::in_scratch(std::path::Path::new(&to.socket)) {
+        fail!(
+            "a test sent to {}, which is in no test's scratch folder: a test never reaches a live session",
+            to.socket
+        );
+    }
     let mut stream = match UnixStream::connect(&to.socket) {
         Ok(stream) => stream,
         Err(error)
