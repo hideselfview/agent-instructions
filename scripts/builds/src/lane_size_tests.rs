@@ -111,8 +111,11 @@ cd '{home}' && HOME='{home}' BUILDS_VOLUME='{home}/no-volume' exec sh -c "$*"
     }
 }
 
+/// The time the sizing tests pass as now, in seconds since 1970.
+const NOW: i64 = 1_800_000_000;
+
 fn hours_ago(hours: i64) -> i64 {
-    crate::app_timing::now() - hours * 3600
+    NOW - hours * 3600
 }
 
 #[test]
@@ -159,7 +162,7 @@ fn two_builds_that_wait_at_once_each_add_a_checkout_of_their_own() {
             let (start, said, at) = (&start, said.clone(), world.at(Lane::Android));
             scope.spawn(move || {
                 start.wait();
-                said.send(grow(at, 0, Need::Waits).unwrap()).unwrap();
+                said.send(grow(at, 0, Need::Waits, NOW).unwrap()).unwrap();
             });
         }
     });
@@ -193,7 +196,7 @@ fn a_lane_at_its_cap_or_a_host_with_no_room_gets_no_checkout() {
     )
     .unwrap();
     assert_eq!(queue.waiting().len(), 2);
-    let grown = grow(world.at(Lane::Android), 0, Need::Waits).unwrap();
+    let grown = grow(world.at(Lane::Android), 0, Need::Waits, NOW).unwrap();
     assert_eq!(grown, None, "the lane has its cap");
     assert_eq!(world.entries().len(), LANE_CAP);
 
@@ -203,10 +206,10 @@ fn a_lane_at_its_cap_or_a_host_with_no_room_gets_no_checkout() {
     )
     .unwrap();
     world.host_has(10, 9.5, 900_000_000);
-    let grown = grow(world.at(Lane::Android), 0, Need::Waits).unwrap();
+    let grown = grow(world.at(Lane::Android), 0, Need::Waits, NOW).unwrap();
     assert_eq!(grown, None, "the host has under a core free");
     world.host_has(10, 2.0, 35 * 1024 * 1024);
-    let grown = grow(world.at(Lane::Android), 30 * 1024 * 1024, Need::Waits).unwrap();
+    let grown = grow(world.at(Lane::Android), 30 * 1024 * 1024, Need::Waits, NOW).unwrap();
     assert_eq!(
         grown, None,
         "a checkout would take the host under its floor"
@@ -242,7 +245,7 @@ fn two_lanes_that_add_at_once_never_pass_the_host_cap() {
                     let at = world.at(lane);
                     scope.spawn(move || {
                         start.wait();
-                        grow(at, 0, Need::Waits).unwrap()
+                        grow(at, 0, Need::Waits, NOW).unwrap()
                     })
                 })
                 .collect();
@@ -301,7 +304,7 @@ fn an_idle_checkout_builds_added_goes_and_a_persons_and_a_used_one_stay() {
     std::fs::create_dir_all(places.app_locks_dir("demo", Lane::Android)).unwrap();
     std::fs::write(
         places.app_lock_ended_file("demo", Lane::Android, "m1:builds-android-2"),
-        (crate::app_timing::now() - 60).to_string(),
+        (NOW - 60).to_string(),
     )
     .unwrap();
     std::fs::write(
@@ -317,10 +320,10 @@ fn an_idle_checkout_builds_added_goes_and_a_persons_and_a_used_one_stay() {
     }
     std::fs::create_dir_all(places.root.join("demo/m1:builds-android-1/out")).unwrap();
 
-    shrink(world.at(Lane::Android), Run::Dry).unwrap();
+    shrink(world.at(Lane::Android), Run::Dry, NOW).unwrap();
     assert_eq!(world.entries().len(), 3, "a dry run removes nothing");
 
-    shrink(world.at(Lane::Android), Run::Real).unwrap();
+    shrink(world.at(Lane::Android), Run::Real, NOW).unwrap();
     assert_eq!(
         world.entries(),
         ["m1:app-1", "m1:builds-android-2"],
@@ -351,7 +354,7 @@ fn a_checkout_whose_host_removal_fails_stays_in_the_set() {
     // The host has no clone of demo, so git cannot remove the worktree there.
     let host_home = world.scratch.dir.join("host-home");
     std::fs::create_dir_all(host_home.join("dev/demo-worktrees/builds-android-1/.git")).unwrap();
-    shrink(world.at(Lane::Android), Run::Real).unwrap();
+    shrink(world.at(Lane::Android), Run::Real, NOW).unwrap();
     assert_eq!(world.entries(), ["m1:builds-android-1"]);
     assert!(
         world

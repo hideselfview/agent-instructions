@@ -511,7 +511,12 @@ fn take_in(
         && let Some(floor_kib) = grows
         && !places.app_checkouts_of(repo, lane)?.is_empty()
     {
-        crate::lane_size::grow(sized, floor_kib, crate::lane_size::Need::OnAHost)?;
+        crate::lane_size::grow(
+            sized,
+            floor_kib,
+            crate::lane_size::Need::OnAHost,
+            crate::app_timing::now(),
+        )?;
         usable = has_one(places)?;
     }
     if !usable {
@@ -527,8 +532,8 @@ fn take_in(
     TAKEN_OVER.store(false, Ordering::SeqCst);
     QUEUED.store(true, Ordering::SeqCst);
     let queue = Queue::of(places, repo, lane);
-    crate::lane_size::shrink(sized, crate::prune::Run::Real)?;
     let joined_at = crate::app_timing::now();
+    crate::lane_size::shrink(sized, crate::prune::Run::Real, joined_at)?;
     let waiting = Instant::now();
     let (ticket, ahead) = queue.join()?;
     if ahead >= queue.slots() {
@@ -537,7 +542,12 @@ fn take_in(
             lane.word()
         ));
         if let Some(floor_kib) = grows {
-            crate::lane_size::grow(sized, floor_kib, crate::lane_size::Need::Waits)?;
+            crate::lane_size::grow(
+                sized,
+                floor_kib,
+                crate::lane_size::Need::Waits,
+                crate::app_timing::now(),
+            )?;
         }
     }
     queue.wait_for_turn(&ticket.name)?;

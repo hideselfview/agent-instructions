@@ -768,7 +768,7 @@ pub fn cmd_prune(tool: &Tool, args: &[String]) -> Result<()> {
     // hosts.
     let ssh = crate::host::Ssh::from_env();
     crate::remote_worktrees::prune(&tool.places, &ssh, run)?;
-    crate::lane_size::shrink_all(&tool.places, &ssh, run)?;
+    crate::lane_size::shrink_all(&tool.places, &ssh, run, crate::app_timing::now())?;
     prune_hosts(&tool.places, &ssh, args)?;
     let roots = tool.roots()?;
     for root in &roots {

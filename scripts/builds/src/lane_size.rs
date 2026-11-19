@@ -103,9 +103,10 @@ pub enum Need {
 
 /// Adds a checkout of <at>'s lane on a host for a build that <need>s one,
 /// when a host and the caps allow it, and returns its entry. A host whose
-/// free disk would go under <floor_kib> takes none. When builds adds none, it
+/// free disk would go under <floor_kib> takes none. <now> is the time the
+/// checkout's record gives, in seconds since 1970. When builds adds none, it
 /// says why.
-pub fn grow(at: RepoLane, floor_kib: u64, need: Need) -> Result<Option<String>> {
+pub fn grow(at: RepoLane, floor_kib: u64, need: Need, now: i64) -> Result<Option<String>> {
     let RepoLane {
         places,
         ssh,
@@ -191,7 +192,7 @@ pub fn grow(at: RepoLane, floor_kib: u64, need: Need) -> Result<Option<String>> 
         set.push(AppCheckout {
             entry: entry.clone(),
             added_by: AddedBy::Builds {
-                at: crate::app_timing::now(),
+                at: now,
                 why: why.clone(),
             },
         });
@@ -309,12 +310,12 @@ pub fn last_use(at: RepoLane, entry: &str) -> Result<Option<i64>> {
 /// Removes each checkout of <at>'s lane that builds added and no build has
 /// used for `IDLE_MINUTES`, or with <run> dry, says which it would remove. A
 /// checkout whose host does not answer, or whose removal there fails, stays
-/// in the set, builds prints why, and the next `shrink` removes it.
-pub fn shrink(at: RepoLane, run: Run) -> Result<()> {
+/// in the set, builds prints why, and the next `shrink` removes it. <now> is
+/// the time it judges idleness by, in seconds since 1970.
+pub fn shrink(at: RepoLane, run: Run, now: i64) -> Result<()> {
     let RepoLane {
         places, repo, lane, ..
     } = at;
-    let now = crate::app_timing::now();
     for checkout in places.app_checkouts_recorded(repo, lane)? {
         let AddedBy::Builds { at: added_at, .. } = checkout.added_by else {
             continue;
@@ -486,7 +487,7 @@ pub fn take_out(
 }
 
 /// `shrink` for every lane of every repo on the volume, for `builds prune`.
-pub fn shrink_all(places: &Places, ssh: &Ssh, run: Run) -> Result<()> {
+pub fn shrink_all(places: &Places, ssh: &Ssh, run: Run, now: i64) -> Result<()> {
     for repo in places.repo_folder_names()? {
         for lane in Lane::ALL {
             let at = RepoLane {
@@ -495,7 +496,7 @@ pub fn shrink_all(places: &Places, ssh: &Ssh, run: Run) -> Result<()> {
                 repo: &repo,
                 lane,
             };
-            shrink(at, run)?;
+            shrink(at, run, now)?;
         }
     }
     Ok(())
