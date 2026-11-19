@@ -975,15 +975,18 @@ fn hold_stores(
     held: lock::Held,
     stores: &mut Option<install_gate::Holding<'static>>,
 ) -> Result<lock::Held> {
-    *stores = install_gate::hold()?;
-    if install_gate::install_ran()? {
-        note(
-            "builds install ran while this build waited for the lane, so this build leaves the queue and runs the installed builds program, which joins the queue again",
-        );
-        held.leave()?;
-        return Err(install_gate::run_again());
+    match install_gate::hold_current()? {
+        install_gate::Hold::Holds(use_of_stores) => {
+            *stores = use_of_stores;
+            Ok(held)
+        }
+        install_gate::Hold::InstallRan => {
+            held.leave()?;
+            Err(install_gate::run_installed(
+                "builds install ran while this build waited for the lane, so this build leaves the queue and runs the installed builds program, which joins the queue again",
+            ))
+        }
     }
-    Ok(held)
 }
 
 fn build_lane(

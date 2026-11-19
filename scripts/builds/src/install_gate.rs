@@ -453,7 +453,7 @@ pub fn for_connection() -> Result<Option<ConnectionUse>> {
 /// (`PerConnection::hold`). Every builds command the process starts while it
 /// holds the use runs under it. None for a process that takes no use per
 /// connection: a holder's use covers it, or it runs in a test.
-pub fn hold() -> Result<Option<Holding<'static>>> {
+fn hold() -> Result<Option<Holding<'static>>> {
     let Some(per_connection) = PER_CONNECTION.get() else {
         return Ok(None);
     };
@@ -464,6 +464,38 @@ pub fn hold() -> Result<Option<Holding<'static>>> {
     unsafe { std::env::set_var(VARIABLE, per_connection.pid.to_string()) };
     holding.named = true;
     Ok(Some(holding))
+}
+
+/// What `hold_current` found.
+pub enum Hold {
+    /// The process holds this use until it drops it; None for a process that
+    /// takes no use per connection.
+    Holds(Option<Holding<'static>>),
+    /// An install that closed the gates ran since this process started, so
+    /// this program writes a store of another schema. The use has ended: the
+    /// caller undoes what it must, then runs the installed program in its
+    /// place (`run_installed`).
+    InstallRan,
+}
+
+/// Takes a command use (`hold`) for a command that writes the stores after
+/// long work from here on, unless an install that closed the gates ran since
+/// this process started.
+pub fn hold_current() -> Result<Hold> {
+    let held = hold()?;
+    if install_ran()? {
+        drop(held);
+        return Ok(Hold::InstallRan);
+    }
+    Ok(Hold::Holds(held))
+}
+
+/// Says <why> and runs the installed program in this one's place
+/// (`run_again`), for a command that `hold_current` found an install ran
+/// under.
+pub fn run_installed(why: &str) -> Fail {
+    crate::text::note(why);
+    run_again()
 }
 
 /// Whether an install that closed the gates ran since this process started;
