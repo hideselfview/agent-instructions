@@ -6,8 +6,8 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use super::{
-    OUTPUT_DIRS, has_shared_folders, hashed_file, names_in, newest_mtime, remove, unit_dir,
-    unit_folders,
+    OUTPUT_DIRS, has_shared_folders, hashed_file, names_if_present, names_in, newest_mtime, remove,
+    stat, unit_dir, unit_folders,
 };
 use crate::fail::Result;
 
@@ -133,7 +133,7 @@ impl Units {
 /// Every unit in <profile>, in either layout.
 pub fn units_in(profile: &Path) -> Result<Units> {
     let mut units = Units::default();
-    if has_shared_folders(profile) {
+    if has_shared_folders(profile)? {
         for name in names_in(&profile.join(".fingerprint"))? {
             if let Some((package, hash)) = unit_dir(&name) {
                 let found = units.unit(hash);
@@ -143,54 +143,45 @@ pub fn units_in(profile: &Path) -> Result<Units> {
         }
     }
     let build = profile.join("build");
-    if build.is_dir() {
-        for name in names_in(&build)? {
-            let path = build.join(&name);
-            let folders = if path.is_dir() {
-                unit_folders(&path)?
-            } else {
-                Vec::new()
-            };
-            if folders.is_empty() {
-                if let Some((package, hash)) = unit_dir(&name) {
-                    let found = units.unit(hash);
-                    found.place = Place::Shared {
-                        build: Some(path.clone()),
-                    };
-                    found.name.get_or_insert_with(|| package.to_string());
-                }
-                continue;
+    for name in names_if_present(&build)? {
+        let path = build.join(&name);
+        let folders = unit_folders(&path)?;
+        if folders.is_empty() {
+            if let Some((package, hash)) = unit_dir(&name) {
+                let found = units.unit(hash);
+                found.place = Place::Shared {
+                    build: Some(path.clone()),
+                };
+                found.name.get_or_insert_with(|| package.to_string());
             }
-            for (hash, folder) in folders {
-                let found = units.unit(&hash);
-                found.name = Some(name.clone());
-                let mut entries = Vec::new();
-                for entry in names_in(&folder)? {
-                    if entry == "fingerprint" {
-                        found.fingerprint = Some(folder.join(entry));
-                    } else {
-                        entries.push(folder.join(entry));
-                    }
+            continue;
+        }
+        for (hash, folder) in folders {
+            let found = units.unit(&hash);
+            found.name = Some(name.clone());
+            let mut entries = Vec::new();
+            for entry in names_in(&folder)? {
+                if entry == "fingerprint" {
+                    found.fingerprint = Some(folder.join(entry));
+                } else {
+                    entries.push(folder.join(entry));
                 }
-                // A build script's run has a run folder, and its out folder
-                // holds what the script wrote, not rustc.
-                let out = folder.join("out");
-                if !folder.join("run").exists() && out.is_dir() {
-                    for file in names_in(&out)? {
-                        found.outputs.push(out.join(file));
-                    }
-                }
-                found.place = Place::Own { folder, entries };
             }
+            // A build script's run has a run folder, and its out folder
+            // holds what the script wrote, not rustc.
+            let out = folder.join("out");
+            if stat(&folder.join("run"))?.is_none() {
+                for file in names_if_present(&out)? {
+                    found.outputs.push(out.join(file));
+                }
+            }
+            found.place = Place::Own { folder, entries };
         }
     }
-    if has_shared_folders(profile) {
+    if has_shared_folders(profile)? {
         for folder in OUTPUT_DIRS {
             let outputs = profile.join(folder);
-            if !outputs.is_dir() {
-                continue;
-            }
-            for name in names_in(&outputs)? {
+            for name in names_if_present(&outputs)? {
                 if let Some((krate, hash)) = hashed_file(&name) {
                     let found = units.unit(hash);
                     found.outputs.push(outputs.join(&name));

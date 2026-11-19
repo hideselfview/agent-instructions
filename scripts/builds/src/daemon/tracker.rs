@@ -49,8 +49,9 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Condvar, Mutex};
 
 use super::fsevents::{Event, Stream, flags};
-use super::index::{Entry, Index, KindOf, Listed, NodeId, ROOT, gone, list_metadata, walk};
+use super::index::{Entry, Index, KindOf, Listed, NodeId, ROOT, list_metadata, walk};
 use super::vnode::Watch;
+use crate::fail::gone;
 use crate::usage::Measure;
 
 const WORKERS: usize = 8;

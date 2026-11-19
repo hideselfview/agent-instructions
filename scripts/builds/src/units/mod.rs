@@ -74,7 +74,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use crate::fail;
-use crate::fail::{Context, Result};
+use crate::fail::{Context, Result, gone};
 
 /// Folders a profile folder in shared folders keeps per-unit files in, beside
 /// .fingerprint.
@@ -139,9 +139,39 @@ fn is_hash(text: &str) -> bool {
             .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 
+/// <path>'s metadata, following links; None when it does not exist. Any
+/// other failure to read it is an error that names it.
+pub fn stat(path: &Path) -> Result<Option<std::fs::Metadata>> {
+    match std::fs::metadata(path) {
+        Ok(meta) => Ok(Some(meta)),
+        Err(error) if gone(&error) => Ok(None),
+        Err(error) => fail!("reading {}: {error}", path.display()),
+    }
+}
+
+/// <path>'s own metadata, not following a link; None when it does not
+/// exist. Any other failure to read it is an error that names it.
+pub fn lstat(path: &Path) -> Result<Option<std::fs::Metadata>> {
+    match std::fs::symlink_metadata(path) {
+        Ok(meta) => Ok(Some(meta)),
+        Err(error) if gone(&error) => Ok(None),
+        Err(error) => fail!("reading {}: {error}", path.display()),
+    }
+}
+
+/// Is <path> a folder, following links? A path that does not exist is not.
+pub fn is_folder(path: &Path) -> Result<bool> {
+    Ok(stat(path)?.is_some_and(|meta| meta.is_dir()))
+}
+
+/// Is <path> a file, following links? A path that does not exist is not.
+pub fn is_file(path: &Path) -> Result<bool> {
+    Ok(stat(path)?.is_some_and(|meta| meta.is_file()))
+}
+
 /// Does <profile> hold units in shared folders (.fingerprint beside deps)?
-pub fn has_shared_folders(profile: &Path) -> bool {
-    profile.join(".fingerprint").is_dir()
+pub fn has_shared_folders(profile: &Path) -> Result<bool> {
+    is_folder(&profile.join(".fingerprint"))
 }
 
 /// The unit folders in <package>, a build/<package>/ folder of the unit
@@ -151,7 +181,7 @@ pub fn unit_folders(package: &Path) -> Result<Vec<(String, PathBuf)>> {
     let mut found = Vec::new();
     for name in names_if_present(package)? {
         let path = package.join(&name);
-        if is_hash(&name) && path.is_dir() {
+        if is_hash(&name) && is_folder(&path)? {
             found.push((name, path));
         }
     }
@@ -163,7 +193,7 @@ pub fn has_unit_folders(profile: &Path) -> Result<bool> {
     let build = profile.join("build");
     for name in names_if_present(&build)? {
         let package = build.join(name);
-        if package.is_dir() && !unit_folders(&package)?.is_empty() {
+        if is_folder(&package)? && !unit_folders(&package)?.is_empty() {
             return Ok(true);
         }
     }
@@ -172,14 +202,14 @@ pub fn has_unit_folders(profile: &Path) -> Result<bool> {
 
 /// Does <path> hold units, in either layout?
 pub fn is_profile_dir(path: &Path) -> Result<bool> {
-    Ok(has_shared_folders(path) || has_unit_folders(path)?)
+    Ok(has_shared_folders(path)? || has_unit_folders(path)?)
 }
 
 /// Every profile folder in <folder>, at most PROFILE_DEPTH levels down; none
 /// when <folder> does not exist.
 pub fn profile_dirs(folder: &Path) -> Result<Vec<PathBuf>> {
     fn walk(path: &Path, depth: usize, found: &mut Vec<PathBuf>) -> Result<()> {
-        if !path.is_dir() {
+        if !is_folder(path)? {
             return Ok(());
         }
         if is_profile_dir(path)? {
@@ -191,7 +221,7 @@ pub fn profile_dirs(folder: &Path) -> Result<Vec<PathBuf>> {
         }
         for name in names_if_present(path)? {
             let child = path.join(&name);
-            if name != "doc" && std::fs::symlink_metadata(&child).is_ok_and(|meta| meta.is_dir()) {
+            if name != "doc" && lstat(&child)?.is_some_and(|meta| meta.is_dir()) {
                 walk(&child, depth + 1, found)?;
             }
         }
@@ -205,6 +235,22 @@ pub fn profile_dirs(folder: &Path) -> Result<Vec<PathBuf>> {
 /// File names in <dir> as text (non-UTF-8 names name no unit).
 pub fn names_in(dir: &Path) -> Result<Vec<String>> {
     let entries = std::fs::read_dir(dir).context(|| format!("listing {}", dir.display()))?;
+    names_of(dir, entries)
+}
+
+/// File names in <dir>, or none when <dir> does not exist (it, or a folder
+/// above it, is missing or is a file). Any other failure to list it is an
+/// error that names it.
+pub fn names_if_present(dir: &Path) -> Result<Vec<String>> {
+    match std::fs::read_dir(dir) {
+        Ok(entries) => names_of(dir, entries),
+        Err(error) if gone(&error) => Ok(Vec::new()),
+        Err(error) => fail!("listing {}: {error}", dir.display()),
+    }
+}
+
+/// The names <entries>, a listing of <dir>, holds as text.
+fn names_of(dir: &Path, entries: std::fs::ReadDir) -> Result<Vec<String>> {
     let mut names = Vec::new();
     for entry in entries {
         let entry = entry.context(|| format!("listing {}", dir.display()))?;
@@ -213,23 +259,6 @@ pub fn names_in(dir: &Path) -> Result<Vec<String>> {
         }
     }
     Ok(names)
-}
-
-/// File names in <dir>, or none when <dir> does not exist (it, or a folder
-/// above it, is missing or is a file). Any other failure to list it is an
-/// error that names it.
-pub fn names_if_present(dir: &Path) -> Result<Vec<String>> {
-    match std::fs::read_dir(dir) {
-        Err(error)
-            if matches!(
-                error.kind(),
-                std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory
-            ) =>
-        {
-            Ok(Vec::new())
-        }
-        _ => names_in(dir),
-    }
 }
 
 /// Seconds since 1970, with the fraction.
@@ -242,14 +271,14 @@ pub fn mtime_of(meta: &std::fs::Metadata) -> f64 {
 pub fn newest_mtime(path: &Path, depth: usize) -> Result<f64> {
     let meta = match std::fs::symlink_metadata(path) {
         Ok(meta) => meta,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(0.0),
+        Err(error) if gone(&error) => return Ok(0.0),
         Err(error) => fail!("reading {}: {error}", path.display()),
     };
     let mut newest = mtime_of(&meta);
     if depth > 0 && meta.is_dir() {
         let entries = match std::fs::read_dir(path) {
             Ok(entries) => entries,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(newest),
+            Err(error) if gone(&error) => return Ok(newest),
             Err(error) => fail!("listing {}: {error}", path.display()),
         };
         for entry in entries {
@@ -278,10 +307,14 @@ pub const GUARD: &str = ".builds-cargo.lock";
 
 /// The guard of the checkout <path> is in: the nearest <GUARD> at <path> or
 /// above it.
-pub fn guard_of(path: &Path) -> Option<PathBuf> {
-    path.ancestors()
-        .map(|dir| dir.join(GUARD))
-        .find(|guard| guard.is_file())
+pub fn guard_of(path: &Path) -> Result<Option<PathBuf>> {
+    for dir in path.ancestors() {
+        let guard = dir.join(GUARD);
+        if is_file(&guard)? {
+            return Ok(Some(guard));
+        }
+    }
+    Ok(None)
 }
 
 /// Whether a `builds cargo` build is running in the checkout a path is in.
@@ -297,14 +330,14 @@ pub enum Guard {
 
 /// Takes the guard above <path> exclusively, without waiting.
 pub fn lock_guard(path: &Path) -> Result<Guard> {
-    let Some(guard) = guard_of(path) else {
+    let Some(guard) = guard_of(path)? else {
         return Ok(Guard::Absent);
     };
     match crate::evict::try_lock(&guard) {
         Ok(Some(file)) => Ok(Guard::Held(file)),
         Ok(None) => Ok(Guard::Busy),
         // Deleted since it was found: its checkout's root is being deleted.
-        Err(_) if !guard.exists() => Ok(Guard::Absent),
+        Err(_) if stat(&guard)?.is_none() => Ok(Guard::Absent),
         Err(error) => Err(error),
     }
 }
@@ -316,7 +349,14 @@ pub fn lock_guard(path: &Path) -> Result<Guard> {
 /// does, waits for it, so no build can begin using <path> between its being
 /// judged idle and its move. A path in no build root has no guard.
 pub fn lock_guard_creating(path: &Path) -> Result<Guard> {
-    let Some(root) = path.ancestors().find(|dir| dir.join(".checkout").is_file()) else {
+    let mut root = None;
+    for dir in path.ancestors() {
+        if is_file(&dir.join(".checkout"))? {
+            root = Some(dir);
+            break;
+        }
+    }
+    let Some(root) = root else {
         return lock_guard(path);
     };
     match crate::evict::try_lock_creating(&root.join(GUARD))? {
@@ -357,9 +397,20 @@ impl OpenFiles {
             let output = Command::new("lsof")
                 .args(["-n", "-Fpin"])
                 .stdin(Stdio::null())
-                .stderr(Stdio::null())
                 .output()
                 .context(|| "running lsof".to_string())?;
+            // lsof exits 1 when it could not read some process, a process
+            // that ended while it ran among them, and lists the rest. One
+            // that a signal ended, or that listed nothing, read nothing.
+            if output.status.code().is_none()
+                || (!output.status.success() && output.stdout.is_empty())
+            {
+                fail!(
+                    "lsof failed ({}), so builds cannot tell which files processes hold: {}",
+                    output.status,
+                    String::from_utf8_lossy(&output.stderr).trim()
+                );
+            }
             let mut inodes = HashSet::new();
             let mut pid: &[u8] = b"";
             let mut inode: Option<u64> = None;
@@ -514,8 +565,9 @@ mod tests {
         assert!(file.exists(), "a rejected dry argument deleted a file");
     }
 
-    /// A missing folder holds no units, but a folder that cannot be listed
-    /// is an error that names it, never a profile folder without units.
+    /// A missing folder holds no units, but a folder that cannot be listed,
+    /// or a path that cannot be read, is an error that names it, never a
+    /// profile folder without units or a path that is not a folder.
     #[test]
     fn only_a_missing_folder_holds_no_unit_folders() {
         use std::os::unix::fs::PermissionsExt;
@@ -530,6 +582,18 @@ mod tests {
         let listed = is_profile_dir(&profile);
         let walked = profile_dirs(&scratch.dir);
         std::fs::set_permissions(&package, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let locked = scratch.dir.join("locked");
+        std::fs::create_dir_all(&locked).unwrap();
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).unwrap();
+        let inside = locked.join("x");
+        let read = is_folder(&inside);
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o755)).unwrap();
+        match read {
+            Err(crate::fail::Fail::Message(message)) => {
+                assert!(message.contains(&inside.display().to_string()), "{message}")
+            }
+            other => panic!("a path that cannot be read gave {other:?}"),
+        }
         for result in [listed.map(|_| ()), walked.map(|_| ())] {
             match result {
                 Err(crate::fail::Fail::Message(message)) => assert!(

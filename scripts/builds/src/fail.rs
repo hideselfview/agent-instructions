@@ -38,6 +38,16 @@ pub fn exit_code(status: std::process::ExitStatus) -> i32 {
         .unwrap_or_else(|| 128 + status.signal().unwrap_or(0))
 }
 
+/// Is <error> what reading a path gives when the path does not exist: it, or
+/// a folder above it, is missing or is a file (as when it was deleted while
+/// it was being read)?
+pub fn gone(error: &std::io::Error) -> bool {
+    matches!(
+        error.kind(),
+        std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory
+    )
+}
+
 /// Ends the current function with a `Fail::Message` built like `format!`.
 #[macro_export]
 macro_rules! fail {

@@ -16,38 +16,76 @@ use std::collections::{HashMap, HashSet};
 use std::os::unix::fs::FileExt;
 use std::path::{Path, PathBuf};
 
-use super::hashed_file;
 use super::unit::Unit;
-use crate::fail::Result;
+use super::{hashed_file, is_folder, stat};
+use crate::fail;
+use crate::fail::{Result, gone};
 
 const MH_MAGIC_64: u32 = 0xFEED_FACF;
 const LC_SYMTAB: u32 = 0x2;
 const N_OSO: u8 = 0x66;
 const NLIST_64: usize = 16;
 
-fn u32_at(bytes: &[u8], at: usize) -> Option<u32> {
-    Some(u32::from_le_bytes(bytes.get(at..at + 4)?.try_into().ok()?))
+/// Why a binary's debug map could not be read.
+enum Unreadable {
+    /// The file is no 64-bit Mach-O this can read.
+    NotMachO,
+    /// Reading the file failed.
+    Io(std::io::Error),
 }
 
-fn read_at(file: &std::fs::File, offset: u64, length: usize) -> Option<Vec<u8>> {
+fn u32_at(bytes: &[u8], at: usize) -> std::result::Result<u32, Unreadable> {
+    bytes
+        .get(at..at + 4)
+        .and_then(|four| four.try_into().ok())
+        .map(u32::from_le_bytes)
+        .ok_or(Unreadable::NotMachO)
+}
+
+/// <length> bytes of <file> from <offset>; a file that ends before them is
+/// no Mach-O this can read.
+fn read_at(
+    file: &std::fs::File,
+    offset: u64,
+    length: usize,
+) -> std::result::Result<Vec<u8>, Unreadable> {
     let mut buffer = vec![0u8; length];
-    file.read_exact_at(&mut buffer, offset).ok()?;
-    Some(buffer)
+    match file.read_exact_at(&mut buffer, offset) {
+        Ok(()) => Ok(buffer),
+        Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => {
+            Err(Unreadable::NotMachO)
+        }
+        Err(error) => Err(Unreadable::Io(error)),
+    }
 }
 
 /// The names of the loose object files the Mach-O binary <path> was linked
 /// from, which its debug map names (N_OSO entries; an rlib's members,
 /// libtokio-<hash>.rlib(...), aren't loose); None when <path> is no 64-bit
-/// Mach-O this can read.
-pub fn debug_map(path: &Path) -> Option<HashSet<String>> {
-    let file = std::fs::File::open(path).ok()?;
-    let header = read_at(&file, 0, 32)?;
+/// Mach-O this can read, or no longer exists. Any other failure to read it
+/// is an error that names it.
+pub fn debug_map(path: &Path) -> Result<Option<HashSet<String>>> {
+    let file = match std::fs::File::open(path) {
+        Ok(file) => file,
+        Err(error) if gone(&error) => return Ok(None),
+        Err(error) => fail!("reading {}: {error}", path.display()),
+    };
+    match oso_names(&file) {
+        Ok(names) => Ok(Some(names)),
+        Err(Unreadable::NotMachO) => Ok(None),
+        Err(Unreadable::Io(error)) => fail!("reading {}: {error}", path.display()),
+    }
+}
+
+/// The N_OSO names of the Mach-O <file>, as `debug_map` gives them.
+fn oso_names(file: &std::fs::File) -> std::result::Result<HashSet<String>, Unreadable> {
+    let header = read_at(file, 0, 32)?;
     if u32_at(&header, 0)? != MH_MAGIC_64 {
-        return None;
+        return Err(Unreadable::NotMachO);
     }
     let commands = u32_at(&header, 16)? as usize;
     let commands_size = u32_at(&header, 20)? as usize;
-    let loads = read_at(&file, 32, commands_size)?;
+    let loads = read_at(file, 32, commands_size)?;
     let mut offset = 0;
     for _ in 0..commands {
         let command = u32_at(&loads, offset)?;
@@ -57,15 +95,15 @@ pub fn debug_map(path: &Path) -> Option<HashSet<String>> {
             let count = u32_at(&loads, offset + 12)? as usize;
             let strings = u32_at(&loads, offset + 16)? as u64;
             let strings_size = u32_at(&loads, offset + 20)? as usize;
-            let table = read_at(&file, symbols, count * NLIST_64)?;
-            let text = read_at(&file, strings, strings_size)?;
+            let table = read_at(file, symbols, count * NLIST_64)?;
+            let text = read_at(file, strings, strings_size)?;
             let mut names = HashSet::new();
             for entry in table.chunks_exact(NLIST_64) {
                 if entry[4] != N_OSO {
                     continue;
                 }
                 let start = u32_at(entry, 0)? as usize;
-                let rest = text.get(start..)?;
+                let rest = text.get(start..).ok_or(Unreadable::NotMachO)?;
                 let end = rest.iter().position(|b| *b == 0).unwrap_or(rest.len());
                 let name = String::from_utf8_lossy(&rest[..end]);
                 if !name.ends_with(')') {
@@ -73,14 +111,14 @@ pub fn debug_map(path: &Path) -> Option<HashSet<String>> {
                     names.insert(base.to_string());
                 }
             }
-            return Some(names);
+            return Ok(names);
         }
         if size == 0 {
-            return None;
+            return Err(Unreadable::NotMachO);
         }
         offset += size;
     }
-    Some(HashSet::new())
+    Ok(HashSet::new())
 }
 
 fn base(path: &Path) -> &str {
@@ -101,25 +139,25 @@ fn object_set(path: &Path) -> &str {
 /// names. One set is what the build that wrote it linked from, so only more
 /// than one set is looked up; every set is unread without a binary. A binary
 /// this cannot read keeps them all.
-fn unread_objects(objects: Vec<PathBuf>, binaries: &[PathBuf]) -> Vec<PathBuf> {
+fn unread_objects(objects: Vec<PathBuf>, binaries: &[PathBuf]) -> Result<Vec<PathBuf>> {
     if binaries.is_empty() {
-        return objects;
+        return Ok(objects);
     }
     let sets: HashSet<&str> = objects.iter().map(|path| object_set(path)).collect();
     if sets.len() == 1 {
-        return Vec::new();
+        return Ok(Vec::new());
     }
     let mut named = HashSet::new();
     for binary in binaries {
-        match debug_map(binary) {
+        match debug_map(binary)? {
             Some(names) => named.extend(names),
-            None => return Vec::new(),
+            None => return Ok(Vec::new()),
         }
     }
-    objects
+    Ok(objects
         .into_iter()
         .filter(|path| !named.contains(base(path)))
-        .collect()
+        .collect())
 }
 
 /// The object files in <profile> that no build or debugger reads, among
@@ -152,11 +190,11 @@ pub fn dead_objects(profile: &Path, units: &[&Unit]) -> Result<Vec<PathBuf>> {
         {
             dead.extend(objects);
         } else {
-            dead.extend(unread_objects(objects, &binaries));
+            dead.extend(unread_objects(objects, &binaries)?);
         }
     }
     let deps = profile.join("deps");
-    if deps.is_dir() {
+    if is_folder(&deps)? {
         let mut unhashed: HashMap<String, Vec<PathBuf>> = HashMap::new();
         let mut order = Vec::new();
         for name in super::names_in(&deps)? {
@@ -171,12 +209,12 @@ pub fn dead_objects(profile: &Path, units: &[&Unit]) -> Result<Vec<PathBuf>> {
         for krate in order {
             let objects = unhashed.remove(&krate).expect("listed above");
             let dylib = deps.join(format!("lib{krate}.dylib"));
-            let binaries = if dylib.exists() {
+            let binaries = if stat(&dylib)?.is_some() {
                 vec![dylib]
             } else {
                 Vec::new()
             };
-            dead.extend(unread_objects(objects, &binaries));
+            dead.extend(unread_objects(objects, &binaries)?);
         }
     }
     Ok(dead)

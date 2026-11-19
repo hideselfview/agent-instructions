@@ -9,10 +9,11 @@ use std::path::{Path, PathBuf};
 use serde_json::Value;
 
 use super::{
-    OUTPUT_DIRS, has_shared_folders, hashed_file, is_hash, is_profile_dir, names_if_present,
-    names_in, unit_dir, unit_folders,
+    OUTPUT_DIRS, has_shared_folders, hashed_file, is_folder, is_hash, is_profile_dir,
+    names_if_present, names_in, stat, unit_dir, unit_folders,
 };
-use crate::fail::Result;
+use crate::fail;
+use crate::fail::{Result, gone};
 use crate::text::note;
 
 /// Finds units' fingerprint folders in either layout. For shared folders it
@@ -26,7 +27,7 @@ struct Fingerprints {
 impl Fingerprints {
     fn list(&mut self, profile: &Path) -> Result<&HashMap<String, String>> {
         let mut units = HashMap::new();
-        if has_shared_folders(profile) {
+        if has_shared_folders(profile)? {
             for name in names_in(&profile.join(".fingerprint"))? {
                 if let Some((_, hash)) = unit_dir(&name) {
                     units.insert(hash.to_string(), name.clone());
@@ -56,7 +57,7 @@ impl Fingerprints {
     fn of(&mut self, named: &Named) -> Result<Option<PathBuf>> {
         match named {
             Named::Shared(profile, hash) => self.get(profile, hash),
-            Named::Own(fingerprint) => Ok(fingerprint.is_dir().then(|| fingerprint.clone())),
+            Named::Own(fingerprint) => Ok(is_folder(fingerprint)?.then(|| fingerprint.clone())),
         }
     }
 
@@ -80,11 +81,8 @@ impl Fingerprints {
             })
             .map(|name| profile.join(".fingerprint").join(name))
             .collect();
-        let folder = profile.join("build").join(package);
-        if folder.is_dir() {
-            for (_, unit) in unit_folders(&folder)? {
-                found.push(unit.join("fingerprint"));
-            }
+        for (_, unit) in unit_folders(&profile.join("build").join(package))? {
+            found.push(unit.join("fingerprint"));
         }
         Ok(found)
     }
@@ -113,38 +111,38 @@ enum Named {
 /// The unit a path cargo reported is in or names by its hash: a file in its
 /// unit folder (build/<package>/<hash>/), deps/<crate>-<hash>*,
 /// examples/<name>-<hash>*, or a file in build/<package>-<hash>/.
-fn hashed_unit(path: &Path) -> Option<Named> {
+fn hashed_unit(path: &Path) -> Result<Option<Named>> {
     let parent = dirname(path);
     if OUTPUT_DIRS.contains(&base(parent))
         && let Some((_, hash)) = hashed_file(base(path))
-        && has_shared_folders(dirname(parent))
+        && has_shared_folders(dirname(parent))?
     {
-        return Some(Named::Shared(
+        return Ok(Some(Named::Shared(
             dirname(parent).to_path_buf(),
             hash.to_string(),
-        ));
+        )));
     }
     let mut parent = parent;
     while !parent.as_os_str().is_empty() && parent != Path::new("/") {
         let above = dirname(parent);
         if is_hash(base(parent))
             && base(dirname(above)) == "build"
-            && parent.join("fingerprint").is_dir()
+            && is_folder(&parent.join("fingerprint"))?
         {
-            return Some(Named::Own(parent.join("fingerprint")));
+            return Ok(Some(Named::Own(parent.join("fingerprint"))));
         }
         if base(above) == "build"
             && let Some((_, hash)) = unit_dir(base(parent))
-            && has_shared_folders(dirname(above))
+            && has_shared_folders(dirname(above))?
         {
-            return Some(Named::Shared(
+            return Ok(Some(Named::Shared(
                 dirname(above).to_path_buf(),
                 hash.to_string(),
-            ));
+            )));
         }
         parent = above;
     }
-    None
+    Ok(None)
 }
 
 /// The units whose output cargo copied to <path>, a file it put in a profile
@@ -161,21 +159,21 @@ fn copied_from(path: &Path, package: &str) -> Result<Vec<Named>> {
     } else {
         return Ok(Vec::new());
     };
-    let Ok(copy) = std::fs::metadata(path) else {
+    let Some(copy) = stat(path)? else {
         return Ok(Vec::new());
     };
-    let same = |original: &Path| {
-        std::fs::metadata(original).is_ok_and(|original| {
+    let same = |original: &Path| -> Result<bool> {
+        Ok(stat(original)?.is_some_and(|original| {
             original.size() == copy.size()
                 && original.mtime() == copy.mtime()
                 && original.mtime_nsec() == copy.mtime_nsec()
-        })
+        }))
     };
     let mut found = Vec::new();
-    if has_shared_folders(profile) {
+    if has_shared_folders(profile)? {
         for name in names_if_present(&shared)? {
             if let Some((_, hash)) = hashed_file(&name)
-                && same(&shared.join(&name))
+                && same(&shared.join(&name))?
             {
                 found.push(Named::Shared(profile.to_path_buf(), hash.to_string()));
             }
@@ -183,11 +181,11 @@ fn copied_from(path: &Path, package: &str) -> Result<Vec<Named>> {
     }
     for (_, unit) in unit_folders(&profile.join("build").join(package))? {
         let out = unit.join("out");
-        if names_if_present(&out)?
-            .iter()
-            .any(|name| same(&out.join(name)))
-        {
-            found.push(Named::Own(unit.join("fingerprint")));
+        for name in names_if_present(&out)? {
+            if same(&out.join(name))? {
+                found.push(Named::Own(unit.join("fingerprint")));
+                break;
+            }
         }
     }
     Ok(found)
@@ -245,13 +243,12 @@ fn fingerprint_file(message: &Value, doc: bool) -> String {
 
 /// The fingerprints in a unit's fingerprint folder: each file holding one
 /// names it in hex, of the number's little-endian bytes, the form a
-/// dependent's JSON lists its dependencies' fingerprints in as numbers.
-pub fn fingerprint_values(fingerprint_dir: &Path) -> HashSet<u64> {
+/// dependent's JSON lists its dependencies' fingerprints in as numbers. A
+/// folder or file that no longer exists names none; any other failure to
+/// read one is an error that names it.
+pub fn fingerprint_values(fingerprint_dir: &Path) -> Result<HashSet<u64>> {
     let mut values = HashSet::new();
-    let Ok(names) = names_in(fingerprint_dir) else {
-        return values;
-    };
-    for name in names {
+    for name in names_if_present(fingerprint_dir)? {
         if name.ends_with(".json")
             || name.starts_with("dep-")
             || name.starts_with("output-")
@@ -259,8 +256,13 @@ pub fn fingerprint_values(fingerprint_dir: &Path) -> HashSet<u64> {
         {
             continue;
         }
-        let Ok(text) = std::fs::read_to_string(fingerprint_dir.join(&name)) else {
-            continue;
+        let path = fingerprint_dir.join(&name);
+        let text = match std::fs::read_to_string(&path) {
+            Ok(text) => text,
+            Err(error) if gone(&error) => continue,
+            // A file whose bytes are no text holds no fingerprint.
+            Err(error) if error.kind() == std::io::ErrorKind::InvalidData => continue,
+            Err(error) => fail!("reading {}: {error}", path.display()),
         };
         let text = text.trim();
         if text.len() % 2 != 0 || text.len() > 16 {
@@ -281,16 +283,20 @@ pub fn fingerprint_values(fingerprint_dir: &Path) -> HashSet<u64> {
             values.insert(value);
         }
     }
-    values
+    Ok(values)
 }
 
 /// The JSON cargo keeps beside a unit's fingerprint file; an empty object
-/// when unreadable.
-pub fn recorded(fingerprint_dir: &Path, file_name: &str) -> Value {
-    std::fs::read(fingerprint_dir.join(format!("{file_name}.json")))
-        .ok()
-        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
-        .unwrap_or_else(|| Value::Object(Default::default()))
+/// when the file no longer exists or holds no JSON, as when cargo is still
+/// writing it. Any other failure to read it is an error that names it.
+pub fn recorded(fingerprint_dir: &Path, file_name: &str) -> Result<Value> {
+    let path = fingerprint_dir.join(format!("{file_name}.json"));
+    let bytes = match std::fs::read(&path) {
+        Ok(bytes) => bytes,
+        Err(error) if gone(&error) => return Ok(Value::Object(Default::default())),
+        Err(error) => fail!("reading {}: {error}", path.display()),
+    };
+    Ok(serde_json::from_slice(&bytes).unwrap_or_else(|_| Value::Object(Default::default())))
 }
 
 /// Does a unit's fingerprint JSON record <features>? It holds them in Rust's
@@ -371,10 +377,10 @@ fn units_by_name(
     let mut candidates = Vec::new();
     for profile in &profiles {
         for fingerprint_dir in fingerprints.by_package(profile, &package)? {
-            if !fingerprint_dir.join(&name).exists() {
+            if stat(&fingerprint_dir.join(&name))?.is_none() {
                 continue;
             }
-            let fingerprint = recorded(&fingerprint_dir, &name);
+            let fingerprint = recorded(&fingerprint_dir, &name)?;
             if same_features(&fingerprint, &features) {
                 candidates.push((fingerprint_dir, fingerprint));
             }
@@ -447,7 +453,7 @@ fn units_of(
     let mut missing = Vec::new();
     let mut unnamed = Vec::new();
     for path in &paths {
-        let Some(named) = hashed_unit(Path::new(path)) else {
+        let Some(named) = hashed_unit(Path::new(path))? else {
             unnamed.push(path.clone());
             continue;
         };
@@ -551,8 +557,12 @@ fn mark(
 /// previous build's. A prune tells two copies one build used (two versions
 /// of a crate) from a copy a later build replaced by it. Every other line (a `cargo run` program's
 /// output, a test run's) passes through to <output> unchanged. Returns 1 when
-/// a reported unit could not be recorded, else 0.
+/// a reported unit could not be recorded, else 0. An error while recording
+/// stops the recording, but this reads the rest of cargo's output, passing
+/// it through, before it returns the error, so cargo never waits on a full
+/// pipe.
 pub fn record(mut input: impl BufRead, output: &mut impl Write) -> Result<i32> {
+    let mut error: Option<crate::fail::Fail> = None;
     let mut fingerprints = Fingerprints::default();
     let mut touched: Vec<PathBuf> = Vec::new();
     let mut late: Vec<(Value, String)> = Vec::new();
@@ -579,16 +589,26 @@ pub fn record(mut input: impl BufRead, output: &mut impl Write) -> Result<i32> {
             }
             continue;
         };
+        if error.is_some() {
+            continue;
+        }
         let when = *began.get_or_insert_with(now);
-        let (found, missing) = units_of(&message, &mut fingerprints, &mut late, &mut failures)?;
-        mark(&message, found, missing, &when, &mut touched, &mut failures)?;
+        let recorded = units_of(&message, &mut fingerprints, &mut late, &mut failures).and_then(
+            |(found, missing)| mark(&message, found, missing, &when, &mut touched, &mut failures),
+        );
+        if let Err(failed) = recorded {
+            error = Some(failed);
+        }
+    }
+    if let Some(error) = error {
+        return Err(error);
     }
     // Cargo has finished: every unit's fingerprint is written, so the units
     // the late outputs can be are the ones built against the units this build used.
-    let mut used: HashSet<u64> = touched
-        .iter()
-        .flat_map(|dir| fingerprint_values(dir))
-        .collect();
+    let mut used: HashSet<u64> = HashSet::new();
+    for dir in &touched {
+        used.extend(fingerprint_values(dir)?);
+    }
     let when = began.unwrap_or_else(now);
     for (message, path) in late {
         let found = units_by_name(&message, Path::new(&path), &mut fingerprints, &used)?;
@@ -598,7 +618,7 @@ pub fn record(mut input: impl BufRead, output: &mut impl Write) -> Result<i32> {
             Vec::new()
         };
         for dir in &found {
-            used.extend(fingerprint_values(dir));
+            used.extend(fingerprint_values(dir)?);
         }
         mark(&message, found, missing, &when, &mut touched, &mut failures)?;
     }
@@ -711,17 +731,17 @@ mod tests {
         std::fs::create_dir_all(profile.join(".fingerprint/dep-fedcba9876543210")).unwrap();
         std::fs::create_dir_all(profile.join("deps")).unwrap();
         let own = Some(Named::Own(unit.join("fingerprint")));
-        assert_eq!(hashed_unit(&unit.join("out/loc_gen")), own);
+        assert_eq!(hashed_unit(&unit.join("out/loc_gen")).unwrap(), own);
         // A build script's run reports its out folder.
-        assert_eq!(hashed_unit(&unit.join("out")), own);
+        assert_eq!(hashed_unit(&unit.join("out")).unwrap(), own);
         assert_eq!(
-            hashed_unit(&profile.join("deps/libdep-fedcba9876543210.rlib")),
+            hashed_unit(&profile.join("deps/libdep-fedcba9876543210.rlib")).unwrap(),
             Some(Named::Shared(
                 profile.clone(),
                 "fedcba9876543210".to_string()
             ))
         );
-        assert_eq!(hashed_unit(&profile.join("loc-gen")), None);
+        assert_eq!(hashed_unit(&profile.join("loc-gen")).unwrap(), None);
         let copy = profile.join("loc-gen");
         std::fs::write(&copy, "a binary").unwrap();
         let when = libc::timeval {
@@ -766,6 +786,29 @@ mod tests {
         );
         let code = record(std::io::Cursor::new(message), &mut Vec::new()).unwrap();
         assert_eq!(code, 1);
+    }
+
+    /// An error while recording fails the recording, after the rest of
+    /// cargo's output has passed through.
+    #[test]
+    fn an_error_while_recording_still_passes_the_rest_of_the_output_through() {
+        use std::os::unix::fs::PermissionsExt;
+        let scratch = crate::testing::Scratch::new("record-error");
+        let unit = scratch.dir.join("debug/build/x/0123456789abcdef");
+        crate::testing::fill(&unit.join("fingerprint/lib-x"), 1);
+        let message = format!(
+            "{{\"reason\":\"build-script-executed\",\"package_id\":\"x\",\"out_dir\":\"{}\"}}\nafter\n",
+            unit.join("out").display()
+        );
+        std::fs::set_permissions(&unit, std::fs::Permissions::from_mode(0o000)).unwrap();
+        let mut output = Vec::new();
+        let result = record(std::io::Cursor::new(message), &mut output);
+        std::fs::set_permissions(&unit, std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(
+            result.is_err(),
+            "a fingerprint folder that cannot be read was recorded"
+        );
+        assert_eq!(output, b"after\n");
     }
 
     #[test]

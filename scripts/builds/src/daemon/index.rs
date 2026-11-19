@@ -17,6 +17,7 @@ use std::os::unix::fs::MetadataExt;
 use std::path::{Component, Path, PathBuf};
 use std::sync::{Condvar, Mutex};
 
+use crate::fail::gone;
 use crate::usage::{BLOCK, CLONE_MIN, Measure, extents};
 
 pub type NodeId = u32;
@@ -589,13 +590,6 @@ pub fn list_metadata(dir: &Path) -> std::io::Result<Option<Vec<Listed>>> {
         });
     }
     Ok(Some(entries))
-}
-
-pub fn gone(error: &std::io::Error) -> bool {
-    matches!(
-        error.kind(),
-        std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory
-    )
 }
 
 /// Walks the folder at <path>, entry <start> of the index behind <index>,

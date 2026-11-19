@@ -18,7 +18,7 @@ fn pinned_revisions(lockfiles: &[PathBuf]) -> Result<HashSet<String>> {
     for lockfile in lockfiles {
         let text = match std::fs::read_to_string(lockfile) {
             Ok(text) => text,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(error) if crate::fail::gone(&error) => continue,
             Err(error) => crate::fail!("reading {}: {error}", lockfile.display()),
         };
         for line in text.lines() {
@@ -51,7 +51,7 @@ fn pinned_revisions(lockfiles: &[PathBuf]) -> Result<HashSet<String>> {
 /// seconds. Returns the KiB freed.
 pub fn prune_git_checkouts(cargo_home: &Path, run: Run, lockfiles: &[PathBuf]) -> Result<u64> {
     let checkouts = cargo_home.join("git").join("checkouts");
-    if !checkouts.is_dir() {
+    if !super::is_folder(&checkouts)? {
         return Ok(0);
     }
     let pinned = pinned_revisions(lockfiles)?;
@@ -75,14 +75,14 @@ pub fn prune_git_checkouts(cargo_home: &Path, run: Run, lockfiles: &[PathBuf]) -
     let mut unpinned = Vec::new();
     for repo in repos {
         let repo_dir = checkouts.join(&repo);
-        if !repo_dir.is_dir() {
+        if !super::is_folder(&repo_dir)? {
             continue;
         }
         let mut shorts = super::names_in(&repo_dir)?;
         shorts.sort();
         for short in shorts {
             let path = repo_dir.join(&short);
-            if path.is_dir() && !pinned.iter().any(|sha| sha.starts_with(&short)) {
+            if super::is_folder(&path)? && !pinned.iter().any(|sha| sha.starts_with(&short)) {
                 unpinned.push(path);
             }
         }

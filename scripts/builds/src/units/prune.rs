@@ -13,10 +13,11 @@ use super::objects::dead_objects;
 use super::record::{fingerprint_values, recorded};
 use super::unit::{Unit, Units, units_in};
 use super::{
-    Guard, INCREMENTAL_DEPTH, OpenFiles, holds_any, lock_guard, lock_profile, names_in,
-    newest_mtime, profile_dirs, remove,
+    Guard, INCREMENTAL_DEPTH, OpenFiles, holds_any, is_folder, lock_guard, lock_profile, lstat,
+    names_if_present, names_in, newest_mtime, profile_dirs, remove, stat,
 };
-use crate::fail::Result;
+use crate::fail;
+use crate::fail::{Result, gone};
 use crate::prune::Run;
 use crate::text::{counted, human_bytes, note};
 use crate::usage::{Seen, bytes_with, freeable};
@@ -66,21 +67,20 @@ impl Ages {
 /// output files are hard links to its files (none: no unit's).
 fn incremental_dirs(profile: &Path, units: &Units) -> Result<Vec<(PathBuf, BTreeSet<String>)>> {
     let incremental = profile.join("incremental");
-    if !incremental.is_dir() {
-        return Ok(Vec::new());
+    let mut crate_dirs: Vec<PathBuf> = Vec::new();
+    for name in names_if_present(&incremental)? {
+        let path = incremental.join(name);
+        if is_folder(&path)? {
+            crate_dirs.push(path);
+        }
     }
-    let crate_dirs: Vec<PathBuf> = names_in(&incremental)?
-        .into_iter()
-        .map(|name| incremental.join(name))
-        .filter(|path| path.is_dir())
-        .collect();
     if crate_dirs.is_empty() {
         return Ok(Vec::new());
     }
     let mut owner: HashMap<(u64, u64), String> = HashMap::new();
     for found in &units.list {
         for path in &found.outputs {
-            if let Ok(meta) = std::fs::symlink_metadata(path)
+            if let Some(meta) = lstat(path)?
                 && meta.nlink() > 1
             {
                 owner.insert((meta.dev(), meta.ino()), found.hash.clone());
@@ -90,9 +90,9 @@ fn incremental_dirs(profile: &Path, units: &Units) -> Result<Vec<(PathBuf, BTree
     let mut result = Vec::new();
     for crate_dir in crate_dirs {
         let owners = std::sync::Mutex::new(BTreeSet::new());
-        let dev = std::fs::symlink_metadata(&crate_dir)
-            .map(|meta| meta.dev())
-            .unwrap_or(0);
+        let Some(dev) = lstat(&crate_dir)?.map(|meta| meta.dev()) else {
+            continue;
+        };
         crate::usage::walk(&crate_dir, dev, 1, &|_, meta| {
             if !meta.is_dir()
                 && meta.nlink() > 1
@@ -222,19 +222,15 @@ impl Copies {
                         .into_iter()
                         .filter(|name| name.ends_with(".json"))
                         .collect(),
-                    Err(_) if !fingerprint.exists() => continue,
+                    Err(_) if stat(fingerprint)?.is_none() => continue,
                     Err(error) => return Err(error),
                 };
                 names.sort();
-                let records: Vec<(String, Value)> = names
-                    .iter()
-                    .map(|name| {
-                        (
-                            name.clone(),
-                            recorded(fingerprint, &name[..name.len() - ".json".len()]),
-                        )
-                    })
-                    .collect();
+                let mut records: Vec<(String, Value)> = Vec::new();
+                for name in &names {
+                    let record = recorded(fingerprint, &name[..name.len() - ".json".len()])?;
+                    records.push((name.clone(), record));
+                }
                 if records.is_empty() || !records.iter().all(|(_, record)| truthy(record)) {
                     continue;
                 }
@@ -298,7 +294,7 @@ impl Copies {
                     }
                 }
                 copies.deps.insert(key.clone(), listed);
-                for value in fingerprint_values(fingerprint) {
+                for value in fingerprint_values(fingerprint)? {
                     copies.unit_of.insert(value, key.clone());
                 }
             }
@@ -518,8 +514,8 @@ fn superseded(
     Ok(replaced)
 }
 
-fn single_link(path: &Path) -> bool {
-    std::fs::symlink_metadata(path).is_ok_and(|meta| meta.nlink() == 1)
+fn single_link(path: &Path) -> Result<bool> {
+    Ok(lstat(path)?.is_some_and(|meta| meta.nlink() == 1))
 }
 
 /// Deletes <profile>'s <units> no build used since the cutoff, those in
@@ -727,7 +723,7 @@ fn prune_profile(
         // A file the incremental folder also links stays on disk.
         let mut size = 0;
         for path in &objects {
-            if single_link(path) {
+            if single_link(path)? {
                 size += bytes_with(&seen, path)?;
             }
         }
@@ -763,7 +759,11 @@ fn prune_profile(
 pub fn prune(ages: &Ages, run: Run, folders: &[PathBuf]) -> Result<Vec<(PathBuf, u64)>> {
     let mut result = Vec::new();
     for folder in folders {
-        let root = std::fs::canonicalize(folder).unwrap_or_else(|_| folder.clone());
+        let root = match std::fs::canonicalize(folder) {
+            Ok(root) => root,
+            Err(error) if gone(&error) => folder.clone(),
+            Err(error) => fail!("reading {}: {error}", folder.display()),
+        };
         // Held until this folder's units are done with.
         let guard = if run.dry() {
             Guard::Absent
@@ -815,12 +815,9 @@ pub fn prune(ages: &Ages, run: Run, folders: &[PathBuf]) -> Result<Vec<(PathBuf,
             }
             let incremental = profile.join("incremental");
             let mut idle = 0;
-            if incremental.is_dir() {
-                for name in names_in(&incremental)? {
-                    if newest_mtime(&incremental.join(name), INCREMENTAL_DEPTH)? < ages.idle_cutoff
-                    {
-                        idle += 1;
-                    }
+            for name in names_if_present(&incremental)? {
+                if newest_mtime(&incremental.join(name), INCREMENTAL_DEPTH)? < ages.idle_cutoff {
+                    idle += 1;
                 }
             }
             if idle > 0 {

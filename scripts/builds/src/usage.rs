@@ -18,7 +18,7 @@ use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
 use std::sync::{Condvar, Mutex};
 
 use crate::fail;
-use crate::fail::Result;
+use crate::fail::{Result, gone};
 
 pub const BLOCK: u64 = 4096;
 pub const CLONE_MIN: u64 = 1 << 20;
@@ -251,14 +251,6 @@ fn list(
         }
     }
     Ok(())
-}
-
-/// The error a path deleted while it was being read gives.
-fn gone(error: &std::io::Error) -> bool {
-    matches!(
-        error.kind(),
-        std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory
-    )
 }
 
 /// Bytes <path> takes, a file or a whole folder, counting what <seen>

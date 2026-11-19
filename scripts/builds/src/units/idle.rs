@@ -6,7 +6,8 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 
 use super::{
-    INCREMENTAL_DEPTH, holds_any, lock_profile, names_in, newest_mtime, profile_dirs, remove,
+    INCREMENTAL_DEPTH, holds_any, is_folder, lock_profile, lstat, names_in, newest_mtime,
+    profile_dirs, remove,
 };
 use crate::fail::Result;
 use crate::prune::Run;
@@ -28,12 +29,12 @@ pub fn idle_increments(folders: &[PathBuf], before: f64) -> Result<Vec<Increment
     for folder in folders {
         for profile in profile_dirs(folder)? {
             let incremental = profile.join("incremental");
-            if !incremental.is_dir() {
+            if !is_folder(&incremental)? {
                 continue;
             }
             for name in names_in(&incremental)? {
                 let path = incremental.join(name);
-                if !std::fs::symlink_metadata(&path).is_ok_and(|meta| meta.is_dir()) {
+                if !lstat(&path)?.is_some_and(|meta| meta.is_dir()) {
                     continue;
                 }
                 let newest = newest_mtime(&path, INCREMENTAL_DEPTH)?;
