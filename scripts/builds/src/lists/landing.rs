@@ -33,7 +33,7 @@ use crate::fail::{Context, Result};
 use crate::lists::args::Args;
 use crate::lists::item::{self, open_item};
 use crate::lists::record::close;
-use crate::lists::running::{Ended, Running, end, side_worktree_parts};
+use crate::lists::running::{Ended, Running, end, place_in_repo};
 use crate::lists::store::{self, Store};
 use crate::lists::{Closed, How, Id, Kind, Located, Stamp, Standing};
 use crate::text::note;
@@ -204,10 +204,7 @@ fn is_ancestor(dir: &Path, commit: &str, rev: &str) -> Result<bool> {
 /// the landing's commits are on. An item that runs only in other repos can't
 /// land from this one.
 fn running_in_repo<'a>(running: &'a [Running], checkout: &Checkout, id: Id) -> Result<&'a Running> {
-    let found = running.iter().find(|r| {
-        side_worktree_parts(&r.worktree).is_some_and(|(repo, _)| repo == checkout.repo())
-    });
-    match found {
+    match place_in_repo(running, &checkout.repo()) {
         Some(running) => Ok(running),
         None => {
             let worktrees: Vec<&str> = running.iter().map(|r| r.worktree.as_str()).collect();

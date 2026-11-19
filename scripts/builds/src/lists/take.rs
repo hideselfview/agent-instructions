@@ -32,7 +32,7 @@ use crate::lists::item::{Item, open_item};
 use crate::lists::item_command::blocking_words;
 use crate::lists::kept_work::{self, kept_in, places_words};
 use crate::lists::running::{
-    self, Running, SpanKind, open_span, running_in, side_worktree_parts, start,
+    PlaceTable, Running, SpanKind, insert_places, open_span, place_in_repo, running_in, start,
 };
 use crate::lists::spec_check::{self, Brief, Setup};
 use crate::lists::store::{self, Store};
@@ -266,9 +266,7 @@ fn require_joinable(item: &Item, places: &[Place], brief: &str) -> Result<()> {
     let id = item.id;
     for place in places {
         let repo = place.checkout.repo();
-        if let Some(running) = item.running.iter().find(|running| {
-            side_worktree_parts(&running.worktree).is_some_and(|(of, _)| of == repo)
-        }) {
+        if let Some(running) = place_in_repo(&item.running, &repo) {
             fail!(
                 "{id} already runs in {} on {}, its worktree of repo {repo}; an item runs in one worktree per repo, so stop it first (`builds item stop {} --why WHY`) to run it elsewhere",
                 running.worktree,
@@ -464,9 +462,12 @@ pub fn take(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
                     start(db, &ids, &running)?;
                 }
                 Take::Join => {
+                    // An item runs in one worktree per repo: the database
+                    // refuses a second place in a repo where it runs.
                     for id in &ids {
-                        running::join(
+                        insert_places(
                             db,
+                            PlaceTable::Running,
                             *id,
                             places
                                 .iter()

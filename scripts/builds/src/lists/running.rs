@@ -193,6 +193,14 @@ pub fn insert_places<'a>(
     Ok(())
 }
 
+/// The place of <running> in <repo>, the worktree an item runs in there, if
+/// it runs there: an item runs in one worktree per repo.
+pub fn place_in_repo<'a>(running: &'a [Running], repo: &str) -> Option<&'a Running> {
+    running
+        .iter()
+        .find(|r| side_worktree_parts(&r.worktree).is_some_and(|(of, _)| of == repo))
+}
+
 /// The repo and checkout name of a side worktree path.
 pub fn side_worktree_parts(path: &str) -> Option<(String, String)> {
     side_worktree_split(path).map(|(_, repo, checkout)| (repo, checkout))
@@ -221,19 +229,6 @@ pub fn start(db: &Connection, ids: &[Id], places: &[Running]) -> Result<()> {
         )?;
     }
     Ok(())
-}
-
-/// Adds <places>, each a side worktree and its branch, to the places open
-/// item <id> runs in: its work in another repo of its project, with the
-/// run's brief and moment. The database refuses a place of an item that does
-/// not run, and a second place in a repo where the item runs.
-pub fn join<'a>(
-    db: &Connection,
-    id: Id,
-    places: impl IntoIterator<Item = (&'a str, &'a str)>,
-) -> Result<()> {
-    item::require_open_item(db, id)?;
-    insert_places(db, PlaceTable::Running, id, places)
 }
 
 /// Gives every place open item <id> runs in <brief>. Refused when it does

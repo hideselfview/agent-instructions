@@ -441,7 +441,9 @@ fn a_place_joins_a_running_items_run_in_a_repo_it_does_not_run_in() {
     let id = item(&db, vec![]);
     let idle = item(&db, vec![]);
     start(&db, &[id], &[place("/d/bae-worktrees/side-1", "work")]).unwrap();
-    join(&db, id, [("/d/coven-worktrees/side-2", "work")]).unwrap();
+    let join =
+        |id, worktree, branch| insert_places(&db, PlaceTable::Running, id, [(worktree, branch)]);
+    join(id, "/d/coven-worktrees/side-2", "work").unwrap();
     let lists = read(&db);
     let running: Vec<(&str, &str, &str)> = lists.items[0]
         .running
@@ -455,6 +457,10 @@ fn a_place_joins_a_running_items_run_in_a_repo_it_does_not_run_in() {
             ("/d/coven-worktrees/side-2", "work", "b.md")
         ]
     );
-    assert!(join(&db, id, [("/d/bae-worktrees/side-3", "other")]).is_err());
-    assert!(join(&db, idle, [("/d/coven-worktrees/side-4", "work")]).is_err());
+    assert!(join(id, "/d/bae-worktrees/side-3", "other").is_err());
+    assert!(join(idle, "/d/coven-worktrees/side-4", "work").is_err());
+    assert_eq!(
+        place_in_repo(&lists.items[0].running, "coven").map(|r| r.worktree.as_str()),
+        Some("/d/coven-worktrees/side-2")
+    );
 }
