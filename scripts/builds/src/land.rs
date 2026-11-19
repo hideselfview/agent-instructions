@@ -702,6 +702,9 @@ impl Landing<'_> {
             let _ = writeln!(out, "LANDING REFUSED, land fetched and pushed nothing:");
             return Err(refuse(out, said));
         }
+        if said.starts_with(crate::review::over_cap::TAKEN) {
+            let _ = writeln!(out, "{}", said.trim_end());
+        }
         Ok(())
     }
 

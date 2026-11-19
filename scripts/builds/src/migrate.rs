@@ -205,9 +205,12 @@ const BEFORE_DESIGN_PLACE_NAMING_STAMP: i64 = 889_221_987;
 /// The stamp of the schema before the variants of a design change.
 const BEFORE_DESIGN_VARIANTS_STAMP: i64 = 66_978_370;
 
+/// The stamp of the schema before the branches over the review's cap.
+const BEFORE_OVER_CAP_STAMP: i64 = 1_558_212_582;
+
 /// Every stamp a store can carry that `move_store` moves, oldest schema first.
 /// A new move adds the stamp of the schema before it at the end.
-const STAMPS: [i64; 18] = [
+const STAMPS: [i64; 19] = [
     BEFORE_CONDITION_ENDERS_STAMP,
     BEFORE_ITEM_EVENT_STAMP,
     BEFORE_LAND_RUN_STAMP,
@@ -226,6 +229,7 @@ const STAMPS: [i64; 18] = [
     BEFORE_DESIGN_CIRCLE_BOX_STAMP,
     BEFORE_DESIGN_PLACE_NAMING_STAMP,
     BEFORE_DESIGN_VARIANTS_STAMP,
+    BEFORE_OVER_CAP_STAMP,
 ];
 
 /// Whether a store stamped <found> comes before the move that follows the
@@ -410,6 +414,11 @@ fn move_store(path: &Path, now: i64) -> Result<()> {
     // empty tables: no change has any yet.
     if before(found, BEFORE_DESIGN_VARIANTS_STAMP) {
         tx.execute_batch(db::DESIGN_VARIANTS_PART).sql()?;
+    }
+    // Every store from before the branches over the review's cap gets the
+    // empty table: no branch has been over it yet.
+    if before(found, BEFORE_OVER_CAP_STAMP) {
+        tx.execute_batch(db::OVER_CAP_PART).sql()?;
     }
     tx.pragma_update(None, "user_version", db::stamp()).sql()?;
     let broken: Option<String> = tx

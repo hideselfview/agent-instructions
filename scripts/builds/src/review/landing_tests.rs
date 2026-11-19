@@ -911,7 +911,7 @@ fn a_landing_of_design_files_only_starts_no_audit() {
             crate::lists::project::set_design_globs(
                 db,
                 crate::lists::project::GlobKind::Place,
-                &[("demo".to_string(), vec!["design/*.html".to_string()])].into(),
+                &[("demo".to_string(), vec!["design/*.rs".to_string()])].into(),
             )
         })
         .unwrap();
@@ -920,13 +920,87 @@ fn a_landing_of_design_files_only_starts_no_audit() {
     let code = demo.commit(&side, "a.rs");
 
     let design = asked(&demo, &fake, &side, std::slice::from_ref(&board));
-    assert!(holds_design_only(&demo.tool, &design).unwrap());
+    assert!(holds_design_only(&design).unwrap());
     // The sample picks every landing at roll 0, and this one starts none.
-    assert!(start_audit(&demo.tool, &design, 1, 0.0).is_ok());
+    assert!(start_audit(&design, 1, 0.0).is_ok());
 
     let mixed = asked(&demo, &fake, &side, &[board, code]);
-    assert!(!holds_design_only(&demo.tool, &mixed).unwrap());
+    assert!(!holds_design_only(&mixed).unwrap());
     // Past the design-only check, the audit asks the store about landing 1,
     // which has no record: the design landing never got that far.
-    assert!(start_audit(&demo.tool, &mixed, 1, 0.0).is_err());
+    assert!(start_audit(&mixed, 1, 0.0).is_err());
+}
+
+/// <body> repeated past the review cap, committed as <file> in <side>.
+fn big_commit(demo: &Demo, side: &Path, file: &str, body: &str) -> String {
+    let path = side.join(file);
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    let lines = check::MAX_ADDED_LINES as usize + 1;
+    std::fs::write(&path, body.repeat(lines)).unwrap();
+    let _ = demo;
+    crate::testing::git(side, &["add", file]);
+    crate::testing::git(side, &["commit", "-q", "-m", file]);
+    crate::testing::git_out(side, &["rev-parse", "HEAD"])
+}
+
+fn over_the_cap_of(demo: &Demo, fake: &Fake, side: &Path, sha: &str) -> Over {
+    let asked = asked(demo, fake, side, &[sha.to_string()]);
+    let verdict = judge(
+        &asked.conn,
+        asked.change(),
+        side,
+        &asked.needs,
+        CodeCheck::Branch("HEAD"),
+        &asked.material,
+    )
+    .unwrap();
+    super::over_the_cap(&asked, &verdict).unwrap()
+}
+
+#[test]
+fn a_branch_over_the_cap_that_needs_no_review_lands_with_land_saying_why() {
+    let demo = demo("landing-over-cap-design");
+    let fake = fake(&demo.scratch.dir);
+    let side = demo.add_side(1, "agent", "work");
+    let stamp = stamp();
+    demo.store
+        .write(&stamp, "design-globs", |db| {
+            crate::lists::project::set_design_globs(
+                db,
+                crate::lists::project::GlobKind::Place,
+                &[("demo".to_string(), vec!["design/*.rs".to_string()])].into(),
+            )
+        })
+        .unwrap();
+    let board = big_commit(&demo, &side, "design/board.rs", "let x = 1;\n");
+    let reported = review_of(&demo, &fake, &side);
+    assert!(reported.refusal.is_none(), "{}", reported.text);
+    assert!(fake.prompts().is_empty());
+    let Over::Takes(said) = over_the_cap_of(&demo, &fake, &side, &board) else {
+        panic!("a branch of design files only needs no review")
+    };
+    assert!(said.starts_with(over_cap::TAKEN), "{said}");
+    assert!(said.contains("design files only"), "{said}");
+    assert!(said.contains("patch id"), "{said}");
+    // A rebase that keeps the lines keeps the answer: another commit that
+    // changes a line makes it another branch.
+    let code = big_commit(&demo, &side, "a.rs", "let x = 1;\n");
+    assert!(matches!(
+        over_the_cap_of(&demo, &fake, &side, &code),
+        Over::Under
+    ));
+}
+
+#[test]
+fn a_branch_over_the_cap_that_waits_on_the_person_does_not_land() {
+    let demo = demo("landing-over-cap-asked");
+    let fake = fake(&demo.scratch.dir);
+    let side = demo.add_side(1, "agent", "work");
+    let code = big_commit(&demo, &side, "a.rs", "let x = 1;\n");
+    let reported = review_of(&demo, &fake, &side);
+    assert!(reported.refusal.is_some());
+    let Over::Waits(said) = over_the_cap_of(&demo, &fake, &side, &code) else {
+        panic!("a branch of code over the cap waits on the person")
+    };
+    assert!(said.contains("Question"), "{said}");
 }

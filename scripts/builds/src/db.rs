@@ -162,6 +162,10 @@ pub const DESIGN_CIRCLE_BOX_PART: &str = include_str!("lists/design_circle_box.s
 /// review board that surround a box.
 pub const DESIGN_VARIANTS_PART: &str = include_str!("lists/design_variants.sql");
 
+/// The branches over the review's cap (review/over_cap.sql); the schema holds
+/// it after the variants of a design change.
+pub const OVER_CAP_PART: &str = include_str!("review/over_cap.sql");
+
 /// The whole schema: the lists' tables, then the hook stats', then the
 /// app-build timings', then the design changes' recording sessions', then the
 /// stored shot findings, then the review's, then the hook checks' starting
@@ -174,8 +178,14 @@ pub const DESIGN_VARIANTS_PART: &str = include_str!("lists/design_variants.sql")
 /// the commits of the cargo runs and the app builds, then what the failed
 /// hook checks said, then what the failed app build steps said, then what
 /// builds told the judge, then the circles of a review board that surround a
-/// box, then the variants of a design change.
+/// box, then the variants of a design change, then the branches over the
+/// review's cap.
 pub fn schema() -> String {
+    format!("{}\n{OVER_CAP_PART}", schema_before_over_cap())
+}
+
+/// The schema as it was before the branches over the review's cap joined it.
+pub fn schema_before_over_cap() -> String {
     format!(
         "{}\n{DESIGN_VARIANTS_PART}",
         schema_before_design_variants()

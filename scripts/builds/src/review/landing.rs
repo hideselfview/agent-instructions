@@ -40,8 +40,10 @@ use crate::fail::{Context, Fail, Result};
 use crate::lists::Stamp;
 use crate::lists::args::Args;
 use crate::lists::store::{Store, resolve_by};
+use crate::review::check;
 use crate::review::commits;
 use crate::review::files;
+use crate::review::over_cap;
 use crate::review::record::{self, Change, LandingRow};
 use crate::review::render;
 use crate::review::run::{self, Material};
@@ -539,16 +541,63 @@ pub fn check_landing_command(tool: &Tool, args: &[String]) -> Result<()> {
         CodeCheck::Branch("HEAD"),
         &asked.material,
     )?;
-    match refusal(&asked.needs, &verdict) {
-        Some(why) => {
-            print!("{why}");
-            Err(Fail::Exit(1))
+    let Some(why) = refusal(&asked.needs, &verdict) else {
+        println!("{}", taken(&verdict));
+        return Ok(());
+    };
+    match over_the_cap(&asked, &verdict)? {
+        Over::Takes(said) => println!("{said}"),
+        Over::Waits(said) => {
+            print!("{said}");
+            return Err(Fail::Exit(1));
         }
-        None => {
-            println!("{}", taken(&verdict));
-            Ok(())
+        Over::Under => {
+            print!("{why}");
+            return Err(Fail::Exit(1));
         }
     }
+    Ok(())
+}
+
+/// What the branch's size adds to a refusal of its commits.
+enum Over {
+    /// The branch is under the cap, or the person approved a review of it.
+    Under,
+    /// The branch is over the cap and no review is needed.
+    Takes(String),
+    /// The branch is over the cap and waits on the person.
+    Waits(String),
+}
+
+/// Whether the branch, which the review refuses, is over the review cap and
+/// so was recorded by `builds review` as needing no review or as waiting on
+/// the person. A review's open or unsettled findings keep it from landing.
+fn over_the_cap(asked: &Asked, verdict: &Verdict) -> Result<Over> {
+    let findings_wait = match verdict {
+        Verdict::Unfinished(_, unfinished) => {
+            !unfinished.unsettled.is_empty() || !unfinished.open.is_empty()
+        }
+        _ => false,
+    };
+    let net = run::diff_between(&asked.dir, BRANCH_BASE, "HEAD")?;
+    let added = check::added_lines(&net.diff.text);
+    if added <= check::MAX_ADDED_LINES {
+        return Ok(Over::Under);
+    }
+    let patch_id = over_cap::patch_id(&net.diff.text)?;
+    let branch = over_cap::Branch {
+        change: asked.change(),
+        patch_id: &patch_id,
+    };
+    Ok(match over_cap::standing(&asked.conn, branch)? {
+        Some(over_cap::Standing::Mechanical(why)) if !findings_wait => {
+            Over::Takes(over_cap::taken_text(added, why, &patch_id))
+        }
+        Some(standing @ (over_cap::Standing::Asked(_) | over_cap::Standing::Declined(_))) => {
+            Over::Waits(over_cap::waiting_text(&asked.key, added, standing))
+        }
+        _ => Over::Under,
+    })
 }
 
 /// What a verdict that lets the commits land says of them.
@@ -633,7 +682,7 @@ pub fn landed_command(tool: &Tool, args: &[String]) -> Result<()> {
         return Ok(());
     };
     let roll = (super::clock_bits() % 1_000_000) as f64 / 1_000_000.0;
-    if let Err(why) = start_audit(tool, &asked, landing, roll) {
+    if let Err(why) = start_audit(&asked, landing, roll) {
         eprintln!(
             "builds: the audit of review landing {landing} was not started: {}",
             why.text()
@@ -644,20 +693,15 @@ pub fn landed_command(tool: &Tool, args: &[String]) -> Result<()> {
 
 /// Does the landing hold design files only? An audit of one would run
 /// reviewers over every board it changes, so none is started.
-fn holds_design_only(tool: &Tool, asked: &Asked) -> Result<bool> {
+fn holds_design_only(asked: &Asked) -> Result<bool> {
     let shas: Vec<String> = asked.needs.iter().map(|need| need.sha.clone()).collect();
-    crate::lists::change_is_design_only(
-        tool,
-        &asked.store.project,
-        &asked.dir.display().to_string(),
-        &shas,
-    )
+    crate::lists::change_is_design_only(&asked.store, &asked.dir, &asked.repo, &shas)
 }
 
 /// Starts `builds review audit` on <landing> in the background when the
 /// sample picks it.
-fn start_audit(tool: &Tool, asked: &Asked, landing: i64, roll: f64) -> Result<()> {
-    if holds_design_only(tool, asked)? {
+fn start_audit(asked: &Asked, landing: i64, roll: f64) -> Result<()> {
+    if holds_design_only(asked)? {
         return Ok(());
     }
     if !super::audit::sampled(

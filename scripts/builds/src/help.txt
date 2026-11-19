@@ -2538,14 +2538,28 @@ run `review replay --rules-root` on it.
                               worktree's branch (branch:<name>); a key opens
                               a landing under review in that repo, which
                               stays open until its change lands.
-                              A run starts at most 3 reviewers at once. Before
-                              it starts any, it counts the lines the diffs
-                              it would send add and remove. Over 10,000
-                              lines (above 99% of the review runs in the
-                              stores, which changed 7,180 or fewer), it starts
-                              no reviewer, prints the count and the cap, and
-                              exits 1. No flag skips the cap: the person
-                              decides whether such a run goes ahead.
+                              A run starts at most 3 reviewers at once.
+                              A branch whose diffs add more than 2,000
+                              lines (the cap: in bae's last 200 main
+                              commits, a commit added a median of 27
+                              lines, 351 at the 90th percentile and 1,843
+                              at the 99th) starts no reviewer. When its
+                              commits change design files only
+                              (`builds design only`), or git's rename
+                              detection (-M) pairs its renamed files and the
+                              lines that still differ differ by renamed
+                              identifiers only, `review` records that the
+                              branch needs no review, and `builds land`
+                              takes its commits with no review and says
+                              why, while the net change keeps its patch id
+                              (`git patch-id --stable`). For any other branch
+                              `review` asks the person on the decision
+                              stack whether to review it, naming the branch,
+                              its size and the cap, and `builds land` refuses
+                              the commits while the question is open. When the
+                              person answers it, the next `review` reviews
+                              the branch; when they close it any other way,
+                              nothing reviews or lands the branch.
                               A run on a key that has a review already asks
                               only what the review lacks (above); builds
                               refuses the run when the review lacks nothing.
@@ -2765,9 +2779,8 @@ run `review replay --rules-root` on it.
                               settles it. A confirmed miss becomes a case
                               (`review case propose`) and a fix item.
                               The audit starts at most 3 reviewers at once
-                              and, like `builds review`, starts none, prints
-                              the count and exits 1 when the diff it would
-                              send changes more than 10,000 lines
+                              and starts none for a diff that adds more
+                              than the 2,000 lines of the review cap
   builds review misses        the candidate misses nobody has settled
   builds review misses --check [--model <model>] [--rules-root DIR] [--reviewer PROGRAM]
                               settle each of them as an audit settles the

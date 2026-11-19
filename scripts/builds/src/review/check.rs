@@ -156,26 +156,32 @@ pub fn reviewers_map<T: Sync, R: Send>(items: &[T], f: impl Fn(&T) -> R + Sync) 
     crate::checkout::parallel_map_at_most(REVIEWERS_AT_ONCE, items, f)
 }
 
-/// The most changed lines of diff text a `builds review` or `builds review
-/// audit` run sends its reviewers. Of the 1,286 review runs in the stores of
-/// bae and builds, 99% changed 7,180 lines or fewer, and the largest changed
-/// 21,018, so this is above nearly every ordinary branch.
-pub const MAX_CHANGED_LINES: i64 = 10_000;
+/// The most added lines of diff text a branch's review sends its reviewers.
+/// In the last 200 commits of bae's main, a commit added a median of 27
+/// lines, 351 at the 90th percentile and 1,843 at the 99th, and the one
+/// design landing among them added 5,306.
+pub const MAX_ADDED_LINES: i64 = 2_000;
 
-/// Fails, before any reviewer starts, when the diffs <diffs> hold more than
-/// `MAX_CHANGED_LINES` changed lines in all. No flag skips it: the person
-/// decides whether such a run goes ahead.
-pub fn within_the_cap<'a>(
-    what: &str,
-    diffs: impl IntoIterator<Item = &'a str>,
-) -> crate::fail::Result<()> {
-    let lines: i64 = diffs.into_iter().map(changed_lines).sum();
-    if lines > MAX_CHANGED_LINES {
-        crate::fail!(
-            "{what} would send its reviewers {lines} changed lines, over the cap of {MAX_CHANGED_LINES}, so no reviewer started. The person decides whether a run this large goes ahead: ask them, and give no flag to skip the cap."
-        );
+/// How many lines the hunks of <diff> add.
+pub fn added_lines(diff: &str) -> i64 {
+    let mut in_hunk = false;
+    let mut added = 0;
+    for line in diff.lines() {
+        if line.starts_with("diff --git ") {
+            in_hunk = false;
+        } else if line.starts_with("@@") {
+            in_hunk = true;
+        } else if in_hunk && line.starts_with('+') {
+            added += 1;
+        }
     }
-    Ok(())
+    added
+}
+
+/// The lines <diffs> add in all, when that is over `MAX_ADDED_LINES`.
+pub fn over_the_cap<'a>(diffs: impl IntoIterator<Item = &'a str>) -> Option<i64> {
+    let lines: i64 = diffs.into_iter().map(added_lines).sum();
+    (lines > MAX_ADDED_LINES).then_some(lines)
 }
 
 /// How many lines the hunks of <diff> add and remove, leaving out each file's

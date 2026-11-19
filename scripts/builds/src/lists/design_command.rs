@@ -199,18 +199,20 @@ fn only(tool: &Tool, args: &[String]) -> Result<String> {
     Ok(String::new())
 }
 
-/// Do <shas> in <dir> change only design files, as `design only` asks?
+/// Do <shas> in the repo <repo> at <top> change only design files, by the
+/// design globs <store> holds for it, as `design only` asks?
 pub fn change_is_design_only(
-    tool: &Tool,
-    project: &str,
-    dir: &str,
+    store: &Store,
+    top: &Path,
+    repo: &str,
     shas: &[String],
 ) -> Result<bool> {
-    let mut words = vec!["--project".to_string(), project.to_string()];
-    words.push(dir.to_string());
-    words.extend(shas.iter().cloned());
-    let args = Args::parse(&words, &[], &[])?;
-    Ok(named_scope(tool, &args, dir, shas)?.changes.only_design())
+    let globs = Globs::of(&store.load()?, repo);
+    let full = shas
+        .iter()
+        .map(|sha| design_paths::full_sha(top, sha))
+        .collect::<Result<Vec<_>>>()?;
+    Ok(design_paths::changes_of(top, &globs, &full)?.only_design())
 }
 
 /// A design request's design change repo, commits and changes.

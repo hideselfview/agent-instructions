@@ -1202,31 +1202,151 @@ fn every_review_command_fails_for_a_project_with_no_store() {
     }
 }
 
+/// A commit of <file> in <side> that adds more lines than the review cap.
+fn big_commit(side: &Path, file: &str, body: &str) -> String {
+    let lines = check::MAX_ADDED_LINES as usize + 1;
+    std::fs::write(side.join(file), body.repeat(lines)).unwrap();
+    crate::testing::git(side, &["add", file]);
+    crate::testing::git(side, &["commit", "-q", "-m", file]);
+    crate::testing::git_out(side, &["rev-parse", "HEAD"])
+}
+
+fn over_cap_standing(demo: &Demo, side: &Path) -> Option<over_cap::Standing> {
+    let net = run::diff_of(side, "main").unwrap();
+    let id = over_cap::patch_id(&net.diff.text).unwrap();
+    let conn = demo.store.open_existing().unwrap();
+    over_cap::standing(
+        &conn,
+        over_cap::Branch {
+            change: record::Change {
+                repo: "demo",
+                key: "k",
+            },
+            patch_id: &id,
+        },
+    )
+    .unwrap()
+}
+
 #[test]
-fn a_review_over_the_cap_starts_no_reviewer_and_records_nothing() {
+fn a_branch_over_the_cap_starts_no_reviewer_and_asks_the_person_until_they_answer() {
     let demo = demo("review-over-cap");
     let fake = fake(&demo.scratch.dir);
     let side = demo.add_side(1, "agent", "work");
-    let lines = check::MAX_CHANGED_LINES as usize + 1;
-    std::fs::write(side.join("big.rs"), "x\n".repeat(lines)).unwrap();
-    crate::testing::git(&side, &["add", "big.rs"]);
-    crate::testing::git(&side, &["commit", "-q", "-m", "big"]);
-    let refused = try_review(&demo, &fake, &side, "k").unwrap_err().text();
-    assert!(refused.contains("10001 changed lines"), "{refused}");
-    assert!(refused.contains("no reviewer started"), "{refused}");
+    big_commit(&side, "big.rs", "let x = 1;\n");
+    let asked = run_review(&demo, &fake, &side, "k");
+    assert!(asked.refusal.is_some());
+    assert!(asked.text.contains("adds 2001 lines"), "{}", asked.text);
     assert!(fake.prompts().is_empty());
-    let conn = demo.store.open_existing().unwrap();
+    assert!(asked.landing.is_none());
+    let Some(over_cap::Standing::Asked(question)) = over_cap_standing(&demo, &side) else {
+        panic!("{:?}", over_cap_standing(&demo, &side))
+    };
+    let lists = demo.store.load().unwrap();
+    assert!(lists.question(question).unwrap().title.contains("2001"));
+    // A second run asks nothing again and starts no reviewer.
+    let again = run_review(&demo, &fake, &side, "k");
     assert!(
-        record::open_landing(
-            &conn,
-            record::Change {
-                repo: "demo",
-                key: "k"
-            }
-        )
-        .unwrap()
-        .is_none()
+        again.text.contains(&format!("Question {question}")),
+        "{}",
+        again.text
     );
+    assert!(fake.prompts().is_empty());
+    assert_eq!(
+        demo.store.load().unwrap().questions.len(),
+        lists.questions.len()
+    );
+    // The person answers, and the next run reviews the branch.
+    demo.store
+        .write(&stamp(), "answer", |db| {
+            let decision = crate::lists::fixtures::decision_answering(db, question);
+            crate::lists::record::close(
+                db,
+                question,
+                crate::lists::How::Answered(decision),
+                &stamp(),
+            )
+        })
+        .unwrap();
+    let approved = run_review(&demo, &fake, &side, "k");
+    assert!(approved.landing.is_some(), "{}", approved.text);
+    assert!(!fake.prompts().is_empty());
+}
+
+#[test]
+fn a_branch_over_the_cap_that_the_person_closed_without_answering_is_not_reviewed() {
+    let demo = demo("review-over-cap-declined");
+    let fake = fake(&demo.scratch.dir);
+    let side = demo.add_side(1, "agent", "work");
+    big_commit(&side, "big.rs", "let x = 1;\n");
+    run_review(&demo, &fake, &side, "k");
+    let Some(over_cap::Standing::Asked(question)) = over_cap_standing(&demo, &side) else {
+        panic!("asked")
+    };
+    demo.store
+        .write(&stamp(), "drop", |db| {
+            crate::lists::record::close(
+                db,
+                question,
+                crate::lists::How::Dropped("no".into()),
+                &stamp(),
+            )
+        })
+        .unwrap();
+    let declined = run_review(&demo, &fake, &side, "k");
+    assert!(
+        declined.text.contains("closed question"),
+        "{}",
+        declined.text
+    );
+    assert!(declined.refusal.is_some());
+    assert!(fake.prompts().is_empty());
+}
+
+#[test]
+fn a_branch_over_the_cap_that_only_renames_needs_no_review_and_asks_no_one() {
+    let demo = demo("review-over-cap-rename");
+    let fake = fake(&demo.scratch.dir);
+    let side = demo.add_side(1, "agent", "work");
+    let body: String = (0..2100)
+        .map(|n| format!("let total{n} = count(total);\n"))
+        .collect();
+    std::fs::write(side.join("old.rs"), &body).unwrap();
+    crate::testing::git(&side, &["add", "old.rs"]);
+    crate::testing::git(&side, &["commit", "-q", "-m", "old"]);
+    // The branch under review starts at the commit that adds old.rs.
+    crate::testing::git(&side, &["branch", "base"]);
+    std::fs::write(side.join("old.rs"), body.replace("total", "sum")).unwrap();
+    crate::testing::git(&side, &["add", "old.rs"]);
+    crate::testing::git(&side, &["commit", "-q", "-m", "rename"]);
+    let reported = review_past_base(&demo, &fake, &side, "k", "base");
+    assert!(reported.refusal.is_none(), "{}", reported.text);
+    assert!(
+        reported.text.contains("only identifiers it renames"),
+        "{}",
+        reported.text
+    );
+    assert!(fake.prompts().is_empty());
+    assert!(demo.store.load().unwrap().questions.is_empty());
+}
+
+/// The review of <side> under <key> past <base>.
+fn review_past_base(demo: &Demo, fake: &Fake, side: &Path, key: &str, base: &str) -> Reported {
+    review(&Inputs {
+        store: &demo.store,
+        project: "demo",
+        repo: "demo",
+        worktree: side,
+        base,
+        head: None,
+        key,
+        root: &fake.root,
+        reviewer: &fake.program,
+        stamp: &stamp(),
+        brief: None,
+        runner: None,
+    })
+    .unwrap()
 }
 
 #[test]

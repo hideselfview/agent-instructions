@@ -980,3 +980,34 @@ fn a_store_from_before_the_design_variants_tables_gains_them_and_equals_a_fresh_
         db::schema_rows(&db::memory()).unwrap()
     );
 }
+
+#[test]
+fn the_over_cap_stamp_is_the_schema_before_it() {
+    assert_eq!(
+        db::stamp_of_text(&db::schema_before_over_cap()),
+        BEFORE_OVER_CAP_STAMP
+    );
+}
+
+/// A store from before the branches over the review's cap gains the empty
+/// table and equals a fresh schema.
+#[test]
+fn a_store_from_before_the_over_cap_table_gains_it_and_equals_a_fresh_schema() {
+    let scratch = Scratch::new("move-over-cap");
+    let places = scratch.places();
+    let dir = places.lists.join("bae");
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join(DATABASE);
+    {
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(&db::schema_before_over_cap()).unwrap();
+        conn.pragma_update(None, "user_version", BEFORE_OVER_CAP_STAMP)
+            .unwrap();
+    }
+    migrate_stores(&places, 0).unwrap();
+    let conn = db::open(&path, db::Make::Never).unwrap();
+    assert_eq!(
+        db::schema_rows(&conn).unwrap(),
+        db::schema_rows(&db::memory()).unwrap()
+    );
+}

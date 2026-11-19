@@ -122,39 +122,38 @@ fn a_quote_is_on_comment_lines_only_when_every_place_it_sits_is_a_comment() {
 fn diff_of_lines(lines: usize) -> String {
     let mut diff = format!("diff --git a/f b/f\n--- a/f\n+++ b/f\n@@ -0,0 +1,{lines} @@\n");
     diff.push_str(&"+x\n".repeat(lines));
+    diff.push_str("-gone\n");
     diff
 }
 
 #[test]
-fn a_run_over_the_cap_of_changed_lines_is_refused_and_one_at_it_is_not() {
-    let at_the_cap = diff_of_lines(MAX_CHANGED_LINES as usize);
-    assert!(within_the_cap("the review", [at_the_cap.as_str()]).is_ok());
+fn a_branch_over_the_cap_of_added_lines_is_over_and_one_at_it_is_not() {
+    let at_the_cap = diff_of_lines(MAX_ADDED_LINES as usize);
+    assert_eq!(over_the_cap([at_the_cap.as_str()]), None);
     let one_more = diff_of_lines(1);
-    let refused = within_the_cap(
-        "the audit of landing 7",
-        [at_the_cap.as_str(), one_more.as_str()],
-    )
-    .unwrap_err()
-    .text();
-    assert!(refused.contains("the audit of landing 7"), "{refused}");
-    assert!(refused.contains("10001 changed lines"), "{refused}");
-    assert!(refused.contains("cap of 10000"), "{refused}");
+    assert_eq!(
+        over_the_cap([at_the_cap.as_str(), one_more.as_str()]),
+        Some(MAX_ADDED_LINES + 1)
+    );
 }
 
 #[test]
 fn at_most_three_reviewers_run_at_once() {
-    use std::sync::atomic::{AtomicUsize, Ordering};
-    let running = AtomicUsize::new(0);
-    let most = AtomicUsize::new(0);
+    use std::sync::{Barrier, Mutex};
+    // Each call waits until three calls wait together, so three workers run
+    // at once, and the set of threads that ran a call shows no fourth.
+    let together = Barrier::new(REVIEWERS_AT_ONCE);
+    let threads = Mutex::new(std::collections::BTreeSet::new());
     let items: Vec<usize> = (0..12).collect();
     let doubled = reviewers_map(&items, |n| {
-        let now = running.fetch_add(1, Ordering::SeqCst) + 1;
-        most.fetch_max(now, Ordering::SeqCst);
-        std::thread::sleep(std::time::Duration::from_millis(20));
-        running.fetch_sub(1, Ordering::SeqCst);
+        together.wait();
+        threads
+            .lock()
+            .unwrap()
+            .insert(format!("{:?}", std::thread::current().id()));
         n * 2
     });
     assert_eq!(doubled, items.iter().map(|n| n * 2).collect::<Vec<_>>());
     assert_eq!(REVIEWERS_AT_ONCE, 3);
-    assert!(most.load(Ordering::SeqCst) <= REVIEWERS_AT_ONCE);
+    assert_eq!(threads.lock().unwrap().len(), REVIEWERS_AT_ONCE);
 }
