@@ -544,3 +544,30 @@ fn a_script_at_the_terminal_runs_on_the_host() {
     };
     assert!(message.starts_with("sudo on host m1 failed"), "{message}");
 }
+
+fn sh(script: &str) -> Command {
+    let mut command = Command::new("sh");
+    command.arg("-c").arg(script);
+    command
+}
+
+/// `output_of` accepts exit 0, accepts lsof's exit 1 with output only when
+/// asked, and fails every other exit, ssh's 255 after output included, naming
+/// the status and stderr.
+#[test]
+fn output_of_accepts_only_the_exits_it_is_told_to() {
+    assert_eq!(output_of(sh("echo a"), "x", Accept::Zero).unwrap(), "a\n");
+    assert_eq!(
+        output_of(sh("echo a; exit 1"), "x", Accept::ZeroOrOneWithOutput).unwrap(),
+        "a\n"
+    );
+    assert!(output_of(sh("echo a; exit 1"), "x", Accept::Zero).is_err());
+    assert!(output_of(sh("exit 1"), "x", Accept::ZeroOrOneWithOutput).is_err());
+    let said = output_of(
+        sh("echo a; echo dropped >&2; exit 255"),
+        "lsof on host m1",
+        Accept::ZeroOrOneWithOutput,
+    )
+    .unwrap_err();
+    assert!(said.contains("255") && said.contains("dropped"), "{said}");
+}

@@ -20,7 +20,7 @@ use serde::Serialize;
 
 use crate::app_config::DEFAULT_STEP_LIMIT;
 use crate::health::Advice;
-use crate::host::{Host, Ssh, command_at, output_of};
+use crate::host::{Accept, Host, Ssh, command_at, output_of};
 use crate::shells::{IDLE_MINUTES, IDLE_SHARE, basename, command_of, is_agent_argv, shown};
 use crate::text::duration;
 
@@ -618,25 +618,6 @@ fn ps_script() -> String {
     format!("ps -axww -o {PS_FORMAT}")
 }
 
-/// What `lsof` printed. lsof exits 1 when a process it was asked about has
-/// ended since the listing, and still prints the others, so only an exit with
-/// nothing printed fails.
-fn lsof_output(command: std::process::Command, what: &str) -> Result<String, String> {
-    let mut command = command;
-    let output = command
-        .stdin(std::process::Stdio::null())
-        .output()
-        .map_err(|error| format!("running {what}: {error}"))?;
-    if !output.status.success() && output.stdout.is_empty() {
-        return Err(format!(
-            "{what} failed ({}): {}",
-            output.status,
-            String::from_utf8_lossy(&output.stderr).trim()
-        ));
-    }
-    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
-}
-
 /// The folders `lsof -Fpn` lists, as pid to path.
 pub fn parse_lsof(text: &str) -> HashMap<i32, String> {
     let mut pid = None;
@@ -665,6 +646,7 @@ pub fn read(ssh: &Ssh, host: &Host, dashboard: Option<i32>) -> HostBusy {
         let listing = output_of(
             command_at(ssh, host, &ps_script(), crate::host::Terminal::None),
             &format!("ps on {}", crate::host::place(&host.name)),
+            Accept::Zero,
         )?;
         let rows = parse_ps(&listing)?;
         let pids = pids_to_place(&rows);
@@ -674,7 +656,7 @@ pub fn read(ssh: &Ssh, host: &Host, dashboard: Option<i32>) -> HostBusy {
             match &host.target {
                 Some(_) => {
                     let list: Vec<String> = pids.iter().map(|p| p.to_string()).collect();
-                    parse_lsof(&lsof_output(
+                    parse_lsof(&output_of(
                         command_at(
                             ssh,
                             host,
@@ -682,6 +664,7 @@ pub fn read(ssh: &Ssh, host: &Host, dashboard: Option<i32>) -> HostBusy {
                             crate::host::Terminal::None,
                         ),
                         &format!("lsof on host {}", host.name),
+                        Accept::ZeroOrOneWithOutput,
                     )?)
                 }
                 None => pids

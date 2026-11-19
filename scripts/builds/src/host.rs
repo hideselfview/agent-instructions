@@ -126,14 +126,34 @@ pub fn command_at(ssh: &Ssh, host: &Host, script: &str, terminal: Terminal) -> C
     }
 }
 
-/// What <command> printed. It fails, naming <what>, when it cannot run or
-/// exits non-zero, whatever it printed.
-pub fn output_of(mut command: Command, what: &str) -> std::result::Result<String, String> {
+/// Which exits of a command `output_of` counts as success.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Accept {
+    /// Exit 0 only.
+    Zero,
+    /// Exit 0, or exit 1 with output: `lsof` exits 1 when a process it was
+    /// asked about has ended, and still prints the others. Any other status
+    /// (ssh's 255 when the connection drops, a signal) fails.
+    ZeroOrOneWithOutput,
+}
+
+/// What <command> printed. It fails, naming <what>, the status and what the
+/// command wrote to stderr, when it cannot run or exits in a way <accept> does
+/// not allow.
+pub fn output_of(
+    mut command: Command,
+    what: &str,
+    accept: Accept,
+) -> std::result::Result<String, String> {
     let output = command
         .stdin(std::process::Stdio::null())
         .output()
         .map_err(|error| format!("running {what}: {error}"))?;
-    if !output.status.success() {
+    let ok = output.status.success()
+        || (accept == Accept::ZeroOrOneWithOutput
+            && output.status.code() == Some(1)
+            && !output.stdout.is_empty());
+    if !ok {
         return Err(format!(
             "{what} failed ({}): {}",
             output.status,
