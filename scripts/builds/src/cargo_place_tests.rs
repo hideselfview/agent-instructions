@@ -114,6 +114,9 @@ fn a_host_gets_the_forwarded_environment_and_runs_builds_as_local() {
     let env = |name: &str| match name {
         "RUSTDOCFLAGS" => Some(OsString::from("-D warnings")),
         "RUST_BACKTRACE" => Some(OsString::from("1")),
+        "CLIPPY_ARGS" => Some(OsString::from(
+            "-D__CLIPPY_HACKERY__warnings__CLIPPY_HACKERY__",
+        )),
         "HOME" => Some(OsString::from("/Users/me")),
         _ => None,
     };
@@ -124,6 +127,7 @@ fn a_host_gets_the_forwarded_environment_and_runs_builds_as_local() {
         args(&[
             "env",
             "BUILDS_CARGO_HOST=local",
+            "CLIPPY_ARGS=-D__CLIPPY_HACKERY__warnings__CLIPPY_HACKERY__",
             "RUSTDOCFLAGS=-D warnings",
             "RUST_BACKTRACE=1",
             "builds",

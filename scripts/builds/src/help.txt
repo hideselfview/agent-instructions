@@ -436,7 +436,9 @@ the same time, builds picks a host for one run at a time, so the runs go to
 different hosts. builds sends the checkout's HEAD plus its working tree (staged and unstaged edits, deletions,
 and files git neither tracks nor ignores) as a commit to the host's clone only,
 runs cargo in a remote worktree there that keeps its build between runs, prints
-the same output and exits with the same status; one line on stderr names the
+the same output and exits with the same status. The host's cargo gets
+CLIPPY_ARGS, RUSTDOCFLAGS, RUSTFLAGS, RUST_BACKTRACE, RUST_LOG and
+RUST_TEST_THREADS from the caller's environment; one line on stderr names the
 host. When the host refuses the job before cargo starts there (sending the
 commit or claiming a worktree fails there), builds records the host as
 refusing jobs, says so on stderr with what the host said, and runs the command
@@ -501,7 +503,10 @@ restart the server.
                               BUILDS_CARGO_BEFORE=<path> [<args>] runs a
                               program of the checkout in its top folder before
                               cargo, on whichever host runs cargo, and a
-                              failure stops the command with its status.
+                              failure stops the command with its status. The
+                              program runs without BUILDS_CARGO_BEFORE in its
+                              environment, so a `builds cargo` it runs runs no
+                              program first.
                               BUILDS_CARGO_HOST=<name> picks the host for one
                               command (local is this Mac); a command that must
                               stay here runs here, with a note on stderr.

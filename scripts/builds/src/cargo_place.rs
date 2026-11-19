@@ -96,7 +96,10 @@ fn runs_here_note(named: Option<&str>, why: &str) -> Option<String> {
 
 /// What a build on a host gets from the caller's environment. Each changes
 /// what the compilers or tests print or check and holds no path of this Mac.
-const FORWARDED: [&str; 5] = [
+/// CLIPPY_ARGS holds the lint levels of a clippy driver that runs as the
+/// workspace's rustc wrapper, as coven's typed lints' driver does.
+const FORWARDED: [&str; 6] = [
+    "CLIPPY_ARGS",
     "RUSTDOCFLAGS",
     "RUSTFLAGS",
     "RUST_BACKTRACE",
@@ -266,13 +269,15 @@ impl Before {
     }
 
     /// Runs the program in the checkout's top on this Mac and fails when it
-    /// does.
+    /// does. The program's environment lacks `BEFORE_VARIABLE`, as on a host,
+    /// so a `builds cargo` it runs runs no program first.
     pub fn run_here(&self, checkout: &Checkout) -> Result<()> {
         let program = match self.in_checkout(checkout) {
             Some(relative) => checkout.top.join(relative),
             None => std::path::PathBuf::from(&self.program),
         };
         let status = std::process::Command::new(&program)
+            .env_remove(BEFORE_VARIABLE)
             .args(&self.args)
             .current_dir(&checkout.top)
             .status();
