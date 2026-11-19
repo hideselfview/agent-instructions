@@ -13,6 +13,15 @@ pub struct Scratch {
 
 impl Scratch {
     pub fn new(name: &str) -> Scratch {
+        // `cargo test` runs the tests as threads of one process, which share
+        // one descriptor table: a child that another test starts holds a copy
+        // of every file this test has open, locks included, until it execs,
+        // so a lock taken without waiting can read as held. nextest runs each
+        // test in a process of its own and sets NEXTEST.
+        assert!(
+            std::env::var_os("NEXTEST").is_some(),
+            "builds' tests run one process each: use `builds cargo nextest run --bin builds -E 'test(/^<module>::/)'`, not `cargo test`"
+        );
         let base = std::fs::canonicalize(std::env::temp_dir()).expect("the temp dir resolves");
         let dir = base.join(format!("builds-test-{name}-{}", std::process::id()));
         if dir.exists() {
