@@ -171,7 +171,8 @@ fn a_write_to_the_store_moves_the_version_the_feed_reports() {
 
     // A store that fails is read and served, not skipped. The feed's held
     // connection keeps the write-ahead log, whose pages a reader would take
-    // over the damaged file's, so the damage removes it too.
+    // over the damaged file's, so the damage removes it too, unless the feed
+    // closed its connections on the damaged file first and SQLite removed it.
     std::fs::write(
         store.database(),
         "not a database, and long enough to have a header of sorts",
@@ -180,17 +181,23 @@ fn a_write_to_the_store_moves_the_version_the_feed_reports() {
     for log in ["-wal", "-shm"] {
         let mut path = store.database().into_os_string();
         path.push(log);
-        std::fs::remove_file(path).unwrap();
+        match std::fs::remove_file(path) {
+            Err(error) if error.kind() != std::io::ErrorKind::NotFound => panic!("{error}"),
+            _ => {}
+        }
     }
-    moved
-        .recv_timeout(HANG_GUARD)
-        .expect("the damage reached the feed");
-    let (_, snapshot) = feed.current();
-    let fault = snapshot.as_ref().as_ref().unwrap()[0]
-        .lists
-        .as_ref()
-        .unwrap_err()
-        .clone();
+    // The feed tells after its integrity checks too, which may read the file
+    // while the damage is written, so a tell may come before the read that
+    // finds the damage.
+    let fault = loop {
+        moved
+            .recv_timeout(HANG_GUARD)
+            .expect("the damage reached the feed");
+        let (_, snapshot) = feed.current();
+        if let Err(fault) = &snapshot.as_ref().as_ref().unwrap()[0].lists {
+            break fault.clone();
+        }
+    };
     assert!(fault.contains("not a database"), "{fault}");
 }
 
