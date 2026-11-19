@@ -436,11 +436,11 @@ fn stop(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
         let shared = crate::lists::running::running_in_any(&every, &running.worktree)
             .into_iter()
             .any(|(lists, other)| !(lists.project == store.project && other.id == id));
-        let git = crate::side_git::read(Path::new(&running.worktree));
-        if let Some(error) = git.error {
-            fail!("reading {}: {error}", running.worktree);
-        }
-        if !shared && (!git.ahead.is_empty() || git.uncommitted.unwrap_or(0) > 0) {
+        let git = match crate::side_git::read(Path::new(&running.worktree)) {
+            Ok(git) => git,
+            Err(error) => fail!("reading {}: {error}", running.worktree),
+        };
+        if !shared && (!git.ahead.is_empty() || git.uncommitted > 0) {
             kept.push(kept_work::KeptWork {
                 worktree: running.worktree.clone(),
                 branch: running.branch.clone(),

@@ -240,11 +240,10 @@ fn met_advice(item: &Item, met: &[String], live: &[(&KeptWork, &Checkout)]) -> A
     let mut places = Vec::new();
     let mut take = format!("builds item take {}", item.id.0);
     for (kept, checkout) in live {
-        let git = crate::side_git::read(&checkout.top);
-        let commits = match &git.error {
-            Some(error) => format!("commits git could not read ({error})"),
-            None if git.ahead.is_empty() => "no commits that origin/main lacks".to_string(),
-            None => format!(
+        let commits = match crate::side_git::read(&checkout.top) {
+            Err(error) => format!("commits git could not read ({error})"),
+            Ok(git) if git.ahead.is_empty() => "no commits that origin/main lacks".to_string(),
+            Ok(git) => format!(
                 "{} that origin/main lacks ({})",
                 crate::text::counted(git.ahead.len(), "commit", "commits"),
                 git.ahead

@@ -182,8 +182,11 @@ impl Worktree {
             app_checkout: places
                 .app_lane_of(&checkout.repo(), &checkout.name())?
                 .is_some(),
-            ahead: git.ahead.iter().rev().map(|c| c.full.clone()).collect(),
-            uncommitted: git.uncommitted,
+            ahead: git
+                .side()
+                .map(|git| git.ahead.iter().rev().map(|c| c.full.clone()).collect())
+                .unwrap_or_default(),
+            uncommitted: git.side().map(|git| git.uncommitted),
             committing: crate::procs::commits_in(commits, &checkout.top),
         })
     }

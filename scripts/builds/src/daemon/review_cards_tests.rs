@@ -30,14 +30,13 @@ fn ahead(side: &Path) -> Vec<side_git::Commit> {
 
 /// What the daemon reads of <side>'s git for its card, with <ahead> as the
 /// commits waiting to land.
-fn read_git(side: &Path, ahead: Vec<side_git::Commit>) -> SideGit {
-    SideGit {
+fn read_git(side: &Path, ahead: Vec<side_git::Commit>) -> SideRead {
+    SideRead {
         head: ahead.first().cloned(),
         ahead,
-        main: Some(git(side, &["rev-parse", "origin/main"])),
-        uncommitted: Some(0),
+        main: git(side, &["rev-parse", "origin/main"]),
+        uncommitted: 0,
         last_write: None,
-        error: None,
     }
 }
 
@@ -48,7 +47,7 @@ fn standing_at(
     demo: &Demo,
     side: &Path,
     branch: &str,
-    git: &SideGit,
+    git: &SideRead,
     version: u64,
 ) -> Result<Option<ItemWait>, String> {
     let worktree = Worktree {
@@ -288,7 +287,7 @@ fn a_worktree_is_judged_once_per_tip_and_again_when_its_branch_main_or_store_mov
         "the same tip is judged once"
     );
     let mut moved_main = git.clone();
-    moved_main.main = Some("1".repeat(40));
+    moved_main.main = "1".repeat(40);
     let tips = [
         ("another branch", "other", &git, version),
         ("a moved origin/main", "work", &moved_main, version),

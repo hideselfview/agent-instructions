@@ -24,7 +24,7 @@ use crate::review::commits;
 use crate::review::landing::{self, CodeCheck, Need, Verdict};
 use crate::review::record::Change;
 use crate::review::run::Material;
-use crate::side_git::SideGit;
+use crate::side_git::SideRead;
 
 /// How long the rules read from the rules checkout are used before they are
 /// read again.
@@ -48,7 +48,7 @@ pub struct Worktree<'a> {
     pub top: &'a Path,
     /// The branch HEAD is on; None when HEAD is detached.
     pub branch: Option<&'a str>,
-    pub git: &'a SideGit,
+    pub git: &'a SideRead,
 }
 
 /// What a worktree's standing is judged from besides the rules. HEAD and
@@ -59,7 +59,7 @@ pub struct Worktree<'a> {
 struct Tip {
     branch: Option<String>,
     head: Option<String>,
-    main: Option<String>,
+    main: String,
     store: u64,
 }
 

@@ -4,7 +4,7 @@ use crate::daemon::model::{Activity, ProcessPage};
 use crate::health::{Holder, LaneQueue, LockHealth, Queued};
 use crate::holder_run::StepTime;
 use crate::lane::Lane;
-use crate::side_git::{Commit, SideGit};
+use crate::side_git::{Commit, SideGit, SideRead};
 
 fn checkout(name: &str, lane: Option<&'static str>, branch: Option<&str>) -> CheckoutPage {
     CheckoutPage {
@@ -17,7 +17,7 @@ fn checkout(name: &str, lane: Option<&'static str>, branch: Option<&str>) -> Che
         app_checkout: lane.is_some(),
         app_lane: lane,
         claim: None,
-        git: Some(SideGit {
+        git: Some(SideGit::Side(SideRead {
             head: Some(Commit {
                 sha: "9e8d3d5".into(),
                 full: "9e8d3d5".into(),
@@ -26,11 +26,10 @@ fn checkout(name: &str, lane: Option<&'static str>, branch: Option<&str>) -> Che
                 subject: String::new(),
             }),
             ahead: Vec::new(),
-            main: None,
-            uncommitted: Some(0),
+            main: "0".repeat(40),
+            uncommitted: 0,
             last_write: None,
-            error: None,
-        }),
+        })),
         state: Some("free"),
         folders: Some(Vec::new()),
         total_kib: Some(18_000_000),

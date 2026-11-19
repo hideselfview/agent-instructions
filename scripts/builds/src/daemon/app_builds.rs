@@ -340,7 +340,7 @@ fn local_row(repo: &RepoPage, c: &CheckoutPage, lane: &str) -> AppBuild {
         checkout: c.name.clone(),
         checked_out: match &c.branch {
             Some(branch) => branch.clone(),
-            None => match c.git.as_ref().and_then(|g| g.head.as_ref()) {
+            None => match c.git.as_ref().and_then(|g| g.head()) {
                 Some(head) => format!(
                     "detached at {}",
                     head.sha.chars().take(7).collect::<String>()

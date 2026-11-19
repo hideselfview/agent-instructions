@@ -456,7 +456,7 @@ impl Model {
             let git = Some(if checkout.is_main() {
                 crate::side_git::read_head(&checkout.top)
             } else {
-                crate::side_git::read(&checkout.top)
+                SideGit::from(crate::side_git::read(&checkout.top))
             });
             (root.path.clone(), manifest, claim, branch, git)
         });
@@ -1076,6 +1076,7 @@ impl Model {
             note_state: claim.and_then(|c| c.state().map(str::to_string)),
             waiting_to_land: facts
                 .and_then(|f| f.git.as_ref())
+                .and_then(SideGit::side)
                 .map_or(0, |git| git.ahead.len()),
         }
     }
@@ -1368,7 +1369,7 @@ impl Model {
             .map(|lists| super::lists::running_items(lists, &path))
             .unwrap_or_default();
         let design = match (project, seen.git) {
-            (Some(lists), Some(git)) if git.error.is_none() => {
+            (Some(lists), Some(SideGit::Side(git))) => {
                 match self
                     .design_reads
                     .standing(lists, seen.repo, top, &git.ahead)
@@ -1388,9 +1389,7 @@ impl Model {
         // The rules review stands only between commits waiting to land and
         // Ready to land.
         let review = match (project, seen.git) {
-            (Some(lists), Some(git))
-                if worktree == CardState::ReadyToLand && git.error.is_none() =>
-            {
+            (Some(lists), Some(SideGit::Side(git))) if worktree == CardState::ReadyToLand => {
                 let reviewed = super::review_cards::Worktree {
                     repo: seen.repo,
                     top,
@@ -1699,7 +1698,9 @@ fn unclaimed_of(
 /// `cards::card_state` then gives the card its state from this and what the
 /// worktree waits on.
 pub fn worktree_state(claim: Option<&Claim>, git: Option<&SideGit>) -> CardState {
-    let ahead = git.is_some_and(|g| !g.ahead.is_empty());
+    let ahead = git
+        .and_then(SideGit::side)
+        .is_some_and(|g| !g.ahead.is_empty());
     let Some(claim) = claim else {
         return if ahead {
             CardState::ReadyToLand

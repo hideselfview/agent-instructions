@@ -799,8 +799,9 @@ pub fn assess(
     {
         // A worktree git could not read, or one whose kept items builds
         // could not read, may hold commits health did not see.
-        schedule_needed |= git.error.is_some() || kept_unknown.is_some();
-        if !git.ahead.is_empty() {
+        schedule_needed |= git.error().is_some() || kept_unknown.is_some();
+        let ahead = git.side().map_or(0, |git| git.ahead.len());
+        if ahead > 0 {
             schedule_needed = true;
             let unknown = match kept_unknown {
                 Some(fault) => {
@@ -813,7 +814,7 @@ pub fn assess(
                 Advice::said(format!(
                     "worktree: {} has no claim and {} waiting to land, so it is not retired{unknown}",
                     places[place].label,
-                    crate::text::counted(git.ahead.len(), "commit", "commits")
+                    crate::text::counted(ahead, "commit", "commits")
                 )),
             ));
         }
@@ -883,7 +884,7 @@ pub fn assess(
         // A held claim is quiet on purpose: its note says why. A worktree
         // whose design change waits on the person's review is waiting on them.
         let held = claim.is_held();
-        schedule_needed |= !held || git.error.is_some();
+        schedule_needed |= !held || git.error().is_some();
         let stalled = !held
             && !awaiting_review
             && building.is_empty()
@@ -1117,7 +1118,7 @@ pub fn health(tool: &Tool) -> Result<Health> {
         }
     }
     let unclaimed_gits = parallel_map(&unclaimed, |(_, checkout)| {
-        crate::side_git::read(&checkout.top)
+        SideGit::from(crate::side_git::read(&checkout.top))
     });
     let unclaimed: Vec<Unclaimed> = unclaimed
         .into_iter()
@@ -1129,7 +1130,7 @@ pub fn health(tool: &Tool) -> Result<Health> {
         })
         .collect();
     let gits = parallel_map(&claimed, |(_, checkout, _)| {
-        crate::side_git::read(&checkout.top)
+        SideGit::from(crate::side_git::read(&checkout.top))
     });
     let mut judged = Vec::new();
     let mut held_worktrees = Vec::new();
@@ -1323,13 +1324,14 @@ pub fn lines(health: &Health) -> Vec<String> {
     out.extend(crate::shells::lines(&health.shells));
     out.push(format!("claimed worktrees: {}", health.worktrees.len()));
     for w in &health.worktrees {
-        let git = match &w.git.error {
-            Some(error) => format!("git: {error}"),
-            None => format!(
+        let git = match &w.git {
+            SideGit::Side(git) => format!(
                 "{} uncommitted, {} waiting to land",
-                w.git.uncommitted.unwrap_or(0),
-                w.git.ahead.len()
+                git.uncommitted,
+                git.ahead.len()
             ),
+            SideGit::Main { .. } => "git: a main checkout".to_string(),
+            SideGit::Failed { error } => format!("git: {error}"),
         };
         out.push(format!(
             "    {}  [{}]  {} since {}{}",
@@ -1725,6 +1727,7 @@ pub fn cmd_health(tool: &Tool, args: &[String]) -> Result<()> {
 mod tests {
     use super::*;
     use crate::side_git::Commit;
+    use crate::side_git::SideRead;
 
     /// A claim with no change for hours and no build is stalled, unless its
     /// note says its agent holds the worktree or its design change waits on
@@ -1768,14 +1771,13 @@ mod tests {
                 ),
             },
             branch: Some("work".to_string()),
-            git: SideGit {
+            git: SideGit::Side(SideRead {
                 head: None,
                 ahead: Vec::new(),
-                main: None,
-                uncommitted: Some(3),
+                main: "0".repeat(40),
+                uncommitted: 3,
                 last_write: Some(now - 3 * 3600),
-                error: None,
-            },
+            }),
             awaiting_review: n == 3,
         };
         let health = assess(
@@ -1857,13 +1859,17 @@ mod tests {
                     root: PathBuf::from(format!("/volume/demo/side-{n}")),
                 })
                 .collect();
-            let git = |ahead: usize, unread: bool| SideGit {
-                head: None,
-                ahead: (0..ahead).map(|n| commit(n as u8)).collect(),
-                main: None,
-                uncommitted: Some(0),
-                last_write: Some(now - 60),
-                error: unread.then(|| "git could not read it".to_string()),
+            let git = |ahead: usize, unread: bool| match unread {
+                true => SideGit::Failed {
+                    error: "git could not read it".to_string(),
+                },
+                false => SideGit::Side(SideRead {
+                    head: None,
+                    ahead: (0..ahead).map(|n| commit(n as u8)).collect(),
+                    main: "0".repeat(40),
+                    uncommitted: 0,
+                    last_write: Some(now - 60),
+                }),
             };
             let claimed = states
                 .iter()
@@ -1972,14 +1978,13 @@ mod tests {
                 note: None,
             },
             branch: Some("work".to_string()),
-            git: SideGit {
+            git: SideGit::Side(SideRead {
                 head: None,
                 ahead: Vec::new(),
-                main: None,
-                uncommitted: Some(3),
+                main: "0".repeat(40),
+                uncommitted: 3,
                 last_write: Some(now - changed_ago),
-                error: None,
-            },
+            }),
             awaiting_review: false,
         };
         assess(
@@ -2058,14 +2063,13 @@ mod tests {
                 note: None,
             },
             branch: Some("work".to_string()),
-            git: SideGit {
+            git: SideGit::Side(SideRead {
                 head: None,
                 ahead: Vec::new(),
-                main: None,
-                uncommitted: Some(3),
+                main: "0".repeat(40),
+                uncommitted: 3,
                 last_write: Some(now - 2 * 3600),
-                error: None,
-            },
+            }),
             awaiting_review: false,
         };
         let health = assess(
@@ -2139,14 +2143,13 @@ mod tests {
                     note: None,
                 },
                 branch: Some("work".to_string()),
-                git: SideGit {
+                git: SideGit::Side(SideRead {
                     head: None,
                     ahead: Vec::new(),
-                    main: None,
-                    uncommitted: Some(0),
+                    main: "0".repeat(40),
+                    uncommitted: 0,
                     last_write: Some(now - 2 * 3600),
-                    error: None,
-                },
+                }),
                 awaiting_review: false,
             };
             assess(
@@ -2236,14 +2239,13 @@ mod tests {
                     note: None,
                 },
                 branch: Some("work".to_string()),
-                git: SideGit {
+                git: SideGit::Side(SideRead {
                     head: Some(commit(mine)),
                     ahead: vec![commit(mine)],
-                    main: None,
-                    uncommitted: Some(0),
+                    main: "0".repeat(40),
+                    uncommitted: 0,
                     last_write: None,
-                    error: None,
-                },
+                }),
                 awaiting_review: false,
             };
             assess(
@@ -2419,13 +2421,14 @@ mod tests {
             authored: now,
             subject: "Work".into(),
         };
-        let git = |ahead: Vec<Commit>| SideGit {
-            head: None,
-            ahead,
-            main: None,
-            uncommitted: Some(0),
-            last_write: None,
-            error: None,
+        let git = |ahead: Vec<Commit>| {
+            SideGit::Side(SideRead {
+                head: None,
+                ahead,
+                main: "0".repeat(40),
+                uncommitted: 0,
+                last_write: None,
+            })
         };
         let health = assess(
             now,

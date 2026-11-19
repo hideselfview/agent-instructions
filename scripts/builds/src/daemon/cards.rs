@@ -450,8 +450,8 @@ pub struct Uncommitted {
 }
 
 fn uncommitted(checkout: &CheckoutPage) -> Option<Uncommitted> {
-    let git = checkout.git.as_ref().filter(|git| git.error.is_none())?;
-    let files = match git.uncommitted? {
+    let git = checkout.git.as_ref()?.side()?;
+    let files = match git.uncommitted {
         0 => return None,
         n => crate::text::counted(n, "file", "files"),
     };

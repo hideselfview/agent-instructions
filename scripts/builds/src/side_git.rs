@@ -22,36 +22,87 @@ pub struct Commit {
     pub subject: String,
 }
 
+/// What git said of a checkout. The page reads each variant's fields, which
+/// serde writes beside the variant's name in `read`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SideGit {
+#[serde(tag = "read", rename_all = "snake_case")]
+pub enum SideGit {
+    /// A side worktree's HEAD, commits waiting to land and uncommitted files.
+    Side(SideRead),
+    /// A main checkout's HEAD: its working tree is the person's and is never
+    /// asked about.
+    Main { head: Option<Commit> },
+    /// What git said when a read failed.
+    Failed { error: String },
+}
+
+/// What git said of a side worktree.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SideRead {
+    /// None before the worktree's first commit.
     pub head: Option<Commit>,
     /// The commits on HEAD origin/main has no copy of, newest first.
     pub ahead: Vec<Commit>,
-    /// The full hash of origin/main's commit, read just before `ahead`; None
-    /// for a main checkout and when a read failed.
-    pub main: Option<String>,
-    pub uncommitted: Option<usize>,
+    /// The full hash of origin/main's commit, read just before `ahead`.
+    pub main: String,
+    /// The count of changed and untracked files.
+    pub uncommitted: usize,
     /// The newest modification time among the uncommitted files that still
-    /// exist.
+    /// exist; None when none does.
     pub last_write: Option<i64>,
-    /// What git said when a read failed.
-    pub error: Option<String>,
+}
+
+impl From<Result<SideRead, String>> for SideGit {
+    /// A side worktree's read, or what git said when it failed.
+    fn from(read: Result<SideRead, String>) -> SideGit {
+        match read {
+            Ok(read) => SideGit::Side(read),
+            Err(error) => SideGit::Failed { error },
+        }
+    }
 }
 
 impl SideGit {
+    /// What git said of a side worktree; None for a main checkout and a
+    /// failed read.
+    pub fn side(&self) -> Option<&SideRead> {
+        match self {
+            SideGit::Side(read) => Some(read),
+            SideGit::Main { .. } | SideGit::Failed { .. } => None,
+        }
+    }
+
+    /// HEAD's commit; None for a failed read.
+    pub fn head(&self) -> Option<&Commit> {
+        match self {
+            SideGit::Side(read) => read.head.as_ref(),
+            SideGit::Main { head } => head.as_ref(),
+            SideGit::Failed { .. } => None,
+        }
+    }
+
+    /// What git said when the read failed.
+    pub fn error(&self) -> Option<&str> {
+        match self {
+            SideGit::Failed { error } => Some(error),
+            SideGit::Side(_) | SideGit::Main { .. } => None,
+        }
+    }
+
     /// Is <full>, a full commit hash, one of this worktree's own commits:
     /// one on its HEAD that origin/main has no copy of? A commit origin/main
     /// has, such as HEAD right after a landing, belongs to every worktree
     /// based on it, so it tells no worktree apart.
     pub fn owns(&self, full: &str) -> bool {
-        self.ahead.iter().any(|commit| commit.full == full)
+        self.side()
+            .is_some_and(|read| read.ahead.iter().any(|commit| commit.full == full))
     }
 
     /// The newer of HEAD's commit time and the newest uncommitted write: the
     /// worktree's last activity.
     pub fn activity(&self) -> Option<i64> {
-        let head = self.head.as_ref().map(|c| c.time);
-        match (head, self.last_write) {
+        let head = self.head().map(|c| c.time);
+        match (head, self.side().and_then(|read| read.last_write)) {
             (Some(a), Some(b)) => Some(a.max(b)),
             (a, b) => a.or(b),
         }
@@ -256,50 +307,27 @@ pub fn paths_in_status(status: &str) -> BTreeSet<String> {
 /// waiting to land.
 pub fn read_head(top: &Path) -> SideGit {
     match commits(top, &["-1", "HEAD"]) {
-        Ok(found) => SideGit {
+        Ok(found) => SideGit::Main {
             head: found.into_iter().next(),
-            ahead: Vec::new(),
-            main: None,
-            uncommitted: None,
-            last_write: None,
-            error: None,
         },
-        Err(error) => SideGit {
-            head: None,
-            ahead: Vec::new(),
-            main: None,
-            uncommitted: None,
-            last_write: None,
-            error: Some(error),
-        },
+        Err(error) => SideGit::Failed { error },
     }
 }
 
 /// HEAD, the commits waiting to land, the uncommitted count and their newest
-/// write in the side worktree at <top>; on a failure, what git said.
-pub fn read(top: &Path) -> SideGit {
-    let read = || -> Result<SideGit, String> {
-        let head = commits(top, &["-1", "HEAD"])?.into_iter().next();
-        let (count, newest) = uncommitted(top)?;
-        // A move of origin/main after this read moves the repo's refs, so
-        // the daemon reads the worktree again.
-        let main = run(top, &["rev-parse", "origin/main"])?.trim().to_string();
-        Ok(SideGit {
-            head,
-            ahead: waiting_to_land(top, "HEAD")?,
-            main: Some(main),
-            uncommitted: Some(count),
-            last_write: newest,
-            error: None,
-        })
-    };
-    read().unwrap_or_else(|error| SideGit {
-        head: None,
-        ahead: Vec::new(),
-        main: None,
-        uncommitted: None,
-        last_write: None,
-        error: Some(error),
+/// write in the side worktree at <top>, or what git said when it failed.
+pub fn read(top: &Path) -> Result<SideRead, String> {
+    let head = commits(top, &["-1", "HEAD"])?.into_iter().next();
+    let (uncommitted, last_write) = uncommitted(top)?;
+    // A move of origin/main after this read moves the repo's refs, so the
+    // daemon reads the worktree again.
+    let main = run(top, &["rev-parse", "origin/main"])?.trim().to_string();
+    Ok(SideRead {
+        head,
+        ahead: waiting_to_land(top, "HEAD")?,
+        main,
+        uncommitted,
+        last_write,
     })
 }
 

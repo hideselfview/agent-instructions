@@ -1,7 +1,7 @@
 use super::*;
 use crate::claim::Claim;
 use crate::daemon::model::Activity;
-use crate::side_git::SideGit;
+use crate::side_git::{SideGit, SideRead};
 
 fn card(
     state: Option<&'static str>,
@@ -18,13 +18,14 @@ fn card(
         app_checkout: false,
         app_lane: None,
         claim,
-        git: Some(SideGit {
-            head: None,
-            ahead: Vec::new(),
-            main: None,
-            uncommitted,
-            last_write: None,
-            error: None,
+        git: uncommitted.map(|uncommitted| {
+            SideGit::Side(SideRead {
+                head: None,
+                ahead: Vec::new(),
+                main: "0".repeat(40),
+                uncommitted,
+                last_write: None,
+            })
         }),
         state,
         folders: None,
@@ -161,7 +162,9 @@ fn the_footer_counts_uncommitted_files_and_says_nothing_for_a_clean_tree() {
     );
     assert_eq!(files(None), None);
     let mut broken = card(Some("working"), claim(None), Some(3));
-    broken.git.as_mut().unwrap().error = Some("git failed".into());
+    broken.git = Some(SideGit::Failed {
+        error: "git failed".into(),
+    });
     assert_eq!(
         words(&broken, CardState::Working, &[], &[]).uncommitted,
         None
