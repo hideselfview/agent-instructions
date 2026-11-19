@@ -24,7 +24,7 @@ use std::time::Duration;
 use super::fsevents::Stream;
 use super::model::SETTLE;
 use crate::lists::DesignChange;
-use crate::lists::store::{Loaded, load_all, reload, stores};
+use crate::lists::store::{Loaded, database_paths, load_all, reload, stores};
 use crate::lists::view::{ClaimFacts, DesignView, View, design_view};
 use crate::places::Places;
 
@@ -245,24 +245,25 @@ impl Feed {
     }
 }
 
-/// The databases in the folders of <places>'s stores folder that changed
-/// since <watches> last looked: added, removed, or moved as their watch says.
-/// Keeps <watches> to the databases there now. A database whose watch can't
-/// be opened or read counts as changed, so the feed reads it again, and the
-/// read says what is wrong with the store.
+/// The databases of <places>'s stores that changed since <watches> last
+/// looked: added, removed, or moved as their watch says. Keeps <watches> to
+/// the databases there now. When the stores' folder can't be listed, the
+/// daemon's log says why and every watched database counts as changed, so the
+/// feed reads the stores again and serves the fault. A watch that can't be
+/// opened or read leaves unknown whether its database changed: the log says
+/// why, and the database counts as changed, so the feed reads the store again
+/// and serves what is wrong with it.
 fn databases_moved(
     places: &Places,
     watches: &mut HashMap<PathBuf, crate::db::Watch>,
 ) -> Vec<PathBuf> {
-    let Ok(folders) = std::fs::read_dir(&places.lists) else {
-        // The read of the stores says why the folder can't be listed.
-        return watches.drain().map(|(path, _)| path).collect();
+    let databases: Vec<PathBuf> = match database_paths(places) {
+        Ok(paths) => paths.into_iter().filter(|path| path.is_file()).collect(),
+        Err(error) => {
+            crate::text::note(format!("following the stores: {}", error.text()));
+            return watches.drain().map(|(path, _)| path).collect();
+        }
     };
-    let databases: Vec<PathBuf> = folders
-        .flatten()
-        .map(|entry| entry.path().join(crate::db::DATABASE))
-        .filter(|path| path.is_file())
-        .collect();
     let mut moved: Vec<PathBuf> = watches
         .keys()
         .filter(|path| !databases.contains(path))
@@ -280,7 +281,12 @@ fn databases_moved(
         match changed {
             Ok(false) => {}
             Ok(true) => moved.push(path),
-            Err(_) => {
+            Err(error) => {
+                crate::text::note(format!(
+                    "telling whether {} changed: {}",
+                    path.display(),
+                    error.text()
+                ));
                 watches.remove(&path);
                 moved.push(path);
             }

@@ -393,6 +393,26 @@ pub fn read(db: &Connection) -> Result<Lists> {
     Ok(lists)
 }
 
+/// The path of each project's database under `Places::lists`, in the order
+/// of the projects' names, whether the file exists or not: one per folder
+/// there. Fails when the folder or an entry of it can't be read.
+pub fn database_paths(places: &Places) -> Result<Vec<PathBuf>> {
+    let entries = match std::fs::read_dir(&places.lists) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => fail!("listing {}: {error}", places.lists.display()),
+    };
+    let mut dirs = Vec::new();
+    for entry in entries {
+        let entry = entry.context(|| format!("listing {}", places.lists.display()))?;
+        if entry.path().is_dir() {
+            dirs.push(entry.path());
+        }
+    }
+    dirs.sort();
+    Ok(dirs.into_iter().map(|dir| dir.join(DATABASE)).collect())
+}
+
 /// The stores that exist under `Places::lists`, by project name: a folder
 /// whose database holds a project. A folder with only hook stats is no store.
 pub fn stores(places: &Places) -> Result<Vec<Store>> {

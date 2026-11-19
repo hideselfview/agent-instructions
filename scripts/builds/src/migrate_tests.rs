@@ -1,4 +1,5 @@
 use super::*;
+use crate::db::DATABASE;
 use crate::review::record::{Change, add_landing};
 use crate::testing::Scratch;
 use rusqlite::Connection;

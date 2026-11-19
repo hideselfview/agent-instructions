@@ -15,11 +15,11 @@
 //! first move run after the builds end (`builds install` runs it each time).
 
 use std::os::unix::fs::MetadataExt;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use rusqlite::{Connection, OptionalExtension};
 
-use crate::db::{self, DATABASE, Sql};
+use crate::db::{self, Sql};
 use crate::fail;
 use crate::fail::{Context, Result};
 use crate::lane::Lane;
@@ -230,29 +230,10 @@ fn before(found: i64, stamp: i64) -> bool {
 /// today's stamp, or with no database, is left alone; any other stamp is
 /// refused, and the refusal names it.
 pub fn migrate_stores(places: &Places, now: i64) -> Result<()> {
-    for store in stores(places)? {
+    for store in crate::lists::store::database_paths(places)? {
         move_store(&store, now)?;
     }
     Ok(())
-}
-
-/// The path of each project's `builds.sqlite`, in the order of the projects'
-/// names, whether the file exists or not.
-fn stores(places: &Places) -> Result<Vec<PathBuf>> {
-    let entries = match std::fs::read_dir(&places.lists) {
-        Ok(entries) => entries,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
-        Err(error) => fail!("listing {}: {error}", places.lists.display()),
-    };
-    let mut dirs = Vec::new();
-    for entry in entries {
-        let entry = entry.context(|| format!("listing {}", places.lists.display()))?;
-        if entry.path().is_dir() {
-            dirs.push(entry.path());
-        }
-    }
-    dirs.sort();
-    Ok(dirs.into_iter().map(|dir| dir.join(DATABASE)).collect())
 }
 
 /// Whether every store already has this program's schema, so `migrate_stores`
@@ -262,7 +243,7 @@ fn stores(places: &Places) -> Result<Vec<PathBuf>> {
 /// installed program writes, so it returns false.
 pub fn every_store_has_this_schema(places: &Places) -> Result<bool> {
     let mut any = false;
-    for store in stores(places)? {
+    for store in crate::lists::store::database_paths(places)? {
         if !store.is_file() {
             continue;
         }
