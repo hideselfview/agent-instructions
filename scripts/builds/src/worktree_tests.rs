@@ -571,9 +571,7 @@ fn a_hosts_app_checkout_has_its_lane_file_exactly_while_it_is_in_a_lane() {
     );
 }
 
-/// A repo `demo` under <scratch> with an origin, whose post-checkout hook
-/// fails after `new` has made and claimed a worktree: the step after which
-/// `builds new` used to leave the worktree unclaimed.
+/// A repo `demo` under <scratch> with an origin that holds no hook yet.
 fn demo_with_failing_hook(scratch: &Scratch) -> std::path::PathBuf {
     let main = scratch.dir.join("demo");
     repo(&main, "target 1G\n");
@@ -590,6 +588,8 @@ fn demo_with_failing_hook(scratch: &Scratch) -> std::path::PathBuf {
     main
 }
 
+/// Commits a post-checkout hook that fails, which runs after `new` has made
+/// and claimed a worktree, and pushes it to origin.
 fn push_failing_hook(main: &Path) {
     use std::os::unix::fs::PermissionsExt;
     let hook = main.join("scripts/hooks/post-checkout");
@@ -599,10 +599,6 @@ fn push_failing_hook(main: &Path) {
     git(main, &["add", "scripts/hooks/post-checkout"]);
     git(main, &["commit", "-q", "-m", "Add a failing hook"]);
     git(main, &["push", "-q", "origin", "main"]);
-}
-
-fn branch_exists(main: &Path, branch: &str) -> bool {
-    !crate::testing::git_out(main, &["branch", "--list", branch]).is_empty()
 }
 
 #[test]
@@ -625,7 +621,7 @@ fn new_that_fails_after_adding_a_worktree_removes_the_worktree_and_its_branch() 
     ));
     assert!(error.contains("post-checkout"), "{error}");
     assert!(!scratch.dir.join("demo-worktrees/side-1").exists());
-    assert!(!branch_exists(&main, "work"));
+    assert!(!crate::checkout::branch_exists(&main, "work").unwrap());
     assert!(!tool.places.root.join("demo/side-1").exists());
     assert!(
         !crate::testing::git_out(&main, &["worktree", "list"]).contains("side-1"),
@@ -664,7 +660,7 @@ fn new_that_fails_in_a_free_worktree_leaves_it_unclaimed_and_without_the_new_bra
     assert!(error.contains("post-checkout"), "{error}");
     let checkout = Checkout::find(&side.display().to_string()).unwrap();
     assert!(Claim::read(&checkout.claim_file()).unwrap().is_none());
-    assert!(!branch_exists(&main, "work"));
+    assert!(!crate::checkout::branch_exists(&main, "work").unwrap());
     assert_eq!(
         crate::testing::git_out(&side, &["rev-parse", "--abbrev-ref", "HEAD"]),
         "HEAD",

@@ -6,8 +6,8 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use super::{
-    OUTPUT_DIRS, has_shared_folders, hashed_file, names_if_present, names_in, newest_mtime, remove,
-    stat, unit_dir, unit_folders,
+    OUTPUT_DIRS, has_shared_folders, hashed_file, is_file, names_if_present, names_in,
+    newest_mtime, remove, stat, unit_dir, unit_folders,
 };
 use crate::fail::Result;
 
@@ -16,7 +16,7 @@ pub struct Unit {
     pub hash: String,
     pub name: Option<String>,
     pub fingerprint: Option<PathBuf>,
-    /// The files rustc wrote for it, which its binaries name and its
+    /// The files (never folders) rustc wrote for it, which its binaries name and its
     /// incremental folder hard-links: in deps or examples (shared folders) or
     /// in its out folder (unit folders).
     pub outputs: Vec<PathBuf>,
@@ -172,7 +172,9 @@ pub fn units_in(profile: &Path) -> Result<Units> {
             let out = folder.join("out");
             if stat(&folder.join("run"))?.is_none() {
                 for file in names_if_present(&out)? {
-                    found.outputs.push(out.join(file));
+                    if is_file(&out.join(&file))? {
+                        found.outputs.push(out.join(file));
+                    }
                 }
             }
             found.place = Place::Own { folder, entries };
@@ -182,7 +184,9 @@ pub fn units_in(profile: &Path) -> Result<Units> {
         for folder in OUTPUT_DIRS {
             let outputs = profile.join(folder);
             for name in names_if_present(&outputs)? {
-                if let Some((krate, hash)) = hashed_file(&name) {
+                if let Some((krate, hash)) = hashed_file(&name)
+                    && is_file(&outputs.join(&name))?
+                {
                     let found = units.unit(hash);
                     found.outputs.push(outputs.join(&name));
                     found.name.get_or_insert_with(|| krate.to_string());

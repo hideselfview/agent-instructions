@@ -161,6 +161,12 @@ fn undo_reuse(main: &Path, free: &Checkout, start: &Start, switched: bool) -> Re
         ]),
         "git checkout",
     )?;
+    delete_made_branch(main, start)
+}
+
+/// Deletes the branch `new` made for <start>: the one `-b` names, none for a
+/// detached start or a resumed branch.
+fn delete_made_branch(main: &Path, start: &Start) -> Result<()> {
     if let Start::Fresh(Some(branch)) = start {
         run_checked(
             git(main).args(["branch", "-q", "-D", branch]),
@@ -182,12 +188,7 @@ fn undo_add(tool: &Tool, main: &Path, dir: &Path, start: &Start) -> Result<()> {
         git(main).args(["worktree", "remove", "--force"]).arg(dir),
         "git worktree remove",
     )?;
-    if let Start::Fresh(Some(branch)) = start {
-        run_checked(
-            git(main).args(["branch", "-q", "-D", branch]),
-            "git branch -D",
-        )?;
-    }
+    delete_made_branch(main, start)?;
     if root.is_dir() && !evict(&tool.places, &root, Recreate::No, Removal::Background)? {
         fail!(
             "a process holds files in {}; run builds prune once it exits",

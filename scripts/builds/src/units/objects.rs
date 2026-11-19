@@ -17,7 +17,7 @@ use std::os::unix::fs::FileExt;
 use std::path::{Path, PathBuf};
 
 use super::unit::Unit;
-use super::{hashed_file, is_file, is_folder, stat};
+use super::{hashed_file, is_folder, stat};
 use crate::fail;
 use crate::fail::{Result, gone};
 
@@ -176,14 +176,12 @@ pub fn dead_objects(profile: &Path, units: &[&Unit]) -> Result<Vec<PathBuf>> {
         if objects.is_empty() {
             continue;
         }
-        // A name with no dot is a binary only when it is a file: rustc also
-        // leaves temporary folders (rustcXXXXXX) beside a unit's outputs.
-        let mut binaries: Vec<PathBuf> = Vec::new();
-        for path in &found.outputs {
-            if (base(path).ends_with(".dylib") || !base(path).contains('.')) && is_file(path)? {
-                binaries.push(path.clone());
-            }
-        }
+        let binaries: Vec<PathBuf> = found
+            .outputs
+            .iter()
+            .filter(|path| base(path).ends_with(".dylib") || !base(path).contains('.'))
+            .cloned()
+            .collect();
         if binaries.is_empty()
             && found
                 .outputs
@@ -227,9 +225,8 @@ mod tests {
     use super::*;
     use crate::units::unit::units_in;
 
-    /// rustc leaves temporary folders (rustcXXXXXX) in a unit's out folder.
-    /// A name with no dot that is a folder is no binary: reading it as one
-    /// failed the prune with "Is a directory".
+    /// A folder in a unit's out folder (rustc's temporary rustcXXXXXX
+    /// folders) is no output, so no binary's debug map is read from it.
     #[test]
     fn a_folder_among_a_units_outputs_is_no_binary() {
         let scratch = crate::testing::Scratch::new("objects-folder");
@@ -242,6 +239,7 @@ mod tests {
         file(&format!("{unit}/out/app"));
         file(&format!("{unit}/out/rustcl7Gvah/temp"));
         let units = units_in(&profile).unwrap();
+        assert!(units.list[0].outputs.iter().all(|path| path.is_file()));
         let listed: Vec<&Unit> = units.list.iter().collect();
         // The binary is no Mach-O, so its debug map names nothing to keep
         // or to delete: every object stays.
