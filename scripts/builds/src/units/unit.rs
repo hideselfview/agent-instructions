@@ -202,6 +202,16 @@ pub fn units_in(profile: &Path) -> Result<Units> {
     Ok(units)
 }
 
+/// How many of <profile>'s units, as `units_in` lists them, have a
+/// fingerprint folder: the units cargo built there.
+pub fn built_count(profile: &Path) -> Result<usize> {
+    Ok(units_in(profile)?
+        .list
+        .iter()
+        .filter(|unit| unit.fingerprint.is_some())
+        .count())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

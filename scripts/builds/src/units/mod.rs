@@ -175,28 +175,6 @@ pub fn is_profile_dir(path: &Path) -> Result<bool> {
     Ok(has_shared_folders(path) || has_unit_folders(path)?)
 }
 
-/// How many units <profile> holds a fingerprint folder for, in either
-/// layout.
-pub fn fingerprint_count(profile: &Path) -> Result<usize> {
-    let mut count = 0;
-    if has_shared_folders(profile) {
-        count += names_in(&profile.join(".fingerprint"))?.len();
-    }
-    let build = profile.join("build");
-    if build.is_dir() {
-        for name in names_in(&build)? {
-            let package = build.join(name);
-            if package.is_dir() {
-                count += unit_folders(&package)?
-                    .iter()
-                    .filter(|(_, folder)| folder.join("fingerprint").is_dir())
-                    .count();
-            }
-        }
-    }
-    Ok(count)
-}
-
 /// Every profile folder in <folder>, at most PROFILE_DEPTH levels down; none
 /// when <folder> does not exist.
 pub fn profile_dirs(folder: &Path) -> Result<Vec<PathBuf>> {
