@@ -308,22 +308,15 @@ pub struct Transport<'a> {
 impl Transport<'_> {
     /// A command that runs <script> with `sh` on the host.
     pub fn command(&self, script: &str) -> Command {
-        match &self.host.target {
-            Some(target) => self.ssh.command(
-                target,
-                &format!("sh -c {}", sh_quote(script)),
-                host::Terminal::None,
-            ),
-            None => {
-                let mut command = Command::new("sh");
-                command.arg("-c").arg(script).env("HOME", &self.places.home);
-                // The claim script's git commands name their own worktrees;
-                // a GIT_DIR from the hook this runs in would send them to
-                // the hook's repository instead.
-                without_git_variables(&mut command);
-                command
-            }
+        let mut command = host::command_at(self.ssh, self.host, script, host::Terminal::None);
+        if self.host.target.is_none() {
+            command.env("HOME", &self.places.home);
+            // The claim script's git commands name their own worktrees; a
+            // GIT_DIR from the hook this runs in would send them to the
+            // hook's repository instead.
+            without_git_variables(&mut command);
         }
+        command
     }
 
     /// Runs <script> to its end and returns its stdout; a failure names the

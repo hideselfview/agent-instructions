@@ -126,15 +126,14 @@ pub fn command_at(ssh: &Ssh, host: &Host, script: &str, terminal: Terminal) -> C
     }
 }
 
-/// What <command> printed. It fails, naming <what>, when it cannot run, or
-/// exits non-zero having printed nothing; a non-zero exit after output is
-/// still that output.
+/// What <command> printed. It fails, naming <what>, when it cannot run or
+/// exits non-zero, whatever it printed.
 pub fn output_of(mut command: Command, what: &str) -> std::result::Result<String, String> {
     let output = command
         .stdin(std::process::Stdio::null())
         .output()
         .map_err(|error| format!("running {what}: {error}"))?;
-    if !output.status.success() && output.stdout.is_empty() {
+    if !output.status.success() {
         return Err(format!(
             "{what} failed ({}): {}",
             output.status,
