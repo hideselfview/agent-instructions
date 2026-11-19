@@ -91,7 +91,7 @@ pub fn has(home: &Path) -> Has {
 /// Installs cargo-nextest `VERSION` under <home>'s `.cargo/bin` when it has
 /// another version or none, and returns whether it did. <download> puts the
 /// release's `cargo-nextest` program in the folder it is given, a new one
-/// beside the program, so that the rename stays on one volume. Fails when
+/// beside the program (`evict::make_temp_dir`), so that the rename stays on one volume. Fails when
 /// the program there does not start, and when the new folder cannot be
 /// created or removed.
 pub fn install_with(home: &Path, download: impl FnOnce(&Path) -> Result<()>) -> Result<bool> {
@@ -105,11 +105,7 @@ pub fn install_with(home: &Path, download: impl FnOnce(&Path) -> Result<()>) -> 
     }
     let bin = bin_dir(home);
     std::fs::create_dir_all(&bin).context(|| format!("creating {}", bin.display()))?;
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |since| since.as_nanos());
-    let part = bin.join(format!(".cargo-nextest.{}.{nanos}", std::process::id()));
-    std::fs::create_dir(&part).context(|| format!("creating {}", part.display()))?;
+    let part = crate::evict::make_temp_dir(&bin, ".cargo-nextest.")?;
     let placed = (|| -> Result<()> {
         download(&part)?;
         let program = part.join("cargo-nextest");
