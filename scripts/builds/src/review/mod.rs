@@ -737,7 +737,7 @@ fn run_review(
         None => default_key(&worktree)?,
     };
     let stamp = Stamp::resolve(tool.now, args, &worktree)?;
-    let brief = brief_of(&store, args, &worktree)?;
+    let brief = brief_of(&tool.places, &store, args)?;
     let root = rules_root(args)?;
     let reviewer = PathBuf::from(args.value("reviewer")?.unwrap_or("claude"));
     let head = args.value("head")?;
@@ -792,8 +792,14 @@ pub fn default_key(worktree: &Path) -> Result<String> {
     }
 }
 
-/// The brief of the first `--item` that has one, read from the worktree.
-fn brief_of(store: &Store, args: &Args, worktree: &Path) -> Result<Option<(String, String)>> {
+/// The brief of the first `--item` that has one, read from the main checkout
+/// of one of the project's repos (`find_brief`): briefs are in git-ignored
+/// plans/, so no worktree holds them.
+fn brief_of(
+    places: &crate::places::Places,
+    store: &Store,
+    args: &Args,
+) -> Result<Option<(String, String)>> {
     let ids = args.values("item");
     if ids.is_empty() {
         return Ok(None);
@@ -805,9 +811,9 @@ fn brief_of(store: &Store, args: &Args, worktree: &Path) -> Result<Option<(Strin
             fail!("--item {}: there is no open item {}", id.0, id.0);
         };
         if let Some(brief) = &item.brief {
-            let path = brief.split('#').next().unwrap_or(brief);
-            let text = std::fs::read_to_string(worktree.join(path))
-                .unwrap_or_else(|_| format!("(the brief file {path} is not in the worktree)"));
+            let file = crate::lists::draft::find_brief(places, &lists.repos, brief)?;
+            let text = std::fs::read_to_string(&file)
+                .context(|| format!("reading the brief {}", file.display()))?;
             return Ok(Some((brief.clone(), text)));
         }
     }

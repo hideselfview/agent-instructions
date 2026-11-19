@@ -1331,3 +1331,33 @@ fn no_group_reviews_the_test_cases() {
     );
     assert!(fake.prompts().is_empty());
 }
+
+#[test]
+fn a_review_reads_the_brief_from_the_main_checkout_of_another_repo() {
+    let demo = crate::lists::item_fixtures::demo_over("review-brief", &["demo", "other"]);
+    let other = demo.scratch.repo_path("other");
+    std::fs::create_dir_all(other.join("plans")).unwrap();
+    std::fs::write(other.join("plans/b.md"), "The brief text.\n").unwrap();
+    demo.store
+        .write(&stamp(), "add", |db| {
+            let draft = crate::lists::item::ItemDraft {
+                brief: Some("plans/b.md#Part".into()),
+                ..crate::lists::fixtures::draft("Do the work with a brief")
+            };
+            crate::lists::item::add_item(db, &draft, None, &stamp()).map(|_| ())
+        })
+        .unwrap();
+    let args = Args::parse(&["--item".to_string(), "1".to_string()], &["item"], &[]).unwrap();
+    assert_eq!(
+        brief_of(&demo.tool.places, &demo.store, &args).unwrap(),
+        Some((
+            "plans/b.md#Part".to_string(),
+            "The brief text.\n".to_string()
+        ))
+    );
+    std::fs::remove_file(other.join("plans/b.md")).unwrap();
+    let said = brief_of(&demo.tool.places, &demo.store, &args)
+        .unwrap_err()
+        .text();
+    assert!(said.contains("does not exist"), "{said}");
+}
