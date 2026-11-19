@@ -544,6 +544,15 @@ fn run_steps_with(
     run: &mut RunStep,
 ) -> Result<Ended> {
     for step in steps {
+        // A step that opens windows holds its host's display alone.
+        let _window = if step.place == lock::Where::Hosts {
+            match held.take_window(&step.name)? {
+                Some(window) => Some(window),
+                None => return Ok(Ended::TakenOver),
+            }
+        } else {
+            None
+        };
         note(format!("step {}", step.name));
         held.runs(&step.name)?;
         let kind = match pick_kind_of(&step.name) {

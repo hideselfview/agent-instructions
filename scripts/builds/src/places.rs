@@ -211,6 +211,12 @@ impl Places {
         self.root.join(".app-hosts").join(host)
     }
 
+    /// The lock on <host>'s display, which every step that opens windows on
+    /// the host holds while it runs, across repos and lanes (window_lock.rs).
+    pub fn app_window_lock_file(&self, host: &str) -> PathBuf {
+        self.root.join(".app-windows").join(host)
+    }
+
     /// <lane>'s locks for <repo>: <root>/<repo>/app.locks for the mac lane.
     pub fn app_locks_dir(&self, repo: &str, lane: Lane) -> PathBuf {
         self.root.join(repo).join(lane.locks_dir_name())

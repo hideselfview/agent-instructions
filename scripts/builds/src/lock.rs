@@ -192,6 +192,18 @@ pub struct Held {
 }
 
 impl Held {
+    /// Takes the window lock of this checkout's host for <step>, waiting
+    /// while another run that opens windows holds it (window_lock.rs). None
+    /// when a takeover stopped this build while it waited.
+    pub fn take_window(&self, step: &str) -> Result<Option<crate::window_lock::Window>> {
+        crate::window_lock::take(
+            &self.places,
+            host_of(&self.checkout),
+            &format!("{}'s {}, step {step}", self.repo, self.checkout),
+            &|| TAKEN_OVER.load(Ordering::SeqCst),
+        )
+    }
+
     /// Writes the record of this build's run beside its lock, naming <step>
     /// as the step it runs now.
     fn record(&self, step: Option<RunningStep>) -> Result<()> {

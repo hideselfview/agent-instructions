@@ -131,6 +131,7 @@ mod usage;
 mod waits;
 mod warm;
 mod whole_file;
+mod window_lock;
 mod worktree;
 mod xcode;
 

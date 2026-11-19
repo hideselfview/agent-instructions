@@ -898,7 +898,8 @@ A repo's `.app-build` at its root says what its app builds run, one line each:
                     the test lines whose runs open windows (bae's mac:ui line,
                     for its UI tests); a --test run of such a line never runs
                     on this Mac, where the windows would cover the person's
-                    screen, only on a host
+                    screen, only on a host, and one such run at a time on each
+                    host (APP BUILDS)
   ci-only <step>...
                     steps that only CI runs, such as a whole test suite
                     (bae's macos-tests-all); app-build refuses such a step
@@ -944,6 +945,16 @@ lane checkouts run the UI tests). A build cannot run both a `here` step and a te
 `opens-windows` line; it fails and names one of each. A host runs UI tests only
 with the settings HOSTS names, since nobody is at its screen to type a
 password.
+
+Each host has one display, so a step that opens windows (a test run of an
+`opens-windows` line, or a --shots or --all-shots run of a `shots` line that
+passes --windows) holds the host's window lock while it runs, and no second
+such step runs on that host: UI tests of two builds, in two app checkouts, never
+share the display. The lock covers the host across repos, lanes and checkouts,
+and a step on another host takes its own. A step that finds the lock held waits
+for it and prints that it waits, naming the run that holds it. The build keeps
+its app checkout and its place in the lane while it waits, and a takeover ends
+the wait. Steps that open no windows never wait for it.
 
 When a host's Xcode cannot start, every xcodebuild run there fails, whatever
 code it builds: xcodebuild prints "A required plugin failed to load" and names
