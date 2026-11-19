@@ -240,9 +240,9 @@ DISPATCH
     whatever the load. A host over its band holds nothing back while another
     host that takes cargo work is under its band, since `builds cargo` sends
     the work there. The person sets each host's band (`builds host band`);
-    a host with none has 0.75 to 1.25 times its cores. A host with swap in
-    use is over its band whatever its load, and health says its memory next
-    to its load.
+    a host with none has 0.75 to 1.25 times its cores. A host whose
+    kernel reports memory pressure at warning or critical is over its band
+    whatever its load, and health says its memory next to its load.
   - Flaky tests and speed work (profiling, benchmarks, timing a build) never go
     in the work queue. They need a quiet machine: on a loaded one, load hides
     the cause and skews every number, and repeated runs slow every other agent.
@@ -505,13 +505,13 @@ uncommitted work. It never runs sudo and stops a process only with
   - Disk under the floor: hold the queue.
   - A host under its band while items are ready: start agents on the next
     ready items (`builds next`).
-  - Every host that takes cargo work over its band, or in swap: start
+  - Every host that takes cargo work over its band, or under memory pressure: start
     nothing new until one's 5-minute load falls under the high end of its
-    band and it has no swap in use. A host over its band while another host
+    band and its memory pressure is normal. A host over its band while another host
     that takes cargo work is under its band needs nothing: start agents for
     the host under its band. Load never holds back items of project builds.
     The line gives the host's band and memory, so a host whose load is
-    inside its band but that swaps shows up as over it.
+    inside its band but that is under memory pressure shows up as over it.
   - Builds items ready and not running: start them whatever the hosts' load
     (builds work goes first).
   - An app lock held long, or with agents waiting: check that the holder is

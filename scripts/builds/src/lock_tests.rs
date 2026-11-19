@@ -197,7 +197,7 @@ fn ssh_with_load(dir: &std::path::Path, load: &str) -> Ssh {
     let program = dir.join("ssh");
     std::fs::write(
         &program,
-        format!("#!/bin/sh\nprintf 'cores=1\\nload={load} 0 0\\nfree_kib=900000000\\nmemory_free_percent=80\\nswap_used_mib=0\\n'\n"),
+        format!("#!/bin/sh\nprintf 'cores=1\\nload={load} 0 0\\nfree_kib=900000000\\nmemory_free_percent=80\\nswap_used_mib=0\\nmemory_pressure_level=1\\n'\n"),
     )
     .unwrap();
     std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();

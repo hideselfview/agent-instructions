@@ -8,9 +8,9 @@
 //! cargo work is under its band, because `builds cargo` sends the work there.
 //!
 //! A host's band is the one `builds host band` set (host_band.rs), or the
-//! shares of its cores when it has none. A host that has swap in use is over
-//! its band whatever its load (host_memory.rs), and its line says its memory
-//! next to its load.
+//! shares of its cores when it has none. A host whose kernel reports memory
+//! pressure at warning or critical is over its band whatever its load
+//! (host_memory.rs), and its line says its memory next to its load.
 //!
 //! Both judge the 5-minute load average: health runs every 5 minutes, and the
 //! 1-minute average rises and falls with each build's steps.
@@ -69,8 +69,8 @@ pub fn findings(
                 .map(|(_, place)| place.as_str())
                 .collect();
             let place = crate::host::place(&host.name);
-            let why = if answer.memory.in_swap() && five <= band.high {
-                "is in swap, which puts it over its band whatever its load"
+            let why = if answer.memory.under_pressure() && five <= band.high {
+                "is under memory pressure, which puts it over its band whatever its load"
             } else {
                 "is over its band"
             };
@@ -99,9 +99,9 @@ pub fn findings(
 }
 
 /// Whether <host> is over its band: its 5-minute load is above the band's
-/// high end, or it has swap in use.
+/// high end, or the kernel reports memory pressure at warning or critical.
 fn over(host: &Host, answer: &Probe) -> bool {
-    answer.load[1] > host.band_for(answer.cores).high || answer.memory.in_swap()
+    answer.load[1] > host.band_for(answer.cores).high || answer.memory.under_pressure()
 }
 
 /// The line for an idle host that `builds cargo` passes over for <why>

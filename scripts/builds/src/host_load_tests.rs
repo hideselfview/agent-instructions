@@ -29,7 +29,7 @@ fn loaded(five: f64) -> std::result::Result<Probe, String> {
 /// at rest.
 fn load(five: &str, band: &str) -> String {
     format!(
-        "its 5-minute load is {five} on 10 cores, against a band of {band}; memory 80% free, swap 0M used"
+        "its 5-minute load is {five} on 10 cores, against a band of {band}; memory pressure normal, 80% free, swap 0M used"
     )
 }
 
@@ -170,23 +170,25 @@ fn a_hosts_band_sets_where_it_is_under_and_over() {
     );
 }
 
-/// A host in swap is over its band whatever its load, and its line says why.
+/// A host under memory pressure is over its band whatever its load, and its
+/// line says why. Swap in use alone is not pressure.
 /// Another host under its band takes the work, as for a host over by load.
 #[test]
-fn a_host_in_swap_is_over_its_band_whatever_its_load() {
+fn a_host_under_memory_pressure_is_over_its_band_whatever_its_load() {
     let swapping = |five: f64| {
         let mut probe = loaded(five).unwrap();
         probe.memory = Memory {
             free_percent: 4,
             swap_used_mib: 2048.0,
+            pressure_level: 2,
         };
         Ok(probe)
     };
-    let memory = "memory 4% free, swap 2048M used";
+    let memory = "memory pressure warning, 4% free, swap 2048M used";
     assert_eq!(
         lines(&[(host(LOCAL, Some(1.0)), swapping(9.0))], 0),
         [format!(
-            "this Mac is in swap, which puts it over its band whatever its load: its 5-minute load is 9.0 on 10 cores, against a band of {DEFAULT_BAND}; {memory}; start nothing new, except builds items, which this does not hold back"
+            "this Mac is under memory pressure, which puts it over its band whatever its load: its 5-minute load is 9.0 on 10 cores, against a band of {DEFAULT_BAND}; {memory}; start nothing new, except builds items, which this does not hold back"
         )]
     );
     // A load over the band says so first.
@@ -194,14 +196,21 @@ fn a_host_in_swap_is_over_its_band_whatever_its_load() {
         lines(&[(host(LOCAL, Some(1.0)), swapping(13.0))], 0)[0]
             .starts_with("this Mac is over its band: ")
     );
-    // A host in swap is never idle, however low its load.
+    // A host with swap in use but normal pressure is judged by its load.
+    let mut calm = loaded(1.0).unwrap();
+    calm.memory.swap_used_mib = 2400.0;
+    assert!(lines(&[(host(LOCAL, Some(1.0)), Ok(calm))], 0).is_empty());
+    // A host under pressure is never idle, however low its load.
     let hosts = [
         (host(LOCAL, Some(1.0)), swapping(1.0)),
         (host("m1", Some(0.8)), loaded(9.0)),
     ];
     let said = lines(&hosts, 2);
     assert_eq!(said.len(), 1, "{said:?}");
-    assert!(said[0].starts_with("this Mac is in swap"), "{said:?}");
+    assert!(
+        said[0].starts_with("this Mac is under memory pressure"),
+        "{said:?}"
+    );
 }
 
 /// Idle cores that `builds cargo` never uses ask for no agents. Health says

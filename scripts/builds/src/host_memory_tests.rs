@@ -4,29 +4,49 @@ use std::os::unix::fs::PermissionsExt;
 
 #[test]
 fn reads_the_lines_the_script_prints_and_fails_on_anything_else() {
-    let memory = Memory::parse("memory_free_percent=61\nswap_used_mib=12.50\n").unwrap();
+    let memory =
+        Memory::parse("memory_free_percent=61\nswap_used_mib=12.50\nmemory_pressure_level=2\n")
+            .unwrap();
     assert_eq!(
         memory,
         Memory {
             free_percent: 61,
-            swap_used_mib: 12.5
+            swap_used_mib: 12.5,
+            pressure_level: 2,
         }
     );
-    assert!(memory.in_swap());
-    assert_eq!(memory.text(), "memory 61% free, swap 12M used");
-    assert!(!Memory::at_rest().in_swap());
+    assert!(memory.under_pressure());
+    assert_eq!(
+        memory.text(),
+        "memory pressure warning, 61% free, swap 12M used"
+    );
+    assert!(!Memory::at_rest().under_pressure());
+    let swapping = Memory {
+        swap_used_mib: 2400.0,
+        ..Memory::at_rest()
+    };
+    assert!(!swapping.under_pressure(), "swap alone is not pressure");
+    assert!(
+        Memory {
+            pressure_level: 4,
+            ..swapping
+        }
+        .under_pressure()
+    );
     for text in [
-        "swap_used_mib=0\n",
-        "memory_free_percent=61\n",
-        "memory_free_percent=\nswap_used_mib=0\n",
-        "memory_free_percent=61\nswap_used_mib=\n",
+        "swap_used_mib=0\nmemory_pressure_level=1\n",
+        "memory_free_percent=61\nmemory_pressure_level=1\n",
+        "memory_free_percent=61\nswap_used_mib=0\n",
+        "memory_free_percent=61\nswap_used_mib=0\nmemory_pressure_level=\n",
+        "memory_free_percent=\nswap_used_mib=0\nmemory_pressure_level=1\n",
+        "memory_free_percent=61\nswap_used_mib=\nmemory_pressure_level=1\n",
     ] {
         assert!(Memory::parse(text).is_err(), "{text:?}");
     }
 }
 
 /// The script turns the unit of `vm.swapusage` into MiB, and reads the free
-/// percentage `memory_pressure` prints.
+/// percentage `memory_pressure` prints and the kernel's pressure level.
 #[test]
 fn the_script_reads_memory_pressure_and_swap_in_any_unit() {
     let scratch = Scratch::new("host-memory");
@@ -59,7 +79,10 @@ fn the_script_reads_memory_pressure_and_swap_in_any_unit() {
             0.5,
         ),
     ] {
-        program("sysctl", &format!("echo '{swap}'"));
+        program(
+            "sysctl",
+            &format!("case \"$2\" in kern.*) echo 4;; *) echo '{swap}';; esac"),
+        );
         let output = std::process::Command::new("sh")
             .arg("-c")
             .arg(SCRIPT)
@@ -68,6 +91,7 @@ fn the_script_reads_memory_pressure_and_swap_in_any_unit() {
             .unwrap();
         let memory = Memory::parse(&String::from_utf8_lossy(&output.stdout)).unwrap();
         assert_eq!(memory.free_percent, 37);
+        assert_eq!(memory.pressure_level, 4);
         assert_eq!(memory.swap_used_mib, mib, "{swap}");
     }
 }

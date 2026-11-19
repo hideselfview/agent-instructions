@@ -47,7 +47,7 @@ use std::path::Path;
 #[test]
 fn reads_what_a_host_prints() {
     let probe = parse_probe(
-        "cores=10\nload=1.50 1.20 1.10 \nfree_kib=447000000\nmemory_free_percent=61\nswap_used_mib=12.50\n",
+        "cores=10\nload=1.50 1.20 1.10 \nfree_kib=447000000\nmemory_free_percent=61\nswap_used_mib=12.50\nmemory_pressure_level=2\n",
     )
     .unwrap();
     assert_eq!(
@@ -59,6 +59,7 @@ fn reads_what_a_host_prints() {
             memory: Memory {
                 free_percent: 61,
                 swap_used_mib: 12.5,
+                pressure_level: 2,
             },
             git_fails: None,
         }
@@ -67,7 +68,7 @@ fn reads_what_a_host_prints() {
     assert!(parse_probe("cores=10\n").is_err());
     assert!(parse_probe("cores=10\nload=1.50\nfree_kib=4\n").is_err());
     let refusing = parse_probe(
-        "cores=10\nload=1.50 1.20 1.10\nfree_kib=4\nmemory_free_percent=61\nswap_used_mib=0\ngit_fails=You have not agreed to the Xcode license agreements. \n",
+        "cores=10\nload=1.50 1.20 1.10\nfree_kib=4\nmemory_free_percent=61\nswap_used_mib=0\nmemory_pressure_level=1\ngit_fails=You have not agreed to the Xcode license agreements. \n",
     )
     .unwrap();
     assert_eq!(

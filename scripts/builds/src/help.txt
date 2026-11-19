@@ -1002,9 +1002,9 @@ indexes the build root.
                               host the same way, without the sccache step, the
                               timing or the settings. `list`
                               asks every host for its load average per core,
-                              its load band, its memory (the share
-                              `memory_pressure` calls free and the swap in
-                              use), its free disk, whether it answers and
+                              its load band, its memory (the kernel's pressure level, the
+                              share `memory_pressure` calls free and the
+                              swap in use), its free disk, whether it answers and
                               whether it refuses jobs, and keeps each host's record of
                               refusing jobs current with the answer.
                               `clear-xcode` removes the record that the host's
@@ -1442,8 +1442,10 @@ STATUS, HEALTH AND THE DASHBOARD
                               floor, git failing, no measured core speed)
                               with the fix (`builds prune`, git on the
                               host, `builds host setup <name>`); this Mac or a host over its band, its
-                              5-minute load over the band's high end or any
-                              swap in use, whatever its load (start nothing
+                              5-minute load over the band's high end or
+                              memory pressure at warning or critical
+                              (`sysctl kern.memorystatus_vm_pressure_level`
+                              2 or 4), whatever its load (start nothing
                               new, unless another host that takes cargo work
                               is under its band, which `builds cargo` sends
                               the work to: the line names that host); each
