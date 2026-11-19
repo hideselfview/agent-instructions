@@ -1,6 +1,15 @@
 use super::*;
 use crate::testing::{Scratch, fill};
+use std::os::unix::process::CommandExt;
 use std::time::Duration;
+
+/// Kills <build> and the `sleep` its `lockf` runs: killing `lockf` alone
+/// leaves the child alive, holding the test's output open for its 60 seconds.
+fn kill_group(build: &mut std::process::Child) {
+    let group = build.id() as libc::pid_t;
+    assert_eq!(unsafe { libc::kill(-group, libc::SIGKILL) }, 0);
+    build.wait().unwrap();
+}
 
 #[test]
 fn a_held_cargo_lock_keeps_the_folder() {
@@ -18,6 +27,7 @@ fn a_held_cargo_lock_keeps_the_folder() {
         .arg(&lock)
         .args(["sh", "-c", "echo held; exec sleep 60"])
         .stdout(Stdio::piped())
+        .process_group(0)
         .spawn()
         .unwrap();
     let mut said = String::new();
@@ -28,8 +38,7 @@ fn a_held_cargo_lock_keeps_the_folder() {
     .unwrap();
     assert_eq!(said, "held\n");
     let kept = evict(&places, &folder, Recreate::Yes, Removal::Now);
-    build.kill().unwrap();
-    build.wait().unwrap();
+    kill_group(&mut build);
     assert!(
         !kept.unwrap(),
         "a folder whose cargo lock a build holds was deleted"
@@ -82,6 +91,7 @@ fn a_build_holding_the_checkouts_guard_keeps_the_folder() {
         .arg(&guard)
         .args(["sh", "-c", "echo held; exec sleep 60"])
         .stdout(Stdio::piped())
+        .process_group(0)
         .spawn()
         .unwrap();
     let mut said = String::new();
@@ -92,8 +102,7 @@ fn a_build_holding_the_checkouts_guard_keeps_the_folder() {
     .unwrap();
     assert_eq!(said, "held\n");
     let kept = evict(&places, &folder, Recreate::Yes, Removal::Now);
-    build.kill().unwrap();
-    build.wait().unwrap();
+    kill_group(&mut build);
     assert!(
         !kept.unwrap(),
         "a folder whose checkout's guard a build holds was deleted"
