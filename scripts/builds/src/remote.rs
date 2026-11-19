@@ -667,15 +667,15 @@ pub fn release_script(repo: &str, worktree: Option<&str>, id: &str) -> String {
 /// Runs the job's command on the host, passing its output through, and
 /// returns its exit status. A stop signal stops the command on the host, and
 /// so does the end of this process, by any signal: both close the command's
-/// stdin (`run_script`). When
-/// <time_locks> is set (the command is cargo), builds reads the command's
-/// stderr as it passes through, and this function also returns how long
-/// cargo waited for its file locks (lock_wait.rs).
+/// stdin (`run_script`). When <cargo> is given (the command is cargo), builds
+/// reads the command's stdout and stderr as they pass through, gives each
+/// line to that watch, and also returns how long cargo waited for its file
+/// locks (lock_wait.rs).
 pub fn run_command(
     transport: &Transport,
     worktree: &str,
     command: &[String],
-    time_locks: bool,
+    cargo: Option<&crate::cargo_run_outcome::Watch>,
 ) -> Result<(i32, Option<Duration>)> {
     use std::os::unix::io::IntoRawFd;
     use std::os::unix::process::CommandExt;
@@ -689,7 +689,12 @@ pub fn run_command(
         // cuts it (`Lifeline`), and the kernel closes it when this process
         // ends.
         .stdin(Stdio::piped())
-        .stderr(if time_locks {
+        .stdout(if cargo.is_some() {
+            Stdio::piped()
+        } else {
+            Stdio::inherit()
+        })
+        .stderr(if cargo.is_some() {
             Stdio::piped()
         } else {
             Stdio::inherit()
@@ -700,11 +705,29 @@ pub fn run_command(
         .spawn()
         .context(|| format!("running the command on host {}", transport.host.name))?;
     lifeline.hold(child.stdin.take().expect("stdin was piped").into_raw_fd());
-    let relay = child
-        .stderr
-        .take()
-        .map(|stderr| crate::lock_wait::relay(stderr, std::io::stderr()));
-    let waited = || relay.map(|relay| relay.join().expect("the relay does not panic"));
+    let relay = child.stderr.take().zip(cargo).map(|(stderr, watch)| {
+        crate::lock_wait::relay(
+            stderr,
+            crate::cargo_run_outcome::Tee::new(std::io::stderr(), watch.clone()),
+        )
+    });
+    // If writing to stdout fails, nobody can read the output, so the relay
+    // ignores the error.
+    let out = child.stdout.take().zip(cargo).map(|(mut stdout, watch)| {
+        let watch = watch.clone();
+        std::thread::spawn(move || {
+            let _ = std::io::copy(
+                &mut stdout,
+                &mut crate::cargo_run_outcome::Tee::new(std::io::stdout(), watch),
+            );
+        })
+    });
+    let waited = || {
+        if let Some(out) = out {
+            out.join().expect("the relay does not panic");
+        }
+        relay.map(|relay| relay.join().expect("the relay does not panic"))
+    };
     let status = child.wait();
     drop(lifeline);
     let status = status.context(|| "waiting for the command".to_string())?;
@@ -836,27 +859,33 @@ impl Job<'_> {
     /// Runs the job's command on its host, passing its output through,
     /// removes the job's ref and claim, and returns the command's exit status.
     pub fn run(self) -> Result<i32> {
-        Ok(self.run_with(false)?.0)
+        Ok(self.run_with(None)?.0)
     }
 
     /// Runs a cargo command like `run` and also returns how long cargo waited
     /// for its file locks on the host, which builds reads from cargo's
     /// messages as they pass through.
-    pub fn run_timing_locks(self) -> Result<(i32, Duration)> {
-        let (code, waited) = self.run_with(true)?;
+    pub fn run_timing_locks(
+        self,
+        watch: &crate::cargo_run_outcome::Watch,
+    ) -> Result<(i32, Duration)> {
+        let (code, waited) = self.run_with(Some(watch))?;
         Ok((
             code,
             waited.expect("run_command relays the command's stderr when it times locks"),
         ))
     }
 
-    fn run_with(self, time_locks: bool) -> Result<(i32, Option<Duration>)> {
+    fn run_with(
+        self,
+        cargo: Option<&crate::cargo_run_outcome::Watch>,
+    ) -> Result<(i32, Option<Duration>)> {
         let transport = Transport {
             places: self.places,
             ssh: self.ssh,
             host: &self.host,
         };
-        let ran = run_command(&transport, &self.worktree, &self.command, time_locks);
+        let ran = run_command(&transport, &self.worktree, &self.command, cargo);
         let released = transport.capture(
             &release_script(&self.repo, Some(&self.worktree), &self.id),
             "removing the job's ref and claim",
@@ -946,7 +975,7 @@ fn cmd_step(tool: &Tool, ssh: &Ssh, args: &[String]) -> Result<()> {
         ssh,
         host: &host,
     };
-    match run_command(&transport, worktree, command, false)?.0 {
+    match run_command(&transport, worktree, command, None)?.0 {
         0 => Ok(()),
         code => Err(Fail::Exit(code)),
     }

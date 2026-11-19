@@ -737,10 +737,18 @@ restart the server.
                               leaves to cargo), its time and, when a hook
                               check started it, the check (`builds checks run`
                               puts the check's run start and position in
-                              BUILDS_HOOK_CHECK), and the crates its -p and
-                              --package arguments named. builds records
-                              nothing for a repo in no project, and a host
-                              that runs cargo for a job records nothing there.
+                              BUILDS_HOOK_CHECK), the crates its -p and
+                              --package arguments named, and how it ended:
+                              passed, failed, or stopped (a signal ended
+                              cargo). builds reads each line of cargo's output
+                              as it passes through, on this Mac or from the
+                              host, and keeps the tests that cargo test or
+                              nextest reported failed and, for a run that did
+                              not pass, an excerpt: the lines from the first
+                              test panic or compiler error, else the last
+                              lines. builds records nothing for a repo in no
+                              project, and a host that runs cargo for a job
+                              records nothing there.
   builds cargo update (-p <package>... | -w) [<args>...]
                               run cargo update on this Mac, which rewrites the
                               Cargo.lock entries of the named packages, or with

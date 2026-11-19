@@ -17,6 +17,7 @@ mod cargo_place;
 mod cargo_read;
 mod cargo_run;
 mod cargo_run_crate;
+mod cargo_run_outcome;
 mod cargo_starts;
 mod cargo_update;
 mod checkout;

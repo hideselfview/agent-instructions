@@ -53,11 +53,21 @@ fn landed_card(scratch: &Scratch) -> (crate::lists::store::Store, Id) {
         took: std::time::Duration::from_millis(ms),
         hook_check: hook,
     };
-    crate::cargo_run::record_run(&path, &cargo(T0 + 100, 40_000, None), &["builds".into()])
-        .unwrap();
+    crate::cargo_run::record_run(
+        &path,
+        &cargo(T0 + 100, 40_000, None),
+        &["builds".into()],
+        &crate::cargo_run_outcome::Outcome::passed(),
+    )
+    .unwrap();
     // A hook run of 30s, 10s of it a cargo run of its own.
-    crate::cargo_run::record_run(&path, &cargo(T0 + 200, 10_000, Some((T0 + 200, 0))), &[])
-        .unwrap();
+    crate::cargo_run::record_run(
+        &path,
+        &cargo(T0 + 200, 10_000, Some((T0 + 200, 0))),
+        &[],
+        &crate::cargo_run_outcome::Outcome::passed(),
+    )
+    .unwrap();
     crate::hook_stats::record(
         &path,
         &crate::hook_stats::Run {

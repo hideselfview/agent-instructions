@@ -171,9 +171,13 @@ const BEFORE_LANDING_REPO_STAMP: i64 = 34_147_721;
 /// card's dashboard state.
 const BEFORE_CARD_STATE_STAMP: i64 = 21_217_016;
 
+/// The stamp of the schema before builds recorded how each `builds cargo` run
+/// ended.
+const BEFORE_CARGO_RUN_OUTCOME_STAMP: i64 = 949_736_987;
+
 /// Every stamp a store can carry that `move_store` moves, oldest schema first.
 /// A new move adds the stamp of the schema before it at the end.
-const STAMPS: [i64; 9] = [
+const STAMPS: [i64; 10] = [
     BEFORE_CONDITION_ENDERS_STAMP,
     BEFORE_ITEM_EVENT_STAMP,
     BEFORE_LAND_RUN_STAMP,
@@ -183,6 +187,7 @@ const STAMPS: [i64; 9] = [
     BEFORE_JUDGE_STAMP,
     BEFORE_LANDING_REPO_STAMP,
     BEFORE_CARD_STATE_STAMP,
+    BEFORE_CARGO_RUN_OUTCOME_STAMP,
 ];
 
 /// Whether a store stamped <found> comes before the move that follows the
@@ -337,6 +342,11 @@ fn move_store(path: &Path, now: i64) -> Result<()> {
     // Every store from before the cards' states gets their empty tables.
     if before(found, BEFORE_CARD_STATE_STAMP) {
         tx.execute_batch(db::CARD_STATE_PART).sql()?;
+    }
+    // Every store from before the cargo runs' outcomes gets their empty
+    // tables: the runs it holds have none.
+    if before(found, BEFORE_CARGO_RUN_OUTCOME_STAMP) {
+        tx.execute_batch(db::CARGO_RUN_OUTCOME_PART).sql()?;
     }
     tx.pragma_update(None, "user_version", db::stamp()).sql()?;
     let broken: Option<String> = tx

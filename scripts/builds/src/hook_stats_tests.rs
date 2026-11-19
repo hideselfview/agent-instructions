@@ -702,11 +702,23 @@ fn a_check_comes_back_with_where_it_ran_and_how_loaded_that_host_was() {
         took: std::time::Duration::from_secs(120),
         hook_check: Some((7, position)),
     };
-    crate::cargo_run::record_run(&path, &cargo(1, Some(12_000)), &[]).unwrap();
+    crate::cargo_run::record_run(
+        &path,
+        &cargo(1, Some(12_000)),
+        &[],
+        &crate::cargo_run_outcome::Outcome::passed(),
+    )
+    .unwrap();
     // A cargo run of another hook run names no check of this one.
     let mut other = cargo(0, None);
     other.hook_check = Some((6, 0));
-    crate::cargo_run::record_run(&path, &other, &[]).unwrap();
+    crate::cargo_run::record_run(
+        &path,
+        &other,
+        &[],
+        &crate::cargo_run_outcome::Outcome::passed(),
+    )
+    .unwrap();
     let read = recorded_runs(&path, "bae");
     let places: Vec<Option<String>> = read[0].checks.iter().map(CheckRecord::place_text).collect();
     assert_eq!(

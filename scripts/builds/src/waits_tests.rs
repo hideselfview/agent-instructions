@@ -114,10 +114,34 @@ fn a_store_gives_each_kind_its_own_rows_and_leaves_out_other_cargo_runs() {
         took: Duration::from_millis(ms),
         hook_check,
     };
-    record_run(&path, &cargo("clippy", 40_000, Some((1_000, 0))), &[]).unwrap();
-    record_run(&path, &cargo("nextest run", 90_000, None), &[]).unwrap();
-    record_run(&path, &cargo("test", 30_000, None), &[]).unwrap();
-    record_run(&path, &cargo("clippy", 20_000, None), &[]).unwrap();
+    record_run(
+        &path,
+        &cargo("clippy", 40_000, Some((1_000, 0))),
+        &[],
+        &crate::cargo_run_outcome::Outcome::passed(),
+    )
+    .unwrap();
+    record_run(
+        &path,
+        &cargo("nextest run", 90_000, None),
+        &[],
+        &crate::cargo_run_outcome::Outcome::passed(),
+    )
+    .unwrap();
+    record_run(
+        &path,
+        &cargo("test", 30_000, None),
+        &[],
+        &crate::cargo_run_outcome::Outcome::passed(),
+    )
+    .unwrap();
+    record_run(
+        &path,
+        &cargo("clippy", 20_000, None),
+        &[],
+        &crate::cargo_run_outcome::Outcome::passed(),
+    )
+    .unwrap();
     let step = |name: &str, wall_ms: u64| crate::app_timing::StepRecord {
         name: name.into(),
         kind: crate::app_timing::StepKind::Step,

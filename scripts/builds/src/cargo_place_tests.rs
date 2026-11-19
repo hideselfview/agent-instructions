@@ -238,7 +238,9 @@ fn run_in(
         host_command(args, checkout, dir, env),
         env,
     )? {
-        Some(job) => finish(job).map(|exited| exited.code),
+        Some(job) => {
+            finish(job, &crate::cargo_run_outcome::Watch::default()).map(|exited| exited.code)
+        }
         None => panic!("host {} refused the job", host.name),
     }
 }

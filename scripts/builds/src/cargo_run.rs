@@ -7,8 +7,9 @@
 //! When cargo exits, builds records the run in the project's database
 //! (cargo_run.sql): when it started, cargo's subcommand, the host it ran on
 //! with that host's load, how long cargo waited for its file locks
-//! (lock_wait.rs), how long the run took, and the hook check that started it,
-//! when one did. When builds cannot write the record, it says so on stderr,
+//! (lock_wait.rs), how long the run took, the hook check that started it,
+//! when one did, and how it ended, from each line of its output
+//! (cargo_run_outcome.rs). When builds cannot write the record, it says so on stderr,
 //! and the run ends as cargo did. A host that runs cargo for a job records
 //! nothing there: only this Mac holds the projects' stores.
 
@@ -145,9 +146,15 @@ pub struct CargoRun {
     pub hook_check: Option<(i64, u32)>,
 }
 
-/// Writes <run>, which named <crates>, to the database at <path>, and creates
-/// the database with its schema if it does not exist.
-pub fn record_run(path: &Path, run: &CargoRun, crates: &[String]) -> Result<()> {
+/// Writes <run>, which named <crates> and ended as <outcome> says, to the
+/// database at <path>, and creates the database with its schema if it does
+/// not exist.
+pub fn record_run(
+    path: &Path,
+    run: &CargoRun,
+    crates: &[String],
+    outcome: &crate::cargo_run_outcome::Outcome,
+) -> Result<()> {
     let mut conn = crate::db::open(path, crate::db::Make::Allowed)?;
     let what = || format!("writing {}", path.display());
     let tx = conn.transaction().context(what)?;
@@ -169,7 +176,9 @@ pub fn record_run(path: &Path, run: &CargoRun, crates: &[String]) -> Result<()> 
         ],
     )
     .context(what)?;
-    crate::cargo_run_crate::record(&tx, tx.last_insert_rowid(), crates)?;
+    let id = tx.last_insert_rowid();
+    crate::cargo_run_crate::record(&tx, id, crates)?;
+    crate::cargo_run_outcome::record(&tx, id, outcome)?;
     tx.commit().context(what)
 }
 
@@ -374,14 +383,23 @@ pub fn cmd_cargo(args: &[String]) -> Result<()> {
         (Some(_), Some(picked)) => picked,
         _ => (LOCAL.to_string(), Load::here()),
     };
+    let watch = crate::cargo_run_outcome::Watch::default();
     let exited = match job {
         None => prepare_here(checkout.as_ref(), &env)
             .and_then(|()| run_before_here(checkout.as_ref(), &env))
             .and_then(|()| build_runner_here(&places, checkout.as_ref(), runner.as_ref(), &env))
             .and_then(|runner| {
-                run_here(&places, checkout.as_ref(), subcommand, format, args, runner)
+                run_here(
+                    &places,
+                    checkout.as_ref(),
+                    subcommand,
+                    format,
+                    args,
+                    runner,
+                    &watch,
+                )
             })?,
-        Some(job) => cargo_place::finish(job)?,
+        Some(job) => cargo_place::finish(job, &watch)?,
     };
     if let (Some(checkout), Some(key)) = (&checkout, key) {
         let recorded = hook_check(&env).and_then(|hook_check| {
@@ -399,6 +417,7 @@ pub fn cmd_cargo(args: &[String]) -> Result<()> {
                     hook_check,
                 },
                 &crate::cargo_run_crate::named(args),
+                &watch.outcome(exited.code),
             )
         });
         if let Err(error) = recorded {
@@ -485,18 +504,19 @@ pub fn last_host(conn: &Connection, key: &RunKey, path: &Path) -> Result<Option<
     .context(|| format!("reading {}", path.display()))
 }
 
-/// Records <run> in the database of <checkout>'s project; a repo in no
-/// project records nothing.
+/// Records <run>, which ended as <outcome> says, in the database of
+/// <checkout>'s project; a repo in no project records nothing.
 fn record_finished(
     places: &Places,
     checkout: &Checkout,
     run: &CargoRun,
     crates: &[String],
+    outcome: &crate::cargo_run_outcome::Outcome,
 ) -> Result<()> {
     let Some(database) = crate::lists::store::database_of(places, checkout)? else {
         return Ok(());
     };
-    record_run(&database, run, crates)
+    record_run(&database, run, crates, outcome)
 }
 
 /// How cargo ended: its exit status (or the recorder's, `run_here`), and how
@@ -566,11 +586,13 @@ fn build_runner_here(
     Ok(Some((runner.variable.clone(), path)))
 }
 
-/// Runs cargo here, with the recorder reading its output. When this process's
+/// Runs cargo here, with the recorder reading its output and <watch> each
+/// line of it that is no message for the recorder. When this process's
 /// stderr is no terminal, cargo's messages pass through builds, which times
-/// cargo's waits for its file locks; to a terminal, cargo prints them itself,
-/// with its colors and progress bar. cargo compiles through builds-rustc
-/// unless the caller names a wrapper of its own (`rustc_wrapper::cargo_env`).
+/// cargo's waits for its file locks and gives each line to <watch>; to a
+/// terminal, cargo prints them itself, with its colors and progress bar.
+/// cargo compiles through builds-rustc unless the caller names a wrapper of
+/// its own (`rustc_wrapper::cargo_env`).
 fn run_here(
     places: &Places,
     checkout: Option<&Checkout>,
@@ -578,6 +600,7 @@ fn run_here(
     format: &str,
     args: &[String],
     runner: Option<(String, std::path::PathBuf)>,
+    watch: &crate::cargo_run_outcome::Watch,
 ) -> Result<Exited> {
     let config = role_config(checkout);
     let linker = crate::linker::cargo_config(&places.home);
@@ -589,7 +612,7 @@ fn run_here(
         .map(|checkout| checkout.build_root(places))
         .filter(|root| root.is_dir());
     // SAFETY: isatty(2) reads nothing but the descriptor's kind.
-    let watch = unsafe { libc::isatty(libc::STDERR_FILENO) } == 0;
+    let relayed = unsafe { libc::isatty(libc::STDERR_FILENO) } == 0;
     let mut child = Command::new("cargo")
         .args(subcommand)
         .arg(format)
@@ -601,19 +624,24 @@ fn run_here(
         .env_remove(HOOK_CHECK_VARIABLE)
         .envs(wrapper.map(|wrapper| ("RUSTC_WRAPPER", wrapper)))
         .stdout(Stdio::piped())
-        .stderr(if watch {
+        .stderr(if relayed {
             Stdio::piped()
         } else {
             Stdio::inherit()
         })
         .spawn()
         .context(|| "running cargo".to_string())?;
-    let relay = child
-        .stderr
-        .take()
-        .map(|stderr| crate::lock_wait::relay(stderr, std::io::stderr()));
+    let relay = child.stderr.take().map(|stderr| {
+        crate::lock_wait::relay(
+            stderr,
+            crate::cargo_run_outcome::Tee::new(std::io::stderr(), watch.clone()),
+        )
+    });
     let stdout = child.stdout.take().expect("piped above");
-    let recorded = record(BufReader::new(stdout), &mut std::io::stdout().lock());
+    let recorded = record(
+        BufReader::new(stdout),
+        &mut crate::cargo_run_outcome::Tee::new(std::io::stdout().lock(), watch.clone()),
+    );
     let status = child.wait().context(|| "waiting for cargo".to_string())?;
     let lock_wait = relay.map(|relay| relay.join().expect("the relay does not panic"));
     drop(guard);
@@ -673,7 +701,13 @@ mod tests {
             took: Duration::from_secs(30),
             hook_check: None,
         };
-        record_run(&path, &run, &["builds".to_string(), "boards".to_string()]).unwrap();
+        record_run(
+            &path,
+            &run,
+            &["builds".to_string(), "boards".to_string()],
+            &crate::cargo_run_outcome::Outcome::passed(),
+        )
+        .unwrap();
         let conn = crate::db::open_reader(&path).unwrap().unwrap();
         let row: (i64, String, Option<i64>, i64) = conn
             .query_row(
@@ -711,10 +745,34 @@ mod tests {
             took: Duration::from_secs(30),
             hook_check: None,
         };
-        record_run(&path, &run("/d/bae", 100, "clippy", "local"), &[]).unwrap();
-        record_run(&path, &run("/d/bae", 200, "clippy", "m1"), &[]).unwrap();
-        record_run(&path, &run("/d/bae", 300, "test", "local"), &[]).unwrap();
-        record_run(&path, &run("/d/other", 400, "clippy", "local"), &[]).unwrap();
+        record_run(
+            &path,
+            &run("/d/bae", 100, "clippy", "local"),
+            &[],
+            &crate::cargo_run_outcome::Outcome::passed(),
+        )
+        .unwrap();
+        record_run(
+            &path,
+            &run("/d/bae", 200, "clippy", "m1"),
+            &[],
+            &crate::cargo_run_outcome::Outcome::passed(),
+        )
+        .unwrap();
+        record_run(
+            &path,
+            &run("/d/bae", 300, "test", "local"),
+            &[],
+            &crate::cargo_run_outcome::Outcome::passed(),
+        )
+        .unwrap();
+        record_run(
+            &path,
+            &run("/d/other", 400, "clippy", "local"),
+            &[],
+            &crate::cargo_run_outcome::Outcome::passed(),
+        )
+        .unwrap();
         let conn = crate::db::open_reader(&path).unwrap().unwrap();
         let last = |worktree: &str, subcommand: &str| {
             let key = RunKey {

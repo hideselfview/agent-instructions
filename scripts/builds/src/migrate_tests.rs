@@ -635,3 +635,35 @@ fn a_store_from_before_the_card_states_gains_their_tables_and_equals_a_fresh_sch
         db::schema_rows(&db::memory()).unwrap()
     );
 }
+
+#[test]
+fn the_cargo_run_outcomes_stamp_is_the_schema_before_them() {
+    assert_eq!(
+        db::stamp_of_text(&db::schema_before_cargo_run_outcome()),
+        BEFORE_CARGO_RUN_OUTCOME_STAMP
+    );
+}
+
+/// A store from before the cargo runs' outcomes gains their empty tables and
+/// equals a fresh schema.
+#[test]
+fn a_store_from_before_the_cargo_run_outcomes_gains_their_tables_and_equals_a_fresh_schema() {
+    let scratch = Scratch::new("move-cargo-run-outcomes");
+    let places = scratch.places();
+    let dir = places.lists.join("bae");
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join(DATABASE);
+    {
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(&db::schema_before_cargo_run_outcome())
+            .unwrap();
+        conn.pragma_update(None, "user_version", BEFORE_CARGO_RUN_OUTCOME_STAMP)
+            .unwrap();
+    }
+    migrate_stores(&places, 0).unwrap();
+    let conn = db::open(&path, db::Make::Never).unwrap();
+    assert_eq!(
+        db::schema_rows(&conn).unwrap(),
+        db::schema_rows(&db::memory()).unwrap()
+    );
+}

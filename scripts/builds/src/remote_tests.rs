@@ -362,7 +362,7 @@ fn a_stop_before_the_command_starts_stops_it() {
         &transport,
         &wt.display().to_string(),
         &args(&["sleep", "10"]),
-        false,
+        None,
     );
     let took = started.elapsed();
     assert_eq!(ran.unwrap(), (STOPPED_EXIT, None));
@@ -396,7 +396,7 @@ fn a_stop_signal_stops_every_command_the_process_runs() {
                     transport,
                     &wt.display().to_string(),
                     &args(&["sh", "-c", "echo $$ > started; exec sleep 600"]),
-                    false,
+                    None,
                 );
                 sender.send(code.unwrap().0).unwrap();
             });
@@ -469,7 +469,7 @@ fn killed_caller() {
             "-c",
             "exec 6>alive; echo $$ > started; exec sleep 600",
         ]),
-        true,
+        Some(&crate::cargo_run_outcome::Watch::default()),
     )
     .unwrap();
 }
@@ -694,7 +694,7 @@ fn a_remote_step_runs_with_the_hosts_root_and_path() {
         "-c",
         "echo \"$BUILDS_ROOT\" > env.txt; echo \"$PATH\" >> env.txt",
     ]);
-    let ran = run_command(&transport, &wt.display().to_string(), &command, false).unwrap();
+    let ran = run_command(&transport, &wt.display().to_string(), &command, None).unwrap();
     assert_eq!(ran, (0, None));
     // A cargo command's messages pass through builds, which times the
     // waits for cargo's file locks there.
@@ -703,7 +703,13 @@ fn a_remote_step_runs_with_the_hosts_root_and_path() {
         "-c",
         "echo '    Blocking waiting for file lock on build directory' >&2; sleep 0.3; echo '   Compiling demo' >&2",
     ]);
-    let (code, waited) = run_command(&transport, &wt.display().to_string(), &cargo, true).unwrap();
+    let (code, waited) = run_command(
+        &transport,
+        &wt.display().to_string(),
+        &cargo,
+        Some(&crate::cargo_run_outcome::Watch::default()),
+    )
+    .unwrap();
     assert_eq!(code, 0);
     let waited = waited.expect("run_command reads cargo's messages");
     assert!(waited >= Duration::from_millis(300), "{waited:?}");
@@ -889,7 +895,12 @@ fn a_command_that_leaves_a_process_holding_its_output_ends_with_its_status() {
         "set -m; sleep 60 & echo $! > left.pid; printf 'last words'; printf 'last error' >&2; exit 3",
     ]);
     let started = std::time::Instant::now();
-    let ran = run_command(&transport, &wt.display().to_string(), &command, true);
+    let ran = run_command(
+        &transport,
+        &wt.display().to_string(),
+        &command,
+        Some(&crate::cargo_run_outcome::Watch::default()),
+    );
     let took = started.elapsed();
     let left = std::fs::read_to_string(wt.join("left.pid")).unwrap();
     unsafe { libc::kill(left.trim().parse().unwrap(), libc::SIGKILL) };

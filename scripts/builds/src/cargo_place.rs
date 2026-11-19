@@ -761,12 +761,16 @@ pub fn start<'a>(
     }
 }
 
-/// Runs the started cargo job, passing the output through, and returns
-/// cargo's exit status with how long cargo waited for its file locks there. A
-/// host that stops answering fails the command, naming it.
-pub fn finish(job: Job) -> Result<crate::cargo_run::Exited> {
+/// Runs the started cargo job, passing the output through and giving each
+/// line to <watch>, and returns cargo's exit status with how long cargo
+/// waited for its file locks there. A host that stops answering fails the
+/// command, naming it.
+pub fn finish(
+    job: Job,
+    watch: &crate::cargo_run_outcome::Watch,
+) -> Result<crate::cargo_run::Exited> {
     let host = job.host_name().to_string();
-    let (code, lock_wait) = job.run_timing_locks()?;
+    let (code, lock_wait) = job.run_timing_locks(watch)?;
     answered(&host, code)?;
     Ok(crate::cargo_run::Exited {
         code,
