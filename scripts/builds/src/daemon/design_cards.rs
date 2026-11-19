@@ -28,8 +28,7 @@ pub fn standing(
     let commits = reads.of(lists, repo, top, git)?;
     let reviewing = commits
         .iter()
-        .filter_map(|commit| commit.covered_by)
-        .filter_map(|id| lists.design(id))
+        .filter_map(|commit| commit.covering(lists))
         .find(|design| design.waits_on_person());
     Ok(match reviewing {
         Some(design) => Some(ItemWait::Review {

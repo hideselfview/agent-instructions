@@ -241,8 +241,7 @@ pub fn awaiting_review(
             };
             commits.iter().any(|commit| {
                 commit
-                    .covered_by
-                    .and_then(|id| lists.design(id))
+                    .covering(lists)
                     .is_some_and(DesignChange::waits_on_person)
             })
         })

@@ -1068,6 +1068,19 @@ pub struct DesignCommit {
     pub covered_by: Option<Id>,
 }
 
+impl DesignCommit {
+    /// The open design change that covers it, from <lists>, the lists it was
+    /// read against or lists of the same version (`DesignReads`), which hold
+    /// every change it names.
+    pub fn covering<'a>(&self, lists: &'a Lists) -> Option<&'a DesignChange> {
+        self.covered_by.map(|id| {
+            lists
+                .design(id)
+                .expect("the lists a design commit was read against hold its covering change")
+        })
+    }
+}
+
 /// Each commit of <ahead> (the commits past origin/main, oldest first) in
 /// the worktree at <top> of <repo> that changes design files, with the open
 /// design change of the repo that covers it, approved or waiting on the
