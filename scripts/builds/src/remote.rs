@@ -52,29 +52,84 @@ const STOPPED_EXIT: i32 = 130;
 /// parent stopped this command.
 static STOPPED: AtomicBool = AtomicBool::new(false);
 
-/// The write end of the stdin of the command `run_command` runs, while the
-/// command runs, else -1: the command's lifeline (`run_script`). Whoever swaps
-/// it out closes it (`cut_lifeline`), so it is closed once.
-static LIFELINE: AtomicI32 = AtomicI32::new(-1);
+/// How many commands one process can run on hosts at once (`LIFELINES`).
+const LIFELINE_SLOTS: usize = 16;
 
-/// Closes the lifeline, when the command holds one, which stops the command
-/// on its host. The signal handler calls it, so it makes only
+/// A slot of `LIFELINES` that no `run_command` holds.
+const FREE: i32 = -1;
+
+/// A slot of `LIFELINES` that a `run_command` holds with no open descriptor in
+/// it: before the command starts, or once its lifeline is cut.
+const CLAIMED: i32 = -2;
+
+/// The write ends of the stdin pipes of the commands `run_command` runs: each
+/// command's lifeline (`run_script`), one per slot, else `FREE` or `CLAIMED`.
+/// A fixed array of atomics, so the signal handler can cut every lifeline.
+/// Whoever swaps a descriptor out of its slot closes it (`cut`), so each is
+/// closed once.
+static LIFELINES: [AtomicI32; LIFELINE_SLOTS] = [const { AtomicI32::new(FREE) }; LIFELINE_SLOTS];
+
+/// Closes the lifeline <slot> holds open, if it holds one, which stops that
+/// command on its host. The signal handler calls it, so it makes only
 /// async-signal-safe calls.
-fn cut_lifeline() {
-    let fd = LIFELINE.swap(-1, Ordering::SeqCst);
-    if fd >= 0 {
-        // SAFETY: the swap made this the only owner of the descriptor.
+fn cut(slot: &AtomicI32) {
+    let fd = slot.load(Ordering::SeqCst);
+    if fd >= 0
+        && slot
+            .compare_exchange(fd, CLAIMED, Ordering::SeqCst, Ordering::SeqCst)
+            .is_ok()
+    {
+        // SAFETY: the exchange made this the only owner of the descriptor.
         unsafe { libc::close(fd) };
+    }
+}
+
+/// One `run_command`'s slot in `LIFELINES`, from before its command starts
+/// until the call ends. Dropping it cuts the lifeline and frees the slot.
+struct Lifeline(&'static AtomicI32);
+
+impl Lifeline {
+    /// Claims a free slot, or fails when every slot is held.
+    fn claim() -> Result<Lifeline> {
+        for slot in &LIFELINES {
+            if slot
+                .compare_exchange(FREE, CLAIMED, Ordering::SeqCst, Ordering::SeqCst)
+                .is_ok()
+            {
+                return Ok(Lifeline(slot));
+            }
+        }
+        fail!(
+            "this process already runs {LIFELINE_SLOTS} commands on hosts, the most builds can stop at once"
+        )
+    }
+
+    /// Puts the command's open lifeline <fd> in the slot. A stop that came
+    /// before found nothing here to cut, so this cuts it.
+    fn hold(&self, fd: std::os::unix::io::RawFd) {
+        self.0.store(fd, Ordering::SeqCst);
+        if STOPPED.load(Ordering::SeqCst) {
+            cut(self.0);
+        }
+    }
+}
+
+impl Drop for Lifeline {
+    fn drop(&mut self) {
+        cut(self.0);
+        self.0.store(FREE, Ordering::SeqCst);
     }
 }
 
 extern "C" fn note_stop(_: libc::c_int) {
     STOPPED.store(true, Ordering::SeqCst);
-    cut_lifeline();
+    for slot in &LIFELINES {
+        cut(slot);
+    }
 }
 
-/// Makes SIGTERM, SIGINT and SIGHUP set `STOPPED` and cut the lifeline of the
-/// command `run_command` runs. A caller that does work on the host before the
+/// Makes SIGTERM, SIGINT and SIGHUP set `STOPPED` and cut the lifeline of
+/// every command `run_command` runs. A caller that does work on the host before the
 /// command starts (the send, the claim) calls it first, so a stop during
 /// that work stops the command as soon as it starts.
 pub fn stop_on_signals() {
@@ -601,7 +656,7 @@ pub fn release_script(repo: &str, worktree: Option<&str>, id: &str) -> String {
 /// Runs the job's command on the host, passing its output through, and
 /// returns its exit status. A stop signal stops the command on the host, and
 /// so does the end of this process, by any signal: both close the command's
-/// stdin (`run_script`). One command runs at a time in a process. When
+/// stdin (`run_script`). When
 /// <time_locks> is set (the command is cargo), builds reads the command's
 /// stderr as it passes through, and this function also returns how long
 /// cargo waited for its file locks (lock_wait.rs).
@@ -614,13 +669,14 @@ pub fn run_command(
     use std::os::unix::io::IntoRawFd;
     use std::os::unix::process::CommandExt;
     stop_on_signals();
+    let lifeline = Lifeline::claim()?;
     let run = job_id();
     let mut child = transport
         .command(&run_script(transport.host, worktree, command, &run))
         // The command's lifeline (`run_script`): this process holds the
         // pipe's only write end until the command has ended or a stop signal
-        // cuts it (`cut_lifeline`), and the kernel closes it when this
-        // process ends.
+        // cuts it (`Lifeline`), and the kernel closes it when this process
+        // ends.
         .stdin(Stdio::piped())
         .stderr(if time_locks {
             Stdio::piped()
@@ -632,19 +688,14 @@ pub fn run_command(
         .process_group(0)
         .spawn()
         .context(|| format!("running the command on host {}", transport.host.name))?;
-    let lifeline = child.stdin.take().expect("stdin was piped").into_raw_fd();
-    LIFELINE.store(lifeline, Ordering::SeqCst);
-    // A stop that came before the lifeline was stored found nothing to cut.
-    if STOPPED.load(Ordering::SeqCst) {
-        cut_lifeline();
-    }
+    lifeline.hold(child.stdin.take().expect("stdin was piped").into_raw_fd());
     let relay = child
         .stderr
         .take()
         .map(|stderr| crate::lock_wait::relay(stderr, std::io::stderr()));
     let waited = || relay.map(|relay| relay.join().expect("the relay does not panic"));
     let status = child.wait();
-    cut_lifeline();
+    drop(lifeline);
     let status = status.context(|| "waiting for the command".to_string())?;
     let waited = waited();
     if STOPPED.load(Ordering::SeqCst) {

@@ -328,14 +328,13 @@ fn a_stop_signal_stops_the_command_on_the_host() {
         &[
             "sh",
             "-c",
-            &format!("touch {}; exec tail -f /dev/null", marker.display()),
+            &format!("echo > {}; exec tail -f /dev/null", marker.display()),
         ],
     );
-    let waiting = marker.clone();
+    fifo(&marker);
     let signaller = std::thread::spawn(move || {
-        while !waiting.exists() {
-            std::thread::sleep(Duration::from_millis(20));
-        }
+        // The read waits until the command has started.
+        std::fs::read_to_string(&marker).unwrap();
         stop_this_process();
     });
     let code = run_job(&places, &s.ssh, &s.host, &s.source, &job).unwrap();
@@ -373,15 +372,73 @@ fn a_stop_before_the_command_starts_stops_it() {
     );
 }
 
+#[test]
+fn a_stop_signal_stops_every_command_the_process_runs() {
+    let s = setup("remote-stop-both");
+    let places = s.scratch.places();
+    let worktrees = [app_checkout(&s), s.home.join("dev/demo-worktrees/app-2")];
+    std::fs::create_dir_all(&worktrees[1]).unwrap();
+    std::fs::create_dir_all(format!("{}.job", worktrees[1].display())).unwrap();
+    for wt in &worktrees {
+        fifo(&wt.join("started"));
+    }
+    let transport = Transport {
+        places: &places,
+        ssh: &s.ssh,
+        host: &s.host,
+    };
+    std::thread::scope(|scope| {
+        let (sender, ran) = std::sync::mpsc::channel();
+        for wt in &worktrees {
+            let (sender, transport) = (sender.clone(), &transport);
+            scope.spawn(move || {
+                let code = run_command(
+                    transport,
+                    &wt.display().to_string(),
+                    &args(&["sh", "-c", "echo $$ > started; exec sleep 600"]),
+                    false,
+                );
+                sender.send(code.unwrap().0).unwrap();
+            });
+        }
+        // Each read waits until its command has started and written its
+        // process group.
+        let groups: Vec<i32> = worktrees
+            .iter()
+            .map(|wt| {
+                std::fs::read_to_string(wt.join("started"))
+                    .unwrap()
+                    .trim()
+                    .parse()
+                    .unwrap()
+            })
+            .collect();
+        stop_this_process();
+        let codes: Vec<Option<i32>> = groups
+            .iter()
+            .map(|_| ran.recv_timeout(Duration::from_secs(10)).ok())
+            .collect();
+        // A command the stop missed would keep its thread, and the scope,
+        // from ending.
+        for group in &groups {
+            if crate::procs::runs(-group) {
+                unsafe { libc::kill(-group, libc::SIGKILL) };
+            }
+        }
+        assert_eq!(codes, [Some(STOPPED_EXIT), Some(STOPPED_EXIT)]);
+    });
+}
+
 /// The variables that hand `killed_caller` the fake ssh and the worktree.
 const CALLER_SSH: &str = "BUILDS_TEST_CALLER_SSH";
 const CALLER_WORKTREE: &str = "BUILDS_TEST_CALLER_WORKTREE";
 
 /// The side of a job on this Mac, run by
 /// `a_killed_caller_stops_the_command_on_the_host` in a process of its own,
-/// which that test kills. The command writes its process group's id to
-/// `group.pid` in the worktree and runs until something stops it. A plain run
-/// of the suite finds no environment and does nothing.
+/// which that test kills. The command opens the FIFO `alive` in the worktree
+/// for writing and keeps it open, writes its process group's id to the FIFO
+/// `started` there, and runs until something stops it. A plain run of the
+/// suite finds no environment and does nothing.
 #[test]
 fn killed_caller() {
     let (Some(ssh), Some(worktree)) = (
@@ -407,21 +464,30 @@ fn killed_caller() {
     run_command(
         &transport,
         &worktree,
-        &args(&["sh", "-c", "echo $$ > group.pid; exec sleep 600"]),
+        &args(&[
+            "sh",
+            "-c",
+            "exec 6>alive; echo $$ > started; exec sleep 600",
+        ]),
         true,
     )
     .unwrap();
 }
 
-/// Is a process of group <group> running?
-fn group_runs(group: i32) -> bool {
-    unsafe { libc::kill(-group, 0) == 0 }
+/// Makes a FIFO at <path>.
+fn fifo(path: &Path) {
+    use std::os::unix::ffi::OsStrExt;
+    let name = std::ffi::CString::new(path.as_os_str().as_bytes()).unwrap();
+    assert_eq!(unsafe { libc::mkfifo(name.as_ptr(), 0o600) }, 0, "{path:?}");
 }
 
 #[test]
 fn a_killed_caller_stops_the_command_on_the_host() {
     let s = setup("remote-killed-caller");
     let wt = app_checkout(&s);
+    let (started, alive) = (wt.join("started"), wt.join("alive"));
+    fifo(&started);
+    fifo(&alive);
     let mut caller = Command::new(std::env::current_exe().unwrap())
         .args([
             "--exact",
@@ -434,36 +500,36 @@ fn a_killed_caller_stops_the_command_on_the_host() {
         .stdin(Stdio::null())
         .spawn()
         .unwrap();
-    let written = wt.join("group.pid");
-    let started = std::time::Instant::now();
-    let group: i32 = loop {
-        if let Ok(text) = std::fs::read_to_string(&written)
-            && let Ok(group) = text.trim().parse()
-        {
-            break group;
-        }
-        if let Some(status) = caller.try_wait().unwrap() {
-            panic!("the caller ended before the command started: {status}");
-        }
-        assert!(
-            started.elapsed() < Duration::from_secs(60),
-            "the command never started"
-        );
-        std::thread::sleep(Duration::from_millis(20));
+    let (started_sender, started_group) = std::sync::mpsc::channel();
+    let (ended_sender, ended) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        // Each open of a FIFO waits for the other side's: the command opens
+        // `alive` first, then writes its group to `started`.
+        let mut alive = std::fs::File::open(&alive).unwrap();
+        let group: i32 = std::fs::read_to_string(&started)
+            .unwrap()
+            .trim()
+            .parse()
+            .unwrap();
+        started_sender.send(group).unwrap();
+        // The end of `alive` comes once no process holds it open for
+        // writing: once the command and every process it started are gone.
+        std::io::copy(&mut alive, &mut std::io::sink()).unwrap();
+        let _ = ended_sender.send(());
+    });
+    let Ok(group) = started_group.recv_timeout(Duration::from_secs(60)) else {
+        let _ = caller.kill();
+        panic!("the command never started");
     };
     // SIGKILL: the caller gets no chance to stop anything.
     caller.kill().unwrap();
     caller.wait().unwrap();
-    let killed = std::time::Instant::now();
-    while group_runs(group) && killed.elapsed() < Duration::from_secs(10) {
-        std::thread::sleep(Duration::from_millis(20));
-    }
-    let outlived = group_runs(group);
-    if outlived {
+    let stopped = ended.recv_timeout(Duration::from_secs(10)).is_ok();
+    if !stopped && crate::procs::runs(-group) {
         unsafe { libc::kill(-group, libc::SIGKILL) };
     }
     assert!(
-        !outlived,
+        stopped,
         "the command's process group {group} outlived its caller"
     );
 }
