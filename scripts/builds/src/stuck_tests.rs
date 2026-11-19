@@ -71,7 +71,11 @@ fn lists_a_pegged_system_daemon_with_the_sudo_command() {
     assert_eq!(
         busy[0].owner,
         Owner::System {
-            name: "fseventsd".into()
+            name: "fseventsd".into(),
+            span: Sustained {
+                percent: 140.0,
+                seconds: 600
+            }
         }
     );
     let action = busy[0].action.as_ref().unwrap();

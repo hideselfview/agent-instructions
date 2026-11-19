@@ -48,7 +48,7 @@ const ANCESTORS: usize = 12;
 pub const PS_FORMAT: &str = "pid=,ppid=,uid=,pcpu=,cputime=,etime=,stat=,command=";
 
 /// What a process used over a span of the host's readings.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize)]
 pub struct Sustained {
     /// The lowest share of a core, as a percentage, in any interval of the span.
     pub percent: f64,
@@ -171,6 +171,8 @@ pub enum Owner {
     /// A process of the system, run as root or from a system folder.
     System {
         name: String,
+        /// What it used over the span that made it busy.
+        span: Sustained,
     },
     Other,
 }
@@ -206,7 +208,7 @@ impl Owner {
                     .map(|c| format!(" in {c}"))
                     .unwrap_or_default()
             ),
-            Owner::System { name } => format!("system daemon {name}"),
+            Owner::System { name, .. } => format!("system daemon {name}"),
             Owner::Other => "no builds or agent parent".to_string(),
         }
     }
@@ -392,40 +394,45 @@ pub fn hung_tests(
         .collect()
 }
 
-fn owner_of(by_pid: &HashMap<i32, &Row>, row: &Row, cwds: &HashMap<i32, String>) -> Owner {
+/// What <row> belongs to, or None when it is a system daemon that has not
+/// stayed over BUSY_PERCENT in every interval of a span: it is busy only
+/// while it keeps using CPU, not for one interval.
+fn owner_of(by_pid: &HashMap<i32, &Row>, row: &Row, cwds: &HashMap<i32, String>) -> Option<Owner> {
     let ancestors = chain(by_pid, row);
     if is_test_binary(row) {
-        return Owner::Test {
+        return Some(Owner::Test {
             checkout: checkout_of(&ancestors, cwds),
-        };
+        });
     }
     for (at, ancestor) in ancestors.iter().enumerate() {
         let words: Vec<&str> = ancestor.command.split_whitespace().collect();
         if words.first().is_some_and(|w| basename(w) == "builds") {
-            return Owner::Builds {
+            return Some(Owner::Builds {
                 pid: ancestor.pid,
                 command: words[1..].join(" "),
                 checkout: checkout_of(&ancestors[at..], cwds)
                     .or_else(|| checkout_of(&ancestors, cwds)),
                 minutes: ancestor.age_seconds / 60,
-            };
+            });
         }
         let argv: Vec<String> = words.iter().map(|w| w.to_string()).collect();
         if is_agent_argv(&argv) {
-            return Owner::Agent {
+            return Some(Owner::Agent {
                 shell: ancestor.pid,
                 checkout: checkout_of(&ancestors[at..], cwds)
                     .or_else(|| checkout_of(&ancestors, cwds)),
-            };
+            });
         }
     }
     if is_system(row) {
         let program = row.command.split_whitespace().next().unwrap_or("");
-        return Owner::System {
+        let span = row.sustained.filter(|s| s.percent > BUSY_PERCENT)?;
+        return Some(Owner::System {
             name: basename(program).to_string(),
-        };
+            span,
+        });
     }
-    Owner::Other
+    Some(Owner::Other)
 }
 
 fn minutes(seconds: i64) -> i64 {
@@ -485,13 +492,7 @@ fn is_fseventsd(row: &Row) -> bool {
 }
 
 /// What the person does about <busy>, when it looks stuck.
-fn action_for(
-    host: &str,
-    owner: &Owner,
-    row: &Row,
-    span: Option<Sustained>,
-    sampling: &Sampling,
-) -> Option<Advice> {
+fn action_for(host: &str, owner: &Owner, row: &Row, sampling: &Sampling) -> Option<Advice> {
     let limit = DEFAULT_STEP_LIMIT.as_secs() as i64;
     let kill = format!("kill {}", row.pid);
     let sample = sampling.command(host, row.pid);
@@ -519,19 +520,19 @@ fn action_for(
             ),
             kill,
         )),
-        Owner::System { name } if name == FSEVENTSD && span.is_some() => Some(Advice::run(
+        Owner::System { name, span } if name == FSEVENTSD => Some(Advice::run(
             format!(
                 "fseventsd used {} of CPU and stayed over {BUSY_PERCENT:.0}% of a core in every interval of the last {}m; read a sample of it before anyone kills fseventsd, and take the sample with",
                 duration(row.cpu_seconds as i64),
-                minutes(span?.seconds),
+                minutes(span.seconds),
             ),
             sample,
         )),
-        Owner::System { .. } if span.is_some() => Some(Advice::run(
+        Owner::System { span, .. } => Some(Advice::run(
             format!(
                 "this system daemon stayed over {BUSY_PERCENT:.0}% of a core in every interval of the last {}m (at least {:.0}%); read a sample of it before anyone kills it, and take the sample with",
-                minutes(span?.seconds),
-                span?.percent,
+                minutes(span.seconds),
+                span.percent,
             ),
             sample,
         )),
@@ -557,14 +558,8 @@ pub fn judge(
         .filter(|row| Some(row.pid) != dashboard)
         .filter_map(|row| Some((row, busy_share(row)?)))
         .filter_map(|(row, percent)| {
-            let owner = owner_of(&by_pid, row, cwds);
-            // A system daemon is busy only while it keeps using CPU: over
-            // the threshold in every interval of the span, not in one.
-            let span = match owner {
-                Owner::System { .. } => Some(row.sustained.filter(|s| s.percent > BUSY_PERCENT)?),
-                _ => None,
-            };
-            let action = action_for(host, &owner, row, span, sampling);
+            let owner = owner_of(&by_pid, row, cwds)?;
+            let action = action_for(host, &owner, row, sampling);
             Some(Busy {
                 host: host.to_string(),
                 pid: row.pid,
