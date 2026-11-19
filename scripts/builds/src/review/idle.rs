@@ -14,7 +14,7 @@ use crate::review::run::Material;
 /// What blocks the commits of the worktree <top> of <repo> from landing, for
 /// the work in <lists>' project: the clauses of `landing::blockers`, or
 /// "nothing blocks landing" with the command that lands them, which names the
-/// items running there. <ahead> holds the commits origin/main lacks, newest
+/// items running there. <ahead> holds the full hashes of the commits origin/main lacks, oldest
 /// first, and <rules_root> is the checkout of the rules and groups. None when
 /// it has none.
 pub fn advice(
@@ -32,10 +32,7 @@ pub fn advice(
     let store = Store::named(places, project)?;
     let conn = store.open_existing()?;
     let material = Material::load(rules_root, project)?;
-    let oldest_first: Vec<String> = ahead.iter().rev().cloned().collect();
-    let needs = landing::needs(top, oldest_first.clone(), |paths| {
-        material.group_names(paths)
-    })?;
+    let needs = landing::needs(top, ahead.to_vec(), |paths| material.group_names(paths))?;
     let key = super::default_key(top)?;
     let verdict = landing::judge(
         &conn,
@@ -56,7 +53,7 @@ pub fn advice(
     for item in running_in(lists, &top.display().to_string()) {
         command.push_str(&format!(" --done {}", item.id.0));
     }
-    for sha in &oldest_first {
+    for sha in ahead {
         command.push(' ');
         command.push_str(sha);
     }

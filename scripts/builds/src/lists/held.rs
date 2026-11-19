@@ -217,19 +217,10 @@ impl Worktree {
         if self.app_checkout || self.claim.is_held() {
             return None;
         }
-        let ahead: Vec<String> = self
-            .git
-            .as_ref()
-            .ok()?
-            .ahead
-            .iter()
-            .map(|commit| commit.full.clone())
-            .collect();
+        let ahead = self.git.as_ref().ok()?.ahead_oldest_first();
         let lists = self.lists(loaded).ok()??;
-        let advice = crate::review::default_rules_root().and_then(|root| {
-            crate::review::idle::advice(places, lists, &self.top, &self.repo, &ahead, &root)
-        });
-        match advice {
+        let root = crate::review::installed_rules_root(&places.home);
+        match crate::review::idle::advice(places, lists, &self.top, &self.repo, &ahead, &root) {
             Ok(advice) => advice,
             Err(fault) => Some(Advice::said(format!(
                 "builds cannot tell what blocks its branch from landing: {}",
