@@ -191,9 +191,13 @@ const BEFORE_HOOK_CHECK_FAILURE_STAMP: i64 = 321_616_823;
 /// step said.
 const BEFORE_APP_BUILD_STEP_FAILURE_STAMP: i64 = 1_750_228_100;
 
+/// The stamp of the schema before builds recorded which findings it told the
+/// judge of.
+const BEFORE_JUDGE_TOLD_STAMP: i64 = 1_477_190_891;
+
 /// Every stamp a store can carry that `move_store` moves, oldest schema first.
 /// A new move adds the stamp of the schema before it at the end.
-const STAMPS: [i64; 14] = [
+const STAMPS: [i64; 15] = [
     BEFORE_CONDITION_ENDERS_STAMP,
     BEFORE_ITEM_EVENT_STAMP,
     BEFORE_LAND_RUN_STAMP,
@@ -208,6 +212,7 @@ const STAMPS: [i64; 14] = [
     BEFORE_REVIEW_TEXT_ROWID_STAMP,
     BEFORE_HOOK_CHECK_FAILURE_STAMP,
     BEFORE_APP_BUILD_STEP_FAILURE_STAMP,
+    BEFORE_JUDGE_TOLD_STAMP,
 ];
 
 /// Whether a store stamped <found> comes before the move that follows the
@@ -371,6 +376,11 @@ fn move_store(path: &Path, now: i64) -> Result<()> {
     // empty tables: the steps it holds have none.
     if before(found, BEFORE_APP_BUILD_STEP_FAILURE_STAMP) {
         tx.execute_batch(db::APP_BUILD_STEP_FAILURE_PART).sql()?;
+    }
+    // Every store from before builds recorded which findings it told the
+    // judge of gets the empty table: it told the judge of none.
+    if before(found, BEFORE_JUDGE_TOLD_STAMP) {
+        tx.execute_batch(db::JUDGE_TOLD_PART).sql()?;
     }
     tx.pragma_update(None, "user_version", db::stamp()).sql()?;
     let broken: Option<String> = tx

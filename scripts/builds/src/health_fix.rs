@@ -206,6 +206,42 @@ pub fn release_idle_claims(tool: &Tool) -> Result<Vec<String>> {
     Ok(lines)
 }
 
+/// Tells each project's judge again of each finding that waited
+/// `QUIET_SECONDS` or more and that builds never told the judge's session of,
+/// and forgets each judge whose session ended, so that the coordinator
+/// settles the findings that wait (review/judge_told.rs). Returns one line
+/// for each message it sent, each judge it forgot and each store it could not
+/// read or send for.
+pub fn tell_judges(tool: &Tool) -> Result<Vec<String>> {
+    let sessions = tool.places.claude_sessions();
+    let stamp = crate::lists::Stamp {
+        at: tool.now,
+        by: "health".to_string(),
+    };
+    let mut lines = Vec::new();
+    for store in crate::lists::store::stores(&tool.places)? {
+        let project = store.project.clone();
+        let done =
+            crate::review::judge_told::forget_ended(&store, &stamp, &sessions).and_then(|forgot| {
+                lines.extend(forgot);
+                crate::review::judge_told::tell_waiting(
+                    &store,
+                    &stamp,
+                    &sessions,
+                    crate::review::judge_told::QUIET_SECONDS,
+                )
+            });
+        match done {
+            Ok(told) => lines.extend(told),
+            Err(error) => lines.push(format!(
+                "could not tell project {project}'s judge of the findings that wait: {}",
+                error.text()
+            )),
+        }
+    }
+    Ok(lines)
+}
+
 #[cfg(test)]
 #[path = "health_fix_tests.rs"]
 mod tests;

@@ -72,6 +72,7 @@ mod frequent;
 pub mod groups;
 pub mod idle;
 pub mod judge;
+pub mod judge_told;
 pub mod landing;
 mod model_check;
 mod prompt;
@@ -630,24 +631,42 @@ fn run_command(tool: &Tool, args: &[String]) -> Result<()> {
             println!("builds review show {landing} lists every run of this landing");
         }
     }
-    if let Some((store, to_settle)) = to_settle
-        && let Some(notice) = to_settle.notice()
+    if let Some(Pending {
+        store,
+        to_settle,
+        stamp,
+    }) = to_settle
     {
-        print!(
-            "{}",
-            judge::tell(
-                &*store.open_existing()?,
-                &tool.places.claude_sessions(),
-                &notice,
-                caller.as_ref(),
-                crate::inbox::Messaging::from_env()?.as_ref(),
-            )?
-        );
+        if let Some(notice) = to_settle.notice() {
+            print!(
+                "{}",
+                judge::tell(
+                    &store,
+                    &stamp,
+                    &tool.places.claude_sessions(),
+                    &notice,
+                    caller.as_ref(),
+                    crate::inbox::Messaging::from_env()?.as_ref(),
+                )?
+            );
+        }
+        tell_judge_waiting(tool, &store, &stamp)?;
     }
     match reported.refusal {
         Some(_) => Err(Fail::Exit(1)),
         None => Ok(()),
     }
+}
+
+/// Sends the project's judge each finding that waits for it and that builds
+/// has not told the judge's session of, and prints what it sent. A settle,
+/// dispute or answer can put a finding there that no review run told of
+/// (judge_told.rs).
+fn tell_judge_waiting(tool: &Tool, store: &Store, stamp: &Stamp) -> Result<()> {
+    for line in judge_told::tell_waiting(store, stamp, &tool.places.claude_sessions(), 0)? {
+        println!("{line}");
+    }
+    Ok(())
 }
 
 /// `builds review wait LANDING`: waits until every finding of the review
@@ -717,13 +736,21 @@ fn project_given(tool: &Tool, args: &Args, checkout: &Checkout) -> Result<Option
     }
 }
 
+/// What a review run leaves to tell the judge or the coordinator of: the
+/// store, the findings nobody has settled and the stamp of the run.
+struct Pending {
+    store: Store,
+    to_settle: judge::ToSettle,
+    stamp: Stamp,
+}
+
 /// Runs the review `builds review run` names, as <runner>, and returns what
 /// it found, with the findings it left that nobody has settled.
 fn run_review(
     tool: &Tool,
     args: &Args,
     runner: Option<&Caller>,
-) -> Result<(Reported, Option<(Store, judge::ToSettle)>)> {
+) -> Result<(Reported, Option<Pending>)> {
     let (worktree, base) = worktree_and_base(args)?;
     let checkout = Checkout::find(worktree)?;
     let worktree = checkout.top.clone();
@@ -769,10 +796,17 @@ fn run_review(
         project,
         landing,
         key,
-        worktree,
+        worktree: Some(worktree),
         findings,
     };
-    Ok((reported, Some((store, to_settle))))
+    Ok((
+        reported,
+        Some(Pending {
+            store,
+            to_settle,
+            stamp,
+        }),
+    ))
 }
 
 /// The key of the change the worktree holds: the branch it is on, else its
@@ -859,7 +893,7 @@ fn settle(tool: &Tool, args: &[String], caller: Option<&Caller>) -> Result<()> {
         println!(
             "You settled finding {id} again, as dropped; the finding keeps its first settle beside the second."
         );
-        return Ok(());
+        return tell_judge_waiting(tool, &store, &stamp);
     }
     if by_person {
         store.write(&stamp, &format!("review allow {id}"), |db| {
@@ -870,7 +904,7 @@ fn settle(tool: &Tool, args: &[String], caller: Option<&Caller>) -> Result<()> {
         println!(
             "finding {id} stays confirmed, and the person allowed it to land: builds land no longer waits on it"
         );
-        return Ok(());
+        return tell_judge_waiting(tool, &store, &stamp);
     }
     store.write(&stamp, &format!("review settle {id}"), |db| {
         judge::may_judge(db, &sessions, id, caller)?;
@@ -878,7 +912,7 @@ fn settle(tool: &Tool, args: &[String], caller: Option<&Caller>) -> Result<()> {
     })?;
     judge::tell_waits(&store.dir)?;
     println!("finding {id} settled {how}");
-    Ok(())
+    tell_judge_waiting(tool, &store, &stamp)
 }
 
 /// The finding a command names: its one positional argument.
@@ -912,14 +946,15 @@ fn dispute_command(
     print!(
         "{}",
         judge::tell(
-            &conn,
+            &store,
+            &stamp,
             &tool.places.claude_sessions(),
             &judge::dispute_notice(&conn, &store.project, &finding)?,
             caller,
             own,
         )?
     );
-    Ok(())
+    tell_judge_waiting(tool, &store, &stamp)
 }
 
 /// `builds review keep FINDING --why TEXT`, run by <caller>: the judge's
@@ -938,7 +973,7 @@ fn keep_command(tool: &Tool, args: &[String], caller: Option<&Caller>) -> Result
     })?;
     judge::tell_waits(&store.dir)?;
     println!("finding {id} stays confirmed: you kept it after its dispute");
-    Ok(())
+    tell_judge_waiting(tool, &store, &stamp)
 }
 
 /// `builds review show LANDING`.

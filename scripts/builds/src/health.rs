@@ -1,7 +1,10 @@
 //! `builds health`: what on this machine is stuck or needs acting on, for a
 //! coordinator that checks every few minutes. It reads; the one thing it
 //! keeps is its own record of sccache's finished compiles, to tell next time
-//! whether the server finished any since.
+//! whether the server finished any since. Before it reads, it fixes what a
+//! command fixes (`health_fix`): it releases idle claims, sends the judge
+//! again the findings that waited for a settle and reached it in no message,
+//! and forgets a judge whose session ended.
 //!
 //! It exits 1 when something needs acting on: clients waiting on an sccache
 //! server that finished nothing since the last readings, agent shells that are
@@ -1556,6 +1559,15 @@ pub fn cmd_health(tool: &Tool, args: &[String]) -> Result<()> {
             Ok(lines) => lines.iter().for_each(crate::text::note),
             Err(error) => crate::text::note(format!(
                 "could not check which claims nothing holds: {}",
+                error.text()
+            )),
+        }
+    }
+    if !stop_junk {
+        match crate::health_fix::tell_judges(tool) {
+            Ok(lines) => lines.iter().for_each(crate::text::note),
+            Err(error) => crate::text::note(format!(
+                "could not check which findings wait for a judge: {}",
                 error.text()
             )),
         }

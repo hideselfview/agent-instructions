@@ -2523,7 +2523,18 @@ run `review replay --rules-root` on it.
                               (~/.claude/sessions) says: builds tells it of
                               each review's findings to settle (`review`), and
                               takes a verdict on a finding only from it and
-                              the person (`review settle`).
+                              the person (`review settle`). builds records
+                              each finding it told the session of. When the
+                              session starts listening, and after each
+                              settle, dispute and answer, builds sends it
+                              every finding that waits for a settle, and
+                              every dispute that waits for an answer, of
+                              which it has not told that session, so a
+                              finding raised before the judge listened
+                              reaches it. `builds health` sends such a
+                              finding again once it has waited 5 minutes,
+                              and forgets a judge whose session ended, so the
+                              coordinator settles.
                               builds refuses it outside a session with an
                               inbox, and from an agent that a session
                               dispatched, which shares that session's inbox

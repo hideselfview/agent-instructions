@@ -35,6 +35,12 @@
 //! again as dropped or by keeping it (`keep`). A second disagreement goes to
 //! the coordinator, who asks the person whether to allow the finding to land.
 //! The tables are `judge.sql`; this is the only code that writes them.
+//!
+//! builds records each matter it told a judge's session of (`judge_told.rs`),
+//! and sends a judge that listens every matter it has not told that session
+//! of: when the session starts listening, and after each settle, dispute or
+//! answer, whichever put the matter there. `builds health` sends them again
+//! once they have waited a few minutes.
 
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
@@ -50,6 +56,7 @@ use crate::inbox::{Messaging, Sent, send};
 use crate::lists::Stamp;
 use crate::lists::args::{Args, current_dir};
 use crate::lists::store::Store;
+use crate::review::judge_told::{self, Matter};
 use crate::review::record::{self, Finding};
 use crate::review::render;
 use crate::tool::Tool;
@@ -188,8 +195,9 @@ pub struct ToSettle {
     pub landing: i64,
     /// The key of the change under review, such as `branch:work`.
     pub key: String,
-    /// The worktree that holds the branch.
-    pub worktree: PathBuf,
+    /// The worktree that holds the branch, when the review that raised the
+    /// findings is the one that tells of them.
+    pub worktree: Option<PathBuf>,
     pub findings: Vec<i64>,
 }
 
@@ -235,8 +243,11 @@ impl Settler<'_> {
 
 /// Whom a message reached.
 enum Told {
-    /// The judge, named as it listened.
-    Judge(String),
+    /// The judge, named as it listened, and its session.
+    Judge {
+        by: String,
+        session: String,
+    },
     Coordinator,
     /// No judge listens, and <caller> is the person or a session's main
     /// agent, which settles the findings itself: nothing was sent.
@@ -262,7 +273,10 @@ fn tell_settler(
     if let Some(judge) = listening(db, sessions)?
         && send(&judge.inbox, &message(&Settler::Judge(&judge)))? == Sent::Delivered
     {
-        return Ok(Told::Judge(judge.by));
+        return Ok(Told::Judge {
+            by: judge.by,
+            session: judge.session,
+        });
     }
     let Some(caller) = caller.filter(|caller| caller.is_dispatched()) else {
         return Ok(Told::Caller);
@@ -289,6 +303,9 @@ pub struct Notice {
     /// What builds told the settler, as the agent reads it: "to settle
     /// findings 3, 4".
     asked: String,
+    /// The matters the notice puts to the judge: each finding to settle, or
+    /// each dispute to answer.
+    pub matters: Vec<(i64, Matter)>,
     /// What the agent's wait ends on and prints.
     wait_ends: &'static str,
     /// What the agent does when it settles findings itself.
@@ -307,18 +324,25 @@ impl ToSettle {
             landing: self.landing,
             did: "ran a review",
             message: Box::new(move |by| {
+                let place = match &to.worktree {
+                    Some(worktree) => format!("{} in {}", to.key, worktree.display()),
+                    None => to.key.clone(),
+                };
                 format!(
-                    "findings {} of review landing #{} of project {} ({} in {}) wait for you to settle them. List them with `builds review show {} --project {}`, judge each against the code and its rule, and settle each with `builds review settle N confirmed|dropped --why TEXT --project {} --by {by}`.",
+                    "findings {} of review landing #{} of project {} ({place}) wait for you to settle them. List them with `builds review show {} --project {}`, judge each against the code and its rule, and settle each with `builds review settle N confirmed|dropped --why TEXT --project {} --by {by}`.",
                     to.ids(),
                     to.landing,
                     to.project,
-                    to.key,
-                    to.worktree.display(),
                     to.landing,
                     to.project,
                     to.project,
                 )
             }),
+            matters: self
+                .findings
+                .iter()
+                .map(|id| (*id, Matter::Settle))
+                .collect(),
             asked: format!("to settle findings {}", self.ids()),
             wait_ends: "the review has no finding left to settle, and prints each settle with its reason",
             yourself: format!(
@@ -354,6 +378,7 @@ pub fn dispute_notice(db: &Connection, project: &str, finding: &Finding) -> Resu
                 crate::text::one_line(&dispute.why),
             )
         }),
+        matters: vec![(id, Matter::Answer)],
         asked: format!("of your dispute of finding {id}"),
         wait_ends: "the dispute has its answer, and prints the answer",
         yourself: format!(
@@ -367,14 +392,15 @@ pub fn dispute_notice(db: &Connection, project: &str, finding: &Finding) -> Resu
 /// that it waits with `builds review wait`. A session's main agent or the
 /// person, with no judge listening, settles itself.
 pub fn tell(
-    db: &Connection,
+    store: &Store,
+    stamp: &Stamp,
     sessions: &Path,
     notice: &Notice,
     caller: Option<&Caller>,
     own: Option<&Messaging>,
 ) -> Result<String> {
     let project = &notice.project;
-    let told = tell_settler(db, sessions, caller, own, |settler| {
+    let told = tell_settler(&*store.open_existing()?, sessions, caller, own, |settler| {
         format!(
             "{}: {}",
             settler.opening(project, notice.did),
@@ -388,7 +414,8 @@ pub fn tell(
     );
     let asked = &notice.asked;
     Ok(match told {
-        Told::Judge(by) => {
+        Told::Judge { by, session } => {
+            judge_told::record(store, stamp, &notice.matters, &session)?;
             format!("builds told the judge of project {project} ({by}) {asked}. {waits}")
         }
         Told::Coordinator => format!(
@@ -405,6 +432,19 @@ pub fn tell(
     })
 }
 
+/// Sends <notice> to <judge> alone, with no fallback to a coordinator.
+pub(super) fn tell_judge(judge: &Judge, notice: &Notice) -> Result<Sent> {
+    let settler = Settler::Judge(judge);
+    send(
+        &judge.inbox,
+        &format!(
+            "{}: {}",
+            settler.opening(&notice.project, notice.did),
+            (notice.message)(settler.by())
+        ),
+    )
+}
+
 /// The command that waits for the settles of review landing <landing> of
 /// <project>.
 fn wait_command(project: &str, landing: i64) -> String {
@@ -417,20 +457,22 @@ fn wait_command(project: &str, landing: i64) -> String {
 pub struct Dispute {
     pub why: String,
     pub by: String,
+    pub at: i64,
     /// The judge's answer that kept the finding confirmed: why, and who.
     pub kept: Option<(String, String)>,
 }
 
 /// The dispute of finding <id>, if anyone disputed it.
-fn dispute_of(db: &Connection, id: i64) -> Result<Option<Dispute>> {
+pub(super) fn dispute_of(db: &Connection, id: i64) -> Result<Option<Dispute>> {
     db.query_row(
-        "SELECT d.why, d.by, k.why, k.by FROM review_dispute d LEFT JOIN review_kept k ON k.finding_id = d.finding_id WHERE d.finding_id = ?1",
+        "SELECT d.why, d.by, k.why, k.by, d.at FROM review_dispute d LEFT JOIN review_kept k ON k.finding_id = d.finding_id WHERE d.finding_id = ?1",
         [id],
         |row| {
             let kept: (Option<String>, Option<String>) = (row.get(2)?, row.get(3)?);
             Ok(Dispute {
                 why: row.get(0)?,
                 by: row.get(1)?,
+                at: row.get(4)?,
                 kept: kept.0.zip(kept.1),
             })
         },
@@ -442,7 +484,7 @@ fn dispute_of(db: &Connection, id: i64) -> Result<Option<Dispute>> {
 /// The review landing of <finding>. Every review run belongs to a landing,
 /// so a finding of a review with none is broken state, and this fails
 /// naming the finding.
-fn landing_of(finding: &Finding) -> Result<i64> {
+pub(super) fn landing_of(finding: &Finding) -> Result<i64> {
     match finding.landing_id {
         Some(landing) => Ok(landing),
         None => fail!(
@@ -536,19 +578,45 @@ pub fn tell_waits(store_dir: &Path) -> Result<()> {
     }
 }
 
-/// The findings of review landing <landing> that wait on the judge: those
-/// nobody has settled, and those whose dispute waits for an answer.
-fn waiting(db: &Connection, landing: i64) -> Result<Vec<Finding>> {
+/// The matters of review landing <landing> that wait on the judge: each
+/// finding nobody has settled, and each finding whose dispute waits for an
+/// answer, with when the matter began to wait.
+pub(super) fn waiting_matters(db: &Connection, landing: i64) -> Result<Vec<Waiting>> {
     let mut found = Vec::new();
     for finding in record::findings_of_landing(db, landing)? {
-        let disputed = dispute_of(db, finding.id)?;
-        if finding.is_unsettled()
-            || disputed.is_some_and(|dispute| waits_for_answer(&finding, &dispute))
+        if finding.is_unsettled() {
+            let since = record::run_started(db, finding.run_id)?;
+            found.push(Waiting {
+                finding,
+                matter: Matter::Settle,
+                since,
+            });
+        } else if let Some(dispute) = dispute_of(db, finding.id)?
+            && waits_for_answer(&finding, &dispute)
         {
-            found.push(finding);
+            found.push(Waiting {
+                finding,
+                matter: Matter::Answer,
+                since: dispute.at,
+            });
         }
     }
     Ok(found)
+}
+
+/// A finding that waits on the judge, why, and since when.
+pub(super) struct Waiting {
+    pub finding: Finding,
+    pub matter: Matter,
+    pub since: i64,
+}
+
+/// The findings of review landing <landing> that wait on the judge.
+fn waiting(db: &Connection, landing: i64) -> Result<Vec<Finding>> {
+    Ok(waiting_matters(db, landing)?
+        .into_iter()
+        .map(|waiting| waiting.finding)
+        .collect())
 }
 
 /// Waits, for at most <limit>, until every finding of review landing
@@ -714,11 +782,32 @@ pub fn listen_command(
     store.write(&stamp, "judge listen", |db| {
         listen(db, inbox, caller, &stamp)
     })?;
-    Ok(format!(
+    let mut said = format!(
         "this session is project {project}'s judge while it runs: builds tells it of each review's findings to settle, and only it settles them\n"
-    ))
+    );
+    for line in judge_told::tell_waiting(&store, &stamp, &tool.places.claude_sessions(), 0)? {
+        said.push_str(&line);
+        said.push('\n');
+    }
+    Ok(said)
+}
+
+/// Forgets the project's judge, whose session ended, so that the coordinator
+/// settles the findings that wait.
+pub fn forget(db: &Connection) -> Result<()> {
+    db.execute("DELETE FROM review_judge", []).sql()?;
+    Ok(())
+}
+
+/// The judge that last listened, when its session no longer runs (`last`,
+/// `listening`).
+pub(super) fn ended(db: &Connection, sessions: &Path) -> Result<Option<Judge>> {
+    Ok(match last(db)? {
+        Some(judge) if listening(db, sessions)?.is_none() => Some(judge),
+        _ => None,
+    })
 }
 
 #[cfg(test)]
 #[path = "judge_tests.rs"]
-mod tests;
+pub(in crate::review) mod tests;

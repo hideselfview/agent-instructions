@@ -4,7 +4,7 @@ use crate::lists::item_fixtures::{Demo, demo};
 use crate::review::fakes::fake;
 use crate::testing::{FakeInbox, Scratch, running_session};
 
-const TOKEN: &str = "judge-token-7c1d";
+pub(in crate::review) const TOKEN: &str = "judge-token-7c1d";
 
 /// A store of project demo, in a scratch folder with a short path for
 /// sockets.
@@ -26,7 +26,14 @@ fn held(name: &str) -> Held {
     }
 }
 
-fn caller(session: &str, id: &str) -> Caller {
+pub(in crate::review) fn stamp(by: &str) -> Stamp {
+    Stamp {
+        at: NOON,
+        by: by.to_string(),
+    }
+}
+
+pub(in crate::review) fn caller(session: &str, id: &str) -> Caller {
     Caller {
         session: session.to_string(),
         id: id.to_string(),
@@ -156,14 +163,14 @@ fn the_judge_listens_while_its_session_runs() {
 
 /// A review in demo's side worktree whose one finding nobody has settled,
 /// run by <runner>.
-struct Reviewed {
-    demo: Demo,
-    landing: i64,
-    finding: i64,
-    side: PathBuf,
+pub(in crate::review) struct Reviewed {
+    pub(in crate::review) demo: Demo,
+    pub(in crate::review) landing: i64,
+    pub(in crate::review) finding: i64,
+    pub(in crate::review) side: PathBuf,
 }
 
-fn reviewed(name: &str, runner: Option<&Caller>) -> Reviewed {
+pub(in crate::review) fn reviewed(name: &str, runner: Option<&Caller>) -> Reviewed {
     let demo = demo(name);
     let fake = fake(&demo.scratch.dir);
     let side = demo.add_side(1, "agent", "work");
@@ -216,12 +223,12 @@ impl Reviewed {
             project: "demo".to_string(),
             landing: self.landing,
             key: "branch:work".to_string(),
-            worktree: self.side.clone(),
+            worktree: Some(self.side.clone()),
             findings: vec![self.finding],
         }
     }
 
-    fn inbox(&self, name: &str) -> Messaging {
+    pub(in crate::review) fn inbox(&self, name: &str) -> Messaging {
         Messaging::new(
             self.demo.scratch.dir.join(name).to_str().unwrap(),
             Some(TOKEN),
@@ -231,7 +238,8 @@ impl Reviewed {
 
     fn tell(&self, caller: Option<&Caller>, own: Option<&Messaging>) -> String {
         tell(
-            &self.demo.store.open_existing().unwrap(),
+            &self.demo.store,
+            &stamp("tester"),
             &self.demo.tool.places.claude_sessions(),
             &self.to_settle().notice().unwrap(),
             caller,
@@ -240,7 +248,7 @@ impl Reviewed {
         .unwrap()
     }
 
-    fn listen_as_judge(&self, inbox: &Messaging) {
+    pub(in crate::review) fn listen_as_judge(&self, inbox: &Messaging) {
         let stamp = Stamp {
             at: NOON,
             by: "judge".to_string(),
@@ -269,7 +277,7 @@ impl Reviewed {
 }
 
 /// The content of the message line an inbox received.
-fn message(lines: &[String]) -> String {
+pub(in crate::review) fn message(lines: &[String]) -> String {
     let line: serde_json::Value = serde_json::from_str(lines.last().unwrap()).unwrap();
     line["message"]["content"].as_str().unwrap().to_string()
 }
@@ -409,7 +417,12 @@ fn a_wait_whose_limit_ends_first_fails_and_one_with_nothing_to_wait_for_ends_at_
 impl Reviewed {
     /// Runs `builds review settle <finding> <words> --project demo --by
     /// <by>` as <caller>.
-    fn settle_as(&self, caller: Option<&Caller>, words: &[&str], by: &str) -> Result<()> {
+    pub(in crate::review) fn settle_as(
+        &self,
+        caller: Option<&Caller>,
+        words: &[&str],
+        by: &str,
+    ) -> Result<()> {
         let mut args = vec![self.finding.to_string()];
         args.extend(words.iter().map(|w| w.to_string()));
         args.extend(["--project", "demo", "--by", by].map(String::from));
@@ -524,7 +537,13 @@ fn the_person_settles_whether_or_not_a_judge_listens() {
 impl Reviewed {
     /// Runs `builds review <command> <finding> --why <why> --project demo
     /// --by <by>` as <caller>, for `dispute` or `keep`.
-    fn answer_as(&self, command: &str, caller: Option<&Caller>, why: &str, by: &str) -> Result<()> {
+    pub(in crate::review) fn answer_as(
+        &self,
+        command: &str,
+        caller: Option<&Caller>,
+        why: &str,
+        by: &str,
+    ) -> Result<()> {
         let args: Vec<String> = [
             &self.finding.to_string(),
             "--why",
@@ -549,7 +568,8 @@ impl Reviewed {
         let conn = self.demo.store.open_existing().unwrap();
         let finding = record::finding_of(&conn, self.finding).unwrap();
         tell(
-            &conn,
+            &self.demo.store,
+            &stamp("tester"),
             &self.demo.tool.places.claude_sessions(),
             &dispute_notice(&conn, "demo", &finding).unwrap(),
             caller,
@@ -561,7 +581,7 @@ impl Reviewed {
 
 /// A review by agent a1 whose finding the judge confirmed, with the judge
 /// listening on its inbox j.sock.
-fn confirmed(name: &str) -> (Reviewed, Caller) {
+pub(in crate::review) fn confirmed(name: &str) -> (Reviewed, Caller) {
     let agent = caller("s1", "a1");
     let r = reviewed(name, Some(&agent));
     r.listen_as_judge(&r.inbox("j.sock"));
