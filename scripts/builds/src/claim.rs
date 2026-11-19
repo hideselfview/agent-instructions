@@ -21,27 +21,142 @@ use crate::fail::Result;
 use crate::places::Places;
 use crate::text::{local_minute, local_minute_epoch, note};
 
-/// The state of the claim that `builds claim` and `builds new` make: the
-/// worktree is claimed for work whose item `builds item take` has not started
-/// yet, and take clears it. Health releases no claim that carries it
-/// (health_fix.rs). `builds note` never sets it.
-pub const STARTING: &str = "starting";
+/// The note of a claim in the starting state.
+const STARTING_TEXT: &str = "claimed; its item is not yet taken";
 
-/// The note of a claim in the STARTING state.
-pub const STARTING_NOTE: &str = "claimed; its item is not yet taken";
-
-/// The states a note may carry.
+/// The states a note set by `builds note` may carry.
 pub const NOTE_STATES: [&str; 3] = ["waiting-on-you", "winding-down", "held"];
 
+/// A claim's note: one line of where its work stands, and the state git can't
+/// show. A state has a note, so a claim holds one `Option<Note>`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Note {
+    /// A note with no state.
+    Plain(String),
+    /// The work waits on a question or a step only the person can take.
+    WaitingOnYou(String),
+    /// The agent is on its last item, then its handoff.
+    WindingDown(String),
+    /// The worktree is kept on purpose with no work running; the text says
+    /// why and until when.
+    Held(String),
+    /// What `builds claim` and `builds new` set on a claim for an item that
+    /// `builds item take` has not started there: take clears it, `builds note`
+    /// never sets it, and health releases no claim that carries it
+    /// (health_fix.rs). Its text is fixed.
+    Starting,
+}
+
+impl Note {
+    /// The note <text> with the state named <state> (one of `NOTE_STATES`), or
+    /// no state when <state> is None.
+    pub fn with_state(state: Option<&str>, text: String) -> Result<Note> {
+        Ok(match state {
+            None => Note::Plain(text),
+            Some("waiting-on-you") => Note::WaitingOnYou(text),
+            Some("winding-down") => Note::WindingDown(text),
+            Some("held") => Note::Held(text),
+            Some("starting") => Note::Starting,
+            Some(other) => fail!(
+                "a note's state is not one of {}: {other:?}",
+                NOTE_STATES.join(", ")
+            ),
+        })
+    }
+
+    pub fn text(&self) -> &str {
+        match self {
+            Note::Plain(text)
+            | Note::WaitingOnYou(text)
+            | Note::WindingDown(text)
+            | Note::Held(text) => text,
+            Note::Starting => STARTING_TEXT,
+        }
+    }
+
+    /// The state's name in the claim file and `builds status --json`.
+    pub fn state(&self) -> Option<&'static str> {
+        match self {
+            Note::Plain(_) => None,
+            Note::WaitingOnYou(_) => Some("waiting-on-you"),
+            Note::WindingDown(_) => Some("winding-down"),
+            Note::Held(_) => Some("held"),
+            Note::Starting => Some("starting"),
+        }
+    }
+}
+
+/// A claim, with its note and the note's state in JSON as two fields.
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(try_from = "ClaimJson", into = "ClaimJson")]
 pub struct Claim {
     pub who: String,
-    /// When the claim began, to the minute. In JSON it is the `YYYY-MM-DD HH:MM`
-    /// text that the claim file and `builds status` show.
-    #[serde(with = "minute_text")]
+    /// When the claim began, to the minute.
     pub since: i64,
-    pub note: Option<String>,
-    pub note_state: Option<String>,
+    pub note: Option<Note>,
+}
+
+impl Claim {
+    /// The note's state, when the claim has a note with one.
+    pub fn state(&self) -> Option<&'static str> {
+        self.note.as_ref().and_then(Note::state)
+    }
+
+    /// The note's text, when the claim has one.
+    pub fn note_text(&self) -> Option<&str> {
+        self.note.as_ref().map(Note::text)
+    }
+
+    /// Is the worktree held on purpose (`builds note --state held`)?
+    pub fn is_held(&self) -> bool {
+        matches!(self.note, Some(Note::Held(_)))
+    }
+
+    /// Does the claim wait for its item (`Note::Starting`)?
+    pub fn is_starting(&self) -> bool {
+        matches!(self.note, Some(Note::Starting))
+    }
+}
+
+/// A claim as JSON: `since` is the `YYYY-MM-DD HH:MM` text that the claim
+/// file and `builds status` show.
+#[derive(serde::Serialize, serde::Deserialize)]
+struct ClaimJson {
+    who: String,
+    #[serde(with = "minute_text")]
+    since: i64,
+    note: Option<String>,
+    note_state: Option<String>,
+}
+
+impl From<Claim> for ClaimJson {
+    fn from(claim: Claim) -> ClaimJson {
+        ClaimJson {
+            note_state: claim.state().map(str::to_string),
+            note: claim.note_text().map(str::to_string),
+            who: claim.who,
+            since: claim.since,
+        }
+    }
+}
+
+impl TryFrom<ClaimJson> for Claim {
+    type Error = String;
+
+    fn try_from(json: ClaimJson) -> std::result::Result<Claim, String> {
+        let note = match (json.note, json.note_state) {
+            (Some(text), state) => {
+                Some(Note::with_state(state.as_deref(), text).map_err(|fault| fault.text())?)
+            }
+            (None, None) => None,
+            (None, Some(_)) => return Err("a note's state needs a note".to_string()),
+        };
+        Ok(Claim {
+            who: json.who,
+            since: json.since,
+            note,
+        })
+    }
 }
 
 /// A claim's date as the text of its file in JSON.
@@ -78,12 +193,15 @@ impl Claim {
                 file.display()
             );
         };
-        Ok(Some(Claim {
-            who,
-            since,
-            note: field(fields.next()),
-            note_state: field(fields.next()),
-        }))
+        let note = match (field(fields.next()), field(fields.next())) {
+            (Some(text), state) => {
+                Some(Note::with_state(state.as_deref(), text).map_err(|fault| {
+                    fail::Fail::Message(format!("reading {}: {}", file.display(), fault.text()))
+                })?)
+            }
+            (None, _) => None,
+        };
+        Ok(Some(Claim { who, since, note }))
     }
 
     pub fn write(&self, file: &Path) -> Result<()> {
@@ -93,11 +211,11 @@ impl Claim {
     /// The claim file's line.
     fn line(&self) -> Result<String> {
         let mut line = format!("{}\t{}", self.who, local_minute(self.since));
-        match (&self.note, &self.note_state) {
-            (Some(text), Some(state)) => line += &format!("\t{text}\t{state}"),
-            (Some(text), None) => line += &format!("\t{text}"),
-            (None, Some(_)) => fail!("a note's state needs a note"),
-            (None, None) => {}
+        if let Some(note) = &self.note {
+            line += &format!("\t{}", note.text());
+            if let Some(state) = note.state() {
+                line += &format!("\t{state}");
+            }
         }
         line.push('\n');
         Ok(line)
@@ -123,20 +241,12 @@ pub fn require_one_line(what: &str, value: &str) -> Result<()> {
     Ok(())
 }
 
-/// Claims <top> for <who> from <now>, keeping the note and its state when
-/// given.
-pub fn write_claim(
-    checkout: &Checkout,
-    who: &str,
-    now: i64,
-    note: Option<String>,
-    state: Option<String>,
-) -> Result<()> {
+/// Claims <top> for <who> from <now>, with <note> when given.
+pub fn write_claim(checkout: &Checkout, who: &str, now: i64, note: Option<Note>) -> Result<()> {
     Claim {
         who: who.to_string(),
         since: now,
         note,
-        note_state: state,
     }
     .write(&checkout.claim_file())
 }
@@ -209,14 +319,14 @@ pub fn cmd_claim(places: &Places, args: &[String], now: i64) -> Result<()> {
             checkout.top.display()
         );
     }
-    let (kept_note, kept_state) = match Claim::read(&checkout.claim_file())? {
+    let kept_note = match Claim::read(&checkout.claim_file())? {
         Some(claim) if claim.who != *who => fail!(
             "{} is claimed by {}; builds release it first if that work is over",
             checkout.top.display(),
             claim.text()
         ),
-        Some(claim) => (claim.note, claim.note_state),
-        None => (Some(STARTING_NOTE.to_string()), Some(STARTING.to_string())),
+        Some(claim) => claim.note,
+        None => Some(Note::Starting),
     };
     match project {
         Some(project) => set_project(places, &checkout, Some(project))?,
@@ -225,7 +335,7 @@ pub fn cmd_claim(places: &Places, args: &[String], now: i64) -> Result<()> {
             require_project_named(places, &checkout.repo(), kept.as_deref())?;
         }
     }
-    write_claim(&checkout, who, now, kept_note, kept_state)?;
+    write_claim(&checkout, who, now, kept_note)?;
     note(format!("claimed {} for {who}", checkout.top.display()));
     Ok(())
 }
@@ -284,15 +394,18 @@ pub fn cmd_note(places: &Places, args: &[String], now: i64) -> Result<()> {
         (None, false) => format!("noted on {top}'s claim: {text}"),
         (None, true) => format!("cleared the note on {top}'s claim"),
     };
-    let was_held = claim.note_state.as_deref() == Some("held");
+    let was_held = claim.is_held();
     let held = state.as_deref() == Some("held");
     let stamp = crate::lists::Stamp {
         at: now,
         by: claim.who.clone(),
     };
     let noted = Claim {
-        note: if text.is_empty() { None } else { Some(text) },
-        note_state: state,
+        note: if text.is_empty() {
+            None
+        } else {
+            Some(Note::with_state(state.as_deref(), text)?)
+        },
         ..claim
     };
     if was_held == held {

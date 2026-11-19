@@ -103,7 +103,6 @@ fn claim(dir: &Path) {
         who: "agent A".into(),
         since: 1_790_000_000,
         note: None,
-        note_state: None,
     }
     .write(&checkout.claim_file())
     .unwrap();

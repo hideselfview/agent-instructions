@@ -429,8 +429,7 @@ fn take_clears_the_starting_state_of_the_claim() {
             .unwrap()
             .unwrap()
             .since,
-        Some(crate::claim::STARTING_NOTE.to_string()),
-        Some(crate::claim::STARTING.to_string()),
+        Some(crate::claim::Note::Starting),
     )
     .unwrap();
     add(&demo, FIVE, &[]).unwrap();
@@ -443,7 +442,7 @@ fn take_clears_the_starting_state_of_the_claim() {
     let claim = crate::claim::Claim::read(&checkout.claim_file())
         .unwrap()
         .unwrap();
-    assert_eq!((claim.note, claim.note_state), (None, None));
+    assert_eq!(claim.note, None);
 }
 
 #[test]
@@ -835,7 +834,7 @@ fn a_claim_made_after_the_keep_is_neither_reported_nor_removed() {
     let brief = demo.brief("b.md");
     item(&demo, &take_args(&side_arg, &brief, &["1"], "work")).unwrap();
     item(&demo, &["stop", "1", "--why", "out of room"]).unwrap();
-    crate::claim::write_claim(&checkout, "agent B", demo.tool.now + 600, None, None).unwrap();
+    crate::claim::write_claim(&checkout, "agent B", demo.tool.now + 600, None).unwrap();
     let health = crate::health::health(&demo.tool).unwrap();
     assert!(
         health

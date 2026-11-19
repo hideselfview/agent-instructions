@@ -62,7 +62,7 @@ fn a_health_answer_holds_a_claim_written_after_the_last_reading() {
     );
     let checkout = crate::checkout::Checkout::find(&side.display().to_string()).unwrap();
     crate::setup::setup(&tool, &checkout).unwrap();
-    crate::claim::write_claim(&checkout, "agent A", tool.now, None, None).unwrap();
+    crate::claim::write_claim(&checkout, "agent A", tool.now, None).unwrap();
     let model = model_in(&scratch);
     // The daemon reads the worktree's git state on its own thread.
     let mut seen = 0;
@@ -88,7 +88,7 @@ fn a_health_answer_holds_a_claim_written_after_the_last_reading() {
                 .iter()
                 .find(|w| w.checkout == "demo/side-1")
                 .expect("health lists the claimed worktree");
-            worktree.claim.note_state.clone()
+            worktree.claim.state().map(str::to_string)
         }
         Reply::Failed(message) => panic!("answered a failure: {message}"),
         Reply::Measure(_) => panic!("answered sizes to a health question"),
@@ -102,8 +102,9 @@ fn a_health_answer_holds_a_claim_written_after_the_last_reading() {
         &checkout,
         "agent A",
         tool.now,
-        Some("kept until the review".to_string()),
-        Some("held".to_string()),
+        Some(crate::claim::Note::Held(
+            "kept until the review".to_string(),
+        )),
     )
     .unwrap();
     assert_eq!(

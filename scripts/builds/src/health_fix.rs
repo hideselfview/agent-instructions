@@ -8,7 +8,7 @@
 //! git fails and a worktree with uncommitted work stay findings, with the
 //! reason, because they need a person's judgment.
 
-use crate::claim::{Claim, STARTING};
+use crate::claim::Claim;
 use crate::fail::Result;
 use crate::host::{Host, PassedOver, Probe};
 use crate::text::human;
@@ -89,12 +89,12 @@ pub fn fix_hosts(
     lines
 }
 
-/// Releases each claim on a side worktree that nothing holds: not an app
-/// checkout's, not held (`builds note --state held`), not one made for an item
-/// that `builds item take` has not yet started there (`claim::STARTING`), and
-/// with nothing that keeps the worktree (`kept::Kept::is_empty`: no item runs
-/// or is kept there, no commit that origin/main lacks, no file not committed,
-/// no `git commit` running). Returns one line for each worktree it released.
+/// Releases each claim that health would tell the coordinator to release
+/// (`Worktree::claim_is_idle`, the test health's own finding uses): on a side
+/// worktree that is not an app checkout's, not held and not waiting for its
+/// item, where no item runs, no commit origin/main lacks waits, no file is
+/// uncommitted and no `git commit` runs. Returns one line for each worktree it
+/// released.
 pub fn release_idle_claims(tool: &Tool) -> Result<Vec<String>> {
     let every = crate::lists::store::every_lists(&tool.places)?;
     let commits = crate::procs::git_commits(&crate::procs::Processes::read()?);
@@ -103,21 +103,27 @@ pub fn release_idle_claims(tool: &Tool) -> Result<Vec<String>> {
         let Some(checkout) = &root.live else {
             continue;
         };
-        if !checkout.is_side() || root.is_app_checkout(&tool.places)? {
+        if !checkout.is_side() {
             continue;
         }
         let Some(claim) = Claim::read(&checkout.claim_file())? else {
             continue;
         };
-        if matches!(claim.note_state.as_deref(), Some("held" | STARTING)) {
-            continue;
-        }
-        if crate::kept::read(&every, checkout, &commits)?.is_empty()
+        let top = checkout.top.display().to_string();
+        let worktree = crate::lists::held::Worktree::read(
+            &tool.places,
+            top.clone(),
+            checkout,
+            &claim,
+            &crate::side_git::read(&checkout.top),
+            &commits,
+        )?;
+        let nothing_runs = crate::lists::running::running_in_any(&every, &top).is_empty();
+        if worktree.claim_is_idle(nothing_runs)
             && let Some(claim) = crate::claim::forget(checkout)?
         {
             lines.push(format!(
-                "released {}, which nothing held (was {})",
-                checkout.top.display(),
+                "released {top}, which nothing held (was {})",
                 claim.text()
             ));
         }

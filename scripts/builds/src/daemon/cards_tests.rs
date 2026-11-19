@@ -39,8 +39,7 @@ fn claim(note: Option<&str>) -> Option<Claim> {
     Some(Claim {
         who: "agent".into(),
         since: 1_790_000_000,
-        note: note.map(str::to_string),
-        note_state: None,
+        note: note.map(|text| crate::claim::Note::Plain(text.to_string())),
     })
 }
 

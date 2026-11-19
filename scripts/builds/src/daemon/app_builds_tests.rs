@@ -44,7 +44,6 @@ fn claimed(who: &str) -> Claim {
         who: who.into(),
         since: 1_790_000_000,
         note: None,
-        note_state: None,
     }
 }
 

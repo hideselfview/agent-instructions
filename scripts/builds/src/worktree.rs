@@ -14,8 +14,7 @@ use std::path::Path;
 use crate::app_remote::RemoteApp;
 use crate::checkout::{APP_LANE_FILE, Checkout};
 use crate::claim::{
-    Claim, STARTING, STARTING_NOTE, require_one_line, require_project_named, set_project,
-    write_claim,
+    Claim, Note, require_one_line, require_project_named, set_project, write_claim,
 };
 use crate::evict::{Recreate, Removal, evict};
 use crate::fail;
@@ -93,13 +92,7 @@ pub fn cmd_new(tool: &Tool, args: &[String]) -> Result<()> {
     let who = who.unwrap_or_else(|| "builds new".to_string());
     let checkout = match find_free(tool, &main)? {
         Some(free) => {
-            write_claim(
-                &free,
-                &who,
-                tool.now,
-                Some(STARTING_NOTE.to_string()),
-                Some(STARTING.to_string()),
-            )?;
+            write_claim(&free, &who, tool.now, Some(Note::Starting))?;
             set_project(&tool.places, &free, project.as_deref())?;
             if let Err(error) = reuse(&free, &start).and_then(|()| prepare(tool, &free)) {
                 let _ = std::fs::remove_file(free.claim_file());
@@ -111,13 +104,7 @@ pub fn cmd_new(tool: &Tool, args: &[String]) -> Result<()> {
         None => {
             let dir = add_new(tool, &main, &start)?;
             let checkout = Checkout::find(&dir.display().to_string())?;
-            write_claim(
-                &checkout,
-                &who,
-                tool.now,
-                Some(STARTING_NOTE.to_string()),
-                Some(STARTING.to_string()),
-            )?;
+            write_claim(&checkout, &who, tool.now, Some(Note::Starting))?;
             set_project(&tool.places, &checkout, project.as_deref())?;
             prepare(tool, &checkout)?;
             checkout

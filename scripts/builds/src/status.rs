@@ -221,11 +221,11 @@ fn root_lines(tool: &Tool, root: &Root, out: &mut Vec<String>) -> Result<()> {
         root.top.display()
     ));
     if let Some(claim) = &claim {
-        match (&claim.note_state, &claim.note) {
+        match (claim.state(), claim.note_text()) {
             (Some(state), note) => out.push(format!(
                 "    note ({}): {}",
                 state.replace('-', " "),
-                note.as_deref().unwrap_or("")
+                note.unwrap_or("")
             )),
             (None, Some(note)) => out.push(format!("    note: {note}")),
             (None, None) => {}

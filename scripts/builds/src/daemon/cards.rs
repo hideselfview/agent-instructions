@@ -413,7 +413,7 @@ pub fn words(checkout: &CheckoutPage, items: &[RunningItem], waits: &[ItemWait])
     let claim_note = checkout
         .claim
         .as_ref()
-        .and_then(|claim| claim.note.clone())
+        .and_then(|claim| claim.note_text().map(str::to_string))
         .filter(|note| !note.is_empty());
     // <said> is the sentence the card falls back on when no item runs, the
     // agent left no note and the card has no pill, whose title holds its own

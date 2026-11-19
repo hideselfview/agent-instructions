@@ -645,7 +645,6 @@ fn health_of(w: &World, range: &str) -> Vec<String> {
             who: "agent".into(),
             since: NOON,
             note: None,
-            note_state: None,
         },
         project: Some("demo".into()),
         app_checkout: false,
@@ -955,7 +954,6 @@ fn landed_records_the_worktrees_claim_wherever_it_runs() {
         who: "design session".into(),
         since: 1_790_000_000,
         note: None,
-        note_state: None,
     }
     .write(&checkout.claim_file())
     .unwrap();

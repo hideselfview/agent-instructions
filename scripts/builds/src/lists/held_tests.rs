@@ -1,5 +1,5 @@
 use super::*;
-use crate::claim::cmd_note;
+use crate::claim::{Note, cmd_note};
 use crate::lists::fixtures::{NOON, db, design_drawn, design_tipped, item, question, read, stamp};
 use crate::lists::item_fixtures::{Demo, demo, refusal};
 use crate::lists::{How, Running};
@@ -96,7 +96,7 @@ fn a_hold_on_an_open_question_or_condition_is_taken() {
     let top = first.add_side(1, "agent", "work");
     start(&first, &top, |db| vec![Wait::Question(question(db))]);
     held(&first, &top).unwrap();
-    assert_eq!(claim_of(&top).note_state.as_deref(), Some("held"));
+    assert_eq!(claim_of(&top).state(), Some("held"));
 
     let other = demo("held-condition");
     let top = other.add_side(1, "agent", "work");
@@ -154,7 +154,7 @@ fn noting_a_worktree_held_and_then_not_held_keeps_a_held_span_on_its_items() {
             },
         ]
     );
-    assert_eq!(claim_of(&top).note.as_deref(), Some("back at work"));
+    assert_eq!(claim_of(&top).note_text(), Some("back at work"));
 }
 
 fn worktree(top: &std::path::Path, who: &str, state: Option<&str>, ahead: Vec<String>) -> Worktree {
@@ -165,8 +165,7 @@ fn worktree(top: &std::path::Path, who: &str, state: Option<&str>, ahead: Vec<St
         claim: Claim {
             who: who.into(),
             since: 1_790_000_000,
-            note: Some("kept".into()),
-            note_state: state.map(str::to_string),
+            note: Some(Note::with_state(state, "kept".into()).unwrap()),
         },
         project: None,
         app_checkout: false,
@@ -206,7 +205,7 @@ fn health_names_a_hold_whose_wait_closed() {
         found[0].text.contains("is held") && found[0].text.contains("waits on nothing open"),
         "{found:?}"
     );
-    tree.claim.note_state = None;
+    tree.claim.note = Some(Note::Plain("kept".into()));
     assert!(findings(&loaded(read(&db)), &[tree]).is_empty());
 }
 
@@ -386,11 +385,8 @@ fn an_item_waiting_on_the_persons_question_is_taken_held_and_health_leaves_it() 
     )
     .unwrap();
     let claim = claim_of(&top);
-    assert_eq!(claim.note_state.as_deref(), Some("held"));
-    assert_eq!(
-        claim.note.as_deref(),
-        Some("waits on the answer to question 1")
-    );
+    assert_eq!(claim.state(), Some("held"));
+    assert_eq!(claim.note_text(), Some("waits on the answer to question 1"));
     let lists = demo.store.load().unwrap();
     assert_eq!(
         crate::lists::running::running_in(&lists, &top.display().to_string()).len(),
@@ -523,4 +519,51 @@ fn health_sees_an_item_of_either_project_in_a_repo_two_projects_hold() {
             "{found:?}"
         );
     }
+}
+
+/// A claim is idle, and `builds health` says to release it and releases it,
+/// only while nothing holds the worktree: no item runs there, no commit waits
+/// to land, no file is uncommitted, no `git commit` runs, and the claim is
+/// neither held nor waiting for its item, nor an app checkout's.
+#[test]
+fn a_claim_is_idle_only_when_nothing_holds_the_worktree() {
+    let top = std::path::Path::new("/w");
+    assert!(worktree(top, "a", None, Vec::new()).claim_is_idle(true));
+    assert!(!worktree(top, "a", None, Vec::new()).claim_is_idle(false));
+    assert!(!worktree(top, "a", Some("held"), Vec::new()).claim_is_idle(true));
+    assert!(!worktree(top, "a", Some("starting"), Vec::new()).claim_is_idle(true));
+    assert!(!worktree(top, "a", None, vec!["abc".into()]).claim_is_idle(true));
+    let mut dirty = worktree(top, "a", None, Vec::new());
+    dirty.uncommitted = Some(2);
+    assert!(!dirty.claim_is_idle(true));
+    let mut committing = worktree(top, "a", None, Vec::new());
+    committing.committing = Ok(vec![7]);
+    assert!(!committing.claim_is_idle(true));
+    let mut unknown = worktree(top, "a", None, Vec::new());
+    unknown.committing = Err("ps failed".into());
+    assert!(!unknown.claim_is_idle(true));
+    let mut app = worktree(top, "a", None, Vec::new());
+    app.app_checkout = true;
+    assert!(!app.claim_is_idle(true));
+}
+
+/// Health's advice to release a claim and its own release use one test, so
+/// a claim that waits for its item gets neither.
+#[test]
+fn health_advises_no_release_of_a_claim_waiting_for_its_item() {
+    let db = db();
+    let top = std::path::Path::new("/w");
+    let loaded = loaded(read(&db));
+    let idle = findings(&loaded, &[worktree(top, "a", None, Vec::new())]);
+    assert!(
+        idle.iter().any(|f| f.line().contains("release it with")),
+        "{idle:?}"
+    );
+    let starting = findings(&loaded, &[worktree(top, "a", Some("starting"), Vec::new())]);
+    assert!(
+        starting
+            .iter()
+            .all(|f| !f.line().contains("release it with")),
+        "{starting:?}"
+    );
 }

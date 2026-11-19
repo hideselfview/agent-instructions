@@ -894,7 +894,7 @@ pub fn assess(
             .collect();
         // A held claim is quiet on purpose: its note says why. A worktree
         // whose design change waits on the person's review is waiting on them.
-        let held = claim.note_state.as_deref() == Some("held");
+        let held = claim.is_held();
         schedule_needed |= !held || git.error.is_some();
         let stalled = !held
             && !awaiting_review
@@ -1335,12 +1335,9 @@ pub fn lines(health: &Health) -> Vec<String> {
             w.branch.as_deref().unwrap_or("detached"),
             w.claim.who,
             local_minute(w.claim.since),
-            match (&w.claim.note_state, &w.claim.note) {
-                (Some(state), note) => format!(
-                    " ({}): {}",
-                    state.replace('-', " "),
-                    note.as_deref().unwrap_or("")
-                ),
+            match (w.claim.state(), w.claim.note_text()) {
+                (Some(state), note) =>
+                    format!(" ({}): {}", state.replace('-', " "), note.unwrap_or("")),
                 (None, Some(note)) => format!(": {note}"),
                 (None, None) => String::new(),
             }
@@ -1656,8 +1653,9 @@ mod tests {
             claim: Claim {
                 who: format!("agent {n}"),
                 since: now - 70 * 24 * 3600,
-                note: Some("kept for later".to_string()),
-                note_state: state.map(str::to_string),
+                note: Some(
+                    crate::claim::Note::with_state(state, "kept for later".to_string()).unwrap(),
+                ),
             },
             branch: Some("work".to_string()),
             git: SideGit {
@@ -1762,8 +1760,10 @@ mod tests {
                     claim: Claim {
                         who: format!("agent {at}"),
                         since: now - 60,
-                        note: None,
-                        note_state: state.map(str::to_string),
+                        note: state.map(|state| {
+                            crate::claim::Note::with_state(Some(state), "noted".to_string())
+                                .unwrap()
+                        }),
                     },
                     branch: Some("work".to_string()),
                     git: git(ahead, claimed_unread),
@@ -1856,7 +1856,6 @@ mod tests {
                 who: "agent 1".to_string(),
                 since: now - claimed_ago,
                 note: None,
-                note_state: None,
             },
             branch: Some("work".to_string()),
             git: SideGit {
@@ -1940,7 +1939,6 @@ mod tests {
                 who: "agent 1".to_string(),
                 since: now - 5 * 3600,
                 note: None,
-                note_state: None,
             },
             branch: Some("work".to_string()),
             git: SideGit {
@@ -2020,7 +2018,6 @@ mod tests {
                     who: "agent 1".to_string(),
                     since: now - 5 * 3600,
                     note: None,
-                    note_state: None,
                 },
                 branch: Some("work".to_string()),
                 git: SideGit {
@@ -2116,7 +2113,6 @@ mod tests {
                     who: "agent 1".to_string(),
                     since: now - 5 * 3600,
                     note: None,
-                    note_state: None,
                 },
                 branch: Some("work".to_string()),
                 git: SideGit {

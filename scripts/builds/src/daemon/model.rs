@@ -1045,8 +1045,8 @@ impl Model {
         let claim = facts.and_then(|f| f.claim.as_ref());
         ClaimFacts {
             agent: claim.map(|c| c.who.clone()),
-            note: claim.and_then(|c| c.note.clone()),
-            note_state: claim.and_then(|c| c.note_state.clone()),
+            note: claim.and_then(|c| c.note_text().map(str::to_string)),
+            note_state: claim.and_then(|c| c.state().map(str::to_string)),
             waiting_to_land: facts
                 .and_then(|f| f.git.as_ref())
                 .map_or(0, |git| git.ahead.len()),
@@ -1521,16 +1521,16 @@ pub fn worktree_state(claim: Option<&Claim>, git: Option<&SideGit>) -> &'static 
     let Some(claim) = claim else {
         return if ahead { "ready-to-land" } else { "free" };
     };
-    if claim.note_state.as_deref() == Some("waiting-on-you") {
+    if claim.state() == Some("waiting-on-you") {
         return "waiting-on-you";
     }
-    if claim.note_state.as_deref() == Some("held") {
+    if claim.is_held() {
         return "held";
     }
     if ahead {
         return "ready-to-land";
     }
-    if claim.note_state.as_deref() == Some("winding-down") {
+    if claim.state() == Some("winding-down") {
         return "winding-down";
     }
     "working"

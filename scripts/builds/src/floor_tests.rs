@@ -42,7 +42,7 @@ fn three_checkouts(scratch: &Scratch, tool: &Tool) {
             .to_string(),
     )
     .unwrap();
-    write_claim(&side1, "agent A", tool.now, None, None).unwrap();
+    write_claim(&side1, "agent A", tool.now, None).unwrap();
 }
 
 #[test]

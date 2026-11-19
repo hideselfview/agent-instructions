@@ -19,7 +19,7 @@
 use std::path::Path;
 
 use crate::checkout::{Checkout, branch_exists};
-use crate::claim::Claim;
+use crate::claim::{Claim, Note};
 use crate::fail;
 use crate::fail::Result;
 use crate::lists::args::Args;
@@ -44,6 +44,19 @@ struct Place {
     checkout: Checkout,
     branch: String,
     claim: Option<Claim>,
+}
+
+impl Place {
+    /// The worktree's claim as the file holds it now: `builds release` or
+    /// health may have removed it since take first read it.
+    fn claim_now(&self) -> Result<Claim> {
+        Claim::read(&self.checkout.claim_file())?.ok_or_else(|| {
+            crate::fail::Fail::Message(format!(
+                "{} lost its claim while take ran; run `builds claim {} WHO` and take again",
+                self.top, self.top
+            ))
+        })
+    }
 }
 
 /// The worktrees and branches <args> names, each a side worktree of its own
@@ -385,35 +398,22 @@ pub fn take(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
                 kept_work::end(db, *id)?;
             }
             start(db, &ids, &running)?;
-            // Last, so a refusal above leaves the claims as they were. The
-            // claim no longer waits for its item, and a held take notes why.
-            if let Some(why) = &held {
+            // Last, so a refusal above leaves the claims as they were. A
+            // held take notes why the work waits, and any take ends a claim's
+            // wait for its item.
+            if held.is_some() {
                 for id in &ids {
                     open_span(db, *id, SpanKind::Held, stamp.at)?;
                 }
-                for place in &places {
-                    let file = place.checkout.claim_file();
-                    let claim = Claim::read(&file)?.expect("read above");
-                    Claim {
-                        note: Some(why.clone()),
-                        note_state: Some("held".into()),
-                        ..claim
-                    }
-                    .write(&file)?;
-                }
-            } else {
-                for place in &places {
-                    let file = place.checkout.claim_file();
-                    let claim = Claim::read(&file)?.expect("read above");
-                    if claim.note_state.as_deref() == Some(crate::claim::STARTING) {
-                        Claim {
-                            note: None,
-                            note_state: None,
-                            ..claim
-                        }
-                        .write(&file)?;
-                    }
-                }
+            }
+            for place in &places {
+                let claim = place.claim_now()?;
+                let note = match &held {
+                    Some(why) => Some(Note::Held(why.clone())),
+                    None if claim.is_starting() => None,
+                    None => continue,
+                };
+                Claim { note, ..claim }.write(&place.checkout.claim_file())?;
             }
             Ok(())
         },

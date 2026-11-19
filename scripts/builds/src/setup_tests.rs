@@ -60,7 +60,7 @@ fn a_claimed_worktree_keeps_its_folder_over_its_cap() {
         ],
     );
     let checkout = Checkout::find(&side.display().to_string()).unwrap();
-    write_claim(&checkout, "agent A", tool.now, None, None).unwrap();
+    write_claim(&checkout, "agent A", tool.now, None).unwrap();
     setup(&tool, &checkout).unwrap();
     let root = tool.places.root.join("demo/side-1");
     fill(&root.join("target/blob"), 2048);

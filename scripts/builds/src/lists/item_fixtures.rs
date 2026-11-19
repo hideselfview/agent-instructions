@@ -82,7 +82,7 @@ impl Demo {
             ],
         );
         let checkout = Checkout::find(&top.display().to_string()).unwrap();
-        write_claim(&checkout, who, NOON, None, None).unwrap();
+        write_claim(&checkout, who, NOON, None).unwrap();
         top
     }
 

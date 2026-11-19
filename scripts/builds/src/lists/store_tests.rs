@@ -533,7 +533,6 @@ fn who_wrote_is_by_else_the_claim_else_refused() {
         who: "import-tags".into(),
         since: 1_790_000_000,
         note: None,
-        note_state: None,
     }
     .write(&checkout.claim_file())
     .unwrap();

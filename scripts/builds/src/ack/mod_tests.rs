@@ -40,7 +40,7 @@ fn world(name: &str) -> World {
     for top in [&checkout, &coven] {
         repo(top, "target 1\n");
         let found = Checkout::at(top).unwrap().unwrap();
-        crate::claim::write_claim(&found, "agent", NOON, None, None).unwrap();
+        crate::claim::write_claim(&found, "agent", NOON, None).unwrap();
     }
     std::fs::write(coven.join("CLAUDE.md"), "Coven rules.\n").unwrap();
     agent::register(&places, SESSION_ID, AGENT).unwrap();

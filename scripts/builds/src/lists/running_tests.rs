@@ -28,7 +28,6 @@ fn live_worktree(scratch: &Scratch, claimed: bool) -> PathBuf {
             who: "agent".into(),
             since: 1_790_000_000,
             note: None,
-            note_state: None,
         }
         .write(&checkout.claim_file())
         .unwrap();
