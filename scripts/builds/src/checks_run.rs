@@ -21,6 +21,9 @@
 //! HEAD, so an app build started meanwhile builds the branch. A range run is
 //! no commit, so the hook database does not record it.
 //!
+//! Before either `run` picks a line, it runs the checkout's `prepare`
+//! programs (setup.rs), which put in place what the checks' builds need.
+//!
 //! Each `run` is recorded in the project's hook database (hook_stats.rs): the
 //! staged diff, every check run or skipped, and the timings. A run whose record
 //! can't be written says so on stderr and ends as the checks decided.
@@ -385,6 +388,7 @@ fn millis(took: Duration) -> u64 {
 /// changes nothing about the result.
 pub fn run_staged(top: &Path, log: Option<&Path>) -> Result<()> {
     let started = Instant::now();
+    crate::setup::prepare(top)?;
     let mut run = match log {
         Some(_) => match begin(top) {
             Ok(run) => Some(run),
@@ -599,6 +603,7 @@ fn contents(top: &Path, file: &str) -> Result<Option<Vec<u8>>> {
 /// fails, and the run puts the file back (`Fixes::PutBack`).
 pub fn run_range(top: &Path, since: &str) -> Result<()> {
     let started = Instant::now();
+    crate::setup::prepare(top)?;
     let lines = load(top)?;
     let output = git(top)
         .args(["merge-base", since, "HEAD"])

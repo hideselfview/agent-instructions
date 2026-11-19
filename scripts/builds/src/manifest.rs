@@ -1,6 +1,7 @@
 //! A repo's `.build-dirs`: its build output paths and the size each may reach,
-//! the tools its scripts install into the user's cache home, and the shared
-//! caches every checkout uses, with their sizes.
+//! the tools its scripts install into the user's cache home, the programs that
+//! prepare a checkout for its builds, and the shared caches every checkout
+//! uses, with their sizes.
 
 use std::path::{Path, PathBuf};
 
@@ -84,11 +85,42 @@ pub fn installed(top: &Path) -> Result<Vec<Installed>> {
     Ok(parse(top)?.installed)
 }
 
+/// The programs the `prepare <program>` lines of <top>'s manifest name, in
+/// its order, each relative to the checkout; none without one. Each puts in
+/// place what the checkout's builds need beyond their folders, such as a
+/// toolchain component or a tool built from the checkout, and finishes at
+/// once when all of it is in place (setup.rs runs them).
+pub fn prepare_programs(top: &Path) -> Result<Vec<String>> {
+    Ok(parse(top)?.prepare)
+}
+
+/// A program a repo builds from its own sources for its toolchain, which
+/// builds keeps one build of per key on each Mac (built_tools.rs). A `tool
+/// <name> <program> <link>` line.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BuiltTool {
+    /// The tool's name, shared by every repo that builds it: `typed-lints`.
+    pub name: String,
+    /// Relative to the checkout: the program that prints the checkout's key
+    /// and builds the tool (`tools/typed-lints/tool.sh`).
+    pub program: String,
+    /// Relative to the checkout: the link builds points at the key's build
+    /// (`tools/typed-lints/built`).
+    pub link: String,
+}
+
+/// The tools the `tool` lines of <top>'s manifest name; none without one.
+pub fn built_tools(top: &Path) -> Result<Vec<BuiltTool>> {
+    Ok(parse(top)?.tools)
+}
+
 /// What a manifest's lines say, in its order.
 struct Manifest {
     dirs: Vec<BuildDir>,
     kept: Vec<String>,
     installed: Vec<Installed>,
+    prepare: Vec<String>,
+    tools: Vec<BuiltTool>,
 }
 
 /// Does relative <path> lead out of the folder it is relative to?
@@ -102,6 +134,8 @@ fn parse(top: &Path) -> Result<Manifest> {
         dirs: Vec::new(),
         kept: Vec::new(),
         installed: Vec::new(),
+        prepare: Vec::new(),
+        tools: Vec::new(),
     };
     let text = match std::fs::read_to_string(&file) {
         Ok(text) => text,
@@ -125,6 +159,49 @@ fn parse(top: &Path) -> Result<Manifest> {
                 );
             }
             manifest.kept.push(kept_path.to_string());
+            continue;
+        }
+        if path == "prepare" {
+            let (Some(program), None) = (fields.next(), fields.next()) else {
+                fail!(
+                    "{}: 'prepare' takes one program in the checkout, got '{line}'",
+                    file.display()
+                );
+            };
+            if escapes(program) {
+                fail!(
+                    "{}: '{program}' must be inside the checkout",
+                    file.display()
+                );
+            }
+            manifest.prepare.push(program.to_string());
+            continue;
+        }
+        if path == "tool" {
+            let (Some(name), Some(program), Some(link), None) =
+                (fields.next(), fields.next(), fields.next(), fields.next())
+            else {
+                fail!(
+                    "{}: 'tool' takes a name, a program in the checkout and a link in the checkout, got '{line}'",
+                    file.display()
+                );
+            };
+            if !crate::built_tools::is_plain_name(name) {
+                fail!(
+                    "{}: the tool name '{name}' must be letters, digits, '.', '_' and '-', not starting with '.'",
+                    file.display()
+                );
+            }
+            for path in [program, link] {
+                if escapes(path) {
+                    fail!("{}: '{path}' must be inside the checkout", file.display());
+                }
+            }
+            manifest.tools.push(BuiltTool {
+                name: name.to_string(),
+                program: program.to_string(),
+                link: link.to_string(),
+            });
             continue;
         }
         if path == "installed" {
@@ -449,6 +526,71 @@ mod tests {
         ] {
             std::fs::write(dir.join(MANIFEST), bad).unwrap();
             match installed(&dir) {
+                Err(fail::Fail::Message(message)) => assert!(message.contains(says), "{message}"),
+                other => panic!("{bad}: {other:?}"),
+            }
+        }
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn prepare_lines() {
+        let dir =
+            std::env::temp_dir().join(format!("builds-manifest-prepare-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join(MANIFEST),
+            "target 1G\nprepare tools/a.sh\nprepare b.sh\n",
+        )
+        .unwrap();
+        assert_eq!(build_dirs(&dir).unwrap().len(), 1);
+        assert_eq!(
+            prepare_programs(&dir).unwrap(),
+            vec!["tools/a.sh".to_string(), "b.sh".to_string()]
+        );
+        for (bad, says) in [
+            ("prepare\n", "'prepare' takes one program"),
+            ("prepare a.sh --fast\n", "'prepare' takes one program"),
+            ("prepare ../a.sh\n", "must be inside the checkout"),
+            ("prepare /bin/a.sh\n", "must be inside the checkout"),
+        ] {
+            std::fs::write(dir.join(MANIFEST), bad).unwrap();
+            match prepare_programs(&dir) {
+                Err(fail::Fail::Message(message)) => assert!(message.contains(says), "{message}"),
+                other => panic!("{bad}: {other:?}"),
+            }
+        }
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn tool_lines() {
+        let dir = std::env::temp_dir().join(format!("builds-manifest-tool-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join(MANIFEST),
+            "target 1G\ntool lints tools/tool.sh tools/built\n",
+        )
+        .unwrap();
+        assert_eq!(build_dirs(&dir).unwrap().len(), 1);
+        assert_eq!(
+            built_tools(&dir).unwrap(),
+            vec![BuiltTool {
+                name: "lints".into(),
+                program: "tools/tool.sh".into(),
+                link: "tools/built".into(),
+            }]
+        );
+        for (bad, says) in [
+            ("tool lints tools/tool.sh\n", "'tool' takes a name"),
+            ("tool lints a b c\n", "'tool' takes a name"),
+            ("tool .x a b\n", "must be letters"),
+            ("tool a/b a b\n", "must be letters"),
+            ("tool x ../a b\n", "must be inside the checkout"),
+            ("tool x a /b\n", "must be inside the checkout"),
+        ] {
+            std::fs::write(dir.join(MANIFEST), bad).unwrap();
+            match built_tools(&dir) {
                 Err(fail::Fail::Message(message)) => assert!(message.contains(says), "{message}"),
                 other => panic!("{bad}: {other:?}"),
             }

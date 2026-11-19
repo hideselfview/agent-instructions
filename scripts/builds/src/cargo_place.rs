@@ -478,6 +478,7 @@ pub fn start<'a>(
     // A stop signal during the send or the claim stops the job once its
     // command starts, and the job removes what it left on the host.
     remote::stop_on_signals();
+    crate::built_tools::send_to(places, ssh, &host, &checkout.top);
     let request = Request {
         repo: checkout.repo(),
         what: What::Working,

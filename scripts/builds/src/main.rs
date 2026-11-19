@@ -9,6 +9,7 @@ mod app_reset;
 mod app_site;
 mod app_timing;
 mod build_app;
+mod built_tools;
 mod cargo_place;
 mod cargo_read;
 mod cargo_run;
@@ -313,8 +314,9 @@ fn run(command: &str, args: &[String]) -> Result<()> {
         "dashboard" => daemon::cmd_dashboard(&tool, args),
         "host" => host::cmd_host(&tool, &host::Ssh::from_env(), args),
         "remote" => remote::cmd_remote(&tool, &host::Ssh::from_env(), args),
+        "tool" => built_tools::cmd_tool(&tool.places, &host::Ssh::from_env(), args),
         other => fail!(
-            "builds has no command {other}. Its commands are ack, agent, setup, new, land, review, claim, note, release, retire, app-checkout, status, health, lists, decision, design, question, item, next, area, dashboard, host, remote, prune, cargo, lock, app-build, shots, queue, takeover, build-app, install, checks and install-hook."
+            "builds has no command {other}. Its commands are ack, agent, setup, new, land, review, claim, note, release, retire, app-checkout, status, health, lists, decision, design, question, item, next, area, dashboard, host, remote, prune, tool, cargo, lock, app-build, shots, queue, takeover, build-app, install, checks and install-hook."
         ),
     }
 }

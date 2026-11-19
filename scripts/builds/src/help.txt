@@ -158,8 +158,10 @@ Xcode and SwiftPM .build folders, Gradle's build and .gradle, dotnet's obj and
 bin, Lean's .lake), and each listed path is a symlink in the checkout to the
 same path under the checkout's build root (target ->
 /Volumes/Builds/bae/main/target). `.build-dirs` has one line per folder, a
-`keep` line for each build that must stay, and an `installed` line for each
-tool the repo's scripts install into the user's cache home:
+`keep` line for each build that must stay, an `installed` line for each
+tool the repo's scripts install into the user's cache home, a `prepare` line
+for each program that puts in place what the checkout's builds need, and a
+`tool` line for each tool the repo builds from its own sources (BUILT TOOLS):
 
   <path> <cap>              the folder and its size cap
   <path> <cap> app <cap>    a second cap, for the folder in the repo's app
@@ -180,6 +182,24 @@ tool the repo's scripts install into the user's cache home:
                             checkout names the version it runs (bae:
                             owner-construction-check
                             scripts/owner-construction-check.sh)
+  prepare <program>         a program of the checkout that `builds setup`
+                            and the pre-commit hook run in its top folder
+                            before anything else builds there, on whichever
+                            Mac runs the build. The program puts in place what
+                            the checkout's builds need beyond their folders,
+                            such as a toolchain component or a source that
+                            builds compile against (coven:
+                            tools/typed-lints/prepare-build.sh). It finishes
+                            at once when all of it is in place, runs again
+                            each time, so it notices a moved toolchain pin,
+                            and never asks for a password, since nobody is
+                            at a host's screen. When it fails, setup and the
+                            hook fail, naming it
+  tool <name> <program> <link>
+                            a tool the repo builds from its own sources for
+                            its toolchain, which builds keeps once per key on
+                            each Mac and links at <link> in the checkout
+                            (BUILT TOOLS)
 
 Tools always write through <checkout>/<path>, so the path a build sees never
 changes, however often builds deletes and recreates the folder behind the link.
@@ -225,8 +245,56 @@ started into target.
                               left behind, apply the disk rules (DISK, below)
                               to the checkout, DerivedData and the shared
                               caches, delete idle build output in the
-                              temporary folders, and keep the free-space
-                              floor
+                              temporary folders, keep the free-space floor,
+                              and then run the checkout's `prepare` programs
+                              and put the build of each of its tools in place
+                              (BUILT TOOLS). builds runs it when `builds new`
+                              hands out a worktree, on a host before each
+                              job, and from each repo script that calls it
+
+
+BUILT TOOLS
+
+A `tool <name> <program> <link>` line names a program the repo builds from its
+own sources for its toolchain, such as coven's typed lints' driver, a build of
+clippy's driver with coven's lints added. builds keeps one build of the tool
+for each key on each Mac, shared by every checkout of every repo whose key is
+the same, and builds it on a Mac only when no other Mac has it.
+
+The repo's <program> answers two requests in the checkout's top folder:
+
+  <program> key             print the checkout's key: two words, the
+                            toolchain's id (coven: the commit its rustc was
+                            built from) and a hash of the tool's sources
+  <program> build <folder>  build the tool into <folder>, and write
+                            <folder>/check: a program that makes the build
+                            ready to run on the Mac it is on and fails unless
+                            the tool runs there. BUILDS_TOOL_WORK names a
+                            folder, one per toolchain on each Mac, where the
+                            program keeps what the next build can reuse, such
+                            as a fetched source and a cargo target folder, so
+                            a new key compiles only what its sources changed
+
+Each key's build is the folder caches/tools/<name>/<toolchain>/<sources> on
+the build volume (a host's builds root on a host), and <link> in the checkout
+points at it. To put a key in place, builds copies the folder from another
+Mac that has it, else builds it, holding the toolchain folder's lock so one
+build at a time uses the work folder. A copied or built folder takes its place
+only once its check passes on the Mac it lands on. Before a `builds cargo` job
+runs on a host, builds copies there each key of the checkout that this Mac has
+and the host lacks, and runs its check there; when that fails, it says so and
+the host builds the key in the job's setup. `builds setup` and `builds prune`
+delete each key's folder, and each toolchain's folder with its work folder,
+that no live checkout's key names, and delete nothing of a tool whose key a
+checkout fails to print.
+
+  builds tool <name> [<checkout>]
+                              put the checkout's key of tool <name> in place
+                              on this Mac, point the checkout's link at it and
+                              print its folder. A repo's script runs it before
+                              it runs the tool, wherever cargo runs: coven's
+                              clippy names a script that runs it in
+                              BUILDS_CARGO_BEFORE
 
 
 WORKTREES AND CLAIMS
@@ -1596,7 +1664,9 @@ entry or one it depends on at any depth); a check with neither runs whole
 whenever a matching file is staged.
 
   builds checks run [<worktree>]
-                              what the pre-commit hook runs: the check and fix
+                              what the pre-commit hook runs: first the
+                              programs the `prepare` lines of `.build-dirs`
+                              name (BUILD FOLDERS), then the check and fix
                               lines the staged files match, from the repo root:
                               the fix lines first, one at a time in file order,
                               then every check line at the same time, since
@@ -1632,7 +1702,8 @@ whenever a matching file is staged.
   builds checks run --since <rev> [<worktree>]
                               run the check and fix lines that the files the
                               branch changed since it left <rev> (git
-                              merge-base <rev> HEAD) match, over those files
+                              merge-base <rev> HEAD) match, after the
+                              `prepare` programs, over those files
                               as HEAD has them, and leave HEAD, the index and
                               the files as they were, so an agent checks a
                               whole branch without moving HEAD. It refuses

@@ -1,0 +1,307 @@
+use std::os::unix::fs::PermissionsExt;
+
+use super::*;
+use crate::checkout::Checkout;
+use crate::host::tests::fake_ssh;
+use crate::testing::{Scratch, git, repo};
+
+const MANIFEST: &str = "target 1G\ntool lints tool.sh built\n";
+
+/// A tool program that prints the key in key.txt and builds a folder holding
+/// `tool` and the check in check.sh, counting its builds in the work
+/// folder's builds.txt.
+const PROGRAM: &str = r#"#!/bin/sh
+case "$1" in
+key) cat key.txt ;;
+build)
+  mkdir -p "$2"
+  echo built >> "$BUILDS_TOOL_WORK/builds.txt"
+  echo tool > "$2/tool"
+  cp check.sh "$2/check"
+  ;;
+esac
+"#;
+
+/// A check that passes where the folder holds `tool`, and counts its runs in
+/// the folder's checks.txt.
+const PASSING: &str = "#!/bin/sh\n[ -f tool ] && echo ran >> checks.txt\n";
+
+fn executable(path: &Path, text: &str) {
+    std::fs::write(path, text).unwrap();
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
+}
+
+/// A repo at <top> that declares tool `lints` with key <key> and <check>.
+fn tool_repo(top: &Path, key: &str, check: &str) -> BuiltTool {
+    repo(top, MANIFEST);
+    executable(&top.join("tool.sh"), PROGRAM);
+    executable(&top.join("check.sh"), check);
+    std::fs::write(top.join("key.txt"), format!("{key}\n")).unwrap();
+    built_tools(top).unwrap().remove(0)
+}
+
+fn no_ssh() -> Ssh {
+    Ssh {
+        program: "false".to_string(),
+    }
+}
+
+fn key_of(text: &str) -> Key {
+    parse_key(text).unwrap()
+}
+
+fn builds_count(places: &Places, toolchain: &str) -> usize {
+    std::fs::read_to_string(
+        tool_dir(places, "lints")
+            .join(toolchain)
+            .join(WORK)
+            .join("builds.txt"),
+    )
+    .map(|text| text.lines().count())
+    .unwrap_or(0)
+}
+
+#[test]
+fn a_key_is_a_toolchain_and_a_sources_hash() {
+    assert_eq!(
+        parse_key("abc123 f00d\n").unwrap(),
+        Key {
+            toolchain: "abc123".into(),
+            sources: "f00d".into()
+        }
+    );
+    for bad in ["", "abc", "a b c", ".a b", "a b/c"] {
+        assert!(parse_key(bad).is_err(), "{bad:?} passed");
+    }
+}
+
+#[test]
+fn builds_a_missing_key_once_and_links_every_checkout_to_it() {
+    let scratch = Scratch::new("tools-build-once");
+    let places = scratch.places();
+    let main = scratch.dir.join("demo");
+    let line = tool_repo(&main, "tc1 src1", PASSING);
+    let side = scratch.dir.join("demo-worktrees/side-1");
+    git(
+        &main,
+        &[
+            "worktree",
+            "add",
+            "-q",
+            "--detach",
+            &side.display().to_string(),
+        ],
+    );
+    for file in ["tool.sh", "check.sh", "key.txt"] {
+        std::fs::copy(main.join(file), side.join(file)).unwrap();
+    }
+
+    let dest = ensure(&places, &no_ssh(), &main, &line).unwrap();
+    assert_eq!(dest, key_dir(&places, "lints", &key_of("tc1 src1")));
+    assert!(dest.join("tool").is_file());
+    assert_eq!(std::fs::read_link(main.join("built")).unwrap(), dest);
+    assert_eq!(
+        std::fs::read_to_string(dest.join("checks.txt")).unwrap(),
+        "ran\n",
+        "the build ran its check before it took its place"
+    );
+
+    assert_eq!(ensure(&places, &no_ssh(), &side, &line).unwrap(), dest);
+    assert_eq!(std::fs::read_link(side.join("built")).unwrap(), dest);
+    assert_eq!(
+        builds_count(&places, "tc1"),
+        1,
+        "a second checkout with the key built it again"
+    );
+
+    std::fs::write(side.join("key.txt"), "tc1 src2\n").unwrap();
+    let other = ensure(&places, &no_ssh(), &side, &line).unwrap();
+    assert_eq!(other, key_dir(&places, "lints", &key_of("tc1 src2")));
+    assert_eq!(std::fs::read_link(side.join("built")).unwrap(), other);
+    assert_eq!(builds_count(&places, "tc1"), 2);
+}
+
+#[test]
+fn a_build_whose_check_fails_never_takes_its_place() {
+    let scratch = Scratch::new("tools-check-fails");
+    let places = scratch.places();
+    let top = scratch.dir.join("demo");
+    let line = tool_repo(
+        &top,
+        "tc1 src1",
+        "#!/bin/sh\necho no toolchain >&2\nexit 1\n",
+    );
+    let Err(Fail::Message(message)) = ensure(&places, &no_ssh(), &top, &line) else {
+        panic!("a failing check passed");
+    };
+    assert!(message.contains("no toolchain"), "{message}");
+    assert!(!key_dir(&places, "lints", &key_of("tc1 src1")).exists());
+    assert_eq!(
+        listed(&tool_dir(&places, "lints").join("tc1")).unwrap(),
+        Vec::<String>::new()
+    );
+    assert!(!top.join("built").exists());
+}
+
+/// A host m1 whose home is <scratch>/remote-home, with its build volume, and
+/// where it keeps tool `lints`.
+fn host_m1(scratch: &Scratch, places: &Places) -> (Ssh, Host, PathBuf) {
+    let home = scratch.dir.join("remote-home");
+    std::fs::create_dir_all(home.join("volume")).unwrap();
+    let ssh = fake_ssh(&scratch.dir.join("bin"), &home);
+    let file = crate::host::hosts_file(places);
+    std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+    std::fs::write(&file, "m1 user@m1 10 1.0\n").unwrap();
+    let host = Host {
+        name: "m1".to_string(),
+        target: Some("user@m1".to_string()),
+        cores: 10,
+        speed: Some(1.0),
+    };
+    (ssh, host, home.join("volume/caches/tools/lints"))
+}
+
+#[test]
+fn copies_a_key_from_a_host_that_has_it_instead_of_building_it() {
+    let scratch = Scratch::new("tools-fetch");
+    let places = scratch.places();
+    let top = scratch.dir.join("demo");
+    let line = tool_repo(&top, "tc1 src1", PASSING);
+    let (ssh, _, there) = host_m1(&scratch, &places);
+    let remote = there.join("tc1/src1");
+    std::fs::create_dir_all(&remote).unwrap();
+    std::fs::write(remote.join("tool"), "tool\n").unwrap();
+    executable(&remote.join("check"), PASSING);
+
+    let dest = ensure(&places, &ssh, &top, &line).unwrap();
+    assert_eq!(
+        std::fs::read_to_string(dest.join("tool")).unwrap(),
+        "tool\n"
+    );
+    assert_eq!(
+        std::fs::read_to_string(dest.join("checks.txt")).unwrap(),
+        "ran\n",
+        "the copy ran its check here"
+    );
+    assert_eq!(
+        builds_count(&places, "tc1"),
+        0,
+        "builds built a key a host had"
+    );
+}
+
+#[test]
+fn sends_a_key_the_host_lacks_and_checks_it_there() {
+    let scratch = Scratch::new("tools-send");
+    let places = scratch.places();
+    let top = scratch.dir.join("demo");
+    let line = tool_repo(&top, "tc1 src1", PASSING);
+    let (ssh, host, there) = host_m1(&scratch, &places);
+    let here = ensure(&places, &no_ssh(), &top, &line).unwrap();
+
+    send_to(&places, &ssh, &host, &top);
+    let remote = there.join("tc1/src1");
+    assert_eq!(
+        std::fs::read_to_string(remote.join("tool")).unwrap(),
+        "tool\n"
+    );
+    assert_eq!(
+        std::fs::read_to_string(remote.join("checks.txt")).unwrap(),
+        "ran\nran\n",
+        "the check ran here and again on the host"
+    );
+    assert_eq!(
+        listed(&there.join("tc1")).unwrap(),
+        vec!["src1".to_string()]
+    );
+
+    // A host that has the key gets no second copy.
+    std::fs::write(remote.join("tool"), "the host's own\n").unwrap();
+    send_to(&places, &ssh, &host, &top);
+    assert_eq!(
+        std::fs::read_to_string(remote.join("tool")).unwrap(),
+        "the host's own\n"
+    );
+
+    // A copy whose check fails on the host leaves nothing there.
+    std::fs::write(top.join("key.txt"), "tc1 src2\n").unwrap();
+    let failing = here.with_file_name("src2");
+    std::fs::create_dir_all(&failing).unwrap();
+    executable(&failing.join("check"), "#!/bin/sh\nexit 1\n");
+    send_to(&places, &ssh, &host, &top);
+    assert_eq!(
+        listed(&there.join("tc1")).unwrap(),
+        vec!["src1".to_string()]
+    );
+    assert!(
+        std::fs::read_dir(there.join("tc1")).unwrap().all(|entry| {
+            !entry
+                .unwrap()
+                .file_name()
+                .to_string_lossy()
+                .starts_with(".new-")
+        }),
+        "the failed copy was left on the host"
+    );
+}
+
+#[test]
+fn prune_deletes_the_keys_and_toolchains_no_checkout_names() {
+    let scratch = Scratch::new("tools-prune");
+    let tool = scratch.tool(0);
+    let places = &tool.places;
+    let top = scratch.dir.join("demo");
+    tool_repo(&top, "tc1 src1", PASSING);
+    crate::setup::setup(&tool, &Checkout::find(&top.display().to_string()).unwrap()).unwrap();
+    assert!(key_dir(places, "lints", &key_of("tc1 src1")).is_dir());
+    for (toolchain, sources) in [("tc1", "old"), ("tc0", "src1")] {
+        std::fs::create_dir_all(tool_dir(places, "lints").join(toolchain).join(sources)).unwrap();
+    }
+
+    prune_tools(places, &tool.roots().unwrap(), Run::Real).unwrap();
+    assert_eq!(
+        listed(&tool_dir(places, "lints")).unwrap(),
+        vec!["tc1".to_string()]
+    );
+    assert_eq!(
+        listed(&tool_dir(places, "lints").join("tc1")).unwrap(),
+        vec!["src1".to_string()]
+    );
+    assert!(
+        tool_dir(places, "lints").join("tc1").join(WORK).is_dir(),
+        "prune deleted the work folder of a toolchain a checkout names"
+    );
+
+    // A checkout whose key can't be read keeps every build of the tool.
+    std::fs::write(top.join("key.txt"), "not a key\n").unwrap();
+    std::fs::create_dir_all(tool_dir(places, "lints").join("tc0")).unwrap();
+    prune_tools(places, &tool.roots().unwrap(), Run::Real).unwrap();
+    assert!(tool_dir(places, "lints").join("tc0").is_dir());
+}
+
+#[test]
+fn setup_runs_each_prepare_program_and_fails_naming_the_one_that_fails() {
+    let scratch = Scratch::new("tools-prepare");
+    let tool = scratch.tool(0);
+    let top = scratch.dir.join("demo");
+    repo(&top, "target 1G\nprepare a.sh\nprepare b.sh\n");
+    executable(&top.join("a.sh"), "#!/bin/sh\necho a >> ran.txt\n");
+    executable(&top.join("b.sh"), "#!/bin/sh\necho b >> ran.txt\n");
+    let checkout = Checkout::find(&top.display().to_string()).unwrap();
+    crate::setup::setup(&tool, &checkout).unwrap();
+    assert_eq!(
+        std::fs::read_to_string(top.join("ran.txt")).unwrap(),
+        "a\nb\n"
+    );
+
+    executable(&top.join("a.sh"), "#!/bin/sh\nexit 3\n");
+    let Err(Fail::Message(message)) = crate::setup::setup(&tool, &checkout) else {
+        panic!("a failing prepare program passed");
+    };
+    assert!(message.contains("a.sh"), "{message}");
+    assert_eq!(
+        std::fs::read_to_string(top.join("ran.txt")).unwrap(),
+        "a\nb\n",
+        "a program after the failing one ran"
+    );
+}

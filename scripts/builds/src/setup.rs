@@ -1,5 +1,7 @@
-//! `builds setup`: links a checkout's build paths into its build root, then
-//! bounds what builds left behind and keeps the free-space floor.
+//! `builds setup`: links a checkout's build paths into its build root,
+//! bounds what builds left behind and keeps the free-space floor, then runs
+//! the checkout's `prepare` programs and puts the builds of its tools in
+//! place (built_tools.rs).
 //!
 //! Each path the repo's `.build-dirs` lists is a symlink in the checkout to
 //! the same path under the checkout's build root (target ->
@@ -181,7 +183,42 @@ pub fn setup(tool: &Tool, checkout: &Checkout) -> Result<()> {
     let roots = tool.roots()?;
     prune_cargo_git(tool, &roots, Run::Real)?;
     prune_installed(tool, &roots, Run::Real)?;
-    keep_floor(tool, &roots, Keeper::Setup, Run::Real)
+    crate::built_tools::prune_tools(&tool.places, &roots, Run::Real)?;
+    keep_floor(tool, &roots, Keeper::Setup, Run::Real)?;
+    // Last, so what they install or build lands after the floor is kept.
+    prepare(&checkout.top)?;
+    crate::built_tools::ensure_all(&tool.places, &crate::host::Ssh::from_env(), &checkout.top)
+}
+
+/// Runs each program the `prepare` lines of <top>'s manifest name, in its
+/// top folder, its output on stderr: each puts in place what the checkout's
+/// builds need beyond their folders and finishes at once when that is in
+/// place. Setup runs them, and so does the pre-commit hook before its checks.
+/// The first that fails stops the rest and fails, naming it.
+pub fn prepare(top: &Path) -> Result<()> {
+    for program in crate::manifest::prepare_programs(top)? {
+        let path = top.join(&program);
+        let mut command = std::process::Command::new(&path);
+        // The pre-commit hook runs with git's variables for the commit's
+        // index, which would point the program's own git commands there.
+        for name in crate::checkout::git_local_env_vars()? {
+            command.env_remove(name);
+        }
+        let status = command
+            .current_dir(top)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::from(
+                std::os::fd::AsFd::as_fd(&std::io::stderr())
+                    .try_clone_to_owned()
+                    .context(|| "duplicating stderr".to_string())?,
+            ))
+            .status()
+            .context(|| format!("running {}", path.display()))?;
+        if !status.success() {
+            fail!("{program}, which {MANIFEST} names to prepare the checkout, failed ({status})");
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]

@@ -356,7 +356,7 @@ pub fn prune_caches(tool: &Tool, run: Run) -> Result<()> {
 /// dry run. These prunes free space and change nothing a build reads, so a
 /// failure, such as another session's scratch folder vanishing while it is
 /// listed, is noted and the build goes on.
-fn prune_listed(run: Run, what: &str, listing: std::result::Result<Vec<PathBuf>, String>) {
+pub fn prune_listed(run: Run, what: &str, listing: std::result::Result<Vec<PathBuf>, String>) {
     let entries = match listing {
         Ok(entries) => entries,
         Err(errors) => {
@@ -837,6 +837,7 @@ pub fn cmd_prune(tool: &Tool, args: &[String]) -> Result<()> {
     prune_scratchpads(tool, run)?;
     prune_cargo_git(tool, &roots, run)?;
     prune_installed(tool, &roots, run)?;
+    crate::built_tools::prune_tools(&tool.places, &roots, run)?;
     // After every other deletion here, whose removals it waits for, so its
     // reading of the free space counts them.
     crate::floor::keep_floor(tool, &roots, crate::floor::Keeper::Prune, run)?;
