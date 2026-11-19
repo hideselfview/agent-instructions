@@ -722,11 +722,17 @@ impl Model {
         let refusals = crate::host::refusals(&self.places)?;
         let installed = crate::host_installed::read_all_installed(&self.places, ssh, &hosts);
         let install = crate::install_gate::waiting(&self.places).map_err(|fault| fault.text());
+        let now = now_seconds();
+        let caches = crate::sccache_queue::judge(&self.places.home, &scans, now)
+            .map_err(|fault| fault.text());
         Ok(crate::health::host_findings(
-            &scans,
-            &install,
-            now_seconds(),
-            &crate::orphans::find(&scans, &holders),
+            &crate::health::Scanned {
+                scans: &scans,
+                install: &install,
+                orphans: &crate::orphans::find(&scans, &holders),
+                caches: &caches,
+                now,
+            },
             &busy,
             &refusals,
             &installed,

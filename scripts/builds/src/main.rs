@@ -87,6 +87,7 @@ mod review;
 mod rust_stable;
 mod rustc_wrapper;
 mod sccache;
+mod sccache_queue;
 mod setup;
 mod shells;
 mod shot_findings;

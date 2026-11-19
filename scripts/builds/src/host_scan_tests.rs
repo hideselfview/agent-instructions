@@ -1,11 +1,23 @@
 use super::*;
 
+/// JSON stats as sccache 0.13 prints them, cut to the fields builds reads
+/// and a few it does not.
+const STATS: &str = r#"{"stats":{"compile_requests":112611,"cache_hits":{"counts":{"Assembler":6440,"C/C++":14727,"Rust":35361},"adv_counts":{}},"cache_misses":{"counts":{"C/C++":565,"Rust":34774},"adv_counts":{}}},"cache_size":53670801410,"max_cache_size":53687091200}"#;
+
+/// The lines the listener script prints when the server (pid 44790) listens.
+fn listening() -> String {
+    format!(
+        "listener_status=0\nlistener=p44790\nlistener=R1\nlistener=csccache\nlistener=f12\nlistener_said=\nsccache_stats={STATS}\n"
+    )
+}
+
 const PS: &str = "    1     0     0   0.0   1:00.00 9-00:00:00 /sbin/launchd\n44790     1   501   0.0  10:00.00 2-07:02:40 /Users/x/.cargo/bin/sccache\n";
 
 #[test]
 fn reads_what_a_host_printed() {
     let scan = parse(&format!(
-        "uid=501\ncpu=CPU usage: 95.17% user, 4.9% sys, 0.72% idle \njob=/Users/x/dev/bae-worktrees/remote-side-5 76647 17546-1795067690799282000\n{PS_FOLLOWS}\n{PS}"
+        "uid=501\ncpu=CPU usage: 95.17% user, 4.9% sys, 0.72% idle \njob=/Users/x/dev/bae-worktrees/remote-side-5 76647 17546-1795067690799282000\n{}{PS_FOLLOWS}\n{PS}",
+        listening()
     ))
     .unwrap();
     assert_eq!(scan.uid, 501);
@@ -29,6 +41,38 @@ fn reads_what_a_host_printed() {
         ..job.clone()
     };
     assert!(!app.is_cargo_job());
+    assert_eq!(
+        scan.sccache,
+        Ok(Some(CacheServer {
+            pid: 44790,
+            stats: CacheStats {
+                rust_hits: 35361,
+                rust_misses: 34774,
+                cache_size: 53670801410,
+                max_cache_size: 53687091200,
+            }
+        }))
+    );
+}
+
+/// A host where no server listens has no server; stats that hold no counts
+/// are an error that names them, not a server with none.
+#[test]
+fn reads_a_host_with_no_server_and_stats_it_cannot_read() {
+    let none =
+        format!("uid=501\ncpu=\nlistener_status=1\nlistener=\nlistener_said=\n{PS_FOLLOWS}\n{PS}");
+    assert_eq!(parse(&none).unwrap().sccache, Ok(None));
+    let broken = format!(
+        "uid=501\ncpu=\n{}{PS_FOLLOWS}\n{PS}",
+        listening().replace(STATS, "{\"stats\":{}}")
+    );
+    assert!(
+        parse(&broken)
+            .unwrap()
+            .sccache
+            .unwrap_err()
+            .contains("no counts of hits and misses")
+    );
 }
 
 /// A top that printed no idle share leaves the rest of the reading whole;
@@ -74,6 +118,16 @@ fn the_script_reads_the_last_second_of_the_cpu_and_the_jobs_that_run() {
     )
     .unwrap();
     std::fs::set_permissions(&top, std::fs::Permissions::from_mode(0o755)).unwrap();
+    // lsof's exit 1 with nothing printed: no server listens.
+    let lsof = bin.join("lsof");
+    std::fs::write(
+        &lsof,
+        "#!/bin/sh
+exit 1
+",
+    )
+    .unwrap();
+    std::fs::set_permissions(&lsof, std::fs::Permissions::from_mode(0o755)).unwrap();
     let mut group = std::process::Command::new("sleep")
         .arg("30")
         .process_group(0)
@@ -97,6 +151,7 @@ fn the_script_reads_the_last_second_of_the_cpu_and_the_jobs_that_run() {
     let scan = parse(&String::from_utf8_lossy(&output.stdout)).unwrap();
     assert_eq!(scan.uid, unsafe { libc::getuid() });
     assert_eq!(scan.cpu_idle, Ok(40.0));
+    assert_eq!(scan.sccache, Ok(None));
     assert_eq!(
         scan.jobs,
         [JobRun {

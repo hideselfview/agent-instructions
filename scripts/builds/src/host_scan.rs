@@ -1,10 +1,13 @@
 //! One reading of a host as a whole, for `builds health` and the dashboard:
-//! its processes, how much of its CPU sits idle, and the commands that
-//! builds' jobs run there. One script prints them, over the ssh builds
-//! already uses for hosts or with sh on this Mac, so a health check asks each
-//! host once. stuck.rs judges the processes, host_load.rs the idle share,
-//! long_waits.rs the jobs and orphans.rs the processes whose caller is gone.
+//! its processes, how much of its CPU sits idle, the commands that builds'
+//! jobs run there, and its sccache server. One script prints them, over the
+//! ssh builds already uses for hosts or with sh on this Mac, so a health
+//! check asks each host once. stuck.rs judges the processes, host_load.rs the
+//! idle share, long_waits.rs the jobs, orphans.rs the processes whose caller
+//! is gone and sccache_queue.rs the server.
 
+use crate::fail;
+use crate::fail::Result;
 use crate::host::{Accept, Host, Ssh, Terminal, command_at, output_of, place};
 use crate::stuck::{PS_FORMAT, Row, parse_ps};
 
@@ -24,6 +27,57 @@ pub struct Scan {
     pub cpu_idle: std::result::Result<f64, String>,
     /// The commands builds' jobs run there now (remote.rs).
     pub jobs: Vec<JobRun>,
+    /// The sccache server that listens there, or None when none does; Err
+    /// when the script could not tell.
+    pub sccache: std::result::Result<Option<CacheServer>, String>,
+}
+
+/// A host's sccache server and what it says about its compiles.
+#[derive(Clone, Debug, PartialEq)]
+pub struct CacheServer {
+    pub pid: i32,
+    pub stats: CacheStats,
+}
+
+/// What a server's JSON stats say, since it started.
+#[derive(Clone, Debug, PartialEq)]
+pub struct CacheStats {
+    /// The Rust compiles the cache answered, and those it had to run.
+    pub rust_hits: u64,
+    pub rust_misses: u64,
+    /// The bytes in the cache, and the most it keeps.
+    pub cache_size: u64,
+    pub max_cache_size: u64,
+}
+
+/// Reads a server's JSON stats <json>. Fails, with what the server printed,
+/// when a field is missing. A server that has run no Rust compile has no
+/// `Rust` count, which reads as 0.
+pub fn parse_stats(json: &str) -> Result<CacheStats> {
+    let value: serde_json::Value = match serde_json::from_str(json) {
+        Ok(value) => value,
+        Err(error) => fail!("sccache printed stats that are not JSON ({error}): {json}"),
+    };
+    if !value["stats"]["cache_hits"].is_object() || !value["stats"]["cache_misses"].is_object() {
+        fail!("sccache's stats have no counts of hits and misses: {json}");
+    }
+    let rust = |kind: &str| {
+        value["stats"][kind]["counts"]["Rust"]
+            .as_u64()
+            .unwrap_or_default()
+    };
+    let size = |key: &str| -> Result<u64> {
+        match value[key].as_u64() {
+            Some(size) => Ok(size),
+            None => fail!("sccache's stats have no {key}: {json}"),
+        }
+    };
+    Ok(CacheStats {
+        rust_hits: rust("cache_hits"),
+        rust_misses: rust("cache_misses"),
+        cache_size: size("cache_size")?,
+        max_cache_size: size("max_cache_size")?,
+    })
 }
 
 /// A command that a job runs on a host now: the claim folder of a worktree
@@ -93,9 +147,11 @@ for claim in "$HOME"/dev/*-worktrees/*.job; do
   case "$1" in ''|*[!0-9]*) continue;; esac
   kill -0 -- "-$1" 2>/dev/null && echo "job=${{claim%.job}} $1 $2"
 done
+{listener}
 echo {PS_FOLLOWS}
 ps -axww -o {PS_FORMAT}"#,
         root = crate::remote::root_script(host),
+        listener = crate::sccache::listener_script(),
     )
 }
 
@@ -128,11 +184,25 @@ pub fn parse(text: &str) -> std::result::Result<Scan, String> {
     let uid = value("uid")
         .and_then(|uid| uid.parse().ok())
         .ok_or_else(|| format!("the host did not say its user id: {head:?}"))?;
+    let sccache = (|| -> Result<Option<CacheServer>> {
+        let Some(pid) = crate::sccache::parse_listener_lines(head)? else {
+            return Ok(None);
+        };
+        let Some(json) = value("sccache_stats") else {
+            fail!("the sccache server listens, but the host printed no stats");
+        };
+        Ok(Some(CacheServer {
+            pid: pid as i32,
+            stats: parse_stats(json)?,
+        }))
+    })()
+    .map_err(|fault| fault.text());
     Ok(Scan {
         uid,
         rows: parse_ps(ps)?,
         cpu_idle: parse_cpu(value("cpu").unwrap_or_default()),
         jobs,
+        sccache,
     })
 }
 

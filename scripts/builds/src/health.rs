@@ -1410,10 +1410,27 @@ pub fn lines(health: &Health) -> Vec<String> {
     out
 }
 
-/// The findings that come from the hosts: the work that has run long on
-/// this Mac or a host, given each host's scan and what a running install
-/// waits for (long_waits.rs), each process whose caller is gone among
-/// <orphans> (orphans.rs), each process that looks stuck on
+/// What health read of the hosts as a whole for `host_findings`.
+pub struct Scanned<'a> {
+    /// Each host's scan (host_scan.rs), this Mac's among them.
+    pub scans: &'a [(Host, std::result::Result<crate::host_scan::Scan, String>)],
+    /// What a running install waits for (install_gate.rs).
+    pub install: &'a std::result::Result<Option<crate::install_gate::Waiting>, String>,
+    /// The processes whose caller is gone that health left running
+    /// (orphans.rs).
+    pub orphans: &'a [crate::orphans::Orphan],
+    /// Each host's sccache server (sccache_queue.rs), or why health could
+    /// not judge them.
+    pub caches: &'a std::result::Result<Vec<crate::sccache_queue::Cache>, String>,
+    /// Seconds since 1970.
+    pub now: i64,
+}
+
+/// The findings that come from the hosts: from <scanned>, the work that has
+/// run long on this Mac or a host (long_waits.rs), each process whose caller
+/// is gone that health left running (orphans.rs), and each host with more
+/// compile work than its sccache server runs (sccache_queue.rs); and each
+/// process that looks stuck on
 /// one (stuck.rs), each host that refuses jobs or whose Xcode cannot start,
 /// what `host_installed::installed_findings` reports: each host whose installed
 /// `builds` differs from this Mac's or that builds could not ask, and each
@@ -1424,10 +1441,7 @@ pub fn lines(health: &Health) -> Vec<String> {
 /// health` and the dashboard each add these findings to the ones `assess`
 /// returns.
 pub fn host_findings(
-    scans: &[(Host, std::result::Result<crate::host_scan::Scan, String>)],
-    install: &std::result::Result<Option<crate::install_gate::Waiting>, String>,
-    now: i64,
-    orphans: &[crate::orphans::Orphan],
+    scanned: &Scanned,
     busy: &[crate::stuck::HostBusy],
     refusals: &[crate::host::Refusal],
     installed: &[crate::host_installed::HostInstalled],
@@ -1436,13 +1450,25 @@ pub fn host_findings(
         crate::procs::cwd(pid)
             .and_then(|dir| crate::stuck::checkout_label(&dir.display().to_string()))
     };
-    crate::long_waits::findings(scans, install, &checkout, now)
+    let caches = match scanned.caches {
+        Ok(caches) => crate::sccache_queue::findings(caches),
+        Err(error) => vec![Advice::said(format!(
+            "sccache: health could not judge the hosts' compile caches: {error}"
+        ))],
+    };
+    crate::long_waits::findings(scanned.scans, scanned.install, &checkout, scanned.now)
         .into_iter()
         .map(|advice| Finding::new(FindingKind::Waits, advice))
         .chain(
-            orphans
+            scanned
+                .orphans
                 .iter()
                 .map(|orphan| Finding::new(FindingKind::Orphan, orphan.finding())),
+        )
+        .chain(
+            caches
+                .into_iter()
+                .map(|advice| Finding::new(FindingKind::Sccache, advice)),
         )
         .chain(
             crate::stuck::findings(busy)
@@ -1632,8 +1658,19 @@ pub fn cmd_health(tool: &Tool, args: &[String]) -> Result<()> {
         },
     );
     stopped.iter().for_each(crate::text::note);
+    let caches = crate::sccache_queue::judge(&tool.places.home, &scanned, tool.now)
+        .map_err(|fault| fault.text());
     health.findings.extend(host_findings(
-        &scanned, &install, tool.now, &orphans, &busy, &refusals, &installed,
+        &Scanned {
+            scans: &scanned,
+            install: &install,
+            orphans: &orphans,
+            caches: &caches,
+            now: tool.now,
+        },
+        &busy,
+        &refusals,
+        &installed,
     ));
     if json {
         let mut value = serde_json::to_value(&health).expect("health serializes");
@@ -1663,6 +1700,9 @@ pub fn cmd_health(tool: &Tool, args: &[String]) -> Result<()> {
             prune_line,
         ];
         before.extend(crate::stuck::lines(&busy));
+        if let Ok(caches) = &caches {
+            before.extend(crate::sccache_queue::lines(caches));
+        }
         out.splice(at..at, before);
         for line in out {
             println!("{line}");
@@ -2371,6 +2411,20 @@ mod tests {
         );
     }
 
+    /// A reading of the hosts that found nothing, with <caches> as its
+    /// caches.
+    fn nothing_scanned(
+        caches: &std::result::Result<Vec<crate::sccache_queue::Cache>, String>,
+    ) -> Scanned<'_> {
+        Scanned {
+            scans: &[],
+            install: &Ok(None),
+            orphans: &[],
+            caches,
+            now: 0,
+        }
+    }
+
     /// A host finding keeps its command apart from its text, for the
     /// dashboard to show; a host whose processes builds could not read over
     /// ssh adds no finding.
@@ -2386,7 +2440,7 @@ mod tests {
             host: "m1".to_string(),
             read: Err("ssh failed".to_string()),
         }];
-        let found = host_findings(&[], &Ok(None), 0, &[], &busy, &[refusal], &[]);
+        let found = host_findings(&nothing_scanned(&Ok(Vec::new())), &busy, &[refusal], &[]);
         assert_eq!(found.len(), 1, "{found:?}");
         assert_eq!(found[0].kind, FindingKind::Host);
         assert_eq!(found[0].advice.command.as_deref(), Some("builds host list"));
@@ -2411,7 +2465,7 @@ mod tests {
             at: 1_800_000_000,
             said: "A required plugin failed to load. Please ensure system content is up-to-date, try running 'xcodebuild -runFirstLaunch'.".to_string(),
         };
-        let found = host_findings(&[], &Ok(None), 0, &[], &[], &[refusal], &[]);
+        let found = host_findings(&nothing_scanned(&Ok(Vec::new())), &[], &[refusal], &[]);
         assert_eq!(found.len(), 1, "{found:?}");
         assert_eq!(found[0].kind, FindingKind::Host);
         assert_eq!(
@@ -2440,7 +2494,7 @@ mod tests {
             crate::host::refusal_finding(&refusal).command.as_deref(),
             Some("builds host setup m1")
         );
-        let found = host_findings(&[], &Ok(None), 0, &[], &[], &[refusal], &[]);
+        let found = host_findings(&nothing_scanned(&Ok(Vec::new())), &[], &[refusal], &[]);
         assert_eq!(found.len(), 1, "{found:?}");
         assert_eq!(
             found[0].advice.command.as_deref(),

@@ -1531,6 +1531,16 @@ STATUS, HEALTH AND THE DASHBOARD
                                 line
                               - each lane's lock holder (the build's top
                                 process when its `builds lock` is gone)
+                              - each host's compile cache, this Mac's
+                                included: its sccache server's pid, the
+                                compiles it runs, the clients that wait for
+                                one, the share of Rust compiles its cache
+                                answered since a reading 5+ minutes old
+                                (health keeps a reading of each server at
+                                most once a minute, for an hour, in
+                                ~/Library/Caches/builds/sccache-host-readings.json;
+                                since the server started when it has none),
+                                and the cache's size against its most
                               - the busy processes on this Mac and every host
                                 that answers (over 50% CPU now with 10+
                                 minutes of CPU time, or 90%+ for 30+ minutes):
@@ -1616,8 +1626,12 @@ STATUS, HEALTH AND THE DASHBOARD
                               command that does more than print (a landing,
                               an install), which does its work to its end;
                               for one whose stop failed, the line gives `kill
-                              <pid>...`, over ssh on a host; a build past its
-                              step's 45-minute
+                              <pid>...`, over ssh on a host; a host whose
+                              sccache server has more than 2 waiting clients
+                              for each of the host's cores, with the compiles
+                              it runs, its cache's share of Rust compiles and
+                              whether its cache is full (start nothing new
+                              for the host); a build past its step's 45-minute
                               default limit, or a test binary past 30 minutes
                               (`kill <pid>`); a test binary that `builds
                               cargo` runs, here or on a host, that has run 20+

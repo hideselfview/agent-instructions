@@ -16,6 +16,7 @@ fn scan(ps: &str, jobs: Vec<JobRun>) -> std::result::Result<Scan, String> {
         rows: crate::stuck::parse_ps(ps).unwrap(),
         cpu_idle: Ok(50.0),
         jobs,
+        sccache: Ok(None),
     })
 }
 

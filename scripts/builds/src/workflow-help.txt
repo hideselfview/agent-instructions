@@ -546,6 +546,11 @@ whose caller is gone. The lines below are what remains to act on.
 
   - sccache finished no compiles while clients wait: restart it (`launchctl
     kickstart -k gui/$(id -u)/local.sccache-server`).
+  - A host whose sccache server has more than 2 clients waiting for each of
+    its cores: the host has more compile work than it can run, so start
+    nothing new for it. The line gives the share of Rust compiles its cache
+    answered lately; a low share means builds compile what the cache should
+    hold (BUILDS says what changes sccache's key).
   - Junk shells: run `builds health --stop-junk`. When one agent keeps
     leaving polling shells, tell it to wait for notifications instead.
   - A claimed worktree with no change and no build for an hour: ask its agent

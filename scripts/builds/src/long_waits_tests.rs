@@ -13,6 +13,7 @@ fn scan(rows: Vec<Row>, jobs: Vec<JobRun>) -> std::result::Result<Scan, String> 
         rows,
         cpu_idle: Ok(50.0),
         jobs,
+        sccache: Ok(None),
     })
 }
 
