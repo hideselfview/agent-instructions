@@ -292,6 +292,7 @@ fn the_store_scores_each_setup_from_settled_findings_and_confirmed_audit_misses(
         reviewer: &fake.program,
         stamp: &stamp,
         brief: None,
+        runner: None,
     })
     .unwrap()
     .landing

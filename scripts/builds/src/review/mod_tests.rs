@@ -30,6 +30,7 @@ fn try_review(demo: &Demo, fake: &Fake, side: &Path, key: &str) -> Result<Report
         reviewer: &fake.program,
         stamp: &stamp(),
         brief: None,
+        runner: None,
     })
 }
 
@@ -1136,6 +1137,7 @@ fn a_review_of_a_given_head_reads_a_copy_and_keeps_what_each_reviewer_was_sent_a
         reviewer: &fake.program,
         stamp: &stamp(),
         brief: None,
+        runner: None,
     })
     .unwrap();
     assert!(reported.refusal.is_none());

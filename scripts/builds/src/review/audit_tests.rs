@@ -147,6 +147,7 @@ fn landed(demo: &crate::lists::item_fixtures::Demo, fake: &Fake, side: &Path) ->
         reviewer: &fake.program,
         stamp: &stamp(),
         brief: None,
+        runner: None,
     })
     .unwrap();
     assert!(reviewed.refusal.is_none());
@@ -353,6 +354,7 @@ fn a_landing_whose_change_has_not_landed_is_not_audited() {
         reviewer: &fake.program,
         stamp: &stamp,
         brief: None,
+        runner: None,
     })
     .unwrap();
     assert!(reviewed.refusal.is_some());
@@ -390,6 +392,7 @@ fn an_open_miss_is_checked_although_another_landing_raised_its_rule_and_file() {
         reviewer: &fake.program,
         stamp: &stamp(),
         brief: None,
+        runner: None,
     })
     .unwrap()
     .landing

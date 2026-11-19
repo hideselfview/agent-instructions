@@ -2208,7 +2208,18 @@ run `review replay --rules-root` on it.
                               them. While
                               it runs it holds a lock file named for the
                               reviewed commit in the store folder's
-                              reviews-running, which the dashboard reads
+                              reviews-running, which the dashboard reads.
+                              When the review leaves findings that nobody has
+                              settled, builds tells the judge of them (`judge
+                              listen`), once, in a message that names the
+                              landing, the findings and the worktree. When no
+                              judge listens and an agent that a session
+                              dispatched runs the review, builds tells that
+                              session, the agent's coordinator, instead. When
+                              the person or a session's main agent runs it
+                              with no judge listening, builds tells nobody.
+                              builds records the dispatched agent that ran
+                              each run as the agent of the branch
   builds review copy <worktree> [<base>] [--rules-root DIR] [--reviewer PROGRAM]
                               the copy review: ask only the copy groups whose
                               rules cover a changed path over the worktree's
@@ -2240,9 +2251,24 @@ run `review replay --rules-root` on it.
                               session's environment (CLAUDE_CODE_MESSAGING_SOCKET
                               and CLAUDE_CODE_MESSAGING_TOKEN), and the
                               session's id. The judge session runs it when it
-                              starts. builds refuses it outside a session with
-                              an inbox, and from an agent that a session
+                              starts. The session judges while it runs, which
+                              Claude Code's record of its running sessions
+                              (~/.claude/sessions) says, and builds tells it of
+                              each review's findings to settle (`review`).
+                              builds refuses it outside a session with an
+                              inbox, and from an agent that a session
                               dispatched, which shares that session's inbox
+  builds review wait <landing>
+                              wait until the review landing has no finding
+                              left to settle, then print each settle of the
+                              findings that waited, with who settled each and
+                              why, and each open confirmed finding. The agent
+                              that ran the review runs it as a background
+                              task. Each settle tells every wait of the store
+                              through the store folder's review-settles
+                              folder, which a wait watches. After two hours
+                              the wait fails, naming the findings nobody has
+                              settled; run it again to keep waiting
   builds review show <landing>
                               the review of a landing under review: its last
                               review, each run's net change, the earlier run

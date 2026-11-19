@@ -195,12 +195,15 @@ fn holds_for_life(command: &str, rest: &[String]) -> bool {
         // Records the hook run once its checks end (hook_stats.rs).
         "checks" => rest.first().is_some_and(|sub| sub == "run"),
         // A run, a copy review, a replay and an audit record what the
-        // reviewers answered once they answer (review/mod.rs); the other
-        // review commands read or write in one transaction.
+        // reviewers answered once they answer (review/mod.rs). A wait reads
+        // the store each time a settle tells it to, and holds no use while
+        // it waits (review/judge.rs); the other review commands read or
+        // write in one transaction.
         "review" => !matches!(
             rest.first().map(String::as_str),
             Some(
                 "groups"
+                    | "wait"
                     | "settle"
                     | "fixed"
                     | "show"

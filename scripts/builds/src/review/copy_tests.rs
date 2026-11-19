@@ -87,6 +87,7 @@ fn a_review_asks_no_copy_group() {
         reviewer: &fake.program,
         stamp: &stamp(NOON),
         brief: None,
+        runner: None,
     })
     .unwrap();
     let groups: Vec<String> = fake.prompts().into_iter().map(|(group, _)| group).collect();

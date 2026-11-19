@@ -175,6 +175,12 @@ impl Finding {
             .is_some_and(|settled| settled.last().how == how)
     }
 
+    /// Whether it is a finding of a review that builds' own checks accepted
+    /// and that nobody has settled.
+    pub fn is_unsettled(&self) -> bool {
+        self.kind == "review" && self.counts() && self.settled.is_none()
+    }
+
     /// Whether it is an open confirmed finding of a review: settled once, as
     /// confirmed, and no review run closed it.
     pub fn is_open(&self) -> bool {

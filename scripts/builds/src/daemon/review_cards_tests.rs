@@ -42,6 +42,7 @@ fn review(demo: &Demo, root: &Path, program: &Path, side: &Path, key: &str) {
             by: "tester".to_string(),
         },
         brief: None,
+        runner: None,
     })
     .unwrap();
 }

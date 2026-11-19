@@ -42,6 +42,7 @@ fn reviewed(demo: &Demo, fake: &Fake, side: &Path) -> i64 {
         reviewer: &fake.program,
         stamp: &stamp(),
         brief: None,
+        runner: None,
     })
     .unwrap()
     .landing

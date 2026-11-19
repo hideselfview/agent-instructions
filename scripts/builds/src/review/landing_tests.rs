@@ -39,6 +39,7 @@ fn review_past(demo: &Demo, fake: &Fake, side: &Path, base: &str) -> super::supe
         reviewer: &fake.program,
         stamp: &stamp(),
         brief: None,
+        runner: None,
     })
     .unwrap()
 }
@@ -204,6 +205,7 @@ fn a_fix_commit_is_read_by_a_new_run_once_which_closes_the_finding_it_fixes() {
         reviewer: &fake.program,
         stamp: &stamp(),
         brief: None,
+        runner: None,
     })
     .unwrap_err()
     .text();

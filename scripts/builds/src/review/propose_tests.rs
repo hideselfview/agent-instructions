@@ -50,6 +50,7 @@ fn landed(demo: &Demo, fake: &Fake, side: &Path, rule_b_why: &str) -> i64 {
         reviewer: &fake.program,
         stamp: &stamp(),
         brief: None,
+        runner: None,
     })
     .unwrap()
     .landing

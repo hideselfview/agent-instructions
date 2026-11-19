@@ -201,6 +201,19 @@ pub fn stale_socket(path: &Path) {
     }
 }
 
+/// Records <session> as a running Claude Code session in <places>' home, as
+/// Claude Code does: a record named for a live process, this test's own.
+pub fn running_session(places: &crate::places::Places, session: &str) {
+    let sessions = places.claude_sessions();
+    std::fs::create_dir_all(&sessions).expect("creatable");
+    let me = std::process::id();
+    std::fs::write(
+        sessions.join(format!("{me}.json")),
+        format!(r#"{{"pid":{me},"sessionId":"{session}"}}"#),
+    )
+    .expect("writable");
+}
+
 /// A session's inbox socket at <path> for a test, served by a thread: it takes
 /// one connection, reads it to its end and keeps its lines. Never a real
 /// session's socket.

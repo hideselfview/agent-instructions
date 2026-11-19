@@ -260,7 +260,7 @@ fn assess(
     }
     unfinished.unsettled = findings
         .iter()
-        .filter(|f| f.kind == "review" && f.counts() && f.settled.is_none())
+        .filter(|f| f.is_unsettled())
         .cloned()
         .collect();
     unfinished.open = findings.into_iter().filter(|f| f.is_open()).collect();
@@ -352,7 +352,7 @@ pub fn refusal(needs: &[Need], verdict: &Verdict) -> Option<String> {
             text.push_str(&render::finding_text(finding));
         }
         text.push_str(
-            "Judge each and settle it: builds review settle <finding> confirmed|dropped --why TEXT\n",
+            "The judge settles each, or the coordinator when no judge listens: builds review settle <finding> confirmed|dropped --why TEXT\n",
         );
     }
     if !unfinished.open.is_empty() {

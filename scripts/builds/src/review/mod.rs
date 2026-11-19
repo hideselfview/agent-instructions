@@ -5,6 +5,7 @@
 //! ```text
 //! builds review [run] WORKTREE [BASE] [--landing KEY] [--item N]... [--head SHA] [--rules-root DIR] [--reviewer PROGRAM]
 //! builds review copy WORKTREE [BASE] [--rules-root DIR] [--reviewer PROGRAM]
+//! builds review wait LANDING
 //! builds review settle FINDING confirmed|dropped --why TEXT
 //! builds review settle FINDING --again --why TEXT
 //! builds review settle FINDING allowed --by-person --why TEXT
@@ -76,6 +77,7 @@ mod score;
 
 use std::path::{Path, PathBuf};
 
+use crate::ack::agent::Caller;
 use crate::checkout::Checkout;
 use crate::fail;
 use crate::fail::{Context, Fail, Result};
@@ -87,7 +89,7 @@ use boards::git;
 
 use record::Kind;
 
-const USAGE: &str = "usage: builds review [run] WORKTREE [BASE] [--landing KEY] [--item N]... [--head SHA] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review copy WORKTREE [BASE] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review settle FINDING confirmed|dropped --why TEXT\n       builds review settle FINDING --again --why TEXT\n       builds review settle FINDING allowed --by-person --why TEXT\n       builds review show LANDING\n       builds review check-landing DIR --project P SHA... [--landing KEY] [--rules-root DIR]\n       builds review landed DIR --project P SHA... [--landing KEY] [--more-to-land] [--rules-root DIR]\n       builds review groups [--rules-root DIR] [--project P] [--changed PATH]...\n       builds review replay [--case NAME]... [--source REPO] [--model opus|sonnet|haiku] [--rules-root DIR] [--compare] [--reviewer PROGRAM]\n       builds review replay --landing N... --repo-dir DIR [--group NAME]... [--model opus|sonnet|haiku] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review audit LANDING --repo-dir DIR [--rules-root DIR] [--reviewer PROGRAM]\n       builds review misses [--check [--model opus|sonnet|haiku] [--rules-root DIR] [--reviewer PROGRAM]]\n       builds review rates [--rules-root DIR]\n       builds review scores\n       builds review case propose --repo-dir DIR --rules-root DIR [--per-group N] [--model opus|sonnet|haiku] [--reviewer PROGRAM]\n       builds review case add LANDING FINDING --repo-dir DIR --rules-root DIR [--name NAME]\n       builds review case add --rule SLUG --file PATH --commits BASE..HEAD --project P --name NAME --repo-dir DIR --rules-root DIR\n       builds review case add --clean-for SLUG --commits BASE..HEAD --project P --name NAME --repo-dir DIR --rules-root DIR";
+const USAGE: &str = "usage: builds review [run] WORKTREE [BASE] [--landing KEY] [--item N]... [--head SHA] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review copy WORKTREE [BASE] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review wait LANDING\n       builds review settle FINDING confirmed|dropped --why TEXT\n       builds review settle FINDING --again --why TEXT\n       builds review settle FINDING allowed --by-person --why TEXT\n       builds review show LANDING\n       builds review check-landing DIR --project P SHA... [--landing KEY] [--rules-root DIR]\n       builds review landed DIR --project P SHA... [--landing KEY] [--more-to-land] [--rules-root DIR]\n       builds review groups [--rules-root DIR] [--project P] [--changed PATH]...\n       builds review replay [--case NAME]... [--source REPO] [--model opus|sonnet|haiku] [--rules-root DIR] [--compare] [--reviewer PROGRAM]\n       builds review replay --landing N... --repo-dir DIR [--group NAME]... [--model opus|sonnet|haiku] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review audit LANDING --repo-dir DIR [--rules-root DIR] [--reviewer PROGRAM]\n       builds review misses [--check [--model opus|sonnet|haiku] [--rules-root DIR] [--reviewer PROGRAM]]\n       builds review rates [--rules-root DIR]\n       builds review scores\n       builds review case propose --repo-dir DIR --rules-root DIR [--per-group N] [--model opus|sonnet|haiku] [--reviewer PROGRAM]\n       builds review case add LANDING FINDING --repo-dir DIR --rules-root DIR [--name NAME]\n       builds review case add --rule SLUG --file PATH --commits BASE..HEAD --project P --name NAME --repo-dir DIR --rules-root DIR\n       builds review case add --clean-for SLUG --commits BASE..HEAD --project P --name NAME --repo-dir DIR --rules-root DIR";
 
 /// The checkout the rules and groups are read from: `--rules-root`, else the
 /// one `install.sh` links at ~/.codex/agent-instructions.
@@ -179,6 +181,7 @@ pub fn cmd_review(tool: &Tool, args: &[String]) -> Result<()> {
     };
     match command.as_str() {
         "groups" => list_groups(rest),
+        "wait" => wait_command(tool, rest),
         "settle" => settle(tool, rest),
         "show" => show(tool, rest),
         "run" => run_command(tool, rest),
@@ -212,6 +215,8 @@ pub struct Inputs<'a> {
     pub stamp: &'a Stamp,
     /// (path, text) of the landing's brief.
     pub brief: Option<(String, String)>,
+    /// The agent that runs the review; None for the person.
+    pub runner: Option<&'a Caller>,
 }
 
 /// What a review found.
@@ -333,6 +338,9 @@ pub fn review(inputs: &Inputs) -> Result<Reported> {
                 )?;
                 if ask.last_review {
                     record::record_reviewed(db, landing, run_id)?;
+                }
+                if let Some(runner) = inputs.runner {
+                    judge::record_branch_agent(db, run_id, runner)?;
                 }
                 runs.push((
                     run_id,
@@ -507,18 +515,46 @@ fn run_command(tool: &Tool, args: &[String]) -> Result<()> {
         &["landing", "item", "rules-root", "reviewer", "head"],
         &[],
     )?;
-    let reported = run_review(tool, &args)?;
+    let caller = Caller::from_env()?;
+    let (reported, to_settle) = run_review(tool, &args, caller.as_ref())?;
     print!("{}", reported.text);
-    match reported.refusal {
-        Some(refusal) => {
-            print!("{refusal}");
-            if let Some(landing) = reported.landing {
-                println!("builds review show {landing} lists every run of this landing");
-            }
-            Err(Fail::Exit(1))
+    if let Some(refusal) = &reported.refusal {
+        print!("{refusal}");
+        if let Some(landing) = reported.landing {
+            println!("builds review show {landing} lists every run of this landing");
         }
+    }
+    if let Some((store, to_settle)) = to_settle {
+        print!(
+            "{}",
+            judge::tell(
+                &*store.open_existing()?,
+                &tool.places.claude_sessions(),
+                &to_settle,
+                caller.as_ref(),
+                crate::inbox::Messaging::from_env()?.as_ref(),
+            )?
+        );
+    }
+    match reported.refusal {
+        Some(_) => Err(Fail::Exit(1)),
         None => Ok(()),
     }
+}
+
+/// `builds review wait LANDING`: waits until every finding of the review
+/// landing is settled, then prints how each was settled (judge.rs).
+fn wait_command(tool: &Tool, args: &[String]) -> Result<()> {
+    let args = Args::parse(args, &[], &[])?;
+    let [landing] = args.exactly(1, USAGE)? else {
+        unreachable!("exactly one")
+    };
+    let landing: i64 = landing
+        .parse()
+        .map_err(|_| Fail::Message(format!("'{landing}' is not a landing number")))?;
+    let (store, _) = store_of(tool, &args)?;
+    print!("{}", judge::wait(&store, landing, judge::WAIT_LIMIT)?);
+    Ok(())
 }
 
 /// `builds review copy WORKTREE [BASE]`: the copy review, which asks the
@@ -573,8 +609,13 @@ fn project_given(tool: &Tool, args: &Args, checkout: &Checkout) -> Result<Option
     }
 }
 
-/// Runs the review `builds review run` names and returns what it found.
-fn run_review(tool: &Tool, args: &Args) -> Result<Reported> {
+/// Runs the review `builds review run` names, as <runner>, and returns what
+/// it found, with the findings it left that nobody has settled.
+fn run_review(
+    tool: &Tool,
+    args: &Args,
+    runner: Option<&Caller>,
+) -> Result<(Reported, Option<(Store, judge::ToSettle)>)> {
     let (worktree, base) = worktree_and_base(args)?;
     let checkout = Checkout::find(worktree)?;
     let worktree = checkout.top.clone();
@@ -594,7 +635,7 @@ fn run_review(tool: &Tool, args: &Args) -> Result<Reported> {
     let root = rules_root(args)?;
     let reviewer = PathBuf::from(args.value("reviewer")?.unwrap_or("claude"));
     let head = args.value("head")?;
-    review(&Inputs {
+    let reported = review(&Inputs {
         store: &store,
         project: &project,
         repo: &checkout.repo(),
@@ -606,7 +647,24 @@ fn run_review(tool: &Tool, args: &Args) -> Result<Reported> {
         reviewer: &reviewer,
         stamp: &stamp,
         brief,
-    })
+        runner,
+    })?;
+    let Some(landing) = reported.landing else {
+        return Ok((reported, None));
+    };
+    let findings = record::findings_of_landing(&*store.open_existing()?, landing)?
+        .into_iter()
+        .filter(record::Finding::is_unsettled)
+        .map(|finding| finding.id)
+        .collect();
+    let to_settle = judge::ToSettle {
+        project,
+        landing,
+        key,
+        worktree,
+        findings,
+    };
+    Ok((reported, Some((store, to_settle))))
 }
 
 /// The key of the change the worktree holds: the branch it is on, else its
@@ -681,6 +739,7 @@ fn settle(tool: &Tool, args: &[String]) -> Result<()> {
         store.write(&stamp, &format!("review settle {id} again"), |db| {
             record::settle_again(db, id, why, stamp.at, &stamp.by)
         })?;
+        judge::tell_waits(&store.dir);
         println!(
             "You settled finding {id} again, as dropped; the finding keeps its first settle beside the second."
         );
@@ -690,6 +749,7 @@ fn settle(tool: &Tool, args: &[String]) -> Result<()> {
         store.write(&stamp, &format!("review allow {id}"), |db| {
             record::allow(db, id, why, stamp.at, &stamp.by)
         })?;
+        judge::tell_waits(&store.dir);
         println!(
             "finding {id} stays confirmed, and the person allowed it to land: builds land no longer waits on it"
         );
@@ -698,6 +758,7 @@ fn settle(tool: &Tool, args: &[String]) -> Result<()> {
     store.write(&stamp, &format!("review settle {id}"), |db| {
         record::settle(db, id, how, why, stamp.at, &stamp.by)
     })?;
+    judge::tell_waits(&store.dir);
     println!("finding {id} settled {how}");
     Ok(())
 }
