@@ -106,14 +106,24 @@ pub const ITEM_EVENT_PART: &str = include_str!("lists/item_event.sql");
 /// after the items' events' part.
 pub const LAND_RUN_PART: &str = include_str!("land_run.sql");
 
+/// When each reviewer process of a review began and how long it ran
+/// (review/exchange_time.sql); the schema holds it after the landings' part.
+pub const EXCHANGE_TIME_PART: &str = include_str!("review/exchange_time.sql");
+
 /// The whole schema: the lists' tables, then the hook stats', then the
 /// app-build timings', then the design changes' recording sessions', then the
 /// stored shot findings, then the review's, then the hook checks' starting
 /// loads, then the cargo runs', then the kept work's, then the dropped
 /// items' work, then the spec checks', then the acknowledgements', then the
 /// publish requests', then the Rust release items', then the Rust checks',
-/// then the items' events, then the landings'.
+/// then the items' events, then the landings', then the reviewer processes'
+/// times.
 pub fn schema() -> String {
+    format!("{}\n{EXCHANGE_TIME_PART}", schema_before_exchange_time())
+}
+
+/// The schema as it was before the reviewer processes' times joined it.
+pub fn schema_before_exchange_time() -> String {
     format!("{}\n{LAND_RUN_PART}", schema_before_land_run())
 }
 

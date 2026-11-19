@@ -578,6 +578,8 @@ pub fn ask_groups(
         });
         let setup = prompt::setup(group, unit.members);
         let given_ids: Vec<i64> = given.iter().map(|f| f.id).collect();
+        let started_at = crate::app_timing::now();
+        let began = std::time::Instant::now();
         let output = call::run(
             reviewer,
             &group.model,
@@ -602,6 +604,8 @@ pub fn ask_groups(
             tokens_out: output.usage.tokens_out,
             tokens_cached: output.usage.tokens_cached,
             tokens_written: output.usage.tokens_written,
+            started_at,
+            ms: began.elapsed().as_millis() as i64,
         };
         let mut call = checked(
             material,

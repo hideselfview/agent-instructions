@@ -44,6 +44,9 @@ pub struct NewExchange {
     pub tokens_out: i64,
     pub tokens_cached: i64,
     pub tokens_written: i64,
+    /// When the process began, seconds since 1970, and how long it ran.
+    pub started_at: i64,
+    pub ms: i64,
 }
 
 /// One reviewer call, as it goes into the store.
@@ -381,6 +384,12 @@ pub fn add_calls(
                 params![call_id, exchange.model, exchange.unit, exchange.pass, system_hash, message_hash, exchange.output, exchange.tokens_in, exchange.tokens_out, exchange.tokens_cached, exchange.tokens_written],
             )
             .sql()?;
+            crate::review::exchange_time::record(
+                db,
+                db.last_insert_rowid(),
+                exchange.started_at,
+                exchange.ms,
+            )?;
         }
         let mut finding_ids = Vec::new();
         for f in &call.findings {

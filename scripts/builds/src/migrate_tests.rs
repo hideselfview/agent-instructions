@@ -4262,7 +4262,7 @@ fn a_store_from_before_copy_review_settles_the_open_wording_findings() {
         writing.findings[1].rule = "no-dash-as-sentence-punctuation".to_string();
         let mut views = call_of("UI views", diff, &[("a.rs", "Cover uploaded")]);
         views.findings[0].rule = "localization-stays-in-sync-with-ui".to_string();
-        let ids = record::add_calls(&conn, run, Some(landing), &[writing, views]).unwrap();
+        let ids = add_calls_before_exchange_times(&conn, run, landing, &[writing, views]);
         record::settle(&conn, ids[0][1], "confirmed", "real", 7, "coordinator").unwrap();
         ids
     };
@@ -4321,6 +4321,22 @@ fn the_message_style_stamp_is_the_schema_before_message_style() {
     );
 }
 
+/// Stores <calls> in a store of a schema from before the reviewer processes'
+/// times, as a review then did: the store has no table for the times today's
+/// storing writes, so the table exists only while the calls go in.
+fn add_calls_before_exchange_times(
+    conn: &Connection,
+    run: i64,
+    landing: i64,
+    calls: &[crate::review::record::NewCall],
+) -> Vec<Vec<i64>> {
+    conn.execute_batch(db::EXCHANGE_TIME_PART).unwrap();
+    let ids = crate::review::record::add_calls(conn, run, Some(landing), calls).unwrap();
+    conn.execute_batch("DROP TABLE review_exchange_time")
+        .unwrap();
+    ids
+}
+
 /// A call of <group> that was sent <diff> and raised a finding on <code> in
 /// <file> for each pair of <found>.
 fn call_of(group: &str, diff: &str, found: &[(&str, &str)]) -> crate::review::record::NewCall {
@@ -4363,6 +4379,8 @@ fn call_of(group: &str, diff: &str, found: &[(&str, &str)]) -> crate::review::re
             tokens_out: 0,
             tokens_cached: 0,
             tokens_written: 0,
+            started_at: 1_790_000_000,
+            ms: 0,
         }],
     }
 }
@@ -4399,7 +4417,7 @@ fn a_store_from_before_message_style_settles_the_open_message_and_comment_findin
             ],
         );
         let alpha = call_of("alpha", diff, &[("a.rs", "the cover is uploaded")]);
-        let ids = record::add_calls(&conn, run, Some(landing), &[writing, alpha]).unwrap();
+        let ids = add_calls_before_exchange_times(&conn, run, landing, &[writing, alpha]);
         for (id, how) in [
             (ids[0][1], "confirmed"),
             (ids[0][2], "confirmed"),
@@ -5559,6 +5577,44 @@ fn a_store_from_before_the_landings_record_gains_their_tables_and_equals_a_fresh
         .query_row("SELECT count(*) FROM land_run", [], |row| row.get(0))
         .unwrap();
     assert_eq!(runs, 0);
+}
+
+#[test]
+fn the_exchange_time_stamp_is_the_schema_before_the_reviewer_processes_times() {
+    assert_eq!(
+        db::stamp_of_text(&db::schema_before_exchange_time()),
+        BEFORE_EXCHANGE_TIME_STAMP
+    );
+}
+
+/// A store from before the reviewer processes' times gains their empty table
+/// and equals a fresh schema.
+#[test]
+fn a_store_from_before_the_exchange_times_gains_their_table_and_equals_a_fresh_schema() {
+    let scratch = Scratch::new("move-exchange-time");
+    let places = scratch.places();
+    let dir = places.lists.join("bae");
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join(DATABASE);
+    {
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(&db::schema_before_exchange_time())
+            .unwrap();
+        conn.pragma_update(None, "user_version", BEFORE_EXCHANGE_TIME_STAMP)
+            .unwrap();
+    }
+    migrate_stores(&places, 0).unwrap();
+    let conn = db::open(&path, db::Make::Never).unwrap();
+    assert_eq!(
+        db::schema_rows(&conn).unwrap(),
+        db::schema_rows(&db::memory()).unwrap()
+    );
+    let times: i64 = conn
+        .query_row("SELECT count(*) FROM review_exchange_time", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    assert_eq!(times, 0);
 }
 
 #[test]

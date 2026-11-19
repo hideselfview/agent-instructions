@@ -56,6 +56,7 @@ mod cases;
 pub mod check;
 pub mod commits;
 pub mod copy;
+mod exchange_time;
 #[cfg(test)]
 pub mod fakes;
 mod files;

@@ -25,6 +25,8 @@ fn call(group: &str, finding: Option<(&str, bool, Option<&str>)>) -> NewCall {
             tokens_out: 2,
             tokens_cached: 4,
             tokens_written: 3,
+            started_at: 1_790_000_000,
+            ms: 2_000,
         }],
         verdicts: vec![(
             "r".to_string(),
