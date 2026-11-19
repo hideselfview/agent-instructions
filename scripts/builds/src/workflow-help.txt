@@ -530,8 +530,9 @@ implementing agent lands it with the item that built the change (`builds land
      the change. That message is the cue to land: run `builds land <worktree>
      --design N <sha>...` with the worktree where the design session drew the
      boards (the Approve button recorded the approval; never run `builds design
-     approve` for it). Name every commit of the change, oldest first: land
-     squashes them into one commit with the change's title as its message
+     approve` for it). Name every commit of the change, oldest first. When they
+     are all design files, land squashes them into one commit with the
+     change's title as its message, with or without --done N
      (decision #292), so main gets one commit for each design change. The
      squash changes no file, so the review and the approval still hold; land
      refuses when the squashed tree differs from the last commit's tree.

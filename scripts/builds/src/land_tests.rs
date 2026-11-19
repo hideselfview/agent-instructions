@@ -1693,3 +1693,79 @@ fn a_squash_is_refused_when_the_branch_has_commits_after_the_last_one_named() {
     assert_eq!(main_of(&f), base);
     assert_eq!(head_of(&dir), rounds[2]);
 }
+
+#[test]
+fn a_design_landing_with_an_item_squashes_its_design_commits_too() {
+    let f = fixture("land-design-squash-item", "true\n", None);
+    let (dir, rounds) = three_rounds(&f);
+    let base = main_of(&f);
+    let shown = dir.display();
+    let (code, out, calls) = run_land(
+        &f,
+        &dir,
+        &[
+            "--done", "921", "--design", "3", &rounds[0], &rounds[1], &rounds[2],
+        ],
+        Cues {
+            title: "Draw the button and the row",
+            places: BOARDS,
+            ..project()
+        },
+    );
+    assert_eq!(code, 0, "{out}");
+    let landed = main_of(&f);
+    assert_eq!(
+        git_out(
+            &f.origin,
+            &["rev-list", "--count", &format!("{base}..{landed}")]
+        ),
+        "1"
+    );
+    assert_eq!(
+        git_out(&f.origin, &["log", "-1", "--format=%B", &landed]),
+        "Draw the button and the row"
+    );
+    assert!(
+        calls.contains(&format!(
+            "item landed {shown} --done 921 {landed} --project bae --by agent A"
+        )),
+        "{calls:?}"
+    );
+    assert!(calls.contains(&format!(
+        "design landed 3 {shown} {landed} --project bae --by agent A"
+    )));
+}
+
+#[test]
+fn commits_that_change_app_files_land_one_by_one_with_their_item() {
+    let f = fixture("land-design-squash-app", "true\n", None);
+    let (dir, rounds) = three_rounds(&f);
+    let base = main_of(&f);
+    let (code, out, calls) = run_land(
+        &f,
+        &dir,
+        &[
+            "--done", "921", "--design", "3", &rounds[0], &rounds[1], &rounds[2],
+        ],
+        Cues {
+            title: "Draw the button and the row",
+            places: BOARDS,
+            refuse: "design only",
+            says: "the commits also change files that are no design file: src/x.rs",
+            ..project()
+        },
+    );
+    assert_eq!(code, 0, "{out}");
+    assert_eq!(main_of(&f), rounds[2]);
+    assert_eq!(
+        git_out(
+            &f.origin,
+            &["rev-list", "--count", &format!("{base}..{}", rounds[2])]
+        ),
+        "3"
+    );
+    assert!(
+        !calls.iter().any(|c| c.starts_with("design title")),
+        "{calls:?}"
+    );
+}

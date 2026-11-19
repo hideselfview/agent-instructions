@@ -2390,7 +2390,8 @@ run `review replay --rules-root` on it.
                               and land records each one as landed. Commits
                               that are all design files take --design alone
                               (`builds help lists`). A landing that names one
-                              --design and no item, with two or more commits,
+                              --design, with or without items, and two or
+                              more commits that are all design files
                               squashes them into one commit whose message is
                               the change's title (decision 292): land builds
                               it on the first commit's parent, moves the
