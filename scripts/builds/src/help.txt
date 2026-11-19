@@ -2232,12 +2232,19 @@ run `review replay --rules-root` on it.
                               it. Exits 1 when a group raised a finding or
                               gave no answer
   builds review settle <finding> confirmed|dropped --why <text>
-                              the coordinator's verdict on a finding, kept with
-                              who and when. builds refuses a finding that is
-                              settled already
+                              the judge's verdict on a finding, kept with who
+                              and when. builds refuses a finding that is
+                              settled already. While a judge listens (`judge
+                              listen`), builds takes a verdict only from the
+                              judge and the person; with none listening, the
+                              coordinator settles. builds refuses every
+                              settle, of any kind, from the agent of the
+                              finding's branch, which ran the review run that
+                              raised it
   builds review settle <finding> --again --why <text>
                               change an open confirmed finding to dropped,
-                              and keep the first settle beside the second
+                              and keep the first settle beside the second;
+                              builds takes it from whoever may give a verdict
   builds review settle <finding> allowed --by-person --why <text>
                               record that the person allowed an open
                               confirmed finding's code to land as it is, with
@@ -2253,8 +2260,10 @@ run `review replay --rules-root` on it.
                               session's id. The judge session runs it when it
                               starts. The session judges while it runs, which
                               Claude Code's record of its running sessions
-                              (~/.claude/sessions) says, and builds tells it of
-                              each review's findings to settle (`review`).
+                              (~/.claude/sessions) says: builds tells it of
+                              each review's findings to settle (`review`), and
+                              takes a verdict on a finding only from it and
+                              the person (`review settle`).
                               builds refuses it outside a session with an
                               inbox, and from an agent that a session
                               dispatched, which shares that session's inbox

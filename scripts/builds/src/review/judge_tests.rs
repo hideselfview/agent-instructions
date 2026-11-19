@@ -408,3 +408,118 @@ fn a_wait_whose_limit_ends_first_fails_and_one_with_nothing_to_wait_for_ends_at_
     let said = wait(&r.demo.store, r.landing, Duration::ZERO).unwrap();
     assert!(said.contains("No confirmed finding is open."), "{said}");
 }
+
+impl Reviewed {
+    /// Runs `builds review settle <finding> <words> --project demo --by
+    /// <by>` as <caller>.
+    fn settle_as(&self, caller: Option<&Caller>, words: &[&str], by: &str) -> Result<()> {
+        let mut args = vec![self.finding.to_string()];
+        args.extend(words.iter().map(|w| w.to_string()));
+        args.extend(["--project", "demo", "--by", by].map(String::from));
+        crate::review::settle(&self.demo.tool, &args, caller)
+    }
+
+    fn last_settle(&self) -> Option<String> {
+        record::finding_of(&self.demo.store.open_existing().unwrap(), self.finding)
+            .unwrap()
+            .settled
+            .map(|settled| format!("{} by {}", settled.last().how, settled.last().by))
+    }
+}
+
+#[test]
+fn the_agent_of_the_branch_never_settles_its_findings() {
+    let agent = caller("s1", "a1");
+    let r = reviewed("judge-own", Some(&agent));
+    for words in [
+        &["confirmed", "--why", "real"][..],
+        &["dropped", "--why", "wrong"][..],
+    ] {
+        let refused = r
+            .settle_as(Some(&agent), words, "agent")
+            .unwrap_err()
+            .text();
+        assert!(
+            refused.contains(&format!("which raised finding {}", r.finding)),
+            "{refused}"
+        );
+    }
+    assert_eq!(r.last_settle(), None);
+    // With no judge listening, the coordinator, its session's main agent,
+    // settles it.
+    r.settle_as(
+        Some(&caller("s1", "s1")),
+        &["confirmed", "--why", "real"],
+        "coordinator",
+    )
+    .unwrap();
+    assert_eq!(r.last_settle().as_deref(), Some("confirmed by coordinator"));
+    let refused = r
+        .settle_as(
+            Some(&agent),
+            &["allowed", "--by-person", "--why", "the person: land it"],
+            "agent",
+        )
+        .unwrap_err()
+        .text();
+    assert!(refused.contains("you never settle it"), "{refused}");
+    r.settle_as(Some(&agent), &["--again", "--why", "wrong"], "agent")
+        .unwrap_err();
+}
+
+#[test]
+fn while_a_judge_listens_only_the_judge_or_the_person_gives_a_verdict() {
+    let r = reviewed("judge-only", Some(&caller("s1", "a1")));
+    r.listen_as_judge(&r.inbox("j.sock"));
+    running_session(&r.demo.tool.places, "s-judge");
+    let coordinator = caller("s1", "s1");
+    let refused = r
+        .settle_as(
+            Some(&coordinator),
+            &["confirmed", "--why", "real"],
+            "coordinator",
+        )
+        .unwrap_err()
+        .text();
+    assert!(
+        refused.contains("only the judge settles a finding"),
+        "{refused}"
+    );
+    let dispatched_judge = caller("s-judge", "a-helper");
+    r.settle_as(
+        Some(&dispatched_judge),
+        &["confirmed", "--why", "real"],
+        "helper",
+    )
+    .unwrap_err();
+    r.settle_as(
+        Some(&caller("s-judge", "s-judge")),
+        &["confirmed", "--why", "real"],
+        "judge",
+    )
+    .unwrap();
+    assert_eq!(r.last_settle().as_deref(), Some("confirmed by judge"));
+    r.settle_as(
+        Some(&coordinator),
+        &["--again", "--why", "wrong"],
+        "coordinator",
+    )
+    .unwrap_err();
+    // The coordinator records the person's words.
+    r.settle_as(
+        Some(&coordinator),
+        &["allowed", "--by-person", "--why", "the person: land it"],
+        "coordinator",
+    )
+    .unwrap();
+}
+
+#[test]
+fn the_person_settles_whether_or_not_a_judge_listens() {
+    let r = reviewed("judge-person", Some(&caller("s1", "a1")));
+    r.listen_as_judge(&r.inbox("j.sock"));
+    running_session(&r.demo.tool.places, "s-judge");
+    r.settle_as(None, &["dropped", "--why", "wrong"], "person")
+        .unwrap();
+    assert_eq!(r.last_settle().as_deref(), Some("dropped by person"));
+}

@@ -20,7 +20,9 @@
 //! (`tell`), or, when no judge listens, the coordinator: the session that
 //! dispatched the agent, whose inbox the agent shares. builds records the
 //! dispatched agent that ran each review run as the agent of the branch it
-//! read. The agent then runs `builds review wait` as a background task, which
+//! read, which never settles that run's findings, and while a judge listens,
+//! only the judge settles a finding (`may_judge`). The agent then runs
+//! `builds review wait` as a background task, which
 //! ends once every finding is settled (`wait`): no inbox reaches a
 //! dispatched agent, and a background task's end does. Each settle tells the
 //! waits through a folder of the store that a wait watches (`tell_waits`).
@@ -54,6 +56,13 @@ pub struct Judge {
     /// The name it listened under, which its settles carry.
     pub by: String,
     pub inbox: Messaging,
+}
+
+impl Judge {
+    /// Whether <caller> is this judge: the main agent of its session.
+    pub fn is(&self, caller: &Caller) -> bool {
+        caller.session == self.session && !caller.is_dispatched()
+    }
 }
 
 /// The session that last listened as the project's judge, whether or not it
@@ -108,6 +117,59 @@ pub fn record_branch_agent(db: &Connection, run: i64, caller: &Caller) -> Result
     )
     .sql()?;
     Ok(())
+}
+
+/// The agent of the branch that review run <run> read, when a session
+/// dispatched the agent that ran it.
+pub fn branch_agent(db: &Connection, run: i64) -> Result<Option<Caller>> {
+    db.query_row(
+        "SELECT session, agent FROM review_branch_agent WHERE run_id = ?1",
+        [run],
+        |row| {
+            Ok(Caller {
+                session: row.get(0)?,
+                id: row.get(1)?,
+            })
+        },
+    )
+    .optional()
+    .sql()
+}
+
+/// Refuses <caller> a settle of finding <id> that records no verdict, such as
+/// the person's words that allow a confirmed finding to land, when <caller>
+/// is the agent of the branch that holds the finding: the agent that ran the
+/// review run that raised it. The person (no caller) is never refused.
+pub fn may_record(db: &Connection, id: i64, caller: Option<&Caller>) -> Result<()> {
+    let Some(caller) = caller else {
+        return Ok(());
+    };
+    let finding = record::finding_of(db, id)?;
+    if branch_agent(db, finding.run_id)?.as_ref() == Some(caller) {
+        fail!(
+            "you ran review run {}, which raised finding {id} on your branch, so you never settle it: the judge settles it, or the coordinator when no judge listens",
+            finding.run_id
+        );
+    }
+    Ok(())
+}
+
+/// Refuses <caller> a verdict on finding <id> (confirmed, dropped, or dropped
+/// on a second settle) as `may_record` does, and, while a judge listens
+/// (`listening`, with Claude Code's running sessions in <sessions>), unless
+/// <caller> is the judge. The person (no caller) is never refused.
+pub fn may_judge(db: &Connection, sessions: &Path, id: i64, caller: Option<&Caller>) -> Result<()> {
+    may_record(db, id, caller)?;
+    let Some(caller) = caller else {
+        return Ok(());
+    };
+    match listening(db, sessions)? {
+        Some(judge) if !judge.is(caller) => fail!(
+            "{} judges this project's reviews while its session runs, and only the judge settles a finding: leave finding {id} to it",
+            judge.by
+        ),
+        _ => Ok(()),
+    }
 }
 
 /// The findings of a review that nobody has settled, and the review they
@@ -410,7 +472,7 @@ pub fn listen_command(
         listen(db, inbox, caller, &stamp)
     })?;
     Ok(format!(
-        "this session is project {project}'s judge while it runs: builds tells it of each review's findings to settle\n"
+        "this session is project {project}'s judge while it runs: builds tells it of each review's findings to settle, and only it settles them\n"
     ))
 }
 

@@ -5,7 +5,8 @@
 
 -- The session that last ran `builds judge listen` for the project, as its own
 -- inbox and as the agent it is. A later listen replaces it. While the session
--- runs, builds tells it of each review's findings to settle. The token is
+-- runs, builds tells it of each review's findings to settle, and only it
+-- settles them. The token is
 -- that session's secret for its inbox: it stays in this table, and nothing
 -- prints it, logs it, puts it on a page or returns it in JSON.
 CREATE TABLE review_judge (
@@ -22,7 +23,7 @@ CREATE TABLE review_judge (
 ) STRICT;
 
 -- The agent that ran each review run, when a session dispatched it: the
--- agent of the branch the run read.
+-- agent of the branch the run read, which never settles the run's findings.
 -- builds names an agent by its session and its agent id (ack/agent.rs). A run
 -- that a session's main agent or the person ran has no row: the coordinator,
 -- the judge and the person work on no branch of their own.

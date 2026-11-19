@@ -931,13 +931,13 @@ fn settle_again_takes_no_verdict_and_always_drops() {
         words
     };
     assert!(
-        settle(&demo.tool, &words(&["dropped", "--again"]))
+        settle(&demo.tool, &words(&["dropped", "--again"]), None)
             .unwrap_err()
             .text()
             .contains("usage"),
         "--again takes no verdict"
     );
-    settle(&demo.tool, &words(&["--again"])).unwrap();
+    settle(&demo.tool, &words(&["--again"]), None).unwrap();
     assert!(findings_of(&demo, landing)[0].settled_as("dropped"));
 }
 
@@ -969,19 +969,19 @@ fn only_by_person_allows_a_confirmed_finding_to_land() {
         words
     };
     assert!(
-        settle(&demo.tool, &words(&["allowed"]))
+        settle(&demo.tool, &words(&["allowed"]), None)
             .unwrap_err()
             .text()
             .contains("never on your own judgment")
     );
     assert!(
-        settle(&demo.tool, &words(&["dropped", "--by-person"]))
+        settle(&demo.tool, &words(&["dropped", "--by-person"]), None)
             .unwrap_err()
             .text()
             .contains("--by-person goes with allowed")
     );
     assert!(findings_of(&demo, landing)[0].is_open());
-    settle(&demo.tool, &words(&["allowed", "--by-person"])).unwrap();
+    settle(&demo.tool, &words(&["allowed", "--by-person"]), None).unwrap();
     let found = &findings_of(&demo, landing)[0];
     assert!(!found.is_open() && found.settled_as("confirmed"));
     let Some(record::Settled::Allowed { allowed, .. }) = &found.settled else {

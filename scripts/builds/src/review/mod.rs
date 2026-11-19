@@ -182,7 +182,7 @@ pub fn cmd_review(tool: &Tool, args: &[String]) -> Result<()> {
     match command.as_str() {
         "groups" => list_groups(rest),
         "wait" => wait_command(tool, rest),
-        "settle" => settle(tool, rest),
+        "settle" => settle(tool, rest, Caller::from_env()?.as_ref()),
         "show" => show(tool, rest),
         "run" => run_command(tool, rest),
         "copy" => copy_command(tool, rest),
@@ -713,7 +713,9 @@ fn brief_of(store: &Store, args: &Args, worktree: &Path) -> Result<Option<(Strin
 /// confirmed finding that no review closed to dropped and keeps its first
 /// settle; or `builds review settle FINDING allowed --by-person --why TEXT`,
 /// which records that the person allowed an open confirmed finding to land.
-fn settle(tool: &Tool, args: &[String]) -> Result<()> {
+/// <caller> runs it: the agent of the finding's branch never settles it,
+/// and while a judge listens, only the judge gives a verdict (judge.rs).
+fn settle(tool: &Tool, args: &[String], caller: Option<&Caller>) -> Result<()> {
     let args = Args::parse(args, &["why"], &["again", "by-person"])?;
     let again = args.switch("again");
     let by_person = args.switch("by-person");
@@ -735,8 +737,10 @@ fn settle(tool: &Tool, args: &[String]) -> Result<()> {
     let why = args.why()?;
     let (store, _) = store_of(tool, &args)?;
     let stamp = Stamp::resolve(tool.now, &args, &current_dir()?)?;
+    let sessions = tool.places.claude_sessions();
     if again {
         store.write(&stamp, &format!("review settle {id} again"), |db| {
+            judge::may_judge(db, &sessions, id, caller)?;
             record::settle_again(db, id, why, stamp.at, &stamp.by)
         })?;
         judge::tell_waits(&store.dir);
@@ -747,6 +751,7 @@ fn settle(tool: &Tool, args: &[String]) -> Result<()> {
     }
     if by_person {
         store.write(&stamp, &format!("review allow {id}"), |db| {
+            judge::may_record(db, id, caller)?;
             record::allow(db, id, why, stamp.at, &stamp.by)
         })?;
         judge::tell_waits(&store.dir);
@@ -756,6 +761,7 @@ fn settle(tool: &Tool, args: &[String]) -> Result<()> {
         return Ok(());
     }
     store.write(&stamp, &format!("review settle {id}"), |db| {
+        judge::may_judge(db, &sessions, id, caller)?;
         record::settle(db, id, how, why, stamp.at, &stamp.by)
     })?;
     judge::tell_waits(&store.dir);
