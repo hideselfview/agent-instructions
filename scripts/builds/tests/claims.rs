@@ -639,13 +639,10 @@ fn the_daemon_serves_the_state_and_the_events_and_derives_each_worktrees_state()
     assert_eq!(checkout(&state, 1)["git"]["head"]["subject"], "Add two");
     // Main's working tree is the person's: git is asked for HEAD only.
     let main_git = &checkout(&state, 0)["git"];
-    assert_eq!(
-        main_git["ahead"],
-        serde_json::json!([]),
-        "asked git about main"
-    );
     assert!(
-        main_git["uncommitted"].is_null() && main_git["last_write"].is_null(),
+        main_git["ahead"].is_null()
+            && main_git["uncommitted"].is_null()
+            && main_git["last_write"].is_null(),
         "asked git about main's working tree: {main_git}"
     );
     assert_eq!(checkout(&state, 1)["state"], "ready-to-land");
@@ -783,13 +780,13 @@ fn the_daemon_serves_the_state_and_the_events_and_derives_each_worktrees_state()
         .map(|w| &w["claim"]["note_state"])
         .collect();
     assert_eq!(held, [&Value::from("held")], "health missed the hold");
-    states("held", "working");
+    // An app checkout has no card, so the daemon derives no state for it.
+    states("None", "working");
     // Release refuses side-1's work, so the test deletes the claim file, as
-    // if something outside builds had deleted it. The daemon then shows
-    // side-1's commits as work left behind.
+    // if something outside builds had deleted it.
     demo.refuses("it holds work origin/main lacks", &["release", &side]);
     std::fs::remove_file(demo.claim_file(1)).unwrap();
-    states("ready-to-land", "working");
+    states("None", "working");
 
     // Once the daemon is gone, status measures again.
     unsafe { libc::kill(server_pid, libc::SIGTERM) };
