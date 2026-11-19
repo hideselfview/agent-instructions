@@ -352,7 +352,16 @@ impl Model {
             .review_reads
             .rules_folders()
             .into_iter()
-            .map(|folder| std::fs::canonicalize(&folder).unwrap_or(folder))
+            .map(|folder| match std::fs::canonicalize(&folder) {
+                Ok(real) => real,
+                Err(error) => {
+                    crate::text::note(format!(
+                        "following the rules folder {} as named, since its real path can't be read: {error}; the cards read the rules again only when FSEvents reports a change there",
+                        folder.display()
+                    ));
+                    folder
+                }
+            })
             .collect();
         if folders.is_empty() {
             return;
