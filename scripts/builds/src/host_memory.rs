@@ -8,6 +8,38 @@
 use crate::fail;
 use crate::fail::Result;
 
+/// The kernel's memory pressure level (`kern.memorystatus_vm_pressure_level`),
+/// which the kernel numbers 1, 2 and 4.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Pressure {
+    Normal = 1,
+    Warning = 2,
+    Critical = 4,
+}
+
+impl Pressure {
+    /// The level that the number <text> names; any other value fails and
+    /// names it.
+    fn parse(text: &str) -> Result<Pressure> {
+        match text {
+            "1" => Ok(Pressure::Normal),
+            "2" => Ok(Pressure::Warning),
+            "4" => Ok(Pressure::Critical),
+            other => fail!(
+                "the host's memory pressure level is {other:?}, not 1 (normal), 2 (warning) or 4 (critical)"
+            ),
+        }
+    }
+
+    fn word(self) -> &'static str {
+        match self {
+            Pressure::Normal => "normal",
+            Pressure::Warning => "warning",
+            Pressure::Critical => "critical",
+        }
+    }
+}
+
 /// What a host's memory is doing.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Memory {
@@ -15,10 +47,7 @@ pub struct Memory {
     pub free_percent: u32,
     /// The swap in use, in MiB.
     pub swap_used_mib: f64,
-    /// The kernel's memory pressure level
-    /// (`kern.memorystatus_vm_pressure_level`): 1 normal, 2 warning, 4
-    /// critical.
-    pub pressure_level: u32,
+    pub pressure: Pressure,
 }
 
 /// Runs on the host (as part of the probe script) to print the lines
@@ -46,13 +75,11 @@ impl Memory {
             fail!("the host's swap in use is not a number of MiB: {swap:?}");
         };
         let level = value("memory_pressure_level")?;
-        let Ok(pressure_level) = level.parse::<u32>() else {
-            fail!("the host's memory pressure level is not a number: {level:?}");
-        };
+        let pressure = Pressure::parse(level)?;
         Ok(Memory {
             free_percent,
             swap_used_mib,
-            pressure_level,
+            pressure,
         })
     }
 
@@ -60,24 +87,14 @@ impl Memory {
     /// `builds health` counts such a host as over its load band, whatever its
     /// load.
     pub fn under_pressure(&self) -> bool {
-        self.pressure_level >= 2
+        self.pressure != Pressure::Normal
     }
 
-    /// The word for the pressure level.
-    fn pressure_word(&self) -> &'static str {
-        match self.pressure_level {
-            1 => "normal",
-            2 => "warning",
-            4 => "critical",
-            _ => "unknown",
-        }
-    }
-
-    /// `memory 85% free, swap 0M used`.
+    /// `memory pressure normal, 85% free, swap 0M used`.
     pub fn text(&self) -> String {
         format!(
             "memory pressure {}, {}% free, swap {:.0}M used",
-            self.pressure_word(),
+            self.pressure.word(),
             self.free_percent,
             self.swap_used_mib
         )
@@ -89,7 +106,7 @@ impl Memory {
         Memory {
             free_percent: 80,
             swap_used_mib: 0.0,
-            pressure_level: 1,
+            pressure: Pressure::Normal,
         }
     }
 }

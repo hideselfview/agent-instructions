@@ -1,7 +1,7 @@
 use super::*;
 use crate::fail::Fail;
 use crate::host_band::Band;
-use crate::host_memory::Memory;
+use crate::host_memory::{Memory, Pressure};
 use crate::testing::Scratch;
 use std::os::unix::fs::PermissionsExt;
 
@@ -59,7 +59,7 @@ fn reads_what_a_host_prints() {
             memory: Memory {
                 free_percent: 61,
                 swap_used_mib: 12.5,
-                pressure_level: 2,
+                pressure: Pressure::Warning,
             },
             git_fails: None,
         }

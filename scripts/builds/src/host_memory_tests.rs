@@ -12,7 +12,7 @@ fn reads_the_lines_the_script_prints_and_fails_on_anything_else() {
         Memory {
             free_percent: 61,
             swap_used_mib: 12.5,
-            pressure_level: 2,
+            pressure: Pressure::Warning,
         }
     );
     assert!(memory.under_pressure());
@@ -28,7 +28,7 @@ fn reads_the_lines_the_script_prints_and_fails_on_anything_else() {
     assert!(!swapping.under_pressure(), "swap alone is not pressure");
     assert!(
         Memory {
-            pressure_level: 4,
+            pressure: Pressure::Critical,
             ..swapping
         }
         .under_pressure()
@@ -38,6 +38,7 @@ fn reads_the_lines_the_script_prints_and_fails_on_anything_else() {
         "memory_free_percent=61\nmemory_pressure_level=1\n",
         "memory_free_percent=61\nswap_used_mib=0\n",
         "memory_free_percent=61\nswap_used_mib=0\nmemory_pressure_level=\n",
+        "memory_free_percent=61\nswap_used_mib=0\nmemory_pressure_level=3\n",
         "memory_free_percent=\nswap_used_mib=0\nmemory_pressure_level=1\n",
         "memory_free_percent=61\nswap_used_mib=\nmemory_pressure_level=1\n",
     ] {
@@ -91,7 +92,7 @@ fn the_script_reads_memory_pressure_and_swap_in_any_unit() {
             .unwrap();
         let memory = Memory::parse(&String::from_utf8_lossy(&output.stdout)).unwrap();
         assert_eq!(memory.free_percent, 37);
-        assert_eq!(memory.pressure_level, 4);
+        assert_eq!(memory.pressure, Pressure::Critical);
         assert_eq!(memory.swap_used_mib, mib, "{swap}");
     }
 }
@@ -101,4 +102,14 @@ fn the_script_reads_memory_pressure_and_swap_in_any_unit() {
 fn this_mac_reports_its_memory() {
     let memory = here().unwrap();
     assert!(memory.free_percent <= 100);
+}
+
+/// A pressure level the kernel does not define fails the probe and names the
+/// value, so health says the host's answer cannot be read.
+#[test]
+fn an_unknown_pressure_level_fails_naming_the_value() {
+    let fault = Memory::parse("memory_free_percent=61\nswap_used_mib=0\nmemory_pressure_level=3\n")
+        .unwrap_err()
+        .text();
+    assert!(fault.contains("\"3\""), "{fault}");
 }

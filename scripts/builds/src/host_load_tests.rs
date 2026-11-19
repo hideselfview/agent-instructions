@@ -1,7 +1,7 @@
 use super::*;
 use crate::host::LOCAL;
 use crate::host_band::Band;
-use crate::host_memory::Memory;
+use crate::host_memory::{Memory, Pressure};
 
 fn host(name: &str, speed: Option<f64>) -> Host {
     Host {
@@ -180,7 +180,7 @@ fn a_host_under_memory_pressure_is_over_its_band_whatever_its_load() {
         probe.memory = Memory {
             free_percent: 4,
             swap_used_mib: 2048.0,
-            pressure_level: 2,
+            pressure: Pressure::Warning,
         };
         Ok(probe)
     };
