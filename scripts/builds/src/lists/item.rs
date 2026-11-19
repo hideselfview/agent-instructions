@@ -63,18 +63,12 @@ impl Ender {
     /// The ender <word> names. Refuses "person" with the way to wait on the
     /// person, and any other word with the ones that exist.
     pub fn parse(word: &str) -> Result<Ender> {
-        Ok(match word {
-            "agent" => Ender::Agent,
-            "coordinator" => Ender::Coordinator,
-            "ci" => Ender::Ci,
-            "person" => fail!(
+        if word == "person" {
+            fail!(
                 "a condition cannot wait on the person: ask a your-step question (`builds question ask --kind your-step ...`) and wait on it with `--on question:N`, so that it shows under Waiting on you"
-            ),
-            other => fail!(
-                "'{other}' is not who ends a condition: say {}",
-                Ender::NAMES
-            ),
-        })
+            );
+        }
+        crate::lists::args::parse_named("--until", word, Ender::NAMES)
     }
 }
 
