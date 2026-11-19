@@ -189,3 +189,47 @@ fn a_commits_hook_in_the_main_checkout_of_a_repo_two_projects_hold_passes() {
 
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+#[test]
+fn an_agent_without_a_current_acknowledgement_gets_a_refusal_from_cargo_and_no_output() {
+    let dir = std::fs::canonicalize(std::env::temp_dir())
+        .unwrap()
+        .join(format!("builds-test-ack-cargo-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join("volume")).unwrap();
+    std::fs::create_dir_all(dir.join("home")).unwrap();
+    let made = builds(
+        &dir,
+        None,
+        &["lists", "init", "bae", "--repos", "bae", "--by", "person"],
+    );
+    assert!(made.status.success(), "{made:?}");
+    let started = start_session(&dir, "s1");
+    assert!(started.status.success(), "{started:?}");
+
+    for args in [
+        &[
+            "cargo",
+            "nextest",
+            "run",
+            "--project",
+            "bae",
+            "--agent",
+            "s1",
+        ][..],
+        &["cargo", "test", "--project", "bae", "--agent", "s1"][..],
+        &["cargo", "clippy", "--project", "bae", "--agent", "s1"][..],
+    ] {
+        let refused = builds(&dir, Some("s1"), args);
+        assert_eq!(refused.status.code(), Some(1), "{args:?}: {refused:?}");
+        assert!(refused.stdout.is_empty(), "{args:?}: {refused:?}");
+        let said = String::from_utf8_lossy(&refused.stderr);
+        assert!(
+            said.contains("builds refuses this command until you read the text")
+                && said.contains("builds ack --agent s1"),
+            "{args:?}: {said}"
+        );
+    }
+
+    std::fs::remove_dir_all(&dir).unwrap();
+}
