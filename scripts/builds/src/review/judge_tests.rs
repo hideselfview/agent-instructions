@@ -688,3 +688,29 @@ fn settling_a_disputed_finding_again_as_dropped_answers_the_dispute() {
         .text();
     assert!(refused.contains("no open confirmed finding"), "{refused}");
 }
+
+#[test]
+fn a_finding_with_no_landing_is_broken_state_that_names_the_finding() {
+    let finding = Finding {
+        id: 7,
+        run_id: 3,
+        kind: "review".to_string(),
+        landing_id: None,
+        group: "g".to_string(),
+        rule: "r".to_string(),
+        clause: "c".to_string(),
+        file: "f".to_string(),
+        line: 1,
+        code: "x".to_string(),
+        problem: "p".to_string(),
+        blocking: true,
+        check_failed: None,
+        settled: None,
+        closed_by: None,
+    };
+    let refused = landing_of(&finding).unwrap_err().text();
+    assert!(
+        refused.contains("finding 7 of run 3 belongs to no review landing"),
+        "{refused}"
+    );
+}

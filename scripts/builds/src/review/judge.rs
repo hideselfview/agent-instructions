@@ -364,6 +364,20 @@ fn dispute_of(db: &Connection, id: i64) -> Result<Option<Dispute>> {
     .sql()
 }
 
+/// The review landing of <finding>. Every review run belongs to a landing,
+/// so a finding of a review with none is broken state, and this fails
+/// naming the finding.
+fn landing_of(finding: &Finding) -> Result<i64> {
+    match finding.landing_id {
+        Some(landing) => Ok(landing),
+        None => fail!(
+            "finding {} of run {} belongs to no review landing, as no finding of a review can",
+            finding.id,
+            finding.run_id
+        ),
+    }
+}
+
 /// Whether the dispute of <finding> waits for an answer: the judge neither
 /// kept the finding nor settled it again, and no review closed it.
 fn waits_for_answer(finding: &Finding, dispute: &Dispute) -> bool {
@@ -389,7 +403,7 @@ pub fn dispute(db: &Connection, id: i64, why: &str, stamp: &Stamp) -> Result<Fin
         ),
         Some(_) => fail!(
             "the dispute of finding {id} waits for its answer: run `builds review wait {}` as a background task",
-            finding.landing_id.unwrap_or_default()
+            landing_of(&finding)?
         ),
         None => {}
     }
@@ -436,7 +450,7 @@ pub fn tell_dispute(
     caller: Option<&Caller>,
     own: Option<&Messaging>,
 ) -> Result<String> {
-    let (id, landing) = (finding.id, finding.landing_id.unwrap_or_default());
+    let (id, landing) = (finding.id, landing_of(finding)?);
     let Some(dispute) = dispute_of(db, id)? else {
         fail!("nobody disputed finding {id}");
     };
