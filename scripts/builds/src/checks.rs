@@ -51,8 +51,8 @@ impl Kind {
 pub struct Line {
     pub kind: Kind,
     pub name: String,
-    /// Globs over repo-relative paths.
-    pub paths: Vec<String>,
+    /// The files the line reads.
+    pub paths: Vec<PathGlob>,
     /// The program, relative to the repo when it names a path, and its
     /// arguments, `{files}` and `{crates}` not yet expanded.
     pub command: Vec<String>,
@@ -60,6 +60,19 @@ pub struct Line {
     /// runs on every landing. Its kind is `Check`.
     pub whole: bool,
 }
+
+/// One glob of a line's paths, over repo-relative paths.
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct PathGlob {
+    pub glob: String,
+    /// Written `every:<glob>`: a matching file configures the check of
+    /// every crate, as the source of a lint driver the line runs does, so it
+    /// hands `{crates}` every crate.
+    pub every_crate: bool,
+}
+
+/// The prefix of a glob whose files count as every crate.
+const EVERY_CRATE: &str = "every:";
 
 /// A line that a set of changed files picked, with what it runs.
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -108,13 +121,30 @@ pub fn parse(text: &str) -> Result<Vec<Line>> {
         if lines.iter().any(|line| line.name == name) {
             fail!("{CONFIG}: {name} is named twice");
         }
-        let paths: Vec<String> = paths
+        let paths: Vec<PathGlob> = paths
             .split(',')
             .filter(|p| !p.is_empty())
-            .map(str::to_string)
+            .map(|p| match p.strip_prefix(EVERY_CRATE) {
+                Some(glob) => PathGlob {
+                    glob: glob.to_string(),
+                    every_crate: true,
+                },
+                None => PathGlob {
+                    glob: p.to_string(),
+                    every_crate: false,
+                },
+            })
             .collect();
         if paths.is_empty() {
             fail!("{CONFIG}: {name} names no paths");
+        }
+        if paths.iter().any(|p| p.glob.is_empty()) {
+            fail!("{CONFIG}: {name} writes {EVERY_CRATE} with no glob after it");
+        }
+        if paths.iter().any(|p| p.every_crate) && !command.iter().any(|arg| arg == "{crates}") {
+            fail!(
+                "{CONFIG}: {name} marks paths {EVERY_CRATE}, which hand {{crates}} every crate, but names no {{crates}}"
+            );
         }
         lines.push(Line {
             kind,
@@ -143,7 +173,14 @@ pub fn glob_match(pattern: &str, path: &str) -> bool {
 
 impl Line {
     pub fn matches(&self, path: &str) -> bool {
-        self.paths.iter().any(|glob| glob_match(glob, path))
+        self.paths.iter().any(|p| glob_match(&p.glob, path))
+    }
+
+    /// Does an `every:` glob of the line match <path>?
+    fn counts_as_every_crate(&self, path: &str) -> bool {
+        self.paths
+            .iter()
+            .any(|p| p.every_crate && glob_match(&p.glob, path))
     }
 
     fn uses(&self, placeholder: &str) -> bool {
@@ -190,7 +227,7 @@ pub fn plan(
             if lock.is_none() && existing.iter().any(|file| file == LOCK) {
                 lock = Some(lock_crates(top, crates, base)?);
             }
-            let held = crates_holding(crates, &existing, lock.as_deref().unwrap_or_default());
+            let held = crates_holding(line, crates, &existing, lock.as_deref().unwrap_or_default());
             if held.is_empty() {
                 continue;
             }
@@ -313,13 +350,13 @@ const ROOT_CONFIGS: [&str; 7] = [
 ];
 
 /// The names of the crates that hold some of <files> (the deepest crate whose
-/// folder contains one), sorted. A root file of `ROOT_CONFIGS` counts as
-/// every crate, and the root `Cargo.lock` as the crates <lock> names
-/// (`lock_crates`).
-fn crates_holding(crates: &[Crate], files: &[String], lock: &[String]) -> Vec<String> {
+/// folder contains one), sorted. A root file of `ROOT_CONFIGS`, and a file
+/// <line> marks `every:`, counts as every crate, and the root `Cargo.lock` as
+/// the crates <lock> names (`lock_crates`).
+fn crates_holding(line: &Line, crates: &[Crate], files: &[String], lock: &[String]) -> Vec<String> {
     let mut names: Vec<String> = Vec::new();
     for file in files {
-        if ROOT_CONFIGS.contains(&file.as_str()) {
+        if ROOT_CONFIGS.contains(&file.as_str()) || line.counts_as_every_crate(file) {
             names.extend(crates.iter().map(|c| c.name.clone()));
             continue;
         }

@@ -1985,7 +1985,10 @@ or .cargo/config, cargo's settings for every crate; a root
 Cargo.lock counts as each crate whose resolved dependencies changed against
 HEAD, or against the commit `builds checks tests --since` names: its own lock
 entry or one it depends on at any depth); a check with neither runs whole
-whenever a matching file is staged.
+whenever a matching file is staged. A glob written `every:<glob>` marks files
+that configure the check of every crate, such as the sources of a lint driver
+the line runs: a staged file it matches hands {crates} every crate, for that
+line alone, and builds refuses the mark on a line that names no {crates}.
 
   builds checks run [<worktree>]
                               what the pre-commit hook runs: the check and fix

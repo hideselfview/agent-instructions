@@ -40,7 +40,14 @@ fn lines_parse_and_mistakes_name_the_line() {
     let text = "# comment\n\ncheck fmt *.rs,*.toml cargo fmt --check\nfix swift *.swift swift-format {files}\ntest t a/b.sh scripts/t.sh\n";
     let lines = parse(text).unwrap();
     assert_eq!(lines.len(), 3);
-    assert_eq!(lines[0].paths, ["*.rs", "*.toml"]);
+    assert_eq!(
+        lines[0]
+            .paths
+            .iter()
+            .map(|p| (p.glob.as_str(), p.every_crate))
+            .collect::<Vec<_>>(),
+        [("*.rs", false), ("*.toml", false)]
+    );
     assert_eq!(lines[0].command, ["cargo", "fmt", "--check"]);
     assert_eq!(lines[1].kind, Kind::Fix);
     assert_eq!(lines[2].kind, Kind::Test);
@@ -51,6 +58,8 @@ fn lines_parse_and_mistakes_name_the_line() {
         ("check a *.rs", "names no command"),
         ("check a", "needs a kind"),
         ("check a *.rs x\ncheck a *.rs y", "named twice"),
+        ("check a *.rs,every: cargo c {crates}", "no glob after it"),
+        ("check a every:tools/** x {files}", "names no {crates}"),
     ] {
         let fail = parse(bad).unwrap_err().text();
         assert!(fail.contains(said), "{bad:?} said {fail:?}");
@@ -224,6 +233,41 @@ fn the_root_toolchain_file_or_cargo_config_counts_as_every_crate() {
         std::fs::write(top.join(config), "").unwrap();
         assert_eq!(crates_argv(&top, &[config]), every, "{config}");
     }
+}
+
+#[test]
+fn a_file_an_every_crate_glob_matches_counts_as_every_crate() {
+    let scratch = Scratch::new("checks-every-crate");
+    let top = workspace(&scratch);
+    let driver = top.join("tools/lints/src/lib.rs");
+    std::fs::create_dir_all(driver.parent().unwrap()).unwrap();
+    std::fs::write(driver, "").unwrap();
+    let lines = parse(
+        "check c *.rs,every:tools/lints/** lint {crates}\ncheck d *.rs,every:crates/a/** doc {crates}\n",
+    )
+    .unwrap();
+    let argv = |staged: &[&str]| -> Vec<Vec<String>> {
+        plan(&top, &lines, &[Kind::Check], &files(staged), false, None)
+            .unwrap()
+            .into_iter()
+            .map(|p| p.argv)
+            .collect()
+    };
+    // The lint driver's source lies in no crate, and hands line c every
+    // crate; line d reads it as a plain `*.rs` that no crate holds.
+    assert_eq!(
+        argv(&["tools/lints/src/lib.rs"]),
+        [files(&["lint", "-p", "a", "-p", "b"])]
+    );
+    // A crate's file that a line marks counts as every crate for that line
+    // alone.
+    assert_eq!(
+        argv(&["crates/a/src/lib.rs"]),
+        [
+            files(&["lint", "-p", "a"]),
+            files(&["doc", "-p", "a", "-p", "b"])
+        ]
+    );
 }
 
 #[test]
