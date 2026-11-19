@@ -126,9 +126,11 @@ Then say what the user would see in the app either way, in plain words, with no
 item numbers or code names, and give each option as what the app does, with your
 pick and one clause of why.
 
-**Vet everything you put in front of the user.** Before you ask, propose or
-describe anything to the user, including what another agent sent you, check
-every part of it against the code and the spec, and know where each piece is.
+**Vet each question before you put it to the user.** Before you ask, propose or
+describe a choice to the user, including one another agent sent you, check every
+part of it against the code and the spec, and know where each piece is. Once the
+user has settled the question, the design iterations that follow go to the user
+for review without another vetting pass.
 
 **Never ask the user for routine work.** Do it. Routine work includes landing
 reviewed work and pushing it to main, rewording or splitting your own commits,
