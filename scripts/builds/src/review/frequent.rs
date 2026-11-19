@@ -40,7 +40,8 @@ pub struct Frequent {
     pub weight: f64,
     /// The paragraphs or list items of the rule that its findings quote, the
     /// most quoted first. A finding whose clause no paragraph holds any more
-    /// counts in `findings` and appears here under no paragraph.
+    /// counts in `findings` and appears here under no paragraph (`frequent`
+    /// reports it in `Counted::left_out`).
     pub quoted: Vec<Quoted>,
 }
 
@@ -56,7 +57,7 @@ pub struct Quoted {
 
 /// What `frequent` counted: the rules with at least `LEAST_FINDINGS`
 /// findings, heaviest first, and a line for each finding it left out of the
-/// counts, saying why.
+/// counts or of the paragraphs, saying why.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Counted {
     pub rules: Vec<Frequent>,
@@ -100,6 +101,10 @@ pub fn frequent(reviews: &[&FirstReview], rules: &[Rule]) -> Counted {
                 .into_iter()
                 .find(|piece| clause_in(&finding.clause, piece))
             else {
+                left_out.push(format!(
+                    "WHAT REVIEWS CONFIRM MOST OFTEN counts finding {} under rule {} but lists no paragraph for it, since no paragraph of the rule holds its clause",
+                    finding.id, finding.rule
+                ));
                 continue;
             };
             let text = opening(&piece);

@@ -175,7 +175,8 @@ fn a_rule_counts_its_findings_across_paragraphs_and_names_the_most_quoted_first(
     assert_eq!(
         counted.left_out,
         [
-            "WHAT REVIEWS CONFIRM MOST OFTEN leaves out finding 6, whose rule gone the rules checkout no longer holds"
+            "WHAT REVIEWS CONFIRM MOST OFTEN counts finding 5 under rule plain but lists no paragraph for it, since no paragraph of the rule holds its clause",
+            "WHAT REVIEWS CONFIRM MOST OFTEN leaves out finding 6, whose rule gone the rules checkout no longer holds",
         ]
     );
 }
