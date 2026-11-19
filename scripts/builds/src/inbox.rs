@@ -3,8 +3,8 @@
 //! socket's path and a per-session token in its environment
 //! (CLAUDE_CODE_MESSAGING_SOCKET and CLAUDE_CODE_MESSAGING_TOKEN). builds keeps
 //! the inbox of a session it tells something later: the session that recorded
-//! a design change (lists/design_session.rs) and the design session that
-//! listens for publish requests (lists/publish.rs).
+//! a design change (lists/design_session.rs), the design session that listens
+//! for publish requests (lists/publish.rs) and the judge (review/judge.rs).
 //!
 //! The token is a per-session secret. It lives in the store's tables and in
 //! the `Messaging` that carries it to a send. No type here serializes it,

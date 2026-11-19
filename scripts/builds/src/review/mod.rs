@@ -62,6 +62,7 @@ pub mod fakes;
 mod files;
 mod frequent;
 pub mod groups;
+pub mod judge;
 pub mod landing;
 mod model_check;
 mod prompt;

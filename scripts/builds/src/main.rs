@@ -303,6 +303,7 @@ fn run(command: &str, args: &[String]) -> Result<()> {
         "retire" => worktree::cmd_retire(&tool, args),
         "land" => land::cmd_land(&tool.places, args),
         "review" => review::cmd_review(&tool, args),
+        "judge" => review::judge::cmd_judge(&tool, args),
         "claim" => claim::cmd_claim(&tool.places, args, tool.now),
         "note" => claim::cmd_note(&tool.places, args, tool.now),
         "release" => claim::cmd_release(&tool.places, args),
@@ -326,7 +327,7 @@ fn run(command: &str, args: &[String]) -> Result<()> {
         "remote" => remote::cmd_remote(&tool, &host::Ssh::from_env(), args),
         "tool" => built_tools::cmd_tool(&tool.places, &host::Ssh::from_env(), args),
         other => fail!(
-            "builds has no command {other}. Its commands are ack, agent, setup, new, land, review, claim, note, release, retire, app-checkout, status, health, lists, decision, design, question, item, next, area, dashboard, host, remote, prune, tool, cargo, lock, app-build, shots, queue, takeover, build-app, install, checks and install-hook."
+            "builds has no command {other}. Its commands are ack, agent, setup, new, land, review, judge, claim, note, release, retire, app-checkout, status, health, lists, decision, design, question, item, next, area, dashboard, host, remote, prune, tool, cargo, lock, app-build, shots, queue, takeover, build-app, install, checks and install-hook."
         ),
     }
 }

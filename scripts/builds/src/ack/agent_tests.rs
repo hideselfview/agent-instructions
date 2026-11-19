@@ -95,3 +95,19 @@ fn a_lists_folder_with_no_parent_has_no_place_for_the_agents() {
     places.lists = std::path::PathBuf::from("/");
     assert!(register(&places, "s1", "a1").is_err());
 }
+
+#[test]
+fn a_caller_is_a_session_and_an_agent_and_the_person_has_no_session() {
+    assert_eq!(Caller::of(None, Some("a1")).unwrap(), None);
+    assert_eq!(Caller::of(Some(""), None).unwrap(), None);
+    assert!(
+        Caller::of(Some("s1"), None)
+            .unwrap_err()
+            .text()
+            .contains("--agent")
+    );
+    let main = Caller::of(Some("s1"), Some("s1")).unwrap().unwrap();
+    assert!(!main.is_dispatched());
+    let dispatched = Caller::of(Some("s1"), Some("a1")).unwrap().unwrap();
+    assert!(dispatched.is_dispatched());
+}

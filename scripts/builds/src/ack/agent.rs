@@ -134,6 +134,48 @@ pub fn from_env() -> Result<Option<String>> {
     }
 }
 
+/// The agent that runs a builds command, as builds names it: the Claude Code
+/// session it runs in and its agent id. A session's main agent has the
+/// session's id as its agent id; every agent the session dispatches has an id
+/// of its own.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Caller {
+    pub session: String,
+    pub id: String,
+}
+
+impl Caller {
+    /// The agent that runs this command, from `CLAUDE_CODE_SESSION_ID` and
+    /// `BUILDS_AGENT`; None for the person's own terminal, which has no
+    /// session. Fails as `of` does.
+    pub fn from_env() -> Result<Option<Caller>> {
+        let session = std::env::var(super::SESSION).ok();
+        Caller::of(session.as_deref(), from_env()?.as_deref())
+    }
+
+    /// The agent of <session> with id <agent>: None with no session, and a
+    /// failure for a session with no agent id, since builds cannot tell
+    /// that session's agents apart.
+    pub fn of(session: Option<&str>, agent: Option<&str>) -> Result<Option<Caller>> {
+        match (session.filter(|s| !s.is_empty()), agent) {
+            (None, _) => Ok(None),
+            (Some(_), None) => fail!(
+                "builds names each agent by the id Claude Code gives it, and this command names none: pass --agent ID, or set {VARIABLE}=ID"
+            ),
+            (Some(session), Some(id)) => Ok(Some(Caller {
+                session: session.to_string(),
+                id: id.to_string(),
+            })),
+        }
+    }
+
+    /// Whether a session dispatched this agent: it is not the session's main
+    /// agent. A dispatched agent shares its session's inbox.
+    pub fn is_dispatched(&self) -> bool {
+        self.id != self.session
+    }
+}
+
 /// What Claude Code's hooks pass on standard input, as builds reads it.
 #[derive(serde::Deserialize)]
 pub struct HookInput {

@@ -2233,6 +2233,16 @@ run `review replay --rules-root` on it.
                               their words in --why; the finding stays
                               confirmed, and land no longer waits on it. Pass
                               --by-person only once the person has said so
+  builds judge listen --project P [--by WHO]
+                              keep the inbox of the Claude Code session that
+                              runs it as project P's judge, in place of any
+                              earlier one: the inbox socket and token from the
+                              session's environment (CLAUDE_CODE_MESSAGING_SOCKET
+                              and CLAUDE_CODE_MESSAGING_TOKEN), and the
+                              session's id. The judge session runs it when it
+                              starts. builds refuses it outside a session with
+                              an inbox, and from an agent that a session
+                              dispatched, which shares that session's inbox
   builds review show <landing>
                               the review of a landing under review: its last
                               review, each run's net change, the earlier run

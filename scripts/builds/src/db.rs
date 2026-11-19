@@ -4,7 +4,7 @@
 //! design changes' recording sessions (`lists/design_session.sql`), the shot
 //! findings, the review's tables, the `builds cargo` runs
 //! (`cargo_run.sql`), the spec checks (`lists/spec_check.sql`), the agents'
-//! acknowledgements (`ack/record.sql`). This module does all opening:
+//! acknowledgements (`ack/record.sql`), the judge (`review/judge.sql`). This module does all opening:
 //! the pragmas, the schema made whole in the first transaction of a new file,
 //! and the stamp.
 //!
@@ -118,6 +118,10 @@ pub const HOST_SAMPLE_PART: &str = include_str!("host_sample.sql");
 /// holds it after the hosts' samples.
 pub const CARGO_RUN_CRATE_PART: &str = include_str!("cargo_run_crate.sql");
 
+/// The judge of the project's reviews (review/judge.sql); the schema holds
+/// it after the crates of the cargo runs.
+pub const JUDGE_PART: &str = include_str!("review/judge.sql");
+
 /// The whole schema: the lists' tables, then the hook stats', then the
 /// app-build timings', then the design changes' recording sessions', then the
 /// stored shot findings, then the review's, then the hook checks' starting
@@ -125,8 +129,14 @@ pub const CARGO_RUN_CRATE_PART: &str = include_str!("cargo_run_crate.sql");
 /// items' work, then the spec checks', then the acknowledgements', then the
 /// publish requests', then the Rust release items', then the Rust checks',
 /// then the items' events, then the landings', then the reviewer processes'
-/// times, then the hosts' samples, then the crates of the cargo runs.
+/// times, then the hosts' samples, then the crates of the cargo runs, then
+/// the judge's.
 pub fn schema() -> String {
+    format!("{}\n{JUDGE_PART}", schema_before_judge())
+}
+
+/// The schema as it was before the judge's tables joined it.
+pub fn schema_before_judge() -> String {
     format!(
         "{}\n{CARGO_RUN_CRATE_PART}",
         schema_before_cargo_run_crate()

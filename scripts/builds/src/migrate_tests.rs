@@ -5802,3 +5802,38 @@ fn a_store_from_before_condition_enders_gives_each_condition_the_coordinator() {
         )]
     );
 }
+
+#[test]
+fn the_judge_stamp_is_the_schema_before_the_judge() {
+    assert_eq!(
+        db::stamp_of_text(&db::schema_before_judge()),
+        BEFORE_JUDGE_STAMP
+    );
+}
+
+/// A store from before the judge gains its empty table and equals a fresh
+/// schema.
+#[test]
+fn a_store_from_before_the_judge_gains_its_table_and_equals_a_fresh_schema() {
+    let scratch = Scratch::new("move-judge");
+    let places = scratch.places();
+    let dir = places.lists.join("bae");
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join(DATABASE);
+    {
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(&db::schema_before_judge()).unwrap();
+        conn.pragma_update(None, "user_version", BEFORE_JUDGE_STAMP)
+            .unwrap();
+    }
+    migrate_stores(&places, 0).unwrap();
+    let conn = db::open(&path, db::Make::Never).unwrap();
+    assert_eq!(
+        db::schema_rows(&conn).unwrap(),
+        db::schema_rows(&db::memory()).unwrap()
+    );
+    let judges: i64 = conn
+        .query_row("SELECT count(*) FROM review_judge", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(judges, 0);
+}
