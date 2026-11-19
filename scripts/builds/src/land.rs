@@ -131,7 +131,7 @@ use crate::lists::Id;
 use crate::text::shell_word;
 use boards::git;
 
-const USAGE: &str = "usage: builds land <worktree> [--done N]... [--part N]... [--design N]... <sha>... (run it in the worktree whose branch holds the commits, with nothing uncommitted there, and in a repo of a project with a claim on it; land requires --design exactly when the commits change a design place or shared design file, once for each design change that resolves some of them, and takes --design alone for commits that are all design files)";
+const USAGE: &str = "usage: builds land <worktree> [--project P] [--done N]... [--part N]... [--design N]... <sha>... (run it in the worktree whose branch holds the commits, with nothing uncommitted there, and in a repo of a project with a claim on it; land requires --design exactly when the commits change a design place or shared design file, once for each design change that resolves some of them, and takes --design alone for commits that are all design files)";
 
 /// How many times a refused push is tried again from a fresh fetch.
 const ATTEMPTS: usize = 5;
@@ -303,6 +303,10 @@ struct Request {
     items: Vec<String>,
     /// Each `--design N`, in the order given.
     designs: Vec<Id>,
+    /// `--project P`: the project the caller says the worktree is in. Land
+    /// reads the project from the worktree's claim and refuses a P that
+    /// differs.
+    project: Option<String>,
     shas: Vec<String>,
 }
 
@@ -431,6 +435,7 @@ fn resolve_on_head(
 fn parse(args: &[String], out: &mut dyn Write) -> Result<Request> {
     let mut items = Vec::new();
     let mut designs: Vec<Id> = Vec::new();
+    let mut project: Option<String> = None;
     let mut rest = args;
     while let Some(arg) = rest.first() {
         match arg.as_str() {
@@ -440,6 +445,15 @@ fn parse(args: &[String], out: &mut dyn Write) -> Result<Request> {
                 }
                 items.push(arg.clone());
                 items.push(rest[1].clone());
+                rest = &rest[2..];
+            }
+            "--project" => {
+                if rest.len() < 2 {
+                    return Err(refuse(out, "refusing: --project needs a project name"));
+                }
+                if project.replace(rest[1].clone()).is_some() {
+                    return Err(refuse(out, "refusing: the landing names --project twice"));
+                }
                 rest = &rest[2..];
             }
             "--design" => {
@@ -483,6 +497,7 @@ fn parse(args: &[String], out: &mut dyn Write) -> Result<Request> {
     Ok(Request {
         items,
         designs,
+        project,
         shas: rest.to_vec(),
     })
 }
@@ -1329,6 +1344,21 @@ impl Landing<'_> {
             return Err(refuse(
                 out,
                 format!("refusing: builds lists project-of failed: {project}"),
+            ));
+        }
+        if let Some(named) = &self.request.project
+            && *named != project
+        {
+            let says = if project.is_empty() {
+                format!("{} is in no project of the lists", self.workdir.display())
+            } else {
+                format!("{} is in project {project}", self.workdir.display())
+            };
+            return Err(refuse(
+                out,
+                format!(
+                    "refusing: --project {named} does not match the worktree: {says}. land reads the project from the worktree, so --project is only a check"
+                ),
             ));
         }
         if !project.is_empty() {

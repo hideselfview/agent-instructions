@@ -14,7 +14,7 @@ use crate::fail::Result;
 use crate::lists::args::{Args, current_dir, parse_named, read_input};
 use crate::lists::check::faults;
 use crate::lists::derive::{item_state, unmet_waits, waits_for_others};
-use crate::lists::draft::{require_brief_from, require_draft_briefs};
+use crate::lists::draft::{find_brief, require_draft_briefs};
 use crate::lists::item::{
     Audience, Ender, Item, ItemDraft, ItemEdit, Level, Note, Priority, RecordWait, Wait, add_item,
     add_note, add_wait, open_item, remove_wait, require_open_wait, set_priority,
@@ -178,8 +178,8 @@ fn add(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
         priority,
         tags: tag::parse_tags(args.values("tag"))?,
     };
-    require_draft_briefs(cwd, std::slice::from_ref(&draft))?;
     let store = Store::resolve(&tool.places, &args, cwd)?;
+    require_draft_briefs(&tool.places, &store.repos()?, std::slice::from_ref(&draft))?;
     let stamp = Stamp::resolve(tool.now, &args, cwd)?;
     let cited = rulings::require_cited(
         &tool.reviewer,
@@ -238,10 +238,10 @@ fn edit(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
             "the edit of {id} changes nothing: it names no field, no origin and no tag\n{EDIT_USAGE}"
         );
     }
-    if let Some(brief) = &edit.brief {
-        require_brief_from(cwd, brief)?;
-    }
     let store = Store::resolve(&tool.places, &args, cwd)?;
+    if let Some(brief) = &edit.brief {
+        find_brief(&tool.places, &store.repos()?, brief)?;
+    }
     let stamp = Stamp::resolve(tool.now, &args, cwd)?;
     let cited = rulings::require_cited(
         &tool.reviewer,
@@ -408,8 +408,8 @@ fn handoff(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
     let args = Args::parse(args, &["brief"], &[])?;
     let id = one_id(&args, "builds item handoff N --brief P")?;
     let brief = args.require("brief")?.to_string();
-    require_brief_from(cwd, &brief)?;
     let store = Store::resolve(&tool.places, &args, cwd)?;
+    find_brief(&tool.places, &store.repos()?, &brief)?;
     let stamp = Stamp::resolve(tool.now, &args, cwd)?;
     store.write(&stamp, &format!("item handoff {id}"), |db| {
         open_item(&store::read(db)?, id)?;

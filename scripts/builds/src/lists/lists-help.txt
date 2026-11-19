@@ -194,8 +194,10 @@ running item's work under Waiting on you while a wait of the item waits on the
 person. An open item is then, in order: running; the design session's (shown
 apart, never dispatched); waiting (on a wait not met, or placed last while any
 other open item of the same audience that is not placed last exists); or ready. The
-command looks up a relative brief path in the main checkout of the repo it
-runs in (plans are in no commit); an absolute path is itself.
+command looks up a relative brief path in the main checkouts of the project's
+repos (plans are in no commit), wherever it runs, and refuses a path that no
+main checkout holds or that more than one holds; an absolute path is itself.
+`item take` prints the file it found.
 
   builds item add --title T --area A --details-file F [--for design-session]
                   [--wait REF [--until ENDER]]... [--brief P]

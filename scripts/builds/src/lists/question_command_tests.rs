@@ -630,7 +630,7 @@ fn answer_refuses_what_it_is_not_given_correctly() {
                 r#"{ok_blocked}, "work": [{{"title": "Five words in this title", "area": "Alpha", "details": "d", "for": "coordinator", "waits": [], "brief": "no/such/brief.md"}}]"#
             )),
             q.to_string(),
-            ("in no git checkout").to_string(),
+            ("does not exist: no file at").to_string(),
         ),
         (
             answer_request(&format!(r#"{ok_blocked}, "no_work": "x", "extra": 1"#)),

@@ -1,9 +1,8 @@
 use super::*;
 use crate::checkout::Checkout;
 use crate::claim::cmd_release;
-use crate::lists::draft::brief_base;
 use crate::lists::fixtures::NOON;
-use crate::lists::item_fixtures::{Demo, demo, refusal, words};
+use crate::lists::item_fixtures::{Demo, demo, demo_over, refusal, words};
 use crate::lists::{Closed, Record};
 
 fn item(demo: &Demo, args: &[&str]) -> Result<()> {
@@ -108,15 +107,46 @@ fn add_takes_waits_a_brief_a_priority_and_the_design_sessions_audience() {
     assert_eq!(second.priority.as_ref().unwrap().level, Level::First);
 }
 
+/// A take in a worktree of repo `other` of a project over `demo` and `other`,
+/// naming the relative brief <brief>.
+fn take_in_other_repo(demo: &Demo, brief: &str) -> Result<()> {
+    let side = demo.add_side_of("other", 1, "agent A", "work");
+    add(demo, FIVE, &[]).unwrap();
+    item(
+        demo,
+        &take_args(&side.display().to_string(), brief, &["1"], "work"),
+    )
+}
+
 #[test]
-fn a_relative_brief_is_found_under_the_main_checkout_of_the_repo_run_in() {
-    let demo = demo("item-brief-base");
+fn take_finds_a_relative_brief_in_the_main_checkout_of_another_repo() {
+    let demo = demo_over("item-brief-other-repo", &["demo", "other"]);
     std::fs::create_dir_all(demo.main.join("plans")).unwrap();
     std::fs::write(demo.main.join("plans/b.md"), "x").unwrap();
-    assert_eq!(brief_base(&demo.main).unwrap(), demo.main);
-    let side = demo.add_side(1, "agent", "br");
-    assert_eq!(brief_base(&side).unwrap(), demo.main);
-    assert!(refusal(brief_base(&demo.scratch.dir)).contains("in no git checkout"));
+    take_in_other_repo(&demo, "plans/b.md").unwrap();
+    let running = &open(&demo).items[0].running[0];
+    assert_eq!(running.brief, "plans/b.md");
+}
+
+#[test]
+fn take_refuses_a_relative_brief_that_two_main_checkouts_hold() {
+    let demo = demo_over("item-brief-ambiguous", &["demo", "other"]);
+    let other = demo.scratch.repo_path("other");
+    for main in [&demo.main, &other] {
+        std::fs::create_dir_all(main.join("plans")).unwrap();
+        std::fs::write(main.join("plans/b.md"), "x").unwrap();
+    }
+    let said = refusal(take_in_other_repo(&demo, "plans/b.md"));
+    assert!(said.contains("is ambiguous"), "{said}");
+    assert!(open(&demo).items[0].running.is_empty());
+}
+
+#[test]
+fn take_refuses_a_relative_brief_that_no_main_checkout_holds() {
+    let demo = demo_over("item-brief-missing", &["demo", "other"]);
+    let said = refusal(take_in_other_repo(&demo, "plans/b.md"));
+    assert!(said.contains("does not exist"), "{said}");
+    assert!(open(&demo).items[0].running.is_empty());
 }
 
 #[test]

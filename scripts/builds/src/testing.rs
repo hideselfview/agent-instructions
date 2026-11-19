@@ -45,6 +45,12 @@ impl Scratch {
         Scratch { dir }
     }
 
+    /// Where the main checkout of repo <name> is in this scratch folder, where
+    /// builds looks for it: `<home>/dev/<name>` of `places`.
+    pub fn repo_path(&self, name: &str) -> PathBuf {
+        self.dir.join("home").join(crate::host::clone_path(name))
+    }
+
     /// Places that all point inside the scratch folder.
     pub fn places(&self) -> Places {
         let root = self.dir.join("volume");

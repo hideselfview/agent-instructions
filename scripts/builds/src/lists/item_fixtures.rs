@@ -26,7 +26,7 @@ pub fn demo(name: &str) -> Demo {
 
 /// A repo with an origin in the scratch folder: <repo>, and <repo>.git beside it.
 fn add_repo_with_origin(scratch: &Scratch, repo_name: &str) -> PathBuf {
-    let main = scratch.dir.join(repo_name);
+    let main = scratch.repo_path(repo_name);
     repo(&main, "target 1G\n");
     let origin = scratch.dir.join(format!("{repo_name}-origin.git"));
     run_git(
@@ -66,8 +66,11 @@ impl Demo {
 
     /// `add_side` for the repo <repo> of the project (`demo_over`).
     pub fn add_side_of(&self, repo: &str, n: usize, who: &str, branch: &str) -> PathBuf {
-        let main = self.scratch.dir.join(repo);
-        let top = self.scratch.dir.join(format!("{repo}-worktrees/side-{n}"));
+        let main = self.scratch.repo_path(repo);
+        let top = main
+            .parent()
+            .unwrap()
+            .join(format!("{repo}-worktrees/side-{n}"));
         std::fs::create_dir_all(top.parent().unwrap()).unwrap();
         run_git(
             &main,

@@ -2348,7 +2348,7 @@ and list of changed paths that a review or `builds land` reads. To test
 another grouping, change the folders in a worktree of agent-instructions and
 run `review replay --rules-root` on it.
 
-  builds land <worktree> [--done N]... [--part N]... [--design N]... <sha>...
+  builds land <worktree> [--project P] [--done N]... [--part N]... [--design N]... <sha>...
                               put the commits on origin/main from the worktree
                               whose branch holds them: a fast-forward when
                               origin/main is their base, else a cherry-pick.
@@ -2363,6 +2363,9 @@ run `review replay --rules-root` on it.
                               different worktrees run together, and a landing
                               whose push origin refuses because the other
                               pushed first fetches again and pushes after it.
+                              Land reads the project from the worktree's
+                              claim; --project P only checks it and refuses
+                              when the worktree's project is another.
                               Before the push, land runs the repo's `whole`
                               checks and its .land-compile (the compile check
                               of the touched crates) on the result, a

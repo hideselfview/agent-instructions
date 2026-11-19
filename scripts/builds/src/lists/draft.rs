@@ -2,84 +2,68 @@
 //! that the briefs it names exist, and that a request gives `work` or
 //! `no_work`.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crate::fail;
 use crate::fail::Result;
+use crate::host::clone_path;
 use crate::lists::item::ItemDraft;
+use crate::places::Places;
 
-/// Where a relative brief path is looked for. Briefs are plans' files, which
-/// no commit carries (`plans/` is ignored), so it is the main checkout of the
-/// repo the command runs in; an absolute path is itself. A command with a
-/// brief and no checkout is refused.
-pub fn brief_base(cwd: &Path) -> Result<std::path::PathBuf> {
-    match crate::checkout::Checkout::at(cwd)? {
-        Some(checkout) => Ok(checkout.main),
-        None => fail!(
-            "{} is in no git checkout, so a relative brief path has nothing to be relative to; give the brief as an absolute path",
-            cwd.display()
+/// The file of <brief>, `path` or `path#section`. An absolute path is itself.
+/// A relative path is looked for under the main checkout of each of <repos>,
+/// the repos of the command's project (`<home>/dev/<repo>`), because briefs
+/// are plans' files that no commit carries (`plans/` is ignored) and the
+/// worktree a command runs in may belong to another repo than the one that
+/// holds the brief. The file must exist; a relative path that exactly one
+/// main checkout holds is that file, and a path that none or several hold is
+/// refused, naming the places looked in or the files found. This reads the
+/// file system, so a command runs it before it takes the lock.
+pub fn find_brief(places: &Places, repos: &[String], brief: &str) -> Result<PathBuf> {
+    let path = brief.split('#').next().unwrap_or("");
+    if path.is_empty() {
+        fail!("brief '{brief}' names no file");
+    }
+    if Path::new(path).is_absolute() {
+        return if Path::new(path).is_file() {
+            Ok(PathBuf::from(path))
+        } else {
+            fail!("brief {brief} does not exist: no file {path}")
+        };
+    }
+    let candidates: Vec<PathBuf> = repos
+        .iter()
+        .map(|repo| places.home.join(clone_path(repo)).join(path))
+        .collect();
+    let mut found: Vec<PathBuf> = candidates.iter().filter(|c| c.is_file()).cloned().collect();
+    match found.len() {
+        1 => Ok(found.remove(0)),
+        0 => fail!(
+            "brief {brief} does not exist: no file at {}; give the brief as an absolute path, or put it in the main checkout of one of the project's repos",
+            list(&candidates)
+        ),
+        _ => fail!(
+            "brief {brief} is ambiguous: the main checkouts of {} hold it ({}); give the brief as an absolute path",
+            repos.join(" and "),
+            list(&found)
         ),
     }
 }
 
-/// A brief path, `path` or `path#section`: the file must exist. A relative
-/// path is looked for under <base>. This reads the file system, so a command
-/// runs it before it takes the lock.
-pub fn require_brief(base: &Path, brief: &str) -> Result<()> {
-    let path = brief.split('#').next().unwrap_or("");
-    if path.is_empty() {
-        fail!("brief '{brief}' names no file");
-    }
-    let file = base.join(path);
-    if !file.is_file() {
-        fail!("brief {brief} does not exist: no file {}", file.display());
-    }
-    Ok(())
+fn list(paths: &[PathBuf]) -> String {
+    paths
+        .iter()
+        .map(|p| p.display().to_string())
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
-/// <brief> exists, as a command running in <cwd> sees it: an absolute path is
-/// itself, a relative one is under the main checkout of <cwd>'s repo. Only a
-/// relative brief needs a checkout.
-pub fn require_brief_from(cwd: &Path, brief: &str) -> Result<()> {
-    require_brief(&base_of(cwd, brief)?, brief)
-}
-
-/// The folder <brief> is looked for under, as `require_brief_from` says.
-fn base_of(cwd: &Path, brief: &str) -> Result<std::path::PathBuf> {
-    if Path::new(brief).is_absolute() {
-        Ok(std::path::PathBuf::from("/"))
-    } else {
-        brief_base(cwd)
-    }
-}
-
-/// The file of <brief>, found as `require_brief_from` finds it. The function
-/// checks only that the brief names a file; whoever reads the file learns
-/// whether it exists.
-pub fn brief_file(cwd: &Path, brief: &str) -> Result<std::path::PathBuf> {
-    let path = brief.split('#').next().unwrap_or("");
-    if path.is_empty() {
-        fail!("brief '{brief}' names no file");
-    }
-    Ok(base_of(cwd, brief)?.join(path))
-}
-
-/// The briefs of <drafts> exist (see `require_brief_from`).
-pub fn require_draft_briefs(cwd: &Path, drafts: &[ItemDraft]) -> Result<()> {
+/// The briefs of <drafts> exist (see `find_brief`).
+pub fn require_draft_briefs(places: &Places, repos: &[String], drafts: &[ItemDraft]) -> Result<()> {
     drafts
         .iter()
         .filter_map(|draft| draft.brief.as_deref())
-        .try_for_each(|brief| require_brief_from(cwd, brief))
-}
-
-impl ItemDraft {
-    /// The brief's file exists (see `require_brief`).
-    pub fn require_brief(&self, base: &Path) -> Result<()> {
-        match &self.brief {
-            Some(brief) => require_brief(base, brief),
-            None => Ok(()),
-        }
-    }
+        .try_for_each(|brief| find_brief(places, repos, brief).map(|_| ()))
 }
 
 /// A request's `work` (item drafts) or `no_work` (why there is none): one

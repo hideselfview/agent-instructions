@@ -60,8 +60,8 @@ fn add(tool: &Tool, args: &[String], cwd: &std::path::Path) -> Result<()> {
     args.exactly(0, USAGE)?;
     let request: DecisionRequest = read_request(args.require("request")?)?;
     let work = work_or_why(request.work, request.no_work)?;
-    require_draft_briefs(cwd, &work)?;
     let store = Store::resolve(&tool.places, &args, cwd)?;
+    require_draft_briefs(&tool.places, &store.repos()?, &work)?;
     let stamp = Stamp::resolve(tool.now, &args, cwd)?;
     // The decision is the record a citation names, so the check reads its
     // work.

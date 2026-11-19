@@ -257,15 +257,19 @@ fn require_review_boards(scope: &Scope, request: &DesignRequest) -> Result<()> {
     Ok(())
 }
 
-/// The request's new items: each one's brief exists under the main
-/// checkout, and its title and details cite the decision or rule behind each
+/// The request's new items: each one's brief exists in a main checkout
+/// of the project, and its title and details cite the decision or rule behind each
 /// ruling of the person's they state (`rulings`). Returns what the rulings
 /// check prints.
 fn require_drafts(tool: &Tool, scope: &Scope, request: &DesignRequest) -> Result<Vec<String>> {
     let mut drafts = Vec::new();
     for answer in request.places.values() {
         if let PlaceAnswer::New(draft) = answer {
-            draft.require_brief(&scope.checkout.main)?;
+            crate::lists::draft::require_draft_briefs(
+                &tool.places,
+                &scope.lists.repos,
+                std::slice::from_ref(draft),
+            )?;
             drafts.push(draft.clone());
         }
     }

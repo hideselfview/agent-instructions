@@ -425,9 +425,9 @@ fn resolve(tool: &Tool, args: &[String], cwd: &Path, words: &str, verb: Verb) ->
     let mut request: Request = read_request(args.require("request")?)?;
     let closing = closing_of(verb, &mut request)?;
     let drafts = work_or_why(request.work, request.no_work)?;
-    require_draft_briefs(cwd, &drafts)?;
     let blocked = request.blocked;
     let store = Store::resolve(&tool.places, &args, cwd)?;
+    require_draft_briefs(&tool.places, &store.repos()?, &drafts)?;
     let stamp = Stamp::resolve(tool.now, &args, cwd)?;
     // The decision of an answer is the record a citation names, so the check
     // reads the rest of the request.

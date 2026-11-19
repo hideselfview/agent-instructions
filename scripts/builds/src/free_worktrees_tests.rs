@@ -449,7 +449,11 @@ fn new_refuses_a_worktree_where_an_item_runs() {
 
     new(&demo.tool, &demo.main, &["--for", "agent B"]);
     assert!(
-        demo.scratch.dir.join("demo-worktrees/side-2").exists(),
+        demo.main
+            .parent()
+            .unwrap()
+            .join("demo-worktrees/side-2")
+            .exists(),
         "new handed out the worktree where an item runs"
     );
     assert_eq!(checkout.branch().unwrap().as_deref(), Some("work"));

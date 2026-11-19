@@ -31,7 +31,7 @@ use crate::claim::{Claim, Note};
 use crate::fail;
 use crate::fail::Result;
 use crate::lists::args::Args;
-use crate::lists::draft::brief_file;
+use crate::lists::draft::find_brief;
 use crate::lists::held::waits_on_open;
 use crate::lists::item::{Item, open_item};
 use crate::lists::item_command::blocking_words;
@@ -445,9 +445,10 @@ pub fn take(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
             ),
         }
     }
-    let read_brief = Brief::read(&brief, &brief_file(cwd, &brief)?)?;
-
     let store = Store::resolve(&tool.places, &args, cwd)?;
+    let brief_path = find_brief(&tool.places, &store.repos()?, &brief)?;
+    note(format!("brief {brief} is {}", brief_path.display()));
+    let read_brief = Brief::read(&brief, &brief_path)?;
     let stamp = Stamp::resolve(tool.now, &args, cwd)?;
     // The spec check runs a reviewer for minutes, so take refuses what the
     // store refuses before the check, and again under the store's lock.

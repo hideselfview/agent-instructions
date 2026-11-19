@@ -930,6 +930,49 @@ fn unknown_options_and_missing_numbers_are_refused() {
 }
 
 #[test]
+fn project_is_a_check_against_the_worktrees_project() {
+    let f = fixture("land-project-flag", "true\n", None);
+    let (one, a, _two, _b) = two_branches(&f);
+    let (code, out, calls) = run_land(
+        &f,
+        &one,
+        &["--project", "other", "--done", "7", &a],
+        project(),
+    );
+    assert!(
+        code == 1
+            && out.contains("--project other does not match")
+            && out.contains("is in project bae")
+            && out.contains("reads the project from the worktree"),
+        "{out}"
+    );
+    assert_eq!(calls, [format!("lists project-of {}", one.display())]);
+    let (code, out, _) = run_land(&f, &one, &["--project"], project());
+    assert!(
+        code == 1 && out.contains("--project needs a project name"),
+        "{out}"
+    );
+    let (code, out, _) = run_land(
+        &f,
+        &one,
+        &["--project", "bae", "--project", "bae", &a],
+        project(),
+    );
+    assert!(code == 1 && out.contains("names --project twice"), "{out}");
+    let (code, out, calls) = run_land(
+        &f,
+        &one,
+        &["--project", "bae", "--done", "7", &a],
+        project(),
+    );
+    assert!(code == 0, "{out}");
+    assert!(
+        calls.iter().any(|c| c.starts_with("item landed")),
+        "{calls:?}"
+    );
+}
+
+#[test]
 fn landing_a_commit_already_on_main_says_so_and_records_its_copy() {
     let f = fixture("land-already", "true\n", None);
     let (one, a, _two, _b) = two_branches(&f);
