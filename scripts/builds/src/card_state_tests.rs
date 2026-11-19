@@ -1,4 +1,5 @@
 use super::*;
+use crate::lists::Id;
 use crate::lists::fixtures::{NOON, db, item};
 
 fn seen(worktree: &str, state: &'static str, items: &[u32]) -> Seen {
@@ -48,6 +49,24 @@ fn a_card_gets_a_row_only_when_its_state_or_items_change() {
             (SIDE.to_string(), NOON + 30, "needs-review".to_string()),
             (SIDE.to_string(), NOON + 40, "needs-review".to_string()),
         ]
+    );
+    assert_eq!(
+        read_item(&db, Id(id), NOON + 99).unwrap(),
+        vec![
+            Stretch {
+                worktree: SIDE.to_string(),
+                state: "working".to_string(),
+                start: NOON + 10,
+                end: NOON + 30,
+            },
+            Stretch {
+                worktree: SIDE.to_string(),
+                state: "needs-review".to_string(),
+                start: NOON + 30,
+                end: NOON + 40,
+            },
+        ],
+        "the card stopped listing the item at NOON + 40"
     );
 }
 

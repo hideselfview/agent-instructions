@@ -1,4 +1,5 @@
 use super::*;
+use crate::db::Sql;
 use crate::lists::fixtures::{NOON, item_opened, make_store, stamp};
 use crate::lists::record::close;
 use crate::lists::{How, Running};
@@ -171,6 +172,54 @@ fn landed_card(scratch: &Scratch) -> (crate::lists::store::Store, Id) {
             Ok(())
         })
         .unwrap();
+    // The coordinator settled the first run's two findings at +400s.
+    store
+        .write(&stamp(T0 + 400), "settle", |db| {
+            let ids: Vec<i64> = db
+                .prepare("SELECT id FROM review_finding ORDER BY id")
+                .sql()?
+                .query_map([], |row| row.get(0))
+                .sql()?
+                .collect::<std::result::Result<_, _>>()
+                .sql()?;
+            for id in ids {
+                crate::review::record::settle(
+                    db,
+                    id,
+                    "confirmed",
+                    "real",
+                    T0 + 400,
+                    "coordinator",
+                )?;
+            }
+            Ok(())
+        })
+        .unwrap();
+    // The card's dashboard states: Working from the take, then the review's
+    // states from the commit, Ready to land from the second review's end, and
+    // gone when the landing released the worktree.
+    {
+        let mut db = crate::db::open(&path, crate::db::Make::Never).unwrap();
+        let none = std::collections::BTreeSet::new();
+        for (at, state) in [
+            (60, "working"),
+            (300, "needs-review"),
+            (330, "reviewing"),
+            (390, "findings-to-settle"),
+            (400, "open-findings"),
+            (440, "unreviewed-changes"),
+            (450, "reviewing"),
+            (471, "ready-to-land"),
+        ] {
+            let seen = crate::card_state::Seen {
+                worktree: WORKTREE.into(),
+                state,
+                items: [id.0].into(),
+            };
+            crate::card_state::follow(&mut db, T0 + at, &[seen], &none).unwrap();
+        }
+        crate::card_state::follow(&mut db, T0 + 640, &[], &none).unwrap();
+    }
     // An app build that waited 20s in the lane and built for 50s.
     crate::app_timing::record(
         &path,
@@ -256,11 +305,35 @@ fn a_landed_card_gives_every_second_to_one_kind() {
         59 + 1 + 20 + 1,
         "{kinds:?}"
     );
-    assert_eq!(seconds_of(&kinds, Kind::Fixing), 450 - 390, "{kinds:?}");
+    // The review's waits come from the dashboard's states.
+    assert_eq!(
+        seconds_of(&kinds, Kind::WaitingForReview),
+        30 + 10,
+        "{kinds:?}"
+    );
+    assert_eq!(seconds_of(&kinds, Kind::WaitingForSettle), 10, "{kinds:?}");
+    assert_eq!(seconds_of(&kinds, Kind::Fixing), 40, "{kinds:?}");
     assert_eq!(seconds_of(&kinds, Kind::AppBuildQueue), 20, "{kinds:?}");
     assert_eq!(seconds_of(&kinds, Kind::AppBuildStep), 50, "{kinds:?}");
+    // Ready to land from +471s to the landing at +600s, less the app build.
+    assert_eq!(
+        seconds_of(&kinds, Kind::WaitingToLand),
+        129 - 70,
+        "{kinds:?}"
+    );
     assert_eq!(seconds_of(&kinds, Kind::Landing), 40, "{kinds:?}");
-    assert!(seconds_of(&kinds, Kind::AwaitingLand) > 0, "{kinds:?}");
+    assert_eq!(
+        dashboard_seconds(&card),
+        BTreeMap::from([
+            ("working", 240),
+            ("needs-review", 30),
+            ("reviewing", 60 + 21),
+            ("findings-to-settle", 10),
+            ("open-findings", 40),
+            ("unreviewed-changes", 10),
+            ("ready-to-land", 640 - 471),
+        ])
+    );
 }
 
 #[test]
@@ -290,6 +363,16 @@ fn the_timeline_shows_each_step_with_its_hosts_load_and_the_time_by_kind() {
         "{text}"
     );
     assert!(text.contains("time by kind, 10m"), "{text}");
+    assert!(
+        text.contains("finding 1 settled as confirmed by coordinator"),
+        "{text}"
+    );
+    assert!(
+        text.contains("dashboard open-findings took 40.0s"),
+        "{text}"
+    );
+    assert!(text.contains("time in each dashboard state"), "{text}");
+    assert!(text.contains(" 26%  ready-to-land"), "{text}");
     assert!(text.contains("ready, not taken"), "{text}");
 }
 
@@ -309,6 +392,7 @@ fn the_totals_count_each_kind_and_step_over_the_cards_that_landed_lately() {
         "{totals}"
     );
     assert!(totals.contains("review Errors"), "{totals}");
+    assert!(totals.contains("1 cards  open-findings"), "{totals}");
     assert!(!totals.contains("hook check clippy  "), "{totals}");
     let none = text(&db, &lists, &[], T0 + 40 * 86400).unwrap();
     assert!(

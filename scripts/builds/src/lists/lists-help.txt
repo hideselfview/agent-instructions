@@ -356,33 +356,39 @@ runs in (plans are in no commit); an absolute path is itself.
       time it waited on the person, then the item's timeline. The timeline
       lists, in time order, the moments the store recorded (the item's
       opening, each time it became ready, blocked or running, each wait it
-      gained or lost, each handoff, each run's start and end, each commit
-      of a landing, and its closing) and the steps of its runs: each
-      `builds cargo` run (its subcommand, the crates it named, the host and
-      the time cargo waited for its locks), each commit hook run with the
-      time of each check that passed, each app build's wait in its lane's
-      queue and each of its steps, each review run with the time of each
-      rule group and its findings, the time from a review run's findings to
-      the next run, the time from the last commit to the start of `builds
-      land`, and each step of the landing (its wait for an earlier landing,
-      the lists' checks, each fetch, pick, result check and push attempt, the
-      records, and the finish). Each step that ran on a host shows the
-      host's load and memory pressure over the step, from the samples the
-      dashboard daemon takes of every host every 30 seconds and keeps for 30
-      days. Below the timeline, times gives every second of the item's time,
-      from its opening to its landing, to one kind of time: the highest of
-      the kinds that cover the second. The kinds, highest first, are waiting
-      on the person, held, landing, reviewers running, fixing review
-      findings, app build queue, app build steps, commit hooks, cargo runs,
-      from the last commit to landing, agent working, between runs, ready and
-      not taken, and blocked by other work. A cargo run that a hook check
-      started counts inside the hook run. An item opened before the store began to record states has
-      no state events, and its time before its first run is "before builds
-      recorded states". With no N, it prints the same kinds and the
-      slowest steps over the items that landed in the last 14 days: for each
-      kind, the number of items that had it, the median and the 90th
-      percentile among them and its share of the items' time, and for each
-      step, its runs, median, 90th percentile and share. It also prints, for
+      gained or lost, each handoff, each run's start and end, each settle of
+      a review finding with who settled it, each commit of a landing, and its
+      closing) and the steps of its runs: each `builds cargo` run (its
+      subcommand, the crates it named, the host and the time cargo waited
+      for its locks), each commit hook run with the time of each check that
+      passed, each app build's wait in its lane's queue and each of its
+      steps, each review run with the time of each rule group and its
+      findings, each state the dashboard showed on the cards that listed the
+      item (the daemon records each change of a card's state: `builds help`,
+      WORKTREES AND CLAIMS), and each step of the landing (its wait for an
+      earlier landing, the lists' checks, each fetch, pick, result check and
+      push attempt, the records, and the finish). Each step that ran on a
+      host shows the host's load and memory pressure over the step, from the
+      samples the dashboard daemon takes of every host every 30 seconds and
+      keeps for 30 days. Below the timeline, times gives every second of the
+      item's time, from its opening to its landing, to one kind of time: the
+      highest of the kinds that cover the second. The kinds, highest first,
+      are waiting on the person, held, landing, reviewers running (or the
+      dashboard's Reviewing), waiting for findings to be settled (Findings to
+      settle), fixing review findings (Open findings), app build queue, app
+      build steps, commit hooks, cargo runs, waiting for a review (Needs
+      review and Unreviewed changes), ready and waiting for builds land
+      (Ready to land), agent working, between runs, ready and not taken, and
+      blocked by other work. A cargo run that a hook check started counts
+      inside the hook run. Then times prints the time the item's cards spent
+      in each dashboard state. An item opened before the store began to
+      record states has no state events, and its time before its first run
+      is "before builds recorded states". With no N, it prints the same kinds
+      and the slowest steps over the items that landed in the last 14 days:
+      for each kind, the number of items that had it, the median and the
+      90th percentile among them and its share of the items' time, for each
+      step, its runs, median, 90th percentile and share, and the same for
+      each dashboard state. It also prints, for
       each commit hook check, its runs, its failed runs, and how many of the
       failures a fix commit followed (the check passed later on another
       commit), passed again on the same commit (flaky), or stood (no later

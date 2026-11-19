@@ -38,9 +38,12 @@ pub enum Kind {
     Held,
     /// `builds land`.
     Landing,
-    /// A review run's reviewers.
+    /// A review run's reviewers, or the dashboard's Reviewing.
     Review,
-    /// The time between a review run that found something and the next run.
+    /// The dashboard's Findings to settle: findings wait for the coordinator.
+    WaitingForSettle,
+    /// The dashboard's Open findings: confirmed findings wait for the fix
+    /// and the review that closes them.
     Fixing,
     /// An app build's wait in its lane's queue.
     AppBuildQueue,
@@ -50,8 +53,11 @@ pub enum Kind {
     Hook,
     /// A `builds cargo` run no hook check started.
     Cargo,
-    /// The time from the agent's last commit to the start of `builds land`.
-    AwaitingLand,
+    /// The dashboard's Needs review and Unreviewed changes: commits wait for
+    /// the coordinator to run the review.
+    WaitingForReview,
+    /// The dashboard's Ready to land: commits wait for `builds land`.
+    WaitingToLand,
     /// An agent's run, in none of the kinds above.
     Working,
     /// The time between two runs of the item.
@@ -71,12 +77,14 @@ impl Kind {
             Kind::Held => "held by its agent",
             Kind::Landing => "landing",
             Kind::Review => "reviewers running",
+            Kind::WaitingForSettle => "waiting for findings to be settled",
             Kind::Fixing => "fixing review findings",
             Kind::AppBuildQueue => "app build queue",
             Kind::AppBuildStep => "app build steps",
             Kind::Hook => "commit hooks",
             Kind::Cargo => "cargo runs",
-            Kind::AwaitingLand => "from last commit to landing",
+            Kind::WaitingForReview => "waiting for a review",
+            Kind::WaitingToLand => "ready, waiting for builds land",
             Kind::Working => "agent working",
             Kind::BetweenRuns => "between runs",
             Kind::Queued => "ready, not taken",
@@ -129,6 +137,9 @@ pub struct Card {
     pub states: Vec<(i64, Kind)>,
     /// Each hook check that ran, in time order.
     pub checks: Vec<CheckRun>,
+    /// Each stretch of dashboard state of the cards that listed the item
+    /// (card_state.rs), cut to the card's time.
+    pub dashboard: Vec<crate::card_state::Stretch>,
 }
 
 /// One hook check that ran: its hook run's commit (HEAD when the run
@@ -248,6 +259,7 @@ pub fn gather(db: &Connection, lists: &Lists, id: Id, now: i64) -> Result<Card> 
         runs: Vec::new(),
         states: Vec::new(),
         checks: Vec::new(),
+        dashboard: Vec::new(),
     };
     card.moments.push(Moment {
         at: item.opened.at,
@@ -300,6 +312,7 @@ pub fn gather(db: &Connection, lists: &Lists, id: Id, now: i64) -> Result<Card> 
         }
     }
     read_landings(db, id, &mut card)?;
+    read_dashboard(db, id, &mut card)?;
     for span in &item.spans {
         let (kind, words) = match span.kind {
             SpanKind::Held => (Kind::Held, "held by its agent"),
@@ -573,8 +586,7 @@ fn read_app_builds(
 }
 
 /// The review runs of <repo>'s branch <branch> that started in [<from>,
-/// <to>], with each group's time, and, after a run that found something, the
-/// time until the next run.
+/// <to>], with each group's time and each settle of the runs' findings.
 fn read_reviews(
     db: &Connection,
     repo: &str,
@@ -603,7 +615,7 @@ fn read_reviews(
         .sql()?
         .collect::<std::result::Result<_, _>>()
         .sql()?;
-    for (at_run, (id, at, end, findings)) in rows.iter().copied().enumerate() {
+    for (id, at, end, findings) in rows {
         let end = end.unwrap_or(at).max(at);
         card.steps.push(Step {
             kind: Kind::Review,
@@ -647,30 +659,13 @@ fn read_reviews(
                 leaf: true,
             });
         }
-        if findings > 0
-            && let Some((_, next, _, _)) = rows.get(at_run + 1)
-            && *next > end
-        {
-            card.steps.push(Step {
-                kind: Kind::Fixing,
-                name: "fix review findings".to_string(),
-                start: end,
-                end: *next,
-                host: None,
-                detail: format!(
-                    "until the next review run, after {}",
-                    counted(findings as usize, "finding", "findings")
-                ),
-                attributed: true,
-                leaf: true,
-            });
-        }
+        read_settles(db, id, card)?;
     }
     Ok(())
 }
 
-/// The landings that named item <id>: each landing's steps, and the stretch
-/// from the agent's last commit to the landing's start.
+/// The landings that named item <id>: each landing's steps, and the commits
+/// it was asked to land.
 fn read_landings(db: &Connection, id: Id, card: &mut Card) -> Result<()> {
     let mut runs = db
         .prepare(
@@ -737,22 +732,97 @@ fn read_landings(db: &Connection, id: Id, card: &mut Card) -> Result<()> {
                 words: format!("commit {}", &sha[..sha.len().min(10)]),
             });
         }
-        if let Some(last) = found.iter().map(|(_, at)| *at).max()
-            && last < started_at
-        {
-            card.steps.push(Step {
-                kind: Kind::AwaitingLand,
-                name: "last commit to landing".to_string(),
-                start: last,
-                end: started_at,
-                host: None,
-                detail: String::new(),
-                attributed: true,
-                leaf: true,
-            });
-        }
     }
     Ok(())
+}
+
+/// Each settle of the findings of review run <run>, with who made it: the
+/// coordinator's first settle, a second settle as dropped, and the person's
+/// allowing a finding to land.
+fn read_settles(db: &Connection, run: i64, card: &mut Card) -> Result<()> {
+    let mut statement = db
+        .prepare(
+            "SELECT f.id, 'settled as ' || f.settled, f.settled_at, f.settled_by \
+               FROM review_finding f JOIN review_call c ON c.id = f.call_id \
+               WHERE c.run_id = ?1 AND f.settled IS NOT NULL \
+             UNION ALL SELECT a.finding_id, 'settled again as dropped', a.at, a.by \
+               FROM review_settle_again a JOIN review_finding f ON f.id = a.finding_id \
+               JOIN review_call c ON c.id = f.call_id WHERE c.run_id = ?1 \
+             UNION ALL SELECT w.finding_id, 'allowed to land', w.at, w.by \
+               FROM review_allowed w JOIN review_finding f ON f.id = w.finding_id \
+               JOIN review_call c ON c.id = f.call_id WHERE c.run_id = ?1",
+        )
+        .sql()?;
+    let rows = statement
+        .query_map([run], |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, i64>(2)?,
+                row.get::<_, String>(3)?,
+            ))
+        })
+        .sql()?;
+    for row in rows {
+        let (finding, how, at, by) = row.sql()?;
+        card.moments.push(Moment {
+            at,
+            words: format!("finding {finding} {how} by {by}"),
+        });
+    }
+    Ok(())
+}
+
+/// The stretches of dashboard state of the cards that listed item <id>, cut
+/// to the card's time, each as a step; the review's and the landing's waits
+/// count toward their kinds (`dashboard_kind`).
+fn read_dashboard(db: &Connection, id: Id, card: &mut Card) -> Result<()> {
+    for stretch in crate::card_state::read_item(db, id, card.to)? {
+        let start = stretch.start.max(card.from);
+        let end = stretch.end.min(card.to);
+        if end < start {
+            continue;
+        }
+        let kind = dashboard_kind(&stretch.state);
+        card.steps.push(Step {
+            kind: kind.unwrap_or(Kind::Working),
+            name: format!("dashboard {}", stretch.state),
+            start,
+            end,
+            host: None,
+            detail: crate::checkout::file_name(std::path::Path::new(&stretch.worktree)),
+            attributed: kind.is_some(),
+            leaf: false,
+        });
+        card.dashboard.push(crate::card_state::Stretch {
+            start,
+            end,
+            ..stretch
+        });
+    }
+    Ok(())
+}
+
+/// The kind a stretch of dashboard state <state> counts toward; None for a
+/// state the card's runs, spans and steps already account for.
+fn dashboard_kind(state: &str) -> Option<Kind> {
+    match state {
+        "reviewing" => Some(Kind::Review),
+        "findings-to-settle" => Some(Kind::WaitingForSettle),
+        "open-findings" => Some(Kind::Fixing),
+        "needs-review" | "unreviewed-changes" => Some(Kind::WaitingForReview),
+        "ready-to-land" => Some(Kind::WaitingToLand),
+        _ => None,
+    }
+}
+
+/// The time <card>'s cards spent in each dashboard state.
+pub fn dashboard_seconds(card: &Card) -> BTreeMap<&str, i64> {
+    let mut seconds: BTreeMap<&str, i64> = BTreeMap::new();
+    for stretch in &card.dashboard {
+        *seconds.entry(stretch.state.as_str()).or_default() += stretch.end - stretch.start;
+    }
+    seconds
 }
 
 /// What a host did over [<from>, <to>], in words; None when it has no sample
@@ -906,7 +976,34 @@ pub fn card_text(db: &Connection, card: &Card) -> Result<String> {
             kind.words()
         );
     }
+    out.push_str(&states_text(card, total));
     Ok(out)
+}
+
+/// The time <card>'s cards spent in each dashboard state, the longest first,
+/// each with its share of <total>, the card's time.
+fn states_text(card: &Card, total: i64) -> String {
+    let mut out = String::new();
+    let states = dashboard_seconds(card);
+    if states.is_empty() {
+        let _ = writeln!(
+            out,
+            "no dashboard state recorded for the cards that listed it"
+        );
+        return out;
+    }
+    let _ = writeln!(out, "time in each dashboard state");
+    let mut by_time: Vec<(&str, i64)> = states.into_iter().collect();
+    by_time.sort_by_key(|(_, seconds)| std::cmp::Reverse(*seconds));
+    for (state, seconds) in by_time {
+        let _ = writeln!(
+            out,
+            "  {:>8}  {:>3}%  {state}",
+            duration_fine(seconds),
+            seconds * 100 / total.max(1),
+        );
+    }
+    out
 }
 
 /// <seconds> as `6d2h`, `3h05m`, `12m` or, under a minute, `40s`.
@@ -987,6 +1084,29 @@ pub fn totals_text(cards: &[Card]) -> String {
         let _ = writeln!(
             out,
             "  {:>3}%  median {:>6}  p90 {:>6}  {:>5} runs  {name}",
+            times.iter().sum::<i64>() * 100 / every.max(1),
+            duration_fine(percentile(&times, 0.5)),
+            duration_fine(percentile(&times, 0.9)),
+            times.len(),
+        );
+    }
+    let mut by_state: BTreeMap<&str, Vec<i64>> = BTreeMap::new();
+    for card in cards {
+        for (state, seconds) in dashboard_seconds(card) {
+            by_state.entry(state).or_default().push(seconds);
+        }
+    }
+    let _ = writeln!(
+        out,
+        "time in each dashboard state (cards with the state; median and 90th percentile among them)"
+    );
+    let mut states: Vec<(&str, Vec<i64>)> = by_state.into_iter().collect();
+    states.sort_by_key(|(_, times)| std::cmp::Reverse(times.iter().sum::<i64>()));
+    for (state, mut times) in states {
+        times.sort_unstable();
+        let _ = writeln!(
+            out,
+            "  {:>3}%  median {:>6}  p90 {:>6}  {:>4} cards  {state}",
             times.iter().sum::<i64>() * 100 / every.max(1),
             duration_fine(percentile(&times, 0.5)),
             duration_fine(percentile(&times, 0.9)),
