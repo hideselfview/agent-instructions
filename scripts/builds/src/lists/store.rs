@@ -57,7 +57,7 @@ impl Store {
                 cwd.display()
             ),
         };
-        match project_of(places, &checkout)? {
+        match project_of(places, &checkout, None)? {
             Some(project) => Store::named(places, &project),
             None => fail!(
                 "repo {} is in no project; say which with --project",
@@ -573,50 +573,38 @@ pub fn projects_holding(places: &Places, repo: &str) -> Result<Vec<String>> {
 /// builds records the checkout's hook runs and cargo runs; None when no
 /// project holds the repo, so builds records nothing.
 pub fn database_of(places: &Places, checkout: &Checkout) -> Result<Option<std::path::PathBuf>> {
-    Ok(project_of(places, checkout)?.map(|project| places.lists.join(project).join(DATABASE)))
+    Ok(
+        project_of(places, checkout, None)?
+            .map(|project| places.lists.join(project).join(DATABASE)),
+    )
 }
 
 /// The project <checkout>'s work is in, or None when its repo is in none:
 /// the project its worktree's claim names (`builds claim --project`), else
-/// the one project that holds the repo. A repo two projects hold, in a
-/// worktree that names none, is refused.
-pub fn project_of(places: &Places, checkout: &Checkout) -> Result<Option<String>> {
-    let repo = checkout.repo();
-    choose_project(
-        &checkout.top,
-        &repo,
-        checkout.claimed_project()?.as_deref(),
-        projects_holding(places, &repo)?,
-    )
-}
-
-/// The project <checkout>'s work is in as `project_of` finds it, except that
-/// <flag>, the project a command's `--project` names, picks among the
-/// projects that hold the repo when the worktree's claim names none. Fails
-/// when <flag> names a project that does not hold the repo. A worktree's
-/// claim outranks <flag>, and a repo no project holds gives None.
-pub fn project_of_or_flag(
+/// <flag>, the project a command's `--project` names, else the one project
+/// that holds the repo. A worktree's claim outranks <flag>, and <flag> counts
+/// only for a repo some project holds. A repo two projects hold, in a worktree
+/// that names none and with no <flag>, is refused.
+pub fn project_of(
     places: &Places,
     checkout: &Checkout,
     flag: Option<&str>,
 ) -> Result<Option<String>> {
     let repo = checkout.repo();
     let holding = projects_holding(places, &repo)?;
-    let claimed = checkout.claimed_project()?;
-    let named = match (&claimed, flag) {
-        (None, Some(flag)) if !holding.is_empty() => {
-            if !holding.iter().any(|held| held == flag) {
-                fail!(
-                    "--project names project {flag}, which does not hold repo {repo}; \
-                     the projects that hold it are {}",
-                    holding.join(", ")
-                );
-            }
-            Some(flag)
-        }
-        _ => claimed.as_deref(),
+    let claim = format!("the claim on {}", checkout.top.display());
+    let named = match (checkout.claimed_project()?, flag) {
+        (Some(claimed), _) => Some((claimed, claim)),
+        (None, Some(flag)) if !holding.is_empty() => Some((flag.to_string(), "--project".into())),
+        (None, _) => None,
     };
-    choose_project(&checkout.top, &repo, named, holding)
+    choose_project(
+        &repo,
+        named
+            .as_ref()
+            .map(|(project, by)| (project.as_str(), by.as_str())),
+        holding,
+    )
 }
 
 /// Finds the project of the worktree at <top> of <repo> among <loaded> the
@@ -648,7 +636,10 @@ pub fn lists_of<'a>(
         )
         .map(|one| one.project.clone())
         .collect();
-    let Some(project) = choose_project(top, repo, named, holding).map_err(Fail::text)? else {
+    let claim = format!("the claim on {}", top.display());
+    let Some(project) = choose_project(repo, named.map(|named| (named, claim.as_str())), holding)
+        .map_err(Fail::text)?
+    else {
         return Ok(None);
     };
     match loaded.iter().find(|one| one.project == project) {
@@ -662,25 +653,24 @@ pub fn lists_of<'a>(
     }
 }
 
-/// Chooses the project of the worktree at <top> of <repo> among <holding>, the
-/// projects that hold the repo: the project its claim names (<named>), else
-/// the only one. Fails when the named project does not hold the repo, or when
-/// two projects hold it and the claim names neither.
+/// Chooses the project of work in <repo> among <holding>, the projects that
+/// hold the repo: <named>, a project and what names it, else the only one.
+/// Fails when the named project does not hold the repo, or when two projects
+/// hold it and none is named.
 fn choose_project(
-    top: &Path,
     repo: &str,
-    named: Option<&str>,
+    named: Option<(&str, &str)>,
     mut holding: Vec<String>,
 ) -> Result<Option<String>> {
-    if let Some(named) = named {
-        if !holding.iter().any(|held| held == named) {
+    if let Some((project, by)) = named {
+        if !holding.iter().any(|held| held == project) {
             fail!(
-                "the claim on {} names project {named}, which does not hold repo {repo}; \
-                 claim the worktree again with `builds claim --project`",
-                top.display()
+                "{by} names project {project}, which does not hold repo {repo}; the projects \
+                 that hold it are {}",
+                holding.join(", ")
             );
         }
-        return Ok(Some(named.to_string()));
+        return Ok(Some(project.to_string()));
     }
     match holding.len() {
         0 => Ok(None),

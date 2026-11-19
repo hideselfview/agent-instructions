@@ -437,22 +437,22 @@ fn project_of_finds_the_one_project_a_repo_is_in() {
     repo(&repo_dir, "target 1\n");
     let checkout = Checkout::at(&repo_dir).unwrap().unwrap();
     // No lists folder at all.
-    assert_eq!(project_of(&places, &checkout).unwrap(), None);
+    assert_eq!(project_of(&places, &checkout, None).unwrap(), None);
     fresh(&scratch);
     assert_eq!(
-        project_of(&places, &checkout).unwrap(),
+        project_of(&places, &checkout, None).unwrap(),
         Some("demo".to_string())
     );
     let elsewhere = scratch.dir.join("web");
     repo(&elsewhere, "target 1\n");
     assert_eq!(
-        project_of(&places, &Checkout::at(&elsewhere).unwrap().unwrap()).unwrap(),
+        project_of(&places, &Checkout::at(&elsewhere).unwrap().unwrap(), None).unwrap(),
         None
     );
     // A folder with no state (an interrupted init) is not a project.
     std::fs::create_dir_all(places.lists.join("stray")).unwrap();
     assert_eq!(
-        project_of(&places, &checkout).unwrap(),
+        project_of(&places, &checkout, None).unwrap(),
         Some("demo".to_string())
     );
     // A repo in two projects is refused.
@@ -467,11 +467,11 @@ fn project_of_finds_the_one_project_a_repo_is_in() {
             "lists init second",
         )
         .unwrap();
-    assert!(message(project_of(&places, &checkout)).contains("two projects (demo, second)"));
+    assert!(message(project_of(&places, &checkout, None)).contains("two projects (demo, second)"));
     // The worktree's claim names which of the two.
     crate::claim::set_project(&places, &checkout, Some("second")).unwrap();
     assert_eq!(
-        project_of(&places, &checkout).unwrap(),
+        project_of(&places, &checkout, None).unwrap(),
         Some("second".to_string())
     );
     let none = Args::parse(&[], &[], &[]).unwrap();
@@ -486,14 +486,14 @@ fn project_of_finds_the_one_project_a_repo_is_in() {
         "demo"
     );
     crate::claim::set_project(&places, &checkout, None).unwrap();
-    assert!(message(project_of(&places, &checkout)).contains("two projects"));
+    assert!(message(project_of(&places, &checkout, None)).contains("two projects"));
     // A project that holds no such repo is refused when set, and when a file names it.
     assert!(
         message(crate::claim::set_project(&places, &checkout, Some("nope")))
             .contains("holds no repo bae")
     );
     std::fs::write(checkout.project_file(), "elsewhere\n").unwrap();
-    assert!(message(project_of(&places, &checkout)).contains("does not hold repo bae"));
+    assert!(message(project_of(&places, &checkout, None)).contains("does not hold repo bae"));
 }
 
 #[test]

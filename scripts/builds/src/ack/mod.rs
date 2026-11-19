@@ -35,7 +35,7 @@ use crate::fail;
 use crate::fail::Result;
 use crate::install_gate;
 use crate::lists::args::{Args, current_dir};
-use crate::lists::store::{Store, project_of_or_flag, stores};
+use crate::lists::store::{Store, project_of, stores};
 use crate::places::Places;
 use crate::text::{local_minute, shell_word};
 use text::{Text, WORDS_PER_PART, new_words, show_part};
@@ -154,7 +154,7 @@ impl Agent {
         }
         let checkout = Checkout::at(cwd)?;
         let of_checkout = match &checkout {
-            Some(checkout) => project_of_or_flag(places, checkout, project),
+            Some(checkout) => project_of(places, checkout, project),
             None => Ok(None),
         };
         let store = match (of_checkout?, project) {

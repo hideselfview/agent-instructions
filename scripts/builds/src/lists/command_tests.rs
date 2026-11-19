@@ -173,7 +173,7 @@ fn add_repo_lets_a_repo_whose_work_a_project_carries_resolve_to_it() {
     let carried = scratch.dir.join("agent-instructions");
     repo(&carried, "target 1\n");
     let checkout = Checkout::at(&carried).unwrap().unwrap();
-    assert_eq!(project_of(&tool.places, &checkout).unwrap(), None);
+    assert_eq!(project_of(&tool.places, &checkout, None).unwrap(), None);
     run(&tool, "add-repo bae agent-instructions --by tester").unwrap();
     let lists = Store::named(&tool.places, "bae").unwrap().load().unwrap();
     assert_eq!(lists.repos, ["agent-instructions", "bae", "coven"]);
@@ -185,7 +185,7 @@ fn add_repo_lets_a_repo_whose_work_a_project_carries_resolve_to_it() {
         "lists add-repo bae agent-instructions"
     );
     assert_eq!(
-        project_of(&tool.places, &checkout).unwrap(),
+        project_of(&tool.places, &checkout, None).unwrap(),
         Some("bae".to_string())
     );
     let none = Args::parse(&[], &[], &[]).unwrap();

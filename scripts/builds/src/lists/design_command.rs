@@ -83,7 +83,7 @@ struct Scope {
 fn open_store(tool: &Tool, args: &Args, checkout: &Checkout) -> Result<(Store, Lists)> {
     let store = match args.value("project")? {
         Some(project) => Store::named(&tool.places, project)?,
-        None => match project_of(&tool.places, checkout)? {
+        None => match project_of(&tool.places, checkout, None)? {
             Some(project) => Store::named(&tool.places, &project)?,
             None => fail!(
                 "repo {} is in no project; say which with --project",

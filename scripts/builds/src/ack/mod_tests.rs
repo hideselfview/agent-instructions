@@ -274,7 +274,7 @@ fn a_reader_whose_version_builds_no_longer_keeps_reads_the_whole_text() {
     let whole = world.parts(NOON);
     {
         let checkout = Checkout::at(&world.checkout).unwrap().unwrap();
-        let store = project_of(&world.places, &checkout).unwrap().unwrap();
+        let store = project_of(&world.places, &checkout, None).unwrap().unwrap();
         let db = db::open(
             &Store::named(&world.places, &store).unwrap().database(),
             Make::Never,

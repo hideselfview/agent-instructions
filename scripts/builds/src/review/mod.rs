@@ -114,7 +114,7 @@ pub fn installed_rules_root(home: &Path) -> PathBuf {
 /// branches of the project that holds <cwd>'s repo (`frequent.rs`).
 pub fn workflow_section(places: &crate::places::Places, cwd: &Path) -> Result<String> {
     let project = match Checkout::at(cwd)? {
-        Some(checkout) => project_of(places, &checkout)?,
+        Some(checkout) => project_of(places, &checkout, None)?,
         None => None,
     };
     let Some(project) = project else {
@@ -560,7 +560,7 @@ fn worktree_and_base(args: &Args) -> Result<(&str, &str)> {
 fn project_given(tool: &Tool, args: &Args, checkout: &Checkout) -> Result<Option<String>> {
     match args.value("project")? {
         Some(project) => Ok(Some(project.to_string())),
-        None => project_of(&tool.places, checkout),
+        None => project_of(&tool.places, checkout, None),
     }
 }
 

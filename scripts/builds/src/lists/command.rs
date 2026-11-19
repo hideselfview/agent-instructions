@@ -176,7 +176,7 @@ fn project_of_command(tool: &Tool, args: &[String]) -> Result<()> {
         unreachable!("exactly one")
     };
     let checkout = Checkout::find(dir)?;
-    if let Some(project) = project_of(&tool.places, &checkout)? {
+    if let Some(project) = project_of(&tool.places, &checkout, None)? {
         println!("{project}");
     }
     Ok(())
