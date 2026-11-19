@@ -1,5 +1,5 @@
 ---
-digest: A change that adds, removes or rewords user-facing text updates the string catalogs (key and every locale's translation) in the same change. The locale never crosses the bridge. A translation says what the English says the way that language's apps say it, never in the English sentence's structure.
+digest: A change that adds, removes or rewords user-facing text updates the string catalogs (key and every locale's translation) in the same change. Core formats no text for a locale, and the one locale value core holds is the language the app sets for ordering names. A translation says what the English says the way that language's apps say it, never in the English sentence's structure.
 paths:
   - bae-macos/**/*.swift
   - bae-ios/**/*.swift
@@ -20,11 +20,13 @@ change that adds, removes or rewords user-facing text updates the catalogs in
 the same change. A change without its catalog update is incomplete, and a
 finding about it is fixed, never deferred.
 
-The locale never crosses the bridge. bae-bridge sends the apps raw data
-(numbers, typed enums and stable message keys), never prose or text formatted
-for a locale. Each app formats numbers, byte counts, durations and dates with
-its platform's locale formatters, and resolves each message key through its
-string catalogs.
+Core formats no text for a locale. bae-bridge sends the apps raw data (numbers,
+typed enums and stable message keys), never prose or text formatted for a
+locale. Each app formats numbers, byte counts, durations and dates with its
+platform's locale formatters, and resolves each message key through its string
+catalogs. The one locale value core holds is the language the app sets for
+ordering names (bae's spec, §2.1): the app passes it to core, and SQL orders
+names by that language's collation keys.
 
 Each kind of change has its own catalog work:
 
