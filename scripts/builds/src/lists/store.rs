@@ -416,35 +416,29 @@ pub fn database_paths(places: &Places) -> Result<Vec<PathBuf>> {
 /// The stores that exist under `Places::lists`, by project name: a folder
 /// whose database holds a project. A folder with only hook stats is no store.
 pub fn stores(places: &Places) -> Result<Vec<Store>> {
-    let entries = match std::fs::read_dir(&places.lists) {
-        Ok(entries) => entries,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
-        Err(error) => fail!("listing {}: {error}", places.lists.display()),
-    };
-    let mut names = Vec::new();
-    for entry in entries {
-        let entry = entry.context(|| format!("listing {}", places.lists.display()))?;
-        let path = entry.path();
-        let in_database = match db::open_reader(&path.join(DATABASE)) {
+    let mut found = Vec::new();
+    for database in database_paths(places)? {
+        let in_database = match db::open_reader(&database) {
             Ok(Some(conn)) => conn
                 .query_row("SELECT COUNT(*) FROM project", [], |row| {
                     row.get::<_, i64>(0)
                 })
                 .map(|n| n > 0)
+                // A database whose projects can't be read is a store that
+                // fails, named when it is loaded.
                 .unwrap_or(true),
             Ok(None) => false,
             // A database this builds can't read is a store that fails, named when it is loaded.
-            Err(_) => path.join(DATABASE).is_file(),
+            Err(_) => database.is_file(),
         };
         if in_database {
-            names.push(entry.file_name().to_string_lossy().into_owned());
+            let folder = database
+                .parent()
+                .expect("a database sits in its store's folder");
+            found.push(Store::named(places, &crate::checkout::file_name(folder))?);
         }
     }
-    names.sort();
-    names
-        .iter()
-        .map(|name| Store::named(places, name))
-        .collect()
+    Ok(found)
 }
 
 /// Every store's lists, for a command that must know every project's items
