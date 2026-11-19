@@ -26,6 +26,7 @@ fn checkout(name: &str, lane: Option<&'static str>, branch: Option<&str>) -> Che
                 subject: String::new(),
             }),
             ahead: Vec::new(),
+            main: None,
             uncommitted: Some(0),
             last_write: None,
             error: None,

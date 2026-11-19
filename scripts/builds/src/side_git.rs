@@ -27,6 +27,9 @@ pub struct SideGit {
     pub head: Option<Commit>,
     /// The commits on HEAD origin/main has no copy of, newest first.
     pub ahead: Vec<Commit>,
+    /// The full hash of origin/main's commit, read just before `ahead`; None
+    /// for a main checkout and when a read failed.
+    pub main: Option<String>,
     pub uncommitted: Option<usize>,
     /// The newest modification time among the uncommitted files that still
     /// exist.
@@ -256,6 +259,7 @@ pub fn read_head(top: &Path) -> SideGit {
         Ok(found) => SideGit {
             head: found.into_iter().next(),
             ahead: Vec::new(),
+            main: None,
             uncommitted: None,
             last_write: None,
             error: None,
@@ -263,6 +267,7 @@ pub fn read_head(top: &Path) -> SideGit {
         Err(error) => SideGit {
             head: None,
             ahead: Vec::new(),
+            main: None,
             uncommitted: None,
             last_write: None,
             error: Some(error),
@@ -276,9 +281,13 @@ pub fn read(top: &Path) -> SideGit {
     let read = || -> Result<SideGit, String> {
         let head = commits(top, &["-1", "HEAD"])?.into_iter().next();
         let (count, newest) = uncommitted(top)?;
+        // A move of origin/main after this read moves the repo's refs, so
+        // the daemon reads the worktree again.
+        let main = run(top, &["rev-parse", "origin/main"])?.trim().to_string();
         Ok(SideGit {
             head,
             ahead: waiting_to_land(top, "HEAD")?,
+            main: Some(main),
             uncommitted: Some(count),
             last_write: newest,
             error: None,
@@ -287,6 +296,7 @@ pub fn read(top: &Path) -> SideGit {
     read().unwrap_or_else(|error| SideGit {
         head: None,
         ahead: Vec::new(),
+        main: None,
         uncommitted: None,
         last_write: None,
         error: Some(error),

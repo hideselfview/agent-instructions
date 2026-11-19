@@ -1771,6 +1771,7 @@ mod tests {
             git: SideGit {
                 head: None,
                 ahead: Vec::new(),
+                main: None,
                 uncommitted: Some(3),
                 last_write: Some(now - 3 * 3600),
                 error: None,
@@ -1859,6 +1860,7 @@ mod tests {
             let git = |ahead: usize, unread: bool| SideGit {
                 head: None,
                 ahead: (0..ahead).map(|n| commit(n as u8)).collect(),
+                main: None,
                 uncommitted: Some(0),
                 last_write: Some(now - 60),
                 error: unread.then(|| "git could not read it".to_string()),
@@ -1973,6 +1975,7 @@ mod tests {
             git: SideGit {
                 head: None,
                 ahead: Vec::new(),
+                main: None,
                 uncommitted: Some(3),
                 last_write: Some(now - changed_ago),
                 error: None,
@@ -2058,6 +2061,7 @@ mod tests {
             git: SideGit {
                 head: None,
                 ahead: Vec::new(),
+                main: None,
                 uncommitted: Some(3),
                 last_write: Some(now - 2 * 3600),
                 error: None,
@@ -2138,6 +2142,7 @@ mod tests {
                 git: SideGit {
                     head: None,
                     ahead: Vec::new(),
+                    main: None,
                     uncommitted: Some(0),
                     last_write: Some(now - 2 * 3600),
                     error: None,
@@ -2234,6 +2239,7 @@ mod tests {
                 git: SideGit {
                     head: Some(commit(mine)),
                     ahead: vec![commit(mine)],
+                    main: None,
                     uncommitted: Some(0),
                     last_write: None,
                     error: None,
@@ -2416,6 +2422,7 @@ mod tests {
         let git = |ahead: Vec<Commit>| SideGit {
             head: None,
             ahead,
+            main: None,
             uncommitted: Some(0),
             last_write: None,
             error: None,

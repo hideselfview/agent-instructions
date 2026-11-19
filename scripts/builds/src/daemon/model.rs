@@ -1391,15 +1391,20 @@ impl Model {
             (Some(lists), Some(git))
                 if worktree == CardState::ReadyToLand && git.error.is_none() =>
             {
+                let reviewed = super::review_cards::Worktree {
+                    repo: seen.repo,
+                    top,
+                    branch: seen.branch,
+                    git,
+                };
                 let standing = crate::lists::store::Store::named(&self.places, &lists.project)
                     .map_err(crate::fail::Fail::text)
                     .and_then(|store| {
                         self.review_reads.standing(
                             &store,
+                            lists.version,
                             &self.places.claude_sessions(),
-                            seen.repo,
-                            top,
-                            &git.ahead,
+                            &reviewed,
                         )
                     });
                 match standing {

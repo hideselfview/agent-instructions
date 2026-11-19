@@ -21,6 +21,7 @@ fn card(
         git: Some(SideGit {
             head: None,
             ahead: Vec::new(),
+            main: None,
             uncommitted,
             last_write: None,
             error: None,
