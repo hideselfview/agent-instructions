@@ -683,8 +683,9 @@ sent again.
       the words the circle shows when the person points at it, which the
       page also lists under the board's caption. The page names each circle
       whose selector is no CSS selector or finds nothing on either side. A
-      board that is no file on origin/main is new whole, so it takes no
-      circles.
+      board that is no file on origin/main is new: it takes circles too,
+      which the page draws on the Proposed side, and its Now side says the
+      board is new.
       `worktree` and the range's last commit are stored with the change, and
       the page reads each board from that repo at that commit, so the commit
       must stay in the repo while the change is open. A change recorded
@@ -699,8 +700,7 @@ sent again.
       canvas has no link, a project that publishes none gives `boards`,
       `review` is missing, has a heading with no text or more than 25
       words, a board of it is no file, no board place or has no caption, a
-      circle has no selector or an empty label, a board with circles is no
-      file on origin/main, a board of the change is not on it, or the range
+      circle has no selector or an empty label, a board of the change is not on it, or the range
       changes no design files. A canvas.json the range changes is a place
       to answer like any other, and is no board: it takes no link and no
       place on the review page.

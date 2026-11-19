@@ -2196,7 +2196,7 @@ fn a_review_board_must_be_a_file_at_the_last_commit_not_only_in_the_worktree() {
 }
 
 #[test]
-fn a_review_board_keeps_the_circles_the_designer_names_and_a_board_the_change_adds_has_none() {
+fn a_review_board_keeps_the_circles_the_designer_names_and_so_does_a_board_the_change_adds() {
     let w = world("design-review-circles");
     let (a, b) = ("design/mocks/A.dc.html", "design/mocks/B.dc.html");
     w.commit(&[a]);
@@ -2221,20 +2221,14 @@ fn a_review_board_keeps_the_circles_the_designer_names_and_a_board_the_change_ad
         json!([]),
     )));
     assert!(refused.contains("unknown field `kind`"), "{refused}");
-    let refused = message(w.request(with(json!([]), json!([{ "selector": "#x" }]))));
-    assert!(
-        refused.contains(&format!(
-            "circles elements on {b}, which is no file on origin/main"
-        )),
-        "{refused}"
-    );
     assert_eq!(w.bytes(), before);
 
     let circles = json!([
         { "selector": "#disc-1", "label": "The Disc 1 heading goes" },
         { "selector": ".row" }
     ]);
-    w.request(with(circles.clone(), json!([]))).unwrap();
+    let on_new = json!([{ "selector": ".empty", "label": "The empty state it adds" }]);
+    w.request(with(circles.clone(), on_new.clone())).unwrap();
     let page = w.state().designs[0].review.clone().unwrap();
     assert_eq!(
         page.boards[0].circles,
@@ -2249,11 +2243,19 @@ fn a_review_board_keeps_the_circles_the_designer_names_and_a_board_the_change_ad
             },
         ]
     );
-    assert!(page.boards[1].circles.is_empty());
+    assert_eq!(
+        page.boards[1].circles,
+        vec![Circle {
+            selector: ".empty".into(),
+            label: Some("The empty state it adds".into()),
+        }],
+        "a board that is no file on origin/main takes circles too"
+    );
     let shown = w.run("show 1").unwrap();
     assert!(
         shown.contains("      circles #disc-1: The Disc 1 heading goes\n")
-            && shown.contains("      circles .row\n"),
+            && shown.contains("      circles .row\n")
+            && shown.contains("      circles .empty: The empty state it adds\n"),
         "{shown}"
     );
 
@@ -2261,7 +2263,7 @@ fn a_review_board_keeps_the_circles_the_designer_names_and_a_board_the_change_ad
     // keeps them keeps the approval, and one that changes them clears it.
     w.approve(1);
     let amend = |circles: serde_json::Value| {
-        let mut request = with(circles, json!([]));
+        let mut request = with(circles, on_new.clone());
         request.as_object_mut().unwrap().remove("title");
         w.amend(1, request).unwrap();
         w.state().designs[0].approved.is_some()

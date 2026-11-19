@@ -80,7 +80,8 @@ pub struct ReviewBoard {
     pub caption: String,
     pub theme: Theme,
     /// What changed, as the designer says: the page circles these and
-    /// nothing else. Empty on a board the change adds, which is new whole.
+    /// nothing else. On a board the change adds, the circles mark what it
+    /// adds, and the page draws them on the Proposed side only.
     #[serde(default)]
     pub circles: Vec<Circle>,
 }
@@ -520,8 +521,8 @@ const MAX_SECTION_WORDS: usize = 25;
 /// A review page's own rules: its heading has text, its words are at most
 /// `MAX_SECTION_WORDS`, every board on it has a caption, and each circle has a
 /// selector and, if it has a label, words in it. (That a board is a board file,
-/// one of the repo's board places, exists in the worktree and is no new board
-/// when it has circles is the command's, which reads git and the files.)
+/// one of the repo's board places, and exists in the worktree is the command's,
+/// which reads git and the files.)
 fn check_review(section: &ReviewSection) -> Result<()> {
     if section.heading.trim().is_empty() {
         fail!("`review` has an empty heading");
