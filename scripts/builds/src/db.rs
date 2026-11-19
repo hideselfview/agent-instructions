@@ -130,6 +130,14 @@ pub const CARD_STATE_PART: &str = include_str!("card_state.sql");
 /// it after the cards' states.
 pub const CARGO_RUN_OUTCOME_PART: &str = include_str!("cargo_run_outcome.sql");
 
+/// The commit each `builds cargo` run ran on (cargo_run_commit.sql); the
+/// schema holds it after the cargo runs' outcomes.
+pub const CARGO_RUN_COMMIT_PART: &str = include_str!("cargo_run_commit.sql");
+
+/// The commit each app build run built (app_build_commit.sql); the schema
+/// holds it after the cargo runs' commits.
+pub const APP_BUILD_COMMIT_PART: &str = include_str!("app_build_commit.sql");
+
 /// The whole schema: the lists' tables, then the hook stats', then the
 /// app-build timings', then the design changes' recording sessions', then the
 /// stored shot findings, then the review's, then the hook checks' starting
@@ -138,8 +146,18 @@ pub const CARGO_RUN_OUTCOME_PART: &str = include_str!("cargo_run_outcome.sql");
 /// publish requests', then the Rust release items', then the Rust checks',
 /// then the items' events, then the landings', then the reviewer processes'
 /// times, then the hosts' samples, then the crates of the cargo runs, then
-/// the judge's, then the cards' states, then the cargo runs' outcomes.
+/// the judge's, then the cards' states, then the cargo runs' outcomes, then
+/// the commits of the cargo runs and the app builds.
 pub fn schema() -> String {
+    format!(
+        "{}\n{CARGO_RUN_COMMIT_PART}\n{APP_BUILD_COMMIT_PART}",
+        schema_before_step_commits()
+    )
+}
+
+/// The schema as it was before the commits of the cargo runs and the app
+/// builds joined it.
+pub fn schema_before_step_commits() -> String {
     format!(
         "{}\n{CARGO_RUN_OUTCOME_PART}",
         schema_before_cargo_run_outcome()

@@ -140,6 +140,10 @@ pub struct Card {
     /// Each stretch of dashboard state of the cards that listed the item
     /// (card_state.rs), cut to the card's time.
     pub dashboard: Vec<crate::card_state::Stretch>,
+    /// Each step that ran on a commit off its run's branch, with when it
+    /// started: on neither that branch nor origin/main since the branch left
+    /// it, as a bisect or an old checkout does.
+    pub off_branch: Vec<(i64, String)>,
 }
 
 /// One hook check that ran: its hook run's commit (HEAD when the run
@@ -260,6 +264,7 @@ pub fn gather(db: &Connection, lists: &Lists, id: Id, now: i64) -> Result<Card> 
         states: Vec::new(),
         checks: Vec::new(),
         dashboard: Vec::new(),
+        off_branch: Vec::new(),
     };
     card.moments.push(Moment {
         at: item.opened.at,
@@ -306,7 +311,7 @@ pub fn gather(db: &Connection, lists: &Lists, id: Id, now: i64) -> Result<Card> 
         }
         for (repo, worktree, branch) in places {
             read_cargo(db, &worktree, since, end, &mut card)?;
-            read_hooks(db, &worktree, since, end, &mut card)?;
+            read_hooks(db, &worktree, &branch, since, end, &mut card)?;
             read_app_builds(db, &repo, &branch, since, end, &mut card)?;
             read_reviews(db, &repo, &branch, since, end, &mut card)?;
         }
@@ -358,8 +363,10 @@ fn read_cargo(db: &Connection, worktree: &str, from: i64, to: i64, card: &mut Ca
         .prepare(
             "SELECT r.started_at, r.subcommand, r.host, r.cores, r.load, r.lock_wait_ms, r.ms, \
                     r.hook_started_at IS NOT NULL, \
-                    (SELECT group_concat(crate, ',') FROM builds_cargo_run_crate WHERE run_id = r.id) \
-             FROM builds_cargo_runs r WHERE r.worktree = ?1 AND r.started_at >= ?2 AND r.started_at <= ?3",
+                    (SELECT group_concat(crate, ',') FROM builds_cargo_run_crate WHERE run_id = r.id), \
+                    c.head, c.changes IS NOT NULL, c.run_branch, c.off_branch \
+             FROM builds_cargo_runs r LEFT JOIN builds_cargo_run_commit c ON c.run_id = r.id \
+             WHERE r.worktree = ?1 AND r.started_at >= ?2 AND r.started_at <= ?3",
         )
         .sql()?;
     let rows = statement
@@ -374,14 +381,38 @@ fn read_cargo(db: &Connection, worktree: &str, from: i64, to: i64, card: &mut Ca
                 row.get::<_, i64>(6)?,
                 row.get::<_, bool>(7)?,
                 row.get::<_, Option<String>>(8)?,
+                (
+                    row.get::<_, Option<String>>(9)?,
+                    row.get::<_, Option<bool>>(10)?,
+                    row.get::<_, Option<String>>(11)?,
+                    row.get::<_, Option<bool>>(12)?,
+                ),
             ))
         })
         .sql()?;
     for row in rows {
-        let (at, subcommand, host, cores, load, lock_wait, ms, in_hook, crates) = row.sql()?;
+        let (at, subcommand, host, cores, load, lock_wait, ms, in_hook, crates, commit) =
+            row.sql()?;
+        let name = match subcommand.as_deref() {
+            Some(subcommand) => format!("cargo {subcommand}"),
+            None => "cargo (subcommand not recorded)".to_string(),
+        };
         let mut detail = format!("load {load:.0}/{cores} when it started");
         if let Some(crates) = crates {
             detail = format!("{crates}; {detail}");
+        }
+        if let (Some(head), changed, run_branch, off) = commit {
+            let head = short(&head);
+            let _ = write!(detail, "; on {head}");
+            if changed == Some(true) {
+                detail.push_str(" with uncommitted changes");
+            }
+            if off == Some(true) {
+                let run_branch = run_branch.unwrap_or_default();
+                detail.push_str(&format!(", off branch {run_branch}"));
+                card.off_branch
+                    .push((at, format!("{name} on {head}, off branch {run_branch}")));
+            }
         }
         if let Some(lock_wait) = lock_wait.filter(|wait| *wait > 0) {
             let _ = write!(
@@ -395,10 +426,7 @@ fn read_cargo(db: &Connection, worktree: &str, from: i64, to: i64, card: &mut Ca
         }
         card.steps.push(Step {
             kind: Kind::Cargo,
-            name: match subcommand.as_deref() {
-                Some(subcommand) => format!("cargo {subcommand}"),
-                None => "cargo (subcommand not recorded)".to_string(),
-            },
+            name,
             start: at,
             end: at + (ms + 999) / 1000,
             host: Some(host),
@@ -411,12 +439,20 @@ fn read_cargo(db: &Connection, worktree: &str, from: i64, to: i64, card: &mut Ca
     Ok(())
 }
 
-/// The commit hook runs of <worktree> that started in [<from>, <to>], with
-/// the time of each check that passed.
-fn read_hooks(db: &Connection, worktree: &str, from: i64, to: i64, card: &mut Card) -> Result<()> {
+/// The commit hook runs of <worktree>, whose run's branch is <run_branch>,
+/// that started in [<from>, <to>], with the time of each check that passed. A
+/// hook run on another branch or a detached HEAD ran off the run's branch.
+fn read_hooks(
+    db: &Connection,
+    worktree: &str,
+    run_branch: &str,
+    from: i64,
+    to: i64,
+    card: &mut Card,
+) -> Result<()> {
     let mut runs = db
         .prepare(
-            "SELECT id, started_at, plan_ms, total_ms, passed FROM hook_runs \
+            "SELECT id, started_at, plan_ms, total_ms, passed, branch, base FROM hook_runs \
              WHERE worktree = ?1 AND started_at >= ?2 AND started_at <= ?3",
         )
         .sql()?;
@@ -428,11 +464,26 @@ fn read_hooks(db: &Connection, worktree: &str, from: i64, to: i64, card: &mut Ca
                 row.get::<_, i64>(2)?,
                 row.get::<_, i64>(3)?,
                 row.get::<_, bool>(4)?,
+                row.get::<_, Option<String>>(5)?,
+                row.get::<_, Option<String>>(6)?,
             ))
         })
         .sql()?;
     for row in rows {
-        let (id, at, plan_ms, total_ms, passed) = row.sql()?;
+        let (id, at, plan_ms, total_ms, passed, branch, base) = row.sql()?;
+        if branch.as_deref() != Some(run_branch) {
+            let on = match &branch {
+                Some(branch) => format!("branch {branch}"),
+                None => "a detached HEAD".to_string(),
+            };
+            let base = base
+                .as_deref()
+                .map_or("an unread commit".to_string(), short);
+            card.off_branch.push((
+                at,
+                format!("commit hook on {base} of {on}, off branch {run_branch}"),
+            ));
+        }
         let local = Some(LOCAL.to_string());
         let step = |kind, name: String, start, ms: i64, detail: String, attributed, leaf| Step {
             kind,
@@ -520,8 +571,9 @@ fn read_app_builds(
 ) -> Result<()> {
     let mut runs = db
         .prepare(
-            "SELECT id, started_at, lane, checkout, wait_ms, passed FROM app_build_runs \
-             WHERE repo = ?1 AND built_ref = ?2 AND started_at >= ?3 AND started_at <= ?4",
+            "SELECT r.id, r.started_at, r.lane, r.checkout, r.wait_ms, r.passed, c.built_commit \
+             FROM app_build_runs r LEFT JOIN app_build_run_commit c ON c.run_id = r.id \
+             WHERE r.repo = ?1 AND r.built_ref = ?2 AND r.started_at >= ?3 AND r.started_at <= ?4",
         )
         .sql()?;
     let rows = runs
@@ -533,12 +585,16 @@ fn read_app_builds(
                 row.get::<_, String>(3)?,
                 row.get::<_, i64>(4)?,
                 row.get::<_, bool>(5)?,
+                row.get::<_, Option<String>>(6)?,
             ))
         })
         .sql()?;
     for row in rows {
-        let (id, at, lane, checkout, wait_ms, passed) = row.sql()?;
+        let (id, at, lane, checkout, wait_ms, passed, built) = row.sql()?;
         let host = host_of_checkout(&checkout);
+        let built = built
+            .as_deref()
+            .map_or(String::new(), |sha| format!(" {}", short(sha)));
         card.steps.push(Step {
             kind: Kind::AppBuildQueue,
             name: format!("app build {lane} queue"),
@@ -546,7 +602,7 @@ fn read_app_builds(
             end: at + (wait_ms + 999) / 1000,
             host: Some(host.clone()),
             detail: format!(
-                "then built in {checkout}; {}",
+                "then built{built} in {checkout}; {}",
                 if passed { "passed" } else { "failed" }
             ),
             attributed: true,
@@ -825,6 +881,11 @@ pub fn dashboard_seconds(card: &Card) -> BTreeMap<&str, i64> {
     seconds
 }
 
+/// The first 10 characters of commit <sha>.
+fn short(sha: &str) -> String {
+    sha.chars().take(10).collect()
+}
+
 /// What a host did over [<from>, <to>], in words; None when it has no sample
 /// there.
 fn host_words(db: &Connection, host: &str, from: i64, to: i64) -> Result<Option<String>> {
@@ -977,6 +1038,15 @@ pub fn card_text(db: &Connection, card: &Card) -> Result<String> {
         );
     }
     out.push_str(&states_text(card, total));
+    if !card.off_branch.is_empty() {
+        let _ = writeln!(
+            out,
+            "steps that ran off their run's branch (a bisect or an old checkout)"
+        );
+        for (at, words) in &card.off_branch {
+            let _ = writeln!(out, "  {}  {words}", local_second(*at));
+        }
+    }
     Ok(out)
 }
 

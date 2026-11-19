@@ -857,6 +857,8 @@ struct Timing {
     /// one.
     held: Option<HeldTimes>,
     steps: Vec<StepRecord>,
+    /// The commit the run checked out to build; None until it checks one out.
+    commit: Option<String>,
     /// The use of the stores the lane takes each time it holds the lane's
     /// lock (`hold_stores`), held until `record` has written the run or the
     /// lane goes back to the queue.
@@ -889,6 +891,7 @@ impl Timing {
         Timing {
             held: None,
             steps: Vec::new(),
+            commit: None,
             stores: None,
         }
     }
@@ -912,6 +915,7 @@ impl Timing {
                     lane,
                     checkout: held.checkout,
                     built_ref: built_ref.to_string(),
+                    built_commit: self.commit,
                     who: who_asked(),
                     wait_ms: held.wait.as_millis() as u64,
                     passed,
@@ -1044,6 +1048,7 @@ fn build_lane(
             Built::clear(&built_file)?;
         }
         let config = site.check_out(places, repo, commit)?;
+        timing.commit = Some(site.head()?);
         let program_of = |class: &str| {
             let program = crate::derive::program_of(&source, &config, commit, lane, class)?;
             if let Some(program) = &program {

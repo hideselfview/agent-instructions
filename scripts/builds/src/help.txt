@@ -738,7 +738,11 @@ restart the server.
                               check started it, the check (`builds checks run`
                               puts the check's run start and position in
                               BUILDS_HOOK_CHECK), the crates its -p and
-                              --package arguments named, and how it ended:
+                              --package arguments named, the commit it ran
+                              on (HEAD as it started, the branch checked out,
+                              a hash of the uncommitted changes, and whether
+                              HEAD was off the branch of the item running in
+                              the worktree), and how it ended:
                               passed, failed, or stopped (a signal ended
                               cargo). builds reads each line of cargo's output
                               as it passes through, on this Mac or from the
@@ -997,7 +1001,8 @@ from the store, never built again.
                               UI tests timed out turning on automation mode.
                               Each
                               lane's run goes to the project's store when it
-                              ends: the ref, the claim of the worktree it ran
+                              ends: the ref and the commit it checked out
+                              for it, the claim of the worktree it ran
                               from, the checkout, the cores and one-minute
                               load of the checkout's host when the run took
                               the checkout, its wait in the queue, and each

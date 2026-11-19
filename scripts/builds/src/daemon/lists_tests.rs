@@ -276,6 +276,7 @@ fn a_recorded_app_build_run_reaches_the_feeds_hooks_json() {
         lane: crate::lane::Lane::Mac,
         checkout: "side-4".into(),
         built_ref: "branch".into(),
+        built_commit: None,
         who: None,
         wait_ms: 1234,
         passed: true,

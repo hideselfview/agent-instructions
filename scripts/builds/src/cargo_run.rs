@@ -146,14 +146,15 @@ pub struct CargoRun {
     pub hook_check: Option<(i64, u32)>,
 }
 
-/// Writes <run>, which named <crates> and ended as <outcome> says, to the
-/// database at <path>, and creates the database with its schema if it does
-/// not exist.
+/// Writes <run>, which named <crates>, ended as <outcome> says and ran on
+/// <tree> (None when git could not read the worktree), to the database at
+/// <path>, and creates the database with its schema if it does not exist.
 pub fn record_run(
     path: &Path,
     run: &CargoRun,
     crates: &[String],
     outcome: &crate::cargo_run_outcome::Outcome,
+    tree: Option<&crate::tree_state::TreeState>,
 ) -> Result<()> {
     let mut conn = crate::db::open(path, crate::db::Make::Allowed)?;
     let what = || format!("writing {}", path.display());
@@ -179,6 +180,9 @@ pub fn record_run(
     let id = tx.last_insert_rowid();
     crate::cargo_run_crate::record(&tx, id, crates)?;
     crate::cargo_run_outcome::record(&tx, id, outcome)?;
+    if let Some(tree) = tree {
+        crate::cargo_run_commit::record(&tx, id, Path::new(&run.worktree), tree)?;
+    }
     tx.commit().context(what)
 }
 
@@ -383,6 +387,11 @@ pub fn cmd_cargo(args: &[String]) -> Result<()> {
         (Some(_), Some(picked)) => picked,
         _ => (LOCAL.to_string(), Load::here()),
     };
+    // What the worktree holds as cargo starts, read beside the run.
+    let tree = checkout.as_ref().map(|checkout| {
+        let top = checkout.top.clone();
+        std::thread::spawn(move || crate::tree_state::read(&top))
+    });
     let watch = crate::cargo_run_outcome::Watch::default();
     let exited = match job {
         None => prepare_here(checkout.as_ref(), &env)
@@ -401,6 +410,15 @@ pub fn cmd_cargo(args: &[String]) -> Result<()> {
             })?,
         Some(job) => cargo_place::finish(job, &watch)?,
     };
+    let tree = tree.and_then(|read| match read.join().expect("the read does not panic") {
+        Ok(tree) => Some(tree),
+        Err(error) => {
+            crate::text::note(format!(
+                "builds could not read the commit this cargo run ran on: {error}"
+            ));
+            None
+        }
+    });
     if let (Some(checkout), Some(key)) = (&checkout, key) {
         let recorded = hook_check(&env).and_then(|hook_check| {
             record_finished(
@@ -418,6 +436,7 @@ pub fn cmd_cargo(args: &[String]) -> Result<()> {
                 },
                 &crate::cargo_run_crate::named(args),
                 &watch.outcome(exited.code),
+                tree.as_ref(),
             )
         });
         if let Err(error) = recorded {
@@ -504,19 +523,20 @@ pub fn last_host(conn: &Connection, key: &RunKey, path: &Path) -> Result<Option<
     .context(|| format!("reading {}", path.display()))
 }
 
-/// Records <run>, which ended as <outcome> says, in the database of
-/// <checkout>'s project; a repo in no project records nothing.
+/// Records <run>, which ended as <outcome> says and ran on <tree>, in the
+/// database of <checkout>'s project; a repo in no project records nothing.
 fn record_finished(
     places: &Places,
     checkout: &Checkout,
     run: &CargoRun,
     crates: &[String],
     outcome: &crate::cargo_run_outcome::Outcome,
+    tree: Option<&crate::tree_state::TreeState>,
 ) -> Result<()> {
     let Some(database) = crate::lists::store::database_of(places, checkout)? else {
         return Ok(());
     };
-    record_run(&database, run, crates, outcome)
+    record_run(&database, run, crates, outcome, tree)
 }
 
 /// How cargo ended: its exit status (or the recorder's, `run_here`), and how
@@ -706,6 +726,7 @@ mod tests {
             &run,
             &["builds".to_string(), "boards".to_string()],
             &crate::cargo_run_outcome::Outcome::passed(),
+            None,
         )
         .unwrap();
         let conn = crate::db::open_reader(&path).unwrap().unwrap();
@@ -750,6 +771,7 @@ mod tests {
             &run("/d/bae", 100, "clippy", "local"),
             &[],
             &crate::cargo_run_outcome::Outcome::passed(),
+            None,
         )
         .unwrap();
         record_run(
@@ -757,6 +779,7 @@ mod tests {
             &run("/d/bae", 200, "clippy", "m1"),
             &[],
             &crate::cargo_run_outcome::Outcome::passed(),
+            None,
         )
         .unwrap();
         record_run(
@@ -764,6 +787,7 @@ mod tests {
             &run("/d/bae", 300, "test", "local"),
             &[],
             &crate::cargo_run_outcome::Outcome::passed(),
+            None,
         )
         .unwrap();
         record_run(
@@ -771,6 +795,7 @@ mod tests {
             &run("/d/other", 400, "clippy", "local"),
             &[],
             &crate::cargo_run_outcome::Outcome::passed(),
+            None,
         )
         .unwrap();
         let conn = crate::db::open_reader(&path).unwrap().unwrap();

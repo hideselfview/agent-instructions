@@ -380,8 +380,13 @@ runs in (plans are in no commit); an absolute path is itself.
       review and Unreviewed changes), ready and waiting for builds land
       (Ready to land), agent working, between runs, ready and not taken, and
       blocked by other work. A cargo run that a hook check started counts
-      inside the hook run. Then times prints the time the item's cards spent
-      in each dashboard state. An item opened before the store began to
+      inside the hook run. Each cargo run in the timeline names the commit it
+      ran on and whether the tree had uncommitted changes, and each app build
+      the commit it built. Then times prints the time the item's cards spent
+      in each dashboard state, and the steps that ran off their run's branch:
+      a cargo run on a commit of neither the run's branch nor origin/main
+      since the branch left it (a bisect or an old checkout), and a commit
+      hook run on another branch or a detached HEAD. An item opened before the store began to
       record states has no state events, and its time before its first run
       is "before builds recorded states". With no N, it prints the same kinds
       and the slowest steps over the items that landed in the last 14 days:

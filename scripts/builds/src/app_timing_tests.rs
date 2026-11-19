@@ -26,6 +26,7 @@ fn run(at: i64, lane: Lane, wait_ms: u64, passed: bool, steps: Vec<StepRecord>) 
         lane,
         checkout: "side-1".to_string(),
         built_ref: "branch".to_string(),
+        built_commit: None,
         who: Some("agent".to_string()),
         wait_ms,
         passed,

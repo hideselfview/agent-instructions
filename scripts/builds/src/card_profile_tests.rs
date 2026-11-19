@@ -58,6 +58,11 @@ fn landed_card(scratch: &Scratch) -> (crate::lists::store::Store, Id) {
         &cargo(T0 + 100, 40_000, None),
         &["builds".into()],
         &crate::cargo_run_outcome::Outcome::passed(),
+        Some(&crate::tree_state::TreeState {
+            head: sha('b'),
+            branch: Some("work".into()),
+            changes: Some("0123456789abcdef".into()),
+        }),
     )
     .unwrap();
     // A hook run of 30s, 10s of it a cargo run of its own.
@@ -66,6 +71,7 @@ fn landed_card(scratch: &Scratch) -> (crate::lists::store::Store, Id) {
         &cargo(T0 + 200, 10_000, Some((T0 + 200, 0))),
         &[],
         &crate::cargo_run_outcome::Outcome::passed(),
+        None,
     )
     .unwrap();
     crate::hook_stats::record(
@@ -239,6 +245,7 @@ fn landed_card(scratch: &Scratch) -> (crate::lists::store::Store, Id) {
             lane: crate::lane::Lane::Mac,
             checkout: "side-1".into(),
             built_ref: "work".into(),
+            built_commit: None,
             who: None,
             wait_ms: 20_000,
             passed: true,
@@ -360,7 +367,11 @@ fn the_timeline_shows_each_step_with_its_hosts_load_and_the_time_by_kind() {
         ),
         "{text}"
     );
-    assert!(text.contains("builds; load 4/10 when it started"), "{text}");
+    assert!(
+        text.contains("builds; load 4/10 when it started; on bbbbbbbbbb with uncommitted changes"),
+        "{text}"
+    );
+    assert!(!text.contains("off their run's branch"), "{text}");
     assert!(text.contains("hook check clippy took 25.0s"), "{text}");
     assert!(
         text.contains("review Errors took 59.0s (2 findings)"),
@@ -449,5 +460,34 @@ fn a_failed_check_is_fixed_flaky_or_standing_by_the_next_pass() {
             ("fmt".to_string(), Outcome::Flaky),
             ("spec".to_string(), Outcome::Stood),
         ]
+    );
+}
+
+#[test]
+fn a_hook_run_on_another_branch_shows_as_off_the_runs_branch() {
+    let scratch = Scratch::new("card-profile-off-branch");
+    let (store, id) = landed_card(&scratch);
+    crate::hook_stats::record(
+        &store.database(),
+        &crate::hook_stats::Run {
+            at: T0 + 250,
+            repo: "bae".into(),
+            worktree: WORKTREE.into(),
+            branch: None,
+            base: Some(sha('c')),
+            passed: true,
+            plan_ms: 1_000,
+            total_ms: 2_000,
+            files: Vec::new(),
+            checks: Vec::new(),
+        },
+    )
+    .unwrap();
+    let lists = store.load().unwrap();
+    let db = store.open_existing().unwrap();
+    let text = text(&db, &lists, &[id], T0 + 9_999).unwrap();
+    assert!(
+        text.contains("commit hook on cccccccccc of a detached HEAD, off branch work"),
+        "{text}"
     );
 }

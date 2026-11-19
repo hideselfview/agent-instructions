@@ -119,6 +119,7 @@ fn a_store_gives_each_kind_its_own_rows_and_leaves_out_other_cargo_runs() {
         &cargo("clippy", 40_000, Some((1_000, 0))),
         &[],
         &crate::cargo_run_outcome::Outcome::passed(),
+        None,
     )
     .unwrap();
     record_run(
@@ -126,6 +127,7 @@ fn a_store_gives_each_kind_its_own_rows_and_leaves_out_other_cargo_runs() {
         &cargo("nextest run", 90_000, None),
         &[],
         &crate::cargo_run_outcome::Outcome::passed(),
+        None,
     )
     .unwrap();
     record_run(
@@ -133,6 +135,7 @@ fn a_store_gives_each_kind_its_own_rows_and_leaves_out_other_cargo_runs() {
         &cargo("test", 30_000, None),
         &[],
         &crate::cargo_run_outcome::Outcome::passed(),
+        None,
     )
     .unwrap();
     record_run(
@@ -140,6 +143,7 @@ fn a_store_gives_each_kind_its_own_rows_and_leaves_out_other_cargo_runs() {
         &cargo("clippy", 20_000, None),
         &[],
         &crate::cargo_run_outcome::Outcome::passed(),
+        None,
     )
     .unwrap();
     let step = |name: &str, wall_ms: u64| crate::app_timing::StepRecord {
@@ -158,6 +162,7 @@ fn a_store_gives_each_kind_its_own_rows_and_leaves_out_other_cargo_runs() {
             lane: crate::lane::Lane::Mac,
             checkout: "side-1".into(),
             built_ref: "branch".into(),
+            built_commit: None,
             who: None,
             wait_ms: 7_000,
             passed: true,

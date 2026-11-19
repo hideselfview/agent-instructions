@@ -707,6 +707,7 @@ fn a_check_comes_back_with_where_it_ran_and_how_loaded_that_host_was() {
         &cargo(1, Some(12_000)),
         &[],
         &crate::cargo_run_outcome::Outcome::passed(),
+        None,
     )
     .unwrap();
     // A cargo run of another hook run names no check of this one.
@@ -717,6 +718,7 @@ fn a_check_comes_back_with_where_it_ran_and_how_loaded_that_host_was() {
         &other,
         &[],
         &crate::cargo_run_outcome::Outcome::passed(),
+        None,
     )
     .unwrap();
     let read = recorded_runs(&path, "bae");

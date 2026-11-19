@@ -175,9 +175,13 @@ const BEFORE_CARD_STATE_STAMP: i64 = 21_217_016;
 /// ended.
 const BEFORE_CARGO_RUN_OUTCOME_STAMP: i64 = 949_736_987;
 
+/// The stamp of the schema before builds recorded the commit each cargo run
+/// ran on and each app build built.
+const BEFORE_STEP_COMMITS_STAMP: i64 = 96_262_301;
+
 /// Every stamp a store can carry that `move_store` moves, oldest schema first.
 /// A new move adds the stamp of the schema before it at the end.
-const STAMPS: [i64; 10] = [
+const STAMPS: [i64; 11] = [
     BEFORE_CONDITION_ENDERS_STAMP,
     BEFORE_ITEM_EVENT_STAMP,
     BEFORE_LAND_RUN_STAMP,
@@ -188,6 +192,7 @@ const STAMPS: [i64; 10] = [
     BEFORE_LANDING_REPO_STAMP,
     BEFORE_CARD_STATE_STAMP,
     BEFORE_CARGO_RUN_OUTCOME_STAMP,
+    BEFORE_STEP_COMMITS_STAMP,
 ];
 
 /// Whether a store stamped <found> comes before the move that follows the
@@ -347,6 +352,11 @@ fn move_store(path: &Path, now: i64) -> Result<()> {
     // tables: the runs it holds have none.
     if before(found, BEFORE_CARGO_RUN_OUTCOME_STAMP) {
         tx.execute_batch(db::CARGO_RUN_OUTCOME_PART).sql()?;
+    }
+    // Every store from before the steps' commits gets their empty tables.
+    if before(found, BEFORE_STEP_COMMITS_STAMP) {
+        tx.execute_batch(db::CARGO_RUN_COMMIT_PART).sql()?;
+        tx.execute_batch(db::APP_BUILD_COMMIT_PART).sql()?;
     }
     tx.pragma_update(None, "user_version", db::stamp()).sql()?;
     let broken: Option<String> = tx
