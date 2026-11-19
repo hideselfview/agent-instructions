@@ -438,6 +438,102 @@ fn a_stop_before_the_step_writes_its_pid_waits_for_it_and_spares_the_earlier_ste
     );
 }
 
+/// The variables that hand `killed_caller` the fake ssh and the worktree.
+const CALLER_SSH: &str = "BUILDS_TEST_CALLER_SSH";
+const CALLER_WORKTREE: &str = "BUILDS_TEST_CALLER_WORKTREE";
+
+/// The side of a job on this Mac, run by
+/// `a_killed_caller_stops_the_command_on_the_host` in a process of its own,
+/// which that test kills. The command writes its process group's id to
+/// `group.pid` in the worktree and runs until something stops it. A plain run
+/// of the suite finds no environment and does nothing.
+#[test]
+fn killed_caller() {
+    let (Some(ssh), Some(worktree)) = (
+        std::env::var(CALLER_SSH).ok(),
+        std::env::var(CALLER_WORKTREE).ok(),
+    ) else {
+        return;
+    };
+    let places = Places::from_env().unwrap();
+    let host = Host {
+        band: None,
+        name: "m1".to_string(),
+        target: Some("user@m1".to_string()),
+        cores: 10,
+        speed: Some(1.0),
+    };
+    let transport = Transport {
+        places: &places,
+        ssh: &Ssh { program: ssh },
+        host: &host,
+    };
+    // As `builds cargo` runs it: builds reads the command's stderr.
+    run_command(
+        &transport,
+        &AtomicBool::new(false),
+        &worktree,
+        &args(&["sh", "-c", "echo $$ > group.pid; exec sleep 600"]),
+        true,
+    )
+    .unwrap();
+}
+
+/// Is a process of group <group> running?
+fn group_runs(group: i32) -> bool {
+    unsafe { libc::kill(-group, 0) == 0 }
+}
+
+#[test]
+fn a_killed_caller_stops_the_command_on_the_host() {
+    let s = setup("remote-killed-caller");
+    let wt = app_checkout(&s);
+    let mut caller = Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "remote::tests::killed_caller",
+            "--nocapture",
+            "--test-threads=1",
+        ])
+        .env(CALLER_SSH, &s.ssh.program)
+        .env(CALLER_WORKTREE, &wt)
+        .stdin(Stdio::null())
+        .spawn()
+        .unwrap();
+    let written = wt.join("group.pid");
+    let started = std::time::Instant::now();
+    let group: i32 = loop {
+        if let Ok(text) = std::fs::read_to_string(&written)
+            && let Ok(group) = text.trim().parse()
+        {
+            break group;
+        }
+        if let Some(status) = caller.try_wait().unwrap() {
+            panic!("the caller ended before the command started: {status}");
+        }
+        assert!(
+            started.elapsed() < Duration::from_secs(60),
+            "the command never started"
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    // SIGKILL: the caller gets no chance to stop anything.
+    caller.kill().unwrap();
+    caller.wait().unwrap();
+    let killed = std::time::Instant::now();
+    while group_runs(group) && killed.elapsed() < Duration::from_secs(10) {
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let outlived = group_runs(group);
+    if outlived {
+        unsafe { libc::kill(-group, libc::SIGKILL) };
+    }
+    assert!(
+        !outlived,
+        "the command's process group {group} outlived its caller"
+    );
+}
+
 /// Commits a post-checkout hook to the source repo and refreshes the host's
 /// clone, as a repo with `scripts/hooks/post-checkout` has.
 fn add_hook(s: &Setup, body: &str) {
@@ -840,10 +936,16 @@ fn a_command_passes_on_all_it_printed() {
         &args(&["sh", "-c", "seq 1 20000; printf 'no end of line'; exit 4"]),
         "test",
     ));
-    let status = start
+    let mut started = start
+        .stdin(Stdio::piped())
         .stdout(std::fs::File::create(&output).unwrap())
-        .status()
+        .spawn()
         .unwrap();
+    // The test holds the script's stdin open while the command runs, as
+    // `run_command` does.
+    let lifeline = started.stdin.take();
+    let status = started.wait().unwrap();
+    drop(lifeline);
     assert_eq!(status.code(), Some(4));
     let text = std::fs::read_to_string(&output).unwrap();
     let lines: Vec<&str> = text.lines().collect();

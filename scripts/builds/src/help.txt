@@ -550,11 +550,13 @@ RUST_TEST_THREADS from the caller's environment; one line on stderr names the
 host. When the host refuses the job before cargo starts there (sending the
 commit or claiming a worktree fails there), builds records the host as
 refusing jobs, says so on stderr with what the host said, and runs the command
-on this Mac. A stop signal stops cargo on the host, and a host that drops
-mid-run fails the command, naming the host; builds never runs the command
-again here, since cargo may have run part of it there. A landing's compile
-check runs `builds cargo`, so it follows the same rules. These stay on this
-Mac:
+on this Mac. A stop signal stops cargo on the host, and so does the end of
+`builds cargo` by any other signal, SIGKILL included, or a connection to the
+host that closes: no job on a host outlives the command that started it. A
+host that drops mid-run fails the command, naming the host; builds never runs
+the command again here, since cargo may have run part of it there. A landing's
+compile check runs `builds cargo`, so it follows the same rules. These stay on
+this Mac:
 
   - every other subcommand (build, rustc, run, bench, install, update, and the
     reads, such as tree and metadata)
@@ -1201,10 +1203,13 @@ indexes the build root.
                               in the worktree with BUILDS_ROOT set to that root
                               (the command gets the same). When the job ends,
                               builds deletes the ref and the worktree's claim.
-                              A stop signal stops the command on the host. The
-                              job ends when the command exits, even when it
-                              leaves processes behind, as an app build's step
-                              does (APP BUILDS). Without --host, builds picks
+                              A stop signal stops the command on the host, and
+                              so does the end of `builds remote run` by any
+                              other signal, SIGKILL included, or a connection
+                              to the host that closes. The job ends when the
+                              command exits, even when it leaves processes
+                              behind, as an app build's step does (APP
+                              BUILDS). Without --host, builds picks
                               the host with the lowest load average per core
                               among those that answer, have free disk above the
                               floor and do not refuse jobs, this Mac included,
@@ -1219,7 +1224,9 @@ indexes the build root.
                               run the command in <worktree>, a folder on the
                               host that already holds the files, and pass its
                               output and status back; a stop signal stops it
-                              there. `app-build` runs each step of a checkout
+                              there, and so does the end of `builds remote
+                              step` by any other signal, SIGKILL included.
+                              `app-build` runs each step of a checkout
                               on a host this way; no one else needs it
 
 

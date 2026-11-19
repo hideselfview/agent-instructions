@@ -13,8 +13,10 @@
 //! ends, builds deletes the ref and the claim; when the `builds` process
 //! itself is killed first, the next job takes the claim over (job_claim.rs).
 //! A stopped `builds remote run` (SIGTERM, SIGINT, SIGHUP) stops the command
-//! on the host. The command's run ends when the command does, even when it
-//! leaves processes behind (`run_script`).
+//! on the host, and a `builds` process that ends any other way, SIGKILL
+//! included, stops it too: the command lives only while its caller holds the
+//! command's stdin open (`run_script`). The command's run ends when the
+//! command does, even when it leaves processes behind.
 //!
 //! On this Mac (host `local`) the clone is `~/dev/<repo>`, which already holds
 //! the commit, so nothing is pushed.
@@ -511,6 +513,14 @@ echo "worktree=$wt""#,
 /// marker and exits. A process the command left behind may still hold a
 /// FIFO, but nothing holds ssh's output. When the script cannot stop what is
 /// left in the group, it says so and fails a command that passed.
+///
+/// The command lives no longer than its caller. The script's stdin is the
+/// pipe `run_command` holds the only write end of (through ssh on a host), and
+/// nothing ever writes to it, so stdin reaches its end only when the caller's
+/// `builds` process ends, however it ends, SIGKILL included, or the
+/// connection to the host closes. A watcher reads stdin to its end, then
+/// stops the command's process group. Once the command has ended, the script
+/// stops the watcher.
 fn run_script(host: &Host, worktree: &str, command: &[String], run: &str) -> String {
     let words: Vec<String> = command.iter().map(|word| sh_quote(word)).collect();
     format!(
@@ -518,6 +528,9 @@ fn run_script(host: &Host, worktree: &str, command: &[String], run: &str) -> Str
 # tests (many stores open at once) exceed; a login shell here has more.
 ulimit -n 10240 2>/dev/null || ulimit -n "$(ulimit -Hn)" 2>/dev/null
 set -m
+# The caller's pipe, kept on 5: a shell may give a background job /dev/null
+# as its stdin.
+exec 5<&0 </dev/null
 cd {wt} || exit 92
 job={wt}.job
 rm -f "$job/out" "$job/err"
@@ -529,12 +542,16 @@ out=$!
 LC_ALL=C awk -v end="$end" "$relay" < "$job/err" >&2 &
 err=$!
 exec 3>"$job/out" 4>"$job/err"
-( exec {words} < /dev/null >&3 2>&4 3>&- 4>&- ) &
+( exec {words} < /dev/null >&3 2>&4 3>&- 4>&- 5<&- ) &
 pid=$!
+( cat >/dev/null; kill -TERM -- "-$pid" ) <&5 >/dev/null 2>&1 3>&- 4>&- 5<&- &
+watcher=$!
+exec 5<&-
 echo "$pid "{run} > "$job/pid"
 if [ -e "$job/stop" ] && [ "$(cat "$job/stop")" = {run} ]; then kill -TERM -- "-$pid"; fi
 wait $pid 2>/dev/null
 status=$?
+kill -TERM -- "-$watcher" 2>/dev/null
 if kill -0 -- "-$pid" 2>/dev/null; then
   if ! said=$(kill -TERM -- "-$pid" 2>&1); then
     echo "builds could not stop the processes the command left in its process group $pid on host {host}: $said" >&2
@@ -593,7 +610,8 @@ pub fn release_script(repo: &str, worktree: Option<&str>, id: &str) -> String {
 }
 
 /// Runs the job's command on the host, passing its output through, and
-/// returns its exit status. A stop signal stops the command on the host. When
+/// returns its exit status. A stop signal stops the command on the host, and
+/// so does the end of this process, by any signal (`run_script`). When
 /// <time_locks> is set (the command is cargo), builds reads the command's
 /// stderr as it passes through, and this function also returns how long
 /// cargo waited for its file locks (lock_wait.rs).
@@ -608,7 +626,10 @@ pub fn run_command(
     let run = job_id();
     let mut child = transport
         .command(&run_script(transport.host, worktree, command, &run))
-        .stdin(Stdio::null())
+        // The command's lifeline (`run_script`): this process holds the
+        // pipe's only write end until the command has ended, and the kernel
+        // closes it when this process ends.
+        .stdin(Stdio::piped())
         .stderr(if time_locks {
             Stdio::piped()
         } else {
@@ -619,6 +640,7 @@ pub fn run_command(
         .process_group(0)
         .spawn()
         .context(|| format!("running the command on host {}", transport.host.name))?;
+    let lifeline = child.stdin.take().expect("stdin was piped");
     let relay = child
         .stderr
         .take()
@@ -642,6 +664,7 @@ pub fn run_command(
         }
         std::thread::sleep(Duration::from_millis(50));
     };
+    drop(lifeline);
     let waited = waited();
     if stopped {
         return Ok((STOPPED_EXIT, waited));
