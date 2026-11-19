@@ -812,9 +812,8 @@ fn brief_of(
         };
         if let Some(brief) = &item.brief {
             let file = crate::lists::draft::find_brief(places, &lists.repos, brief)?;
-            let text = std::fs::read_to_string(&file)
-                .context(|| format!("reading the brief {}", file.display()))?;
-            return Ok(Some((brief.clone(), text)));
+            let read = crate::lists::spec_check::Brief::read(brief, &file)?;
+            return Ok(Some((read.name, read.text)));
         }
     }
     Ok(None)
