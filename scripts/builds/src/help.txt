@@ -183,18 +183,20 @@ for each program that puts in place what the checkout's builds need, and a
                             owner-construction-check
                             scripts/owner-construction-check.sh)
   prepare <program>         a program of the checkout that `builds setup`
-                            and the pre-commit hook run in its top folder
-                            before anything else builds there, on whichever
-                            Mac runs the build. The program puts in place what
-                            the checkout's builds need beyond their folders,
-                            such as a toolchain component or a source that
-                            builds compile against (coven:
-                            tools/typed-lints/prepare-build.sh). It finishes
-                            at once when all of it is in place, runs again
-                            each time, so it notices a moved toolchain pin,
-                            and never asks for a password, since nobody is
-                            at a host's screen. When it fails, setup and the
-                            hook fail, naming it
+                            runs in its top folder, and `builds cargo` before
+                            cargo on whichever Mac runs cargo. The program
+                            puts in place what the checkout's builds need
+                            beyond their folders, such as a toolchain
+                            component or a source that builds compile against
+                            (coven: tools/typed-lints/prepare-build.sh). It
+                            finishes at once when all of it is in place, runs
+                            again each time, so it notices a moved toolchain
+                            pin, never runs `builds cargo`, which would run it
+                            again, and never asks for a password, since nobody
+                            is at a host's screen. When it fails, setup and
+                            `builds cargo` fail, naming it. A pre-commit check
+                            only checks that its pieces are in place (coven:
+                            tools/typed-lints/check-prepared.sh)
   tool <name> <program> <link>
                             a tool the repo builds from its own sources for
                             its toolchain, which builds keeps once per key on
@@ -279,14 +281,18 @@ Each key's build is the folder caches/tools/<name>/<toolchain>/<sources> on
 the build volume (a host's builds root on a host), and <link> in the checkout
 points at it. To put a key in place, builds copies the folder from another
 Mac that has it, else builds it, holding the toolchain folder's lock so one
-build at a time uses the work folder. A copied or built folder takes its place
-only once its check passes on the Mac it lands on. Before a `builds cargo` job
-runs on a host, builds copies there each key of the checkout that this Mac has
-and the host lacks, and runs its check there; when that fails, it says so and
-the host builds the key in the job's setup. `builds setup` and `builds prune`
-delete each key's folder, and each toolchain's folder with its work folder,
-that no live checkout's key names, and delete nothing of a tool whose key a
-checkout fails to print.
+build at a time uses the work folder. When it builds, it says why no copy
+served: each host lacked the key, did not answer, or sent a copy that failed.
+Each copy and each build goes into a staging folder of its own, and takes its
+place only once its check passes on the Mac it lands on. builds deletes a
+rejected staging folder before it tries the next way, and stops with an error
+when it cannot. Before a `builds cargo` job runs on a host, builds copies
+there each key of the checkout that this Mac has and the host lacks, and runs
+its check there; when that fails, it says so and the host builds the key in
+the job's setup. `builds setup` and `builds prune` delete each key's folder,
+and each toolchain's folder with its work folder, that no live checkout's key
+names. They delete nothing of a tool whose key a checkout fails to print, and
+nothing of any tool while a checkout's `.build-dirs` cannot be read.
 
   builds tool <name> [<checkout>]
                               put the checkout's key of tool <name> in place
@@ -568,6 +574,8 @@ restart the server.
                               checkout's guard while cargo runs, and as it
                               exits starts `builds units after-build`, which
                               deletes the copies the build replaced.
+                              On the Mac that runs cargo it first runs the
+                              checkout's `prepare` programs (BUILD FOLDERS).
                               BUILDS_CARGO_BEFORE=<path> [<args>] runs a
                               program of the checkout in its top folder before
                               cargo, on whichever host runs cargo, and a
@@ -1664,9 +1672,7 @@ entry or one it depends on at any depth); a check with neither runs whole
 whenever a matching file is staged.
 
   builds checks run [<worktree>]
-                              what the pre-commit hook runs: first the
-                              programs the `prepare` lines of `.build-dirs`
-                              name (BUILD FOLDERS), then the check and fix
+                              what the pre-commit hook runs: the check and fix
                               lines the staged files match, from the repo root:
                               the fix lines first, one at a time in file order,
                               then every check line at the same time, since
@@ -1702,8 +1708,7 @@ whenever a matching file is staged.
   builds checks run --since <rev> [<worktree>]
                               run the check and fix lines that the files the
                               branch changed since it left <rev> (git
-                              merge-base <rev> HEAD) match, after the
-                              `prepare` programs, over those files
+                              merge-base <rev> HEAD) match, over those files
                               as HEAD has them, and leave HEAD, the index and
                               the files as they were, so an agent checks a
                               whole branch without moving HEAD. It refuses

@@ -47,7 +47,7 @@ fn run_checked(command: &mut std::process::Command, what: &str) -> Result<()> {
 /// post-checkout, and prints its path. --resume checks out the existing
 /// branch instead, one no worktree checks out: work left on a branch goes
 /// back into a worktree this way.
-pub fn cmd_new(tool: &Tool, args: &[String]) -> Result<()> {
+pub fn cmd_new(tool: &Tool, ssh: &crate::host::Ssh, args: &[String]) -> Result<()> {
     let mut repo_path = ".".to_string();
     let mut branch = None;
     let mut resume = None;
@@ -94,7 +94,7 @@ pub fn cmd_new(tool: &Tool, args: &[String]) -> Result<()> {
         Some(free) => {
             write_claim(&free, &who, tool.now, Some(Note::Starting))?;
             set_project(&tool.places, &free, project.as_deref())?;
-            if let Err(error) = reuse(&free, &start).and_then(|()| prepare(tool, &free)) {
+            if let Err(error) = reuse(&free, &start).and_then(|()| prepare(tool, ssh, &free)) {
                 let _ = std::fs::remove_file(free.claim_file());
                 let _ = std::fs::remove_file(free.project_file());
                 return Err(error);
@@ -106,7 +106,7 @@ pub fn cmd_new(tool: &Tool, args: &[String]) -> Result<()> {
             let checkout = Checkout::find(&dir.display().to_string())?;
             write_claim(&checkout, &who, tool.now, Some(Note::Starting))?;
             set_project(&tool.places, &checkout, project.as_deref())?;
-            prepare(tool, &checkout)?;
+            prepare(tool, ssh, &checkout)?;
             checkout
         }
     };
@@ -205,9 +205,9 @@ fn reuse(free: &Checkout, start: &Start) -> Result<()> {
 
 /// Links the worktree's build paths, installs the repo's hooks when it has
 /// `.checks`, and runs its own post-checkout.
-fn prepare(tool: &Tool, checkout: &Checkout) -> Result<()> {
+fn prepare(tool: &Tool, ssh: &crate::host::Ssh, checkout: &Checkout) -> Result<()> {
     let dir = &checkout.top;
-    setup(tool, checkout)?;
+    setup(tool, ssh, checkout)?;
     crate::warm::fill(tool, checkout)?;
     if dir.join(crate::checks::CONFIG).is_file() {
         crate::install_hook::install(dir)?;

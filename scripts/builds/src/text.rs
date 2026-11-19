@@ -8,6 +8,18 @@ use std::path::Path;
 
 use crate::fail::{Context, Result};
 
+/// This process's stderr, to give a child as its stdout: a command whose
+/// stdout carries an answer (`builds tool` prints a folder) shows a child's
+/// output on stderr.
+pub fn stderr_for_child() -> Result<std::process::Stdio> {
+    use std::os::fd::AsFd;
+    let fd = std::io::stderr()
+        .as_fd()
+        .try_clone_to_owned()
+        .context(|| "duplicating stderr".to_string())?;
+    Ok(std::process::Stdio::from(fd))
+}
+
 /// A line on stderr, `builds: <message>`, which agents and hooks read.
 pub fn note(message: impl AsRef<str>) {
     eprintln!("builds: {}", message.as_ref());

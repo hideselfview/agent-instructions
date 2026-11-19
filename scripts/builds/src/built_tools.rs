@@ -170,7 +170,8 @@ pub fn ensure(places: &Places, ssh: &Ssh, top: &Path, line: &BuiltTool) -> Resul
 }
 
 /// Copies <key> from a host that has it, else builds it, holding the
-/// toolchain folder's lock.
+/// toolchain folder's lock. Each copy and the build go into a staging folder
+/// of their own, and a rejected one is deleted before the next starts.
 fn obtain(
     places: &Places,
     ssh: &Ssh,
@@ -187,66 +188,81 @@ fn obtain(
     if dest.is_dir() {
         return Ok(());
     }
-    let staged = toolchain.join(format!(".new-{}", crate::text::staged_suffix()));
-    // A copy whose check fails here is deleted, and builds builds the key.
-    let copied = fetch(places, ssh, &line.name, key, &staged).filter(|host| match check(&staged) {
-        Ok(()) => true,
-        Err(error) => {
-            note(format!(
-                "the copy of tool {} from host {host} does not run here: {}",
-                line.name,
-                error.text()
-            ));
-            let _ = std::fs::remove_dir_all(&staged);
-            false
-        }
-    });
-    let result = match copied {
-        Some(host) => {
+    let fetched = fetch(places, ssh, &line.name, key, toolchain)?;
+    let staged = match fetched.copy {
+        Some((host, staged)) => {
             note(format!(
                 "copied tool {} ({} {}) from host {host}",
                 line.name, key.toolchain, key.sources
             ));
-            Ok(())
+            staged
         }
-        None => build(top, line, &toolchain.join(WORK), &staged).and_then(|()| check(&staged)),
+        None => {
+            let why = match fetched.misses.as_slice() {
+                [] => "no other host is recorded".to_string(),
+                misses => misses.join("; "),
+            };
+            note(format!(
+                "building tool {} with {}: {why}",
+                line.name, line.program
+            ));
+            let staged = staging(toolchain)?;
+            let built =
+                build(top, line, &toolchain.join(WORK), &staged).and_then(|()| check(&staged));
+            if let Err(error) = built {
+                discard(&staged)?;
+                return Err(error);
+            }
+            staged
+        }
+    };
+    if let Err(error) = take_place(&staged, dest) {
+        discard(&staged)?;
+        return Err(error);
     }
-    .and_then(|()| take_place(&staged, dest));
-    if result.is_err() {
-        let _ = std::fs::remove_dir_all(&staged);
+    Ok(())
+}
+
+/// A new staging folder's path in <toolchain>, which no earlier copy or build
+/// used.
+fn staging(toolchain: &Path) -> Result<PathBuf> {
+    let staged = toolchain.join(format!(".new-{}", crate::text::staged_suffix()));
+    if std::fs::symlink_metadata(&staged).is_ok() {
+        fail!("{} is there already", staged.display());
     }
-    result
+    Ok(staged)
+}
+
+/// Deletes <staged>, a copy or build that did not take its place; a failure
+/// is an error, so nothing builds beside what it left.
+fn discard(staged: &Path) -> Result<()> {
+    match std::fs::remove_dir_all(staged) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => fail!(
+            "deleting {}, a copy or build of a tool that did not take its place: {error}",
+            staged.display()
+        ),
+    }
 }
 
 /// Runs `<program> build <staged>` in <top>, its output on stderr.
 fn build(top: &Path, line: &BuiltTool, work: &Path, staged: &Path) -> Result<()> {
     std::fs::create_dir_all(work).context(|| format!("creating {}", work.display()))?;
     let program = top.join(&line.program);
-    note(format!("building tool {} with {}", line.name, line.program));
     let status = Command::new(&program)
         .arg("build")
         .arg(staged)
         .env(WORK_VARIABLE, work)
         .current_dir(top)
         .stdin(Stdio::null())
-        .stdout(stderr()?)
+        .stdout(crate::text::stderr_for_child()?)
         .status()
         .context(|| format!("running {} build", program.display()))?;
     if !status.success() {
         fail!("{} build failed ({status})", program.display());
     }
     Ok(())
-}
-
-/// This process's stderr, for a child's stdout: `builds tool` prints only
-/// the key's folder on stdout.
-fn stderr() -> Result<Stdio> {
-    use std::os::fd::AsFd;
-    let fd = std::io::stderr()
-        .as_fd()
-        .try_clone_to_owned()
-        .context(|| "duplicating stderr".to_string())?;
-    Ok(Stdio::from(fd))
 }
 
 /// Runs <folder>/check, which a build writes, on this Mac.
@@ -274,7 +290,7 @@ fn take_place(staged: &Path, dest: &Path) -> Result<()> {
     std::fs::rename(staged, dest).context(|| format!("putting {} in place", dest.display()))
 }
 
-/// Points the symlink <link> at <dest>, in one rename.
+/// Points the symlink <link> at <dest>, unless it points there already.
 fn point(link: &Path, dest: &Path) -> Result<()> {
     if std::fs::read_link(link).is_ok_and(|current| current == dest) {
         return Ok(());
@@ -282,113 +298,114 @@ fn point(link: &Path, dest: &Path) -> Result<()> {
     if let Some(parent) = link.parent() {
         std::fs::create_dir_all(parent).context(|| format!("creating {}", parent.display()))?;
     }
-    let staged = link.with_file_name(format!(
-        ".{}.builds-link.{}",
-        link.file_name()
-            .expect("a link has a name")
-            .to_string_lossy(),
-        crate::text::staged_suffix()
-    ));
-    std::os::unix::fs::symlink(dest, &staged)
-        .context(|| format!("linking {}", staged.display()))?;
-    std::fs::rename(&staged, link).context(|| format!("linking {}", link.display()))
+    crate::setup::replace_link(dest, link)
 }
 
 /// The other hosts: every recorded host but this Mac. A Mac that is itself
 /// a host records none.
-fn other_hosts(places: &Places) -> Vec<Host> {
-    match host::all(places) {
-        Ok(hosts) => hosts.into_iter().filter(|h| h.target.is_some()).collect(),
-        Err(error) => {
-            note(format!(
-                "builds could not read the hosts, so it looks for the tool on none: {}",
-                error.text()
-            ));
-            Vec::new()
-        }
+fn other_hosts(places: &Places) -> Result<Vec<Host>> {
+    Ok(host::all(places)?
+        .into_iter()
+        .filter(|host| host.target.is_some())
+        .collect())
+}
+
+/// Does <host> have <remote>, a key's folder there? An error says why
+/// builds could not ask: the host did not answer, or the question failed
+/// there.
+fn host_has(transport: &Transport, host: &Host, remote: &str) -> Result<bool> {
+    let script = format!(
+        "{}if [ -d {remote} ]; then echo present; else echo absent; fi",
+        root_script(host)
+    );
+    match transport
+        .ask(&script, "looking for the tool")?
+        .map_err(Fail::Message)?
+        .trim()
+    {
+        "present" => Ok(true),
+        "absent" => Ok(false),
+        other => fail!(
+            "host {} answered {other:?} when asked for the tool",
+            host.name
+        ),
     }
 }
 
-/// Copies <key> of tool <name> from the first host that has it into
-/// <staged>, and returns that host's name; None when no host has it or every
-/// copy failed, each failure said on stderr.
-fn fetch(places: &Places, ssh: &Ssh, name: &str, key: &Key, staged: &Path) -> Option<String> {
-    for host in other_hosts(places) {
+/// What `fetch` found: the host it copied the key from and the staging
+/// folder that holds the copy, and why each other host gave none.
+struct Fetched {
+    copy: Option<(String, PathBuf)>,
+    misses: Vec<String>,
+}
+
+/// Copies <key> of tool <name> from the first host that has it into a new
+/// staging folder in <toolchain> and checks it here. A host that lacks the
+/// key, one builds could not ask, and a copy that failed or does not run here
+/// each add their reason to the misses; a rejected copy is deleted, and a
+/// failed deletion is an error.
+fn fetch(places: &Places, ssh: &Ssh, name: &str, key: &Key, toolchain: &Path) -> Result<Fetched> {
+    let mut misses = Vec::new();
+    let hosts = match other_hosts(places) {
+        Ok(hosts) => hosts,
+        Err(error) => {
+            misses.push(format!("builds could not read the hosts: {}", error.text()));
+            Vec::new()
+        }
+    };
+    for host in hosts {
         let transport = Transport {
             places,
             ssh,
             host: &host,
         };
         let remote = key_dir_on(name, key);
-        let has = transport.ask(
-            &format!("{}test -d {remote}", root_script(&host)),
-            "looking for the tool",
-        );
-        if !matches!(has, Ok(Ok(_))) {
-            continue;
+        match host_has(&transport, &host, &remote) {
+            Ok(true) => {}
+            Ok(false) => {
+                misses.push(format!("host {} does not have it", host.name));
+                continue;
+            }
+            Err(error) => {
+                misses.push(format!(
+                    "builds could not ask host {} for it: {}",
+                    host.name,
+                    error.text()
+                ));
+                continue;
+            }
         }
-        let copied = std::fs::create_dir_all(staged)
+        let staged = staging(toolchain)?;
+        let copied = std::fs::create_dir(&staged)
             .context(|| format!("creating {}", staged.display()))
             .and_then(|()| {
                 let sender =
                     transport.command(&format!("{}tar -cf - -C {remote} .", root_script(&host)));
-                pipe(
+                crate::remote::unpack(
                     sender,
-                    Command::new("tar")
-                        .arg("-xf")
-                        .arg("-")
-                        .arg("-C")
-                        .arg(staged),
+                    &staged,
+                    &format!("tool {name} from host {}", host.name),
                 )
-            });
+            })
+            .and_then(|()| check(&staged));
         match copied {
-            Ok(()) => return Some(host.name),
+            Ok(()) => {
+                return Ok(Fetched {
+                    copy: Some((host.name, staged)),
+                    misses,
+                });
+            }
             Err(error) => {
-                note(format!(
-                    "copying tool {name} from host {} failed: {}",
+                misses.push(format!(
+                    "the copy from host {} failed: {}",
                     host.name,
                     error.text()
                 ));
-                let _ = std::fs::remove_dir_all(staged);
+                discard(&staged)?;
             }
         }
     }
-    None
-}
-
-/// Runs <sender> with its stdout piped into <receiver>, and fails unless both
-/// succeed.
-fn pipe(mut sender: Command, receiver: &mut Command) -> Result<()> {
-    let mut send = sender
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .context(|| "starting the sending side".to_string())?;
-    let out = send.stdout.take().expect("piped above");
-    let received = receiver
-        .stdin(out)
-        .stderr(Stdio::piped())
-        .output()
-        .context(|| "starting the receiving side".to_string())?;
-    let sent = send
-        .wait_with_output()
-        .context(|| "waiting for the sending side".to_string())?;
-    if !sent.status.success() {
-        fail!(
-            "the sending side failed ({}): {}",
-            sent.status,
-            String::from_utf8_lossy(&sent.stderr).trim()
-        );
-    }
-    if !received.status.success() {
-        fail!(
-            "the receiving side failed ({}): {}",
-            received.status,
-            String::from_utf8_lossy(&received.stderr).trim()
-        );
-    }
-    Ok(())
+    Ok(Fetched { copy: None, misses })
 }
 
 /// Before a job from <top> runs on <host>: copies there each key of the
@@ -407,13 +424,16 @@ pub fn send_to(places: &Places, ssh: &Ssh, host: &Host, top: &Path) {
             return;
         }
     };
+    let transport = Transport { places, ssh, host };
     for line in tools {
         let sent = key(top, &line).and_then(|key| {
             let here = key_dir(places, &line.name, &key);
-            if !here.is_dir() {
+            let remote = key_dir_on(&line.name, &key);
+            if !here.is_dir() || host_has(&transport, host, &remote)? {
                 return Ok(false);
             }
-            send_key(places, ssh, host, &line.name, &key, &here)
+            send_key(&transport, host, &line.name, &remote, &here)?;
+            Ok(true)
         });
         match sent {
             Ok(true) => note(format!("copied tool {} to host {}", line.name, host.name)),
@@ -428,38 +448,40 @@ pub fn send_to(places: &Places, ssh: &Ssh, host: &Host, top: &Path) {
     }
 }
 
-/// Copies <here>, this Mac's folder of <key>, to <host> unless it has the
-/// key, and runs its check there before it takes its place. True when it
-/// copied.
+/// Copies <here>, this Mac's folder of a key of tool <name>, to <remote>, its
+/// folder on <host>: into a new staging folder there, whose check must pass
+/// there before it takes its place. A staging folder whose copy or check
+/// failed is deleted.
 fn send_key(
-    places: &Places,
-    ssh: &Ssh,
+    transport: &Transport,
     host: &Host,
     name: &str,
-    key: &Key,
+    remote: &str,
     here: &Path,
-) -> Result<bool> {
-    let transport = Transport { places, ssh, host };
-    let remote = key_dir_on(name, key);
-    let root = root_script(host);
-    if let Ok(Ok(_)) = transport.ask(&format!("{root}test -d {remote}"), "looking for the tool") {
-        return Ok(false);
-    }
+) -> Result<()> {
     let receive = format!(
         r#"{root}dest={remote}
 mkdir -p "$(dirname "$dest")" || exit 1
 staged=$(mktemp -d "$(dirname "$dest")/.new-XXXXXX") || exit 1
 if tar -xf - -C "$staged" && (cd "$staged" && ./check); then
-  [ -d "$dest" ] && rm -rf "$staged" || mv "$staged" "$dest"
+  if [ -d "$dest" ]; then
+    rm -rf "$staged"
+  else
+    mv "$staged" "$dest"
+  fi
 else
-  rm -rf "$staged"
+  rm -rf "$staged" || echo "deleting $staged failed" >&2
   exit 1
-fi"#
+fi"#,
+        root = root_script(host)
     );
     let mut sender = Command::new("tar");
     sender.arg("-cf").arg("-").arg("-C").arg(here).arg(".");
-    pipe(sender, &mut transport.command(&receive))?;
-    Ok(true)
+    crate::remote::pipe(
+        sender,
+        transport.command(&receive),
+        &format!("tool {name} to host {}", host.name),
+    )
 }
 
 /// A tool's toolchain folders, each with the names of its keys' folders.
@@ -467,7 +489,8 @@ type Toolchains = Vec<(String, Vec<String>)>;
 
 /// Deletes each key's folder of every tool that no live checkout of <roots>
 /// names, and each toolchain's folder that none names, work folder and all.
-/// A tool whose key a checkout cannot print loses nothing.
+/// A tool whose key a checkout cannot print loses nothing, and no tool loses
+/// anything while a checkout's manifest cannot be read.
 pub fn prune_tools(places: &Places, roots: &[Root], run: Run) -> Result<()> {
     let base = places.caches().join("tools");
     let names = match listed(&base) {
@@ -491,16 +514,20 @@ pub fn prune_tools(places: &Places, roots: &[Root], run: Run) -> Result<()> {
         }
         builds.push((name.clone(), toolchains));
     }
-    let pairs: Vec<(PathBuf, BuiltTool)> = roots
-        .iter()
-        .filter_map(|root| root.live.as_ref())
-        .flat_map(|checkout| {
-            built_tools(&checkout.top)
-                .unwrap_or_default()
-                .into_iter()
-                .map(|line| (checkout.top.clone(), line))
-        })
-        .collect();
+    // A checkout whose manifest can't be read may name any tool, so then
+    // no tool loses a build.
+    let mut pairs: Vec<(PathBuf, BuiltTool)> = Vec::new();
+    let mut unread = Vec::new();
+    for checkout in roots.iter().filter_map(|root| root.live.as_ref()) {
+        match built_tools(&checkout.top) {
+            Ok(lines) => pairs.extend(lines.into_iter().map(|line| (checkout.top.clone(), line))),
+            Err(error) => unread.push(error.text()),
+        }
+    }
+    if !unread.is_empty() {
+        prune_listed(run, "tool builds", Err(unread.join("; ")));
+        return Ok(());
+    }
     let keys = parallel_map(&pairs, |(top, line)| key(top, line).map_err(Fail::text));
     for (name, toolchains) in builds {
         let mut named = Vec::new();

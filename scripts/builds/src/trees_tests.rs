@@ -88,7 +88,7 @@ fn setup_deletes_an_unused_tree_beside_a_live_one() {
     let top = scratch.dir.join("demo");
     repo(&top, "app/.build 1G\n");
     let checkout = Checkout::find(&top.display().to_string()).unwrap();
-    setup(&tool, &checkout).unwrap();
+    setup(&tool, &crate::testing::no_ssh(), &checkout).unwrap();
     let build = tool.places.root.join("demo/main/app/.build");
     xcode_tree(&build.join("old"), 8);
     xcode_tree(&build.join("live"), 8);
@@ -96,7 +96,7 @@ fn setup_deletes_an_unused_tree_beside_a_live_one() {
     age_all(&build.join("old"), 24 * 3 + 1);
     age_all(&build.join("SourcePackages"), 24 * 10);
 
-    setup(&tool, &checkout).unwrap();
+    setup(&tool, &crate::testing::no_ssh(), &checkout).unwrap();
     assert!(
         !build.join("old").exists(),
         "a tree no build used for three days was kept"
@@ -118,7 +118,7 @@ fn a_tree_used_within_three_days_stays_and_a_dry_run_deletes_nothing() {
     let top = scratch.dir.join("demo");
     repo(&top, "app/.build 1G\n");
     let checkout = Checkout::find(&top.display().to_string()).unwrap();
-    setup(&tool, &checkout).unwrap();
+    setup(&tool, &crate::testing::no_ssh(), &checkout).unwrap();
     let root = tool.places.root.join("demo/main");
     let build = root.join("app/.build");
     xcode_tree(&build.join("recent"), 8);
@@ -140,11 +140,11 @@ fn an_old_swiftpm_configuration_goes_and_its_link_target_alone() {
     let top = scratch.dir.join("demo");
     repo(&top, "kit/.build 1G\n");
     let checkout = Checkout::find(&top.display().to_string()).unwrap();
-    setup(&tool, &checkout).unwrap();
+    setup(&tool, &crate::testing::no_ssh(), &checkout).unwrap();
     let build = tool.places.root.join("demo/main/kit/.build");
     swiftpm_folder(&build);
     age_all(&build.join("arm64-apple-macosx/release"), 24 * 5);
-    setup(&tool, &checkout).unwrap();
+    setup(&tool, &crate::testing::no_ssh(), &checkout).unwrap();
     assert!(!build.join("arm64-apple-macosx/release").exists());
     assert!(
         build
@@ -198,13 +198,13 @@ fn a_kept_tree_stays_in_main_and_the_app_checkout_but_not_in_another_worktree() 
         (&other, "side-2", false),
     ] {
         let checkout = Checkout::find(&top.display().to_string()).unwrap();
-        setup(&tool, &checkout).unwrap();
+        setup(&tool, &crate::testing::no_ssh(), &checkout).unwrap();
         let build = tool.places.root.join("demo").join(name).join("app/.build");
         xcode_tree(&build.join("run"), 8);
         xcode_tree(&build.join("unsigned"), 8);
         age_all(&build.join("run"), 24 * 10);
         age_all(&build.join("unsigned"), 24 * 10);
-        setup(&tool, &checkout).unwrap();
+        setup(&tool, &crate::testing::no_ssh(), &checkout).unwrap();
         assert_eq!(build.join("run").exists(), kept, "{name}: the kept tree");
         assert!(
             !build.join("unsigned").exists(),

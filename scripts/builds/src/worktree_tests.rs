@@ -31,6 +31,7 @@ fn new_claims_a_worktree_and_retire_removes_it() {
 
     cmd_new(
         &tool,
+        &crate::testing::no_ssh(),
         &[main.display().to_string(), "--for".into(), "agent A".into()],
     )
     .unwrap();
@@ -275,6 +276,7 @@ fn new_and_claim_record_the_project_and_release_forgets_it() {
     assert!(
         refusal(cmd_new(
             &tool,
+            &crate::testing::no_ssh(),
             &[
                 main.display().to_string(),
                 "--for".into(),
@@ -289,6 +291,7 @@ fn new_and_claim_record_the_project_and_release_forgets_it() {
 
     cmd_new(
         &tool,
+        &crate::testing::no_ssh(),
         &[
             main.display().to_string(),
             "--for".into(),
@@ -325,7 +328,12 @@ fn new_and_claim_record_the_project_and_release_forgets_it() {
     assert!(!checkout.project_file().exists());
     assert!(!checkout.claim_file().exists());
     // The next worktree handed out without --project has none.
-    cmd_new(&tool, &[main.display().to_string()]).unwrap();
+    cmd_new(
+        &tool,
+        &crate::testing::no_ssh(),
+        &[main.display().to_string()],
+    )
+    .unwrap();
     assert!(!checkout.project_file().exists());
 }
 
@@ -369,6 +377,7 @@ fn a_repo_two_projects_hold_gets_no_worktree_or_claim_without_a_project() {
     assert!(
         refusal(cmd_new(
             &tool,
+            &crate::testing::no_ssh(),
             &[main_arg.clone(), "--for".into(), "agent A".into()]
         ))
         .contains("repo demo is in two projects (demo, second); name the project")
@@ -378,6 +387,7 @@ fn a_repo_two_projects_hold_gets_no_worktree_or_claim_without_a_project() {
     // With it, the worktree is claimed for that project and released again.
     cmd_new(
         &tool,
+        &crate::testing::no_ssh(),
         &[
             main_arg.clone(),
             "--for".into(),

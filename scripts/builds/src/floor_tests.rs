@@ -29,7 +29,7 @@ fn three_checkouts(scratch: &Scratch, tool: &Tool) {
         scratch.dir.join("demo-worktrees/side-2"),
     ] {
         let checkout = Checkout::find(&top.display().to_string()).unwrap();
-        crate::setup::setup(tool, &checkout).unwrap();
+        crate::setup::setup(tool, &crate::testing::no_ssh(), &checkout).unwrap();
         let target = checkout.build_root(&tool.places).join("target");
         fill(&target.join("blob"), 2048);
         age_all(&target, 2);
@@ -241,7 +241,7 @@ fn an_app_checkout_keeps_warm_only_the_folders_its_lane_builds_into() {
         )
         .unwrap();
         let checkout = Checkout::find(&dir.display().to_string()).unwrap();
-        crate::setup::setup(&tool, &checkout).unwrap();
+        crate::setup::setup(&tool, &crate::testing::no_ssh(), &checkout).unwrap();
         for folder in ["target", "xcode", "gradle"] {
             let path = checkout.build_root(&tool.places).join(folder);
             fill(&path.join("blob"), 2048);
@@ -287,7 +287,7 @@ fn under_the_floor_a_job_worktree_goes_unless_a_job_claims_it() {
             ],
         );
         let checkout = Checkout::find(&dir.display().to_string()).unwrap();
-        crate::setup::setup(&tool, &checkout).unwrap();
+        crate::setup::setup(&tool, &crate::testing::no_ssh(), &checkout).unwrap();
         let target = checkout.build_root(&tool.places).join("target");
         fill(&target.join("blob"), 2048);
         age_all(&target, 2);

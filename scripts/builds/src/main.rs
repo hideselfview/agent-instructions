@@ -288,8 +288,8 @@ fn run(command: &str, args: &[String]) -> Result<()> {
     text::use_callers_collation();
     let mut tool = Tool::new(Places::from_env()?, Rules::from_env()?);
     match command {
-        "setup" => setup::cmd_setup(&tool, args),
-        "new" => worktree::cmd_new(&tool, args),
+        "setup" => setup::cmd_setup(&tool, &host::Ssh::from_env(), args),
+        "new" => worktree::cmd_new(&tool, &host::Ssh::from_env(), args),
         "retire" => worktree::cmd_retire(&tool, args),
         "land" => land::cmd_land(args),
         "review" => review::cmd_review(&tool, args),

@@ -718,7 +718,7 @@ fn stop_keeps_the_worktree_of_unfinished_work_and_take_runs_the_item_there_again
     let side = demo.add_side(1, "agent A", "work");
     let side_arg = side.display().to_string();
     let checkout = Checkout::find(&side_arg).unwrap();
-    crate::setup::setup(&demo.tool, &checkout).unwrap();
+    crate::setup::setup(&demo.tool, &crate::testing::no_ssh(), &checkout).unwrap();
     demo.commit(&side, "unlanded");
     add(&demo, FIVE, &[]).unwrap();
     let brief = demo.brief("b.md");
@@ -780,7 +780,7 @@ fn a_stop_whose_claim_stayed_finishes_when_run_again_and_then_does_nothing() {
     let side = demo.add_side(1, "agent A", "work");
     let side_arg = side.display().to_string();
     let checkout = Checkout::find(&side_arg).unwrap();
-    crate::setup::setup(&demo.tool, &checkout).unwrap();
+    crate::setup::setup(&demo.tool, &crate::testing::no_ssh(), &checkout).unwrap();
     demo.commit(&side, "unlanded");
     add(&demo, FIVE, &[]).unwrap();
     let brief = demo.brief("b.md");
@@ -828,7 +828,7 @@ fn a_claim_made_after_the_keep_is_neither_reported_nor_removed() {
     let side = demo.add_side(1, "agent A", "work");
     let side_arg = side.display().to_string();
     let checkout = Checkout::find(&side_arg).unwrap();
-    crate::setup::setup(&demo.tool, &checkout).unwrap();
+    crate::setup::setup(&demo.tool, &crate::testing::no_ssh(), &checkout).unwrap();
     demo.commit(&side, "unlanded");
     add(&demo, FIVE, &[]).unwrap();
     let brief = demo.brief("b.md");
@@ -918,7 +918,7 @@ fn release_and_health_see_an_item_of_another_project_in_the_worktree() {
     let side_arg = side.display().to_string();
     let checkout = Checkout::find(&side_arg).unwrap();
     std::fs::write(checkout.project_file(), "demo\n").unwrap();
-    crate::setup::setup(&demo.tool, &checkout).unwrap();
+    crate::setup::setup(&demo.tool, &crate::testing::no_ssh(), &checkout).unwrap();
     other
         .write(&crate::lists::fixtures::stamp(NOON), "start", |db| {
             let id = crate::lists::fixtures::item(db, vec![]);
@@ -1235,7 +1235,7 @@ fn release_and_health_wait_for_a_git_commit_that_runs_in_the_worktree() {
     let demo = demo("release-committing");
     let side = demo.add_side(1, "agent A", "work");
     let checkout = Checkout::find(&side.display().to_string()).unwrap();
-    crate::setup::setup(&demo.tool, &checkout).unwrap();
+    crate::setup::setup(&demo.tool, &crate::testing::no_ssh(), &checkout).unwrap();
     let hooks = demo.scratch.dir.join("hooks");
     std::fs::create_dir_all(&hooks).unwrap();
     let gate = demo.scratch.dir.join("gate");
@@ -1337,7 +1337,7 @@ fn branch_findings(demo: &Demo) -> Vec<crate::health::Finding> {
 /// checkout's build root, which is how health finds the repo.
 fn add_loose_branch(demo: &Demo) -> String {
     let main = Checkout::find(&demo.main.display().to_string()).unwrap();
-    crate::setup::setup(&demo.tool, &main).unwrap();
+    crate::setup::setup(&demo.tool, &crate::testing::no_ssh(), &main).unwrap();
     crate::testing::git(&demo.main, &["switch", "-q", "-c", "loose", "origin/main"]);
     let sha = demo.commit(&demo.main, "unlanded");
     crate::testing::git(&demo.main, &["switch", "-q", "main"]);
@@ -1367,6 +1367,7 @@ fn health_lists_a_loose_branch_until_a_worktree_takes_it_or_it_lands() {
 
     crate::worktree::cmd_new(
         &demo.tool,
+        &crate::testing::no_ssh(),
         &[
             demo.main.display().to_string(),
             "--resume".into(),

@@ -113,7 +113,7 @@ fn a_side_worktree_keeps_its_incremental_folders_for_the_idle_hours() {
         ],
     );
     let checkout = Checkout::find(&side.display().to_string()).unwrap();
-    crate::setup::setup(&tool, &checkout).unwrap();
+    crate::setup::setup(&tool, &crate::testing::no_ssh(), &checkout).unwrap();
     let profile = checkout.build_root(&tool.places).join("target/debug");
     std::fs::create_dir_all(profile.join(".fingerprint")).unwrap();
     let increment = |name: &str, hours: u64| {
@@ -153,7 +153,12 @@ fn pruning_deletes_an_installed_version_once_no_checkout_names_it() {
         ],
     );
     for top in [&main, &side] {
-        crate::setup::setup(&tool, &Checkout::find(&top.display().to_string()).unwrap()).unwrap();
+        crate::setup::setup(
+            &tool,
+            &crate::testing::no_ssh(),
+            &Checkout::find(&top.display().to_string()).unwrap(),
+        )
+        .unwrap();
     }
     std::fs::write(side.join(".build-dirs"), "target 1G\n").unwrap();
     for (top, version) in [(&main, "aaa111"), (&side, "ddd444")] {
@@ -210,7 +215,12 @@ fn pruning_deletes_nothing_in_a_folder_it_cannot_list() {
     let tool = scratch.tool(0);
     let main = scratch.dir.join("demo");
     crate::testing::repo(&main, "target 1G\ninstalled checker scripts/checker.sh\n");
-    crate::setup::setup(&tool, &Checkout::find(&main.display().to_string()).unwrap()).unwrap();
+    crate::setup::setup(
+        &tool,
+        &crate::testing::no_ssh(),
+        &Checkout::find(&main.display().to_string()).unwrap(),
+    )
+    .unwrap();
     std::fs::create_dir_all(main.join("scripts")).unwrap();
     std::fs::write(
         main.join("scripts/checker.sh"),
@@ -254,7 +264,7 @@ fn a_hosts_prune_keeps_its_app_checkouts_lane_folders_warm() {
             ],
         );
         let checkout = Checkout::find(&dir.display().to_string()).unwrap();
-        crate::setup::setup(&tool, &checkout).unwrap();
+        crate::setup::setup(&tool, &crate::testing::no_ssh(), &checkout).unwrap();
         roots.push((checkout.clone(), checkout.build_root(&tool.places)));
     }
     std::fs::write(roots[0].0.app_lane_file(), "mac\n").unwrap();

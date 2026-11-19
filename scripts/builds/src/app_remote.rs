@@ -29,7 +29,7 @@
 //! of the checkout's build output, where a local checkout's `<path>` links to).
 
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Command;
 
 use crate::app_config::{app_checkout_top, run_git};
 use crate::checkout::{APP_LANE_FILE, Checkout};
@@ -363,39 +363,11 @@ impl RemoteApp {
                     .collect::<Vec<_>>()
                     .join(" ")
             );
-            let mut sender = self
-                .transport()
-                .command(&script)
-                .stdin(Stdio::null())
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped())
-                .spawn()
-                .context(|| format!("copying the shots report from host {}", self.host.name))?;
-            let archive = sender.stdout.take().expect("stdout was piped");
-            let received = Command::new("tar")
-                .args(["-xf", "-", "-C"])
-                .arg(&staging)
-                .stdin(Stdio::from(archive))
-                .output()
-                .context(|| "running tar".to_string())?;
-            let sent = sender
-                .wait_with_output()
-                .context(|| format!("waiting for host {}", self.host.name))?;
-            if !sent.status.success() {
-                fail!(
-                    "copying the shots report from host {} failed ({}): {}",
-                    self.host.name,
-                    sent.status,
-                    String::from_utf8_lossy(&sent.stderr).trim()
-                );
-            }
-            if !received.status.success() {
-                fail!(
-                    "unpacking the shots report from host {} failed: {}",
-                    self.host.name,
-                    String::from_utf8_lossy(&received.stderr).trim()
-                );
-            }
+            crate::remote::unpack(
+                self.transport().command(&script),
+                &staging,
+                &format!("the shots report from host {}", self.host.name),
+            )?;
         }
         crate::shot_findings::install_folder(&staging, into)
     }
@@ -429,39 +401,11 @@ impl RemoteApp {
                 sh_quote(&worktree),
                 path = sh_quote(path)
             );
-            let mut sender = self
-                .transport()
-                .command(&script)
-                .stdin(Stdio::null())
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped())
-                .spawn()
-                .context(|| format!("copying {path} from host {}", self.host.name))?;
-            let archive = sender.stdout.take().expect("stdout was piped");
-            let received = Command::new("tar")
-                .args(["-xf", "-", "-C"])
-                .arg(&into)
-                .stdin(Stdio::from(archive))
-                .output()
-                .context(|| "running tar".to_string())?;
-            let sent = sender
-                .wait_with_output()
-                .context(|| format!("waiting for host {}", self.host.name))?;
-            if !sent.status.success() {
-                fail!(
-                    "copying {path} from host {} failed ({}): {}",
-                    self.host.name,
-                    sent.status,
-                    String::from_utf8_lossy(&sent.stderr).trim()
-                );
-            }
-            if !received.status.success() {
-                fail!(
-                    "unpacking {path} from host {} failed: {}",
-                    self.host.name,
-                    String::from_utf8_lossy(&received.stderr).trim()
-                );
-            }
+            crate::remote::unpack(
+                self.transport().command(&script),
+                &into,
+                &format!("{path} from host {}", self.host.name),
+            )?;
         }
         Ok(())
     }

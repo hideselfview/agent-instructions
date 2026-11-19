@@ -147,6 +147,49 @@ fn source_git(dir: &Path) -> Command {
     command
 }
 
+/// Runs <sender> with its stdout piped into <receiver>, and fails, naming
+/// <what> and the side that failed with what it printed, unless both succeed.
+pub fn pipe(mut sender: Command, mut receiver: Command, what: &str) -> Result<()> {
+    let mut send = sender
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .context(|| format!("starting the copy of {what}"))?;
+    let out = send.stdout.take().expect("stdout was piped");
+    let received = receiver
+        .stdin(Stdio::from(out))
+        .stderr(Stdio::piped())
+        .output()
+        .context(|| format!("starting to receive {what}"))?;
+    let sent = send
+        .wait_with_output()
+        .context(|| format!("waiting for the copy of {what}"))?;
+    if !sent.status.success() {
+        fail!(
+            "copying {what} failed ({}): {}",
+            sent.status,
+            String::from_utf8_lossy(&sent.stderr).trim()
+        );
+    }
+    if !received.status.success() {
+        fail!(
+            "receiving {what} failed ({}): {}",
+            received.status,
+            String::from_utf8_lossy(&received.stderr).trim()
+        );
+    }
+    Ok(())
+}
+
+/// Unpacks the tar archive <sender> writes on its stdout into <into> on this
+/// Mac (`pipe`).
+pub fn unpack(sender: Command, into: &Path, what: &str) -> Result<()> {
+    let mut tar = Command::new("tar");
+    tar.args(["-xf", "-", "-C"]).arg(into);
+    pipe(sender, tar, what)
+}
+
 /// Removes from <command>'s environment the variables a git hook exports for
 /// its own repository (`GIT_DIR`, `GIT_WORK_TREE`, `GIT_INDEX_FILE`, ...).
 fn without_git_variables(command: &mut Command) {

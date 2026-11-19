@@ -32,7 +32,7 @@ fn release(scratch: &Scratch, n: usize) {
 fn new(tool: &Tool, main: &Path, extra: &[&str]) {
     let mut args = vec![main.display().to_string()];
     args.extend(extra.iter().map(|arg| arg.to_string()));
-    cmd_new(tool, &args).unwrap();
+    cmd_new(tool, &crate::testing::no_ssh(), &args).unwrap();
 }
 
 fn head(top: &Path) -> String {
@@ -210,12 +210,14 @@ fn two_concurrent_news_never_get_the_same_worktree() {
         let a = scope.spawn(|| {
             cmd_new(
                 &tool,
+                &crate::testing::no_ssh(),
                 &[main.display().to_string(), "--for".into(), "A".into()],
             )
         });
         let b = scope.spawn(|| {
             cmd_new(
                 &other,
+                &crate::testing::no_ssh(),
                 &[main.display().to_string(), "--for".into(), "B".into()],
             )
         });
@@ -264,7 +266,7 @@ fn harness_worktree(tool: &Tool, main: &Path) -> std::path::PathBuf {
         ],
     );
     let checkout = Checkout::find(&top.display().to_string()).unwrap();
-    crate::setup::setup(tool, &checkout).unwrap();
+    crate::setup::setup(tool, &crate::testing::no_ssh(), &checkout).unwrap();
     // Nothing has touched it for days.
     age_all(&checkout.build_root(&tool.places), 48);
     for name in ["index", "HEAD", ""] {
@@ -392,7 +394,7 @@ fn new_refuses_to_resume_a_missing_or_checked_out_branch() {
     let refused = |extra: &[&str]| {
         let mut args = vec![main.display().to_string()];
         args.extend(extra.iter().map(|arg| arg.to_string()));
-        match cmd_new(&tool, &args) {
+        match cmd_new(&tool, &crate::testing::no_ssh(), &args) {
             Err(crate::fail::Fail::Message(message)) => message,
             other => panic!("new did not refuse {extra:?}: {other:?}"),
         }
@@ -509,6 +511,7 @@ fn new_never_moves_a_branch_that_holds_work() {
 
     let result = cmd_new(
         &tool,
+        &crate::testing::no_ssh(),
         &[
             main.display().to_string(),
             "-b".into(),

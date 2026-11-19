@@ -157,6 +157,7 @@ fn host_m1(scratch: &Scratch, places: &Places) -> (Ssh, Host, PathBuf) {
         target: Some("user@m1".to_string()),
         cores: 10,
         speed: Some(1.0),
+        band: None,
     };
     (ssh, host, home.join("volume/caches/tools/lints"))
 }
@@ -252,7 +253,12 @@ fn prune_deletes_the_keys_and_toolchains_no_checkout_names() {
     let places = &tool.places;
     let top = scratch.dir.join("demo");
     tool_repo(&top, "tc1 src1", PASSING);
-    crate::setup::setup(&tool, &Checkout::find(&top.display().to_string()).unwrap()).unwrap();
+    crate::setup::setup(
+        &tool,
+        &crate::testing::no_ssh(),
+        &Checkout::find(&top.display().to_string()).unwrap(),
+    )
+    .unwrap();
     assert!(key_dir(places, "lints", &key_of("tc1 src1")).is_dir());
     for (toolchain, sources) in [("tc1", "old"), ("tc0", "src1")] {
         std::fs::create_dir_all(tool_dir(places, "lints").join(toolchain).join(sources)).unwrap();
@@ -288,14 +294,16 @@ fn setup_runs_each_prepare_program_and_fails_naming_the_one_that_fails() {
     executable(&top.join("a.sh"), "#!/bin/sh\necho a >> ran.txt\n");
     executable(&top.join("b.sh"), "#!/bin/sh\necho b >> ran.txt\n");
     let checkout = Checkout::find(&top.display().to_string()).unwrap();
-    crate::setup::setup(&tool, &checkout).unwrap();
+    crate::setup::setup(&tool, &crate::testing::no_ssh(), &checkout).unwrap();
     assert_eq!(
         std::fs::read_to_string(top.join("ran.txt")).unwrap(),
         "a\nb\n"
     );
 
     executable(&top.join("a.sh"), "#!/bin/sh\nexit 3\n");
-    let Err(Fail::Message(message)) = crate::setup::setup(&tool, &checkout) else {
+    let Err(Fail::Message(message)) =
+        crate::setup::setup(&tool, &crate::testing::no_ssh(), &checkout)
+    else {
         panic!("a failing prepare program passed");
     };
     assert!(message.contains("a.sh"), "{message}");
@@ -303,5 +311,81 @@ fn setup_runs_each_prepare_program_and_fails_naming_the_one_that_fails() {
         std::fs::read_to_string(top.join("ran.txt")).unwrap(),
         "a\nb\n",
         "a program after the failing one ran"
+    );
+}
+
+#[test]
+fn fetch_tells_a_host_that_lacks_the_key_from_one_it_could_not_ask() {
+    let scratch = Scratch::new("tools-fetch-misses");
+    let places = scratch.places();
+    let (ssh, _, _) = host_m1(&scratch, &places);
+    let toolchain = tool_dir(&places, "lints").join("tc1");
+    std::fs::create_dir_all(&toolchain).unwrap();
+    let key = key_of("tc1 src1");
+
+    let fetched = fetch(&places, &ssh, "lints", &key, &toolchain).unwrap();
+    assert!(fetched.copy.is_none());
+    assert_eq!(fetched.misses, vec!["host m1 does not have it".to_string()]);
+
+    std::fs::write(crate::host::hosts_file(&places), "m1 unreachable 10 1.0\n").unwrap();
+    let fetched = fetch(&places, &ssh, "lints", &key, &toolchain).unwrap();
+    assert!(fetched.copy.is_none());
+    assert!(
+        fetched.misses[0].starts_with("builds could not ask host m1 for it:"),
+        "{:?}",
+        fetched.misses
+    );
+}
+
+#[test]
+fn a_rejected_copy_builds_cannot_delete_is_an_error() {
+    let scratch = Scratch::new("tools-discard");
+    let places = scratch.places();
+    let top = scratch.dir.join("demo");
+    let line = tool_repo(&top, "tc1 src1", PASSING);
+    let (ssh, _, there) = host_m1(&scratch, &places);
+    let remote = there.join("tc1/src1");
+    std::fs::create_dir_all(&remote).unwrap();
+    // A check that fails and leaves a folder nothing can delete files from.
+    executable(
+        &remote.join("check"),
+        "#!/bin/sh\nmkdir locked && touch locked/file && chmod 555 locked\nexit 1\n",
+    );
+
+    let Err(Fail::Message(message)) = ensure(&places, &ssh, &top, &line) else {
+        panic!("a copy that could not be deleted passed");
+    };
+    assert!(message.starts_with("deleting "), "{message}");
+    assert_eq!(builds_count(&places, "tc1"), 0, "builds built beside it");
+    let toolchain = tool_dir(&places, "lints").join("tc1");
+    for entry in std::fs::read_dir(&toolchain).unwrap() {
+        let locked = entry.unwrap().path().join("locked");
+        if locked.exists() {
+            std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+    }
+}
+
+#[test]
+fn prune_keeps_every_build_while_a_checkouts_manifest_cannot_be_read() {
+    let scratch = Scratch::new("tools-prune-unread");
+    let tool = scratch.tool(0);
+    let places = &tool.places;
+    let top = scratch.dir.join("demo");
+    tool_repo(&top, "tc1 src1", PASSING);
+    crate::setup::setup(
+        &tool,
+        &crate::testing::no_ssh(),
+        &Checkout::find(&top.display().to_string()).unwrap(),
+    )
+    .unwrap();
+    let old = tool_dir(places, "lints").join("tc0").join("src0");
+    std::fs::create_dir_all(&old).unwrap();
+    let roots = tool.roots().unwrap();
+    std::fs::write(top.join(".build-dirs"), "target 1G\ntool lints\n").unwrap();
+    prune_tools(places, &roots, Run::Real).unwrap();
+    assert!(
+        old.is_dir(),
+        "prune deleted a build while a manifest was unread"
     );
 }

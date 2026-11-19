@@ -10,7 +10,7 @@ fn links_each_path_and_deletes_a_folder_over_its_cap() {
     let top = scratch.dir.join("demo");
     repo(&top, "target 1M\nnested/out 1M\n");
     let checkout = Checkout::find(&top.display().to_string()).unwrap();
-    setup(&tool, &checkout).unwrap();
+    setup(&tool, &crate::testing::no_ssh(), &checkout).unwrap();
     let root = tool.places.root.join("demo/main");
     assert_eq!(
         std::fs::read_link(top.join("target")).unwrap(),
@@ -27,7 +27,7 @@ fn links_each_path_and_deletes_a_folder_over_its_cap() {
 
     fill(&root.join("target/blob"), 2048);
     fill(&root.join("nested/out/small"), 100);
-    setup(&tool, &checkout).unwrap();
+    setup(&tool, &crate::testing::no_ssh(), &checkout).unwrap();
     assert!(
         root.join("target").is_dir(),
         "the folder over its cap was not recreated"
@@ -61,10 +61,10 @@ fn a_claimed_worktree_keeps_its_folder_over_its_cap() {
     );
     let checkout = Checkout::find(&side.display().to_string()).unwrap();
     write_claim(&checkout, "agent A", tool.now, None).unwrap();
-    setup(&tool, &checkout).unwrap();
+    setup(&tool, &crate::testing::no_ssh(), &checkout).unwrap();
     let root = tool.places.root.join("demo/side-1");
     fill(&root.join("target/blob"), 2048);
-    setup(&tool, &checkout).unwrap();
+    setup(&tool, &crate::testing::no_ssh(), &checkout).unwrap();
     assert!(
         root.join("target/blob").exists(),
         "a claimed worktree's folder was deleted"
@@ -91,7 +91,7 @@ fn the_app_checkout_takes_its_own_cap() {
             ],
         );
         let checkout = Checkout::find(&side.display().to_string()).unwrap();
-        setup(&tool, &checkout).unwrap();
+        setup(&tool, &crate::testing::no_ssh(), &checkout).unwrap();
         roots.push((checkout, tool.places.root.join("demo").join(name)));
     }
     std::fs::write(
@@ -101,7 +101,7 @@ fn the_app_checkout_takes_its_own_cap() {
     .unwrap();
     for (checkout, root) in &roots {
         fill(&root.join("target/blob"), 2048);
-        setup(&tool, checkout).unwrap();
+        setup(&tool, &crate::testing::no_ssh(), checkout).unwrap();
     }
     assert!(
         !roots[0].1.join("target/blob").exists(),
@@ -121,7 +121,7 @@ fn a_real_directory_becomes_a_link() {
     repo(&top, "target 1G\n");
     fill(&top.join("target/old"), 10);
     let checkout = Checkout::find(&top.display().to_string()).unwrap();
-    setup(&tool, &checkout).unwrap();
+    setup(&tool, &crate::testing::no_ssh(), &checkout).unwrap();
     assert!(top.join("target").is_symlink());
     assert!(!top.join("target/old").exists());
 }
@@ -133,7 +133,7 @@ fn a_repo_cannot_take_a_volume_folder_name() {
     let top = scratch.dir.join("caches");
     repo(&top, "target 1G\n");
     let checkout = Checkout::find(&top.display().to_string()).unwrap();
-    match setup(&tool, &checkout) {
+    match setup(&tool, &crate::testing::no_ssh(), &checkout) {
         Err(crate::fail::Fail::Message(message)) => {
             assert!(message.contains("which builds keeps for something else"))
         }
@@ -164,7 +164,7 @@ fn a_lane_checkout_takes_the_app_cap_only_on_the_folders_its_lane_builds_into() 
             ],
         );
         let checkout = Checkout::find(&side.display().to_string()).unwrap();
-        setup(&tool, &checkout).unwrap();
+        setup(&tool, &crate::testing::no_ssh(), &checkout).unwrap();
         std::fs::write(
             tool.places.app_checkouts_file("demo", lane),
             format!("{name}\n"),
@@ -175,7 +175,7 @@ fn a_lane_checkout_takes_the_app_cap_only_on_the_folders_its_lane_builds_into() 
     for (checkout, root) in &roots {
         fill(&root.join("xcode/blob"), 2048);
         fill(&root.join("gradle/blob"), 2048);
-        setup(&tool, checkout).unwrap();
+        setup(&tool, &crate::testing::no_ssh(), checkout).unwrap();
     }
     assert!(
         !roots[0].1.join("xcode/blob").exists(),

@@ -62,7 +62,12 @@ fn warm_main(scratch: &Scratch, tool: &Tool) -> (PathBuf, PathBuf) {
         &["remote", "add", "origin", &origin.display().to_string()],
     );
     git(&main, &["push", "-q", "origin", "main"]);
-    setup(tool, &Checkout::find(&main.display().to_string()).unwrap()).unwrap();
+    setup(
+        tool,
+        &crate::testing::no_ssh(),
+        &Checkout::find(&main.display().to_string()).unwrap(),
+    )
+    .unwrap();
     let target = tool.places.root.join("demo/main/target");
     fill_file(&target.join("debug/.fingerprint/dep-1/fingerprint"), 8);
     fill_file(&target.join("debug/deps/libdep-1.rlib"), 64);
@@ -79,6 +84,7 @@ fn new_fills_the_empty_target_with_a_clone_of_a_warm_one() {
 
     cmd_new(
         &tool,
+        &crate::testing::no_ssh(),
         &[main.display().to_string(), "--for".into(), "agent".into()],
     )
     .unwrap();
@@ -130,21 +136,36 @@ fn a_free_worktree_whose_target_was_deleted_is_filled_and_one_with_a_target_is_n
         .to_string();
     let main_arg = main.display().to_string();
 
-    cmd_new(&tool, std::slice::from_ref(&main_arg)).unwrap();
+    cmd_new(
+        &tool,
+        &crate::testing::no_ssh(),
+        std::slice::from_ref(&main_arg),
+    )
+    .unwrap();
     let target = tool.places.root.join("demo/side-1/target");
     cmd_release(&scratch.places(), std::slice::from_ref(&side_arg)).unwrap();
     // The agent built there: the folder holds its own state, which a new
     // hand-out leaves alone.
     fill_file(&target.join("debug/own"), 4);
     std::fs::remove_dir_all(target.join("debug/deps")).unwrap();
-    cmd_new(&tool, std::slice::from_ref(&main_arg)).unwrap();
+    cmd_new(
+        &tool,
+        &crate::testing::no_ssh(),
+        std::slice::from_ref(&main_arg),
+    )
+    .unwrap();
     assert!(target.join("debug/own").is_file());
     assert!(!target.join("debug/deps").exists());
 
     cmd_release(&scratch.places(), std::slice::from_ref(&side_arg)).unwrap();
     std::fs::remove_dir_all(&target).unwrap();
     std::fs::create_dir(&target).unwrap();
-    cmd_new(&tool, std::slice::from_ref(&main_arg)).unwrap();
+    cmd_new(
+        &tool,
+        &crate::testing::no_ssh(),
+        std::slice::from_ref(&main_arg),
+    )
+    .unwrap();
     assert!(
         target.join("debug/deps/libdep-1.rlib").is_file(),
         "an emptied folder is filled again"
@@ -159,7 +180,12 @@ fn with_nothing_warm_to_clone_the_target_stays_empty() {
     let tool = scratch.tool(0);
     let (main, source) = warm_main(&scratch, &tool);
     std::fs::remove_dir_all(source.join("debug")).unwrap();
-    cmd_new(&tool, &[main.display().to_string()]).unwrap();
+    cmd_new(
+        &tool,
+        &crate::testing::no_ssh(),
+        &[main.display().to_string()],
+    )
+    .unwrap();
     let target = tool.places.root.join("demo/side-1/target");
     assert!(target.is_dir() && std::fs::read_dir(&target).unwrap().next().is_none());
 }
@@ -170,7 +196,12 @@ fn a_target_over_the_new_ones_cap_is_not_cloned() {
     let tool = scratch.tool(0);
     let (main, source) = warm_main(&scratch, &tool);
     fill_file(&source.join("debug/deps/big"), 1024 * 1024 + 16);
-    cmd_new(&tool, &[main.display().to_string()]).unwrap();
+    cmd_new(
+        &tool,
+        &crate::testing::no_ssh(),
+        &[main.display().to_string()],
+    )
+    .unwrap();
     let target = tool.places.root.join("demo/side-1/target");
     assert!(std::fs::read_dir(&target).unwrap().next().is_none());
 }

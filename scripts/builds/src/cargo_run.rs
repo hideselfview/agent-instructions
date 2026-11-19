@@ -1,5 +1,6 @@
-//! `builds cargo`: recording the build copies cargo used, so setup and prune
-//! keep those while they delete the ones no build used for days, holding the
+//! `builds cargo`: running the checkout's `prepare` programs on the Mac that
+//! runs cargo, recording the build copies cargo used, so setup and prune keep
+//! those while they delete the ones no build used for days, holding the
 //! checkout's guard while the build runs, and pruning the copies it replaced
 //! once it ends.
 //!
@@ -358,7 +359,8 @@ pub fn cmd_cargo(args: &[String]) -> Result<()> {
         _ => (LOCAL.to_string(), Load::here()),
     };
     let exited = match job {
-        None => run_before_here(checkout.as_ref(), &env)
+        None => prepare_here(checkout.as_ref())
+            .and_then(|()| run_before_here(checkout.as_ref(), &env))
             .and_then(|()| run_here(&places, checkout.as_ref(), subcommand, format, args))?,
         Some(job) => cargo_place::finish(job)?,
     };
@@ -418,6 +420,16 @@ fn record_finished(places: &Places, checkout: &Checkout, run: &CargoRun) -> Resu
 pub struct Exited {
     pub code: i32,
     pub lock_wait: Option<Duration>,
+}
+
+/// Runs the checkout's `prepare` programs (setup.rs) on the Mac that runs
+/// cargo, before cargo: a host that runs cargo for a job runs `builds cargo`
+/// itself, so its own run prepares its worktree.
+fn prepare_here(checkout: Option<&Checkout>) -> Result<()> {
+    match checkout {
+        Some(checkout) => crate::setup::prepare(&checkout.top),
+        None => Ok(()),
+    }
 }
 
 /// Runs the program `BUILDS_CARGO_BEFORE` names, if any, in the checkout.
@@ -590,6 +602,23 @@ mod tests {
             Some("--locked"),
             "an argument after -- is the program's"
         );
+    }
+
+    #[test]
+    fn a_run_here_first_runs_the_checkouts_prepare_programs() {
+        use std::os::unix::fs::PermissionsExt;
+        let scratch = Scratch::new("cargo-prepare");
+        let top = scratch.dir.join("demo");
+        repo(&top, "target 1G\nprepare prepare.sh\n");
+        let program = top.join("prepare.sh");
+        std::fs::write(&program, "#!/bin/sh\necho ran >> prepared.txt\n").unwrap();
+        std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
+        prepare_here(Checkout::at(&top).unwrap().as_ref()).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(top.join("prepared.txt")).unwrap(),
+            "ran\n"
+        );
+        prepare_here(None).unwrap();
     }
 
     #[test]

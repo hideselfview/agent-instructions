@@ -61,7 +61,7 @@ fn a_health_answer_holds_a_claim_written_after_the_last_reading() {
         ],
     );
     let checkout = crate::checkout::Checkout::find(&side.display().to_string()).unwrap();
-    crate::setup::setup(&tool, &checkout).unwrap();
+    crate::setup::setup(&tool, &crate::testing::no_ssh(), &checkout).unwrap();
     crate::claim::write_claim(&checkout, "agent A", tool.now, None).unwrap();
     let model = model_in(&scratch);
     // The daemon reads the worktree's git state on its own thread.

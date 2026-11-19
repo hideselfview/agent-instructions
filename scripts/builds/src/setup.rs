@@ -18,6 +18,7 @@ use crate::evict::{Recreate, Removal, evict};
 use crate::fail;
 use crate::fail::{Context, Result};
 use crate::floor::{Keeper, keep_floor};
+use crate::host::Ssh;
 use crate::manifest::{MANIFEST, build_dirs, has_manifest};
 use crate::prune::{
     Run, prune_caches, prune_cargo_git, prune_derived_data, prune_installed, prune_root,
@@ -118,7 +119,7 @@ fn place(tool: &Tool, link: &Path, dest: &Path, checkout: &Checkout) -> Result<(
 
 /// Points <link> at <dest>, replacing whatever link is there in one rename,
 /// so no tool ever finds the path missing.
-fn replace_link(dest: &Path, link: &Path) -> Result<()> {
+pub fn replace_link(dest: &Path, link: &Path) -> Result<()> {
     let name = link
         .file_name()
         .expect("a link has a name")
@@ -133,16 +134,16 @@ fn replace_link(dest: &Path, link: &Path) -> Result<()> {
 }
 
 /// `builds setup [<checkout>]`.
-pub fn cmd_setup(tool: &Tool, args: &[String]) -> Result<()> {
+pub fn cmd_setup(tool: &Tool, ssh: &Ssh, args: &[String]) -> Result<()> {
     let arg = match args {
         [] => ".",
         [arg] => arg.as_str(),
         _ => fail!("usage: builds setup [<checkout>]"),
     };
-    setup(tool, &Checkout::find(arg)?)
+    setup(tool, ssh, &Checkout::find(arg)?)
 }
 
-pub fn setup(tool: &Tool, checkout: &Checkout) -> Result<()> {
+pub fn setup(tool: &Tool, ssh: &Ssh, checkout: &Checkout) -> Result<()> {
     if !has_manifest(&checkout.top) {
         note(format!(
             "{} has no {MANIFEST}; nothing to link",
@@ -187,31 +188,29 @@ pub fn setup(tool: &Tool, checkout: &Checkout) -> Result<()> {
     keep_floor(tool, &roots, Keeper::Setup, Run::Real)?;
     // Last, so what they install or build lands after the floor is kept.
     prepare(&checkout.top)?;
-    crate::built_tools::ensure_all(&tool.places, &crate::host::Ssh::from_env(), &checkout.top)
+    crate::built_tools::ensure_all(&tool.places, ssh, &checkout.top)
 }
 
 /// Runs each program the `prepare` lines of <top>'s manifest name, in its
 /// top folder, its output on stderr: each puts in place what the checkout's
 /// builds need beyond their folders and finishes at once when that is in
-/// place. Setup runs them, and so does the pre-commit hook before its checks.
-/// The first that fails stops the rest and fails, naming it.
+/// place. Setup runs them, and so does `builds cargo` on the Mac that runs
+/// cargo; the pre-commit hook's checks only check that the pieces are there.
+/// A program never runs `builds cargo`, which would run it again. The first
+/// that fails stops the rest and fails, naming it.
 pub fn prepare(top: &Path) -> Result<()> {
     for program in crate::manifest::prepare_programs(top)? {
         let path = top.join(&program);
         let mut command = std::process::Command::new(&path);
-        // The pre-commit hook runs with git's variables for the commit's
-        // index, which would point the program's own git commands there.
+        // A `builds cargo` that a hook check runs has git's variables for the
+        // commit's index, which would point the program's git commands there.
         for name in crate::checkout::git_local_env_vars()? {
             command.env_remove(name);
         }
         let status = command
             .current_dir(top)
             .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::from(
-                std::os::fd::AsFd::as_fd(&std::io::stderr())
-                    .try_clone_to_owned()
-                    .context(|| "duplicating stderr".to_string())?,
-            ))
+            .stdout(crate::text::stderr_for_child()?)
             .status()
             .context(|| format!("running {}", path.display()))?;
         if !status.success() {

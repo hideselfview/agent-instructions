@@ -258,3 +258,11 @@ pub fn design_system(dir: &Path, token: &str, bundle_css: &str, bundle_js: &str)
     write(components.join("bundle.css"), bundle_css);
     write(components.join("bundle.js"), bundle_js);
 }
+
+/// The ssh for a test that reaches no host: its store records none, so builds
+/// never runs it.
+pub fn no_ssh() -> crate::host::Ssh {
+    crate::host::Ssh {
+        program: "false".to_string(),
+    }
+}
