@@ -579,6 +579,23 @@ cargo would then move every dependency in the lock to its newest compatible
 version. An update builds nothing, so builds records no run and no build
 copies for it.
 
+`builds cargo mutants` runs cargo-mutants (scripts/cargo.sh mutants in bae and
+coven) on the host with the most free cores, placed as the runs below are
+(HOSTS says which hosts take a run), except that no host counts as warm for it:
+cargo-mutants copies the workspace and builds the copy afresh. builds caps the run's `--jobs` by the
+room under the chosen host's load band: the band's high end less the host's
+5-minute load average, rounded down, and at least one. A run that asks for more
+jobs gets the cap, and one line on stderr says so; a run that names no jobs
+keeps cargo-mutants' one. Each job builds and tests a whole copy, so a run
+over the whole workspace takes hours: scope it to the code that changed with
+`--file`, once for each file (`scripts/cargo.sh mutants --file
+src/queue.rs --file src/queue_tests.rs -p bae-queue`), or with `--in-diff
+FILE` for a diff, and look at what a run would test first with `--list`.
+cargo-mutants has no cargo message format for builds to read, so builds
+records no build copies for it. A host must have cargo-mutants
+installed (`cargo install cargo-mutants`). builds does not probe for it, so a
+host without it fails the run with cargo's "no such command", naming the host.
+
 `builds cargo` also runs the subcommands that only read the workspace: tree,
 metadata, locate-project, pkgid and verify-project. builds runs each on this
 Mac in the working directory with --locked, as it runs a build: without

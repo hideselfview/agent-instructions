@@ -135,7 +135,8 @@ pub enum Choice {
 /// `env` reads the caller's environment.
 ///
 /// - Only subcommands that compile for the checkout's own files and print
-///   verdicts go: `test`, `clippy`, `check`, `doc` and `nextest run|list`.
+///   verdicts go: `test`, `clippy`, `check`, `doc`, `nextest run|list` and
+///   `mutants`.
 ///   `build`, `rustc` and `rustdoc` leave products in this Mac's `target`
 ///   that the caller then links, installs or runs (the apps' bridge
 ///   builds); `run` starts a program that acts on this Mac (the person's
@@ -170,6 +171,7 @@ pub fn stays_here(
     let goes = match tool {
         CargoTool::Nextest => matches!(args.get(1).map(String::as_str), Some("run" | "list")),
         CargoTool::Cargo => matches!(subcommand, "test" | "clippy" | "check" | "doc"),
+        CargoTool::Mutants => true,
     };
     if !goes {
         return Some(format!(
@@ -226,18 +228,19 @@ pub fn stays_here(
 }
 
 /// What a `builds cargo` command runs: a subcommand of cargo itself, or
-/// cargo-nextest.
+/// cargo-nextest, or cargo-mutants.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CargoTool {
     Cargo,
     Nextest,
+    Mutants,
 }
 
 impl CargoTool {
     /// What the run needs of the host that takes it.
     pub fn runs(self) -> host::Runs {
         match self {
-            CargoTool::Cargo => host::Runs::Cargo,
+            CargoTool::Cargo | CargoTool::Mutants => host::Runs::Cargo,
             CargoTool::Nextest => host::Runs::Nextest,
         }
     }

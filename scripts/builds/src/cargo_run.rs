@@ -315,9 +315,10 @@ pub fn cmd_cargo(args: &[String]) -> Result<()> {
                 other.unwrap_or("")
             ),
         },
+        Some("mutants") => (&args[..1], "", cargo_place::CargoTool::Mutants),
         None => fail!("usage: builds cargo <subcommand> [<args>...]"),
         Some(other) => fail!(
-            "cargo: builds cargo runs builds, updates and the subcommands that only read the workspace, and cargo {other} is none of them; run it without builds"
+            "cargo: builds cargo runs builds, updates, mutants runs and the subcommands that only read the workspace, and cargo {other} is none of them; run it without builds"
         ),
     };
     let began = Instant::now();
@@ -343,6 +344,9 @@ pub fn cmd_cargo(args: &[String]) -> Result<()> {
             let warm;
             let wanted = match named.as_deref() {
                 Some(name) => cargo_place::Wanted::Named(name),
+                // A mutants run copies the workspace and builds it afresh,
+                // so no host's last build is warm for it.
+                None if tool == cargo_place::CargoTool::Mutants => cargo_place::Wanted::Room,
                 None => {
                     warm = warm_host(&places, checkout, key);
                     match warm.as_deref() {
@@ -365,6 +369,29 @@ pub fn cmd_cargo(args: &[String]) -> Result<()> {
                 crate::app_timing::now(),
             )?
         }
+    };
+    // A mutants run's jobs stay within the room under the load band of the
+    // host that takes it.
+    let capped;
+    let args = if tool == cargo_place::CargoTool::Mutants {
+        let (load, band) = match &choice {
+            Choice::On(host, probe, _) => (probe.load[1], host.band_for(probe.cores)),
+            Choice::Here(_) => (
+                crate::procs::load_average()[1],
+                crate::host::read_file(&places)?
+                    .local_band
+                    .unwrap_or_else(|| crate::host_band::Band::of_cores(Load::here().cores)),
+            ),
+        };
+        let (words, note) =
+            crate::cargo_mutants::capped(args, crate::cargo_mutants::jobs_cap(load, band));
+        if let Some(note) = note {
+            crate::text::note(note);
+        }
+        capped = words;
+        &capped[..]
+    } else {
+        args
     };
     let picked = match &choice {
         Choice::Here(_) => None,
@@ -394,6 +421,9 @@ pub fn cmd_cargo(args: &[String]) -> Result<()> {
     });
     let watch = crate::cargo_run_outcome::Watch::default();
     let exited = match job {
+        None if tool == cargo_place::CargoTool::Mutants => prepare_here(checkout.as_ref(), &env)
+            .and_then(|()| run_before_here(checkout.as_ref(), &env))
+            .and_then(|()| run_mutants_here(&places, checkout.as_ref(), args))?,
         None => prepare_here(checkout.as_ref(), &env)
             .and_then(|()| run_before_here(checkout.as_ref(), &env))
             .and_then(|()| build_runner_here(&places, checkout.as_ref(), runner.as_ref(), &env))
@@ -693,6 +723,54 @@ fn run_here(
         crate::fail::exit_code(status)
     };
     Ok(Exited { code, lock_wait })
+}
+
+/// Runs `cargo mutants` here with the settings of the checkout's role as
+/// `--cargo-arg` words (cargo_mutants.rs), holding the checkout's guard like
+/// any build. cargo-mutants has no cargo message format for the recorder to
+/// read, so its output passes through unread and no build copies are
+/// recorded.
+fn run_mutants_here(
+    places: &Places,
+    checkout: Option<&Checkout>,
+    args: &[String],
+) -> Result<Exited> {
+    let config = role_config(checkout);
+    let linker = crate::linker::cargo_config(&places.home);
+    let wrapper =
+        crate::rustc_wrapper::cargo_env(std::env::var_os("RUSTC_WRAPPER").as_deref(), &places.home);
+    let workspace_wrapper = match (checkout, std::env::var_os("RUSTC_WORKSPACE_WRAPPER")) {
+        (Some(checkout), Some(caller)) => {
+            crate::built_tools::cargo_workspace_wrapper(&checkout.top, Path::new(&caller))?
+        }
+        _ => None,
+    };
+    let guard = crate::units::hold_guard(places, checkout)?;
+    let settings = crate::cargo_mutants::cargo_args(
+        config
+            .iter()
+            .copied()
+            .chain(locked_flag(args))
+            .chain(linker.iter().map(String::as_str)),
+    );
+    let status = Command::new("cargo")
+        .arg("mutants")
+        .args(settings)
+        .args(&args[1..])
+        .env_remove(HOOK_CHECK_VARIABLE)
+        .envs(wrapper.map(|wrapper| ("RUSTC_WRAPPER", wrapper)))
+        .envs(workspace_wrapper.map(|wrapper| ("RUSTC_WORKSPACE_WRAPPER", wrapper)))
+        .status()
+        .context(|| "running cargo mutants".to_string())?;
+    drop(guard);
+    Ok(Exited {
+        code: if status.success() {
+            0
+        } else {
+            crate::fail::exit_code(status)
+        },
+        lock_wait: None,
+    })
 }
 
 #[cfg(test)]

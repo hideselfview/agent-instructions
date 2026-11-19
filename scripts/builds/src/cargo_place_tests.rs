@@ -40,10 +40,10 @@ fn only_commands_that_compile_and_report_leave_this_mac() {
     let scratch = Scratch::new("place-rules");
     let (main, side) = checkouts(&scratch);
     let stays = |words: &[&str], checkout: &Checkout| {
-        let tool = if words[0] == "nextest" {
-            CargoTool::Nextest
-        } else {
-            CargoTool::Cargo
+        let tool = match words[0] {
+            "nextest" => CargoTool::Nextest,
+            "mutants" => CargoTool::Mutants,
+            _ => CargoTool::Cargo,
         };
         stays_here(&args(words), tool, Some(checkout), &no_env)
     };
@@ -54,6 +54,7 @@ fn only_commands_that_compile_and_report_leave_this_mac() {
         &["doc", "--workspace", "--no-deps"],
         &["nextest", "run", "-p", "demo", "-E", "test(x)"],
         &["nextest", "list", "--workspace"],
+        &["mutants", "--file", "src/lib.rs", "--jobs", "2"],
         &[
             "test",
             "-p",
