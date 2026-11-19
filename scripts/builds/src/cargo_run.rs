@@ -394,7 +394,7 @@ pub fn cmd_cargo(args: &[String]) -> Result<()> {
             choice,
             checkout,
             "cargo",
-            cargo_place::host_command(args, checkout, &dir, &env),
+            cargo_place::host_command(tool, args, checkout, &dir, &env),
             &env,
         )?,
         None => None,

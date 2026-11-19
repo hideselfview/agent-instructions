@@ -143,7 +143,13 @@ fn a_host_gets_the_forwarded_environment_and_runs_builds_as_local() {
     let scratch = Scratch::new("place-command");
     let (_main, side) = checkouts(&scratch);
     assert_eq!(
-        host_command(&args(&["doc", "--workspace"]), &side, &side.top, &env),
+        host_command(
+            CargoTool::Cargo,
+            &args(&["doc", "--workspace"]),
+            &side,
+            &side.top,
+            &env
+        ),
         args(&[
             "env",
             "BUILDS_CARGO_HOST=local",
@@ -167,7 +173,7 @@ fn a_hook_checks_run_tells_the_host_it_runs_for_a_hook() {
     };
     let scratch = Scratch::new("place-hook");
     let (_main, side) = checkouts(&scratch);
-    let words = host_command(&args(&["check"]), &side, &side.top, &env);
+    let words = host_command(CargoTool::Cargo, &args(&["check"]), &side, &side.top, &env);
     assert_eq!(&words[..2], &args(&["sh", "-c"]));
     assert!(
         words[2].starts_with(
@@ -236,7 +242,7 @@ fn run_in(
         ),
         checkout,
         "cargo",
-        host_command(args, checkout, dir, env),
+        host_command(CargoTool::Cargo, args, checkout, dir, env),
         env,
     )? {
         Some(job) => {
@@ -708,7 +714,7 @@ fn a_command_run_in_a_folder_of_the_checkout_runs_in_the_same_folder_on_the_host
     std::fs::create_dir_all(&folder).unwrap();
     std::fs::write(folder.join("marker.txt"), "the crate's folder\n").unwrap();
     let env = |name: &str| (name == "BUILDS_CARGO_BEFORE").then(|| OsString::from("before.sh"));
-    let words = host_command(&args(&["test"]), &side, &folder, &env);
+    let words = host_command(CargoTool::Cargo, &args(&["test"]), &side, &folder, &env);
     assert!(
         words[2].starts_with("\"$PWD\"/'before.sh'  || exit $?\ncd 'crates/one' || exit $?\n"),
         "the before program runs from the top, then the host moves into the folder: {}",
@@ -798,7 +804,13 @@ fn a_wrapper_and_a_before_program_inside_the_checkout_run_from_the_hosts_worktre
         "BUILDS_CARGO_BEFORE" => Some(OsString::from("scripts/before.sh one two")),
         _ => None,
     };
-    let words = host_command(&args(&["clippy", "-p", "demo"]), &side, &side.top, &env);
+    let words = host_command(
+        CargoTool::Cargo,
+        &args(&["clippy", "-p", "demo"]),
+        &side,
+        &side.top,
+        &env,
+    );
     assert_eq!(&words[..2], ["sh", "-c"]);
     assert!(
         words[2].starts_with("\"$PWD\"/'scripts/before.sh' 'one' 'two' || exit $?\n"),
@@ -961,7 +973,13 @@ fn a_host_that_refuses_the_job_leaves_it_to_this_mac_and_is_passed_over_until_gi
         ),
         &side,
         "cargo",
-        host_command(&args(&["test"]), &side, &side.top, &no_env),
+        host_command(
+            CargoTool::Cargo,
+            &args(&["test"]),
+            &side,
+            &side.top,
+            &no_env,
+        ),
         &no_env,
     )
     .unwrap();
@@ -1040,7 +1058,13 @@ fn a_host_that_refuses_the_job_leaves_it_to_this_mac_and_is_passed_over_until_gi
         Choice::On(gone, Box::new(probe(1.0).unwrap()), "most room".to_string()),
         &side,
         "cargo",
-        host_command(&args(&["test"]), &side, &side.top, &no_env),
+        host_command(
+            CargoTool::Cargo,
+            &args(&["test"]),
+            &side,
+            &side.top,
+            &no_env,
+        ),
         &no_env,
     )
     .unwrap();
@@ -1109,6 +1133,7 @@ fn a_mutants_job_tells_its_host_that_this_mac_capped_its_jobs() {
     let scratch = Scratch::new("place-mutants-capped");
     let (_main, side) = checkouts(&scratch);
     let words = host_command(
+        CargoTool::Mutants,
         &args(&["mutants", "--jobs", "2"]),
         &side,
         &side.top,
@@ -1116,6 +1141,12 @@ fn a_mutants_job_tells_its_host_that_this_mac_capped_its_jobs() {
     );
     let capped = format!("{}=1", crate::cargo_mutants::CAPPED_VARIABLE);
     assert!(words.contains(&capped), "{words:?}");
-    let words = host_command(&args(&["test"]), &side, &side.top, &no_env);
+    let words = host_command(
+        CargoTool::Cargo,
+        &args(&["test"]),
+        &side,
+        &side.top,
+        &no_env,
+    );
     assert!(!words.contains(&capped), "{words:?}");
 }

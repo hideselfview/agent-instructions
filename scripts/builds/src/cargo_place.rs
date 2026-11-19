@@ -344,6 +344,7 @@ impl Before {
 /// relative to the worktree the host runs in (the host `cd`s into it first),
 /// and the `Before` program, when there is one, runs there before cargo.
 pub fn host_command(
+    tool: CargoTool,
     args: &[String],
     checkout: &Checkout,
     dir: &Path,
@@ -370,7 +371,7 @@ pub fn host_command(
         .iter()
         .filter_map(|name| Some(format!("{name}={}", env(name)?.to_string_lossy())))
         .collect();
-    if args.first().map(String::as_str) == Some("mutants") {
+    if tool == CargoTool::Mutants {
         forwarded.push(format!("{}=1", crate::cargo_mutants::CAPPED_VARIABLE));
     }
     job_words("cargo", &lines, forwarded, args, checkout, dir, env)

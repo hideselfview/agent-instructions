@@ -226,7 +226,13 @@ fn a_host_gets_the_runner_variable_and_builds_the_runner_itself() {
         (name == RUNNER_VARIABLE).then(|| OsString::from("RUNNER=proofs:narrowingRunner"))
     };
     assert_eq!(
-        cargo_place::host_command(&args(&["test"]), &side, &side.top, &env),
+        cargo_place::host_command(
+            crate::cargo_place::CargoTool::Cargo,
+            &args(&["test"]),
+            &side,
+            &side.top,
+            &env
+        ),
         args(&[
             "env",
             "BUILDS_CARGO_HOST=local",
