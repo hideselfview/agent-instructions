@@ -1,7 +1,8 @@
 //! `builds install`: puts `builds` and `builds-shots` (shots_program.rs) on
 //! PATH and links `builds-linker` and `builds-rustc` to builds (see the
 //! `linker` and `rustc_wrapper` modules), creates the shared caches and the links to
-//! them, writes the sccache config, runs the sccache server under launchd,
+//! them, writes the sccache config, runs the sccache server under the OS's
+//! service manager (sccache_service.rs),
 //! points Xcode's default DerivedData at the volume, and copies both
 //! programs to every recorded host. `builds install` runs from a fresh build,
 //! never from the installed binary (that fails: it would copy itself onto
@@ -15,26 +16,25 @@ use crate::checkout::absolute_link_target;
 use crate::fail;
 use crate::fail::{Context, Result};
 use crate::manifest::SHARED_CACHES;
-use crate::sccache::{Job, launchd_serves, read_job};
+use crate::sccache::{Job, job_serves};
+use crate::sccache_service::Manager;
 use crate::text::{human, note, tilde};
 use crate::tool::Tool;
 
-/// The launchd label of the sccache server builds runs on each Mac.
-pub const SCCACHE_LABEL: &str = "local.sccache-server";
-
-/// The sccache config file, which sccache reads on every client and server
-/// start, whatever the caller's environment, so the cap holds for builds that
-/// never source a shell profile. Relative to $HOME.
-pub const SCCACHE_CONFIG: &str = "Library/Application Support/Mozilla.sccache/config";
-
-/// The sccache config file in <home>.
-pub fn sccache_config_path(home: &Path) -> PathBuf {
-    home.join(SCCACHE_CONFIG)
+/// The sccache config file on a host of OS <os>, relative to $HOME: where
+/// sccache reads it on every client and server start, whatever the caller's
+/// environment, so the cap holds for builds that never source a shell
+/// profile.
+pub fn sccache_config_file(os: crate::host_platform::Os) -> &'static str {
+    match os {
+        crate::host_platform::Os::Mac => "Library/Application Support/Mozilla.sccache/config",
+        crate::host_platform::Os::Linux => ".config/sccache/config",
+    }
 }
 
-/// The file the sccache server launchd runs writes its errors to.
-fn sccache_log_path(home: &Path) -> PathBuf {
-    home.join("Library/Logs/sccache-server.log")
+/// The sccache config file in <home>, on this machine.
+pub fn sccache_config_path(home: &Path) -> PathBuf {
+    home.join(sccache_config_file(crate::host_platform::Os::here()))
 }
 
 /// The config `install` writes for a cap of <cap_kib>.
@@ -82,64 +82,6 @@ fn write_if_changed(file: &Path, content: &str) -> Result<bool> {
     }
     std::fs::write(file, content).context(|| format!("writing {}", file.display()))?;
     Ok(true)
-}
-
-fn plist(sccache: &Path, home: &Path) -> String {
-    // One server on sccache's default TCP port, started with the system
-    // TMPDIR: a server inherits the TMPDIR of whichever client starts it, and
-    // a session-scoped TMPDIR deleted later fails every compile. launchd
-    // starts it at login, restarts it if it exits, and it never idles out, so
-    // no client has a reason to start one of its own. SCCACHE_START_SERVER=1
-    // makes this process the server and SCCACHE_NO_DAEMON=1 keeps it from
-    // forking, so it is the process launchd watches. launchd starts a job at
-    // 256 open files; the server holds every source file it hashes open, and
-    // a crate like aws-sdk-s3 runs out at that, so the job raises its own
-    // limit.
-    format!(
-        r#"<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<!-- Written by builds install. -->
-<plist version="1.0">
-<dict>
-  <key>Label</key>
-  <string>{SCCACHE_LABEL}</string>
-  <key>ProgramArguments</key>
-  <array>
-    <string>/bin/sh</string>
-    <string>-c</string>
-    <string>TMPDIR="$(getconf DARWIN_USER_TEMP_DIR)" exec "{sccache}"</string>
-  </array>
-  <key>EnvironmentVariables</key>
-  <dict>
-    <key>SCCACHE_START_SERVER</key>
-    <string>1</string>
-    <key>SCCACHE_NO_DAEMON</key>
-    <string>1</string>
-    <key>SCCACHE_IDLE_TIMEOUT</key>
-    <string>0</string>
-    <key>SCCACHE_ERROR_LOG</key>
-    <string>{log}</string>
-  </dict>
-  <key>SoftResourceLimits</key>
-  <dict>
-    <key>NumberOfFiles</key>
-    <integer>65536</integer>
-  </dict>
-  <key>HardResourceLimits</key>
-  <dict>
-    <key>NumberOfFiles</key>
-    <integer>65536</integer>
-  </dict>
-  <key>RunAtLoad</key>
-  <true/>
-  <key>KeepAlive</key>
-  <true/>
-</dict>
-</plist>
-"#,
-        sccache = sccache.display(),
-        log = sccache_log_path(home).display()
-    )
 }
 
 /// Makes <link> (~/.gradle) a symlink to the shared cache <dir> on the
@@ -357,24 +299,6 @@ fn restart_dashboards(home: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Runs `launchctl <args>`, and fails with what launchctl said when it
-/// fails.
-fn launchctl(args: &[&str]) -> Result<()> {
-    let output = Command::new("launchctl")
-        .args(args)
-        .output()
-        .context(|| "running launchctl".to_string())?;
-    if !output.status.success() {
-        fail!(
-            "launchctl {} failed ({}): {}",
-            args.join(" "),
-            output.status,
-            String::from_utf8_lossy(&[output.stdout, output.stderr].concat()).trim()
-        );
-    }
-    Ok(())
-}
-
 /// builds' cap for the sccache cache, from the shared caches.
 pub fn sccache_cap_kib() -> u64 {
     SHARED_CACHES
@@ -402,30 +326,38 @@ fn last_lines(path: &Path) -> String {
     }
 }
 
-/// Why launchd's job does not serve sccache's port, from what launchd says
-/// about the job, the pid listening on the port, and the end of the server's
-/// log. `confirm_serving` calls `not_serving` only once `launchd_serves`
-/// said no, so a pid listening on the port is never the job's.
-fn not_serving(job: Option<&Job>, listener: Option<u32>, log: &str, log_end: &str) -> String {
-    let launchd = match job {
-        Some(job) => format!("launchctl print says {}", job.text()),
-        None => "launchd has not loaded the job".to_string(),
+/// Why <manager>'s job does not serve sccache's port, from what the manager
+/// says about the job, the pid listening on the port, and the end of the
+/// server's log. `confirm_serving` calls `not_serving` only once
+/// `job_serves` said no, so a pid listening on the port is never the job's.
+fn not_serving(
+    manager: Manager,
+    job: Option<&Job>,
+    listener: Option<u32>,
+    log: &str,
+    log_end: &str,
+) -> String {
+    let said = match job {
+        Some(job) => format!("{} says {}", manager.word(), job.text()),
+        None => format!("{} has not loaded the job", manager.word()),
     };
     let port = match listener {
         None => format!("no process listens on port {}", crate::sccache::PORT),
         Some(pid) => format!(
-            "pid {pid}, which launchd does not run, listens on port {}",
+            "pid {pid}, which {} does not run, listens on port {}",
+            manager.word(),
             crate::sccache::PORT
         ),
     };
-    format!("{launchd}; {port}; {log} ends with: {log_end}")
+    format!("{said}; {port}; {log} ends with: {log_end}")
 }
 
-/// Waits until launchd's job serves sccache's port, asking <look> for the job
-/// and the listening pid, and returns the job's pid. Fails after <limit>
-/// with what launchd says, which process holds the port, and the end of the
-/// server's log at <log>.
+/// Waits until <manager>'s job serves sccache's port, asking <look> for the
+/// job and the listening pid, and returns the job's pid. Fails after <limit>
+/// with what the manager says, which process holds the port, and the end of
+/// the server's log at <log>.
 fn confirm_serving(
+    manager: Manager,
     mut look: impl FnMut() -> Result<(Option<Job>, Option<u32>)>,
     limit: Duration,
     log: &Path,
@@ -434,14 +366,15 @@ fn confirm_serving(
     let start = Instant::now();
     loop {
         let (job, listener) = look()?;
-        if launchd_serves(job.as_ref(), listener) {
+        if job_serves(job.as_ref(), listener) {
             return Ok(listener.expect("a serving job listens"));
         }
         if start.elapsed() >= limit {
             fail!(
-                "launchd's sccache server does not serve sccache's port {} seconds after launchctl bootstrap: {}",
+                "{}'s sccache server does not serve sccache's port {} seconds after builds started it: {}",
+                manager.word(),
                 limit.as_secs(),
-                not_serving(job.as_ref(), listener, shown_log, &last_lines(log))
+                not_serving(manager, job.as_ref(), listener, shown_log, &last_lines(log))
             );
         }
         std::thread::sleep(Duration::from_millis(250));
@@ -451,27 +384,28 @@ fn confirm_serving(
 /// How long builds waits for the compiles of a server it is about to stop.
 const COMPILES_LIMIT: Duration = Duration::from_secs(10 * 60);
 
-/// How long launchd's server may take to listen after launchctl bootstrap.
+/// How long the manager's server may take to listen after builds starts it.
 const START_LIMIT: Duration = Duration::from_secs(10);
 
 /// Writes the sccache config with builds' cap and runs the sccache server
-/// under launchd (`SCCACHE_LABEL`) for user <uid>, whose home is <home>.
-/// `builds install` calls this on this Mac, and `builds host setup` on each
-/// host. When the settings are unchanged and launchd's server is the one
-/// listening on sccache's port, with the cap the config holds, the function
-/// changes nothing. Otherwise it
-/// waits for the compiles of the listening server to finish, stops that
-/// server, whether launchd runs it or a client started it, starts launchd's,
-/// and checks that launchd's server is the one listening. It fails, with what
-/// launchd and the server's log say, when it is not.
-pub fn run_sccache_under_launchd(home: &Path, uid: u32) -> Result<()> {
+/// under this machine's service manager (sccache_service.rs) for user <uid>,
+/// whose home is <home>. `builds install` calls this on this Mac, and `builds
+/// host setup` on each host. When the settings are unchanged and the
+/// manager's server is the one listening on sccache's port, with the cap the
+/// config holds, the function changes nothing. Otherwise it waits for the
+/// compiles of the listening server to finish, stops that server, whether the
+/// manager runs it or a client started it, starts the manager's, and checks
+/// that the manager's server is the one listening. It fails, with what the
+/// manager and the server's log say, when it is not.
+pub fn run_sccache_server(home: &Path, uid: u32) -> Result<()> {
+    let manager = Manager::here();
     let sccache_cap = sccache_cap_kib();
     let Some(sccache) = on_path("sccache") else {
         fail!("sccache is not installed")
     };
     let config = sccache_config_path(home);
-    let plist_path = home.join(format!("Library/LaunchAgents/{SCCACHE_LABEL}.plist"));
-    for file in [&config, &plist_path] {
+    let job_path = crate::sccache_service::job_path(home);
+    for file in [&config, &job_path] {
         let dir = file.parent().expect("the file has a folder");
         std::fs::create_dir_all(dir).context(|| format!("creating {}", dir.display()))?;
     }
@@ -484,15 +418,13 @@ pub fn run_sccache_under_launchd(home: &Path, uid: u32) -> Result<()> {
         ));
         changed = true;
     }
-    if write_if_changed(&plist_path, &plist(&sccache, home))? {
-        note(format!("wrote {}", plist_path.display()));
+    if write_if_changed(&job_path, &manager.job_text(&sccache, home))? {
+        note(format!("wrote {}", job_path.display()));
         changed = true;
     }
-    let domain = format!("gui/{uid}");
-    let service = format!("{domain}/{SCCACHE_LABEL}");
-    let job = read_job(&service)?;
+    let job = manager.read_job(uid)?;
     let listener = crate::sccache::listener()?;
-    let serving = launchd_serves(job.as_ref(), listener);
+    let serving = job_serves(job.as_ref(), listener);
     // A server reads its config when it starts, so one that started before
     // the config held this cap still runs with the old one.
     let running_cap = if serving {
@@ -502,7 +434,10 @@ pub fn run_sccache_under_launchd(home: &Path, uid: u32) -> Result<()> {
     };
     let cap_bytes = sccache_cap * 1024;
     if !changed && serving && running_cap == Some(cap_bytes) {
-        note("the sccache server already runs under launchd with these settings");
+        note(format!(
+            "the sccache server already runs under {} with these settings",
+            manager.word()
+        ));
         return Ok(());
     }
     if let Some(running) = running_cap.filter(|running| *running != cap_bytes) {
@@ -516,24 +451,26 @@ pub fn run_sccache_under_launchd(home: &Path, uid: u32) -> Result<()> {
         crate::sccache::wait_for_compiles(pid, COMPILES_LIMIT)?;
     }
     if job.is_some() {
-        launchctl(&["bootout", &service])?;
+        manager.stop(uid)?;
     }
-    // A server that a client started holds sccache's port, and launchd's
-    // server could not listen there.
+    // A server that a client started holds sccache's port, and the
+    // manager's server could not listen there.
     if crate::sccache::listening()? {
         crate::sccache::stop(&sccache)?;
     }
-    launchctl(&["bootstrap", &domain, &plist_path.to_string_lossy()])?;
-    let log = sccache_log_path(home);
+    manager.start(uid, &job_path)?;
+    let log = home.join(manager.log_file());
     let pid = confirm_serving(
-        || Ok((read_job(&service)?, crate::sccache::listener()?)),
+        manager,
+        || Ok((manager.read_job(uid)?, crate::sccache::listener()?)),
         START_LIMIT,
         &log,
         &tilde(&log, home),
     )?;
     note(format!(
-        "started the sccache server under launchd (pid {pid}, {})",
-        plist_path.display()
+        "started the sccache server under {} (pid {pid}, {})",
+        manager.word(),
+        job_path.display()
     ));
     Ok(())
 }
@@ -606,7 +543,7 @@ pub fn cmd_install(tool: &Tool, args: &[String]) -> Result<()> {
         link_cache(&caches.join(cache.name), &cache.link_path(home), home)?;
     }
     crate::nextest::install(home)?;
-    run_sccache_under_launchd(home, tool.places.uid)?;
+    run_sccache_server(home, tool.places.uid)?;
     // xcodebuild runs without -derivedDataPath, and the Xcode app, write
     // here.
     let current = Command::new("defaults")
@@ -652,7 +589,8 @@ pub fn cmd_install(tool: &Tool, args: &[String]) -> Result<()> {
 /// Installs <programs>, this build's, on every recorded host
 /// (`host_setup::install_on_host`): copies it there, so each host's jobs run
 /// the builds this Mac runs, and has it write the host's sccache config with
-/// builds' cap and run its sccache server under launchd, so a change of the
+/// builds' cap and run its sccache server under its service manager, so a
+/// change of the
 /// cap reaches every host when it lands. The function tries every host
 /// first, then fails and names each host it could not install on. `builds
 /// health` reports a host that runs a different builds, or whose sccache
@@ -736,7 +674,9 @@ mod tests {
             (Some(parse_job(RUNNING).unwrap()), None),
             (None, None),
         ];
+        let launchd = Manager(crate::host_platform::Os::Mac);
         let pid = confirm_serving(
+            launchd,
             || Ok(looks.pop().unwrap()),
             Duration::from_secs(10),
             &log,
@@ -752,6 +692,7 @@ mod tests {
         said.push_str("sccache: error: Address already in use (os error 48)\n\n");
         std::fs::write(&log, said).unwrap();
         let Err(crate::fail::Fail::Message(message)) = confirm_serving(
+            launchd,
             || Ok((Some(parse_job(RESPAWNING).unwrap()), Some(77))),
             Duration::from_millis(300),
             &log,
@@ -760,7 +701,7 @@ mod tests {
             panic!("expected a failure");
         };
         assert!(
-            message.contains("launchctl print says state = spawn scheduled, last exit code = 2"),
+            message.contains("launchd says state = spawn scheduled, last exit code = 2"),
             "{message}"
         );
         assert!(
@@ -774,7 +715,7 @@ mod tests {
             "{message}"
         );
         assert!(
-            not_serving(None, None, "the log", "nothing")
+            not_serving(launchd, None, None, "the log", "nothing")
                 .starts_with("launchd has not loaded the job; no process listens on port 4226")
         );
         assert!(

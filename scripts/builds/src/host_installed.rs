@@ -1,5 +1,6 @@
 //! What each host, this Mac included, has set up for builds' jobs: the
-//! `builds` and `builds-shots` programs its jobs run, whether launchd runs its sccache server,
+//! `builds` and `builds-shots` programs its jobs run, whether its service
+//! manager (launchd or systemd, sccache_service.rs) runs its sccache server,
 //! whether its sccache config holds builds' cap, and the settings that UI
 //! tests need on the host (ui_test_settings.rs). `builds
 //! health` and the dashboard compare each host with this Mac and say what to
@@ -21,15 +22,15 @@ pub struct Installed {
     /// The SHA-256 of the host's ~/.local/bin/builds-shots, which `builds
     /// shots` runs there; None when the host has none.
     pub shots: Option<String>,
-    /// Whether launchd runs the host's sccache server from the plist builds
-    /// writes (`install::run_sccache_under_launchd`), so the server keeps the
-    /// cache under the size limit builds sets and does not exit when idle:
-    /// the plist is there, and the sccache server listening on sccache's port
-    /// is launchd's job (`sccache::launchd_serves`, the same check that setup
-    /// uses).
-    pub sccache_under_launchd: bool,
+    /// Whether the host's service manager runs its sccache server from the
+    /// job file builds writes (`install::run_sccache_server`), so the server
+    /// keeps the cache under the size limit builds sets and does not exit
+    /// when idle: the job file is there, and the sccache server listening on
+    /// sccache's port is the manager's job (`sccache::job_serves`, the same
+    /// check that setup uses).
+    pub sccache_served: bool,
     /// Whether the host's sccache config holds builds' cap
-    /// (`install::sccache_cap_kib`), which `install::run_sccache_under_launchd`
+    /// (`install::sccache_cap_kib`), which `install::run_sccache_served`
     /// writes and the server reads when it starts.
     pub sccache_cap: bool,
     /// The max cache size, in bytes, that the host's listening sccache server
@@ -43,24 +44,50 @@ pub struct Installed {
 }
 
 /// Runs on a host, and on this Mac, to print what `parse_installed` reads:
-/// the builds and builds-shots digests, whether builds' plist is there, each line of the
-/// sccache config after `sccache_config:`, the processes listening on
-/// sccache's port, the settings that UI tests need, and last, after `job=loaded`, what
-/// `launchctl print` says about launchd's job.
+/// the host's platform, the builds and builds-shots digests, whether the
+/// file of the sccache server's job is there, each line of the sccache config
+/// after `sccache_config:`, the processes listening on sccache's port, the
+/// settings that UI tests need, and last, after `job=loaded`, what the
+/// service manager says about the server's job (sccache_service.rs). Each
+/// OS keeps the job's file and the config in a place of its own.
 fn installed_script() -> String {
-    let label = crate::install::SCCACHE_LABEL;
+    use crate::host_platform::Os;
+    use crate::sccache_service::Manager;
+    let files = |os: Os| {
+        format!(
+            r#"if [ -e "$HOME/{job}" ]; then echo job_file=present; else echo job_file=missing; fi
+  if [ -e "$HOME/{config}" ]; then sed 's/^/{CONFIG_PREFIX}/' "$HOME/{config}"; fi"#,
+            job = Manager(os).job_file(),
+            config = crate::install::sccache_config_file(os),
+        )
+    };
     format!(
-        r#"if [ -e "$HOME/.local/bin/builds" ]; then echo "builds=$(shasum -a 256 "$HOME/.local/bin/builds" | cut -d ' ' -f 1)"; else echo builds=missing; fi
-if [ -e "$HOME/.local/bin/{shots}" ]; then echo "shots=$(shasum -a 256 "$HOME/.local/bin/{shots}" | cut -d ' ' -f 1)"; else echo shots=missing; fi
-if [ -e "$HOME/Library/LaunchAgents/{label}.plist" ]; then echo plist=present; else echo plist=missing; fi
-if [ -e "$HOME/{config}" ]; then sed 's/^/{CONFIG_PREFIX}/' "$HOME/{config}"; fi
+        r#"{platform}
+case "$os" in Darwin) digest="shasum -a 256" ;; *) digest=sha256sum ;; esac
+if [ -e "$HOME/.local/bin/builds" ]; then echo "builds=$($digest "$HOME/.local/bin/builds" | cut -d ' ' -f 1)"; else echo builds=missing; fi
+if [ -e "$HOME/.local/bin/{shots}" ]; then echo "shots=$($digest "$HOME/.local/bin/{shots}" | cut -d ' ' -f 1)"; else echo shots=missing; fi
+case "$os" in
+Darwin)
+  {mac_files}
+  ;;
+*)
+  {linux_files}
+  ;;
+esac
 {listener}
 {ui_tests}
-if job=$(launchctl print "gui/$(id -u)/{label}" 2>/dev/null); then echo job=loaded; printf '%s\n' "$job"; else echo job=none; fi"#,
-        config = crate::install::SCCACHE_CONFIG,
+case "$os" in
+Darwin) {mac_job} ;;
+*) {linux_job} ;;
+esac"#,
+        platform = crate::host_platform::SCRIPT,
         shots = crate::shots_program::PROGRAM,
+        mac_files = files(Os::Mac),
+        linux_files = files(Os::Linux),
         listener = crate::sccache::listener_script(),
-        ui_tests = crate::ui_test_settings::SCRIPT
+        ui_tests = crate::ui_test_settings::SCRIPT,
+        mac_job = Manager(Os::Mac).job_script(),
+        linux_job = Manager(Os::Linux).job_script(),
     )
 }
 
@@ -83,10 +110,11 @@ pub fn parse_installed(text: &str) -> Result<Installed> {
             digest => Ok(Some(digest.to_string())),
         }
     };
-    let plist = match value("plist") {
+    let manager = crate::sccache_service::Manager(crate::host_platform::Platform::parse(text)?.os);
+    let job_file = match value("job_file") {
         Some("present") => true,
         Some("missing") => false,
-        _ => fail!("the host's answer has no plist line: {text:?}"),
+        _ => fail!("the host's answer has no job_file line: {text:?}"),
     };
     let listener = crate::sccache::parse_listener_lines(text)?;
     let sccache_running_cap = crate::sccache::parse_stats_line(text)?;
@@ -100,14 +128,19 @@ pub fn parse_installed(text: &str) -> Result<Installed> {
         crate::install::sccache_cap_kib(),
     );
     let job = match text.split_once("\njob=") {
-        Some((_, rest)) if rest.starts_with("loaded") => Some(crate::sccache::parse_job(rest)?),
+        Some((_, rest)) if rest.starts_with("loaded") => Some(manager.parse_job(rest)?),
         Some((_, rest)) if rest.starts_with("none") => None,
+        Some((_, rest)) if rest.starts_with("unread") => fail!(
+            "{} could not say what it runs of the sccache server: {}",
+            manager.word(),
+            rest.trim_start_matches("unread").trim()
+        ),
         _ => fail!("the host's answer has no job line: {text:?}"),
     };
     Ok(Installed {
         builds: digest("builds", builds)?,
         shots: digest(crate::shots_program::PROGRAM, shots)?,
-        sccache_under_launchd: plist && crate::sccache::launchd_serves(job.as_ref(), listener),
+        sccache_served: job_file && crate::sccache::job_serves(job.as_ref(), listener),
         sccache_cap,
         sccache_running_cap,
         ui_tests,
@@ -143,7 +176,8 @@ pub fn read_all_installed(places: &Places, ssh: &Ssh, hosts: &[Host]) -> Vec<Hos
 }
 
 /// The "needs action" lines for <reads>: each host whose builds is not this
-/// Mac's, each host, this Mac included, whose sccache server launchd does not
+/// Mac's, each host, this Mac included, whose sccache server its service
+/// manager does not
 /// run or whose sccache config does not hold builds' cap, and each host that
 /// builds could not ask, with what went wrong.
 pub fn installed_findings(reads: &[HostInstalled]) -> Vec<crate::health::Advice> {
@@ -159,9 +193,9 @@ pub fn installed_findings(reads: &[HostInstalled]) -> Vec<crate::health::Advice>
         }
     };
     let mut out = Vec::new();
-    if !local.sccache_under_launchd {
+    if !local.sccache_served {
         out.push(crate::health::Advice::run(
-            format!("this Mac's {SCCACHE_OUTSIDE_LAUNCHD} Run it under launchd with"),
+            format!("this Mac's {SCCACHE_OUTSIDE_SERVICE} Run it under launchd with"),
             "builds install".to_string(),
         ));
     }
@@ -214,9 +248,11 @@ pub fn installed_findings(reads: &[HostInstalled]) -> Vec<crate::health::Advice>
             };
             out.push(crate::health::Advice::run(text, setup.clone()));
         }
-        if !installed.sccache_under_launchd {
+        if !installed.sccache_served {
             out.push(crate::health::Advice::run(
-                format!("host {name}'s {SCCACHE_OUTSIDE_LAUNCHD} Run it under launchd with"),
+                format!(
+                    "host {name}'s {SCCACHE_OUTSIDE_SERVICE} Run it under its service manager with"
+                ),
                 setup.clone(),
             ));
         }
@@ -239,8 +275,8 @@ pub fn installed_findings(reads: &[HostInstalled]) -> Vec<crate::health::Advice>
     out
 }
 
-/// What a host whose sccache server launchd does not run loses.
-const SCCACHE_OUTSIDE_LAUNCHD: &str = "sccache server does not run under launchd, so the first compile starts one that takes the client's TMPDIR and open-file limit and exits when idle.";
+/// What a host whose sccache server its service manager does not run loses.
+const SCCACHE_OUTSIDE_SERVICE: &str = "sccache server does not run under its service manager (launchd on macOS, systemd on Linux), so the first compile starts one that takes the client's TMPDIR and open-file limit and exits when idle.";
 
 /// What a Mac whose sccache config does not hold builds' cap loses.
 fn sccache_cap_differs() -> String {

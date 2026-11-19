@@ -1,5 +1,5 @@
 //! The shared sccache server: which process listens on its port, whether
-//! launchd's job is that process, what it says about itself, the compiles it
+//! the service manager's job is that process (sccache_service.rs), what it says about itself, the compiles it
 //! runs, and stopping it. This module asks the server about itself only when
 //! it already listens, because asking starts a server when none runs.
 
@@ -26,9 +26,6 @@ fn listener_args() -> [String; 4] {
         "-FpRc".to_string(),
     ]
 }
-
-/// The pid of launchd, the parent of each process it starts.
-const LAUNCHD: u32 = 1;
 
 /// A process listening on sccache's port, its parent and its command.
 struct Listener {
@@ -79,9 +76,9 @@ fn parse_listeners(stdout: &str) -> Option<Vec<Listener>> {
 /// compile as a child process, and each child holds the server's listening
 /// socket, so lsof lists the server and its compiles. The server is the one
 /// listener whose parent does not listen. When lsof lists several such
-/// servers, as when a client started a server of its own beside launchd's
-/// for a moment, fails naming each, which launchd started and which it did
-/// not.
+/// servers, as when a client started a server of its own beside the service
+/// manager's for a moment, fails naming each and the process that started
+/// it.
 fn server(listeners: &[Listener]) -> Result<u32> {
     let servers: Vec<&Listener> = listeners
         .iter()
@@ -94,17 +91,10 @@ fn server(listeners: &[Listener]) -> Result<u32> {
             servers.len(),
             servers
                 .iter()
-                .map(|server| if server.parent == LAUNCHD {
-                    format!(
-                        "pid {} ({}), which launchd started",
-                        server.pid, server.command
-                    )
-                } else {
-                    format!(
-                        "pid {} ({}), which pid {} started and launchd did not",
-                        server.pid, server.command, server.parent
-                    )
-                })
+                .map(|server| format!(
+                    "pid {} ({}), which pid {} started",
+                    server.pid, server.command, server.parent
+                ))
                 .collect::<Vec<_>>()
                 .join("; ")
         ),
@@ -295,7 +285,8 @@ pub fn listening() -> Result<bool> {
     Ok(listener()?.is_some())
 }
 
-/// What `launchctl print` says about a job launchd has loaded.
+/// What the service manager says about the server's job, once it has loaded
+/// it: `launchctl print` on macOS, `systemctl show` on Linux.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Job {
     /// `running`, `spawn scheduled`, `not running` and so on.
@@ -368,11 +359,12 @@ pub fn read_job(service: &str) -> Result<Option<Job>> {
     parse_job(&String::from_utf8_lossy(&output.stdout)).map(Some)
 }
 
-/// Does launchd's job serve sccache's port: is the process listening there
-/// the job's running process? Setup (`install::run_sccache_under_launchd`)
+/// Does the service manager's job serve sccache's port: is the process
+/// listening there the job's running process? Setup
+/// (`install::run_sccache_server`)
 /// and the check of what each host has installed (host_installed.rs) both
 /// judge the server by this.
-pub fn launchd_serves(job: Option<&Job>, listener: Option<u32>) -> bool {
+pub fn job_serves(job: Option<&Job>, listener: Option<u32>) -> bool {
     job.and_then(Job::running_pid)
         .is_some_and(|pid| listener == Some(pid))
 }
@@ -507,19 +499,13 @@ pub mod tests {
     /// launchd's job serves sccache's port only when its running process is
     /// the one listening there.
     #[test]
-    fn launchd_serves_only_when_its_process_listens() {
+    fn the_job_serves_only_when_its_process_listens() {
         let running = parse_job(RUNNING).unwrap();
-        assert!(launchd_serves(Some(&running), Some(2914)));
-        assert!(
-            !launchd_serves(Some(&running), Some(77)),
-            "a client's server"
-        );
-        assert!(!launchd_serves(Some(&running), None), "not listening yet");
-        assert!(!launchd_serves(
-            Some(&parse_job(RESPAWNING).unwrap()),
-            Some(77)
-        ));
-        assert!(!launchd_serves(None, Some(77)), "launchd has no job");
+        assert!(job_serves(Some(&running), Some(2914)));
+        assert!(!job_serves(Some(&running), Some(77)), "a client's server");
+        assert!(!job_serves(Some(&running), None), "not listening yet");
+        assert!(!job_serves(Some(&parse_job(RESPAWNING).unwrap()), Some(77)));
+        assert!(!job_serves(None, Some(77)), "launchd has no job");
     }
 
     /// A process running `sh -c <script>` in a process group of its own, so
@@ -658,11 +644,11 @@ pub mod tests {
             "{message}"
         );
         assert!(
-            message.contains("pid 2914 (sccache), which launchd started"),
+            message.contains("pid 2914 (sccache), which pid 1 started"),
             "{message}"
         );
         assert!(
-            message.contains("pid 92600 (sccache), which pid 9100 started and launchd did not"),
+            message.contains("pid 92600 (sccache), which pid 9100 started"),
             "{message}"
         );
     }

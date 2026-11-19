@@ -1252,7 +1252,7 @@ pub fn cmd_host(tool: &Tool, ssh: &Ssh, args: &[String]) -> Result<()> {
         [word] if word == "setup-here" => {
             tool.places.mark_host()?;
             crate::nextest::install(&tool.places.home)?;
-            crate::install::run_sccache_under_launchd(&tool.places.home, tool.places.uid)
+            crate::install::run_sccache_server(&tool.places.home, tool.places.uid)
         }
         [word] if word == "speed-here" => crate::host_setup::cmd_speed_here(),
         [word, rest @ ..] if word == "band" => crate::host_band::cmd_band(tool, rest),

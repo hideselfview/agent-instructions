@@ -93,6 +93,7 @@ mod rustc_wrapper;
 mod sccache;
 mod sccache_queue;
 mod sccache_readings;
+mod sccache_service;
 mod setup;
 mod shells;
 mod shot_findings;

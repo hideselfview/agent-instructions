@@ -21,7 +21,7 @@ fn config_lines(cap_kib: u64) -> String {
     )
 }
 
-/// What `installed_script` prints for a host with builds' plist, an sccache
+/// What `installed_script` prints for a Mac with builds' plist, an sccache
 /// config with builds' cap, the server <listener> on sccache's port, the
 /// settings that UI tests need all on, and launchd's job as `launchctl print`
 /// printed <job>, or no job.
@@ -40,7 +40,7 @@ fn answer(builds: &str, plist: &str, listener: &str, job: Option<&str>) -> Strin
         )
     };
     format!(
-        "builds={builds}\nshots=cd34\nplist={plist}\n{config}listener_status={status}\n{lsof}listener_said=\n{stats}{UI_TESTS}{job}",
+        "os=Darwin\narch=arm64\nbuilds={builds}\nshots=cd34\njob_file={plist}\n{config}listener_status={status}\n{lsof}listener_said=\n{stats}{UI_TESTS}{job}",
         config = config_lines(crate::install::sccache_cap_kib())
     )
 }
@@ -81,7 +81,7 @@ fn reads_what_a_host_has_installed() {
         Installed {
             builds: Some("ab12".to_string()),
             shots: Some("cd34".to_string()),
-            sccache_under_launchd: true,
+            sccache_served: true,
             sccache_cap: true,
             sccache_running_cap: Some(cap_bytes()),
             ui_tests: all_on(),
@@ -92,7 +92,7 @@ fn reads_what_a_host_has_installed() {
         Installed {
             builds: None,
             shots: Some("cd34".to_string()),
-            sccache_under_launchd: false,
+            sccache_served: false,
             sccache_cap: true,
             sccache_running_cap: None,
             ui_tests: all_on(),
@@ -134,7 +134,7 @@ fn launchd_runs_a_hosts_sccache_only_when_its_job_listens() {
     let under = |plist, listener, job| {
         parse_installed(&answer("ab12", plist, listener, job))
             .unwrap()
-            .sccache_under_launchd
+            .sccache_served
     };
     assert!(under("present", "2914", Some(RUNNING)));
     assert!(!under("present", "77", Some(RUNNING)), "a client's server");
@@ -233,7 +233,7 @@ fn a_host_whose_sccache_runs_outside_launchd_is_a_finding() {
     let installed = |sccache_under_launchd| Installed {
         builds: Some("ab12".to_string()),
         shots: Some("cd34".to_string()),
-        sccache_under_launchd,
+        sccache_served: sccache_under_launchd,
         sccache_cap: true,
         sccache_running_cap: Some(cap_bytes()),
         ui_tests: all_on(),
@@ -265,7 +265,7 @@ fn a_host_whose_sccache_runs_outside_launchd_is_a_finding() {
     let reads = read_all_installed(&places, &ssh, &[Host::local(), host("m1")]);
     let under: Vec<bool> = reads
         .iter()
-        .map(|read| read.read.as_ref().unwrap().sccache_under_launchd)
+        .map(|read| read.read.as_ref().unwrap().sccache_served)
         .collect();
     assert_eq!(under, [false, false]);
 }
@@ -296,7 +296,7 @@ fn a_host_whose_sccache_config_does_not_hold_builds_cap_is_a_finding() {
         read: Ok(Installed {
             builds: Some("ab12".to_string()),
             shots: Some("cd34".to_string()),
-            sccache_under_launchd: true,
+            sccache_served: true,
             sccache_cap,
             sccache_running_cap: Some(cap_bytes()),
             ui_tests: all_on(),
@@ -361,7 +361,7 @@ fn a_server_whose_running_cap_differs_from_its_config_is_a_finding() {
         read: Ok(Installed {
             builds: Some("ab12".to_string()),
             shots: Some("cd34".to_string()),
-            sccache_under_launchd: true,
+            sccache_served: true,
             sccache_cap: true,
             sccache_running_cap: running,
             ui_tests: all_on(),

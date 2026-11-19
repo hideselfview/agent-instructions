@@ -122,11 +122,21 @@ pub fn install_with(home: &Path, download: impl FnOnce(&Path) -> Result<()>) -> 
     })
 }
 
-/// Downloads the release's universal macOS build of cargo-nextest into
+/// The name get.nexte.st gives the release's build for this machine: the
+/// universal macOS build, or the Linux build for its processor.
+fn release_platform() -> &'static str {
+    match (crate::host_platform::Os::here(), std::env::consts::ARCH) {
+        (crate::host_platform::Os::Mac, _) => "mac",
+        (crate::host_platform::Os::Linux, "aarch64") => "linux-arm",
+        (crate::host_platform::Os::Linux, _) => "linux",
+    }
+}
+
+/// Downloads the release's build of cargo-nextest for this machine into
 /// <dir>.
 fn download(dir: &Path) -> Result<()> {
     crate::download::unpack_tarball(
-        &format!("https://get.nexte.st/{VERSION}/mac"),
+        &format!("https://get.nexte.st/{VERSION}/{}", release_platform()),
         dir,
         &format!("cargo-nextest {VERSION}"),
     )
