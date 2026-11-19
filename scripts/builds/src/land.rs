@@ -721,13 +721,19 @@ impl Landing<'_> {
         // Commits that change app files are app work, which land one by one
         // with their items; only a change drawn in design files alone is
         // squashed.
-        let (only, _) = self.run_line(&self.with_items(
+        let (only, said) = self.run_line(&self.with_items(
             &["design", "only"],
             false,
             &self.request.shas,
             project,
         ));
         if !only {
+            // A broken check fails again in the lists check that follows.
+            let _ = writeln!(
+                out,
+                "not squashing the commits of design change {}: {said}",
+                self.request.designs[0].0
+            );
             return Ok(());
         }
         let (ok, title) = self.builds(&[
