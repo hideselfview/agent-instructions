@@ -1350,10 +1350,10 @@ fn a_review_reads_the_brief_from_the_main_checkout_of_another_repo() {
     let args = Args::parse(&["--item".to_string(), "1".to_string()], &["item"], &[]).unwrap();
     assert_eq!(
         brief_of(&demo.tool.places, &demo.store, &args).unwrap(),
-        Some((
-            "plans/b.md#Part".to_string(),
-            "The brief text.\n".to_string()
-        ))
+        Some(Brief {
+            name: "plans/b.md#Part".to_string(),
+            text: "The brief text.\n".to_string(),
+        })
     );
     std::fs::remove_file(other.join("plans/b.md")).unwrap();
     let said = brief_of(&demo.tool.places, &demo.store, &args)

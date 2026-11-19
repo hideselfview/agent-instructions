@@ -4,6 +4,7 @@
 
 use serde_json::{Value, json};
 
+use crate::lists::spec_check::Brief;
 use crate::review::groups::Group;
 use crate::review::record::Finding;
 use crate::review::rules::Rule;
@@ -19,8 +20,8 @@ pub struct Input<'a> {
     pub rules: &'a [&'a Rule],
     /// The project's always-loaded instructions; empty when it has none.
     pub project_text: &'a str,
-    /// (path, text) of the landing's brief, when it has one.
-    pub brief: Option<&'a (String, String)>,
+    /// The landing's brief, when it has one.
+    pub brief: Option<&'a crate::lists::spec_check::Brief>,
     pub diff: &'a str,
     /// The new text of the diff's file around each hunk, when the group
     /// reviews one file per call; empty otherwise.
@@ -108,7 +109,7 @@ fn project_part(input: &Input) -> String {
             input.project_text.trim_end()
         ));
     }
-    if let Some((path, text)) = input.brief {
+    if let Some(Brief { name: path, text }) = input.brief {
         out.push_str(&format!(
             "\n# The landing's brief ({path})\n\n{}\n",
             text.trim_end()

@@ -90,6 +90,7 @@ use crate::fail;
 use crate::fail::{Context, Fail, Result};
 use crate::lists::Stamp;
 use crate::lists::args::{Args, current_dir};
+use crate::lists::spec_check::Brief;
 use crate::lists::store::{Store, project_of};
 use crate::tool::Tool;
 use boards::git;
@@ -245,8 +246,8 @@ pub struct Inputs<'a> {
     pub root: &'a Path,
     pub reviewer: &'a Path,
     pub stamp: &'a Stamp,
-    /// (path, text) of the landing's brief.
-    pub brief: Option<(String, String)>,
+    /// The landing's brief.
+    pub brief: Option<crate::lists::spec_check::Brief>,
     /// The agent that runs the review; None for the person.
     pub runner: Option<&'a Caller>,
 }
@@ -799,7 +800,7 @@ fn brief_of(
     places: &crate::places::Places,
     store: &Store,
     args: &Args,
-) -> Result<Option<(String, String)>> {
+) -> Result<Option<crate::lists::spec_check::Brief>> {
     let ids = args.values("item");
     if ids.is_empty() {
         return Ok(None);
@@ -812,8 +813,7 @@ fn brief_of(
         };
         if let Some(brief) = &item.brief {
             let file = crate::lists::draft::find_brief(places, &lists.repos, brief)?;
-            let read = crate::lists::spec_check::Brief::read(brief, &file)?;
-            return Ok(Some((read.name, read.text)));
+            return Ok(Some(Brief::read(brief, &file)?));
         }
     }
     Ok(None)

@@ -523,7 +523,7 @@ pub fn ask_groups(
     reviewer: &Path,
     picked: &[(&Group, Vec<&Rule>)],
     diff: &Diff,
-    brief: Option<&(String, String)>,
+    brief: Option<&crate::lists::spec_check::Brief>,
     open: &[Finding],
 ) -> Asked {
     // The units a first review asks, and the files of each group's units that
