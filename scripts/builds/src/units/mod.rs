@@ -294,13 +294,30 @@ pub fn lock_profile(profile: &Path) -> Result<Option<File>> {
 
 /// The file in a checkout's build root that `builds cargo` holds a shared
 /// lock on from before it starts cargo until cargo has exited and every unit
-/// cargo reported is recorded. Cargo's own lock doesn't cover a build's
+/// cargo reported is recorded, and `builds lake` while lake runs
+/// (`hold_guard`). Cargo's own lock doesn't cover a build's
 /// whole use of its folder: `cargo test` releases it once it has compiled,
 /// then runs each test binary and rustdoc on the doctests, which reads the
 /// rlibs; and the recorder may still be reading cargo's report after cargo
 /// let go. Deleting build copies, or a whole folder, takes it exclusively
 /// without waiting, beside cargo's.
 pub const GUARD: &str = ".builds-cargo.lock";
+
+/// Takes <checkout>'s guard shared, waiting while a deletion holds it, and
+/// returns it, so nothing deletes the checkout's build folders while the
+/// caller's build writes them; None when the checkout has no build root.
+pub fn hold_guard(
+    places: &crate::places::Places,
+    checkout: Option<&crate::checkout::Checkout>,
+) -> Result<Option<File>> {
+    let root = checkout
+        .map(|checkout| checkout.build_root(places))
+        .filter(|root| root.is_dir());
+    match root {
+        Some(root) => Ok(Some(crate::evict::lock_shared_creating(&root.join(GUARD))?)),
+        None => Ok(None),
+    }
+}
 
 /// The guard of the checkout <path> is in: the nearest <GUARD> at <path> or
 /// above it.

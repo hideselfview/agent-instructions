@@ -102,10 +102,51 @@ pub fn host_command(
     cargo_place::job_words("lake", "", Vec::new(), args, checkout, dir, env)
 }
 
-/// Runs `lake <args>` on this Mac in <dir> and returns its exit status. It
-/// first installs the toolchains of <checkout>'s Lean packages, unless a
-/// pre-commit hook check started it, and holds the checkout's guard while
-/// lake runs.
+/// elan's `lake` on this Mac, ready to run for a checkout, with the
+/// checkout's guard held until it is dropped.
+pub struct Lake {
+    pub command: std::process::Command,
+    _guard: Option<std::fs::File>,
+}
+
+impl Lake {
+    /// Installs the toolchains of <checkout>'s Lean packages, unless a
+    /// pre-commit hook check started this run, takes the checkout's guard
+    /// (`units::hold_guard`), and returns a command that runs elan's `lake`
+    /// in <dir> with elan's home. Fails, naming `builds setup`, when this Mac
+    /// has no elan.
+    pub fn prepare(
+        places: &Places,
+        checkout: Option<&Checkout>,
+        dir: &Path,
+        env: &dyn Fn(&str) -> Option<OsString>,
+    ) -> Result<Lake> {
+        if let Some(checkout) = checkout
+            && !crate::cargo_run::in_hook(env)
+        {
+            crate::lean::ensure(places, &checkout.top)?;
+        }
+        let lake = crate::lean::lake(&places.home);
+        if !lake.exists() {
+            fail!(
+                "this Mac has no {}: `builds setup` installs elan and the toolchains of the checkout's Lean packages",
+                lake.display()
+            );
+        }
+        let guard = crate::units::hold_guard(places, checkout)?;
+        let mut command = crate::lean::elan_command(&places.home, &lake);
+        command
+            .current_dir(dir)
+            .env_remove(crate::cargo_run::HOOK_CHECK_VARIABLE);
+        Ok(Lake {
+            command,
+            _guard: guard,
+        })
+    }
+}
+
+/// Runs `lake <args>` on this Mac in <dir> (`Lake::prepare`) and returns its
+/// exit status.
 pub fn run_here(
     places: &Places,
     checkout: Option<&Checkout>,
@@ -113,25 +154,12 @@ pub fn run_here(
     args: &[String],
     env: &dyn Fn(&str) -> Option<OsString>,
 ) -> Result<i32> {
-    if let Some(checkout) = checkout
-        && !crate::cargo_run::in_hook(env)
-    {
-        crate::lean::ensure(places, &checkout.top)?;
-    }
-    let lake = crate::lean::lake(&places.home);
-    if !lake.exists() {
-        fail!(
-            "this Mac has no {}: `builds setup` installs elan and the toolchains of the checkout's Lean packages",
-            lake.display()
-        );
-    }
-    let _guard = crate::cargo_run::guard(places, checkout)?;
-    let status = crate::lean::elan_command(&places.home, &lake)
+    let mut lake = Lake::prepare(places, checkout, dir, env)?;
+    let status = lake
+        .command
         .args(args)
-        .current_dir(dir)
-        .env_remove(crate::cargo_run::HOOK_CHECK_VARIABLE)
         .status()
-        .context(|| format!("running {}", lake.display()))?;
+        .context(|| "running lake".to_string())?;
     Ok(crate::fail::exit_code(status))
 }
 
@@ -188,37 +216,23 @@ impl Runner {
     }
 
     /// Builds the runner on this Mac with `lake query`, in its package in
-    /// <checkout>, and returns its path. It first installs the checkout's
-    /// Lean toolchains, unless a pre-commit hook check started the run, and
-    /// holds the checkout's guard while lake runs. lake's progress goes to
-    /// stderr.
+    /// <checkout> (`Lake::prepare`), and returns its path. lake's progress
+    /// goes to stderr.
     pub fn build_here(
         &self,
         places: &Places,
         checkout: &Checkout,
         env: &dyn Fn(&str) -> Option<OsString>,
     ) -> Result<std::path::PathBuf> {
-        if !crate::cargo_run::in_hook(env) {
-            crate::lean::ensure(places, &checkout.top)?;
-        }
-        let lake = crate::lean::lake(&places.home);
-        if !lake.exists() {
-            fail!(
-                "this Mac has no {} to build {}: `builds setup` installs elan and the toolchains of the checkout's Lean packages",
-                lake.display(),
-                self.executable
-            );
-        }
         let package = checkout.top.join(&self.package);
-        let _guard = crate::cargo_run::guard(places, Some(checkout))?;
-        let output = crate::lean::elan_command(&places.home, &lake)
+        let mut lake = Lake::prepare(places, Some(checkout), &package, env)?;
+        let output = lake
+            .command
             .args(["query", &self.executable])
-            .current_dir(&package)
-            .env_remove(crate::cargo_run::HOOK_CHECK_VARIABLE)
             .stdin(std::process::Stdio::null())
             .stderr(std::process::Stdio::inherit())
             .output()
-            .context(|| format!("running {} in {}", lake.display(), package.display()))?;
+            .context(|| format!("running lake in {}", package.display()))?;
         if !output.status.success() {
             fail!(
                 "lake could not build {} in {} ({}), so cargo did not run",

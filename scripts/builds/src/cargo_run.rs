@@ -27,7 +27,6 @@ use crate::fail::{Context, Fail, Result};
 use crate::host::Load;
 use crate::host::{LOCAL, Ssh};
 use crate::places::{Places, Rules};
-use crate::units::GUARD;
 use crate::units::record::record;
 
 /// The variable `builds checks run` sets for each check of a recorded hook
@@ -544,19 +543,6 @@ fn run_before_here(
     }
 }
 
-/// Takes <checkout>'s guard, shared, which keeps `builds` from deleting the
-/// checkout's build folders while a build writes them (units/mod.rs), and
-/// returns it; None when the checkout has no build root.
-pub fn guard(places: &Places, checkout: Option<&Checkout>) -> Result<Option<std::fs::File>> {
-    let root = checkout
-        .map(|checkout| checkout.build_root(places))
-        .filter(|root| root.is_dir());
-    match root {
-        Some(root) => Ok(Some(crate::evict::lock_shared_creating(&root.join(GUARD))?)),
-        None => Ok(None),
-    }
-}
-
 /// Builds <runner>, the Lean executable `BUILDS_CARGO_LEAN` names, in
 /// <checkout> on this Mac (`Runner::build_here`), and returns the variable to
 /// set for cargo and its path; None when no runner is named.
@@ -597,7 +583,7 @@ fn run_here(
     let wrapper =
         crate::rustc_wrapper::cargo_env(std::env::var_os("RUSTC_WRAPPER").as_deref(), &places.home);
     // Held until cargo has exited and the recorder has read its last line.
-    let guard = guard(places, checkout)?;
+    let guard = crate::units::hold_guard(places, checkout)?;
     let root = checkout
         .map(|checkout| checkout.build_root(places))
         .filter(|root| root.is_dir());
