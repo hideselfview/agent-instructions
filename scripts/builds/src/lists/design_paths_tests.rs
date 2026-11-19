@@ -213,6 +213,18 @@ fn a_board_the_range_adds_and_deletes_is_neither_a_place_nor_deleted() {
 }
 
 #[test]
+fn a_deleted_board_with_no_origin_main_in_the_checkout_is_an_error() {
+    let scratch = Scratch::new("design-paths-no-main");
+    let dir = scratch.dir.join("bae");
+    repo(&dir, "target 1\n");
+    commit(&dir, &[("design/mocks/A.dc.html", "1")], "board");
+    git(&dir, &["rm", "-q", "design/mocks/A.dc.html"]);
+    git(&dir, &["commit", "-q", "-m", "delete A"]);
+    let sha = full_sha(&dir, "HEAD").unwrap();
+    assert!(message(changes_of(&dir, &globs(), &[sha])).contains("has no origin/main"));
+}
+
+#[test]
 fn a_name_with_odd_characters_comes_through_whole() {
     let scratch = Scratch::new("design-paths-odd");
     let dir = scratch.dir.join("bae");

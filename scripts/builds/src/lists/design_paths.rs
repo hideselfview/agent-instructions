@@ -391,6 +391,19 @@ pub fn commit_paths(top: &Path, sha: &str) -> Result<Vec<String>> {
         .collect())
 }
 
+/// Is <board> a file on origin/main? Fails when the checkout has no origin/main,
+/// because git answers a missing ref and a missing path alike.
+fn on_main(top: &Path, board: &str) -> Result<bool> {
+    let now = crate::design_render::NOW;
+    if full_sha(top, now).is_err() {
+        fail!(
+            "the checkout at {} has no {now}, so it can't tell which boards the change deletes",
+            top.display()
+        );
+    }
+    Ok(boards::exists_in(top, now, board)?)
+}
+
 /// What <shas> change among the design files of the repo whose globs are
 /// <globs>.
 pub fn changes_of(top: &Path, globs: &Globs, shas: &[String]) -> Result<Changes> {
@@ -414,7 +427,7 @@ pub fn changes_of(top: &Path, globs: &Globs, shas: &[String]) -> Result<Changes>
                 changes.places.remove(&board);
                 // A board the range adds and deletes again was never on
                 // origin/main, so the change deletes nothing.
-                if boards::exists_in(top, crate::design_render::NOW, &board)? {
+                if on_main(top, &board)? {
                     changes.deleted.insert(board);
                 }
             }
