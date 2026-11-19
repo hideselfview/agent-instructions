@@ -772,33 +772,6 @@ impl Lists {
     }
 }
 
-/// Rebuilds a store's `item` table from the old schema, where an origin was
-/// only a decision or a design change and `origin_kind` named which, to the
-/// schema in item.sql, and copies the old rows into it: each item keeps the
-/// decision or design change that made it as its origin. The statements come
-/// from item.sql, so the table equals a fresh database's. migrate.rs runs this
-/// with the foreign keys off, and SQLite renames the old table under
-/// `legacy_alter_table`, so the tables that point at `item` keep naming it.
-pub fn move_to_origins(db: &Connection) -> Result<()> {
-    const SQL: &str = include_str!("item.sql");
-    crate::db::remake_table(
-        db,
-        "item",
-        crate::db::statement(SQL, "CREATE TABLE item (", "STRICT;"),
-        |db| {
-            db.execute_batch(
-                "INSERT INTO item (id, record_kind, title, area, details, audience, brief, origin)
-    SELECT id, record_kind, title, area, details, audience, brief, origin FROM item_old;",
-            )
-            .sql()
-        },
-        &[
-            crate::db::statement(SQL, "CREATE INDEX item_origin", ";"),
-            crate::db::statement(SQL, "CREATE INDEX item_area", ";"),
-        ],
-    )
-}
-
 /// Makes `item_wait_condition` again with `until`, the ender of each
 /// condition, as item.sql writes it. A store from before conditions named an
 /// ender kept the conditions someone removed by hand, and the move gives each

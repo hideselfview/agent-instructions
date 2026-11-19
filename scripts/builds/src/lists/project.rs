@@ -257,28 +257,6 @@ pub fn set_canvas(db: &Connection, canvas: bool) -> Result<()> {
     Ok(())
 }
 
-/// Makes the `project` table again as project.sql writes it today, with
-/// `canvas`, and copies the project's row into it. A project publishes a
-/// canvas when one of its design changes holds a canvas link: bae's do, and
-/// no other project's. The statement comes from project.sql, so the table
-/// equals a fresh database's. migrate.rs runs this with the foreign keys off.
-pub fn move_to_canvas(db: &Connection) -> Result<()> {
-    const SQL: &str = include_str!("project.sql");
-    crate::db::remake_table(
-        db,
-        "project",
-        crate::db::statement(SQL, "CREATE TABLE project (", "STRICT;"),
-        |db| {
-            db.execute_batch(
-                "INSERT INTO project (singleton, name, canvas)
-    SELECT singleton, name, EXISTS (SELECT 1 FROM design_board) FROM project_old;",
-            )
-            .sql()
-        },
-        &[],
-    )
-}
-
 /// What the project's tables hold.
 pub struct Read {
     pub name: String,

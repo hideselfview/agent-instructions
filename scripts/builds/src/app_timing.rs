@@ -218,36 +218,6 @@ pub fn record(path: &Path, run: &RunRecord) -> Result<()> {
     tx.commit().context(what)
 }
 
-/// Makes `app_build_runs` again as app_timing.sql writes it today, with the
-/// load of each run's host, and copies every run into it with no load: builds
-/// kept no load for a run before this move. The statements come from app_timing.sql, so
-/// the table equals a fresh database's. migrate.rs runs this with the foreign
-/// keys off, so `app_build_steps` keeps naming the table.
-pub fn move_to_loads(db: &Connection) -> Result<()> {
-    use crate::db::Sql;
-    crate::db::remake_table(
-        db,
-        "app_build_runs",
-        crate::db::statement(
-            crate::db::APP_TIMING_PART,
-            "CREATE TABLE IF NOT EXISTS app_build_runs",
-            "STRICT;",
-        ),
-        |db| {
-            db.execute_batch(
-                "INSERT INTO app_build_runs (id, started_at, repo, lane, checkout, built_ref, who, wait_ms, passed)
-    SELECT id, started_at, repo, lane, checkout, built_ref, who, wait_ms, passed FROM app_build_runs_old;",
-            )
-            .sql()
-        },
-        &[crate::db::statement(
-            crate::db::APP_TIMING_PART,
-            "CREATE INDEX IF NOT EXISTS idx_app_build_runs_started",
-            ";",
-        )],
-    )
-}
-
 /// Each app build run's queue wait and each step, of the runs and steps that
 /// started at or after <since>, as waits (waits.rs), whatever their result,
 /// each with the load of the run's host when the run took its checkout.
@@ -495,17 +465,6 @@ pub fn dashboard_json(path: &Path, now: i64) -> serde_json::Value {
             })).collect::<Vec<_>>(),
         }),
     }
-}
-
-/// Writes a row of one of app_timing.rs's tables as given, the constraints
-/// still holding: for tests that need a row of a store they build by hand.
-#[cfg(test)]
-pub fn plant(
-    db: &Connection,
-    table: &str,
-    columns: &[(&str, rusqlite::types::Value)],
-) -> rusqlite::Result<usize> {
-    crate::db::plant_row(db, &["app_build_runs", "app_build_steps"], table, columns)
 }
 
 #[cfg(test)]

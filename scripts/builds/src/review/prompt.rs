@@ -260,15 +260,6 @@ fn setup_text(opening: &str, group_part: &str, passes: usize, commit_text: bool)
     )
 }
 
-/// The setup (`setup`) of a call that was sent the system prompt <system>
-/// (`build`), made <passes> passes and read the commit messages when
-/// <commit_text>; None when <system> holds no group part.
-pub fn setup_of_system(system: &str, passes: usize, commit_text: bool) -> Option<String> {
-    let opening = &system[..system.find("\n\n")?];
-    let part = &system[system.find(GROUP_START)?..];
-    Some(setup_text(opening, part, passes, commit_text))
-}
-
 #[cfg(test)]
 #[path = "prompt_tests.rs"]
 mod tests;

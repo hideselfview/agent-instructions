@@ -888,7 +888,7 @@ mod tests {
     fn an_install_that_changes_a_schema_waits_for_the_commands_that_use_the_stores() {
         let scratch = crate::testing::Scratch::new("install-older-schema");
         let places = scratch.places();
-        let store = crate::migrate::tests::store_before_pushed(&places.lists.join("bae"));
+        let store = crate::migrate::tests::store_before_judge(&places.lists.join("bae"));
         let held = hook_run(&places, 11);
         let (install, events) = installing(&places);
         assert_eq!(

@@ -256,17 +256,11 @@ pub fn stamp() -> i64 {
 
 /// The stamp of a schema whose text is <text>: the FNV-1a hash (`text::fnv1a`)
 /// of the text's shape, so a comment or a change of spacing leaves the stamp
-/// as it was.
+/// as it was, folded into `user_version`'s positive range and kept off 0 (no
+/// schema) and 1 (which a hook-stats-only database once carried).
 pub fn stamp_of_text(text: &str) -> i64 {
-    stamp_of_hashed(&crate::sql_shape::shape(text))
-}
-
-/// The stamp of <text> as it is, folded into `user_version`'s positive range
-/// and kept off 0 (no schema) and 1 (which a hook-stats-only database once
-/// carried). Every store from before the stamp followed the shape carries the
-/// stamp of its schema's whole text, comments included.
-pub fn stamp_of_hashed(text: &str) -> i64 {
-    i64::from(crate::text::fnv1a(text) % (i32::MAX as u32 - 2)) + 2
+    let shape = crate::sql_shape::shape(text);
+    i64::from(crate::text::fnv1a(&shape) % (i32::MAX as u32 - 2)) + 2
 }
 
 fn configure(conn: &Connection, path: &Path) -> Result<()> {

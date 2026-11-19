@@ -377,36 +377,6 @@ fn insert_closing(db: &Connection, id: Id, kind: Kind, how: &How, stamp: &Stamp)
     Ok(())
 }
 
-/// Makes the `closing` table again as record.sql writes it today, where an
-/// item may close as finished, a design change as dropped and a question as
-/// done only with a reason, and copies every closing into it. A question that
-/// closed as done with no reason becomes `done-unrecorded`, the one closing
-/// that has none. The statement comes from record.sql, so the table equals a
-/// fresh database's. migrate.rs runs this with the foreign keys off, and
-/// SQLite renames the old table under `legacy_alter_table`, so
-/// `closing_commit` keeps naming `closing`.
-pub fn remake_closing(db: &Connection) -> Result<()> {
-    const SQL: &str = include_str!("record.sql");
-    crate::db::remake_table(
-        db,
-        "closing",
-        crate::db::statement(SQL, "CREATE TABLE closing (", "STRICT;"),
-        |db| {
-            db.execute(
-                "INSERT INTO closing (record_id, kind, how, at, by, decision_id, question_id, reason)
-    SELECT record_id, kind,
-           CASE WHEN how = 'done' AND reason IS NULL THEN 'done-unrecorded' ELSE how END,
-           at, by, decision_id, question_id, reason
-    FROM closing_old;",
-                [],
-            )
-            .sql()
-            .map(|_| ())
-        },
-        &[],
-    )
-}
-
 /// How <id> left its list and who closed it when, or None when it is open.
 fn closing_of(db: &Connection, id: Id) -> Result<Option<(How, Stamp)>> {
     Ok(read_closings(db)?.remove(&id))

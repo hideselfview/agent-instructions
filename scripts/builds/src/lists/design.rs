@@ -1663,65 +1663,6 @@ pub fn read(
     Ok(designs)
 }
 
-/// Makes `review_board` and `review_section` as design.sql writes them, where a
-/// design change has one review section, with the rows they held. A closed
-/// change (landed or dropped) with several sections keeps them as one: the
-/// headings joined with " / ", the words one after another, and the boards
-/// numbered in the order of their sections. The page of a closed change is
-/// history, so nothing needs it split. Refuses a store whose open change has
-/// several: its session amends it to one section first. migrate.rs runs this
-/// with the foreign keys off.
-pub fn move_to_one_review_section(db: &Connection) -> Result<()> {
-    use rusqlite::OptionalExtension;
-    const SQL: &str = include_str!("design.sql");
-    let open_many: Option<Id> = db
-        .query_row(
-            "SELECT design_id FROM review_section
-    WHERE design_id NOT IN (SELECT record_id FROM closing)
-    GROUP BY design_id HAVING count(*) > 1 LIMIT 1",
-            [],
-            |row| row.get(0),
-        )
-        .optional()
-        .sql()?;
-    if let Some(id) = open_many {
-        fail!(
-            "design change {id} is open and has more than one review section, and a review page is one section now; amend it to one section, then run the move again"
-        );
-    }
-    crate::db::remake_table(
-        db,
-        "review_board",
-        crate::db::statement(SQL, "CREATE TABLE review_board", "STRICT, WITHOUT ROWID;"),
-        |db| {
-            db.execute_batch(
-                "INSERT INTO review_board (design_id, position, board, caption, theme)
-    SELECT design_id, row_number() OVER (PARTITION BY design_id ORDER BY section, position) - 1,
-        board, caption, theme
-    FROM review_board_old;",
-            )
-            .sql()
-        },
-        &[],
-    )?;
-    crate::db::remake_table(
-        db,
-        "review_section",
-        crate::db::statement(SQL, "CREATE TABLE review_section", "STRICT;"),
-        |db| {
-            db.execute_batch(
-                "INSERT INTO review_section (design_id, heading, words)
-    SELECT design_id,
-        group_concat(heading, ' / ' ORDER BY position),
-        coalesce(group_concat(words, char(10) || char(10) ORDER BY position) FILTER (WHERE words <> ''), '')
-    FROM review_section_old GROUP BY design_id;",
-            )
-            .sql()
-        },
-        &[],
-    )
-}
-
 /// The tables design.rs owns.
 #[cfg(test)]
 const TABLES: [&str; 12] = [

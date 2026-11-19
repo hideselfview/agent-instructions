@@ -174,33 +174,6 @@ pub fn record_run(path: &Path, run: &CargoRun, crates: &[String]) -> Result<()> 
     tx.commit().context(what)
 }
 
-/// Makes `builds_cargo_runs` again as cargo_run.sql writes it today, with
-/// each run's start and subcommand, and copies every run into it. Before
-/// this move, builds recorded only the runs that hook checks started: the
-/// move gives each the start of its hook run, and no subcommand. The statements come from cargo_run.sql, so the
-/// table equals a fresh database's. migrate.rs runs this with the foreign
-/// keys off.
-pub fn move_to_every_run(db: &Connection) -> Result<()> {
-    use crate::db::Sql;
-    const SQL: &str = include_str!("cargo_run.sql");
-    crate::db::remake_table(
-        db,
-        "builds_cargo_runs",
-        crate::db::statement(SQL, "CREATE TABLE builds_cargo_runs (", "STRICT;"),
-        |db| {
-            db.execute_batch(
-                "INSERT INTO builds_cargo_runs (id, worktree, started_at, host, cores, load, lock_wait_ms, ms, hook_started_at, hook_position)
-    SELECT id, worktree, hook_started_at, host, cores, load, lock_wait_ms, ms, hook_started_at, hook_position FROM builds_cargo_runs_old;",
-            )
-            .sql()
-        },
-        &[
-            crate::db::statement(SQL, "CREATE INDEX idx_builds_cargo_runs_hook", ";"),
-            crate::db::statement(SQL, "CREATE INDEX idx_builds_cargo_runs_started", ";"),
-        ],
-    )
-}
-
 /// Does <checkout> build with incremental compilation? Only main;
 /// `role_config` says why.
 pub fn builds_incrementally(checkout: &Checkout) -> bool {
@@ -629,16 +602,6 @@ fn run_here(
         crate::fail::exit_code(status)
     };
     Ok(Exited { code, lock_wait })
-}
-
-/// Writes a row of `builds_cargo_runs` as given, the constraints still
-/// holding: for tests that need a row of a store they build by hand.
-#[cfg(test)]
-pub fn plant(
-    db: &Connection,
-    columns: &[(&str, rusqlite::types::Value)],
-) -> rusqlite::Result<usize> {
-    crate::db::plant_row(db, &["builds_cargo_runs"], "builds_cargo_runs", columns)
 }
 
 #[cfg(test)]

@@ -87,17 +87,12 @@ fn every_group_gets_the_same_schema() {
 }
 
 #[test]
-fn the_setup_read_back_from_a_system_prompt_is_the_one_a_call_records() {
+fn the_setup_a_call_records_follows_the_rules_settings_and_passes_but_not_the_model() {
     let rule = Rule::parse("a", "---\npaths: ['**']\n---\nRule A body.\n");
     let mut one = group("one", true);
     one.passes = 2;
     one.commit_text = true;
     let recorded = setup(&one, &[&rule]);
-    let sent = parts_of(&one, &rule, "diff --git a/a.rs b/a.rs\n+x\n").system;
-    assert_eq!(
-        setup_of_system(&sent, 2, true).as_deref(),
-        Some(recorded.as_str())
-    );
     assert!(recorded.contains("Rule A body.") && recorded.contains("passes: 2"));
     assert!(
         !recorded.contains("Project facts.") && !recorded.contains("The brief."),
@@ -116,7 +111,6 @@ fn the_setup_read_back_from_a_system_prompt_is_the_one_a_call_records() {
     let mut on_haiku = one.clone();
     on_haiku.model = "haiku".to_string();
     assert_eq!(setup(&on_haiku, &[&rule]), recorded);
-    assert_eq!(setup_of_system("no group part here", 1, false), None);
 }
 
 #[test]
