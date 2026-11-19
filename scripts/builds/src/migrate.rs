@@ -333,9 +333,12 @@ const BEFORE_CONDITION_ENDERS_STAMP: i64 = 1_173_303_068;
 /// state or gained or lost a wait.
 const BEFORE_ITEM_EVENT_STAMP: i64 = 2_055_393_844;
 
+/// The stamp of the schema before builds recorded each `builds land` run.
+const BEFORE_LAND_RUN_STAMP: i64 = 273_609_669;
+
 /// Every stamp a store can carry that `move_store` moves, oldest schema first.
 /// A new move adds the stamp of the schema before it at the end.
-const STAMPS: [i64; 51] = [
+const STAMPS: [i64; 52] = [
     BEFORE_DESIGN_DELETED_STAMP,
     BEFORE_CHECK_TIMES_STAMP,
     BEFORE_DESIGN_TIP_STAMP,
@@ -387,6 +390,7 @@ const STAMPS: [i64; 51] = [
     BEFORE_SHAPE_STAMP,
     BEFORE_CONDITION_ENDERS_STAMP,
     BEFORE_ITEM_EVENT_STAMP,
+    BEFORE_LAND_RUN_STAMP,
 ];
 
 /// Whether a store stamped <found> comes before the move that follows the
@@ -516,7 +520,8 @@ const DESIGN_DELETED: &str = "CREATE TABLE design_deleted (
 /// `item_wait_condition` with an ender for each condition, which the move sets
 /// to the coordinator (`lists::item::move_to_condition_enders`). Every store
 /// gets the empty table of item events with the mark of when the store began
-/// to record them.
+/// to record them, and the empty tables of the `builds land` runs (none
+/// recorded yet).
 /// The moves run in one transaction, the store
 /// is stamped as today's schema, and it must then equal a fresh database's schema or the transaction rolls back. A
 /// store already at today's stamp, or with no database, is left alone; any
@@ -1019,6 +1024,10 @@ fn move_store(places: &Places, path: &Path, now: i64) -> Result<()> {
     if before(found, BEFORE_ITEM_EVENT_STAMP) {
         tx.execute_batch(db::ITEM_EVENT_PART).sql()?;
         crate::lists::item_event::start_recording(&tx, now)?;
+    }
+    // Every store from before the landings' record gets their empty tables.
+    if before(found, BEFORE_LAND_RUN_STAMP) {
+        tx.execute_batch(db::LAND_RUN_PART).sql()?;
     }
     // A store from before stamps followed the shape has today's tables, and
     // gets only the stamp below.

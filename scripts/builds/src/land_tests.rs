@@ -1,6 +1,11 @@
 use super::*;
 use crate::testing::{Scratch, git_out};
 
+/// The landing, without the record of the run.
+fn land(program: &Path, args: &[String], out: &mut dyn Write) -> Result<()> {
+    land_profiled(program, args, out).0
+}
+
 /// A fixture: a bare origin and the repo's main checkout, cloned from it,
 /// whose side worktrees the tests add. The repo's `whole` check, a fake
 /// program, refuses a tree holding both a.txt and b.txt, which two branches
@@ -159,6 +164,22 @@ fn run_land(f: &Fixture, dir: &Path, args: &[&str], cues: Cues) -> (i32, String,
     // The next landing in this fixture starts a fresh log.
     let _ = std::fs::remove_file(&log);
     (code, String::from_utf8_lossy(&out).into_owned(), calls)
+}
+
+/// <dir>'s landing of <args> with the stand-in `builds`, and the record land
+/// made of the run.
+fn profiled(f: &Fixture, dir: &Path, args: &[&str], cues: Cues) -> (i32, Option<LandRun>) {
+    let (stub, _) = stub(f, &cues);
+    let mut all = vec![dir.display().to_string()];
+    all.extend(args.iter().map(|a| a.to_string()));
+    let mut out = Vec::new();
+    let (result, run) = land_profiled(&stub, &all, &mut out);
+    let code = match result {
+        Ok(()) => 0,
+        Err(Fail::Exit(code)) => code,
+        Err(Fail::Message(message)) => panic!("landing failed: {message}"),
+    };
+    (code, run)
 }
 
 /// Side-1 on branch `a` with a.txt committed, and side-2 on branch `b` with
@@ -1234,4 +1255,65 @@ fn a_main_checkout_that_cannot_fast_forward_leaves_the_landing_landed_and_says_h
         "{out}"
     );
     assert_eq!(head_of(&f.main), a);
+}
+
+#[test]
+fn a_landing_in_a_project_records_its_steps_items_and_commits() {
+    let f = fixture("land-profile", "true\n", None);
+    let (one, a, _two, _b) = two_branches(&f);
+    let (code, run) = profiled(&f, &one, &["--done", "7", &a], project());
+    assert_eq!(code, 0);
+    let run = run.expect("a repo in a project records its landing");
+    assert_eq!(run.project, "bae");
+    assert_eq!(run.repo, "repo");
+    assert_eq!(run.branch.as_deref(), Some("a"));
+    assert_eq!(run.by, "agent A");
+    assert!(run.landed);
+    assert_eq!(run.items, vec![Id(7)]);
+    assert_eq!(run.commits.len(), 1);
+    assert_eq!(run.commits[0].0, a);
+    let kinds: Vec<StepKind> = run.steps.iter().map(|step| step.kind).collect();
+    assert_eq!(
+        kinds,
+        vec![
+            StepKind::Lock,
+            StepKind::ListsCheck,
+            StepKind::Fetch,
+            StepKind::Pick,
+            StepKind::Checks,
+            StepKind::Push,
+            StepKind::Finish,
+            StepKind::Records,
+            StepKind::Finish,
+        ]
+    );
+}
+
+#[test]
+fn a_refused_landing_records_that_it_did_not_land() {
+    let f = fixture("land-profile-refused", "true\n", None);
+    let (one, a, _two, _b) = two_branches(&f);
+    let (code, run) = profiled(
+        &f,
+        &one,
+        &["--done", "7", &a],
+        Cues {
+            refuse: "item check-landing",
+            ..project()
+        },
+    );
+    assert_eq!(code, 1);
+    let run = run.expect("a refusal after the project is read is recorded");
+    assert!(!run.landed);
+    let kinds: Vec<StepKind> = run.steps.iter().map(|step| step.kind).collect();
+    assert_eq!(kinds, vec![StepKind::Lock, StepKind::ListsCheck]);
+}
+
+#[test]
+fn a_repo_in_no_project_records_no_landing() {
+    let f = fixture("land-profile-none", "true\n", None);
+    let (one, a, _two, _b) = two_branches(&f);
+    let (code, run) = profiled(&f, &one, &[&a], Cues::default());
+    assert_eq!(code, 0);
+    assert_eq!(run, None);
 }

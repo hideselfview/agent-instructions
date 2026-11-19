@@ -101,12 +101,15 @@
 //! The store's checks and records run as `builds` commands of this same
 //! program, so their output is held back and shown only when one fails.
 
+use std::cell::{Cell, RefCell};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::time::Instant;
 
 use crate::fail;
 use crate::fail::{Context, Fail, Result};
+use crate::land_run::{LandRun, Step, StepKind};
 use crate::lists::Id;
 use crate::text::shell_word;
 use boards::git;
@@ -119,7 +122,25 @@ const ATTEMPTS: usize = 5;
 pub fn cmd_land(args: &[String]) -> Result<()> {
     let program = std::env::current_exe().context(|| "finding this program".to_string())?;
     let stdout = std::io::stdout();
-    land(&program, args, &mut stdout.lock())
+    let (result, run) = land_profiled(&program, args, &mut stdout.lock());
+    if let Some(run) = run {
+        record_run(&run);
+    }
+    result
+}
+
+/// Writes <run> to its project's store; a failure is said and changes
+/// nothing about the landing's result.
+fn record_run(run: &LandRun) {
+    let written = crate::places::Places::from_env().and_then(|places| {
+        crate::land_run::record(
+            &places.lists.join(&run.project).join(crate::db::DATABASE),
+            run,
+        )
+    });
+    if let Err(error) = written {
+        crate::text::note(format!("this landing was not recorded: {}", error.text()));
+    }
 }
 
 /// Ends the landing with <message> on <out> and exit status 1.
@@ -417,9 +438,42 @@ struct Landing<'a> {
     /// What the store records the landing under; None when the repo is in no
     /// project, which records nothing.
     recording: Option<Recording>,
+    /// The steps taken so far, in order (`Landing::timing`).
+    steps: RefCell<Vec<Step>>,
+    /// Did the push succeed?
+    pushed: Cell<bool>,
+}
+
+/// A step that is running: it joins the landing's steps when it is dropped,
+/// whichever way the code around it ends.
+struct Timing<'a> {
+    steps: &'a RefCell<Vec<Step>>,
+    kind: StepKind,
+    started_at: i64,
+    began: Instant,
+}
+
+impl Drop for Timing<'_> {
+    fn drop(&mut self) {
+        self.steps.borrow_mut().push(Step {
+            kind: self.kind,
+            started_at: self.started_at,
+            ms: self.began.elapsed().as_millis() as u64,
+        });
+    }
 }
 
 impl Landing<'_> {
+    /// Times a step of the landing until the returned value is dropped.
+    fn timing(&self, kind: StepKind) -> Timing<'_> {
+        Timing {
+            steps: &self.steps,
+            kind,
+            started_at: crate::app_timing::now(),
+            began: Instant::now(),
+        }
+    }
+
     /// Runs `builds <args>` (this program), merged output.
     fn builds(&self, args: &[&str]) -> (bool, String) {
         let mut command = Command::new(self.program);
@@ -744,10 +798,15 @@ impl Landing<'_> {
         let shas = &self.request.shas;
         let last = shas.last().expect("a landing names a commit").as_str();
         for _ in 0..ATTEMPTS {
-            if !git_ok(dir, &["fetch", "-q", "origin"]) {
+            let fetched = {
+                let _timing = self.timing(StepKind::Fetch);
+                git_ok(dir, &["fetch", "-q", "origin"])
+            };
+            if !fetched {
                 let _ = writeln!(out, "fetch failed");
                 continue;
             }
+            let picking = self.timing(StepKind::Pick);
             git_ok(dir, &["checkout", "-q", "--detach", "origin/main"]);
             let before = git_text(dir, &["rev-parse", "origin/main"]).unwrap_or_default();
             // A fast-forward lands every commit between origin/main and the
@@ -809,7 +868,11 @@ impl Landing<'_> {
                 }
             }
             let landed = git_text(dir, &["rev-parse", "HEAD"]).unwrap_or_default();
-            self.check_result(out)?;
+            drop(picking);
+            {
+                let _timing = self.timing(StepKind::Checks);
+                self.check_result(out)?;
+            }
             // Something else that moved this worktree's HEAD during the checks
             // (a checkout run by hand) leaves nothing of the landing's to push,
             // and the push of origin/main to itself would report success. Land
@@ -828,6 +891,7 @@ impl Landing<'_> {
                     ),
                 ));
             }
+            let pushing = self.timing(StepKind::Push);
             let mut push = git(dir);
             push.args(["push", "-q", "origin", "HEAD:main"]);
             let (pushed, said) = merged(push);
@@ -843,8 +907,10 @@ impl Landing<'_> {
                         .lines()
                         .map(str::to_string)
                         .collect();
+                drop(pushing);
                 return Ok(on_main);
             }
+            drop(pushing);
             let last_line = said
                 .lines()
                 .rfind(|line| !line.starts_with("hint"))
@@ -996,13 +1062,63 @@ impl Landing<'_> {
     /// because in agent-instructions its post-merge hook may install a new
     /// builds, and the records run as this program.
     fn finish(&self, on_main: &[String], out: &mut dyn Write) -> Result<()> {
-        let waiting = self.leave(out);
-        let recorded = self.record(on_main, waiting, out);
-        if recorded && !waiting && !self.request.has_part() {
-            self.release(out);
+        let waiting = {
+            let _timing = self.timing(StepKind::Finish);
+            self.leave(out)
+        };
+        let recorded = {
+            let _timing = self.timing(StepKind::Records);
+            self.record(on_main, waiting, out)
+        };
+        {
+            let _timing = self.timing(StepKind::Finish);
+            if recorded && !waiting && !self.request.has_part() {
+                self.release(out);
+            }
+            self.forward_main_checkout(out);
         }
-        self.forward_main_checkout(out);
         if recorded { Ok(()) } else { Err(Fail::Exit(1)) }
+    }
+
+    /// What the landing recorded of itself, once it ended: None when the repo
+    /// is in no project. <started_at> and <began> mark the start of the run,
+    /// before its first step.
+    fn run_record(&self, started_at: i64, began: Instant) -> Option<LandRun> {
+        let Recording { project, by, .. } = self.recording.as_ref()?;
+        let checkout = crate::checkout::Checkout::at(&self.workdir)
+            .ok()
+            .flatten()?;
+        let items = self
+            .request
+            .items
+            .chunks(2)
+            .filter_map(|pair| Id::parse(pair.get(1)?).ok())
+            .collect();
+        let commits = self
+            .request
+            .shas
+            .iter()
+            .filter_map(|sha| {
+                let time = git_text(&self.workdir, &["log", "-1", "--format=%ct", sha])?;
+                Some((sha.clone(), time.parse().ok()?))
+            })
+            .collect();
+        Some(LandRun {
+            project: project.clone(),
+            started_at,
+            repo: checkout.repo(),
+            worktree: self.workdir.display().to_string(),
+            branch: match &self.start {
+                Start::Branch(branch) => Some(branch.clone()),
+                Start::Detached(_) => None,
+            },
+            by: by.clone(),
+            ms: began.elapsed().as_millis() as u64,
+            landed: self.pushed.get(),
+            items,
+            commits,
+            steps: self.steps.borrow().clone(),
+        })
     }
 }
 
@@ -1026,43 +1142,90 @@ fn require_claim(workdir: &Path, out: &mut dyn Write) -> Result<String> {
 }
 
 /// The landing, with the program that answers the `builds` commands it runs
-/// (this program; tests pass a stand-in) and <out> for what it says.
-pub fn land(program: &Path, args: &[String], out: &mut dyn Write) -> Result<()> {
+/// (this program; tests pass a stand-in) and <out> for what it says, and the
+/// record of the run when the repo is in a project and the run got as far as
+/// reading which one.
+pub fn land_profiled(
+    program: &Path,
+    args: &[String],
+    out: &mut dyn Write,
+) -> (Result<()>, Option<LandRun>) {
+    let started_at = crate::app_timing::now();
+    let began = Instant::now();
     let Some((worktree, rest)) = args.split_first() else {
-        return Err(refuse(out, USAGE));
+        return (Err(refuse(out, USAGE)), None);
     };
-    let workdir = std::path::absolute(worktree).context(|| format!("resolving {worktree}"))?;
-    let _lock = lock_worktree(&workdir, rest, out)?;
-    let request = parse(rest, out)?;
+    let waiting = (crate::app_timing::now(), Instant::now());
+    let (workdir, lock) = match std::path::absolute(worktree)
+        .context(|| format!("resolving {worktree}"))
+        .and_then(|workdir| Ok((workdir.clone(), lock_worktree(&workdir, rest, out)?)))
+    {
+        Ok(held) => held,
+        Err(error) => return (Err(error), None),
+    };
+    let lock_step = Step {
+        kind: StepKind::Lock,
+        started_at: waiting.0,
+        ms: waiting.1.elapsed().as_millis() as u64,
+    };
+    let _lock = lock;
+    let mut landing = match open_landing(program, workdir, rest, out) {
+        Ok(landing) => landing,
+        Err(error) => return (Err(error), None),
+    };
+    landing.steps.borrow_mut().push(lock_step);
+    let result = landing.proceed(out);
+    let run = landing.run_record(started_at, began);
+    (result, run)
+}
+
+/// The landing of <args>, once the worktree is clean and on the commits.
+fn open_landing<'a>(
+    program: &'a Path,
+    workdir: PathBuf,
+    args: &[String],
+    out: &mut dyn Write,
+) -> Result<Landing<'a>> {
+    let request = parse(args, out)?;
     let start = Start::read(&workdir)?;
     require_clean(&workdir, out)?;
     require_on_head(&workdir, &start, &request.shas, out)?;
-    let mut landing = Landing {
+    Ok(Landing {
         program,
         workdir,
         request,
         start,
         recording: None,
-    };
-    let (ok, project) = landing.builds(&[
-        "lists",
-        "project-of",
-        &landing.workdir.display().to_string(),
-    ]);
-    if !ok {
-        return Err(refuse(
-            out,
-            format!("refusing: builds lists project-of failed: {project}"),
-        ));
+        steps: RefCell::new(Vec::new()),
+        pushed: Cell::new(false),
+    })
+}
+
+impl Landing<'_> {
+    /// Reads the project, checks the lists, puts the commits on origin/main
+    /// and finishes.
+    fn proceed(&mut self, out: &mut dyn Write) -> Result<()> {
+        let (ok, project) =
+            self.builds(&["lists", "project-of", &self.workdir.display().to_string()]);
+        if !ok {
+            return Err(refuse(
+                out,
+                format!("refusing: builds lists project-of failed: {project}"),
+            ));
+        }
+        if !project.is_empty() {
+            let by = require_claim(&self.workdir, out)?;
+            let key = crate::review::default_key(&self.workdir)?;
+            self.recording = Some(Recording { project, by, key });
+        }
+        {
+            let _timing = self.timing(StepKind::ListsCheck);
+            self.check_lists(out)?;
+        }
+        let on_main = self.put_on_main(out)?;
+        self.pushed.set(true);
+        self.finish(&on_main, out)
     }
-    if !project.is_empty() {
-        let by = require_claim(&landing.workdir, out)?;
-        let key = crate::review::default_key(&landing.workdir)?;
-        landing.recording = Some(Recording { project, by, key });
-    }
-    landing.check_lists(out)?;
-    let on_main = landing.put_on_main(out)?;
-    landing.finish(&on_main, out)
 }
 
 #[cfg(test)]

@@ -5527,6 +5527,41 @@ fn a_store_from_before_the_item_events_gains_their_table_and_equals_a_fresh_sche
 }
 
 #[test]
+fn the_land_run_stamp_is_the_schema_before_the_landings_record() {
+    assert_eq!(
+        db::stamp_of_text(&db::schema_before_land_run()),
+        BEFORE_LAND_RUN_STAMP
+    );
+}
+
+/// A store from before the landings' record gains their empty tables and
+/// equals a fresh schema.
+#[test]
+fn a_store_from_before_the_landings_record_gains_their_tables_and_equals_a_fresh_schema() {
+    let scratch = Scratch::new("move-land-run");
+    let places = scratch.places();
+    let dir = places.lists.join("bae");
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join(DATABASE);
+    {
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(&db::schema_before_land_run()).unwrap();
+        conn.pragma_update(None, "user_version", BEFORE_LAND_RUN_STAMP)
+            .unwrap();
+    }
+    migrate_stores(&places, 0).unwrap();
+    let conn = db::open(&path, db::Make::Never).unwrap();
+    assert_eq!(
+        db::schema_rows(&conn).unwrap(),
+        db::schema_rows(&db::memory()).unwrap()
+    );
+    let runs: i64 = conn
+        .query_row("SELECT count(*) FROM land_run", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(runs, 0);
+}
+
+#[test]
 fn the_shape_stamp_is_the_schema_before_stamps_followed_the_shape() {
     // The schema from before stamps followed the shape has the same tables as
     // today's, and differs only in the canvas comment that legacy_stamp restores.
