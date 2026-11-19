@@ -41,7 +41,11 @@ fn world(name: &str) -> World {
         name: "demo".into(),
         canvas: true,
         repos: vec!["bae".into(), "coven".into()],
-        places: globs(&["design/mocks/*.dc.html", "design/system/components/*/"]),
+        places: globs(&[
+            "design/mocks/*.dc.html",
+            "design/mocks/canvas.json",
+            "design/system/components/*/",
+        ]),
         sources: globs(&[
             "design/system/components/src/",
             "design/system/tokens.json",
@@ -152,7 +156,9 @@ fn base_request(world: &World, places: serde_json::Value) -> serde_json::Value {
         .as_object()
         .unwrap()
         .keys()
-        .filter(|path| !path.ends_with('/') && !path.contains('#'))
+        .filter(|path| {
+            !path.ends_with('/') && !path.contains('#') && !path.ends_with("canvas.json")
+        })
         .map(|path| {
             (
                 path.clone(),
@@ -1412,6 +1418,32 @@ fn a_project_with_no_canvas_records_and_lands_a_change_with_no_links() {
     git(&w.dir, &["update-ref", "refs/remotes/origin/main", "HEAD"]);
     let out = w.run(&format!("landed 1 {wt} {sha}")).unwrap();
     assert!(out.contains("design change #1 landed"), "{out}");
+}
+
+#[test]
+fn the_canvas_index_changed_beside_a_new_board_needs_no_link_and_no_place_on_the_review_page() {
+    let w = world("design-canvas-index");
+    let (board, index) = ("design/mocks/A.dc.html", "design/mocks/canvas.json");
+    w.commit(&[board, index]);
+    let places = json!({ board: { "matches": "x" }, index: { "matches": "places the new board" } });
+    w.request(base_request(&w, places)).unwrap();
+    let design = &w.state().designs[0];
+    assert!(design.places.contains_key(index));
+    assert!(!design.boards.contains_key(index));
+    let on_page: Vec<&str> = design
+        .review
+        .iter()
+        .flat_map(|s| &s.boards)
+        .map(|b| b.board.as_str())
+        .collect();
+    assert_eq!(on_page, [board]);
+    // The index is still a place to answer, and it is no board to link.
+    let mut request = base_request(
+        &w,
+        json!({ board: { "matches": "x" }, index: { "matches": "y" } }),
+    );
+    request["boards"][index] = json!({ "link": "https://c/#index" });
+    assert!(message(w.request(request)).contains("is no board file"));
 }
 
 #[test]

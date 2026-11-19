@@ -77,6 +77,10 @@ impl Globs {
 pub enum PlaceKind {
     /// A board file.
     Board,
+    /// The canvas index, `canvas.json`: it places the boards on the canvas
+    /// and is no board itself, so it has no canvas link and no place on the
+    /// review page.
+    CanvasIndex,
     /// A component folder, `path/`.
     Component,
     /// A spec section, `path#heading`.
@@ -89,6 +93,8 @@ impl PlaceKind {
             PlaceKind::Spec
         } else if key.ends_with('/') {
             PlaceKind::Component
+        } else if key.rsplit('/').next() == Some("canvas.json") {
+            PlaceKind::CanvasIndex
         } else {
             PlaceKind::Board
         }

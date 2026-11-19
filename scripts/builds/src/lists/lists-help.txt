@@ -562,7 +562,9 @@ sent again.
       words, a board of it is no file, no board place or has no caption, a
       circle has no selector or an empty label, a board with circles is no
       file on origin/main, a board of the change is not on it, or the range
-      changes no design files.
+      changes no design files. A canvas.json the range changes is a place
+      to answer like any other, and is no board: it takes no link and no
+      place on the review page.
 
   builds design amend N --request FILE
       The same over a new range, which N then holds to: a stored place the
