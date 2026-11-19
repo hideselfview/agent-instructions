@@ -654,6 +654,10 @@ pub type Captured = Arc<Mutex<Vec<u8>>>;
 /// watches for, once one has come.
 pub type Found = Arc<Mutex<Option<String>>>;
 
+/// A reader that a run gives each whole line of the command's output, from
+/// either stream, without its newline.
+pub type EachLine = Arc<dyn Fn(&str) + Send + Sync>;
+
 /// What a run keeps of the command's output, which it passes on to this
 /// process's own output either way. With nothing to keep, the command writes
 /// to this process's output itself.
@@ -663,11 +667,24 @@ pub struct Keep<'a> {
     pub all: Option<&'a Captured>,
     /// The first line that holds one of the texts.
     pub line_with: Option<(&'static [&'static str], &'a Found)>,
+    /// Each line, given to the reader.
+    pub each_line: Option<&'a EachLine>,
 }
 
 impl Keep<'_> {
     fn anything(&self) -> bool {
-        self.all.is_some() || self.line_with.is_some()
+        self.all.is_some() || self.line_with.is_some() || self.each_line.is_some()
+    }
+
+    /// What reads one stream's lines; None when nothing reads lines.
+    fn lines(&self) -> Option<StreamLines> {
+        (self.line_with.is_some() || self.each_line.is_some()).then(|| StreamLines {
+            watch: self
+                .line_with
+                .map(|(needles, found)| (needles, found.clone())),
+            each: self.each_line.cloned(),
+            line: Vec::new(),
+        })
     }
 }
 
@@ -680,15 +697,16 @@ const OUTPUT_GRACE: Duration = Duration::from_secs(2);
 const LINE_LIMIT: usize = 64 * 1024;
 const LINE_TAIL: usize = 1024;
 
-/// One stream's watch for the first line that holds one of <needles>.
-struct LineWatch {
-    needles: &'static [&'static str],
-    found: Found,
+/// One stream's lines: a watch for the first line that holds one of its
+/// texts, and a reader of each line.
+struct StreamLines {
+    watch: Option<(&'static [&'static str], Found)>,
+    each: Option<EachLine>,
     /// The stream's line so far.
     line: Vec<u8>,
 }
 
-impl LineWatch {
+impl StreamLines {
     fn feed(&mut self, chunk: &[u8]) {
         for part in chunk.split_inclusive(|byte| *byte == b'\n') {
             self.line.extend_from_slice(part);
@@ -700,14 +718,20 @@ impl LineWatch {
         }
     }
 
-    /// Looks at the line so far as a whole line and starts the next.
+    /// Looks at the line so far as a whole line and starts the next. A
+    /// stream that ended on a newline has no line left to look at.
     fn end_line(&mut self) {
         let text = String::from_utf8_lossy(&self.line);
-        if self.needles.iter().any(|needle| text.contains(needle)) {
-            let mut found = self.found.lock().expect("no thread panicked holding it");
+        if let Some((needles, found)) = &self.watch
+            && needles.iter().any(|needle| text.contains(needle))
+        {
+            let mut found = found.lock().expect("no thread panicked holding it");
             if found.is_none() {
                 *found = Some(text.trim_end().to_string());
             }
+        }
+        if let Some(each) = &self.each {
+            each(text.trim_end_matches(['\n', '\r']));
         }
         self.line.clear();
     }
@@ -719,7 +743,7 @@ fn copy_and_keep(
     mut from: impl std::io::Read,
     mut to: impl std::io::Write,
     all: Option<Captured>,
-    mut watch: Option<LineWatch>,
+    mut watch: Option<StreamLines>,
     done: std::sync::mpsc::Sender<()>,
 ) {
     let mut chunk = [0u8; 8192];
@@ -737,7 +761,9 @@ fn copy_and_keep(
             watch.feed(&chunk[..read]);
         }
     }
-    if let Some(watch) = &mut watch {
+    if let Some(watch) = &mut watch
+        && !watch.line.is_empty()
+    {
         watch.end_line();
     }
     let _ = done.send(());
@@ -804,13 +830,7 @@ fn run_group(
     let (output_done, output_ended) = channel::<()>();
     let mut copies = 0;
     let all = || keep.all.cloned();
-    let watch = || {
-        keep.line_with.map(|(needles, found)| LineWatch {
-            needles,
-            found: found.clone(),
-            line: Vec::new(),
-        })
-    };
+    let watch = || keep.lines();
     if let Some(stdout) = child.stdout.take() {
         let (all, watch, done) = (all(), watch(), output_done.clone());
         std::thread::spawn(move || copy_and_keep(stdout, std::io::stdout(), all, watch, done));

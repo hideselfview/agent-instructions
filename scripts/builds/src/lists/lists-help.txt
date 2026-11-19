@@ -400,7 +400,8 @@ runs in (plans are in no commit); an absolute path is itself.
       uncommitted changes, or for a hook check other staged files), passed
       again on the same commit and changes (flaky), or stood (no later run
       passed); for each kind, what its runs failed most (the tests cargo
-      runs reported failed, the staged files a hook check's output named);
+      runs reported failed, the staged files a hook check's output named,
+      the shots an app build's shots run said fail it);
       and for each review rule group,
       its findings confirmed, dropped and not settled, and the confirmed ones
       a later review closed after a fix. A cargo run's step is its

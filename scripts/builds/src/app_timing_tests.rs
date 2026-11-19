@@ -16,6 +16,7 @@ fn step(name: &str, kind: StepKind, at: i64, wall_ms: u64, result: StepResult) -
         wall_ms,
         cpu_ms: wall_ms / 2,
         result,
+        failure: None,
     }
 }
 

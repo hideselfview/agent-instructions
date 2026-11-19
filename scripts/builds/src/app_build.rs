@@ -72,6 +72,7 @@ use std::sync::mpsc::{RecvTimeoutError, channel};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use crate::app_build_step_failure::StepRead;
 use crate::app_config::{
     CONFIG, CheckedOut, Config, PickKind, Picker, Step, check_out, parse_config, resolve,
     run_command_keeping, run_git, show_duration,
@@ -472,31 +473,36 @@ fn refused_after(said: &str) -> Refused {
 }
 
 /// What a step's run keeps of its output: all of it for a shots run with a
-/// store that keeps its findings (<all>), and the first line saying the host
-/// failed the step when the lane watches for one (<fault>).
+/// store that keeps its findings (<all>), the first line saying the host
+/// failed the step when the lane watches for one (<fault>), and each line
+/// for <read>.
 fn keep_for<'a>(
     kind: StepKind,
     shots: Option<&ShotsStore>,
     all: &'a lock::Captured,
     fault: Option<&'a Found>,
+    read: &'a lock::EachLine,
 ) -> Keep<'a> {
     Keep {
         all: (kind == StepKind::Shots && shots.is_some()).then_some(all),
         line_with: fault.map(|found| (HOST_FAULT_TEXTS, found)),
+        each_line: Some(read),
     }
 }
 
 /// Runs <step> (of <kind>) in the checkout <top>, watching for a line of
-/// `HOST_FAULTS` in <fault>; a shots run with a store keeps the findings it printed.
+/// `HOST_FAULTS` in <fault> and giving each line to <read>; a shots run with
+/// a store keeps the findings it printed.
 fn run_local_step(
     top: &Path,
     step: &Step,
     kind: StepKind,
     shots: Option<&ShotsStore>,
     fault: Option<&Found>,
+    read: &lock::EachLine,
 ) -> Result<Within> {
     let kept = lock::Captured::default();
-    let keep = keep_for(kind, shots, &kept, fault);
+    let keep = keep_for(kind, shots, &kept, fault, read);
     let outcome = run_command_keeping(top, &step.command, Some(step.limit()), keep);
     if let (StepKind::Shots, Some(store)) = (kind, shots) {
         store.keep_of(&outcome, &kept, step, top, &mut LocalRun(top));
@@ -513,19 +519,21 @@ fn run_steps(
     shots: Option<&ShotsStore>,
     watch: bool,
 ) -> Result<Ended> {
-    run_steps_with(held, steps, log, watch, &mut |step, kind, fault| {
-        run_local_step(top, step, kind, shots, fault)
+    run_steps_with(held, steps, log, watch, &mut |step, kind, fault, read| {
+        run_local_step(top, step, kind, shots, fault, read)
     })
 }
 
 /// Runs one step of a kind, watching for a line of `HOST_FAULTS` when given
-/// where to keep it.
-type RunStep<'a> = dyn FnMut(&Step, StepKind, Option<&Found>) -> Result<Within> + 'a;
+/// where to keep it, and giving each line of its output to the reader.
+type RunStep<'a> =
+    dyn FnMut(&Step, StepKind, Option<&Found>, &lock::EachLine) -> Result<Within> + 'a;
 
 /// Runs <steps> in order, each by <run>, stopping at the first that fails.
 /// `run_steps_with` records each step as it starts in the record <held>
 /// keeps beside its lock (holder_run.rs), and times each step it starts into
-/// <log> (app_timing.rs). With <watch>, each step's run watches for a line of
+/// <log> (app_timing.rs), with what a step that failed or ran past its limit
+/// said (app_build_step_failure.rs). With <watch>, each step's run watches for a line of
 /// `HOST_FAULTS`, and a step that fails after printing one ends the run with
 /// `HostFault`.
 fn run_steps_with(
@@ -545,14 +553,17 @@ fn run_steps_with(
         };
         let timer = Timer::start();
         let found = Found::default();
-        let outcome = run(step, kind, watch.then_some(&found));
+        let read = StepRead::default();
+        let outcome = run(step, kind, watch.then_some(&found), &read.each_line());
         let result = match &outcome {
             Ok(Within::Ran(Ran::Finished)) => StepResult::Passed,
             Ok(Within::Ran(Ran::TakenOver)) => StepResult::TakenOver,
             Ok(Within::TimedOut) => StepResult::TimedOut,
             Err(_) => StepResult::Failed,
         };
-        log.push(timer.finish(&step.name, kind, result));
+        let failure =
+            matches!(result, StepResult::Failed | StepResult::TimedOut).then(|| read.failure());
+        log.push(timer.finish(&step.name, kind, result, failure));
         match outcome {
             Ok(Within::Ran(Ran::Finished)) => {}
             Ok(Within::Ran(Ran::TakenOver)) => return Ok(Ended::TakenOver),
@@ -662,8 +673,8 @@ impl Site {
         match self {
             Site::Local(top) => run_steps(top, held, steps, log, shots, watch),
             Site::Remote(remote) => {
-                run_steps_with(held, steps, log, watch, &mut |step, kind, fault| {
-                    run_remote_step(remote, step, kind, results, shots, fault)
+                run_steps_with(held, steps, log, watch, &mut |step, kind, fault, read| {
+                    run_remote_step(remote, step, kind, results, shots, fault, read)
                 })
             }
         }
@@ -671,7 +682,8 @@ impl Site {
 }
 
 /// Runs <step> (of <kind>) in the checkout on a host, watching for a line of
-/// `HOST_FAULTS` in <fault>, keeps the findings of a shots run here, then
+/// `HOST_FAULTS` in <fault> and giving each line to <read>, keeps the
+/// findings of a shots run here, then
 /// copies <results> back, since a step that failed or ran out of time has
 /// written the reports its reader needs most. A copy that fails fails a step
 /// that passed; after a step that failed, the run notes the copy's error and
@@ -683,10 +695,11 @@ fn run_remote_step(
     results: &[String],
     shots: Option<&ShotsStore>,
     fault: Option<&Found>,
+    read: &lock::EachLine,
 ) -> Result<Within> {
     let start = remote.step_command(&step.command)?;
     let kept = lock::Captured::default();
-    let keep = keep_for(kind, shots, &kept, fault);
+    let keep = keep_for(kind, shots, &kept, fault, read);
     let ran = lock::run_in_group_keeping(start, &step.command[0], Some(step.limit()), keep);
     if let (StepKind::Shots, Some(store)) = (kind, shots) {
         // The commit is the host's checkout's, which this Mac holds too.

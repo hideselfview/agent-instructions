@@ -92,6 +92,10 @@ pub struct StepRecord {
     pub wall_ms: u64,
     pub cpu_ms: u64,
     pub result: StepResult,
+    /// What a step that failed or ran past its limit said
+    /// (app_build_step_failure.rs); None for one that passed or that another
+    /// build took over.
+    pub failure: Option<crate::app_build_step_failure::StepFailure>,
 }
 
 /// One lane's run, as `record` writes it.
@@ -148,7 +152,13 @@ impl Timer {
         }
     }
 
-    pub fn finish(self, name: &str, kind: StepKind, result: StepResult) -> StepRecord {
+    pub fn finish(
+        self,
+        name: &str,
+        kind: StepKind,
+        result: StepResult,
+        failure: Option<crate::app_build_step_failure::StepFailure>,
+    ) -> StepRecord {
         StepRecord {
             name: name.to_string(),
             kind,
@@ -156,6 +166,7 @@ impl Timer {
             wall_ms: self.began.elapsed().as_millis() as u64,
             cpu_ms: children_cpu().saturating_sub(self.cpu).as_millis() as u64,
             result,
+            failure,
         }
     }
 }
@@ -218,6 +229,7 @@ pub fn record(path: &Path, run: &RunRecord) -> Result<()> {
             .context(what)?;
         }
     }
+    crate::app_build_step_failure::record(&tx, id, &run.steps)?;
     if let Some(commit) = &run.built_commit {
         crate::app_build_commit::record(&tx, id, commit).context(what)?;
     }

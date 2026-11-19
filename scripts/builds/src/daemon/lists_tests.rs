@@ -369,6 +369,7 @@ fn a_recorded_app_build_run_reaches_the_feeds_hooks_json() {
             wall_ms: 5000,
             cpu_ms: 4000,
             result: StepResult::Passed,
+            failure: None,
         }],
     };
     record(&store.dir.join(DATABASE), &run).unwrap();

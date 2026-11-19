@@ -1,7 +1,8 @@
 //! The lines of a step's output that say why it failed: from the first line
 //! that starts a cause (a test's panic or a compiler's error), else the last
-//! lines. A cargo run (cargo_run_outcome.rs) and a hook check
-//! (hook_check_failure.rs) that fail keep one.
+//! lines. A cargo run (cargo_run_outcome.rs), a hook check
+//! (hook_check_failure.rs) and an app build step (app_build_step_failure.rs)
+//! that fail keep one.
 
 use std::collections::VecDeque;
 
@@ -12,9 +13,16 @@ const LINES: usize = 20;
 const BYTES: usize = 4000;
 
 /// Does <line> start the part of the output that says why a step failed: a
-/// test's panic or an error from rustc or cargo (`error:`, `error[E0308]:`)?
+/// test's panic, an error from rustc or cargo (`error:`, `error[E0308]:`),
+/// from clang, swiftc or xcodebuild (`<file>:<line>:<column>: error:`), from
+/// kotlinc (`e: `), or gradle's `FAILURE:`?
 fn starts_cause(line: &str) -> bool {
-    line.contains("panicked at") || line.starts_with("error:") || line.starts_with("error[")
+    line.contains("panicked at")
+        || line.starts_with("error:")
+        || line.starts_with("error[")
+        || line.contains(": error:")
+        || line.starts_with("e: ")
+        || line.starts_with("FAILURE:")
 }
 
 /// Reads output line by line and keeps what an excerpt needs.

@@ -6,6 +6,10 @@ fn an_excerpt_starts_at_the_first_cause_else_holds_the_last_lines() {
         Excerpt::of("Compiling a\nerror[E0308]: mismatched types\n --> src/a.rs:1:1\nmore"),
         Some("error[E0308]: mismatched types\n --> src/a.rs:1:1\nmore".to_string())
     );
+    assert_eq!(
+        Excerpt::of("Build/A.swift:3:5: error: cannot find 'x'\nnext"),
+        Some("Build/A.swift:3:5: error: cannot find 'x'\nnext".to_string())
+    );
     let long: String = (0..30).map(|n| format!("line {n}\n")).collect();
     let text = Excerpt::of(&long).unwrap();
     assert!(

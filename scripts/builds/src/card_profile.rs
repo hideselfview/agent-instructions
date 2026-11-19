@@ -657,24 +657,27 @@ fn read_app_builds(
             attributed: true,
             leaf: true,
         });
+        let mut said = crate::app_build_step_failure::read(db, id)?;
         let mut steps = db
             .prepare(
-                "SELECT name, started_at, wall_ms, result FROM app_build_steps \
+                "SELECT position, name, started_at, wall_ms, result FROM app_build_steps \
                  WHERE run_id = ?1 ORDER BY position",
             )
             .sql()?;
         let rows = steps
             .query_map([id], |row| {
                 Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, i64>(1)?,
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, String>(1)?,
                     row.get::<_, i64>(2)?,
-                    row.get::<_, String>(3)?,
+                    row.get::<_, i64>(3)?,
+                    row.get::<_, String>(4)?,
                 ))
             })
             .sql()?;
         for step in rows {
-            let (name, start, wall_ms, result) = step.sql()?;
+            let (position, name, start, wall_ms, result) = step.sql()?;
+            let failure = said.remove(&(position as u32)).unwrap_or_default();
             // A step another build took over says nothing of the change.
             if result != "taken over" {
                 card.attempts.push(Attempt {
@@ -683,8 +686,8 @@ fn read_app_builds(
                     at: start,
                     passed: result == "passed",
                     state: built.clone(),
-                    failed: Vec::new(),
-                    cause: None,
+                    failed: failure.shots,
+                    cause: first_line(failure.excerpt.as_deref()),
                 });
             }
             card.steps.push(Step {

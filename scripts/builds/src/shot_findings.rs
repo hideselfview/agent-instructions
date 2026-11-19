@@ -261,6 +261,24 @@ fn tail(text: &str) -> &str {
     &text[from..]
 }
 
+/// What the shots program prints before the names of the pairs that fail the
+/// run: `builds shots: 2 pair(s) fail the run: mac.a.b, mac.a.c`.
+const FAILING_PAIRS: &str = "pair(s) fail the run: ";
+
+/// The names of the shots that <line> of a shots run's output says fail the
+/// run; None for any other line.
+pub fn failing_shots(line: &str) -> Option<Vec<String>> {
+    let (_, names) = line.split_once(FAILING_PAIRS)?;
+    Some(
+        names
+            .split(',')
+            .map(str::trim)
+            .filter(|name| !name.is_empty())
+            .map(str::to_string)
+            .collect(),
+    )
+}
+
 /// Whether a run that exited <exit> printed findings: it passed, or said that
 /// pairs fail the run.
 pub fn has_findings(exit: i64, findings: &str) -> bool {

@@ -187,9 +187,13 @@ const BEFORE_REVIEW_TEXT_ROWID_STAMP: i64 = 116_876_965;
 /// said.
 const BEFORE_HOOK_CHECK_FAILURE_STAMP: i64 = 321_616_823;
 
+/// The stamp of the schema before builds recorded what each failed app build
+/// step said.
+const BEFORE_APP_BUILD_STEP_FAILURE_STAMP: i64 = 1_276_451_682;
+
 /// Every stamp a store can carry that `move_store` moves, oldest schema first.
 /// A new move adds the stamp of the schema before it at the end.
-const STAMPS: [i64; 13] = [
+const STAMPS: [i64; 14] = [
     BEFORE_CONDITION_ENDERS_STAMP,
     BEFORE_ITEM_EVENT_STAMP,
     BEFORE_LAND_RUN_STAMP,
@@ -203,6 +207,7 @@ const STAMPS: [i64; 13] = [
     BEFORE_STEP_COMMITS_STAMP,
     BEFORE_REVIEW_TEXT_ROWID_STAMP,
     BEFORE_HOOK_CHECK_FAILURE_STAMP,
+    BEFORE_APP_BUILD_STEP_FAILURE_STAMP,
 ];
 
 /// Whether a store stamped <found> comes before the move that follows the
@@ -361,6 +366,11 @@ fn move_store(path: &Path, now: i64) -> Result<()> {
     // tables: the checks it holds have none.
     if before(found, BEFORE_HOOK_CHECK_FAILURE_STAMP) {
         tx.execute_batch(db::HOOK_CHECK_FAILURE_PART).sql()?;
+    }
+    // Every store from before the failed app build steps' words gets their
+    // empty tables: the steps it holds have none.
+    if before(found, BEFORE_APP_BUILD_STEP_FAILURE_STAMP) {
+        tx.execute_batch(db::APP_BUILD_STEP_FAILURE_PART).sql()?;
     }
     tx.pragma_update(None, "user_version", db::stamp()).sql()?;
     let broken: Option<String> = tx

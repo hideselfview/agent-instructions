@@ -257,6 +257,7 @@ fn landed_card(scratch: &Scratch) -> (crate::lists::store::Store, Id) {
                 wall_ms: 50_000,
                 cpu_ms: 0,
                 result: crate::app_timing::StepResult::Passed,
+                failure: None,
             }],
         },
     )
@@ -538,6 +539,56 @@ fn a_failed_hook_check_names_its_files_and_why_in_the_cards_failures() {
             "hook checks rustfmt (src/a.rs): no later run passed\n      Diff in src/a.rs at line 3:"
         ),
         "{text}"
+    );
+}
+
+#[test]
+fn a_failed_shots_step_names_its_shots_in_the_cards_failures_and_totals() {
+    let scratch = Scratch::new("card-profile-shots-failure");
+    let (store, id) = landed_card(&scratch);
+    crate::app_timing::record(
+        &store.database(),
+        &crate::app_timing::RunRecord {
+            started_at: T0 + 300,
+            repo: "bae".into(),
+            lane: crate::lane::Lane::Mac,
+            checkout: "side-1".into(),
+            built_ref: "work".into(),
+            built_commit: Some(sha('c')),
+            who: None,
+            wait_ms: 0,
+            passed: false,
+            load: None,
+            steps: vec![crate::app_timing::StepRecord {
+                name: "shots mac.a.".into(),
+                kind: crate::app_timing::StepKind::Shots,
+                started_at: T0 + 300,
+                wall_ms: 10_000,
+                cpu_ms: 0,
+                result: crate::app_timing::StepResult::Failed,
+                failure: Some(crate::app_build_step_failure::StepFailure {
+                    excerpt: Some("builds shots: 1 pair(s) fail the run: mac.a.one".into()),
+                    shots: vec!["mac.a.one".into()],
+                }),
+            }],
+        },
+    )
+    .unwrap();
+    let lists = store.load().unwrap();
+    let db = store.open_existing().unwrap();
+    let text = text(&db, &lists, &[id], T0 + 9_999).unwrap();
+    assert!(
+        text.contains(
+            "app build steps mac shots mac.a. (mac.a.one): no later run passed\n      builds shots: 1 pair(s) fail the run: mac.a.one"
+        ),
+        "{text}"
+    );
+    let totals = super::text(&db, &lists, &[], T0 + 3_600).unwrap();
+    assert!(
+        totals.contains(
+            "shots that app build steps failed most often (failed runs)\n      1  mac.a.one"
+        ),
+        "{totals}"
     );
 }
 

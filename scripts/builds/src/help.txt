@@ -1006,8 +1006,14 @@ from the store, never built again.
                               from, the checkout, the cores and one-minute
                               load of the checkout's host when the run took
                               the checkout, its wait in the queue, and each
-                              step's start, wall time, CPU time and result;
-                              the dashboard shows the last 12 hours
+                              step's start, wall time, CPU time and result,
+                              with, for a step that failed or ran past its
+                              limit, an excerpt of its output (the lines from
+                              the first test panic or compiler error, else the
+                              last lines) and the shots its shots program
+                              said fail the run; builds reads each line of a
+                              step's output as it passes through. The
+                              dashboard shows the last 12 hours
   builds app-build <repo> --lane mac|android <ref> [<step>...] [--test <lane> <Class>]... [--shots <lane> <prefix>]... [--all-shots <lane>]...
                               one lane's part of the above, in this process.
                               With no step named, only the --test, --shots

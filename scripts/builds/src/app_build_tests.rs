@@ -634,6 +634,35 @@ fn running_fake_steps_times_each_one_with_its_kind_and_result() {
     assert!(log.iter().all(|s| s.started_at > 0));
 }
 
+/// A step that fails keeps its excerpt and the shots its output says fail
+/// the run; a step that passed keeps nothing.
+#[test]
+fn a_failed_step_keeps_what_its_output_said() {
+    let scratch = Scratch::new("timing-step-failure");
+    let held = held_in(&scratch);
+    let said = "echo building; echo 'builds shots: 1 pair(s) fail the run: mac.a.one' >&2; exit 1";
+    let mut log = Vec::new();
+    let _ = run_steps(
+        &scratch.dir,
+        &held,
+        &[
+            fake("build", &["sh", "-c", "echo fine"], None),
+            fake("shots mac.a.", &["sh", "-c", said], None),
+        ],
+        &mut log,
+        None,
+        false,
+    );
+    assert_eq!(log[0].failure, None);
+    let failure = log[1].failure.clone().unwrap();
+    assert_eq!(failure.shots, vec!["mac.a.one"]);
+    let excerpt = failure.excerpt.unwrap();
+    assert!(
+        excerpt.contains("building") && excerpt.contains("fail the run: mac.a.one"),
+        "{excerpt}"
+    );
+}
+
 /// Each step names itself in the record beside the lock as it starts: the
 /// second step reads the record and finds its own name there.
 #[test]

@@ -130,6 +130,7 @@ fn a_capturing_run_keeps_what_the_command_printed_on_both_streams() {
             Keep {
                 all: Some(&kept),
                 line_with: None,
+                each_line: None,
             }
         ),
         Err(Fail::Exit(4))
@@ -153,6 +154,7 @@ fn a_watching_run_keeps_the_first_line_that_holds_the_text() {
             Keep {
                 all: None,
                 line_with: Some((&["plugin failed"], &found)),
+                each_line: None,
             },
         );
         found.lock().unwrap().clone()
@@ -170,14 +172,41 @@ fn a_watching_run_keeps_the_first_line_that_holds_the_text() {
     assert_eq!(run("echo fine"), None);
 }
 
+/// A run gives each line of both streams to its reader, a last line with no
+/// newline included.
+#[test]
+fn a_reading_run_gives_each_line_to_its_reader() {
+    let mut start = Command::new("sh");
+    start.args(["-c", "echo one; echo two >&2; printf three"]);
+    let read: Arc<Mutex<Vec<String>>> = Arc::default();
+    let each: EachLine = {
+        let read = read.clone();
+        Arc::new(move |line: &str| read.lock().unwrap().push(line.to_string()))
+    };
+    run_in_group_keeping(
+        start,
+        "sh",
+        None,
+        Keep {
+            all: None,
+            line_with: None,
+            each_line: Some(&each),
+        },
+    )
+    .unwrap();
+    let mut read = read.lock().unwrap().clone();
+    read.sort();
+    assert_eq!(read, ["one", "three", "two"]);
+}
+
 /// A watch joins a line that arrives in two reads before it looks for the
 /// text in it.
 #[test]
 fn a_watch_joins_a_line_split_across_two_reads() {
     let found = Found::default();
-    let mut watch = LineWatch {
-        needles: &["plugin failed"],
-        found: found.clone(),
+    let mut watch = StreamLines {
+        watch: Some((&["plugin failed"], found.clone())),
+        each: None,
         line: Vec::new(),
     };
     watch.feed(b"one\nA required plu");

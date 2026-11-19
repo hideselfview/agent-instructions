@@ -50,8 +50,9 @@ pub struct Attempt {
     /// hook check the commit and the staged files; None when builds did not
     /// record it.
     pub state: Option<String>,
-    /// What failed in it: the tests a cargo run reported failed, or the
-    /// staged files a hook check's output named.
+    /// What failed in it: the tests a cargo run reported failed, the staged
+    /// files a hook check's output named, or the shots an app build's shots
+    /// run said fail it.
     pub failed: Vec<String>,
     /// The first line of the excerpt of a failed run's output, when it has
     /// one: why it failed.

@@ -8,6 +8,15 @@ fn the_findings_are_the_text_after_cargos_running_line_or_all_of_it_without_one(
 }
 
 #[test]
+fn the_failing_shots_come_from_the_line_that_names_the_pairs_that_fail() {
+    assert_eq!(
+        failing_shots("builds shots: 2 pair(s) fail the run: mac.a.b, mac.a.c.dark"),
+        Some(vec!["mac.a.b".to_string(), "mac.a.c.dark".to_string()])
+    );
+    assert_eq!(failing_shots("builds shots: no pair fails the run"), None);
+}
+
+#[test]
 fn a_run_has_findings_when_it_passed_or_said_that_pairs_fail_it() {
     assert!(has_findings(0, ""));
     assert!(has_findings(1, "bae-shots: 2 pair(s) fail the run: a, b\n"));
