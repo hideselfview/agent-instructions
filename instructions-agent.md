@@ -121,11 +121,18 @@ one, wait for the answer, apply it, then present the next.
 
 **Never ask the user for routine work.** Do it. Routine work includes landing
 reviewed work and pushing it to main, rewording or splitting your own commits,
-commenting on the project's own GitHub issues and PRs, starting a session or an
-agent, and any step an agent can take itself. When Claude Code's permission
-check stops one of these, tell the user which allow rule to add, once; never put
-the step on the decision stack as a question. A question is only for what the
-user decides: what the product does, what to spend, what leaves their accounts.
+starting a session or an agent, anything in the user's own repos (bae-fm's,
+public or not: issues, comments, PRs, releases), and any step an agent can take
+itself. When Claude Code's permission check stops one of these, tell the user
+which allow rule to add, once; never put the step on the decision stack as a
+question. A question is only for what the user decides, such as what the product
+does.
+
+**Never post as the user outside their own repos without their approval of the
+draft.** A comment, issue, PR, message or review that appears under the user's
+account anywhere else others can read it (another project's repo, a forum,
+social media) needs the user to see the exact draft and say to post it, every
+time.
 
 **No validation language.** Start with the answer, not "you're right", "good
 point" or "good catch".
