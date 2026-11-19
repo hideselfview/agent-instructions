@@ -9,8 +9,8 @@
 //!   id (the commit its rustc was built from) and a hash of the tool's
 //!   sources. Two checkouts, of one repo or of two, with the same sources and
 //!   toolchain print the same key and share one build.
-//! - `<program> build <folder>` builds the tool into <folder>, which it
-//!   creates, and writes `<folder>/check`, a program that makes the build
+//! - `<program> build <folder>` builds the tool into <folder>, an empty
+//!   folder builds made, and writes `<folder>/check`, a program that makes the build
 //!   ready to run on the Mac it is on and fails unless it runs there.
 //!   `BUILDS_TOOL_WORK` names a folder, one per toolchain on each Mac, where
 //!   the program keeps what the next build can reuse (fetched sources, a
@@ -210,27 +210,33 @@ fn obtain(
             let built =
                 build(top, line, &toolchain.join(WORK), &staged).and_then(|()| check(&staged));
             if let Err(error) = built {
-                discard(&staged)?;
-                return Err(error);
+                return Err(after_discard(&staged, error));
             }
             staged
         }
     };
     if let Err(error) = take_place(&staged, dest) {
-        discard(&staged)?;
-        return Err(error);
+        return Err(after_discard(&staged, error));
     }
     Ok(())
 }
 
-/// A new staging folder's path in <toolchain>, which no earlier copy or build
-/// used.
+/// Makes a new, empty staging folder in <toolchain> and returns it. Its
+/// name is one no earlier copy or build used, and creating it fails when
+/// anything is there.
 fn staging(toolchain: &Path) -> Result<PathBuf> {
     let staged = toolchain.join(format!(".new-{}", crate::text::staged_suffix()));
-    if std::fs::symlink_metadata(&staged).is_ok() {
-        fail!("{} is there already", staged.display());
-    }
+    std::fs::create_dir(&staged).context(|| format!("creating {}", staged.display()))?;
     Ok(staged)
+}
+
+/// <failure>, once <staged> is deleted; when the deletion fails too, an error
+/// that says both.
+fn after_discard(staged: &Path, failure: Fail) -> Fail {
+    match discard(staged) {
+        Ok(()) => failure,
+        Err(cleanup) => Fail::Message(format!("{}; {}", failure.text(), cleanup.text())),
+    }
 }
 
 /// Deletes <staged>, a copy or build that did not take its place; a failure
@@ -376,18 +382,13 @@ fn fetch(places: &Places, ssh: &Ssh, name: &str, key: &Key, toolchain: &Path) ->
             }
         }
         let staged = staging(toolchain)?;
-        let copied = std::fs::create_dir(&staged)
-            .context(|| format!("creating {}", staged.display()))
-            .and_then(|()| {
-                let sender =
-                    transport.command(&format!("{}tar -cf - -C {remote} .", root_script(&host)));
-                crate::remote::unpack(
-                    sender,
-                    &staged,
-                    &format!("tool {name} from host {}", host.name),
-                )
-            })
-            .and_then(|()| check(&staged));
+        let sender = transport.command(&format!("{}tar -cf - -C {remote} .", root_script(&host)));
+        let copied = crate::remote::unpack(
+            sender,
+            &staged,
+            &format!("tool {name} from host {}", host.name),
+        )
+        .and_then(|()| check(&staged));
         match copied {
             Ok(()) => {
                 return Ok(Fetched {
@@ -401,7 +402,9 @@ fn fetch(places: &Places, ssh: &Ssh, name: &str, key: &Key, toolchain: &Path) ->
                     host.name,
                     error.text()
                 ));
-                discard(&staged)?;
+                if let Err(cleanup) = discard(&staged) {
+                    fail!("{}; {}", misses.join("; "), cleanup.text());
+                }
             }
         }
     }

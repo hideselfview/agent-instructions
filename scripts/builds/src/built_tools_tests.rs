@@ -355,7 +355,11 @@ fn a_rejected_copy_builds_cannot_delete_is_an_error() {
     let Err(Fail::Message(message)) = ensure(&places, &ssh, &top, &line) else {
         panic!("a copy that could not be deleted passed");
     };
-    assert!(message.starts_with("deleting "), "{message}");
+    assert!(
+        message.starts_with("the copy from host m1 failed: "),
+        "{message}"
+    );
+    assert!(message.contains("; deleting "), "{message}");
     assert_eq!(builds_count(&places, "tc1"), 0, "builds built beside it");
     let toolchain = tool_dir(&places, "lints").join("tc1");
     for entry in std::fs::read_dir(&toolchain).unwrap() {
@@ -388,4 +392,28 @@ fn prune_keeps_every_build_while_a_checkouts_manifest_cannot_be_read() {
         old.is_dir(),
         "prune deleted a build while a manifest was unread"
     );
+}
+
+#[test]
+fn a_failed_build_builds_cannot_delete_says_both_failures() {
+    let scratch = Scratch::new("tools-build-discard");
+    let places = scratch.places();
+    let top = scratch.dir.join("demo");
+    let line = tool_repo(&top, "tc1 src1", PASSING);
+    executable(
+        &top.join("tool.sh"),
+        "#!/bin/sh\ncase \"$1\" in\nkey) cat key.txt ;;\nbuild) mkdir \"$2/locked\" && touch \"$2/locked/file\" && chmod 555 \"$2/locked\"; echo no compiler >&2; exit 4 ;;\nesac\n",
+    );
+    let Err(Fail::Message(message)) = ensure(&places, &no_ssh(), &top, &line) else {
+        panic!("a failed build passed");
+    };
+    assert!(message.contains("build failed"), "{message}");
+    assert!(message.contains("; deleting "), "{message}");
+    let toolchain = tool_dir(&places, "lints").join("tc1");
+    for entry in std::fs::read_dir(&toolchain).unwrap() {
+        let locked = entry.unwrap().path().join("locked");
+        if locked.exists() {
+            std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+    }
 }

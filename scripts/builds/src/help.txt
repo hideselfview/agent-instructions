@@ -268,7 +268,8 @@ The repo's <program> answers two requests in the checkout's top folder:
   <program> key             print the checkout's key: two words, the
                             toolchain's id (coven: the commit its rustc was
                             built from) and a hash of the tool's sources
-  <program> build <folder>  build the tool into <folder>, and write
+  <program> build <folder>  build the tool into <folder>, an empty folder
+                            builds made, and write
                             <folder>/check: a program that makes the build
                             ready to run on the Mac it is on and fails unless
                             the tool runs there. BUILDS_TOOL_WORK names a
@@ -285,8 +286,9 @@ build at a time uses the work folder. When it builds, it says why no copy
 served: each host lacked the key, did not answer, or sent a copy that failed.
 Each copy and each build goes into a staging folder of its own, and takes its
 place only once its check passes on the Mac it lands on. builds deletes a
-rejected staging folder before it tries the next way, and stops with an error
-when it cannot. Before a `builds cargo` job runs on a host, builds copies
+rejected staging folder before it tries the next way, and when it cannot, it
+stops with an error that says both why it rejected the folder and why the
+deletion failed. Before a `builds cargo` job runs on a host, builds copies
 there each key of the checkout that this Mac has and the host lacks, and runs
 its check there; when that fails, it says so and the host builds the key in
 the job's setup. `builds setup` and `builds prune` delete each key's folder,
