@@ -98,16 +98,17 @@ fn m1() -> Host {
 /// <clients> clients name a compiler, and its cache holds <size> bytes of
 /// 50 GiB.
 fn jam(running: usize, clients: usize, size: u64) -> (Host, std::result::Result<Scan, String>) {
-    let mut ps = String::from("44790 1 502 0.0 10:00.00 2-07:02:40 /Users/u/.cargo/bin/sccache\n");
+    let mut ps =
+        String::from("44790 1 502 0.0 10:00.00 2-07:02:40 S /Users/u/.cargo/bin/sccache\n");
     for at in 0..running {
         ps += &format!(
-            "{} 44790 502 90.0 0:10.00 00:10 /Users/u/.rustup/toolchains/x/bin/rustc --crate-name c{at}\n",
+            "{} 44790 502 90.0 0:10.00 00:10 S /Users/u/.rustup/toolchains/x/bin/rustc --crate-name c{at}\n",
             50_000 + at
         );
     }
     for at in 0..clients {
         ps += &format!(
-            "{} 6000 502 0.0 0:00.01 02:00 sccache /Users/u/.rustup/toolchains/x/bin/rustc --crate-name c{at}\n",
+            "{} 6000 502 0.0 0:00.01 02:00 S sccache /Users/u/.rustup/toolchains/x/bin/rustc --crate-name c{at}\n",
             60_000 + at
         );
     }

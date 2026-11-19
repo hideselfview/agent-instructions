@@ -42,17 +42,17 @@ fn job(worktree: &str, leader: i32, caller: i32, minutes: i64) -> JobRun {
 /// on 3 compiles through sccache.
 fn jam() -> Vec<(Host, std::result::Result<Scan, String>)> {
     let here = rows(
-        "100 1 501 0.0 0:01.00 20:00 /Users/x/.local/bin/builds install\n\
-         200 150 501 0.0 0:01.00 22:00 builds checks run\n\
-         210 200 501 0.0 0:01.00 21:30 builds cargo clippy --all-targets\n\
-         211 210 501 0.0 0:01.00 21:30 ssh -o BatchMode=yes u@m1 sh -c x\n",
+        "100 1 501 0.0 0:01.00 20:00 S /Users/x/.local/bin/builds install\n\
+         200 150 501 0.0 0:01.00 22:00 S builds checks run\n\
+         210 200 501 0.0 0:01.00 21:30 S builds cargo clippy --all-targets\n\
+         211 210 501 0.0 0:01.00 21:30 S ssh -o BatchMode=yes u@m1 sh -c x\n",
     );
     let there = rows(
-        "5001 1 502 0.0 0:01.00 36:00 builds cargo clippy --all-targets\n\
-         5002 5001 502 0.0 0:01.00 36:00 cargo clippy --all-targets\n\
-         5003 5002 502 0.0 0:01.00 01:00 sccache rustc --crate-name a\n\
-         5004 5002 502 0.0 0:01.00 01:00 sccache rustc --crate-name b\n\
-         5005 5002 502 0.0 0:01.00 01:00 sccache rustc --crate-name c\n",
+        "5001 1 502 0.0 0:01.00 36:00 S builds cargo clippy --all-targets\n\
+         5002 5001 502 0.0 0:01.00 36:00 S cargo clippy --all-targets\n\
+         5003 5002 502 0.0 0:01.00 01:00 S sccache rustc --crate-name a\n\
+         5004 5002 502 0.0 0:01.00 01:00 S sccache rustc --crate-name b\n\
+         5005 5002 502 0.0 0:01.00 01:00 S sccache rustc --crate-name c\n",
     );
     vec![
         (Host::local(), scan(here, Vec::new())),
@@ -120,9 +120,9 @@ fn a_long_hook_run_names_the_job_it_waits_on() {
 #[test]
 fn a_long_hook_run_names_the_builds_command_under_it() {
     let here = rows(
-        "200 150 501 0.0 0:01.00 22:00 builds checks run\n\
-         210 200 501 0.0 0:01.00 05:00 builds cargo clippy\n\
-         212 210 501 0.0 0:01.00 05:00 cargo clippy\n",
+        "200 150 501 0.0 0:01.00 22:00 S builds checks run\n\
+         210 200 501 0.0 0:01.00 05:00 S builds cargo clippy\n\
+         212 210 501 0.0 0:01.00 05:00 S cargo clippy\n",
     );
     assert_eq!(
         lines(&[(Host::local(), scan(here, Vec::new()))], Ok(None)),
@@ -137,11 +137,11 @@ fn a_long_hook_run_names_the_builds_command_under_it() {
 /// one, and one whose caller is gone (orphans.rs lists it) get none.
 #[test]
 fn a_long_cargo_job_on_a_host_names_its_caller_and_what_runs_under_it() {
-    let here = rows("210 150 501 0.0 0:01.00 01:00 builds cargo test\n");
+    let here = rows("210 150 501 0.0 0:01.00 01:00 S builds cargo test\n");
     let there = rows(
-        "6000 1 502 0.0 0:01.00 36:00 cargo test\n\
-         6001 6000 502 0.0 0:01.00 31:00 /Users/u/dev/bae-worktrees/remote-side-5/target/debug/deps/bae_views-0123456789abcdef\n\
-         7000 1 502 0.0 0:01.00 50:00 xcodebuild test\n",
+        "6000 1 502 0.0 0:01.00 36:00 S cargo test\n\
+         6001 6000 502 0.0 0:01.00 31:00 S /Users/u/dev/bae-worktrees/remote-side-5/target/debug/deps/bae_views-0123456789abcdef\n\
+         7000 1 502 0.0 0:01.00 50:00 S xcodebuild test\n",
     );
     let jobs = vec![
         job("remote-side-5", 6000, 210, 36),
@@ -167,7 +167,7 @@ fn a_long_cargo_job_on_a_host_names_its_caller_and_what_runs_under_it() {
 /// gates health could not read is.
 #[test]
 fn a_new_install_is_no_finding_and_an_unread_one_is() {
-    let here = rows("100 1 501 0.0 0:01.00 00:30 builds install\n");
+    let here = rows("100 1 501 0.0 0:01.00 00:30 S builds install\n");
     let scans = [(Host::local(), scan(here, Vec::new()))];
     assert!(lines(&scans, Ok(Some(waiting_for_the_hook_run()))).is_empty());
     assert_eq!(

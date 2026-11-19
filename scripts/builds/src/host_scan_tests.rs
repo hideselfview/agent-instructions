@@ -11,7 +11,7 @@ fn listening() -> String {
     )
 }
 
-const PS: &str = "    1     0     0   0.0   1:00.00 9-00:00:00 /sbin/launchd\n44790     1   501   0.0  10:00.00 2-07:02:40 /Users/x/.cargo/bin/sccache\n";
+const PS: &str = "    1     0     0   0.0   1:00.00 9-00:00:00 S /sbin/launchd\n44790     1   501   0.0  10:00.00 2-07:02:40 S /Users/x/.cargo/bin/sccache\n";
 
 #[test]
 fn reads_what_a_host_printed() {
@@ -92,7 +92,7 @@ fn a_missing_idle_share_is_an_error_of_its_own() {
 #[test]
 fn finds_a_processs_tree() {
     let rows = parse_ps(
-        "10 1 501 0.0 0:01.00 01:00 builds cargo test\n11 10 501 0.0 0:01.00 01:00 cargo test\n12 11 501 0.0 0:01.00 01:00 rustc a\n13 1 501 0.0 0:01.00 01:00 other\n",
+        "10 1 501 0.0 0:01.00 01:00 S builds cargo test\n11 10 501 0.0 0:01.00 01:00 S cargo test\n12 11 501 0.0 0:01.00 01:00 S rustc a\n13 1 501 0.0 0:01.00 01:00 S other\n",
     )
     .unwrap();
     let pids: Vec<i32> = tree(&rows, 10).iter().map(|row| row.pid).collect();
