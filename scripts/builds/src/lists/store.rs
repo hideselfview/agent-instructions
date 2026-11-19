@@ -468,30 +468,36 @@ pub fn load_all(places: &Places) -> std::result::Result<Vec<Loaded>, String> {
 }
 
 /// What SQLite's integrity checks find in each store's database, one line
-/// each: a foreign key that points at nothing, and a row that breaks a NOT
-/// NULL or CHECK (`quick_check` verifies both). Only a store edited outside
-/// builds, with the foreign keys off, can have them. A store that can't be
-/// opened here is the load's to name.
+/// each (`Store::integrity`).
 pub fn integrity(places: &Places) -> Vec<String> {
     let Ok(stores) = stores(places) else {
         return Vec::new();
     };
-    let mut found = Vec::new();
-    for store in stores {
+    stores.iter().flat_map(Store::integrity).collect()
+}
+
+impl Store {
+    /// What SQLite's integrity checks find in the store's database, one line
+    /// each: a foreign key that points at nothing, and a row that breaks a NOT
+    /// NULL or CHECK (`quick_check` verifies both). Only a store edited outside
+    /// builds, with the foreign keys off, can have them. A store that can't be
+    /// opened here is the load's to name.
+    pub fn integrity(&self) -> Vec<String> {
         // Opened for writing, though nothing is written: SQLite's checks of NOT NULL and CHECK
         // constraints do not run on a read-only connection.
-        if !store.database().is_file() {
-            continue;
+        if !self.database().is_file() {
+            return Vec::new();
         }
-        let Ok(conn) = db::open(&store.database(), Make::Never) else {
-            continue;
+        let Ok(conn) = db::open(&self.database(), Make::Never) else {
+            return Vec::new();
         };
         let what = |fault: String| {
             format!(
                 "lists: project {}'s database fails its integrity check: {fault}",
-                store.project
+                self.project
             )
         };
+        let mut found = Vec::new();
         if let Ok(mut statement) = conn.prepare("PRAGMA foreign_key_check") {
             let rows = statement.query_map([], |row| {
                 Ok(format!(
@@ -515,8 +521,8 @@ pub fn integrity(places: &Places) -> Vec<String> {
                 found.push(what(fault));
             }
         }
+        found
     }
-    found
 }
 
 /// The stores read again after <previous>: a store whose last write is the

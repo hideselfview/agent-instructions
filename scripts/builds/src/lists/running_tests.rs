@@ -59,7 +59,7 @@ fn loaded_running_in(worktree: &Path) -> Vec<Loaded> {
 fn a_running_item_in_a_claimed_worktree_is_fine() {
     let scratch = Scratch::new("running-ok");
     let top = live_worktree(&scratch, true);
-    let found = findings(&scratch.places(), &Ok(loaded_running_in(&top))).unwrap();
+    let found = findings(Vec::new(), &Ok(loaded_running_in(&top))).unwrap();
     assert!(found.is_empty(), "{found:?}");
 }
 
@@ -67,7 +67,7 @@ fn a_running_item_in_a_claimed_worktree_is_fine() {
 fn a_running_item_in_an_unclaimed_or_gone_worktree_is_named() {
     let scratch = Scratch::new("running-bad");
     let top = live_worktree(&scratch, false);
-    let unclaimed = findings(&scratch.places(), &Ok(loaded_running_in(&top))).unwrap();
+    let unclaimed = findings(Vec::new(), &Ok(loaded_running_in(&top))).unwrap();
     assert_eq!(unclaimed.len(), 1);
     assert!(
         unclaimed[0].text.contains("has no claim") && !unclaimed[0].text.contains('`'),
@@ -75,7 +75,7 @@ fn a_running_item_in_an_unclaimed_or_gone_worktree_is_named() {
     );
     assert_eq!(unclaimed[0].command.as_deref(), Some("builds item stop 1"));
     let gone = findings(
-        &scratch.places(),
+        Vec::new(),
         &Ok(loaded_running_in(&scratch.dir.join("bae-worktrees/side-9"))),
     )
     .unwrap();
@@ -92,7 +92,7 @@ fn a_folder_where_a_worktree_was_is_not_live() {
         .unwrap()
         .join("bae-worktrees/side-2");
     std::fs::create_dir_all(&leftover).unwrap();
-    let found = findings(&scratch.places(), &Ok(loaded_running_in(&leftover))).unwrap();
+    let found = findings(Vec::new(), &Ok(loaded_running_in(&leftover))).unwrap();
     assert!(
         found[0].text.contains("is not a live worktree"),
         "{found:?}"
@@ -101,19 +101,18 @@ fn a_folder_where_a_worktree_was_is_not_live() {
 
 #[test]
 fn a_store_failing_its_check_is_a_finding() {
-    let scratch = Scratch::new("running-check");
     let bad = vec![Loaded {
         project: "demo".into(),
         lists: Err("ids repeat".into()),
     }];
     assert_eq!(
-        findings(&scratch.places(), &Ok(bad)).unwrap(),
+        findings(Vec::new(), &Ok(bad)).unwrap(),
         vec![Advice::said(
             "lists: project demo fails its check: ids repeat".to_string()
         )]
     );
     assert_eq!(
-        findings(&scratch.places(), &Err("listing failed".into())).unwrap(),
+        findings(Vec::new(), &Err("listing failed".into())).unwrap(),
         vec![Advice::said("lists: listing failed".to_string())]
     );
 }

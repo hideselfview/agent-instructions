@@ -1044,14 +1044,17 @@ fn held_for(holder: &Holder) -> String {
     )
 }
 
-/// What the lists say, one line each: the running-item and held-work
-/// findings about the claimed worktrees (lists/running.rs, lists/held.rs),
+/// What the lists say, one line each: each fault <integrity> holds, which
+/// SQLite's integrity checks found in a store's database, the running-item
+/// and held-work findings about the claimed worktrees (lists/running.rs,
+/// lists/held.rs),
 /// each kept item whose worktree is gone (lists/kept_work.rs), and each repo with a design folder and no design globs
 /// (lists/project.rs). Also
 /// marks the worktrees whose design change waits on the person's review, so
 /// <claimed> is judged with that known.
 pub fn lists_findings(
     places_in: &crate::places::Places,
+    integrity: Vec<String>,
     loaded: &std::result::Result<Vec<crate::lists::store::Loaded>, String>,
     places: &[Place],
     claimed: &mut [Claimed],
@@ -1061,7 +1064,7 @@ pub fn lists_findings(
     for one in claimed.iter_mut() {
         one.awaiting_review = reviewing.contains(&places[one.place].label);
     }
-    let mut lists = crate::lists::running::findings(places_in, loaded)?;
+    let mut lists = crate::lists::running::findings(integrity, loaded)?;
     lists.extend(crate::lists::kept_work::findings(loaded)?);
     lists.extend(crate::lists::held::findings(loaded, worktrees));
     lists.extend(crate::lists::rust_check::findings(places_in));
@@ -1147,7 +1150,14 @@ pub fn health(tool: &Tool) -> Result<Health> {
             awaiting_review: false,
         });
     }
-    let lists = lists_findings(&tool.places, &loaded, &places, &mut judged, &held_worktrees)?;
+    let lists = lists_findings(
+        &tool.places,
+        crate::lists::store::integrity(&tool.places),
+        &loaded,
+        &places,
+        &mut judged,
+        &held_worktrees,
+    )?;
     let mut loose = Vec::new();
     for main in mains_of(&roots) {
         match crate::unlanded::loose_branches(&main, &mut crate::unlanded::Judged::default()) {

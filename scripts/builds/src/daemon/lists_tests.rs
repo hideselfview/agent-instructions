@@ -169,12 +169,19 @@ fn a_write_to_the_store_moves_the_version_the_feed_reports() {
         4
     );
 
-    // A store that fails is read and served, not skipped.
+    // A store that fails is read and served, not skipped. The feed's held
+    // connection keeps the write-ahead log, whose pages a reader would take
+    // over the damaged file's, so the damage removes it too.
     std::fs::write(
         store.database(),
         "not a database, and long enough to have a header of sorts",
     )
     .unwrap();
+    for log in ["-wal", "-shm"] {
+        let mut path = store.database().into_os_string();
+        path.push(log);
+        std::fs::remove_file(path).unwrap();
+    }
     moved
         .recv_timeout(HANG_GUARD)
         .expect("the damage reached the feed");
@@ -185,6 +192,45 @@ fn a_write_to_the_store_moves_the_version_the_feed_reports() {
         .unwrap_err()
         .clone();
     assert!(fault.contains("not a database"), "{fault}");
+}
+
+#[test]
+fn a_store_edited_outside_builds_reaches_the_feeds_integrity_findings() {
+    let scratch = Scratch::new("daemon-integrity");
+    let places = scratch.places();
+    let store = make_store(&places, &["bae", "coven"]);
+    let feed = Feed::start(places);
+    assert_eq!(*feed.integrity(), Vec::<String>::new());
+    let (sent, moved) = mpsc::channel();
+    feed.listen(Box::new(move || {
+        let _ = sent.send(());
+    }));
+
+    // Written with the foreign keys off, as the sqlite3 shell does.
+    let db = crate::db::open(&store.database(), crate::db::Make::Never).unwrap();
+    db.execute_batch("PRAGMA foreign_keys = OFF").unwrap();
+    crate::lists::item::plant(
+        &db,
+        "item_wait_item",
+        &[("item_id", 41_i64.into()), ("on_item", 42_i64.into())],
+    )
+    .unwrap();
+    drop(db);
+    let found = loop {
+        moved
+            .recv_timeout(HANG_GUARD)
+            .expect("the edit reached the feed");
+        let found = feed.integrity();
+        if !found.is_empty() {
+            break found;
+        }
+    };
+    assert!(
+        found
+            .iter()
+            .any(|f| f.contains("item_wait_item") && f.contains("points at nothing")),
+        "{found:?}"
+    );
 }
 
 #[test]

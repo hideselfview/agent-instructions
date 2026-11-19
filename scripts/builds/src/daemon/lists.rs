@@ -11,10 +11,11 @@
 //! read again (a hook run's write reads no lists), and the reads that found a
 //! store changed are counted. The hook runs' figures are read again whenever
 //! a database changed, and each minute, since they count the runs of a window
-//! that ends now. A store that fails its check is served as the JSON's
-//! `error`; nothing repairs it.
+//! that ends now. A store whose database changed gets SQLite's integrity
+//! checks again (`Store::integrity`), which read the whole database. A store
+//! that fails its check is served as the JSON's `error`; nothing repairs it.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
@@ -23,7 +24,7 @@ use std::time::Duration;
 use super::fsevents::Stream;
 use super::model::SETTLE;
 use crate::lists::DesignChange;
-use crate::lists::store::{Loaded, load_all, reload};
+use crate::lists::store::{Loaded, load_all, reload, stores};
 use crate::lists::view::{ClaimFacts, DesignView, View, design_view};
 use crate::places::Places;
 
@@ -45,6 +46,9 @@ pub struct Feed {
     /// Each database file in a store's folder, by path, with what tells
     /// whether it changed.
     watches: Mutex<HashMap<PathBuf, crate::db::Watch>>,
+    /// What the integrity checks found in each store's database when it last
+    /// changed, by project.
+    integrity: Mutex<BTreeMap<String, Vec<String>>>,
     dirty: AtomicBool,
     wake: Condvar,
     wake_lock: Mutex<()>,
@@ -82,6 +86,7 @@ impl Feed {
             hooks_minute: AtomicI64::new(now.div_euclid(60)),
             clock,
             watches: Mutex::new(watches),
+            integrity: Mutex::new(BTreeMap::new()),
             places,
             dirty: AtomicBool::new(false),
             wake: Condvar::new(),
@@ -104,6 +109,7 @@ impl Feed {
             }),
         );
         *feed.stream.lock().expect("no panic holding it") = Some(started);
+        feed.check_integrity(&[]);
         let reader = feed.clone();
         std::thread::Builder::new()
             .name("builds-lists".into())
@@ -127,6 +133,46 @@ impl Feed {
     /// back until a read finds the runs changed.
     pub fn hooks(&self) -> Arc<String> {
         self.hooks.lock().expect("no panic holding it").clone()
+    }
+
+    /// What the integrity checks found in every store's database, in project
+    /// order, as the last check of each found it.
+    pub fn integrity(&self) -> Vec<String> {
+        self.integrity
+            .lock()
+            .expect("no panic holding it")
+            .values()
+            .flatten()
+            .cloned()
+            .collect()
+    }
+
+    /// Checks again the integrity of each store whose database is among
+    /// <moved> or was never checked, and forgets the stores that are gone.
+    /// Returns whether any store's findings differ.
+    fn check_integrity(&self, moved: &[PathBuf]) -> bool {
+        let Ok(stores) = stores(&self.places) else {
+            // No store is known to check; the read of the stores names why
+            // their folder can't be listed.
+            let mut held = self.integrity.lock().expect("no panic holding it");
+            let had = !held.is_empty();
+            held.clear();
+            return had;
+        };
+        let before = self.integrity.lock().expect("no panic holding it").clone();
+        let checked: BTreeMap<String, Vec<String>> = stores
+            .iter()
+            .map(|store| {
+                let found = match before.get(&store.project) {
+                    Some(found) if !moved.contains(&store.database()) => found.clone(),
+                    _ => store.integrity(),
+                };
+                (store.project.clone(), found)
+            })
+            .collect();
+        let changed = checked != before;
+        *self.integrity.lock().expect("no panic holding it") = checked;
+        changed
     }
 
     /// Reads after each burst of events, and at the start of each minute of
@@ -160,10 +206,11 @@ impl Feed {
     /// the version when the stores differ.
     fn read(&self) {
         let now = (self.clock)();
-        let moved = databases_moved(
+        let moved_databases = databases_moved(
             &self.places,
             &mut self.watches.lock().expect("no panic holding it"),
         );
+        let moved = !moved_databases.is_empty();
         let new_minute =
             self.hooks_minute.swap(now.div_euclid(60), Ordering::SeqCst) != now.div_euclid(60);
         let mut changed = false;
@@ -180,32 +227,48 @@ impl Feed {
             let hooks = crate::hook_stats::dashboard_json_at(&self.places, now);
             changed |= replace_if_changed(&self.hooks, hooks);
         }
-        if changed && let Some(listener) = &*self.listener.lock().expect("no panic holding it") {
+        if changed {
+            self.tell();
+        }
+        // After the lists and figures are out: the checks read every page
+        // of the database.
+        if moved && self.check_integrity(&moved_databases) {
+            self.tell();
+        }
+    }
+
+    /// Calls the listener, which says that something the feed serves changed.
+    fn tell(&self) {
+        if let Some(listener) = &*self.listener.lock().expect("no panic holding it") {
             listener();
         }
     }
 }
 
-/// Whether any database in a folder of <places>'s stores folder changed since
-/// <watches> last looked: one was added or removed, or its watch says it
-/// moved. Keeps <watches> to the databases there now. A database whose watch
-/// can't be opened or read counts as changed, so the feed reads it again,
-/// and the read says what is wrong with the store.
-fn databases_moved(places: &Places, watches: &mut HashMap<PathBuf, crate::db::Watch>) -> bool {
+/// The databases in the folders of <places>'s stores folder that changed
+/// since <watches> last looked: added, removed, or moved as their watch says.
+/// Keeps <watches> to the databases there now. A database whose watch can't
+/// be opened or read counts as changed, so the feed reads it again, and the
+/// read says what is wrong with the store.
+fn databases_moved(
+    places: &Places,
+    watches: &mut HashMap<PathBuf, crate::db::Watch>,
+) -> Vec<PathBuf> {
     let Ok(folders) = std::fs::read_dir(&places.lists) else {
         // The read of the stores says why the folder can't be listed.
-        let had = !watches.is_empty();
-        watches.clear();
-        return had;
+        return watches.drain().map(|(path, _)| path).collect();
     };
     let databases: Vec<PathBuf> = folders
         .flatten()
         .map(|entry| entry.path().join(crate::db::DATABASE))
         .filter(|path| path.is_file())
         .collect();
-    let before = watches.len();
+    let mut moved: Vec<PathBuf> = watches
+        .keys()
+        .filter(|path| !databases.contains(path))
+        .cloned()
+        .collect();
     watches.retain(|path, _| databases.contains(path));
-    let mut moved = watches.len() != before;
     for path in databases {
         let changed = match watches.get_mut(&path) {
             Some(watch) => watch.moved(),
@@ -216,10 +279,10 @@ fn databases_moved(places: &Places, watches: &mut HashMap<PathBuf, crate::db::Wa
         };
         match changed {
             Ok(false) => {}
-            Ok(true) => moved = true,
+            Ok(true) => moved.push(path),
             Err(_) => {
                 watches.remove(&path);
-                moved = true;
+                moved.push(path);
             }
         }
     }

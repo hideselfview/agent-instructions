@@ -22,7 +22,6 @@ use crate::lists::derive::wait_on_person;
 use crate::lists::item::{self, Item};
 use crate::lists::store::Loaded;
 use crate::lists::{Id, Lists, Stamp};
-use crate::places::Places;
 
 /// An item an agent is working on, in one worktree of one repo (an item that
 /// spans repos has one of these per repo). The agent is the worktree's claim, so the
@@ -554,8 +553,9 @@ pub fn running_in_any<'a>(lists: &'a [Lists], worktree: &str) -> Vec<(&'a Lists,
         .collect()
 }
 
-/// What `builds health` says about the lists: a store whose database fails
-/// SQLite's integrity checks, a store that fails its check,
+/// What `builds health` says about the lists: each fault <integrity> holds,
+/// which SQLite's integrity checks found in a store's database
+/// (`store::integrity`), a store that fails its check,
 /// and a running item whose worktree is gone or has no claim. `builds
 /// release` and a landing's release (kept.rs), `builds
 /// item drop` each refuse to remove a claim while another item runs in the
@@ -563,17 +563,14 @@ pub fn running_in_any<'a>(lists: &'a [Lists], worktree: &str) -> Vec<(&'a Lists,
 /// `builds health` reports such an item and does not repair it. One line
 /// per fault.
 pub fn findings(
-    places: &Places,
+    integrity: Vec<String>,
     loaded: &std::result::Result<Vec<Loaded>, String>,
 ) -> Result<Vec<Advice>> {
     let loaded = match loaded {
         Ok(loaded) => loaded,
         Err(fault) => return Ok(vec![Advice::said(format!("lists: {fault}"))]),
     };
-    let mut findings: Vec<Advice> = crate::lists::store::integrity(places)
-        .into_iter()
-        .map(Advice::said)
-        .collect();
+    let mut findings: Vec<Advice> = integrity.into_iter().map(Advice::said).collect();
     for project in loaded {
         let lists = match &project.lists {
             Ok(lists) => lists,

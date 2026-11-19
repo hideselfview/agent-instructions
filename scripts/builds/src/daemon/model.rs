@@ -767,8 +767,14 @@ impl Model {
             &places,
             &crate::lists::kept_work::kept_worktrees(&loaded),
         )?;
-        let lists =
-            crate::health::lists_findings(&self.places, &loaded, &places, &mut claimed, &held)?;
+        let lists = crate::health::lists_findings(
+            &self.places,
+            self.lists.integrity(),
+            &loaded,
+            &places,
+            &mut claimed,
+            &held,
+        )?;
         let mut loose: Vec<crate::unlanded::LooseBranch> = Vec::new();
         let mut unread: Vec<crate::health::Finding> = Vec::new();
         for (main, reading) in &state.loose {
