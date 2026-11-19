@@ -93,11 +93,14 @@ CREATE INDEX review_call_run ON review_call (run_id);
 
 -- The texts a reviewer was sent (each exchange's system prompt and message)
 -- and each call's prompt, kept once each by its hash (an FNV-1a hash and the
--- length).
+-- length). A table with row ids: the hash's own index holds the hashes alone,
+-- so a lookup by hash, such as each foreign key check of the rows that point
+-- here, reads no text. Without row ids, the texts sit in the tree a lookup
+-- descends, and each step reads a whole text.
 CREATE TABLE review_text (
     hash TEXT PRIMARY KEY,
     text TEXT NOT NULL
-) STRICT, WITHOUT ROWID;
+) STRICT;
 
 -- One `claude -p` process of a call: a group asks once for each changed file
 -- it reads and once for each of its passes. The system prompt and the message

@@ -179,9 +179,13 @@ const BEFORE_CARGO_RUN_OUTCOME_STAMP: i64 = 949_736_987;
 /// ran on and each app build built.
 const BEFORE_STEP_COMMITS_STAMP: i64 = 96_262_301;
 
+/// The stamp of the schema before the review's texts sat in a table with row
+/// ids.
+const BEFORE_REVIEW_TEXT_ROWID_STAMP: i64 = 116_876_965;
+
 /// Every stamp a store can carry that `move_store` moves, oldest schema first.
 /// A new move adds the stamp of the schema before it at the end.
-const STAMPS: [i64; 11] = [
+const STAMPS: [i64; 12] = [
     BEFORE_CONDITION_ENDERS_STAMP,
     BEFORE_ITEM_EVENT_STAMP,
     BEFORE_LAND_RUN_STAMP,
@@ -193,6 +197,7 @@ const STAMPS: [i64; 11] = [
     BEFORE_CARD_STATE_STAMP,
     BEFORE_CARGO_RUN_OUTCOME_STAMP,
     BEFORE_STEP_COMMITS_STAMP,
+    BEFORE_REVIEW_TEXT_ROWID_STAMP,
 ];
 
 /// Whether a store stamped <found> comes before the move that follows the
@@ -215,13 +220,15 @@ fn before(found: i64, stamp: i64) -> bool {
 /// store began to record them (<now>, the moment install moves it); every
 /// older store gets the empty tables that joined the schema after its stamp:
 /// the `builds land` runs, the reviewer processes' times, the hosts' samples,
-/// the crates the cargo runs named and the judge; and every store from before
+/// the crates the cargo runs named and the judge; every store from before
 /// builds found a review's landing by its repo and key gets the indexes that
-/// find it so, one of which refuses two open landings of one change. The
-/// moves run in one transaction, the store is stamped as today's schema, and
-/// it must then equal a fresh database's schema or the transaction rolls
-/// back. A store already at today's stamp, or with no database, is left
-/// alone; any other stamp is refused, and the refusal names it.
+/// find it so, one of which refuses two open landings of one change; and
+/// every store from before the review's texts sat in a table with row ids
+/// gets that table, with its texts. The moves run in one transaction, the
+/// store is stamped as today's schema, and it must then equal a fresh
+/// database's schema or the transaction rolls back. A store already at
+/// today's stamp, or with no database, is left alone; any other stamp is
+/// refused, and the refusal names it.
 pub fn migrate_stores(places: &Places, now: i64) -> Result<()> {
     for store in stores(places)? {
         move_store(&store, now)?;
@@ -357,6 +364,12 @@ fn move_store(path: &Path, now: i64) -> Result<()> {
     if before(found, BEFORE_STEP_COMMITS_STAMP) {
         tx.execute_batch(db::CARGO_RUN_COMMIT_PART).sql()?;
         tx.execute_batch(db::APP_BUILD_COMMIT_PART).sql()?;
+    }
+    // Every store from before the review's texts sat in a table with row ids
+    // gets that table, with its texts: without row ids, a lookup by hash read
+    // whole texts.
+    if before(found, BEFORE_REVIEW_TEXT_ROWID_STAMP) {
+        crate::review::record::move_texts_to_table_with_row_ids(&tx)?;
     }
     tx.pragma_update(None, "user_version", db::stamp()).sql()?;
     let broken: Option<String> = tx

@@ -395,3 +395,31 @@ fn branches_of_one_name_in_two_repos_are_two_changes_and_a_change_opens_one_land
     assert_eq!(open_landing(&db, coven).unwrap(), Some(in_coven));
     assert!(add_landing(&db, bae, 7).is_err());
 }
+
+/// A store from before the review's texts sat in a table with row ids gets
+/// that table with every text, and its schema then equals a fresh one's, so
+/// the tables that point at the texts still name them.
+#[test]
+fn the_move_to_a_table_with_row_ids_keeps_every_text() {
+    let db = Connection::open_in_memory().unwrap();
+    db.execute_batch(&crate::migrate::tests::before_review_text_rowid(
+        crate::db::schema(),
+    ))
+    .unwrap();
+    let hash = keep_text(&db, "the system prompt").unwrap();
+    // As migrate.rs runs a move.
+    db.pragma_update(None, "foreign_keys", false).unwrap();
+    move_texts_to_table_with_row_ids(&db).unwrap();
+    assert_eq!(
+        crate::db::schema_rows(&db).unwrap(),
+        crate::db::schema_rows(&crate::db::memory()).unwrap()
+    );
+    let text: String = db
+        .query_row(
+            "SELECT text FROM review_text WHERE hash = ?1",
+            [&hash],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(text, "the system prompt");
+}

@@ -133,10 +133,26 @@ const LANDING_CHANGE_INDEXES: &str = "CREATE INDEX review_landing_change ON revi
 
 /// <schema>, which holds today's review tables, as a schema from before
 /// builds found a review's landing by its repo and key: with the index on
-/// the key alone.
+/// the key alone, and the review's texts in a table without row ids, since
+/// that move came later.
 fn before_landing_repo(schema: String) -> String {
+    let schema = before_review_text_rowid(schema);
     assert_eq!(schema.matches(LANDING_CHANGE_INDEXES).count(), 1);
     schema.replacen(LANDING_CHANGE_INDEXES, LANDING_KEY_INDEX, 1)
+}
+
+/// The end of the review's texts' table, as record.sql writes it.
+const REVIEW_TEXT_END: &str = "    text TEXT NOT NULL\n) STRICT;\n";
+
+/// <schema>, which holds today's review tables, as a schema from before the
+/// review's texts sat in a table with row ids.
+pub fn before_review_text_rowid(schema: String) -> String {
+    assert_eq!(schema.matches(REVIEW_TEXT_END).count(), 1);
+    schema.replacen(
+        REVIEW_TEXT_END,
+        "    text TEXT NOT NULL\n) STRICT, WITHOUT ROWID;\n",
+        1,
+    )
 }
 
 /// The column that names who ends a condition, as item.sql writes it.
@@ -621,7 +637,7 @@ fn a_store_with_two_open_landings_of_one_change_is_left_as_it_was() {
 #[test]
 fn the_card_states_stamp_is_the_schema_before_them() {
     assert_eq!(
-        db::stamp_of_text(&db::schema_before_card_state()),
+        db::stamp_of_text(&before_review_text_rowid(db::schema_before_card_state())),
         BEFORE_CARD_STATE_STAMP
     );
 }
@@ -637,7 +653,8 @@ fn a_store_from_before_the_card_states_gains_their_tables_and_equals_a_fresh_sch
     let path = dir.join(DATABASE);
     {
         let conn = Connection::open(&path).unwrap();
-        conn.execute_batch(&db::schema_before_card_state()).unwrap();
+        conn.execute_batch(&before_review_text_rowid(db::schema_before_card_state()))
+            .unwrap();
         conn.pragma_update(None, "user_version", BEFORE_CARD_STATE_STAMP)
             .unwrap();
     }
@@ -652,7 +669,9 @@ fn a_store_from_before_the_card_states_gains_their_tables_and_equals_a_fresh_sch
 #[test]
 fn the_cargo_run_outcomes_stamp_is_the_schema_before_them() {
     assert_eq!(
-        db::stamp_of_text(&db::schema_before_cargo_run_outcome()),
+        db::stamp_of_text(&before_review_text_rowid(
+            db::schema_before_cargo_run_outcome()
+        )),
         BEFORE_CARGO_RUN_OUTCOME_STAMP
     );
 }
@@ -668,8 +687,10 @@ fn a_store_from_before_the_cargo_run_outcomes_gains_their_tables_and_equals_a_fr
     let path = dir.join(DATABASE);
     {
         let conn = Connection::open(&path).unwrap();
-        conn.execute_batch(&db::schema_before_cargo_run_outcome())
-            .unwrap();
+        conn.execute_batch(&before_review_text_rowid(
+            db::schema_before_cargo_run_outcome(),
+        ))
+        .unwrap();
         conn.pragma_update(None, "user_version", BEFORE_CARGO_RUN_OUTCOME_STAMP)
             .unwrap();
     }
@@ -684,7 +705,7 @@ fn a_store_from_before_the_cargo_run_outcomes_gains_their_tables_and_equals_a_fr
 #[test]
 fn the_step_commits_stamp_is_the_schema_before_them() {
     assert_eq!(
-        db::stamp_of_text(&db::schema_before_step_commits()),
+        db::stamp_of_text(&before_review_text_rowid(db::schema_before_step_commits())),
         BEFORE_STEP_COMMITS_STAMP
     );
 }
@@ -700,7 +721,7 @@ fn a_store_from_before_the_step_commits_gains_their_tables_and_equals_a_fresh_sc
     let path = dir.join(DATABASE);
     {
         let conn = Connection::open(&path).unwrap();
-        conn.execute_batch(&db::schema_before_step_commits())
+        conn.execute_batch(&before_review_text_rowid(db::schema_before_step_commits()))
             .unwrap();
         conn.pragma_update(None, "user_version", BEFORE_STEP_COMMITS_STAMP)
             .unwrap();
@@ -710,5 +731,13 @@ fn a_store_from_before_the_step_commits_gains_their_tables_and_equals_a_fresh_sc
     assert_eq!(
         db::schema_rows(&conn).unwrap(),
         db::schema_rows(&db::memory()).unwrap()
+    );
+}
+
+#[test]
+fn the_review_text_stamp_is_the_schema_before_the_texts_had_row_ids() {
+    assert_eq!(
+        db::stamp_of_text(&before_review_text_rowid(db::schema())),
+        BEFORE_REVIEW_TEXT_ROWID_STAMP
     );
 }

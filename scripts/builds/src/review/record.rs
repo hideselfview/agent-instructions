@@ -351,6 +351,24 @@ fn keep_text(db: &Connection, text: &str) -> Result<String> {
     Ok(hash)
 }
 
+/// Makes `review_text` again as a table with row ids, as record.sql writes
+/// it, with every text. A store from before kept the texts without row ids,
+/// where each lookup by hash read whole texts.
+pub fn move_texts_to_table_with_row_ids(db: &Connection) -> Result<()> {
+    crate::db::remake_table(
+        db,
+        "review_text",
+        crate::db::statement(crate::db::REVIEW_PART, "CREATE TABLE review_text", ";"),
+        |db| {
+            db.execute_batch(
+                "INSERT INTO review_text (hash, text) SELECT hash, text FROM review_text_old",
+            )
+            .sql()
+        },
+        &[],
+    )
+}
+
 /// Writes a run with its calls, verdicts and findings, and closes each
 /// finding a call closes. Returns the run's id and, per call in order, the
 /// ids its findings got.
