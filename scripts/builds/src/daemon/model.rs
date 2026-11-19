@@ -1287,6 +1287,7 @@ impl Model {
                                         self.review_reads.standing(
                                             &store,
                                             &self.places.claude_sessions(),
+                                            &repo.name,
                                             Path::new(&checkout.path),
                                             &git.ahead,
                                         )

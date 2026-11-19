@@ -393,7 +393,15 @@ fn the_store_scores_each_setup_from_settled_findings_and_confirmed_audit_misses(
 #[test]
 fn a_finding_settled_again_counts_as_dropped_and_a_closed_or_allowed_one_as_confirmed() {
     let db = crate::lists::fixtures::db();
-    let landing = record::add_landing(&db, "k", "bae", 5).unwrap();
+    let landing = record::add_landing(
+        &db,
+        record::Change {
+            repo: "bae",
+            key: "k",
+        },
+        5,
+    )
+    .unwrap();
     let raised = |code: &str| record::NewFinding {
         rule: "r".to_string(),
         clause: "c".to_string(),
@@ -503,7 +511,15 @@ fn a_first_review_records_its_changed_lines_and_its_groups_confirmed_findings() 
     let repo: String = db
         .query_row("SELECT name FROM repo LIMIT 1", [], |row| row.get(0))
         .unwrap();
-    let landing = record::add_landing(&db, "k", &repo, 5).unwrap();
+    let landing = record::add_landing(
+        &db,
+        record::Change {
+            repo: &repo,
+            key: "k",
+        },
+        5,
+    )
+    .unwrap();
     let raised = record::NewFinding {
         rule: "r".to_string(),
         clause: "c".to_string(),

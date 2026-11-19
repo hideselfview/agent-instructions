@@ -71,9 +71,13 @@ fn first_repo(db: &Connection) -> String {
 fn a_landing_stays_open_until_it_lands_and_names_its_last_review() {
     let db = db();
     let repo = first_repo(&db);
-    assert_eq!(open_landing(&db, "k").unwrap(), None);
-    let landing = add_landing(&db, "k", &repo, 5).unwrap();
-    assert_eq!(open_landing(&db, "k").unwrap(), Some(landing));
+    let k = Change {
+        repo: &repo,
+        key: "k",
+    };
+    assert_eq!(open_landing(&db, k).unwrap(), None);
+    let landing = add_landing(&db, k, 5).unwrap();
+    assert_eq!(open_landing(&db, k).unwrap(), Some(landing));
     let (run_id, _) = add_run(
         &db,
         &run(Some(landing), 6, "base", "head"),
@@ -86,7 +90,7 @@ fn a_landing_stays_open_until_it_lands_and_names_its_last_review() {
         Some(run_id)
     );
     record_landed(&db, landing, run_id, 9).unwrap();
-    assert_eq!(open_landing(&db, "k").unwrap(), None);
+    assert_eq!(open_landing(&db, k).unwrap(), None);
     assert_eq!(
         super::landing(&db, landing).unwrap().landed_run,
         Some(run_id)
@@ -103,7 +107,11 @@ fn a_landing_stays_open_until_it_lands_and_names_its_last_review() {
 fn a_finding_builds_dropped_cannot_be_settled_and_a_settled_one_cannot_be_settled_again() {
     let db = db();
     let repo = first_repo(&db);
-    let landing = add_landing(&db, "k", &repo, 5).unwrap();
+    let k = Change {
+        repo: &repo,
+        key: "k",
+    };
+    let landing = add_landing(&db, k, 5).unwrap();
     let (_, ids) = add_run(
         &db,
         &run(Some(landing), 6, "b", "h"),
@@ -128,7 +136,11 @@ fn a_finding_builds_dropped_cannot_be_settled_and_a_settled_one_cannot_be_settle
 fn settling_again_drops_a_confirmed_finding_and_keeps_both_settles() {
     let db = db();
     let repo = first_repo(&db);
-    let landing = add_landing(&db, "k", &repo, 5).unwrap();
+    let k = Change {
+        repo: &repo,
+        key: "k",
+    };
+    let landing = add_landing(&db, k, 5).unwrap();
     let (_, ids) = add_run(
         &db,
         &run(Some(landing), 6, "b", "h"),
@@ -181,7 +193,11 @@ fn settling_again_drops_a_confirmed_finding_and_keeps_both_settles() {
 fn a_later_run_closes_an_open_confirmed_finding_once_and_a_closed_one_stays_confirmed() {
     let db = db();
     let repo = first_repo(&db);
-    let landing = add_landing(&db, "k", &repo, 5).unwrap();
+    let k = Change {
+        repo: &repo,
+        key: "k",
+    };
+    let landing = add_landing(&db, k, 5).unwrap();
     let (_, ids) = add_run(
         &db,
         &run(Some(landing), 6, "b", "h"),
@@ -203,7 +219,15 @@ fn a_later_run_closes_an_open_confirmed_finding_once_and_a_closed_one_stays_conf
     );
     settle(&db, finding, "confirmed", "real", 7, "me").unwrap();
     assert!(finding_of(&db, finding).unwrap().is_open());
-    let other = add_landing(&db, "k2", &repo, 5).unwrap();
+    let other = add_landing(
+        &db,
+        Change {
+            repo: &repo,
+            key: "k2",
+        },
+        5,
+    )
+    .unwrap();
     assert!(
         add_run(
             &db,
@@ -236,7 +260,11 @@ fn a_later_run_closes_an_open_confirmed_finding_once_and_a_closed_one_stays_conf
 fn the_person_allows_an_open_confirmed_finding_which_stays_confirmed_and_is_no_longer_open() {
     let db = db();
     let repo = first_repo(&db);
-    let landing = add_landing(&db, "k", &repo, 5).unwrap();
+    let k = Change {
+        repo: &repo,
+        key: "k",
+    };
+    let landing = add_landing(&db, k, 5).unwrap();
     let (_, ids) = add_run(
         &db,
         &run(Some(landing), 6, "b", "h"),
@@ -311,7 +339,11 @@ fn a_review_run_needs_a_landing() {
 fn every_exchange_of_a_call_is_kept_with_its_texts_once_each() {
     let db = db();
     let repo = first_repo(&db);
-    let landing = add_landing(&db, "k", &repo, 5).unwrap();
+    let k = Change {
+        repo: &repo,
+        key: "k",
+    };
+    let landing = add_landing(&db, k, 5).unwrap();
     let mut one = call("g", None);
     let mut second = one.exchanges[0].clone();
     second.unit = "other".to_string();
@@ -342,4 +374,24 @@ fn every_exchange_of_a_call_is_kept_with_its_texts_once_each() {
         )
         .unwrap();
     assert_eq!(kept, "another message");
+}
+
+#[test]
+fn branches_of_one_name_in_two_repos_are_two_changes_and_a_change_opens_one_landing() {
+    let db = db();
+    let bae = Change {
+        repo: "bae",
+        key: "branch:work",
+    };
+    let coven = Change {
+        repo: "coven",
+        key: "branch:work",
+    };
+    let in_bae = add_landing(&db, bae, 5).unwrap();
+    assert_eq!(open_landing(&db, coven).unwrap(), None);
+    let in_coven = add_landing(&db, coven, 6).unwrap();
+    assert_ne!(in_bae, in_coven);
+    assert_eq!(open_landing(&db, bae).unwrap(), Some(in_bae));
+    assert_eq!(open_landing(&db, coven).unwrap(), Some(in_coven));
+    assert!(add_landing(&db, bae, 7).is_err());
 }

@@ -42,7 +42,15 @@ fn exchange(unit: &str, started_at: i64, ms: i64) -> NewExchange {
 #[test]
 fn each_exchange_a_run_stores_keeps_its_start_and_its_time() {
     let db = db();
-    let landing = add_landing(&db, "key", "bae", 1_790_000_000).unwrap();
+    let landing = add_landing(
+        &db,
+        crate::review::record::Change {
+            repo: "bae",
+            key: "key",
+        },
+        1_790_000_000,
+    )
+    .unwrap();
     add_run(
         &db,
         &NewRun {
@@ -83,7 +91,15 @@ fn each_exchange_a_run_stores_keeps_its_start_and_its_time() {
 #[test]
 fn the_table_refuses_a_second_time_for_one_exchange() {
     let db = db();
-    let landing = add_landing(&db, "key", "bae", 1_790_000_000).unwrap();
+    let landing = add_landing(
+        &db,
+        crate::review::record::Change {
+            repo: "bae",
+            key: "key",
+        },
+        1_790_000_000,
+    )
+    .unwrap();
     add_run(
         &db,
         &NewRun {

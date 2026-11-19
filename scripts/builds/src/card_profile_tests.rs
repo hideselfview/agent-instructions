@@ -99,7 +99,14 @@ fn landed_card(scratch: &Scratch) -> (crate::lists::store::Store, Id) {
     store
         .write(&stamp(T0 + 330), "review", |db| {
             use crate::review::record::{Kind, NewCall, NewExchange, NewFinding, NewRun};
-            let landing = crate::review::record::add_landing(db, "branch:work", "bae", T0 + 330)?;
+            let landing = crate::review::record::add_landing(
+                db,
+                crate::review::record::Change {
+                    repo: "bae",
+                    key: "branch:work",
+                },
+                T0 + 330,
+            )?;
             let call = |group: &str, started_at: i64, ms: i64, found: usize| NewCall {
                 group: group.into(),
                 model: "sonnet".into(),

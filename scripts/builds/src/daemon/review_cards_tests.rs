@@ -27,6 +27,7 @@ fn standing(reads: &Reads, demo: &Demo, side: &Path) -> Option<ItemWait> {
         .standing(
             &demo.store,
             &demo.tool.places.claude_sessions(),
+            "demo",
             side,
             &ahead(side),
         )
@@ -143,6 +144,7 @@ fn a_card_whose_project_has_no_store_says_so_and_never_that_land_takes_its_commi
         reads.standing(
             &ghost,
             &demo.tool.places.claude_sessions(),
+            "demo",
             &side,
             &ahead(&side)
         ),
@@ -164,6 +166,7 @@ fn a_card_whose_commits_git_cannot_read_says_why_and_asks_git_again_next_time() 
             .standing(
                 &demo.store,
                 &demo.tool.places.claude_sessions(),
+                "demo",
                 &side,
                 &missing,
             )

@@ -7,15 +7,15 @@
 //! ```
 //!
 //! DIR is the worktree builds land runs in, the SHAs are the commits its
-//! caller passed to `builds land`, and KEY names the change, by default DIR's
-//! branch as `builds review` names it. The review reads each diff only once.
-//! Each change gets one review, the open landing of its key. check-landing
-//! takes the commits when nothing is unreviewed and no confirmed finding is
-//! open: nothing on a path a group's rules cover, and no commit message a
-//! group reads, changed since the last review (`run::diff_since`, which
-//! `builds review` reads as its next run), every group asked over a diff a
-//! run read answered over it (`Coverage`, which `builds review` uses too),
-//! and the coordinator settled every finding.
+//! caller passed to `builds land`, and KEY names the change in DIR's repo, by
+//! default DIR's branch as `builds review` names it. The review reads each
+//! diff only once. Each change gets one review, the open landing of its repo
+//! and key. check-landing takes the commits when nothing is unreviewed and no
+//! confirmed finding is open: nothing on a path a group's rules cover, and no
+//! commit message a group reads, changed since the last review
+//! (`run::diff_since`, which `builds review` reads as its next run), every
+//! group asked over a diff a run read answered over it (`Coverage`, which
+//! `builds review` uses too), and the coordinator settled every finding.
 //! A confirmed finding stays open until a later review closes it, because the
 //! changes that review read fix it, or the coordinator settles it again as
 //! dropped. A rebase that keeps every line the branch adds and removes leaves
@@ -41,7 +41,7 @@ use crate::lists::args::Args;
 use crate::lists::store::{Store, resolve_by};
 use crate::review::commits;
 use crate::review::files;
-use crate::review::record::{self, LandingRow};
+use crate::review::record::{self, Change, LandingRow};
 use crate::review::render;
 use crate::review::run::{self, Material};
 use crate::tool::Tool;
@@ -328,12 +328,12 @@ fn assess(
 }
 
 /// Whether the review lets the commits of <needs>, read from the checkout at
-/// <dir>, land: the open review of <key> must take them. <check> says whether
+/// <dir>, land: the open review of <change> must take them. <check> says whether
 /// to read the branch's net change, and <material> holds the groups and the
 /// rules that say which group reads a path or a commit message.
 pub fn judge(
     db: &Connection,
-    key: &str,
+    change: Change,
     dir: &Path,
     needs: &[Need],
     check: CodeCheck,
@@ -342,7 +342,7 @@ pub fn judge(
     if needs.iter().all(|n| n.groups.is_empty()) {
         return Ok(Verdict::NotNeeded);
     }
-    let Some(open) = record::open_landing(db, key)? else {
+    let Some(open) = record::open_landing(db, change)? else {
         return Ok(Verdict::NoRun);
     };
     let landing = record::landing(db, open)?;
@@ -432,15 +432,25 @@ pub fn refusal(needs: &[Need], verdict: &Verdict) -> Option<String> {
 }
 
 /// What both commands read: the store with its database open for reading,
-/// the change's key, and the commits with the groups each needs.
+/// the change's repo and key, and the commits with the groups each needs.
 struct Asked {
     store: Store,
     conn: crate::db::Held,
+    repo: String,
     key: String,
     dir: PathBuf,
     needs: Vec<Need>,
     root: PathBuf,
     material: Material,
+}
+
+impl Asked {
+    fn change(&self) -> Change<'_> {
+        Change {
+            repo: &self.repo,
+            key: &self.key,
+        }
+    }
 }
 
 fn ask(tool: &Tool, args: &Args) -> Result<Asked> {
@@ -466,6 +476,7 @@ fn ask(tool: &Tool, args: &Args) -> Result<Asked> {
     Ok(Asked {
         store,
         conn,
+        repo: checkout.repo(),
         key,
         dir: checkout.top.clone(),
         needs,
@@ -481,7 +492,7 @@ pub fn check_landing_command(tool: &Tool, args: &[String]) -> Result<()> {
     let asked = ask(tool, &args)?;
     let verdict = judge(
         &asked.conn,
-        &asked.key,
+        asked.change(),
         &asked.dir,
         &asked.needs,
         CodeCheck::Branch("HEAD"),
@@ -512,15 +523,15 @@ pub fn taken(verdict: &Verdict) -> String {
 
 /// Records the change of <asked> as landed with its last review, unless
 /// <more>: commits of its branch still wait to land. Returns the landing when
-/// this recorded it as landed; None when it needed no review, its key has no
-/// open landing (an earlier run of landed recorded it already), or it has
+/// this recorded it as landed; None when it needed no review, the change has
+/// no open landing (an earlier run of landed recorded it already), or it has
 /// more to land.
 fn record_landed(asked: &Asked, stamp: &Stamp, more: bool) -> Result<Option<i64>> {
     // Before the push, which moved origin/main, check-landing read the
     // branch, so this reads only the records.
     let verdict = judge(
         &asked.conn,
-        &asked.key,
+        asked.change(),
         &asked.dir,
         &asked.needs,
         CodeCheck::Records,
@@ -533,8 +544,8 @@ fn record_landed(asked: &Asked, stamp: &Stamp, more: bool) -> Result<Option<i64>
             // review, and so does a key other than the one check-landing
             // judged.
             crate::text::note(format!(
-                "review landed: no review of {} is open, so builds records no landing",
-                asked.key
+                "review landed: no review of {} in {} is open, so builds records no landing",
+                asked.key, asked.repo
             ));
             return Ok(None);
         }

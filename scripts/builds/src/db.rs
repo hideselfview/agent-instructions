@@ -135,7 +135,11 @@ pub fn schema() -> String {
     format!("{}\n{JUDGE_PART}", schema_before_judge())
 }
 
-/// The schema as it was before the judge's tables joined it.
+/// The schema as it was before the judge's tables joined it. This and each
+/// older schema below hold today's text of the parts they share with today's
+/// schema: before builds found a review's landing by its repo and key, each
+/// had an index on the landing's key alone, which migrate.rs's tests put
+/// back.
 pub fn schema_before_judge() -> String {
     format!(
         "{}\n{CARGO_RUN_CRATE_PART}",

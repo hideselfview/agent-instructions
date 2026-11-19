@@ -245,8 +245,8 @@ pub struct Reported {
 }
 
 /// Reviews the worktree's net change past the base and records it. A change
-/// gets one review: when its key has one already, this asks only what the
-/// review lacks (`later_asks`), and refuses when it lacks nothing.
+/// gets one review: when the change, its repo and key, has one already, this
+/// asks only what the review lacks (`later_asks`), and refuses when it lacks nothing.
 pub fn review(inputs: &Inputs) -> Result<Reported> {
     let conn = inputs.store.open_existing()?;
     let change = match inputs.head {
@@ -275,7 +275,11 @@ pub fn review(inputs: &Inputs) -> Result<Reported> {
             refusal: None,
         });
     }
-    let open = record::open_landing(&conn, inputs.key)?;
+    let under_review = record::Change {
+        repo: inputs.repo,
+        key: inputs.key,
+    };
+    let open = record::open_landing(&conn, under_review)?;
     // The confirmed findings no review closed, which each reviewer checks
     // against the code as it is now.
     let open_findings: Vec<record::Finding> = match open {
@@ -330,7 +334,7 @@ pub fn review(inputs: &Inputs) -> Result<Reported> {
         .write(stamp, &format!("review {}", inputs.key), |db| {
             let landing = match open {
                 Some(id) => id,
-                None => record::add_landing(db, inputs.key, inputs.repo, stamp.at)?,
+                None => record::add_landing(db, under_review, stamp.at)?,
             };
             let mut runs = Vec::new();
             for (ask, asked) in asks.iter().zip(&answers) {
@@ -401,7 +405,7 @@ pub fn review(inputs: &Inputs) -> Result<Reported> {
     let needs = landing::needs(inputs.worktree, shas, |paths| material.group_names(paths))?;
     let verdict = landing::judge(
         &conn,
-        inputs.key,
+        under_review,
         inputs.worktree,
         &needs,
         landing::CodeCheck::Branch(inputs.head.unwrap_or("HEAD")),

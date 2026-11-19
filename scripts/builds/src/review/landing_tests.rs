@@ -7,6 +7,12 @@ use crate::review::fakes::{
 use crate::review::files;
 use crate::review::{Inputs, review};
 
+/// The change on branch `work` of the repo `demo`.
+const WORK: Change = Change {
+    repo: "demo",
+    key: "branch:work",
+};
+
 const BAD: Raised = (
     "Never do the bad thing here.",
     "a.rs",
@@ -50,7 +56,7 @@ fn verdict_of(demo: &Demo, fake: &Fake, side: &Path, shas: &[String]) -> (Verdic
     let asked = asked(demo, fake, side, shas);
     let verdict = judge(
         &asked.conn,
-        &asked.key,
+        asked.change(),
         side,
         &asked.needs,
         CodeCheck::Branch("HEAD"),
@@ -87,7 +93,7 @@ fn ask_of(tool: &Tool, args: &Args) -> Asked {
 
 fn findings(demo: &Demo) -> Vec<record::Finding> {
     let conn = demo.store.open_existing().unwrap();
-    let landing = record::open_landing(&conn, "branch:work").unwrap().unwrap();
+    let landing = record::open_landing(&conn, WORK).unwrap().unwrap();
     record::findings_of_landing(&conn, landing).unwrap()
 }
 
@@ -362,7 +368,7 @@ fn a_cherry_pick_onto_a_moved_main_keeps_the_review_and_landed_records_it_once()
     assert!(matches!(
         judge(
             &conn,
-            "branch:work",
+            WORK,
             &other,
             &asked_picked.needs,
             CodeCheck::Branch("HEAD"),
@@ -383,7 +389,7 @@ fn a_cherry_pick_onto_a_moved_main_keeps_the_review_and_landed_records_it_once()
             .landed_run
             .is_some()
     );
-    assert_eq!(record::open_landing(&conn, "branch:work").unwrap(), None);
+    assert_eq!(record::open_landing(&conn, WORK).unwrap(), None);
 }
 
 #[test]

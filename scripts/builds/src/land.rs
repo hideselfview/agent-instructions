@@ -76,8 +76,8 @@
 //! diff twice: a review shows the changes since the last review, and nothing
 //! else. Land runs `builds review check-landing` after the lists' checks and
 //! before it fetches anything. check-landing finds the change's review by the
-//! change's key, the branch land started on, which land reads before it starts
-//! and passes as `--landing`. check-landing refuses the branch while it has
+//! worktree's repo and the change's key, the branch land started on, which
+//! land reads before it starts and passes as `--landing`. check-landing refuses the branch while it has
 //! changed since the last review on a path a group covers, so a rebase that
 //! keeps every line the branch adds and removes keeps the review.
 //! check-landing also refuses the branch while a confirmed finding is open, a

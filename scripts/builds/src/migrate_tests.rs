@@ -122,13 +122,29 @@ fn a_lane_never_locked_gets_its_old_lock_made_before_it_is_linked() {
     unsafe { libc::close(ticket) };
 }
 
+/// The index that found a review's landing by its key alone, as record.sql
+/// wrote it before builds found a landing by its repo and key.
+const LANDING_KEY_INDEX: &str = "CREATE INDEX review_landing_key ON review_landing (key);\n";
+
+/// The indexes that find a review's landing by its repo and key, as
+/// record.sql writes them.
+const LANDING_CHANGE_INDEXES: &str = "CREATE INDEX review_landing_change ON review_landing (repo, key);\n-- A change has one landing under review at a time.\nCREATE UNIQUE INDEX review_landing_open_once ON review_landing (repo, key) WHERE landed_at IS NULL;\n";
+
+/// <schema>, which holds today's review tables, as a schema from before
+/// builds found a review's landing by its repo and key: with the index on
+/// the key alone.
+fn before_landing_repo(schema: String) -> String {
+    assert_eq!(schema.matches(LANDING_CHANGE_INDEXES).count(), 1);
+    schema.replacen(LANDING_CHANGE_INDEXES, LANDING_KEY_INDEX, 1)
+}
+
 /// The column that names who ends a condition, as item.sql writes it.
 const CONDITION_ENDER_COLUMN: &str = "    until TEXT NOT NULL CONSTRAINT item_wait_condition_ender_known CHECK (until IN ('agent', 'coordinator', 'ci')),\n";
 
 /// The schema text before a condition named who ends it: the schema before
 /// the item events without the ender's column.
 fn schema_before_condition_enders() -> String {
-    let schema = db::schema_before_item_event();
+    let schema = before_landing_repo(db::schema_before_item_event());
     assert_eq!(schema.matches(CONDITION_ENDER_COLUMN).count(), 1);
     schema.replacen(CONDITION_ENDER_COLUMN, "", 1)
 }
@@ -139,7 +155,8 @@ pub fn store_before_judge(dir: &std::path::Path) -> std::path::PathBuf {
     std::fs::create_dir_all(dir).unwrap();
     let path = dir.join(DATABASE);
     let conn = Connection::open(&path).unwrap();
-    conn.execute_batch(&db::schema_before_judge()).unwrap();
+    conn.execute_batch(&before_landing_repo(db::schema_before_judge()))
+        .unwrap();
     conn.pragma_update(None, "user_version", BEFORE_JUDGE_STAMP)
         .unwrap();
     path
@@ -211,7 +228,7 @@ fn each_stamp_names_one_schema_and_before_counts_the_stamp_and_older_ones() {
 #[test]
 fn the_item_event_stamp_is_the_schema_before_the_item_events() {
     assert_eq!(
-        db::stamp_of_text(&db::schema_before_item_event()),
+        db::stamp_of_text(&before_landing_repo(db::schema_before_item_event())),
         BEFORE_ITEM_EVENT_STAMP
     );
 }
@@ -227,7 +244,8 @@ fn a_store_from_before_the_item_events_gains_their_table_and_equals_a_fresh_sche
     let path = dir.join(DATABASE);
     {
         let conn = Connection::open(&path).unwrap();
-        conn.execute_batch(&db::schema_before_item_event()).unwrap();
+        conn.execute_batch(&before_landing_repo(db::schema_before_item_event()))
+            .unwrap();
         conn.pragma_update(None, "user_version", BEFORE_ITEM_EVENT_STAMP)
             .unwrap();
     }
@@ -250,7 +268,7 @@ fn a_store_from_before_the_item_events_gains_their_table_and_equals_a_fresh_sche
 #[test]
 fn the_land_run_stamp_is_the_schema_before_the_landings_record() {
     assert_eq!(
-        db::stamp_of_text(&db::schema_before_land_run()),
+        db::stamp_of_text(&before_landing_repo(db::schema_before_land_run())),
         BEFORE_LAND_RUN_STAMP
     );
 }
@@ -266,7 +284,8 @@ fn a_store_from_before_the_landings_record_gains_their_tables_and_equals_a_fresh
     let path = dir.join(DATABASE);
     {
         let conn = Connection::open(&path).unwrap();
-        conn.execute_batch(&db::schema_before_land_run()).unwrap();
+        conn.execute_batch(&before_landing_repo(db::schema_before_land_run()))
+            .unwrap();
         conn.pragma_update(None, "user_version", BEFORE_LAND_RUN_STAMP)
             .unwrap();
     }
@@ -285,7 +304,7 @@ fn a_store_from_before_the_landings_record_gains_their_tables_and_equals_a_fresh
 #[test]
 fn the_exchange_time_stamp_is_the_schema_before_the_reviewer_processes_times() {
     assert_eq!(
-        db::stamp_of_text(&db::schema_before_exchange_time()),
+        db::stamp_of_text(&before_landing_repo(db::schema_before_exchange_time())),
         BEFORE_EXCHANGE_TIME_STAMP
     );
 }
@@ -301,7 +320,7 @@ fn a_store_from_before_the_exchange_times_gains_their_table_and_equals_a_fresh_s
     let path = dir.join(DATABASE);
     {
         let conn = Connection::open(&path).unwrap();
-        conn.execute_batch(&db::schema_before_exchange_time())
+        conn.execute_batch(&before_landing_repo(db::schema_before_exchange_time()))
             .unwrap();
         conn.pragma_update(None, "user_version", BEFORE_EXCHANGE_TIME_STAMP)
             .unwrap();
@@ -323,7 +342,7 @@ fn a_store_from_before_the_exchange_times_gains_their_table_and_equals_a_fresh_s
 #[test]
 fn the_host_sample_stamp_is_the_schema_before_the_hosts_samples() {
     assert_eq!(
-        db::stamp_of_text(&db::schema_before_host_sample()),
+        db::stamp_of_text(&before_landing_repo(db::schema_before_host_sample())),
         BEFORE_HOST_SAMPLE_STAMP
     );
 }
@@ -339,7 +358,7 @@ fn a_store_from_before_the_host_samples_gains_their_table_and_equals_a_fresh_sch
     let path = dir.join(DATABASE);
     {
         let conn = Connection::open(&path).unwrap();
-        conn.execute_batch(&db::schema_before_host_sample())
+        conn.execute_batch(&before_landing_repo(db::schema_before_host_sample()))
             .unwrap();
         conn.pragma_update(None, "user_version", BEFORE_HOST_SAMPLE_STAMP)
             .unwrap();
@@ -359,7 +378,7 @@ fn a_store_from_before_the_host_samples_gains_their_table_and_equals_a_fresh_sch
 #[test]
 fn the_cargo_run_crate_stamp_is_the_schema_before_the_cargo_runs_crates() {
     assert_eq!(
-        db::stamp_of_text(&db::schema_before_cargo_run_crate()),
+        db::stamp_of_text(&before_landing_repo(db::schema_before_cargo_run_crate())),
         BEFORE_CARGO_RUN_CRATE_STAMP
     );
 }
@@ -375,7 +394,7 @@ fn a_store_from_before_the_cargo_run_crates_gains_their_table_and_equals_a_fresh
     let path = dir.join(DATABASE);
     {
         let conn = Connection::open(&path).unwrap();
-        conn.execute_batch(&db::schema_before_cargo_run_crate())
+        conn.execute_batch(&before_landing_repo(db::schema_before_cargo_run_crate()))
             .unwrap();
         conn.pragma_update(None, "user_version", BEFORE_CARGO_RUN_CRATE_STAMP)
             .unwrap();
@@ -478,7 +497,7 @@ fn a_store_from_before_condition_enders_gives_each_condition_the_coordinator() {
 #[test]
 fn the_judge_stamp_is_the_schema_before_the_judge() {
     assert_eq!(
-        db::stamp_of_text(&db::schema_before_judge()),
+        db::stamp_of_text(&before_landing_repo(db::schema_before_judge())),
         BEFORE_JUDGE_STAMP
     );
 }
@@ -494,7 +513,8 @@ fn a_store_from_before_the_judge_gains_its_table_and_equals_a_fresh_schema() {
     let path = dir.join(DATABASE);
     {
         let conn = Connection::open(&path).unwrap();
-        conn.execute_batch(&db::schema_before_judge()).unwrap();
+        conn.execute_batch(&before_landing_repo(db::schema_before_judge()))
+            .unwrap();
         conn.pragma_update(None, "user_version", BEFORE_JUDGE_STAMP)
             .unwrap();
     }
@@ -508,4 +528,79 @@ fn a_store_from_before_the_judge_gains_its_table_and_equals_a_fresh_schema() {
         .query_row("SELECT count(*) FROM review_judge", [], |row| row.get(0))
         .unwrap();
     assert_eq!(judges, 0);
+}
+
+#[test]
+fn the_landing_repo_stamp_is_the_schema_before_landings_were_found_by_repo() {
+    assert_eq!(
+        db::stamp_of_text(&before_landing_repo(db::schema())),
+        BEFORE_LANDING_REPO_STAMP
+    );
+}
+
+/// A store from before builds found a review's landing by its repo and key,
+/// written as <rows>, with that schema's text and stamp.
+fn store_before_landing_repo(places: &Places, rows: &str) -> std::path::PathBuf {
+    let dir = places.lists.join("bae");
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join(DATABASE);
+    let conn = Connection::open(&path).unwrap();
+    conn.execute_batch(&before_landing_repo(db::schema()))
+        .unwrap();
+    conn.execute_batch(rows).unwrap();
+    conn.pragma_update(None, "user_version", BEFORE_LANDING_REPO_STAMP)
+        .unwrap();
+    path
+}
+
+/// The repos `bae` and `coven`, and open landings of `branch:work` in each.
+const LANDINGS_IN_TWO_REPOS: &str = "INSERT INTO repo (name) VALUES ('bae'), ('coven');
+INSERT INTO review_landing (key, repo, opened_at) VALUES ('branch:work', 'bae', 1), ('branch:work', 'coven', 2);";
+
+/// A store from before builds found a review's landing by its repo and key
+/// gains the indexes that find it so, keeps its landings, and equals a fresh
+/// schema; the database then refuses a second open landing of one change.
+#[test]
+fn a_store_from_before_landings_were_found_by_repo_gains_their_indexes() {
+    let scratch = Scratch::new("move-landing-repo");
+    let places = scratch.places();
+    let path = store_before_landing_repo(&places, LANDINGS_IN_TWO_REPOS);
+    migrate_stores(&places, 0).unwrap();
+    let conn = db::open(&path, db::Make::Never).unwrap();
+    assert_eq!(
+        db::schema_rows(&conn).unwrap(),
+        db::schema_rows(&db::memory()).unwrap()
+    );
+    let landings: i64 = conn
+        .query_row("SELECT count(*) FROM review_landing", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(landings, 2);
+    let second = conn
+        .execute(
+            "INSERT INTO review_landing (key, repo, opened_at) VALUES ('branch:work', 'bae', 3)",
+            [],
+        )
+        .unwrap_err()
+        .to_string();
+    assert!(second.contains("UNIQUE constraint failed"), "{second}");
+}
+
+/// A store with two open landings of one change fails the move, which
+/// leaves it as it was.
+#[test]
+fn a_store_with_two_open_landings_of_one_change_is_left_as_it_was() {
+    let scratch = Scratch::new("move-landing-repo-twice");
+    let places = scratch.places();
+    let path = store_before_landing_repo(
+        &places,
+        "INSERT INTO repo (name) VALUES ('bae');
+INSERT INTO review_landing (key, repo, opened_at) VALUES ('branch:work', 'bae', 1), ('branch:work', 'bae', 2);",
+    );
+    let refused = migrate_stores(&places, 0).unwrap_err().text();
+    assert!(refused.contains("UNIQUE constraint failed"), "{refused}");
+    let conn = Connection::open(&path).unwrap();
+    assert_eq!(
+        db::stamp_of(&conn, &path).unwrap(),
+        BEFORE_LANDING_REPO_STAMP
+    );
 }

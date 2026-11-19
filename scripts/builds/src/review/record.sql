@@ -7,9 +7,10 @@
 -- owns these tables and is the only code that writes them.
 
 -- A change under review: every review of it shares this landing, found by its
--- key, until the change lands. landed_at is when `builds land` pushed the
--- commits that left its branch nothing to land, and landed_run the run that
--- covered them.
+-- repo and key, until the change lands. Branches of the same name in two repos
+-- are two changes, each with its own landing. landed_at is when `builds land`
+-- pushed the commits that left its branch nothing to land, and landed_run the
+-- run that covered them.
 CREATE TABLE review_landing (
     id INTEGER PRIMARY KEY,
     key TEXT NOT NULL CONSTRAINT review_landing_key_says_something CHECK (trim(key) <> ''),
@@ -24,7 +25,9 @@ CREATE TABLE review_landing (
     landed_run INTEGER REFERENCES review_run (id),
     CONSTRAINT review_landing_landed_whole CHECK ((landed_at IS NULL) = (landed_run IS NULL))
 ) STRICT;
-CREATE INDEX review_landing_key ON review_landing (key);
+CREATE INDEX review_landing_change ON review_landing (repo, key);
+-- A change has one landing under review at a time.
+CREATE UNIQUE INDEX review_landing_open_once ON review_landing (repo, key) WHERE landed_at IS NULL;
 
 -- One run over a diff: a landing's review, a replay of a test case, an audit
 -- of a landing that landed, or a copy review of a branch (`builds review

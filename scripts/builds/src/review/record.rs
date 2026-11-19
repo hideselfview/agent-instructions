@@ -1,6 +1,6 @@
 //! What reviews wrote down, in the tables of `record.sql`: this file is the
 //! only code that writes them. A change under review keeps one landing, found
-//! by its key, until it lands, and names the run of its last review; a run
+//! by its repo and key, until it lands, and names the run of its last review; a run
 //! holds the net change it read, the run of the last review when it read only
 //! the changes since that run, and one call per group; a call holds a verdict
 //! for every rule and the findings; the coordinator settles a finding as confirmed or dropped, and
@@ -252,21 +252,32 @@ pub struct Verdict {
     pub verdict: String,
 }
 
-/// The landing of <key> whose change has not landed, if any.
-pub fn open_landing(db: &Connection, key: &str) -> Result<Option<i64>> {
+/// A change under review: the repo its commits are in, and its key, by
+/// default its branch (`branch:<name>`). Branches of the same name in two
+/// repos are two changes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Change<'a> {
+    pub repo: &'a str,
+    pub key: &'a str,
+}
+
+/// The landing of <change> that has not landed, if any.
+pub fn open_landing(db: &Connection, change: Change) -> Result<Option<i64>> {
     db.query_row(
-        "SELECT id FROM review_landing WHERE key = ?1 AND landed_at IS NULL ORDER BY id DESC LIMIT 1",
-        params![key],
+        "SELECT id FROM review_landing WHERE repo = ?1 AND key = ?2 AND landed_at IS NULL",
+        params![change.repo, change.key],
         |row| row.get(0),
     )
     .optional()
     .sql()
 }
 
-pub fn add_landing(db: &Connection, key: &str, repo: &str, now: i64) -> Result<i64> {
+/// Opens the landing of <change> at <now>. The database refuses a second
+/// open landing of one change.
+pub fn add_landing(db: &Connection, change: Change, now: i64) -> Result<i64> {
     db.execute(
         "INSERT INTO review_landing (key, repo, opened_at) VALUES (?1, ?2, ?3)",
-        params![key, repo, now],
+        params![change.key, change.repo, now],
     )
     .sql()?;
     Ok(db.last_insert_rowid())

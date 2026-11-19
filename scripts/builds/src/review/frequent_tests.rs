@@ -1,6 +1,8 @@
 use super::*;
 use crate::lists::fixtures::db;
-use crate::review::record::{Kind, NewCall, NewFinding, NewRun, add_landing, add_run, settle};
+use crate::review::record::{
+    Change, Kind, NewCall, NewFinding, NewRun, add_landing, add_run, settle,
+};
 use crate::review::rules::Rule;
 
 const RULE: &str = "---\npaths: ['**/*']\n---\n\n## Write plainly\n\n**Active.** Name the actor and the action.\n\n**Literal.** Use the words for what happens.\n- Name what the code does.\n  - Name the type it returns.\n";
@@ -49,7 +51,15 @@ fn store(branches: &[Vec<Vec<&str>>]) -> rusqlite::Connection {
         .query_row("SELECT name FROM repo LIMIT 1", [], |row| row.get(0))
         .unwrap();
     for (at, runs) in branches.iter().enumerate() {
-        let landing = add_landing(&db, &format!("branch-{at}"), &repo, at as i64).unwrap();
+        let landing = add_landing(
+            &db,
+            Change {
+                repo: &repo,
+                key: &format!("branch-{at}"),
+            },
+            at as i64,
+        )
+        .unwrap();
         for clauses in runs {
             let run = NewRun {
                 landing: Some(landing),

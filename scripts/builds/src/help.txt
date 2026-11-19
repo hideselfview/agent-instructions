@@ -2026,8 +2026,10 @@ finding (`builds judge listen`). `builds help workflow` (REVIEW) says how an
 agent reviews its branch and how the judge settles each finding, which files
 each group reads in a later run, and how long a confirmed finding stays open.
 
-Each branch's change has one review, which builds finds by its key (by default
-the branch, such as `branch:work`) and which stays open until the change lands.
+Each branch's change has one review, which builds finds by its repo and its
+key (by default the branch, such as `branch:work`) and which stays open until
+the change lands. Branches of the same name in two repos are two changes, each
+with its own review.
 The review is a series of runs. builds records which run is the last review:
 the run whose net change (`git diff` from the branch's common ancestor with
 main to its head) the review has read. A later run asks only what the review
@@ -2079,9 +2081,9 @@ worktree's HEAD past origin/main against the net change the last review
 read), and no commit message that a group reads changed since then; every
 group asked over a diff a run read answered over it; every
 finding is settled; and no confirmed finding is open. Land finds the review
-by the change's key: the branch land started on, which land reads before it
-starts and passes to `review check-landing` and `review landed` as
-`--landing`. When land refuses, it names what is unreviewed (the paths that
+by the change's repo, the repo of the worktree it lands from, and its key: the
+branch land started on, which land reads before it starts and passes to
+`review check-landing` and `review landed` as `--landing`. When land refuses, it names what is unreviewed (the paths that
 changed since the last review, and COMMIT_MESSAGE when a message changed),
 the groups that gave no answer, the
 unsettled findings and the open ones. A landing may hold some of the
@@ -2314,10 +2316,11 @@ run `review replay --rules-root` on it.
                               files the diff no longer holds (a later commit
                               changed them back) answers no findings with no
                               reviewer run. PROGRAM (default claude)
-                              runs each reviewer. <key> names the change and
-                              defaults to the worktree's branch
-                              (branch:<name>); a key opens a landing under
-                              review, which stays open until its change lands.
+                              runs each reviewer. <key> names the change in
+                              the worktree's repo and defaults to the
+                              worktree's branch (branch:<name>); a key opens
+                              a landing under review in that repo, which
+                              stays open until its change lands.
                               A run on a key that has a review already asks
                               only what the review lacks (above); builds
                               refuses the run when the review lacks nothing.

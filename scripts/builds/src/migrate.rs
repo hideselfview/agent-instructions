@@ -163,9 +163,13 @@ const BEFORE_CARGO_RUN_CRATE_STAMP: i64 = 277_344_443;
 /// The stamp of the schema before the judge's tables were added.
 const BEFORE_JUDGE_STAMP: i64 = 836_393_942;
 
+/// The stamp of the schema before builds found a review's landing by its repo
+/// and key.
+const BEFORE_LANDING_REPO_STAMP: i64 = 34_147_721;
+
 /// Every stamp a store can carry that `move_store` moves, oldest schema first.
 /// A new move adds the stamp of the schema before it at the end.
-const STAMPS: [i64; 7] = [
+const STAMPS: [i64; 8] = [
     BEFORE_CONDITION_ENDERS_STAMP,
     BEFORE_ITEM_EVENT_STAMP,
     BEFORE_LAND_RUN_STAMP,
@@ -173,6 +177,7 @@ const STAMPS: [i64; 7] = [
     BEFORE_HOST_SAMPLE_STAMP,
     BEFORE_CARGO_RUN_CRATE_STAMP,
     BEFORE_JUDGE_STAMP,
+    BEFORE_LANDING_REPO_STAMP,
 ];
 
 /// Whether a store stamped <found> comes before the move that follows the
@@ -192,14 +197,16 @@ fn before(found: i64, stamp: i64) -> bool {
 /// before a condition named who ends it gets the coordinator as the ender of
 /// each condition (`lists::item::move_to_condition_enders`); every store from
 /// before the item events gets their empty table with the mark of when the
-/// store began to record them (<now>, the moment install moves it); and every
+/// store began to record them (<now>, the moment install moves it); every
 /// older store gets the empty tables that joined the schema after its stamp:
 /// the `builds land` runs, the reviewer processes' times, the hosts' samples,
-/// the crates the cargo runs named and the judge. The moves run in one
-/// transaction, the store is stamped as today's schema, and it must then
-/// equal a fresh database's schema or the transaction rolls back. A store
-/// already at today's stamp, or with no database, is left alone; any other
-/// stamp is refused, and the refusal names it.
+/// the crates the cargo runs named and the judge; and every store from before
+/// builds found a review's landing by its repo and key gets the indexes that
+/// find it so, one of which refuses two open landings of one change. The
+/// moves run in one transaction, the store is stamped as today's schema, and
+/// it must then equal a fresh database's schema or the transaction rolls
+/// back. A store already at today's stamp, or with no database, is left
+/// alone; any other stamp is refused, and the refusal names it.
 pub fn migrate_stores(places: &Places, now: i64) -> Result<()> {
     for store in stores(places)? {
         move_store(&store, now)?;
@@ -305,6 +312,22 @@ fn move_store(path: &Path, now: i64) -> Result<()> {
     // judges yet.
     if before(found, BEFORE_JUDGE_STAMP) {
         tx.execute_batch(db::JUDGE_PART).sql()?;
+    }
+    // Every store from before builds found a review's landing by its repo and
+    // key gets the indexes that find it so in place of the index on the key
+    // alone. The unique index refuses a store with two open landings of one
+    // change, and the move then rolls back.
+    if before(found, BEFORE_LANDING_REPO_STAMP) {
+        tx.execute_batch(&format!(
+            "DROP INDEX review_landing_key;\n{}\n{}",
+            db::statement(db::REVIEW_PART, "CREATE INDEX review_landing_change", ";"),
+            db::statement(
+                db::REVIEW_PART,
+                "CREATE UNIQUE INDEX review_landing_open_once",
+                ";"
+            )
+        ))
+        .sql()?;
     }
     tx.pragma_update(None, "user_version", db::stamp()).sql()?;
     let broken: Option<String> = tx

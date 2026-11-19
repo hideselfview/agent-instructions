@@ -14,6 +14,7 @@ use crate::fail::Fail;
 use crate::lists::store::Store;
 use crate::review::commits;
 use crate::review::landing::{self, CodeCheck, Need, Verdict};
+use crate::review::record::Change;
 use crate::review::run::Material;
 use crate::side_git;
 
@@ -115,8 +116,8 @@ impl Reads {
         Some((needs, material))
     }
 
-    /// Where the review of <top>'s commits stands, for a worktree whose
-    /// project's store is <store> and whose commits not on origin/main
+    /// Where the review of <top>'s commits stands, for a worktree of <repo>
+    /// whose project's store is <store> and whose commits not on origin/main
     /// are <ahead> (newest first); None when land would take them as far as
     /// the review goes, or when they need no review. Findings to settle wait
     /// on the judge while one listens, which Claude Code's running sessions
@@ -126,6 +127,7 @@ impl Reads {
         &self,
         store: &Store,
         sessions: &Path,
+        repo: &str,
         top: &Path,
         ahead: &[side_git::Commit],
     ) -> Result<Option<ItemWait>, String> {
@@ -145,8 +147,9 @@ impl Reads {
         }
         let conn = store.open_existing().map_err(Fail::text)?;
         let key = crate::review::default_key(top).map_err(Fail::text)?;
+        let change = Change { repo, key: &key };
         let check = CodeCheck::Branch("HEAD");
-        let wait = match landing::judge(&conn, &key, top, &needs, check, &material)
+        let wait = match landing::judge(&conn, change, top, &needs, check, &material)
             .map_err(Fail::text)?
         {
             Verdict::NotNeeded | Verdict::Takes(_) => return Ok(None),
