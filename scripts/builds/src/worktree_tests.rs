@@ -570,3 +570,104 @@ fn a_hosts_app_checkout_has_its_lane_file_exactly_while_it_is_in_a_lane() {
         vec!["gone:app-1"]
     );
 }
+
+/// A repo `demo` under <scratch> with an origin, whose post-checkout hook
+/// fails after `new` has made and claimed a worktree: the step after which
+/// `builds new` used to leave the worktree unclaimed.
+fn demo_with_failing_hook(scratch: &Scratch) -> std::path::PathBuf {
+    let main = scratch.dir.join("demo");
+    repo(&main, "target 1G\n");
+    let origin = scratch.dir.join("origin.git");
+    git(
+        &scratch.dir,
+        &["init", "-q", "--bare", &origin.display().to_string()],
+    );
+    git(
+        &main,
+        &["remote", "add", "origin", &origin.display().to_string()],
+    );
+    git(&main, &["push", "-q", "origin", "main"]);
+    main
+}
+
+fn push_failing_hook(main: &Path) {
+    use std::os::unix::fs::PermissionsExt;
+    let hook = main.join("scripts/hooks/post-checkout");
+    std::fs::create_dir_all(hook.parent().unwrap()).unwrap();
+    std::fs::write(&hook, "#!/bin/sh\necho hook failed >&2\nexit 3\n").unwrap();
+    std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+    git(main, &["add", "scripts/hooks/post-checkout"]);
+    git(main, &["commit", "-q", "-m", "Add a failing hook"]);
+    git(main, &["push", "-q", "origin", "main"]);
+}
+
+fn branch_exists(main: &Path, branch: &str) -> bool {
+    !crate::testing::git_out(main, &["branch", "--list", branch]).is_empty()
+}
+
+#[test]
+fn new_that_fails_after_adding_a_worktree_removes_the_worktree_and_its_branch() {
+    let scratch = Scratch::new("worktree-new-undo-add");
+    let tool = scratch.tool(0);
+    let main = demo_with_failing_hook(&scratch);
+    push_failing_hook(&main);
+
+    let error = refusal(cmd_new(
+        &tool,
+        &crate::testing::no_ssh(),
+        &[
+            main.display().to_string(),
+            "-b".into(),
+            "work".into(),
+            "--for".into(),
+            "agent A".into(),
+        ],
+    ));
+    assert!(error.contains("post-checkout"), "{error}");
+    assert!(!scratch.dir.join("demo-worktrees/side-1").exists());
+    assert!(!branch_exists(&main, "work"));
+    assert!(!tool.places.root.join("demo/side-1").exists());
+    assert!(
+        !crate::testing::git_out(&main, &["worktree", "list"]).contains("side-1"),
+        "git still lists the worktree"
+    );
+}
+
+#[test]
+fn new_that_fails_in_a_free_worktree_leaves_it_unclaimed_and_without_the_new_branch() {
+    let scratch = Scratch::new("worktree-new-undo-reuse");
+    let tool = scratch.tool(0);
+    let main = demo_with_failing_hook(&scratch);
+    let ssh = crate::testing::no_ssh();
+    let arg = main.display().to_string();
+    cmd_new(
+        &tool,
+        &ssh,
+        &[arg.clone(), "--for".into(), "agent A".into()],
+    )
+    .unwrap();
+    let side = scratch.dir.join("demo-worktrees/side-1");
+    cmd_release(&scratch.places(), &[side.display().to_string()]).unwrap();
+    push_failing_hook(&main);
+
+    let error = refusal(cmd_new(
+        &tool,
+        &ssh,
+        &[
+            arg,
+            "-b".into(),
+            "work".into(),
+            "--for".into(),
+            "agent B".into(),
+        ],
+    ));
+    assert!(error.contains("post-checkout"), "{error}");
+    let checkout = Checkout::find(&side.display().to_string()).unwrap();
+    assert!(Claim::read(&checkout.claim_file()).unwrap().is_none());
+    assert!(!branch_exists(&main, "work"));
+    assert_eq!(
+        crate::testing::git_out(&side, &["rev-parse", "--abbrev-ref", "HEAD"]),
+        "HEAD",
+        "the worktree is not detached"
+    );
+}

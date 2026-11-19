@@ -46,7 +46,9 @@ fn run_checked(command: &mut std::process::Command, what: &str) -> Result<()> {
 /// origin/main, or adds the next side-N when none is free; links it, runs its
 /// post-checkout, and prints its path. --resume checks out the existing
 /// branch instead, one no worktree checks out: work left on a branch goes
-/// back into a worktree this way.
+/// back into a worktree this way. When a step after the claim fails, `new`
+/// undoes what it made (the claim, a worktree it added with its branch and
+/// build root, or the checkout of a free one) and fails with that step's error.
 pub fn cmd_new(tool: &Tool, ssh: &crate::host::Ssh, args: &[String]) -> Result<()> {
     let mut repo_path = ".".to_string();
     let mut branch = None;
@@ -92,26 +94,106 @@ pub fn cmd_new(tool: &Tool, ssh: &crate::host::Ssh, args: &[String]) -> Result<(
     let who = who.unwrap_or_else(|| "builds new".to_string());
     let checkout = match find_free(tool, &main)? {
         Some(free) => {
-            write_claim(&free, &who, tool.now, Some(Note::Starting))?;
-            set_project(&tool.places, &free, project.as_deref())?;
-            if let Err(error) = reuse(&free, &start).and_then(|()| prepare(tool, ssh, &free)) {
-                let _ = std::fs::remove_file(free.claim_file());
-                let _ = std::fs::remove_file(free.project_file());
-                return Err(error);
+            let mut switched = false;
+            let started = write_claim(&free, &who, tool.now, Some(Note::Starting))
+                .and_then(|()| set_project(&tool.places, &free, project.as_deref()))
+                .and_then(|()| reuse(&free, &start))
+                .and_then(|()| {
+                    switched = true;
+                    prepare(tool, ssh, &free)
+                });
+            if let Err(error) = started {
+                return Err(undo(error, undo_reuse(&main, &free, &start, switched)));
             }
             free
         }
         None => {
             let dir = add_new(tool, &main, &start)?;
-            let checkout = Checkout::find(&dir.display().to_string())?;
-            write_claim(&checkout, &who, tool.now, Some(Note::Starting))?;
-            set_project(&tool.places, &checkout, project.as_deref())?;
-            prepare(tool, ssh, &checkout)?;
-            checkout
+            let started = Checkout::find(&dir.display().to_string()).and_then(|checkout| {
+                write_claim(&checkout, &who, tool.now, Some(Note::Starting))?;
+                set_project(&tool.places, &checkout, project.as_deref())?;
+                prepare(tool, ssh, &checkout)?;
+                Ok(checkout)
+            });
+            match started {
+                Ok(checkout) => checkout,
+                Err(error) => {
+                    return Err(undo(error, undo_add(tool, &main, &dir, &start)));
+                }
+            }
         }
     };
     let dir = &checkout.top;
     println!("{}", dir.display());
+    Ok(())
+}
+
+/// <error>, the failure of a step of `builds new`, with the failure of the
+/// <undone> cleanup that followed it, when that failed too.
+fn undo(error: Fail, undone: Result<()>) -> Fail {
+    match undone {
+        Ok(()) => error,
+        Err(cleanup) => Fail::Message(format!(
+            "{}; and builds could not undo what `builds new` made: {}",
+            error.text(),
+            cleanup.text()
+        )),
+    }
+}
+
+/// Undoes `builds new` on the free worktree <free>: drops its claim and
+/// project, and when <switched> (the checkout of <start> ran), detaches it at
+/// origin/main again and deletes the branch the checkout made.
+fn undo_reuse(main: &Path, free: &Checkout, start: &Start, switched: bool) -> Result<()> {
+    crate::claim::remove_if_present(&free.claim_file())?;
+    crate::claim::remove_if_present(&free.project_file())?;
+    if !switched {
+        return Ok(());
+    }
+    run_checked(
+        git(&free.top).args([
+            "-c",
+            "core.hooksPath=/dev/null",
+            "checkout",
+            "-q",
+            "--detach",
+            "origin/main",
+        ]),
+        "git checkout",
+    )?;
+    if let Start::Fresh(Some(branch)) = start {
+        run_checked(
+            git(main).args(["branch", "-q", "-D", branch]),
+            "git branch -D",
+        )?;
+    }
+    Ok(())
+}
+
+/// Undoes `builds new` on the worktree <dir> it added: removes the worktree,
+/// the branch it made for it, and its build root.
+fn undo_add(tool: &Tool, main: &Path, dir: &Path, start: &Start) -> Result<()> {
+    let root = tool
+        .places
+        .root
+        .join(crate::checkout::file_name(main))
+        .join(crate::checkout::file_name(dir));
+    run_checked(
+        git(main).args(["worktree", "remove", "--force"]).arg(dir),
+        "git worktree remove",
+    )?;
+    if let Start::Fresh(Some(branch)) = start {
+        run_checked(
+            git(main).args(["branch", "-q", "-D", branch]),
+            "git branch -D",
+        )?;
+    }
+    if root.is_dir() && !evict(&tool.places, &root, Recreate::No, Removal::Background)? {
+        fail!(
+            "a process holds files in {}; run builds prune once it exits",
+            root.display()
+        );
+    }
     Ok(())
 }
 
