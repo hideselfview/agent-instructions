@@ -65,3 +65,7 @@ pub fn record<T>(
     readings.retain(|r| now - at(r) <= max_age);
     true
 }
+
+#[cfg(test)]
+#[path = "readings_file_tests.rs"]
+mod tests;

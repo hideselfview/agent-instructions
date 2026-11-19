@@ -46,24 +46,3 @@ fn compares_with_the_newest_reading_of_the_server_five_minutes_old() {
     assert_eq!(compared(&readings, "m1", 9, NOW), None);
     assert_eq!(compared(&readings, "local", 7, NOW), Some(&readings[4]));
 }
-
-/// Writers in one process never share a staged file: each write of the
-/// readings completes whatever the others do.
-#[test]
-fn writes_of_the_readings_in_one_process_all_complete() {
-    let scratch = crate::testing::Scratch::new("readings-writers");
-    let file = scratch.dir.join("readings.json");
-    let writers: Vec<_> = (0..8)
-        .map(|_| {
-            let file = file.clone();
-            std::thread::spawn(move || {
-                for at in 0..100 {
-                    crate::readings_file::write(&file, &[reading("local", 7, at, 1, 1)]).unwrap();
-                }
-            })
-        })
-        .collect();
-    for writer in writers {
-        writer.join().unwrap();
-    }
-}
