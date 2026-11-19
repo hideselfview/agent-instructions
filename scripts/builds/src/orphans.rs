@@ -8,6 +8,10 @@
 //!   prune of build copies after a build (`builds units`), the audit a
 //!   landing's review samples (`builds review audit`) and the sccache server
 //!   that way, and git starts its daemons that way, so none of those is one.
+//!   A `builds build-app` is none either: the dashboard starts each one as its
+//!   child, and when `builds install` restarts the dashboard, the build runs on
+//!   under launchd and the restarted dashboard shows it again from its record
+//!   (daemon/runs.rs).
 //! - A job's command on a host (host_scan.rs) whose `builds` process on this
 //!   Mac is gone, judged as job_claim.rs judges a claim.
 //!
@@ -162,7 +166,11 @@ fn judge(row: &Row, targets: &[&str]) -> Option<bool> {
     let words = arguments(row);
     match program(row) {
         "builds" => match words[..] {
-            [] | ["dashboard", ..] | ["units", ..] | ["review", "audit", ..] => None,
+            []
+            | ["dashboard", ..]
+            | ["units", ..]
+            | ["review", "audit", ..]
+            | ["build-app", ..] => None,
             ["cargo", ..] | ["remote", ..] | ["checks", "run", ..] => Some(true),
             _ => Some(false),
         },

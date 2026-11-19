@@ -1851,7 +1851,9 @@ STATUS, HEALTH AND THE DASHBOARD
                               test binary, git other than its daemons,
                               xcodebuild, builds' ssh to a host, or a builds
                               command other than the dashboard, `builds
-                              units` and `builds review audit`), or a job on a
+                              units`, `builds review audit` and `builds
+                              build-app`, which a restarted dashboard shows
+                              again from its record), or a job on a
                               host whose builds command here is gone; the fix
                               pass stops each of these except a builds
                               command that does more than print (a landing,

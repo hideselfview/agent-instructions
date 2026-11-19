@@ -37,7 +37,8 @@ const HERE: &str = "    1     0     0   0.0   1:00.00 9-00:00:00 S /sbin/launchd
   309     1     0   0.0   0:01.00    40:00 S cargo test\n\
   310     1   501   0.0   0:01.00    40:00 S /Applications/Safari.app/Contents/MacOS/Safari\n\
   311     1   501   0.0   0:01.00    40:00 S /x/dev/bae-worktrees/side-2/target/debug/deps/bae_views-0123456789abcdef\n\
-  313     1   501   0.0   0:00.00    40:00 Z cargo test\n";
+  313     1   501   0.0   0:00.00    40:00 Z cargo test\n\
+  314     1   501   0.0   0:01.00    12:19 S /Users/x/.local/bin/builds build-app bae mac main\n";
 
 /// The orphans among each host's processes, and the jobs whose caller on
 /// this Mac is gone; a job whose caller runs is none.
@@ -162,4 +163,22 @@ fn the_stop_script_names_only_a_target_that_refused() {
         .unwrap();
     assert!(output.status.success());
     assert_eq!(String::from_utf8_lossy(&output.stdout), "refused=1\n");
+}
+
+/// The dashboard starts each `builds build-app` as its child, and a restart
+/// of the dashboard leaves it under launchd with its work to do: it is no
+/// orphan, while another `builds` command with no caller is listed.
+#[test]
+fn a_build_app_the_dashboard_started_is_no_orphan() {
+    let ps = "314     1   501   0.0   0:01.00    12:19 S /Users/x/.local/bin/builds build-app bae mac main\n\
+              307     1   501   0.0   0:01.00    40:00 S builds land side-3\n";
+    let scans = vec![(Host::local(), scan(ps, Vec::new()))];
+    let pids: Vec<i32> = find(&scans, &Holders::read().unwrap())
+        .iter()
+        .filter_map(|orphan| match &orphan.kind {
+            Kind::Process { row, .. } => Some(row.pid),
+            Kind::Job { .. } => None,
+        })
+        .collect();
+    assert_eq!(pids, [307]);
 }
