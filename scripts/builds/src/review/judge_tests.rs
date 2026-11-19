@@ -264,7 +264,7 @@ impl Reviewed {
                 record::settle(db, self.finding, how, why, NOON, "judge")
             })
             .unwrap();
-        tell_waits(&self.demo.store.dir);
+        tell_waits(&self.demo.store.dir).unwrap();
     }
 }
 
@@ -708,4 +708,21 @@ fn a_finding_with_no_landing_is_broken_state_that_names_the_finding() {
         refused.contains("finding 7 of run 3 belongs to no review landing"),
         "{refused}"
     );
+}
+
+#[test]
+fn a_settle_that_cannot_tell_the_waits_fails_and_says_the_settle_stands() {
+    use std::os::unix::fs::PermissionsExt;
+    let scratch = Scratch::new("judge-tell-waits");
+    let dir = settles_dir(&scratch.dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    tell_waits(&scratch.dir).unwrap();
+    std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o555)).unwrap();
+    let refused = tell_waits(&scratch.dir).unwrap_err().text();
+    std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+    assert!(
+        refused.contains("builds recorded the settle, but could not tell the waits"),
+        "{refused}"
+    );
+    assert!(refused.contains("stop it and run it again"), "{refused}");
 }

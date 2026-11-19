@@ -2279,8 +2279,10 @@ run `review replay --rules-root` on it.
                               finding. The agent that ran the review runs it
                               as a background task. Each settle tells every
                               wait of the store through the store folder's
-                              review-settles folder, which a wait watches.
-                              After two hours the wait fails, naming the
+                              review-settles folder, which a wait watches;
+                              a settle that cannot tell them fails, says that
+                              the settle stands, and says to stop the wait and
+                              run it again. After two hours the wait fails, naming the
                               findings that still wait; run it again to keep
                               waiting
   builds review dispute <finding> --why <text>

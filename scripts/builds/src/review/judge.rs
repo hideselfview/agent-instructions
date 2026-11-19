@@ -517,21 +517,22 @@ fn settles_dir(store_dir: &Path) -> PathBuf {
 }
 
 /// Tells every `builds review wait` of the store at <store_dir> that a
-/// finding was settled, after the settle's write. A wait that misses it
-/// reads the findings again when its limit ends, so a failure here only
-/// makes a wait end late; it goes to stderr.
-pub fn tell_waits(store_dir: &Path) {
+/// finding was settled, after the settle's write committed: a wait woken
+/// before the commit would read the finding unsettled and wait on. Fails
+/// when the waits could not be told, since a wait that is not told ends
+/// only at its limit; the settle stands, and the error says so.
+pub fn tell_waits(store_dir: &Path) -> Result<()> {
     let dir = settles_dir(store_dir);
     if !dir.is_dir() {
-        return;
+        return Ok(());
     }
     let mark = dir.join(std::process::id().to_string());
-    let made = std::fs::write(&mark, "").and_then(|()| std::fs::remove_file(&mark));
-    if let Err(error) = made {
-        crate::text::note(format!(
-            "telling the waits in {} of a settle: {error}",
+    match std::fs::write(&mark, "").and_then(|()| std::fs::remove_file(&mark)) {
+        Ok(()) => Ok(()),
+        Err(error) => fail!(
+            "builds recorded the settle, but could not tell the waits in {} of it: {error}. A `builds review wait` of this review ends only at its limit: stop it and run it again",
             dir.display()
-        ));
+        ),
     }
 }
 

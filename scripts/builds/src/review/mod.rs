@@ -754,7 +754,7 @@ fn settle(tool: &Tool, args: &[String], caller: Option<&Caller>) -> Result<()> {
             judge::may_judge(db, &sessions, id, caller)?;
             record::settle_again(db, id, why, stamp.at, &stamp.by)
         })?;
-        judge::tell_waits(&store.dir);
+        judge::tell_waits(&store.dir)?;
         println!(
             "You settled finding {id} again, as dropped; the finding keeps its first settle beside the second."
         );
@@ -765,7 +765,7 @@ fn settle(tool: &Tool, args: &[String], caller: Option<&Caller>) -> Result<()> {
             judge::may_record(db, id, caller)?;
             record::allow(db, id, why, stamp.at, &stamp.by)
         })?;
-        judge::tell_waits(&store.dir);
+        judge::tell_waits(&store.dir)?;
         println!(
             "finding {id} stays confirmed, and the person allowed it to land: builds land no longer waits on it"
         );
@@ -775,7 +775,7 @@ fn settle(tool: &Tool, args: &[String], caller: Option<&Caller>) -> Result<()> {
         judge::may_judge(db, &sessions, id, caller)?;
         record::settle(db, id, how, why, stamp.at, &stamp.by)
     })?;
-    judge::tell_waits(&store.dir);
+    judge::tell_waits(&store.dir)?;
     println!("finding {id} settled {how}");
     Ok(())
 }
@@ -835,7 +835,7 @@ fn keep_command(tool: &Tool, args: &[String], caller: Option<&Caller>) -> Result
         judge::may_judge(db, &sessions, id, caller)?;
         judge::keep(db, id, why, &stamp)
     })?;
-    judge::tell_waits(&store.dir);
+    judge::tell_waits(&store.dir)?;
     println!("finding {id} stays confirmed: you kept it after its dispute");
     Ok(())
 }
