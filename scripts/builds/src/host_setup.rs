@@ -125,8 +125,8 @@ pub fn install_on_host(
 /// them into place, so installs that run at the same time on one host, as two
 /// landings' do, each leave whole programs. The repo's own
 /// `scripts/build-layout.sh` and `scripts/cargo.sh` find builds there, so a
-/// repo's hooks and scripts work on the host as they do here. Both Macs run
-/// arm64 macOS, so the same programs run on both.
+/// repo's hooks and scripts work on the host as they do here. Every Mac
+/// host runs arm64 macOS, as this Mac does, so the same programs run on each.
 pub fn install_program(ssh: &Ssh, host: &Host, programs: &Programs) -> Result<String> {
     let shots = crate::shots_program::PROGRAM;
     let read = |program: &Path| {

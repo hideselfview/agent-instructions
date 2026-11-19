@@ -36,7 +36,7 @@ it does in every repo (LANDING AND REVIEW). To try an edit to builds before
 ACKNOWLEDGING THE RULES
 
 builds refuses every command an agent runs, except `help`, `ack`, `agent`,
-`install` and `dashboard`, until the agent has read the text every agent reads
+`install`, `dashboard` and `version`, until the agent has read the text every agent reads
 before it works and has acknowledged it with `builds ack`. The text is
 ~/.claude/CLAUDE.md, the CLAUDE.md of the repo the command runs in, `builds
 help workflow` (without its WHAT REVIEWS CONFIRM MOST OFTEN section, which
@@ -160,8 +160,10 @@ same path under the checkout's build root (target ->
 /Volumes/Builds/bae/main/target). `.build-dirs` has one line per folder, a
 `keep` line for each build that must stay, an `installed` line for each
 tool the repo's scripts install into the user's cache home, a `prepare` line
-for each program that puts in place what the checkout's builds need, and a
-`tool` line for each tool the repo builds from its own sources (BUILT TOOLS):
+for each program that puts in place what the checkout's builds need, a
+`tool` line for each tool the repo builds from its own sources (BUILT TOOLS),
+a `linux-package` line for the Debian packages a Linux host needs to build the
+repo, and a `macos` line for the repo's packages that only a Mac builds:
 
   <path> <cap>              the folder and its size cap
   <path> <cap> app <cap>    a second cap, for the folder in the repo's app
@@ -184,7 +186,7 @@ for each program that puts in place what the checkout's builds need, and a
                             scripts/owner-construction-check.sh)
   prepare <program>         a program of the checkout that `builds setup`
                             runs in its top folder, and `builds cargo` before
-                            cargo on whichever Mac runs cargo. The program
+                            cargo on whichever host runs cargo. The program
                             puts in place what the checkout's builds need
                             beyond their folders, such as a toolchain
                             component or a source that builds compile against
@@ -204,8 +206,16 @@ for each program that puts in place what the checkout's builds need, and a
   tool <name> <program> <link>
                             a tool the repo builds from its own sources for
                             its toolchain, which builds keeps once per key on
-                            each Mac and links at <link> in the checkout
+                            each host and links at <link> in the checkout
                             (BUILT TOOLS)
+  linux-package <name>...   Debian packages a Linux host needs to build the
+                            repo, such as clang for a crate that runs
+                            bindgen; `builds host setup` installs them on
+                            each Linux host (HOSTS)
+  macos <package>...        cargo packages part of whose code compiles only
+                            for macOS: on Linux, a cargo job that builds one
+                            compiles and checks other code than on a Mac, so
+                            `builds cargo` sends it to no Linux host (CARGO)
 
 Tools always write through <checkout>/<path>, so the path a build sees never
 changes, however often builds deletes and recreates the folder behind the link.
@@ -320,8 +330,10 @@ BUILT TOOLS
 A `tool <name> <program> <link>` line names a program the repo builds from its
 own sources for its toolchain, such as coven's typed lints' driver, a build of
 clippy's driver with coven's lints added. builds keeps one build of the tool
-for each key on each Mac, shared by every checkout of every repo whose key is
-the same, and builds it on a Mac only when no other Mac has it.
+for each key on each host, shared by every checkout of every repo whose key is
+the same, and builds it on a host only when no other host of its platform has
+it. A platform is an OS and a processor, such as macOS on arm64 or Linux on
+x86_64: a build runs only on its own platform.
 
 The repo's <program> answers two requests in the checkout's top folder:
 
@@ -331,9 +343,9 @@ The repo's <program> answers two requests in the checkout's top folder:
   <program> build <folder>  build the tool into <folder>, an empty folder
                             builds made, and write
                             <folder>/check: a program that makes the build
-                            ready to run on the Mac it is on and fails unless
+                            ready to run on the host it is on and fails unless
                             the tool runs there. BUILDS_TOOL_WORK names a
-                            folder, one per toolchain on each Mac, where the
+                            folder, one per toolchain on each host, where the
                             program keeps what the next build can reuse, such
                             as a fetched source and a cargo target folder, so
                             a new key compiles only what its sources changed
@@ -341,17 +353,19 @@ The repo's <program> answers two requests in the checkout's top folder:
 Each key's build is the folder caches/tools/<name>/<toolchain>/<sources> on
 the build volume (a host's builds root on a host), and <link> in the checkout
 points at it. To put a key in place, builds copies the folder from another
-Mac that has it, else builds it, holding the toolchain folder's lock so one
+host of the same platform that has it, else builds it, holding the toolchain folder's lock so one
 build at a time uses the work folder. When it builds, it says why no copy
 served: each host lacked the key, did not answer, or sent a copy that failed.
 Each copy and each build goes into a staging folder of its own, and takes its
-place only once its check passes on the Mac it lands on. builds deletes a
+place only once its check passes on the host it lands on. builds deletes a
 rejected staging folder before it tries the next way, and when it cannot, it
 stops with an error that says both why it rejected the folder and why the
 deletion failed. `builds setup` copies each key of the checkout that this Mac
-has to each host that lacks it, and so does a `builds cargo` job before it runs
-on a host, and each copy runs its check on the host; when that fails, builds
-says so and the host builds the key in the job's setup. A pre-commit hook
+has to each host of this Mac's platform that lacks it, and so does a `builds
+cargo` job before it runs on such a host, and each copy runs its check on the
+host; when that fails, builds says so and the host builds the key in the job's
+setup. A host of another platform, such as a Linux host, builds each key in
+the job's setup itself. A pre-commit hook
 check installs, fetches, copies and builds nothing: a `builds cargo` it runs
 sends no key to the host, the host's setup for its job prepares nothing, and
 `builds tool` only points the link at a build the Mac already has. `builds setup` and `builds prune` delete each key's folder,
@@ -361,14 +375,14 @@ nothing of any tool while a checkout's `.build-dirs` cannot be read.
 
   builds tool <name> [<checkout>]
                               put the checkout's key of tool <name> in place
-                              on this Mac, point the checkout's link at it and
+                              on this machine, point the checkout's link at it and
                               print its folder. A repo's script runs it before
                               it runs the tool, wherever cargo runs: coven's
                               clippy names a script that runs it in
                               BUILDS_CARGO_BEFORE. Run by a pre-commit hook
                               check (BUILDS_HOOK_CHECK set), it only points the
-                              link at the build this Mac has for the key, and
-                              when this Mac has none it fails at once, naming
+                              link at the build this machine has for the key,
+                              and when it has none it fails at once, naming
                               `builds setup`
 
 
@@ -577,7 +591,12 @@ subcommand for the checkout, or that host cannot take the run now, builds
 runs it on the host with the most free cores, each counted at the host's core
 speed. builds skips a host that does not answer, is under the free-disk
 floor, refuses jobs (HOSTS), has no measured core speed (`builds host setup`)
-or has no clone of the repo. For a nextest run, builds also skips a host
+or has no clone of the repo. A job that builds a package that a `macos` line of
+the checkout's `.build-dirs` names (BUILD FOLDERS) skips every Linux host: the
+job builds the packages its -p arguments name, with none every package with
+--workspace, else the package of the folder it runs in, or every package in
+the workspace's own folder. One line on stderr names each host the job skips
+for that reason. For a nextest run, builds also skips a host
 without cargo-nextest at the version builds installs (0.9.143, installed by
 `builds install` on this Mac and by `builds host setup` on each host), and
 names the host and the version it has; `BUILDS_CARGO_HOST` naming such a host
@@ -637,9 +656,13 @@ One sccache server serves every checkout. launchd runs it
 TMPDIR and no idle timeout; its cache is caches/sccache, capped in
 ~/Library/Application Support/Mozilla.sccache/config. `builds install` writes
 both here and on every host, `builds host setup` writes them on a host (whose
-cache is its own ~/Library/Caches/Mozilla.sccache), `builds status` flags a
-config that no longer holds builds' cap, and `builds health` names each Mac
-whose server launchd does not run, whose config does not hold builds' cap, or
+cache is sccache's default folder, ~/Library/Caches/Mozilla.sccache on a Mac
+and ~/.cache/sccache on Linux). On a Linux host the user's systemd runs the
+server from the unit ~/.config/systemd/user/local.sccache-server.service, with
+/tmp as its TMPDIR, and its config is ~/.config/sccache/config. `builds status`
+flags a config that no longer holds builds' cap, and `builds health` names each
+host whose server launchd or systemd does not run, whose config does not hold
+builds' cap, or
 whose server runs with another cap than its config's: a server reads its
 config when it starts, so one that started before builds wrote a new cap keeps
 the old one until it starts again.
@@ -1111,10 +1134,19 @@ from the store, never built again.
 
 HOSTS
 
-builds can run jobs on other Macs, its hosts; this Mac is always one, named
-local. A host keeps its clone of each repo at ~/dev/<repo>, its worktrees at
-~/dev/<repo>-worktrees/, and its build roots in /Volumes/Builds when it has
-that volume, else in ~/builds-root.noindex.
+builds can run jobs on other machines, its hosts: other Macs, and Linux
+machines that run Debian or Ubuntu, such as a rented server or a cloud
+instance. This Mac is always one, named local. A host keeps its clone of each
+repo at ~/dev/<repo>, its worktrees at ~/dev/<repo>-worktrees/, and its build
+roots in /Volumes/Builds when it is a Mac with that volume, else in
+~/builds-root.noindex on a Mac and ~/builds-root on Linux. A Linux host takes
+`builds cargo` jobs, except a job that builds a package only a Mac builds
+(CARGO). App builds run only on Macs, and `builds remote run` picks only Macs.
+
+To add a Linux host, give it a user that this Mac reaches over ssh by key and
+that may run sudo, then run `builds host add <name> <user>@<address>` and,
+with a person at this terminal to type the sudo password, `builds host setup
+<name>`. Setup installs everything else the host needs (below).
 
 A host refuses jobs when it answers but cannot start one. builds finds this
 two ways: a probe, which asks the host for its load and disk, also runs git
@@ -1190,46 +1222,74 @@ indexes the build root.
                               is over <high>. A host with no band has 0.75
                               to 1.25 times its cores. `band` takes the host
                               name `band` for itself, so `add` refuses it.
-                              `setup` copies this Mac's builds and
-                              builds-shots programs to ~/.local/bin on the
-                              host (both are arm64 macOS), links builds-linker and builds-rustc to it there,
-                              makes its builds root, and has
-                              that copy run `builds host setup-here` there,
-                              which records that the Mac is a host (the file
-                              `host` beside its lists folder, so `builds
-                              status` there names what a host keeps in place
-                              of the caches folder), writes the host's
-                              sccache config with builds' cap and runs its
-                              sccache server under launchd, installs
-                              cargo-nextest at the one version builds pins (it
-                              downloads the release from get.nexte.st into
-                              ~/.cargo/bin, and changes nothing on a host that
-                              has that version), as `builds
-                              install` does here, first
-                              stopping a server a client started there (it
-                              needs the host's user logged in to its desktop,
-                              where launchd runs user agents), and records the
+                              `setup` on a Mac host copies this Mac's builds
+                              and builds-shots programs to ~/.local/bin on
+                              the host (all the Macs run arm64 macOS). On a Linux
+                              host, setup first installs, through sudo, the
+                              Debian packages builds needs (a C compiler and
+                              linker, pkg-config, git, curl, lsof and rsync)
+                              and those the repos' `linux-package` lines name
+                              (BUILD FOLDERS), and turns on lingering for the
+                              host's user (`loginctl enable-linger`), so
+                              systemd runs the user's sccache server while
+                              nobody is logged in. Setup runs these sudo
+                              steps over `ssh -t` when a person is at this
+                              terminal to type the password; with nobody at the
+                              terminal it fails and names the commands to run
+                              on the host. Then setup installs rustup with the
+                              stable toolchain (each repo's
+                              rust-toolchain.toml names the toolchain rustup
+                              installs for its builds) and sccache 0.13.0
+                              into ~/.cargo/bin, makes an empty clone of each
+                              repo that has none (each job sends its commit
+                              there), and sends the sources this Mac's builds
+                              was built from, which the host builds into
+                              ~/.local/bin/builds; setup fails unless the
+                              host's build prints the same `builds version`
+                              as this Mac's. On every host, setup then links
+                              builds-linker and builds-rustc to builds in
+                              ~/.local/bin, makes its builds root and has its builds run `builds
+                              host setup-here` there, which records that the
+                              machine is a host (the file `host` beside its
+                              lists folder, so `builds status` there names
+                              what a host keeps in place of the caches
+                              folder), writes the host's sccache config with
+                              builds' cap, runs its sccache server under
+                              launchd on a Mac or the user's systemd on
+                              Linux, first stopping a server a client started
+                              there (launchd runs user agents only while the
+                              host's user is logged in to its desktop),
+                              installs cargo-nextest at the one version
+                              builds pins (it downloads the release from
+                              get.nexte.st into ~/.cargo/bin, and changes
+                              nothing on a host that has that version), as
+                              `builds install` does here, and records the
                               host's core speed in `hosts`: this Mac's time
                               over the host's for the fixed compile `builds
                               host speed-here` times on each (rustc on one
-                              core, the fastest of three), then checks the
-                              settings that UI tests need there and turns on
-                              the ones that are off (above), and once all are
-                              on removes the host's record of UI tests timing
-                              out, so mac app builds use its checkouts again,
-                              and last turns off Spotlight's indexing of its
-                              build volume (above).
+                              core, the fastest of three). On a Mac host,
+                              setup last checks the settings that UI tests
+                              need there and turns on the ones that are off
+                              (above), and once all are on removes the host's
+                              record of UI tests timing out, so mac app
+                              builds use its checkouts again, and turns off
+                              Spotlight's indexing of its build volume
+                              (above).
                               `setup local` checks the settings on this Mac,
                               turns on the ones that are off, removes its
                               record and turns off Spotlight's indexing of
                               this Mac's build volume; `builds install` does
                               the rest of this Mac's setup.
-                              `builds install` copies both programs to every
-                              host the same way, without the sccache step, the
-                              timing or the settings. `list`
-                              asks every host for its load average per core,
-                              its load band, its memory (the kernel's pressure level, the
-                              share `memory_pressure` calls free and the
+                              `builds install` puts builds on every host the
+                              same way, with builds-shots on each Mac host,
+                              and runs `builds host setup-here` there, without
+                              the packages, the timing or the settings.
+                              `list` asks every host for its OS and processor,
+                              its load average per core,
+                              its load band, its memory (on a Mac the kernel's pressure
+                              level, the share `memory_pressure` calls free
+                              and the swap in use; on Linux the share of
+                              memory /proc/meminfo calls available, and the
                               swap in use), its free disk, whether it answers and
                               whether it refuses jobs, and keeps each host's record of
                               refusing jobs current with the answer.
@@ -1711,11 +1771,14 @@ STATUS, HEALTH AND THE DASHBOARD
                               Mac (a plain kill does not end it); a build host
                               that refuses jobs (HOSTS), with what the host
                               said and what to fix; a build host whose
-                              ~/.local/bin/builds or
-                              ~/.local/bin/builds-shots is missing or differs
-                              from this Mac's (`builds host setup <name>`); a
-                              build host, or this Mac, whose sccache server launchd
-                              does not run from builds' plist, or whose
+                              ~/.local/bin/builds is missing or names other
+                              sources than this Mac's (`builds version`), or,
+                              on a Mac host, whose ~/.local/bin/builds-shots
+                              is missing or differs from this Mac's (`builds
+                              host setup <name>`); a
+                              build host, or this Mac, whose sccache server
+                              launchd or systemd does not run from builds'
+                              plist or unit, or whose
                               sccache config does not hold builds' cap, or
                               whose server runs with another cap than its
                               config's (`builds host setup <name>`, or
@@ -1739,7 +1802,8 @@ STATUS, HEALTH AND THE DASHBOARD
                               5-minute load over the band's high end or
                               memory pressure at warning or critical
                               (`sysctl kern.memorystatus_vm_pressure_level`
-                              2 or 4), whatever its load (start nothing
+                              2 or 4 on a Mac; on Linux, under 10% or under
+                              5% of its memory available), whatever its load (start nothing
                               new, unless another host that takes cargo work
                               is under its band, which `builds cargo` sends
                               the work to: the line names that host); each
@@ -2647,15 +2711,25 @@ INSTALLING
                               point Xcode's default DerivedData at the
                               volume, restart a running dashboard so it runs
                               the new code, and copy the same builds and
-                              builds-shots to every recorded host (HOSTS), where it runs `builds host
-                              setup-here` to write the sccache config and run
-                              the server under launchd as here. When builds
+                              builds-shots to every recorded Mac host (HOSTS),
+                              build builds on every Linux host from the
+                              sources this builds was built from, and run
+                              `builds host setup-here` on each host to write
+                              the sccache config and run the server under
+                              launchd or systemd as here. When builds
                               cannot reach a host or install on it, builds
                               installs on every other host first, then fails
                               the install and names that host, and `builds
-                              health` lists it until its builds and
-                              builds-shots match this Mac's and its config
+                              health` lists it until its builds names this
+                              Mac's sources (`builds version`), a Mac host's
+                              builds-shots matches this Mac's, and its config
                               holds builds' cap. Run it from
                               a fresh build (install.sh does), never from the
                               installed binary, which can't copy itself onto
                               itself
+  builds version              print `builds` and a hash of the sources this
+                              program was built from. A build of the same
+                              sources prints the same hash on macOS and on
+                              Linux, so `builds host setup` and `builds
+                              health` compare it to tell whether a host runs
+                              the builds this Mac runs

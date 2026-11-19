@@ -69,8 +69,9 @@ pub const VARIABLE: &str = "BUILDS_USE";
 
 /// The commands that take no use of the stores: install, which closes the
 /// gates and moves the stores, the dashboard, which install restarts, the
-/// help, and `agent`, which registers an agent outside the stores
-/// (ack/agent.rs).
+/// help, `agent`, which registers an agent outside the stores
+/// (ack/agent.rs), and `version`, which prints only what the program was
+/// built from.
 pub const STORELESS: [&str; 7] = [
     "install",
     "dashboard",
