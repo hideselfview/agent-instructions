@@ -543,8 +543,8 @@ fn the_landing_repo_stamp_is_the_schema_before_landings_were_found_by_repo() {
 /// with that schema's text and stamp: project `bae` over repos `bae` and
 /// `coven`, and an open landing of `branch:work` for each repo that
 /// <landings> names, opened at 1, 2 and on. The owners' own writes make the
-/// rows, since that schema's tables of the project and the landings are
-/// today's.
+/// rows: that schema's project and landing tables are the ones `db::schema`
+/// makes, and only the landings' indexes differ.
 fn store_before_landing_repo(places: &Places, landings: &[&str]) -> std::path::PathBuf {
     let dir = places.lists.join("bae");
     std::fs::create_dir_all(&dir).unwrap();
