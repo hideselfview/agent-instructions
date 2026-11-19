@@ -674,8 +674,8 @@ shots program or a fix for CI's shot jobs without waiting for CI; for a
 change to screens, name their prefixes with --shots instead. builds runs the
 lane's `shots` line once, with the prefix that every shot of the lane starts
 with (mac.), so the run goes where any --shots run of the lane goes: it waits in
-the lane's queue, holds a lock of the lane, and takes the free app checkout on
-the less loaded host, this Mac or a host. builds keeps its findings and report
+the lane's queue, holds a lock of the lane, and takes a free app checkout (for
+a `shots` line that passes --windows, only one on a host, as below). builds keeps its findings and report
 under that prefix like any other shots run's (below), and `builds shots
 findings <repo> <ref> mac mac.` prints them again. The shots program takes a
 window's shot on the display of the host it runs on, whose size may differ
@@ -818,7 +818,8 @@ host's own `builds setup` and `builds prune` read the file and keep the
 checkout's builds warm, as this Mac does for its own app checkouts.
 The android build-app, `builds lock` and a build that runs a `here` step never
 take a checkout on a host. A build that runs a test class through a line an
-`opens-windows` line names takes only a checkout on a host, never one on this
+`opens-windows` line names, or a --shots or --all-shots run of a `shots` line
+that passes --windows (bae's mac line), takes only a checkout on a host, never one on this
 Mac. When the lane has none, builds adds one on a host as for a build that
 waits, and the build fails when no host can take one (in bae, the M1's mac
 lane checkouts run the UI tests). A build cannot run both a `here` step and a test class from an

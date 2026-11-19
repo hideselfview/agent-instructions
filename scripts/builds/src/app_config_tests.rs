@@ -462,6 +462,17 @@ fn an_opens_windows_line_keeps_its_test_lines_on_hosts() {
 }
 
 #[test]
+fn a_shots_line_that_passes_windows_stays_on_hosts() {
+    let config = parse_config(
+        "shots mac ./s run --windows --select {select}\nshots android ./s run --select {select}\n",
+    )
+    .unwrap();
+    let place = |lane| config.picker_in(lane, PickKind::Shots, None).unwrap().place;
+    assert_eq!(place(Lane::Mac), Where::Hosts);
+    assert_eq!(place(Lane::Android), Where::Anywhere);
+}
+
+#[test]
 fn rule_lines_name_the_steps_a_changed_path_needs() {
     let config = parse_config(
         "step mac a ./a\nstep android b ./b\non app/ a\non *.kt a b\nneeds mac a\nsources mac app lib\n",

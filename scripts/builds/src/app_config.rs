@@ -51,7 +51,9 @@
 //! signing identity only this Mac has. An `opens-windows <lane>[:<program>]...`
 //! line names test lines whose runs open windows (bae's UI tests), which run
 //! only in an app checkout on a host: on this Mac the windows would cover the
-//! person's screen. A lane's build takes a checkout where all its steps may
+//! person's screen. A `shots` line that passes `--windows` opens windows too,
+//! so its runs (`--shots` and `--all-shots`) go only to a host, with no
+//! `opens-windows` line. A lane's build takes a checkout where all its steps may
 //! run.
 //!
 //! A `ci-only <step>...` line names steps that only CI runs, such as a whole
@@ -285,7 +287,8 @@ pub struct Picker {
     pub program: Option<String>,
     pub command: Vec<String>,
     /// Where its runs may go: `Where::Hosts` for a test line an
-    /// `opens-windows` line names, else `Where::Anywhere`.
+    /// `opens-windows` line names and for a shots line that passes
+    /// `--windows`, else `Where::Anywhere`.
     pub place: Where,
 }
 
@@ -477,12 +480,20 @@ pub fn parse_config(text: &str) -> Result<Config> {
                 {
                     fail!("{CONFIG}: two {keyword} lines for {name}");
                 }
+                // A shots line that passes --windows opens a window for each
+                // shot, so its runs never go to this Mac's screen.
+                let place =
+                    if kind == PickKind::Shots && command.iter().any(|word| word == "--windows") {
+                        Where::Hosts
+                    } else {
+                        Where::Anywhere
+                    };
                 pickers.push(Picker {
                     lane,
                     kind,
                     program,
                     command,
-                    place: Where::Anywhere,
+                    place,
                 });
             }
             ("shots-source", _) => {

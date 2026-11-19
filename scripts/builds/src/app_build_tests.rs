@@ -534,6 +534,14 @@ fn a_test_run_that_opens_windows_takes_a_checkout_on_a_host_and_no_here_step() {
 }
 
 #[test]
+fn a_shots_run_with_windows_takes_only_a_checkout_on_a_host() {
+    let config = parse_config("shots mac ./s --windows --select {select}\n").unwrap();
+    let picks = [(Lane::Mac, PickKind::Shots, "mac.welcome.".to_string())];
+    let steps = lane_steps(&config, Lane::Mac, &[], &picks, &|_| Ok(None)).unwrap();
+    assert_eq!(place_of(&steps).unwrap(), lock::Where::Hosts);
+}
+
+#[test]
 fn a_pick_step_is_known_by_its_name() {
     assert_eq!(pick_kind_of("test Foo"), Some(PickKind::Class));
     assert_eq!(pick_kind_of("shots mac.x."), Some(PickKind::Shots));
