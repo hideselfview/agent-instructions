@@ -197,10 +197,10 @@ for each program that puts in place what the checkout's builds need, and a
                             `builds cargo` fail, naming it. A `builds cargo`
                             that a pre-commit hook check runs (COMMIT CHECKS)
                             runs no prepare program, since a hook installs and
-                            fetches nothing: the check only checks that the
-                            pieces are in place and fails, naming `builds
-                            setup`, when they are not (coven:
-                            tools/typed-lints/check-prepared.sh)
+                            fetches nothing: when a piece is missing, the
+                            check's build fails and the check names `builds
+                            setup` (coven: tools/typed-lints/cargo.sh names
+                            the missing path)
   tool <name> <program> <link>
                             a tool the repo builds from its own sources for
                             its toolchain, which builds keeps once per key on
