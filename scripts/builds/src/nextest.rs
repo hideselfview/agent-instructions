@@ -9,7 +9,6 @@ use std::process::{Command, Stdio};
 
 use crate::fail;
 use crate::fail::{Context, Result};
-use crate::host::sh_quote;
 use crate::text::note;
 
 /// The cargo-nextest version on every host and on this Mac.
@@ -91,7 +90,7 @@ pub fn has(home: &Path) -> Has {
 /// Installs cargo-nextest `VERSION` under <home>'s `.cargo/bin` when it has
 /// another version or none, and returns whether it did. <download> puts the
 /// release's `cargo-nextest` program in the folder it is given, a new one
-/// beside the program (`evict::make_temp_dir`), so that the rename stays on one volume. Fails when
+/// beside the program (`evict::in_temp_dir`), so that the rename stays on one volume. Fails when
 /// the program there does not start, and when the new folder cannot be
 /// created or removed.
 pub fn install_with(home: &Path, download: impl FnOnce(&Path) -> Result<()>) -> Result<bool> {
@@ -105,9 +104,8 @@ pub fn install_with(home: &Path, download: impl FnOnce(&Path) -> Result<()>) -> 
     }
     let bin = bin_dir(home);
     std::fs::create_dir_all(&bin).context(|| format!("creating {}", bin.display()))?;
-    let part = crate::evict::make_temp_dir(&bin, ".cargo-nextest.")?;
-    let placed = (|| -> Result<()> {
-        download(&part)?;
+    crate::evict::in_temp_dir(&bin, ".cargo-nextest.", |part| {
+        download(part)?;
         let program = part.join("cargo-nextest");
         if !program.exists() {
             fail!("the cargo-nextest {VERSION} download held no cargo-nextest program");
@@ -115,41 +113,23 @@ pub fn install_with(home: &Path, download: impl FnOnce(&Path) -> Result<()>) -> 
         let target = bin.join("cargo-nextest");
         std::fs::rename(&program, &target).context(|| format!("replacing {}", target.display()))?;
         match has(home) {
-            Has::Version(version) if version == VERSION => Ok(()),
+            Has::Version(version) if version == VERSION => Ok(true),
             other => fail!(
                 "{} is {other:?} after installing {VERSION}",
                 target.display()
             ),
         }
-    })();
-    let removed = std::fs::remove_dir_all(&part).context(|| format!("removing {}", part.display()));
-    match (placed, removed) {
-        (Ok(()), Ok(())) => Ok(true),
-        (Err(error), Ok(())) | (Ok(()), Err(error)) => Err(error),
-        (Err(error), Err(also)) => fail!("{}; {}", error.text(), also.text()),
-    }
+    })
 }
 
 /// Downloads the release's universal macOS build of cargo-nextest into
 /// <dir>.
 fn download(dir: &Path) -> Result<()> {
-    let script = format!(
-        "curl -fsSL https://get.nexte.st/{VERSION}/mac | tar xzf - -C {}",
-        sh_quote(&dir.to_string_lossy())
-    );
-    let output = Command::new("sh")
-        .args(["-c", &script])
-        .stdin(Stdio::null())
-        .output()
-        .context(|| "running curl and tar".to_string())?;
-    if !output.status.success() {
-        fail!(
-            "downloading cargo-nextest {VERSION} failed ({}): {}",
-            output.status,
-            String::from_utf8_lossy(&output.stderr).trim()
-        );
-    }
-    Ok(())
+    crate::download::unpack_tarball(
+        &format!("https://get.nexte.st/{VERSION}/mac"),
+        dir,
+        &format!("cargo-nextest {VERSION}"),
+    )
 }
 
 /// Installs cargo-nextest `VERSION` under <home> (`install_with`), saying so

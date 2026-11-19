@@ -14,7 +14,6 @@ use std::process::{Command, Stdio};
 
 use crate::fail;
 use crate::fail::{Context, Result};
-use crate::host::sh_quote;
 use crate::places::Places;
 use crate::text::note;
 
@@ -193,9 +192,8 @@ fn missing(home: &Path, wanted: &[String]) -> Result<Vec<String>> {
 /// <download> fills and that is removed afterwards.
 fn install_elan(home: &Path, download: impl FnOnce(&Path) -> Result<()>) -> Result<()> {
     std::fs::create_dir_all(home).context(|| format!("creating {}", home.display()))?;
-    let part = crate::evict::make_temp_dir(home, ".elan-init.")?;
-    let installed = (|| -> Result<()> {
-        download(&part)?;
+    crate::evict::in_temp_dir(home, ".elan-init.", |part| {
+        download(part)?;
         let installer = part.join("elan-init");
         let status = elan_command(home, &installer)
             .args(["-y", "--no-modify-path", "--default-toolchain", "none"])
@@ -213,40 +211,20 @@ fn install_elan(home: &Path, download: impl FnOnce(&Path) -> Result<()>) -> Resu
             );
         }
         Ok(())
-    })();
-    let removed = std::fs::remove_dir_all(&part).context(|| format!("removing {}", part.display()));
-    match (installed, removed) {
-        (Ok(()), Ok(())) => Ok(()),
-        (Err(error), Ok(())) | (Ok(()), Err(error)) => Err(error),
-        (Err(error), Err(also)) => fail!("{}; {}", error.text(), also.text()),
-    }
+    })
 }
 
 /// Downloads elan `ELAN_VERSION`'s installer for this Mac's processor into
 /// <dir>.
 fn download_elan(dir: &Path) -> Result<()> {
-    let url = format!(
-        "https://github.com/leanprover/elan/releases/download/v{ELAN_VERSION}/elan-{}-apple-darwin.tar.gz",
-        std::env::consts::ARCH
-    );
-    let script = format!(
-        "curl -fsSL {} | tar xzf - -C {}",
-        sh_quote(&url),
-        sh_quote(&dir.to_string_lossy())
-    );
-    let output = Command::new("sh")
-        .args(["-c", &script])
-        .stdin(Stdio::null())
-        .output()
-        .context(|| "running curl and tar".to_string())?;
-    if !output.status.success() {
-        fail!(
-            "downloading elan {ELAN_VERSION} failed ({}): {}",
-            output.status,
-            String::from_utf8_lossy(&output.stderr).trim()
-        );
-    }
-    Ok(())
+    crate::download::unpack_tarball(
+        &format!(
+            "https://github.com/leanprover/elan/releases/download/v{ELAN_VERSION}/elan-{}-apple-darwin.tar.gz",
+            std::env::consts::ARCH
+        ),
+        dir,
+        &format!("elan {ELAN_VERSION}"),
+    )
 }
 
 #[cfg(test)]

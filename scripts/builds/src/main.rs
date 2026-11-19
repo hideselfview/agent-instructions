@@ -32,6 +32,7 @@ mod design_publish;
 mod design_render;
 mod design_system_artifact;
 mod design_system_assets;
+mod download;
 mod evict;
 mod fail;
 mod flock;

@@ -246,6 +246,25 @@ pub fn make_temp_dir(dir: &Path, prefix: &str) -> Result<PathBuf> {
     )))
 }
 
+/// Makes a new folder in <dir> named <prefix> and eight random characters
+/// (`make_temp_dir`), runs <work> with it and then removes it, whatever
+/// <work> returned. Fails with <work>'s error, the removal's, or both.
+pub fn in_temp_dir<T>(
+    dir: &Path,
+    prefix: &str,
+    work: impl FnOnce(&Path) -> Result<T>,
+) -> Result<T> {
+    let folder = make_temp_dir(dir, prefix)?;
+    let worked = work(&folder);
+    let removed =
+        std::fs::remove_dir_all(&folder).context(|| format!("removing {}", folder.display()));
+    match (worked, removed) {
+        (Ok(value), Ok(())) => Ok(value),
+        (Err(error), Ok(())) | (Ok(_), Err(error)) => Err(error),
+        (Err(error), Err(also)) => fail!("{}; {}", error.text(), also.text()),
+    }
+}
+
 /// Removes <slot> now (warning, and leaving it, when it cannot be finished), or starts `rm -rf` on it in a session of its own, so
 /// it finishes after this process and its terminal are gone.
 pub fn remove(slot: &Path, removal: Removal) -> Result<bool> {
