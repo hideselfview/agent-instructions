@@ -696,6 +696,9 @@ pub struct Claimed {
     pub git: GitRead,
     /// Do its commits wait on the person's review of a design change?
     pub awaiting_review: bool,
+    /// What blocks its branch from landing, from the review records; None
+    /// when health did not read them (nothing waits to land there).
+    pub landing: Option<Advice>,
 }
 
 /// A side worktree with no claim that holds commits missing from origin/main:
@@ -835,6 +838,7 @@ pub fn assess(
         branch,
         git,
         awaiting_review,
+        landing,
     } in claimed
     {
         let building: Vec<BuildProcess> = machine
@@ -900,15 +904,22 @@ pub fn assess(
             && in_line.is_empty()
             && idle_minutes.is_none_or(|m| m >= QUIET_MINUTES);
         if stalled {
+            let quiet = format!(
+                "worktree: {label} ({}) has had no change for {} and no build runs there",
+                claim.who,
+                idle_minutes
+                    .map(|m| format!("{m}m"))
+                    .unwrap_or_else(|| "as long as git can tell".to_string())
+            );
             findings.push(Finding::new(
                 FindingKind::Quiet,
-                Advice::said(format!(
-                    "worktree: {label} ({}) has had no change for {} and no build runs there",
-                    claim.who,
-                    idle_minutes
-                        .map(|m| format!("{m}m"))
-                        .unwrap_or_else(|| "as long as git can tell".to_string())
-                )),
+                match landing {
+                    Some(Advice { text, command }) => Advice {
+                        text: format!("{quiet}; {text}"),
+                        command,
+                    },
+                    None => Advice::said(quiet),
+                },
             ));
         }
         worktrees.push(WorktreeHealth {
@@ -1072,6 +1083,10 @@ pub fn lists_findings(
     let reviewing = crate::lists::held::awaiting_review(loaded, worktrees, designs);
     for one in claimed.iter_mut() {
         one.awaiting_review = reviewing.contains(&places[one.place].label);
+        one.landing = worktrees
+            .iter()
+            .find(|worktree| worktree.label == places[one.place].label)
+            .and_then(|worktree| worktree.landing(places_in, loaded));
     }
     let mut lists = crate::lists::running::findings(integrity, loaded)?;
     lists.extend(crate::lists::kept_work::findings(loaded)?);
@@ -1157,6 +1172,7 @@ pub fn health(tool: &Tool) -> Result<Health> {
             branch: checkout.branch()?,
             git,
             awaiting_review: false,
+            landing: None,
         });
     }
     let lists = lists_findings(
@@ -1787,6 +1803,7 @@ mod tests {
                 last_write: Some(now - 3 * 3600),
             }),
             awaiting_review: n == 3,
+            landing: None,
         };
         let health = assess(
             now,
@@ -1818,6 +1835,95 @@ mod tests {
                 .collect::<Vec<_>>(),
             [true, false, false],
             "the dashboard shows the finding's worktree, and only it, as stalled"
+        );
+    }
+
+    /// An idle claim's finding says what blocks its branch from landing, and
+    /// suggests the landing command when nothing does.
+    #[test]
+    fn an_idle_claims_finding_says_what_blocks_its_landing() {
+        let now = 1_800_000_000;
+        let machine = Machine {
+            at: now,
+            load: [1.0; 3],
+            cores: 8,
+            builds: Vec::new(),
+            remote_runs: Vec::new(),
+            app_builds: Vec::new(),
+            unread: Vec::new(),
+            commits: Default::default(),
+            sccache: SccacheHealth {
+                server: SccacheServer::Read {
+                    executed: 1,
+                    compared: None,
+                },
+                waiting: Vec::new(),
+            },
+            shells: Shells::default(),
+            locks: Vec::new(),
+            queues: Vec::new(),
+        };
+        let place = |n: usize| Place {
+            label: format!("demo/side-{n}"),
+            repo: "demo".to_string(),
+            top: PathBuf::from(format!("/demo-worktrees/side-{n}")),
+            root: PathBuf::from(format!("/volume/demo/side-{n}")),
+        };
+        let claimed = |n: usize, landing: Advice| Claimed {
+            place: n - 1,
+            claim: Claim {
+                who: format!("agent {n}"),
+                since: now - 70 * 24 * 3600,
+                note: None,
+            },
+            branch: Some("work".to_string()),
+            git: Ok(SideRead {
+                head: None,
+                ahead: Vec::new(),
+                main: "0".repeat(40),
+                uncommitted: 3,
+                last_write: Some(now - 3 * 3600),
+            }),
+            awaiting_review: false,
+            landing: Some(landing),
+        };
+        let health = assess(
+            now,
+            DiskSpace {
+                free_kib: 100 << 20,
+                floor_kib: 30 << 20,
+                hard_floor_kib: 10 << 20,
+            },
+            machine,
+            &[place(1), place(2)],
+            vec![
+                claimed(
+                    1,
+                    Advice::run(
+                        "nothing blocks landing: run".to_string(),
+                        "builds land /demo-worktrees/side-1 --done 7 abc".to_string(),
+                    ),
+                ),
+                claimed(
+                    2,
+                    Advice::said("its branch cannot land yet: finding 5 is open".to_string()),
+                ),
+            ],
+            LeftBehind::default(),
+            Vec::new(),
+        );
+        let lines: Vec<String> = health.findings.iter().map(|f| f.advice.line()).collect();
+        assert_eq!(lines.len(), 2, "{lines:?}");
+        assert!(
+            lines[0].ends_with(
+                "no build runs there; nothing blocks landing: run `builds land /demo-worktrees/side-1 --done 7 abc`"
+            ),
+            "{lines:?}"
+        );
+        assert!(
+            lines[1]
+                .ends_with("no build runs there; its branch cannot land yet: finding 5 is open"),
+            "{lines:?}"
         );
     }
 
@@ -1893,6 +1999,7 @@ mod tests {
                     branch: Some("work".to_string()),
                     git: git(ahead, claimed_unread),
                     awaiting_review: false,
+                    landing: None,
                 })
                 .collect();
             let left = LeftBehind {
@@ -1992,6 +2099,7 @@ mod tests {
                 last_write: Some(now - changed_ago),
             }),
             awaiting_review: false,
+            landing: None,
         };
         assess(
             now,
@@ -2077,6 +2185,7 @@ mod tests {
                 last_write: Some(now - 2 * 3600),
             }),
             awaiting_review: false,
+            landing: None,
         };
         let health = assess(
             now,
@@ -2157,6 +2266,7 @@ mod tests {
                     last_write: Some(now - 2 * 3600),
                 }),
                 awaiting_review: false,
+                landing: None,
             };
             assess(
                 now,
@@ -2253,6 +2363,7 @@ mod tests {
                     last_write: None,
                 }),
                 awaiting_review: false,
+                landing: None,
             };
             assess(
                 now,

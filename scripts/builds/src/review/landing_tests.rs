@@ -800,3 +800,108 @@ fn a_confirmed_finding_the_person_allowed_blocks_no_landing() {
         "{shown}"
     );
 }
+
+/// What `builds health` says of the branch in <side>, whose commits are
+/// <shas>, as the clauses of `blockers` and as the advice `idle::advice` gives.
+fn idle_says(
+    demo: &Demo,
+    fake: &Fake,
+    side: &Path,
+    shas: &[String],
+) -> (Vec<String>, crate::health::Advice) {
+    let (verdict, _) = verdict_of(demo, fake, side, shas);
+    let lists = demo.store.load().unwrap();
+    let advice = crate::review::idle::advice(
+        &demo.tool.places,
+        &lists,
+        side,
+        "demo",
+        &shas.iter().rev().cloned().collect::<Vec<_>>(),
+        &fake.root,
+    )
+    .unwrap()
+    .unwrap();
+    (blockers(&verdict), advice)
+}
+
+#[test]
+fn an_idle_branch_with_an_open_finding_names_the_finding_and_who_acts() {
+    let (demo, fake, side, first, second, finding) = confirmed_on_the_second_commit("idle-open");
+    let shas = [first, second];
+    let (blocked, advice) = idle_says(&demo, &fake, &side, &shas);
+    assert_eq!(
+        blocked,
+        [format!(
+            "finding {finding} is confirmed and open: its agent must fix it, or the person must allow it"
+        )]
+    );
+    assert!(advice.command.is_none(), "{advice:?}");
+    assert!(
+        advice.text.contains(&blocked[0]) && !advice.text.contains("nothing blocks landing"),
+        "{advice:?}"
+    );
+}
+
+#[test]
+fn an_idle_branch_with_an_unsettled_finding_waits_for_the_judge() {
+    let demo = demo("idle-unsettled");
+    let fake = fake(&demo.scratch.dir);
+    let side = demo.add_side(1, "agent", "work");
+    let a = commit_text(&side, "a.rs", "gallery_count\n", "Add a");
+    alpha_finds(&fake, &[("a.rs", "gallery_count")]);
+    review_of(&demo, &fake, &side);
+    let finding = findings(&demo)[0].id;
+    let (blocked, _) = idle_says(&demo, &fake, &side, &[a]);
+    assert_eq!(
+        blocked,
+        [format!(
+            "finding {finding} waits for the judge to settle it (the coordinator when no judge listens)"
+        )]
+    );
+}
+
+#[test]
+fn an_idle_branch_changed_since_its_review_names_the_unread_paths() {
+    let (demo, fake, side, first, second, _) = confirmed_on_the_second_commit("idle-unread");
+    let third = commit_text(&side, "a.rs", "keep\ngallery_count\nmore\n", "Add more");
+    let (blocked, _) = idle_says(&demo, &fake, &side, &[first, second, third]);
+    assert!(
+        blocked
+            .iter()
+            .any(|clause| clause.starts_with("no review has read the changes to a.rs")),
+        "{blocked:?}"
+    );
+}
+
+#[test]
+fn an_idle_branch_whose_confirmed_finding_was_settled_dropped_blocks_nothing() {
+    let (demo, fake, side, first, second, finding) =
+        confirmed_on_the_second_commit("idle-settled-dropped");
+    let stamp = stamp();
+    demo.store
+        .write(&stamp, "settle again", |db| {
+            record::settle_again(db, finding, "the count is used", stamp.at, "tester")
+        })
+        .unwrap();
+    let shas = [first, second.clone()];
+    let (blocked, advice) = idle_says(&demo, &fake, &side, &shas);
+    assert!(blocked.is_empty(), "{blocked:?}");
+    assert_eq!(advice.text, "nothing blocks landing: run");
+    assert_eq!(
+        advice.command.as_deref(),
+        Some(format!("builds land {} {} {second}", side.display(), shas[0]).as_str())
+    );
+}
+
+#[test]
+fn an_idle_branch_with_no_review_open_says_its_agent_must_review() {
+    let demo = demo("idle-no-run");
+    let fake = fake(&demo.scratch.dir);
+    let side = demo.add_side(1, "agent", "work");
+    let a = demo.commit(&side, "a.rs");
+    let (blocked, _) = idle_says(&demo, &fake, &side, &[a]);
+    assert_eq!(
+        blocked,
+        ["no review of the branch is open: its agent must run builds review"]
+    );
+}

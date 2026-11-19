@@ -1683,6 +1683,7 @@ fn claimed_of(
             branch: branch.clone(),
             git: git.clone(),
             awaiting_review: false,
+            landing: None,
         });
     }
     Ok((claimed, held))

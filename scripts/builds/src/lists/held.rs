@@ -205,6 +205,39 @@ impl Worktree {
             && nothing_runs
     }
 
+    /// What blocks its branch from landing, read from the review records
+    /// (`review::idle::advice`): None for a held worktree, an app checkout,
+    /// one with no commits that origin/main lacks, and one whose lists
+    /// `findings` already names as unreadable.
+    pub fn landing(
+        &self,
+        places: &Places,
+        loaded: &std::result::Result<Vec<Loaded>, String>,
+    ) -> Option<Advice> {
+        if self.app_checkout || self.claim.is_held() {
+            return None;
+        }
+        let ahead: Vec<String> = self
+            .git
+            .as_ref()
+            .ok()?
+            .ahead
+            .iter()
+            .map(|commit| commit.full.clone())
+            .collect();
+        let lists = self.lists(loaded).ok()??;
+        let advice = crate::review::default_rules_root().and_then(|root| {
+            crate::review::idle::advice(places, lists, &self.top, &self.repo, &ahead, &root)
+        });
+        match advice {
+            Ok(advice) => advice,
+            Err(fault) => Some(Advice::said(format!(
+                "builds cannot tell what blocks its branch from landing: {}",
+                fault.text()
+            ))),
+        }
+    }
+
     /// The lists of the project its work is in (`store::lists_of`).
     fn lists<'a>(
         &self,

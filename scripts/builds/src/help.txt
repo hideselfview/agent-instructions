@@ -1743,7 +1743,10 @@ STATUS, HEALTH AND THE DASHBOARD
                               any project runs in or keeps (`builds
                               new <repo> --resume <branch>`);
                               a claimed worktree with no change and no build
-                              for an hour (counted from its claim, if later); a lists store that fails its check;
+                              for an hour (counted from its claim, if later;
+                              the line says what blocks its branch from landing,
+                              read from the review records, or gives the
+                              `builds land` command when nothing does); a lists store that fails its check;
                               a running item whose worktree is gone or has no
                               claim; a held worktree whose wait closed; an
                               item that keeps a worktree with every wait met

@@ -431,6 +431,46 @@ pub fn refusal(needs: &[Need], verdict: &Verdict) -> Option<String> {
     Some(text)
 }
 
+/// What keeps the commits of <verdict> from landing, one clause each, naming
+/// who acts: empty when nothing blocks them. `builds health` says these of an
+/// idle worktree, from the same records `refusal` reads.
+pub fn blockers(verdict: &Verdict) -> Vec<String> {
+    let unfinished = match verdict {
+        Verdict::NotNeeded | Verdict::Takes(_) => return Vec::new(),
+        Verdict::NoRun => {
+            return vec![
+                "no review of the branch is open: its agent must run builds review".to_string(),
+            ];
+        }
+        Verdict::Unfinished(_, unfinished) => unfinished,
+    };
+    let mut found = Vec::new();
+    for group in &unfinished.unanswered {
+        found.push(format!(
+            "group {group} gave no answer over a diff the review read: its agent must run builds review"
+        ));
+    }
+    if !unfinished.unreviewed.is_empty() {
+        found.push(format!(
+            "no review has read the changes to {}: its agent must run builds review",
+            unfinished.unreviewed.join(", ")
+        ));
+    }
+    for finding in &unfinished.unsettled {
+        found.push(format!(
+            "finding {} waits for the judge to settle it (the coordinator when no judge listens)",
+            finding.id
+        ));
+    }
+    for finding in &unfinished.open {
+        found.push(format!(
+            "finding {} is confirmed and open: its agent must fix it, or the person must allow it",
+            finding.id
+        ));
+    }
+    found
+}
+
 /// What both commands read: the store with its database open for reading,
 /// the change's repo and key, and the commits with the groups each needs.
 struct Asked {
