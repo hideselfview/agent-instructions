@@ -603,7 +603,17 @@ fn install_on_hosts(
 ) -> Result<()> {
     let hosts = crate::host::read_remote(places)?;
     let installed = crate::checkout::parallel_map(&hosts, |host| {
-        crate::host_setup::install_on_host(places, ssh, host, programs)
+        let target = host
+            .target
+            .as_deref()
+            .expect("a recorded host has a target");
+        let os = crate::host::probe_target(ssh, target)
+            .map_err(crate::fail::Fail::Message)?
+            .platform
+            .os;
+        crate::host_setup::install_on_host(places, ssh, host, os, || {
+            Programs::beside(programs.builds.clone())
+        })
     });
     let mut failed = Vec::new();
     for (host, result) in hosts.iter().zip(installed) {

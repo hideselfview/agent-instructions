@@ -114,6 +114,13 @@ pub fn built_tools(top: &Path) -> Result<Vec<BuiltTool>> {
     Ok(parse(top)?.tools)
 }
 
+/// The Debian packages the `linux-package` lines of <top>'s manifest name,
+/// in its order: what the repo's builds need on a Linux host beyond what
+/// builds itself installs there (host_linux.rs); none without one.
+pub fn linux_packages(top: &Path) -> Result<Vec<String>> {
+    Ok(parse(top)?.linux_packages)
+}
+
 /// What a manifest's lines say, in its order.
 struct Manifest {
     dirs: Vec<BuildDir>,
@@ -121,6 +128,7 @@ struct Manifest {
     installed: Vec<Installed>,
     prepare: Vec<String>,
     tools: Vec<BuiltTool>,
+    linux_packages: Vec<String>,
 }
 
 /// Does relative <path> lead out of the folder it is relative to?
@@ -136,6 +144,7 @@ fn parse(top: &Path) -> Result<Manifest> {
         installed: Vec::new(),
         prepare: Vec::new(),
         tools: Vec::new(),
+        linux_packages: Vec::new(),
     };
     let text = match std::fs::read_to_string(&file) {
         Ok(text) => text,
@@ -159,6 +168,17 @@ fn parse(top: &Path) -> Result<Manifest> {
                 );
             }
             manifest.kept.push(kept_path.to_string());
+            continue;
+        }
+        if path == "linux-package" {
+            let names: Vec<String> = fields.map(str::to_string).collect();
+            if names.is_empty() {
+                fail!(
+                    "{}: '{path}' takes one or more package names, got '{line}'",
+                    file.display()
+                );
+            }
+            manifest.linux_packages.extend(names);
             continue;
         }
         if path == "prepare" {
@@ -471,6 +491,29 @@ mod tests {
             std::fs::write(dir.join(MANIFEST), bad).unwrap();
             assert!(build_dirs(&dir).is_err(), "{bad} passed");
         }
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn linux_package_lines_name_what_a_linux_host_installs() {
+        let dir =
+            std::env::temp_dir().join(format!("builds-manifest-packages-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join(MANIFEST),
+            "target 30G\nlinux-package clang nasm\nlinux-package libasound2-dev\n",
+        )
+        .unwrap();
+        assert_eq!(
+            linux_packages(&dir).unwrap(),
+            ["clang", "nasm", "libasound2-dev"]
+        );
+        assert_eq!(build_dirs(&dir).unwrap().len(), 1);
+        std::fs::write(dir.join(MANIFEST), "linux-package\n").unwrap();
+        assert!(
+            linux_packages(&dir).is_err(),
+            "a line with no package passed"
+        );
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

@@ -211,7 +211,7 @@ pub fn findings(refusals: &[Refusal], reads: &[HostInstalled]) -> Vec<Advice> {
         .filter(|refusal| refusal.refused == Refused::UiAutomation)
         .map(|refusal| refusal.host.as_str())
         .chain(reads.iter().filter_map(|read| {
-            let settings = &read.read.as_ref().ok()?.ui_tests;
+            let settings = &read.read.as_ref().ok()?.mac.as_ref()?.ui_tests;
             (!settings.missing.is_empty()).then_some(read.host.as_str())
         }))
         .collect();
@@ -226,8 +226,8 @@ pub fn findings(refusals: &[Refusal], reads: &[HostInstalled]) -> Vec<Advice> {
             let settings = reads
                 .iter()
                 .find(|read| read.host == name)
-                .and_then(|read| read.read.as_ref().ok())
-                .map(|installed| &installed.ui_tests);
+                .and_then(|read| read.read.as_ref().ok()?.mac.as_ref())
+                .map(|mac| &mac.ui_tests);
             finding(name, refusal, settings)
         })
         .collect()

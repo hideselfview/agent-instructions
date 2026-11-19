@@ -80,22 +80,26 @@ fn reads_what_a_host_has_installed() {
         parse_installed(&answer("ab12", "present", "2914", Some(RUNNING))).unwrap(),
         Installed {
             builds: Some("ab12".to_string()),
-            shots: Some("cd34".to_string()),
+            mac: Some(crate::host_installed::MacInstalled {
+                shots: Some("cd34".to_string()),
+                ui_tests: all_on()
+            }),
             sccache_served: true,
             sccache_cap: true,
             sccache_running_cap: Some(cap_bytes()),
-            ui_tests: all_on(),
         }
     );
     assert_eq!(
         parse_installed(&answer("missing", "present", "", None)).unwrap(),
         Installed {
             builds: None,
-            shots: Some("cd34".to_string()),
+            mac: Some(crate::host_installed::MacInstalled {
+                shots: Some("cd34".to_string()),
+                ui_tests: all_on()
+            }),
             sccache_served: false,
             sccache_cap: true,
             sccache_running_cap: None,
-            ui_tests: all_on(),
         }
     );
     assert!(parse_installed(&answer("", "present", "", None)).is_err());
@@ -108,6 +112,8 @@ fn reads_what_a_host_has_installed() {
         parse_installed(
             &answer("ab12", "present", "", None).replace("shots=cd34", "shots=missing")
         )
+        .unwrap()
+        .mac
         .unwrap()
         .shots,
         None
@@ -158,7 +164,7 @@ fn a_host_whose_builds_is_not_this_macs_is_a_finding() {
     let ssh = fake_ssh(&scratch.dir.join("bin"), &home);
     let mine = places.home.join(".local/bin/builds");
     std::fs::create_dir_all(mine.parent().unwrap()).unwrap();
-    std::fs::copy(std::env::current_exe().unwrap(), &mine).unwrap();
+    std::fs::copy(&scratch.programs().builds, &mine).unwrap();
     std::fs::write(mine.with_file_name("builds-shots"), "shots").unwrap();
     let m1 = host("m1");
     let gone = Host {
@@ -232,11 +238,13 @@ fn a_host_whose_builds_is_not_this_macs_is_a_finding() {
 fn a_host_whose_sccache_runs_outside_launchd_is_a_finding() {
     let installed = |sccache_under_launchd| Installed {
         builds: Some("ab12".to_string()),
-        shots: Some("cd34".to_string()),
+        mac: Some(crate::host_installed::MacInstalled {
+            shots: Some("cd34".to_string()),
+            ui_tests: all_on(),
+        }),
         sccache_served: sccache_under_launchd,
         sccache_cap: true,
         sccache_running_cap: Some(cap_bytes()),
-        ui_tests: all_on(),
     };
     let read = |host: &str, under: bool| HostInstalled {
         host: host.to_string(),
@@ -295,11 +303,13 @@ fn a_host_whose_sccache_config_does_not_hold_builds_cap_is_a_finding() {
         host: host.to_string(),
         read: Ok(Installed {
             builds: Some("ab12".to_string()),
-            shots: Some("cd34".to_string()),
+            mac: Some(crate::host_installed::MacInstalled {
+                shots: Some("cd34".to_string()),
+                ui_tests: all_on(),
+            }),
             sccache_served: true,
             sccache_cap,
             sccache_running_cap: Some(cap_bytes()),
-            ui_tests: all_on(),
         }),
     };
     assert_eq!(
@@ -360,11 +370,13 @@ fn a_server_whose_running_cap_differs_from_its_config_is_a_finding() {
         host: host.to_string(),
         read: Ok(Installed {
             builds: Some("ab12".to_string()),
-            shots: Some("cd34".to_string()),
+            mac: Some(crate::host_installed::MacInstalled {
+                shots: Some("cd34".to_string()),
+                ui_tests: all_on(),
+            }),
             sccache_served: true,
             sccache_cap: true,
             sccache_running_cap: running,
-            ui_tests: all_on(),
         }),
     };
     assert_eq!(
@@ -391,4 +403,25 @@ fn a_server_whose_running_cap_differs_from_its_config_is_a_finding() {
         "{shown:?}"
     );
     assert_eq!(shown[1].1, Some("builds host setup m1"));
+}
+
+/// A Linux host says nothing of builds-shots or the settings UI tests need,
+/// and its sccache server's job is systemd's.
+#[test]
+fn reads_what_a_linux_host_has_installed() {
+    let said = format!(
+        "os=Linux\narch=x86_64\nbuilds=builds ab12\njob_file=present\n{config}listener_status=0\nlistener=p812\nlistener=R700\nlistener=csccache\nlistener=f5\nlistener_said=\n{stats}job=loaded\nLoadState=loaded\nSubState=running\nMainPID=812\nExecMainStatus=0\n",
+        config = config_lines(crate::install::sccache_cap_kib()),
+        stats = stats_line(cap_bytes()),
+    );
+    assert_eq!(
+        parse_installed(&said).unwrap(),
+        Installed {
+            builds: Some("builds ab12".to_string()),
+            mac: None,
+            sccache_served: true,
+            sccache_cap: true,
+            sccache_running_cap: Some(cap_bytes()),
+        }
+    );
 }

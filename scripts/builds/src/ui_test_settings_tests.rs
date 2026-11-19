@@ -249,11 +249,13 @@ fn installed(name: &str, ui_tests: UiTestSettings) -> HostInstalled {
         host: name.to_string(),
         read: Ok(Installed {
             builds: Some("ab12".to_string()),
-            shots: Some("cd34".to_string()),
+            mac: Some(crate::host_installed::MacInstalled {
+                shots: Some("cd34".to_string()),
+                ui_tests,
+            }),
             sccache_served: true,
             sccache_cap: true,
             sccache_running_cap: None,
-            ui_tests,
         }),
     }
 }

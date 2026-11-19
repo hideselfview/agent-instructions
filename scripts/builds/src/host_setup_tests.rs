@@ -33,7 +33,7 @@ fn install_program_copies_both_programs_to_the_host_and_makes_its_root() {
     let installed = crate::links::path(&home, "builds");
     assert_eq!(
         std::fs::read(&installed).unwrap(),
-        std::fs::read(std::env::current_exe().unwrap()).unwrap()
+        std::fs::read(&programs.builds).unwrap()
     );
     assert_eq!(
         std::fs::read_to_string(crate::links::path(&home, "builds-shots")).unwrap(),

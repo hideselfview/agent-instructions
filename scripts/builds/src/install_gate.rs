@@ -71,7 +71,15 @@ pub const VARIABLE: &str = "BUILDS_USE";
 /// gates and moves the stores, the dashboard, which install restarts, the
 /// help, and `agent`, which registers an agent outside the stores
 /// (ack/agent.rs).
-pub const STORELESS: [&str; 6] = ["install", "dashboard", "help", "-h", "--help", "agent"];
+pub const STORELESS: [&str; 7] = [
+    "install",
+    "dashboard",
+    "help",
+    "-h",
+    "--help",
+    "agent",
+    "version",
+];
 
 /// Runs the program at this program's path with this process's arguments in
 /// its place; returns only when it cannot, with the error that says why.

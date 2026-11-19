@@ -1232,11 +1232,14 @@ const USAGE: &str = "usage: builds host add <name> <ssh target> | setup <name> |
 /// Mac does.
 pub const VOLUME: &str = "/Volumes/Builds";
 
-/// The builds root on a remote host without a build volume, relative to the
+/// The builds root on a Mac host without a build volume, relative to the
 /// host's home: each worktree's build folders live in `<root>/<repo>/<name>`
 /// there, as a side worktree's live under /Volumes/Builds here. Spotlight
 /// skips a folder whose name ends in `.noindex` (spotlight.rs).
 pub const REMOTE_ROOT: &str = "builds-root.noindex";
+
+/// The builds root on a Linux host, relative to the host's home.
+pub const LINUX_ROOT: &str = "builds-root";
 
 pub fn cmd_host(tool: &Tool, ssh: &Ssh, args: &[String]) -> Result<()> {
     match args {

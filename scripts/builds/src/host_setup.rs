@@ -1,8 +1,11 @@
-//! Setting a host up to take jobs (`builds host setup`): copying this Mac's
-//! `builds` and `builds-shots` programs there, running the host's sccache server under launchd,
-//! measuring the speed of its cores against this Mac's, turning on the
-//! settings that UI tests need there (ui_test_settings.rs), and turning off
-//! Spotlight's indexing of its build volume (spotlight.rs).
+//! Setting a host up to take jobs (`builds host setup`): putting builds
+//! there (a Mac gets this Mac's `builds` and `builds-shots` programs; a Linux
+//! host first gets what its builds need and then builds builds from this
+//! program's sources, host_linux.rs), running the host's sccache server under
+//! its service manager, measuring the speed of its cores against this Mac's,
+//! and on a Mac turning on the settings that UI tests need there
+//! (ui_test_settings.rs) and turning off Spotlight's indexing of its build
+//! volume (spotlight.rs).
 
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
@@ -10,6 +13,7 @@ use std::process::Stdio;
 use crate::fail;
 use crate::fail::{Context, Result};
 use crate::host::{self, Host, LOCAL, Ssh, sh_quote};
+use crate::host_platform::Os;
 use crate::install::Programs;
 use crate::places::Places;
 use crate::tool::Tool;
@@ -24,12 +28,26 @@ pub struct SetUp {
     pub speed: f64,
 }
 
-/// Sets <host> up to take jobs: installs this program there
+/// Sets <host>, which runs <os>, up to take jobs: on Linux installs what
+/// its builds need first (`host_linux::prepare`, whose sudo steps need a
+/// person at this terminal, <at_terminal>), installs this program there
 /// (`install_on_host`) and records the host's core speed against this Mac's
 /// (`core_speed`) in the hosts file, timing the same compile there with
 /// `builds host speed-here` and here.
-pub fn setup_host(places: &Places, ssh: &Ssh, host: &Host) -> Result<SetUp> {
-    let (root, said) = install_on_host(places, ssh, host, &Programs::of_this()?)?;
+pub fn setup_host(
+    places: &Places,
+    ssh: &Ssh,
+    host: &Host,
+    os: Os,
+    at_terminal: bool,
+) -> Result<SetUp> {
+    let mut said = Vec::new();
+    if os == Os::Linux {
+        said = crate::host_linux::prepare(places, ssh, host, at_terminal)?;
+    }
+    let (root, installed) = install_on_host(places, ssh, host, os, Programs::of_this)?;
+    said.push(installed);
+    let said = said.join("\n");
     let printed = run_builds_there(places, ssh, host, "host speed-here", "timing a compile")?;
     let there = crate::core_speed::parse_line(&printed)?;
     let here = crate::core_speed::time_compile(&speed_folder())?;
@@ -78,19 +96,25 @@ pub fn ask_builds_there(
     crate::remote::Transport { places, ssh, host }.ask(&script, doing)
 }
 
-/// Installs <programs>, this Mac's, on <host> (`install_program`) and has
-/// that builds run `builds host setup-here` there, which writes the sccache
-/// config with builds' cap and runs the host's sccache server under launchd,
-/// as `builds install` does on this Mac. Returns the host's builds root and
-/// what setup-here said. `builds install` runs this for every host, so a
-/// change of builds' sccache cap reaches each host when it lands.
+/// Installs builds on <host>, which runs <os>: the programs <programs>
+/// gives, this Mac's, on a Mac (`install_program`), or a build of this program's sources on Linux
+/// (`host_linux::install_builds`). Then it has that builds run `builds host
+/// setup-here` there, which writes the sccache config with builds' cap and
+/// runs the host's sccache server under its service manager, as `builds
+/// install` does on this Mac. Returns the host's builds root and what
+/// setup-here said. `builds install` runs this for every host, so a change of
+/// builds' sccache cap reaches each host when it lands.
 pub fn install_on_host(
     places: &Places,
     ssh: &Ssh,
     host: &Host,
-    programs: &Programs,
+    os: Os,
+    programs: impl FnOnce() -> Result<Programs>,
 ) -> Result<(String, String)> {
-    let root = install_program(ssh, host, programs)?;
+    let root = match os {
+        Os::Mac => install_program(ssh, host, &programs()?)?,
+        Os::Linux => crate::host_linux::install_builds(ssh, host)?,
+    };
     let said = run_builds_there(places, ssh, host, "host setup-here", "setting up")?;
     Ok((root, said))
 }
@@ -105,10 +129,14 @@ pub fn install_on_host(
 /// arm64 macOS, so the same programs run on both.
 pub fn install_program(ssh: &Ssh, host: &Host, programs: &Programs) -> Result<String> {
     let shots = crate::shots_program::PROGRAM;
+    let read = |program: &Path| {
+        std::fs::read(program).context(|| format!("reading {}", program.display()))
+    };
     send(
         ssh,
         host,
-        &programs.shots,
+        shots,
+        &read(&programs.shots)?,
         &format!(
             "bin=\"$HOME/.local/bin\" && mkdir -p \"$bin\" && part=$(mktemp \"$bin/{shots}.XXXXXX\") && trap 'rm -f \"$part\"' EXIT && cat > \"$part\" && chmod 755 \"$part\" && mv \"$part\" \"$bin/{shots}\""
         ),
@@ -125,7 +153,8 @@ pub fn install_program(ssh: &Ssh, host: &Host, programs: &Programs) -> Result<St
     send(
         ssh,
         host,
-        &programs.builds,
+        "builds",
+        &read(&programs.builds)?,
         &format!(
             "{root}bin=\"$HOME/.local/bin\" && mkdir -p \"$bin\" \"$BUILDS_ROOT\" && part=$(mktemp \"$bin/builds.XXXXXX\") && links= && trap 'rm -f \"$part\" $links' EXIT && cat > \"$part\" && chmod 755 \"$part\" && mv \"$part\" \"$bin/builds\"{links} && echo \"$BUILDS_ROOT\"",
             root = crate::remote::root_script(host)
@@ -133,19 +162,13 @@ pub fn install_program(ssh: &Ssh, host: &Host, programs: &Programs) -> Result<St
     )
 }
 
-/// Runs <script> on <host> with the bytes of <program> on its stdin, and
-/// returns what it printed on stdout, trimmed.
-fn send(ssh: &Ssh, host: &Host, program: &Path, script: &str) -> Result<String> {
+/// Runs <script> on <host> with <bytes>, which hold <name>, on its stdin,
+/// and returns what it printed on stdout, trimmed.
+pub fn send(ssh: &Ssh, host: &Host, name: &str, bytes: &[u8], script: &str) -> Result<String> {
     use std::io::Write;
     let Some(target) = &host.target else {
         fail!("{LOCAL} is this Mac and already has builds");
     };
-    let name = program
-        .file_name()
-        .unwrap_or_default()
-        .to_string_lossy()
-        .into_owned();
-    let bytes = std::fs::read(program).context(|| format!("reading {}", program.display()))?;
     let mut child = ssh
         .command(
             target,
@@ -161,7 +184,7 @@ fn send(ssh: &Ssh, host: &Host, program: &Path, script: &str) -> Result<String> 
         .stdin
         .take()
         .expect("the command pipes the child's stdin");
-    let sent = stdin.write_all(&bytes);
+    let sent = stdin.write_all(bytes);
     drop(stdin);
     let output = child
         .wait_with_output()
@@ -178,12 +201,12 @@ fn send(ssh: &Ssh, host: &Host, program: &Path, script: &str) -> Result<String> 
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
 
-/// `builds host setup <name>`: runs `setup_host`, then turns on the settings
-/// that UI tests need (`ui_test_settings::set_up`) and turns off Spotlight's
-/// indexing of the build volume (`spotlight::set_up`), whose sudo commands
-/// run only when a person is at this terminal. For this Mac (`local`), the
-/// command only does the sudo steps, because `builds install` sets up
-/// everything else.
+/// `builds host setup <name>`: runs `setup_host` on the OS a probe finds
+/// there, and on a Mac then turns on the settings that UI tests need
+/// (`ui_test_settings::set_up`) and turns off Spotlight's indexing of the
+/// build volume (`spotlight::set_up`). A sudo command runs only when a person
+/// is at this terminal. For this Mac (`local`), the command only does the
+/// sudo steps, because `builds install` sets up everything else.
 pub fn cmd_setup(tool: &Tool, ssh: &Ssh, name: &str) -> Result<()> {
     use std::io::IsTerminal;
     let Some(host) = host::all(&tool.places)?
@@ -192,8 +215,16 @@ pub fn cmd_setup(tool: &Tool, ssh: &Ssh, name: &str) -> Result<()> {
     else {
         fail!("no host named {name} (`builds host list`)");
     };
+    let at_terminal = std::io::stdin().is_terminal();
+    let os = match &host.target {
+        None => Os::here(),
+        Some(target) => match host::probe_target(ssh, target) {
+            Ok(probe) => probe.platform.os,
+            Err(error) => fail!("host {name} is not reachable: {error}"),
+        },
+    };
     if host.target.is_some() {
-        let set_up = setup_host(&tool.places, ssh, &host)?;
+        let set_up = setup_host(&tool.places, ssh, &host, os, at_terminal)?;
         for line in set_up.said.lines() {
             println!("host {name}: {line}");
         }
@@ -202,11 +233,12 @@ pub fn cmd_setup(tool: &Tool, ssh: &Ssh, name: &str) -> Result<()> {
             set_up.root, set_up.speed
         );
     }
-    let at_terminal = std::io::stdin().is_terminal();
-    let said = crate::ui_test_settings::set_up(&tool.places, ssh, &host, at_terminal)?;
-    println!("host {name}: {said}");
-    let said = crate::spotlight::set_up(&tool.places, ssh, &host, at_terminal)?;
-    println!("host {name}: {said}");
+    if os == Os::Mac {
+        let said = crate::ui_test_settings::set_up(&tool.places, ssh, &host, at_terminal)?;
+        println!("host {name}: {said}");
+        let said = crate::spotlight::set_up(&tool.places, ssh, &host, at_terminal)?;
+        println!("host {name}: {said}");
+    }
     Ok(())
 }
 

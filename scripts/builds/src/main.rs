@@ -48,6 +48,7 @@ mod hook_stats;
 mod host;
 mod host_band;
 mod host_installed;
+mod host_linux;
 mod host_load;
 mod host_memory;
 mod host_sample;
@@ -268,12 +269,26 @@ fn enter_stores(command: &str, args: &[String]) -> Result<Option<install_gate::U
     }
 }
 
+/// The sources this program is built from, as a tar archive (build.rs):
+/// `builds host setup` builds them on a Linux host.
+pub const SOURCE: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/source.tar"));
+
+/// `builds <hash>`: the hash of the sources this program is built from
+/// (build.rs), the same for every OS's build of them.
+pub fn version() -> String {
+    format!("builds {}", env!("BUILDS_SOURCE"))
+}
+
 fn run(command: &str, args: &[String]) -> Result<()> {
     match command {
         // These run in the caller's environment as it is, which cargo
         // inherits; `cargo` asks git about its checkout without changing it.
         "cargo" => return cargo_run::cmd_cargo(args),
         "lake" => return lake_run::cmd_lake(args),
+        "version" => {
+            println!("{}", version());
+            return Ok(());
+        }
         "checks" => return checks_run::cmd_checks(args),
         "waits" => return waits::cmd_waits(args),
         "install-hook" => return install_hook::cmd_install_hook(args),
@@ -343,7 +358,7 @@ fn run(command: &str, args: &[String]) -> Result<()> {
         "remote" => remote::cmd_remote(&tool, &host::Ssh::from_env(), args),
         "tool" => built_tools::cmd_tool(&tool.places, &host::Ssh::from_env(), args),
         other => fail!(
-            "builds has no command {other}. Its commands are ack, agent, setup, new, land, review, judge, claim, note, release, retire, app-checkout, status, health, lists, decision, design, question, item, next, area, dashboard, host, remote, prune, tool, cargo, lake, lock, app-build, shots, queue, takeover, build-app, install, checks and install-hook."
+            "builds has no command {other}. Its commands are ack, agent, setup, new, land, review, judge, claim, note, release, retire, app-checkout, status, health, lists, decision, design, question, item, next, area, dashboard, host, remote, prune, tool, cargo, lake, lock, app-build, shots, queue, takeover, build-app, install, checks, install-hook and version."
         ),
     }
 }

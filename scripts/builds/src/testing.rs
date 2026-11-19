@@ -67,13 +67,21 @@ impl Scratch {
 
     /// The programs builds installs: this test program as builds, and a
     /// file of the words "shots" as builds-shots.
+    /// A `builds` program that says `builds test` with `builds version`, and
+    /// a `builds-shots` file, to install on a host.
     pub fn programs(&self) -> crate::install::Programs {
+        use std::os::unix::fs::PermissionsExt;
         let shots = self.dir.join(crate::shots_program::PROGRAM);
         std::fs::write(&shots, "shots").expect("the scratch folder is writable");
-        crate::install::Programs {
-            builds: std::env::current_exe().expect("the test program has a path"),
-            shots,
-        }
+        let builds = self.dir.join("builds");
+        std::fs::write(
+            &builds,
+            "#!/bin/sh\nif [ \"$1\" = version ]; then echo 'builds test'; else exit 2; fi\n",
+        )
+        .expect("the scratch folder is writable");
+        std::fs::set_permissions(&builds, std::fs::Permissions::from_mode(0o755))
+            .expect("the scratch folder is writable");
+        crate::install::Programs { builds, shots }
     }
 
     pub fn tool(&self, floor_gib: u64) -> Tool {

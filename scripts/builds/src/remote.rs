@@ -29,7 +29,7 @@ use std::time::Duration;
 use crate::checkout::Checkout;
 use crate::fail;
 use crate::fail::{Context, Fail, Result};
-use crate::host::{self, Host, REMOTE_ROOT, Ssh, VOLUME, choose, clone_path, sh_quote};
+use crate::host::{self, Host, LINUX_ROOT, REMOTE_ROOT, Ssh, VOLUME, choose, clone_path, sh_quote};
 use crate::job_claim::Holders;
 use crate::places::Places;
 use crate::setup::Prepare;
@@ -467,15 +467,20 @@ impl Transport<'_> {
 
 /// The lines that set what every command builds runs on a host needs, so the
 /// host's shell needs no setup: the builds root, and a PATH holding cargo,
-/// `builds` itself (`~/.local/bin`), Homebrew and the tools there. A host with
-/// a build volume uses it as its root, as this Mac does; a host without one
-/// keeps the root in its home. `BUILDS_VOLUME` stands in for
-/// `/Volumes/Builds` so tests can name a volume that is there or is not.
-/// On this Mac builds already runs with its root and PATH.
+/// `builds` itself (`~/.local/bin`), Homebrew and the tools there. A Mac with
+/// a build volume uses it as its root, as this Mac does; a Mac without one
+/// keeps the root in its home, in a folder Spotlight skips; a Linux host
+/// keeps it in its home (`LINUX_ROOT`), where the person can mount a disk of
+/// its own. `BUILDS_VOLUME` stands in for `/Volumes/Builds` so tests can name
+/// a volume that is there or is not. On this Mac builds already runs with its
+/// root and PATH.
 pub fn root_script(host: &Host) -> String {
     match host.target {
         Some(_) => format!(
-            r#"if [ -d "${{BUILDS_VOLUME:-{VOLUME}}}" ]; then BUILDS_ROOT="${{BUILDS_VOLUME:-{VOLUME}}}"; else BUILDS_ROOT="$HOME/{REMOTE_ROOT}"; fi
+            r#"case "$(uname -s)" in
+Darwin) if [ -d "${{BUILDS_VOLUME:-{VOLUME}}}" ]; then BUILDS_ROOT="${{BUILDS_VOLUME:-{VOLUME}}}"; else BUILDS_ROOT="$HOME/{REMOTE_ROOT}"; fi ;;
+*) BUILDS_ROOT="$HOME/{LINUX_ROOT}" ;;
+esac
 export BUILDS_ROOT
 PATH="$HOME/.cargo/bin:$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
 export PATH

@@ -64,7 +64,7 @@ cd '{home}' && HOME='{home}' BUILDS_VOLUME='{home}/no-volume' exec sh -c "$*"
     fn host_has(&self, cores: u32, load: f64, free_kib: u64) {
         std::fs::write(
             self.scratch.dir.join("probe"),
-            format!("cores={cores}\nload={load} 0 0\nfree_kib={free_kib}\nmemory_free_percent=80\nswap_used_mib=0\nmemory_pressure_level=1\nprocs=300\nmax_procs=8000\n"),
+            format!("os=Darwin\narch=arm64\ncores={cores}\nload={load} 0 0\nfree_kib={free_kib}\nmemory_free_percent=80\nswap_used_mib=0\nmemory_pressure_level=1\nprocs=300\nmax_procs=8000\n"),
         )
         .unwrap();
     }
