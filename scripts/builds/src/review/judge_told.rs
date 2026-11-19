@@ -150,7 +150,7 @@ pub fn tell_waiting(
             let line = format!(
                 "builds told the judge {} of findings {} of review landing #{landing}, which waited for a settle",
                 judge.by,
-                findings_of(&notice.matters)
+                to_settle.ids()
             );
             notices.push((notice, line));
         }
@@ -180,14 +180,6 @@ pub fn tell_waiting(
         }
     }
     Ok(lines)
-}
-
-fn findings_of(matters: &[(i64, Matter)]) -> String {
-    matters
-        .iter()
-        .map(|(id, _)| id.to_string())
-        .collect::<Vec<_>>()
-        .join(", ")
 }
 
 /// Forgets the project's judge when its session no longer runs, so that the

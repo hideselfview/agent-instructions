@@ -202,7 +202,7 @@ pub struct ToSettle {
 }
 
 impl ToSettle {
-    fn ids(&self) -> String {
+    pub(super) fn ids(&self) -> String {
         self.findings
             .iter()
             .map(i64::to_string)
@@ -243,11 +243,7 @@ impl Settler<'_> {
 
 /// Whom a message reached.
 enum Told {
-    /// The judge, named as it listened, and its session.
-    Judge {
-        by: String,
-        session: String,
-    },
+    Judge(Judge),
     Coordinator,
     /// No judge listens, and <caller> is the person or a session's main
     /// agent, which settles the findings itself: nothing was sent.
@@ -273,10 +269,7 @@ fn tell_settler(
     if let Some(judge) = listening(db, sessions)?
         && send(&judge.inbox, &message(&Settler::Judge(&judge)))? == Sent::Delivered
     {
-        return Ok(Told::Judge {
-            by: judge.by,
-            session: judge.session,
-        });
+        return Ok(Told::Judge(judge));
     }
     let Some(caller) = caller.filter(|caller| caller.is_dispatched()) else {
         return Ok(Told::Caller);
@@ -401,11 +394,7 @@ pub fn tell(
 ) -> Result<String> {
     let project = &notice.project;
     let told = tell_settler(&*store.open_existing()?, sessions, caller, own, |settler| {
-        format!(
-            "{}: {}",
-            settler.opening(project, notice.did),
-            (notice.message)(settler.by())
-        )
+        notice.text(settler)
     })?;
     let waits = format!(
         "Run `{}` as a background task: it ends once {}.\n",
@@ -414,9 +403,12 @@ pub fn tell(
     );
     let asked = &notice.asked;
     Ok(match told {
-        Told::Judge { by, session } => {
-            judge_told::record(store, stamp, &notice.matters, &session)?;
-            format!("builds told the judge of project {project} ({by}) {asked}. {waits}")
+        Told::Judge(judge) => {
+            judge_told::record(store, stamp, &notice.matters, &judge.session)?;
+            format!(
+                "builds told the judge of project {project} ({}) {asked}. {waits}",
+                judge.by
+            )
         }
         Told::Coordinator => format!(
             "No judge listens for project {project}, so builds told your coordinator {asked}. {waits}"
@@ -434,15 +426,18 @@ pub fn tell(
 
 /// Sends <notice> to <judge> alone, with no fallback to a coordinator.
 pub(super) fn tell_judge(judge: &Judge, notice: &Notice) -> Result<Sent> {
-    let settler = Settler::Judge(judge);
-    send(
-        &judge.inbox,
-        &format!(
+    send(&judge.inbox, &notice.text(&Settler::Judge(judge)))
+}
+
+impl Notice {
+    /// The message to <settler>: the opening, then the notice's words.
+    fn text(&self, settler: &Settler) -> String {
+        format!(
             "{}: {}",
-            settler.opening(&notice.project, notice.did),
-            (notice.message)(settler.by())
-        ),
-    )
+            settler.opening(&self.project, self.did),
+            (self.message)(settler.by())
+        )
+    }
 }
 
 /// The command that waits for the settles of review landing <landing> of
