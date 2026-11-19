@@ -1,4 +1,5 @@
 use super::*;
+use crate::step_failure::StepFailure;
 
 fn run(kind: StepKind, name: &str, passed: bool, state: &str) -> Attempt {
     Attempt {
@@ -7,8 +8,7 @@ fn run(kind: StepKind, name: &str, passed: bool, state: &str) -> Attempt {
         at: 0,
         passed,
         state: Some(state.into()),
-        failed: Vec::new(),
-        cause: None,
+        said: None,
     }
 }
 
@@ -39,9 +39,9 @@ fn a_failed_run_is_fixed_flaky_or_standing_by_the_next_pass_of_the_same_step() {
 #[test]
 fn the_text_counts_each_kind_the_names_that_failed_and_each_groups_findings() {
     let mut failing = run(StepKind::Cargo, "cargo nextest run", false, "a");
-    failing.failed = vec!["a::one".into()];
+    failing.said = Some(StepFailure::new(None, ["a::one".to_string()]));
     let mut check = run(StepKind::Hook, "rustfmt", false, "a");
-    check.failed = vec!["src/a.rs".into()];
+    check.said = Some(StepFailure::new(None, ["src/a.rs".to_string()]));
     let attempts = vec![
         failing,
         run(StepKind::Cargo, "cargo nextest run", true, "b"),

@@ -1,15 +1,15 @@
 -- What a failed check of a hook run said. hook_check_failure.rs owns these
 -- tables and is the only code that writes them, in the transaction that
 -- writes the run (hook_stats.rs). A check that passed or was skipped has no
--- rows, and neither has a check of a run that builds recorded before it kept
--- them.
+-- rows. A failed check of a run that builds recorded before it kept what
+-- failed checks said has none either, which says builds did not keep it.
 
--- The lines of the check's output that say why it failed
--- (output_excerpt.rs); a failed check that printed nothing has no row.
-CREATE TABLE hook_check_excerpt (
+-- One row per failed check, with the lines of its output that say why
+-- (output_excerpt.rs); NULL when it printed nothing.
+CREATE TABLE hook_check_failure (
     run_id INTEGER NOT NULL,
     position INTEGER NOT NULL,
-    excerpt TEXT NOT NULL CHECK (excerpt <> ''),
+    excerpt TEXT CHECK (excerpt <> ''),
     PRIMARY KEY (run_id, position),
     FOREIGN KEY (run_id, position) REFERENCES hook_run_checks (run_id, position) ON DELETE CASCADE
 ) STRICT, WITHOUT ROWID;
@@ -21,5 +21,5 @@ CREATE TABLE hook_check_failed_file (
     position INTEGER NOT NULL,
     path TEXT NOT NULL CHECK (path <> ''),
     PRIMARY KEY (run_id, position, path),
-    FOREIGN KEY (run_id, position) REFERENCES hook_run_checks (run_id, position) ON DELETE CASCADE
+    FOREIGN KEY (run_id, position) REFERENCES hook_check_failure (run_id, position) ON DELETE CASCADE
 ) STRICT, WITHOUT ROWID;

@@ -38,7 +38,7 @@ use crate::checks::{CONFIG, Kind, Line, Planned, parse, plan};
 use crate::fail;
 use crate::fail::{Context, Fail, Result};
 use crate::hook_impact;
-use crate::hook_stats::{self, Change, CheckRecord, Outcome, Run, StagedFile};
+use crate::hook_stats::{self, Change, CheckRecord, CheckResult, Outcome, Run, StagedFile};
 use crate::host::Load;
 use crate::lists::args::Args;
 use crate::lists::store::{Store, database_of};
@@ -674,8 +674,14 @@ fn finish_line<'a>(
             .find(|c| c.name == name)
             .expect("every picked line is recorded");
         record.outcome = Outcome::Ran {
-            failure: (!ran.ok)
-                .then(|| crate::hook_check_failure::said(&ran.output, &planned.files)),
+            result: if ran.ok {
+                CheckResult::Passed
+            } else {
+                CheckResult::Failed(Some(crate::hook_check_failure::said(
+                    &ran.output,
+                    &planned.files,
+                )))
+            },
             handed: (
                 if planned.line.command.iter().any(|arg| arg == "{files}") {
                     planned.files.len() as u32

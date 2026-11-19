@@ -189,7 +189,7 @@ const BEFORE_HOOK_CHECK_FAILURE_STAMP: i64 = 321_616_823;
 
 /// The stamp of the schema before builds recorded what each failed app build
 /// step said.
-const BEFORE_APP_BUILD_STEP_FAILURE_STAMP: i64 = 1_276_451_682;
+const BEFORE_APP_BUILD_STEP_FAILURE_STAMP: i64 = 1_750_228_100;
 
 /// Every stamp a store can carry that `move_store` moves, oldest schema first.
 /// A new move adds the stamp of the schema before it at the end.

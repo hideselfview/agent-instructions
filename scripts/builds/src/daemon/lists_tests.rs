@@ -316,7 +316,7 @@ fn a_recorded_hook_run_reaches_the_feeds_hooks_json_and_moves_no_version() {
             name: "fmt".into(),
             kind: crate::checks::Kind::Check,
             outcome: Outcome::Ran {
-                failure: None,
+                result: crate::hook_stats::CheckResult::Passed,
                 handed: (0, 0),
                 ms: Some(3),
                 started: None,

@@ -18,9 +18,9 @@ use crate::shot_findings::failing_shots;
 use crate::step_failure::{StepFailure, Tables};
 
 const TABLES: Tables = Tables {
-    insert_excerpt: "INSERT INTO app_build_step_excerpt (run_id, position, excerpt) VALUES (?1, ?2, ?3)",
+    insert_failure: "INSERT INTO app_build_step_failure (run_id, position, excerpt) VALUES (?1, ?2, ?3)",
     insert_failed: "INSERT INTO app_build_step_failed_shot (run_id, position, shot) VALUES (?1, ?2, ?3)",
-    select_excerpts: "SELECT position, excerpt FROM app_build_step_excerpt WHERE run_id = ?1",
+    select_failures: "SELECT position, excerpt FROM app_build_step_failure WHERE run_id = ?1",
     select_failed: "SELECT position, shot FROM app_build_step_failed_shot WHERE run_id = ?1",
 };
 
@@ -73,8 +73,8 @@ pub fn record(tx: &Transaction, run_id: i64, steps: &[StepRecord]) -> Result<()>
     )
 }
 
-/// What each failed step of run <run_id> that has rows said, by its
-/// position.
+/// What each failed step of run <run_id> said, by its position, when
+/// builds kept it.
 pub fn read(db: &Connection, run_id: i64) -> Result<HashMap<u32, StepFailure>> {
     crate::step_failure::read(db, &TABLES, run_id)
 }

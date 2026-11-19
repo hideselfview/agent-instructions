@@ -19,7 +19,7 @@ fn run(at: i64, base: Option<&str>, total_ms: u64, clippy_ms: u64, crates: u32) 
                 name: "clippy".into(),
                 kind: Kind::Check,
                 outcome: Outcome::Ran {
-                    failure: None,
+                    result: crate::hook_stats::CheckResult::Passed,
                     handed: (1, crates),
                     ms: Some(clippy_ms),
                     started: None,

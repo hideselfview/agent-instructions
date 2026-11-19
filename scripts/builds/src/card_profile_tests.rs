@@ -90,7 +90,7 @@ fn landed_card(scratch: &Scratch) -> (crate::lists::store::Store, Id) {
                 name: "clippy".into(),
                 kind: crate::checks::Kind::Check,
                 outcome: crate::hook_stats::Outcome::Ran {
-                    failure: None,
+                    result: crate::hook_stats::CheckResult::Passed,
                     handed: (1, 1),
                     ms: Some(25_000),
                     started: None,
@@ -518,10 +518,12 @@ fn a_failed_hook_check_names_its_files_and_why_in_the_cards_failures() {
                 name: "rustfmt".into(),
                 kind: crate::checks::Kind::Check,
                 outcome: crate::hook_stats::Outcome::Ran {
-                    failure: Some(crate::step_failure::StepFailure {
-                        excerpt: Some("\nDiff in src/a.rs at line 3:".into()),
-                        failed: vec!["src/a.rs".into()],
-                    }),
+                    result: crate::hook_stats::CheckResult::Failed(Some(
+                        crate::step_failure::StepFailure {
+                            excerpt: Some("\nDiff in src/a.rs at line 3:".into()),
+                            failed: vec!["src/a.rs".into()],
+                        },
+                    )),
                     handed: (1, 0),
                     ms: None,
                     started: None,

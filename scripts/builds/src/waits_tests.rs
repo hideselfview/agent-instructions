@@ -91,7 +91,9 @@ fn a_store_gives_each_kind_its_own_rows_and_leaves_out_other_cargo_runs() {
                 name: "clippy".into(),
                 kind: crate::checks::Kind::Check,
                 outcome: Outcome::Ran {
-                    failure: Some(crate::step_failure::StepFailure::default()),
+                    result: crate::hook_stats::CheckResult::Failed(Some(
+                        crate::step_failure::StepFailure::default(),
+                    )),
                     handed: (1, 1),
                     ms: None,
                     started: here,

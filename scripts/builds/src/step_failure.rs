@@ -9,6 +9,7 @@ use std::collections::HashMap;
 use rusqlite::{Connection, Transaction, params};
 
 use crate::db::Sql;
+use crate::fail;
 use crate::fail::{Context, Result};
 
 /// What a failed step said.
@@ -31,14 +32,16 @@ impl StepFailure {
 }
 
 /// The statements of the tables that keep one kind of step's failures, by
-/// the run's id and the step's position in it. Each inserts or selects
-/// `(run_id, position, <value>)`: the excerpt, or one failed name.
+/// the run's id and the step's position in it: a row for each failure with
+/// its excerpt, and a row for each name it failed.
 pub struct Tables {
-    pub insert_excerpt: &'static str,
+    /// Inserts `(run_id, position, excerpt)`, the excerpt maybe NULL.
+    pub insert_failure: &'static str,
+    /// Inserts `(run_id, position, <name>)`.
     pub insert_failed: &'static str,
-    /// Selects `position, excerpt` of a run's steps, given its id.
-    pub select_excerpts: &'static str,
-    /// Selects `position, <name>` of a run's steps, given its id.
+    /// Selects `position, excerpt` of a run's failures, given its id.
+    pub select_failures: &'static str,
+    /// Selects `position, <name>` of a run's failed names, given its id.
     pub select_failed: &'static str,
 }
 
@@ -51,14 +54,12 @@ pub fn record<'a>(
     failures: impl Iterator<Item = (usize, &'a StepFailure)>,
 ) -> Result<()> {
     let what = || "writing what the failed steps said".to_string();
-    let mut excerpt = tx.prepare(tables.insert_excerpt).context(what)?;
+    let mut failure_row = tx.prepare(tables.insert_failure).context(what)?;
     let mut failed = tx.prepare(tables.insert_failed).context(what)?;
     for (position, failure) in failures {
-        if let Some(text) = &failure.excerpt {
-            excerpt
-                .execute(params![run_id, position as i64, text])
-                .context(what)?;
-        }
+        failure_row
+            .execute(params![run_id, position as i64, failure.excerpt])
+            .context(what)?;
         for name in &failure.failed {
             failed
                 .execute(params![run_id, position as i64, name])
@@ -68,29 +69,46 @@ pub fn record<'a>(
     Ok(())
 }
 
-/// What each failed step of run <run_id> that has rows said, by its
-/// position.
+/// What each failed step of run <run_id> said, by its position: a step
+/// with no failure row failed before builds kept what failed steps said.
 pub fn read(db: &Connection, tables: &Tables, run_id: i64) -> Result<HashMap<u32, StepFailure>> {
     let mut said: HashMap<u32, StepFailure> = HashMap::new();
-    for (position, excerpt) in rows(db, tables.select_excerpts, run_id)? {
-        said.entry(position).or_default().excerpt = Some(excerpt);
+    let mut statement = db.prepare(tables.select_failures).sql()?;
+    let rows = statement
+        .query_map([run_id], |row| {
+            Ok((
+                row.get::<_, i64>(0)? as u32,
+                row.get::<_, Option<String>>(1)?,
+            ))
+        })
+        .sql()?;
+    for row in rows {
+        let (position, excerpt) = row.sql()?;
+        said.insert(
+            position,
+            StepFailure {
+                excerpt,
+                failed: Vec::new(),
+            },
+        );
     }
-    for (position, name) in rows(db, tables.select_failed, run_id)? {
-        said.entry(position).or_default().failed.push(name);
-    }
-    for failure in said.values_mut() {
-        failure.failed.sort();
-    }
-    Ok(said)
-}
-
-/// The `(position, text)` rows that <select> gives for run <run_id>.
-fn rows(db: &Connection, select: &str, run_id: i64) -> Result<Vec<(u32, String)>> {
-    let mut statement = db.prepare(select).sql()?;
+    let mut statement = db.prepare(tables.select_failed).sql()?;
     let rows = statement
         .query_map([run_id], |row| {
             Ok((row.get::<_, i64>(0)? as u32, row.get::<_, String>(1)?))
         })
         .sql()?;
-    rows.map(|row| row.sql()).collect()
+    for row in rows {
+        let (position, name) = row.sql()?;
+        let Some(failure) = said.get_mut(&position) else {
+            fail!(
+                "the store holds a failed name of step {position} of run {run_id}, which has no failure row"
+            );
+        };
+        failure.failed.push(name);
+    }
+    for failure in said.values_mut() {
+        failure.failed.sort();
+    }
+    Ok(said)
 }

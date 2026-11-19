@@ -90,15 +90,21 @@ impl StagedFile {
     }
 }
 
+/// How a check or fix that ran ended.
+#[derive(Clone, Debug, PartialEq)]
+pub enum CheckResult {
+    Passed,
+    /// It failed, saying what hook_check_failure.rs keeps; None for a check
+    /// that builds recorded before it kept what failed checks said.
+    Failed(Option<StepFailure>),
+}
+
 /// What a check or fix did in one run.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Outcome {
     /// It ran, and passed or failed.
     Ran {
-        /// What it said when it failed (hook_check_failure.rs); None when it
-        /// passed. A check that builds recorded failing before it kept what
-        /// checks said has a failure with no excerpt and no files.
-        failure: Option<StepFailure>,
+        result: CheckResult,
         /// The staged files and the workspace crates it was handed.
         handed: (u32, u32),
         /// Its time. `record` keeps it only for a passed check: a failed
@@ -121,23 +127,36 @@ impl Outcome {
     /// `passed`, `failed` or `skipped`, as the database keeps it.
     pub fn word(&self) -> &'static str {
         match self {
-            Outcome::Ran { failure: None, .. } => "passed",
             Outcome::Ran {
-                failure: Some(_), ..
+                result: CheckResult::Passed,
+                ..
+            } => "passed",
+            Outcome::Ran {
+                result: CheckResult::Failed(_),
+                ..
             } => "failed",
             Outcome::Skipped => "skipped",
         }
     }
 
     pub fn passed(&self) -> bool {
-        matches!(self, Outcome::Ran { failure: None, .. })
+        matches!(
+            self,
+            Outcome::Ran {
+                result: CheckResult::Passed,
+                ..
+            }
+        )
     }
 
-    /// What a check that ran and failed said.
+    /// What a check that ran and failed said, when builds kept it.
     pub fn failure(&self) -> Option<&StepFailure> {
         match self {
-            Outcome::Ran { failure, .. } => failure.as_ref(),
-            Outcome::Skipped => None,
+            Outcome::Ran {
+                result: CheckResult::Failed(failure),
+                ..
+            } => failure.as_ref(),
+            _ => None,
         }
     }
 
@@ -719,9 +738,9 @@ fn runs_where(
         for row in rows {
             let (position, name, kind, outcome, files, crates, ms, cores, load) =
                 row.context(what)?;
-            let failure = match outcome.as_str() {
-                "passed" => None,
-                "failed" => Some(failures.remove(&(position as u32)).unwrap_or_default()),
+            let result = match outcome.as_str() {
+                "passed" => CheckResult::Passed,
+                "failed" => CheckResult::Failed(failures.remove(&(position as u32))),
                 "skipped" => {
                     run.checks.push(CheckRecord {
                         name,
@@ -738,7 +757,7 @@ fn runs_where(
             run.checks.push(CheckRecord {
                 kind: kind_of(&kind)?,
                 outcome: Outcome::Ran {
-                    failure,
+                    result,
                     handed: (handed.0 as u32, handed.1 as u32),
                     ms: ms.map(|ms| ms as u64),
                     started: Load::from_columns(cores, load),

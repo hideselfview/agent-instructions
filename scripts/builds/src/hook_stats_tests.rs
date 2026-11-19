@@ -15,7 +15,11 @@ fn ran(name: &str, passed: bool, ms: u64) -> CheckRecord {
         name: name.into(),
         kind: Kind::Check,
         outcome: Outcome::Ran {
-            failure: (!passed).then(crate::step_failure::StepFailure::default),
+            result: if passed {
+                CheckResult::Passed
+            } else {
+                CheckResult::Failed(Some(crate::step_failure::StepFailure::default()))
+            },
             handed: (1, 0),
             ms: Some(ms),
             started: None,
@@ -54,20 +58,38 @@ fn database(scratch: &Scratch) -> std::path::PathBuf {
     scratch.dir.join(DATABASE)
 }
 
-/// A failed check comes back with what it said; one with nothing recorded
-/// comes back failed with an empty failure.
+/// A failed check comes back with what it said, one that printed nothing
+/// with an empty failure, and one that builds kept nothing of as not kept.
 #[test]
-fn a_failed_check_comes_back_with_its_excerpt_and_files() {
+fn a_failed_check_comes_back_with_what_it_said_or_as_not_kept() {
     let scratch = Scratch::new("hook-db-failure");
     let path = database(&scratch);
-    let mut said = ran("clippy", false, 60);
-    if let Outcome::Ran { failure, .. } = &mut said.outcome {
-        *failure = Some(crate::step_failure::StepFailure {
-            excerpt: Some("error: unused variable".into()),
-            failed: vec!["src/a.rs".into(), "src/b.rs".into()],
-        });
-    }
-    let written = run(5, 100, false, vec![said, ran("fmt", false, 40)]);
+    let failed = |name: &str, result: CheckResult| {
+        let mut check = ran(name, false, 60);
+        if let Outcome::Ran { result: r, .. } = &mut check.outcome {
+            *r = result;
+        }
+        check
+    };
+    let written = run(
+        5,
+        100,
+        false,
+        vec![
+            failed(
+                "clippy",
+                CheckResult::Failed(Some(crate::step_failure::StepFailure {
+                    excerpt: Some("error: unused variable".into()),
+                    failed: vec!["src/a.rs".into(), "src/b.rs".into()],
+                })),
+            ),
+            failed(
+                "fmt",
+                CheckResult::Failed(Some(crate::step_failure::StepFailure::default())),
+            ),
+            failed("docs", CheckResult::Failed(None)),
+        ],
+    );
     record(&path, &written).unwrap();
     let mut expected = written;
     expected.files.sort_by(|a, b| a.path.cmp(&b.path));

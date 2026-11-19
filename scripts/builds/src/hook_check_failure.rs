@@ -13,9 +13,9 @@ use crate::output_excerpt::Excerpt;
 use crate::step_failure::{StepFailure, Tables};
 
 const TABLES: Tables = Tables {
-    insert_excerpt: "INSERT INTO hook_check_excerpt (run_id, position, excerpt) VALUES (?1, ?2, ?3)",
+    insert_failure: "INSERT INTO hook_check_failure (run_id, position, excerpt) VALUES (?1, ?2, ?3)",
     insert_failed: "INSERT INTO hook_check_failed_file (run_id, position, path) VALUES (?1, ?2, ?3)",
-    select_excerpts: "SELECT position, excerpt FROM hook_check_excerpt WHERE run_id = ?1",
+    select_failures: "SELECT position, excerpt FROM hook_check_failure WHERE run_id = ?1",
     select_failed: "SELECT position, path FROM hook_check_failed_file WHERE run_id = ?1",
 };
 
@@ -46,8 +46,8 @@ pub fn record(tx: &Transaction, run_id: i64, checks: &[CheckRecord]) -> Result<(
     )
 }
 
-/// What each failed check of run <run_id> that has rows said, by its
-/// position.
+/// What each failed check of run <run_id> said, by its position, when
+/// builds kept it.
 pub fn read(db: &Connection, run_id: i64) -> Result<HashMap<u32, StepFailure>> {
     crate::step_failure::read(db, &TABLES, run_id)
 }
