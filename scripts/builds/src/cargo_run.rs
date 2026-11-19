@@ -711,10 +711,10 @@ mod tests {
             took: Duration::from_secs(30),
             hook_check: None,
         };
-        record_run(&path, &run("/d/bae", 100, "clippy", "local")).unwrap();
-        record_run(&path, &run("/d/bae", 200, "clippy", "m1")).unwrap();
-        record_run(&path, &run("/d/bae", 300, "test", "local")).unwrap();
-        record_run(&path, &run("/d/other", 400, "clippy", "local")).unwrap();
+        record_run(&path, &run("/d/bae", 100, "clippy", "local"), &[]).unwrap();
+        record_run(&path, &run("/d/bae", 200, "clippy", "m1"), &[]).unwrap();
+        record_run(&path, &run("/d/bae", 300, "test", "local"), &[]).unwrap();
+        record_run(&path, &run("/d/other", 400, "clippy", "local"), &[]).unwrap();
         let conn = crate::db::open_reader(&path).unwrap().unwrap();
         let last = |worktree: &str, subcommand: &str| {
             let key = RunKey {
