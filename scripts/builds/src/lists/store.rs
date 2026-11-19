@@ -590,6 +590,35 @@ pub fn project_of(places: &Places, checkout: &Checkout) -> Result<Option<String>
     )
 }
 
+/// The project <checkout>'s work is in as `project_of` finds it, except that
+/// <flag>, the project a command's `--project` names, picks among the
+/// projects that hold the repo when the worktree's claim names none. Fails
+/// when <flag> names a project that does not hold the repo. A worktree's
+/// claim outranks <flag>, and a repo no project holds gives None.
+pub fn project_of_or_flag(
+    places: &Places,
+    checkout: &Checkout,
+    flag: Option<&str>,
+) -> Result<Option<String>> {
+    let repo = checkout.repo();
+    let holding = projects_holding(places, &repo)?;
+    let claimed = checkout.claimed_project()?;
+    let named = match (&claimed, flag) {
+        (None, Some(flag)) if !holding.is_empty() => {
+            if !holding.iter().any(|held| held == flag) {
+                fail!(
+                    "--project names project {flag}, which does not hold repo {repo}; \
+                     the projects that hold it are {}",
+                    holding.join(", ")
+                );
+            }
+            Some(flag)
+        }
+        _ => claimed.as_deref(),
+    };
+    choose_project(&checkout.top, &repo, named, holding)
+}
+
 /// Finds the project of the worktree at <top> of <repo> among <loaded> the
 /// way `project_of` does, from the project its claim names (<named>), and
 /// returns that project's lists. Returns None when no project holds the repo.

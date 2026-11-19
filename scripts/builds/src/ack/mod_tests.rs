@@ -1,5 +1,6 @@
 use super::*;
 use crate::lists::fixtures::{NOON, make_store_named};
+use crate::lists::store::project_of;
 use crate::testing::{Scratch, repo};
 use std::path::{Path, PathBuf};
 
@@ -525,4 +526,82 @@ fn a_claim_that_names_a_project_without_the_repo_is_refused_even_with_project() 
         NOON,
     ));
     assert!(refusal.contains("does not hold repo bae"), "{refusal}");
+}
+
+/// `builds ack` as the command line gives it: <args>, then the flags
+/// `--project bae`.
+fn ack_naming_bae(world: &World, args: &[&str]) -> Result<String> {
+    let mut args: Vec<String> = args.iter().map(|arg| arg.to_string()).collect();
+    args.extend(["--project", "bae"].map(String::from));
+    ack(
+        &world.places,
+        SESSION_ID,
+        Some(AGENT),
+        &Args::parse(&args, &[], &[]).unwrap(),
+        &world.checkout,
+        NOON,
+    )
+}
+
+#[test]
+fn project_names_the_store_in_a_checkout_of_a_repo_two_projects_hold() {
+    let world = world("ack-two-projects");
+    // The checkout's claim names no project, and projects bae and second both
+    // hold repo bae.
+    make_store_named(&world.places, "second", &["bae"]);
+    let started = ack_naming_bae(&world, &[]).unwrap();
+    assert!(
+        started.contains("builds ack 1 --agent a1 --project bae"),
+        "{started}"
+    );
+    let version = started
+        .split("The text is version ")
+        .nth(1)
+        .unwrap()
+        .split(',')
+        .next()
+        .unwrap()
+        .to_string();
+    let count = started.matches("  builds ack ").count() - 1;
+    let mut words = Vec::new();
+    for part in 1..=count {
+        let shown = ack_naming_bae(&world, &[&part.to_string()]).unwrap();
+        for line in shown.lines() {
+            if let Some((_, word)) = line.split_once(&format!("IN PART {part}: ")) {
+                words.push(word.to_string());
+            }
+        }
+    }
+    // The flags follow the version and the words, as the listing prints them.
+    let mut args = vec![version.as_str()];
+    args.extend(words.iter().map(String::as_str));
+    ack_naming_bae(&world, &args).unwrap();
+    check(
+        &world.places,
+        SESSION_ID,
+        Some(AGENT),
+        Some("bae"),
+        &world.checkout,
+        NOON + 60,
+    )
+    .unwrap();
+}
+
+#[test]
+fn a_repo_two_projects_hold_is_refused_without_project_and_with_one_that_lacks_it() {
+    let world = world("ack-two-projects-refused");
+    make_store_named(&world.places, "second", &["bae"]);
+    make_store_named(&world.places, "third", &["other"]);
+    let none = message(world.ack(&[], NOON));
+    assert!(none.contains("is in two projects (bae, second)"), "{none}");
+    let args: Vec<String> = ["--project", "third"].map(String::from).to_vec();
+    let lacking = message(ack(
+        &world.places,
+        SESSION_ID,
+        Some(AGENT),
+        &Args::parse(&args, &[], &[]).unwrap(),
+        &world.checkout,
+        NOON,
+    ));
+    assert!(lacking.contains("does not hold repo bae"), "{lacking}");
 }

@@ -35,7 +35,7 @@ use crate::fail;
 use crate::fail::Result;
 use crate::install_gate;
 use crate::lists::args::{Args, current_dir};
-use crate::lists::store::{Store, project_of, stores};
+use crate::lists::store::{Store, project_of_or_flag, stores};
 use crate::places::Places;
 use crate::text::{local_minute, shell_word};
 use text::{Text, WORDS_PER_PART, new_words, show_part};
@@ -154,19 +154,19 @@ impl Agent {
         }
         let checkout = Checkout::at(cwd)?;
         let of_checkout = match &checkout {
-            Some(checkout) => project_of(places, checkout),
+            Some(checkout) => project_of_or_flag(places, checkout, project),
             None => Ok(None),
         };
-        let (store, named) = match (of_checkout?, project) {
-            (Some(found), _) => (Store::named(places, &found)?, false),
-            (None, Some(named)) => (Store::named(places, named)?, true),
+        let store = match (of_checkout?, project) {
+            (Some(found), _) => Store::named(places, &found)?,
+            (None, Some(named)) => Store::named(places, named)?,
             (None, None) => fail!(
                 "builds keeps an agent's acknowledgement in the store of the project it works in, and {} is in no repo of a project; run builds from a checkout of a project's repo, or name the project with --project",
                 cwd.display()
             ),
         };
         let mut flags = format!(" --agent {}", shell_word(id));
-        if named {
+        if project.is_some() {
             flags += &format!(" --project {}", shell_word(&store.project));
         }
         Ok(Agent {
