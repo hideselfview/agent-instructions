@@ -899,3 +899,34 @@ fn an_idle_branch_with_no_review_open_says_its_agent_must_review() {
         ["no review of the branch is open: its agent must run builds review"]
     );
 }
+
+#[test]
+fn a_landing_of_design_files_only_starts_no_audit() {
+    let demo = demo("landing-design-only");
+    let fake = fake(&demo.scratch.dir);
+    let side = demo.add_side(1, "agent", "work");
+    let stamp = stamp();
+    demo.store
+        .write(&stamp, "design-globs", |db| {
+            crate::lists::project::set_design_globs(
+                db,
+                crate::lists::project::GlobKind::Place,
+                &[("demo".to_string(), vec!["design/*.html".to_string()])].into(),
+            )
+        })
+        .unwrap();
+    std::fs::create_dir_all(side.join("design")).unwrap();
+    let board = demo.commit(&side, "design/board.html");
+    let code = demo.commit(&side, "a.rs");
+
+    let design = asked(&demo, &fake, &side, std::slice::from_ref(&board));
+    assert!(holds_design_only(&demo.tool, &design).unwrap());
+    // The sample picks every landing at roll 0, and this one starts none.
+    assert!(start_audit(&demo.tool, &design, 1, 0.0).is_ok());
+
+    let mixed = asked(&demo, &fake, &side, &[board, code]);
+    assert!(!holds_design_only(&demo.tool, &mixed).unwrap());
+    // Past the design-only check, the audit asks the store about landing 1,
+    // which has no record: the design landing never got that far.
+    assert!(start_audit(&demo.tool, &mixed, 1, 0.0).is_err());
+}

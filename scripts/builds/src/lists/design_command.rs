@@ -199,6 +199,20 @@ fn only(tool: &Tool, args: &[String]) -> Result<String> {
     Ok(String::new())
 }
 
+/// Do <shas> in <dir> change only design files, as `design only` asks?
+pub fn change_is_design_only(
+    tool: &Tool,
+    project: &str,
+    dir: &str,
+    shas: &[String],
+) -> Result<bool> {
+    let mut words = vec!["--project".to_string(), project.to_string()];
+    words.push(dir.to_string());
+    words.extend(shas.iter().cloned());
+    let args = Args::parse(&words, &[], &[])?;
+    Ok(named_scope(tool, &args, dir, shas)?.changes.only_design())
+}
+
 /// A design request's design change repo, commits and changes.
 fn request_scope(tool: &Tool, args: &Args, request: &DesignRequest) -> Result<Scope> {
     let checkout = Checkout::find(&request.worktree)?;

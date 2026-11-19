@@ -25,7 +25,8 @@
 //! `landed` records the landing as landed with its last review, unless commits
 //! of the branch still wait to land (`--more-to-land`), which keeps it open.
 //! `landed` then decides whether to audit it (`audit.rs`) and, when the
-//! sample picks it, starts `builds review audit` in the background. A key
+//! sample picks it, starts `builds review audit` in the background, never for
+//! a landing of design files only (`builds design only`). A key
 //! with no open landing has nothing to record, so `landed` can run again.
 
 use std::path::{Path, PathBuf};
@@ -624,14 +625,15 @@ fn record_landing(tool: &Tool, args: &Args) -> Result<Option<(Asked, i64)>> {
 
 /// `builds review landed DIR --project P SHA... [--more-to-land]`: records
 /// the landing as landed unless commits of the branch still wait to land,
-/// then starts the audit of a sampled one. The audit never fails the landing.
+/// then starts the audit of a sampled one, never of a landing of design files
+/// only. The audit never fails the landing.
 pub fn landed_command(tool: &Tool, args: &[String]) -> Result<()> {
     let args = Args::parse(args, &["landing", "rules-root"], &["more-to-land"])?;
     let Some((asked, landing)) = record_landing(tool, &args)? else {
         return Ok(());
     };
     let roll = (super::clock_bits() % 1_000_000) as f64 / 1_000_000.0;
-    if let Err(why) = start_audit(&asked, landing, roll) {
+    if let Err(why) = start_audit(tool, &asked, landing, roll) {
         eprintln!(
             "builds: the audit of review landing {landing} was not started: {}",
             why.text()
@@ -640,9 +642,24 @@ pub fn landed_command(tool: &Tool, args: &[String]) -> Result<()> {
     Ok(())
 }
 
+/// Does the landing hold design files only? An audit of one would run
+/// reviewers over every board it changes, so none is started.
+fn holds_design_only(tool: &Tool, asked: &Asked) -> Result<bool> {
+    let shas: Vec<String> = asked.needs.iter().map(|need| need.sha.clone()).collect();
+    crate::lists::change_is_design_only(
+        tool,
+        &asked.store.project,
+        &asked.dir.display().to_string(),
+        &shas,
+    )
+}
+
 /// Starts `builds review audit` on <landing> in the background when the
 /// sample picks it.
-fn start_audit(asked: &Asked, landing: i64, roll: f64) -> Result<()> {
+fn start_audit(tool: &Tool, asked: &Asked, landing: i64, roll: f64) -> Result<()> {
+    if holds_design_only(tool, asked)? {
+        return Ok(());
+    }
     if !super::audit::sampled(
         &asked.conn,
         landing,
