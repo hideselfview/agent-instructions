@@ -429,6 +429,9 @@ fn parse(args: &[String], out: &mut dyn Write) -> Result<Request> {
     if rest.is_empty() {
         return Err(refuse(out, USAGE));
     }
+    if let Some(flag) = rest.iter().find(|arg| arg.starts_with("--")) {
+        return Err(refuse(out, format!("refusing: unknown option {flag}")));
+    }
     Ok(Request {
         items,
         designs,

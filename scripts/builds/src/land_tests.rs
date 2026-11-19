@@ -832,6 +832,20 @@ fn an_argument_that_names_no_commit_is_refused_before_anything_moves() {
 }
 
 #[test]
+fn an_option_after_the_commits_is_refused_by_name() {
+    let f = fixture("land-late-option", "true\n", None);
+    let (one, a, _two, _b) = two_branches(&f);
+    let before = main_of(&f);
+    let (code, out, calls) = run_land(&f, &one, &[&a[..8], "--project", "builds"], project());
+    assert!(
+        code == 1 && out.contains("unknown option --project"),
+        "{out}"
+    );
+    assert!(calls.is_empty(), "{calls:?}");
+    assert_eq!(main_of(&f), before);
+}
+
+#[test]
 fn a_worktree_with_uncommitted_changes_is_refused_before_anything_moves() {
     let f = fixture("land-uncommitted", "true\n", None);
     let (one, a, _two, _b) = two_branches(&f);
