@@ -86,6 +86,33 @@ fn an_agents_command_waits_for_its_acknowledgement_and_the_persons_runs() {
 }
 
 #[test]
+fn an_agent_lists_the_checkouts_before_it_acknowledges_and_builds_refuses_its_other_commands() {
+    let dir = std::fs::canonicalize(std::env::temp_dir())
+        .unwrap()
+        .join(format!("builds-test-ack-status-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join("volume")).unwrap();
+    std::fs::create_dir_all(dir.join("home")).unwrap();
+    let started = start_session(&dir, "s1");
+    assert!(started.status.success(), "{started:?}");
+
+    let listed = builds(
+        &dir,
+        Some("s1"),
+        &["status", "--json", "--no-folders", "--agent", "s1"],
+    );
+    let said = String::from_utf8_lossy(&listed.stderr);
+    assert!(listed.status.success(), "{said}");
+    assert!(String::from_utf8_lossy(&listed.stdout).contains("\"repos\""));
+
+    let folders = builds(&dir, Some("s1"), &["status", "--json", "--agent", "s1"]);
+    let said = String::from_utf8_lossy(&folders.stderr);
+    assert!(said.contains("acknowledgement"), "{said}");
+
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
 fn an_agent_runs_install_on_a_store_of_an_older_schema_and_builds_refuses_its_other_commands() {
     let dir = std::fs::canonicalize(std::env::temp_dir())
         .unwrap()

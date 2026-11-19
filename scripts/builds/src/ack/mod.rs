@@ -55,7 +55,7 @@ const USAGE: &str = "usage: builds ack [--agent ID] [--project P]\n       builds
 
 /// Refuses `builds <command> <args>` when an agent runs it without a current
 /// acknowledgement. Passes the person's commands, `ack`, which records the
-/// acknowledgement, and the commands a builds command that passed runs. The
+/// acknowledgement, `status --json --no-folders` (`lists_checkouts`), and the commands a builds command that passed runs. The
 /// gate also passes the commands that do not use the stores
 /// (`install_gate::STORELESS`): the gate reads a store, and install must run
 /// while the stores still have an older schema, because install migrates them
@@ -65,6 +65,7 @@ pub fn gate(places: &Places, command: &str, args: &[String]) -> Result<()> {
     if command == "ack"
         || install_gate::STORELESS.contains(&command)
         || std::env::var_os(PASSED).is_some()
+        || lists_checkouts(command, args)
         || commits_in_main_checkout(command, args)?
     {
         return Ok(());
@@ -84,6 +85,22 @@ pub fn gate(places: &Places, command: &str, args: &[String]) -> Result<()> {
     // set_var writes it.
     unsafe { std::env::set_var(PASSED, "1") };
     Ok(())
+}
+
+/// Whether `builds <command> <args>` is `status --json --no-folders`, which
+/// lists the checkouts, their app lanes and their locks. That list depends on
+/// no rule, and the hook that refuses an unlocked move of an app checkout
+/// (no-unlocked-app-checkout-moves) reads it on every agent's command,
+/// including an agent's first after a compaction, before it can acknowledge.
+fn lists_checkouts(command: &str, args: &[String]) -> bool {
+    command == "status"
+        && matches!(
+            args.iter()
+                .map(String::as_str)
+                .collect::<Vec<_>>()
+                .as_slice(),
+            ["--json", "--no-folders"] | ["--no-folders", "--json"]
+        )
 }
 
 /// Whether `builds <command> <args>` is the pre-commit hook's `checks run`
