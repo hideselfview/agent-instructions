@@ -101,8 +101,8 @@ A count or total goes in the same query as the rows. A count changes with every
 insert, so when it makes the rows' query rerun too often, move the count into a
 live query of its own.
 
-SQL decides which rows a read returns and computes every value across a list,
-and every fix is in SQL:
+SQL decides which rows a read returns and computes each value across a list from
+stored rows. Each kind of work a read needs has one place:
 
 - Filtering, sorting, joining, grouping, counting and ranking a list's rows:
   WHERE, ORDER BY, JOIN, GROUP BY, COUNT, a window function.
@@ -115,8 +115,9 @@ and every fix is in SQL:
   - A read selects, joins, filters, sorts and counts stored rows and never
     computes a rule again.
 
-Start from the plain query over the domain's own tables, and add an index or a
-trigger table when the plain query can't serve the screen.
+Start from the plain query over the domain's own tables. When that query is too
+slow, add an index; when it would compute a rule, store the rule's result in the
+write instead.
 
 ### Shaping one result in Rust
 
