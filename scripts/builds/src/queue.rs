@@ -10,7 +10,7 @@
 //! the life of its process and of every process that process starts, and
 //! holding nothing else: the name carries the pid.
 //!
-//! A waiter blocks, in a thread inside `open` (O_EXLOCK) for each, on the
+//! A waiter blocks, in a thread inside `flock` for each, on the
 //! ticket of the entry before it and on the tickets of the first `slots`
 //! entries (one of those leaving is what lets it forward). Getting that lock
 //! means the ticket's owner is gone, so the waiter takes the entry out of the
@@ -59,25 +59,35 @@ pub fn route_repoint_signal() {
     }
 }
 
-/// Opens <path> with <flags> and an exclusive lock, waiting inside `open`
-/// unless <flags> says not to. The descriptor is left open without
-/// close-on-exec unless <flags> says so: a ticket or lock passes to every
-/// process this one starts.
+/// Opens <path> with <flags> and takes an exclusive flock on it, waiting for
+/// the lock unless <flags> holds O_NONBLOCK. The descriptor is left open
+/// without close-on-exec unless <flags> says so: a ticket or lock passes to
+/// every process this one starts. A lock some process holds fails with
+/// `WouldBlock` under O_NONBLOCK.
 pub fn open_with(path: &Path, flags: libc::c_int) -> std::io::Result<libc::c_int> {
     let c_path = CString::new(path.as_os_str().as_bytes()).expect("a path holds no NUL");
-    loop {
-        let fd = unsafe {
-            libc::open(
-                c_path.as_ptr(),
-                libc::O_RDONLY | libc::O_EXLOCK | flags,
-                0o644,
-            )
-        };
+    let fd = loop {
+        let fd = unsafe { libc::open(c_path.as_ptr(), libc::O_RDONLY | flags, 0o644) };
         if fd >= 0 {
+            break fd;
+        }
+        let error = std::io::Error::last_os_error();
+        if error.kind() != std::io::ErrorKind::Interrupted {
+            return Err(error);
+        }
+    };
+    let operation = if flags & libc::O_NONBLOCK != 0 {
+        libc::LOCK_EX | libc::LOCK_NB
+    } else {
+        libc::LOCK_EX
+    };
+    loop {
+        if unsafe { libc::flock(fd, operation) } == 0 {
             return Ok(fd);
         }
         let error = std::io::Error::last_os_error();
         if error.kind() != std::io::ErrorKind::Interrupted {
+            unsafe { libc::close(fd) };
             return Err(error);
         }
     }
@@ -409,7 +419,7 @@ impl Queue {
     }
 }
 
-/// What the threads blocked in `open` and the wait agree on.
+/// What the threads blocked in `flock` and the wait agree on.
 struct Shared {
     /// The waits whose results are wanted; a thread of another one lets its
     /// ticket go.
@@ -434,6 +444,7 @@ struct Woke {
 
 const MESSAGE: usize = 16;
 
+#[cfg(target_os = "macos")]
 fn change(ident: usize, filter: i16, flags: u16) -> libc::kevent {
     libc::kevent {
         ident,
@@ -446,6 +457,19 @@ fn change(ident: usize, filter: i16, flags: u16) -> libc::kevent {
 }
 
 impl Wake {
+    /// Off macOS no queue waits: app builds, whose lanes the queue orders,
+    /// run only on a Mac.
+    #[cfg(not(target_os = "macos"))]
+    fn new() -> Result<Wake> {
+        fail!("an app build lane's queue waits through macOS's kqueue, so it runs only on a Mac")
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    fn wait(&self) -> Result<Woke> {
+        unreachable!("Wake::new fails off macOS")
+    }
+
+    #[cfg(target_os = "macos")]
     fn new() -> Result<Wake> {
         let mut ends = [0; 2];
         let kqueue = unsafe { libc::kqueue() };
@@ -530,6 +554,7 @@ impl Wake {
     }
 
     /// Blocks until the signal came or a thread reported.
+    #[cfg(target_os = "macos")]
     fn wait(&self) -> Result<Woke> {
         let mut events = [change(0, 0, 0); 4];
         loop {

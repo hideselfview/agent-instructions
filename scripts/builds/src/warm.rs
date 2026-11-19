@@ -41,7 +41,6 @@
 //! builds name other crate paths. The same prune `setup` runs then deletes the
 //! rest of what a side worktree's builds never read.
 
-use std::ffi::CString;
 use std::fs::File;
 use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
@@ -148,10 +147,23 @@ pub fn acquire(ranked: &[Candidate]) -> Result<Option<Held>> {
 
 /// clonefile(2)'s CLONE_NOFOLLOW (sys/clonefile.h): a link at the top is cloned
 /// as a link, never followed.
+#[cfg(target_os = "macos")]
 const CLONE_NOFOLLOW: u32 = 0x0001;
 
+/// Off macOS no side worktree is handed out: `builds new` runs on the Mac
+/// the person works on.
+#[cfg(not(target_os = "macos"))]
+fn clone_dir(source: &Path, _staging: &Path) -> Result<()> {
+    fail!(
+        "cloning {} needs macOS's clonefile, and this machine runs Linux",
+        source.display()
+    )
+}
+
 /// Clones <source> to <staging> (which must not exist).
+#[cfg(target_os = "macos")]
 fn clone_dir(source: &Path, staging: &Path) -> Result<()> {
+    use std::ffi::CString;
     let from = CString::new(source.as_os_str().as_bytes()).expect("a path holds no NUL");
     let to = CString::new(staging.as_os_str().as_bytes()).expect("a path holds no NUL");
     if unsafe { libc::clonefile(from.as_ptr(), to.as_ptr(), CLONE_NOFOLLOW) } != 0 {

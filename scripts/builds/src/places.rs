@@ -68,15 +68,17 @@ pub struct Places {
     /// XDG_CACHE_HOME, or ~/.cache: where a repo's scripts install the tools
     /// that a `.build-dirs` `installed` line names.
     pub cache_home: PathBuf,
-    /// /private/tmp, where probes and stray builds land.
+    /// The machine's shared temporary folder, where probes and stray builds
+    /// land: /private/tmp on macOS, /tmp on Linux.
     pub private_tmp: PathBuf,
-    /// `getconf DARWIN_USER_TEMP_DIR`, where mktemp puts things.
+    /// `getconf DARWIN_USER_TEMP_DIR`, where mktemp puts things on macOS;
+    /// None on Linux, whose mktemp uses the shared temporary folder.
     pub user_temp: Option<PathBuf>,
     /// This session's TMPDIR.
     pub tmpdir: Option<PathBuf>,
     pub uid: u32,
     /// The folder holding one store folder per project of the lists
-    /// (BUILDS_LISTS, else ~/Library/Application Support/builds/lists).
+    /// (BUILDS_LISTS, else `default_lists`).
     pub lists: PathBuf,
 }
 
@@ -102,13 +104,17 @@ impl Places {
         let lists = std::env::var_os("BUILDS_LISTS")
             .filter(|value| !value.is_empty())
             .map(PathBuf::from)
-            .unwrap_or_else(|| home.join("Library/Application Support/builds/lists"));
+            .unwrap_or_else(|| default_lists(&home));
         Ok(Places {
             root,
             home,
             cargo_home,
             cache_home,
-            private_tmp: PathBuf::from("/private/tmp"),
+            private_tmp: PathBuf::from(if cfg!(target_os = "macos") {
+                "/private/tmp"
+            } else {
+                "/tmp"
+            }),
             user_temp: darwin_user_temp_dir(),
             tmpdir,
             uid: unsafe { libc::getuid() },
@@ -135,7 +141,11 @@ impl Places {
     /// Where the design systems generated for commits are kept, one folder
     /// per distinct design system (design_render.rs).
     pub fn design_system_cache(&self) -> PathBuf {
-        self.home.join("Library/Caches/builds/design-systems")
+        if cfg!(target_os = "macos") {
+            self.home.join("Library/Caches/builds/design-systems")
+        } else {
+            self.cache_home.join("builds/design-systems")
+        }
     }
 
     /// The file `builds host setup-here` writes on a host, beside the lists
@@ -386,6 +396,26 @@ impl Places {
     }
 }
 
+/// Where builds keeps its own data by default: macOS's Application Support
+/// folder, or Linux's XDG data folder.
+fn default_lists(home: &std::path::Path) -> PathBuf {
+    if cfg!(target_os = "macos") {
+        home.join("Library/Application Support/builds/lists")
+    } else {
+        std::env::var_os("XDG_DATA_HOME")
+            .filter(|value| !value.is_empty())
+            .map(PathBuf::from)
+            .unwrap_or_else(|| home.join(".local/share"))
+            .join("builds/lists")
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn darwin_user_temp_dir() -> Option<PathBuf> {
+    None
+}
+
+#[cfg(target_os = "macos")]
 fn darwin_user_temp_dir() -> Option<PathBuf> {
     // _CS_DARWIN_USER_TEMP_DIR
     const NAME: libc::c_int = 65537;

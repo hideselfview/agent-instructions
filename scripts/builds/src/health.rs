@@ -643,21 +643,13 @@ fn started_from(places: &[Place], pid: i32) -> Option<String> {
 /// Is the lock at <path> taken? Asked by taking it without waiting and
 /// letting it go at once.
 fn taken(path: &Path) -> bool {
-    use std::os::unix::ffi::OsStrExt;
-    let Ok(c_path) = std::ffi::CString::new(path.as_os_str().as_bytes()) else {
-        return false;
-    };
-    let fd = unsafe {
-        libc::open(
-            c_path.as_ptr(),
-            libc::O_RDONLY | libc::O_EXLOCK | libc::O_NONBLOCK | libc::O_CLOEXEC,
-        )
-    };
-    if fd >= 0 {
-        unsafe { libc::close(fd) };
-        return false;
+    match crate::queue::open_with(path, libc::O_NONBLOCK | libc::O_CLOEXEC) {
+        Ok(fd) => {
+            unsafe { libc::close(fd) };
+            false
+        }
+        Err(error) => error.kind() == std::io::ErrorKind::WouldBlock,
     }
-    std::io::Error::last_os_error().raw_os_error() == Some(libc::EWOULDBLOCK)
 }
 
 /// Of <uid>'s processes for which <holds> is true, the oldest one whose

@@ -30,9 +30,14 @@ const PROC_MACRO_SYMBOL: &str = "_rustc_proc_macro_decls_";
 
 /// The `--config` arguments that make cargo link this Mac's own target with
 /// `builds-linker`. Every checkout gets the same path, so the setting gives
-/// every checkout the same sccache keys.
-pub fn cargo_config(home: &Path) -> [String; 2] {
-    [
+/// every checkout the same sccache keys. Off macOS there are none: GNU ld
+/// writes no output path into a shared object, so a proc-macro built in two
+/// checkouts is the same bytes there.
+pub fn cargo_config(home: &Path) -> Vec<String> {
+    if !cfg!(target_os = "macos") {
+        return Vec::new();
+    }
+    vec![
         "--config".to_string(),
         format!(
             "target.{}-apple-darwin.linker={:?}",

@@ -24,6 +24,10 @@ pub mod model;
 pub mod review_cards;
 pub mod runs;
 pub mod tracker;
+#[cfg(target_os = "macos")]
+pub mod vnode;
+#[cfg(target_os = "linux")]
+#[path = "vnode_linux.rs"]
 pub mod vnode;
 
 use std::io::{BufRead, BufReader, Write};
@@ -151,6 +155,11 @@ fn answer(model: &Model, given: &Path, stream: UnixStream) -> std::io::Result<()
 
 /// `builds dashboard [--port <port>] [--listen <address>]`.
 pub fn cmd_dashboard(tool: &Tool, args: &[String]) -> Result<()> {
+    if !cfg!(target_os = "macos") {
+        fail!(
+            "the dashboard follows the build volume through macOS's FSEvents, so it runs only on a Mac"
+        );
+    }
     let mut port = DASHBOARD_PORT;
     let mut listen: Option<std::net::IpAddr> = None;
     let mut rest = args.iter();
