@@ -16,6 +16,7 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
+use crate::fail;
 use crate::fail::{Context, Result};
 use crate::places::Places;
 use crate::queue;
@@ -47,22 +48,32 @@ impl Drop for Window {
     fn drop(&mut self) {
         // Removed while the lock is still held, so a waiter never reads the
         // record of a run that has ended.
-        let _ = std::fs::remove_file(&self.run_file);
+        if let Err(error) = std::fs::remove_file(&self.run_file)
+            && error.kind() != std::io::ErrorKind::NotFound
+        {
+            note(format!(
+                "could not remove {}, so a waiting run may name a run that ended: {error}",
+                self.run_file.display()
+            ));
+        }
         unsafe { libc::close(self.lock) };
     }
 }
 
-/// Whether process <pid> runs.
-fn runs(pid: i32) -> bool {
-    unsafe { libc::kill(pid, 0) == 0 }
-}
-
 /// What the run holding <host>'s window lock runs, when there is one that
 /// still lives.
-fn holder_of(places: &Places, host: &str) -> Option<String> {
-    let text = std::fs::read(Window::holder_file(places, host)).ok()?;
-    let holder: Holder = serde_json::from_slice(&text).ok()?;
-    runs(holder.pid).then_some(holder.what)
+fn holder_of(places: &Places, host: &str) -> Result<Option<String>> {
+    let file = Window::holder_file(places, host);
+    let text = match std::fs::read(&file) {
+        Ok(text) => text,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => fail!("reading {}: {error}", file.display()),
+    };
+    let holder: Holder = match serde_json::from_slice(&text) {
+        Ok(holder) => holder,
+        Err(error) => fail!("reading {}: {error}", file.display()),
+    };
+    Ok(crate::procs::runs(holder.pid).then_some(holder.what))
 }
 
 /// Takes <host>'s window lock for the step <what> describes, waiting while
@@ -95,7 +106,7 @@ pub fn take(
         if stopped() {
             return Ok(None);
         }
-        if let Some(other) = holder_of(places, host)
+        if let Some(other) = holder_of(places, host)?
             && told.as_deref() != Some(&other)
         {
             note(format!(

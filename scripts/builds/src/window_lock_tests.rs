@@ -50,17 +50,33 @@ fn a_second_window_run_on_one_host_waits_for_the_first_and_names_it() {
     assert_eq!(host_of_checkout(&second_held), "m1");
     let first = first_held.take_window("test one").unwrap().unwrap();
     assert_eq!(
-        holder_of(&places, "m1").unwrap(),
+        holder_of(&places, "m1").unwrap().unwrap(),
         format!("demo's {}, step test one", first_held.checkout)
     );
 
     let (said, heard) = channel();
+    let (found_held, waiting) = channel();
+    let host = host_of_checkout(&second_held).to_string();
+    let waiter_places = places.clone();
     let waiter = std::thread::spawn(move || {
-        let window = second_held.take_window("test two").unwrap().unwrap();
+        let window = take(
+            &waiter_places,
+            &host,
+            "demo's second, step test two",
+            &|| {
+                let _ = found_held.send(());
+                false
+            },
+        )
+        .unwrap()
+        .unwrap();
         said.send(()).unwrap();
         drop(window);
         second_held.release();
     });
+    waiting
+        .recv_timeout(Duration::from_secs(10))
+        .expect("the second run never found the display held");
     assert!(
         heard.recv_timeout(SETTLE).is_err(),
         "the second run took the display while the first held it"
@@ -68,7 +84,7 @@ fn a_second_window_run_on_one_host_waits_for_the_first_and_names_it() {
     drop(first);
     heard.recv_timeout(Duration::from_secs(10)).unwrap();
     waiter.join().unwrap();
-    assert_eq!(holder_of(&places, "m1"), None);
+    assert_eq!(holder_of(&places, "m1").unwrap(), None);
     first_held.release();
 }
 
