@@ -129,7 +129,7 @@ fn a_question_whose_ruling_cites_a_missing_decision_is_refused() {
     b.quotes(&[cited]);
     let refused = refusal(b.ask(&format!("{cited}\n")));
     assert!(
-        refused.contains("it cites decision #40, which is no record"),
+        refused.contains("it cites decision #40, and #40 is no record"),
         "{refused}"
     );
 
@@ -178,9 +178,9 @@ fn a_question_whose_ruling_cites_a_decision_passes_and_show_prints_its_title() {
     let view = View::build(&lists, NOON).unwrap();
     assert_eq!(
         view.stack[0].cites,
-        vec![CitedDecision {
+        vec![CitedDecision::Decision {
             id: decision,
-            title: Some("Leave commit messages as they are".into())
+            title: "Leave commit messages as they are".into()
         }]
     );
 }

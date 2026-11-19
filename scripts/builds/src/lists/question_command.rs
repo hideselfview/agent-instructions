@@ -260,9 +260,7 @@ fn ask(tool: &Tool, args: &[String], cwd: &Path, words: &str) -> Result<String> 
     })?;
     let lists = store.load()?;
     let mut out = format!("asked question {id}\n");
-    for line in cited {
-        out.push_str(&format!("{line}\n"));
-    }
+    out.push_str(&rulings::lines(cited));
     if let Some(from) = from_item {
         out.push_str(&format!(
             "item {from} moved to the stack; what waited on it now waits on {id}\n"
@@ -492,9 +490,7 @@ fn resolve(tool: &Tool, args: &[String], cwd: &Path, words: &str, verb: Verb) ->
         (Verb::Settle, _) => format!("settled question {id} by rule (no decision recorded)\n"),
         _ => format!("question {id} done\n"),
     };
-    for line in cited {
-        out.push_str(&format!("{line}\n"));
-    }
+    out.push_str(&rulings::lines(cited));
     if !items.is_empty() {
         let named: Vec<String> = items.iter().map(Id::to_string).collect();
         out.push_str(&format!("made items {}\n", named.join(", ")));
@@ -707,9 +703,7 @@ fn edit(tool: &Tool, args: &[String], cwd: &Path, words: &str) -> Result<String>
     })?;
     let lists = store.load()?;
     let mut out = format!("edited question {id}\n");
-    for line in cited {
-        out.push_str(&format!("{line}\n"));
-    }
+    out.push_str(&rulings::lines(cited));
     out.push_str(&format!("{}\n", stack_top(&lists)?));
     Ok(out)
 }

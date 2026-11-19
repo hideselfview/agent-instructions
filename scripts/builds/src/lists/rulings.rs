@@ -113,12 +113,26 @@ pub fn blocked_texts<'a>(blocked: impl IntoIterator<Item = (&'a Id, &'a Blocked)
 /// What a citation in a sentence names.
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum Cite {
-    /// A decision of the log, with its title.
-    Decision { id: Id, title: String },
+    /// What a `decision #N` names.
+    Decision(CitedDecision),
     /// A file of the rules checkout that states rules, as its path there.
     Rule(String),
-    /// A citation that names nothing builds keeps, and why.
-    Missing(String),
+    /// A Markdown path that names no such file, and why.
+    NoRule(String),
+}
+
+impl Cite {
+    /// Why the citation names nothing builds keeps; None when it names a
+    /// decision or a rule.
+    fn missing(&self) -> Option<String> {
+        match self {
+            Cite::Decision(CitedDecision::Missing { id, what }) => {
+                Some(format!("it cites decision {id}, and {id} is {what}"))
+            }
+            Cite::NoRule(why) => Some(why.clone()),
+            Cite::Decision(CitedDecision::Decision { .. }) | Cite::Rule(_) => None,
+        }
+    }
 }
 
 /// A sentence the reviewer quoted, found in one of the texts, with what its
@@ -140,14 +154,7 @@ impl Claim {
         if self.cites.is_empty() {
             return Some("it names no decision (`decision #N`) and no rule path".to_string());
         }
-        let missing: Vec<&str> = self
-            .cites
-            .iter()
-            .filter_map(|cite| match cite {
-                Cite::Missing(why) => Some(why.as_str()),
-                _ => None,
-            })
-            .collect();
+        let missing: Vec<String> = self.cites.iter().filter_map(Cite::missing).collect();
         if missing.is_empty() {
             None
         } else {
@@ -204,9 +211,11 @@ impl Checked {
                 .cites
                 .iter()
                 .filter_map(|cite| match cite {
-                    Cite::Decision { id, title } => Some(format!("decision {id} \"{title}\"")),
+                    Cite::Decision(CitedDecision::Decision { id, title }) => {
+                        Some(format!("decision {id} \"{title}\""))
+                    }
                     Cite::Rule(path) => Some(format!("rule {path}")),
-                    Cite::Missing(_) => None,
+                    Cite::Decision(CitedDecision::Missing { .. }) | Cite::NoRule(_) => None,
                 })
                 .collect();
             notes.push(format!(
@@ -276,7 +285,7 @@ fn check(reviewer: &Reviewer, lists: &Lists, source: Source, texts: &[Text]) -> 
         };
         let mut cites: Vec<Cite> = decision_ids(&sentence)
             .into_iter()
-            .map(|id| decision_cite(lists, id))
+            .map(|id| Cite::Decision(cited_decision(lists, id)))
             .collect();
         for path in md_paths(&sentence) {
             if rules.is_none() {
@@ -391,19 +400,25 @@ fn decision_ids(text: &str) -> Vec<Id> {
     ids
 }
 
-/// What decision <id> of <lists> is to a citation.
-fn decision_cite(lists: &Lists, id: Id) -> Cite {
+/// What `decision <id>` names in <lists>.
+fn cited_decision(lists: &Lists, id: Id) -> CitedDecision {
     match lists.locate(id) {
-        Some(found) if found.kind == Kind::Decision => Cite::Decision {
+        Some(found) if found.kind == Kind::Decision => CitedDecision::Decision {
             id,
             title: found.title.to_string(),
         },
-        Some(found) => Cite::Missing(format!(
-            "it cites decision {id}, and {id} is the {} \"{}\", not a decision",
-            found.kind.name(),
-            found.title
-        )),
-        None => Cite::Missing(format!("it cites decision {id}, which is no record")),
+        Some(found) => CitedDecision::Missing {
+            id,
+            what: format!(
+                "the {} \"{}\", not a decision",
+                found.kind.name(),
+                found.title
+            ),
+        },
+        None => CitedDecision::Missing {
+            id,
+            what: "no record".to_string(),
+        },
     }
 }
 
@@ -450,39 +465,44 @@ fn rule_cite(known: &[String], path: &str, root: &Path) -> Cite {
         .find(|rule| path == rule.as_str() || path.ends_with(&format!("/{rule}")))
     {
         Some(rule) => Cite::Rule(rule.clone()),
-        None => Cite::Missing(format!(
+        None => Cite::NoRule(format!(
             "it cites {path}, which is no rule, project file or {INSTRUCTIONS} of the rules checkout {}",
             root.display()
         )),
     }
 }
 
-/// A decision a text cites, as `question show` and the dashboard print it.
+/// What a `decision #N` in a text names: the rulings check, `question show`
+/// and the dashboard all read it. The JSON names the variant in `found`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-pub struct CitedDecision {
-    pub id: Id,
-    /// The decision's title; None when <id> is no decision.
-    pub title: Option<String>,
+#[serde(tag = "found", rename_all = "lowercase")]
+pub enum CitedDecision {
+    /// A decision of the log, with its title.
+    Decision { id: Id, title: String },
+    /// A number that names no decision, and what it names instead, such as
+    /// "no record".
+    Missing { id: Id, what: String },
 }
 
-/// Each decision the title and details of <question> cite (`decision #N`),
-/// with its title.
+/// What each `decision #N` in the title and details of <question> names.
 pub fn question_cites(lists: &Lists, question: &Question) -> Vec<CitedDecision> {
     decision_ids(&format!("{}\n{}", question.title, question.details))
         .into_iter()
-        .map(|id| CitedDecision {
-            id,
-            title: lists.decision(id).map(|decision| decision.title.clone()),
-        })
+        .map(|id| cited_decision(lists, id))
         .collect()
 }
 
 /// <cited> as one line of `question show`.
 pub fn cited_line(cited: &CitedDecision) -> String {
-    match &cited.title {
-        Some(title) => format!("cites decision {}: {title}", cited.id),
-        None => format!("cites decision {}, which is no decision", cited.id),
+    match cited {
+        CitedDecision::Decision { id, title } => format!("cites decision {id}: {title}"),
+        CitedDecision::Missing { id, what } => format!("cites decision {id}, and {id} is {what}"),
     }
+}
+
+/// <lines>, what the rulings check prints, one line each.
+pub fn lines(lines: Vec<String>) -> String {
+    lines.into_iter().map(|line| format!("{line}\n")).collect()
 }
 
 #[cfg(test)]

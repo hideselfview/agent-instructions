@@ -1601,12 +1601,12 @@ function effectControl(q) {
   select.addEventListener("change", () => writeEffect(q, select));
   return h("div", {class: "l-fact l-effect"}, h("span", {class: "k"}, "Effect"), select);
 }
-// The decisions a question cites, each with its title, or the words that
-// say a cited number is no decision.
+// The decisions a question cites, each with its title, or what a cited
+// number names when it names no decision.
 function questionCites(q) {
   if (!q.cites.length) return null;
   return h("div", {class: "l-fact"}, h("span", {class: "k"}, "Cites"), h("ul", {class: "l-list"},
-    q.cites.map(c => h("li", {}, c.title === null ? "#" + c.id + ", which is no decision" : recLink(c.id, "#" + c.id + " " + c.title)))));
+    q.cites.map(c => h("li", {}, c.found === "missing" ? "#" + c.id + " is " + c.what : recLink(c.id, "#" + c.id + " " + c.title)))));
 }
 // A question's row is one line, closed: its id, title and trail, then its
 // effect, how many open items it blocks when it blocks any, and who asked it

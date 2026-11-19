@@ -277,11 +277,6 @@ fn require_drafts(tool: &Tool, scope: &Scope, request: &DesignRequest) -> Result
     )
 }
 
-/// <cited>, what the rulings check prints, one line each.
-fn cited_lines(cited: Vec<String>) -> String {
-    cited.into_iter().map(|line| format!("{line}\n")).collect()
-}
-
 /// Where a recorded or amended change stands with the person's review.
 enum Review {
     /// A fix that changes no design, which builds approves when it records
@@ -374,7 +369,7 @@ fn record(tool: &Tool, args: &[String], cwd: &Path, session: Option<&Messaging>)
         Settlement::Decision(decision) => Review::Decided(decision),
         Settlement::Review => Review::Waits,
     };
-    Ok(recorded_words("recorded", &recorded, &title, review) + &cited_lines(cited))
+    Ok(recorded_words("recorded", &recorded, &title, review) + &rulings::lines(cited))
 }
 
 fn amend(tool: &Tool, args: &[String], cwd: &Path, session: Option<&Messaging>) -> Result<String> {
@@ -425,7 +420,7 @@ fn amend(tool: &Tool, args: &[String], cwd: &Path, session: Option<&Messaging>) 
                 };
                 Ok((recorded, design.title.clone(), review))
             })?;
-    Ok(recorded_words("amended", &recorded, &title, review) + &cited_lines(cited))
+    Ok(recorded_words("amended", &recorded, &title, review) + &rulings::lines(cited))
 }
 
 /// The last commit of open change <id> of the scope's repo, when the range's
