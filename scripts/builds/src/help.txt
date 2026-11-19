@@ -584,7 +584,8 @@ coven) on the host with the most free cores, placed as the runs below are
 (HOSTS says which hosts take a run), except that no host counts as warm for it:
 cargo-mutants copies the workspace and builds the copy afresh. builds caps the run's `--jobs` by the
 room under the chosen host's load band: the band's high end less the host's
-5-minute load average, rounded down, and at least one. A run that asks for more
+5-minute load average, rounded down, and at least one (this Mac's band when the
+run stays here or the host refuses it). A run that asks for more
 jobs gets the cap, and one line on stderr says so; a run that names no jobs
 keeps cargo-mutants' one. Each job builds and tests a whole copy, so a run
 over the whole workspace takes hours: scope it to the code that changed with
