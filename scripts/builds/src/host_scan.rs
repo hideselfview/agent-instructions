@@ -111,17 +111,10 @@ impl JobRun {
         self.worktree.rsplit('/').next().unwrap_or(&self.worktree)
     }
 
-    /// `bae/remote-side-3`: the repo, from `~/dev/<repo>-worktrees/...`, and
-    /// the worktree's name.
+    /// `bae/remote-side-3` (`stuck::checkout_label`), or the worktree's path
+    /// when it is in no checkout's place.
     pub fn label(&self) -> String {
-        match self
-            .worktree
-            .split('/')
-            .find_map(|part| part.strip_suffix("-worktrees"))
-        {
-            Some(repo) => format!("{repo}/{}", self.name()),
-            None => self.worktree.clone(),
-        }
+        crate::stuck::checkout_label(&self.worktree).unwrap_or_else(|| self.worktree.clone())
     }
 
     /// Whether the worktree is one that `builds cargo` and `builds remote
