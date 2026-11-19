@@ -76,7 +76,6 @@ fn lines(
 
 fn waiting_for_the_hook_run() -> Waiting {
     Waiting {
-        commands_closed: true,
         connections_closed: false,
         held: vec![Held {
             pid: 200,

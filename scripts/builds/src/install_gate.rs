@@ -589,12 +589,11 @@ pub struct Held {
     pub text: String,
 }
 
-/// What a running install waits for, as `waiting` reads it.
+/// What a running install waits for, as `waiting` reads it. Install closes
+/// the commands gate first, so a command that holds a use for its life waits
+/// whenever install waits.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Waiting {
-    /// Whether install closed the commands gate, so a command that holds a
-    /// use for its life waits when it starts.
-    pub commands_closed: bool,
     /// Whether install closed the connections gate, so every command that
     /// opens a store waits when it starts.
     pub connections_closed: bool,
@@ -648,7 +647,6 @@ pub fn waiting(places: &Places) -> Result<Option<Waiting>> {
         }
     }
     Ok(Some(Waiting {
-        commands_closed,
         connections_closed,
         held,
     }))

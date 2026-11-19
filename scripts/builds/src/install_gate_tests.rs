@@ -384,7 +384,6 @@ fn waiting_names_each_use_a_running_install_waits_for() {
     assert_eq!(
         waiting(&places).unwrap(),
         Some(Waiting {
-            commands_closed: true,
             connections_closed: false,
             held: vec![Held {
                 pid: 11,
@@ -400,7 +399,6 @@ fn waiting_names_each_use_a_running_install_waits_for() {
     assert_eq!(
         waiting(&places).unwrap(),
         Some(Waiting {
-            commands_closed: true,
             connections_closed: true,
             held: vec![Held {
                 pid: 12,
