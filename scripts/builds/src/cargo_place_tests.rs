@@ -189,6 +189,7 @@ fn probe(load: f64) -> std::result::Result<Probe, String> {
         free_kib: 1 << 30,
         git_fails: None,
         nextest: crate::nextest::Has::Nothing,
+        processes: Default::default(),
     })
 }
 

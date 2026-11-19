@@ -300,6 +300,8 @@ pub struct Probe {
     /// What the host has of cargo-nextest (`nextest::VERSION` is the version
     /// builds installs).
     pub nextest: crate::nextest::Has,
+    /// The user's processes and the limit on them (proc_limit.rs).
+    pub processes: crate::proc_limit::ProcessUse,
 }
 
 /// A host's cores and its one-minute load average at one moment.
@@ -370,12 +372,13 @@ if ! said=$(git --version 2>&1); then echo "git_fails=$(printf '%s' "$said" | tr
 "#;
 
 /// The script a remote host runs: `PROBE_SCRIPT`, then the memory script, then
-/// the cargo-nextest lines.
+/// the cargo-nextest lines and the process lines.
 fn probe_script() -> String {
     format!(
-        "{PROBE_SCRIPT}{}\n{}",
+        "{PROBE_SCRIPT}{}\n{}\n{}",
         crate::host_memory::SCRIPT,
-        crate::nextest::PROBE_SCRIPT_LINES
+        crate::nextest::PROBE_SCRIPT_LINES,
+        crate::proc_limit::PROBE_LINES
     )
 }
 
@@ -421,6 +424,7 @@ pub fn parse_probe(text: &str) -> Result<Probe> {
         memory: Memory::parse(text)?,
         git_fails,
         nextest: crate::nextest::parse_has(text),
+        processes: crate::proc_limit::parse(text)?,
     })
 }
 
@@ -457,6 +461,7 @@ pub fn probe_local(places: &Places) -> Result<Probe> {
         memory: crate::host_memory::here()?,
         git_fails: None,
         nextest: crate::nextest::has(&places.home),
+        processes: crate::proc_limit::local()?,
     })
 }
 

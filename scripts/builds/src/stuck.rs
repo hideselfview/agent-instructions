@@ -43,8 +43,8 @@ const SAMPLE_SECONDS: u32 = 5;
 const ANCESTORS: usize = 12;
 
 /// What `ps` prints, one process a line: pid, parent, user, CPU share, CPU
-/// time, time since start, command with its arguments.
-pub const PS_FORMAT: &str = "pid=,ppid=,uid=,pcpu=,cputime=,etime=,command=";
+/// time, time since start, state, command with its arguments.
+pub const PS_FORMAT: &str = "pid=,ppid=,uid=,pcpu=,cputime=,etime=,stat=,command=";
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Row {
@@ -55,6 +55,8 @@ pub struct Row {
     pub cpu_percent: f64,
     pub cpu_seconds: f64,
     pub age_seconds: i64,
+    /// Exited and waiting for its parent to reap it (state Z).
+    pub zombie: bool,
     pub command: String,
 }
 
@@ -94,10 +96,11 @@ pub fn parse_ps(text: &str) -> Result<Vec<Row>, String> {
         let cpu_percent = next()?.parse().map_err(|_| bad("CPU share"))?;
         let cpu_seconds = parse_cpu_time(next()?).ok_or_else(|| bad("CPU time"))?;
         let age_seconds = parse_elapsed(next()?).ok_or_else(|| bad("age"))?;
+        let zombie = next()?.starts_with('Z');
         // The command is the rest of the line, spaces kept.
         let command = {
             let mut rest = line.trim_start();
-            for _ in 0..6 {
+            for _ in 0..7 {
                 rest = rest
                     .trim_start_matches(|c: char| !c.is_whitespace())
                     .trim_start();
@@ -111,6 +114,7 @@ pub fn parse_ps(text: &str) -> Result<Vec<Row>, String> {
             cpu_percent,
             cpu_seconds,
             age_seconds,
+            zombie,
             command,
         });
     }
@@ -274,7 +278,7 @@ fn is_system(row: &Row) -> bool {
 }
 
 /// `name-<16 hex digits>`, the file name of a test binary cargo builds.
-fn is_test_binary(row: &Row) -> bool {
+pub fn is_test_binary(row: &Row) -> bool {
     let program = row.command.split_whitespace().next().unwrap_or("");
     basename(program)
         .rsplit_once('-')
@@ -437,7 +441,7 @@ impl Sampling {
 
     /// <script> as the person runs it on the host: over ssh, or as it is
     /// on this Mac.
-    fn on_host(&self, script: &str) -> String {
+    pub fn on_host(&self, script: &str) -> String {
         match &self.target {
             Some(target) => format!("ssh {target} '{script}'"),
             None => script.to_string(),
@@ -611,6 +615,23 @@ pub struct HostRead {
     /// Set on this Mac only, the one host whose fseventsd health can ask.
     pub wedged: Option<Wedged>,
     pub hung: Vec<Hung>,
+    /// The parents that hold the most zombie children (proc_limit.rs).
+    pub zombie_parents: Vec<crate::proc_limit::ZombieParent>,
+}
+
+/// The rows of this Mac's processes.
+pub fn local_rows() -> Result<Vec<Row>, String> {
+    let listing = output_of(
+        command_at(
+            &Ssh::from_env(),
+            &Host::local(),
+            &ps_script(),
+            crate::host::Terminal::None,
+        ),
+        "ps",
+        Accept::Zero,
+    )?;
+    parse_ps(&listing)
 }
 
 /// The `ps` line of a host, as the script `ssh` runs.
@@ -689,6 +710,7 @@ pub fn read(ssh: &Ssh, host: &Host, dashboard: Option<i32>) -> HostBusy {
             busy: judge(&host.name, &rows, &cwds, &sampling, dashboard),
             wedged,
             hung: hung_tests(&host.name, &rows, &cwds, &sampling),
+            zombie_parents: crate::proc_limit::zombie_parents(&rows, &sampling),
         })
     })();
     HostBusy {

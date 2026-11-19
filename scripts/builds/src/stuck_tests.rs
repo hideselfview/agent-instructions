@@ -8,6 +8,7 @@ fn row(pid: i32, ppid: i32, uid: u32, pcpu: f64, cpu: f64, age: i64, command: &s
         cpu_percent: pcpu,
         cpu_seconds: cpu,
         age_seconds: age,
+        zombie: false,
         command: command.to_string(),
     }
 }
@@ -26,9 +27,9 @@ const AGENT: &str = "/bin/zsh -c source /Users/x/.claude/shell-snapshots/snapsho
 
 #[test]
 fn parses_ps_lines() {
-    let text = "  555     1   202   0.0 823:18.22 24-07:11:48 /usr/bin/a b  c\n\
-                  17  1   0  101.5 2586:37.12 06-02:03:04 /usr/libexec/fseventsd\n\
-                  18  1   501 3.0 1:02:03.50 05:09 sleep 1\n";
+    let text = "  555     1   202   0.0 823:18.22 24-07:11:48 Ss /usr/bin/a b  c\n\
+                  17  1   0  101.5 2586:37.12 06-02:03:04 Rs /usr/libexec/fseventsd\n\
+                  18  1   501 3.0 1:02:03.50 05:09 Z (sleep)\n";
     let rows = parse_ps(text).unwrap();
     assert_eq!(rows.len(), 3);
     assert_eq!(rows[0].command, "/usr/bin/a b  c");
@@ -37,6 +38,8 @@ fn parses_ps_lines() {
     assert_eq!(rows[1].uid, 0);
     assert_eq!(rows[2].cpu_seconds, 3600.0 + 123.5);
     assert_eq!(rows[2].age_seconds, 5 * 60 + 9);
+    assert!(rows[2].zombie && !rows[0].zombie);
+    assert_eq!(rows[2].command, "(sleep)");
     assert!(parse_ps("1 2 3\n").is_err());
 }
 
@@ -290,6 +293,7 @@ fn findings_come_only_from_hosts_that_were_read() {
                 ),
                 wedged: None,
                 hung: Vec::new(),
+                zombie_parents: Vec::new(),
             }),
         },
     ];
@@ -385,6 +389,7 @@ fn a_wedged_fseventsd_replaces_its_busy_finding() {
             busy: judge("local", &rows, &HashMap::new(), &sampling(), None),
             wedged: wedged("local", &rows, 0, &sampling()),
             hung: Vec::new(),
+            zombie_parents: Vec::new(),
         }),
     }];
     let found = findings(&hosts);
@@ -462,6 +467,7 @@ fn an_idle_test_that_builds_cargo_runs_on_a_host_is_hung() {
             busy: Vec::new(),
             wedged: None,
             hung,
+            zombie_parents: Vec::new(),
         }),
     };
     assert_eq!(findings(&[host]).len(), 1);

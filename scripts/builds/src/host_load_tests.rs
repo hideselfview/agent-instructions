@@ -23,6 +23,7 @@ fn loaded(five: f64) -> std::result::Result<Probe, String> {
         free_kib: 100,
         git_fails: None,
         nextest: crate::nextest::Has::Nothing,
+        processes: Default::default(),
     })
 }
 

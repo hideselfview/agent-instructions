@@ -22,6 +22,7 @@ fn probe(free_gib: f64, git_fails: Option<&str>) -> Probed {
         free_kib: (free_gib * GIB as f64) as u64,
         git_fails: git_fails.map(str::to_string),
         nextest: crate::nextest::Has::Nothing,
+        processes: Default::default(),
     })
 }
 

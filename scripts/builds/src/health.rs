@@ -86,6 +86,8 @@ pub enum FindingKind {
     /// A host whose cores sit idle while items are ready, or whose load is
     /// well over its cores (host_load.rs).
     Load,
+    /// A host near its limit of processes per user (proc_limit.rs).
+    ProcessLimit,
     /// No `builds prune` finished lately (prune_schedule.rs).
     Prune,
 }
@@ -1463,10 +1465,13 @@ pub fn cmd_health(tool: &Tool, args: &[String]) -> Result<()> {
     }
     if stop_junk {
         // Judge the shells now, never from the daemon's last reading.
-        let (lines, failed) = crate::shells::stop(&health(tool)?.shells, tool.places.uid)?;
+        let (mut lines, mut failed) = crate::shells::stop(&health(tool)?.shells, tool.places.uid)?;
         if lines.is_empty() {
             println!("no junk shells");
         }
+        let (zombie_lines, zombie_failed) = crate::proc_limit::stop(tool.places.uid)?;
+        lines.extend(zombie_lines);
+        failed += zombie_failed;
         for line in lines {
             println!("{line}");
         }
@@ -1542,6 +1547,11 @@ pub fn cmd_health(tool: &Tool, args: &[String]) -> Result<()> {
         crate::host_load::findings(&probed, ready, tool.rules.floor_kib)
             .into_iter()
             .map(|advice| Finding::new(FindingKind::Load, advice)),
+    );
+    health.findings.extend(
+        crate::proc_limit::findings(&probed, &busy)
+            .into_iter()
+            .map(|advice| Finding::new(FindingKind::ProcessLimit, advice)),
     );
     health.findings.extend(
         crate::host_load::builds_items_ready(&loaded)

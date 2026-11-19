@@ -8,14 +8,14 @@ const HOUR: i64 = 3600;
 /// a Gradle daemon that works, another user's Gradle daemon, a Gradle client
 /// that is no daemon, a booted simulator device and an unrelated process.
 const LISTING: &str = "uid=501
- 4101     1   501   0.0   0:41.20 06:30:12 /Library/Java/jdk/bin/java -Xmx512m -cp gradle-launcher.jar org.gradle.launcher.daemon.bootstrap.GradleDaemon 8.10
- 4102     1   501   0.0   2:10.00 15:02:44 /Library/Java/jdk/bin/java -Xmx1g -cp kotlin-daemon.jar org.jetbrains.kotlin.daemon.KotlinCompileDaemon --daemon-runFilesPath /tmp
- 4103     1   501  88.0  30:10.00 01:00:00 /Library/Java/jdk/bin/java -cp gradle-launcher.jar org.gradle.launcher.daemon.bootstrap.GradleDaemon 8.10
- 4104     1   502   0.0   0:10.00 09:00:00 /Library/Java/jdk/bin/java -cp gradle-launcher.jar org.gradle.launcher.daemon.bootstrap.GradleDaemon 8.10
- 4105  3000   501   0.0   0:03.00 00:30 /Library/Java/jdk/bin/java -cp gradle-wrapper.jar org.gradle.wrapper.GradleWrapperMain test
- 4106     1   501   0.0   0:09.00 03:00:00 /Users/u/Library/Developer/CoreSimulator/Devices/ABC/data/launchd_sim
- 4107     1   501   0.0   0:08.00 03:00:00 /Users/u/Library/Developer/CoreSimulator/Devices/DEF/data/launchd_sim
- 4108     1   501   0.0   0:01.00 03:00:00 /usr/sbin/cfprefsd agent
+ 4101     1   501   0.0   0:41.20 06:30:12 Ss /Library/Java/jdk/bin/java -Xmx512m -cp gradle-launcher.jar org.gradle.launcher.daemon.bootstrap.GradleDaemon 8.10
+ 4102     1   501   0.0   2:10.00 15:02:44 Ss /Library/Java/jdk/bin/java -Xmx1g -cp kotlin-daemon.jar org.jetbrains.kotlin.daemon.KotlinCompileDaemon --daemon-runFilesPath /tmp
+ 4103     1   501  88.0  30:10.00 01:00:00 Ss /Library/Java/jdk/bin/java -cp gradle-launcher.jar org.gradle.launcher.daemon.bootstrap.GradleDaemon 8.10
+ 4104     1   502   0.0   0:10.00 09:00:00 Ss /Library/Java/jdk/bin/java -cp gradle-launcher.jar org.gradle.launcher.daemon.bootstrap.GradleDaemon 8.10
+ 4105  3000   501   0.0   0:03.00 00:30 Ss /Library/Java/jdk/bin/java -cp gradle-wrapper.jar org.gradle.wrapper.GradleWrapperMain test
+ 4106     1   501   0.0   0:09.00 03:00:00 Ss /Users/u/Library/Developer/CoreSimulator/Devices/ABC/data/launchd_sim
+ 4107     1   501   0.0   0:08.00 03:00:00 Ss /Users/u/Library/Developer/CoreSimulator/Devices/DEF/data/launchd_sim
+ 4108     1   501   0.0   0:01.00 03:00:00 Ss /usr/sbin/cfprefsd agent
 ";
 
 fn found() -> Vec<Daemon> {

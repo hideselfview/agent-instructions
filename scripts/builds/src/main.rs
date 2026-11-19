@@ -66,6 +66,7 @@ mod manifest;
 mod migrate;
 mod nextest;
 mod places;
+mod proc_limit;
 mod procs;
 mod prune;
 mod prune_schedule;
