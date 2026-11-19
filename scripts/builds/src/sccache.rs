@@ -178,6 +178,47 @@ pub fn parse_max_cache_size(json: &str) -> Result<u64> {
         )
 }
 
+/// What a server's JSON stats say, since it started.
+#[derive(Clone, Debug, PartialEq)]
+pub struct CacheStats {
+    /// The Rust compiles the cache answered, and those it had to run.
+    pub rust_hits: u64,
+    pub rust_misses: u64,
+    /// The bytes in the cache, and the most it keeps.
+    pub cache_size: u64,
+    pub max_cache_size: u64,
+}
+
+/// Reads the JSON stats <json> that `STATS` printed. Fails, with what the
+/// server printed, when a field is missing. A server that has run no Rust compile has no
+/// `Rust` count, which reads as 0.
+pub fn parse_json_stats(json: &str) -> Result<CacheStats> {
+    let value: serde_json::Value = match serde_json::from_str(json) {
+        Ok(value) => value,
+        Err(error) => fail!("sccache printed stats that are not JSON ({error}): {json}"),
+    };
+    if !value["stats"]["cache_hits"].is_object() || !value["stats"]["cache_misses"].is_object() {
+        fail!("sccache's stats have no counts of hits and misses: {json}");
+    }
+    let rust = |kind: &str| {
+        value["stats"][kind]["counts"]["Rust"]
+            .as_u64()
+            .unwrap_or_default()
+    };
+    let size = |key: &str| -> Result<u64> {
+        match value[key].as_u64() {
+            Some(size) => Ok(size),
+            None => fail!("sccache's stats have no {key}: {json}"),
+        }
+    };
+    Ok(CacheStats {
+        rust_hits: rust("cache_hits"),
+        rust_misses: rust("cache_misses"),
+        cache_size: size("cache_size")?,
+        max_cache_size: size("max_cache_size")?,
+    })
+}
+
 /// The max cache size, in bytes, that the server listening on sccache's port
 /// runs with. Ask only a server that listens: asking starts one when none
 /// runs. Fails when sccache fails or prints no max cache size.

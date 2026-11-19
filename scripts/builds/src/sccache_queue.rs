@@ -20,7 +20,8 @@ use serde::{Deserialize, Serialize};
 use crate::fail::{Context, Fail, Result};
 use crate::health::Advice;
 use crate::host::{Host, place};
-use crate::host_scan::{CacheStats, Scan, arguments, program};
+use crate::host_scan::{Scan, arguments, program};
+use crate::sccache::CacheStats;
 use crate::text::{human_bytes, local_minute};
 
 /// Readings this old or older say what the cache answered since.

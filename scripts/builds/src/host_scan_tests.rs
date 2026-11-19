@@ -45,7 +45,7 @@ fn reads_what_a_host_printed() {
         scan.sccache,
         Ok(Some(CacheServer {
             pid: 44790,
-            stats: CacheStats {
+            stats: crate::sccache::CacheStats {
                 rust_hits: 35361,
                 rust_misses: 34774,
                 cache_size: 53670801410,

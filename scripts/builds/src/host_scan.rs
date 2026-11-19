@@ -36,48 +36,7 @@ pub struct Scan {
 #[derive(Clone, Debug, PartialEq)]
 pub struct CacheServer {
     pub pid: i32,
-    pub stats: CacheStats,
-}
-
-/// What a server's JSON stats say, since it started.
-#[derive(Clone, Debug, PartialEq)]
-pub struct CacheStats {
-    /// The Rust compiles the cache answered, and those it had to run.
-    pub rust_hits: u64,
-    pub rust_misses: u64,
-    /// The bytes in the cache, and the most it keeps.
-    pub cache_size: u64,
-    pub max_cache_size: u64,
-}
-
-/// Reads a server's JSON stats <json>. Fails, with what the server printed,
-/// when a field is missing. A server that has run no Rust compile has no
-/// `Rust` count, which reads as 0.
-pub fn parse_stats(json: &str) -> Result<CacheStats> {
-    let value: serde_json::Value = match serde_json::from_str(json) {
-        Ok(value) => value,
-        Err(error) => fail!("sccache printed stats that are not JSON ({error}): {json}"),
-    };
-    if !value["stats"]["cache_hits"].is_object() || !value["stats"]["cache_misses"].is_object() {
-        fail!("sccache's stats have no counts of hits and misses: {json}");
-    }
-    let rust = |kind: &str| {
-        value["stats"][kind]["counts"]["Rust"]
-            .as_u64()
-            .unwrap_or_default()
-    };
-    let size = |key: &str| -> Result<u64> {
-        match value[key].as_u64() {
-            Some(size) => Ok(size),
-            None => fail!("sccache's stats have no {key}: {json}"),
-        }
-    };
-    Ok(CacheStats {
-        rust_hits: rust("cache_hits"),
-        rust_misses: rust("cache_misses"),
-        cache_size: size("cache_size")?,
-        max_cache_size: size("max_cache_size")?,
-    })
+    pub stats: crate::sccache::CacheStats,
 }
 
 /// A command that a job runs on a host now: the claim folder of a worktree
@@ -186,7 +145,7 @@ pub fn parse(text: &str) -> std::result::Result<Scan, String> {
         };
         Ok(Some(CacheServer {
             pid: pid as i32,
-            stats: parse_stats(json)?,
+            stats: crate::sccache::parse_json_stats(json)?,
         }))
     })()
     .map_err(|fault| fault.text());
