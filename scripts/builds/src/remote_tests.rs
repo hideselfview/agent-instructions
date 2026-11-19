@@ -939,3 +939,33 @@ fn a_command_passes_on_all_it_printed() {
     assert_eq!(lines[20000], "no end of line");
     assert!(!wt.with_extension("job").join("out").exists());
 }
+
+#[test]
+fn a_finished_job_leaves_no_job_status_lines_on_stderr() {
+    let s = setup("remote-job-status");
+    let places = s.scratch.places();
+    let wt = app_checkout(&s);
+    let transport = Transport {
+        places: &places,
+        ssh: &s.ssh,
+        host: &s.host,
+    };
+    let errors = s.scratch.dir.join("errors");
+    let mut start = transport.command(&run_script(
+        &s.host,
+        &wt.display().to_string(),
+        &args(&["sh", "-c", "echo out; echo oops >&2"]),
+        "test",
+    ));
+    let mut started = start
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(std::fs::File::create(&errors).unwrap())
+        .spawn()
+        .unwrap();
+    let lifeline = started.stdin.take();
+    let status = started.wait().unwrap();
+    drop(lifeline);
+    assert_eq!(status.code(), Some(0));
+    assert_eq!(std::fs::read_to_string(&errors).unwrap(), "oops\n");
+}

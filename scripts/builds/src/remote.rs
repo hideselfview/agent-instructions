@@ -618,7 +618,8 @@ ulimit -n 10240 2>/dev/null || ulimit -n "$(ulimit -Hn)" 2>/dev/null
 # id is the pid of its first process. Linux has setsid, which gives one;
 # macOS has no setsid, and its sh gives each background job a group of its own
 # under job control (set -m). Linux's sh (dash) turns job control off with no
-# terminal, which ssh gives none. dash's kill takes no `--`, so each kill below
+# terminal, which ssh gives none. The script turns job control off once it
+# has started the watcher. dash's kill takes no `--`, so each kill below
 # names the group as `-<pid>` alone.
 if command -v setsid >/dev/null 2>&1; then own_group=setsid; else set -m; own_group=; fi
 # The caller's pipe, kept on 5: a shell may give a background job /dev/null
@@ -639,6 +640,9 @@ exec 3>"$job/out" 4>"$job/err"
 pid=$!
 ( exec $own_group sh -c 'cat >/dev/null; kill -TERM "-$1"' sh "$pid" ) <&5 >/dev/null 2>&1 3>&- 4>&- 5<&- &
 watcher=$!
+# Job control is off again: the groups are made, and sh prints a status line on
+# stderr for each background job that ends while it is on.
+[ -n "$own_group" ] || set +m
 exec 5<&-
 if ! said=$( {{ echo "$pid" {run} > "$job/{run_file}.new" && mv "$job/{run_file}.new" "$job/{run_file}"; }} 2>&1 ); then
   echo "builds could not record the command's process group $pid in $job on host {host}, so builds health will not list it: $said" >&2
@@ -646,6 +650,8 @@ fi
 wait $pid 2>/dev/null
 status=$?
 kill -TERM "-$watcher" 2>/dev/null
+# Waiting for it here, with stderr silenced, is where sh reports its signal.
+wait $watcher 2>/dev/null
 if kill -0 "-$pid" 2>/dev/null; then
   if ! said=$(kill -TERM "-$pid" 2>&1); then
     echo "builds could not stop the processes the command left in its process group $pid on host {host}: $said" >&2
