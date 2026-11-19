@@ -92,12 +92,12 @@ pub fn record(readings: &mut Vec<Reading>, reading: Reading) -> bool {
     crate::readings_file::record(readings, reading, now, |r| r.at, |_| true, MAX_SECONDS)
 }
 
-/// The newest of <readings> that is between MIN_SECONDS and MAX_SECONDS
-/// before <now>.
-fn compared(readings: &[Reading], now: i64) -> Option<&Reading> {
+/// The newest of <readings> that is between <least> and MAX_SECONDS before
+/// <now>.
+fn newest_since(readings: &[Reading], now: i64, least: i64) -> Option<&Reading> {
     readings
         .iter()
-        .filter(|r| (MIN_SECONDS..=MAX_SECONDS).contains(&(now - r.at)))
+        .filter(|r| (least..=MAX_SECONDS).contains(&(now - r.at)))
         .max_by_key(|r| r.at)
 }
 
@@ -114,10 +114,7 @@ fn interval_share(earlier: &Proc, later: &Proc, seconds: i64) -> Option<f64> {
 /// at most MAX_SECONDS) up to <now>, with the seconds that span covers. None
 /// when no reading is old enough, or a reading in the span lacks the process.
 fn sustained(readings: &[Reading], now: i64, current: &Proc) -> Option<Sustained> {
-    let first = readings
-        .iter()
-        .filter(|r| (SPAN_SECONDS..=MAX_SECONDS).contains(&(now - r.at)))
-        .max_by_key(|r| r.at)?;
+    let first = newest_since(readings, now, SPAN_SECONDS)?;
     let mut span: Vec<&Reading> = readings
         .iter()
         .filter(|r| r.at >= first.at && now - r.at >= MIN_SECONDS)
@@ -142,11 +139,11 @@ fn sustained(readings: &[Reading], now: i64, current: &Proc) -> Option<Sustained
 }
 
 /// <rows>, listed at <now>, with each CPU share set to what the process used
-/// since the reading <compared> picks from <readings>, as a percentage of a
+/// since the reading `newest_since` picks from <readings>, as a percentage of a
 /// core, or to None when that reading has no such process; and each
 /// `sustained` set by `sustained` over the readings.
 pub fn measure(mut rows: Vec<Row>, now: i64, readings: &[Reading]) -> Vec<Row> {
-    let previous = compared(readings, now);
+    let previous = newest_since(readings, now, MIN_SECONDS);
     let before: HashMap<i32, &Proc> = previous
         .map(|reading| reading.procs.iter().map(|p| (p.pid, p)).collect())
         .unwrap_or_default();
