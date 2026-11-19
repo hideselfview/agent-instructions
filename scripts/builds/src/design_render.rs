@@ -302,6 +302,14 @@ pub fn source_of(design: &DesignChange, side: Side) -> Result<Source<'_>> {
     }
 }
 
+/// The size that the canvas file of <from> gives board <name>.
+fn size_at(from: &Source, name: &str) -> Result<(u64, u64)> {
+    let text = from.read(CANVAS, "the canvas file")?;
+    let canvas: Value =
+        serde_json::from_str(&text).context(|| format!("reading {}", from.label(CANVAS)))?;
+    Ok(canvas_size(&canvas, &format!("{name}{BOARD_SUFFIX}"))?)
+}
+
 /// How <side> of board <board> shows on the review page: its frame (`w`, `h`
 /// and the `src` the frame loads), `absent` (the board is no file there), or
 /// the `error` that stops it.
@@ -313,10 +321,7 @@ fn drawing(design: &DesignChange, side: Side, board: &str, src: &str) -> Value {
         if !from.has(&board_path(&name))? {
             return Ok(json!({ "absent": true }));
         }
-        let text = from.read(CANVAS, "the canvas file")?;
-        let canvas: Value =
-            serde_json::from_str(&text).context(|| format!("reading {}", from.label(CANVAS)))?;
-        let (w, h) = canvas_size(&canvas, &format!("{name}{BOARD_SUFFIX}"))?;
+        let (w, h) = size_at(&from, &name)?;
         Ok(json!({ "w": w, "h": h, "src": format!("{src}/{}", side.word()) }))
     })();
     // A board that is no file where the change draws it is that change's fault, not an absence.
@@ -403,17 +408,12 @@ pub fn variants_source<'a>(design: &'a DesignChange, variants: &'a Variants) -> 
 /// `h` and the `src` it loads) or the `error` that stops it, which the page
 /// shows in its place.
 fn variants_json(design: &DesignChange, variants: &Variants, project: &str) -> Value {
+    // `design variants` kept the board only as a file at the commit, so the
+    // page reads its size there without looking for the file again.
     let size = (|| -> Result<(u64, u64)> {
         let from = variants_source(design, variants);
         from.check()?;
-        let name = board_name(&variants.board)?;
-        if !from.has(&board_path(&name))? {
-            fail!("{} is no file at commit {}", variants.board, variants.tip);
-        }
-        let text = from.read(CANVAS, "the canvas file")?;
-        let canvas: Value =
-            serde_json::from_str(&text).context(|| format!("reading {}", from.label(CANVAS)))?;
-        Ok(canvas_size(&canvas, &format!("{name}{BOARD_SUFFIX}"))?)
+        size_at(&from, &board_name(&variants.board)?)
     })()
     .map_err(crate::fail::Fail::text);
     let drawings: Vec<Value> = variants

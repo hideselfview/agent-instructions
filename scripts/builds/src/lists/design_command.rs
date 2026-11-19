@@ -616,11 +616,10 @@ fn list(tool: &Tool, args: &[String], cwd: &Path) -> Result<String> {
 
 /// The theme `--theme` names: dark unless it says light.
 fn theme_of(args: &Args) -> Result<crate::lists::Theme> {
-    Ok(match args.value("theme")? {
-        None | Some("dark") => crate::lists::Theme::Dark,
-        Some("light") => crate::lists::Theme::Light,
-        Some(other) => fail!("--theme is light or dark, not {other:?}"),
-    })
+    match args.value("theme")? {
+        None => Ok(crate::lists::Theme::Dark),
+        Some(word) => crate::lists::Theme::of_word(word),
+    }
 }
 
 /// `variants N --board BOARD --selector CSS_SELECTOR --props JSON [--theme

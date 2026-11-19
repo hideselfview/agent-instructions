@@ -799,16 +799,11 @@ fn the_review_page_gives_each_variant_its_label_and_frame_and_each_variant_draws
         .contains("var PROPS = {};")
     );
 
-    // A board that is no file at the variants' commit, or has no size there, is said at each drawing.
-    change.variants.as_mut().unwrap().board = "design/mocks/Z.dc.html".into();
-    let drawings =
-        &page_data(&review_page(&change, &view, "demo").unwrap())["variants"]["drawings"];
-    assert_eq!(drawings[1]["label"], json!("rows: 2, storage: </script>"));
-    let error = drawings[0]["error"].as_str().unwrap();
-    assert!(error.contains("Z.dc.html is no file at commit"), "{error}");
+    // A board with no size at the variants' commit is said at each drawing, under its label.
     change.variants.as_mut().unwrap().board = "design/mocks/B.dc.html".into();
     let drawings =
         &page_data(&review_page(&change, &view, "demo").unwrap())["variants"]["drawings"];
+    assert_eq!(drawings[1]["label"], json!("rows: 2, storage: </script>"));
     let error = drawings[0]["error"].as_str().unwrap();
     assert!(
         error.contains("no width and height for B.dc.html"),

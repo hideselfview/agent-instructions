@@ -69,6 +69,15 @@ impl Theme {
             Theme::Dark => "dark",
         }
     }
+
+    /// The theme <word> names, the inverse of `word`.
+    pub fn of_word(word: &str) -> Result<Theme> {
+        match word {
+            "light" => Ok(Theme::Light),
+            "dark" => Ok(Theme::Dark),
+            other => fail!("{other:?} is no theme: a theme is light or dark"),
+        }
+    }
 }
 
 /// A board on a review page: the board file (a place of the repo's design
@@ -231,7 +240,6 @@ pub struct DesignChange {
     pub session: SessionState,
     /// The versions of one part of a board that its review page shows side
     /// by side (`design_variants`); none once it has closed.
-    #[serde(default)]
     pub variants: Option<Variants>,
     pub opened: Stamp,
     pub landed: Vec<DesignLanding>,
@@ -1713,11 +1721,7 @@ pub fn read(
         .sql()?
     {
         let (design, position, board, caption, theme) = row.sql()?;
-        let theme = if theme == "light" {
-            Theme::Light
-        } else {
-            Theme::Dark
-        };
+        let theme = Theme::of_word(&theme)?;
         review
             .get_mut(&design)
             .expect("review_board_is_on_a_section holds")

@@ -1,4 +1,4 @@
-//! The variants of a design change: versions of one part of one board that
+//! The variants of a design change: versions of one area of one board that
 //! the change's review page shows side by side while the person and the
 //! design session compare them. The page draws the board once per set of
 //! props, at a commit the variants keep, and crops each drawing to the first
@@ -33,7 +33,7 @@ pub type Props = serde_json::Map<String, Value>;
 pub struct Variants {
     /// The board file, `design/mocks/<name>.dc.html`.
     pub board: String,
-    /// The CSS selector of the part: the page crops each drawing to the
+    /// The CSS selector of the area: the page crops each drawing to the
     /// first element it finds that a person sees.
     pub selector: String,
     pub theme: Theme,
@@ -70,7 +70,7 @@ pub fn keep(db: &Connection, id: Id, variants: &Variants) -> Result<()> {
         fail!("--props gives no props: give one JSON object of props for each variant");
     }
     if variants.selector.trim().is_empty() {
-        fail!("--selector is empty: give the CSS selector of the part to crop each variant to");
+        fail!("--selector is empty: give the CSS selector of the area to crop each variant to");
     }
     db.execute("DELETE FROM design_variants WHERE design_id = ?1", [id])
         .sql()?;
@@ -133,19 +133,19 @@ pub(in crate::lists) fn all(db: &Connection) -> Result<BTreeMap<Id, Variants>> {
     let mut all = BTreeMap::new();
     for row in rows {
         let (design, board, selector, theme, tip) = row.sql()?;
-        let theme = if theme == "light" {
-            Theme::Light
-        } else {
-            Theme::Dark
+        // `keep` writes the variants with at least one set of props, so
+        // variants with none are a broken store.
+        let Some(props) = props.remove(&design) else {
+            fail!("design change {design} keeps variants with no props; the store is broken")
         };
         all.insert(
             design,
             Variants {
                 board,
                 selector,
-                theme,
+                theme: Theme::of_word(&theme)?,
                 tip,
-                props: props.remove(&design).unwrap_or_default(),
+                props,
             },
         );
     }

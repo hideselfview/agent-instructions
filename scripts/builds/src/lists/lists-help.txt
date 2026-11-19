@@ -788,7 +788,7 @@ sent again.
   builds design variants N --board BOARD --selector CSS_SELECTOR --props JSON
                            [--theme light|dark] [--at REV]
   builds design variants N --clear
-      Shows versions of one part of a board side by side on open design
+      Shows versions of one area of a board side by side on open design
       change N's review page, while the person and the design session
       compare them, with no commit for each version. The review page's
       Variants section draws BOARD once for each object of the JSON array
