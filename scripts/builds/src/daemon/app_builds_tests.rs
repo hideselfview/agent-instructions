@@ -3,6 +3,7 @@ use crate::claim::Claim;
 use crate::daemon::model::{Activity, ProcessPage};
 use crate::health::{Holder, LaneQueue, LockHealth, Queued};
 use crate::holder_run::StepTime;
+use crate::lane::Lane;
 use crate::side_git::{Commit, SideGit};
 
 fn checkout(name: &str, lane: Option<&'static str>, branch: Option<&str>) -> CheckoutPage {
@@ -271,11 +272,11 @@ fn a_free_lock_is_idle_and_the_mac_lane_comes_first() {
 
 /// The wait of a build as `build_for` words it, ignoring a queued build's
 /// place, which its own test checks.
-fn app_build(lane: &str, running: bool, how: &str) -> (String, bool, String) {
-    (lane.to_string(), running, how.to_string())
+fn app_build(lane: Lane, running: bool, how: &str) -> (Lane, bool, String) {
+    (lane, running, how.to_string())
 }
 
-fn flat(wait: Option<ItemWait>) -> Option<(String, bool, String)> {
+fn flat(wait: Option<ItemWait>) -> Option<(Lane, bool, String)> {
     match wait? {
         ItemWait::AppBuild {
             lane, running, how, ..
@@ -350,22 +351,25 @@ fn a_branch_with_a_running_or_queued_app_build_is_found_in_its_lane() {
         ],
     );
     assert_eq!(
-        flat(build_for(&page.locks, &page.queues, "mac-alerts")),
+        flat(build_for(&page.locks, &page.queues, "mac-alerts").unwrap()),
         Some(app_build(
-            "Mac",
+            Lane::Mac,
             true,
             "builds in side-1 for 6 minutes after waiting 25 minutes, running macos for 4 minutes, asked for macos"
         ))
     );
     assert_eq!(
-        flat(build_for(&page.locks, &page.queues, "reads-import-count")),
+        flat(build_for(&page.locks, &page.queues, "reads-import-count").unwrap()),
         Some(app_build(
-            "Mac",
+            Lane::Mac,
             false,
             "place 2 in the queue, waiting 1 minute, asked for every step"
         ))
     );
-    assert_eq!(build_for(&page.locks, &page.queues, "no-build"), None);
+    assert_eq!(
+        build_for(&page.locks, &page.queues, "no-build").unwrap(),
+        None
+    );
 }
 
 /// The mac lane's queue as the live one holds it: a ticket file named
@@ -437,26 +441,26 @@ fn the_lanes_real_queue_and_command_lines_name_each_waiting_branch() {
         queue,
     );
     assert_eq!(
-        flat(build_for(&page.locks, &page.queues, "mac-alerts")),
+        flat(build_for(&page.locks, &page.queues, "mac-alerts").unwrap()),
         Some(app_build(
-            "Mac",
+            Lane::Mac,
             false,
             "place 1 in the queue, waiting 20 minutes, asked for macos macos-tests"
         ))
     );
     assert_eq!(
-        how_of(build_for(&page.locks, &page.queues, "reads-import-count")),
+        how_of(build_for(&page.locks, &page.queues, "reads-import-count").unwrap()),
         "place 2 in the queue, waiting 20 minutes, asked for macos macos-tests"
     );
     assert_eq!(
-        how_of(build_for(&page.locks, &page.queues, "reads-storage")),
+        how_of(build_for(&page.locks, &page.queues, "reads-storage").unwrap()),
         "place 3 in the queue, waiting 20 minutes, asked for macos macos-tests"
     );
     // The lock holder has no run record, so the build's line shows no times.
     assert_eq!(
-        flat(build_for(&page.locks, &page.queues, "reads-auto-picks")),
+        flat(build_for(&page.locks, &page.queues, "reads-auto-picks").unwrap()),
         Some(app_build(
-            "Mac",
+            Lane::Mac,
             true,
             "builds in side-1, asked for macos macos-tests"
         ))
@@ -491,7 +495,7 @@ fn a_queued_build_knows_its_place_the_queues_length_and_what_it_asked() {
         running: false,
         queued: Some(queued),
         ..
-    }) = build_for(&page.locks, &page.queues, "mine")
+    }) = build_for(&page.locks, &page.queues, "mine").unwrap()
     else {
         panic!("not a queued build");
     };
@@ -504,7 +508,7 @@ fn a_queued_build_knows_its_place_the_queues_length_and_what_it_asked() {
     let Some(ItemWait::AppBuild {
         queued: Some(every),
         ..
-    }) = build_for(&page.locks, &page.queues, "third")
+    }) = build_for(&page.locks, &page.queues, "third").unwrap()
     else {
         panic!("not a queued build");
     };

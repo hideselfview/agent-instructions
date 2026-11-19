@@ -1441,9 +1441,21 @@ impl Model {
             }
             _ => None,
         };
-        let build = seen
+        let build = match seen
             .branch
-            .and_then(|branch| super::app_builds::build_for(locks, queues, branch));
+            .map(|branch| super::app_builds::build_for(locks, queues, branch))
+            .transpose()
+        {
+            Ok(build) => build.flatten(),
+            Err(error) => {
+                errors.push(format!(
+                    "The daemon can't read the app builds of this worktree's branch: {}",
+                    error.text()
+                ));
+                None
+            }
+        };
+
         let shell = health.is_some_and(|h| {
             h.shells
                 .active

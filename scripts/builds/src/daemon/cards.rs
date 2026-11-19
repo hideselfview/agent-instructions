@@ -15,11 +15,10 @@ pub enum ItemWait {
     Answer { id: u32, title: String },
     /// A design change that waits on the person's review.
     Review { id: u32, title: String },
-    /// An app build of the branch runs or waits in a lane: `lane` is `Mac`
-    /// or `Android`, `running` says whether it builds now and `how` says how
-    /// far it is.
+    /// An app build of the branch runs or waits in <lane>: `running` says
+    /// whether it builds now and `how` says how far it is.
     AppBuild {
-        lane: String,
+        lane: Lane,
         running: bool,
         how: String,
         /// Its place in the lane's queue, when it has not started.
@@ -130,6 +129,14 @@ impl ReviewWait {
     }
 }
 
+/// <lane>'s name as a card writes it.
+fn lane_title(lane: Lane) -> &'static str {
+    match lane {
+        Lane::Mac => "Mac",
+        Lane::Android => "Android",
+    }
+}
+
 /// A build that waits in a lane's queue.
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
 pub struct QueuedBuild {
@@ -175,7 +182,7 @@ impl ItemWait {
                 lane,
                 running: true,
                 ..
-            } => format!("{lane} build"),
+            } => format!("{} build", lane_title(*lane)),
             ItemWait::AppBuild { running: false, .. } => return None,
             ItemWait::Item { id, .. } | ItemWait::Landing { id, .. } => format!("After #{id}"),
             ItemWait::Unrecorded => "No design change".to_string(),
@@ -200,9 +207,9 @@ impl ItemWait {
                 running: true,
                 how,
                 ..
-            } => format!("{lane} app build: {how}"),
+            } => format!("{} app build: {how}", lane_title(*lane)),
             ItemWait::AppBuild { lane, how, .. } => {
-                format!("Waits on the {lane} app build: {how}")
+                format!("Waits on the {} app build: {how}", lane_title(*lane))
             }
             ItemWait::Item { id, title, state } => {
                 format!("Waits on #{id} ({state}): {title}")
@@ -390,11 +397,7 @@ fn waits_in_queue(state: CardState, wait: Option<&ItemWait>) -> Option<Lane> {
                 lane,
                 ..
             }),
-        ) => Some(if lane == "Android" {
-            Lane::Android
-        } else {
-            Lane::Mac
-        }),
+        ) => Some(*lane),
         _ => None,
     }
 }

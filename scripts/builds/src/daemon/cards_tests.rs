@@ -493,7 +493,7 @@ fn a_branch_with_an_app_build_waits_on_it_and_is_not_ready_to_land() {
         st("working"),
         &[],
         &[ItemWait::AppBuild {
-            lane: "Mac".into(),
+            lane: Lane::Mac,
             running: false,
             how: "place 2 in the queue".into(),
             queued: None,
@@ -512,7 +512,7 @@ fn a_branch_whose_app_build_runs_names_the_lane_in_the_pill() {
     let card = waiting(
         "working",
         ItemWait::AppBuild {
-            lane: "Android".into(),
+            lane: Lane::Android,
             running: true,
             how: "builds in side-1 for 1 minute".into(),
             queued: None,
@@ -530,7 +530,7 @@ fn a_branch_whose_app_build_runs_names_the_lane_in_the_pill() {
 #[test]
 fn ready_to_land_needs_no_active_shell_no_app_build_and_no_waiting_item() {
     let build = ItemWait::AppBuild {
-        lane: "Mac".into(),
+        lane: Lane::Mac,
         running: true,
         how: "builds in side-1 for 1 minute".into(),
         queued: None,
@@ -638,7 +638,7 @@ fn a_worktree_an_item_keeps_takes_its_state_from_the_items_waits() {
 
 fn queued_wait(running: bool) -> ItemWait {
     ItemWait::AppBuild {
-        lane: "Mac".into(),
+        lane: Lane::Mac,
         running,
         how: "place 1 in the queue".into(),
         queued: (!running).then(|| QueuedBuild {

@@ -185,27 +185,20 @@ fn run_words(run: Option<&RunTimes>) -> String {
 /// long it has built after how long a wait and the step it runs, or its
 /// place in the lane's queue and how long it has waited, then the steps it
 /// asked for. The running build first; None when no build of the branch runs
-/// or waits.
+/// or waits. Fails on a lock or queue whose lane is none builds knows.
 pub fn build_for(
     locks: &[LockHealth],
     queues: &[crate::health::LaneQueue],
     branch: &str,
-) -> Option<ItemWait> {
-    let lane_name = |lane: &str| {
-        let mut word = lane.to_string();
-        if let Some(first) = word.get_mut(..1) {
-            first.make_ascii_uppercase();
-        }
-        word
-    };
+) -> Result<Option<ItemWait>> {
     let named = |command: &str| asked(command).filter(|asked| asked.branch == branch);
     for lock in locks {
         let Some(holder) = lock.holder.as_ref().filter(|h| h.driver_running) else {
             continue;
         };
         if let Some(asked) = named(&holder.command) {
-            return Some(ItemWait::AppBuild {
-                lane: lane_name(&lock.lane),
+            return Ok(Some(ItemWait::AppBuild {
+                lane: crate::lane::Lane::parse_or_fail(&lock.lane)?,
                 running: true,
                 how: format!(
                     "builds in {}{}, {}",
@@ -214,7 +207,7 @@ pub fn build_for(
                     asked_words(&asked)
                 ),
                 queued: None,
-            });
+            }));
         }
     }
     for queue in queues {
@@ -230,8 +223,8 @@ pub fn build_for(
                         format!("to run {}", asked.steps.join(" ")),
                     )
                 };
-                return Some(ItemWait::AppBuild {
-                    lane: lane_name(&queue.lane),
+                return Ok(Some(ItemWait::AppBuild {
+                    lane: crate::lane::Lane::parse_or_fail(&queue.lane)?,
                     running: false,
                     how: format!(
                         "place {} in the queue, waiting {}, {}",
@@ -249,11 +242,11 @@ pub fn build_for(
                         ),
                         steps,
                     }),
-                });
+                }));
             }
         }
     }
-    None
+    Ok(None)
 }
 
 /// <command> without its program's folder and cut to a line.
