@@ -602,7 +602,13 @@ fn run_script(host: &Host, worktree: &str, command: &[String], run: &str) -> Str
         r#"{root}# ssh's shell starts with macOS's default of 256 open files, which cargo's
 # tests (many stores open at once) exceed; a login shell here has more.
 ulimit -n 10240 2>/dev/null || ulimit -n "$(ulimit -Hn)" 2>/dev/null
-set -m
+# The command and the watcher each run in a process group of their own, whose
+# id is the pid of its first process. Linux has setsid, which gives one;
+# macOS has no setsid, and its sh gives each background job a group of its own
+# under job control (set -m). Linux's sh (dash) turns job control off with no
+# terminal, which ssh gives none. dash's kill takes no `--`, so each kill below
+# names the group as `-<pid>` alone.
+if command -v setsid >/dev/null 2>&1; then own_group=setsid; else set -m; own_group=; fi
 # The caller's pipe, kept on 5: a shell may give a background job /dev/null
 # as its stdin.
 exec 5<&0 </dev/null
@@ -617,16 +623,16 @@ out=$!
 LC_ALL=C awk -v end="$end" "$relay" < "$job/err" >&2 &
 err=$!
 exec 3>"$job/out" 4>"$job/err"
-( exec {words} < /dev/null >&3 2>&4 3>&- 4>&- 5<&- ) &
+( exec $own_group {words} < /dev/null >&3 2>&4 3>&- 4>&- 5<&- ) &
 pid=$!
-( cat >/dev/null; kill -TERM -- "-$pid" ) <&5 >/dev/null 2>&1 3>&- 4>&- 5<&- &
+( exec $own_group sh -c 'cat >/dev/null; kill -TERM "-$1"' sh "$pid" ) <&5 >/dev/null 2>&1 3>&- 4>&- 5<&- &
 watcher=$!
 exec 5<&-
 wait $pid 2>/dev/null
 status=$?
-kill -TERM -- "-$watcher" 2>/dev/null
-if kill -0 -- "-$pid" 2>/dev/null; then
-  if ! said=$(kill -TERM -- "-$pid" 2>&1); then
+kill -TERM "-$watcher" 2>/dev/null
+if kill -0 "-$pid" 2>/dev/null; then
+  if ! said=$(kill -TERM "-$pid" 2>&1); then
     echo "builds could not stop the processes the command left in its process group $pid on host {host}: $said" >&2
     [ $status -eq 0 ] && status=96
   fi
