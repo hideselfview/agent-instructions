@@ -492,7 +492,8 @@ impl Server {
 
 #[test]
 fn the_approve_button_works_only_from_the_page_at_this_mac_and_tells_the_recording_session_once() {
-    use crate::lists::design_session::{Messaging, keep};
+    use crate::inbox::Messaging;
+    use crate::lists::design_session::keep;
     use crate::lists::fixtures::{NOON, stamp};
     let mut inbox = None;
     let s = server_with("http-approve", |scratch, places| {
@@ -780,8 +781,7 @@ fn the_publish_events_follow_the_store_and_a_project_with_no_design_files_has_no
         make_store(places, &["bae"]);
         let socket = scratch.dir.join("p.sock");
         inbox = Some(crate::testing::FakeInbox::listen(&socket));
-        let messaging =
-            crate::lists::design_session::Messaging::new(socket.to_str().unwrap(), None).unwrap();
+        let messaging = crate::inbox::Messaging::new(socket.to_str().unwrap(), None).unwrap();
         crate::lists::store::Store::named(places, "demo")
             .unwrap()
             .write(&stamp(NOON), "design listen", |db| {

@@ -1,4 +1,6 @@
 use super::*;
+use crate::fail;
+use crate::inbox::{Messaging, send};
 use crate::lists::design_command::run_in_session;
 use crate::lists::fixtures::{NOON, stamp};
 use crate::lists::project::NewProject;
@@ -125,11 +127,6 @@ fn approving_twice_sends_once() {
     let again = approve_and_tell(&h.store, Id(1), &stamp(NOON)).unwrap();
     assert_eq!(again, Approval::Already);
     assert_eq!(inbox.received().len(), 2, "one auth line and one message");
-}
-
-#[test]
-fn a_socket_path_must_be_absolute() {
-    assert!(Messaging::new("cc.sock", None).is_err());
 }
 
 /// The token is kept in the lists store and nowhere a person or a page reads:
@@ -282,5 +279,4 @@ fn only_record_and_amend_read_the_messaging_environment() {
         .unwrap_err()
         .text();
     assert!(refused.contains("the environment was read"), "{refused}");
-    assert!(Messaging::new("cc.sock", None).is_err());
 }

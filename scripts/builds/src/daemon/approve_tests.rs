@@ -1,5 +1,6 @@
 use super::*;
-use crate::lists::design_session::{Messaging, SessionState, keep};
+use crate::inbox::Messaging;
+use crate::lists::design_session::{SessionState, keep};
 use crate::lists::fixtures::{NOON, design, make_store, stamp};
 use crate::testing::{FakeInbox, Scratch};
 

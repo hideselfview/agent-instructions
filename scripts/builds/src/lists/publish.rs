@@ -9,8 +9,7 @@
 //! last calls and the check of the canvas runtime, records that it published
 //! the request's commit, and `builds design publish failed N --why` records
 //! what stopped it. The tables are `publish.sql`; this is the only code that
-//! writes them. The listener's token is a per-session secret, kept as
-//! `design_session.rs` keeps a recording session's.
+//! writes them. The listener's token is a per-session secret (inbox.rs).
 
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::Serialize;
@@ -18,8 +17,8 @@ use serde::Serialize;
 use crate::db::Sql;
 use crate::fail;
 use crate::fail::Result;
+use crate::inbox::{Messaging, Sent, send};
 use crate::lists::Stamp;
-use crate::lists::design_session::{Messaging, Sent, send};
 use crate::lists::store::Store;
 
 /// A request to publish the project's designs from one commit, as the

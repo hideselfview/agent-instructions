@@ -52,6 +52,7 @@ mod host_memory;
 mod host_sample;
 mod host_setup;
 mod idle_daemons;
+mod inbox;
 mod install;
 mod install_gate;
 mod install_hook;

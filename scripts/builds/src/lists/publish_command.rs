@@ -6,9 +6,9 @@ use std::path::Path;
 
 use crate::fail;
 use crate::fail::Result;
+use crate::inbox::Messaging;
 use crate::lists::Stamp;
 use crate::lists::args::Args;
-use crate::lists::design_session::Messaging;
 use crate::lists::publish;
 use crate::lists::store::Store;
 use crate::text::local_minute;
