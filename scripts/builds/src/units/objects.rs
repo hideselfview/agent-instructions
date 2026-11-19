@@ -17,7 +17,7 @@ use std::os::unix::fs::FileExt;
 use std::path::{Path, PathBuf};
 
 use super::unit::Unit;
-use super::{hashed_file, is_folder, stat};
+use super::{hashed_file, is_file, is_folder, stat};
 use crate::fail;
 use crate::fail::{Result, gone};
 
@@ -176,12 +176,14 @@ pub fn dead_objects(profile: &Path, units: &[&Unit]) -> Result<Vec<PathBuf>> {
         if objects.is_empty() {
             continue;
         }
-        let binaries: Vec<PathBuf> = found
-            .outputs
-            .iter()
-            .filter(|path| base(path).ends_with(".dylib") || !base(path).contains('.'))
-            .cloned()
-            .collect();
+        // A name with no dot is a binary only when it is a file: rustc also
+        // leaves temporary folders (rustcXXXXXX) beside a unit's outputs.
+        let mut binaries: Vec<PathBuf> = Vec::new();
+        for path in &found.outputs {
+            if (base(path).ends_with(".dylib") || !base(path).contains('.')) && is_file(path)? {
+                binaries.push(path.clone());
+            }
+        }
         if binaries.is_empty()
             && found
                 .outputs
@@ -218,4 +220,40 @@ pub fn dead_objects(profile: &Path, units: &[&Unit]) -> Result<Vec<PathBuf>> {
         }
     }
     Ok(dead)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::units::unit::units_in;
+
+    /// rustc leaves temporary folders (rustcXXXXXX) in a unit's out folder.
+    /// A name with no dot that is a folder is no binary: reading it as one
+    /// failed the prune with "Is a directory".
+    #[test]
+    fn a_folder_among_a_units_outputs_is_no_binary() {
+        let scratch = crate::testing::Scratch::new("objects-folder");
+        let profile = scratch.dir.join("debug");
+        let file = |path: &str| crate::testing::fill(&profile.join(path), 1);
+        let unit = "build/app/cccccccccccccccc";
+        file(&format!("{unit}/fingerprint/lib-app"));
+        file(&format!("{unit}/out/app.app.aaaa-cgu.00.rcgu.o"));
+        file(&format!("{unit}/out/app.app.bbbb-cgu.00.rcgu.o"));
+        file(&format!("{unit}/out/app"));
+        file(&format!("{unit}/out/rustcl7Gvah/temp"));
+        let units = units_in(&profile).unwrap();
+        let listed: Vec<&Unit> = units.list.iter().collect();
+        // The binary is no Mach-O, so its debug map names nothing to keep
+        // or to delete: every object stays.
+        assert_eq!(
+            dead_objects(&profile, &listed).unwrap(),
+            Vec::<PathBuf>::new()
+        );
+        // With the folder as the only dotless output, no binary links the
+        // objects, so every set is unread.
+        std::fs::remove_file(profile.join(unit).join("out/app")).unwrap();
+        let units = units_in(&profile).unwrap();
+        let listed: Vec<&Unit> = units.list.iter().collect();
+        assert_eq!(dead_objects(&profile, &listed).unwrap().len(), 2);
+    }
 }
