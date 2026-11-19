@@ -239,6 +239,31 @@ fn a_fast_forward_of_a_passing_tree_lands_and_a_cherry_pick_failing_a_check_is_r
 }
 
 #[test]
+fn a_cherry_pick_that_conflicts_names_the_files_says_what_to_do_and_exits_1() {
+    let f = fixture("land-conflict", "true\n", None);
+    let one = f.side(1, "a");
+    let a = commit_file(&one, "shared.txt", "from a\n", "a writes shared");
+    let two = f.side(2, "b");
+    let b = commit_file(&two, "shared.txt", "from b\n", "b writes shared");
+    let (code, _, _) = run_land(&f, &one, &[&a], Cues::default());
+    assert!(code == 0 && main_of(&f) == a);
+    let (code, out, _) = run_land(&f, &two, &[&b], Cues::default());
+    assert_eq!(code, 1, "{out}");
+    assert!(
+        out.contains("CONFLICT") && out.contains("\n  shared.txt"),
+        "{out}"
+    );
+    assert!(
+        out.contains("Nothing landed") && out.contains("git rebase origin/main"),
+        "{out}"
+    );
+    assert_eq!(main_of(&f), a);
+    assert_eq!(branch_of(&two).as_deref(), Some("b"));
+    assert_eq!(head_of(&two), b);
+    assert_eq!(git_out(&two, &["status", "--porcelain"]), "");
+}
+
+#[test]
 fn a_refused_landing_whose_reset_fails_stays_on_the_result_and_says_so() {
     // The check takes the worktree's index lock and fails, so the reset after
     // the refusal fails too.

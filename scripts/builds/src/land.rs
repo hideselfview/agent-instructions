@@ -926,13 +926,13 @@ impl Landing<'_> {
                 }
                 let mut pick = git(dir);
                 pick.arg("cherry-pick").args(todo);
-                pick.stdin(Stdio::null())
-                    .stdout(Stdio::null())
-                    .stderr(Stdio::null());
-                if !pick.status().is_ok_and(|status| status.success()) {
+                let (picked, said) = merged(pick);
+                if !picked {
+                    let paths = git_text(dir, &["diff", "--name-only", "--diff-filter=U"])
+                        .unwrap_or_default();
                     git_ok(dir, &["cherry-pick", "--abort"]);
                     self.go_back(out);
-                    return Err(refuse(out, "CONFLICT"));
+                    return Err(refuse(out, self.pick_refusal(&paths, &said)));
                 }
             }
             let landed = git_text(dir, &["rev-parse", "HEAD"]).unwrap_or_default();
@@ -990,6 +990,23 @@ impl Landing<'_> {
             out,
             format!("LANDING FAILED: no push succeeded in {ATTEMPTS} tries"),
         ))
+    }
+
+    /// What land says when the cherry-pick onto origin/main failed: the files
+    /// that conflict (<paths>, one per line), or git's own words when no file
+    /// conflicts, and what the agent does next.
+    fn pick_refusal(&self, paths: &str, said: &str) -> String {
+        let start = self.start.name();
+        let dir = self.workdir.display();
+        let what = if paths.is_empty() {
+            format!("git's cherry-pick onto origin/main failed:\n{said}")
+        } else {
+            let list: String = paths.lines().map(|path| format!("\n  {path}")).collect();
+            format!("these files conflict with origin/main:{list}")
+        };
+        format!(
+            "CONFLICT: {what}\nNothing landed. Next: in {dir}, run `git fetch origin && git rebase origin/main` on {start}, resolve the conflicts, commit, review the branch again and land the new commit ids."
+        )
     }
 
     /// After the push, leaves the worktree detached at the landed commit when
