@@ -103,6 +103,11 @@ pub fn local_minute(epoch: i64) -> String {
     strftime(epoch, c"%Y-%m-%d %H:%M")
 }
 
+/// <epoch> as local `%Y-%m-%d %H:%M:%S`.
+pub fn local_second(epoch: i64) -> String {
+    strftime(epoch, c"%Y-%m-%d %H:%M:%S")
+}
+
 /// The epoch of a local `%Y-%m-%d %H:%M` form (`local_minute`'s), or None
 /// when <text> is not one.
 pub fn local_minute_epoch(text: &str) -> Option<i64> {

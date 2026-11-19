@@ -10,6 +10,7 @@ mod app_site;
 mod app_timing;
 mod build_app;
 mod built_tools;
+mod card_profile;
 mod cargo_place;
 mod cargo_read;
 mod cargo_run;

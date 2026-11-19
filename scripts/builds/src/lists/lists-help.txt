@@ -343,13 +343,42 @@ runs in (plans are in no commit); an absolute path is itself.
       times prints when its first run started, when it landed or that it runs
       now, how long it ran and in how many runs, the time between runs, the
       time its worktree's claim note said held (printed as paused) and the
-      time it waited on the person. With no N, it prints
-      each running item, each item that landed in the last 14 days, and each
-      branch on which a run goes on or whose last run ended with a landing in
-      those days. For a branch, times adds up the runs of every item that
-      ran on it and counts only once a moment that two runs share. The
-      dashboard's Running rows show how long the runs on each row's branch
-      have run. When builds
+      time it waited on the person, then the item's timeline. The timeline
+      lists, in time order, the moments the store recorded (the item's
+      opening, each time it became ready, blocked or running, each wait it
+      gained or lost, each handoff, each run's start and end, each commit
+      of a landing, and its closing) and the steps of its runs: each
+      `builds cargo` run (its subcommand, the crates it named, the host and
+      the time cargo waited for its locks), each commit hook run with the
+      time of each check that passed, each app build's wait in its lane's
+      queue and each of its steps, each review run with the time of each
+      rule group and its findings, the time from a review run's findings to
+      the next run, the time from the last commit to the start of `builds
+      land`, and each step of the landing (its wait for an earlier landing,
+      the lists' checks, each fetch, pick, result check and push attempt, the
+      records, and the finish). Each step that ran on a host shows the
+      host's load and memory pressure over the step, from the samples the
+      dashboard daemon takes of every host every 30 seconds and keeps for 30
+      days. Below the timeline, times gives every second of the item's time,
+      from its opening to its landing, to one kind of time: the highest of
+      the kinds that cover the second. The kinds, highest first, are waiting
+      on the person, held, landing, reviewers running, fixing review
+      findings, app build queue, app build steps, commit hooks, cargo runs,
+      from the last commit to landing, agent working, between runs, ready and
+      not taken, and blocked by other work. A cargo run that a hook check
+      started counts inside the hook run. An item opened before the store began to record states has
+      no state events, and its time before its first run is "before builds
+      recorded states". With no N, it prints the same kinds and the
+      slowest steps over the items that landed in the last 14 days: for each
+      kind, the number of items that had it, the median and the 90th
+      percentile among them and its share of the items' time, and for each
+      step, its runs, median, 90th percentile and share. Then it prints each
+      running item, each item
+      that landed in those days, and each branch on which a run goes on or
+      whose last run ended with a landing in those days. For a branch, times
+      adds up the runs of every item that ran on it and counts only once a
+      moment that two runs share. The dashboard's Running rows show how long
+      the runs on each row's branch have run. When builds
       install moved a store made before builds kept runs, it rebuilt the
       runs that ended from the store's write log, which names no branch, so
       those runs name none and have no held or waiting time.

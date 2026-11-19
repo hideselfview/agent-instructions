@@ -176,7 +176,23 @@ pub fn times(tool: &Tool, args: &[String], cwd: &Path) -> Result<()> {
         .map(|id| Id::parse(id))
         .collect::<Result<_>>()?;
     let store = Store::resolve(&tool.places, &args, cwd)?;
-    print!("{}", times_text(&store.load()?, &ids, tool.now)?);
+    let lists = store.load()?;
+    let db = store.open_existing()?;
+    if ids.is_empty() {
+        print!(
+            "{}",
+            crate::card_profile::text(&db, &lists, &ids, tool.now)?
+        );
+        print!("{}", times_text(&lists, &ids, tool.now)?);
+    } else {
+        for id in &ids {
+            print!("{}", times_text(&lists, &[*id], tool.now)?);
+            print!(
+                "{}",
+                crate::card_profile::text(&db, &lists, &[*id], tool.now)?
+            );
+        }
+    }
     Ok(())
 }
 

@@ -123,7 +123,6 @@ fn read_open(db: &Connection) -> Result<BTreeMap<Id, Vec<Event>>> {
 }
 
 /// The events of item <id>, open or closed, in the order recorded.
-#[cfg(test)]
 pub fn read_item(db: &Connection, id: Id) -> Result<Vec<Event>> {
     let mut statement = db
         .prepare("SELECT at, kind, detail FROM item_event WHERE item_id = ?1 ORDER BY id")
