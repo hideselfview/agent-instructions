@@ -391,17 +391,17 @@ pub fn commit_paths(top: &Path, sha: &str) -> Result<Vec<String>> {
         .collect())
 }
 
-/// Is <board> a file on origin/main? Fails when the checkout has no origin/main,
-/// because git answers a missing ref and a missing path alike.
-fn on_main(top: &Path, board: &str) -> Result<bool> {
+/// The commit origin/main names in the checkout at <top>. Fails when there is
+/// none, because git answers a missing ref and a missing path alike.
+fn main_commit(top: &Path) -> Result<String> {
     let now = crate::design_render::NOW;
-    if full_sha(top, now).is_err() {
-        fail!(
+    match full_sha(top, now) {
+        Ok(sha) if !sha.is_empty() => Ok(sha),
+        _ => fail!(
             "the checkout at {} has no {now}, so it can't tell which boards the change deletes",
             top.display()
-        );
+        ),
     }
-    Ok(boards::exists_in(top, now, board)?)
 }
 
 /// What <shas> change among the design files of the repo whose globs are
@@ -422,12 +422,17 @@ pub fn changes_of(top: &Path, globs: &Globs, shas: &[String]) -> Result<Changes>
             .filter(|place| PlaceKind::of(place) == PlaceKind::Board)
             .cloned()
             .collect();
+        let mut main: Option<String> = None;
         for board in boards {
             if !boards::exists_in(top, tip, &board)? {
                 changes.places.remove(&board);
                 // A board the range adds and deletes again was never on
                 // origin/main, so the change deletes nothing.
-                if on_main(top, &board)? {
+                if main.is_none() {
+                    main = Some(main_commit(top)?);
+                }
+                let on_main = main.as_deref().expect("resolved above");
+                if boards::exists_in(top, on_main, &board)? {
                     changes.deleted.insert(board);
                 }
             }
