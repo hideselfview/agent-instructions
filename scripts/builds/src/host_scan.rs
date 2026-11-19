@@ -40,8 +40,8 @@ pub struct CacheServer {
 }
 
 /// A command that a job runs on a host now: the claim folder of a worktree
-/// (`<worktree>.job`) whose `pid` file names a process group that still
-/// runs (`remote::run_script`).
+/// (`<worktree>.job`) whose run record (`remote::RUN_FILE`) names a process
+/// group that still runs.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct JobRun {
     /// The worktree the command runs in, on the host.
@@ -89,10 +89,11 @@ impl JobRun {
 /// from boot. On Linux the script reads the CPU's counters in /proc/stat a
 /// second apart and prints the idle share of that second (`cpu_idle`): the
 /// idle and the I/O-wait time, over the time of every state but the guests',
-/// which the user time already counts. A job's claim folder whose `pid` file
-/// names a group that no longer runs is a job that ended, or an app checkout
-/// between steps, so the script prints only the groups that run. dash, Linux's
-/// sh, takes no `--` before a process group.
+/// which the user time already counts. The run script removes a claim
+/// folder's run record when its command ends, but one that was killed leaves
+/// the record behind, naming a group that no longer runs, so the script
+/// prints only the groups that run. dash, Linux's sh, takes no `--` before a
+/// process group.
 pub fn script(host: &Host) -> String {
     format!(
         r#"{root}echo "uid=$(id -u)"
@@ -101,8 +102,8 @@ Darwin) echo "cpu=$(top -l 2 -n 0 -s 1 2>&1 | awk '/^CPU usage/{{line=$0}} END{{
 *) echo "cpu_idle=$( (head -n 1 /proc/stat; sleep 1; head -n 1 /proc/stat) | awk '{{t = 0; for (i = 2; i <= 9; i++) t += $i; if (NR == 1) {{ t1 = t; i1 = $5 + $6 }} else if (t > t1) printf "%.1f", ($5 + $6 - i1) * 100 / (t - t1)}}')" ;;
 esac
 for claim in "$HOME"/dev/*-worktrees/*.job; do
-  [ -f "$claim/pid" ] || continue
-  set -- $(cat "$claim/pid" 2>/dev/null)
+  [ -f "$claim/{run_file}" ] || continue
+  set -- $(cat "$claim/{run_file}" 2>/dev/null)
   case "$1" in ''|*[!0-9]*) continue;; esac
   kill -0 "-$1" 2>/dev/null && echo "job=${{claim%.job}} $1 $2"
 done
@@ -111,6 +112,7 @@ echo {PS_FOLLOWS}
 ps -axww -o {PS_FORMAT}"#,
         root = crate::remote::root_script(host),
         listener = crate::sccache::listener_script(),
+        run_file = crate::remote::RUN_FILE,
     )
 }
 

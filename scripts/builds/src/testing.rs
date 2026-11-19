@@ -114,6 +114,13 @@ pub fn gone_pid() -> u32 {
     pid
 }
 
+/// Makes a FIFO at <path>.
+pub fn fifo(path: &Path) {
+    use std::os::unix::ffi::OsStrExt;
+    let name = std::ffi::CString::new(path.as_os_str().as_bytes()).unwrap();
+    assert_eq!(unsafe { libc::mkfifo(name.as_ptr(), 0o600) }, 0, "{path:?}");
+}
+
 pub fn git(dir: &Path, args: &[&str]) {
     git_out(dir, args);
 }

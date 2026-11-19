@@ -1,6 +1,6 @@
 use super::*;
 use crate::host::tests::fake_ssh;
-use crate::testing::{Scratch, git, gone_pid, host_builds};
+use crate::testing::{Scratch, fifo, git, gone_pid, host_builds};
 
 fn args(words: &[&str]) -> Vec<String> {
     words.iter().map(|w| w.to_string()).collect()
@@ -472,13 +472,6 @@ fn killed_caller() {
         Some(&crate::cargo_run_outcome::Watch::default()),
     )
     .unwrap();
-}
-
-/// Makes a FIFO at <path>.
-fn fifo(path: &Path) {
-    use std::os::unix::ffi::OsStrExt;
-    let name = std::ffi::CString::new(path.as_os_str().as_bytes()).unwrap();
-    assert_eq!(unsafe { libc::mkfifo(name.as_ptr(), 0o600) }, 0, "{path:?}");
 }
 
 #[test]

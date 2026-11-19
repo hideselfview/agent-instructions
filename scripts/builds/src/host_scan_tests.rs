@@ -113,11 +113,12 @@ fn finds_a_processs_tree() {
 
 /// The script, run on this Mac with a stand-in for top, reads top's second
 /// sample, which covers the last second, lists the processes, and prints
-/// the job claim whose process group runs, not the one whose group ended.
+/// the job that the run script (`remote::run_script`) runs, not a claim
+/// whose process group ended. Once the job's command ends, the script lists
+/// it no more.
 #[test]
 fn the_script_reads_the_last_second_of_the_cpu_and_the_jobs_that_run() {
     use std::os::unix::fs::PermissionsExt;
-    use std::os::unix::process::CommandExt;
     let scratch = crate::testing::Scratch::new("host-scan");
     let bin = scratch.dir.join("bin");
     std::fs::create_dir_all(&bin).unwrap();
@@ -138,41 +139,81 @@ exit 1
     )
     .unwrap();
     std::fs::set_permissions(&lsof, std::fs::Permissions::from_mode(0o755)).unwrap();
-    let mut group = std::process::Command::new("sleep")
-        .arg("30")
-        .process_group(0)
-        .spawn()
-        .unwrap();
     let home = scratch.dir.join("home");
     let worktrees = home.join("dev/demo-worktrees");
-    for (name, pid) in [("remote-side-1", group.id()), ("remote-side-2", 999_999)] {
-        let claim = worktrees.join(format!("{name}.job"));
-        std::fs::create_dir_all(&claim).unwrap();
-        std::fs::write(claim.join("pid"), format!("{pid} 77-1795067690799282000\n")).unwrap();
+    let (running, ended) = (
+        worktrees.join("remote-side-1"),
+        worktrees.join("remote-side-2"),
+    );
+    for wt in [&running, &ended] {
+        std::fs::create_dir_all(wt).unwrap();
+        std::fs::create_dir_all(wt.with_extension("job")).unwrap();
     }
-    let output = std::process::Command::new("sh")
-        .args(["-c", &script(&crate::host::Host::local())])
-        .env("PATH", format!("{}:/usr/bin:/bin", bin.display()))
-        .env("HOME", &home)
-        .output()
+    // A claim whose run script was killed: its record names a group that
+    // no longer runs.
+    std::fs::write(
+        ended.with_extension("job").join(crate::remote::RUN_FILE),
+        format!("{} 78-1795067690799282000\n", crate::testing::gone_pid()),
+    )
+    .unwrap();
+    let local = crate::host::Host::local();
+    let scan = || {
+        let output = std::process::Command::new("sh")
+            .args(["-c", &script(&local)])
+            .env("PATH", format!("{}:/usr/bin:/bin", bin.display()))
+            .env("HOME", &home)
+            .output()
+            .unwrap();
+        parse(&String::from_utf8_lossy(&output.stdout)).unwrap()
+    };
+    let (started, release) = (running.join("started"), running.join("release"));
+    crate::testing::fifo(&started);
+    crate::testing::fifo(&release);
+    let run = "77-1795067690799282000";
+    let mut job = std::process::Command::new("sh")
+        .args([
+            "-c",
+            &crate::remote::run_script(
+                &local,
+                &running.display().to_string(),
+                &[
+                    "sh".to_string(),
+                    "-c".to_string(),
+                    "echo $$ > started; read line < release".to_string(),
+                ],
+                run,
+            ),
+        ])
+        .stdin(std::process::Stdio::piped())
+        .spawn()
         .unwrap();
-    let _ = group.kill();
-    let _ = group.wait();
-    let scan = parse(&String::from_utf8_lossy(&output.stdout)).unwrap();
-    assert_eq!(scan.uid, unsafe { libc::getuid() });
-    assert_eq!(scan.cpu_idle, Ok(40.0));
-    assert_eq!(scan.sccache, Ok(None));
+    // The read waits until the command has started.
+    let group: i32 = std::fs::read_to_string(&started)
+        .unwrap()
+        .trim()
+        .parse()
+        .unwrap();
+    let scan_while_running = scan();
+    std::fs::write(&release, "\n").unwrap();
+    let status = job.wait().unwrap();
+    drop(job.stdin.take());
+    assert!(status.success(), "{status}");
+    assert_eq!(scan_while_running.uid, unsafe { libc::getuid() });
+    assert_eq!(scan_while_running.cpu_idle, Ok(40.0));
+    assert_eq!(scan_while_running.sccache, Ok(None));
     assert_eq!(
-        scan.jobs,
+        scan_while_running.jobs,
         [JobRun {
-            worktree: worktrees.join("remote-side-1").display().to_string(),
-            leader: group.id() as i32,
-            run: "77-1795067690799282000".to_string(),
+            worktree: running.display().to_string(),
+            leader: group,
+            run: run.to_string(),
         }]
     );
     assert!(
-        scan.rows
+        scan_while_running
+            .rows
             .iter()
             .any(|row| row.pid == std::process::id() as i32)
     );
+    assert_eq!(scan().jobs, []);
 }

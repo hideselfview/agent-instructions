@@ -45,6 +45,14 @@ pub const JOBS_REF: &str = "refs/builds/jobs";
 /// The prefix of the name of every worktree a job runs in (`pinned_name`).
 pub const JOB_WORKTREE_PREFIX: &str = "remote-";
 
+/// The file in a worktree's claim folder (`<worktree>.job`) where the run
+/// script records the command that runs there: `<group> <run>`, the id of
+/// the command's process group and the run's id (`job_id`). The script
+/// removes it once the command has ended and nothing is left in its group,
+/// and each host's scan (host_scan.rs) reads it to list the commands that
+/// jobs run there.
+pub const RUN_FILE: &str = "run";
+
 /// The exit status builds gives a job a signal stopped.
 const STOPPED_EXIT: i32 = 130;
 
@@ -596,7 +604,11 @@ echo "worktree=$wt""#,
 /// ends, however it ends, SIGKILL included, or when the connection to the
 /// host closes. A watcher reads stdin to its end, then stops the command's
 /// process group. Once the command has ended, the script stops the watcher.
-fn run_script(host: &Host, worktree: &str, command: &[String], run: &str) -> String {
+///
+/// While the command runs, the script records its process group and <run>
+/// in the claim folder's `RUN_FILE`. It writes the record whole, through a
+/// file it then renames, so a reader never sees half of it.
+pub fn run_script(host: &Host, worktree: &str, command: &[String], run: &str) -> String {
     let words: Vec<String> = command.iter().map(|word| sh_quote(word)).collect();
     format!(
         r#"{root}# ssh's shell starts with macOS's default of 256 open files, which cargo's
@@ -628,6 +640,9 @@ pid=$!
 ( exec $own_group sh -c 'cat >/dev/null; kill -TERM "-$1"' sh "$pid" ) <&5 >/dev/null 2>&1 3>&- 4>&- 5<&- &
 watcher=$!
 exec 5<&-
+if ! said=$( {{ echo "$pid" {run} > "$job/{run_file}.new" && mv "$job/{run_file}.new" "$job/{run_file}"; }} 2>&1 ); then
+  echo "builds could not record the command's process group $pid in $job on host {host}, so builds health will not list it: $said" >&2
+fi
 wait $pid 2>/dev/null
 status=$?
 kill -TERM "-$watcher" 2>/dev/null
@@ -637,6 +652,7 @@ if kill -0 "-$pid" 2>/dev/null; then
     [ $status -eq 0 ] && status=96
   fi
 fi
+rm -f "$job/{run_file}" "$job/{run_file}.new"
 echo "$end" >&3
 echo "$end" >&4
 exec 3>&- 4>&-
@@ -647,6 +663,8 @@ exit $status"#,
         wt = sh_quote(worktree),
         words = words.join(" "),
         end = sh_quote(&format!("builds-end-of-run-{run}")),
+        run = sh_quote(run),
+        run_file = RUN_FILE,
         host = host.name,
     )
 }
