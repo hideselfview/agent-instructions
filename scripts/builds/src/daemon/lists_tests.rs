@@ -240,30 +240,31 @@ fn a_store_edited_outside_builds_reaches_the_feeds_integrity_findings() {
     );
 }
 
+/// The feed's own reads of a store (the loads, the integrity checks, the
+/// hook runs' figures) commit nothing and leave its database as it was, so
+/// the feed's next look finds no database changed; a write is found.
 #[test]
-fn a_feed_with_no_write_to_its_stores_reads_them_no_more() {
+fn the_feeds_own_reads_change_no_database_and_a_write_does() {
     let scratch = Scratch::new("daemon-quiet");
     let places = scratch.places();
-    make_store(&places, &["bae", "coven"]);
-    // The feed asks the clock once each time it wakes; a feed whose own reads
-    // woke it would ask again and again.
-    let asked = Arc::new(std::sync::atomic::AtomicUsize::new(0));
-    let counted = asked.clone();
-    let _feed = Feed::start_with_clock(
-        places,
-        Box::new(move || {
-            counted.fetch_add(1, Ordering::SeqCst);
-            NOON
-        }),
-    );
-    // The events of the reads at start arrive and settle.
-    std::thread::sleep(Duration::from_secs(2));
-    let settled = asked.load(Ordering::SeqCst);
-    std::thread::sleep(Duration::from_secs(3));
+    let store = make_store(&places, &["bae", "coven"]);
+    let mut watches = HashMap::new();
     assert_eq!(
-        asked.load(Ordering::SeqCst),
-        settled,
-        "the feed woke with no write to its stores"
+        databases_moved(&places, &mut watches),
+        vec![store.database()]
+    );
+    let loaded = load_all(&places);
+    assert!(!reload(&places, &loaded).1);
+    assert_eq!(store.integrity(), Vec::<String>::new());
+    crate::hook_stats::dashboard_json_at(&places, NOON);
+    assert_eq!(
+        databases_moved(&places, &mut watches),
+        Vec::<PathBuf>::new()
+    );
+    store.write(&stamp(NOON), "touch", |_| Ok(())).unwrap();
+    assert_eq!(
+        databases_moved(&places, &mut watches),
+        vec![store.database()]
     );
 }
 
