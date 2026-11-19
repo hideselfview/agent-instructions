@@ -153,11 +153,21 @@ pub fn output_of(
         || (accept == Accept::ZeroOrOneWithOutput
             && output.status.code() == Some(1)
             && !output.stdout.is_empty());
+    let stderr = String::from_utf8_lossy(&output.stderr);
     if !ok {
         return Err(format!(
             "{what} failed ({}): {}",
             output.status,
-            String::from_utf8_lossy(&output.stderr).trim()
+            stderr.trim()
+        ));
+    }
+    // An accepted exit 1 may also be a per-process error (lsof's permission
+    // denied), so say what the command wrote.
+    if !output.status.success() && !stderr.trim().is_empty() {
+        crate::text::note(format!(
+            "{what} exited with {} and wrote: {}",
+            output.status,
+            stderr.trim()
         ));
     }
     Ok(String::from_utf8_lossy(&output.stdout).into_owned())
