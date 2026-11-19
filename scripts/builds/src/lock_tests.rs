@@ -221,7 +221,7 @@ fn a_build_that_runs_here_never_takes_a_checkout_on_a_host() {
     let scratch = Scratch::new("lock-here");
     let places = places_with_host(&scratch, "m1:app-1\n");
     let ssh = ssh_with_load(&scratch.dir.join("ssh"), "0.00");
-    let Err(error) = take_in(&places, &ssh, "demo", Lane::Android, Where::Here, None) else {
+    let Err(error) = take_in(&places, &ssh, "demo", Lane::Android, Where::Here, None, 0) else {
         panic!("only a host's checkout is recorded");
     };
     assert!(error.text().contains("on this Mac"));

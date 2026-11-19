@@ -463,7 +463,15 @@ pub fn take_checkout(
 /// Joins <repo>'s queue for <lane> and waits its turn for one of the lane's app
 /// locks on this Mac. Fails for a repo with no such app checkout in the lane.
 pub fn take(places: &Places, repo: &str, lane: Lane) -> Result<Held> {
-    take_in(places, &Ssh::from_env(), repo, lane, Where::Here, None)
+    take_in(
+        places,
+        &Ssh::from_env(),
+        repo,
+        lane,
+        Where::Here,
+        None,
+        crate::app_timing::now(),
+    )
 }
 
 /// `take` with <allowed>: with `Where::Anywhere`, the checkouts on hosts too,
@@ -479,12 +487,20 @@ pub fn take_where(
     floor_kib: u64,
 ) -> Result<Held> {
     let grows = (allowed != Where::Here).then_some(floor_kib);
-    take_in(places, ssh, repo, lane, allowed, grows)
+    take_in(
+        places,
+        ssh,
+        repo,
+        lane,
+        allowed,
+        grows,
+        crate::app_timing::now(),
+    )
 }
 
 /// Joins the queue and waits for a lock. <grows> is the free-disk floor of
 /// the hosts when the build may add a checkout on one; None when it never
-/// does.
+/// does. <now> is the time the build starts, in seconds since 1970.
 fn take_in(
     places: &Places,
     ssh: &Ssh,
@@ -492,6 +508,7 @@ fn take_in(
     lane: Lane,
     allowed: Where,
     grows: Option<u64>,
+    now: i64,
 ) -> Result<Held> {
     let sized = crate::lane_size::RepoLane {
         places,
@@ -511,12 +528,7 @@ fn take_in(
         && let Some(floor_kib) = grows
         && !places.app_checkouts_of(repo, lane)?.is_empty()
     {
-        crate::lane_size::grow(
-            sized,
-            floor_kib,
-            crate::lane_size::Need::OnAHost,
-            crate::app_timing::now(),
-        )?;
+        crate::lane_size::grow(sized, floor_kib, crate::lane_size::Need::OnAHost, now)?;
         usable = has_one(places)?;
     }
     if !usable {
@@ -532,8 +544,7 @@ fn take_in(
     TAKEN_OVER.store(false, Ordering::SeqCst);
     QUEUED.store(true, Ordering::SeqCst);
     let queue = Queue::of(places, repo, lane);
-    let joined_at = crate::app_timing::now();
-    crate::lane_size::shrink(sized, crate::prune::Run::Real, joined_at)?;
+    crate::lane_size::shrink(sized, crate::prune::Run::Real, now)?;
     let waiting = Instant::now();
     let (ticket, ahead) = queue.join()?;
     if ahead >= queue.slots() {
@@ -542,12 +553,7 @@ fn take_in(
             lane.word()
         ));
         if let Some(floor_kib) = grows {
-            crate::lane_size::grow(
-                sized,
-                floor_kib,
-                crate::lane_size::Need::Waits,
-                crate::app_timing::now(),
-            )?;
+            crate::lane_size::grow(sized, floor_kib, crate::lane_size::Need::Waits, now)?;
         }
     }
     queue.wait_for_turn(&ticket.name)?;
@@ -562,7 +568,7 @@ fn take_in(
         lane,
         ssh: ssh.clone(),
         allowed,
-        joined_at,
+        joined_at: now,
         waited: waiting.elapsed(),
     };
     held.record(None)?;
