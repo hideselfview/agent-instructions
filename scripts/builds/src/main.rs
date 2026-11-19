@@ -74,6 +74,7 @@ mod main_checkout;
 mod manifest;
 mod migrate;
 mod nextest;
+mod orphans;
 mod places;
 mod proc_limit;
 mod procs;

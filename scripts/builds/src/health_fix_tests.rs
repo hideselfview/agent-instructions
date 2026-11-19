@@ -236,3 +236,54 @@ fn a_host_with_nothing_to_stop_is_left_and_a_failed_stop_is_said() {
         ["stopping the idle build daemons of host m1 failed: ssh to u@m1 failed"]
     );
 }
+
+/// The fix stops each orphan whose only work is what it prints, counts one
+/// already gone as stopped, and leaves the rest to list: one health leaves
+/// to run, and one whose stop failed.
+#[test]
+fn stops_the_orphans_health_stops_and_lists_the_rest() {
+    use crate::orphans::{Kind, Orphan};
+    let rows = crate::stuck::parse_ps(
+        "300 1 501 0.0 0:01.00 40:00 cargo test\n301 1 501 0.0 0:01.00 40:00 builds land side-3\n302 1 501 0.0 0:01.00 40:00 rustc x\n303 1 501 0.0 0:01.00 40:00 git status\n",
+    )
+    .unwrap();
+    let orphan = |at: usize, stops: bool| Orphan {
+        host: Host::local(),
+        kind: Kind::Process {
+            row: rows[at].clone(),
+            tree: vec![rows[at].pid],
+            stops,
+        },
+    };
+    let ran = std::cell::RefCell::new(Vec::new());
+    let stop = |_: &Host, script: &str| {
+        ran.borrow_mut().push(script.to_string());
+        match script {
+            "kill -TERM 302" => Err("kill: 302: No such process".to_string()),
+            "kill -TERM 303" => Err("kill: 303: Operation not permitted".to_string()),
+            _ => Ok(()),
+        }
+    };
+    let (lines, left) = stop_orphans(
+        vec![
+            orphan(0, true),
+            orphan(1, false),
+            orphan(2, true),
+            orphan(3, true),
+        ],
+        &stop,
+    );
+    assert_eq!(
+        *ran.borrow(),
+        ["kill -TERM 300", "kill -TERM 302", "kill -TERM 303"]
+    );
+    assert_eq!(
+        lines,
+        [
+            "stopped this Mac pid 300 (cargo test), 40m old: its caller was gone",
+            "stopped this Mac pid 302 (rustc x), 40m old: its caller was gone",
+            "stopping this Mac pid 303 (git status), 40m old failed: kill: 303: Operation not permitted",
+        ]
+    );
+    assert_eq!(left, [orphan(1, false), orphan(3, true)]);
+}

@@ -95,6 +95,8 @@ pub enum FindingKind {
     /// Work that has run long: an install waiting at its gates, a hook run,
     /// a landing, a cargo run or a job on a host (long_waits.rs).
     Waits,
+    /// A process whose caller is gone (orphans.rs).
+    Orphan,
 }
 
 /// What a finding says, and the command it suggests running, if any. The
@@ -1410,7 +1412,8 @@ pub fn lines(health: &Health) -> Vec<String> {
 
 /// The findings that come from the hosts: the work that has run long on
 /// this Mac or a host, given each host's scan and what a running install
-/// waits for (long_waits.rs), each process that looks stuck on
+/// waits for (long_waits.rs), each process whose caller is gone among
+/// <orphans> (orphans.rs), each process that looks stuck on
 /// one (stuck.rs), each host that refuses jobs or whose Xcode cannot start,
 /// what `host_installed::installed_findings` reports: each host whose installed
 /// `builds` differs from this Mac's or that builds could not ask, and each
@@ -1424,6 +1427,7 @@ pub fn host_findings(
     scans: &[(Host, std::result::Result<crate::host_scan::Scan, String>)],
     install: &std::result::Result<Option<crate::install_gate::Waiting>, String>,
     now: i64,
+    orphans: &[crate::orphans::Orphan],
     busy: &[crate::stuck::HostBusy],
     refusals: &[crate::host::Refusal],
     installed: &[crate::host_installed::HostInstalled],
@@ -1435,6 +1439,11 @@ pub fn host_findings(
     crate::long_waits::findings(scans, install, &checkout, now)
         .into_iter()
         .map(|advice| Finding::new(FindingKind::Waits, advice))
+        .chain(
+            orphans
+                .iter()
+                .map(|orphan| Finding::new(FindingKind::Orphan, orphan.finding())),
+        )
         .chain(
             crate::stuck::findings(busy)
                 .into_iter()
@@ -1519,6 +1528,9 @@ pub fn cmd_health(tool: &Tool, args: &[String]) -> Result<()> {
         .context(|| format!("reading the dashboard's pid from {}", lock.display()))?;
     // Each host's probe for its load, read with its scan and busy processes:
     // each waits on an ssh round trip.
+    // Read before the scans, so a job that a process here started after
+    // this reading counts as running (job_claim.rs).
+    let holders = crate::job_claim::Holders::read()?;
     let mut scans = Vec::new();
     let mut busy = Vec::new();
     let mut probes = Vec::new();
@@ -1608,8 +1620,20 @@ pub fn cmd_health(tool: &Tool, args: &[String]) -> Result<()> {
     let refusals = crate::host::refusals(&tool.places)?;
     let installed = crate::host_installed::read_all_installed(&tool.places, &ssh, &hosts);
     let install = crate::install_gate::waiting(&tool.places).map_err(|fault| fault.text());
+    let (stopped, orphans) = crate::health_fix::stop_orphans(
+        crate::orphans::find(&scanned, &holders),
+        &|host, script| {
+            crate::host::output_of(
+                crate::host::command_at(&ssh, host, script, crate::host::Terminal::None),
+                &format!("{script} on {}", crate::host::place(&host.name)),
+                crate::host::Accept::Zero,
+            )
+            .map(drop)
+        },
+    );
+    stopped.iter().for_each(crate::text::note);
     health.findings.extend(host_findings(
-        &scanned, &install, tool.now, &busy, &refusals, &installed,
+        &scanned, &install, tool.now, &orphans, &busy, &refusals, &installed,
     ));
     if json {
         let mut value = serde_json::to_value(&health).expect("health serializes");
@@ -2362,7 +2386,7 @@ mod tests {
             host: "m1".to_string(),
             read: Err("ssh failed".to_string()),
         }];
-        let found = host_findings(&[], &Ok(None), 0, &busy, &[refusal], &[]);
+        let found = host_findings(&[], &Ok(None), 0, &[], &busy, &[refusal], &[]);
         assert_eq!(found.len(), 1, "{found:?}");
         assert_eq!(found[0].kind, FindingKind::Host);
         assert_eq!(found[0].advice.command.as_deref(), Some("builds host list"));
@@ -2387,7 +2411,7 @@ mod tests {
             at: 1_800_000_000,
             said: "A required plugin failed to load. Please ensure system content is up-to-date, try running 'xcodebuild -runFirstLaunch'.".to_string(),
         };
-        let found = host_findings(&[], &Ok(None), 0, &[], &[refusal], &[]);
+        let found = host_findings(&[], &Ok(None), 0, &[], &[], &[refusal], &[]);
         assert_eq!(found.len(), 1, "{found:?}");
         assert_eq!(found[0].kind, FindingKind::Host);
         assert_eq!(
@@ -2416,7 +2440,7 @@ mod tests {
             crate::host::refusal_finding(&refusal).command.as_deref(),
             Some("builds host setup m1")
         );
-        let found = host_findings(&[], &Ok(None), 0, &[], &[refusal], &[]);
+        let found = host_findings(&[], &Ok(None), 0, &[], &[], &[refusal], &[]);
         assert_eq!(found.len(), 1, "{found:?}");
         assert_eq!(
             found[0].advice.command.as_deref(),

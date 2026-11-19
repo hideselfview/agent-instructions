@@ -5,9 +5,10 @@ const PS: &str = "    1     0     0   0.0   1:00.00 9-00:00:00 /sbin/launchd\n44
 #[test]
 fn reads_what_a_host_printed() {
     let scan = parse(&format!(
-        "cpu=CPU usage: 95.17% user, 4.9% sys, 0.72% idle \njob=/Users/x/dev/bae-worktrees/remote-side-5 76647 17546-1795067690799282000\n{PS_FOLLOWS}\n{PS}"
+        "uid=501\ncpu=CPU usage: 95.17% user, 4.9% sys, 0.72% idle \njob=/Users/x/dev/bae-worktrees/remote-side-5 76647 17546-1795067690799282000\n{PS_FOLLOWS}\n{PS}"
     ))
     .unwrap();
+    assert_eq!(scan.uid, 501);
     assert_eq!(scan.cpu_idle, Ok(0.72));
     assert_eq!(scan.rows.len(), 2);
     assert_eq!(
@@ -35,12 +36,13 @@ fn reads_what_a_host_printed() {
 #[test]
 fn a_missing_idle_share_is_an_error_of_its_own() {
     let scan = parse(&format!(
-        "cpu=CPU usage: 95.17% user, 4.9% sys\n{PS_FOLLOWS}\n{PS}"
+        "uid=501\ncpu=CPU usage: 95.17% user, 4.9% sys\n{PS_FOLLOWS}\n{PS}"
     ))
     .unwrap();
     assert!(scan.cpu_idle.unwrap_err().contains("no idle share"));
     assert_eq!(scan.rows.len(), 2);
-    assert!(parse("cpu=\n").is_err());
+    assert!(parse("uid=501\ncpu=\n").is_err());
+    assert!(parse(&format!("cpu=\n{PS_FOLLOWS}\n{PS}")).is_err());
 }
 
 #[test]
@@ -93,6 +95,7 @@ fn the_script_reads_the_last_second_of_the_cpu_and_the_jobs_that_run() {
     let _ = group.kill();
     let _ = group.wait();
     let scan = parse(&String::from_utf8_lossy(&output.stdout)).unwrap();
+    assert_eq!(scan.uid, unsafe { libc::getuid() });
     assert_eq!(scan.cpu_idle, Ok(40.0));
     assert_eq!(
         scan.jobs,

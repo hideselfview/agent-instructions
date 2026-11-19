@@ -3,7 +3,8 @@
 //! (install_gate.rs), since every command that starts while it waits waits
 //! too; a hook run (`builds checks run`), a landing or a `builds cargo` on
 //! this Mac past its limit; and a cargo job on a host (remote.rs) past its
-//! limit. `builds health` lists each under "needs action".
+//! limit whose caller here runs (orphans.rs lists one whose caller is gone).
+//! `builds health` lists each under "needs action".
 //!
 //! What a command on this Mac waits on is what runs under it: the jobs its
 //! processes run on a host (a job's run id names the `builds` process here
@@ -272,16 +273,14 @@ pub fn findings(
             {
                 continue;
             }
-            let caller = match job
+            // orphans.rs lists a job whose caller here is gone.
+            let Some(caller) = job
                 .caller()
                 .and_then(|caller| local.iter().find(|row| row.pid == caller))
-            {
-                Some(row) => format!("for {} on this Mac", read.named(row)),
-                None => format!(
-                    "for process {} on this Mac, which no longer runs",
-                    job.caller().unwrap_or_default()
-                ),
+            else {
+                continue;
             };
+            let caller = format!("for {} on this Mac", read.named(caller));
             found.push(Advice::said(format!(
                 "job: {} has run a job in {} for {}, longer than {JOB_MINUTES}m, {caller}: {}",
                 place(&host.name),

@@ -536,11 +536,13 @@ call, and prints one line for each fix: it prunes a host under the free-disk
 floor and probes it again, measures the core speed of a host that has none,
 stops the Gradle daemon, the Kotlin compile daemon and the booted simulators
 that no build has used for an hour on a host under memory pressure and probes
-it again, and releases a claim on a worktree that nothing holds. It lists only
-what is left, each with its reason: a host that does not answer, a host whose
-git fails, uncommitted work. It never runs sudo and stops a process only with
-`--stop-junk`, except those idle build daemons. The lines below are what
-remains to act on.
+it again, releases a claim on a worktree that nothing holds, and stops each
+process whose caller is gone and whose only work is what it prints (a cargo
+run, a compile, a test, a job on a host whose builds command here ended). It
+lists only what is left, each with its reason: a host that does not answer, a
+host whose git fails, uncommitted work. It never runs sudo and stops a process
+only with `--stop-junk`, except those idle build daemons and those processes
+whose caller is gone. The lines below are what remains to act on.
 
   - sccache finished no compiles while clients wait: restart it (`launchctl
     kickstart -k gui/$(id -u)/local.sccache-server`).
@@ -577,6 +579,10 @@ remains to act on.
     CPU sits under 5% idle shows up as having no room.
   - Builds items ready and not running: start them whatever the hosts' load
     (builds work goes first).
+  - A process whose caller is gone that health leaves to run, such as a
+    landing whose shell ended: it does its work to its end, so check what it
+    did once it ends. One whose stop failed: stop it with the command the
+    line gives.
   - An install, hook run, landing, cargo run or job on a host that has run
     long: the line follows what it waits on down to the work at the end.
     Work at the end that waits on a host with no room needs nothing but

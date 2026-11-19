@@ -9,6 +9,7 @@ fn rows(text: &str) -> Vec<Row> {
 
 fn scan(rows: Vec<Row>, jobs: Vec<JobRun>) -> std::result::Result<Scan, String> {
     Ok(Scan {
+        uid: 501,
         rows,
         cpu_idle: Ok(50.0),
         jobs,
@@ -131,8 +132,8 @@ fn a_long_hook_run_names_the_builds_command_under_it() {
 }
 
 /// A cargo job on a host past its limit gets a line of its own with its
-/// caller here, or the caller's pid when it no longer runs, and what runs
-/// under it. A job in an app checkout, and a short one, get none.
+/// caller here and what runs under it. A job in an app checkout, a short
+/// one, and one whose caller is gone (orphans.rs lists it) get none.
 #[test]
 fn a_long_cargo_job_on_a_host_names_its_caller_and_what_runs_under_it() {
     let here = rows("210 150 501 0.0 0:01.00 01:00 builds cargo test\n");
@@ -142,8 +143,9 @@ fn a_long_cargo_job_on_a_host_names_its_caller_and_what_runs_under_it() {
          7000 1 502 0.0 0:01.00 50:00 xcodebuild test\n",
     );
     let jobs = vec![
-        job("remote-side-5", 6000, 999, 36),
+        job("remote-side-5", 6000, 210, 36),
         job("remote-side-6", 6000, 210, 12),
+        job("remote-side-7", 6000, 999, 50),
         job("mac-1", 7000, 210, 50),
     ];
     assert_eq!(
@@ -155,7 +157,7 @@ fn a_long_cargo_job_on_a_host_names_its_caller_and_what_runs_under_it() {
             Ok(None)
         ),
         [
-            "job: host m1 has run a job in bae/remote-side-5 for 36m, longer than 30m, for process 999 on this Mac, which no longer runs: test binary bae_views-0123456789abcdef (pid 6001, 31m)"
+            "job: host m1 has run a job in bae/remote-side-5 for 36m, longer than 30m, for builds cargo test (pid 210, in bae/side-3) on this Mac: test binary bae_views-0123456789abcdef (pid 6001, 31m)"
         ]
     );
 }

@@ -700,6 +700,9 @@ impl Model {
         let hosts = crate::host::all(&self.places)?;
         // This daemon is the dashboard.
         let dashboard = std::process::id() as i32;
+        // Read before the scans, so a job that a process here started after
+        // this reading counts as running (job_claim.rs).
+        let holders = crate::job_claim::Holders::read()?;
         let mut scans = Vec::new();
         let mut busy = Vec::new();
         for (host, scan) in hosts
@@ -723,6 +726,7 @@ impl Model {
             &scans,
             &install,
             now_seconds(),
+            &crate::orphans::find(&scans, &holders),
             &busy,
             &refusals,
             &installed,

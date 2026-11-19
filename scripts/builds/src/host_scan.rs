@@ -2,8 +2,8 @@
 //! its processes, how much of its CPU sits idle, and the commands that
 //! builds' jobs run there. One script prints them, over the ssh builds
 //! already uses for hosts or with sh on this Mac, so a health check asks each
-//! host once. stuck.rs judges the processes, host_load.rs the idle share and
-//! long_waits.rs the jobs.
+//! host once. stuck.rs judges the processes, host_load.rs the idle share,
+//! long_waits.rs the jobs and orphans.rs the processes whose caller is gone.
 
 use crate::host::{Accept, Host, Ssh, Terminal, command_at, output_of, place};
 use crate::stuck::{PS_FORMAT, Row, parse_ps};
@@ -16,6 +16,8 @@ const PS_FOLLOWS: &str = "ps_follows=1";
 /// What a host's script printed, read.
 #[derive(Clone, Debug)]
 pub struct Scan {
+    /// The user the script ran as: the user builds' jobs run as there.
+    pub uid: u32,
     pub rows: Vec<Row>,
     /// The share of the host's CPU that sat idle over one second, as a
     /// percentage, or why the script could not read it.
@@ -83,7 +85,8 @@ impl JobRun {
 /// prints only the groups that run.
 pub fn script(host: &Host) -> String {
     format!(
-        r#"{root}echo "cpu=$(top -l 2 -n 0 -s 1 2>&1 | awk '/^CPU usage/{{line=$0}} END{{print line}}')"
+        r#"{root}echo "uid=$(id -u)"
+echo "cpu=$(top -l 2 -n 0 -s 1 2>&1 | awk '/^CPU usage/{{line=$0}} END{{print line}}')"
 for claim in "$HOME"/dev/*-worktrees/*.job; do
   [ -f "$claim/pid" ] || continue
   set -- $(cat "$claim/pid" 2>/dev/null)
@@ -122,7 +125,11 @@ pub fn parse(text: &str) -> std::result::Result<Scan, String> {
             })
         })
         .collect();
+    let uid = value("uid")
+        .and_then(|uid| uid.parse().ok())
+        .ok_or_else(|| format!("the host did not say its user id: {head:?}"))?;
     Ok(Scan {
+        uid,
         rows: parse_ps(ps)?,
         cpu_idle: parse_cpu(value("cpu").unwrap_or_default()),
         jobs,

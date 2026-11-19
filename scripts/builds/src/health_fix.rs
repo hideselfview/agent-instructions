@@ -4,11 +4,12 @@
 //! no measured core speed gets its speed measured (`builds host setup`, without
 //! its sudo steps), a host under memory pressure gets the build daemons that
 //! no build uses stopped, and a claim on a worktree that nothing holds is
-//! released.
-//! Each fix says in one line what it did. Health never runs sudo and stops a
-//! process only with `--stop-junk`. A host that does not answer, a host whose
-//! git fails and a worktree with uncommitted work stay findings, with the
-//! reason, because they need a person's judgment.
+//! released, and a process whose caller is gone and whose only work is what
+//! it prints is stopped (orphans.rs).
+//! Each fix says in one line what it did. Health never runs sudo, and stops
+//! no other process without `--stop-junk`. A host that does not answer, a
+//! host whose git fails and a worktree with uncommitted work stay findings,
+//! with the reason, because they need a person's judgment.
 
 use crate::claim::Claim;
 use crate::fail::Result;
@@ -115,6 +116,36 @@ pub fn fix_hosts(
         }
     }
     lines
+}
+
+/// Stops each of <orphans> that health stops (`Orphan::stop_script`), with
+/// <stop>, which runs a script on a host and says why it failed. A stop that
+/// fails because a process already ended counts as done. Returns one line for
+/// each orphan it stopped and each stop that failed, and the orphans left to
+/// list: those health leaves to run and those whose stop failed.
+pub fn stop_orphans(
+    orphans: Vec<crate::orphans::Orphan>,
+    stop: &dyn Fn(&Host, &str) -> std::result::Result<(), String>,
+) -> (Vec<String>, Vec<crate::orphans::Orphan>) {
+    let mut lines = Vec::new();
+    let mut left = Vec::new();
+    for orphan in orphans {
+        let Some(script) = orphan.stop_script() else {
+            left.push(orphan);
+            continue;
+        };
+        match stop(&orphan.host, &script) {
+            Ok(()) => lines.push(format!("stopped {}: its caller was gone", orphan.what())),
+            Err(said) if said.contains("No such process") => {
+                lines.push(format!("stopped {}: its caller was gone", orphan.what()))
+            }
+            Err(said) => {
+                lines.push(format!("stopping {} failed: {said}", orphan.what()));
+                left.push(orphan);
+            }
+        }
+    }
+    (lines, left)
 }
 
 /// Releases each claim that health would tell the coordinator to release

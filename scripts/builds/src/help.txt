@@ -1492,12 +1492,16 @@ STATUS, HEALTH AND THE DASHBOARD
                               keeps its daemons; a claim that "builds release"
                               would accept on a worktree that nothing holds
                               (the case listed below) and that is not in the
-                              starting state (below) is released. A host that does not
+                              starting state (below) is released; a process
+                              whose caller is gone and whose only work is
+                              what it prints is stopped with what runs under
+                              it (below). A host that does not
                               answer, a host whose git fails and uncommitted
                               work stay findings, with the reason. It
                               exits 1 when something needs acting on, never
                               runs sudo, and stops a process only with
-                              --stop-junk, except those idle build daemons.
+                              --stop-junk, except those idle build daemons
+                              and those processes whose caller is gone.
                               It shows:
                               - the load, and free space against the floors
                               - whether sccache finished compiles since the
@@ -1598,7 +1602,22 @@ STATUS, HEALTH AND THE DASHBOARD
                               builds command here that runs it and what runs
                               under it there (compiles through sccache,
                               compilers, test binaries); a line names each
-                              command's tree once; a build past its step's 45-minute
+                              command's tree once; a process whose caller is
+                              gone, on this Mac or a host, that the fix pass
+                              left running or could not stop: a tool that has
+                              run a minute or more and whose parent is
+                              launchd (cargo, a compiler, an sccache client, a
+                              test binary, git other than its daemons,
+                              xcodebuild, builds' ssh to a host, or a builds
+                              command other than the dashboard, `builds
+                              units` and `builds review audit`), or a job on a
+                              host whose builds command here is gone; the fix
+                              pass stops each of these except a builds
+                              command that does more than print (a landing,
+                              an install), which does its work to its end;
+                              for one whose stop failed, the line gives `kill
+                              <pid>...`, over ssh on a host; a build past its
+                              step's 45-minute
                               default limit, or a test binary past 30 minutes
                               (`kill <pid>`); a test binary that `builds
                               cargo` runs, here or on a host, that has run 20+
