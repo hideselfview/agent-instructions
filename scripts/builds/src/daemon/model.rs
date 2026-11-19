@@ -1332,15 +1332,11 @@ impl Model {
                                 id: item.id.0,
                                 title: item.title.clone(),
                             };
-                            let read = crate::lists::kept_work::kept_waits(lists, item)
-                                .map_err(crate::fail::Fail::text)
-                                .and_then(|waits| {
-                                    super::lists::item_waits(lists, item).map(|open| (waits, open))
-                                });
+                            let read = super::lists::kept_card(lists, item);
                             match read {
-                                Ok((waits, open)) => {
-                                    checkout.state = Some(super::cards::kept_state(&waits));
-                                    super::cards::kept_words(checkout, running, &waits, &open)
+                                Ok(card) => {
+                                    checkout.state = Some(super::cards::kept_state(&card));
+                                    super::cards::kept_words(checkout, running, &card)
                                 }
                                 Err(error) => {
                                     checkout.errors.push(format!(

@@ -211,7 +211,7 @@ fn an_item_that_waits_on_a_question_names_it_in_the_pill_under_waiting_on_you() 
         card.pill,
         pill(
             "Answer #438",
-            "Waits on your answer: When to reopen a copied library"
+            "Waits on your answer to #438: When to reopen a copied library"
         )
     );
     assert_eq!(card.items, running(&[(7, "Reopen a copied library")]));
@@ -231,7 +231,10 @@ fn an_item_that_waits_on_another_item_names_it_in_the_pill_and_stays_working() {
     assert_eq!(card.chip, Some("Working"));
     assert_eq!(
         card.pill,
-        pill("After #1320", "Waits on #1320: Store the library id")
+        pill(
+            "After #1320",
+            "Waits on #1320 (ready): Store the library id"
+        )
     );
 }
 
@@ -362,7 +365,9 @@ fn a_held_worktree_says_paused_and_what_its_running_items_wait_on() {
     assert_eq!(card.items, running(&[(3, "Item")]));
     assert_eq!(
         card.note.as_deref(),
-        Some("Waits on #1320: Store the library id. Waits until builds #122, #121 and #125 land")
+        Some(
+            "Waits on #1320 (ready): Store the library id. Waits until builds #122, #121 and #125 land"
+        )
     );
     let noted = listed("held", Some("Until the store lands."), &[(3, "Item")]);
     assert_eq!(noted.chip, Some("Paused"));
@@ -640,7 +645,7 @@ fn a_worktree_an_item_keeps_says_what_its_item_waits_on() {
         title: "Do the kept thing now".into(),
     };
     let page = card(Some("kept"), None, Some(2));
-    let said = kept_words(&page, item.clone(), &KeptWaits::None, &[]);
+    let said = kept_words(&page, item.clone(), &KeptCard::None);
     assert_eq!(
         (said.chip, said.items.clone(), said.note),
         (Some("Ready"), vec![item.clone()], None)
@@ -656,20 +661,21 @@ fn a_worktree_an_item_keeps_says_what_its_item_waits_on() {
             title: "Which way".into(),
         },
     ];
-    assert_eq!(kept_state(&KeptWaits::Open), "kept-waiting");
-    let said = kept_words(&page, item.clone(), &KeptWaits::Open, &open);
+    let open = KeptCard::Open(open.to_vec());
+    assert_eq!(kept_state(&open), "kept-waiting");
+    let said = kept_words(&page, item.clone(), &open);
     assert_eq!(said.chip, Some("Waiting"));
     assert_eq!(
         said.note.as_deref(),
         Some(
-            "Waits on item #793 (ready): Keep the tool running; question #816 (waits on you): Which way."
+            "Waits on #793 (ready): Keep the tool running. Waits on your answer to #816: Which way"
         )
     );
-    let met = KeptWaits::Met(vec![
+    let met = KeptCard::Met(vec![
         "question #816 answered by decision #9: Which way".into(),
     ]);
     assert_eq!(kept_state(&met), "kept-met");
-    let said = kept_words(&page, item, &met, &[]);
+    let said = kept_words(&page, item, &met);
     assert_eq!(said.chip, Some("Waits met"));
     assert_eq!(
         said.note.as_deref(),

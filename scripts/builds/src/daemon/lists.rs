@@ -213,64 +213,78 @@ pub fn running_waits(
 }
 
 /// What <item> waits on that is not met, in the order of its waits. Fails
-/// when a wait names a record the lists do not hold, or one of another kind
-/// than the wait says.
+/// when a wait names a record the lists do not hold.
 pub fn item_waits(
     lists: &crate::lists::Lists,
     item: &crate::lists::Item,
 ) -> Result<Vec<super::cards::ItemWait>, String> {
     use super::cards::ItemWait;
-    use crate::lists::{Kind, Standing, Wait};
+    use crate::lists::Wait;
+    let missing =
+        |id: crate::lists::Id| format!("{} waits on {id}, which the lists do not hold", item.id);
+    // The title of the record a wait names: the open one, else the one that
+    // closed.
+    let closed_title = |id: crate::lists::Id| {
+        lists
+            .closed_record(id)
+            .map(|closed| closed.record.title().to_string())
+            .ok_or_else(|| missing(id))
+    };
     let mut found: Vec<ItemWait> = Vec::new();
     for wait in crate::lists::derive::unmet_waits(lists, item) {
-        let (Wait::Question(id) | Wait::Item(id) | Wait::Design(id)) = wait else {
-            let Wait::Condition(text) = wait else {
-                unreachable!("a wait names a record or a condition")
-            };
-            found.push(ItemWait::Condition(text.clone()));
-            continue;
-        };
-        let (kind, word) = match wait {
-            Wait::Question(_) => (Kind::Question, "question"),
-            Wait::Item(_) => (Kind::Item, "item"),
-            _ => (Kind::Design, "design change"),
-        };
-        let located = lists
-            .locate(*id)
-            .ok_or_else(|| format!("{} waits on {id}, which the lists do not hold", item.id))?;
-        if located.kind != kind {
-            return Err(format!(
-                "{} waits on {id} as a {word}, and {id} is a {}",
-                item.id,
-                located.kind.name()
-            ));
-        }
-        let title = located.title.to_string();
         found.push(match wait {
-            Wait::Question(_) => ItemWait::Answer { id: id.0, title },
-            Wait::Design(_) if crate::lists::derive::wait_on_person(lists, wait) => {
-                ItemWait::Review { id: id.0, title }
-            }
-            Wait::Design(_) => ItemWait::Landing { id: id.0, title },
-            _ => {
-                let state = match located.standing {
-                    Standing::Open => {
-                        let other = lists.item(*id).ok_or_else(|| {
-                            format!("{id} is an open item, which the lists do not hold")
-                        })?;
-                        crate::lists::derive::item_state(lists, other).label()
-                    }
-                    Standing::Closed(closed) => closed.how.label(),
+            Wait::Question(id) => ItemWait::Answer {
+                id: id.0,
+                title: match lists.question(*id) {
+                    Some(question) => question.title.clone(),
+                    None => closed_title(*id)?,
+                },
+            },
+            Wait::Design(id) => {
+                let title = match lists.design(*id) {
+                    Some(design) => design.title.clone(),
+                    None => closed_title(*id)?,
                 };
-                ItemWait::Item {
-                    id: id.0,
-                    title,
-                    state,
+                if crate::lists::derive::wait_on_person(lists, wait) {
+                    ItemWait::Review { id: id.0, title }
+                } else {
+                    ItemWait::Landing { id: id.0, title }
                 }
             }
+            Wait::Item(id) => match (lists.item(*id), lists.closed_record(*id)) {
+                (Some(other), _) => ItemWait::Item {
+                    id: id.0,
+                    title: other.title.clone(),
+                    state: crate::lists::derive::item_state(lists, other).label(),
+                },
+                (None, Some(closed)) => ItemWait::Item {
+                    id: id.0,
+                    title: closed.record.title().to_string(),
+                    state: closed.how.label(),
+                },
+                (None, None) => return Err(missing(*id)),
+            },
+            Wait::Condition(text) => ItemWait::Condition(text.clone()),
         });
     }
     Ok(found)
+}
+
+/// What the waits of <item>, which a worktree keeps, stand at as its card
+/// says them.
+pub fn kept_card(
+    lists: &crate::lists::Lists,
+    item: &crate::lists::Item,
+) -> Result<super::cards::KeptCard, String> {
+    use super::cards::KeptCard;
+    use crate::lists::kept_work::{KeptWaits, kept_waits};
+    Ok(
+        match kept_waits(lists, item).map_err(crate::fail::Fail::text)? {
+            KeptWaits::None => KeptCard::None,
+            KeptWaits::Open => KeptCard::Open(item_waits(lists, item)?),
+            KeptWaits::Met(met) => KeptCard::Met(met),
+        },
+    )
 }
 
 /// Open design change <id> of project <project>, and the change as the

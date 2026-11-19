@@ -5,7 +5,6 @@
 //! checkout's own facts.
 
 use super::model::CheckoutPage;
-use crate::lists::kept_work::KeptWaits;
 
 /// What a running item waits on that is not met.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -178,7 +177,7 @@ impl ItemWait {
     /// The wait in a sentence.
     fn sentence(&self) -> String {
         match self {
-            ItemWait::Answer { title, .. } => format!("Waits on your answer: {title}"),
+            ItemWait::Answer { id, title } => format!("Waits on your answer to #{id}: {title}"),
             ItemWait::Review { id, title } => {
                 format!("Waits on your review of design change {id}: {title}")
             }
@@ -191,7 +190,9 @@ impl ItemWait {
             ItemWait::AppBuild { lane, how, .. } => {
                 format!("Waits on the {lane} app build: {how}")
             }
-            ItemWait::Item { id, title, .. } => format!("Waits on #{id}: {title}"),
+            ItemWait::Item { id, title, state } => {
+                format!("Waits on #{id} ({state}): {title}")
+            }
             ItemWait::Landing { id, title } => {
                 format!("Waits on design change {id} to land: {title}")
             }
@@ -337,51 +338,45 @@ fn uncommitted(checkout: &CheckoutPage) -> Option<Uncommitted> {
     })
 }
 
+/// What the waits of an item that keeps a worktree stand at, as its card
+/// says them.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum KeptCard {
+    /// The item has no waits: it waits only for an agent.
+    None,
+    /// What it waits on that is not met.
+    Open(Vec<ItemWait>),
+    /// Every wait is met: each record that met one, and how it closed.
+    Met(Vec<String>),
+}
+
 /// The state a worktree that an item keeps shows, with no agent in it: an
 /// item with no waits waits only for an agent (`kept`), one with an open wait
 /// waits on it (`kept-waiting`), and one whose waits are all met waits for
 /// the coordinator to resume its agent or land its commits (`kept-met`).
-pub fn kept_state(waits: &KeptWaits) -> &'static str {
-    match waits {
-        KeptWaits::None => "kept",
-        KeptWaits::Open => "kept-waiting",
-        KeptWaits::Met(_) => "kept-met",
-    }
-}
-
-/// One open wait of a kept item: its kind, id, title and standing.
-fn kept_line(wait: &ItemWait) -> String {
-    match wait {
-        ItemWait::Answer { id, title } => format!("question #{id} (waits on you): {title}"),
-        ItemWait::Review { id, title } => format!("design change #{id} (waits on you): {title}"),
-        ItemWait::Landing { id, title } => {
-            format!("design change #{id} (approved, not landed): {title}")
-        }
-        ItemWait::Item { id, title, state } => format!("item #{id} ({state}): {title}"),
-        ItemWait::Condition(text) => format!("condition: {text}"),
-        other => other.sentence(),
+pub fn kept_state(card: &KeptCard) -> &'static str {
+    match card {
+        KeptCard::None => "kept",
+        KeptCard::Open(_) => "kept-waiting",
+        KeptCard::Met(_) => "kept-met",
     }
 }
 
 /// The words of <checkout>, a worktree that <item> keeps with no agent in
-/// it, given what its waits <waits> stand at (`kept_state`); <open> is what
-/// it waits on when a wait is open.
-pub fn kept_words(
-    checkout: &CheckoutPage,
-    item: RunningItem,
-    waits: &KeptWaits,
-    open: &[ItemWait],
-) -> Words {
-    let (chip, note) = match waits {
-        KeptWaits::None => ("Ready", None),
-        KeptWaits::Open => (
+/// it, given what its waits stand at.
+pub fn kept_words(checkout: &CheckoutPage, item: RunningItem, card: &KeptCard) -> Words {
+    let (chip, note) = match card {
+        KeptCard::None => ("Ready", None),
+        KeptCard::Open(open) => (
             "Waiting",
-            Some(format!(
-                "Waits on {}.",
-                open.iter().map(kept_line).collect::<Vec<_>>().join("; ")
-            )),
+            Some(
+                open.iter()
+                    .map(ItemWait::sentence)
+                    .collect::<Vec<_>>()
+                    .join(". "),
+            ),
         ),
-        KeptWaits::Met(met) => (
+        KeptCard::Met(met) => (
             "Waits met",
             Some(format!(
                 "Every wait is met: {}. Land its commits, or resume its agent with builds item take.",

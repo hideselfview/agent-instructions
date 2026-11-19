@@ -19,7 +19,7 @@ use crate::lists::derive::unmet_waits;
 use crate::lists::item::{self, Item};
 use crate::lists::running::{PlaceTable, insert_places};
 use crate::lists::store::Loaded;
-use crate::lists::{Closed, Id, Lists, Record, Stamp, Wait};
+use crate::lists::{Closed, Id, Lists, Stamp, Wait};
 
 /// A worktree an open item keeps, in one repo (an item that spans repos has
 /// one of these per repo): its work waits there on the branch.
@@ -124,14 +124,14 @@ pub fn kept_worktrees(
 pub enum KeptWaits {
     /// The item has no waits: it waits only for an agent.
     None,
-    /// A wait is not met (`daemon::lists::item_waits` says which).
+    /// A wait is not met.
     Open,
     /// Every wait is met: each record that met one, and how it closed.
     Met(Vec<String>),
 }
 
 /// What the waits of <item>, which keeps a worktree, stand at. Fails when a
-/// wait names a record that is missing or of another kind.
+/// met wait names a record that is not closed.
 pub fn kept_waits(lists: &Lists, item: &Item) -> Result<KeptWaits> {
     if item.waits.is_empty() {
         return Ok(KeptWaits::None);
@@ -153,29 +153,15 @@ pub fn kept_waits(lists: &Lists, item: &Item) -> Result<KeptWaits> {
     Ok(KeptWaits::Met(met))
 }
 
-/// The record that met <wait>, which is met, so it names a closed record of
-/// the kind it waits on: a question, an item or a design change. A condition
-/// is never met, so it never reaches here.
+/// The record that met <wait>, which is met, so it names a closed record. A
+/// condition is never met, so it never reaches here.
 fn met_by<'a>(lists: &'a Lists, wait: &Wait) -> Result<&'a Closed> {
     let (Wait::Question(id) | Wait::Item(id) | Wait::Design(id)) = wait else {
         unreachable!("only a wait on a record is met, never a condition")
     };
-    let Some(closed) = lists.closed_record(*id) else {
-        fail!("a met wait names {id}, which no closed record holds");
-    };
-    match (wait, &closed.record) {
-        (Wait::Question(_), Record::Question(_))
-        | (Wait::Item(_), Record::Item(_))
-        | (Wait::Design(_), Record::Design(_)) => Ok(closed),
-        _ => fail!(
-            "a wait on a {} names {id}, which is a {}",
-            match wait {
-                Wait::Question(_) => "question",
-                Wait::Item(_) => "item",
-                _ => "design change",
-            },
-            closed.record.kind().name()
-        ),
+    match lists.closed_record(*id) {
+        Some(closed) => Ok(closed),
+        None => fail!("a met wait names {id}, which no closed record holds"),
     }
 }
 
