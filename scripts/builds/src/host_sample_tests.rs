@@ -35,7 +35,8 @@ fn only_the_hosts_that_answered_have_a_sample() {
             pressure: Pressure::Warning,
         },
         git_fails: None,
-        nextest: crate::nextest::Has::Nothing,
+        nextest: crate::cargo_program::Has::Nothing,
+        mutants: crate::cargo_program::Has::Nothing,
         processes: crate::proc_limit::ProcessUse {
             count: 100,
             limit: 10_000,

@@ -299,9 +299,11 @@ pub struct Probe {
     /// push reaches: every job runs git there, so the host refuses every job.
     /// None when git runs.
     pub git_fails: Option<String>,
-    /// What the host has of cargo-nextest (`nextest::VERSION` is the version
-    /// builds installs).
-    pub nextest: crate::nextest::Has,
+    /// What the host has of cargo-nextest and of cargo-mutants
+    /// (`cargo_program::NEXTEST.version` and `MUTANTS.version` are the
+    /// versions builds installs).
+    pub nextest: crate::cargo_program::Has,
+    pub mutants: crate::cargo_program::Has,
     /// The user's processes and the limit on them (proc_limit.rs).
     pub processes: crate::proc_limit::ProcessUse,
 }
@@ -384,13 +386,15 @@ if ! said=$(git --version 2>&1); then echo "git_fails=$(printf '%s' "$said" | tr
 "#;
 
 /// The script a remote host runs: the platform's lines, `PROBE_SCRIPT`, then
-/// the memory script, then the cargo-nextest lines and the process lines.
+/// the memory script, then the lines of each program builds installs and the
+/// process lines.
 fn probe_script() -> String {
     format!(
-        "{}\n{PROBE_SCRIPT}{}\n{}\n{}",
+        "{}\n{PROBE_SCRIPT}{}\n{}\n{}\n{}",
         crate::host_platform::SCRIPT,
         crate::host_memory::SCRIPT,
-        crate::nextest::PROBE_SCRIPT_LINES,
+        crate::cargo_program::NEXTEST.probe_lines(),
+        crate::cargo_program::MUTANTS.probe_lines(),
         crate::proc_limit::PROBE_LINES
     )
 }
@@ -437,7 +441,8 @@ pub fn parse_probe(text: &str) -> Result<Probe> {
         free_kib,
         memory: Memory::parse(text)?,
         git_fails,
-        nextest: crate::nextest::parse_has(text),
+        nextest: crate::cargo_program::NEXTEST.parse_has(text),
+        mutants: crate::cargo_program::MUTANTS.parse_has(text),
         processes: crate::proc_limit::parse(text)?,
     })
 }
@@ -475,7 +480,8 @@ pub fn probe_local(places: &Places) -> Result<Probe> {
         free_kib: volume_space(&places.home)?.free_kib,
         memory: crate::host_memory::here()?,
         git_fails: None,
-        nextest: crate::nextest::has(&places.home),
+        nextest: crate::cargo_program::NEXTEST.has(&places.home),
+        mutants: crate::cargo_program::MUTANTS.has(&places.home),
         processes: crate::proc_limit::local()?,
     })
 }
@@ -1080,33 +1086,34 @@ pub fn takes_cargo<'a>(
 pub enum Runs {
     /// A subcommand that cargo itself provides.
     Cargo,
-    /// `cargo nextest`, which needs cargo-nextest at `nextest::VERSION`.
+    /// `cargo nextest`, which needs cargo-nextest at its pinned version.
     Nextest,
+    /// `cargo mutants`, which needs cargo-mutants at its pinned version.
+    Mutants,
     /// `lake build`, which needs Lean's toolchains: the host's setup for the
     /// job installs them (lean.rs).
     Lake,
 }
 
-/// Why a host cannot take a run that needs cargo-nextest: it has no
-/// cargo-nextest at `nextest::VERSION`, and has <has>.
+/// Why a host cannot take a run that needs <program>: it has no <program> at
+/// its pinned version, and has <has>.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct LacksNextest {
+pub struct LacksProgram {
     pub host: String,
-    pub has: crate::nextest::Has,
+    pub program: crate::cargo_program::Program,
+    pub has: crate::cargo_program::Has,
 }
 
-impl std::fmt::Display for LacksNextest {
+impl std::fmt::Display for LacksProgram {
     fn fmt(&self, out: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        use crate::nextest::Has;
-        let LacksNextest { host, has } = self;
-        let version = crate::nextest::VERSION;
+        use crate::cargo_program::Has;
+        let LacksProgram { host, program, has } = self;
+        let (name, version) = (program.name, program.version);
         let fix = format!("`builds host setup {host}` installs {version}");
         match has {
-            Has::Nothing => write!(out, "{host} has no cargo-nextest ({fix})"),
-            Has::Version(has) => {
-                write!(out, "{host} has cargo-nextest {has}, not {version} ({fix})")
-            }
-            Has::Broken(said) => write!(out, "{host}'s cargo-nextest does not start: {said}"),
+            Has::Nothing => write!(out, "{host} has no {name} ({fix})"),
+            Has::Version(has) => write!(out, "{host} has {name} {has}, not {version} ({fix})"),
+            Has::Broken(said) => write!(out, "{host}'s {name} does not start: {said}"),
         }
     }
 }
@@ -1117,21 +1124,21 @@ pub enum CannotRun {
     /// The host takes no cargo job.
     PassedOver(PassedOver),
     /// The host takes cargo jobs but lacks what the run needs.
-    LacksNextest(LacksNextest),
+    LacksProgram(LacksProgram),
 }
 
 impl std::fmt::Display for CannotRun {
     fn fmt(&self, out: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             CannotRun::PassedOver(why) => why.fmt(out),
-            CannotRun::LacksNextest(why) => why.fmt(out),
+            CannotRun::LacksProgram(why) => why.fmt(out),
         }
     }
 }
 
 /// Whether `builds cargo` may run <runs> on <host>, given its <probe>: what
 /// `takes_cargo` returns when the host may take cargo builds, and for a
-/// nextest run also has cargo-nextest at `nextest::VERSION`.
+/// nextest or mutants run also has that program at its pinned version.
 pub fn takes_run<'a>(
     host: &Host,
     probe: &'a std::result::Result<Probe, String>,
@@ -1139,22 +1146,29 @@ pub fn takes_run<'a>(
     runs: Runs,
 ) -> std::result::Result<(&'a Probe, f64), CannotRun> {
     let (probe, speed) = takes_cargo(host, probe, floor_kib).map_err(CannotRun::PassedOver)?;
-    has_what_runs_needs(host, probe, runs).map_err(CannotRun::LacksNextest)?;
+    has_what_runs_needs(host, probe, runs).map_err(CannotRun::LacksProgram)?;
     Ok((probe, speed))
 }
 
-/// Whether <host>, which answered with <probe>, has the programs <runs>
-/// needs: cargo-nextest at `nextest::VERSION` for a nextest run.
+/// Whether <host>, which answered with <probe>, has the program <runs>
+/// needs, at its pinned version: cargo-nextest for a nextest run and
+/// cargo-mutants for a mutants run.
 pub fn has_what_runs_needs(
     host: &Host,
     probe: &Probe,
     runs: Runs,
-) -> std::result::Result<(), LacksNextest> {
-    use crate::nextest::{Has, VERSION};
-    if runs == Runs::Nextest && probe.nextest != Has::Version(VERSION.to_string()) {
-        return Err(LacksNextest {
+) -> std::result::Result<(), LacksProgram> {
+    use crate::cargo_program::{Has, MUTANTS, NEXTEST};
+    let (program, has) = match runs {
+        Runs::Nextest => (NEXTEST, &probe.nextest),
+        Runs::Mutants => (MUTANTS, &probe.mutants),
+        Runs::Cargo | Runs::Lake => return Ok(()),
+    };
+    if *has != Has::Version(program.version.to_string()) {
+        return Err(LacksProgram {
             host: host.name.clone(),
-            has: probe.nextest.clone(),
+            program,
+            has: has.clone(),
         });
     }
     Ok(())
@@ -1271,7 +1285,7 @@ pub fn cmd_host(tool: &Tool, ssh: &Ssh, args: &[String]) -> Result<()> {
         [word, name] if word == "setup" => crate::host_setup::cmd_setup(tool, ssh, name),
         [word] if word == "setup-here" => {
             tool.places.mark_host()?;
-            crate::nextest::install(&tool.places.home)?;
+            crate::cargo_program::install_all(&tool.places.home)?;
             crate::install::run_sccache_server(&tool.places.home, tool.places.uid)
         }
         [word] if word == "speed-here" => crate::host_setup::cmd_speed_here(),

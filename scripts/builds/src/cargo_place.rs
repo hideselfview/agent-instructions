@@ -240,8 +240,9 @@ impl CargoTool {
     /// What the run needs of the host that takes it.
     pub fn runs(self) -> host::Runs {
         match self {
-            CargoTool::Cargo | CargoTool::Mutants => host::Runs::Cargo,
+            CargoTool::Cargo => host::Runs::Cargo,
             CargoTool::Nextest => host::Runs::Nextest,
+            CargoTool::Mutants => host::Runs::Mutants,
         }
     }
 }

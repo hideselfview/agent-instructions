@@ -23,7 +23,8 @@ fn loaded(five: f64) -> std::result::Result<Probe, String> {
         load: [30.0, five, 0.0],
         free_kib: 100,
         git_fails: None,
-        nextest: crate::nextest::Has::Nothing,
+        nextest: crate::cargo_program::Has::Nothing,
+        mutants: crate::cargo_program::Has::Nothing,
         processes: crate::proc_limit::ProcessUse {
             count: 100,
             limit: 10_000,
@@ -291,7 +292,8 @@ fn a_host_that_takes_no_cargo_job_says_why_and_how_to_fix_it() {
     };
     let refusing = Ok(Probe {
         git_fails: Some("no license".to_string()),
-        nextest: crate::nextest::Has::Nothing,
+        nextest: crate::cargo_program::Has::Nothing,
+        mutants: crate::cargo_program::Has::Nothing,
         ..roomy.clone()
     });
     let full = Ok(Probe {

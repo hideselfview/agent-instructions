@@ -1,5 +1,5 @@
 //! Downloading a release archive of a program that builds installs, such as
-//! cargo-nextest (nextest.rs) and elan's installer (lean.rs).
+//! cargo-nextest (cargo_program.rs) and elan's installer (lean.rs).
 
 use std::path::Path;
 use std::process::{Command, Stdio};

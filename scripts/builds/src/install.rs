@@ -542,7 +542,7 @@ pub fn cmd_install(tool: &Tool, args: &[String]) -> Result<()> {
     for cache in SHARED_CACHES {
         link_cache(&caches.join(cache.name), &cache.link_path(home), home)?;
     }
-    crate::nextest::install(home)?;
+    crate::cargo_program::install_all(home)?;
     run_sccache_server(home, tool.places.uid)?;
     // xcodebuild runs without -derivedDataPath, and the Xcode app, write
     // here.

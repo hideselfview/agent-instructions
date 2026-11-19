@@ -1,7 +1,7 @@
 use super::*;
+use crate::cargo_program::Has;
 use crate::host::tests::fake_ssh;
 use crate::host::{Probe, Runs};
-use crate::nextest::Has;
 use crate::testing::{Scratch, git, repo};
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
@@ -202,7 +202,8 @@ fn probe(load: f64) -> std::result::Result<Probe, String> {
         load: [load, load, load],
         free_kib: 1 << 30,
         git_fails: None,
-        nextest: crate::nextest::Has::Nothing,
+        nextest: crate::cargo_program::Has::Nothing,
+        mutants: crate::cargo_program::Has::Nothing,
         processes: crate::proc_limit::ProcessUse {
             count: 100,
             limit: 10_000,
@@ -630,11 +631,15 @@ fn a_nextest_run_goes_only_to_a_host_with_cargo_nextest() {
     assert!(message.contains("m1 has no cargo-nextest"), "{message}");
 
     // The host gets the pinned version and takes nextest runs.
-    crate::nextest::tests::fake_program(&r.home.join(".cargo/bin"), crate::nextest::VERSION);
+    crate::cargo_program::tests::fake_program(
+        &crate::cargo_program::NEXTEST,
+        &r.home.join(".cargo/bin"),
+        crate::cargo_program::NEXTEST.version,
+    );
     let probes = ask();
     assert_eq!(
         probes[1].1.as_ref().unwrap().nextest,
-        Has::Version(crate::nextest::VERSION.to_string())
+        Has::Version(crate::cargo_program::NEXTEST.version.to_string())
     );
     assert!(matches!(
         pick_ranked(

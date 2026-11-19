@@ -66,7 +66,8 @@ fn reads_what_a_host_prints() {
                 pressure: Pressure::Warning,
             },
             git_fails: None,
-            nextest: crate::nextest::Has::Nothing,
+            nextest: crate::cargo_program::Has::Nothing,
+            mutants: crate::cargo_program::Has::Nothing,
             processes: crate::proc_limit::ProcessUse {
                 count: 300,
                 limit: 8000,
@@ -88,7 +89,7 @@ fn reads_what_a_host_prints() {
 
 #[test]
 fn a_probe_reads_what_a_host_has_of_cargo_nextest() {
-    use crate::nextest::Has;
+    use crate::cargo_program::Has;
     let said = "os=Darwin\narch=arm64\ncores=10\nload=1.50 1.20 1.10\nfree_kib=4\nmemory_free_percent=61\nswap_used_mib=0\nmemory_pressure_level=1\nprocs=1\nmax_procs=2\n";
     assert_eq!(parse_probe(said).unwrap().nextest, Has::Nothing);
     assert_eq!(
@@ -109,7 +110,7 @@ fn a_probe_reads_what_a_host_has_of_cargo_nextest() {
 /// installs, saying which, while a cargo run does not.
 #[test]
 fn a_nextest_run_passes_over_a_host_without_the_pinned_cargo_nextest() {
-    use crate::nextest::Has;
+    use crate::cargo_program::Has;
     let with = |nextest: Has| {
         Ok(Probe {
             platform: crate::host_platform::Platform::here(),
@@ -119,6 +120,7 @@ fn a_nextest_run_passes_over_a_host_without_the_pinned_cargo_nextest() {
             memory: crate::host_memory::Memory::at_rest(),
             git_fails: None,
             nextest,
+            mutants: Has::Nothing,
             processes: crate::proc_limit::ProcessUse {
                 count: 100,
                 limit: 10_000,
@@ -128,7 +130,9 @@ fn a_nextest_run_passes_over_a_host_without_the_pinned_cargo_nextest() {
     let hosts = vec![
         (
             host("local"),
-            with(Has::Version(crate::nextest::VERSION.to_string())),
+            with(Has::Version(
+                crate::cargo_program::NEXTEST.version.to_string(),
+            )),
         ),
         (host("m1"), with(Has::Nothing)),
         (host("m2"), with(Has::Version("0.9.1".to_string()))),
@@ -152,8 +156,9 @@ fn a_nextest_run_passes_over_a_host_without_the_pinned_cargo_nextest() {
     );
     assert_eq!(
         takes_run(&hosts[1].0, &hosts[1].1, 50, Runs::Nextest).unwrap_err(),
-        CannotRun::LacksNextest(LacksNextest {
+        CannotRun::LacksProgram(LacksProgram {
             host: "m1".to_string(),
+            program: crate::cargo_program::NEXTEST,
             has: Has::Nothing
         })
     );
@@ -169,7 +174,8 @@ fn a_host_whose_git_fails_is_passed_over_saying_what_git_said() {
             load: [0.0; 3],
             free_kib: 100,
             git_fails: Some("no license".to_string()),
-            nextest: crate::nextest::Has::Nothing,
+            nextest: crate::cargo_program::Has::Nothing,
+            mutants: crate::cargo_program::Has::Nothing,
             processes: crate::proc_limit::ProcessUse {
                 count: 100,
                 limit: 10_000,
@@ -268,7 +274,8 @@ fn probe_of(load: f64, free_kib: u64) -> std::result::Result<Probe, String> {
         load: [load, load, load],
         free_kib,
         git_fails: None,
-        nextest: crate::nextest::Has::Nothing,
+        nextest: crate::cargo_program::Has::Nothing,
+        mutants: crate::cargo_program::Has::Nothing,
         processes: crate::proc_limit::ProcessUse {
             count: 100,
             limit: 10_000,
@@ -375,7 +382,8 @@ fn probe_with(cores: u32, load: f64, free_kib: u64) -> std::result::Result<Probe
         load: [load, load, load],
         free_kib,
         git_fails: None,
-        nextest: crate::nextest::Has::Nothing,
+        nextest: crate::cargo_program::Has::Nothing,
+        mutants: crate::cargo_program::Has::Nothing,
         processes: crate::proc_limit::ProcessUse {
             count: 100,
             limit: 10_000,
@@ -612,4 +620,66 @@ fn output_of_accepts_only_the_exits_it_is_told_to() {
     )
     .unwrap_err();
     assert!(said.contains("255") && said.contains("dropped"), "{said}");
+}
+
+#[test]
+fn a_probe_reads_what_a_host_has_of_cargo_mutants() {
+    use crate::cargo_program::Has;
+    let said = "os=Darwin\narch=arm64\ncores=10\nload=1.50 1.20 1.10\nfree_kib=4\nmemory_free_percent=61\nswap_used_mib=0\nmemory_pressure_level=1\nprocs=1\nmax_procs=2\n";
+    assert_eq!(parse_probe(said).unwrap().mutants, Has::Nothing);
+    assert_eq!(
+        parse_probe(&format!("{said}mutants=27.1.0\nnextest=0.9.143\n"))
+            .unwrap()
+            .mutants,
+        Has::Version("27.1.0".to_string())
+    );
+    assert_eq!(
+        parse_probe(&format!("{said}mutants_fails=dyld: missing \n"))
+            .unwrap()
+            .mutants,
+        Has::Broken("dyld: missing".to_string())
+    );
+}
+
+/// A mutants run skips a host that has no cargo-mutants at the version builds
+/// installs, saying which, while a cargo run does not.
+#[test]
+fn a_mutants_run_passes_over_a_host_without_the_pinned_cargo_mutants() {
+    use crate::cargo_program::{Has, MUTANTS};
+    let with = |mutants: Has| {
+        Ok(Probe {
+            platform: crate::host_platform::Platform::here(),
+            cores: 10,
+            load: [0.0; 3],
+            free_kib: 100,
+            memory: crate::host_memory::Memory::at_rest(),
+            git_fails: None,
+            nextest: Has::Nothing,
+            mutants,
+            processes: crate::proc_limit::ProcessUse {
+                count: 100,
+                limit: 10_000,
+            },
+        })
+    };
+    let hosts = vec![
+        (
+            host("local"),
+            with(Has::Version(MUTANTS.version.to_string())),
+        ),
+        (host("m1"), with(Has::Nothing)),
+        (host("m2"), with(Has::Version("26.0.0".to_string()))),
+    ];
+    let (ranked, why) = rank_by_room(&hosts, 50, &Default::default(), Runs::Mutants);
+    let names: Vec<String> = ranked.into_iter().map(|(host, _)| host.name).collect();
+    assert_eq!(names, ["local"]);
+    assert!(
+        why.contains("m1 has no cargo-mutants (`builds host setup m1` installs 27.1.0)")
+            && why.contains(
+                "m2 has cargo-mutants 26.0.0, not 27.1.0 (`builds host setup m2` installs 27.1.0)"
+            ),
+        "{why}"
+    );
+    let (ranked, _) = rank_by_room(&hosts, 50, &Default::default(), Runs::Cargo);
+    assert_eq!(ranked.len(), 3);
 }

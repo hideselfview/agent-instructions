@@ -593,9 +593,10 @@ over the whole workspace takes hours: scope it to the code that changed with
 src/queue.rs --file src/queue_tests.rs -p bae-queue`), or with `--in-diff
 FILE` for a diff, and look at what a run would test first with `--list`.
 cargo-mutants has no cargo message format for builds to read, so builds
-records no build copies for it. A host must have cargo-mutants
-installed (`cargo install cargo-mutants`). builds does not probe for it, so a
-host without it fails the run with cargo's "no such command", naming the host.
+records no build copies for it. builds skips a host without cargo-mutants at
+the one version builds installs (27.1.0, installed by `builds install` on this
+Mac and by `builds host setup` on each host, compiled there with `cargo install
+--locked`), as it does for nextest below.
 
 `builds cargo` also runs the subcommands that only read the workspace: tree,
 metadata, locate-project, pkgid and verify-project. builds runs each on this
@@ -636,7 +637,8 @@ the workspace's own folder. One line on stderr names each host the job skips
 for that reason. For a nextest run, builds also skips a host
 without cargo-nextest at the version builds installs (0.9.143, installed by
 `builds install` on this Mac and by `builds host setup` on each host), and
-names the host and the version it has; `BUILDS_CARGO_HOST` naming such a host
+names the host and the version it has (a mutants run skips a host the same way
+for cargo-mutants); `BUILDS_CARGO_HOST` naming such a host
 fails. A host's free cores are its cores minus its
 one-minute load, less the host's cores again for each `builds cargo` or
 `builds lake` run that started there in the last minute and still runs: cargo
@@ -1329,7 +1331,9 @@ indexes the build root.
                               installs cargo-nextest at the one version
                               builds pins (it downloads the release from
                               get.nexte.st into ~/.cargo/bin, and changes
-                              nothing on a host that has that version), as
+                              nothing on a host that has that version) and
+                              cargo-mutants at its pinned version (cargo
+                              install --locked, into ~/.cargo/bin), as
                               `builds install` does here, and records the
                               host's core speed in `hosts`: this Mac's time
                               over the host's for the fixed compile `builds

@@ -20,7 +20,8 @@ fn probe(cores: u32, load: f64) -> std::result::Result<Probe, String> {
         load: [load, load, load],
         free_kib: 1 << 30,
         git_fails: None,
-        nextest: crate::nextest::Has::Nothing,
+        nextest: crate::cargo_program::Has::Nothing,
+        mutants: crate::cargo_program::Has::Nothing,
         processes: crate::proc_limit::ProcessUse {
             count: 100,
             limit: 10_000,

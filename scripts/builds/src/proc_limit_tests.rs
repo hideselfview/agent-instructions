@@ -36,7 +36,8 @@ fn probe(count: u64, limit: u64) -> Probe {
         free_kib: 1,
         memory: crate::host_memory::Memory::at_rest(),
         git_fails: None,
-        nextest: crate::nextest::Has::Nothing,
+        nextest: crate::cargo_program::Has::Nothing,
+        mutants: crate::cargo_program::Has::Nothing,
         processes: ProcessUse { count, limit },
     }
 }
