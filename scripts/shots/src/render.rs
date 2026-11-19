@@ -36,10 +36,12 @@ pub(crate) fn hashes(
                 design,
                 runtime_sha256,
                 chrome::PINNED,
-            ),
-            Name::Component(c) => {
-                design::preview_hash(root, &c.component(root), design, chrome::PINNED)
-            }
+            )
+            .map_err(|e| e.to_string()),
+            Name::Component(c) => c.component(root).and_then(|component| {
+                design::preview_hash(root, &component, design, chrome::PINNED)
+                    .map_err(|e| e.to_string())
+            }),
         }
         .map_err(|e| format!("{name}: {e}"))?;
         hashes.insert(name.clone(), hash);
@@ -176,7 +178,7 @@ async fn draw_component(
     server: &serve::Server,
     platform: names::Platform,
 ) -> Result<Drawn, String> {
-    let component = name.component(root);
+    let component = name.component(root)?;
     let marks = settings.preview(&component).map_err(|e| e.to_string())?;
     let row = preview::render_row(
         page,

@@ -76,7 +76,10 @@ fn no_board(root: &Path, calls: &[String], name: &Name) -> Option<String> {
             }
         }
         Name::Component(c) => {
-            let component = c.component(root);
+            let component = match c.component(root) {
+                Ok(component) => component,
+                Err(why) => return Some(why),
+            };
             let preview = std::path::PathBuf::from(boards::preview::preview_path(&component));
             let html = match std::fs::read_to_string(root.join(&preview)) {
                 Ok(html) => html,

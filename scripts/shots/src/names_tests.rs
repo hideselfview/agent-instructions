@@ -32,10 +32,10 @@ fn a_component_name_names_its_platforms_component_and_state() {
     preview(root.path(), "AndroidCastRow");
     preview(root.path(), "MacRow");
     let c = component_of("android.component.cast-row.long-name");
-    assert_eq!(c.component(root.path()), "AndroidCastRow");
+    assert_eq!(c.component(root.path()).unwrap(), "AndroidCastRow");
     assert_eq!(c.state(), "long-name");
     let c = component_of("mac.component.row.nested-off");
-    assert_eq!(c.component(root.path()), "MacRow");
+    assert_eq!(c.component(root.path()).unwrap(), "MacRow");
 }
 
 #[test]
@@ -46,7 +46,10 @@ fn a_shared_component_is_named_without_a_platform_on_both_platforms() {
         "mac.component.status-chip.done",
         "android.component.status-chip.done",
     ] {
-        assert_eq!(component_of(text).component(root.path()), "StatusChip");
+        assert_eq!(
+            component_of(text).component(root.path()).unwrap(),
+            "StatusChip"
+        );
     }
     let mac = Name::parse("mac.component.status-chip.done").unwrap();
     let android = Name::parse("android.component.status-chip.done").unwrap();
@@ -66,11 +69,15 @@ fn a_platform_preview_wins_over_a_shared_one_of_the_same_thing() {
     preview(root.path(), "Row");
     preview(root.path(), "MacRow");
     assert_eq!(
-        component_of("mac.component.row.label").component(root.path()),
+        component_of("mac.component.row.label")
+            .component(root.path())
+            .unwrap(),
         "MacRow"
     );
     assert_eq!(
-        component_of("android.component.row.label").component(root.path()),
+        component_of("android.component.row.label")
+            .component(root.path())
+            .unwrap(),
         "Row"
     );
 }
@@ -79,7 +86,9 @@ fn a_platform_preview_wins_over_a_shared_one_of_the_same_thing() {
 fn a_component_with_no_preview_is_named_for_its_platform() {
     let root = tempfile::tempdir().unwrap();
     assert_eq!(
-        component_of("android.component.nothing.default").component(root.path()),
+        component_of("android.component.nothing.default")
+            .component(root.path())
+            .unwrap(),
         "AndroidNothing"
     );
 }

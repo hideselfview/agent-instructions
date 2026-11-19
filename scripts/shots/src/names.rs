@@ -198,15 +198,22 @@ impl ComponentName {
     /// platform stays in its `@<platform>` file suffix. A thing with neither
     /// preview names the platform's component, so a missing preview is
     /// reported under that name.
-    pub(crate) fn component(&self, root: &std::path::Path) -> String {
+    pub(crate) fn component(&self, root: &std::path::Path) -> Result<String, String> {
         let shared = self.shared_component();
         let platform = format!("{}{shared}", self.platform.component_prefix());
-        let has_preview = |name: &str| root.join(boards::preview::preview_path(name)).is_file();
-        if !has_preview(&platform) && has_preview(&shared) {
+        let has_preview = |name: &str| {
+            let path = root.join(boards::preview::preview_path(name));
+            match std::fs::metadata(&path) {
+                Ok(found) => Ok(found.is_file()),
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(false),
+                Err(e) => Err(format!("cannot read {}: {e}", path.display())),
+            }
+        };
+        Ok(if !has_preview(&platform)? && has_preview(&shared)? {
             shared
         } else {
             platform
-        }
+        })
     }
 
     /// The thing in PascalCase, the name of a component both platforms share.
