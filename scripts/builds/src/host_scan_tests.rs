@@ -2,7 +2,7 @@ use super::*;
 
 /// JSON stats as sccache 0.13 prints them, cut to the fields builds reads
 /// and a few it does not.
-const STATS: &str = r#"{"stats":{"compile_requests":112611,"cache_hits":{"counts":{"Assembler":6440,"C/C++":14727,"Rust":35361},"adv_counts":{}},"cache_misses":{"counts":{"C/C++":565,"Rust":34774},"adv_counts":{}}},"cache_size":53670801410,"max_cache_size":53687091200}"#;
+const STATS: &str = r#"{"stats":{"compile_requests":112611,"requests_executed":92569,"cache_hits":{"counts":{"Assembler":6440,"C/C++":14727,"Rust":35361},"adv_counts":{}},"cache_misses":{"counts":{"C/C++":565,"Rust":34774},"adv_counts":{}}},"cache_size":53670801410,"max_cache_size":53687091200}"#;
 
 /// The lines the listener script prints when the server (pid 44790) listens.
 fn listening() -> String {
@@ -46,6 +46,7 @@ fn reads_what_a_host_printed() {
         Ok(Some(CacheServer {
             pid: 44790,
             stats: crate::sccache::CacheStats {
+                executed: 92569,
                 rust_hits: 35361,
                 rust_misses: 34774,
                 cache_size: 53670801410,

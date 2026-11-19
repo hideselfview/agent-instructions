@@ -2,47 +2,34 @@
 //! compiles it runs (its child processes), the clients that wait for one
 //! (the other processes named sccache that name a compiler), how full its
 //! cache is, and the share of Rust compiles its cache answered since a
-//! reading at least READING_MINUTES old. `builds health` prints a line for
+//! reading at least `sccache_readings::READING_MINUTES` old. `builds health`
+//! prints a line for
 //! each host, and lists under "needs action" a host whose waiting clients
 //! number more than WAITING_PER_CORE times its cores: it has more compile
 //! work than it can run, so new agents only wait longer.
 //!
-//! Health keeps a reading of each server's counts at most once a minute, for
-//! an hour, in the file `sccache-host-readings.json` in builds' caches
-//! folder, so the share covers the last few minutes, not the server's whole
-//! life. A server that started again since a reading (another pid, or counts
-//! that went down) is compared with nothing, and its share covers its life.
+//! The readings come from the record health keeps of each server
+//! (sccache_readings.rs), so the share covers the last few minutes, not the
+//! server's whole life. A server that started again since a reading (another
+//! pid, or counts that went down) is compared with nothing, and its share
+//! covers its life.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
-use serde::{Deserialize, Serialize};
-
-use crate::fail::{Context, Fail, Result};
+use crate::fail::Result;
 use crate::health::Advice;
 use crate::host::{Host, place};
 use crate::host_scan::{Scan, arguments, program};
 use crate::sccache::CacheStats;
+use crate::sccache_readings::Reading;
 use crate::text::{human_bytes, local_minute};
 
-/// Readings this old or older say what the cache answered since.
-const READING_MINUTES: i64 = 5;
 /// More waiting clients than this many per core is more compile work than
 /// the host can run.
 const WAITING_PER_CORE: usize = 2;
 /// A cache this share of its most or more is full: each new entry pushes an
 /// old one out.
 const FULL_SHARE: f64 = 0.99;
-
-/// One server's counts at one time.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct Reading {
-    pub host: String,
-    pub server: i32,
-    /// Seconds since 1970.
-    pub at: i64,
-    pub hits: u64,
-    pub misses: u64,
-}
 
 /// The Rust compiles a server's cache answered (hits) and those it ran
 /// (misses), since <since> (seconds since 1970), or since the server started
@@ -103,24 +90,20 @@ pub struct Cache {
     pub server: std::result::Result<Option<Server>, String>,
 }
 
-/// The rate of the server <pid> on <host> with <stats>, against the newest
-/// of <readings> of that server at least READING_MINUTES before <now>.
+/// The rate of the server <pid> on <host> with <stats>, against the reading
+/// of that server that `sccache_readings::compared` picks from <readings>.
 fn rate(readings: &[Reading], host: &str, pid: i32, stats: &CacheStats, now: i64) -> Rate {
     let since_start = Rate {
         since: None,
         hits: stats.rust_hits,
         misses: stats.rust_misses,
     };
-    let Some(before) = readings
-        .iter()
-        .filter(|r| r.host == host && r.server == pid && now - r.at >= READING_MINUTES * 60)
-        .max_by_key(|r| r.at)
-    else {
+    let Some(before) = crate::sccache_readings::compared(readings, host, pid, now) else {
         return since_start;
     };
     match (
-        stats.rust_hits.checked_sub(before.hits),
-        stats.rust_misses.checked_sub(before.misses),
+        stats.rust_hits.checked_sub(before.rust_hits),
+        stats.rust_misses.checked_sub(before.rust_misses),
     ) {
         (Some(hits), Some(misses)) => Rate {
             since: Some(before.at),
@@ -129,21 +112,6 @@ fn rate(readings: &[Reading], host: &str, pid: i32, stats: &CacheStats, now: i64
         },
         _ => since_start,
     }
-}
-
-/// Adds <reading> to <readings> when the newest of its host is a minute old
-/// or more, and keeps the last hour. Returns whether it added it.
-fn record(readings: &mut Vec<Reading>, reading: Reading) -> bool {
-    let now = reading.at;
-    if readings
-        .iter()
-        .any(|r| r.host == reading.host && now - r.at < 60)
-    {
-        return false;
-    }
-    readings.push(reading);
-    readings.retain(|r| now - r.at <= 3600);
-    true
 }
 
 /// The server each of <scans> shows, with its rate against <readings>, which
@@ -162,15 +130,9 @@ fn judge_with(
             let server = scan.sccache.clone().map(|server| {
                 server.map(|server| {
                     let rate = rate(readings, &host.name, server.pid, &server.stats, now);
-                    changed |= record(
+                    changed |= crate::sccache_readings::record(
                         readings,
-                        Reading {
-                            host: host.name.clone(),
-                            server: server.pid,
-                            at: now,
-                            hits: server.stats.rust_hits,
-                            misses: server.stats.rust_misses,
-                        },
+                        Reading::of(&host.name, server.pid, now, &server.stats),
                     );
                     Server {
                         pid: server.pid,
@@ -202,40 +164,18 @@ fn judge_with(
     (caches, changed)
 }
 
-/// The file of readings in builds' caches folder under <home>.
-fn readings_file(home: &Path) -> PathBuf {
-    home.join("Library/Caches/builds/sccache-host-readings.json")
-}
-
 /// Each host's server in <scans>, with the share of Rust compiles its cache
-/// answered since a reading kept in builds' caches folder under <home>, to
-/// which it adds a reading of each server.
+/// answered since a reading in the record kept under <home>
+/// (sccache_readings.rs), to which it adds a reading of each server.
 pub fn judge(
     home: &Path,
     scans: &[(Host, std::result::Result<Scan, String>)],
     now: i64,
 ) -> Result<Vec<Cache>> {
-    let file = readings_file(home);
-    let mut readings: Vec<Reading> = match std::fs::read(&file) {
-        Ok(bytes) => {
-            serde_json::from_slice(&bytes).context(|| format!("reading {}", file.display()))?
-        }
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Vec::new(),
-        Err(error) => {
-            return Err(Fail::Message(format!(
-                "reading {}: {error}",
-                file.display()
-            )));
-        }
-    };
+    let mut readings = crate::sccache_readings::read(home)?;
     let (caches, changed) = judge_with(scans, &mut readings, now);
     if changed {
-        let dir = file.parent().expect("the file has a folder");
-        std::fs::create_dir_all(dir).context(|| format!("creating {}", dir.display()))?;
-        crate::whole_file::write(
-            &file,
-            serde_json::to_string(&readings).expect("readings serialize"),
-        )?;
+        crate::sccache_readings::write(home, &readings)?;
     }
     Ok(caches)
 }

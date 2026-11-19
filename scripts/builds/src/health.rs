@@ -52,8 +52,6 @@ use crate::tool::Tool;
 const CLIENT_MINUTES: i64 = 10;
 /// A claimed worktree with no change and no build this long has stalled.
 const QUIET_MINUTES: i64 = 60;
-/// Readings of sccache's count this old or older say whether it moved.
-const READING_MINUTES: i64 = 5;
 
 /// What a finding is about, so the dashboard shows the ones nothing else on
 /// its page shows.
@@ -176,16 +174,10 @@ pub struct SccacheHealth {
     /// "Compile requests executed" now.
     pub executed: Option<u64>,
     /// The reading compared against: the newest one at least
-    /// READING_MINUTES old.
-    pub compared: Option<Reading>,
+    /// `sccache_readings::READING_MINUTES` old.
+    pub compared: Option<crate::sccache_readings::Reading>,
     /// Clients waiting CLIENT_MINUTES or more.
     pub waiting: Vec<Client>,
-}
-
-#[derive(Clone, Serialize, Deserialize)]
-pub struct Reading {
-    pub executed: u64,
-    pub at: i64,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -351,36 +343,6 @@ pub struct AppLock {
     pub app_top: Option<PathBuf>,
 }
 
-/// The record of sccache readings between runs.
-fn readings_file(home: &Path) -> PathBuf {
-    home.join("Library/Caches/builds/sccache-readings.json")
-}
-
-fn read_readings(file: &Path) -> Result<Vec<Reading>> {
-    match std::fs::read(file) {
-        Ok(bytes) => {
-            serde_json::from_slice(&bytes).context(|| format!("reading {}", file.display()))
-        }
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Vec::new()),
-        Err(error) => Err(Fail::Message(format!(
-            "reading {}: {error}",
-            file.display()
-        ))),
-    }
-}
-
-fn write_readings(file: &Path, readings: &[Reading]) -> Result<()> {
-    let dir = file.parent().expect("the file has a folder");
-    std::fs::create_dir_all(dir).context(|| format!("creating {}", dir.display()))?;
-    let staged = file.with_extension(crate::text::staged_suffix());
-    std::fs::write(
-        &staged,
-        serde_json::to_vec(readings).expect("readings serialize"),
-    )
-    .context(|| format!("writing {}", staged.display()))?;
-    std::fs::rename(&staged, file).context(|| format!("writing {}", file.display()))
-}
-
 fn command_line(pid: i32) -> String {
     let line = args(pid).unwrap_or_default().join(" ");
     if line.chars().count() > 200 {
@@ -415,32 +377,32 @@ pub struct Machine {
     pub queues: Vec<LaneQueue>,
 }
 
-/// sccache's count of finished compiles now, against the newest reading at
-/// least READING_MINUTES old; this reading joins the record when the newest
-/// in it is a minute old or more.
-pub fn sccache_reading(home: &Path, now: i64) -> Result<(bool, Option<u64>, Option<Reading>)> {
-    let listening = crate::sccache::listening()?;
-    let executed = if listening {
-        crate::sccache::count(&crate::sccache::stats(), "Compile requests executed")
-    } else {
-        None
+/// Whether a server listens on sccache's port on this Mac, its count of
+/// executed compiles now, and the newest reading of that server at least
+/// `sccache_readings::READING_MINUTES` old; this reading joins the record
+/// when the newest of this Mac in it is a minute old or more
+/// (sccache_readings.rs). A server that does not say its stats has no count.
+pub fn sccache_reading(
+    home: &Path,
+    now: i64,
+) -> Result<(bool, Option<u64>, Option<crate::sccache_readings::Reading>)> {
+    use crate::sccache_readings::{Reading, compared, read, record, write};
+    let Some(server) = crate::sccache::listener()? else {
+        return Ok((false, None, None));
     };
-    let file = readings_file(home);
-    let mut readings = read_readings(&file)?;
-    let compared = readings
-        .iter()
-        .filter(|r| now - r.at >= READING_MINUTES * 60)
-        .max_by_key(|r| r.at)
-        .cloned();
-    if let Some(executed) = executed
-        && readings.iter().all(|r| now - r.at >= 60)
-    {
-        readings.push(Reading { executed, at: now });
-        // Keep what the next runs compare against: the last hour.
-        readings.retain(|r| now - r.at <= 3600);
-        write_readings(&file, &readings)?;
+    let Ok(stats) = crate::sccache::running_stats() else {
+        return Ok((true, None, None));
+    };
+    let server = server as i32;
+    let mut readings = read(home)?;
+    let before = compared(&readings, crate::host::LOCAL, server, now).cloned();
+    if record(
+        &mut readings,
+        Reading::of(crate::host::LOCAL, server, now, &stats),
+    ) {
+        write(home, &readings)?;
     }
-    Ok((listening, executed, compared))
+    Ok((true, Some(stats.executed), before))
 }
 
 /// Reads the processes now: build processes placed in <places>, the
@@ -454,7 +416,7 @@ pub fn sample(
     locks: &[AppLock],
     machine: &crate::places::Places,
     now: i64,
-    sccache: (bool, Option<u64>, Option<Reading>),
+    sccache: (bool, Option<u64>, Option<crate::sccache_readings::Reading>),
 ) -> Result<Machine> {
     let processes = Processes::read()?;
     let builds = build_processes(&processes, places, &BUILD_NAMES);
@@ -1306,7 +1268,8 @@ pub fn lines(health: &Health) -> Vec<String> {
                 minutes_since(health.generated_at, before.at)
             ),
             None => format!(
-                "sccache: {executed} compiles executed; no reading {READING_MINUTES}+ min old to compare with yet"
+                "sccache: {executed} compiles executed; no reading {}+ min old to compare with yet",
+                crate::sccache_readings::READING_MINUTES
             ),
         },
     };
@@ -1718,27 +1681,6 @@ pub fn cmd_health(tool: &Tool, args: &[String]) -> Result<()> {
 mod tests {
     use super::*;
     use crate::side_git::Commit;
-
-    /// Writers in one process never share a staged file: each write of the
-    /// readings completes whatever the others do.
-    #[test]
-    fn writes_of_the_readings_in_one_process_all_complete() {
-        let scratch = crate::testing::Scratch::new("readings-writers");
-        let file = scratch.dir.join("readings.json");
-        let writers: Vec<_> = (0..8)
-            .map(|_| {
-                let file = file.clone();
-                std::thread::spawn(move || {
-                    for at in 0..100 {
-                        write_readings(&file, &[Reading { executed: 1, at }]).unwrap();
-                    }
-                })
-            })
-            .collect();
-        for writer in writers {
-            writer.join().unwrap();
-        }
-    }
 
     /// A claim with no change for hours and no build is stalled, unless its
     /// note says its agent holds the worktree or its design change waits on

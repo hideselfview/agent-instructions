@@ -181,6 +181,8 @@ pub fn parse_max_cache_size(json: &str) -> Result<u64> {
 /// What a server's JSON stats say, since it started.
 #[derive(Clone, Debug, PartialEq)]
 pub struct CacheStats {
+    /// The compile requests the server executed.
+    pub executed: u64,
     /// The Rust compiles the cache answered, and those it had to run.
     pub rust_hits: u64,
     pub rust_misses: u64,
@@ -211,7 +213,11 @@ pub fn parse_json_stats(json: &str) -> Result<CacheStats> {
             None => fail!("sccache's stats have no {key}: {json}"),
         }
     };
+    let Some(executed) = value["stats"]["requests_executed"].as_u64() else {
+        fail!("sccache's stats have no count of executed requests: {json}");
+    };
     Ok(CacheStats {
+        executed,
         rust_hits: rust("cache_hits"),
         rust_misses: rust("cache_misses"),
         cache_size: size("cache_size")?,
@@ -219,10 +225,10 @@ pub fn parse_json_stats(json: &str) -> Result<CacheStats> {
     })
 }
 
-/// The max cache size, in bytes, that the server listening on sccache's port
-/// runs with. Ask only a server that listens: asking starts one when none
-/// runs. Fails when sccache fails or prints no max cache size.
-pub fn running_max_cache_size() -> Result<u64> {
+/// What `STATS` printed, from the server listening on sccache's port. Ask
+/// only a server that listens: asking starts one when none runs. Fails when
+/// sccache fails.
+fn running_stats_json() -> Result<String> {
     let mut words = STATS.split_whitespace();
     let output = Command::new(words.next().expect("the command has a program"))
         .args(words)
@@ -235,7 +241,21 @@ pub fn running_max_cache_size() -> Result<u64> {
             String::from_utf8_lossy(&[output.stdout, output.stderr].concat()).trim()
         );
     }
-    parse_max_cache_size(&String::from_utf8_lossy(&output.stdout))
+    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+}
+
+/// The max cache size, in bytes, that the server listening on sccache's port
+/// runs with. Ask only a server that listens: asking starts one when none
+/// runs. Fails when sccache fails or prints no max cache size.
+pub fn running_max_cache_size() -> Result<u64> {
+    parse_max_cache_size(&running_stats_json()?)
+}
+
+/// What the server listening on sccache's port says about its compiles.
+/// Ask only a server that listens. Fails when sccache fails or prints stats
+/// `parse_json_stats` cannot read.
+pub fn running_stats() -> Result<CacheStats> {
+    parse_json_stats(&running_stats_json()?)
 }
 
 /// Reads the lines `listener_script` printed among <text>'s.
@@ -442,17 +462,6 @@ pub fn stats() -> Vec<String> {
         .lines()
         .map(str::to_string)
         .collect()
-}
-
-/// The count after <label> in <stats> ("Compile requests executed  152034").
-pub fn count(stats: &[String], label: &str) -> Option<u64> {
-    stats.iter().find_map(|line| {
-        let rest = line.strip_prefix(label)?;
-        if !rest.starts_with(' ') {
-            return None;
-        }
-        rest.trim().parse().ok()
-    })
 }
 
 #[cfg(test)]
@@ -689,16 +698,5 @@ pub mod tests {
         );
         assert!(parse_max_cache_size("{\"stats\":{}}").is_err());
         assert!(parse_max_cache_size("sccache: error").is_err());
-    }
-
-    #[test]
-    fn counts() {
-        let stats = vec![
-            "Compile requests                  209331".to_string(),
-            "Compile requests executed         153775".to_string(),
-        ];
-        assert_eq!(count(&stats, "Compile requests executed"), Some(153775));
-        assert_eq!(count(&stats, "Compile requests"), Some(209331));
-        assert_eq!(count(&stats, "Cache hits"), None);
     }
 }

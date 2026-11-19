@@ -5,6 +5,7 @@ const NOW: i64 = 1_795_069_061;
 
 fn stats(hits: u64, misses: u64, size: u64) -> CacheStats {
     CacheStats {
+        executed: hits + misses,
         rust_hits: hits,
         rust_misses: misses,
         cache_size: size,
@@ -17,8 +18,9 @@ fn reading(host: &str, server: i32, minutes_ago: i64, hits: u64, misses: u64) ->
         host: host.to_string(),
         server,
         at: NOW - minutes_ago * 60,
-        hits,
-        misses,
+        executed: hits + misses,
+        rust_hits: hits,
+        rust_misses: misses,
     }
 }
 
@@ -64,23 +66,6 @@ fn the_rate_covers_the_last_minutes_of_the_same_server() {
         .split(" since ")
         .next(),
         Some("20% of 500 Rust compiles")
-    );
-}
-
-/// A host gets a reading at most once a minute, and readings over an hour
-/// old go.
-#[test]
-fn a_reading_joins_once_a_minute_and_the_last_hour_stays() {
-    let mut readings = vec![reading("m1", 7, 90, 1, 1), reading("m1", 7, 0, 5, 5)];
-    assert!(!record(&mut readings, reading("m1", 7, 0, 6, 6)));
-    assert_eq!(readings.len(), 2);
-    assert!(record(&mut readings, reading("local", 7, 0, 6, 6)));
-    assert_eq!(
-        readings
-            .iter()
-            .map(|r| (r.host.as_str(), r.hits))
-            .collect::<Vec<_>>(),
-        [("m1", 5), ("local", 6)]
     );
 }
 
