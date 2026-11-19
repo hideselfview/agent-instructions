@@ -26,7 +26,7 @@ pub struct Increment {
 pub fn idle_increments(folders: &[PathBuf], before: f64) -> Result<Vec<Increment>> {
     let mut found = Vec::new();
     for folder in folders {
-        for profile in profile_dirs(folder) {
+        for profile in profile_dirs(folder)? {
             let incremental = profile.join("incremental");
             if !incremental.is_dir() {
                 continue;

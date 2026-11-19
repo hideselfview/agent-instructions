@@ -778,7 +778,7 @@ pub fn prune(ages: &Ages, run: Run, folders: &[PathBuf]) -> Result<Vec<(PathBuf,
             result.push((folder.clone(), 0));
             continue;
         }
-        let profiles = profile_dirs(&root);
+        let profiles = profile_dirs(&root)?;
         let mut locks = Vec::new();
         let mut free = HashSet::new();
         for (at, profile) in profiles.iter().enumerate() {

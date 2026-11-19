@@ -203,7 +203,7 @@ fn candidates(tool: &Tool, checkout: &Checkout, cap_kib: u64) -> Result<Vec<Cand
         if live.main != checkout.main || root.path == dest_root {
             continue;
         }
-        if !is_profile_dir(&target_of(&root.path).join("debug")) {
+        if !is_profile_dir(&target_of(&root.path).join("debug"))? {
             continue;
         }
         found.push((root, live));

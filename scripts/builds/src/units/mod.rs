@@ -146,9 +146,10 @@ pub fn has_shared_folders(profile: &Path) -> bool {
 
 /// The unit folders in <package>, a build/<package>/ folder of the unit
 /// folders layout: each folder in it named by a unit hash, with that hash.
+/// A <package> that does not exist holds none.
 pub fn unit_folders(package: &Path) -> Result<Vec<(String, PathBuf)>> {
     let mut found = Vec::new();
-    for name in names_in(package)? {
+    for name in names_if_present(package)? {
         let path = package.join(&name);
         if is_hash(&name) && path.is_dir() {
             found.push((name, path));
@@ -158,18 +159,20 @@ pub fn unit_folders(package: &Path) -> Result<Vec<(String, PathBuf)>> {
 }
 
 /// Does <profile> hold units in unit folders (build/<package>/<hash>/)?
-pub fn has_unit_folders(profile: &Path) -> bool {
+pub fn has_unit_folders(profile: &Path) -> Result<bool> {
     let build = profile.join("build");
-    names_in(&build).is_ok_and(|names| {
-        names
-            .iter()
-            .any(|name| unit_folders(&build.join(name)).is_ok_and(|folders| !folders.is_empty()))
-    })
+    for name in names_if_present(&build)? {
+        let package = build.join(name);
+        if package.is_dir() && !unit_folders(&package)?.is_empty() {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 /// Does <path> hold units, in either layout?
-pub fn is_profile_dir(path: &Path) -> bool {
-    has_shared_folders(path) || has_unit_folders(path)
+pub fn is_profile_dir(path: &Path) -> Result<bool> {
+    Ok(has_shared_folders(path) || has_unit_folders(path)?)
 }
 
 /// How many units <profile> holds a fingerprint folder for, in either
@@ -194,28 +197,31 @@ pub fn fingerprint_count(profile: &Path) -> Result<usize> {
     Ok(count)
 }
 
-/// Every profile folder in <folder>, at most PROFILE_DEPTH levels down.
-pub fn profile_dirs(folder: &Path) -> Vec<PathBuf> {
-    fn walk(path: &Path, depth: usize, found: &mut Vec<PathBuf>) {
-        let Ok(entries) = std::fs::read_dir(path) else {
-            return;
-        };
-        if is_profile_dir(path) {
+/// Every profile folder in <folder>, at most PROFILE_DEPTH levels down; none
+/// when <folder> does not exist.
+pub fn profile_dirs(folder: &Path) -> Result<Vec<PathBuf>> {
+    fn walk(path: &Path, depth: usize, found: &mut Vec<PathBuf>) -> Result<()> {
+        if !path.is_dir() {
+            return Ok(());
+        }
+        if is_profile_dir(path)? {
             found.push(path.to_path_buf());
-            return;
+            return Ok(());
         }
         if depth == PROFILE_DEPTH {
-            return;
+            return Ok(());
         }
-        for entry in entries.flatten() {
-            if entry.file_type().is_ok_and(|kind| kind.is_dir()) && entry.file_name() != "doc" {
-                walk(&entry.path(), depth + 1, found);
+        for name in names_if_present(path)? {
+            let child = path.join(&name);
+            if name != "doc" && std::fs::symlink_metadata(&child).is_ok_and(|meta| meta.is_dir()) {
+                walk(&child, depth + 1, found)?;
             }
         }
+        Ok(())
     }
     let mut found = Vec::new();
-    walk(folder, 0, &mut found);
-    found
+    walk(folder, 0, &mut found)?;
+    Ok(found)
 }
 
 /// File names in <dir> as text (non-UTF-8 names name no unit).
@@ -229,6 +235,23 @@ pub fn names_in(dir: &Path) -> Result<Vec<String>> {
         }
     }
     Ok(names)
+}
+
+/// File names in <dir>, or none when <dir> does not exist (it, or a folder
+/// above it, is missing or is a file). Any other failure to list it is an
+/// error that names it.
+pub fn names_if_present(dir: &Path) -> Result<Vec<String>> {
+    match std::fs::read_dir(dir) {
+        Err(error)
+            if matches!(
+                error.kind(),
+                std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory
+            ) =>
+        {
+            Ok(Vec::new())
+        }
+        _ => names_in(dir),
+    }
 }
 
 /// Seconds since 1970, with the fraction.
@@ -511,6 +534,33 @@ mod tests {
             }
         }
         assert!(file.exists(), "a rejected dry argument deleted a file");
+    }
+
+    /// A missing folder holds no units, but a folder that cannot be listed
+    /// is an error that names it, never a profile folder without units.
+    #[test]
+    fn only_a_missing_folder_holds_no_unit_folders() {
+        use std::os::unix::fs::PermissionsExt;
+        let scratch = crate::testing::Scratch::new("units-unlistable");
+        let profile = scratch.dir.join("debug");
+        assert!(!is_profile_dir(&profile).unwrap());
+        assert!(profile_dirs(&scratch.dir.join("gone")).unwrap().is_empty());
+        let package = profile.join("build/dep");
+        crate::testing::fill(&package.join("0123456789abcdef/fingerprint/lib-dep"), 1);
+        assert!(is_profile_dir(&profile).unwrap());
+        std::fs::set_permissions(&package, std::fs::Permissions::from_mode(0o000)).unwrap();
+        let listed = is_profile_dir(&profile);
+        let walked = profile_dirs(&scratch.dir);
+        std::fs::set_permissions(&package, std::fs::Permissions::from_mode(0o755)).unwrap();
+        for result in [listed.map(|_| ()), walked.map(|_| ())] {
+            match result {
+                Err(crate::fail::Fail::Message(message)) => assert!(
+                    message.contains(&package.display().to_string()),
+                    "{message}"
+                ),
+                other => panic!("an unlistable package folder gave {other:?}"),
+            }
+        }
     }
 
     #[test]

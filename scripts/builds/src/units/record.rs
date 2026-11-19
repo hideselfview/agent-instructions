@@ -9,8 +9,8 @@ use std::path::{Path, PathBuf};
 use serde_json::Value;
 
 use super::{
-    OUTPUT_DIRS, has_shared_folders, hashed_file, is_hash, is_profile_dir, names_in, unit_dir,
-    unit_folders,
+    OUTPUT_DIRS, has_shared_folders, hashed_file, is_hash, is_profile_dir, names_if_present,
+    names_in, unit_dir, unit_folders,
 };
 use crate::fail::Result;
 use crate::text::note;
@@ -152,17 +152,17 @@ fn hashed_unit(path: &Path) -> Option<Named> {
 /// deps/loc_gen-<hash>, or for build/loc-gen/<hash>/out/loc_gen): the copy
 /// keeps the original's size and modification time, which no two builds
 /// share. In unit folders, the units are <package>'s.
-fn copied_from(path: &Path, package: &str) -> Vec<Named> {
+fn copied_from(path: &Path, package: &str) -> Result<Vec<Named>> {
     let parent = dirname(path);
-    let (profile, shared) = if base(parent) == "examples" && is_profile_dir(dirname(parent)) {
+    let (profile, shared) = if base(parent) == "examples" && is_profile_dir(dirname(parent))? {
         (dirname(parent), parent.to_path_buf())
-    } else if is_profile_dir(parent) {
+    } else if is_profile_dir(parent)? {
         (parent, parent.join("deps"))
     } else {
-        return Vec::new();
+        return Ok(Vec::new());
     };
     let Ok(copy) = std::fs::metadata(path) else {
-        return Vec::new();
+        return Ok(Vec::new());
     };
     let same = |original: &Path| {
         std::fs::metadata(original).is_ok_and(|original| {
@@ -173,7 +173,7 @@ fn copied_from(path: &Path, package: &str) -> Vec<Named> {
     };
     let mut found = Vec::new();
     if has_shared_folders(profile) {
-        for name in names_in(&shared).unwrap_or_default() {
+        for name in names_if_present(&shared)? {
             if let Some((_, hash)) = hashed_file(&name)
                 && same(&shared.join(&name))
             {
@@ -181,17 +181,16 @@ fn copied_from(path: &Path, package: &str) -> Vec<Named> {
             }
         }
     }
-    for (_, unit) in unit_folders(&profile.join("build").join(package)).unwrap_or_default() {
+    for (_, unit) in unit_folders(&profile.join("build").join(package))? {
         let out = unit.join("out");
-        if names_in(&out)
-            .unwrap_or_default()
+        if names_if_present(&out)?
             .iter()
             .any(|name| same(&out.join(name)))
         {
             found.push(Named::Own(unit.join("fingerprint")));
         }
     }
-    found
+    Ok(found)
 }
 
 /// The package name in a cargo package id:
@@ -341,9 +340,9 @@ fn units_by_name(
     let package = package_name(message["package_id"].as_str().unwrap_or(""));
     let mut parent = dirname(path);
     let mut profiles = Vec::new();
-    if is_profile_dir(parent) {
+    if is_profile_dir(parent)? {
         profiles.push(parent.to_path_buf());
-    } else if OUTPUT_DIRS.contains(&base(parent)) && is_profile_dir(dirname(parent)) {
+    } else if OUTPUT_DIRS.contains(&base(parent)) && is_profile_dir(dirname(parent))? {
         // A library another unit of the build depends on stays in deps.
         profiles.push(dirname(parent).to_path_buf());
     }
@@ -354,8 +353,8 @@ fn units_by_name(
         while !parent.as_os_str().is_empty() && parent != Path::new("/") && profiles.is_empty() {
             if base(parent) == "doc" {
                 let root = dirname(parent);
-                for name in names_in(root).unwrap_or_default() {
-                    if is_profile_dir(&root.join(&name)) {
+                for name in names_if_present(root)? {
+                    if is_profile_dir(&root.join(&name))? {
                         profiles.push(root.join(&name));
                     }
                 }
@@ -461,7 +460,7 @@ fn units_of(
     if found.is_empty() && reason == "compiler-artifact" {
         let package = package_name(message["package_id"].as_str().unwrap_or(""));
         for path in &unnamed {
-            for named in copied_from(Path::new(path), &package) {
+            for named in copied_from(Path::new(path), &package)? {
                 if let Some(dir) = fingerprints.of(&named)?
                     && !found.contains(&dir)
                 {
@@ -720,10 +719,10 @@ mod tests {
         touch(&unit.join("out/loc_gen"), &when).unwrap();
         touch(&copy, &when).unwrap();
         assert_eq!(
-            copied_from(&copy, "loc-gen"),
+            copied_from(&copy, "loc-gen").unwrap(),
             vec![Named::Own(unit.join("fingerprint"))]
         );
-        assert_eq!(copied_from(&copy, "other"), Vec::new());
+        assert_eq!(copied_from(&copy, "other").unwrap(), Vec::new());
     }
 
     #[test]
