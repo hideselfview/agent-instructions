@@ -22,18 +22,33 @@ pub struct Commit {
     pub subject: String,
 }
 
-/// What git said of a checkout. The page reads each variant's fields, which
-/// serde writes beside the variant's name in `read`.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-#[serde(tag = "read", rename_all = "snake_case")]
+/// What git said of a checkout, by the checkout's kind.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SideGit {
-    /// A side worktree's HEAD, commits waiting to land and uncommitted files.
-    Side(SideRead),
-    /// A main checkout's HEAD: its working tree is the person's and is never
-    /// asked about.
-    Main { head: Option<Commit> },
-    /// What git said when a read failed.
-    Failed { error: String },
+    /// A side worktree's read (`read`), or what git said when it failed.
+    Side(Result<SideRead, String>),
+    /// A main checkout's HEAD (`read_head`), or what git said when it failed.
+    Main(Result<Option<Commit>, String>),
+}
+
+/// The page reads a checkout's git as one object: the side read's fields,
+/// or a main checkout's `head`, or a failed read's `error`.
+impl Serialize for SideGit {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        #[derive(Serialize)]
+        #[serde(untagged)]
+        enum Page<'a> {
+            Side(&'a SideRead),
+            Main { head: &'a Option<Commit> },
+            Failed { error: &'a str },
+        }
+        match self {
+            SideGit::Side(Ok(read)) => Page::Side(read),
+            SideGit::Main(Ok(head)) => Page::Main { head },
+            SideGit::Side(Err(error)) | SideGit::Main(Err(error)) => Page::Failed { error },
+        }
+        .serialize(serializer)
+    }
 }
 
 /// What git said of a side worktree.
@@ -52,44 +67,22 @@ pub struct SideRead {
     pub last_write: Option<i64>,
 }
 
-impl From<Result<SideRead, String>> for SideGit {
-    /// A side worktree's read, or what git said when it failed.
-    fn from(read: Result<SideRead, String>) -> SideGit {
-        match read {
-            Ok(read) => SideGit::Side(read),
-            Err(error) => SideGit::Failed { error },
-        }
-    }
-}
-
 impl SideGit {
     /// What git said of a side worktree; None for a main checkout and a
     /// failed read.
     pub fn side(&self) -> Option<&SideRead> {
         match self {
-            SideGit::Side(read) => Some(read),
-            SideGit::Main { .. } | SideGit::Failed { .. } => None,
+            SideGit::Side(Ok(read)) => Some(read),
+            SideGit::Side(Err(_)) | SideGit::Main(_) => None,
         }
     }
 
-    /// HEAD's commit; None for a failed read.
+    /// HEAD's commit; None before the first commit and for a failed read.
     pub fn head(&self) -> Option<&Commit> {
         match self {
-            SideGit::Side(read) => read.head.as_ref(),
-            SideGit::Main { head } => head.as_ref(),
-            SideGit::Failed { .. } => None,
-        }
-    }
-
-    /// A side worktree's read, or why there is none: what git said when the
-    /// read failed, or that only HEAD was read, as for a main checkout.
-    pub fn side_read(&self) -> Result<SideRead, String> {
-        match self {
-            SideGit::Side(read) => Ok(read.clone()),
-            SideGit::Failed { error } => Err(error.clone()),
-            SideGit::Main { .. } => {
-                Err("the daemon read only HEAD here, as it does for a main checkout".to_string())
-            }
+            SideGit::Side(Ok(read)) => read.head.as_ref(),
+            SideGit::Main(Ok(head)) => head.as_ref(),
+            SideGit::Side(Err(_)) | SideGit::Main(Err(_)) => None,
         }
     }
 }
@@ -309,13 +302,8 @@ pub fn paths_in_status(status: &str) -> BTreeSet<String> {
 /// Only HEAD's commit, for a main checkout: its working tree is the person's
 /// and is never asked about, so no uncommitted files, writes or commits
 /// waiting to land.
-pub fn read_head(top: &Path) -> SideGit {
-    match commits(top, &["-1", "HEAD"]) {
-        Ok(found) => SideGit::Main {
-            head: found.into_iter().next(),
-        },
-        Err(error) => SideGit::Failed { error },
-    }
+pub fn read_head(top: &Path) -> Result<Option<Commit>, String> {
+    Ok(commits(top, &["-1", "HEAD"])?.into_iter().next())
 }
 
 /// HEAD, the commits waiting to land, the uncommitted count and their newest

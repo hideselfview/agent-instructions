@@ -17,7 +17,7 @@ fn checkout(name: &str, lane: Option<&'static str>, branch: Option<&str>) -> Che
         app_checkout: lane.is_some(),
         app_lane: lane,
         claim: None,
-        git: Some(SideGit::Side(SideRead {
+        git: Some(SideGit::Side(Ok(SideRead {
             head: Some(Commit {
                 sha: "9e8d3d5".into(),
                 full: "9e8d3d5".into(),
@@ -29,7 +29,7 @@ fn checkout(name: &str, lane: Option<&'static str>, branch: Option<&str>) -> Che
             main: "0".repeat(40),
             uncommitted: 0,
             last_write: None,
-        })),
+        }))),
         state: Some("free"),
         folders: Some(Vec::new()),
         total_kib: Some(18_000_000),

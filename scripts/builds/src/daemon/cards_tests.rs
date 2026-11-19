@@ -19,13 +19,13 @@ fn card(
         app_lane: None,
         claim,
         git: uncommitted.map(|uncommitted| {
-            SideGit::Side(SideRead {
+            SideGit::Side(Ok(SideRead {
                 head: None,
                 ahead: Vec::new(),
                 main: "0".repeat(40),
                 uncommitted,
                 last_write: None,
-            })
+            }))
         }),
         state,
         folders: None,
@@ -162,9 +162,7 @@ fn the_footer_counts_uncommitted_files_and_says_nothing_for_a_clean_tree() {
     );
     assert_eq!(files(None), None);
     let mut broken = card(Some("working"), claim(None), Some(3));
-    broken.git = Some(SideGit::Failed {
-        error: "git failed".into(),
-    });
+    broken.git = Some(SideGit::Side(Err("git failed".into())));
     assert_eq!(
         words(&broken, CardState::Working, &[], &[]).uncommitted,
         None

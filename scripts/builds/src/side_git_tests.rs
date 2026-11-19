@@ -56,14 +56,35 @@ fn a_commit_waits_until_origin_main_holds_a_copy_by_patch_or_by_author_and_subje
 }
 
 #[test]
-fn a_side_read_of_a_checkout_read_as_main_says_so_instead_of_vanishing() {
-    let main = SideGit::Main { head: None };
-    assert_eq!(
-        main.side_read(),
-        Err("the daemon read only HEAD here, as it does for a main checkout".to_string())
-    );
-    let failed = SideGit::Failed {
-        error: "git failed".to_string(),
+fn the_page_reads_a_side_read_a_main_head_or_a_failure_as_one_object() {
+    let commit = Commit {
+        sha: "abc1234".to_string(),
+        full: "a".repeat(40),
+        time: 1,
+        authored: 1,
+        subject: "s".to_string(),
     };
-    assert_eq!(failed.side_read(), Err("git failed".to_string()));
+    let side = SideGit::Side(Ok(SideRead {
+        head: Some(commit.clone()),
+        ahead: vec![commit.clone()],
+        main: "b".repeat(40),
+        uncommitted: 2,
+        last_write: Some(3),
+    }));
+    let json = serde_json::to_value(&side).unwrap();
+    assert_eq!(json["ahead"][0]["sha"], "abc1234");
+    assert_eq!(json["uncommitted"], 2);
+    assert_eq!(json["last_write"], 3);
+    let main = serde_json::to_value(SideGit::Main(Ok(Some(commit)))).unwrap();
+    assert_eq!(main["head"]["sha"], "abc1234");
+    assert!(main.get("ahead").is_none(), "{main}");
+    for failed in [
+        SideGit::Side(Err("git failed".to_string())),
+        SideGit::Main(Err("git failed".to_string())),
+    ] {
+        assert_eq!(
+            serde_json::to_value(failed).unwrap(),
+            serde_json::json!({"error": "git failed"})
+        );
+    }
 }

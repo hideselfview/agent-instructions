@@ -454,9 +454,9 @@ impl Model {
             };
             let branch = checkout.branch();
             let git = Some(if checkout.is_main() {
-                crate::side_git::read_head(&checkout.top)
+                SideGit::Main(crate::side_git::read_head(&checkout.top))
             } else {
-                SideGit::from(crate::side_git::read(&checkout.top))
+                SideGit::Side(crate::side_git::read(&checkout.top))
             });
             (root.path.clone(), manifest, claim, branch, git)
         });
@@ -1369,7 +1369,7 @@ impl Model {
             .map(|lists| super::lists::running_items(lists, &path))
             .unwrap_or_default();
         let design = match (project, seen.git) {
-            (Some(lists), Some(SideGit::Side(git))) => {
+            (Some(lists), Some(SideGit::Side(Ok(git)))) => {
                 match self
                     .design_reads
                     .standing(lists, seen.repo, top, &git.ahead)
@@ -1389,7 +1389,7 @@ impl Model {
         // The rules review stands only between commits waiting to land and
         // Ready to land.
         let review = match (project, seen.git) {
-            (Some(lists), Some(SideGit::Side(git))) if worktree == CardState::ReadyToLand => {
+            (Some(lists), Some(SideGit::Side(Ok(git)))) if worktree == CardState::ReadyToLand => {
                 let reviewed = super::review_cards::Worktree {
                     repo: seen.repo,
                     top,
@@ -1607,17 +1607,20 @@ fn claimed_of(
     let mut held = Vec::new();
     for root in roots {
         let Some(checkout) = &root.live else { continue };
-        if checkout.is_main() {
-            continue;
-        }
-        let Some(facts) = facts.get(&root.path) else {
+        // A main checkout's facts hold a main checkout's read.
+        let Some(Facts {
+            git: Some(SideGit::Side(git)),
+            branch,
+            ..
+        }) = facts.get(&root.path)
+        else {
             continue;
         };
         // The claim is read now, not taken from the facts: a command that
         // just wrote one (`note --state held`) asks for health next, before
         // the change has come through FSEvents.
         let claim = Claim::read(&checkout.claim_file())?;
-        let (Some(claim), Some(git)) = (&claim, facts.git.as_ref().map(SideGit::side_read)) else {
+        let Some(claim) = &claim else {
             continue;
         };
         let Some(place) = places.iter().position(|p| p.root == root.path) else {
@@ -1628,14 +1631,14 @@ fn claimed_of(
             places[place].label.clone(),
             checkout,
             claim,
-            &git,
+            git,
             commits,
         )?);
         claimed.push(Claimed {
             place,
             claim: claim.clone(),
-            branch: facts.branch.clone(),
-            git,
+            branch: branch.clone(),
+            git: git.clone(),
             awaiting_review: false,
         });
     }
@@ -1655,18 +1658,15 @@ fn unclaimed_of(
     let mut unclaimed = Vec::new();
     for root in roots {
         let Some(checkout) = &root.live else { continue };
-        if checkout.is_main()
-            || root.is_app_checkout(tool_places)?
+        if root.is_app_checkout(tool_places)?
             || kept
                 .as_ref()
                 .is_ok_and(|kept| kept.contains(&checkout.top.display().to_string()))
         {
             continue;
         }
-        let Some(git) = facts
-            .get(&root.path)
-            .and_then(|facts| facts.git.as_ref())
-            .map(SideGit::side_read)
+        // A main checkout's facts hold a main checkout's read.
+        let Some(SideGit::Side(git)) = facts.get(&root.path).and_then(|facts| facts.git.as_ref())
         else {
             continue;
         };
@@ -1678,7 +1678,7 @@ fn unclaimed_of(
         };
         unclaimed.push(Unclaimed {
             place,
-            git,
+            git: git.clone(),
             kept_unknown: kept.as_ref().err().cloned(),
         });
     }
