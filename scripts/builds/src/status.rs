@@ -483,8 +483,24 @@ fn volume_line(root: &Path) -> Result<String> {
     Ok(format!("volume: {} free of {}", fields[3], fields[1]))
 }
 
+/// Whether `builds status <args>` is the JSON listing without folder sizes,
+/// `--json --no-folders` in either order: it lists the checkouts, their app
+/// lanes and their locks, and reads no folder.
+pub fn is_folderless_json(args: &[String]) -> bool {
+    matches!(
+        args.iter()
+            .map(String::as_str)
+            .collect::<Vec<_>>()
+            .as_slice(),
+        ["--json", "--no-folders"] | ["--no-folders", "--json"]
+    )
+}
+
 /// `builds status [--json [--no-folders]]`.
 pub fn cmd_status(tool: &mut Tool, ssh: &Ssh, args: &[String]) -> Result<()> {
+    if is_folderless_json(args) {
+        return print_json(tool, false);
+    }
     match args
         .iter()
         .map(String::as_str)
@@ -493,7 +509,6 @@ pub fn cmd_status(tool: &mut Tool, ssh: &Ssh, args: &[String]) -> Result<()> {
     {
         [] => {}
         ["--json"] => return print_json(tool, true),
-        ["--json", "--no-folders"] | ["--no-folders", "--json"] => return print_json(tool, false),
         _ => fail!("usage: builds status [--json [--no-folders]]"),
     }
     tool.places.require_volume()?;

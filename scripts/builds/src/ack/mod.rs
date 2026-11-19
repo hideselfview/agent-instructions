@@ -93,14 +93,7 @@ pub fn gate(places: &Places, command: &str, args: &[String]) -> Result<()> {
 /// (no-unlocked-app-checkout-moves) reads it on every agent's command,
 /// including an agent's first after a compaction, before it can acknowledge.
 fn lists_checkouts(command: &str, args: &[String]) -> bool {
-    command == "status"
-        && matches!(
-            args.iter()
-                .map(String::as_str)
-                .collect::<Vec<_>>()
-                .as_slice(),
-            ["--json", "--no-folders"] | ["--no-folders", "--json"]
-        )
+    command == "status" && crate::status::is_folderless_json(args)
 }
 
 /// Whether `builds <command> <args>` is the pre-commit hook's `checks run`
