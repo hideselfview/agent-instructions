@@ -340,9 +340,13 @@ const BEFORE_LAND_RUN_STAMP: i64 = 273_609_669;
 /// began and how long it ran.
 const BEFORE_EXCHANGE_TIME_STAMP: i64 = 94_915_310;
 
+/// The stamp of the schema before builds recorded the hosts' load and memory
+/// over time.
+const BEFORE_HOST_SAMPLE_STAMP: i64 = 1_996_518_111;
+
 /// Every stamp a store can carry that `move_store` moves, oldest schema first.
 /// A new move adds the stamp of the schema before it at the end.
-const STAMPS: [i64; 53] = [
+const STAMPS: [i64; 54] = [
     BEFORE_DESIGN_DELETED_STAMP,
     BEFORE_CHECK_TIMES_STAMP,
     BEFORE_DESIGN_TIP_STAMP,
@@ -396,6 +400,7 @@ const STAMPS: [i64; 53] = [
     BEFORE_ITEM_EVENT_STAMP,
     BEFORE_LAND_RUN_STAMP,
     BEFORE_EXCHANGE_TIME_STAMP,
+    BEFORE_HOST_SAMPLE_STAMP,
 ];
 
 /// Whether a store stamped <found> comes before the move that follows the
@@ -526,7 +531,7 @@ const DESIGN_DELETED: &str = "CREATE TABLE design_deleted (
 /// to the coordinator (`lists::item::move_to_condition_enders`). Every store
 /// gets the empty table of item events with the mark of when the store began
 /// to record them, and the empty tables of the `builds land` runs (none
-/// recorded yet), and the empty table of the reviewer processes' times (the exchanges that exist have none).
+/// recorded yet), and the empty table of the reviewer processes' times (the exchanges that exist have none), and the empty table of the hosts' samples.
 /// The moves run in one transaction, the store
 /// is stamped as today's schema, and it must then equal a fresh database's schema or the transaction rolls back. A
 /// store already at today's stamp, or with no database, is left alone; any
@@ -1038,6 +1043,10 @@ fn move_store(places: &Places, path: &Path, now: i64) -> Result<()> {
     // table.
     if before(found, BEFORE_EXCHANGE_TIME_STAMP) {
         tx.execute_batch(db::EXCHANGE_TIME_PART).sql()?;
+    }
+    // Every store from before the hosts' samples gets their empty table.
+    if before(found, BEFORE_HOST_SAMPLE_STAMP) {
+        tx.execute_batch(db::HOST_SAMPLE_PART).sql()?;
     }
     // A store from before stamps followed the shape has today's tables, and
     // gets only the stamp below.

@@ -5618,6 +5618,42 @@ fn a_store_from_before_the_exchange_times_gains_their_table_and_equals_a_fresh_s
 }
 
 #[test]
+fn the_host_sample_stamp_is_the_schema_before_the_hosts_samples() {
+    assert_eq!(
+        db::stamp_of_text(&db::schema_before_host_sample()),
+        BEFORE_HOST_SAMPLE_STAMP
+    );
+}
+
+/// A store from before the hosts' samples gains their empty table and equals
+/// a fresh schema.
+#[test]
+fn a_store_from_before_the_host_samples_gains_their_table_and_equals_a_fresh_schema() {
+    let scratch = Scratch::new("move-host-sample");
+    let places = scratch.places();
+    let dir = places.lists.join("bae");
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join(DATABASE);
+    {
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(&db::schema_before_host_sample())
+            .unwrap();
+        conn.pragma_update(None, "user_version", BEFORE_HOST_SAMPLE_STAMP)
+            .unwrap();
+    }
+    migrate_stores(&places, 0).unwrap();
+    let conn = db::open(&path, db::Make::Never).unwrap();
+    assert_eq!(
+        db::schema_rows(&conn).unwrap(),
+        db::schema_rows(&db::memory()).unwrap()
+    );
+    let samples: i64 = conn
+        .query_row("SELECT count(*) FROM host_sample", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(samples, 0);
+}
+
+#[test]
 fn the_shape_stamp_is_the_schema_before_stamps_followed_the_shape() {
     // The schema from before stamps followed the shape has the same tables as
     // today's, and differs only in the canvas comment that legacy_stamp restores.

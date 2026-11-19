@@ -47,6 +47,7 @@ mod host_band;
 mod host_installed;
 mod host_load;
 mod host_memory;
+mod host_sample;
 mod host_setup;
 mod idle_daemons;
 mod install;

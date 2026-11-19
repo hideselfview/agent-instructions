@@ -31,7 +31,7 @@ impl Pressure {
         }
     }
 
-    fn word(self) -> &'static str {
+    pub fn word(self) -> &'static str {
         match self {
             Pressure::Normal => "normal",
             Pressure::Warning => "warning",

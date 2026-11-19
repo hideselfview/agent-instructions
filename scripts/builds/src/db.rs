@@ -110,6 +110,10 @@ pub const LAND_RUN_PART: &str = include_str!("land_run.sql");
 /// (review/exchange_time.sql); the schema holds it after the landings' part.
 pub const EXCHANGE_TIME_PART: &str = include_str!("review/exchange_time.sql");
 
+/// What each build host said about its load and memory over time
+/// (host_sample.sql); the schema holds it after the reviewer processes' times.
+pub const HOST_SAMPLE_PART: &str = include_str!("host_sample.sql");
+
 /// The whole schema: the lists' tables, then the hook stats', then the
 /// app-build timings', then the design changes' recording sessions', then the
 /// stored shot findings, then the review's, then the hook checks' starting
@@ -117,8 +121,13 @@ pub const EXCHANGE_TIME_PART: &str = include_str!("review/exchange_time.sql");
 /// items' work, then the spec checks', then the acknowledgements', then the
 /// publish requests', then the Rust release items', then the Rust checks',
 /// then the items' events, then the landings', then the reviewer processes'
-/// times.
+/// times, then the hosts' samples.
 pub fn schema() -> String {
+    format!("{}\n{HOST_SAMPLE_PART}", schema_before_host_sample())
+}
+
+/// The schema as it was before the hosts' samples joined it.
+pub fn schema_before_host_sample() -> String {
     format!("{}\n{EXCHANGE_TIME_PART}", schema_before_exchange_time())
 }
 
