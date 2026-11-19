@@ -22,8 +22,10 @@
 //! items are ready or whose load is well over its cores, or a ready item of project builds
 //! that no agent runs (host_load.rs), a
 //! project's main checkout whose main lacks commits that origin/main has
-//! (main_checkout.rs), or no `builds prune` that finished in twice the
-//! interval the dashboard runs it at (prune_schedule.rs).
+//! (main_checkout.rs), work that has run long on this Mac or a host, such as
+//! an install waiting at its gates or a cargo job on a host (long_waits.rs),
+//! or no `builds prune` that finished in twice the interval the dashboard
+//! runs it at (prune_schedule.rs).
 
 use std::path::{Path, PathBuf};
 
@@ -90,6 +92,9 @@ pub enum FindingKind {
     ProcessLimit,
     /// No `builds prune` finished lately (prune_schedule.rs).
     Prune,
+    /// Work that has run long: an install waiting at its gates, a hook run,
+    /// a landing, a cargo run or a job on a host (long_waits.rs).
+    Waits,
 }
 
 /// What a finding says, and the command it suggests running, if any. The
@@ -1403,7 +1408,9 @@ pub fn lines(health: &Health) -> Vec<String> {
     out
 }
 
-/// The findings that come from the hosts: each process that looks stuck on
+/// The findings that come from the hosts: the work that has run long on
+/// this Mac or a host, given each host's scan and what a running install
+/// waits for (long_waits.rs), each process that looks stuck on
 /// one (stuck.rs), each host that refuses jobs or whose Xcode cannot start,
 /// what `host_installed::installed_findings` reports: each host whose installed
 /// `builds` differs from this Mac's or that builds could not ask, and each
@@ -1414,13 +1421,25 @@ pub fn lines(health: &Health) -> Vec<String> {
 /// health` and the dashboard each add these findings to the ones `assess`
 /// returns.
 pub fn host_findings(
+    scans: &[(Host, std::result::Result<crate::host_scan::Scan, String>)],
+    install: &std::result::Result<Option<crate::install_gate::Waiting>, String>,
+    now: i64,
     busy: &[crate::stuck::HostBusy],
     refusals: &[crate::host::Refusal],
     installed: &[crate::host_installed::HostInstalled],
 ) -> Vec<Finding> {
-    crate::stuck::findings(busy)
+    let checkout = |pid: i32| {
+        crate::procs::cwd(pid)
+            .and_then(|dir| crate::stuck::checkout_label(&dir.display().to_string()))
+    };
+    crate::long_waits::findings(scans, install, &checkout, now)
         .into_iter()
-        .map(|advice| Finding::new(FindingKind::Busy, advice))
+        .map(|advice| Finding::new(FindingKind::Waits, advice))
+        .chain(
+            crate::stuck::findings(busy)
+                .into_iter()
+                .map(|advice| Finding::new(FindingKind::Busy, advice)),
+        )
         .chain(
             refusals
                 .iter()
@@ -1556,9 +1575,11 @@ pub fn cmd_health(tool: &Tool, args: &[String]) -> Result<()> {
     let loaded = crate::lists::store::load_all(&tool.places);
     let ready = crate::host_load::ready_items(&loaded);
     let probed: Vec<_> = hosts.iter().cloned().zip(probes).collect();
+    let scanned: Vec<(Host, std::result::Result<crate::host_scan::Scan, String>)> =
+        hosts.iter().cloned().zip(scans).collect();
     let measured: Vec<crate::host_load::Measured> = probed
         .iter()
-        .zip(&scans)
+        .zip(scanned.iter().map(|(_, scan)| scan))
         .map(|((host, probe), scan)| crate::host_load::Measured {
             host: host.clone(),
             probe: probe.clone(),
@@ -1586,9 +1607,10 @@ pub fn cmd_health(tool: &Tool, args: &[String]) -> Result<()> {
     // written or removed one.
     let refusals = crate::host::refusals(&tool.places)?;
     let installed = crate::host_installed::read_all_installed(&tool.places, &ssh, &hosts);
-    health
-        .findings
-        .extend(host_findings(&busy, &refusals, &installed));
+    let install = crate::install_gate::waiting(&tool.places).map_err(|fault| fault.text());
+    health.findings.extend(host_findings(
+        &scanned, &install, tool.now, &busy, &refusals, &installed,
+    ));
     if json {
         let mut value = serde_json::to_value(&health).expect("health serializes");
         value["busy"] = serde_json::json!(
@@ -2340,7 +2362,7 @@ mod tests {
             host: "m1".to_string(),
             read: Err("ssh failed".to_string()),
         }];
-        let found = host_findings(&busy, &[refusal], &[]);
+        let found = host_findings(&[], &Ok(None), 0, &busy, &[refusal], &[]);
         assert_eq!(found.len(), 1, "{found:?}");
         assert_eq!(found[0].kind, FindingKind::Host);
         assert_eq!(found[0].advice.command.as_deref(), Some("builds host list"));
@@ -2365,7 +2387,7 @@ mod tests {
             at: 1_800_000_000,
             said: "A required plugin failed to load. Please ensure system content is up-to-date, try running 'xcodebuild -runFirstLaunch'.".to_string(),
         };
-        let found = host_findings(&[], &[refusal], &[]);
+        let found = host_findings(&[], &Ok(None), 0, &[], &[refusal], &[]);
         assert_eq!(found.len(), 1, "{found:?}");
         assert_eq!(found[0].kind, FindingKind::Host);
         assert_eq!(
@@ -2394,7 +2416,7 @@ mod tests {
             crate::host::refusal_finding(&refusal).command.as_deref(),
             Some("builds host setup m1")
         );
-        let found = host_findings(&[], &[refusal], &[]);
+        let found = host_findings(&[], &Ok(None), 0, &[], &[refusal], &[]);
         assert_eq!(found.len(), 1, "{found:?}");
         assert_eq!(
             found[0].advice.command.as_deref(),

@@ -577,6 +577,12 @@ remains to act on.
     CPU sits under 5% idle shows up as having no room.
   - Builds items ready and not running: start them whatever the hosts' load
     (builds work goes first).
+  - An install, hook run, landing, cargo run or job on a host that has run
+    long: the line follows what it waits on down to the work at the end.
+    Work at the end that waits on a host with no room needs nothing but
+    fewer new agents on that host; work at the end that sits idle (a hung
+    test, a command stuck on a lock) is what to stop. While an install
+    waits, the commands it names wait behind it.
   - An app lock held long, or with agents waiting: check that the holder is
     building, not stuck. A step past its time limit is killed and passes the
     lock on.

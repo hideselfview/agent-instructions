@@ -700,13 +700,33 @@ impl Model {
         let hosts = crate::host::all(&self.places)?;
         // This daemon is the dashboard.
         let dashboard = std::process::id() as i32;
-        let busy = crate::checkout::parallel_map(&hosts, |host| {
-            let scan = crate::host_scan::read(ssh, host);
-            crate::stuck::read(ssh, host, &scan, host.target.is_none().then_some(dashboard))
-        });
+        let mut scans = Vec::new();
+        let mut busy = Vec::new();
+        for (host, scan) in hosts
+            .iter()
+            .zip(crate::checkout::parallel_map(&hosts, |host| {
+                crate::host_scan::read(ssh, host)
+            }))
+        {
+            busy.push(crate::stuck::read(
+                ssh,
+                host,
+                &scan,
+                host.target.is_none().then_some(dashboard),
+            ));
+            scans.push((host.clone(), scan));
+        }
         let refusals = crate::host::refusals(&self.places)?;
         let installed = crate::host_installed::read_all_installed(&self.places, ssh, &hosts);
-        Ok(crate::health::host_findings(&busy, &refusals, &installed))
+        let install = crate::install_gate::waiting(&self.places).map_err(|fault| fault.text());
+        Ok(crate::health::host_findings(
+            &scans,
+            &install,
+            now_seconds(),
+            &busy,
+            &refusals,
+            &installed,
+        ))
     }
 
     /// Judges health now from the last reading of the processes, with each

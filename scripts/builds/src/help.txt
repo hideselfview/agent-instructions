@@ -1585,7 +1585,20 @@ STATUS, HEALTH AND THE DASHBOARD
                               each changed board, component and source, so a
                               rebase keeps it covered; a worktree whose
                               open design change waits on the person's review
-                              is not idle); a build past its step's 45-minute
+                              is not idle); a builds install that has
+                              waited 2+ minutes at the gates it closed, with
+                              each use it waits for and what that command
+                              waits on, and which commands wait behind it; a
+                              hook run (`builds checks run`) that has run 10+
+                              minutes, or a landing or `builds cargo` that has
+                              run 30+ minutes, with what it waits on (its job
+                              on a host, else the builds command under it,
+                              else its other processes); a cargo job on a
+                              host (HOSTS) that has run 30+ minutes, with the
+                              builds command here that runs it and what runs
+                              under it there (compiles through sccache,
+                              compilers, test binaries); a line names each
+                              command's tree once; a build past its step's 45-minute
                               default limit, or a test binary past 30 minutes
                               (`kill <pid>`); a test binary that `builds
                               cargo` runs, here or on a host, that has run 20+

@@ -581,6 +581,79 @@ fn remove_ended_uses(places: &Places, kind: Kind) -> Result<()> {
     Ok(())
 }
 
+/// A use that a running install waits for: its process and what its file
+/// says (`process <pid>, builds <what>, since <time>`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Held {
+    pub pid: i32,
+    pub text: String,
+}
+
+/// What a running install waits for, as `waiting` reads it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Waiting {
+    /// Whether install closed the commands gate, so a command that holds a
+    /// use for its life waits when it starts.
+    pub commands_closed: bool,
+    /// Whether install closed the connections gate, so every command that
+    /// opens a store waits when it starts.
+    pub connections_closed: bool,
+    /// The uses of the closed gates' kinds that still hold their locks.
+    pub held: Vec<Held>,
+}
+
+/// What a running install waits for: None when no install runs, or when it
+/// runs with both gates open (it reads the stores' schemas, or it closes no
+/// gate). Reads each lock by asking for a shared lock without waiting and
+/// letting it go at once, so it takes no use and holds up no install.
+pub fn waiting(places: &Places) -> Result<Option<Waiting>> {
+    let closed = |path: &Path| -> Result<bool> {
+        let file = match File::open(path) {
+            Ok(file) => file,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+            Err(error) => fail!("opening {}: {error}", path.display()),
+        };
+        Ok(!try_lock(&file, libc::LOCK_SH, path)?)
+    };
+    if !closed(&places.install_dir().join("install.lock"))? {
+        return Ok(None);
+    }
+    let commands_closed = closed(&Kind::Command.gate(places))?;
+    let connections_closed = closed(&Kind::Connection.gate(places))?;
+    if !commands_closed && !connections_closed {
+        return Ok(None);
+    }
+    let mut held = Vec::new();
+    for (kind, closed) in [
+        (Kind::Command, commands_closed),
+        (Kind::Connection, connections_closed),
+    ] {
+        if !closed {
+            continue;
+        }
+        for (mut file, path) in use_files(places, kind)? {
+            if try_lock(&file, libc::LOCK_SH, &path)? {
+                continue;
+            }
+            let mut text = String::new();
+            file.read_to_string(&mut text)
+                .context(|| format!("reading which process holds {}", path.display()))?;
+            let Some(pid) = crate::checkout::file_name(&path).parse().ok() else {
+                fail!("{} is not named for a process", path.display());
+            };
+            held.push(Held {
+                pid,
+                text: text.trim().to_string(),
+            });
+        }
+    }
+    Ok(Some(Waiting {
+        commands_closed,
+        connections_closed,
+        held,
+    }))
+}
+
 #[cfg(test)]
 #[path = "install_gate_tests.rs"]
 mod tests;

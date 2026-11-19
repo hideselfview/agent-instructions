@@ -362,3 +362,67 @@ fn a_path_names_its_file_until_the_file_is_removed_or_replaced() {
     assert!(!names(&file, &path).unwrap());
     assert!(names(&again, &path).unwrap());
 }
+
+/// `waiting` reads nothing while no install runs, then the gate a running
+/// install closed and each use it waits for, in turn, without taking a use
+/// or holding the install up.
+#[test]
+fn waiting_names_each_use_a_running_install_waits_for() {
+    let scratch = Scratch::new("install-gate-waiting");
+    let places = scratch.places();
+    assert_eq!(waiting(&places).unwrap(), None, "no install ever ran");
+    let quiet = &mut |_: &str| {};
+    let hook_run = holds(enter_for_life(&places, 11, "checks run", "10:00:00", quiet).unwrap());
+    let listing = PerConnection::new(places.clone(), 12, "item list", "10:00:01").unwrap();
+    let connection = listing.take().unwrap();
+    assert_eq!(waiting(&places).unwrap(), None, "no install runs");
+    let (closer, install) = closing(&places);
+    assert_eq!(
+        next(&install),
+        said("waiting for process 11, builds checks run, since 10:00:00")
+    );
+    assert_eq!(
+        waiting(&places).unwrap(),
+        Some(Waiting {
+            commands_closed: true,
+            connections_closed: false,
+            held: vec![Held {
+                pid: 11,
+                text: "process 11, builds checks run, since 10:00:00".to_string(),
+            }],
+        })
+    );
+    drop(hook_run);
+    assert_eq!(
+        next(&install),
+        said("waiting for process 12, builds item list, since 10:00:01")
+    );
+    assert_eq!(
+        waiting(&places).unwrap(),
+        Some(Waiting {
+            commands_closed: true,
+            connections_closed: true,
+            held: vec![Held {
+                pid: 12,
+                text: "process 12, builds item list, since 10:00:01".to_string(),
+            }],
+        })
+    );
+    drop(connection);
+    assert_eq!(next(&install), Event::Done(true));
+    let closed = closer.join().unwrap();
+    assert_eq!(
+        waiting(&places).unwrap().map(|waiting| waiting.held),
+        Some(Vec::new()),
+        "install moves the stores with both gates closed and no use left"
+    );
+    drop(closed);
+    // A child process that another test forks while the locks are held keeps
+    // them until it calls exec, so wait for each lock to free before reading.
+    drop(begin(&places, &mut |_| {}).unwrap());
+    assert!(may_start(&places, quiet).unwrap());
+    drop(holds(
+        enter_for_life(&places, 15, "checks run", "10:00:04", quiet).unwrap(),
+    ));
+    assert_eq!(waiting(&places).unwrap(), None, "install ended");
+}
