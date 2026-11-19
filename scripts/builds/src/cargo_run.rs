@@ -413,17 +413,19 @@ pub fn cmd_cargo(args: &[String]) -> Result<()> {
     });
     let watch = crate::cargo_run_outcome::Watch::default();
     let exited = match job {
-        None if tool == cargo_place::CargoTool::Mutants => prepare_here(checkout.as_ref(), &env)
-            .and_then(|()| run_before_here(checkout.as_ref(), &env))
-            .and_then(|()| {
-                // A host's job comes capped by this Mac (`CAPPED_VARIABLE`).
-                let args = match env(crate::cargo_mutants::CAPPED_VARIABLE) {
-                    Some(_) => given.to_vec(),
-                    None => mutants_args_here(&places, given)?,
-                };
-                run_mutants_here(&places, checkout.as_ref(), &args, &env)
-            })?,
-        None => prepare_here(checkout.as_ref(), &env)
+        None if tool == cargo_place::CargoTool::Mutants => {
+            prepare_here(&places, &ssh, checkout.as_ref(), &env)
+                .and_then(|()| run_before_here(checkout.as_ref(), &env))
+                .and_then(|()| {
+                    // A host's job comes capped by this Mac (`CAPPED_VARIABLE`).
+                    let args = match env(crate::cargo_mutants::CAPPED_VARIABLE) {
+                        Some(_) => given.to_vec(),
+                        None => mutants_args_here(&places, given)?,
+                    };
+                    run_mutants_here(&places, checkout.as_ref(), &args, &env)
+                })?
+        }
+        None => prepare_here(&places, &ssh, checkout.as_ref(), &env)
             .and_then(|()| run_before_here(checkout.as_ref(), &env))
             .and_then(|()| build_runner_here(&places, checkout.as_ref(), runner.as_ref(), &env))
             .and_then(|runner| {
@@ -583,16 +585,29 @@ pub fn in_hook(env: &dyn Fn(&str) -> Option<std::ffi::OsString>) -> bool {
 }
 
 /// Runs the checkout's `prepare` programs (setup.rs) on the Mac that runs
-/// cargo, before cargo: a host that runs cargo for a job runs `builds cargo`
-/// itself, so its own run prepares its worktree. A run a hook check started
-/// runs none: a hook installs and fetches nothing, and its checks fail when
-/// what they need is missing.
+/// cargo, before cargo, and puts each tool its manifest declares in place
+/// for the checkout's key (`built_tools::ensure_all`): a commit that changes
+/// a tool's sources changes its key, and the pre-commit hook builds no tool,
+/// so the first cargo run after the change builds it. A host that runs cargo
+/// for a job runs `builds cargo` itself, so its own run prepares its
+/// worktree. A run a hook check started runs none: a hook installs and
+/// fetches nothing, and its checks fail when what they need is missing. A
+/// run inside a tool's own build (`BUILDS_TOOL_WORK` set) puts no tool in
+/// place, since that build holds the lock the tool's key needs.
 fn prepare_here(
+    places: &Places,
+    ssh: &Ssh,
     checkout: Option<&Checkout>,
     env: &dyn Fn(&str) -> Option<std::ffi::OsString>,
 ) -> Result<()> {
     match checkout {
-        Some(checkout) if !in_hook(env) => crate::setup::prepare(&checkout.top),
+        Some(checkout) if !in_hook(env) => {
+            crate::setup::prepare(&checkout.top)?;
+            if env(crate::built_tools::WORK_VARIABLE).is_none() {
+                crate::built_tools::ensure_all(places, ssh, &checkout.top)?;
+            }
+            Ok(())
+        }
         _ => Ok(()),
     }
 }
@@ -999,25 +1014,57 @@ mod tests {
     fn a_run_here_first_runs_the_checkouts_prepare_programs() {
         use std::os::unix::fs::PermissionsExt;
         let scratch = Scratch::new("cargo-prepare");
+        let places = scratch.places();
+        let ssh = crate::testing::no_ssh();
         let top = scratch.dir.join("demo");
         repo(&top, "target 1G\nprepare prepare.sh\n");
         let program = top.join("prepare.sh");
         std::fs::write(&program, "#!/bin/sh\necho ran >> prepared.txt\n").unwrap();
         std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
         let checkout = Checkout::at(&top).unwrap();
-        prepare_here(checkout.as_ref(), &|_| None).unwrap();
+        prepare_here(&places, &ssh, checkout.as_ref(), &|_| None).unwrap();
         assert_eq!(
             std::fs::read_to_string(top.join("prepared.txt")).unwrap(),
             "ran\n"
         );
-        prepare_here(None, &|_| None).unwrap();
+        prepare_here(&places, &ssh, None, &|_| None).unwrap();
 
         // A run a hook check started runs none.
         let hook = |name: &str| (name == HOOK_CHECK_VARIABLE).then(|| "1700000000:2".into());
-        prepare_here(checkout.as_ref(), &hook).unwrap();
+        prepare_here(&places, &ssh, checkout.as_ref(), &hook).unwrap();
         assert_eq!(
             std::fs::read_to_string(top.join("prepared.txt")).unwrap(),
             "ran\n"
+        );
+    }
+
+    #[test]
+    fn a_run_here_puts_the_checkouts_tools_in_place_unless_a_hook_or_a_tool_build_runs_it() {
+        use std::os::unix::fs::PermissionsExt;
+        let scratch = Scratch::new("cargo-tools");
+        let places = scratch.places();
+        let ssh = crate::testing::no_ssh();
+        let top = scratch.dir.join("demo");
+        repo(&top, "target 1G\ntool lints tool.sh built\n");
+        let program = "#!/bin/sh\ncase \"$1\" in\nkey) echo chain-1 sources-1 ;;\nbuild) mkdir -p \"$2\"; echo tool > \"$2/tool\"; printf '#!/bin/sh\\n' > \"$2/check\"; chmod +x \"$2/check\" ;;\nesac\n";
+        std::fs::write(top.join("tool.sh"), program).unwrap();
+        std::fs::set_permissions(top.join("tool.sh"), std::fs::Permissions::from_mode(0o755))
+            .unwrap();
+        let checkout = Checkout::at(&top).unwrap();
+
+        // A run a hook check started builds none, and neither does a run
+        // inside a tool's own build.
+        let hook = |name: &str| (name == HOOK_CHECK_VARIABLE).then(|| "1700000000:2".into());
+        prepare_here(&places, &ssh, checkout.as_ref(), &hook).unwrap();
+        let building =
+            |name: &str| (name == crate::built_tools::WORK_VARIABLE).then(|| "/work".into());
+        prepare_here(&places, &ssh, checkout.as_ref(), &building).unwrap();
+        assert!(std::fs::symlink_metadata(top.join("built")).is_err());
+
+        prepare_here(&places, &ssh, checkout.as_ref(), &|_| None).unwrap();
+        assert!(
+            top.join("built/tool").is_file(),
+            "the run built the key's tool"
         );
     }
 

@@ -366,7 +366,11 @@ cargo` job before it runs on such a host, and each copy runs its check on the
 host; when that fails, builds says so and the host builds the key in the job's
 setup. A host of another platform, such as a Linux host, builds each key in
 the job's setup itself. A pre-commit hook
-check installs, fetches, copies and builds nothing: a `builds cargo` it runs
+check installs, fetches, copies and builds nothing, so the first `builds
+cargo` after a change to a tool's sources puts the new key's build in
+place on the Mac that runs cargo, before cargo, and the hook's checks find it
+(a run inside a tool's own build, BUILDS_TOOL_WORK set, builds no tool, since
+that build holds the key's lock): a `builds cargo` the hook runs
 sends no key to the host, the host's setup for its job prepares nothing, and
 `builds tool` only points the link at a build the Mac already has. `builds setup` and `builds prune` delete each key's folder,
 and each toolchain's folder with its work folder, that no live checkout's key
@@ -744,8 +748,10 @@ restart the server.
                               exits starts `builds units after-build`, which
                               deletes the copies the build replaced.
                               On the Mac that runs cargo it first runs the
-                              checkout's `prepare` programs (BUILD FOLDERS),
-                              unless a pre-commit hook check runs it.
+                              checkout's `prepare` programs (BUILD FOLDERS)
+                              and puts each of its tools in place for the
+                              checkout's key (BUILT TOOLS), unless a
+                              pre-commit hook check runs it.
                               BUILDS_CARGO_BEFORE=<path> [<args>] runs a
                               program of the checkout in its top folder before
                               cargo, on whichever host runs cargo, and a
