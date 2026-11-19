@@ -169,38 +169,50 @@ impl Writer {
     }
 }
 
-#[test]
-fn a_build_root_without_a_guard_yet_gets_one_held_across_the_move() {
-    // `builds cargo` creates the guard on its first build. An eviction before
-    // that took no lock, so a build starting between the in-use check and the
-    // rename used the folder as it was moved away.
-    let scratch = Scratch::new("evict-new-guard");
+/// A checkout's build root as `builds cargo` finds it before its first build:
+/// a `.checkout` marker and a target folder, with no guard file.
+fn root_without_a_guard(scratch: &Scratch) -> (crate::places::Places, PathBuf, PathBuf) {
     let places = scratch.places();
     let root = places.root.join("demo/side-1");
-    std::fs::write(
-        {
-            std::fs::create_dir_all(&root).unwrap();
-            root.join(".checkout")
-        },
-        "/somewhere",
-    )
-    .unwrap();
+    std::fs::create_dir_all(&root).unwrap();
+    std::fs::write(root.join(".checkout"), "/somewhere").unwrap();
     let folder = root.join("target");
     fill(&folder.join("debug/blob"), 4);
     let guard = root.join(crate::units::GUARD);
     assert!(!guard.exists());
-    let held = crate::units::lock_guard_creating(&folder).unwrap();
+    (places, folder, guard)
+}
+
+#[test]
+fn a_build_root_without_a_guard_yet_gets_one_held_while_the_folder_moves() {
+    // `builds cargo` creates the guard on its first build. An eviction before
+    // that took no lock, so a build starting between the in-use check and the
+    // rename used the folder as it was moved away.
+    //
+    // The test asserts nothing after the guard is released: another test can
+    // fork a child that inherits this process's open files, and the child
+    // keeps the lock until it execs, so a later check that the lock is free
+    // would depend on timing.
+    let scratch = Scratch::new("evict-new-guard");
+    let (_places, folder, guard) = root_without_a_guard(&scratch);
+    let _held = crate::units::lock_guard_creating(&folder).unwrap();
     assert!(guard.is_file(), "no guard was made");
     assert!(
         crate::evict::try_lock(&guard).unwrap().is_none(),
         "a build could take the guard while the eviction held it"
     );
-    drop(held);
-    // A build that holds the guard keeps the folder, as with a guard that existed.
-    let build = crate::evict::lock_shared_creating(&guard).unwrap();
-    assert!(!evict(&places, &folder, Recreate::Yes, Removal::Now).unwrap());
-    drop(build);
+}
+
+#[test]
+fn an_eviction_of_a_build_root_without_a_guard_makes_the_guard_and_moves_the_folder() {
+    let scratch = Scratch::new("evict-new-guard-moves");
+    let (places, folder, guard) = root_without_a_guard(&scratch);
     assert!(evict(&places, &folder, Recreate::Yes, Removal::Now).unwrap());
+    assert!(guard.is_file(), "the eviction made no guard");
+    assert!(
+        folder.is_dir() && !folder.join("debug").exists(),
+        "the folder was not moved and recreated empty"
+    );
 }
 
 #[test]
