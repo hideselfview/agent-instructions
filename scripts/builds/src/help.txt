@@ -1350,7 +1350,9 @@ STATUS, HEALTH AND THE DASHBOARD
                               a claimed worktree with no change and no build
                               for an hour (counted from its claim, if later); a lists store that fails its check;
                               a running item whose worktree is gone or has no
-                              claim; a held worktree whose wait closed; a
+                              claim; a held worktree whose wait closed; an
+                              item that keeps a worktree with every wait met
+                              (land its commits or resume its agent); a
                               claimed worktree that no item of any project
                               runs in, with no commits waiting to land, no
                               files not committed and no `git commit` running

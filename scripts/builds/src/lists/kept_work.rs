@@ -14,10 +14,11 @@ use crate::db::Sql;
 use crate::fail;
 use crate::fail::Result;
 use crate::health::Advice;
+use crate::lists::derive::{item_state, unmet_waits, wait_on_person};
 use crate::lists::item::{self, Item};
 use crate::lists::running::{PlaceTable, insert_places};
 use crate::lists::store::Loaded;
-use crate::lists::{Id, Lists, Stamp};
+use crate::lists::{Id, Kind, Lists, Located, Stamp, Standing, Wait};
 
 /// A worktree an open item keeps, in one repo (an item that spans repos has
 /// one of these per repo): its work waits there on the branch.
@@ -117,6 +118,90 @@ pub fn kept_worktrees(
     Ok(kept)
 }
 
+/// What the waits of an item that keeps a worktree stand at, in words that
+/// name each record's kind, id and title.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum KeptWaits {
+    /// The item has no waits: it waits only for an agent.
+    None,
+    /// Each wait that is not met, and what it stands at.
+    Open(Vec<String>),
+    /// Every wait is met: each record that met one, and how it closed.
+    Met(Vec<String>),
+}
+
+/// What the waits of <item>, which keeps a worktree, stand at.
+pub fn kept_waits(lists: &Lists, item: &Item) -> KeptWaits {
+    if item.waits.is_empty() {
+        return KeptWaits::None;
+    }
+    let open = unmet_waits(lists, item);
+    if open.is_empty() {
+        let met = item
+            .waits
+            .iter()
+            .map(|wait| match wait {
+                Wait::Item(id) | Wait::Question(id) | Wait::Design(id) => lists
+                    .closed_record(*id)
+                    .map(|closed| {
+                        format!(
+                            "{} {id} {}: {}",
+                            closed.record.kind().name(),
+                            closed.how.words(),
+                            closed.record.title()
+                        )
+                    })
+                    .unwrap_or_else(|| format!("{id} is met")),
+                Wait::Condition(text) => format!("condition removed: {text}"),
+            })
+            .collect();
+        return KeptWaits::Met(met);
+    }
+    KeptWaits::Open(
+        open.into_iter()
+            .map(|wait| open_wait(lists, item, wait))
+            .collect(),
+    )
+}
+
+/// One wait that is not met, as `kept_waits` words it.
+fn open_wait(lists: &Lists, item: &Item, wait: &Wait) -> String {
+    let (Wait::Item(id) | Wait::Question(id) | Wait::Design(id)) = wait else {
+        let Wait::Condition(text) = wait else {
+            unreachable!("a wait names a record or a condition")
+        };
+        return format!("condition: {text}");
+    };
+    let Some(Located {
+        kind,
+        standing,
+        title,
+    }) = lists.locate(*id)
+    else {
+        return format!("{id}, which the lists do not hold");
+    };
+    match standing {
+        Standing::Closed(closed) => format!(
+            "{} {id}, {}, which does not free item {}: {title}",
+            kind.name(),
+            closed.how.words(),
+            item.id
+        ),
+        Standing::Open => {
+            let state = match kind {
+                Kind::Item => lists
+                    .item(*id)
+                    .map(|other| item_state(lists, other).label())
+                    .unwrap_or("open"),
+                _ if wait_on_person(lists, wait) => "waits on you",
+                Kind::Design => "approved, not landed",
+                _ => "open",
+            };
+            format!("{} {id} ({state}): {title}", kind.name())
+        }
+    }
+}
+
 /// Is <claim> older than the keep <kept>? A claim made before the item kept
 /// the worktree names the agent that worked there, and no agent works there
 /// now. A claim made after it, to take the item, is a new agent's. A claim
@@ -126,9 +211,11 @@ pub fn is_stale_claim(kept: &KeptWork, claim: &crate::claim::Claim) -> bool {
 }
 
 /// What `builds health` says about kept work: one line for each item that
-/// keeps a worktree that is not a live worktree, and one for each kept
+/// keeps a worktree that is not a live worktree, one for each kept
 /// worktree that still has a claim older than the keep, since its work is no longer
-/// where the item says it waits.
+/// where the item says it waits, and one for each item whose waits are all
+/// met, which waits in the queue behind other ready items until the
+/// coordinator resumes its agent or lands its commits.
 pub fn findings(loaded: &std::result::Result<Vec<Loaded>, String>) -> Result<Vec<Advice>> {
     let Ok(loaded) = loaded else {
         return Ok(Vec::new());
@@ -137,6 +224,11 @@ pub fn findings(loaded: &std::result::Result<Vec<Loaded>, String>) -> Result<Vec
     for project in loaded {
         let Ok(lists) = &project.lists else { continue };
         for item in &lists.items {
+            if let KeptWaits::Met(met) = kept_waits(lists, item)
+                && let Some(advice) = met_advice(item, &met)?
+            {
+                findings.push(advice);
+            }
             for kept in &item.kept {
                 if let Some(checkout) = crate::lists::running::live_worktree(&kept.worktree)? {
                     if let Some(claim) = crate::claim::Claim::read(&checkout.claim_file())?
@@ -166,6 +258,56 @@ pub fn findings(loaded: &std::result::Result<Vec<Loaded>, String>) -> Result<Vec
         }
     }
     Ok(findings)
+}
+
+/// The line that says <item>, whose waits <met> says are all met, keeps
+/// commits that wait for the coordinator: the worktrees, the commits
+/// origin/main lacks in each, what met the waits and what to do. None when a
+/// kept worktree is not live, which its own line says.
+fn met_advice(item: &Item, met: &[String]) -> Result<Option<Advice>> {
+    let mut places = Vec::new();
+    let mut take = format!("builds item take {}", item.id.0);
+    for kept in &item.kept {
+        let Some(checkout) = crate::lists::running::live_worktree(&kept.worktree)? else {
+            return Ok(None);
+        };
+        let git = crate::side_git::read(&checkout.top);
+        let commits = match &git.error {
+            Some(error) => format!("commits git could not read ({error})"),
+            None if git.ahead.is_empty() => "no commits that origin/main lacks".to_string(),
+            None => format!(
+                "{} that origin/main lacks ({})",
+                crate::text::counted(git.ahead.len(), "commit", "commits"),
+                git.ahead
+                    .iter()
+                    .map(|commit| format!("{} {}", commit.sha, commit.subject))
+                    .collect::<Vec<_>>()
+                    .join("; ")
+            ),
+        };
+        places.push(format!(
+            "{} on {} with {commits}",
+            kept.worktree, kept.branch
+        ));
+        take.push_str(&format!(
+            " --worktree {} --branch {}",
+            kept.worktree, kept.branch
+        ));
+    }
+    take.push_str(&format!(
+        " --brief {}",
+        item.brief.as_deref().unwrap_or("BRIEF")
+    ));
+    Ok(Some(Advice::run(
+        format!(
+            "lists: item {} \"{}\" keeps {}, and every wait is met ({}), so it waits for the coordinator; land its commits, or resume its agent with",
+            item.id.0,
+            item.title,
+            places.join(" and "),
+            met.join("; ")
+        ),
+        take,
+    )))
 }
 
 /// An item and the worktree and branch of each place it keeps.
@@ -225,3 +367,7 @@ pub fn places_words<'a>(places: impl IntoIterator<Item = (&'a String, &'a String
         .collect::<Vec<_>>()
         .join(" and ")
 }
+
+#[cfg(test)]
+#[path = "kept_work_tests.rs"]
+mod tests;

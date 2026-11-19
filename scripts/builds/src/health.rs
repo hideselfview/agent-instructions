@@ -11,7 +11,7 @@
 //! under its
 //! free-space floor, a lists store that fails its check, a running item
 //! whose worktree is gone or has no claim (lists/running.rs), a kept item
-//! whose worktree is gone (lists/kept_work.rs), a held worktree
+//! whose worktree is gone or whose waits are all met (lists/kept_work.rs), a held worktree
 //! whose item waits on nothing open, commits that change design files no
 //! recorded design change covers (lists/held.rs), a repo with a design folder
 //! and no design globs (lists/project.rs), or a build host that refuses

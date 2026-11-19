@@ -477,6 +477,10 @@ or a hold clears. A quiet check needs no message to the person.
     what it waits on, or land and release it. A claim kept on purpose gets
     `builds note <worktree> --state held "<why, and until when>"`.
   - A held worktree whose wait closed: restart its work and clear the hold.
+  - An item that keeps a worktree and has every wait met (the line names the
+    worktree, its commits that origin/main lacks and what met the waits): land
+    the commits, or resume its agent with `builds item take`. The item waits
+    in the queue behind the ready items until then.
   - Commits that change design files with no design change: whoever made the
     commits records one (`builds design record`), the design session or, for
     a board edit of a change the person decided, the implementing agent.
