@@ -88,6 +88,12 @@ impl SideGit {
 }
 
 impl SideRead {
+    /// The full hashes of the commits waiting to land, oldest first, as
+    /// git takes a list of commits to read.
+    pub fn ahead_oldest_first(&self) -> Vec<String> {
+        self.ahead.iter().rev().map(|c| c.full.clone()).collect()
+    }
+
     /// Is <full>, a full commit hash, one of this worktree's own commits:
     /// one on its HEAD that origin/main has no copy of? A commit origin/main
     /// has, such as HEAD right after a landing, belongs to every worktree

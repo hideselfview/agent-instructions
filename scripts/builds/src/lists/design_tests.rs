@@ -642,6 +642,31 @@ fn main_of(w: &World, range: &str) -> String {
     crate::lists::design_paths::full_sha(&w.dir, main).unwrap()
 }
 
+/// What git says of the worktree of <w> whose commits past origin/main are
+/// those of <range>.
+fn side_read_of(w: &World, range: &str) -> crate::side_git::SideRead {
+    let ahead: Vec<crate::side_git::Commit> =
+        crate::lists::design_paths::commits_of_range(&w.dir, range)
+            .unwrap()
+            .into_iter()
+            .rev()
+            .map(|full| crate::side_git::Commit {
+                sha: full[..7].to_string(),
+                full,
+                time: 1,
+                authored: 1,
+                subject: "a commit".into(),
+            })
+            .collect();
+    crate::side_git::SideRead {
+        head: ahead.first().cloned(),
+        ahead,
+        main: main_of(w, range),
+        uncommitted: 0,
+        last_write: None,
+    }
+}
+
 /// What `builds health` says about the worktree of <w> whose commits past
 /// origin/main are those of <range>.
 fn health_of(w: &World, range: &str) -> Vec<String> {
@@ -656,11 +681,7 @@ fn health_of(w: &World, range: &str) -> Vec<String> {
         },
         project: Some("demo".into()),
         app_checkout: false,
-        work: Ok(crate::lists::held::Work {
-            ahead: crate::lists::design_paths::commits_of_range(&w.dir, range).unwrap(),
-            main: main_of(w, range),
-            uncommitted: 0,
-        }),
+        git: Ok(side_read_of(w, range)),
         committing: Ok(Vec::new()),
     };
     let loaded = Ok(vec![crate::lists::store::Loaded {
@@ -676,26 +697,7 @@ fn health_of(w: &World, range: &str) -> Vec<String> {
 /// The dashboard's design card for the worktree of <w> whose commits past
 /// origin/main are those of <range>.
 fn card_of(w: &World, range: &str) -> Option<crate::daemon::cards::ItemWait> {
-    let ahead: Vec<crate::side_git::Commit> =
-        crate::lists::design_paths::commits_of_range(&w.dir, range)
-            .unwrap()
-            .into_iter()
-            .rev()
-            .map(|full| crate::side_git::Commit {
-                sha: full[..7].to_string(),
-                full,
-                time: 1,
-                authored: 1,
-                subject: "a commit".into(),
-            })
-            .collect();
-    let git = crate::side_git::SideRead {
-        head: ahead.first().cloned(),
-        ahead,
-        main: main_of(w, range),
-        uncommitted: 0,
-        last_write: None,
-    };
+    let git = side_read_of(w, range);
     crate::daemon::design_cards::standing(&Default::default(), &w.state(), "bae", &w.dir, &git)
         .unwrap()
 }

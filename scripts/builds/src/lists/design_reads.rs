@@ -12,6 +12,7 @@ use std::sync::{Arc, Mutex};
 use crate::fail::Result;
 use crate::lists::Lists;
 use crate::lists::design::{DesignCommit, design_commits};
+use crate::side_git::SideRead;
 
 /// What a worktree's design commits are read from besides the files of its
 /// commits, which never change.
@@ -37,9 +38,9 @@ pub struct DesignReads {
 }
 
 impl DesignReads {
-    /// The design commits of <ahead> (full hashes, oldest first) in the
-    /// worktree at <top> of <repo>, whose origin/main is at commit <main>,
-    /// against the design globs and open design changes of <lists>: the ones
+    /// The design commits in the worktree at <top> of <repo>, whose side
+    /// read is <git>, against the design globs and open design changes of
+    /// <lists>: the ones
     /// kept for the worktree when they were read at the same tip, else read
     /// now. Keeps only a read that succeeded, so the next asker reads again
     /// after a failure.
@@ -48,12 +49,11 @@ impl DesignReads {
         lists: &Lists,
         repo: &str,
         top: &Path,
-        ahead: &[String],
-        main: &str,
+        git: &SideRead,
     ) -> Result<Arc<Vec<DesignCommit>>> {
         let tip = Tip {
-            ahead: ahead.to_vec(),
-            main: main.to_string(),
+            ahead: git.ahead_oldest_first(),
+            main: git.main.clone(),
             store: lists.version,
         };
         // Held while reading, so askers at once read once.
@@ -63,7 +63,7 @@ impl DesignReads {
         {
             return Ok(commits.clone());
         }
-        let commits = Arc::new(design_commits(lists, repo, top, ahead)?);
+        let commits = Arc::new(design_commits(lists, repo, top, &tip.ahead)?);
         read.insert(top.to_path_buf(), (tip, commits.clone()));
         Ok(commits)
     }

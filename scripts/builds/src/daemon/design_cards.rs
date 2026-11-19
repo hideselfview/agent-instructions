@@ -25,8 +25,7 @@ pub fn standing(
     top: &Path,
     git: &SideRead,
 ) -> Result<Option<ItemWait>> {
-    let shas: Vec<String> = git.ahead.iter().rev().map(|c| c.full.clone()).collect();
-    let commits = reads.of(lists, repo, top, &shas, &git.main)?;
+    let commits = reads.of(lists, repo, top, git)?;
     let reviewing = commits
         .iter()
         .filter_map(|commit| commit.covered_by)

@@ -172,12 +172,30 @@ fn worktree(top: &std::path::Path, who: &str, state: Option<&str>, ahead: Vec<St
         },
         project: None,
         app_checkout: false,
-        work: Ok(crate::lists::held::Work {
-            ahead,
-            main: "0".repeat(40),
-            uncommitted: 0,
-        }),
+        git: Ok(side_read(&ahead)),
         committing: Ok(Vec::new()),
+    }
+}
+
+/// What git says of a clean worktree whose commits waiting to land are
+/// <ahead>, full hashes oldest first.
+fn side_read(ahead: &[String]) -> SideRead {
+    SideRead {
+        head: None,
+        ahead: ahead
+            .iter()
+            .rev()
+            .map(|full| crate::side_git::Commit {
+                sha: full.chars().take(7).collect(),
+                full: full.clone(),
+                time: 1,
+                authored: 1,
+                subject: "a commit".into(),
+            })
+            .collect(),
+        main: "0".repeat(40),
+        uncommitted: 0,
+        last_write: None,
     }
 }
 
@@ -338,7 +356,7 @@ fn health_names_design_commits_no_design_change_covers() {
 #[test]
 fn health_names_a_worktree_whose_commits_git_cannot_read_and_never_calls_it_covered() {
     let (_demo, mut tree, lists) = design_branch("held-design-unread", false);
-    tree.work = Err("git could not read it".into());
+    tree.git = Err("git could not read it".into());
     let found = findings(
         &loaded(lists.clone()),
         std::slice::from_ref(&tree),
@@ -519,9 +537,9 @@ fn health_names_a_claimed_worktree_whose_items_closed_and_has_nothing_to_land() 
         Some("builds release /w/bae-worktrees/side-1")
     );
     let mut waiting = bae_worktree(None);
-    waiting.work.as_mut().unwrap().ahead = vec!["abc".into()];
+    waiting.git = Ok(side_read(&["abc".into()]));
     let mut editing = bae_worktree(None);
-    editing.work.as_mut().unwrap().uncommitted = 1;
+    editing.git.as_mut().unwrap().uncommitted = 1;
     let mut committing = bae_worktree(None);
     committing.committing = Ok(vec![4242]);
     let mut unknown = bae_worktree(None);
@@ -612,7 +630,7 @@ fn a_claim_is_idle_only_when_nothing_holds_the_worktree() {
     assert!(!worktree(top, "a", Some("starting"), Vec::new()).claim_is_idle(true));
     assert!(!worktree(top, "a", None, vec!["abc".into()]).claim_is_idle(true));
     let mut dirty = worktree(top, "a", None, Vec::new());
-    dirty.work.as_mut().unwrap().uncommitted = 2;
+    dirty.git.as_mut().unwrap().uncommitted = 2;
     assert!(!dirty.claim_is_idle(true));
     let mut committing = worktree(top, "a", None, Vec::new());
     committing.committing = Ok(vec![7]);

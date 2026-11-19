@@ -271,13 +271,7 @@ impl Reads {
         worktree: &Worktree,
         material: &Material,
     ) -> Result<Judgment, String> {
-        let shas: Vec<String> = worktree
-            .git
-            .ahead
-            .iter()
-            .rev()
-            .map(|c| c.full.clone())
-            .collect();
+        let shas = worktree.git.ahead_oldest_first();
         let paths = self.commits(worktree.top, &shas)?;
         let needs: Vec<Need> = shas
             .iter()

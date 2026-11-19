@@ -26,31 +26,41 @@ fn a_worktree_is_read_once_per_tip_and_again_when_its_commits_main_or_store_move
     lists
         .design_places
         .insert("bae".into(), vec!["design/mocks/*.dc.html".into()]);
-    let main = "1".repeat(40);
-    let ahead = vec![sha];
+    let git = SideRead {
+        head: None,
+        ahead: vec![crate::side_git::Commit {
+            sha: sha.chars().take(7).collect(),
+            full: sha,
+            time: 1,
+            authored: 1,
+            subject: "Draw".into(),
+        }],
+        main: "1".repeat(40),
+        uncommitted: 0,
+        last_write: None,
+    };
     let reads = DesignReads::default();
-    let first = reads.of(&lists, "bae", &top, &ahead, &main).unwrap();
+    let first = reads.of(&lists, "bae", &top, &git).unwrap();
     assert_eq!(first.len(), 1);
     assert_eq!(first[0].covered_by, Some(id));
     // With its git folder gone, git can read nothing in the worktree, so
     // only the commits kept from the first read answer.
     std::fs::rename(top.join(".git"), scratch.dir.join("dot-git")).unwrap();
-    let again = reads.of(&lists, "bae", &top, &ahead, &main).unwrap();
+    let again = reads.of(&lists, "bae", &top, &git).unwrap();
     assert!(Arc::ptr_eq(&first, &again), "the same tip is read once");
     let mut written = lists.clone();
     written.version += 1;
+    let mut other_commits = git.clone();
+    other_commits.ahead[0].full = "2".repeat(40);
+    let mut moved_main = git.clone();
+    moved_main.main = "3".repeat(40);
     let tips = [
-        ("other commits", &lists, vec!["2".repeat(40)], main.clone()),
-        ("a moved origin/main", &lists, ahead.clone(), "3".repeat(40)),
-        (
-            "a write to the store",
-            &written,
-            ahead.clone(),
-            main.clone(),
-        ),
+        ("other commits", &lists, &other_commits),
+        ("a moved origin/main", &lists, &moved_main),
+        ("a write to the store", &written, &git),
     ];
-    for (what, lists, ahead, main) in tips {
-        let read = reads.of(lists, "bae", &top, &ahead, &main);
+    for (what, lists, git) in tips {
+        let read = reads.of(lists, "bae", &top, git);
         assert!(read.is_err(), "{what} is read again, from git: {read:?}");
     }
 }

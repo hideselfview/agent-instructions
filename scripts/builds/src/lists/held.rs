@@ -18,6 +18,7 @@ use crate::lists::running::{SpanKind, end_span, open_span, running_in, running_i
 use crate::lists::store::{Loaded, Store, lists_of};
 use crate::lists::{Id, Item, Lists, Located, Stamp, Standing, Wait};
 use crate::places::Places;
+use crate::side_git::SideRead;
 
 /// Does <wait> still hold something: a condition, or an open question, item
 /// or design change? A wait on a record that closed without meeting it
@@ -153,23 +154,11 @@ pub struct Worktree {
     pub project: Option<String>,
     /// Is it one of the repo's recorded app checkouts?
     pub app_checkout: bool,
-    /// What it holds that origin/main lacks, or what git said when it could
-    /// not read the worktree.
-    pub work: std::result::Result<Work, String>,
+    /// What git said of it, or what git said when it could not read it.
+    pub git: std::result::Result<SideRead, String>,
     /// The pids of the `git commit`s that run in it, or why builds cannot
     /// tell.
     pub committing: std::result::Result<Vec<i32>, String>,
-}
-
-/// What a claimed worktree holds that origin/main lacks.
-#[derive(Clone, Debug)]
-pub struct Work {
-    /// The commits origin/main has no copy of, oldest first.
-    pub ahead: Vec<String>,
-    /// origin/main's commit, read just before `ahead`.
-    pub main: String,
-    /// How many files are not committed.
-    pub uncommitted: usize,
 }
 
 impl Worktree {
@@ -181,7 +170,7 @@ impl Worktree {
         label: String,
         checkout: &Checkout,
         claim: &Claim,
-        git: &std::result::Result<crate::side_git::SideRead, String>,
+        git: &std::result::Result<SideRead, String>,
         commits: &crate::procs::GitCommits,
     ) -> Result<Worktree> {
         Ok(Worktree {
@@ -193,11 +182,7 @@ impl Worktree {
             app_checkout: places
                 .app_lane_of(&checkout.repo(), &checkout.name())?
                 .is_some(),
-            work: git.clone().map(|git| Work {
-                ahead: git.ahead.iter().rev().map(|c| c.full.clone()).collect(),
-                main: git.main,
-                uncommitted: git.uncommitted,
-            }),
+            git: git.clone(),
             committing: crate::procs::commits_in(commits, &checkout.top),
         })
     }
@@ -213,9 +198,9 @@ impl Worktree {
             && !self.claim.is_held()
             && !self.claim.is_starting()
             && self
-                .work
+                .git
                 .as_ref()
-                .is_ok_and(|work| work.ahead.is_empty() && work.uncommitted == 0)
+                .is_ok_and(|git| git.ahead.is_empty() && git.uncommitted == 0)
             && self.committing.as_ref().is_ok_and(|pids| pids.is_empty())
             && nothing_runs
     }
@@ -248,16 +233,10 @@ pub fn awaiting_review(
             };
             // `findings` names a worktree whose commits or design files
             // health can't read.
-            let Ok(work) = &worktree.work else {
+            let Ok(git) = &worktree.git else {
                 return false;
             };
-            let Ok(commits) = reads.of(
-                lists,
-                &worktree.repo,
-                &worktree.top,
-                &work.ahead,
-                &work.main,
-            ) else {
+            let Ok(commits) = reads.of(lists, &worktree.repo, &worktree.top, git) else {
                 return false;
             };
             commits.iter().any(|commit| {
@@ -340,8 +319,8 @@ pub fn findings(
                 continue;
             }
         };
-        let work = match &worktree.work {
-            Ok(work) => work,
+        let git = match &worktree.git {
+            Ok(git) => git,
             Err(error) => {
                 found.push(Advice::said(format!(
                     "lists: could not read the commits of {}, so health can't tell whether a design change covers them: {error}",
@@ -350,13 +329,7 @@ pub fn findings(
                 continue;
             }
         };
-        let commits = match reads.of(
-            lists,
-            &worktree.repo,
-            &worktree.top,
-            &work.ahead,
-            &work.main,
-        ) {
+        let commits = match reads.of(lists, &worktree.repo, &worktree.top, git) {
             Err(error) => {
                 found.push(Advice::said(format!(
                     "lists: could not read the design files {} changes: {}",
