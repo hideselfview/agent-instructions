@@ -216,10 +216,8 @@ fn parse_picks(
             continue;
         }
         if flag == app_build::ALL_SHOTS {
-            let [lane, after @ ..] = after else {
-                fail!("{} needs a lane\n{USAGE}", app_build::ALL_SHOTS);
-            };
-            picks.push(app_build::all_shots(Lane::parse_or_fail(lane)?));
+            let (pick, after) = app_build::all_shots_flag(after, USAGE)?;
+            picks.push(pick);
             rest = after;
             continue;
         }

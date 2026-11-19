@@ -186,6 +186,16 @@ pub fn all_shots(lane: Lane) -> Pick {
     (lane, PickKind::Shots, lane.all_shots_prefix())
 }
 
+/// The pick of the `--all-shots <lane>` flag whose words after the flag are
+/// <after>, and the words after the lane; fails naming <usage> when no lane
+/// follows.
+pub fn all_shots_flag<'a>(after: &'a [String], usage: &str) -> Result<(Pick, &'a [String])> {
+    let [lane, rest @ ..] = after else {
+        fail!("{ALL_SHOTS} needs a lane\n{usage}");
+    };
+    Ok((all_shots(Lane::parse_or_fail(lane)?), rest))
+}
+
 /// The command-line words that ask for <pick> in a lane's process:
 /// `--all-shots <lane>` for a lane's full set of shots, else the kind's flag,
 /// the lane and the argument.
@@ -216,10 +226,8 @@ fn split_picks(args: &[String]) -> Result<(Vec<String>, Vec<Pick>)> {
     let mut picks = Vec::new();
     while let Some((flag, rest)) = flags.split_first() {
         if flag == ALL_SHOTS {
-            let [lane, after @ ..] = rest else {
-                fail!("{ALL_SHOTS} needs a lane\n{USAGE}");
-            };
-            picks.push(all_shots(Lane::parse_or_fail(lane)?));
+            let (pick, after) = all_shots_flag(rest, USAGE)?;
+            picks.push(pick);
             flags = after;
             continue;
         }
