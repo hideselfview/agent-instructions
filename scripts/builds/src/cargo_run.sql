@@ -5,7 +5,8 @@
 -- builds picked it, how long cargo waited for its file locks, how long the
 -- run took, and the hook check that started it, when one did. hook_stats.rs
 -- reads these rows, through cargo_run.rs, to show where each hook check that
--- ran `builds cargo` ran.
+-- ran `builds cargo` ran, and `builds cargo` reads the host of a checkout's
+-- last run of a subcommand to send the next run of it there (cargo_place.rs).
 
 CREATE TABLE builds_cargo_runs (
     id INTEGER PRIMARY KEY,

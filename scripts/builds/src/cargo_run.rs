@@ -345,15 +345,33 @@ pub fn cmd_cargo(args: &[String]) -> Result<()> {
             cargo_place::note_runs_here(named.as_deref(), &why);
             Choice::Here(why)
         }
-        None => cargo_place::choose(
-            &places,
-            &ssh,
-            Rules::from_env()?.floor_kib,
-            &checkout.as_ref().expect("a checkout was found").repo(),
-            named.as_deref(),
-            runs,
-            crate::app_timing::now(),
-        )?,
+        None => {
+            let checkout = checkout.as_ref().expect("a checkout was found");
+            let subcommand = subcommand.join(" ");
+            let warm;
+            let wanted = match named.as_deref() {
+                Some(name) => cargo_place::Wanted::Named(name),
+                None => {
+                    warm = warm_host(&places, checkout, &subcommand);
+                    match warm.as_deref() {
+                        Some(host) => cargo_place::Wanted::Warm(cargo_place::Warm {
+                            host,
+                            subcommand: &subcommand,
+                        }),
+                        None => cargo_place::Wanted::Room,
+                    }
+                }
+            };
+            cargo_place::choose(
+                &places,
+                &ssh,
+                Rules::from_env()?.floor_kib,
+                &checkout.repo(),
+                wanted,
+                runs,
+                crate::app_timing::now(),
+            )?
+        }
     };
     let picked = match &choice {
         Choice::Here(_) => None,
@@ -414,6 +432,54 @@ fn hook_check(env: &dyn Fn(&str) -> Option<std::ffi::OsString>) -> Result<Option
             None => fail!("{HOOK_CHECK_VARIABLE} is not UTF-8: {value:?}"),
         },
     }
+}
+
+/// The host that ran <checkout>'s last recorded `cargo <subcommand>`, whose
+/// build folder for the checkout holds that build, from the store of its
+/// project; None for a repo in no project or a checkout with no such run.
+/// When the store cannot be read, builds says so on stderr and places the
+/// run by room alone.
+fn warm_host(places: &Places, checkout: &Checkout, subcommand: &str) -> Option<String> {
+    let read = || -> Result<Option<String>> {
+        let Some(path) = crate::lists::store::database_of(places, checkout)? else {
+            return Ok(None);
+        };
+        let Some(conn) = crate::db::open_reader(&path)? else {
+            return Ok(None);
+        };
+        last_host(
+            &conn,
+            &checkout.top.display().to_string(),
+            subcommand,
+            &path,
+        )
+    };
+    read().unwrap_or_else(|error| {
+        crate::text::note(format!(
+            "builds could not read where this checkout's last cargo {subcommand} ran, so it places the run by room alone: {}",
+            error.text()
+        ));
+        None
+    })
+}
+
+/// The host of the newest run of `cargo <subcommand>` in <worktree> that the
+/// database at <path> records, or None when it records none.
+pub fn last_host(
+    conn: &Connection,
+    worktree: &str,
+    subcommand: &str,
+    path: &Path,
+) -> Result<Option<String>> {
+    use rusqlite::OptionalExtension;
+    conn.query_row(
+        "SELECT host FROM builds_cargo_runs WHERE worktree = ?1 AND subcommand = ?2
+         ORDER BY started_at DESC, id DESC LIMIT 1",
+        params![worktree, subcommand],
+        |row| row.get(0),
+    )
+    .optional()
+    .context(|| format!("reading {}", path.display()))
 }
 
 /// Records <run> in the database of <checkout>'s project; a repo in no
@@ -595,6 +661,37 @@ mod tests {
             .unwrap();
         assert_eq!(row, (100, "nextest run".to_string(), None, 30_000));
         assert!(hook_runs(&conn, "/d/bae", 100, &path).unwrap().is_empty());
+    }
+
+    #[test]
+    fn the_last_host_is_the_newest_run_of_the_same_subcommand_in_the_worktree() {
+        let scratch = Scratch::new("cargo-run-last-host");
+        let path = scratch.dir.join(crate::db::DATABASE);
+        let run = |worktree: &str, started_at: i64, subcommand: &str, host: &str| CargoRun {
+            worktree: worktree.into(),
+            started_at,
+            subcommand: Some(subcommand.into()),
+            host: host.into(),
+            load: Load {
+                cores: 10,
+                one_minute: 4.0,
+            },
+            lock_wait: None,
+            took: Duration::from_secs(30),
+            hook_check: None,
+        };
+        record_run(&path, &run("/d/bae", 100, "clippy", "local")).unwrap();
+        record_run(&path, &run("/d/bae", 200, "clippy", "m1")).unwrap();
+        record_run(&path, &run("/d/bae", 300, "test", "local")).unwrap();
+        record_run(&path, &run("/d/other", 400, "clippy", "local")).unwrap();
+        let conn = crate::db::open_reader(&path).unwrap().unwrap();
+        let last = |worktree: &str, subcommand: &str| {
+            last_host(&conn, worktree, subcommand, &path).unwrap()
+        };
+        assert_eq!(last("/d/bae", "clippy"), Some("m1".to_string()));
+        assert_eq!(last("/d/bae", "test"), Some("local".to_string()));
+        assert_eq!(last("/d/bae", "nextest run"), None);
+        assert_eq!(last("/d/new", "clippy"), None);
     }
 
     fn role(dir: &Path) -> &'static [&'static str] {

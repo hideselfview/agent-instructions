@@ -278,10 +278,7 @@ fn the_first_host_by_room_that_has_the_clone_runs_it_and_this_mac_is_the_fallbac
         &places,
         &r.ssh,
         "demo",
-        &probes,
-        0,
-        Runs::Cargo,
-        &Default::default(),
+        rank(&probes, 0, &Default::default(), Runs::Cargo, None),
     )
     .unwrap() else {
         panic!("expected a host");
@@ -301,10 +298,7 @@ fn the_first_host_by_room_that_has_the_clone_runs_it_and_this_mac_is_the_fallbac
             &places,
             &r.ssh,
             "demo",
-            &probes,
-            0,
-            Runs::Cargo,
-            &Default::default()
+            rank(&probes, 0, &Default::default(), Runs::Cargo, None),
         )
         .unwrap(),
         Choice::Here(_)
@@ -317,10 +311,7 @@ fn the_first_host_by_room_that_has_the_clone_runs_it_and_this_mac_is_the_fallbac
         &places,
         &r.ssh,
         "demo",
-        &probes,
-        0,
-        Runs::Cargo,
-        &Default::default(),
+        rank(&probes, 0, &Default::default(), Runs::Cargo, None),
     )
     .unwrap() else {
         panic!("expected this Mac");
@@ -334,15 +325,80 @@ fn the_first_host_by_room_that_has_the_clone_runs_it_and_this_mac_is_the_fallbac
         &places,
         &r.ssh,
         "demo",
-        &probes,
-        0,
-        Runs::Cargo,
-        &Default::default(),
+        rank(&probes, 0, &Default::default(), Runs::Cargo, None),
     )
     .unwrap() else {
         panic!("expected this Mac");
     };
     assert!(why.contains("gone is unreachable"), "{why}");
+}
+
+/// A run goes to the host that ran the checkout's last run of its
+/// subcommand, whose build folder holds that build, even when another host
+/// has more room; when that host cannot take the run, room decides.
+#[test]
+fn the_host_of_the_checkouts_last_run_takes_the_run_while_it_can() {
+    let (r, _main, _side) = remote("place-warm", true, RECORDING_BUILDS);
+    let places = r.scratch.places();
+    let m1 = host("m1", Some("user@m1"));
+    let local = host("local", None);
+    let warm = |host| {
+        Some(Warm {
+            host,
+            subcommand: "clippy",
+        })
+    };
+
+    // m1 has more room, but this Mac ran the last clippy.
+    let probes = vec![(local.clone(), probe(9.0)), (m1.clone(), probe(1.0))];
+    let Choice::Here(why) = pick_ranked(
+        &places,
+        &r.ssh,
+        "demo",
+        rank(&probes, 0, &Default::default(), Runs::Cargo, warm("local")),
+    )
+    .unwrap() else {
+        panic!("expected this Mac");
+    };
+    assert!(
+        why.starts_with(
+            "local ran this checkout's last cargo clippy, and its build folder holds that build; m1 has 9.0 cores of room"
+        ),
+        "{why}"
+    );
+
+    // This Mac has more room, but m1 ran the last clippy.
+    let probes = vec![(local.clone(), probe(1.0)), (m1.clone(), probe(9.0))];
+    let Choice::On(picked, _, _) = pick_ranked(
+        &places,
+        &r.ssh,
+        "demo",
+        rank(&probes, 0, &Default::default(), Runs::Cargo, warm("m1")),
+    )
+    .unwrap() else {
+        panic!("expected m1");
+    };
+    assert_eq!(picked, m1);
+
+    // m1 does not answer, so the run goes by room.
+    let gone = host("m1", Some("unreachable"));
+    let probes = host::probe_all(&places, &r.ssh, vec![local.clone(), gone]);
+    let Choice::Here(why) = pick_ranked(
+        &places,
+        &r.ssh,
+        "demo",
+        rank(&probes, 0, &Default::default(), Runs::Cargo, warm("m1")),
+    )
+    .unwrap() else {
+        panic!("expected this Mac");
+    };
+    assert!(!why.contains("last cargo clippy"), "{why}");
+    assert!(why.contains("m1 is unreachable"), "{why}");
+
+    // A host no longer recorded is no host to wait for.
+    let probes = vec![(local, probe(9.0)), (m1.clone(), probe(1.0))];
+    let (ranked, _) = rank(&probes, 0, &Default::default(), Runs::Cargo, warm("m2"));
+    assert_eq!(ranked[0].0, m1);
 }
 
 #[test]
@@ -351,7 +407,16 @@ fn a_named_host_must_answer_and_this_mac_can_be_named() {
     let places = r.scratch.places();
     // No other host is recorded.
     assert!(matches!(
-        choose(&places, &r.ssh, 0, "demo", None, Runs::Cargo, 1_800_000_000).unwrap(),
+        choose(
+            &places,
+            &r.ssh,
+            0,
+            "demo",
+            Wanted::Room,
+            Runs::Cargo,
+            1_800_000_000
+        )
+        .unwrap(),
         Choice::Here(_)
     ));
     let file = host::hosts_file(&places);
@@ -362,7 +427,7 @@ fn a_named_host_must_answer_and_this_mac_can_be_named() {
         &r.ssh,
         0,
         "demo",
-        Some("gone"),
+        Wanted::Named("gone"),
         Runs::Cargo,
         1_800_000_000,
     ) else {
@@ -375,7 +440,7 @@ fn a_named_host_must_answer_and_this_mac_can_be_named() {
             &r.ssh,
             0,
             "demo",
-            Some("local"),
+            Wanted::Named("local"),
             Runs::Cargo,
             1_800_000_000
         )
@@ -388,7 +453,7 @@ fn a_named_host_must_answer_and_this_mac_can_be_named() {
             &r.ssh,
             0,
             "demo",
-            Some("m1"),
+            Wanted::Named("m1"),
             Runs::Cargo,
             1_800_000_000
         )
@@ -401,7 +466,7 @@ fn a_named_host_must_answer_and_this_mac_can_be_named() {
             &r.ssh,
             0,
             "demo",
-            Some("nobody"),
+            Wanted::Named("nobody"),
             Runs::Cargo,
             1_800_000_000
         )
@@ -434,10 +499,13 @@ fn a_nextest_run_goes_only_to_a_host_with_cargo_nextest() {
         &places,
         &r.ssh,
         "demo",
-        &with_local_load(probes.clone()),
-        0,
-        Runs::Nextest,
-        &Default::default(),
+        rank(
+            &with_local_load(probes.clone()),
+            0,
+            &Default::default(),
+            Runs::Nextest,
+            None,
+        ),
     )
     .unwrap() else {
         panic!("expected this Mac");
@@ -448,10 +516,13 @@ fn a_nextest_run_goes_only_to_a_host_with_cargo_nextest() {
             &places,
             &r.ssh,
             "demo",
-            &with_local_load(probes),
-            0,
-            Runs::Cargo,
-            &Default::default()
+            rank(
+                &with_local_load(probes),
+                0,
+                &Default::default(),
+                Runs::Cargo,
+                None
+            ),
         )
         .unwrap(),
         Choice::On(..)
@@ -461,7 +532,7 @@ fn a_nextest_run_goes_only_to_a_host_with_cargo_nextest() {
         &r.ssh,
         0,
         "demo",
-        Some("m1"),
+        Wanted::Named("m1"),
         Runs::Nextest,
         1_800_000_000,
     ) else {
@@ -481,10 +552,13 @@ fn a_nextest_run_goes_only_to_a_host_with_cargo_nextest() {
             &places,
             &r.ssh,
             "demo",
-            &with_local_load(probes),
-            0,
-            Runs::Nextest,
-            &Default::default()
+            rank(
+                &with_local_load(probes),
+                0,
+                &Default::default(),
+                Runs::Nextest,
+                None
+            ),
         )
         .unwrap(),
         Choice::On(..)
@@ -495,7 +569,7 @@ fn a_nextest_run_goes_only_to_a_host_with_cargo_nextest() {
             &r.ssh,
             0,
             "demo",
-            Some("m1"),
+            Wanted::Named("m1"),
             Runs::Nextest,
             1_800_000_000
         )
@@ -770,10 +844,7 @@ fn a_host_that_refuses_the_job_leaves_it_to_this_mac_and_is_passed_over_until_gi
         &places,
         &ssh,
         "demo",
-        &probes,
-        0,
-        Runs::Cargo,
-        &Default::default(),
+        rank(&probes, 0, &Default::default(), Runs::Cargo, None),
     )
     .unwrap() else {
         panic!("expected this Mac");
@@ -795,10 +866,7 @@ fn a_host_that_refuses_the_job_leaves_it_to_this_mac_and_is_passed_over_until_gi
             &places,
             &ssh,
             "demo",
-            &probes,
-            0,
-            Runs::Cargo,
-            &Default::default()
+            rank(&probes, 0, &Default::default(), Runs::Cargo, None),
         )
         .unwrap(),
         Choice::On(..)
