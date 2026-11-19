@@ -35,6 +35,7 @@ fn shell(pid: i32, minutes: i64, cwd: &Path, command: &str) -> Entry {
         cpu_seconds: 0.01,
         argv: vec!["/bin/zsh".to_string(), "-c".to_string(), script],
         cwd: Some(cwd.to_path_buf()),
+        agent: None,
     }
 }
 
@@ -47,6 +48,7 @@ fn child(pid: i32, parent: &Entry, cpu: f64, argv: &[&str]) -> Entry {
         cpu_seconds: cpu,
         argv: argv.iter().map(|a| a.to_string()).collect(),
         cwd: parent.cwd.clone(),
+        agent: None,
     }
 }
 
@@ -254,7 +256,8 @@ fn a_junk_shell_names_the_process_that_started_it() {
     let found = judge_all(&[polling, live]);
     assert_eq!(found.junk[0].parent, 555);
     assert!(
-        lines(&found)[1].starts_with("    pid 7 (started by pid 555) 3m  demo/side-1  waits"),
+        lines(&found)[1]
+            .starts_with("    pid 7 (agent unknown, started by pid 555) 3m  demo/side-1  waits"),
         "{}",
         lines(&found)[1]
     );
@@ -267,6 +270,7 @@ fn stopping_a_shell_takes_its_tree_deepest_first() {
     let junk = Junk {
         pid: 10,
         parent: 1,
+        agent: Some("a1".to_string()),
         minutes: 4,
         worktree: "demo/side-1".to_string(),
         reason: waits("sleep"),
@@ -274,7 +278,7 @@ fn stopping_a_shell_takes_its_tree_deepest_first() {
     };
     assert_eq!(
         stopped_line(&junk, 4),
-        "stopped pid 10 and 3 processes under it (started by pid 1, demo/side-1): waits (sleep): sleep 600"
+        "stopped pid 10 and 3 processes under it (agent a1, started by pid 1, demo/side-1): waits (sleep): sleep 600"
     );
 }
 
@@ -518,7 +522,7 @@ fn the_lines_say_the_count_and_each_junk_shell() {
     assert_eq!(lines[0], "shells: 2 running, 1 junk");
     assert!(
         lines[1].starts_with(
-            "    pid 7 (started by pid 0) 2h51m  demo/side-1  waits (sleep): sleep 598 # xxx"
+            "    pid 7 (agent unknown, started by pid 0) 2h51m  demo/side-1  waits (sleep): sleep 598 # xxx"
         ),
         "{}",
         lines[1]
@@ -563,4 +567,93 @@ fn the_checkouts_of_shells_that_are_not_junk_are_active() {
     let found = judge_all(&[busy, busy_cargo, stuck]);
     assert_eq!(found.active, vec!["demo/side-1".to_string()]);
     assert_eq!(found.junk.len(), 1);
+}
+
+#[test]
+fn the_agent_comes_from_the_environment_or_the_command_text() {
+    let env = |vars: &[&str]| vars.iter().map(|v| v.to_string()).collect::<Vec<_>>();
+    assert_eq!(
+        agent_in_environment(&env(&["A=1", "BUILDS_AGENT=a7f"])),
+        Some("a7f".to_string())
+    );
+    assert_eq!(agent_in_environment(&env(&["BUILDS_AGENT="])), None);
+    assert_eq!(agent_in_environment(&env(&["OTHER_BUILDS_AGENT=x"])), None);
+    let text = |t: &str| agent_in_text(t);
+    assert_eq!(
+        text("cd /w && BUILDS_AGENT=ac0ffee scripts/cargo.sh test"),
+        Some("ac0ffee".to_string())
+    );
+    assert_eq!(
+        text("export BUILDS_AGENT=a09c; git log"),
+        Some("a09c".to_string())
+    );
+    assert_eq!(
+        text("export BUILDS_AGENT=\"a1b2\" && ls"),
+        Some("a1b2".to_string())
+    );
+    assert_eq!(text("echo $BUILDS_AGENT; sleep 5"), None);
+    assert_eq!(text("MY_BUILDS_AGENT=a1 ls"), None);
+    assert_eq!(text("sleep 590; date +%s"), None);
+}
+
+#[test]
+fn a_junk_shell_names_its_agent_on_both_lines() {
+    let polling = shell(
+        7,
+        3,
+        &side(1),
+        "cd /w && export BUILDS_AGENT=a77 && sleep 590; date +%s",
+    );
+    let sleep = child(71, &polling, 0.0, &["sleep", "590"]);
+    let found = judge_all(&[polling, sleep]);
+    assert_eq!(found.junk[0].agent.as_deref(), Some("a77"));
+    assert!(
+        lines(&found)[1].starts_with("    pid 7 (agent a77, started by pid 0) 3m"),
+        "{}",
+        lines(&found)[1]
+    );
+    assert!(
+        stopped_line(&found.junk[0], 2)
+            .starts_with("stopped pid 7 and 1 processes under it (agent a77, started by pid 0, "),
+        "{}",
+        stopped_line(&found.junk[0], 2)
+    );
+}
+
+#[test]
+fn an_agent_in_the_environment_of_a_process_in_the_tree_names_the_agent() {
+    let polling = shell(7, 3, &side(1), "sleep 590");
+    let mut sleep = child(71, &polling, 0.0, &["sleep", "590"]);
+    sleep.agent = Some("a9e".to_string());
+    let found = judge_all(&[polling, sleep]);
+    assert_eq!(found.junk[0].agent.as_deref(), Some("a9e"));
+}
+
+#[test]
+fn a_read_with_a_timeout_or_a_timeout_around_a_sleep_is_a_wait() {
+    let kinds = [
+        ("read -t 165 x < <(sleep 165)", waits("read -t")),
+        (
+            "timeout 170 bash -c 'read -t 165 x < <(sleep 165)'",
+            waits("timeout around a sleep"),
+        ),
+        (
+            "timeout 60 bash -c 'echo a; sleep 50; echo b'",
+            waits("timeout around a sleep"),
+        ),
+    ];
+    for (command, reason) in kinds {
+        let found = judge_all(&[shell(7, 3, &side(1), command)]);
+        assert_eq!(reasons(&found), vec![(7, reason)], "{command}");
+    }
+    for command in [
+        "read x < file",
+        "timeout 60 cargo test",
+        "timeout 5 bash -c 'echo hi'",
+    ] {
+        assert!(
+            judge_all(&[shell(7, 3, &side(1), command)]).junk.is_empty(),
+            "{command}"
+        );
+    }
 }

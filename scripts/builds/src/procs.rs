@@ -17,7 +17,7 @@ mod os;
 #[path = "procs_linux.rs"]
 mod os;
 
-pub use os::{args, cwd, ended, open_files, tree_cpu, usage};
+pub use os::{args, cwd, ended, environment, open_files, tree_cpu, usage};
 
 /// Names of the processes that build: compilers, linkers and build tools.
 pub const BUILD_NAMES: [&str; 17] = [

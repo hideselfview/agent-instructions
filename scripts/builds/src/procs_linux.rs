@@ -180,6 +180,19 @@ pub fn args(pid: i32) -> Option<Vec<String>> {
     )
 }
 
+/// The environment <pid> started with (/proc/<pid>/environ), as `NAME=value`
+/// strings; None when it exited or can't be read.
+pub fn environment(pid: i32) -> Option<Vec<String>> {
+    let bytes = std::fs::read(format!("/proc/{pid}/environ")).ok()?;
+    Some(
+        bytes
+            .split(|b| *b == 0)
+            .filter(|part| !part.is_empty())
+            .map(|part| String::from_utf8_lossy(part).into_owned())
+            .collect(),
+    )
+}
+
 /// CPU time used so far, in seconds, and the resident memory in bytes.
 pub fn usage(pid: i32) -> Option<(f64, u64)> {
     let stat = or_note(read_stat(pid)).flatten()?;

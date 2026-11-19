@@ -147,9 +147,10 @@ pub fn cwd(pid: i32) -> Option<PathBuf> {
     }
 }
 
-/// The arguments <pid> was started with (KERN_PROCARGS2); None when it exited
-/// or can't be read.
-pub fn args(pid: i32) -> Option<Vec<String>> {
+/// The KERN_PROCARGS2 buffer of <pid>: None when it exited or can't be read.
+/// The kernel hides the environment of Apple's own programs (`/bin/zsh`,
+/// `/bin/sleep`), so their buffers hold no environment.
+fn procargs(pid: i32) -> Option<Vec<u8>> {
     let mut size: libc::size_t = 0;
     let mut mib = [libc::CTL_KERN, libc::KERN_ARGMAX];
     let mut argmax: libc::c_int = 0;
@@ -184,6 +185,13 @@ pub fn args(pid: i32) -> Option<Vec<String>> {
         return None;
     }
     buffer.truncate(size);
+    Some(buffer)
+}
+
+/// The arguments and the environment (`NAME=value` strings) in a
+/// KERN_PROCARGS2 <buffer>: the argument count, the executable's path, NULs,
+/// the arguments, then the environment, each string ended by a NUL.
+fn split_procargs(buffer: &[u8]) -> Option<(Vec<String>, Vec<String>)> {
     if buffer.len() < 4 {
         return None;
     }
@@ -194,11 +202,23 @@ pub fn args(pid: i32) -> Option<Vec<String>> {
     rest = &rest[end..];
     let start = rest.iter().position(|b| *b != 0)?;
     rest = &rest[start..];
-    let mut found = Vec::with_capacity(argc);
-    for part in rest.split(|b| *b == 0).take(argc) {
-        found.push(String::from_utf8_lossy(part).into_owned());
-    }
-    Some(found)
+    let mut parts = rest.split(|b| *b == 0);
+    let text = |part: &[u8]| String::from_utf8_lossy(part).into_owned();
+    let args = parts.by_ref().take(argc).map(text).collect();
+    let env = parts.filter(|part| !part.is_empty()).map(text).collect();
+    Some((args, env))
+}
+
+/// The arguments <pid> was started with (KERN_PROCARGS2); None when it exited
+/// or can't be read.
+pub fn args(pid: i32) -> Option<Vec<String>> {
+    split_procargs(&procargs(pid)?).map(|(args, _)| args)
+}
+
+/// The environment <pid> was started with, as `NAME=value` strings; None when
+/// it exited or can't be read.
+pub fn environment(pid: i32) -> Option<Vec<String>> {
+    split_procargs(&procargs(pid)?).map(|(_, env)| env)
 }
 
 /// CPU time used so far, in seconds, and the physical footprint in bytes.
@@ -339,6 +359,16 @@ pub fn open_files(pid: i32) -> Vec<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_procargs_buffer_splits_into_arguments_and_environment() {
+        let mut buffer = 2i32.to_ne_bytes().to_vec();
+        buffer.extend(b"/bin/zsh\0\0\0zsh\0-c\0A=1\0BUILDS_AGENT=a7\0\0\0");
+        let (args, env) = split_procargs(&buffer).unwrap();
+        assert_eq!(args, ["zsh", "-c"]);
+        assert_eq!(env, ["A=1", "BUILDS_AGENT=a7"]);
+        assert!(split_procargs(&[1, 0]).is_none());
+    }
 
     /// A list that fills the whole buffer may be cut short, so the buffer
     /// grows until the list fits with room to spare; a list that fails, at

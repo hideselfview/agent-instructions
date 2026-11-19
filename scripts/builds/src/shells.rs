@@ -18,7 +18,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::procs::{Place, Processes, args, cwd, place_of, tree_cpu};
+use crate::procs::{Place, Processes, args, cwd, environment, place_of, tree_cpu};
 use crate::text::tilde;
 
 /// A shell this old, whose whole tree has used less than IDLE_SHARE of a
@@ -48,6 +48,12 @@ pub struct Junk {
     /// The process that started the shell: the agent's host, so the coordinator
     /// can tell which agent left it.
     pub parent: i32,
+    /// The builds agent that ran the command (its BUILDS_AGENT), when the
+    /// shell's environment or its command text says. Every subagent of one
+    /// Claude Code session shares the parent process, so only this tells which
+    /// agent left the shell.
+    #[serde(default)]
+    pub agent: Option<String>,
     pub minutes: i64,
     /// The checkout the command runs in, else its folder.
     pub worktree: String,
@@ -92,6 +98,44 @@ pub struct Entry {
     pub cpu_seconds: f64,
     pub argv: Vec<String>,
     pub cwd: Option<PathBuf>,
+    /// The process's BUILDS_AGENT, when its environment is readable and sets
+    /// one. macOS hides the environment of Apple's own programs, so a shell
+    /// or `sleep` never has one there.
+    pub agent: Option<String>,
+}
+
+/// The value of BUILDS_AGENT in <environment>.
+fn agent_in_environment(environment: &[String]) -> Option<String> {
+    environment
+        .iter()
+        .find_map(|var| var.strip_prefix("BUILDS_AGENT="))
+        .filter(|id| !id.is_empty())
+        .map(str::to_string)
+}
+
+/// The agent id a command's text sets: the first `BUILDS_AGENT=<id>`, as
+/// `export BUILDS_AGENT=<id>` or `BUILDS_AGENT=<id> command` does.
+fn agent_in_text(text: &str) -> Option<String> {
+    const NAME: &str = "BUILDS_AGENT=";
+    let mut from = 0;
+    while let Some(at) = text[from..].find(NAME) {
+        let start = from + at + NAME.len();
+        let id: String = text[start..]
+            .trim_start_matches(['"', '\''])
+            .chars()
+            .take_while(|c| c.is_ascii_alphanumeric())
+            .collect();
+        // `XBUILDS_AGENT=` is another variable.
+        let named = text[..from + at]
+            .chars()
+            .next_back()
+            .is_none_or(|c| !(c.is_ascii_alphanumeric() || c == '_'));
+        if named && !id.is_empty() {
+            return Some(id);
+        }
+        from = start;
+    }
+    None
 }
 
 fn is_agent_shell(entry: &Entry) -> bool {
@@ -117,6 +161,7 @@ pub fn gather(processes: &Processes, uid: u32) -> Vec<Entry> {
             cpu_seconds: tree_cpu(pid).unwrap_or(0.0),
             argv,
             cwd: cwd(pid),
+            agent: environment(pid).and_then(|env| agent_in_environment(&env)),
         })
     };
     let mut children: HashMap<i32, Vec<usize>> = HashMap::new();
@@ -430,10 +475,27 @@ fn caffeinate_waits(rest: &[String]) -> bool {
 }
 
 /// What a simple command <argv> of the shell's text loops as, when it starts
-/// a wait loop: `until`, or `while` other than `while read`. A loop is a wait
-/// even between two of its `sleep`s, when no `sleep` process is running.
+/// a wait loop: `until`, `while` other than `while read`, `read -t` (a read
+/// that gives up after a timeout, which a `< <(sleep N)` feeds), or `timeout`
+/// around a script that sleeps or reads with a timeout. A loop is a wait even
+/// between two of its `sleep`s, when no `sleep` process is running.
 fn loops_as(argv: &[String]) -> Option<String> {
     match argv.first()?.as_str() {
+        "read"
+            if argv[1..]
+                .iter()
+                .any(|a| a.starts_with('-') && !a.starts_with("--") && a.contains('t')) =>
+        {
+            Some("read -t".to_string())
+        }
+        "timeout" => argv[1..]
+            .iter()
+            .filter(|a| a.contains(char::is_whitespace))
+            .flat_map(|script| commands(script))
+            .any(|inner| {
+                inner.first().is_some_and(|w| basename(w) == "sleep") || loops_as(&inner).is_some()
+            })
+            .then(|| "timeout around a sleep".to_string()),
         "until" => Some("an until loop".to_string()),
         "while"
             if !argv
@@ -510,6 +572,7 @@ fn whole_disk(argv: &[String], home: &Path) -> Option<String> {
 struct Candidate {
     pid: i32,
     parent: i32,
+    agent: Option<String>,
     started: i64,
     worktree: String,
     command: String,
@@ -607,9 +670,14 @@ pub fn judge(
                     .iter()
                     .find_map(|argv| whole_disk(argv, home).map(Reason::WholeDisk))
             });
+        let agent = tree
+            .iter()
+            .find_map(|e| e.agent.clone())
+            .or_else(|| agent_in_text(&command));
         candidates.push(Candidate {
             pid: top.pid,
             parent: top.ppid,
+            agent,
             started: top.started,
             worktree,
             command: crate::text::one_line(rest),
@@ -668,6 +736,7 @@ pub fn judge(
             c.junk.map(|reason| Junk {
                 pid: c.pid,
                 parent: c.parent,
+                agent: c.agent,
                 minutes: crate::text::minutes_since(now, c.started),
                 worktree: c.worktree,
                 reason,
@@ -697,15 +766,21 @@ pub fn lines(shells: &Shells) -> Vec<String> {
             format!("{}m", j.minutes)
         };
         out.push(format!(
-            "    pid {} (started by pid {}) {age}  {}  {}: {}",
+            "    pid {} ({}) {age}  {}  {}: {}",
             j.pid,
-            j.parent,
+            origin(j),
             j.worktree,
             j.reason.describe(),
             j.command
         ));
     }
     out
+}
+
+/// Who left <junk>: its agent, when known, and the process that started it.
+fn origin(junk: &Junk) -> String {
+    let agent = junk.agent.as_deref().unwrap_or("unknown");
+    format!("agent {agent}, started by pid {}", junk.parent)
 }
 
 /// The pids of <top> and everything under it, deepest first, from <pairs> of
@@ -729,10 +804,10 @@ fn tree_of(pairs: &[(i32, i32)], top: i32) -> Vec<i32> {
 /// The line that says <junk> was stopped, with <count> processes.
 fn stopped_line(junk: &Junk, count: usize) -> String {
     format!(
-        "stopped pid {} and {} processes under it (started by pid {}, {}): {}: {}",
+        "stopped pid {} and {} processes under it ({}, {}): {}: {}",
         junk.pid,
         count - 1,
-        junk.parent,
+        origin(junk),
         junk.worktree,
         junk.reason.describe(),
         junk.command
