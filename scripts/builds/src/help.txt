@@ -1405,7 +1405,11 @@ STATUS, HEALTH AND THE DASHBOARD
                               three quarters of its cores, while items of any
                               project are ready to dispatch (`builds next`),
                               when `builds cargo` can run there (start
-                              agents); this Mac or a host over its cores, its
+                              agents), and when it cannot, the reason it
+                              passes the host over (free disk under the
+                              floor, git failing, no measured core speed)
+                              with the fix (`builds prune`, git on the
+                              host, `builds host setup <name>`); this Mac or a host over its cores, its
                               5-minute load over five quarters of them (start
                               nothing new); this Mac or a host that did not
                               say its load, with what went wrong

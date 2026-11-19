@@ -86,25 +86,55 @@ fn a_host_over_its_cores_asks_to_start_nothing_new() {
     );
 }
 
-/// Idle cores that `builds cargo` never uses ask for no agents: a host that
-/// refuses jobs, is under the free-disk floor or has no measured core speed
-/// (`host::takes_cargo` says no to each).
+/// Idle cores that `builds cargo` never uses ask for no agents. Health says
+/// why `builds cargo` passes the host over and what fixes it: a host under the
+/// free-disk floor, one whose git fails, and one with no measured core speed.
 #[test]
-fn a_host_that_takes_no_cargo_job_asks_for_no_agents() {
+fn a_host_that_takes_no_cargo_job_says_why_and_how_to_fix_it() {
+    let roomy = Probe {
+        free_kib: 100 * 1024 * 1024,
+        ..loaded(0.0).unwrap()
+    };
     let refusing = Ok(Probe {
         git_fails: Some("no license".to_string()),
-        ..loaded(0.0).unwrap()
+        ..roomy.clone()
     });
     let full = Ok(Probe {
-        free_kib: 10,
+        free_kib: 29 * 1024 * 1024,
         ..loaded(0.0).unwrap()
     });
     let hosts = [
         (host("refusing", Some(1.0)), refusing),
         (host("full", Some(1.0)), full),
-        (host("new", None), loaded(0.0)),
+        (host("new", None), Ok(roomy)),
     ];
-    assert!(lines(&hosts, 5).is_empty());
+    let floor_kib = 30 * 1024 * 1024;
+    let lines: Vec<String> = findings(&hosts, 5, floor_kib)
+        .iter()
+        .map(Advice::line)
+        .collect();
+    assert_eq!(
+        lines,
+        [
+            "cores idle on host refusing while 5 items are ready, but builds cargo passes it over: refusing refuses jobs (git fails there: no license). Fix git on refusing",
+            "cores idle on host full while 5 items are ready, but builds cargo passes it over: full has 29.0G free, under the floor of 30.0G. Free disk there (builds help, DISK), starting with `builds prune`",
+            "cores idle on host new while 5 items are ready, but builds cargo passes it over: new has no measured core speed (`builds host setup new`)",
+        ]
+    );
+}
+
+/// A host `builds cargo` passes over gets no line while it is busy or while
+/// no item is ready, as for any other host.
+#[test]
+fn a_host_that_takes_no_cargo_job_needs_nothing_unless_idle_with_items_ready() {
+    let full = |five| {
+        Ok(Probe {
+            free_kib: 10,
+            ..loaded(five).unwrap()
+        })
+    };
+    assert!(lines(&[(host("full", Some(1.0)), full(0.0))], 0).is_empty());
+    assert!(lines(&[(host("full", Some(1.0)), full(8.0))], 5).is_empty());
 }
 
 /// A host that does not say its load is a finding that names the host and

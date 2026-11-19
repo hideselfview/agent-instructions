@@ -20,9 +20,10 @@ const OVER_SHARE: f64 = 1.25;
 
 /// The lines for <hosts>, each with its probe, while <ready> items are ready
 /// to dispatch: each host that did not answer, each host over its cores, and
-/// each host with idle cores while items are ready that `builds cargo` can
-/// give work to (`host::takes_cargo`, with <floor_kib> of free disk): agents
-/// started for the idle cores of any other host would build elsewhere.
+/// each host with idle cores while items are ready. A host that `builds cargo`
+/// can give work to (`host::takes_cargo`, with <floor_kib> of free disk) gets
+/// "start agents"; any other gets the reason `builds cargo` passes it over and
+/// the fix, because agents started for its cores would build elsewhere.
 pub fn findings(
     hosts: &[(Host, std::result::Result<Probe, String>)],
     ready: usize,
@@ -48,18 +49,44 @@ pub fn findings(
                 "{} is over its cores: {load}; start nothing new, except builds items, which this does not hold back",
                 crate::host::place(&host.name)
             )));
-        } else if ready > 0
-            && five < IDLE_SHARE * cores
-            && crate::host::takes_cargo(host, probe, floor_kib).is_ok()
-        {
-            found.push(Advice::said(format!(
-                "cores idle on {} while {}: {load}; start agents",
-                crate::host::place(&host.name),
-                crate::text::counted(ready, "item is ready", "items are ready")
-            )));
+        } else if ready > 0 && five < IDLE_SHARE * cores {
+            let items = crate::text::counted(ready, "item is ready", "items are ready");
+            let place = crate::host::place(&host.name);
+            match crate::host::takes_cargo(host, probe, floor_kib) {
+                Ok(_) => found.push(Advice::said(format!(
+                    "cores idle on {place} while {items}: {load}; start agents"
+                ))),
+                Err(why) => found.push(passed_over(host, answer, floor_kib, &place, &items, &why)),
+            }
         }
     }
     found
+}
+
+/// The line for an idle host that `builds cargo` passes over for <why> (what
+/// `host::takes_cargo` said), with the fix for that reason: agents started for
+/// its cores would build elsewhere, so health says what keeps work off it.
+fn passed_over(
+    host: &Host,
+    answer: &Probe,
+    floor_kib: u64,
+    place: &str,
+    items: &str,
+    why: &str,
+) -> Advice {
+    let name = &host.name;
+    let said =
+        format!("cores idle on {place} while {items}, but builds cargo passes it over: {why}");
+    if answer.free_kib < floor_kib {
+        Advice::run(
+            format!("{said}. Free disk there (builds help, DISK), starting with"),
+            "builds prune".to_string(),
+        )
+    } else if answer.git_fails.is_some() {
+        Advice::said(format!("{said}. Fix git on {name}"))
+    } else {
+        Advice::said(said)
+    }
 }
 
 /// The project whose items go first: work on the builds tool slows every agent
