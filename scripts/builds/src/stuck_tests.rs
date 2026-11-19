@@ -80,12 +80,35 @@ fn lists_a_pegged_system_daemon_with_the_sudo_command() {
     );
 }
 
+const WINDOW_SERVER: &str =
+    "/System/Library/PrivateFrameworks/SkyLight.framework/Resources/WindowServer -daemon";
+
 #[test]
-fn a_busy_system_daemon_with_little_cpu_time_is_listed_not_flagged() {
-    let rows = vec![row(9, 1, 0, 95.0, 700.0, 2_000, "/usr/libexec/mds")];
+fn a_daemon_with_high_lifetime_cpu_and_low_recent_cpu_is_not_flagged() {
+    // 5h56m of CPU over 4 days, 12% of a core in the last window.
+    let rows = vec![row(617, 1, 0, 12.0, 21_360.0, 4 * 86_400, WINDOW_SERVER)];
+    let busy = judge("local", &rows, &HashMap::new(), &sampling(), None);
+    assert_eq!(busy, vec![]);
+}
+
+#[test]
+fn a_daemon_with_high_recent_cpu_is_flagged_with_the_sample_command() {
+    let rows = vec![row(617, 1, 0, 85.0, 21_360.0, 4 * 86_400, WINDOW_SERVER)];
     let busy = judge("local", &rows, &HashMap::new(), &sampling(), None);
     assert_eq!(busy.len(), 1);
-    assert_eq!(busy[0].action, None);
+    let action = busy[0].action.as_ref().unwrap();
+    assert!(
+        action.text.contains("85% of a core over the last 5s"),
+        "{action:?}"
+    );
+    assert!(
+        action
+            .command
+            .as_deref()
+            .unwrap()
+            .contains("sudo sample 617 5 -file"),
+        "{action:?}"
+    );
 }
 
 #[test]

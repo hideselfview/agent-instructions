@@ -25,7 +25,8 @@ use crate::host::{Accept, Host, Ssh, command_at, output_of};
 use crate::shells::{IDLE_MINUTES, IDLE_SHARE, basename, command_of, is_agent_argv, shown};
 use crate::text::duration;
 
-/// Busy now: over this share of a core and over BUSY_CPU_SECONDS of CPU time.
+/// Busy now: over this share of a core, over the host scan's window, and over
+/// BUSY_CPU_SECONDS of CPU time since the process started.
 const BUSY_PERCENT: f64 = 50.0;
 const BUSY_CPU_SECONDS: f64 = 10.0 * 60.0;
 /// Or at this share or more, for this long.
@@ -33,8 +34,6 @@ const PEGGED_PERCENT: f64 = 90.0;
 const PEGGED_SECONDS: i64 = 30 * 60;
 /// A test binary running this long has run longer than a test run takes.
 const TEST_SECONDS: i64 = 30 * 60;
-/// A system daemon with this much CPU time, still busy, is pegged.
-const DAEMON_CPU_SECONDS: f64 = 2.0 * 60.0 * 60.0;
 /// fseventsd is flagged as soon as it is busy: every program that watches
 /// files depends on it, and a cause is only found by sampling it while it runs.
 const FSEVENTSD: &str = "fseventsd";
@@ -52,7 +51,9 @@ pub struct Row {
     pub pid: i32,
     pub ppid: i32,
     pub uid: u32,
-    /// The share of a core in use now, as a percentage.
+    /// The share of a core the process used over the host scan's window
+    /// (`host_scan::WINDOW_SECONDS`), as a percentage. Rows from `parse_ps`
+    /// hold what `ps` prints, and a scan replaces it with the measured share.
     pub cpu_percent: f64,
     pub cpu_seconds: f64,
     pub age_seconds: i64,
@@ -76,7 +77,7 @@ fn parse_elapsed(text: &str) -> Option<i64> {
 
 /// `[hh:]mm:ss.cc` (macOS) or `[dd-]hh:mm:ss` (Linux) as seconds; minutes may
 /// pass 59.
-fn parse_cpu_time(text: &str) -> Option<f64> {
+pub fn parse_cpu_time(text: &str) -> Option<f64> {
     let (days, text) = match text.split_once('-') {
         Some((days, clock)) => (days.parse::<f64>().ok()?, clock),
         None => (0.0, text),
@@ -496,10 +497,11 @@ fn action_for(host: &str, owner: &Owner, row: &Row, sampling: &Sampling) -> Opti
             ),
             sample,
         )),
-        Owner::System { .. } if row.cpu_seconds >= DAEMON_CPU_SECONDS => Some(Advice::run(
+        Owner::System { .. } => Some(Advice::run(
             format!(
-                "this system daemon has used {} of CPU and still runs busy; read a sample of it before anyone kills it, and take the sample with",
-                duration(row.cpu_seconds as i64),
+                "this system daemon used {:.0}% of a core over the last {}s; read a sample of it before anyone kills it, and take the sample with",
+                row.cpu_percent,
+                crate::host_scan::WINDOW_SECONDS,
             ),
             sample,
         )),

@@ -9,12 +9,17 @@
 use crate::fail;
 use crate::fail::Result;
 use crate::host::{Accept, Host, Ssh, Terminal, command_at, output_of, place};
-use crate::stuck::{PS_FORMAT, Row, parse_ps};
+use crate::stuck::{PS_FORMAT, Row, parse_cpu_time, parse_ps};
 
 /// The line after which the script prints its `ps` listing: every line
 /// before it is `<key>=<value>`, and no `ps` line can equal it, since each
 /// starts with a pid.
 const PS_FOLLOWS: &str = "ps_follows=1";
+/// The line after which the script prints each process's CPU time, taken
+/// WINDOW_SECONDS before its `ps` listing.
+const PS_EARLIER: &str = "ps_earlier=1";
+/// Seconds between the script's two reads of each process's CPU time.
+pub const WINDOW_SECONDS: u32 = 5;
 
 /// What a host's script printed, read.
 #[derive(Clone, Debug)]
@@ -92,7 +97,10 @@ impl JobRun {
 /// which the user time already counts. The run script removes a claim
 /// folder's run record when its command ends, but one that was killed leaves
 /// the record behind, naming a group that no longer runs, so the script
-/// prints only the groups that run. dash, Linux's sh, takes no `--` before a
+/// prints only the groups that run. The script lists each process's CPU time,
+/// waits WINDOW_SECONDS and lists the processes again, so `parse` sets each
+/// row's CPU share to what the process used in that window, not the decayed
+/// average `ps` prints. dash, Linux's sh, takes no `--` before a
 /// process group.
 pub fn script(host: &Host) -> String {
     format!(
@@ -108,6 +116,9 @@ for claim in "$HOME"/dev/*-worktrees/*.job; do
   kill -0 "-$1" 2>/dev/null && echo "job=${{claim%.job}} $1 $2"
 done
 {listener}
+echo {PS_EARLIER}
+ps -axww -o pid=,cputime=
+sleep {WINDOW_SECONDS}
 echo {PS_FOLLOWS}
 ps -axww -o {PS_FORMAT}"#,
         root = crate::remote::root_script(host),
@@ -124,10 +135,40 @@ fn parse_cpu(line: &str) -> std::result::Result<f64, String> {
         .ok_or_else(|| format!("top printed no idle share: {line:?}"))
 }
 
+/// <rows> with each CPU share replaced by the share of a core the process
+/// used in the WINDOW_SECONDS since <earlier>, `ps`'s listing of pid and CPU
+/// time. A process that <earlier> lacks, or whose CPU time is lower there (a
+/// new process on a reused pid), used all its CPU time in the window.
+fn measured(mut rows: Vec<Row>, earlier: &str) -> std::result::Result<Vec<Row>, String> {
+    let mut before = std::collections::HashMap::new();
+    for line in earlier.lines().filter(|line| !line.trim().is_empty()) {
+        let mut words = line.split_whitespace();
+        let read = (|| {
+            Some((
+                words.next()?.parse::<i32>().ok()?,
+                parse_cpu_time(words.next()?)?,
+            ))
+        })();
+        let (pid, seconds) = read.ok_or_else(|| format!("bad earlier CPU time line: {line}"))?;
+        before.insert(pid, seconds);
+    }
+    for row in &mut rows {
+        let used = match before.get(&row.pid) {
+            Some(&seconds) if seconds <= row.cpu_seconds => row.cpu_seconds - seconds,
+            _ => row.cpu_seconds,
+        };
+        row.cpu_percent = used / f64::from(WINDOW_SECONDS) * 100.0;
+    }
+    Ok(rows)
+}
+
 /// Reads what `script` printed.
 pub fn parse(text: &str) -> std::result::Result<Scan, String> {
-    let Some((head, ps)) = text.split_once(&format!("\n{PS_FOLLOWS}\n")) else {
+    let Some((before, ps)) = text.split_once(&format!("\n{PS_FOLLOWS}\n")) else {
         return Err(format!("the host printed no process listing: {text:?}"));
+    };
+    let Some((head, earlier)) = before.split_once(&format!("\n{PS_EARLIER}\n")) else {
+        return Err(format!("the host printed no earlier CPU times: {text:?}"));
     };
     let value = |key: &str| crate::host::answer_value(head, key);
     let jobs = head
@@ -160,7 +201,7 @@ pub fn parse(text: &str) -> std::result::Result<Scan, String> {
     .map_err(|fault| fault.text());
     Ok(Scan {
         uid,
-        rows: parse_ps(ps)?,
+        rows: measured(parse_ps(ps)?, earlier)?,
         cpu_idle: match value("cpu_idle") {
             Some(idle) => idle
                 .parse()
