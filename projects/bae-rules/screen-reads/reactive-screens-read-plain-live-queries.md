@@ -301,22 +301,25 @@ building it.
 
 ### What the pre-commit hook checks
 
-bae's pre-commit hook refuses the shapes it can see in Rust read code (the
-ownership check's `read-shapes` rule). The violations in the code today are
-listed in `read_shapes.frozen` in `owner-construction-check.toml`, one row per
-function and shape, with how many times it occurs there. The hook lets those
-through, and fails a commit that adds a row or raises a count, so the list can
-only shrink as the code is fixed. A frozen row is a violation not yet fixed,
-never permission: a change to a frozen site that keeps the shape still breaks
-this rule. Uses over values that are not a read's rows (a constant table, one
-name's characters) go in `allowed` with what the values are.
+bae's pre-commit hook runs coven's typed lints in clippy. Their read-rule lints
+(`clippy::read_sort`, `clippy::read_filter`, `clippy::read_query_per_row`,
+`clippy::read_kept_state` and the rest, one for each shape) refuse the shapes
+they can see in Rust read code. The `read_shapes` table of
+`owner-construction-check.toml` tells the lints which types are reads, live
+queries and kept state. Each finding bae keeps today carries an
+`#[expect(clippy::read_<shape>, reason = "...")]` on the narrowest item that
+takes one, a statement where it can. A mark whose reason starts with "kept
+finding" is a violation not yet fixed, never permission: a change to that code
+that keeps the shape still breaks this rule. A mark with any other reason says
+why the values are not a read's rows. A mark that no longer covers a finding
+fails the hook, so the mark goes when its code is fixed.
 
-The check counts a closure passed to a live query's `process`, and every
-function it calls, as read code. So it also flags row work (such as grouping,
-counting or `position`) in a function this rule allows there.
+The lints find nothing in code that only a live query's `process` runs, over the
+one result it passes. A function other crates can call is never such code, since
+the compile cannot see their calls, so the lints flag row work there.
 
-- Before you list such a finding, check the function against "Shaping one result
+- Before you mark such a finding, check the function against "Shaping one result
   in Rust": it takes only that one result, keeps nothing between runs, and only
   shapes how the rows display.
-- List it in `allowed` with what the function shapes for display and which
-  query's result it takes.
+- Mark it with what the function shapes for display and which query's result it
+  takes.
