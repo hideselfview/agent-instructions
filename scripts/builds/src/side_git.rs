@@ -58,7 +58,28 @@ impl SideGit {
 /// What git printed in <top>, run read-only with its optional locks off, or
 /// what it said when it failed.
 pub fn run(top: &Path, args: &[&str]) -> Result<String, String> {
-    let output = Command::new("git")
+    let output = output_of(top, args)?;
+    if !output.status.success() {
+        return Err(failed(top, args, &output));
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+}
+
+/// What git printed in <top> for a question it answers no to by exiting 1,
+/// as `git symbolic-ref -q` and `git merge-base --is-ancestor` do: Some for
+/// yes, None for no, or what git said when it failed in any other way.
+pub fn ask(top: &Path, args: &[&str]) -> Result<Option<String>, String> {
+    let output = output_of(top, args)?;
+    match output.status.code() {
+        Some(0) => Ok(Some(String::from_utf8_lossy(&output.stdout).into_owned())),
+        Some(1) => Ok(None),
+        _ => Err(failed(top, args, &output)),
+    }
+}
+
+/// git run in <top> read-only, with its optional locks off.
+fn output_of(top: &Path, args: &[&str]) -> Result<std::process::Output, String> {
+    Command::new("git")
         .arg("--no-optional-locks")
         .arg("-C")
         .arg(top)
@@ -67,18 +88,19 @@ pub fn run(top: &Path, args: &[&str]) -> Result<String, String> {
         .current_dir("/")
         .stdin(Stdio::null())
         .output()
-        .map_err(|error| format!("running git: {error}"))?;
-    if !output.status.success() {
-        let shown: Vec<&str> = args.iter().take(4).copied().collect();
-        return Err(format!(
-            "git -C {} {} exited {}: {}",
-            top.display(),
-            shown.join(" "),
-            output.status.code().unwrap_or(-1),
-            String::from_utf8_lossy(&output.stderr).trim()
-        ));
-    }
-    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+        .map_err(|error| format!("running git: {error}"))
+}
+
+/// What a git that <output> says failed, run in <top> with <args>, said.
+fn failed(top: &Path, args: &[&str], output: &std::process::Output) -> String {
+    let shown: Vec<&str> = args.iter().take(4).copied().collect();
+    format!(
+        "git -C {} {} exited {}: {}",
+        top.display(),
+        shown.join(" "),
+        output.status.code().unwrap_or(-1),
+        String::from_utf8_lossy(&output.stderr).trim()
+    )
 }
 
 /// The commits `git log <rev>` lists in <top>, newest first.

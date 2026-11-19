@@ -41,3 +41,16 @@ fn a_commit_is_on_the_runs_branch_when_the_branch_or_main_since_the_fork_holds_i
         "a commit before the branch started"
     );
 }
+
+#[test]
+fn a_tree_state_read_fails_when_git_cannot_read_the_worktree_or_a_ref() {
+    let scratch = Scratch::new("tree-state-fails");
+    let top = scratch.dir.join("demo");
+    repo(&top, "target 1G\n");
+    let head = git_out(&top, &["rev-parse", "HEAD"]);
+    assert!(
+        on_run_branch(&top, &head, None, "no-such-branch").is_err(),
+        "a branch git does not know is no answer"
+    );
+    assert!(read(&scratch.dir.join("missing")).is_err());
+}

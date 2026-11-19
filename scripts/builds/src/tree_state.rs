@@ -6,7 +6,7 @@
 use std::io::Read;
 use std::path::Path;
 
-use crate::side_git::{UNCOMMITTED_STATUS, paths_in_status, run};
+use crate::side_git::{UNCOMMITTED_STATUS, ask, paths_in_status, run};
 
 /// The most bytes of one changed file that `read` hashes.
 const HASHED_BYTES: u64 = 4 << 20;
@@ -34,28 +34,36 @@ fn fnv(mut hash: u64, bytes: &[u8]) -> u64 {
 /// What the worktree at <top> holds now, or what git said when it failed.
 pub fn read(top: &Path) -> Result<TreeState, String> {
     let head = run(top, &["rev-parse", "HEAD"])?.trim().to_string();
-    let branch = run(top, &["symbolic-ref", "--short", "-q", "HEAD"])
-        .ok()
-        .map(|out| out.trim().to_string())
-        .filter(|branch| !branch.is_empty());
+    // `symbolic-ref -q` says no for a detached HEAD.
+    let branch =
+        ask(top, &["symbolic-ref", "--short", "-q", "HEAD"])?.map(|out| out.trim().to_string());
     let paths = paths_in_status(&run(top, &UNCOMMITTED_STATUS)?);
-    let changes = (!paths.is_empty()).then(|| {
+    let changes = if paths.is_empty() {
+        None
+    } else {
         let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
         for path in &paths {
             hash = fnv(hash, path.as_bytes());
             hash = fnv(hash, b"\0");
-            let mut content = Vec::new();
-            match std::fs::File::open(top.join(path)) {
-                Ok(file) => {
-                    let _ = file.take(HASHED_BYTES).read_to_end(&mut content);
+            let file = top.join(path);
+            match std::fs::File::open(&file) {
+                Ok(opened) => {
+                    let mut content = Vec::new();
+                    opened
+                        .take(HASHED_BYTES)
+                        .read_to_end(&mut content)
+                        .map_err(|error| format!("reading {}: {error}", file.display()))?;
                     hash = fnv(hash, &content);
                 }
                 // A deleted path hashes as its name alone.
-                Err(_) => hash = fnv(hash, b"\x01deleted"),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                    hash = fnv(hash, b"\x01deleted")
+                }
+                Err(error) => return Err(format!("opening {}: {error}", file.display())),
             }
         }
-        format!("{hash:016x}")
-    });
+        Some(format!("{hash:016x}"))
+    };
     Ok(TreeState {
         head,
         branch,
@@ -79,9 +87,10 @@ pub fn on_run_branch(
     }
     let fork = run(top, &["merge-base", run_branch, "origin/main"])?;
     let fork = fork.trim();
-    let ancestor =
-        |older: &str, newer: &str| run(top, &["merge-base", "--is-ancestor", older, newer]).is_ok();
-    Ok(ancestor(fork, head) && (ancestor(head, run_branch) || ancestor(head, "origin/main")))
+    let ancestor = |older: &str, newer: &str| {
+        ask(top, &["merge-base", "--is-ancestor", older, newer]).map(|yes| yes.is_some())
+    };
+    Ok(ancestor(fork, head)? && (ancestor(head, run_branch)? || ancestor(head, "origin/main")?))
 }
 
 #[cfg(test)]
