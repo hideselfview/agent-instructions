@@ -322,9 +322,13 @@ const BEFORE_RUST_RELEASE_STAMP: i64 = 1_985_440_997;
 /// stable Rust release ended.
 const BEFORE_RUST_CHECK_STAMP: i64 = 1_952_264_236;
 
+/// The stamp of the schema when a stamp was the hash of the schema's whole
+/// text, comments included, rather than of its shape.
+const BEFORE_SHAPE_STAMP: i64 = 882_817_755;
+
 /// Every stamp a store can carry that `move_store` moves, oldest schema first.
 /// A new move adds the stamp of the schema before it at the end.
-const STAMPS: [i64; 48] = [
+const STAMPS: [i64; 49] = [
     BEFORE_DESIGN_DELETED_STAMP,
     BEFORE_CHECK_TIMES_STAMP,
     BEFORE_DESIGN_TIP_STAMP,
@@ -373,6 +377,7 @@ const STAMPS: [i64; 48] = [
     BEFORE_DONE_REASON_STAMP,
     BEFORE_RUST_RELEASE_STAMP,
     BEFORE_RUST_CHECK_STAMP,
+    BEFORE_SHAPE_STAMP,
 ];
 
 /// Whether a store stamped <found> comes before the move that follows the
@@ -991,6 +996,8 @@ fn move_store(places: &Places, path: &Path, now: i64) -> Result<()> {
     if before(found, BEFORE_RUST_CHECK_STAMP) {
         tx.execute_batch(db::RUST_CHECK_PART).sql()?;
     }
+    // A store from before stamps followed the shape has today's tables, and
+    // gets only the stamp below.
     tx.pragma_update(None, "user_version", db::stamp()).sql()?;
     let broken: Option<String> = tx
         .query_row("PRAGMA foreign_key_check", [], |row| row.get(0))

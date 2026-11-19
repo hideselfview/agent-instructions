@@ -8,7 +8,8 @@
 //! the pragmas, the schema made whole in the first transaction of a new file,
 //! and the stamp.
 //!
-//! The stamp is `PRAGMA user_version`, a hash of the assembled schema text. A
+//! The stamp is `PRAGMA user_version`, a hash of the shape of the assembled
+//! schema text: the text without its comments and spacing (`sql_shape`). A
 //! database whose stamp differs was made by another builds schema and is
 //! refused; there is no version number and no chain of changes.
 
@@ -188,16 +189,23 @@ PRAGMA legacy_alter_table = OFF;",
     .sql()
 }
 
-/// The stamp of the schema text: its FNV-1a hash (`text::fnv1a`), folded into `user_version`'s
-/// positive range and kept off 0 (no schema) and 1 (which a hook-stats-only
-/// database once carried).
+/// The stamp of today's schema: the stamp of its shape.
 pub fn stamp() -> i64 {
     stamp_of_text(&schema())
 }
 
-/// The stamp of a schema whose text is <text>. `stamp` takes it of today's
-/// schema, and the tests take it of each older schema the moves know.
+/// The stamp of a schema whose text is <text>: the FNV-1a hash (`text::fnv1a`)
+/// of the text's shape, so a comment or a change of spacing leaves the stamp
+/// as it was.
 pub fn stamp_of_text(text: &str) -> i64 {
+    stamp_of_hashed(&crate::sql_shape::shape(text))
+}
+
+/// The stamp of <text> as it is, folded into `user_version`'s positive range
+/// and kept off 0 (no schema) and 1 (which a hook-stats-only database once
+/// carried). Every store from before the stamp followed the shape carries the
+/// stamp of its schema's whole text, comments included.
+pub fn stamp_of_hashed(text: &str) -> i64 {
     i64::from(crate::text::fnv1a(text) % (i32::MAX as u32 - 2)) + 2
 }
 
@@ -377,7 +385,7 @@ pub fn memory() -> Connection {
 }
 
 /// The schema as the database holds it: every table and index, by name, with
-/// its SQL.
+/// the shape of its SQL (`sql_shape`).
 pub fn schema_rows(conn: &Connection) -> Result<Vec<(String, String, String)>> {
     let mut statement = conn
         .prepare("SELECT type, name, COALESCE(sql, '') FROM sqlite_schema WHERE name NOT LIKE 'sqlite_%' ORDER BY type, name")
@@ -385,8 +393,13 @@ pub fn schema_rows(conn: &Connection) -> Result<Vec<(String, String, String)>> {
     let rows = statement
         .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
         .context(|| "reading the schema".to_string())?;
-    rows.collect::<std::result::Result<_, _>>()
-        .context(|| "reading the schema".to_string())
+    let rows: Vec<(String, String, String)> = rows
+        .collect::<std::result::Result<_, _>>()
+        .context(|| "reading the schema".to_string())?;
+    Ok(rows
+        .into_iter()
+        .map(|(kind, name, sql)| (kind, name, crate::sql_shape::shape(&sql)))
+        .collect())
 }
 
 /// Names a refused or failed statement on the lists' database.

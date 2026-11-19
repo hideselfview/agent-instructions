@@ -75,6 +75,7 @@ mod shot_findings;
 mod shots_program;
 mod side_git;
 mod spotlight;
+mod sql_shape;
 mod status;
 mod stuck;
 mod temp_builds;

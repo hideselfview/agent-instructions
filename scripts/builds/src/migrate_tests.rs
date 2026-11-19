@@ -3,6 +3,27 @@ use crate::testing::Scratch;
 use rusqlite::Connection;
 use std::os::unix::fs::MetadataExt;
 
+/// The canvas column's comment in project.sql today.
+const CANVAS_COMMENT: &str =
+    "    -- 1 when the project publishes its boards as a claude.ai canvas: each of
+    -- its design changes gives every board's canvas link. 0 when its boards
+    -- stay in the repo.
+";
+
+/// The canvas column's comment as it read when stores were stamped by their
+/// schema's whole text.
+const LEGACY_CANVAS_COMMENT: &str =
+    "    -- 1 when the project publishes its boards as a claude.ai canvas: each of
+    -- its design changes gives every board's canvas link, and landing one
+    -- ends with publishing the canvas. 0 when its boards stay in the repo.
+";
+
+/// The stamp a store carried before stamps followed the schema's shape: the
+/// hash of the schema text with its comments, as that text read then.
+fn legacy_stamp(text: &str) -> i64 {
+    db::stamp_of_hashed(&text.replace(CANVAS_COMMENT, LEGACY_CANVAS_COMMENT))
+}
+
 /// A volume with an old-layout android lane for repo `demo`, its lock file and
 /// an empty queue.
 fn old_volume(scratch: &Scratch) -> Places {
@@ -279,7 +300,7 @@ fn has_design_deleted(conn: &Connection) -> bool {
 #[test]
 fn the_previous_stamp_is_the_schema_without_the_deleted_boards_table() {
     let text = schema_before_design_deleted();
-    assert_eq!(db::stamp_of_text(&text), BEFORE_DESIGN_DELETED_STAMP);
+    assert_eq!(legacy_stamp(&text), BEFORE_DESIGN_DELETED_STAMP);
 }
 
 /// A store as the schema before check times made it: that schema's text, its stamp, one run with
@@ -335,7 +356,7 @@ fn a_store_from_before_check_times_loses_a_failed_checks_time_and_equals_a_fresh
 #[test]
 fn the_check_times_stamp_is_the_schema_before_check_times() {
     assert_eq!(
-        db::stamp_of_text(&schema_before_check_times()),
+        legacy_stamp(&schema_before_check_times()),
         BEFORE_CHECK_TIMES_STAMP
     );
 }
@@ -377,7 +398,7 @@ fn a_store_of_the_schema_before_design_tips_gains_the_table_keeps_its_runs_and_e
 #[test]
 fn the_design_tip_stamp_is_the_schema_before_design_tips() {
     assert_eq!(
-        db::stamp_of_text(&schema_before_design_tip()),
+        legacy_stamp(&schema_before_design_tip()),
         BEFORE_DESIGN_TIP_STAMP
     );
 }
@@ -420,7 +441,7 @@ fn a_store_from_before_app_timings_gains_their_tables_keeps_its_runs_and_equals_
 #[test]
 fn the_app_timing_stamp_is_the_schema_before_app_timings() {
     assert_eq!(
-        db::stamp_of_text(&without_design_fix(without_canvas(
+        legacy_stamp(&without_design_fix(without_canvas(
             without_blocks_from_waits(without_loads(without_effects(without_run_times(
                 with_done_without_reason(db::schema_before_app_timing())
             ))))
@@ -468,7 +489,7 @@ fn a_store_from_before_design_sessions_gains_their_table_keeps_its_runs_and_equa
 #[test]
 fn the_design_session_stamp_is_the_schema_before_design_sessions() {
     assert_eq!(
-        db::stamp_of_text(&without_design_fix(without_canvas(
+        legacy_stamp(&without_design_fix(without_canvas(
             without_blocks_from_waits(without_loads(without_effects(without_run_times(
                 with_done_without_reason(db::schema_before_design_session())
             ))))
@@ -515,7 +536,7 @@ fn a_store_from_before_shot_findings_gains_their_table_keeps_its_runs_and_equals
 #[test]
 fn the_shot_findings_stamp_is_the_schema_before_shot_findings() {
     assert_eq!(
-        db::stamp_of_text(&without_design_fix(without_canvas(
+        legacy_stamp(&without_design_fix(without_canvas(
             without_blocks_from_waits(without_loads(without_effects(without_run_times(
                 with_done_without_reason(db::schema_before_shot_findings())
             ))))
@@ -570,7 +591,7 @@ fn a_store_from_before_the_review_gains_its_tables_keeps_its_runs_and_equals_a_f
 #[test]
 fn the_review_stamp_is_the_schema_before_the_review() {
     assert_eq!(
-        db::stamp_of_text(&without_design_fix(without_canvas(
+        legacy_stamp(&without_design_fix(without_canvas(
             without_blocks_from_waits(without_loads(without_effects(without_run_times(
                 with_done_without_reason(db::schema_before_review())
             ))))
@@ -613,7 +634,7 @@ fn a_store_from_before_cargo_runs_keeps_its_runs_and_equals_a_fresh_schema() {
 #[test]
 fn the_cargo_runs_stamp_is_the_schema_before_cargo_runs() {
     assert_eq!(
-        db::stamp_of_text(&without_design_fix(schema_before_check_starts())),
+        legacy_stamp(&without_design_fix(schema_before_check_starts())),
         BEFORE_CARGO_RUNS_STAMP
     );
 }
@@ -735,7 +756,7 @@ fn a_store_from_before_design_fixes_gains_their_table_keeps_its_runs_and_equals_
 #[test]
 fn the_design_fix_stamp_is_the_schema_before_design_fixes() {
     assert_eq!(
-        db::stamp_of_text(&schema_before_design_fix()),
+        legacy_stamp(&schema_before_design_fix()),
         BEFORE_DESIGN_FIX_STAMP
     );
 }
@@ -833,7 +854,7 @@ fn a_store_from_before_landing_reviews_keeps_its_landings_with_the_run_each_pass
 #[test]
 fn the_landing_review_stamp_is_the_schema_before_landing_reviews() {
     assert_eq!(
-        db::stamp_of_text(&schema_before_landing_review()),
+        legacy_stamp(&schema_before_landing_review()),
         BEFORE_LANDING_REVIEW_STAMP
     );
 }
@@ -1076,7 +1097,7 @@ fn a_call_with_no_exchange_to_read_its_prompt_from_leaves_the_store_as_it_was() 
 #[test]
 fn the_scored_calls_stamp_is_the_schema_before_scored_calls() {
     assert_eq!(
-        db::stamp_of_text(&schema_before_scored_calls()),
+        legacy_stamp(&schema_before_scored_calls()),
         BEFORE_SCORED_CALLS_STAMP
     );
 }
@@ -1101,7 +1122,7 @@ fn schema_before_tags() -> String {
 
 #[test]
 fn the_tags_stamp_is_the_schema_before_tags() {
-    assert_eq!(db::stamp_of_text(&schema_before_tags()), BEFORE_TAGS_STAMP);
+    assert_eq!(legacy_stamp(&schema_before_tags()), BEFORE_TAGS_STAMP);
 }
 
 #[test]
@@ -1192,7 +1213,7 @@ fn schema_with_cargo_runs() -> String {
 #[test]
 fn the_cargo_runs_removed_stamp_is_the_schema_with_cargo_runs() {
     assert_eq!(
-        db::stamp_of_text(&without_origins(schema_with_cargo_runs())),
+        legacy_stamp(&without_origins(schema_with_cargo_runs())),
         BEFORE_CARGO_RUNS_REMOVED_STAMP
     );
 }
@@ -1279,7 +1300,7 @@ CREATE INDEX question_origin ON question (origin);
 #[test]
 fn the_origins_stamp_is_the_schema_before_origins() {
     assert_eq!(
-        db::stamp_of_text(&without_origins(schema_before_check_starts())),
+        legacy_stamp(&without_origins(schema_before_check_starts())),
         BEFORE_ORIGINS_STAMP
     );
 }
@@ -1417,7 +1438,7 @@ fn without_finished(schema: String) -> String {
 #[test]
 fn the_finished_stamp_is_the_schema_before_finished() {
     assert_eq!(
-        db::stamp_of_text(&without_finished(schema_before_check_starts())),
+        legacy_stamp(&without_finished(schema_before_check_starts())),
         BEFORE_FINISHED_STAMP
     );
 }
@@ -1533,7 +1554,7 @@ fn without_changed_lines(schema: String) -> String {
 #[test]
 fn the_changed_lines_stamp_is_the_schema_before_changed_lines() {
     assert_eq!(
-        db::stamp_of_text(&without_changed_lines(schema_before_check_starts())),
+        legacy_stamp(&without_changed_lines(schema_before_check_starts())),
         BEFORE_CHANGED_LINES_STAMP
     );
 }
@@ -1688,7 +1709,7 @@ fn schema_before_design_drop() -> String {
 #[test]
 fn the_design_drop_stamp_is_the_schema_before_design_drop() {
     assert_eq!(
-        db::stamp_of_text(&schema_before_design_drop()),
+        legacy_stamp(&schema_before_design_drop()),
         BEFORE_DESIGN_DROP_STAMP
     );
 }
@@ -1811,8 +1832,8 @@ fn without_canvas(schema: String) -> String {
         (
             "    ),
     -- 1 when the project publishes its boards as a claude.ai canvas: each of
-    -- its design changes gives every board's canvas link, and landing one
-    -- ends with publishing the canvas. 0 when its boards stay in the repo.
+    -- its design changes gives every board's canvas link. 0 when its boards
+    -- stay in the repo.
     canvas INTEGER NOT NULL CONSTRAINT project_canvas_is_yes_or_no CHECK (canvas IN (0, 1))
 ) STRICT;",
             "    )
@@ -1832,10 +1853,7 @@ fn schema_before_canvas() -> String {
 
 #[test]
 fn the_canvas_stamp_is_the_schema_before_canvas() {
-    assert_eq!(
-        db::stamp_of_text(&schema_before_canvas()),
-        BEFORE_CANVAS_STAMP
-    );
+    assert_eq!(legacy_stamp(&schema_before_canvas()), BEFORE_CANVAS_STAMP);
 }
 
 /// Makes a store of project <name> in <places> with the schema from before
@@ -1935,7 +1953,7 @@ fn a_store_from_before_canvas_publishes_one_only_when_its_changes_hold_a_link() 
 #[test]
 fn the_check_starts_stamp_is_the_schema_before_check_starts() {
     assert_eq!(
-        db::stamp_of_text(&schema_before_check_starts()),
+        legacy_stamp(&schema_before_check_starts()),
         BEFORE_CHECK_STARTS_STAMP
     );
 }
@@ -2036,7 +2054,7 @@ fn with_parked(schema: String) -> String {
 #[test]
 fn the_kept_work_stamp_is_the_schema_before_builds_named_what_an_item_keeps() {
     assert_eq!(
-        db::stamp_of_text(&with_parked(schema_before_publish())),
+        legacy_stamp(&with_parked(schema_before_publish())),
         BEFORE_KEPT_WORK_STAMP
     );
 }
@@ -2179,7 +2197,7 @@ fn schema_before_counted_lines() -> String {
 #[test]
 fn the_counted_lines_stamp_is_the_schema_before_counted_lines() {
     assert_eq!(
-        db::stamp_of_text(&schema_before_counted_lines()),
+        legacy_stamp(&schema_before_counted_lines()),
         BEFORE_COUNTED_LINES_STAMP
     );
 }
@@ -2370,10 +2388,7 @@ CREATE TABLE review_code_left (
 
 #[test]
 fn the_closed_stamp_is_the_schema_before_closed_findings() {
-    assert_eq!(
-        db::stamp_of_text(&schema_before_closed()),
-        BEFORE_CLOSED_STAMP
-    );
+    assert_eq!(legacy_stamp(&schema_before_closed()), BEFORE_CLOSED_STAMP);
 }
 
 /// A store from before a review closed the findings its changes fix moves
@@ -2500,7 +2515,7 @@ fn schema_before_reviewed_run() -> String {
 #[test]
 fn the_reviewed_run_stamp_is_the_schema_before_reviewed_runs() {
     assert_eq!(
-        db::stamp_of_text(&schema_before_reviewed_run()),
+        legacy_stamp(&schema_before_reviewed_run()),
         BEFORE_REVIEWED_RUN_STAMP
     );
 }
@@ -2626,7 +2641,7 @@ fn schema_before_net_change() -> String {
 #[test]
 fn the_net_change_stamp_is_the_schema_before_net_changes() {
     assert_eq!(
-        db::stamp_of_text(&schema_before_net_change()),
+        legacy_stamp(&schema_before_net_change()),
         BEFORE_NET_CHANGE_STAMP
     );
 }
@@ -2718,7 +2733,7 @@ fn schema_before_code_left() -> String {
 #[test]
 fn the_code_left_stamp_is_the_schema_before_code_left() {
     assert_eq!(
-        db::stamp_of_text(&schema_before_code_left()),
+        legacy_stamp(&schema_before_code_left()),
         BEFORE_CODE_LEFT_STAMP
     );
 }
@@ -2817,7 +2832,7 @@ fn schema_before_parked() -> String {
 #[test]
 fn the_spec_check_stamp_is_the_schema_before_spec_checks() {
     assert_eq!(
-        db::stamp_of_text(&schema_before_spec_check()),
+        legacy_stamp(&schema_before_spec_check()),
         BEFORE_SPEC_CHECK_STAMP
     );
 }
@@ -2907,10 +2922,7 @@ fn a_store_from_before_spec_checks_gains_the_tables_and_records_a_check() {
 
 #[test]
 fn the_parked_stamp_is_the_schema_before_parked_items() {
-    assert_eq!(
-        db::stamp_of_text(&schema_before_parked()),
-        BEFORE_PARKED_STAMP
-    );
+    assert_eq!(legacy_stamp(&schema_before_parked()), BEFORE_PARKED_STAMP);
 }
 
 /// A store from before parked items keeps its items, gains the dropped
@@ -2997,7 +3009,7 @@ fn schema_before_pushed() -> String {
 #[test]
 fn the_pushed_stamp_is_the_schema_before_pushed_commits() {
     assert_eq!(
-        db::stamp_of_text(&without_ranks(schema_before_pushed())),
+        legacy_stamp(&without_ranks(schema_before_pushed())),
         BEFORE_PUSHED_STAMP
     );
 }
@@ -3064,10 +3076,7 @@ fn schema_before_ranks() -> String {
 
 #[test]
 fn the_ranks_stamp_is_the_schema_before_ranks() {
-    assert_eq!(
-        db::stamp_of_text(&schema_before_ranks()),
-        BEFORE_RANKS_STAMP
-    );
+    assert_eq!(legacy_stamp(&schema_before_ranks()), BEFORE_RANKS_STAMP);
 }
 
 /// A store from before ranks gives each question placed first a rank by when
@@ -3187,7 +3196,7 @@ fn without_blocks_from_waits(schema: String) -> String {
 #[test]
 fn the_blocks_from_waits_stamp_is_the_schema_before_blocks_from_waits() {
     assert_eq!(
-        db::stamp_of_text(&schema_before_blocks_from_waits()),
+        legacy_stamp(&schema_before_blocks_from_waits()),
         BEFORE_BLOCKS_FROM_WAITS_STAMP
     );
 }
@@ -3456,7 +3465,7 @@ fn schema_before_review_circles() -> String {
 #[test]
 fn the_review_circles_stamp_is_the_schema_before_the_designer_chose_circles() {
     assert_eq!(
-        db::stamp_of_text(&schema_before_review_circles()),
+        legacy_stamp(&schema_before_review_circles()),
         BEFORE_REVIEW_CIRCLES_STAMP
     );
 }
@@ -3544,7 +3553,7 @@ fn schema_before_one_section() -> String {
 #[test]
 fn the_one_section_stamp_is_the_schema_before_one_section_review_pages() {
     assert_eq!(
-        db::stamp_of_text(&schema_before_one_section()),
+        legacy_stamp(&schema_before_one_section()),
         BEFORE_ONE_SECTION_STAMP
     );
 }
@@ -3758,7 +3767,7 @@ fn old_review_run(conn: &Connection, landing: i64, changed_lines: i64) -> i64 {
 #[test]
 fn the_runs_without_grouping_stamp_is_the_schema_before_runs_lost_their_grouping() {
     assert_eq!(
-        db::stamp_of_text(&with_grouping(with_parked(schema_before_publish()))),
+        legacy_stamp(&with_grouping(with_parked(schema_before_publish()))),
         BEFORE_RUNS_WITHOUT_GROUPING_STAMP
     );
 }
@@ -3860,7 +3869,7 @@ fn without_design_decision(schema: String) -> String {
 #[test]
 fn the_design_decision_stamp_is_the_schema_before_decided_changes() {
     assert_eq!(
-        db::stamp_of_text(&schema_before_design_decision()),
+        legacy_stamp(&schema_before_design_decision()),
         BEFORE_DESIGN_DECISION_STAMP
     );
 }
@@ -3972,7 +3981,7 @@ fn schema_before_ack_per_repo() -> String {
 #[test]
 fn the_ack_per_repo_stamp_is_the_schema_before_ack_per_repo() {
     assert_eq!(
-        db::stamp_of_text(&schema_before_ack_per_repo()),
+        legacy_stamp(&schema_before_ack_per_repo()),
         BEFORE_ACK_PER_REPO_STAMP
     );
 }
@@ -4132,7 +4141,7 @@ fn schema_before_copy_review() -> String {
 #[test]
 fn the_copy_review_stamp_is_the_schema_before_copy_review() {
     assert_eq!(
-        db::stamp_of_text(&schema_before_copy_review()),
+        legacy_stamp(&schema_before_copy_review()),
         BEFORE_COPY_REVIEW_STAMP
     );
 }
@@ -4223,7 +4232,7 @@ fn schema_before_message_style() -> String {
 #[test]
 fn the_message_style_stamp_is_the_schema_before_message_style() {
     assert_eq!(
-        db::stamp_of_text(&schema_before_message_style()),
+        legacy_stamp(&schema_before_message_style()),
         BEFORE_MESSAGE_STYLE_STAMP
     );
 }
@@ -4364,7 +4373,7 @@ fn schema_before_writing_runs() -> String {
 #[test]
 fn the_writing_runs_stamp_is_the_schema_before_writing_runs() {
     assert_eq!(
-        db::stamp_of_text(&schema_before_writing_runs()),
+        legacy_stamp(&schema_before_writing_runs()),
         BEFORE_WRITING_RUNS_STAMP
     );
 }
@@ -4461,7 +4470,7 @@ fn schema_before_agent_ids() -> String {
 #[test]
 fn the_kept_versions_stamp_is_the_schema_before_agent_ids() {
     assert_eq!(
-        db::stamp_of_text(&schema_before_agent_ids()),
+        legacy_stamp(&schema_before_agent_ids()),
         BEFORE_AGENT_IDS_STAMP
     );
 }
@@ -4583,10 +4592,7 @@ fn schema_before_allowed() -> String {
 
 #[test]
 fn the_allowed_stamp_is_the_schema_before_allowed() {
-    assert_eq!(
-        db::stamp_of_text(&schema_before_allowed()),
-        BEFORE_ALLOWED_STAMP
-    );
+    assert_eq!(legacy_stamp(&schema_before_allowed()), BEFORE_ALLOWED_STAMP);
 }
 
 /// A store from before the person could allow a finding to land keeps its
@@ -4697,10 +4703,7 @@ fn without_effects(schema: String) -> String {
 
 #[test]
 fn the_effects_stamp_is_the_schema_before_effects() {
-    assert_eq!(
-        db::stamp_of_text(&schema_before_effects()),
-        BEFORE_EFFECTS_STAMP
-    );
+    assert_eq!(legacy_stamp(&schema_before_effects()), BEFORE_EFFECTS_STAMP);
 }
 
 /// A store as the schema before effects made it, in project <project>'s
@@ -4829,7 +4832,7 @@ fn a_store_whose_effects_file_is_missing_or_differs_is_refused_and_left_as_it_wa
 
 #[test]
 fn the_ack_stamp_is_the_schema_before_acknowledgements() {
-    assert_eq!(db::stamp_of_text(&schema_before_ack()), BEFORE_ACK_STAMP);
+    assert_eq!(legacy_stamp(&schema_before_ack()), BEFORE_ACK_STAMP);
 }
 
 /// A store from before the acknowledgements keeps its questions, gains the
@@ -4959,10 +4962,7 @@ fn schema_before_waits() -> String {
 
 #[test]
 fn the_waits_stamp_is_the_schema_before_waits() {
-    assert_eq!(
-        db::stamp_of_text(&schema_before_waits()),
-        BEFORE_WAITS_STAMP
-    );
+    assert_eq!(legacy_stamp(&schema_before_waits()), BEFORE_WAITS_STAMP);
 }
 
 /// A store from before builds recorded every cargo run keeps each hook
@@ -5079,7 +5079,7 @@ fn without_run_times(schema: String) -> String {
 #[test]
 fn the_run_times_stamp_is_the_schema_before_run_times() {
     assert_eq!(
-        db::stamp_of_text(&schema_before_run_times()),
+        legacy_stamp(&schema_before_run_times()),
         BEFORE_RUN_TIMES_STAMP
     );
 }
@@ -5227,7 +5227,7 @@ fn schema_before_done_reason() -> String {
 #[test]
 fn the_done_reason_stamp_is_the_schema_before_a_question_closed_as_done_with_a_reason() {
     assert_eq!(
-        db::stamp_of_text(&schema_before_done_reason()),
+        legacy_stamp(&schema_before_done_reason()),
         BEFORE_DONE_REASON_STAMP
     );
 }
@@ -5284,10 +5284,7 @@ fn a_store_with_questions_closed_as_done_marks_them_and_equals_a_fresh_schema() 
 
 #[test]
 fn the_publish_stamp_is_the_schema_before_the_publish_requests() {
-    assert_eq!(
-        db::stamp_of_text(&schema_before_publish()),
-        BEFORE_PUBLISH_STAMP
-    );
+    assert_eq!(legacy_stamp(&schema_before_publish()), BEFORE_PUBLISH_STAMP);
 }
 
 /// A store from before the publish requests gains their empty tables and
@@ -5320,7 +5317,7 @@ fn a_store_from_before_the_publish_requests_gains_their_tables_and_equals_a_fres
 #[test]
 fn the_rust_release_stamp_is_the_schema_before_the_rust_release_items() {
     assert_eq!(
-        db::stamp_of_text(&db::schema_before_rust_release()),
+        legacy_stamp(&db::schema_before_rust_release()),
         BEFORE_RUST_RELEASE_STAMP
     );
 }
@@ -5358,7 +5355,7 @@ fn a_store_from_before_the_rust_release_items_gains_their_table_and_equals_a_fre
 #[test]
 fn the_rust_check_stamp_is_the_schema_before_the_rust_checks() {
     assert_eq!(
-        db::stamp_of_text(&db::schema_before_rust_check()),
+        legacy_stamp(&db::schema_before_rust_check()),
         BEFORE_RUST_CHECK_STAMP
     );
 }
@@ -5388,4 +5385,35 @@ fn a_store_from_before_the_rust_checks_gains_their_table_and_equals_a_fresh_sche
         .query_row("SELECT count(*) FROM rust_check", [], |row| row.get(0))
         .unwrap();
     assert_eq!(checks, 0);
+}
+
+#[test]
+fn the_shape_stamp_is_the_schema_before_stamps_followed_the_shape() {
+    // This commit changed no table, so the schema before it is today's.
+    assert_eq!(legacy_stamp(&db::schema()), BEFORE_SHAPE_STAMP);
+}
+
+/// A store stamped by its schema's whole text keeps its tables and gets the
+/// stamp of the schema's shape, though its comments differ from today's.
+#[test]
+fn a_store_stamped_by_its_text_gets_the_stamp_of_its_shape_and_equals_a_fresh_schema() {
+    let scratch = Scratch::new("move-shape");
+    let places = scratch.places();
+    let dir = places.lists.join("bae");
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join(DATABASE);
+    {
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(&db::schema().replace(CANVAS_COMMENT, LEGACY_CANVAS_COMMENT))
+            .unwrap();
+        conn.pragma_update(None, "user_version", BEFORE_SHAPE_STAMP)
+            .unwrap();
+    }
+    migrate_stores(&places, 0).unwrap();
+    let conn = db::open(&path, db::Make::Never).unwrap();
+    assert_eq!(db::stamp_of(&conn, &path).unwrap(), db::stamp());
+    assert_eq!(
+        db::schema_rows(&conn).unwrap(),
+        db::schema_rows(&db::memory()).unwrap()
+    );
 }

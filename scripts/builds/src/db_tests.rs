@@ -321,3 +321,30 @@ INSERT INTO part (thing_id) VALUES (2);",
         .unwrap();
     assert_eq!(joined, "two");
 }
+
+#[test]
+fn the_stamp_follows_the_schema_shape_and_ignores_comments_and_spacing() {
+    let plain = "CREATE TABLE t (\n    x TEXT NOT NULL CHECK (x <> '-- a')\n) STRICT;";
+    let remarked = "CREATE TABLE t (\n    -- Says\n    -- what x holds.\n    x   TEXT NOT NULL /* inline */ CHECK (x <> '-- a')\n) STRICT;";
+    assert_eq!(stamp_of_text(plain), stamp_of_text(remarked));
+    for other in [
+        "CREATE TABLE t (\n    x TEXT NOT NULL CHECK (x <> '-- b')\n) STRICT;",
+        "CREATE TABLE t (\n    x TEXT NOT NULL CHECK (x <> '--  a')\n) STRICT;",
+        "CREATE TABLE t (\n    y TEXT NOT NULL CHECK (y <> '-- a')\n) STRICT;",
+    ] {
+        assert_ne!(stamp_of_text(plain), stamp_of_text(other), "{other}");
+    }
+}
+
+/// A store whose tables were made from text with other comments is the same
+/// schema as a fresh store.
+#[test]
+fn a_store_made_with_other_comments_has_the_schema_of_a_fresh_store() {
+    let conn = Connection::open_in_memory().unwrap();
+    conn.execute_batch(&schema().replace(
+        "-- 1 when the project publishes",
+        "-- Is 1 when the project publishes",
+    ))
+    .unwrap();
+    assert_eq!(schema_rows(&conn).unwrap(), schema_rows(&memory()).unwrap());
+}
