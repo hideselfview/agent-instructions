@@ -114,3 +114,18 @@ fn the_mac_build_may_take_a_hosts_checkout_unless_it_runs_a_here_step() {
     assert_eq!(Platform::Mac.allowed(&other).unwrap(), Where::Anywhere);
     assert_eq!(Platform::Android.allowed(&free).unwrap(), Where::Here);
 }
+
+#[test]
+fn only_a_stop_signal_gives_the_status_the_dashboard_reads_as_stopped() {
+    let stopped = ended(
+        Err(fail::Fail::Message("the build stopped".into())),
+        Some(15),
+    );
+    assert!(matches!(stopped, Err(fail::Fail::Exit(143))));
+    // A build command that crashed (139) or lost its host (255) is a failure.
+    for code in [1, 139, 255] {
+        let failed = ended(Err(fail::Fail::Exit(code)), None);
+        assert!(matches!(failed, Err(fail::Fail::Exit(1))), "{code}");
+    }
+    assert!(ended(Ok(()), None).is_ok());
+}

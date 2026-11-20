@@ -234,13 +234,25 @@ fn built_app(site: &mut Site, mac: &MacApp) -> Result<PathBuf> {
 }
 
 pub fn cmd_build_app(tool: &Tool, args: &[String]) -> Result<()> {
-    let result = build_app(tool, args);
-    match (result, lock::stop_signal()) {
+    ended(build_app(tool, args), lock::stop_signal())
+}
+
+/// What <result> exits with, given the stop <signal> the command got, if
+/// any: 128 plus the signal when it ended the command, and 1 for every other
+/// failure, whatever status the build command had. The dashboard reads a
+/// status above 128 as stopped (daemon/runs.rs), so a build that crashed
+/// must not exit with one.
+fn ended(result: Result<()>, signal: Option<libc::c_int>) -> Result<()> {
+    match (result, signal) {
         (Err(fail), Some(signal)) => {
             note(fail.text());
             Err(fail::Fail::Exit(128 + signal))
         }
-        (result, _) => result,
+        (Err(fail), None) => {
+            note(fail.text());
+            Err(fail::Fail::Exit(1))
+        }
+        (Ok(()), _) => Ok(()),
     }
 }
 
