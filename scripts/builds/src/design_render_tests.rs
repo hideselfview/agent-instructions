@@ -525,13 +525,10 @@ fn a_review_page_of_a_change_with_no_last_commit_says_to_amend_it() {
     assert!(error.contains("amend it"), "{error}");
 }
 
-/// Runs <expression> after the review page's script (`circles.js`) in node
-/// and returns what it prints as JSON.
-fn run_circles(expression: &str) -> Value {
-    let program = format!(
-        "{}\nconsole.log(JSON.stringify({expression}));",
-        CIRCLES_SCRIPT
-    );
+/// Runs <expression> after one of the review page's scripts, <script>, in
+/// node and returns what it prints as JSON.
+fn run_script(script: &str, expression: &str) -> Value {
+    let program = format!("{script}\nconsole.log(JSON.stringify({expression}));");
     let out = std::process::Command::new("node")
         .arg("-e")
         .arg(program)
@@ -548,12 +545,18 @@ fn run_circles(expression: &str) -> Value {
 /// Runs `circleMarks` over a board's circles and what each side found, and
 /// returns its marks.
 fn circle_marks(circles: &Value, now: &Value, proposed: &Value) -> Value {
-    run_circles(&format!("circleMarks({circles}, {now}, {proposed})"))
+    run_script(
+        CIRCLES_SCRIPT,
+        &format!("circleMarks({circles}, {now}, {proposed})"),
+    )
 }
 
 /// What `boardStatus` says under a board's caption.
 fn board_status(is_new: bool, labels: &[&str]) -> String {
-    let said = run_circles(&format!("boardStatus({is_new}, {})", json!(labels)));
+    let said = run_script(
+        CIRCLES_SCRIPT,
+        &format!("boardStatus({is_new}, {})", json!(labels)),
+    );
     said.as_str().expect("a status is text").to_string()
 }
 
@@ -695,21 +698,10 @@ fn the_review_page_gives_each_board_its_circles_and_each_board_page_answers_what
 /// Runs `variantCrop` of the review page's script (`variants.js`) over what a
 /// variant's board page found for the selector on a board of <w> by <h>.
 fn variant_crop(found: &Value, w: i64, h: i64) -> Value {
-    let program = format!(
-        "{}\nconsole.log(JSON.stringify(variantCrop(\".fields\", {found}, {w}, {h})));",
-        VARIANTS_SCRIPT
-    );
-    let out = std::process::Command::new("node")
-        .arg("-e")
-        .arg(program)
-        .output()
-        .expect("these tests run the page's script in node, which must be installed");
-    assert!(
-        out.status.success(),
-        "{}",
-        String::from_utf8_lossy(&out.stderr)
-    );
-    serde_json::from_slice(&out.stdout).unwrap()
+    run_script(
+        VARIANTS_SCRIPT,
+        &format!("variantCrop(\".fields\", {found}, {w}, {h})"),
+    )
 }
 
 #[test]
