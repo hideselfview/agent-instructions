@@ -12,7 +12,11 @@
 @@CONTROLS@@
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 var(--sans); }
-.dz { display: flex; flex-direction: column; gap: 16px; padding: 20px 24px 48px; }
+.dz { display: flex; flex-direction: column; gap: 16px; padding: 0 24px 48px; }
+/* The toolbar (the heading line, the tabs and the find field) stays at the top
+   of the window while the page scrolls. --bar is its height, which the script
+   sets, and the section headings stick just under it. */
+.dz-bar { position: sticky; top: 0; z-index: 3; display: flex; flex-direction: column; gap: 12px; padding: 16px 0 0; background: var(--bg); }
 .dz-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
 .dz-head h1 { margin: 0; font: 600 20px var(--sans); }
 .dz-sub { color: var(--muted); font-size: 13px; }
@@ -47,28 +51,33 @@ body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 var
 .ds-type div { display: flex; align-items: baseline; gap: 16px; min-width: 0; }
 .ds-type .ds-k { flex: none; width: 120px; }
 [hidden] { display: none !important; }
-.ds-find { position: sticky; top: 0; z-index: 1; display: flex; gap: 12px; align-items: center; padding: 8px 0; background: var(--bg); }
+.ds-find { display: flex; gap: 12px; align-items: center; padding-bottom: 8px; }
 .ds-find input { font: inherit; width: 320px; max-width: 100%; color: var(--text); background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 5px 10px; }
 .ds-find input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .ds-groups { display: flex; flex-direction: column; gap: 32px; }
 .ds-group { display: flex; flex-direction: column; gap: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
-.ds-group > h3 { margin: 0; font: 600 18px var(--sans); }
+.ds-group > h3, .ds-sub > h4 { position: sticky; z-index: 2; margin: 0; background: var(--bg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ds-group > h3 { top: var(--bar, 0px); height: var(--h3, 32px); font: 600 18px/var(--h3, 32px) var(--sans); }
 .ds-sub { display: flex; flex-direction: column; gap: 10px; }
-.ds-sub > h4 { margin: 0; font: 600 14px var(--sans); }
+.ds-sub > h4 { top: calc(var(--bar, 0px) + var(--h3, 32px)); height: 28px; font: 600 14px/28px var(--sans); }
 .ds-about { margin: -6px 0 0; color: var(--muted); max-width: 760px; }
 .ds-cards { display: flex; flex-wrap: wrap; gap: 20px 24px; align-items: flex-start; }
 .ds-comp { flex: none; display: flex; flex-direction: column; gap: 6px; max-width: 100%; }
 .ds-prev { display: block; width: 360px; max-width: 100%; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); }
 .problem { color: var(--bad); background: var(--bad-bg); border-radius: 6px; padding: 8px 10px; font-size: 13px; overflow-wrap: anywhere; }
 @media (max-width: 900px) { .ds-swatches { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+@media (max-width: 600px) { .dz { padding: 0 12px 32px; } .dz-bar { padding-top: 8px; gap: 8px; } .dz-pages { flex-wrap: nowrap; overflow-x: auto; } .dz-pages button { flex: none; white-space: nowrap; } }
 .pub-links { display: flex; flex-direction: column; gap: 4px; color: var(--text-2); }
 .pub-links a { color: var(--accent); }
 </style>
 </head>
 <body>
 <div class="dz">
-  <div class="dz-head"><h1 id="title"></h1><span class="dz-sub" id="at"></span><span class="dz-sub" id="claude"></span><div class="dz-tools" id="tools"></div></div>
-  <div class="dz-pages" id="tabs" role="tablist" aria-label="Pages"></div>
+  <div class="dz-bar" id="bar">
+    <div class="dz-head"><h1 id="title"></h1><span class="dz-sub" id="at"></span><span class="dz-sub" id="claude"></span><div class="dz-tools" id="tools"></div></div>
+    <div class="dz-pages" id="tabs" role="tablist" aria-label="Pages"></div>
+    <div id="find" hidden></div>
+  </div>
   <div id="main"></div>
 </div>
 <dialog class="lane-dlg" id="publish" aria-label="Publish to claude.ai">
@@ -227,7 +236,7 @@ function pageView(page) {
 // under the line that introduces it. Each component's frame draws its
 // preview at the preview's own size: the page sends the frame the width it
 // has room for when the frame loads and when the preview says it is ready,
-// and the frame answers with the size the preview takes (preview_fit.js). The field above the components shows only those whose
+// and the frame answers with the size the preview takes (preview_fit.js). The field in the toolbar shows only the components whose
 // names hold what the person types.
 function cardView(card) {
   const box = h("div", {class: "ds-comp", "data-name": card.name});
@@ -289,8 +298,12 @@ function findView(groups) {
   });
   return h("div", {class: "ds-find"}, input, none);
 }
+// The find field of the Components section, which the toolbar holds so it
+// stays in view; null when the section has no components.
+let find = null;
 function systemView() {
   const out = [];
+  find = null;
   const s = data.system;
   if (s.error) out.push(h("div", {class: "problem"}, s.error));
   else {
@@ -305,7 +318,8 @@ function systemView() {
   if (c.error) out.push(h("div", {class: "problem"}, c.error));
   else if (c.groups.length || c.problems.length) {
     const groups = h("div", {class: "ds-groups"}, c.groups.map(groupView));
-    out.push(h("section", {class: "ds-sec"}, h("h2", {}, "Components"), findView(groups),
+    find = findView(groups);
+    out.push(h("section", {class: "ds-sec"}, h("h2", {}, "Components"),
       c.problems.map(p => h("div", {class: "problem"}, p)), groups));
   }
   if (!out.length) out.push(h("div", {class: "dz-sub"}, "The design system has no colors, text styles or components."));
@@ -316,8 +330,15 @@ function render() {
   renderTabs();
   const id = chosen();
   const page = data.pages.find(p => p.id === id);
-  document.getElementById("main").replaceChildren(...[page ? pageView(page) : systemView()].flat());
+  const view = [page ? pageView(page) : systemView()].flat();
+  document.getElementById("main").replaceChildren(...view);
+  const slot = document.getElementById("find");
+  slot.replaceChildren(...(page || !find ? [] : [find]));
+  slot.hidden = !slot.children.length;
 }
+// The toolbar's height, which the stuck headings sit under.
+new ResizeObserver(() => document.documentElement.style.setProperty("--bar", document.getElementById("bar").offsetHeight + "px"))
+  .observe(document.getElementById("bar"));
 document.getElementById("tabs").addEventListener("click", e => {
   const b = e.target.closest("button[data-tab]");
   if (!b) return;
