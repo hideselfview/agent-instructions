@@ -235,6 +235,16 @@ pub fn sh_quote(text: &str) -> String {
     format!("'{}'", text.replace('\'', "'\\''"))
 }
 
+/// The command a person runs to run <script> on the host whose ssh target
+/// is <target>: over ssh, with the script quoted, or as it is on this Mac
+/// (no target).
+pub fn person_command(target: Option<&str>, script: &str) -> String {
+    match target {
+        Some(target) => format!("ssh {target} {}", sh_quote(script)),
+        None => script.to_string(),
+    }
+}
+
 /// `host m1`, or `this Mac` for this Mac: how a line names host <name>.
 pub fn place(name: &str) -> String {
     if name == LOCAL {

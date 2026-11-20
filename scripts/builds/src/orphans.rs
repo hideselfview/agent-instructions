@@ -111,10 +111,10 @@ impl Orphan {
             Kind::Job { .. } => format!("kill -TERM {}", self.targets()?.join(" ")),
             Kind::Process { .. } => format!("kill -TERM {}", self.targets()?.join(" ")),
         };
-        Some(match &self.host.target {
-            Some(target) => format!("ssh {target} '{script}'"),
-            None => script,
-        })
+        Some(crate::host::person_command(
+            self.host.target.as_deref(),
+            &script,
+        ))
     }
 
     /// What it is, for a line: `host m1 pid 12 (cargo test), 3h05m old`.

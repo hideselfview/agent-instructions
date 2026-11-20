@@ -480,10 +480,7 @@ impl Sampling {
     /// <script> as the person runs it on the host: over ssh, or as it is
     /// on this Mac.
     pub fn on_host(&self, script: &str) -> String {
-        match &self.target {
-            Some(target) => format!("ssh {target} '{script}'"),
-            None => script.to_string(),
-        }
+        crate::host::person_command(self.target.as_deref(), script)
     }
 }
 

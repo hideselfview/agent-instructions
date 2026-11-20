@@ -78,10 +78,8 @@ pub fn findings(scans: &[(Host, std::result::Result<Scan, String>)]) -> Vec<Advi
             Ok(Some(app)) => {
                 if let Some(alert) = app.system_alert() {
                     let pid = app.pid;
-                    let end = match &host.target {
-                        Some(target) => format!("ssh {target} kill {pid}"),
-                        None => format!("kill {pid}"),
-                    };
+                    let end =
+                        crate::host::person_command(host.target.as_deref(), &format!("kill {pid}"));
                     found.push(Advice::run(
                         format!(
                             "{place} shows the system alert {alert} (pid {pid}) in front of every app, so every Mac window shot there fails; answer or close the alert on {place}, or end it with"

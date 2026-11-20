@@ -84,7 +84,7 @@ fn a_host_whose_front_app_is_a_system_alert_needs_action() {
     assert_eq!(
         lines,
         [
-            "host m1 shows the system alert UserNotificationCenter (pid 812) in front of every app, so every Mac window shot there fails; answer or close the alert on host m1, or end it with `ssh u@m1 kill 812`",
+            "host m1 shows the system alert UserNotificationCenter (pid 812) in front of every app, so every Mac window shot there fails; answer or close the alert on host m1, or end it with `ssh u@m1 'kill 812'`",
             "this Mac shows the system alert SecurityAgent (pid 90) in front of every app, so every Mac window shot there fails; answer or close the alert on this Mac, or end it with `kill 90`",
             "health could not tell which app is in front on host m1: lsappinfo named no front app",
         ]
