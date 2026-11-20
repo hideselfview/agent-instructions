@@ -100,6 +100,23 @@ fn a_repo_with_no_globs_has_no_design_files() {
 }
 
 #[test]
+fn a_design_file_is_a_place_a_source_or_a_shared_file_and_never_a_spec_file() {
+    let g = full_globs();
+    for path in [
+        "design/mocks/A.dc.html",
+        "design/system/components/MacRow/preview.html",
+        "design/system/tokens.json",
+        "design/system/build-bundle.py",
+    ] {
+        assert!(g.holds_design_file(path), "{path}");
+    }
+    for path in ["spec/bae.md", "src/main.rs", "README.md"] {
+        assert!(!g.holds_design_file(path), "{path}");
+    }
+    assert!(!Globs::default().holds_design_file("design/mocks/A.dc.html"));
+}
+
+#[test]
 fn the_design_files_sit_in_the_folders_their_place_and_source_globs_start_in() {
     assert_eq!(full_globs().folders(), set(&["design"]));
     let g = Globs {

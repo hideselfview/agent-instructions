@@ -3,6 +3,7 @@ digest: 'bae never shows a music note: no note glyph, icon, emoji or drawing in 
 paths:
   - '**/*'
 blocking: true
+design: true
 ---
 
 ## No music-note imagery

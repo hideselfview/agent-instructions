@@ -256,7 +256,10 @@ pub struct Inputs<'a> {
 /// them.
 pub fn audit(inputs: &Inputs) -> Result<String> {
     let conn = inputs.store.open_existing()?;
-    let key = record::landing(&conn, inputs.landing)?.key;
+    let row = record::landing(&conn, inputs.landing)?;
+    let key = row.key;
+    // The design files of the landing's repo.
+    let design = crate::lists::design_paths::Globs::read(&conn, &row.repo)?;
     let Some(last) = landed_run(&conn, inputs.landing)? else {
         crate::fail!(
             "landing {} ({key}) has not landed, so there is nothing to audit",
@@ -286,7 +289,7 @@ pub fn audit(inputs: &Inputs) -> Result<String> {
         let covering: Vec<&Rule> = members
             .iter()
             .copied()
-            .filter(|rule| rule.matches(&diff.changed))
+            .filter(|rule| rule.matches(&diff.changed, &design))
             .collect();
         if covering.is_empty() {
             text.push_str(&format!(
@@ -323,7 +326,11 @@ pub fn audit(inputs: &Inputs) -> Result<String> {
                 (g, members)
             })
             .collect();
-        run::ask_groups(&material, inputs.reviewer, &picked, &diff, None, &[]).calls
+        let scope = run::Scope {
+            material: &material,
+            design: &design,
+        };
+        run::ask_groups(scope, inputs.reviewer, &picked, &diff, None, &[]).calls
     };
     let calls_rules = ask(&per_rule);
     let calls_shuffled = ask(&shuffled);

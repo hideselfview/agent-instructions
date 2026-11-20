@@ -11,6 +11,7 @@ paths:
   - '**/*.cs'
   - design/**
 blocking: true
+design: true
 ---
 
 ## No slop chips

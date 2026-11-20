@@ -14,6 +14,7 @@ fn copy_on(demo: &Demo, fake: &Fake, side: &Path) -> Checked {
     check(&Inputs {
         store: &demo.store,
         project: "demo",
+        repo: "demo",
         worktree: side,
         base: "main",
         label: "branch:work",

@@ -8,6 +8,7 @@ paths:
   - bae-bridge/loc/catalog.toml
   - plans/**
 blocking: true
+design: true
 ---
 
 ## Colours and type come from the design system

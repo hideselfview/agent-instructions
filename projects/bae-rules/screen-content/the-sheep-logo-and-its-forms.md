@@ -8,6 +8,7 @@ paths:
   - bae-android/**
   - plans/**
 blocking: true
+design: true
 ---
 
 ## The sheep logo and its forms

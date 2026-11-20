@@ -80,12 +80,19 @@ fn a_group_runs_when_one_of_its_rules_covers_a_changed_path() {
         rule("s2", "**/*.kt", "swift"),
         rule("r1", "**/*.rs", "rust"),
     ];
-    let picked = g.pick(&rules, &["bae-macos/A.swift".to_string()]);
+    let picked = g.pick(
+        &rules,
+        &["bae-macos/A.swift".to_string()],
+        &Globs::default(),
+    );
     assert_eq!(picked.len(), 1);
     assert_eq!(picked[0].0.name, "swift");
     let slugs: Vec<&str> = picked[0].1.iter().map(|r| r.slug.as_str()).collect();
     assert_eq!(slugs, ["s1", "s2"]);
-    assert!(g.pick(&rules, &["README.md".to_string()]).is_empty());
+    assert!(
+        g.pick(&rules, &["README.md".to_string()], &Globs::default())
+            .is_empty()
+    );
 }
 
 #[test]
@@ -95,7 +102,10 @@ fn a_rule_marked_review_false_never_runs_its_group() {
         "x",
         "---\npaths: ['**']\nreview: false\n---\nb\n",
     )];
-    assert!(g.pick(&rules, &["a".to_string()]).is_empty());
+    assert!(
+        g.pick(&rules, &["a".to_string()], &Globs::default())
+            .is_empty()
+    );
 }
 
 #[test]
@@ -155,7 +165,7 @@ fn a_review_of_the_checkout_runs_no_wording_rule() {
         "bae-android/app/src/main/res/values/strings.xml".to_string(),
     ];
     let asked: Vec<&str> = groups
-        .pick(&rules, &changed)
+        .pick(&rules, &changed, &Globs::default())
         .into_iter()
         .flat_map(|(_, members)| members.into_iter().map(|rule| rule.slug.as_str()))
         .collect();
@@ -167,11 +177,59 @@ fn a_review_of_the_checkout_runs_no_wording_rule() {
         assert!(!asked.contains(&slug), "{slug}");
     }
     let copy: Vec<&str> = groups
-        .pick_copy(&rules, &changed)
+        .pick_copy(&rules, &changed, &Globs::default())
         .into_iter()
         .flat_map(|(_, members)| members.into_iter().map(|rule| rule.slug.as_str()))
         .collect();
     for slug in wording {
         assert!(copy.contains(&slug), "{slug}: {copy:?}");
     }
+}
+
+/// A change to bae's boards and design system asks only the rules that judge
+/// design files (decision #364): how a menu sizes and how a preview lays out
+/// its rows, never how a shape changes or what code is needed.
+#[test]
+fn a_review_of_bae_design_files_asks_only_the_rules_that_judge_design_files() {
+    let root = checkout();
+    let groups = Groups::load(&root).unwrap();
+    let rules = rules::load(&root, Some("bae")).unwrap();
+    let design = Globs {
+        places: vec![
+            "design/mocks/*.html".into(),
+            "design/mocks/canvas.json".into(),
+            "design/system/components/*/".into(),
+        ],
+        sources: vec![
+            "design/system/components/src/*".into(),
+            "design/system/tokens.json".into(),
+        ],
+        spec: vec!["spec/bae.md".into()],
+    };
+    let changed = vec![
+        "design/mocks/mac.album.dc.html".to_string(),
+        "design/mocks/canvas.json".to_string(),
+        "design/system/components/MacRow/preview.html".to_string(),
+        "design/system/components/src/10-mac.js".to_string(),
+    ];
+    let asked: Vec<&Rule> = groups
+        .pick(&rules, &changed, &design)
+        .into_iter()
+        .flat_map(|(_, members)| members)
+        .collect();
+    let slugs: Vec<&str> = asked.iter().map(|rule| rule.slug.as_str()).collect();
+    for slug in [
+        "menus-size-to-their-items",
+        "component-previews-hold-their-content-still",
+    ] {
+        assert!(slugs.contains(&slug), "{slug}: {slugs:?}");
+    }
+    for slug in [
+        "change-a-shape-in-one-commit-with-no-compatibility-code",
+        "write-only-what-is-needed-today",
+        "every-change-agrees-with-its-product-spec",
+    ] {
+        assert!(!slugs.contains(&slug), "{slug}: {slugs:?}");
+    }
+    assert!(asked.iter().all(|rule| rule.design), "{slugs:?}");
 }

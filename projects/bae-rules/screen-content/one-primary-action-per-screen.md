@@ -8,6 +8,7 @@ paths:
   - bae-bridge/loc/catalog.toml
   - plans/**
 blocking: true
+design: true
 ---
 
 ## One primary action per screen

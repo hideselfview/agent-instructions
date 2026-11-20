@@ -12,6 +12,7 @@ paths:
   - '**/*.cs'
   - '**/*.md'
 blocking: true
+design: true
 ---
 
 ## No decorative icons or emoji

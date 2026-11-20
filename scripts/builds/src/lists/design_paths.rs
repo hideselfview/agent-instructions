@@ -66,6 +66,26 @@ impl Globs {
         self.places.iter().any(|glob| Glob::parse(glob).names(key))
     }
 
+    /// The globs the project's store <db> holds for <repo>.
+    pub fn read(db: &rusqlite::Connection, repo: &str) -> Result<Globs> {
+        let project = crate::lists::project::read(db)?;
+        let get = |map: &BTreeMap<String, Vec<String>>| map.get(repo).cloned().unwrap_or_default();
+        Ok(Globs {
+            places: get(&project.places),
+            sources: get(&project.sources),
+            spec: get(&project.specs),
+        })
+    }
+
+    /// Is <path> a design file: a board or component file of a place, a
+    /// shared design-system source, or another file under the folders the
+    /// design files sit in, as `classify` counts it and `builds design only`
+    /// accepts? A spec file is no design file.
+    pub fn holds_design_file(&self, path: &str) -> bool {
+        let changes = classify(self, &[path.to_string()]);
+        changes.outside.is_empty() && changes.spec_files.is_empty()
+    }
+
     /// Does <path> name one of these globs' spec files?
     pub fn names_spec_file(&self, path: &str) -> bool {
         self.spec.iter().any(|glob| Glob::parse(glob).matches(path))

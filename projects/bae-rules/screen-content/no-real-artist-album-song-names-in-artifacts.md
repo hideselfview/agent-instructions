@@ -3,6 +3,7 @@ digest: Never use real artist, album or song names in durable artifacts; use des
 paths:
   - '**/*'
 blocking: true
+design: true
 ---
 
 ## No real artist, album or song names in artifacts

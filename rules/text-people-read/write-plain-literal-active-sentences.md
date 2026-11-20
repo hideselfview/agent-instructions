@@ -3,6 +3,7 @@ digest: Every sentence a person reads, outside code comments and commit messages
 paths:
   - '**/*'
 blocking: true
+design: true
 ---
 
 ## Write plain, literal, active sentences

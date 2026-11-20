@@ -329,7 +329,11 @@ changed path. A review shows the changes since the last review, and nothing
 else: builds sends a reviewer no diff twice, except that it asks a group again over the whole net change when nothing is unread and the group holds an open confirmed finding. The review checks code
 and whether text is accurate, never word choice, grammar or style: the person
 reviews copy by hand, and the copy review (`builds review copy`) is theirs to
-run.
+run. The review checks design files (the boards, the design system and
+canvas.json, by the project's design globs) only against the rules about how a
+screen, board or component looks, never against the rules about code (decision
+#364). Each such rule says so in its front matter (`design: true`), and no
+other rule reads a design file (`builds help`, LANDING AND REVIEW).
 
   1. The agent runs `builds review <worktree> --item N` on its branch, which
      gives the reviewers the item's brief. The first review reads the
@@ -594,7 +598,8 @@ already matches (`places`, `builds help lists`).
      sentences, and the boards and circles show the rest. Circle what the person must look at, not every element the
      change moves: when one heading goes and every row below it moves up,
      circle the area that holds the heading and the rows. The rules review
-     reads the change before the person does (decision #362). Run record
+     reads the change before the person does (decision #362), and reads the
+     boards only against the rules about how they look (REVIEW). Run record
      and amend as background tasks: when the change waits on the person's
      review and the rules review has not read its branch, record and amend
      run `builds review` on the branch that the worktree has checked out
@@ -646,7 +651,9 @@ already matches (`places`, `builds help lists`).
      since, and a commit that changes a board needs an amend, which clears
      the approval. `builds
      land` refuses commits that a rule group covers until the rules review
-     takes them, as for any branch (REVIEW).
+     takes them, as for any branch (REVIEW). A group covers a design file only
+     through a rule that judges how things look, so a change of design files
+     that no such rule covers needs no review.
 
 PUBLISHING DESIGNS
 

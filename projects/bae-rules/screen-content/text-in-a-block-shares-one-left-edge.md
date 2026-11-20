@@ -8,6 +8,7 @@ paths:
   - bae-bridge/loc/catalog.toml
   - plans/**
 blocking: true
+design: true
 ---
 
 ## Text in a block shares one left edge

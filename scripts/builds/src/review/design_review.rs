@@ -16,11 +16,12 @@ use crate::ack::agent::Caller;
 use crate::fail::{Fail, Result};
 use crate::inbox::Messaging;
 use crate::lists::design::design_commits;
+use crate::lists::design_paths::Globs;
 use crate::lists::store::Store;
 use crate::lists::{DesignChange, Id, Lists, Stamp};
 use crate::review::landing::{self, CodeCheck, Verdict};
 use crate::review::record::Change;
-use crate::review::run::Material;
+use crate::review::run::{Material, Scope};
 use crate::tool::Tool;
 
 /// Where the rules review of an open design change that waits on the
@@ -73,7 +74,8 @@ impl Standing {
 
 /// Where the rules review of open design change <design> stands, from the
 /// commits that its worktree's HEAD holds past origin/main, the review's
-/// records in <store> and the groups of <material>.
+/// records in <store>, the groups of <material> and the design files of the
+/// change's repo, which <lists> gives.
 pub fn read(
     store: &Store,
     lists: &Lists,
@@ -90,21 +92,19 @@ pub fn read(
     if !covers {
         return Ok(Standing::Uncovered);
     }
-    let needs = landing::needs(top, ahead, |paths| material.group_names(paths))?;
+    let design_files = Globs::of(lists, &design.repo);
+    let scope = Scope {
+        material,
+        design: &design_files,
+    };
+    let needs = landing::needs(top, ahead, |paths| scope.group_names(paths))?;
     let key = super::default_key(top)?;
     let change = Change {
         repo: &design.repo,
         key: &key,
     };
     let conn = store.open_existing()?;
-    let verdict = landing::judge(
-        &conn,
-        change,
-        top,
-        &needs,
-        CodeCheck::Branch("HEAD"),
-        material,
-    )?;
+    let verdict = landing::judge(&conn, change, top, &needs, CodeCheck::Branch("HEAD"), scope)?;
     Ok(match verdict {
         Verdict::NotNeeded | Verdict::Takes(_) | Verdict::OverCap(_) => Standing::Read,
         verdict => Standing::InReview(verdict),

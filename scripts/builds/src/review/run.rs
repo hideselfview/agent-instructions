@@ -9,6 +9,7 @@ use serde_json::json;
 
 use crate::fail;
 use crate::fail::{Context, Result};
+use crate::lists::design_paths::Globs;
 use crate::review::call;
 use crate::review::check::reviewers_map;
 use crate::review::check::{
@@ -56,15 +57,6 @@ impl Material {
         vec![root.join("rules"), root.join("projects")]
     }
 
-    /// The names of the groups whose rules cover one of <changed>.
-    pub fn group_names(&self, changed: &[String]) -> Vec<String> {
-        self.groups
-            .pick(&self.rules, changed)
-            .into_iter()
-            .map(|(group, _)| group.name.clone())
-            .collect()
-    }
-
     /// Each group that holds findings of <open>, with those findings, in
     /// <open>'s order: a later run asks each over every change since it last
     /// read the branch with them, whatever files the changes touch, so that
@@ -76,22 +68,6 @@ impl Material {
                 let held = held_by(group, &members, open);
                 (!held.is_empty()).then(|| (group.name.clone(), held))
             })
-            .collect()
-    }
-
-    /// The names of the groups that read the commit messages of <since>, the
-    /// changes since the last review of a branch whose commits change
-    /// <branch>: each group that reads commit messages and whose rules cover
-    /// a path of <branch>. The list is empty when <since> holds no message.
-    pub fn commit_text_groups(&self, since: &Diff, branch: &[String]) -> Vec<String> {
-        if files::commit_message_file(&since.messages).is_none() {
-            return Vec::new();
-        }
-        self.groups
-            .pick(&self.rules, branch)
-            .into_iter()
-            .filter(|(group, _)| group.commit_text)
-            .map(|(group, _)| group.name.clone())
             .collect()
     }
 
@@ -112,6 +88,49 @@ impl Material {
             group.model = model.to_string();
         }
         self
+    }
+}
+
+/// What decides which rules read which files of a change in one repo: the
+/// project's groups and rules, and the repo's design files (`builds lists
+/// design-globs`), which only the rules that judge design files read
+/// (`Rule::design`).
+#[derive(Clone, Copy)]
+pub struct Scope<'a> {
+    pub material: &'a Material,
+    pub design: &'a Globs,
+}
+
+impl Scope<'_> {
+    /// The groups a change to <changed> runs, each with its rules
+    /// (`Groups::pick`).
+    pub fn pick(&self, changed: &[String]) -> Vec<(&Group, Vec<&Rule>)> {
+        self.material
+            .groups
+            .pick(&self.material.rules, changed, self.design)
+    }
+
+    /// The names of the groups whose rules cover one of <changed>.
+    pub fn group_names(&self, changed: &[String]) -> Vec<String> {
+        self.pick(changed)
+            .into_iter()
+            .map(|(group, _)| group.name.clone())
+            .collect()
+    }
+
+    /// The names of the groups that read the commit messages of <since>, the
+    /// changes since the last review of a branch whose commits change
+    /// <branch>: each group that reads commit messages and whose rules cover
+    /// a path of <branch>. The list is empty when <since> holds no message.
+    pub fn commit_text_groups(&self, since: &Diff, branch: &[String]) -> Vec<String> {
+        if files::commit_message_file(&since.messages).is_none() {
+            return Vec::new();
+        }
+        self.pick(branch)
+            .into_iter()
+            .filter(|(group, _)| group.commit_text)
+            .map(|(group, _)| group.name.clone())
+            .collect()
     }
 }
 
@@ -447,17 +466,18 @@ fn holds_open(group: &Group, members: &[&Rule], paths: &[String], open: &[Findin
         .any(|finding| paths.iter().any(|path| names_file(path, &finding.file)))
 }
 
-/// The units of group <at>, <group> with <members>, over <diff>: a group
-/// that lists sites gets one per changed file its rules cover, by either
-/// path of a rename, or one per changed file when it holds a finding of
-/// <open>, and one for the commit messages when it reads them; any other
-/// group gets one for the whole diff, with the commit messages when it reads
-/// them (`Diff::text_for`).
+/// The units of group <at>, <group> with <members>, over <diff>, its view
+/// of the change (`unjudged`): a group that lists sites gets one per changed
+/// file its rules cover, by either path of a rename, or one per changed file
+/// when it holds a finding of <open>, and one for the commit messages when it
+/// reads them; any other group gets one for the whole diff, with the commit
+/// messages when it reads them (`Diff::text_for`).
 fn units_of<'a>(
     group: &'a Group,
     members: &'a [&'a Rule],
     at: usize,
     diff: &Diff,
+    design: &Globs,
     open: &[Finding],
 ) -> Vec<Unit<'a>> {
     let unit = |file| Unit {
@@ -472,7 +492,12 @@ fn units_of<'a>(
     let holds = !held_by(group, members, open).is_empty();
     let mut units: Vec<Unit> = files::split(&diff.text)
         .into_iter()
-        .filter(|file| holds || members.iter().any(|rule| rule.matches(&file.paths())))
+        .filter(|file| {
+            holds
+                || members
+                    .iter()
+                    .any(|rule| rule.matches(&file.paths(), design))
+        })
         .map(|file| unit(Some(file)))
         .collect();
     if let (true, Some((file, _))) = (
@@ -482,6 +507,21 @@ fn units_of<'a>(
         units.push(unit(Some(file)));
     }
     units
+}
+
+/// The design files of <diff> that no rule of <members> covers, by <design>:
+/// a group reads a design file only when one of its rules judges design files
+/// and covers it, whether or not the group holds open findings.
+fn unjudged(members: &[&Rule], diff: &Diff, design: &Globs) -> Vec<String> {
+    files::split(&diff.text)
+        .into_iter()
+        .filter(|file| {
+            let paths = file.paths();
+            paths.iter().any(|path| design.holds_design_file(path))
+                && !members.iter().any(|rule| rule.matches(&paths, design))
+        })
+        .map(|file| file.path)
+        .collect()
 }
 
 /// The files of its units, <first>, that group <at> of <picked> does not
@@ -512,28 +552,38 @@ fn not_read(
 /// Asks the reviewers of <picked> and checks what comes back: one per group,
 /// except that a group that lists sites gets one per changed file its rule
 /// covers by either path of a rename, each given that file's diff and its new
-/// text around the hunks. Each call also gets the findings of <open> in its
-/// group's rules, and closes each one whose problem the code no longer has.
-/// A group that holds findings of <open> reads every file of <diff>, so that
-/// it sees a fix in any file. Of the other groups, none reads a file where a
+/// text around the hunks. No group reads a design file of <scope>'s repo
+/// unless one of its rules judges design files and covers it (`unjudged`).
+/// Each call also gets the findings of <open> in its group's rules, and
+/// closes each one whose problem the code no longer has. A group that holds
+/// findings of <open> reads every other file of <diff>, so that it sees a fix
+/// in any file. Of the other groups, none reads a file where a
 /// group of <picked> holds findings of <open>, and each reads every other
 /// file it reads on a first review. The calls of a group come back as one
 /// call with the findings of all.
 pub fn ask_groups(
-    material: &Material,
+    scope: Scope,
     reviewer: &Path,
     picked: &[(&Group, Vec<&Rule>)],
     diff: &Diff,
     brief: Option<&crate::lists::spec_check::Brief>,
     open: &[Finding],
 ) -> Asked {
+    let (material, design) = (scope.material, scope.design);
+    // Each group's view of the change: the diff without the design files the
+    // group does not judge.
+    let unjudged: Vec<Vec<String>> = picked
+        .iter()
+        .map(|(_, members)| unjudged(members, diff, design))
+        .collect();
+    let views: Vec<Diff> = unjudged.iter().map(|paths| diff.without(paths)).collect();
     // The units a first review asks, and the files of each group's units that
-    // it does not read now. A unit of the whole diff reads every file of it,
+    // it does not read now. A unit of the whole view reads every file of it,
     // and the commit messages when its group reads them.
     let first: Vec<Vec<Unit>> = picked
         .iter()
         .enumerate()
-        .map(|(at, (group, members))| units_of(group, members, at, diff, open))
+        .map(|(at, (group, members))| units_of(group, members, at, &views[at], design, open))
         .collect();
     let not_read: Vec<Vec<String>> = first
         .iter()
@@ -543,14 +593,18 @@ pub fn ask_groups(
                 .iter()
                 .flat_map(|unit| match &unit.file {
                     Some(file) => vec![file.clone()],
-                    None => files::split(&diff.text_for(unit.group)),
+                    None => files::split(&views[at].text_for(unit.group)),
                 })
                 .collect();
             not_read(picked, at, &read, open)
         })
         .collect();
-    // Each group's diff: <diff> without the files the group does not read.
-    let diffs: Vec<Diff> = not_read.iter().map(|paths| diff.without(paths)).collect();
+    // Each group's diff: its view without the files the group does not read.
+    let diffs: Vec<Diff> = not_read
+        .iter()
+        .zip(&views)
+        .map(|(paths, view)| view.without(paths))
+        .collect();
     let quotes: Vec<Vec<DiffFile>> = diffs.iter().map(Diff::quotes).collect();
     // The reviewers read the repository at the commit under review.
     let checkout = match diff.source.as_ref().map(files::Source::checkout) {
@@ -576,7 +630,7 @@ pub fn ask_groups(
         .filter(|unit| match &unit.file {
             Some(file) => !not_read[unit.diff].contains(&file.path),
             None => {
-                not_read[unit.diff].is_empty()
+                (not_read[unit.diff].is_empty() && unjudged[unit.diff].is_empty())
                     || !diffs[unit.diff].text_for(unit.group).trim().is_empty()
             }
         })
@@ -634,11 +688,10 @@ pub fn ask_groups(
             ms: began.elapsed().as_millis() as i64,
         };
         let mut call = checked(
-            material,
+            scope,
             group,
             unit.members,
             &quotes[unit.diff],
-            &names,
             setup,
             output,
         );
@@ -697,10 +750,11 @@ pub fn ask_groups(
     }
     // A group that reads one file per call and covers a path some commit
     // changed has no file to read when a later commit changed that path back:
-    // the range diff holds none of its files. Such a group has nothing to
-    // find, so its answer is no findings. When other groups hold the open
-    // findings in every file a group would read, builds does not ask that
-    // group.
+    // the range diff holds none of its files. Nor has a group whose view of a
+    // diff of design files alone is empty, since it judges none of them. Such
+    // a group has nothing to find, so its answer is no findings. When other
+    // groups hold the open findings in every file a group would read, builds
+    // does not ask that group.
     let mut nothing_to_read = Vec::new();
     for (at, (group, members)) in picked.iter().enumerate() {
         if not_read[at].is_empty() && !units.iter().any(|unit| unit.group.name == group.name) {
@@ -723,12 +777,13 @@ pub fn ask_groups(
 
 /// What a review asked: one call per group, the tokens of the passes after
 /// each group's first, the groups that had no file to read in the diff, and
-/// the files each group did not read.
+/// the files each group did not read because other groups hold the open
+/// findings in them.
 pub struct Asked {
     pub calls: Vec<NewCall>,
     pub repeat: Tokens,
-    /// Groups that read one file per call and found no file of theirs in the
-    /// diff: each has a call with no findings that ran no reviewer.
+    /// Groups that found no file of theirs in the diff: each has a call with
+    /// no findings that ran no reviewer.
     pub nothing_to_read: Vec<String>,
     /// Each group with the files of the diff it did not read, because other
     /// groups hold the open findings in them. A group that read none of the
@@ -876,23 +931,24 @@ fn merge(held: &mut NewCall, more: NewCall) {
 
 /// The call as the store holds it: builds keeps with the reason it dropped
 /// it each finding whose clause is not in its rule, that is on the commit
-/// messages when <group> does not read them, whose code is not in <quotes>, or
-/// whose code sits only on comment lines when its rule's group judges no code
-/// comment.
+/// messages when <group> does not read them, that is on a design file of
+/// <scope>'s repo when its rule judges no design file, whose code is not in
+/// <quotes>, or whose code sits only on comment lines when its rule's group
+/// judges no code comment.
 fn checked(
-    material: &Material,
+    scope: Scope,
     group: &Group,
     members: &[&Rule],
     quotes: &[DiffFile],
-    names: &[String],
     setup: String,
     output: call::Output,
 ) -> NewCall {
+    let (material, design) = (scope.material, scope.design);
     let mut call = NewCall {
         group: group.name.clone(),
         model: group.model.clone(),
         prompt: setup,
-        rules: names.to_vec(),
+        rules: prompt::answer_names(group, members),
         tokens_in: output.usage.tokens_in,
         tokens_out: output.usage.tokens_out,
         tokens_cached: output.usage.tokens_cached,
@@ -916,14 +972,16 @@ fn checked(
     call.verdicts = answer.verdicts;
     call.sites = answer.sites;
     for raw in answer.findings {
-        let (rule_text, blocking) = if raw.rule == PROJECT_FACTS {
-            (material.project_text.as_str(), false)
+        // The project facts judge no design file: they are about the code
+        // and the spec.
+        let (rule_text, blocking, judges_design) = if raw.rule == PROJECT_FACTS {
+            (material.project_text.as_str(), false, false)
         } else {
             let rule = members
                 .iter()
                 .find(|r| r.slug == raw.rule)
                 .expect("the answer's rules were checked against the group's");
-            (rule.text.as_str(), rule.blocking)
+            (rule.text.as_str(), rule.blocking, rule.design)
         };
         let check_failed = if !clause_in(&raw.clause, rule_text) {
             Some("its clause is not in the rule's text".to_string())
@@ -932,6 +990,11 @@ fn checked(
                 "it is on the commit messages ({}), which group {} does not read",
                 files::COMMIT_MESSAGE,
                 group.name
+            ))
+        } else if !judges_design && design.holds_design_file(&raw.file) {
+            Some(format!(
+                "it is on design file {}, and rule {} judges no design file",
+                raw.file, raw.rule
             ))
         } else if let Err(why) = code_in(quotes, &raw.file, &raw.code) {
             Some(why)

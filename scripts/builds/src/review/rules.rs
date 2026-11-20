@@ -2,13 +2,15 @@
 //! project's `projects/<project>-rules/` of an agent-instructions checkout
 //! (each in its group's folder), with the
 //! front matter `scripts/rules_review/matching_rules.py` reads (`paths`,
-//! `blocking`, `review`) and the full body.
+//! `blocking`, `review`), whether the rule judges design files (`design`),
+//! and the full body.
 
 use std::path::{Path, PathBuf};
 
 use crate::fail;
 use crate::fail::{Context, Result};
 use crate::glob::{Question, segments_match};
+use crate::lists::design_paths::Globs;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Rule {
@@ -24,6 +26,10 @@ pub struct Rule {
     pub blocking: bool,
     /// False for a rule marked `review: false`, which the reviewer can't check.
     pub reviewable: bool,
+    /// True for a rule marked `design: true`, which judges how a screen, board
+    /// or component looks: it judges the design files its globs match. Every
+    /// other rule judges no design file, whatever its globs match.
+    pub design: bool,
     /// The whole file, front matter included, which a reviewer reads.
     pub text: String,
 }
@@ -46,6 +52,7 @@ impl Rule {
             blocking: value("blocking").is_some_and(|v| v.eq_ignore_ascii_case("true")),
             reviewable: !value("review")
                 .is_some_and(|v| ["false", "no", "off"].contains(&v.to_ascii_lowercase().as_str())),
+            design: value("design").is_some_and(|v| v.eq_ignore_ascii_case("true")),
             text: text.to_string(),
         }
     }
@@ -61,14 +68,21 @@ impl Rule {
         }
     }
 
-    /// Whether the rule covers at least one of <changed>.
-    pub fn matches(&self, changed: &[String]) -> bool {
-        match &self.paths {
+    /// Whether the rule covers at least one of <changed>, in a repo whose
+    /// design files <design> names: a path its globs match, which is no
+    /// design file unless the rule judges design files.
+    pub fn matches(&self, changed: &[String], design: &Globs) -> bool {
+        changed.iter().any(|path| self.covers(path, design))
+    }
+
+    /// Whether the rule covers <path>, in a repo whose design files <design>
+    /// names.
+    fn covers(&self, path: &str, design: &Globs) -> bool {
+        let matched = match &self.paths {
             None => true,
-            Some(globs) => changed
-                .iter()
-                .any(|path| globs.iter().any(|glob| glob_matches(glob, path))),
-        }
+            Some(globs) => globs.iter().any(|glob| glob_matches(glob, path)),
+        };
+        matched && (self.design || !design.holds_design_file(path))
     }
 }
 

@@ -7,6 +7,7 @@ paths:
   - bae-android/**
   - plans/**
 blocking: true
+design: true
 ---
 
 ## Build each screen to match its board

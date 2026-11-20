@@ -43,6 +43,7 @@ use crate::fail;
 use crate::fail::{Context, Fail, Result};
 use crate::lists::Stamp;
 use crate::lists::args::Args;
+use crate::lists::design_paths::Globs;
 use crate::lists::store::{Store, resolve_by};
 use crate::review::check;
 use crate::review::commits;
@@ -51,7 +52,7 @@ use crate::review::mechanical::Mechanical;
 use crate::review::over_cap;
 use crate::review::record::{self, Change, LandingRow};
 use crate::review::render;
-use crate::review::run::{self, Material};
+use crate::review::run::{self, Material, Scope};
 use crate::tool::Tool;
 
 const USAGE: &str = "builds review check-landing|landed DIR --project P SHA... [--landing KEY] [--rules-root DIR] [--more-to-land]";
@@ -299,13 +300,14 @@ impl Coverage {
 }
 
 /// What the review of <landing> lacks, in the repo at <dir>, reading the
-/// branch as <check> says, against the groups and rules of <material>.
+/// branch as <check> says, against the groups, rules and design files of
+/// <scope>.
 fn assess(
     db: &Connection,
     dir: &Path,
     landing: &LandingRow,
     check: CodeCheck,
-    material: &Material,
+    scope: Scope,
 ) -> Result<(Covered, Unfinished)> {
     let coverage = Coverage::of(db, landing)?;
     let last = &coverage.last_review;
@@ -322,12 +324,12 @@ fn assess(
     if let CodeCheck::Branch(head) = check {
         let since = run::diff_since(dir, &last.base, &last.head, BRANCH_BASE, head)?;
         let branch = commits::paths(dir, &commits::in_range(dir, &since.base, &since.head)?)?;
-        let messages_unread = !material.commit_text_groups(&since.diff, &branch).is_empty();
+        let messages_unread = !scope.commit_text_groups(&since.diff, &branch).is_empty();
         unfinished.unreviewed = since
             .diff
             .changed
             .into_iter()
-            .filter(|path| !material.group_names(std::slice::from_ref(path)).is_empty())
+            .filter(|path| !scope.group_names(std::slice::from_ref(path)).is_empty())
             .collect();
         if messages_unread {
             unfinished
@@ -352,15 +354,15 @@ fn assess(
 /// <dir>, land: the open review of <change> must take them, or, when <check>
 /// reads the branch, the branch is over the review's cap and needs no review
 /// while no finding waits (`over_cap_needs_none`). <check> says whether to
-/// read the branch's net change, and <material> holds the groups and the
-/// rules that say which group reads a path or a commit message.
+/// read the branch's net change, and <scope> holds the groups, the rules and
+/// the design files that say which group reads a path or a commit message.
 pub fn judge(
     db: &Connection,
     change: Change,
     dir: &Path,
     needs: &[Need],
     check: CodeCheck,
-    material: &Material,
+    scope: Scope,
 ) -> Result<Verdict> {
     if needs.iter().all(|n| n.groups.is_empty()) {
         return Ok(Verdict::NotNeeded);
@@ -369,7 +371,7 @@ pub fn judge(
         None => Verdict::NoRun,
         Some(open) => {
             let landing = record::landing(db, open)?;
-            let (covered, unfinished) = assess(db, dir, &landing, check, material)?;
+            let (covered, unfinished) = assess(db, dir, &landing, check, scope)?;
             if unfinished.is_empty() {
                 return Ok(Verdict::Takes(covered));
             }
@@ -577,6 +579,8 @@ struct Asked {
     needs: Vec<Need>,
     root: PathBuf,
     material: Material,
+    /// The design files of the change's repo.
+    design: Globs,
 }
 
 impl Asked {
@@ -584,6 +588,13 @@ impl Asked {
         Change {
             repo: &self.repo,
             key: &self.key,
+        }
+    }
+
+    fn scope(&self) -> Scope<'_> {
+        Scope {
+            material: &self.material,
+            design: &self.design,
         }
     }
 }
@@ -605,18 +616,25 @@ fn ask(tool: &Tool, args: &Args) -> Result<Asked> {
     };
     let root = super::rules_root(args)?;
     let material = Material::load(&root, project)?;
+    let repo = checkout.repo();
+    let design = Globs::read(&conn, &repo)?;
+    let scope = Scope {
+        material: &material,
+        design: &design,
+    };
     let needs = needs(&checkout.top, shas.to_vec(), |paths| {
-        material.group_names(paths)
+        scope.group_names(paths)
     })?;
     Ok(Asked {
         store,
         conn,
-        repo: checkout.repo(),
+        repo,
         key,
         dir: checkout.top.clone(),
         needs,
         root,
         material,
+        design,
     })
 }
 
@@ -631,7 +649,7 @@ pub fn check_landing_command(tool: &Tool, args: &[String]) -> Result<()> {
         &asked.dir,
         &asked.needs,
         CodeCheck::Branch("HEAD"),
-        &asked.material,
+        asked.scope(),
     )?;
     let Some(why) = refusal(&asked.needs, &verdict) else {
         println!("{}", taken(&verdict));
@@ -686,7 +704,7 @@ fn record_landed(asked: &Asked, stamp: &Stamp, more: bool) -> Result<Option<i64>
         &asked.dir,
         &asked.needs,
         CodeCheck::Records,
-        &asked.material,
+        asked.scope(),
     )?;
     let covered = match &verdict {
         Verdict::NotNeeded | Verdict::OverCap(_) => return Ok(None),

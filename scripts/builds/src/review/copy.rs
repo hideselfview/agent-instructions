@@ -10,6 +10,7 @@ use std::path::Path;
 
 use crate::fail::Result;
 use crate::lists::Stamp;
+use crate::lists::design_paths::Globs;
 use crate::lists::store::Store;
 use crate::review::record::{self, Kind, NewRun};
 use crate::review::render;
@@ -19,6 +20,9 @@ use crate::review::run;
 pub struct Inputs<'a> {
     pub store: &'a Store,
     pub project: &'a str,
+    /// The repo of the worktree, whose design files only the rules that
+    /// judge design files read.
+    pub repo: &'a str,
     /// The review reads the net change of the worktree's HEAD past <base>,
     /// from their common ancestor.
     pub worktree: &'a Path,
@@ -44,6 +48,7 @@ pub struct Checked {
 /// change touches, with the project's rules, and records the run.
 pub fn check(inputs: &Inputs) -> Result<Checked> {
     let material = run::Material::load(inputs.root, inputs.project)?;
+    let design = Globs::read(&*inputs.store.open_existing()?, inputs.repo)?;
     let change = run::diff_of(inputs.worktree, inputs.base)?;
     if change.diff.text.trim().is_empty() {
         return Ok(Checked {
@@ -56,7 +61,7 @@ pub fn check(inputs: &Inputs) -> Result<Checked> {
     }
     let picked = material
         .groups
-        .pick_copy(&material.rules, &change.diff.changed);
+        .pick_copy(&material.rules, &change.diff.changed, &design);
     if picked.is_empty() {
         return Ok(Checked {
             text: "no copy group's rules cover the changed paths, so there is nothing to check\n"
@@ -64,7 +69,11 @@ pub fn check(inputs: &Inputs) -> Result<Checked> {
             clean: true,
         });
     }
-    let asked = run::ask_groups(&material, inputs.reviewer, &picked, &change.diff, None, &[]);
+    let scope = run::Scope {
+        material: &material,
+        design: &design,
+    };
+    let asked = run::ask_groups(scope, inputs.reviewer, &picked, &change.diff, None, &[]);
     let stamp = inputs.stamp;
     let (run, calls, findings) =
         inputs

@@ -13,7 +13,7 @@
 //! builds review keep FINDING --why TEXT
 //! builds review show LANDING
 //! builds review check-landing | landed DIR --project P SHA... [--landing KEY]
-//! builds review groups [--rules-root DIR] [--project P] [--changed PATH]...
+//! builds review groups [--rules-root DIR] [--project P --repo R --changed PATH...]
 //! builds review replay [--case NAME]... [--source REPO] [--model M] [--rules-root DIR] [--compare] [--reviewer PROGRAM]
 //! builds review replay --landing N... --repo-dir DIR [--group NAME]... [--model M] [--rules-root DIR] [--reviewer PROGRAM]
 //! builds review audit LANDING --repo-dir DIR
@@ -44,7 +44,9 @@
 //! changes since the last net change it did read so. Of the other groups of
 //! a run, none reads a file where a group of the run holds open findings,
 //! and each reads every other changed file its rules cover
-//! (`run::ask_groups`). `landing::Coverage`
+//! (`run::ask_groups`). No group reads a design file of the repo (`builds
+//! lists design-globs`) unless one of its rules judges design files
+//! (`rules::Rule::design`): the rest judge code. `landing::Coverage`
 //! says what the review read, for this run and for `builds land`. The run
 //! refuses when the review lacks nothing and no confirmed finding is open.
 //!
@@ -95,6 +97,7 @@ use crate::fail;
 use crate::fail::{Context, Fail, Result};
 use crate::lists::Stamp;
 use crate::lists::args::{Args, current_dir};
+use crate::lists::design_paths::Globs;
 use crate::lists::spec_check::Brief;
 use crate::lists::store::{Store, project_of};
 use crate::tool::Tool;
@@ -103,7 +106,7 @@ use rusqlite::Connection;
 
 use record::Kind;
 
-const USAGE: &str = "usage: builds review [run] WORKTREE [BASE] [--landing KEY] [--item N]... [--head SHA] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review copy WORKTREE [BASE] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review wait LANDING\n       builds review settle FINDING confirmed|dropped --why TEXT\n       builds review settle FINDING --again --why TEXT\n       builds review settle FINDING allowed --by-person --why TEXT\n       builds review dispute FINDING --why TEXT\n       builds review keep FINDING --why TEXT\n       builds review show LANDING\n       builds review check-landing DIR --project P SHA... [--landing KEY] [--rules-root DIR]\n       builds review landed DIR --project P SHA... [--landing KEY] [--more-to-land] [--rules-root DIR]\n       builds review groups [--rules-root DIR] [--project P] [--changed PATH]...\n       builds review replay [--case NAME]... [--source REPO] [--model opus|sonnet|haiku] [--rules-root DIR] [--compare] [--reviewer PROGRAM]\n       builds review replay --landing N... --repo-dir DIR [--group NAME]... [--model opus|sonnet|haiku] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review audit LANDING --repo-dir DIR [--rules-root DIR] [--reviewer PROGRAM]\n       builds review misses [--check [--model opus|sonnet|haiku] [--rules-root DIR] [--reviewer PROGRAM]]\n       builds review rates [--rules-root DIR]\n       builds review scores\n       builds review case propose --repo-dir DIR --rules-root DIR [--per-group N] [--model opus|sonnet|haiku] [--reviewer PROGRAM]\n       builds review case add LANDING FINDING --repo-dir DIR --rules-root DIR [--name NAME]\n       builds review case add --rule SLUG --file PATH --commits BASE..HEAD --project P --name NAME --repo-dir DIR --rules-root DIR\n       builds review case add --clean-for SLUG --commits BASE..HEAD --project P --name NAME --repo-dir DIR --rules-root DIR";
+const USAGE: &str = "usage: builds review [run] WORKTREE [BASE] [--landing KEY] [--item N]... [--head SHA] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review copy WORKTREE [BASE] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review wait LANDING\n       builds review settle FINDING confirmed|dropped --why TEXT\n       builds review settle FINDING --again --why TEXT\n       builds review settle FINDING allowed --by-person --why TEXT\n       builds review dispute FINDING --why TEXT\n       builds review keep FINDING --why TEXT\n       builds review show LANDING\n       builds review check-landing DIR --project P SHA... [--landing KEY] [--rules-root DIR]\n       builds review landed DIR --project P SHA... [--landing KEY] [--more-to-land] [--rules-root DIR]\n       builds review groups [--rules-root DIR] [--project P --repo R --changed PATH...]\n       builds review replay [--case NAME]... [--source REPO] [--model opus|sonnet|haiku] [--rules-root DIR] [--compare] [--reviewer PROGRAM]\n       builds review replay --landing N... --repo-dir DIR [--group NAME]... [--model opus|sonnet|haiku] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review audit LANDING --repo-dir DIR [--rules-root DIR] [--reviewer PROGRAM]\n       builds review misses [--check [--model opus|sonnet|haiku] [--rules-root DIR] [--reviewer PROGRAM]]\n       builds review rates [--rules-root DIR]\n       builds review scores\n       builds review case propose --repo-dir DIR --rules-root DIR [--per-group N] [--model opus|sonnet|haiku] [--reviewer PROGRAM]\n       builds review case add LANDING FINDING --repo-dir DIR --rules-root DIR [--name NAME]\n       builds review case add --rule SLUG --file PATH --commits BASE..HEAD --project P --name NAME --repo-dir DIR --rules-root DIR\n       builds review case add --clean-for SLUG --commits BASE..HEAD --project P --name NAME --repo-dir DIR --rules-root DIR";
 
 /// The checkout the rules and groups are read from: `--rules-root`, else the
 /// one `install.sh` links at ~/.codex/agent-instructions.
@@ -212,7 +215,7 @@ pub fn cmd_review(tool: &Tool, args: &[String]) -> Result<()> {
         fail!("{USAGE}")
     };
     match command.as_str() {
-        "groups" => list_groups(rest),
+        "groups" => list_groups(tool, rest),
         "wait" => wait_command(tool, rest),
         "settle" => settle(tool, rest, Caller::from_env()?.as_ref()),
         "dispute" => dispute_command(
@@ -349,7 +352,12 @@ pub fn review(inputs: &Inputs) -> Result<Reported> {
     }
     let shas = commits::in_range(inputs.worktree, &change.base, &change.head)?;
     let material = run::Material::load(inputs.root, inputs.project)?;
-    if material.group_names(&change.diff.changed).is_empty() {
+    let design = Globs::read(&conn, inputs.repo)?;
+    let scope = run::Scope {
+        material: &material,
+        design: &design,
+    };
+    if scope.group_names(&change.diff.changed).is_empty() {
         return Ok(Reported {
             landing: None,
             text: "no group's rules cover the changed paths: nothing to review, and builds land needs no review\n".to_string(),
@@ -375,7 +383,7 @@ pub fn review(inputs: &Inputs) -> Result<Reported> {
     let gone = run::deleted_findings(inputs.worktree, &change.head, &open_findings)?;
     let asks = match open {
         None => vec![Ask {
-            groups: material.group_names(&change.diff.changed),
+            groups: scope.group_names(&change.diff.changed),
             change,
             since: None,
             last_review: true,
@@ -384,7 +392,7 @@ pub fn review(inputs: &Inputs) -> Result<Reported> {
         Some(landing) => later_asks(
             &conn,
             inputs,
-            &material,
+            scope,
             &change,
             landing,
             &open_findings,
@@ -411,7 +419,7 @@ pub fn review(inputs: &Inputs) -> Result<Reported> {
         }
         let picked = material.groups.named(&material.rules, &ask.groups);
         answers.push(run::ask_groups(
-            &material,
+            scope,
             inputs.reviewer,
             &picked,
             &ask.change.diff,
@@ -496,7 +504,7 @@ pub fn review(inputs: &Inputs) -> Result<Reported> {
         }
         for group in &asked.nothing_to_read {
             text.push_str(&format!(
-                "{group}: the diff holds none of the files its rules cover (a commit changed one and a later commit changed it back), so it had nothing to read: its answer is no findings\n"
+                "{group}: the diff holds none of the files its rules cover (a commit changed one and a later commit changed it back, or the diff changes only design files, which its rules do not judge), so it had nothing to read: its answer is no findings\n"
             ));
         }
         for (group, paths) in &asked.not_read {
@@ -516,14 +524,14 @@ pub fn review(inputs: &Inputs) -> Result<Reported> {
         }
     }
     // What builds land would say of the branch's commits now.
-    let needs = landing::needs(inputs.worktree, shas, |paths| material.group_names(paths))?;
+    let needs = landing::needs(inputs.worktree, shas, |paths| scope.group_names(paths))?;
     let verdict = landing::judge(
         &conn,
         under_review,
         inputs.worktree,
         &needs,
         landing::CodeCheck::Branch(inputs.head.unwrap_or("HEAD")),
-        &material,
+        scope,
     )?;
     let refusal = landing::refusal(&needs, &verdict);
     if refusal.is_none() {
@@ -570,7 +578,7 @@ struct Ask {
 fn later_asks(
     conn: &rusqlite::Connection,
     inputs: &Inputs,
-    material: &run::Material,
+    scope: run::Scope,
     change: &run::NetChange,
     landing: i64,
     open: &[record::Finding],
@@ -616,7 +624,7 @@ fn later_asks(
     // the changes: the earliest net change it read every change up to with
     // each of its findings.
     let mut holders: Vec<(String, &record::RunRow)> = Vec::new();
-    for (group, findings) in material.holding_groups(open) {
+    for (group, findings) in scope.material.holding_groups(open) {
         let mut from: Option<&record::RunRow> = None;
         for finding in findings {
             let reached = coverage.read_with(&calls, &unanswered, finding, &group)?;
@@ -663,8 +671,8 @@ fn later_asks(
         });
     }
     let since = since_run(last)?;
-    let mut groups = material.group_names(&since.diff.changed);
-    for group in material.commit_text_groups(&since.diff, &change.diff.changed) {
+    let mut groups = scope.group_names(&since.diff.changed);
+    for group in scope.commit_text_groups(&since.diff, &change.diff.changed) {
         if !groups.contains(&group) {
             groups.push(group);
         }
@@ -701,7 +709,8 @@ fn later_asks(
             .filter(|finding| !gone.iter().any(|g| g.id == finding.id))
             .cloned()
             .collect();
-        let groups: Vec<String> = material
+        let groups: Vec<String> = scope
+            .material
             .holding_groups(&kept)
             .into_iter()
             .map(|(group, _)| group)
@@ -923,6 +932,7 @@ fn copy_command(tool: &Tool, args: &[String]) -> Result<()> {
     let checked = copy::check(&copy::Inputs {
         store: &Store::named(&tool.places, &project)?,
         project: &project,
+        repo: &checkout.repo(),
         worktree: &checkout.top,
         base,
         label: &default_key(&checkout.top)?,
@@ -1295,22 +1305,22 @@ fn replay(tool: &Tool, args: &[String]) -> Result<()> {
         fail!("{} holds no cases", root.join(cases::DIR).display());
     }
     // replay records each case's run in its project's store, so the command
-    // checks that every store exists before any reviewer runs.
-    let stores = all
-        .iter()
-        .map(|case| {
-            let store = Store::named(&tool.places, &case.project)?;
-            store.open_existing()?;
-            Ok(store)
-        })
-        .collect::<Result<Vec<Store>>>()?;
+    // checks that every store exists before any reviewer runs. The store
+    // holds the design files of the case's repo.
+    let mut stores = Vec::new();
+    let mut designs = Vec::new();
+    for case in &all {
+        let store = Store::named(&tool.places, &case.project)?;
+        designs.push(Globs::read(&*store.open_existing()?, &case.repo)?);
+        stores.push(store);
+    }
     let cwd = current_dir()?;
     let stamp = Stamp::resolve(tool.now, &args, &cwd)?;
     // Runs the cases under the rules and groups of <root>, every group in
     // <model> when given, and records each case's run.
     let replay_under = |root: &Path, model: Option<&str>| -> Result<Vec<cases::CaseResult>> {
         let rules_version = run::rules_version(root);
-        let results = cases::replay_all(root, &all, &reviewer, source.as_deref(), model)?;
+        let results = cases::replay_all(root, &all, &designs, &reviewer, source.as_deref(), model)?;
         for ((case, result), store) in all.iter().zip(&results).zip(&stores) {
             store.write(&stamp, &format!("review replay {}", case.name), |db| {
                 record::add_run(
@@ -1607,9 +1617,11 @@ fn case_command(tool: &Tool, args: &[String]) -> Result<()> {
 }
 
 /// Prints each group, and fails when the grouping is not whole. With
-/// `--changed`, prints only the groups those paths run.
-fn list_groups(args: &[String]) -> Result<()> {
-    let args = Args::parse(args, &["rules-root", "changed"], &[])?;
+/// `--changed`, prints only the groups a change to those paths in repo
+/// `--repo` of project `--project` runs, reading the repo's design files from
+/// the project's store.
+fn list_groups(tool: &Tool, args: &[String]) -> Result<()> {
+    let args = Args::parse(args, &["rules-root", "changed", "repo"], &[])?;
     args.exactly(0, USAGE)?;
     let root = rules_root(&args)?;
     let groups = groups::Groups::load(&root)?;
@@ -1626,8 +1638,13 @@ fn list_groups(args: &[String]) -> Result<()> {
         }
         return Ok(());
     }
-    let project_rules = rules::load(&root, args.value("project")?)?;
-    for (group, members) in groups.pick(&project_rules, &changed) {
+    let project = args.require("project")?;
+    let design = Globs::read(
+        &*Store::named(&tool.places, project)?.open_existing()?,
+        args.require("repo")?,
+    )?;
+    let project_rules = rules::load(&root, Some(project))?;
+    for (group, members) in groups.pick(&project_rules, &changed, &design) {
         print_group(group, members.iter().map(|rule| rule.slug.as_str()));
     }
     Ok(())

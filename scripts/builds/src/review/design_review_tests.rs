@@ -4,7 +4,7 @@ use crate::lists::fixtures::NOON;
 use crate::lists::item_fixtures::{Demo, demo};
 use crate::lists::{Id, Stamp};
 use crate::review::Reviewer;
-use crate::review::fakes::{Fake, Raised, fake, rule_file};
+use crate::review::fakes::{Fake, Raised, design_rule_file, fake};
 use crate::testing::git;
 use serde_json::json;
 use std::path::PathBuf;
@@ -20,17 +20,16 @@ const RAW_COLOR: Raised = (
 );
 
 /// A demo whose repo keeps its boards under design/mocks/, a reviewer whose
-/// group alpha covers them with rule-d and answers no finding, and a side
-/// worktree on branch `work`.
+/// group alpha covers them with rule-d, which judges design files, and
+/// answers no finding, and a side worktree on branch `work`.
 fn designed(name: &str) -> (Demo, Fake, PathBuf) {
     let mut demo = demo(name);
     let fake = fake(&demo.scratch.dir);
-    rule_file(
+    design_rule_file(
         &fake.root,
         "alpha",
         "rule-d",
         "design/**",
-        true,
         "**Rule D.** Draw boards with tokens.",
     );
     fake.answer("alpha", &[("rule-a", None), ("rule-d", None)]);

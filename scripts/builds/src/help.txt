@@ -2409,7 +2409,8 @@ has one; its message holds the diff. It
 answers with a verdict for every rule and, per finding, the rule's clause, the
 code with its file and line, and what goes wrong. builds drops a finding whose
 clause is not in the rule, that is on COMMIT_MESSAGE when its group reads no
-commit message, whose code is on no line the diff adds or removes, or whose
+commit message, that is on a design file when its rule judges no design file
+(below), whose code is on no line the diff adds or removes, or whose
 code sits only on comment lines when the group of its rule judges no code
 comment (skips_comments), and records it as dropped with that reason. A
 comment line
@@ -2429,6 +2430,19 @@ calls with the same setup were asked the same way. Every audit and replay
 records the same, with the commit of the rules checkout it read. A rule's `blocking` marks its
 findings blocking in the reviewer's prompt and the report; every finding,
 blocking or not, must be settled before the commits land.
+
+The review checks design files only against the rules about how a screen,
+board or component looks, never against the rules about code (decision
+#364). The design files of a repo are the boards, the design system and
+canvas.json: the paths its design globs give (`builds lists design-globs`),
+the same files `builds design only` accepts. A rule that judges how things
+look says so in its front matter with `design: true`. Every other rule covers
+no design file, whatever its paths match. So a group runs for a design file
+only when one of its rules judges design files and covers the file, and a
+group reads a design file only then, even when it holds an open finding.
+builds drops a finding of a rule without `design: true` on a design file, and
+records it as dropped with that reason. The copy review, audits and replays
+follow the same rule, with the design files of the change's repo.
 
 Before an agent starts on a brief, `builds item take` checks the brief against
 the product spec with the same reviewer runner, in each worktree the take names
@@ -2453,7 +2467,8 @@ the brief with a reviewer that has no tools, and refuses a brief whose
 sentence states a ruling of the person's or a standing prohibition and names
 no source that records it (`builds help lists`, RULINGS).
 
-Every review command but `review groups` reads or writes a project's store:
+Every review command but `review groups` without --changed reads or writes a
+project's store:
 the one --project names, else the project of the worktree or current
 directory; `review replay` of cases writes each case's project's store. When
 that project has no store, the command fails with "there is no store for
@@ -2526,11 +2541,12 @@ checks this, and so does builds' test. The group.toml fields are top-level keys:
                 every commit keeps (the spec moves with the commit, bae writes
                 as local), as one more verdict named project-facts
 
-A group runs when at least one of its rules matches a path that a commit of
-the change adds, changes or deletes. Its reviewer reads the full body of every
-rule in the group, the project's always-loaded instructions
-(projects/<project>.md), the diff and the landing's brief, and answers for
-every rule. No group reviews the test cases in the review/cases folder: a
+A group runs when at least one of its rules covers a path that a commit of
+the change adds, changes or deletes: a path the rule's paths match that is no
+design file, or a design file when the rule judges design files. Its reviewer
+reads the full body of every rule in the group, the project's always-loaded
+instructions (projects/<project>.md), the diff and the landing's brief, and
+answers for every rule. No group reviews the test cases in the review/cases folder: a
 case holds old code on purpose, so builds leaves that folder out of every diff
 and list of changed paths that a review or `builds land` reads. To test
 another grouping, change the folders in a worktree of agent-instructions and
@@ -2868,13 +2884,14 @@ run `review replay --rules-root` on it.
                               an audit of a landing whose commits are design
                               files only, the commits `builds design only`
                               accepts (decision #323)
-  builds review groups [--rules-root DIR] [--project P] [--changed PATH]...
+  builds review groups [--rules-root DIR] [--project P --repo R --changed PATH...]
                               list the groups of rules, and fail naming every
                               rule outside a group folder (one with no
                               group.toml) and every project-rules folder that
                               names no group folder; with --changed, list instead the
-                              groups a change to those paths runs, over
-                              project P's rules (none: every project's)
+                              groups a change to those paths in repo R runs,
+                              over project P's rules, with the design files
+                              that P's store gives R
   builds review replay [--case NAME]... [--source REPO] [--model <model>] [--rules-root DIR] [--compare] [--reviewer PROGRAM]
                               run the grouping of the checkout (--rules-root)
                               over every case in its review/cases folder (a

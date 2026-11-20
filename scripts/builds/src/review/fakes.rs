@@ -42,6 +42,33 @@ pub fn rule_file(root: &Path, dir: &str, slug: &str, glob: &str, blocking: bool,
     .unwrap();
 }
 
+/// Writes rule <slug> in folder <dir>, covering the paths <glob> matches,
+/// design files among them: its front matter says it judges design files.
+pub fn design_rule_file(root: &Path, dir: &str, slug: &str, glob: &str, body: &str) {
+    std::fs::write(
+        root.join("rules").join(dir).join(format!("{slug}.md")),
+        format!(
+            "---\ndigest: d\npaths:\n  - '{glob}'\nblocking: true\ndesign: true\n---\n\n{body}\n"
+        ),
+    )
+    .unwrap();
+}
+
+/// Adds group looks, whose rule-d judges design files and covers every path
+/// under design/, and has its reviewer answer no findings.
+pub fn looks_group(fake: &Fake) {
+    std::fs::create_dir_all(fake.root.join("rules/looks")).unwrap();
+    design_rule_file(
+        &fake.root,
+        "looks",
+        "rule-d",
+        "design/**",
+        "**Rule D.** A menu is as wide as its longest item.",
+    );
+    group_file(&fake.root, "looks", "looks", "opus", "");
+    fake.answer("looks", &[("rule-d", None)]);
+}
+
 /// Adds group writing, whose rule-w covers every .rs file and whose reviewer
 /// reads one file per call and the commit messages, and has that reviewer
 /// answer no findings.

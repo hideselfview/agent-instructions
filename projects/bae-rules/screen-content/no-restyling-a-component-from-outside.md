@@ -6,6 +6,7 @@ paths:
   - BaeKit/**
   - bae-android/**
 blocking: true
+design: true
 ---
 
 ## No restyling a component from outside

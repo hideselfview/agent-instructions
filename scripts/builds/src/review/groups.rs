@@ -9,6 +9,7 @@ use serde::Deserialize;
 
 use crate::fail;
 use crate::fail::{Context, Result};
+use crate::lists::design_paths::Globs;
 use crate::review::rules::Rule;
 
 /// The file of a group's settings in its folder.
@@ -173,16 +174,17 @@ impl Groups {
         faults
     }
 
-    /// The groups a review of a change to <changed> runs, each with its rules
-    /// that exist in <rules> (the project's): a group that reviews no copy
-    /// runs when at least one of those rules is reviewable and covers a
-    /// changed path.
+    /// The groups a review of a change to <changed>, in a repo whose design
+    /// files <design> names, runs, each with its rules that exist in <rules>
+    /// (the project's): a group that reviews no copy runs when at least one of
+    /// those rules is reviewable and covers a changed path (`Rule::matches`).
     pub fn pick<'a>(
         &'a self,
         rules: &'a [Rule],
         changed: &[String],
+        design: &Globs,
     ) -> Vec<(&'a Group, Vec<&'a Rule>)> {
-        self.covering(rules, changed, false)
+        self.covering(rules, changed, design, false)
     }
 
     /// The copy groups (`Group::copy`) a copy review of a change to
@@ -191,8 +193,9 @@ impl Groups {
         &'a self,
         rules: &'a [Rule],
         changed: &[String],
+        design: &Globs,
     ) -> Vec<(&'a Group, Vec<&'a Rule>)> {
-        self.covering(rules, changed, true)
+        self.covering(rules, changed, design, true)
     }
 
     /// The groups whose `copy` is <copy> and whose reviewable rules of
@@ -201,11 +204,12 @@ impl Groups {
         &'a self,
         rules: &'a [Rule],
         changed: &[String],
+        design: &Globs,
         copy: bool,
     ) -> Vec<(&'a Group, Vec<&'a Rule>)> {
         self.with_members(rules)
             .filter(|(group, members)| {
-                group.copy == copy && members.iter().any(|rule| rule.matches(changed))
+                group.copy == copy && members.iter().any(|rule| rule.matches(changed, design))
             })
             .collect()
     }

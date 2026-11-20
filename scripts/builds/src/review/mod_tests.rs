@@ -2,8 +2,8 @@ use super::*;
 use crate::lists::fixtures::NOON;
 use crate::lists::item_fixtures::{Demo, demo};
 use crate::review::fakes::{
-    Fake, Raised, commit_text_group, fake, group_file, rule_file, style_group, style_site,
-    ten_lines,
+    Fake, Raised, commit_text_group, design_rule_file, fake, group_file, looks_group, rule_file,
+    style_group, style_site, ten_lines,
 };
 
 fn stamp() -> Stamp {
@@ -1630,4 +1630,154 @@ fn a_review_reads_the_brief_from_the_main_checkout_of_another_repo() {
         .unwrap_err()
         .text();
     assert!(said.contains("does not exist"), "{said}");
+}
+
+/// Makes the .rs files in design/ of repo demo its design places, and that
+/// folder in <side>.
+fn design_places(demo: &Demo, side: &Path) {
+    let stamp = stamp();
+    demo.store
+        .write(&stamp, "design-globs", |db| {
+            crate::lists::project::set_design_globs(
+                db,
+                crate::lists::project::GlobKind::Place,
+                &[("demo".to_string(), vec!["design/*.rs".to_string()])].into(),
+            )
+        })
+        .unwrap();
+    std::fs::create_dir_all(side.join("design")).unwrap();
+}
+
+#[test]
+fn a_group_whose_rules_judge_no_design_file_reads_no_design_file() {
+    let demo = demo("review-design-code");
+    let fake = fake(&demo.scratch.dir);
+    let side = demo.add_side(1, "agent", "work");
+    design_places(&demo, &side);
+    demo.commit(&side, "design/board.rs");
+    let reported = run_review(&demo, &fake, &side, "k");
+    assert!(
+        reported
+            .text
+            .contains("no group's rules cover the changed paths"),
+        "{}",
+        reported.text
+    );
+    assert!(fake.prompts().is_empty());
+    demo.commit(&side, "a.rs");
+    let reported = run_review(&demo, &fake, &side, "k");
+    assert!(reported.refusal.is_none(), "{}", reported.text);
+    let prompts = fake.prompts();
+    assert_eq!(prompts.len(), 1, "{prompts:?}");
+    assert_eq!(prompts[0].0, "alpha");
+    assert!(prompts[0].1.contains("+a.rs"));
+    assert!(
+        !prompts[0].1.contains("design/board.rs"),
+        "{}",
+        prompts[0].1
+    );
+    // A later change to the board alone leaves nothing for the review to
+    // read, and land takes the branch.
+    std::fs::write(side.join("design/board.rs"), "the board, redrawn\n").unwrap();
+    crate::testing::git(&side, &["commit", "-q", "-am", "Redraw the board"]);
+    let refused = try_review(&demo, &fake, &side, "k").unwrap_err().text();
+    assert!(
+        refused.contains("nothing changed since the last review"),
+        "{refused}"
+    );
+    let conn = demo.store.open_existing().unwrap();
+    let material = run::Material::load(&fake.root, "demo").unwrap();
+    let design = crate::lists::design_paths::Globs::read(&conn, "demo").unwrap();
+    let scope = run::Scope {
+        material: &material,
+        design: &design,
+    };
+    let shas = commits::in_range(&side, "main", "HEAD").unwrap();
+    let needs = landing::needs(&side, shas, |paths| scope.group_names(paths)).unwrap();
+    let verdict = landing::judge(
+        &conn,
+        record::Change {
+            repo: "demo",
+            key: "k",
+        },
+        &side,
+        &needs,
+        landing::CodeCheck::Branch("HEAD"),
+        scope,
+    )
+    .unwrap();
+    assert!(matches!(verdict, landing::Verdict::Takes(_)), "{verdict:?}");
+}
+
+#[test]
+fn a_group_whose_rule_judges_design_files_reads_them() {
+    let demo = demo("review-design-looks");
+    let fake = fake(&demo.scratch.dir);
+    looks_group(&fake);
+    let side = demo.add_side(1, "agent", "work");
+    design_places(&demo, &side);
+    demo.commit(&side, "design/board.rs");
+    demo.commit(&side, "a.rs");
+    let reported = run_review(&demo, &fake, &side, "k");
+    assert!(reported.refusal.is_none(), "{}", reported.text);
+    let prompts = fake.prompts();
+    let groups: Vec<&str> = prompts.iter().map(|(group, _)| group.as_str()).collect();
+    assert_eq!(groups, ["alpha", "looks"]);
+    assert!(
+        !prompts[0].1.contains("design/board.rs"),
+        "{}",
+        prompts[0].1
+    );
+    assert!(
+        prompts[1].1.contains("+design/board.rs"),
+        "{}",
+        prompts[1].1
+    );
+}
+
+#[test]
+fn a_finding_on_a_design_file_of_a_rule_that_judges_none_is_dropped() {
+    let demo = demo("review-design-drop");
+    let fake = fake(&demo.scratch.dir);
+    design_rule_file(
+        &fake.root,
+        "alpha",
+        "rule-d",
+        "design/**",
+        "**Rule D.** A menu is as wide as its longest item.",
+    );
+    let side = demo.add_side(1, "agent", "work");
+    design_places(&demo, &side);
+    demo.commit(&side, "design/board.rs");
+    fake.answer(
+        "alpha",
+        &[
+            (
+                "rule-a",
+                Some((
+                    BAD.0,
+                    "design/board.rs",
+                    1,
+                    "design/board.rs",
+                    "The board does the bad thing.",
+                )),
+            ),
+            ("rule-d", None),
+        ],
+    );
+    let reported = run_review(&demo, &fake, &side, "k");
+    let found: Vec<(String, Option<String>)> = findings_of(&demo, reported.landing.unwrap())
+        .into_iter()
+        .map(|f| (f.rule, f.check_failed))
+        .collect();
+    assert_eq!(
+        found,
+        [(
+            "rule-a".to_string(),
+            Some(
+                "it is on design file design/board.rs, and rule rule-a judges no design file"
+                    .to_string()
+            )
+        )]
+    );
 }

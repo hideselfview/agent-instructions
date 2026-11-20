@@ -4,6 +4,7 @@ paths:
   - design/**
   - plans/**
 blocking: true
+design: true
 ---
 
 ## A board's sample data agrees with itself

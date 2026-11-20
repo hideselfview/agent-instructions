@@ -3,6 +3,7 @@ digest: bae is always lowercase and Disc ID always has both capitals in user-vis
 paths:
   - '**/*'
 blocking: true
+design: true
 ---
 
 ## Spell bae and Disc ID one way

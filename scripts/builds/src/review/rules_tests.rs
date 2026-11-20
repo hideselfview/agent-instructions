@@ -16,7 +16,7 @@ fn front_matter_gives_paths_blocking_and_review() {
 #[test]
 fn a_rule_with_no_paths_covers_every_path_and_inline_lists_parse() {
     let none = Rule::parse("r", "---\ndigest: d\nblocking: false\n---\nbody\n");
-    assert!(none.paths.is_none() && none.matches(&["x".to_string()]));
+    assert!(none.paths.is_none() && none.matches(&["x".to_string()], &Globs::default()));
     assert!(!none.blocking && none.reviewable);
     let inline = Rule::parse("r", "---\npaths: ['a/*.rs', \"b\"]\n---\nx\n");
     assert_eq!(
@@ -43,4 +43,22 @@ fn globs_follow_gitignore_style() {
     assert!(glob_matches("**/hooks/**", "a/hooks/b/pre-commit"));
     assert!(glob_matches("src/a?.rs", "src/ab.rs"));
     assert!(!glob_matches("src?a.rs", "src/a.rs"));
+}
+
+#[test]
+fn a_rule_covers_a_design_file_only_when_its_front_matter_says_it_judges_design_files() {
+    let design = Globs {
+        places: vec!["design/*.html".into()],
+        ..Globs::default()
+    };
+    let code = Rule::parse("c", "---\npaths:\n  - '**/*'\n---\nbody\n");
+    let looks = Rule::parse("l", "---\npaths:\n  - '**/*'\ndesign: true\n---\nbody\n");
+    assert!(!code.design && looks.design);
+    let board = ["design/a.html".to_string()];
+    assert!(!code.matches(&board, &design));
+    assert!(looks.matches(&board, &design));
+    let both = ["design/a.html".to_string(), "a.rs".to_string()];
+    assert!(code.matches(&both, &design) && looks.matches(&both, &design));
+    // A repo with no design globs has no design files.
+    assert!(code.matches(&board, &Globs::default()));
 }

@@ -60,7 +60,7 @@ fn verdict_of(demo: &Demo, fake: &Fake, side: &Path, shas: &[String]) -> (Verdic
         side,
         &asked.needs,
         CodeCheck::Branch("HEAD"),
-        &asked.material,
+        asked.scope(),
     )
     .unwrap();
     let words = refusal(&asked.needs, &verdict);
@@ -372,7 +372,7 @@ fn a_cherry_pick_onto_a_moved_main_keeps_the_review_and_landed_records_it_once()
             &other,
             &asked_picked.needs,
             CodeCheck::Branch("HEAD"),
-            &asked_picked.material,
+            asked_picked.scope(),
         )
         .unwrap(),
         Verdict::Takes(_)
@@ -952,6 +952,9 @@ fn waits_over_cap_of(demo: &Demo, fake: &Fake, side: &Path, sha: &str) -> Option
 fn a_branch_over_the_cap_that_needs_no_review_lands_with_land_saying_why() {
     let demo = demo("landing-over-cap-design");
     let fake = fake(&demo.scratch.dir);
+    // A rule that judges design files covers the board, so the branch needs
+    // a review.
+    crate::review::fakes::looks_group(&fake);
     let side = demo.add_side(1, "agent", "work");
     let stamp = stamp();
     demo.store

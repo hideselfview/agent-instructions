@@ -9,11 +9,12 @@ use serde::{Deserialize, Serialize};
 
 use crate::fail;
 use crate::fail::{Context, Result};
+use crate::lists::design_paths::Globs;
 use crate::review::check::{parse_diff, squash};
 use crate::review::files::{self, Source};
 use crate::review::record::{Kind, NewCall, NewRun};
 use crate::review::render;
-use crate::review::run::{Diff, Material, Tokens, ask_groups};
+use crate::review::run::{Diff, Material, Scope, Tokens, ask_groups};
 
 pub const DIR: &str = "review/cases";
 const PATCH: &str = "change.patch";
@@ -63,7 +64,8 @@ struct ExpectedFile {
 pub struct Case {
     pub name: String,
     pub project: String,
-    /// The repo of the project the change is in.
+    /// The repo of the project the change is in, whose design files only
+    /// the rules that judge design files read.
     pub repo: String,
     pub patch: String,
     pub clean_for: Vec<String>,
@@ -394,9 +396,9 @@ impl CaseResult {
     }
 }
 
-/// Runs <material>'s groups over <case> the way a landing's review does.
+/// Runs <scope>'s groups over <case> the way a landing's review does.
 pub fn replay_case(
-    material: &Material,
+    scope: Scope,
     reviewer: &Path,
     case: &Case,
     source_repo: Option<&Path>,
@@ -413,8 +415,8 @@ pub fn replay_case(
         text: case.patch.clone(),
         changed: files::paths(&case.patch),
     };
-    let picked = material.groups.pick(&material.rules, &diff.changed);
-    let asked = ask_groups(material, reviewer, &picked, &diff, None, &[]);
+    let picked = scope.pick(&diff.changed);
+    let asked = ask_groups(scope, reviewer, &picked, &diff, None, &[]);
     let (calls, repeat) = (asked.calls, asked.repeat);
     let accepted: Vec<&crate::review::record::NewFinding> = calls
         .iter()
@@ -440,7 +442,7 @@ pub fn replay_case(
         found: case.expected.len() - missed.len(),
         missed,
         false_blocking,
-        sites: score_sites(material, &case.labels, &accepted),
+        sites: score_sites(scope.material, &case.labels, &accepted),
         calls,
         repeat,
     }
@@ -496,20 +498,21 @@ pub(super) fn same_file(a: &str, b: &str) -> bool {
     a == b || a.ends_with(&format!("/{b}")) || b.ends_with(&format!("/{a}"))
 }
 
-/// Every case of <cases> replayed, in order. <alternative> stands in for the
-/// every group is asked in <model> when given. A reviewer of one file at a time reads
-/// that file's new text from <source_repo> at the commit the case's patch was
-/// made from.
+/// Every case of <cases> replayed, in order, each in a repo whose design
+/// files the same place of <designs> names. Every group is asked in <model>
+/// when given. A reviewer of one file at a time reads that file's new text
+/// from <source_repo> at the commit the case's patch was made from.
 pub fn replay_all(
     root: &Path,
     cases: &[Case],
+    designs: &[Globs],
     reviewer: &Path,
     source_repo: Option<&Path>,
     model: Option<&str>,
 ) -> Result<Vec<CaseResult>> {
     let mut materials: Vec<(String, Material)> = Vec::new();
     let mut results = Vec::new();
-    for case in cases {
+    for (case, design) in cases.iter().zip(designs) {
         if !materials
             .iter()
             .any(|(project, _)| *project == case.project)
@@ -524,7 +527,8 @@ pub fn replay_all(
             .iter()
             .find(|(project, _)| *project == case.project)
             .expect("loaded above");
-        results.push(replay_case(material, reviewer, case, source_repo));
+        let scope = Scope { material, design };
+        results.push(replay_case(scope, reviewer, case, source_repo));
     }
     Ok(results)
 }

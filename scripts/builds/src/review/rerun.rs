@@ -66,7 +66,10 @@ pub fn replay(inputs: &Inputs) -> Result<Replayed> {
     let mut in_use = Scores::default();
     let mut replayed = Scores::default();
     for &landing in inputs.landings {
-        let key = record::landing(&conn, landing)?.key;
+        let row = record::landing(&conn, landing)?;
+        let key = row.key;
+        // The design files of the landing's repo.
+        let design = crate::lists::design_paths::Globs::read(&conn, &row.repo)?;
         let runs = record::runs_of_landing(&conn, landing)?;
         let calls = record::calls_of_landing(&conn, landing)?;
         let verdicts = record::verdicts_of_landing(&conn, landing)?;
@@ -112,9 +115,12 @@ pub fn replay(inputs: &Inputs) -> Result<Replayed> {
                 }
             };
             let diff = &change.diff;
-            let picked: Vec<_> = material
-                .groups
-                .pick(&material.rules, &diff.changed)
+            let scope = run::Scope {
+                material: &material,
+                design: &design,
+            };
+            let picked: Vec<_> = scope
+                .pick(&diff.changed)
                 .into_iter()
                 .filter(|(g, _)| {
                     inputs.groups.is_empty() || inputs.groups.contains(&g.name.as_str())
@@ -131,8 +137,7 @@ pub fn replay(inputs: &Inputs) -> Result<Replayed> {
                 .flat_map(|(group, members)| prompt::answer_names(group, members))
                 .collect();
             let asks = |rule: &str| asked.iter().any(|a| a == rule);
-            let new_calls =
-                run::ask_groups(&material, inputs.reviewer, &picked, diff, None, &[]).calls;
+            let new_calls = run::ask_groups(scope, inputs.reviewer, &picked, diff, None, &[]).calls;
             let stamp = inputs.stamp;
             let (run_id, now_calls, now_findings, now_verdicts) =
                 inputs

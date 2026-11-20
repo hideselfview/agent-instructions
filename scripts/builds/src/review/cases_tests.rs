@@ -168,14 +168,30 @@ fn a_replay_counts_the_expected_findings_found_and_the_false_blocking_ones() {
     .unwrap();
     let case = load(&fake.root).unwrap().remove(0);
     fake.answer("alpha", &[("rule-a", Some(BAD))]);
-    let found = replay_case(&material(&fake), &fake.program, &case, None);
+    let found = replay_case(
+        Scope {
+            material: &material(&fake),
+            design: &Globs::default(),
+        },
+        &fake.program,
+        &case,
+        None,
+    );
     assert_eq!(
         (found.expected, found.found, found.false_blocking),
         (1, 1, 0)
     );
     assert_eq!(found.tokens(), (100, 10));
     fake.answer("alpha", &[("rule-a", None)]);
-    let missed = replay_case(&material(&fake), &fake.program, &case, None);
+    let missed = replay_case(
+        Scope {
+            material: &material(&fake),
+            design: &Globs::default(),
+        },
+        &fake.program,
+        &case,
+        None,
+    );
     assert_eq!((missed.found, missed.missed.len()), (0, 1));
     // A finding whose code is not in the patch does not count as found.
     fake.answer(
@@ -186,7 +202,16 @@ fn a_replay_counts_the_expected_findings_found_and_the_false_blocking_ones() {
         )],
     );
     assert_eq!(
-        replay_case(&material(&fake), &fake.program, &case, None).found,
+        replay_case(
+            Scope {
+                material: &material(&fake),
+                design: &Globs::default()
+            },
+            &fake.program,
+            &case,
+            None
+        )
+        .found,
         0
     );
     // On a clean case, a blocking finding of the quiet rule is a false one.
@@ -201,11 +226,28 @@ fn a_replay_counts_the_expected_findings_found_and_the_false_blocking_ones() {
     };
     fake.answer("alpha", &[("rule-a", Some(BAD))]);
     assert_eq!(
-        replay_case(&material(&fake), &fake.program, &clean, None).false_blocking,
+        replay_case(
+            Scope {
+                material: &material(&fake),
+                design: &Globs::default()
+            },
+            &fake.program,
+            &clean,
+            None
+        )
+        .false_blocking,
         1
     );
     fake.answer("alpha", &[("rule-a", None)]);
-    let quiet = replay_case(&material(&fake), &fake.program, &clean, None);
+    let quiet = replay_case(
+        Scope {
+            material: &material(&fake),
+            design: &Globs::default(),
+        },
+        &fake.program,
+        &clean,
+        None,
+    );
     assert_eq!(quiet.false_blocking, 0);
     let text = report(&[found, missed, quiet]);
     assert!(
@@ -233,7 +275,15 @@ fn a_failed_call_in_a_replay_is_counted_and_named() {
     .unwrap();
     let case = load(&fake.root).unwrap().remove(0);
     fake.fail("alpha");
-    let result = replay_case(&material(&fake), &fake.program, &case, None);
+    let result = replay_case(
+        Scope {
+            material: &material(&fake),
+            design: &Globs::default(),
+        },
+        &fake.program,
+        &case,
+        None,
+    );
     let t = totals(std::slice::from_ref(&result));
     assert_eq!((t.failed_calls, t.found), (1, 0));
     assert!(report(&[result]).contains("group alpha failed"));
@@ -270,7 +320,15 @@ fn a_group_that_lists_sites_is_asked_once_per_file_its_rule_covers() {
         expected: Vec::new(),
         labels: Vec::new(),
     };
-    let result = replay_case(&material(&fake), &fake.program, &case, None);
+    let result = replay_case(
+        Scope {
+            material: &material(&fake),
+            design: &Globs::default(),
+        },
+        &fake.program,
+        &case,
+        None,
+    );
     let alpha: Vec<_> = result.calls.iter().filter(|c| c.group == "alpha").collect();
     assert_eq!(alpha.len(), 1, "one merged call per group");
     assert_eq!(
@@ -320,7 +378,15 @@ fn site_labels_score_recall_wrong_findings_and_unlabelled_ones_per_rule() {
         labels,
     };
     let score = |labels| {
-        let result = replay_case(&material(&fake), &fake.program, &case(labels), None);
+        let result = replay_case(
+            Scope {
+                material: &material(&fake),
+                design: &Globs::default(),
+            },
+            &fake.program,
+            &case(labels),
+            None,
+        );
         result
             .sites
             .into_iter()
@@ -347,7 +413,15 @@ fn site_labels_score_recall_wrong_findings_and_unlabelled_ones_per_rule() {
     assert!(
         site_report(&[CaseResult {
             sites: vec![hit],
-            ..replay_case(&material(&fake), &fake.program, &case(Vec::new()), None)
+            ..replay_case(
+                Scope {
+                    material: &material(&fake),
+                    design: &Globs::default()
+                },
+                &fake.program,
+                &case(Vec::new()),
+                None
+            )
         }])
         .contains("recall 100%")
     );
@@ -397,10 +471,21 @@ fn a_comparison_prints_each_setups_caught_missed_and_wrong_flags_with_tokens_and
         labels: vec![label("a.rs", "a.rs", "none", None)],
     };
     fake.answer("alpha", &[("rule-a", None)]);
-    let current = replay_case(&material(&fake), &fake.program, &case, None);
+    let current = replay_case(
+        Scope {
+            material: &material(&fake),
+            design: &Globs::default(),
+        },
+        &fake.program,
+        &case,
+        None,
+    );
     fake.answer("alpha", &[("rule-a", Some(BAD))]);
     let named = replay_case(
-        &material(&fake).with_model("haiku"),
+        Scope {
+            material: &material(&fake).with_model("haiku"),
+            design: &Globs::default(),
+        },
         &fake.program,
         &case,
         None,

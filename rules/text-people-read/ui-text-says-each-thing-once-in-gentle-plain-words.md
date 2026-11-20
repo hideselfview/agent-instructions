@@ -8,6 +8,7 @@ paths:
   - '**/*.dc.html'
   - design/**
 blocking: false
+design: true
 ---
 
 ## UI text says each thing once, in gentle, plain words

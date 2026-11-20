@@ -3,6 +3,7 @@ digest: A design-system component's preview is a set of named rows, each changin
 paths:
   - design/system/**
 blocking: true
+design: true
 ---
 
 ## Component previews hold their content still

@@ -19,11 +19,12 @@ use std::sync::{Arc, Mutex};
 
 use super::cards::{ItemWait, ReviewWait, Settler};
 use crate::fail::Fail;
+use crate::lists::design_paths::Globs;
 use crate::lists::store::Store;
 use crate::review::commits;
 use crate::review::landing::{self, CodeCheck, Need, Verdict};
 use crate::review::record::Change;
-use crate::review::run::Material;
+use crate::review::run::{Material, Scope};
 use crate::side_git::SideRead;
 
 /// A worktree and its commits (full hashes, oldest first).
@@ -273,19 +274,26 @@ impl Reads {
     ) -> Result<Judgment, String> {
         let shas = worktree.git.ahead_oldest_first();
         let paths = self.commits(worktree.top, &shas)?;
+        let conn = store.open_existing().map_err(Fail::text)?;
+        // The store's version is part of the tip a judgment is kept for, so a
+        // change to the repo's design globs judges the worktree again.
+        let design = Globs::read(&conn, worktree.repo).map_err(Fail::text)?;
+        let scope = Scope {
+            material,
+            design: &design,
+        };
         let needs: Vec<Need> = shas
             .iter()
             .zip(&paths)
             .map(|(sha, paths)| Need {
                 sha: sha.clone(),
                 paths: paths.clone(),
-                groups: material.group_names(paths),
+                groups: scope.group_names(paths),
             })
             .collect();
         if needs.iter().all(|n| n.groups.is_empty()) {
             return Ok(Judgment::NotNeeded);
         }
-        let conn = store.open_existing().map_err(Fail::text)?;
         let key = crate::review::default_key(worktree.top).map_err(Fail::text)?;
         let change = Change {
             repo: worktree.repo,
@@ -293,7 +301,7 @@ impl Reads {
         };
         let check = CodeCheck::Branch("HEAD");
         Ok(
-            match landing::judge(&conn, change, worktree.top, &needs, check, material)
+            match landing::judge(&conn, change, worktree.top, &needs, check, scope)
                 .map_err(Fail::text)?
             {
                 Verdict::NotNeeded => Judgment::NotNeeded,

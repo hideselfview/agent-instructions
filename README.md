@@ -28,6 +28,10 @@ them into `~/.claude/` and `~/.codex/`, so both tools read the same files.
     `builds land` takes the commits.
   - `review: false` (optional): marks a rule a reviewer can't check, which
     `builds review` leaves out.
+  - `design: true` (optional): marks a rule about how a screen, board or
+    component looks. `builds review` checks a project's design files (its
+    boards, design system and canvas.json) only against these rules, and against
+    no other rule, whatever its `paths` match.
 - `projects/<name>.md` holds a project's always-loaded instructions.
 - `projects/<name>-rules/<group>/*.md` holds a project's rules, with the same
   frontmatter as `rules/`.

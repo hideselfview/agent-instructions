@@ -4,12 +4,13 @@
 
 use crate::health::Advice;
 use crate::lists::Lists;
+use crate::lists::design_paths::Globs;
 use crate::lists::running::running_in;
 use crate::lists::store::Store;
 use crate::places::Places;
 use crate::review::landing::{self, CodeCheck};
 use crate::review::record::Change;
-use crate::review::run::Material;
+use crate::review::run::{Material, Scope};
 
 /// What the review says of an idle branch's commits.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -56,7 +57,12 @@ pub fn landing(
     let store = Store::named(places, project)?;
     let conn = store.open_existing()?;
     let material = Material::load(rules_root, project)?;
-    let needs = landing::needs(top, ahead.to_vec(), |paths| material.group_names(paths))?;
+    let design = Globs::read(&conn, repo)?;
+    let scope = Scope {
+        material: &material,
+        design: &design,
+    };
+    let needs = landing::needs(top, ahead.to_vec(), |paths| scope.group_names(paths))?;
     let key = super::default_key(top)?;
     let verdict = landing::judge(
         &conn,
@@ -64,7 +70,7 @@ pub fn landing(
         top,
         &needs,
         CodeCheck::Branch("HEAD"),
-        &material,
+        scope,
     )?;
     let blockers = landing::blockers(&verdict);
     if !blockers.is_empty() {
