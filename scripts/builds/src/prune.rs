@@ -1,7 +1,7 @@
 //! Bounding what builds leave behind: each checkout's unused build copies and
-//! caps, DerivedData, the shared caches, build output in the temporary
-//! folders, tests' temporary folders, Claude Code scratch folders, cargo's
-//! git checkouts, and the tool versions a repo's scripts install that no
+//! caps, DerivedData, the shared caches, the shots runs (shot_store.rs),
+//! build output in the temporary folders, tests' temporary folders, Claude
+//! Code scratch folders, cargo's git checkouts, and the tool versions a repo's scripts install that no
 //! checkout runs. `setup` runs these for its checkout, `prune` for every one.
 
 use std::path::{Path, PathBuf};
@@ -823,6 +823,7 @@ pub fn cmd_prune(tool: &Tool, args: &[String]) -> Result<()> {
     };
     prune_derived_data(tool, run, derived_idle)?;
     prune_caches(tool, run)?;
+    crate::shot_store::prune(tool, run)?;
     prune_test_temps(tool, run)?;
     prune_temp_builds(tool, run)?;
     prune_scratchpads(tool, run)?;

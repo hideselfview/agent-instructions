@@ -371,24 +371,20 @@ impl RemoteApp {
 
     /// Copies the shots report in <dir> (a folder of the checkout on the
     /// host: its `index.html`, the files that page shows and its findings as
-    /// records, when it has them) to the folder <into> here, replacing what is
-    /// there.
+    /// records, when it has them) into the new folder <into> here.
     pub fn fetch_report(&mut self, dir: &str, into: &Path) -> Result<()> {
         let html = self.transport().capture(
             &format!("cat {}", sh_quote(&format!("{dir}/index.html"))),
             "reading the shots report",
         )?;
-        let staging = crate::shot_findings::staging_of(into);
-        let _ = std::fs::remove_dir_all(&staging);
-        std::fs::create_dir_all(&staging).context(|| format!("creating {}", staging.display()))?;
+        std::fs::create_dir_all(into).context(|| format!("creating {}", into.display()))?;
         let files = crate::shot_findings::report_files(&html);
         crate::remote::unpack(
             self.transport()
                 .command(&crate::shot_findings::report_copy_script(dir, &files)),
-            &staging,
+            into,
             &format!("the shots report from host {}", self.host.name),
-        )?;
-        crate::shot_findings::install_folder(&staging, into)
+        )
     }
 
     /// Copies each of <paths> (folders of the checkout) from the host to

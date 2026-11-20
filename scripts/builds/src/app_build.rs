@@ -109,6 +109,7 @@ use crate::lock::{self, Found, Keep, Ran, Within};
 use crate::places::Places;
 use crate::run_end::RunEnd;
 use crate::shot_findings;
+use crate::shot_store;
 use crate::text::note;
 use crate::tool::Tool;
 
@@ -809,15 +810,15 @@ fn with_before(command: &[String], file: &str) -> Vec<String> {
     command
 }
 
-/// Where a lane's run keeps the findings of its `--shots` runs, and the
-/// stored runs they compare with.
+/// Where a lane's run keeps its `--shots` runs (shot_store.rs), and the kept
+/// runs they compare with.
 struct ShotsStore {
+    places: Places,
     repo: String,
     lane: Lane,
     /// The version of builds-shots the store keys the runs on: the one
     /// installed beside this builds.
     version: String,
-    database: std::path::PathBuf,
     /// The findings.json of the run each shots prefix of the lane compares
     /// with, by its prefix.
     befores: Vec<(String, std::path::PathBuf)>,
@@ -825,12 +826,12 @@ struct ShotsStore {
 
 impl ShotsStore {
     /// The store for <repo>'s <lane> run of the full commit <commit>, whose
-    /// commits <source> holds, when the repo is in a project with a store,
-    /// with the before run of each shots pick of <picks> in the lane: the run
-    /// of <commit>'s merge base with origin/main (shot_findings.rs). A commit
-    /// on origin/main is its own merge base and has none. Fails when the
-    /// store holds no before run for a pick, naming the command that makes
-    /// one: `builds app-build` with no lane named makes them first.
+    /// commits <source> holds, with the before run of each shots pick of
+    /// <picks> in the lane: the run of <commit>'s merge base with origin/main
+    /// (shot_store.rs). A commit on origin/main is its own merge base and has
+    /// none. Fails when the store holds no before run for a pick, naming the
+    /// command that makes one: `builds app-build` with no lane named makes
+    /// them first.
     fn of(
         places: &Places,
         source: &Path,
@@ -838,15 +839,7 @@ impl ShotsStore {
         lane: Lane,
         commit: &str,
         picks: &[Pick],
-    ) -> Result<Option<ShotsStore>> {
-        let database = match app_timing::database_of(places, repo) {
-            Ok(Some(database)) => database,
-            Ok(None) => return Ok(None),
-            Err(error) => {
-                note(format!("shot findings are not kept: {}", error.text()));
-                return Ok(None);
-            }
-        };
+    ) -> Result<ShotsStore> {
         let version = crate::shots_program::VERSION.to_string();
         let mut befores = Vec::new();
         for (_, _, prefix) in picks
@@ -857,8 +850,8 @@ impl ShotsStore {
             if base == commit {
                 continue;
             }
-            match shot_findings::before_run(&database, repo, &base, lane, prefix, &version)? {
-                Some(findings) => befores.push((prefix.clone(), findings)),
+            match shot_store::before_run(places, repo, &base, lane, prefix, &version)? {
+                Some(before) => befores.push((prefix.clone(), before.findings_json())),
                 None => fail!(
                     "builds holds no run of {prefix} on {} for {}, the merge base of {} with origin/main, by builds-shots {version}, so the run has nothing to compare with; `{}` makes one",
                     lane.word(),
@@ -868,13 +861,13 @@ impl ShotsStore {
                 ),
             }
         }
-        Ok(Some(ShotsStore {
+        Ok(ShotsStore {
+            places: places.clone(),
             repo: repo.to_string(),
             lane,
             version,
-            database,
             befores,
-        }))
+        })
     }
 
     /// The findings.json of the run the shots run <step> compares with, when
@@ -888,8 +881,8 @@ impl ShotsStore {
     }
 
     /// Keeps what the shots run <step> printed (<kept>), when it ended
-    /// (<outcome>) with an exit status, as the findings of the commit the
-    /// site is on.
+    /// (<outcome>) with an exit status, as the run of the commit the site is
+    /// on.
     fn keep_of(
         &self,
         outcome: &Result<Within>,
@@ -906,14 +899,15 @@ impl ShotsStore {
         self.keep(site, shots_prefix(step), exit, &text);
     }
 
-    /// Keeps what a run of <prefix> that exited <exit> printed in <output>,
-    /// as the findings of the commit the site is on, and copies the report it
-    /// names from the site (shot_findings.rs). A report whose findings.json
-    /// names another version of builds-shots than the store's is deleted
-    /// with the findings unkept, since no lookup of this builds would find
-    /// them under their own version. A run that printed no findings, or a
+    /// Keeps a run of <prefix> that exited <exit> and printed <output> as the
+    /// run of the commit the site is on: what the shots program printed and
+    /// the report it names, copied from the site (shot_findings.rs). A run
+    /// whose report's findings.json names another version of builds-shots
+    /// than the store's is not kept, since no lookup of this builds would
+    /// find it under its own version. A run that printed no findings, or a
     /// write or copy that fails, is said and changes nothing about the
-    /// build's result.
+    /// build's result; a report that fails to copy leaves the run kept
+    /// without one.
     fn keep(&self, site: &mut dyn RunSite, prefix: &str, exit: i64, output: &str) {
         let findings = shot_findings::findings_of(output);
         if !shot_findings::has_findings(exit, findings) {
@@ -922,49 +916,47 @@ impl ShotsStore {
             ));
             return;
         }
-        let key = match site.commit() {
-            Ok(commit) => shot_findings::Key {
+        let staged = site.commit().and_then(|commit| {
+            let key = shot_store::Key {
                 repo: self.repo.clone(),
                 version: self.version.clone(),
                 commit,
                 lane: self.lane,
                 prefix: prefix.to_string(),
-            },
+            };
+            shot_store::stage(&self.places, &key)
+        });
+        let staging = match staged {
+            Ok(staging) => staging,
             Err(error) => {
-                note(format!("the shot findings were not kept: {}", error.text()));
+                note(format!("the shots run was not kept: {}", error.text()));
                 return;
             }
         };
+        let report = staging.report();
         match shot_findings::report_dir_in(output) {
             Some(dir) => {
-                let folder = shot_findings::report_folder(&self.database, &key);
-                if let Err(error) = site.fetch_report(&dir, &folder) {
+                if let Err(error) = site.fetch_report(&dir, &report) {
                     note(format!("the shots report was not kept: {}", error.text()));
-                } else if let Err(why) = self.same_version(&folder) {
-                    note(format!("the shot findings and report were not kept: {why}"));
-                    if let Err(error) = std::fs::remove_dir_all(&folder) {
-                        note(format!(
-                            "deleting {} failed, so the report stays under this builds-shots' key: {error}",
-                            folder.display()
-                        ));
+                    if let Err(error) = staging.discard_report() {
+                        note(error.text());
+                        return;
+                    }
+                } else if let Err(why) = self.same_version(&report) {
+                    note(format!("the shots run was not kept: {why}"));
+                    if let Err(error) = staging.discard() {
+                        note(error.text());
                     }
                     return;
-                } else {
-                    note(format!(
-                        "shots report for {prefix}: {}",
-                        folder.join("index.html").display()
-                    ));
-                    if let Some(shots) = folder.parent() {
-                        shot_findings::prune_reports(shots);
-                    }
                 }
             }
             None => note(format!(
                 "the shots run of {prefix} printed no report path, so no report was kept"
             )),
         }
-        if let Err(error) = shot_findings::store(&self.database, &key, exit, findings) {
-            note(format!("the shot findings were not kept: {}", error.text()));
+        match staging.finish(exit, findings) {
+            Ok(stored) => shot_findings::note_report(&stored),
+            Err(error) => note(format!("the shots run was not kept: {}", error.text())),
         }
     }
 
@@ -1282,7 +1274,7 @@ fn build_lane(
         let (tests, builds): (Vec<Step>, Vec<Step>) = steps
             .into_iter()
             .partition(|step| pick_kind_of(&step.name).is_some());
-        let shots = ShotsStore::of(places, &source, repo, lane, &sha, picks)?;
+        let shots = Some(ShotsStore::of(places, &source, repo, lane, &sha, picks)?);
         let watch = lane.uses_xcode();
         let ran = (|| {
             let mut ended = site.run_steps(
@@ -1406,18 +1398,12 @@ pub fn serve_stored(
             left.push(pick);
             continue;
         }
-        let (key, database) = shot_findings::key_for(places, repo, git_ref, *lane, prefix)?;
-        let stored = match &database {
-            Some(database) => shot_findings::lookup(database, &key)?,
-            None => None,
-        };
-        match stored {
+        let key = shot_findings::key_for(places, repo, git_ref, *lane, prefix)?;
+        match shot_store::lookup(places, &key)? {
             Some(stored) => {
                 note("printing the stored findings instead of running (--fresh runs)");
                 shot_findings::print(&stored);
-                if let Some(database) = &database {
-                    shot_findings::note_report(database, &stored.key);
-                }
+                shot_findings::note_report(&stored);
             }
             None => left.push(pick),
         }
@@ -1427,14 +1413,13 @@ pub fn serve_stored(
 
 /// Makes the store hold the run each `--shots` pick of <picks> compares
 /// with: the run of <git_ref>'s merge base with origin/main, by the
-/// builds-shots this builds keys runs on (shot_findings.rs). For the picks
+/// builds-shots this builds keys runs on (shot_store.rs). For the picks
 /// with none, it builds the merge base first in their lanes, with each lane's
 /// `needs` steps, and runs the picks there, which keeps their runs; the run
 /// of a commit on origin/main compares with none, so its pairs' findings
 /// fail it, and that failure stops nothing here. Fails when a pick still
 /// has no run to compare with, or a stop signal ended the build. A commit on
-/// origin/main is its own merge base and needs no before run, and a repo in
-/// no project keeps none.
+/// origin/main is its own merge base and needs no before run.
 pub fn ensure_before_runs(
     places: &Places,
     repo: &str,
@@ -1449,9 +1434,6 @@ pub fn ensure_before_runs(
     if shots.is_empty() {
         return Ok(());
     }
-    let Some(database) = app_timing::database_of(places, repo)? else {
-        return Ok(());
-    };
     let source = local_source(places, repo)?;
     let commit = resolve(&source, git_ref)?;
     let base = crate::derive::merge_base(&source, &commit)?;
@@ -1463,8 +1445,7 @@ pub fn ensure_before_runs(
         let mut missing = Vec::new();
         for pick in picks {
             let (lane, _, prefix) = pick;
-            if shot_findings::before_run(&database, repo, &base, *lane, prefix, version)?.is_none()
-            {
+            if shot_store::before_run(places, repo, &base, *lane, prefix, version)?.is_none() {
                 missing.push(pick.clone());
             }
         }

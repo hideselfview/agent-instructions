@@ -4,7 +4,7 @@
 //!
 //! The shots program writes each finding and warning of a run as a record in
 //! `findings.json`, beside its report (scripts/shots/src/findings_file.rs),
-//! and builds keeps the file with the report (shot_findings.rs). Each record
+//! and builds keeps the file with the report (shot_store.rs). Each record
 //! names the design-system component that draws the board element it is
 //! about, when one does. This module reads the file and groups the records:
 //! first by component, each with the kinds of finding it makes; the findings

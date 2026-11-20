@@ -199,6 +199,7 @@ pub fn setup_with(tool: &Tool, ssh: &Ssh, checkout: &Checkout, prepare: Prepare)
     prune_root(tool, &root, checkout, Run::Real, 0, 0)?;
     prune_derived_data(tool, Run::Real, 0)?;
     prune_caches(tool, Run::Real)?;
+    crate::shot_store::prune(tool, Run::Real)?;
     prune_test_temps(tool, Run::Real)?;
     prune_temp_builds(tool, Run::Real)?;
     prune_scratchpads(tool, Run::Real)?;

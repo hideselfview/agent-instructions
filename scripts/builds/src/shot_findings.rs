@@ -1,43 +1,35 @@
-//! The findings of `--shots` runs, kept in the repo's project store
-//! (shot_findings.sql) so that the "before" side of a branch's shots run, the
-//! run of its merge base with origin/main, is read from the store and not
-//! built again, and an agent that wants a commit's findings reads what an
-//! earlier run printed.
+//! The findings of `--shots` runs: what builds reads from a shots run's
+//! output to keep it in the shot store (shot_store.rs), and the commands that
+//! print a kept run. A branch's run compares with its before run, the kept
+//! run of its merge base with origin/main (`shot_store::before_run`), so that
+//! run is read from the store and not built again, and an agent that wants a
+//! commit's findings reads what an earlier run printed.
 //!
-//! A row is keyed by the repo, the full commit id, the platform, the prefix
+//! A run is kept under the repo, the full commit id, the platform, the prefix
 //! the run was given and the version of builds-shots (`VERSION` in
 //! shots_program.rs: a hash of its sources, which each run's findings.json
 //! names). A run by another version of the checker has another key, so its
 //! findings never stand in for these, and builds keeps no run whose
 //! findings.json names another version than its own.
 //!
-//! A branch's run compares with its before run (`before_run`): the newest
-//! stored run of the merge base, on the same platform, by the same version,
-//! whose prefix starts the branch run's prefix (a run of `mac.` holds every
-//! pair a run of `mac.welcome.` checks), and whose report keeps its
-//! findings.json. builds passes that file to the shots line as `--before
-//! <file>` (app_build.rs).
-//!
-//! A run is stored when the shots command exits 0, or exits another status
+//! A run is kept when the shots command exits 0, or exits another status
 //! after printing that pairs fail the run; a command that died on an error
 //! (a build that failed, a simulator that did not start) has no findings and
-//! stores nothing. What is stored is what the shots program printed, from the
+//! keeps nothing. What is kept is what the shots program printed, from the
 //! line that starts it (cargo's `Running` line) to the end, whole.
 //!
-//! The run's report and pictures are kept beside the findings, so the next
-//! run in the same app checkout (which rewrites the checkout's `shots/`
-//! folder) cannot take them. When the shots program prints `<its name>: report
-//! at <folder>/index.html`, the run copies that `index.html`, the files it
-//! names (`img/...`) and the findings as records (`findings.json`, which
-//! shot_causes.rs reads) from the checkout, or from a host's checkout, to
-//! `<store folder>/shots/<commit>-<platform>-<prefix>-<version>/`: the folder
-//! of the run's key, replaced by a later run of the same key, and kept for
-//! only the newest `KEEP_REPORTS` runs. The run prints the local path of the
-//! report when it ends, and `builds shots findings` prints it again.
+//! The run's report and pictures are kept with the findings, so the next run
+//! in the same app checkout (which rewrites the checkout's `shots/` folder)
+//! cannot take them. When the shots program prints `<its name>: report at
+//! <folder>/index.html`, the run copies that `index.html`, the files it names
+//! (`img/...`) and the findings as records (`findings.json`, which
+//! shot_causes.rs reads) from the checkout, or from a host's checkout, into
+//! the run's folder in the store. The run prints the local path of the report
+//! when it ends, and `builds shots findings` prints it again.
 //!
-//! `builds shots findings <repo> <ref> <platform> <prefix>` prints a stored
+//! `builds shots findings <repo> <ref> <platform> <prefix>` prints a kept
 //! run, and with `--by-cause` its findings grouped by cause, from the records
-//! its kept report holds (shot_causes.rs). `builds app-build <repo> <ref>
+//! its report holds (shot_causes.rs). `builds app-build <repo> <ref>
 //! --shots <prefix>` (or, in its lane form, `--shots <platform> <prefix>` with
 //! no build step) prints it too, in place of taking the lane's lock, unless
 //! the command has `--fresh`. A run of
@@ -46,17 +38,15 @@
 
 use std::path::Path;
 
-use rusqlite::params;
-
 use crate::app_build;
-use crate::app_timing::{self, now};
-use crate::db::{self, Sql};
+use crate::app_timing::now;
 use crate::fail;
-use crate::fail::Result;
+use crate::fail::{Context, Result};
 use crate::host::sh_quote;
 use crate::lane::Lane;
 use crate::places::Places;
 use crate::shot_causes;
+use crate::shot_store::{self, Key, Stored};
 use crate::text::note;
 
 /// The line the shots program's own output starts after: cargo's, for the
@@ -66,20 +56,6 @@ const PROGRAM_STARTS: &str = "Running `";
 /// What a failing run prints when pairs fail it, as bae-shots words it: the
 /// sign that the run made findings and did not die first.
 const PAIRS_FAIL: &str = "fail the run";
-
-/// What a stored run is found by.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Key {
-    pub repo: String,
-    /// The full commit id.
-    pub commit: String,
-    pub lane: Lane,
-    pub prefix: String,
-    pub version: String,
-}
-
-/// How many runs' report folders a store keeps: the newest by their time.
-pub const KEEP_REPORTS: usize = 30;
 
 /// What the shots program prints, after its own name (`bae-shots`, `builds
 /// shots`), before the path of its report.
@@ -115,79 +91,21 @@ pub fn report_files(html: &str) -> Vec<String> {
     files
 }
 
-/// The folder that keeps the report of the run <key> in the store whose
-/// database is <database>.
-pub fn report_folder(database: &Path, key: &Key) -> std::path::PathBuf {
-    let word = |text: &str| -> String {
-        text.chars()
-            .map(|c| {
-                if c.is_ascii_alphanumeric() || c == '.' {
-                    c
-                } else {
-                    '-'
-                }
-            })
-            .collect()
-    };
-    database
-        .parent()
-        .unwrap_or_else(|| Path::new("."))
-        .join("shots")
-        .join(format!(
-            "{}-{}-{}-{}",
-            &key.commit[..key.commit.len().min(12)],
-            key.lane.word(),
-            word(&key.prefix),
-            &key.version[..key.version.len().min(12)]
-        ))
-}
-
-/// The folder next to <into> that a copy fills before it replaces <into>.
-pub fn staging_of(into: &Path) -> std::path::PathBuf {
-    let mut name = into.file_name().unwrap_or_default().to_os_string();
-    name.push(".part");
-    into.with_file_name(name)
-}
-
-/// Makes <staging> the folder <into>, replacing what is there.
-pub fn install_folder(staging: &Path, into: &Path) -> Result<()> {
-    if into.exists() {
-        std::fs::remove_dir_all(into)
-            .map_err(|e| crate::fail::Fail::Message(format!("removing {}: {e}", into.display())))?;
-    }
-    std::fs::rename(staging, into).map_err(|e| {
-        crate::fail::Fail::Message(format!(
-            "moving {} to {}: {e}",
-            staging.display(),
-            into.display()
-        ))
-    })
-}
-
 /// Copies the report in <from> (its `index.html`, the files that page shows
-/// and its findings as records, when the shots program wrote them) to the
-/// folder <into>.
+/// and its findings as records, when the shots program wrote them) into the
+/// new folder <into>.
 pub fn copy_report(from: &Path, into: &Path) -> Result<()> {
     let page = from.join("index.html");
-    let html = std::fs::read_to_string(&page)
-        .map_err(|e| crate::fail::Fail::Message(format!("reading {}: {e}", page.display())))?;
-    let staging = staging_of(into);
-    let _ = std::fs::remove_dir_all(&staging);
+    let html = std::fs::read_to_string(&page).context(|| format!("reading {}", page.display()))?;
     let copy = |name: &str| -> Result<()> {
-        let to = staging.join(name);
+        let to = into.join(name);
         if let Some(parent) = to.parent() {
-            std::fs::create_dir_all(parent).map_err(|e| {
-                crate::fail::Fail::Message(format!("creating {}: {e}", parent.display()))
-            })?;
+            std::fs::create_dir_all(parent).context(|| format!("creating {}", parent.display()))?;
         }
         std::fs::copy(from.join(name), &to)
             .map(|_| ())
-            .map_err(|e| {
-                crate::fail::Fail::Message(format!("copying {name} from {}: {e}", from.display()))
-            })
+            .context(|| format!("copying {name} from {}", from.display()))
     };
-    std::fs::create_dir_all(&staging)
-        .map_err(|e| crate::fail::Fail::Message(format!("creating {}: {e}", staging.display())))?;
     copy("index.html")?;
     for name in report_files(&html) {
         copy(&name)?;
@@ -195,7 +113,7 @@ pub fn copy_report(from: &Path, into: &Path) -> Result<()> {
     if from.join(shot_causes::FILE).is_file() {
         copy(shot_causes::FILE)?;
     }
-    install_folder(&staging, into)
+    Ok(())
 }
 
 /// The shell script that writes to its output a tar of the report in <dir>:
@@ -215,41 +133,16 @@ pub fn report_copy_script(dir: &str, files: &[String]) -> String {
     )
 }
 
-/// Deletes the report folders in <shots> beyond the newest `KEEP_REPORTS`.
-pub fn prune_reports(shots: &Path) {
-    let Ok(entries) = std::fs::read_dir(shots) else {
-        return;
-    };
-    let mut folders: Vec<(std::time::SystemTime, std::path::PathBuf)> = entries
-        .flatten()
-        .filter(|entry| entry.path().is_dir())
-        .filter_map(|entry| Some((entry.metadata().ok()?.modified().ok()?, entry.path())))
-        .collect();
-    folders.sort_by_key(|folder| std::cmp::Reverse(folder.0));
-    for (_, folder) in folders.into_iter().skip(KEEP_REPORTS) {
-        let _ = std::fs::remove_dir_all(folder);
-    }
-}
-
-/// Says where <key>'s stored report is, when its folder is there.
-pub fn note_report(database: &Path, key: &Key) {
-    let page = report_folder(database, key).join("index.html");
+/// Says where <stored>'s report is, when the run kept one.
+pub fn note_report(stored: &Stored) {
+    let page = stored.report().join("index.html");
     if page.exists() {
         note(format!(
             "shots report for {}: {}",
-            key.prefix,
+            stored.key.prefix,
             page.display()
         ));
     }
-}
-
-/// A stored run.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Stored {
-    pub key: Key,
-    pub recorded_at: i64,
-    pub exit_code: i64,
-    pub findings: String,
 }
 
 /// What the shots program printed in <output>: the text after the line that
@@ -290,116 +183,23 @@ pub fn has_findings(exit: i64, findings: &str) -> bool {
     exit == 0 || findings.contains(PAIRS_FAIL)
 }
 
-/// Writes <findings> of a run that exited <exit> under <key> in the database
-/// at <database>, replacing a run with the same key.
-pub fn store(database: &Path, key: &Key, exit: i64, findings: &str) -> Result<()> {
-    let conn = db::open(database, db::Make::Never)?;
-    conn.execute(
-        "INSERT OR REPLACE INTO shot_findings (repo, commit_id, platform, prefix, shots_version, recorded_at, exit_code, findings) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-        params![
-            key.repo,
-            key.commit,
-            key.lane.word(),
-            key.prefix,
-            key.version,
-            now(),
-            exit,
-            findings
-        ],
-    )
-    .sql()?;
-    Ok(())
-}
-
-/// The run stored under <key> in the database at <database>, if any.
-pub fn lookup(database: &Path, key: &Key) -> Result<Option<Stored>> {
-    let Some(conn) = db::open_reader(database)? else {
-        return Ok(None);
-    };
-    let mut statement = conn
-        .prepare("SELECT recorded_at, exit_code, findings FROM shot_findings WHERE repo = ?1 AND commit_id = ?2 AND platform = ?3 AND prefix = ?4 AND shots_version = ?5")
-        .sql()?;
-    let mut rows = statement
-        .query(params![
-            key.repo,
-            key.commit,
-            key.lane.word(),
-            key.prefix,
-            key.version
-        ])
-        .sql()?;
-    match rows.next().sql()? {
-        Some(row) => Ok(Some(Stored {
-            key: key.clone(),
-            recorded_at: row.get(0).sql()?,
-            exit_code: row.get(1).sql()?,
-            findings: row.get(2).sql()?,
-        })),
-        None => Ok(None),
-    }
-}
-
 /// The key of a run of <prefix> on <lane> for <repo> at <git_ref> by this
-/// builds' builds-shots, and the repo's database: the commit is read from the
-/// repo's app checkout.
+/// builds' builds-shots: the commit is read from the repo's app checkout.
 pub fn key_for(
     places: &Places,
     repo: &str,
     git_ref: &str,
     lane: Lane,
     prefix: &str,
-) -> Result<(Key, Option<std::path::PathBuf>)> {
+) -> Result<Key> {
     let (_, commit, _) = app_build::commit_and_config(places, repo, git_ref)?;
-    let key = Key {
+    Ok(Key {
         repo: repo.to_string(),
         version: crate::shots_program::VERSION.to_string(),
         commit,
         lane,
         prefix: prefix.to_string(),
-    };
-    Ok((key, app_timing::database_of(places, repo)?))
-}
-
-/// The findings.json of the run a run of <prefix> on <lane> by builds-shots
-/// <version> compares with, among the runs of <repo> at <commit> in the
-/// database at <database>: the newest by that version whose prefix starts
-/// <prefix> and whose report keeps its findings.json. None when the store
-/// holds no such run.
-pub fn before_run(
-    database: &Path,
-    repo: &str,
-    commit: &str,
-    lane: Lane,
-    prefix: &str,
-    version: &str,
-) -> Result<Option<std::path::PathBuf>> {
-    let Some(conn) = db::open_reader(database)? else {
-        return Ok(None);
-    };
-    let mut statement = conn
-        .prepare("SELECT prefix FROM shot_findings WHERE repo = ?1 AND commit_id = ?2 AND platform = ?3 AND shots_version = ?4 AND substr(?5, 1, length(prefix)) = prefix ORDER BY recorded_at DESC")
-        .sql()?;
-    let prefixes = statement
-        .query_map(params![repo, commit, lane.word(), version, prefix], |row| {
-            row.get::<_, String>(0)
-        })
-        .sql()?
-        .collect::<std::result::Result<Vec<String>, _>>()
-        .sql()?;
-    for covering in prefixes {
-        let key = Key {
-            repo: repo.to_string(),
-            commit: commit.to_string(),
-            lane,
-            prefix: covering,
-            version: version.to_string(),
-        };
-        let findings = report_folder(database, &key).join(shot_causes::FILE);
-        if findings.is_file() {
-            return Ok(Some(findings));
-        }
-    }
-    Ok(None)
+    })
 }
 
 /// The version of builds-shots that the findings.json in the report folder
@@ -410,14 +210,9 @@ pub fn version_in(folder: &Path) -> Result<String> {
         version: String,
     }
     let file = folder.join(shot_causes::FILE);
-    let text = std::fs::read_to_string(&file)
-        .map_err(|e| crate::fail::Fail::Message(format!("reading {}: {e}", file.display())))?;
-    let named: Named = serde_json::from_str(&text).map_err(|e| {
-        crate::fail::Fail::Message(format!(
-            "{} names no builds-shots version: {e}",
-            file.display()
-        ))
-    })?;
+    let text = std::fs::read_to_string(&file).context(|| format!("reading {}", file.display()))?;
+    let named: Named = serde_json::from_str(&text)
+        .context(|| format!("{} names no builds-shots version", file.display()))?;
     Ok(named.version)
 }
 
@@ -447,17 +242,21 @@ fn note_run(stored: &Stored) {
     ));
 }
 
-/// The findings of the run <key> grouped by cause, from the records its kept
-/// report holds in the store whose database is <database>. Fails when the
-/// store keeps no such records, naming the command that runs <key> again for
-/// <git_ref>.
-pub fn by_cause(database: &Path, key: &Key, git_ref: &str) -> Result<String> {
-    match shot_causes::read(&report_folder(database, key)) {
+/// The findings of the kept run <stored> grouped by cause, from the records
+/// its report holds. Fails when the run kept no such records, naming the
+/// command that runs it again for <git_ref>.
+pub fn by_cause(stored: &Stored, git_ref: &str) -> Result<String> {
+    match shot_causes::read(&stored.report()) {
         Ok(run) => Ok(shot_causes::text(&run)),
         Err(error) => fail!(
-            "{}. The shots program writes its findings as records beside its report, and builds keeps the reports of the newest {KEEP_REPORTS} runs; `{} --fresh` runs this one again",
+            "{}. The shots program writes its findings as records beside its report, which builds keeps with the run; `{} --fresh` runs this one again",
             error.text(),
-            how_to_make(&key.repo, git_ref, key.lane, &key.prefix)
+            how_to_make(
+                &stored.key.repo,
+                git_ref,
+                stored.key.lane,
+                &stored.key.prefix
+            )
         ),
     }
 }
@@ -496,22 +295,18 @@ pub fn cmd_findings(places: &Places, args: &[String]) -> Result<()> {
         fail!("{USAGE}");
     };
     let lane = Lane::parse_or_fail(lane)?;
-    let (key, database) = key_for(places, repo, git_ref, lane, prefix)?;
-    let stored = match &database {
-        Some(database) => lookup(database, &key)?.map(|stored| (database, stored)),
-        None => None,
-    };
-    match stored {
-        Some((database, stored)) if grouped => {
-            let text = by_cause(database, &stored.key, git_ref)?;
+    let key = key_for(places, repo, git_ref, lane, prefix)?;
+    match shot_store::lookup(places, &key)? {
+        Some(stored) if grouped => {
+            let text = by_cause(&stored, git_ref)?;
             note_run(&stored);
             print!("{text}");
-            note_report(database, &stored.key);
+            note_report(&stored);
             Ok(())
         }
-        Some((database, stored)) => {
+        Some(stored) => {
             print(&stored);
-            note_report(database, &stored.key);
+            note_report(&stored);
             Ok(())
         }
         None => fail!(

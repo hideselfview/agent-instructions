@@ -1,8 +1,8 @@
 //! `builds.sqlite`, the one database in each project's store folder: the
 //! lists (every table of `lists/*.sql`), the hook-run stats (`hook_stats.sql`
 //! and `hook_check_starts.sql`), the app-build timings (`app_timing.sql`), the
-//! design changes' recording sessions (`lists/design_session.sql`), the shot
-//! findings, the review's tables, the `builds cargo` runs
+//! design changes' recording sessions (`lists/design_session.sql`), the
+//! review's tables, the `builds cargo` runs
 //! (`cargo_run.sql`), the spec checks (`lists/spec_check.sql`), the agents'
 //! acknowledgements (`ack/record.sql`), the judge (`review/judge.sql`). This module does all opening:
 //! the pragmas, the schema made whole in the first transaction of a new file,
@@ -41,10 +41,6 @@ pub const DESIGN_SESSION_PART: &str = include_str!("lists/design_session.sql");
 /// A busy store waits as `flock` did: until the other write ends. SQLite
 /// takes the wait as milliseconds in an `i32`.
 const BUSY: Duration = Duration::from_millis(i32::MAX as u64);
-
-/// The stored findings of `--shots` runs (shot_findings.sql), the last part of
-/// the schema.
-pub const SHOT_FINDINGS_PART: &str = include_str!("shot_findings.sql");
 
 /// The review's tables (review/record.sql).
 pub const REVIEW_PART: &str = include_str!("review/record.sql");
@@ -149,8 +145,8 @@ pub const OVER_CAP_PART: &str = include_str!("review/over_cap.sql");
 
 /// Each part of the schema, in the order the schema holds them: the lists'
 /// tables, then the hook stats', then the app-build timings', then the design
-/// changes' recording sessions', then the stored shot findings, then the
-/// review's, then the hook checks' starting loads, then the cargo runs', then
+/// changes' recording sessions', then the review's, then the hook checks'
+/// starting loads, then the cargo runs', then
 /// the kept work's, then the dropped items' work, then the spec checks', then
 /// the acknowledgements', then the publish requests', then the Rust release
 /// items', then the Rust checks', then the items' events, then the landings',
@@ -163,7 +159,7 @@ pub const OVER_CAP_PART: &str = include_str!("review/over_cap.sql");
 /// cap. A table points at ones earlier or
 /// later (SQLite resolves foreign keys when rows are written), but the order is
 /// the one to read the schema in. A part that joins the schema goes at the end.
-const SCHEMA_PARTS: [&str; 40] = [
+const SCHEMA_PARTS: [&str; 39] = [
     include_str!("lists/project.sql"),
     include_str!("lists/area.sql"),
     include_str!("lists/record.sql"),
@@ -178,7 +174,6 @@ const SCHEMA_PARTS: [&str; 40] = [
     HOOK_PART,
     APP_TIMING_PART,
     DESIGN_SESSION_PART,
-    SHOT_FINDINGS_PART,
     REVIEW_PART,
     HOOK_CHECK_STARTS_PART,
     CARGO_RUNS_PART,
@@ -258,15 +253,42 @@ pub fn schema() -> String {
     SCHEMA.to_string()
 }
 
+/// The table of the `--shots` runs' findings, which every schema held
+/// between the design changes' recording sessions and the review's tables
+/// until builds kept the runs on the build volume (shot_store.rs).
+#[cfg(test)]
+pub const SHOT_FINDINGS_TABLE: &str = "CREATE TABLE IF NOT EXISTS shot_findings (
+    repo TEXT NOT NULL CHECK (repo <> ''),
+    commit_id TEXT NOT NULL CHECK (commit_id <> ''),
+    platform TEXT NOT NULL CHECK (platform IN ('mac', 'android')),
+    prefix TEXT NOT NULL CHECK (prefix <> ''),
+    shots_version TEXT NOT NULL CHECK (shots_version <> ''),
+    recorded_at INTEGER NOT NULL CHECK (recorded_at > 0),
+    exit_code INTEGER NOT NULL CHECK (exit_code >= 0),
+    findings TEXT NOT NULL,
+    PRIMARY KEY (repo, commit_id, platform, prefix, shots_version)
+) STRICT, WITHOUT ROWID;";
+
+/// <schema> as it was before builds kept the shots runs on the build volume:
+/// with the shot findings' table before the review's tables.
+#[cfg(test)]
+pub fn with_shot_findings(schema: String) -> String {
+    match schema.find(REVIEW_PART) {
+        Some(at) => format!("{}{SHOT_FINDINGS_TABLE}\n{}", &schema[..at], &schema[at..]),
+        None => format!("{schema}\n{SHOT_FINDINGS_TABLE}"),
+    }
+}
+
 /// The schema as it was before <part> joined it: the parts of
-/// `SCHEMA_PARTS` before <part>, with a newline between each two.
+/// `SCHEMA_PARTS` before <part>, with a newline between each two, and the
+/// shot findings' table, which every such schema held.
 #[cfg(test)]
 fn schema_before(part: &str) -> String {
     let at = SCHEMA_PARTS
         .iter()
         .position(|known| *known == part)
         .expect("the part is one of the schema's parts");
-    SCHEMA_PARTS[..at].join("\n")
+    with_shot_findings(SCHEMA_PARTS[..at].join("\n"))
 }
 
 /// The schema as it was before the branches over the review's cap joined it,

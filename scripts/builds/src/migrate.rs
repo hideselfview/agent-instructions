@@ -225,13 +225,17 @@ const BEFORE_REVIEW_BOARD_SHOW_NOW_STAMP: i64 = 716_196_970;
 /// The stamp of the schema before an app build run could end stopped.
 const BEFORE_APP_BUILD_STOPPED_STAMP: i64 = 978_764_755;
 
+/// The stamp of the schema before builds kept the shots runs on the build
+/// volume (shot_store.rs) instead of in the store.
+const BEFORE_SHOTS_ON_VOLUME_STAMP: i64 = 1_758_641_369;
+
 /// The stamp of today's schema (`db::STAMP`). A change to the schema changes
 /// its stamp, and builds then fails to compile until the change gives it a
 /// move from this schema, since every store carries this stamp: the change
 /// adds the move, puts this stamp at the end of `STAMPS` under a name that
 /// says what the schema lacked, and sets this to the new schema's stamp, which
 /// the compiler's error names.
-const SCHEMA_STAMP: i64 = 1_758_641_369;
+const SCHEMA_STAMP: i64 = 1_364_416_336;
 
 // The compiler refuses a schema whose stamp is not SCHEMA_STAMP. A const
 // assert could not print the new stamp, so the check compares two array
@@ -241,7 +245,7 @@ const _: [(); SCHEMA_STAMP as usize] = [(); db::STAMP as usize];
 
 /// Every stamp a store can carry that `move_store` moves, oldest schema first.
 /// A new move adds the stamp of the schema before it at the end.
-const STAMPS: [i64; 24] = [
+const STAMPS: [i64; 25] = [
     BEFORE_CONDITION_ENDERS_STAMP,
     BEFORE_ITEM_EVENT_STAMP,
     BEFORE_LAND_RUN_STAMP,
@@ -266,6 +270,7 @@ const STAMPS: [i64; 24] = [
     BEFORE_LAND_APP_STEPS_STAMP,
     BEFORE_REVIEW_BOARD_SHOW_NOW_STAMP,
     BEFORE_APP_BUILD_STOPPED_STAMP,
+    BEFORE_SHOTS_ON_VOLUME_STAMP,
 ];
 
 /// Whether a store stamped <found> comes before the move that follows the
@@ -292,7 +297,11 @@ fn before(found: i64, stamp: i64) -> bool {
 /// builds found a review's landing by its repo and key gets the indexes that
 /// find it so, one of which refuses two open landings of one change; and
 /// every store from before the review's texts sat in a table with row ids
-/// gets that table, with its texts. The moves run in one transaction, the
+/// gets that table, with its texts; every store from before builds kept the
+/// shots runs on the build volume loses the shot findings' table, and once
+/// the move commits, the table's pages (a vacuum) and the folder of reports
+/// beside the database. The moves
+/// run in one transaction, the
 /// store is stamped as today's schema, and it must then equal a fresh
 /// database's schema or the transaction rolls back. A store already at
 /// today's stamp, or with no database, is left alone; any other stamp is
@@ -484,6 +493,12 @@ fn move_store(path: &Path, now: i64) -> Result<()> {
     if before(found, BEFORE_APP_BUILD_STOPPED_STAMP) {
         crate::app_timing::record_stopped_runs(&tx)?;
     }
+    // Every store from before builds kept the shots runs on the build volume
+    // loses the findings' table; the folder of reports beside the database
+    // goes once the move commits.
+    if before(found, BEFORE_SHOTS_ON_VOLUME_STAMP) {
+        tx.execute_batch("DROP TABLE shot_findings;").sql()?;
+    }
     tx.pragma_update(None, "user_version", db::stamp()).sql()?;
     let broken: Option<String> = tx
         .query_row("PRAGMA foreign_key_check", [], |row| row.get(0))
@@ -502,8 +517,31 @@ fn move_store(path: &Path, now: i64) -> Result<()> {
         );
     }
     tx.commit().sql()?;
+    if before(found, BEFORE_SHOTS_ON_VOLUME_STAMP) {
+        // The dropped table's pages stay in the file as free pages until a
+        // vacuum gives them back to the disk; in a store of a few hundred MB
+        // they were most of it.
+        conn.execute_batch("VACUUM; PRAGMA wal_checkpoint(TRUNCATE);")
+            .sql()?;
+        remove_kept_reports(path)?;
+    }
     crate::text::note(format!("moved {} to today's schema", path.display()));
     Ok(())
+}
+
+/// Deletes the folder `shots` beside the database at <path>, where builds
+/// kept the shots runs' reports before it kept the runs on the build volume.
+fn remove_kept_reports(path: &Path) -> Result<()> {
+    let reports = path
+        .parent()
+        .expect("a store's database is in its store's folder")
+        .join("shots");
+    match std::fs::remove_dir_all(&reports) {
+        Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
+            fail!("removing {}: {error}", reports.display())
+        }
+        _ => Ok(()),
+    }
 }
 
 #[cfg(test)]

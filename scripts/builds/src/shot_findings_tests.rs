@@ -33,54 +33,6 @@ fn a_long_run_is_kept_whole() {
 }
 
 #[test]
-fn a_stored_run_is_found_by_its_whole_key_and_a_later_run_of_the_key_replaces_it() {
-    let scratch = crate::testing::Scratch::new("shots-key");
-    let places = scratch.places();
-    let store = crate::lists::fixtures::make_store(&places, &["demo"]);
-    let database = store.dir.join(app_timing::DATABASE);
-    let key = Key {
-        repo: "demo".to_string(),
-        commit: "a".repeat(40),
-        lane: Lane::Mac,
-        prefix: "mac.a.".to_string(),
-        version: "b".repeat(40),
-    };
-    assert!(lookup(&database, &key).unwrap().is_none());
-    store_run(&database, &key, 1, "first\n");
-    store_run(&database, &key, 0, "second\n");
-    let found = lookup(&database, &key).unwrap().expect("stored");
-    assert_eq!((found.exit_code, found.findings.as_str()), (0, "second\n"));
-    for other in [
-        Key {
-            commit: "c".repeat(40),
-            ..key.clone()
-        },
-        Key {
-            lane: Lane::Android,
-            ..key.clone()
-        },
-        Key {
-            prefix: "mac.b.".to_string(),
-            ..key.clone()
-        },
-        Key {
-            version: "c".repeat(40),
-            ..key.clone()
-        },
-        Key {
-            repo: "other".to_string(),
-            ..key.clone()
-        },
-    ] {
-        assert!(lookup(&database, &other).unwrap().is_none(), "{other:?}");
-    }
-}
-
-fn store_run(database: &Path, key: &Key, exit: i64, findings: &str) {
-    store(database, key, exit, findings).unwrap();
-}
-
-#[test]
 fn the_report_folder_and_its_pictures_are_read_from_the_shots_programs_lines_and_page() {
     for program in ["bae-shots", "builds shots"] {
         let output = format!("x\n{program}: report at /w/side-1/shots/report/index.html\n");
@@ -92,21 +44,6 @@ fn the_report_folder_and_its_pictures_are_read_from_the_shots_programs_lines_and
     assert_eq!(report_dir_in("no report here\n"), None);
     let html = r#"<img src="img/a.png"><img src="img/a.png"><img src="/etc/x"><img src="../up.png"><img src="https://x/y.png"><img src="img/b c.png">"#;
     assert_eq!(report_files(html), vec!["img/a.png", "img/b c.png"]);
-}
-
-#[test]
-fn only_the_newest_reports_are_kept() {
-    let scratch = crate::testing::Scratch::new("shots-prune");
-    let shots = scratch.dir.join("shots");
-    for n in 0..KEEP_REPORTS + 3 {
-        let folder = shots.join(format!("run-{n:03}"));
-        std::fs::create_dir_all(&folder).unwrap();
-        crate::testing::age(&folder, (KEEP_REPORTS + 3 - n) as u64);
-    }
-    prune_reports(&shots);
-    let left = std::fs::read_dir(&shots).unwrap().count();
-    assert_eq!(left, KEEP_REPORTS);
-    assert!(!shots.join("run-000").exists() && shots.join("run-032").exists());
 }
 
 #[test]
@@ -128,11 +65,12 @@ fn a_report_is_copied_with_its_pictures_and_its_findings_records_when_it_has_the
     std::fs::create_dir_all(from.join("img")).unwrap();
     std::fs::write(from.join("index.html"), r#"<img src="img/a.png">"#).unwrap();
     std::fs::write(from.join("img/a.png"), "png").unwrap();
-    let into = scratch.dir.join("kept/old");
+    let into = scratch.dir.join("kept/first");
     copy_report(&from, &into).unwrap();
     assert!(into.join("img/a.png").is_file());
     assert!(!into.join(crate::shot_causes::FILE).exists());
     std::fs::write(from.join(crate::shot_causes::FILE), "{}").unwrap();
+    let into = scratch.dir.join("kept/second");
     copy_report(&from, &into).unwrap();
     assert_eq!(
         std::fs::read_to_string(into.join(crate::shot_causes::FILE)).unwrap(),
@@ -144,30 +82,29 @@ fn a_report_is_copied_with_its_pictures_and_its_findings_records_when_it_has_the
 fn a_run_grouped_by_cause_reads_the_records_its_kept_report_holds() {
     let scratch = crate::testing::Scratch::new("shots-causes");
     let places = scratch.places();
-    let store = crate::lists::fixtures::make_store(&places, &["demo"]);
-    let database = store.dir.join(app_timing::DATABASE);
     let key = Key {
         repo: "demo".to_string(),
         commit: "a".repeat(40),
         lane: Lane::Mac,
         prefix: "mac.".to_string(),
-        version: "b".repeat(40),
+        version: "b".repeat(16),
     };
-    let missing = by_cause(&database, &key, "main")
-        .expect_err("refused")
-        .text();
+    let stored = shot_store::stage(&places, &key)
+        .unwrap()
+        .finish(1, "FAIL x\n")
+        .unwrap();
+    let missing = by_cause(&stored, "main").expect_err("refused").text();
     assert!(
         missing.contains("builds app-build demo main --all-shots mac --fresh"),
         "{missing}"
     );
-    let folder = report_folder(&database, &key);
-    std::fs::create_dir_all(&folder).unwrap();
+    std::fs::create_dir_all(stored.report()).unwrap();
     std::fs::write(
-        folder.join(crate::shot_causes::FILE),
+        stored.findings_json(),
         r#"{"findings": [{"scene": "mac.a", "component": "MacRow", "kind": "region", "sentence": "s"}], "scenes": ["mac.a"]}"#,
     )
     .unwrap();
-    let text = by_cause(&database, &key, "main").unwrap();
+    let text = by_cause(&stored, "main").unwrap();
     assert!(
         text.starts_with("1 finding in 1 of the 1 scene the run checked, grouped by cause"),
         "{text}"
@@ -196,67 +133,6 @@ fn the_script_that_copies_a_report_from_a_host_sends_its_page_pictures_and_recor
         assert!(into.join("index.html").is_file() && into.join("img/a b.png").is_file());
         assert_eq!(into.join(crate::shot_causes::FILE).is_file(), records);
     }
-}
-
-/// Stores a run of <key> in <database> with its report folder, which holds a
-/// findings.json when <with_findings>.
-fn store_with_report(database: &Path, key: &Key, with_findings: bool) {
-    store_run(database, key, 1, "FAIL x: y\n");
-    let folder = report_folder(database, key);
-    std::fs::create_dir_all(&folder).unwrap();
-    if with_findings {
-        std::fs::write(
-            folder.join(crate::shot_causes::FILE),
-            format!(r#"{{"version": "{}"}}"#, key.version),
-        )
-        .unwrap();
-    }
-}
-
-#[test]
-fn the_before_run_is_the_newest_run_of_the_version_whose_prefix_starts_the_runs_and_keeps_its_findings()
- {
-    let scratch = crate::testing::Scratch::new("shots-before");
-    let places = scratch.places();
-    let store = crate::lists::fixtures::make_store(&places, &["demo"]);
-    let database = store.dir.join(app_timing::DATABASE);
-    let base = "a".repeat(40);
-    let key = |prefix: &str, version: &str| Key {
-        repo: "demo".to_string(),
-        commit: base.clone(),
-        lane: Lane::Mac,
-        prefix: prefix.to_string(),
-        version: version.to_string(),
-    };
-    let find =
-        |prefix: &str| before_run(&database, "demo", &base, Lane::Mac, prefix, "v1").unwrap();
-    let kept = |prefix: &str| {
-        Some(report_folder(&database, &key(prefix, "v1")).join(crate::shot_causes::FILE))
-    };
-    assert_eq!(find("mac.welcome."), None);
-    store_with_report(&database, &key("mac.welcome.", "v2"), true);
-    store_with_report(&database, &key("mac.settings.", "v1"), true);
-    store_with_report(&database, &key("mac.welcome.a.", "v1"), true);
-    assert_eq!(
-        find("mac.welcome."),
-        None,
-        "another version's run, another screen's and a narrower prefix's do not stand in"
-    );
-    store_with_report(&database, &key("mac.", "v1"), true);
-    assert_eq!(find("mac.welcome."), kept("mac."));
-    // A run stored later wins; one whose report keeps no findings.json does
-    // not count. The run of mac. ended ten seconds before the runs below.
-    db::open(&database, db::Make::Never)
-        .unwrap()
-        .execute(
-            "UPDATE shot_findings SET recorded_at = recorded_at - 10 WHERE prefix = 'mac.'",
-            [],
-        )
-        .unwrap();
-    store_with_report(&database, &key("mac.welcome.", "v1"), false);
-    assert_eq!(find("mac.welcome."), kept("mac."));
-    store_with_report(&database, &key("mac.welcome.", "v1"), true);
-    assert_eq!(find("mac.welcome."), kept("mac.welcome."));
 }
 
 #[test]

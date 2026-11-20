@@ -1174,7 +1174,7 @@ fn a_store_from_before_the_over_cap_table_gains_it_and_equals_a_fresh_schema() {
 fn the_review_section_heading_only_stamp_is_the_schema_before_it() {
     assert_eq!(
         stamp_before_show_now(before_land_app_steps(with_review_section_words(
-            with_design_variants(db::schema())
+            with_design_variants(db::with_shot_findings(db::schema()))
         ))),
         BEFORE_REVIEW_SECTION_HEADING_ONLY_STAMP
     );
@@ -1192,7 +1192,7 @@ fn a_store_from_before_the_review_section_kept_only_its_heading_keeps_each_headi
     {
         let conn = Connection::open(&path).unwrap();
         conn.execute_batch(&before_app_build_stopped(with_review_section_words(
-            with_design_variants(db::schema()),
+            with_design_variants(db::with_shot_findings(db::schema())),
         )))
         .unwrap();
         conn.pragma_update(
@@ -1256,7 +1256,9 @@ fn a_store_from_before_the_review_section_kept_only_its_heading_keeps_each_headi
 #[test]
 fn the_design_variants_left_stamp_is_the_schema_before_it() {
     assert_eq!(
-        stamp_before_show_now(before_land_app_steps(with_design_variants(db::schema()))),
+        stamp_before_show_now(before_land_app_steps(with_design_variants(
+            db::with_shot_findings(db::schema())
+        ))),
         BEFORE_DESIGN_VARIANTS_LEFT_STAMP
     );
 }
@@ -1273,9 +1275,9 @@ fn a_store_from_before_the_design_variants_left_loses_their_tables() {
     let path = dir.join(DATABASE);
     {
         let conn = Connection::open(&path).unwrap();
-        conn.execute_batch(&before_app_build_stopped(
-            with_design_variants(db::schema()),
-        ))
+        conn.execute_batch(&before_app_build_stopped(with_design_variants(
+            db::with_shot_findings(db::schema()),
+        )))
         .unwrap();
         conn.pragma_update(None, "user_version", BEFORE_DESIGN_VARIANTS_LEFT_STAMP)
             .unwrap();
@@ -1330,7 +1332,7 @@ INSERT INTO design_variant (design_id, position, props) VALUES (1, 0, '{{}}');",
 #[test]
 fn the_land_app_steps_stamp_is_the_schema_before_it() {
     assert_eq!(
-        stamp_before_show_now(before_land_app_steps(db::schema())),
+        stamp_before_show_now(before_land_app_steps(db::with_shot_findings(db::schema()))),
         BEFORE_LAND_APP_STEPS_STAMP
     );
 }
@@ -1368,7 +1370,7 @@ fn a_store_from_before_the_app_landing_steps_keeps_its_steps_and_takes_them() {
     {
         let mut conn = Connection::open(&path).unwrap();
         conn.execute_batch(&before_app_build_stopped(before_land_app_steps(
-            db::schema(),
+            db::with_shot_findings(db::schema()),
         )))
         .unwrap();
         conn.pragma_update(None, "user_version", BEFORE_LAND_APP_STEPS_STAMP)
@@ -1396,7 +1398,7 @@ fn a_store_from_before_the_app_landing_steps_keeps_its_steps_and_takes_them() {
 fn the_review_board_show_now_stamp_is_the_schema_before_it() {
     assert_eq!(
         db::stamp_of_text(&before_review_board_show_now(before_app_build_stopped(
-            db::schema()
+            db::with_shot_findings(db::schema())
         ))),
         BEFORE_REVIEW_BOARD_SHOW_NOW_STAMP
     );
@@ -1415,7 +1417,7 @@ fn a_store_from_before_the_review_boards_show_now_keeps_each_board_with_its_now(
     {
         let conn = Connection::open(&path).unwrap();
         conn.execute_batch(&before_app_build_stopped(before_review_board_show_now(
-            db::schema(),
+            db::with_shot_findings(db::schema()),
         )))
         .unwrap();
         conn.pragma_update(None, "user_version", BEFORE_REVIEW_BOARD_SHOW_NOW_STAMP)
@@ -1498,7 +1500,9 @@ fn a_store_from_before_the_review_boards_show_now_keeps_each_board_with_its_now(
 #[test]
 fn the_app_build_stopped_stamp_is_the_schema_before_it() {
     assert_eq!(
-        db::stamp_of_text(&before_app_build_stopped(db::schema())),
+        db::stamp_of_text(&before_app_build_stopped(db::with_shot_findings(
+            db::schema()
+        ))),
         BEFORE_APP_BUILD_STOPPED_STAMP
     );
 }
@@ -1515,8 +1519,10 @@ fn a_store_from_before_stopped_app_builds_keeps_each_run_with_how_it_ended() {
     let path = dir.join(DATABASE);
     {
         let conn = Connection::open(&path).unwrap();
-        conn.execute_batch(&before_app_build_stopped(db::schema()))
-            .unwrap();
+        conn.execute_batch(&before_app_build_stopped(db::with_shot_findings(
+            db::schema(),
+        )))
+        .unwrap();
         conn.pragma_update(None, "user_version", BEFORE_APP_BUILD_STOPPED_STAMP)
             .unwrap();
         conn.execute_batch(
@@ -1574,4 +1580,77 @@ INSERT INTO app_build_steps (run_id, position, name, kind, started_at, wall_ms, 
         },
     )
     .unwrap();
+}
+
+#[test]
+fn the_shots_on_volume_stamp_is_the_schema_before_it() {
+    assert_eq!(
+        db::stamp_of_text(&db::with_shot_findings(db::schema())),
+        BEFORE_SHOTS_ON_VOLUME_STAMP
+    );
+}
+
+/// A store from before builds kept the shots runs on the build volume loses
+/// the shot findings' table and the folder of reports beside its database,
+/// keeps everything else, and equals a fresh schema.
+#[test]
+fn a_store_from_before_the_shots_runs_left_it_loses_their_table_and_reports() {
+    let scratch = Scratch::new("move-shots-on-volume");
+    let places = scratch.places();
+    let dir = places.lists.join("bae");
+    let reports = dir.join("shots/0868b3ff8702-mac-mac.-d4eee7325e0d/img");
+    std::fs::create_dir_all(&reports).unwrap();
+    std::fs::write(reports.join("a.png"), "png").unwrap();
+    let path = dir.join(DATABASE);
+    {
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(&db::with_shot_findings(db::schema()))
+            .unwrap();
+        conn.pragma_update(None, "user_version", BEFORE_SHOTS_ON_VOLUME_STAMP)
+            .unwrap();
+        conn.execute_batch(
+            "INSERT INTO shot_findings (repo, commit_id, platform, prefix, shots_version, recorded_at, exit_code, findings) VALUES ('bae', 'c', 'mac', 'mac.', 'v', 5, 1, 'FAIL x');
+INSERT INTO hook_runs (started_at, repo, worktree, passed, plan_ms, total_ms) VALUES (5, 'bae', '/w', 1, 0, 0);",
+        )
+        .unwrap();
+    }
+    migrate_stores(&places, 0).unwrap();
+    let conn = db::open(&path, db::Make::Never).unwrap();
+    assert_eq!(
+        db::schema_rows(&conn).unwrap(),
+        db::schema_rows(&db::memory()).unwrap()
+    );
+    assert!(!dir.join("shots").exists());
+    let runs: i64 = conn
+        .query_row("SELECT count(*) FROM hook_runs", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(runs, 1);
+}
+
+/// The move gives the dropped table's pages back to the disk: the store's
+/// file shrinks once the findings it held are gone.
+#[test]
+fn a_store_from_before_the_shots_runs_left_it_shrinks_by_what_their_table_held() {
+    let scratch = Scratch::new("move-shots-on-volume-shrinks");
+    let places = scratch.places();
+    let dir = places.lists.join("bae");
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join(DATABASE);
+    {
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(&db::with_shot_findings(db::schema()))
+            .unwrap();
+        conn.pragma_update(None, "user_version", BEFORE_SHOTS_ON_VOLUME_STAMP)
+            .unwrap();
+        conn.execute(
+            "INSERT INTO shot_findings (repo, commit_id, platform, prefix, shots_version, recorded_at, exit_code, findings) VALUES ('bae', 'c', 'mac', 'mac.', 'v', 5, 1, ?1)",
+            ["FAIL x\n".repeat(400_000)],
+        )
+        .unwrap();
+    }
+    let size = |path: &std::path::Path| std::fs::metadata(path).unwrap().len();
+    let before = size(&path);
+    assert!(before > 2_000_000, "{before}");
+    migrate_stores(&places, 0).unwrap();
+    assert!(size(&path) < 1_000_000, "{} after the move", size(&path));
 }
