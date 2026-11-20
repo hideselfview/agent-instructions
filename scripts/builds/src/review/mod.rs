@@ -711,7 +711,11 @@ fn later_asks(
                     "asked the groups that hold open findings again over the whole net change, since nothing is unread and they have not closed them: {}\n",
                     groups.join(", ")
                 )),
-                change: whole(inputs, change)?,
+                change: run::NetChange {
+                    base: change.base.clone(),
+                    head: change.head.clone(),
+                    diff: change.diff.clone(),
+                },
                 since: None,
                 last_review: false,
                 groups,
@@ -740,15 +744,6 @@ fn later_asks(
         );
     }
     Ok(asks)
-}
-
-/// The whole net change <change> reads, as a new value.
-fn whole(inputs: &Inputs, change: &run::NetChange) -> Result<run::NetChange> {
-    let mut again = run::diff_between(inputs.worktree, &change.base, &change.head)?;
-    if let (Some(source), Some(read)) = (&mut again.diff.source, &change.diff.source) {
-        source.in_place = read.in_place;
-    }
-    Ok(again)
 }
 
 /// The first 10 characters of commit <rev>, as the review's reports and
