@@ -6,8 +6,9 @@
 
 use std::path::Path;
 use std::process::{Command, Stdio};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
+use crate::clock::Moment;
 use crate::fail;
 use crate::fail::{Context, Result};
 
@@ -48,7 +49,7 @@ pub fn time_compile(dir: &Path) -> Result<Duration> {
         std::fs::write(&file, source()).context(|| format!("writing {}", file.display()))?;
         let mut fastest = Duration::MAX;
         for _ in 0..TRIES {
-            let started = Instant::now();
+            let started = Moment::now();
             let output = Command::new("rustc")
                 .args(["--edition", "2021", "--crate-type", "lib"])
                 .args(["-C", "opt-level=2", "-C", "codegen-units=1"])

@@ -152,11 +152,11 @@
 //! The store's checks and records run as `builds` commands of this same
 //! program, so their output is held back and shown only when one fails.
 
+use crate::clock::Moment;
 use std::cell::{Cell, RefCell};
 use std::io::{BufRead, BufReader, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-use std::time::Instant;
 
 use crate::fail;
 use crate::fail::{Context, Fail, Result};
@@ -697,7 +697,7 @@ struct Timing<'a> {
     steps: &'a RefCell<Vec<Step>>,
     kind: StepKind,
     started_at: i64,
-    began: Instant,
+    began: Moment,
 }
 
 impl Drop for Timing<'_> {
@@ -717,7 +717,7 @@ impl Landing<'_> {
             steps: &self.steps,
             kind,
             started_at: crate::app_timing::now(),
-            began: Instant::now(),
+            began: Moment::now(),
         }
     }
 
@@ -1602,7 +1602,7 @@ impl Landing<'_> {
     /// What the landing recorded of itself, once it ended: None when the repo
     /// is in no project. <started_at> and <began> mark the start of the run,
     /// before its first step.
-    fn run_record(&self, started_at: i64, began: Instant) -> Result<Option<LandRun>> {
+    fn run_record(&self, started_at: i64, began: Moment) -> Result<Option<LandRun>> {
         let Some(Recording { project, by, .. }) = self.recording.as_ref() else {
             return Ok(None);
         };
@@ -1780,11 +1780,11 @@ fn land_profiled<'a>(
     mut stores: StoreUse<'a>,
 ) -> Ended<'a> {
     let started_at = crate::app_timing::now();
-    let began = Instant::now();
+    let began = Moment::now();
     let Some((worktree, rest)) = args.split_first() else {
         return Ended::before_landing(Err(refuse(out, USAGE)), stores);
     };
-    let waiting = (crate::app_timing::now(), Instant::now());
+    let waiting = (crate::app_timing::now(), Moment::now());
     let (workdir, lock) = match std::path::absolute(worktree)
         .context(|| format!("resolving {worktree}"))
         .and_then(|workdir| Ok((workdir.clone(), lock_worktree(&workdir, rest, out)?)))

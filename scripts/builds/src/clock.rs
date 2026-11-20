@@ -1,5 +1,7 @@
 //! A clock for how long something took that keeps counting while the
-//! machine sleeps.
+//! machine sleeps. Every duration builds records or prints reads it; Rust's
+//! `Instant` stays only where builds neither records nor shows the duration,
+//! such as a time limit's deadline or a pause between reads.
 //!
 //! Rust's `Instant` reads a clock that stops while the machine sleeps
 //! (CLOCK_UPTIME_RAW on macOS, CLOCK_MONOTONIC on Linux), so a step that a
@@ -28,6 +30,12 @@ impl Moment {
     /// The time from this moment to now, sleep included.
     pub fn elapsed(&self) -> Duration {
         since_boot().saturating_sub(self.0)
+    }
+
+    /// The time from <earlier> to this moment, sleep included; zero when
+    /// <earlier> is later.
+    pub fn duration_since(&self, earlier: Moment) -> Duration {
+        self.0.saturating_sub(earlier.0)
     }
 }
 

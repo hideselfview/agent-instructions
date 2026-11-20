@@ -340,7 +340,7 @@ impl Tracker {
             };
             let stream = self.open_stream(since);
             *self.stream.lock().expect("no panic holding it") = Some(stream);
-            let started = std::time::Instant::now();
+            let started = crate::clock::Moment::now();
             walk(&self.index, 0, &self.root, WORKERS);
             loop {
                 let pending = {
@@ -623,7 +623,7 @@ impl Tracker {
     /// current index answers questions until then. Events applied meanwhile
     /// (`replay` from <replay_from>) are applied again to what replaces it.
     fn rewalk(&self, folder: &Path, flags: u32, epoch: u64, replay_from: usize) {
-        let started = std::time::Instant::now();
+        let started = crate::clock::Moment::now();
         eprintln!(
             "{} builds: FSEvents lost events (flags {flags:#x}); walking {} again",
             crate::text::clock(),
@@ -967,8 +967,7 @@ impl Tracker {
         if let Some(stream) = self.stream.lock().expect("no panic holding it").as_ref() {
             stream.flush();
         }
-        let asked = std::time::Instant::now();
-        let deadline = asked + self.mark_wait;
+        let asked = crate::clock::Moment::now();
         let batches_before = self.batches.load(std::sync::atomic::Ordering::SeqCst);
         let mut marks = self.marks.lock().expect("no panic holding it");
         let caught_up = loop {
@@ -984,7 +983,7 @@ impl Tracker {
                 }
                 break true;
             }
-            let left = deadline.saturating_duration_since(std::time::Instant::now());
+            let left = self.mark_wait.saturating_sub(asked.elapsed());
             if left.is_zero() {
                 eprintln!(
                     "{} builds: FSEvents did not deliver {} in {}s; answering nothing",

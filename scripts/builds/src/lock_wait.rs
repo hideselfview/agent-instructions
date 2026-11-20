@@ -6,7 +6,9 @@
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::thread::JoinHandle;
-use std::time::{Duration, Instant};
+use std::time::Duration;
+
+use crate::clock::Moment;
 
 /// The words cargo starts a line with while it waits for a file lock.
 const BLOCKING: &[u8] = b"Blocking waiting for file lock";
@@ -20,7 +22,7 @@ pub fn relay(
     std::thread::spawn(move || {
         let mut reader = BufReader::new(from);
         let mut waited = Duration::ZERO;
-        let mut blocked: Option<Instant> = None;
+        let mut blocked: Option<Moment> = None;
         let mut line = Vec::new();
         loop {
             line.clear();
@@ -39,7 +41,7 @@ pub fn relay(
                 .windows(BLOCKING.len())
                 .any(|window| window == BLOCKING);
             match (blocking, blocked) {
-                (true, None) => blocked = Some(Instant::now()),
+                (true, None) => blocked = Some(Moment::now()),
                 (false, Some(since)) => {
                     waited += since.elapsed();
                     blocked = None;

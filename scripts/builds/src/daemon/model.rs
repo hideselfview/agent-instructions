@@ -10,6 +10,8 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
+use crate::clock::Moment;
+
 use serde::Serialize;
 use serde_json::{Value, json};
 
@@ -110,7 +112,7 @@ struct State {
     facts: HashMap<PathBuf, Facts>,
     sample: Option<Sample>,
     /// pid -> (CPU seconds, when read), for CPU %.
-    cpu: HashMap<i32, (f64, Instant)>,
+    cpu: HashMap<i32, (f64, Moment)>,
     cpu_percent: HashMap<i32, f64>,
     load: VecDeque<(i64, f64)>,
     health: Option<Health>,
@@ -892,7 +894,7 @@ impl Model {
             now,
             sccache,
         )?;
-        let read_at = Instant::now();
+        let read_at = Moment::now();
         let free_kib = volume_space(&self.places.root)?.free_kib;
         let mut state = self.state.lock().expect("no panic holding it");
         let mut percent = HashMap::new();

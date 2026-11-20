@@ -4,9 +4,10 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use crate::checkout::{Root, all_roots};
+use crate::clock::Moment;
 use crate::daemon::client;
 use crate::fail::Result;
 use crate::places::{DiskSpace, Places, Rules};
@@ -81,7 +82,7 @@ impl Tool {
         if paths.is_empty() {
             return Ok(Vec::new());
         }
-        let started = Instant::now();
+        let started = Moment::now();
         let asked = if self.daemon_slow.load(Ordering::Relaxed) {
             None
         } else {

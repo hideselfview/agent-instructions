@@ -6,9 +6,9 @@ use std::os::raw::c_char;
 use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::time::Instant;
 
 use super::{Event, Handler, flags};
+use crate::clock::Moment;
 use crate::core_foundation::{CFRelease, CFStringRef, CfString};
 
 type CFIndex = isize;
@@ -162,7 +162,7 @@ const REFUSALS: &str = "process == \"fseventsd\" AND messageType == error \
 
 /// Why fseventsd refused this process a stream it asked for at <asked>, from
 /// what fseventsd wrote to the unified log since then.
-fn fseventsd_says(asked: Instant) -> String {
+fn fseventsd_says(asked: Moment) -> String {
     let seconds = asked.elapsed().as_secs() + 2;
     let mut command = Command::new("/usr/bin/log");
     command.args([
@@ -221,7 +221,7 @@ impl Raw {
         latency: f64,
         handler: Handler,
     ) -> Result<Raw, String> {
-        let asked = Instant::now();
+        let asked = Moment::now();
         let refused = |step: &str| {
             let id = unsafe { FSEventsGetCurrentEventId() };
             let why = if id == 0 {

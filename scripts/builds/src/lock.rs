@@ -62,8 +62,9 @@ use std::process::Command;
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 use std::sync::mpsc::{RecvTimeoutError, channel};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
+use crate::clock::Moment;
 use crate::fail;
 use crate::fail::{Context, Fail, Result};
 use crate::holder_run::{HolderRun, RunningStep};
@@ -283,7 +284,7 @@ impl Held {
     /// and waits for a lock again (the one just freed, or another's).
     pub fn requeue(self) -> Result<Held> {
         STOPPED.store(false, Ordering::SeqCst);
-        let waiting = Instant::now();
+        let waiting = Moment::now();
         let ticket = self.queue.reissue(&self.ticket)?;
         let queue = self.queue.clone();
         let places = self.places.clone();
@@ -678,7 +679,7 @@ fn take_in(
     QUEUED.store(true, Ordering::SeqCst);
     let queue = Queue::of(places, repo, lane);
     crate::lane_size::shrink(sized, crate::prune::Run::Real, now)?;
-    let waiting = Instant::now();
+    let waiting = Moment::now();
     let (ticket, ahead) = queue.join(allowed)?;
     if ahead >= queue.slots() {
         note(format!(

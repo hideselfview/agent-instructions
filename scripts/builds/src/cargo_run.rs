@@ -17,7 +17,9 @@ use std::collections::HashMap;
 use std::io::BufReader;
 use std::path::Path;
 use std::process::{Command, Stdio};
-use std::time::{Duration, Instant};
+use std::time::Duration;
+
+use crate::clock::Moment;
 
 use rusqlite::{Connection, params};
 
@@ -323,7 +325,7 @@ pub fn cmd_cargo(args: &[String]) -> Result<()> {
             "cargo: builds cargo runs builds, updates, mutants runs and the subcommands that only read the workspace, and cargo {other} is none of them; run it without builds"
         ),
     };
-    let began = Instant::now();
+    let began = Moment::now();
     let started_at = crate::app_timing::now();
     let dir = std::env::current_dir().context(|| "reading the working directory".to_string())?;
     let places = Places::from_env()?;

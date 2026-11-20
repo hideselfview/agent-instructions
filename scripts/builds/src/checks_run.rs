@@ -31,10 +31,11 @@
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use crate::checkout::{Checkout, git_local_env_vars};
 use crate::checks::{CONFIG, Kind, Line, Planned, parse, plan};
+use crate::clock::Moment;
 use crate::fail;
 use crate::fail::{Context, Fail, Result};
 use crate::hook_impact;
@@ -265,7 +266,7 @@ fn execute(top: &Path, planned: &Planned, stream: bool, hook_check: Option<&str>
     if let Some(check) = hook_check {
         command.env(crate::cargo_run::HOOK_CHECK_VARIABLE, check);
     }
-    let started = Instant::now();
+    let started = Moment::now();
     if stream {
         let ok = command.status().is_ok_and(|status| status.success());
         return Ok(Ran {
@@ -385,7 +386,7 @@ fn millis(took: Duration) -> u64 {
 /// recorded there; a record that can't be made or written is a warning and
 /// changes nothing about the result.
 pub fn run_staged(top: &Path, log: Option<&Path>) -> Result<()> {
-    let started = Instant::now();
+    let started = Moment::now();
     let mut run = match log {
         Some(_) => match begin(top) {
             Ok(run) => Some(run),
@@ -407,7 +408,7 @@ pub fn run_staged(top: &Path, log: Option<&Path>) -> Result<()> {
     result
 }
 
-fn run_checks(top: &Path, started: Instant, mut run: Option<&mut Run>) -> Result<()> {
+fn run_checks(top: &Path, started: Moment, mut run: Option<&mut Run>) -> Result<()> {
     let lines = load(top)?;
     let staged = staged(top)?;
     let partly = unstaged_among(top, &staged)?;
@@ -483,7 +484,7 @@ fn run_picked(
     hook_checks: &[Option<String>],
     fixes: Fixes,
     mut run: Option<&mut Run>,
-    started: Instant,
+    started: Moment,
 ) -> Result<()> {
     let mut failed: Vec<&str> = Vec::new();
     // Run the fixes first, one at a time in file order. A fix may rewrite
@@ -599,7 +600,7 @@ fn contents(top: &Path, file: &str) -> Result<Option<Vec<u8>>> {
 /// file whose working tree differs from HEAD. A fix that would change a file
 /// fails, and the run puts the file back (`Fixes::PutBack`).
 pub fn run_range(top: &Path, since: &str) -> Result<()> {
-    let started = Instant::now();
+    let started = Moment::now();
     let lines = load(top)?;
     let output = git(top)
         .args(["merge-base", since, "HEAD"])
@@ -723,7 +724,7 @@ pub fn run_whole(top: &Path, out: &mut dyn std::io::Write) -> Result<Vec<WholeFa
     if !top.join(CONFIG).is_file() {
         return Ok(Vec::new());
     }
-    let started = Instant::now();
+    let started = Moment::now();
     let lines = load(top)?;
     let picked: Vec<Planned> = plan(top, &lines, &[Kind::Check], &[], true, None)?
         .into_iter()

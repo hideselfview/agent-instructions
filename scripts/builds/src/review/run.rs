@@ -659,7 +659,7 @@ pub fn ask_groups(
         let setup = prompt::setup(group, unit.members);
         let given_ids: Vec<i64> = given.iter().map(|f| f.id).collect();
         let started_at = crate::app_timing::now();
-        let began = std::time::Instant::now();
+        let began = crate::clock::Moment::now();
         let output = call::run(
             reviewer,
             &group.model,
