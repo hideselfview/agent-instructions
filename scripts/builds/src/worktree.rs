@@ -563,15 +563,9 @@ pub fn ensure_local_app_checkout(tool: &Tool, ssh: &Ssh, repo: &str, lane: Lane)
         Ok(checkout)
     });
     let recorded = made.and_then(|checkout| {
-        write_in_lane(tool, repo, lane, &checkout.name())?;
-        // The lane holds the checkout now: a failure of the message to its
-        // queue takes it out again.
-        if let Err(error) = crate::queue::repoint(&tool.places, repo, lane) {
-            return Err(undo(
-                error,
-                forget_in_lane(tool, repo, lane, &checkout.name()),
-            ));
-        }
+        record_with_message(tool, repo, lane, &checkout.name(), || {
+            crate::queue::repoint(&tool.places, repo, lane)
+        })?;
         Ok(checkout)
     });
     match recorded {
@@ -611,6 +605,21 @@ fn write_in_lane(tool: &Tool, repo: &str, lane: Lane, entry: &str) -> Result<usi
     tool.places.write_app_checkouts(repo, lane, &set)?;
     drop(guard);
     Ok(set.len())
+}
+
+/// Writes <entry> into <repo>'s <lane> set, then runs <tell>, the message to
+/// the lane's queue to read the set again. The lane holds the checkout once
+/// the write lands, so a failure of <tell> takes it out again, and a failed
+/// write leaves the lane as it was.
+fn record_with_message(
+    tool: &Tool,
+    repo: &str,
+    lane: Lane,
+    entry: &str,
+    tell: impl FnOnce() -> Result<()>,
+) -> Result<()> {
+    write_in_lane(tool, repo, lane, entry)?;
+    tell().map_err(|error| undo(error, forget_in_lane(tool, repo, lane, entry)))
 }
 
 /// Takes <entry> out of <repo>'s <lane> set when it is in it, under the
