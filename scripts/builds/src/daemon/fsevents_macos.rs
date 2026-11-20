@@ -9,11 +9,11 @@ use std::process::Command;
 use std::time::Instant;
 
 use super::{Event, Handler, flags};
+use crate::core_foundation::{CFRelease, CFStringRef, CfString};
 
 type CFIndex = isize;
 type CFAllocatorRef = *const c_void;
 type CFArrayRef = *const c_void;
-type CFStringRef = *const c_void;
 type CFTimeInterval = f64;
 type FSEventStreamRef = *mut c_void;
 type ConstFSEventStreamRef = *const c_void;
@@ -40,22 +40,14 @@ type FSEventStreamCallback = extern "C" fn(
     ids: *const FSEventStreamEventId,
 );
 
-const UTF8: u32 = 0x0800_0100;
-
 #[link(name = "CoreFoundation", kind = "framework")]
 unsafe extern "C" {
-    fn CFStringCreateWithCString(
-        allocator: CFAllocatorRef,
-        text: *const c_char,
-        encoding: u32,
-    ) -> CFStringRef;
     fn CFArrayCreate(
         allocator: CFAllocatorRef,
         values: *const *const c_void,
         count: CFIndex,
         callbacks: *const c_void,
     ) -> CFArrayRef;
-    fn CFRelease(object: *const c_void);
     static kCFTypeArrayCallBacks: c_void;
 }
 
@@ -139,26 +131,25 @@ extern "C" fn free_handler(handler: *mut c_void) {
 
 /// A CFArray of <paths> as CFStrings; the caller releases it.
 fn paths_array(paths: &[&Path]) -> CFArrayRef {
-    let strings: Vec<CFStringRef> = paths
+    let strings: Vec<CfString> = paths
         .iter()
         .map(|path| {
-            let text =
-                CString::new(path.as_os_str().as_encoded_bytes()).expect("a path holds no NUL");
-            unsafe { CFStringCreateWithCString(std::ptr::null(), text.as_ptr(), UTF8) }
+            CfString::new(
+                &CString::new(path.as_os_str().as_encoded_bytes()).expect("a path holds no NUL"),
+            )
         })
         .collect();
-    let array = unsafe {
+    let pointers: Vec<CFStringRef> = strings.iter().map(CfString::as_ptr).collect();
+    // The array keeps its own reference to each string, so the strings are
+    // released once it is made.
+    unsafe {
         CFArrayCreate(
             std::ptr::null(),
-            strings.as_ptr(),
-            strings.len() as CFIndex,
+            pointers.as_ptr(),
+            pointers.len() as CFIndex,
             &kCFTypeArrayCallBacks as *const c_void,
         )
-    };
-    for string in &strings {
-        unsafe { CFRelease(*string) };
     }
-    array
 }
 
 /// The predicate that picks fseventsd's refusals out of the unified log.

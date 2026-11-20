@@ -31,6 +31,8 @@ mod checks;
 mod checks_run;
 mod claim;
 mod claude_sessions;
+#[cfg(target_os = "macos")]
+mod core_foundation;
 mod core_speed;
 mod daemon;
 mod db;
