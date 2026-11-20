@@ -2034,9 +2034,20 @@ STATUS, HEALTH AND THE DASHBOARD
                               canvas.json gives no size or no place shows
                               as that problem above the canvas. The Design
                               system tab shows the design system's colors
-                              in its first theme, its text styles, and each
-                              component's preview at the height its
-                              preview.html gives the card. For a project
+                              in its first theme, its text styles, and its
+                              components in the groups and subgroups that
+                              design/system/groups.json lists, in that
+                              order, each under the line that introduces
+                              it. Each component's preview draws at its own
+                              size, up to the tab's width, and a preview
+                              taller than 640 pixels lets its rows sit side
+                              by side when that makes it shorter. A field
+                              above the components shows only those whose
+                              names hold what the person types. A component
+                              that groups.json leaves out or lists twice,
+                              a name it lists that no component has, and
+                              a group or subgroup it gives no components
+                              each show as that problem above the groups. For a project
                               whose design places are in several repos, the
                               page says that it draws the boards of one. For
                               a repo whose design/mocks/canvases.toml names

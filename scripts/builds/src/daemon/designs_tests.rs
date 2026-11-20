@@ -31,6 +31,10 @@ fn designs_repo(scratch: &Scratch) -> (PathBuf, String) {
         "design/system/components/Row/preview.html",
         "<!-- @dsCard group=\"Mac\" height=120 -->\n<!doctype html>\n<html><head><title>Row</title></head><body><script>draw()</script></body></html>",
     );
+    write(
+        "design/system/groups.json",
+        &json!([{ "name": "Rows", "about": "The rows.", "components": ["Row"] }]).to_string(),
+    );
     for name in ["A", "B", "C", "D"] {
         write(
             &format!("design/mocks/{name}.dc.html"),
@@ -113,7 +117,11 @@ fn the_page_has_each_page_of_the_index_with_its_boards_at_their_canvas_places_at
     );
     assert_eq!(
         data["components"],
-        json!([{ "name": "Row", "height": 120 }])
+        json!({
+            "groups": [{ "name": "Rows", "about": "The rows.",
+                "cards": [{ "name": "Row", "height": 120 }], "subgroups": [] }],
+            "problems": [],
+        })
     );
 }
 
@@ -154,7 +162,10 @@ fn a_design_system_that_cannot_be_read_shows_its_problem_and_a_bad_index_fails_t
     );
     let error = data["system"]["error"].as_str().unwrap();
     assert!(error.contains("design/system/tokens.json"), "{error}");
-    assert_eq!(data["components"][0]["name"], json!("Row"));
+    assert_eq!(
+        data["components"]["groups"][0]["cards"][0]["name"],
+        json!("Row")
+    );
 }
 
 #[test]
@@ -169,6 +180,7 @@ fn a_frame_draws_its_board_or_its_preview_at_the_commit_the_page_names() {
     let card = preview(&dir, &commit, "Row", &cache).unwrap();
     let order: Vec<usize> = [
         "<head>",
+        "previewWidth",
         "--tokens: 1",
         ".bundle { color: red; }",
         "react.production.min.js",

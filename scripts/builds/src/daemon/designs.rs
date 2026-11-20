@@ -10,10 +10,17 @@
 //! (`design_render::render_board`, in the dark), and a component's preview the
 //! way the Design System page draws its card
 //! (`design_render::render_preview`).
+//!
+//! The Design system tab shows the components in the groups and subgroups
+//! that the design system's `groups.json` lists, each under the line that
+//! introduces it (`boards::preview::contents`), with a field that shows only
+//! the components whose names hold what the person types. Each component's
+//! frame draws its preview at the preview's own size, up to the width of the
+//! tab (`preview_fit.js`).
 
 use std::path::Path;
 
-use boards::preview::cards;
+use boards::preview::{Card, contents, with_loads};
 use boards::tokens::specimen;
 use boards::{BOARD_SUFFIX, CANVAS, Source, TOKENS_JSON, canvas_place, canvas_size};
 use serde_json::{Value, json};
@@ -29,6 +36,10 @@ use crate::lists::{Stamp, Theme};
 use crate::places::Places;
 
 const DESIGNS_PAGE: &str = include_str!("designs.html");
+/// The script that draws a component's preview in its frame at the
+/// preview's own size, up to the width the Designs page gives it, and tells
+/// the page that size.
+const PREVIEW_FIT: &str = include_str!("preview_fit.js");
 /// The dashboard's colors and fonts, which its page and the Designs page
 /// share.
 pub const PALETTE: &str = include_str!("palette.css");
@@ -110,16 +121,20 @@ pub fn page(
         Ok(specimen) => serde_json::to_value(specimen).expect("the specimen serializes"),
         Err(error) => json!({ "error": format!("{}: {error}", from.label(TOKENS_JSON)) }),
     };
-    let components = match cards(&from, cache) {
-        Ok(cards) => Value::Array(
-            cards
-                .into_iter()
-                .map(|card| match card.height {
-                    Ok(height) => json!({ "name": card.name, "height": height }),
-                    Err(error) => json!({ "name": card.name, "error": error }),
-                })
-                .collect(),
-        ),
+    let components = match contents(&from, cache) {
+        Ok(contents) => json!({
+            "groups": contents.groups.into_iter().map(|group| json!({
+                "name": group.name,
+                "about": group.about,
+                "cards": cards_json(group.cards),
+                "subgroups": group.subgroups.into_iter().map(|sub| json!({
+                    "name": sub.name,
+                    "about": sub.about,
+                    "cards": cards_json(sub.cards),
+                })).collect::<Vec<_>>(),
+            })).collect::<Vec<_>>(),
+            "problems": contents.problems,
+        }),
         Err(error) => json!({ "error": error.text() }),
     };
     let publish =
@@ -153,6 +168,18 @@ pub fn page(
             ("FRAMES", FRAMES_SCRIPT),
         ],
     ))
+}
+
+/// <cards> as the page's data holds them: each card's name, and its
+/// height or why it has none.
+fn cards_json(cards: Vec<Card>) -> Value {
+    cards
+        .into_iter()
+        .map(|card| match card.height {
+            Ok(height) => json!({ "name": card.name, "height": height }),
+            Err(error) => json!({ "name": card.name, "error": error }),
+        })
+        .collect()
 }
 
 /// Whether `CANVASES` at <from> names the artifacts that the designs publish
@@ -210,9 +237,14 @@ pub fn board(repo: &Path, commit: &str, name: &str, cache: &Path) -> Result<Stri
 }
 
 /// Component <name>'s preview at commit <commit> of the repo <repo> is in,
-/// as the Designs page's frame loads it.
+/// as the Designs page's frame loads it: with `PREVIEW_FIT`, which draws it
+/// at its own size and tells the page that size.
 pub fn preview(repo: &Path, commit: &str, name: &str, cache: &Path) -> Result<String> {
-    render_preview(Source::Commit { repo, rev: commit }, name, cache)
+    let page = render_preview(Source::Commit { repo, rev: commit }, name, cache)?;
+    Ok(
+        with_loads(&page, &format!("<script>{PREVIEW_FIT}</script>"))
+            .expect("render_preview's page has a <head>"),
+    )
 }
 
 #[cfg(test)]

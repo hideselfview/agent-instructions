@@ -46,11 +46,21 @@ body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 var
 .ds-type { display: flex; flex-direction: column; gap: 6px; }
 .ds-type div { display: flex; align-items: baseline; gap: 16px; min-width: 0; }
 .ds-type .ds-k { flex: none; width: 120px; }
-.ds-comps { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 20px; align-items: start; }
-.ds-comp { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
-.ds-prev { display: block; width: 100%; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); }
+[hidden] { display: none !important; }
+.ds-find { position: sticky; top: 0; z-index: 1; display: flex; gap: 12px; align-items: center; padding: 8px 0; background: var(--bg); }
+.ds-find input { font: inherit; width: 320px; max-width: 100%; color: var(--text); background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 5px 10px; }
+.ds-find input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.ds-groups { display: flex; flex-direction: column; gap: 32px; }
+.ds-group { display: flex; flex-direction: column; gap: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
+.ds-group > h3 { margin: 0; font: 600 18px var(--sans); }
+.ds-sub { display: flex; flex-direction: column; gap: 10px; }
+.ds-sub > h4 { margin: 0; font: 600 14px var(--sans); }
+.ds-about { margin: -6px 0 0; color: var(--muted); max-width: 760px; }
+.ds-cards { display: flex; flex-wrap: wrap; gap: 20px 24px; align-items: flex-start; }
+.ds-comp { flex: none; display: flex; flex-direction: column; gap: 6px; max-width: 100%; }
+.ds-prev { display: block; width: 360px; max-width: 100%; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); }
 .problem { color: var(--bad); background: var(--bad-bg); border-radius: 6px; padding: 8px 10px; font-size: 13px; overflow-wrap: anywhere; }
-@media (max-width: 900px) { .ds-comps { grid-template-columns: repeat(2, minmax(0, 1fr)); } .ds-swatches { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+@media (max-width: 900px) { .ds-swatches { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
 .pub-links { display: flex; flex-direction: column; gap: 4px; color: var(--text-2); }
 .pub-links a { color: var(--accent); }
 </style>
@@ -212,9 +222,73 @@ function pageView(page) {
     canvasView(page.boards.filter(b => !b.error))];
 }
 
-// The design system: its colors in the first theme, its text styles, and a
-// card per component, each the component's preview page in a frame of the
-// card's height.
+// The design system: its colors in the first theme, its text styles, and
+// its components in the groups and subgroups its groups.json lists, each
+// under the line that introduces it. Each component's frame draws its
+// preview at the preview's own size: the page sends the frame the width it
+// has room for when the frame loads and when the preview says it is ready,
+// and the frame answers with the size the preview takes (preview_fit.js). The field above the components shows only those whose
+// names hold what the person types.
+function cardView(card) {
+  const box = h("div", {class: "ds-comp", "data-name": card.name});
+  if (card.error) box.append(h("div", {class: "problem"}, card.name + ": " + card.error));
+  else {
+    const frame = h("iframe", {class: "ds-prev", sandbox: "allow-scripts", loading: "lazy", title: card.name,
+      style: "height: " + card.height + "px", src: data.base + "/component/" + encodeURIComponent(card.name)});
+    frame.addEventListener("load", () => sendRoom(frame));
+    box.append(frame);
+  }
+  box.append(h("span", {class: "ds-k"}, card.name));
+  return box;
+}
+const cardsView = cards => cards.length ? h("div", {class: "ds-cards"}, cards.map(cardView)) : null;
+function groupView(group) {
+  return h("section", {class: "ds-group"}, h("h3", {}, group.name), h("p", {class: "ds-about"}, group.about),
+    cardsView(group.cards),
+    group.subgroups.map(sub => h("div", {class: "ds-sub"}, h("h4", {}, sub.name), h("p", {class: "ds-about"}, sub.about),
+      cardsView(sub.cards))));
+}
+// The width a frame has room for: its row of components, less its border.
+function sendRoom(frame) {
+  const row = frame.closest(".ds-cards");
+  if (row && frame.contentWindow) frame.contentWindow.postMessage({previewWidth: row.clientWidth - 2}, "*");
+}
+window.addEventListener("message", e => {
+  if (!e.data) return;
+  const frame = [...document.querySelectorAll("iframe.ds-prev")].find(f => f.contentWindow === e.source);
+  if (!frame) return;
+  if (e.data.previewReady) sendRoom(frame);
+  const size = e.data.previewSize;
+  if (!size) return;
+  frame.style.width = (size.w + 2) + "px";
+  frame.style.height = (size.h + 2) + "px";
+});
+let roomPending = false;
+window.addEventListener("resize", () => {
+  if (roomPending) return;
+  roomPending = true;
+  requestAnimationFrame(() => {
+    roomPending = false;
+    document.querySelectorAll("iframe.ds-prev").forEach(sendRoom);
+  });
+});
+function findView(groups) {
+  const input = h("input", {type: "search", placeholder: "Find a component by name", "aria-label": "Find a component by name"});
+  const none = h("span", {class: "dz-sub", hidden: ""});
+  input.addEventListener("input", () => {
+    const words = input.value.trim().toLowerCase();
+    let shown = 0;
+    for (const card of groups.querySelectorAll(".ds-comp")) {
+      card.hidden = !!words && !card.dataset.name.toLowerCase().includes(words);
+      if (!card.hidden) shown++;
+    }
+    for (const part of groups.querySelectorAll(".ds-cards, .ds-sub, .ds-group"))
+      part.hidden = !part.querySelector(".ds-comp:not([hidden])");
+    none.hidden = shown > 0;
+    none.textContent = "No component's name holds \u201c" + input.value.trim() + "\u201d.";
+  });
+  return h("div", {class: "ds-find"}, input, none);
+}
 function systemView() {
   const out = [];
   const s = data.system;
@@ -229,12 +303,11 @@ function systemView() {
   }
   const c = data.components;
   if (c.error) out.push(h("div", {class: "problem"}, c.error));
-  else if (c.length) out.push(h("section", {class: "ds-sec"}, h("h2", {}, "Components"),
-    h("div", {class: "ds-comps"}, c.map(card => h("div", {class: "ds-comp"},
-      card.error ? h("div", {class: "problem"}, card.error)
-        : h("iframe", {class: "ds-prev", sandbox: "allow-scripts", loading: "lazy", title: card.name,
-          style: "height: " + card.height + "px", src: data.base + "/component/" + encodeURIComponent(card.name)}),
-      h("span", {class: "ds-k"}, card.name))))));
+  else if (c.groups.length || c.problems.length) {
+    const groups = h("div", {class: "ds-groups"}, c.groups.map(groupView));
+    out.push(h("section", {class: "ds-sec"}, h("h2", {}, "Components"), findView(groups),
+      c.problems.map(p => h("div", {class: "problem"}, p)), groups));
+  }
   if (!out.length) out.push(h("div", {class: "dz-sub"}, "The design system has no colors, text styles or components."));
   return out;
 }

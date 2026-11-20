@@ -5,14 +5,76 @@
 //! bare script that draws with React and the design system's components, so
 //! whoever draws one loads the design system and React ahead of it, right
 //! after its `<head>` (`with_loads`).
+//!
+//! `design/system/groups.json` lists the components by what they are for:
+//! the groups in order, each with a line that introduces it, the components
+//! it holds and its subgroups, each with a line and components of its own
+//! (`contents`).
 
+use std::collections::BTreeMap;
 use std::path::Path;
+
+use serde::Deserialize;
 
 use crate::source::{Source, exists_in, in_scratch};
 use crate::{Context, Result, fail};
 
 /// The folder of the design system's components.
 pub const COMPONENTS: &str = "design/system/components";
+
+/// The file that lists the design system's components by group.
+pub const GROUPS: &str = "design/system/groups.json";
+
+/// A group of `GROUPS` as the file holds it.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ListedGroup {
+    name: String,
+    about: String,
+    #[serde(default)]
+    components: Vec<String>,
+    #[serde(default)]
+    subgroups: Vec<ListedSubgroup>,
+}
+
+/// A subgroup of a group of `GROUPS` as the file holds it.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ListedSubgroup {
+    name: String,
+    about: String,
+    components: Vec<String>,
+}
+
+/// A group of the design system's components: its name, the line that
+/// introduces it, the cards of the components it holds itself, and its
+/// subgroups.
+#[derive(Debug, PartialEq, Eq)]
+pub struct Group {
+    pub name: String,
+    pub about: String,
+    pub cards: Vec<Card>,
+    pub subgroups: Vec<Subgroup>,
+}
+
+/// A subgroup of a group: its name, the line that introduces it, and the
+/// cards of its components.
+#[derive(Debug, PartialEq, Eq)]
+pub struct Subgroup {
+    pub name: String,
+    pub about: String,
+    pub cards: Vec<Card>,
+}
+
+/// The design system's components by group, in the order `GROUPS` lists
+/// them, and each way `GROUPS` and the components' folders disagree, as a
+/// sentence: a component that no group lists, or that two list; a name
+/// that no component's folder has; a group or subgroup with no components.
+#[derive(Debug, PartialEq, Eq)]
+pub struct Contents {
+    pub groups: Vec<Group>,
+    pub problems: Vec<String>,
+}
 
 /// A component's card: its folder's name, and the card's height or why the
 /// card has none.
@@ -51,6 +113,88 @@ pub fn cards(from: &Source, cache: &Path) -> Result<Vec<Card>> {
             })
         }
     }
+}
+
+/// The components of <from> by group, as `GROUPS` lists them. A source
+/// with no components needs no `GROUPS`; one with components fails when its
+/// `GROUPS` is not there or cannot be read. A commit's components are read
+/// as `cards` reads them, in <cache>.
+pub fn contents(from: &Source, cache: &Path) -> Result<Contents> {
+    let cards = cards(from, cache)?;
+    if cards.is_empty() {
+        return Ok(Contents {
+            groups: Vec::new(),
+            problems: Vec::new(),
+        });
+    }
+    let text = from.read(GROUPS, "the list of the design system's groups")?;
+    let listed: Vec<ListedGroup> = serde_json::from_str(&text)
+        .map_err(|error| crate::Error::new(format!("{}: {error}", from.label(GROUPS))))?;
+    Ok(place(listed, cards))
+}
+
+/// <cards> in the groups and subgroups of <listed>, with each problem.
+fn place(listed: Vec<ListedGroup>, cards: Vec<Card>) -> Contents {
+    let mut left: BTreeMap<String, Card> = cards
+        .into_iter()
+        .map(|card| (card.name.clone(), card))
+        .collect();
+    let mut problems = Vec::new();
+    let mut seen: BTreeMap<String, String> = BTreeMap::new();
+    let mut take = |names: Vec<String>, place: &str, problems: &mut Vec<String>| -> Vec<Card> {
+        if names.is_empty() {
+            problems.push(format!("{GROUPS} lists no components in {place}."));
+        }
+        let mut taken = Vec::new();
+        for name in names {
+            if let Some(first) = seen.get(&name) {
+                problems.push(format!(
+                    "{GROUPS} lists {name} in {first} and again in {place}."
+                ));
+            } else if let Some(card) = left.remove(&name) {
+                seen.insert(name, place.to_string());
+                taken.push(card);
+            } else {
+                problems.push(format!(
+                    "{GROUPS} lists {name} in {place}, and no folder of {COMPONENTS} holds a preview of that name."
+                ));
+            }
+        }
+        taken
+    };
+    let mut groups = Vec::new();
+    for group in listed {
+        let at = format!("the group {}", group.name);
+        let own = if group.components.is_empty() && !group.subgroups.is_empty() {
+            Vec::new()
+        } else {
+            take(group.components, &at, &mut problems)
+        };
+        let subgroups = group
+            .subgroups
+            .into_iter()
+            .map(|sub| Subgroup {
+                cards: take(
+                    sub.components,
+                    &format!("the subgroup {} of {}", sub.name, group.name),
+                    &mut problems,
+                ),
+                name: sub.name,
+                about: sub.about,
+            })
+            .collect();
+        groups.push(Group {
+            name: group.name,
+            about: group.about,
+            cards: own,
+            subgroups,
+        });
+    }
+    if !left.is_empty() {
+        let names: Vec<&str> = left.keys().map(String::as_str).collect();
+        problems.push(format!("{GROUPS} lists no group for {}.", names.join(", ")));
+    }
+    Contents { groups, problems }
 }
 
 /// The cards of the components in <top>, a folder that holds `COMPONENTS`

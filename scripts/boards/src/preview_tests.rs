@@ -80,3 +80,98 @@ fn the_loads_go_right_after_the_head_tag_and_a_page_with_no_head_has_none() {
     );
     assert_eq!(with_loads("<body><header></header></body>", "<x>"), None);
 }
+
+/// A repo whose components `Row`, `Box`, `Tip` and `Stray` have previews,
+/// and whose groups.json lists `Box` in a group of its own, `Row` and
+/// `Tip` in subgroups, `Row` twice, a `Gone` that has no preview and an
+/// empty subgroup, and leaves out `Stray`.
+#[test]
+fn contents_puts_each_card_in_its_listed_group_and_names_each_disagreement() {
+    let scratch = Scratch::new("preview-contents");
+    let dir = scratch.dir.join("repo");
+    repo(&dir);
+    for name in ["Row", "Box", "Tip", "Stray"] {
+        let folder = dir.join(COMPONENTS).join(name);
+        std::fs::create_dir_all(&folder).unwrap();
+        std::fs::write(
+            folder.join("preview.html"),
+            "<!-- @dsCard group=\"G\" height=50 -->\n<!doctype html>",
+        )
+        .unwrap();
+    }
+    let cache = scratch.dir.join("cache");
+    let error = contents(&Source::Dir(&dir), &cache).unwrap_err().text();
+    assert!(
+        error.contains("design/system/groups.json is not there"),
+        "{error}"
+    );
+    std::fs::write(
+        dir.join(GROUPS),
+        serde_json::json!([
+            { "name": "Boxes", "about": "What holds rows.", "components": ["Box"] },
+            { "name": "Rows", "about": "The rows.", "subgroups": [
+                { "name": "Plain", "about": "Plain rows.", "components": ["Row", "Gone"] },
+                { "name": "Tips", "about": "Rows with a tip.", "components": ["Tip", "Row"] },
+                { "name": "Empty", "about": "Nothing.", "components": [] },
+            ] },
+        ])
+        .to_string(),
+    )
+    .unwrap();
+    let card = |name: &str| Card {
+        name: name.into(),
+        height: Ok(50),
+    };
+    let found = contents(&Source::Dir(&dir), &cache).unwrap();
+    assert_eq!(
+        found,
+        Contents {
+            groups: vec![
+                Group {
+                    name: "Boxes".into(),
+                    about: "What holds rows.".into(),
+                    cards: vec![card("Box")],
+                    subgroups: vec![],
+                },
+                Group {
+                    name: "Rows".into(),
+                    about: "The rows.".into(),
+                    cards: vec![],
+                    subgroups: vec![
+                        Subgroup {
+                            name: "Plain".into(),
+                            about: "Plain rows.".into(),
+                            cards: vec![card("Row")],
+                        },
+                        Subgroup {
+                            name: "Tips".into(),
+                            about: "Rows with a tip.".into(),
+                            cards: vec![card("Tip")],
+                        },
+                        Subgroup {
+                            name: "Empty".into(),
+                            about: "Nothing.".into(),
+                            cards: vec![],
+                        },
+                    ],
+                },
+            ],
+            problems: vec![
+                "design/system/groups.json lists Gone in the subgroup Plain of Rows, and no folder of design/system/components holds a preview of that name.".into(),
+                "design/system/groups.json lists Row in the subgroup Plain of Rows and again in the subgroup Tips of Rows.".into(),
+                "design/system/groups.json lists no components in the subgroup Empty of Rows.".into(),
+                "design/system/groups.json lists no group for Stray.".into(),
+            ],
+        }
+    );
+    std::fs::write(
+        dir.join(GROUPS),
+        "[{\"name\": \"G\", \"about\": \"x\", \"cards\": []}]",
+    )
+    .unwrap();
+    let error = contents(&Source::Dir(&dir), &cache).unwrap_err().text();
+    assert!(error.contains("unknown field `cards`"), "{error}");
+    std::fs::remove_dir_all(dir.join(COMPONENTS)).unwrap();
+    let none = contents(&Source::Dir(&dir), &cache).unwrap();
+    assert!(none.groups.is_empty() && none.problems.is_empty());
+}
