@@ -558,7 +558,9 @@ fn a_stop_signal_ends_a_build_apps_build_on_the_host_and_frees_its_lock() {
     let status = build
         .ended_within(Duration::from_secs(20))
         .unwrap_or_else(|| panic!("build-app ignored SIGTERM: {}", build.said()));
-    assert!(!status.success(), "{}", build.said());
+    // The exit status a shell gives a program that SIGTERM ended: the daemon
+    // shows such a run as stopped.
+    assert_eq!(status.code(), Some(128 + libc::SIGTERM), "{}", build.said());
     assert!(
         build.said().contains("stopped on SIGTERM"),
         "{}",
@@ -584,7 +586,9 @@ fn a_stop_signal_ends_a_build_app_that_waits_for_its_turn() {
     let status = build
         .ended_within(Duration::from_secs(20))
         .unwrap_or_else(|| panic!("build-app ignored SIGTERM: {}", build.said()));
-    assert!(!status.success(), "{}", build.said());
+    // The exit status a shell gives a program that SIGTERM ended: the daemon
+    // shows such a run as stopped.
+    assert_eq!(status.code(), Some(128 + libc::SIGTERM), "{}", build.said());
     assert!(
         build.said().contains("stopped on SIGTERM"),
         "{}",

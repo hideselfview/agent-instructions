@@ -28,16 +28,19 @@ use super::model::now_seconds;
 use crate::fail::{Context, Result};
 use crate::lane::Lane;
 use crate::places::Places;
+use crate::run_end::RunEnd;
 
 /// The most of a run's output the page gets: its end.
 const TAIL: u64 = 32 * 1024;
 
-/// How a run ended: its exit code, or the signal that stopped it.
+/// How a run ended: its exit code, or the signal that stopped it, and which
+/// of passed, failed and stopped that makes it (run_end.rs).
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 struct Ended {
     at: i64,
     code: Option<i32>,
     signal: Option<i32>,
+    outcome: RunEnd,
 }
 
 /// What is written to `<repo>.<lane>.json`.
@@ -66,6 +69,8 @@ pub enum Phase {
     Running,
     Succeeded,
     Failed,
+    /// A stop signal ended it.
+    Stopped,
     /// Started before the daemon did, and still running.
     Detached,
     /// Started before the daemon did, and gone with no exit status seen.
@@ -132,8 +137,11 @@ impl Run {
 
     fn phase(&self, queued: &[i32]) -> Phase {
         match (&self.record.ended, self.owned) {
-            (Some(ended), _) if ended.code == Some(0) => Phase::Succeeded,
-            (Some(_), _) => Phase::Failed,
+            (Some(ended), _) => match ended.outcome {
+                RunEnd::Passed => Phase::Succeeded,
+                RunEnd::Failed => Phase::Failed,
+                RunEnd::Stopped => Phase::Stopped,
+            },
             (None, true) if queued.contains(&self.record.pid) => Phase::Queued,
             (None, true) => Phase::Running,
             (None, false) if is_build_app(self.record.pid) => Phase::Detached,
@@ -336,6 +344,7 @@ impl Runs {
                 at: now_seconds(),
                 code: status.code(),
                 signal: status.signal(),
+                outcome: RunEnd::of_code(crate::fail::exit_code(status)),
             },
             Err(error) => {
                 eprintln!(
@@ -346,6 +355,7 @@ impl Runs {
                     at: now_seconds(),
                     code: None,
                     signal: None,
+                    outcome: RunEnd::Failed,
                 }
             }
         };

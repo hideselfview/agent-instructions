@@ -971,7 +971,10 @@ The same signals stop `builds build-app` and `builds lock`. Each passes the
 signal to the process group of the command that runs, and a build on a host
 stops there. Each stops waiting for its turn in the queue, starts nothing
 after the signal (build-app copies, installs and quits no app), gives up its
-lock and exits saying which signal stopped it.
+lock and exits saying which signal stopped it, with the exit status 128 plus
+the signal, as a shell gives a program that a signal ended. The dashboard shows
+a build-app run that exits so as Stopped, and one that exits with any other
+nonzero status as Failed.
 
 An app checkout may be on another host (`builds host`). Its lock, queue and
 record of its last build stay on this Mac, under the entry <host>:<name>. A

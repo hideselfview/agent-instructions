@@ -13,7 +13,9 @@
 //! it starts (lock.rs `end_on_stop_signals`): it ends the wait for the lane's
 //! lock, the build that runs (on the host too) and the wait for the running
 //! app to quit, starts nothing after it, and fails, naming the signal. The
-//! lane's lock goes as the command ends.
+//! lane's lock goes as the command ends. It then exits with the status a
+//! shell gives a program that the signal ended (128 plus the signal), which
+//! the dashboard reads as stopped (daemon/runs.rs).
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -232,6 +234,17 @@ fn built_app(site: &mut Site, mac: &MacApp) -> Result<PathBuf> {
 }
 
 pub fn cmd_build_app(tool: &Tool, args: &[String]) -> Result<()> {
+    let result = build_app(tool, args);
+    match (result, lock::stop_signal()) {
+        (Err(fail), Some(signal)) => {
+            note(fail.text());
+            Err(fail::Fail::Exit(128 + signal))
+        }
+        (result, _) => result,
+    }
+}
+
+fn build_app(tool: &Tool, args: &[String]) -> Result<()> {
     let (repo, platform, commit) = parse_args(args)?;
     lock::end_on_stop_signals();
     let places = &tool.places;

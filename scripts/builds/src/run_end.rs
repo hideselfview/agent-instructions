@@ -1,9 +1,12 @@
 //! How a run that builds started ended: an app build lane's run
-//! (app_timing.rs) or a `builds cargo` run (cargo_run_outcome.rs). Both
-//! records store it in an `outcome` column that takes the same words.
+//! (app_timing.rs), a `builds cargo` run (cargo_run_outcome.rs) or a
+//! `builds build-app` run the dashboard started (daemon/runs.rs). The first
+//! two store it in an `outcome` column that takes the same words, and the
+//! third in its run record's `outcome`.
 
-/// How a run ended.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// How a run ended. Serialized as its `word`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum RunEnd {
     Passed,
     Failed,

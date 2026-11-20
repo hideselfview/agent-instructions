@@ -6,13 +6,15 @@ use std::time::Duration;
 
 /// A stand-in for `builds`: logs its arguments, then behaves as the control
 /// files beside it say, per lane: `fail-<lane>` ends it with status 3,
-/// `hold-<lane>` keeps it running until `go-<lane>` exists.
+/// `stop-<lane>` ends it with status 143 (what build-app exits with after
+/// SIGTERM), `hold-<lane>` keeps it running until `go-<lane>` exists.
 const STUB: &str = r#"#!/bin/sh
 dir=$(dirname "$0")
 echo "args: $*"
 echo "a line on stderr" >&2
 while [ -e "$dir/hold-$3" ] && [ ! -e "$dir/go-$3" ]; do sleep 0.05; done
 if [ -e "$dir/fail-$3" ]; then echo boom; exit 3; fi
+if [ -e "$dir/stop-$3" ]; then echo "the build stopped on SIGTERM" >&2; exit 143; fi
 echo built
 "#;
 
@@ -162,6 +164,23 @@ fn a_failed_build_is_recorded_with_its_output() {
         serde_json::from_slice(&std::fs::read(record_file(&dir, "demo", Lane::Mac)).unwrap())
             .unwrap();
     assert_eq!(record.ended.map(|e| e.code), Some(Some(3)));
+}
+
+#[test]
+fn a_build_a_stop_signal_ended_is_stopped_not_failed() {
+    let s = setup("runs-stopped");
+    s.control("stop-mac");
+    s.runs.start_build("demo", "mac", None).unwrap();
+    let stopped = s.until("mac", Phase::Stopped);
+    assert_eq!(stopped.exit_code, Some(143));
+    assert!(stopped.output.contains("stopped on SIGTERM"));
+
+    // The record on disk says the same, so another daemon reads it so.
+    let dir = s.scratch.places().daemon_dir().join("runs");
+    let record: Record =
+        serde_json::from_slice(&std::fs::read(record_file(&dir, "demo", Lane::Mac)).unwrap())
+            .unwrap();
+    assert_eq!(record.ended.map(|e| e.outcome), Some(RunEnd::Stopped));
 }
 
 #[test]
