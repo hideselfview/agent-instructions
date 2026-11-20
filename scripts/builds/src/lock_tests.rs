@@ -250,7 +250,18 @@ fn a_build_that_runs_here_never_takes_a_checkout_on_a_host() {
     let scratch = Scratch::new("lock-here");
     let places = places_with_host(&scratch, "m1:app-1\n");
     let ssh = ssh_with_load(&scratch.dir.join("ssh"), "0.00");
-    let Err(error) = take_in(&places, &ssh, "demo", Lane::Android, Where::Here, None, 0) else {
+    let Err(error) = take_in(
+        &places,
+        &ssh,
+        "demo",
+        Lane::Android,
+        Takes {
+            allowed: Where::Here,
+            screen: false,
+        },
+        None,
+        0,
+    ) else {
         panic!("only a host's checkout is recorded");
     };
     assert!(error.text().contains("on this Mac"));
@@ -377,4 +388,57 @@ fn a_holder_records_how_long_it_waited_and_the_step_it_runs() {
     );
     assert_eq!(running.step.unwrap().name, "macos-tests");
     free.send(()).unwrap();
+}
+
+/// An ssh that answers every command with a host's probe and <screen>, the
+/// lines `host::SCREEN_SCRIPT` prints.
+fn ssh_with_screen(dir: &std::path::Path, screen: &str) -> Ssh {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::create_dir_all(dir).unwrap();
+    let program = dir.join("ssh");
+    std::fs::write(
+        &program,
+        format!("#!/bin/sh\nprintf 'os=Darwin\\narch=arm64\\ncores=1\\nload=0.00 0 0\\nfree_kib=900000000\\nmemory_free_percent=80\\nswap_used_mib=0\\nmemory_pressure_level=1\\nprocs=300\\nmax_procs=8000\\n{screen}'\n"),
+    )
+    .unwrap();
+    std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
+    Ssh {
+        program: program.display().to_string(),
+    }
+}
+
+#[test]
+fn a_build_that_draws_takes_no_host_whose_lid_is_closed_and_says_so() {
+    let scratch = Scratch::new("lock-lid");
+    let places = places_with_host(&scratch, "m1:app-1\n");
+    let closed = ssh_with_screen(&scratch.dir.join("closed"), "lid=closed\\nscreens=0\\n");
+    let Err(error) = take_drawing(&places, &closed, "demo", Lane::Android, 0) else {
+        panic!("the only host cannot draw");
+    };
+    let text = error.text();
+    assert!(
+        text.contains("m1:app-1")
+            && text.contains("lid is closed")
+            && text.contains("cannot draw shots"),
+        "{text}"
+    );
+    // The same host takes a build that draws no scene.
+    let held = take_where(&places, &closed, "demo", Lane::Android, Where::Hosts, 0).unwrap();
+    assert_eq!(held.checkout, "m1:app-1");
+    held.release();
+}
+
+#[test]
+fn a_build_that_draws_takes_a_host_with_its_lid_open_or_another_display() {
+    let scratch = Scratch::new("lock-lid-open");
+    let places = places_with_host(&scratch, "m1:app-1\n");
+    for (name, screen) in [
+        ("open", "lid=open\\n"),
+        ("external", "lid=closed\\nscreens=1\\n"),
+    ] {
+        let ssh = ssh_with_screen(&scratch.dir.join(name), screen);
+        let held = take_drawing(&places, &ssh, "demo", Lane::Android, 0).unwrap();
+        assert_eq!(held.checkout, "m1:app-1", "{name}");
+        held.release();
+    }
 }

@@ -486,6 +486,45 @@ pub fn probe_local(places: &Places) -> Result<Probe> {
     })
 }
 
+/// The lines a host runs to say whether it can draw a window scene (a shot
+/// of a screen): `lid=open`, or `lid=closed` with `screens=<n>`, how many
+/// displays `system_profiler` lists with a resolution. A Mac whose lid is
+/// closed makes no virtual display for the shot renderer unless another
+/// display is attached.
+pub const SCREEN_SCRIPT: &str = r#"if ioreg -r -k AppleClamshellState -d 1 2>/dev/null | grep -q '"AppleClamshellState" = Yes'; then echo lid=closed; echo "screens=$(system_profiler SPDisplaysDataType 2>/dev/null | grep -c 'Resolution:')"; else echo lid=open; fi"#;
+
+/// Why the host that printed <text> for `SCREEN_SCRIPT` cannot draw a window
+/// scene: its lid is closed and it lists no display. None when it can, or
+/// when <text> says nothing of a lid.
+pub fn screen_lacking(text: &str) -> Option<String> {
+    let closed = text.lines().any(|line| line.trim() == "lid=closed");
+    let screens = text
+        .lines()
+        .find_map(|line| line.trim().strip_prefix("screens="))
+        .and_then(|count| count.trim().parse::<u32>().ok());
+    (closed && screens == Some(0))
+        .then(|| "its lid is closed and it lists no other display".to_string())
+}
+
+/// Asks <host> whether it can draw a window scene: None when it can, or the
+/// reason it cannot (`screen_lacking`), and what went wrong when it cannot
+/// say.
+pub fn screen_lacks(ssh: &Ssh, host: &Host) -> std::result::Result<Option<String>, String> {
+    let output = command_at(ssh, host, SCREEN_SCRIPT, Terminal::None)
+        .stdin(Stdio::null())
+        .output()
+        .map_err(|error| format!("asking host {} about its displays: {error}", host.name))?;
+    if !output.status.success() {
+        return Err(format!(
+            "asking host {} about its displays failed ({}): {}",
+            host.name,
+            output.status,
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+    Ok(screen_lacking(&String::from_utf8_lossy(&output.stdout)))
+}
+
 /// Asks <host>, and keeps its record of refusing jobs current with the
 /// answer: `probe` records a host whose git fails as refusing jobs, and
 /// removes the record of a host whose git runs. A host that does not answer

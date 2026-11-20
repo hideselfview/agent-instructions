@@ -996,6 +996,18 @@ for it and prints that it waits, naming the run that holds it. The build keeps
 its app checkout and its place in the lane while it waits, and a takeover ends
 the wait. Steps that open no windows never wait for it.
 
+A --shots or --all-shots run of a `shots` line that passes --windows draws each
+scene on the host's screen, and macOS makes the shot display only when the Mac
+has a display to add it to. A Mac whose lid is closed has none unless another
+display is attached. Before such a run takes a checkout on a host, builds asks
+the host once (`ioreg` for the lid, `system_profiler` for the displays) and
+takes no checkout of a host whose lid is closed with no display listed. Of the
+hosts that can draw, it takes the one with the least load. When none can, the
+run fails at once, naming each checkout it skipped and why ("its lid is closed
+and it lists no other display"), and a run that asks again after the lid opens
+goes through. A host that does not answer is skipped and named the same way.
+Runs of UI tests and every other step ignore the lid.
+
 When a host's Xcode cannot start, every xcodebuild run there fails, whatever
 code it builds: xcodebuild prints "A required plugin failed to load" and names
 the fix (as after someone updates Xcode and nobody runs its first launch, which

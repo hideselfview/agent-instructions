@@ -1040,7 +1040,19 @@ fn build_lane(
     if allowed == lock::Where::Here {
         crate::worktree::ensure_local_app_checkout(tool, &ssh, repo, lane)?;
     }
-    let held = lock::take_where(places, &ssh, repo, lane, allowed, floor_kib)?;
+    // A shots run of a line that opens a window for each shot draws on the
+    // host's screen.
+    let draws = picks
+        .iter()
+        .any(|(own, kind, _)| *own == lane && *kind == PickKind::Shots)
+        && config
+            .picker(lane, PickKind::Shots)
+            .is_some_and(|picker| picker.place == lock::Where::Hosts);
+    let held = if draws {
+        lock::take_drawing(places, &ssh, repo, lane, floor_kib)?
+    } else {
+        lock::take_where(places, &ssh, repo, lane, allowed, floor_kib)?
+    };
     let mut held = hold_stores(held, &mut timing.stores)?;
     loop {
         let mut site = Site::of(places, &ssh, repo, lane, &held.checkout)?;

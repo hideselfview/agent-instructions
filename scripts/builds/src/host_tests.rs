@@ -683,3 +683,22 @@ fn a_mutants_run_passes_over_a_host_without_the_pinned_cargo_mutants() {
     let (ranked, _) = rank_by_room(&hosts, 50, &Default::default(), Runs::Cargo);
     assert_eq!(ranked.len(), 3);
 }
+
+#[test]
+fn a_host_with_its_lid_closed_and_no_display_cannot_draw_a_window_scene() {
+    assert_eq!(
+        screen_lacking("lid=closed\nscreens=0\n").as_deref(),
+        Some("its lid is closed and it lists no other display")
+    );
+    assert_eq!(screen_lacking("lid=open\n"), None);
+    assert_eq!(
+        screen_lacking("lid=closed\nscreens=1\n"),
+        None,
+        "another display is attached"
+    );
+    assert_eq!(
+        screen_lacking(""),
+        None,
+        "a host that says nothing of a lid"
+    );
+}

@@ -188,6 +188,15 @@ impl Where {
     }
 }
 
+/// Which checkouts a build takes: where it may run, and whether it draws
+/// window scenes, so that it takes no host that cannot
+/// (`host::screen_lacking`).
+#[derive(Clone, Copy)]
+struct Takes {
+    allowed: Where,
+    screen: bool,
+}
+
 /// One of <repo>'s app locks for a lane, held until its owner drops this value
 /// and every process this one started meanwhile has exited.
 pub struct Held {
@@ -201,6 +210,9 @@ pub struct Held {
     lane: Lane,
     ssh: Ssh,
     allowed: Where,
+    /// Whether the build draws window scenes, so it takes no host that cannot
+    /// (`host::screen_lacking`).
+    screen: bool,
     /// When this build joined the lane's queue, seconds since 1970.
     pub joined_at: i64,
     /// How long it waited in the queue in all, a wait after a takeover
@@ -275,13 +287,18 @@ impl Held {
         let places = self.places.clone();
         let repo = self.repo.clone();
         let ssh = self.ssh.clone();
-        let (lane, allowed, joined_at, waited) =
-            (self.lane, self.allowed, self.joined_at, self.waited);
+        let (lane, allowed, screen, joined_at, waited) = (
+            self.lane,
+            self.allowed,
+            self.screen,
+            self.joined_at,
+            self.waited,
+        );
         // Records the end of this use of the checkout and frees its lock and
         // the old ticket.
         drop(self);
         queue.wait_for_turn(&ticket.name)?;
-        let (lock, checkout) = take_free_lock(&places, &ssh, &repo, lane, allowed)?;
+        let (lock, checkout) = take_free_lock(&places, &ssh, &repo, lane, allowed, screen)?;
         let held = Held {
             lock,
             ticket,
@@ -292,6 +309,7 @@ impl Held {
             lane,
             ssh,
             allowed,
+            screen,
             joined_at,
             waited: waited + waiting.elapsed(),
         };
@@ -351,6 +369,55 @@ impl Loads<'_> {
     }
 }
 
+/// Whether each host can draw a window scene, asked once for each when a
+/// build first needs it.
+struct Screens<'a> {
+    places: &'a Places,
+    ssh: &'a Ssh,
+    asked: HashMap<String, std::result::Result<Option<String>, String>>,
+}
+
+impl Screens<'_> {
+    /// <host>'s answer: None when it can draw, why it cannot, or what went
+    /// wrong asking it.
+    fn of(&mut self, host: &str) -> std::result::Result<Option<String>, String> {
+        if let Some(known) = self.asked.get(host) {
+            return known.clone();
+        }
+        let asked = match host::all(self.places) {
+            Err(error) => Err(error.text()),
+            Ok(hosts) => match hosts.iter().find(|known| known.name == host) {
+                None => Err(format!("`builds host list` does not have host {host}")),
+                Some(known) => host::screen_lacks(self.ssh, known),
+            },
+        };
+        self.asked.insert(host.to_string(), asked.clone());
+        asked
+    }
+
+    /// <entries> that can draw a window scene (each on this Mac or on a host
+    /// that can), and the others, each with why not.
+    fn split(&mut self, entries: Vec<String>) -> (Vec<String>, Vec<String>) {
+        let mut drawing = Vec::new();
+        let mut undrawn = Vec::new();
+        for entry in entries {
+            let host = host_of(&entry).to_string();
+            if host == host::LOCAL {
+                drawing.push(entry);
+                continue;
+            }
+            match self.of(&host) {
+                Ok(None) => drawing.push(entry),
+                Ok(Some(why)) => undrawn.push(format!(
+                    "{entry} (on host {host}, {why}, so it cannot draw shots; open its lid or attach a display)"
+                )),
+                Err(said) => undrawn.push(format!("{entry} ({said})")),
+            }
+        }
+        (drawing, undrawn)
+    }
+}
+
 /// The host the app checkout <entry> is on.
 fn host_of(entry: &str) -> &str {
     crate::app_remote::split(entry).map_or(host::LOCAL, |(host, _)| host)
@@ -398,11 +465,17 @@ fn take_free_lock(
     repo: &str,
     lane: Lane,
     allowed: Where,
+    screen: bool,
 ) -> Result<(libc::c_int, String)> {
     let dir = places.app_locks_dir(repo, lane);
     std::fs::create_dir_all(&dir).context(|| format!("creating {}", dir.display()))?;
     let queue = Queue::of(places, repo, lane);
     let mut loads = Loads {
+        places,
+        ssh,
+        asked: HashMap::new(),
+    };
+    let mut screens = Screens {
         places,
         ssh,
         asked: HashMap::new(),
@@ -434,7 +507,14 @@ fn take_free_lock(
         let (on_broken, checkouts): (Vec<String>, Vec<String>) = checkouts
             .into_iter()
             .partition(|entry| cause_on(entry).is_some());
+        // A build that draws window scenes takes no host that cannot.
+        let (checkouts, undrawn) = if screen {
+            screens.split(checkouts)
+        } else {
+            (checkouts, Vec::new())
+        };
         let (ordered, mut skipped) = by_load(&mut loads, checkouts);
+        skipped.extend(undrawn);
         skipped.extend(on_broken.iter().map(|entry| {
             format!(
                 "{entry} (on host {}, {}; `builds health` says what fixes it)",
@@ -499,7 +579,10 @@ pub fn take(places: &Places, repo: &str, lane: Lane) -> Result<Held> {
         &Ssh::from_env(),
         repo,
         lane,
-        Where::Here,
+        Takes {
+            allowed: Where::Here,
+            screen: false,
+        },
         None,
         crate::app_timing::now(),
     )
@@ -523,8 +606,36 @@ pub fn take_where(
         ssh,
         repo,
         lane,
-        allowed,
+        Takes {
+            allowed,
+            screen: false,
+        },
         grows,
+        crate::app_timing::now(),
+    )
+}
+
+/// `take_where` for a build that draws window scenes (a `--shots` run of a
+/// shots line that passes `--windows`): only the checkouts on hosts that can
+/// draw them (`host::screen_lacking`), and it fails naming each host it
+/// skipped when none can.
+pub fn take_drawing(
+    places: &Places,
+    ssh: &Ssh,
+    repo: &str,
+    lane: Lane,
+    floor_kib: u64,
+) -> Result<Held> {
+    take_in(
+        places,
+        ssh,
+        repo,
+        lane,
+        Takes {
+            allowed: Where::Hosts,
+            screen: true,
+        },
+        Some(floor_kib),
         crate::app_timing::now(),
     )
 }
@@ -537,10 +648,11 @@ fn take_in(
     ssh: &Ssh,
     repo: &str,
     lane: Lane,
-    allowed: Where,
+    takes: Takes,
     grows: Option<u64>,
     now: i64,
 ) -> Result<Held> {
+    let Takes { allowed, screen } = takes;
     let sized = crate::lane_size::RepoLane {
         places,
         ssh,
@@ -595,7 +707,7 @@ fn take_in(
         }
     }
     queue.wait_for_turn(&ticket.name)?;
-    let (lock, checkout) = take_free_lock(places, ssh, repo, lane, allowed)?;
+    let (lock, checkout) = take_free_lock(places, ssh, repo, lane, allowed, screen)?;
     let held = Held {
         lock,
         ticket,
@@ -606,6 +718,7 @@ fn take_in(
         lane,
         ssh: ssh.clone(),
         allowed,
+        screen,
         joined_at: now,
         waited: waiting.elapsed(),
     };
