@@ -1,5 +1,5 @@
 ---
-digest: A change to @Observable state that reads the current value and writes a new one is a mutating method on the state type, called once from the view, never a read and a write in a view's action handler.
+digest: A change to @Observable state that reads the current value and writes a new one is a mutating method on the state type, called once from the view, never a read and a write in a view's action handler. Such a method is for a change the person makes without choosing a value, such as Next Image or a Toggle Queue menu item with no checkmark; a view that shows the value the person changes sends that value to the setter instead.
 paths:
   - '**/*.swift'
 blocking: false
@@ -20,3 +20,10 @@ violation.
 `uiStore.lightbox?.goToNext()` is one access. Reading the cursor's current
 position in the view and then writing `uiStore.lightbox` is two overlapping
 accesses.
+
+A view that shows the value the person changes, such as a checkbox or a
+checkmark, sends the value it wants to the state type's setter instead
+(`set-state-don-t-toggle`). The mutating method is for a change the person makes
+without choosing a value, such as Next Image or a Toggle Queue menu item with no
+checkmark (`uiStore.toggleSidePane()`), and it is the only place the code flips
+or steps that state.
