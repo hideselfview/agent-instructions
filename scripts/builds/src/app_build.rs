@@ -525,8 +525,8 @@ fn run_local_step(
     let kept = lock::Captured::default();
     let keep = keep_for(kind, shots, &kept, fault, read);
     let command = match (kind, shots.and_then(|store| store.before_of(step))) {
-        (StepKind::Shots, Some(before)) => {
-            with_before(&step.command, &before.findings.display().to_string())
+        (StepKind::Shots, Some(findings)) => {
+            with_before(&step.command, &findings.display().to_string())
         }
         _ => step.command.clone(),
     };
@@ -747,7 +747,7 @@ fn run_remote_step(
     read: &lock::EachLine,
 ) -> Result<Within> {
     let placed = match (kind, shots.and_then(|store| store.before_of(step))) {
-        (StepKind::Shots, Some(before)) => Some(remote.put_temporary(&before.findings)?),
+        (StepKind::Shots, Some(findings)) => Some(remote.put_temporary(findings)?),
         _ => None,
     };
     let command = match &placed {
@@ -818,8 +818,9 @@ struct ShotsStore {
     /// installed beside this builds.
     version: String,
     database: std::path::PathBuf,
-    /// The run each shots prefix of the lane compares with, by its prefix.
-    befores: Vec<(String, shot_findings::Before)>,
+    /// The findings.json of the run each shots prefix of the lane compares
+    /// with, by its prefix.
+    befores: Vec<(String, std::path::PathBuf)>,
 }
 
 impl ShotsStore {
@@ -857,7 +858,7 @@ impl ShotsStore {
                 continue;
             }
             match shot_findings::before_run(&database, repo, &base, lane, prefix, &version)? {
-                Some(before) => befores.push((prefix.clone(), before)),
+                Some(findings) => befores.push((prefix.clone(), findings)),
                 None => fail!(
                     "builds holds no run of {prefix} on {} for {}, the merge base of {} with origin/main, by builds-shots {version}, so the run has nothing to compare with; `{}` makes one",
                     lane.word(),
@@ -876,13 +877,14 @@ impl ShotsStore {
         }))
     }
 
-    /// The run the shots run <step> compares with, when its prefix has one.
-    fn before_of(&self, step: &Step) -> Option<&shot_findings::Before> {
+    /// The findings.json of the run the shots run <step> compares with, when
+    /// its prefix has one.
+    fn before_of(&self, step: &Step) -> Option<&Path> {
         let prefix = shots_prefix(step);
         self.befores
             .iter()
             .find(|(own, _)| own == prefix)
-            .map(|(_, before)| before)
+            .map(|(_, findings)| findings.as_path())
     }
 
     /// Keeps what the shots run <step> printed (<kept>), when it ended
@@ -939,8 +941,13 @@ impl ShotsStore {
                 if let Err(error) = site.fetch_report(&dir, &folder) {
                     note(format!("the shots report was not kept: {}", error.text()));
                 } else if let Err(why) = self.same_version(&folder) {
-                    let _ = std::fs::remove_dir_all(&folder);
                     note(format!("the shot findings and report were not kept: {why}"));
+                    if let Err(error) = std::fs::remove_dir_all(&folder) {
+                        note(format!(
+                            "deleting {} failed, so the report stays under this builds-shots' key: {error}",
+                            folder.display()
+                        ));
+                    }
                     return;
                 } else {
                     note(format!(
@@ -1496,9 +1503,10 @@ pub fn ensure_before_runs(
             lane.word()
         );
     }
-    if built.is_err() {
+    if let Err(error) = built {
         note(format!(
-            "the runs of {short} failed on pairs with findings, which compare with nothing on origin/main; builds keeps their findings, and the runs of {git_ref} compare with them"
+            "the build of {short} failed ({}), and builds kept the findings of its shots runs, which the runs of {git_ref} compare with",
+            error.text()
         ));
     }
     Ok(())

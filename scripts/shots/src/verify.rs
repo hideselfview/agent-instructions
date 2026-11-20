@@ -203,7 +203,8 @@ pub(crate) fn note(against: Option<Against>) -> &'static str {
     }
 }
 
-fn mark(against: Option<Against>) -> String {
+/// The note as a bracketed suffix of a line, empty when there is none.
+pub(crate) fn mark(against: Option<Against>) -> String {
     match note(against) {
         "" => String::new(),
         note => format!(" ({note})"),

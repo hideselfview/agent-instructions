@@ -1083,20 +1083,7 @@ fn a_shots_run_with_a_before_run_is_given_its_findings_and_another_prefix_is_not
     let top = scratch.dir.join("repo");
     let mut kept = shots_store(&top, &database);
     let findings = scratch.dir.join("before.json");
-    let key = shot_findings::Key {
-        repo: "demo".to_string(),
-        version: crate::shots_program::VERSION.to_string(),
-        commit: "a".repeat(40),
-        lane: Lane::Mac,
-        prefix: "mac.".to_string(),
-    };
-    kept.befores.push((
-        "mac.a.".to_string(),
-        shot_findings::Before {
-            key,
-            findings: findings.clone(),
-        },
-    ));
+    kept.befores.push(("mac.a.".to_string(), findings.clone()));
     let said = |name: &str| {
         let out = scratch.dir.join("args.txt");
         let step = fake(
@@ -1163,8 +1150,10 @@ fn a_lanes_shots_runs_compare_with_the_kept_run_of_the_merge_base_and_a_run_of_m
     std::fs::write(folder.join(crate::shot_causes::FILE), "{}").unwrap();
     let on_work = of(&work).unwrap().expect("the repo has a store");
     assert_eq!(on_work.befores.len(), 1);
-    assert_eq!(on_work.befores[0].0, "mac.a.");
-    assert_eq!(on_work.befores[0].1.key, key);
+    assert_eq!(
+        on_work.befores,
+        vec![("mac.a.".to_string(), folder.join(crate::shot_causes::FILE))]
+    );
 }
 
 #[test]

@@ -360,18 +360,11 @@ pub fn key_for(
     Ok((key, app_timing::database_of(places, repo)?))
 }
 
-/// A stored run a branch's run compares with: its key and the findings.json
-/// its kept report holds.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Before {
-    pub key: Key,
-    pub findings: std::path::PathBuf,
-}
-
-/// The run a run of <prefix> on <lane> by builds-shots <version> compares
-/// with, among the runs of <repo> at <commit> in the database at <database>:
-/// the newest by that version whose prefix starts <prefix> and whose report
-/// keeps its findings.json. None when the store holds no such run.
+/// The findings.json of the run a run of <prefix> on <lane> by builds-shots
+/// <version> compares with, among the runs of <repo> at <commit> in the
+/// database at <database>: the newest by that version whose prefix starts
+/// <prefix> and whose report keeps its findings.json. None when the store
+/// holds no such run.
 pub fn before_run(
     database: &Path,
     repo: &str,
@@ -379,7 +372,7 @@ pub fn before_run(
     lane: Lane,
     prefix: &str,
     version: &str,
-) -> Result<Option<Before>> {
+) -> Result<Option<std::path::PathBuf>> {
     let Some(conn) = db::open_reader(database)? else {
         return Ok(None);
     };
@@ -403,7 +396,7 @@ pub fn before_run(
         };
         let findings = report_folder(database, &key).join(shot_causes::FILE);
         if findings.is_file() {
-            return Ok(Some(Before { key, findings }));
+            return Ok(Some(findings));
         }
     }
     Ok(None)

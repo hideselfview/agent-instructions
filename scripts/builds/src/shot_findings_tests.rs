@@ -228,10 +228,10 @@ fn the_before_run_is_the_newest_run_of_the_version_whose_prefix_starts_the_runs_
         prefix: prefix.to_string(),
         version: version.to_string(),
     };
-    let find = |prefix: &str| {
-        before_run(&database, "demo", &base, Lane::Mac, prefix, "v1")
-            .unwrap()
-            .map(|before| before.key.prefix)
+    let find =
+        |prefix: &str| before_run(&database, "demo", &base, Lane::Mac, prefix, "v1").unwrap();
+    let kept = |prefix: &str| {
+        Some(report_folder(&database, &key(prefix, "v1")).join(crate::shot_causes::FILE))
     };
     assert_eq!(find("mac.welcome."), None);
     store_with_report(&database, &key("mac.welcome.", "v2"), true);
@@ -243,14 +243,7 @@ fn the_before_run_is_the_newest_run_of_the_version_whose_prefix_starts_the_runs_
         "another version's run, another screen's and a narrower prefix's do not stand in"
     );
     store_with_report(&database, &key("mac.", "v1"), true);
-    assert_eq!(find("mac.welcome."), Some("mac.".to_string()));
-    let before = before_run(&database, "demo", &base, Lane::Mac, "mac.welcome.", "v1")
-        .unwrap()
-        .unwrap();
-    assert_eq!(
-        before.findings,
-        report_folder(&database, &key("mac.", "v1")).join(crate::shot_causes::FILE)
-    );
+    assert_eq!(find("mac.welcome."), kept("mac."));
     // A run stored later wins; one whose report keeps no findings.json does
     // not count. The run of mac. ended ten seconds before the runs below.
     db::open(&database, db::Make::Never)
@@ -261,9 +254,9 @@ fn the_before_run_is_the_newest_run_of_the_version_whose_prefix_starts_the_runs_
         )
         .unwrap();
     store_with_report(&database, &key("mac.welcome.", "v1"), false);
-    assert_eq!(find("mac.welcome."), Some("mac.".to_string()));
+    assert_eq!(find("mac.welcome."), kept("mac."));
     store_with_report(&database, &key("mac.welcome.", "v1"), true);
-    assert_eq!(find("mac.welcome."), Some("mac.welcome.".to_string()));
+    assert_eq!(find("mac.welcome."), kept("mac.welcome."));
 }
 
 #[test]

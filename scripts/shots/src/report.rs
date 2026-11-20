@@ -41,14 +41,6 @@ fn esc(text: &str) -> String {
         .replace('"', "&quot;")
 }
 
-/// The standing note as a bracketed suffix, empty when there is none.
-fn bracketed_note(pair: &Checked) -> String {
-    match crate::verify::note(pair.against) {
-        "" => String::new(),
-        note => format!(" ({note})"),
-    }
-}
-
 /// The picture file names a checked pair uses inside the report directory.
 pub(crate) fn board_picture(name: &str) -> String {
     format!("img/{name}.board.png")
@@ -383,7 +375,7 @@ pub(crate) fn summary(outcome: &Outcome, header: &Header) -> String {
             putln!(text, "- {}", problem.sentence);
         }
         for pair in outcome.checked.iter().filter(|c| !c.findings.is_empty()) {
-            let note = bracketed_note(pair);
+            let note = crate::verify::mark(pair.against);
             for finding in &pair.findings {
                 putln!(text, "- `{}`{note}: {}", pair.name, finding.sentence());
             }
