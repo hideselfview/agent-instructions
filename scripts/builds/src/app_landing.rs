@@ -67,6 +67,14 @@ fn lane_paths<'a>(config: &Config, lane: Lane, paths: &'a [String]) -> Vec<&'a s
         .collect()
 }
 
+/// Whether the change of <paths> changes some lane's apps in <config>: one
+/// of the paths matches an `on` line that names a step of the lane.
+pub fn changes_apps(config: &Config, paths: &[String]) -> bool {
+    Lane::ALL
+        .into_iter()
+        .any(|lane| !lane_paths(config, lane, paths).is_empty())
+}
+
 /// A lane whose apps the landing changes and that no passing run covers at
 /// the result, with no passing run that covers the branch: the newest passing
 /// run git has and the paths where its commit differs from the branch, or

@@ -39,6 +39,14 @@
 //! when origin/main moves after a landing fetched it, origin refuses that
 //! landing's push, and the landing fetches again and tries again.
 //!
+//! In a repo of a project, the landings whose commits change what the apps
+//! compile run one at a time, from before the first fetch until the push:
+//! each holds an exclusive flock on `land-apps.lock` in the repo's git folder,
+//! which every worktree of the repo shares, and prints which landing it waits
+//! for. So no other app landing reaches main between a landing's fetch and its
+//! push, and each builds its result at most once, after the landing ahead of
+//! it pushed. A landing holds no use of the stores while it waits.
+//!
 //! A repo that belongs to a project of the lists (`builds lists project-of`)
 //! names the work items a landing finishes (`--done N`) or advances (`--part
 //! N`) and, when the commits change design places, the design changes
@@ -366,23 +374,20 @@ fn git_text(dir: &Path, args: &[&str]) -> Option<String> {
     })
 }
 
-/// Waits for, then holds, the exclusive lock of one landing in a worktree.
-/// While another landing holds it, says on <out> that this one waits and which
-/// landing it waits behind (the holder writes its process and arguments into
-/// the lock file once it has the lock).
-fn lock_worktree(worktree: &Path, args: &[String], out: &mut dyn Write) -> Result<std::fs::File> {
-    let git_dir = git_text(worktree, &["rev-parse", "--absolute-git-dir"])
-        .ok_or_else(|| Fail::Message(format!("{} is not a git worktree", worktree.display())))?;
-    let path = PathBuf::from(git_dir).join("land.lock");
-    let mut file = crate::flock::open_creating(&path)?;
-    if !crate::flock::try_lock(&file, libc::LOCK_EX, &path)? {
+/// Waits for, then holds, the exclusive lock in the file <path>, which a
+/// landing holds for its turn. While another landing holds it, says on <out>
+/// that this one waits for <whose> turn and which landing holds it: the
+/// holder writes <me> into the file once it has the lock.
+fn take_turn(path: &Path, whose: &str, me: &str, out: &mut dyn Write) -> Result<std::fs::File> {
+    let mut file = crate::flock::open_creating(path)?;
+    if !crate::flock::try_lock(&file, libc::LOCK_EX, path)? {
         let mut holder = String::new();
-        let _ = file.read_to_string(&mut holder);
+        file.read_to_string(&mut holder)
+            .context(|| format!("reading {}", path.display()))?;
         let holder = holder.trim();
         let _ = writeln!(
             out,
-            "waiting for the landing in {} to finish first: {}",
-            worktree.display(),
+            "waiting for {whose} to finish first: {}",
             if holder.is_empty() {
                 "another landing holds it"
             } else {
@@ -390,22 +395,43 @@ fn lock_worktree(worktree: &Path, args: &[String], out: &mut dyn Write) -> Resul
             }
         );
         let _ = out.flush();
-        crate::flock::lock(&file, libc::LOCK_EX, &path)?;
-        let _ = writeln!(out, "the landing in {} has its turn", worktree.display());
+        crate::flock::lock(&file, libc::LOCK_EX, path)?;
+        let _ = writeln!(out, "{whose} finished, so this landing has its turn");
     }
-    let text = format!(
-        "process {} landing {}",
-        std::process::id(),
-        args.iter()
-            .map(|arg| shell_word(arg))
-            .collect::<Vec<_>>()
-            .join(" ")
-    );
     let _ = file.set_len(0);
     let _ = file.seek(SeekFrom::Start(0));
-    let _ = file.write_all(text.as_bytes());
+    let _ = file.write_all(me.as_bytes());
     Ok(file)
 }
+
+/// The words of <args>, as a shell reads them.
+fn shell_words(args: &[String]) -> String {
+    args.iter()
+        .map(|arg| shell_word(arg))
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// Waits for, then holds, the exclusive lock of one landing in a worktree
+/// (`land.lock` in its git dir), as `take_turn` does.
+fn lock_worktree(worktree: &Path, args: &[String], out: &mut dyn Write) -> Result<std::fs::File> {
+    let git_dir = git_text(worktree, &["rev-parse", "--absolute-git-dir"])
+        .ok_or_else(|| Fail::Message(format!("{} is not a git worktree", worktree.display())))?;
+    take_turn(
+        &PathBuf::from(git_dir).join("land.lock"),
+        &format!("the landing in {}", worktree.display()),
+        &format!(
+            "process {} landing {}",
+            std::process::id(),
+            shell_words(args)
+        ),
+        out,
+    )
+}
+
+/// The file in a repo's git folder whose lock a landing that changes the
+/// repo's apps holds from before its fetch until its push.
+const APP_TURN_FILE: &str = "land-apps.lock";
 
 /// What a landing was asked for, from the arguments after the worktree.
 struct Request {
@@ -1224,13 +1250,120 @@ impl Landing<'_> {
         ))
     }
 
+    /// Whether the landing's commits change what some lane's apps compile, by
+    /// the `.app-build` of the last commit (app_landing.rs). A commit with no
+    /// `.app-build` changes no apps.
+    fn changes_apps(&self, out: &mut dyn Write) -> Result<bool> {
+        let dir = &self.workdir;
+        let last = self.request.shas.last().expect("a landing names a commit");
+        let config = crate::app_config::CONFIG;
+        let Some(found) = git_text(dir, &["ls-tree", "--name-only", last, "--", config]) else {
+            return Err(refuse(
+                out,
+                format!(
+                    "refusing: git could not list {config} at {last} in {}",
+                    dir.display()
+                ),
+            ));
+        };
+        if found.is_empty() {
+            return Ok(false);
+        }
+        let Some(text) = git_text(dir, &["show", &format!("{last}:{config}")]) else {
+            return Err(refuse(
+                out,
+                format!(
+                    "refusing: git could not read {config} at {last} in {}",
+                    dir.display()
+                ),
+            ));
+        };
+        let parsed = match crate::app_config::parse_config(&text) {
+            Ok(parsed) => parsed,
+            Err(error) => {
+                return Err(refuse(
+                    out,
+                    format!("refusing: {config} at {last}: {}", error.text()),
+                ));
+            }
+        };
+        let mut paths = Vec::new();
+        for sha in &self.request.shas {
+            let Some(changed) = git_text(dir, &["diff", "--name-only", &format!("{sha}^"), sha])
+            else {
+                return Err(refuse(
+                    out,
+                    format!(
+                        "refusing: git could not list the paths {sha} changes in {}",
+                        dir.display()
+                    ),
+                ));
+            };
+            paths.extend(changed.lines().map(str::to_string));
+        }
+        Ok(crate::app_landing::changes_apps(&parsed, &paths))
+    }
+
+    /// In a repo of a project, when the landing's commits change the apps,
+    /// waits for the landing's turn among the landings of the repo that
+    /// change the apps, and returns the lock that holds it, which the landing
+    /// drops after its push. So no other landing that changes the apps
+    /// reaches main between this landing's fetch and its push, and the
+    /// landing builds its result at most once. The landing ends its use of the
+    /// stores (<stores>) while it waits, which may take as long as the app
+    /// builds of the landings ahead of it.
+    fn take_app_turn(
+        &self,
+        stores: &mut StoreUse,
+        out: &mut dyn Write,
+    ) -> Result<Option<std::fs::File>> {
+        if self.recording.is_none() || !self.changes_apps(out)? {
+            return Ok(None);
+        }
+        let dir = &self.workdir;
+        let Some(common) = git_text(
+            dir,
+            &["rev-parse", "--path-format=absolute", "--git-common-dir"],
+        ) else {
+            return Err(refuse(
+                out,
+                format!(
+                    "refusing: git could not name the git folder of {}",
+                    dir.display()
+                ),
+            ));
+        };
+        let Some(checkout) = crate::checkout::Checkout::at(dir)? else {
+            fail!("git finds no checkout at {}", dir.display());
+        };
+        stores.end();
+        let me = format!(
+            "process {} landing {} from {}",
+            std::process::id(),
+            shell_words(&self.request.shas),
+            dir.display()
+        );
+        let turn = take_turn(
+            &PathBuf::from(common).join(APP_TURN_FILE),
+            &format!(
+                "the landing that changes the apps of {} ahead of this one",
+                checkout.repo()
+            ),
+            &me,
+            out,
+        )?;
+        Ok(Some(turn))
+    }
+
     /// Puts the commits on origin/main and returns their copies there, or
     /// refuses after it checks out what the worktree had when the landing
-    /// began.
+    /// began. A landing that changes the apps holds its turn among them
+    /// (`take_app_turn`) from before its first fetch until it returns.
     fn put_on_main(&self, stores: &mut StoreUse, out: &mut dyn Write) -> Result<Vec<String>> {
         let dir = &self.workdir;
         let shas = &self.request.shas;
         let last = shas.last().expect("a landing names a commit").as_str();
+        let _turn = self.take_app_turn(stores, out)?;
         for _ in 0..ATTEMPTS {
             let fetched = {
                 let _timing = self.timing(StepKind::Fetch);

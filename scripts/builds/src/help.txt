@@ -2547,6 +2547,17 @@ run `review replay --rules-root` on it.
                               different worktrees run together, and a landing
                               whose push origin refuses because the other
                               pushed first fetches again and pushes after it.
+                              In a repo of a project, the landings whose
+                              commits change the apps (a path they change
+                              matches an `on` line of the last commit's
+                              .app-build) run one at a time: each holds the
+                              repo's app landing lock (land-apps.lock in the
+                              repo's git folder) from before its first fetch
+                              until its push, and a landing that finds the
+                              lock held names the landing that holds it and
+                              waits. So no other app landing reaches main
+                              between a landing's fetch and its push, and
+                              each builds its result at most once.
                               Land reads the project from the worktree's
                               claim; --project P only checks it and refuses
                               when the worktree's project is another.
@@ -2617,8 +2628,9 @@ run `review replay --rules-root` on it.
                               install that moves a store waits for the
                               landing, and the landing writes every record
                               with the schema it started with (INSTALLING).
-                              Land ends that use while it runs the app build
-                              of its result, which takes uses of its own, and
+                              Land ends that use while it waits for the app
+                              landing lock and while it runs the app build of
+                              its result, which takes uses of its own, and
                               takes it again before the push; when an install
                               that moved the stores ran meanwhile, land checks
                               the branch out again and runs the installed
@@ -3019,8 +3031,9 @@ INSTALLING
                               hook run (`checks run`), review that asks
                               reviewers, and landing (`land`) until it records
                               its run, each of which records after long work,
-                              except a landing that runs the app build of its
-                              result, which holds no use meanwhile;
+                              except a landing that waits for the app landing
+                              lock or runs the app build of its result, which
+                              holds no use meanwhile;
                               then for every other command's open store
                               connection, which lasts one transaction. An app
                               build waiting for its lane holds nothing, and

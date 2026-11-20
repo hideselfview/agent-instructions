@@ -117,9 +117,11 @@ fn claim(dir: &Path) {
 /// What the stand-in `builds` answers: the project `lists project-of` prints
 /// (nothing when none), the lines `design places` prints, and the command
 /// ("<group> <command>") it refuses, saying `says` when that is set. `title`
-/// is what `design title` prints, and `landing_build` the shell words that
-/// answer `app-build --landing-build` (its result is $5). Each app build
-/// that is not `--landing-build` also logs the folder it ran in.
+/// is what `design title` prints, `landing_build` the shell words that
+/// answer `app-build --landing-build` (its result is $5) and `app_build` those
+/// that answer `app-build <repo>`, `{root}` in either standing for the scratch
+/// folder. Each app build that is not `--landing-build` also logs the folder
+/// it ran in.
 #[derive(Default)]
 struct Cues {
     project: &'static str,
@@ -128,15 +130,18 @@ struct Cues {
     refuse: &'static str,
     says: &'static str,
     landing_build: &'static str,
+    app_build: &'static str,
 }
 
 /// Writes the stand-in `builds` for <cues> and returns it with the file it
 /// logs each command to.
 fn stub(f: &Fixture, cues: &Cues) -> (PathBuf, PathBuf) {
+    let or_true = |words: &'static str| if words.is_empty() { "true" } else { words };
+    let root = f.scratch.dir.display().to_string();
     let stub = f.scratch.dir.join("stub-builds");
     let log = f.scratch.dir.join("calls.log");
     let script = format!(
-        "#!/bin/bash\necho \"$*\" >> '{log}'\n[ \"$1\" = app-build ] && [ \"$2\" != --landing-build ] && echo \"app-build ran in $PWD\" >> '{log}'\n[ '{refuse}' = \"$1 $2\" ] && {{ echo '{says}'; exit 1; }}\ncase \"$1 $2\" in\n  'lists project-of') echo '{project}' ;;\n  'design places') printf '%s' '{places}' ;;\n  'design title') echo '{title}' ;;\n  'app-build --landing-build') {landing_build} ;;\nesac\nexit 0\n",
+        "#!/bin/bash\necho \"$*\" >> '{log}'\n[ \"$1\" = app-build ] && [ \"$2\" != --landing-build ] && echo \"app-build ran in $PWD\" >> '{log}'\n[ '{refuse}' = \"$1 $2\" ] && {{ echo '{says}'; exit 1; }}\ncase \"$1 $2\" in\n  'lists project-of') echo '{project}' ;;\n  'design places') printf '%s' '{places}' ;;\n  'design title') echo '{title}' ;;\n  'app-build --landing-build') {landing_build} ;;\n  'app-build repo') {app_build} ;;\nesac\nexit 0\n",
         log = log.display(),
         refuse = cues.refuse,
         says = if cues.says.is_empty() {
@@ -147,11 +152,8 @@ fn stub(f: &Fixture, cues: &Cues) -> (PathBuf, PathBuf) {
         project = cues.project,
         title = cues.title,
         places = cues.places,
-        landing_build = if cues.landing_build.is_empty() {
-            "true"
-        } else {
-            cues.landing_build
-        },
+        landing_build = or_true(cues.landing_build).replace("{root}", &root),
+        app_build = or_true(cues.app_build).replace("{root}", &root),
     );
     std::fs::write(&stub, script).unwrap();
     std::fs::set_permissions(&stub, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
@@ -1941,5 +1943,147 @@ fn commits_that_change_app_files_land_one_by_one_with_their_item() {
     assert!(
         !calls.iter().any(|c| c.starts_with("design title")),
         "{calls:?}"
+    );
+}
+
+/// The fixture, with an `.app-build` on main whose mac lane builds what
+/// changes under app/.
+fn app_fixture(name: &str) -> Fixture {
+    let f = fixture(name, "true\n", None);
+    commit_file(
+        &f.main,
+        ".app-build",
+        "step mac macos ./macos.sh\non app/ macos\n",
+        "build the apps",
+    );
+    git_out(&f.main, &["push", "-q", "origin", "HEAD:main"]);
+    f
+}
+
+/// Side worktree <n> on a new branch <branch> with the file app/<file>,
+/// which the mac lane builds, committed.
+fn app_branch(f: &Fixture, n: usize, branch: &str, file: &str) -> (PathBuf, String) {
+    let dir = f.side(n, branch);
+    std::fs::create_dir_all(dir.join("app")).unwrap();
+    let sha = commit_file(
+        &dir,
+        &format!("app/{file}"),
+        "app\n",
+        &format!("change {file}"),
+    );
+    (dir, sha)
+}
+
+/// Holds the turn of the landings that change the apps of <f>'s repo, as a
+/// landing ahead of the next one would.
+fn hold_app_turn(f: &Fixture) -> std::fs::File {
+    let common = git_out(
+        &f.main,
+        &["rev-parse", "--path-format=absolute", "--git-common-dir"],
+    );
+    take_turn(
+        &Path::new(&common).join(APP_TURN_FILE),
+        "the test's landing",
+        "process 1 landing ahead",
+        &mut Vec::new(),
+    )
+    .unwrap()
+}
+
+/// Lands <args> in <dir> on a thread of its own, with the stand-in `builds`
+/// at <stub> and <out> for what the landing says; returns whether it landed.
+fn land_on_thread(
+    f: &Fixture,
+    stub: &Path,
+    dir: &Path,
+    args: &[&str],
+    mut out: impl Write + Send + 'static,
+) -> std::thread::JoinHandle<bool> {
+    let mut all = vec![dir.display().to_string()];
+    all.extend(args.iter().map(|a| a.to_string()));
+    let places = f.scratch.places();
+    let stub = stub.to_path_buf();
+    std::thread::spawn(move || land_recorded(&places, &stub, &all, &mut out, None).is_ok())
+}
+
+/// A landing that changes the apps waits, before it fetches, while another
+/// landing that changes them holds the repo's turn, names that landing, and
+/// lands once the turn is free.
+#[test]
+fn a_landing_that_changes_the_apps_waits_for_the_one_ahead_and_names_it() {
+    let f = app_fixture("land-app-turn");
+    let before = main_of(&f);
+    let (one, a) = app_branch(&f, 1, "a", "a.swift");
+    let held = hold_app_turn(&f);
+    let (stub, _) = stub(&f, &project());
+    let (reader, writer) = std::io::pipe().unwrap();
+    let landing = land_on_thread(&f, &stub, &one, &["--done", "7", &a], writer);
+    let mut lines = std::io::BufReader::new(reader).lines();
+    let waiting = lines
+        .by_ref()
+        .map(|line| line.unwrap())
+        .find(|line| line.starts_with("waiting for"))
+        .expect("the landing says it waits");
+    assert!(
+        waiting.contains("the landing that changes the apps of repo ahead of this one")
+            && waiting.contains("process 1 landing ahead"),
+        "{waiting}"
+    );
+    assert_eq!(main_of(&f), before, "the landing waits before it pushes");
+    drop(held);
+    let rest: Vec<String> = lines.map(|line| line.unwrap()).collect();
+    assert!(landing.join().unwrap(), "{rest:?}");
+    assert_eq!(main_of(&f), a);
+}
+
+/// A landing that changes no app takes no turn, so it lands while another
+/// landing holds the turn of those that change the apps.
+#[test]
+fn a_landing_that_changes_no_app_lands_while_an_app_landing_holds_its_turn() {
+    let f = app_fixture("land-app-turn-other");
+    let one = f.side(1, "a");
+    let a = commit_file(&one, "notes.txt", "notes\n", "add notes");
+    let _held = hold_app_turn(&f);
+    let (stub, _) = stub(&f, &project());
+    let landing = land_on_thread(&f, &stub, &one, &["--done", "7", &a], Vec::new());
+    let (done, ended) = std::sync::mpsc::channel();
+    std::thread::spawn(move || done.send(landing.join().unwrap()));
+    let landed = ended
+        .recv_timeout(std::time::Duration::from_secs(60))
+        .expect("the landing does not wait for the app landing's turn");
+    assert!(landed && main_of(&f) == a);
+}
+
+/// Two landings that change the apps and start together land one after the
+/// other, and each builds its result once: the second builds on the first's
+/// pushed result, so no build is of a result that never reached main.
+#[test]
+fn two_app_landings_started_together_each_build_once_and_land() {
+    let f = app_fixture("land-app-turns");
+    let (one, a) = app_branch(&f, 1, "a", "a.swift");
+    let (two, b) = app_branch(&f, 2, "b", "b.swift");
+    let (stub, _) = stub(
+        &f,
+        &Cues {
+            landing_build: "grep -qx \"$5\" '{root}/built' 2>/dev/null || echo \"builds app-build repo $5 macos\"",
+            // Long enough that the other landing reaches its turn meanwhile.
+            app_build: "sleep 1; echo \"$3\" >> '{root}/built'",
+            ..project()
+        },
+    );
+    let first = land_on_thread(&f, &stub, &one, &["--done", "7", &a], Vec::new());
+    let second = land_on_thread(&f, &stub, &two, &["--done", "8", &b], Vec::new());
+    assert!(first.join().unwrap() && second.join().unwrap());
+    assert_eq!(git_out(&f.origin, &["show", "main:app/a.swift"]), "app");
+    assert_eq!(git_out(&f.origin, &["show", "main:app/b.swift"]), "app");
+    let built = std::fs::read_to_string(f.scratch.dir.join("built")).unwrap();
+    let built: Vec<&str> = built.lines().collect();
+    let on_main = git_out(&f.origin, &["rev-list", "main"]);
+    assert_eq!(built.len(), 2, "{built:?}");
+    assert!(
+        built
+            .iter()
+            .all(|commit| on_main.lines().any(|on| on == *commit)),
+        "{built:?} are not all on main:\n{on_main}"
     );
 }
