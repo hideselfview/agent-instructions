@@ -46,7 +46,7 @@
 //! and each reads every other changed file its rules cover
 //! (`run::ask_groups`). `landing::Coverage`
 //! says what the review read, for this run and for `builds land`. The run
-//! refuses when the review lacks nothing.
+//! refuses when the review lacks nothing and no confirmed finding is open.
 //!
 //! `run` asks no copy group (`groups::Group::copy`), whose rules judge word
 //! choice, grammar and style. `copy` asks only those, over the worktree's net
@@ -325,7 +325,8 @@ fn over_the_cap(
 
 /// Reviews the worktree's net change past the base and records it. A change
 /// gets one review: when the change, its repo and key, has one already, this
-/// asks only what the review lacks (`later_asks`), and refuses when it lacks nothing.
+/// asks only what the review lacks (`later_asks`), and, when it lacks nothing, asks the groups that hold open confirmed findings
+/// again (`later_asks`); it refuses when none is open either.
 pub fn review(inputs: &Inputs) -> Result<Reported> {
     let conn = inputs.store.open_existing()?;
     let change = match inputs.head {
@@ -386,7 +387,7 @@ pub fn review(inputs: &Inputs) -> Result<Reported> {
             &change,
             landing,
             &open_findings,
-            !gone.is_empty(),
+            &gone,
         )?,
     };
     if let Some(added) = check::over_the_cap(asks.iter().map(|ask| ask.change.diff.text.as_str())) {
@@ -572,7 +573,7 @@ fn later_asks(
     change: &run::NetChange,
     landing: i64,
     open: &[record::Finding],
-    closing: bool,
+    gone: &[record::Finding],
 ) -> Result<Vec<Ask>> {
     let coverage = landing::Coverage::of(conn, &record::landing(conn, landing)?)?;
     let calls = record::calls_of_landing(conn, landing)?;
@@ -689,23 +690,48 @@ fn later_asks(
             groups,
         });
     }
-    if asks.is_empty() && closing {
-        // No reviewer reads the changes since the last review, which are
-        // none: the run closes the findings in files the branch deleted.
-        asks.push(Ask {
-            note: Some(format!(
-                "closed the findings in files the branch deleted, with no reviewer, after run {}\n",
-                last.id
-            )),
-            change: since_run(last)?,
-            since: Some(last.id),
-            last_review: false,
-            groups: Vec::new(),
-        });
+    // Nothing is unread. A finding the branch's deleted files hold closes
+    // with no reviewer. Any other open finding's group reads the whole net
+    // change again, so that it can close a finding that a commit it already
+    // read fixed in place.
+    if asks.is_empty() {
+        let kept: Vec<record::Finding> = open
+            .iter()
+            .filter(|finding| !gone.iter().any(|g| g.id == finding.id))
+            .cloned()
+            .collect();
+        let groups: Vec<String> = material
+            .holding_groups(&kept)
+            .into_iter()
+            .map(|(group, _)| group)
+            .collect();
+        if !groups.is_empty() {
+            asks.push(Ask {
+                note: Some(format!(
+                    "asked the groups that hold open findings again over the whole net change, since nothing is unread and they have not closed them: {}\n",
+                    groups.join(", ")
+                )),
+                change: whole(inputs, change)?,
+                since: None,
+                last_review: false,
+                groups,
+            });
+        } else if !gone.is_empty() {
+            asks.push(Ask {
+                note: Some(format!(
+                    "closed the findings in files the branch deleted, with no reviewer, after run {}\n",
+                    last.id
+                )),
+                change: since_run(last)?,
+                since: Some(last.id),
+                last_review: false,
+                groups: Vec::new(),
+            });
+        }
     }
     if asks.is_empty() {
         fail!(
-            "{}\nrun {} of review landing {landing} ({}) is the last review, over {}...{}; every group answered, nothing changed since the last review on a path a group's rules cover or in a commit message a group reads, and each group that holds an open finding has read every change since the run that raised it, so builds review does not review it again.\nbuilds review show {landing} lists the review and its findings.",
+            "{}\nrun {} of review landing {landing} ({}) is the last review, over {}...{}; every group answered, nothing changed since the last review on a path a group's rules cover or in a commit message a group reads, and no confirmed finding is open, so builds review does not review it again.\nbuilds review show {landing} lists the review and its findings.",
             landing::ONE_REVIEW,
             last.id,
             inputs.key,
@@ -714,6 +740,15 @@ fn later_asks(
         );
     }
     Ok(asks)
+}
+
+/// The whole net change <change> reads, as a new value.
+fn whole(inputs: &Inputs, change: &run::NetChange) -> Result<run::NetChange> {
+    let mut again = run::diff_between(inputs.worktree, &change.base, &change.head)?;
+    if let (Some(source), Some(read)) = (&mut again.diff.source, &change.diff.source) {
+        source.in_place = read.in_place;
+    }
+    Ok(again)
 }
 
 /// The first 10 characters of commit <rev>, as the review's reports and

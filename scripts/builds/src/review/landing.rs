@@ -52,7 +52,7 @@ use crate::tool::Tool;
 const USAGE: &str = "builds review check-landing|landed DIR --project P SHA... [--landing KEY] [--rules-root DIR] [--more-to-land]";
 
 /// What every refusal and every refused run says first.
-pub const ONE_REVIEW: &str = "builds review never sends a reviewer the same diff twice. Each change gets one review: a review shows the changes since the last review, and nothing else.";
+pub const ONE_REVIEW: &str = "builds review sends a reviewer no diff twice. Each change gets one review: a review shows the changes since the last review, and nothing else, except that a group that holds an open confirmed finding reads the net change again when nothing is unread.";
 
 /// A commit to land, the paths it changes, and the groups whose rules cover
 /// one of them.

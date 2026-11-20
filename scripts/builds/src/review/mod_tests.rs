@@ -171,14 +171,26 @@ fn a_change_gets_one_review_and_a_second_run_is_refused() {
     );
     let finding = findings_of(&demo, first.landing.unwrap())[0].id;
     settle_as(&demo, finding, "confirmed", "a real break");
-    // The same commits: the change has its review, and no reviewer is asked.
-    let again = try_review(&demo, &fake, &side, "k").unwrap_err().text();
-    assert!(fake.prompts().is_empty());
+    // The same commits: nothing is unread, so only the group that holds the
+    // open finding reads the whole net change again, and it closes nothing.
+    fake.prompts();
+    closes(&fake, &[]);
+    let again = run_review(&demo, &fake, &side, "k");
+    let prompts = fake.prompts();
+    assert_eq!(prompts.len(), 1, "{}", again.text);
+    assert_eq!(prompts[0].0, "alpha");
+    assert!(prompts[0].1.contains("+a.rs"), "{}", prompts[0].1);
     assert!(
-        again.contains(landing::ONE_REVIEW)
-            && again.contains("so builds review does not review it again")
-            && !again.contains("did not read"),
-        "{again}"
+        again
+            .text
+            .contains("again over the whole net change, since nothing is unread"),
+        "{}",
+        again.text
+    );
+    assert!(
+        findings_of(&demo, first.landing.unwrap())[0]
+            .closed_by
+            .is_none()
     );
     // A fix commit is part of the changes since the last review: a new run
     // reads it, and only it, once, and closes the finding it fixes.
@@ -207,6 +219,7 @@ fn a_change_gets_one_review_and_a_second_run_is_refused() {
             .closed_by
             .is_some()
     );
+    // Nothing is open now, so a change gets no further run.
     let again = try_review(&demo, &fake, &side, "k").unwrap_err().text();
     assert!(fake.prompts().is_empty());
     assert!(again.contains(landing::ONE_REVIEW), "{again}");
@@ -215,7 +228,7 @@ fn a_change_gets_one_review_and_a_second_run_is_refused() {
         landing::review_runs(&conn, first.landing.unwrap())
             .unwrap()
             .len(),
-        2
+        3
     );
 }
 
@@ -1054,9 +1067,55 @@ fn a_commit_amended_with_its_own_message_and_files_is_no_change_to_review() {
             "--date=2000-01-01T00:00:00",
         ],
     );
-    let refused = try_review(&demo, &fake, &side, "k").unwrap_err().text();
-    assert!(fake.prompts().is_empty());
-    assert!(refused.contains(landing::ONE_REVIEW), "{refused}");
+    // The amend changed no line, so only the group that holds the open
+    // finding reads the net change again.
+    let again = run_review(&demo, &fake, &side, "k");
+    let prompts = fake.prompts();
+    assert!(!prompts.is_empty(), "{}", again.text);
+    assert!(
+        prompts.iter().all(|(group, _)| group == "writing"),
+        "{prompts:?}"
+    );
+    assert!(
+        again.text.contains("again over the whole net change"),
+        "{}",
+        again.text
+    );
+}
+
+#[test]
+fn a_finding_fixed_in_place_that_the_run_reading_the_fix_left_open_is_closed_by_a_group_asked_again()
+ {
+    let demo = demo("review-reask");
+    let fake = fake(&demo.scratch.dir);
+    let side = demo.add_side(1, "agent", "work");
+    demo.commit(&side, "a.rs");
+    demo.commit(&side, "b.swift");
+    fake.answer("alpha", &[("rule-a", Some(BAD))]);
+    let first = run_review(&demo, &fake, &side, "k");
+    let landing = first.landing.unwrap();
+    let finding = findings_of(&demo, landing)[0].id;
+    settle_as(&demo, finding, "confirmed", "a real break");
+    // The fix lands in a.rs, and the run that reads it closes nothing.
+    std::fs::write(side.join("a.rs"), "fixed").unwrap();
+    crate::testing::git(&side, &["commit", "-q", "-am", "fix a.rs"]);
+    closes(&fake, &[]);
+    run_review(&demo, &fake, &side, "k");
+    assert!(findings_of(&demo, landing)[0].closed_by.is_none());
+    fake.prompts();
+    // Nothing is unread, and the group is asked again and closes it.
+    closes(&fake, &[finding]);
+    let again = run_review(&demo, &fake, &side, "k");
+    assert_eq!(fake.prompts().len(), 1, "{}", again.text);
+    assert!(
+        again.text.contains(&format!("closed finding {finding}")),
+        "{}",
+        again.text
+    );
+    assert!(again.refusal.is_none(), "{:?}", again.refusal);
+    let closed = &findings_of(&demo, landing)[0];
+    assert!(closed.closed_by.is_some());
+    assert!(closed.settled_as("confirmed"), "kept as a true positive");
 }
 
 #[test]

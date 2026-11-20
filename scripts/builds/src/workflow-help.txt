@@ -326,7 +326,7 @@ branch, and `builds land` refuses the branch until the review finishes. The
 judge settles the findings, and never the agent whose branch holds them. builds
 splits the rules into groups and runs one reviewer per group that covers a
 changed path. A review shows the changes since the last review, and nothing
-else: builds never sends a reviewer the same diff twice. The review checks code
+else: builds sends a reviewer no diff twice, except that it asks a group again over the whole net change when nothing is unread and the group holds an open confirmed finding. The review checks code
 and whether text is accurate, never word choice, grammar or style: the person
 reviews copy by hand, and the copy review (`builds review copy`) is theirs to
 run.
