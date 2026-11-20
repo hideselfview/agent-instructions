@@ -659,3 +659,10 @@ fn a_judge_is_told_when_the_text_changed_and_which_section() {
     world.acknowledge_as(SESSION_ID, NOON + 120);
     assert_eq!(outdated_at(&world, NOON + 180), None);
 }
+
+#[test]
+fn a_judge_that_acknowledged_in_a_repo_with_its_own_claude_md_is_current() {
+    let world = judge_world("ack-judge-repo");
+    world.acknowledge_in(&world.coven.clone(), SESSION_ID, NOON);
+    assert_eq!(outdated_at(&world, NOON + 60), None);
+}

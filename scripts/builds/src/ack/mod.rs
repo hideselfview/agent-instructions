@@ -207,36 +207,40 @@ impl Agent {
 
     /// What the agent's reading of <text> at <now> holds.
     fn scope(&self, text: &Text, now: i64) -> Result<Scope> {
-        let Some(ack) = self.last(text)? else {
-            return Ok(Scope::Whole(Whole::NotAcknowledged));
-        };
-        if now - ack.at > HOURS * 3600 {
-            return Ok(Scope::Whole(Whole::TooOld(ack)));
-        }
-        if ack.version == text.version() {
-            return Ok(Scope::Whole(Whole::Current));
-        }
-        let database = self.store.database();
-        let Some(db) = db::open_reader(&database)? else {
-            fail!(
-                "builds read {}'s acknowledgement from {}, and the file is gone now",
-                self.name(),
-                database.display()
-            );
-        };
-        let Some(kept) = record::kept_sections(&db, &ack.version)? else {
-            return Ok(Scope::Whole(Whole::NotKept(ack)));
-        };
-        let sections = text.changed_since(&kept);
-        // A reading of no parts has no check words to give.
-        if sections.is_empty() {
-            return Ok(Scope::Whole(Whole::NoTextChanged(ack)));
-        }
-        Ok(Scope::Changed {
-            since: ack,
-            sections,
-        })
+        scope_of(&self.store, text, self.last(text)?, now)
     }
+}
+
+/// What a reading of <text> at <now> holds for an agent whose last
+/// acknowledgement of that text is <last>, kept in <store>.
+fn scope_of(store: &Store, text: &Text, last: Option<record::Ack>, now: i64) -> Result<Scope> {
+    let Some(ack) = last else {
+        return Ok(Scope::Whole(Whole::NotAcknowledged));
+    };
+    if now - ack.at > HOURS * 3600 {
+        return Ok(Scope::Whole(Whole::TooOld(ack)));
+    }
+    if ack.version == text.version() {
+        return Ok(Scope::Whole(Whole::Current));
+    }
+    let Some(db) = db::open_reader(&store.database())? else {
+        fail!(
+            "builds read an acknowledgement from {}, and the file is gone now",
+            store.database().display()
+        );
+    };
+    let Some(kept) = record::kept_sections(&db, &ack.version)? else {
+        return Ok(Scope::Whole(Whole::NotKept(ack)));
+    };
+    let sections = text.changed_since(&kept);
+    // A reading of no parts has no check words to give.
+    if sections.is_empty() {
+        return Ok(Scope::Whole(Whole::NoTextChanged(ack)));
+    }
+    Ok(Scope::Changed {
+        since: ack,
+        sections,
+    })
 }
 
 /// What a reading holds.
@@ -329,44 +333,40 @@ fn check(
 
 /// Why the main agent of <session>, which `builds judge listen` keeps as the
 /// judge, must acknowledge the text of <store>'s project again, or None when
-/// its newest acknowledgement is at most `HOURS` hours old and the text it
-/// read has not changed since. The text is the text that holds no repo's
-/// CLAUDE.md: the judge may work in any repo of the project, so a change of
-/// one repo's CLAUDE.md alone never counts.
+/// its newest acknowledgement is at most `HOURS` hours old and the text has
+/// not changed since. The judge may work in any repo of the project, so the
+/// text is the one that holds no repo's CLAUDE.md, and the check classifies
+/// it as the gate does (`scope_of`). A version that differs only because the
+/// judge's text held a repo's CLAUDE.md (`Whole::NoTextChanged`) is current.
 pub fn outdated(places: &Places, store: &Store, session: &str, now: i64) -> Result<Option<String>> {
     let who = format!("agent {session}");
-    let Some(db) = db::open_reader(&store.database())? else {
-        return Ok(Some(format!("{who} has no acknowledgement in this store")));
+    let newest = match db::open_reader(&store.database())? {
+        Some(db) => record::acknowledgements(&db, session, session)?
+            .into_iter()
+            .max_by_key(|ack| ack.at),
+        None => None,
     };
-    let Some(ack) = record::acknowledgements(&db, session, session)?
-        .into_iter()
-        .max_by_key(|ack| ack.at)
-    else {
-        return Ok(Some(format!("{who} has no acknowledgement of the text")));
-    };
-    if now - ack.at > HOURS * 3600 {
-        return Ok(Some(format!(
+    let text = Text::read(places, &store.project, None)?;
+    Ok(match scope_of(store, &text, newest, now)? {
+        Scope::Whole(Whole::Current | Whole::NoTextChanged(_)) => None,
+        Scope::Whole(Whole::NotAcknowledged) => {
+            Some(format!("{who} has no acknowledgement of the text"))
+        }
+        Scope::Whole(Whole::TooOld(ack)) => Some(format!(
             "{who} acknowledged it at {}, more than {HOURS} hours ago",
             local_minute(ack.at)
-        )));
-    }
-    let Some(kept) = record::kept_sections(&db, &ack.version)? else {
-        return Ok(Some(format!(
+        )),
+        Scope::Whole(Whole::NotKept(ack)) => Some(format!(
             "{who} acknowledged version {} at {}, which builds no longer keeps",
             ack.version,
             local_minute(ack.at)
-        )));
-    };
-    let text = Text::read(places, &store.project, None)?;
-    let changed = text.changed_since(&kept);
-    if changed.is_empty() {
-        return Ok(None);
-    }
-    Ok(Some(format!(
-        "the text changed since {who} acknowledged it at {}: {} changed",
-        local_minute(ack.at),
-        changed.join(", ")
-    )))
+        )),
+        Scope::Changed { since, sections } => Some(format!(
+            "the text changed since {who} acknowledged it at {}: {} changed",
+            local_minute(since.at),
+            sections.join(", ")
+        )),
+    })
 }
 
 /// `builds ack`.
