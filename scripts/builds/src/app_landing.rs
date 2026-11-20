@@ -15,22 +15,21 @@
 //! other landing's paths, and the branch builds again on the new main before
 //! it lands. Land runs no app build itself.
 //!
-//! The check reads the latest `RUNS_READ` passing runs of each lane, newest
-//! first, and stops at the first that covers the landing. A run whose commit
-//! git does not have in the worktree's repository covers nothing.
+//! The check reads the latest passing runs of each lane
+//! (`app_timing::PASSED_RUNS_READ`), newest first, and stops at the first
+//! that covers the landing. A run whose commit git does not have in the
+//! worktree's repository covers nothing, and the check says so.
 
 use std::path::Path;
 
 use crate::app_config::{CONFIG, Config, parse_config, run_git};
+use crate::derive::paths_between;
 use crate::fail;
 use crate::fail::Result;
 use crate::lane::Lane;
 use crate::places::Places;
 
 const USAGE: &str = "usage: builds app-build --check-landing <worktree> <before> <result>";
-
-/// How many of a lane's latest passing runs the check reads.
-const RUNS_READ: usize = 50;
 
 /// The paths of <paths> that one of <lane>'s `on` lines in <config> matches:
 /// a line that names a step of the lane.
@@ -160,21 +159,27 @@ pub fn cmd_check_landing(places: &Places, args: &[String]) -> Result<()> {
     let Some(database) = crate::app_timing::database_of(places, &repo)? else {
         return Ok(());
     };
-    let Ok(text) = run_git(top, &["show", &format!("{result}:{CONFIG}")]) else {
+    if run_git(top, &["ls-tree", "--name-only", result, "--", CONFIG])?.is_empty() {
+        crate::text::note(format!(
+            "{result} has no {CONFIG}, so it builds no apps and no app build has to cover it"
+        ));
         return Ok(());
-    };
-    let config = parse_config(&text)?;
-    let changed = diff(top, before, result)?;
+    }
+    let config = parse_config(&run_git(top, &["show", &format!("{result}:{CONFIG}")])?)?;
+    let changed = paths_between(top, before, result)?;
     let conn = crate::db::open(&database, crate::db::Make::Never)?;
     let lanes = uncovered(
         &config,
         &changed,
-        &mut |lane| crate::app_timing::passed_runs(&conn, &repo, lane, RUNS_READ, &database),
+        &mut |lane| crate::app_timing::passed_runs(&conn, &repo, lane, &database),
         &mut |commit| {
-            if run_git(top, &["cat-file", "-e", &format!("{commit}^{{commit}}")]).is_err() {
+            if !crate::review::commits::exists(top, commit)? {
+                crate::text::note(format!(
+                    "a passing app build built {commit}, which git does not have in {worktree}, so that build covers nothing"
+                ));
                 return Ok(None);
             }
-            diff(top, commit, result).map(Some)
+            paths_between(top, commit, result).map(Some)
         },
     )?;
     if lanes.is_empty() {
@@ -182,15 +187,6 @@ pub fn cmd_check_landing(places: &Places, args: &[String]) -> Result<()> {
     }
     println!("{}", refusal(&repo, worktree, &lanes));
     Err(crate::fail::Fail::Exit(1))
-}
-
-/// The paths that differ between the commits <from> and <to> in the
-/// repository at <top>.
-fn diff(top: &Path, from: &str, to: &str) -> Result<Vec<String>> {
-    Ok(run_git(top, &["diff", "--name-only", from, to])?
-        .lines()
-        .map(str::to_string)
-        .collect())
 }
 
 #[cfg(test)]

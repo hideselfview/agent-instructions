@@ -243,13 +243,16 @@ pub struct PassedRun {
     pub steps: Vec<String>,
 }
 
-/// The latest <limit> passing runs of <repo>'s <lane> that recorded the
-/// commit they built, in the database open as <conn> at <path>, newest first.
+/// How many of a lane's latest passing runs `passed_runs` reads.
+pub const PASSED_RUNS_READ: usize = 50;
+
+/// The latest `PASSED_RUNS_READ` passing runs of <repo>'s <lane> that
+/// recorded the commit they built, in the database open as <conn> at <path>,
+/// newest first.
 pub fn passed_runs(
     conn: &Connection,
     repo: &str,
     lane: Lane,
-    limit: usize,
     path: &Path,
 ) -> Result<Vec<PassedRun>> {
     let what = || format!("reading {}", path.display());
@@ -267,7 +270,7 @@ pub fn passed_runs(
         )
         .context(what)?;
     let found: Vec<(i64, String)> = runs
-        .query_map(params![repo, lane.word(), limit as i64], |row| {
+        .query_map(params![repo, lane.word(), PASSED_RUNS_READ as i64], |row| {
             Ok((row.get(0)?, row.get(1)?))
         })
         .context(what)?

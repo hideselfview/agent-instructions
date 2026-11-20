@@ -115,7 +115,7 @@ fn passing_runs_of_a_lane_come_back_newest_first_with_their_passed_steps() {
     )
     .unwrap();
     let conn = crate::db::open_reader(&path).unwrap().unwrap();
-    let runs = passed_runs(&conn, "bae", Lane::Mac, 10, &path).unwrap();
+    let runs = passed_runs(&conn, "bae", Lane::Mac, &path).unwrap();
     assert_eq!(
         runs,
         vec![
@@ -128,12 +128,6 @@ fn passing_runs_of_a_lane_come_back_newest_first_with_their_passed_steps() {
                 steps: vec!["macos".to_string()],
             },
         ]
-    );
-    assert_eq!(
-        passed_runs(&conn, "bae", Lane::Mac, 1, &path)
-            .unwrap()
-            .len(),
-        1
     );
 }
 

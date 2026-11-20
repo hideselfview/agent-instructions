@@ -81,7 +81,13 @@ pub fn plan(config: &Config, changed: &[String], picks: &[Pick]) -> Vec<(Lane, V
 /// `origin/main`, relative to the repo's top.
 pub fn changed_paths(top: &Path, commit: &str) -> Result<Vec<String>> {
     let base = run_git(top, &["merge-base", commit, "origin/main"])?;
-    let diff = run_git(top, &["diff", "--name-only", base.trim(), commit])?;
+    paths_between(top, base.trim(), commit)
+}
+
+/// The paths that differ between the commits <from> and <to> in the
+/// repository at <top>, relative to its top.
+pub fn paths_between(top: &Path, from: &str, to: &str) -> Result<Vec<String>> {
+    let diff = run_git(top, &["diff", "--name-only", from, to])?;
     Ok(diff.lines().map(str::to_string).collect())
 }
 
