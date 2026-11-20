@@ -722,3 +722,31 @@ fn a_lane_with_no_app_checkout_on_this_mac_gets_one_and_keeps_it_from_new() {
         entries
     );
 }
+
+#[test]
+fn a_checkout_forgotten_after_a_failed_message_to_the_queue_leaves_the_lane_as_it_was() {
+    let scratch = Scratch::new("worktree-forget-in-lane");
+    let tool = scratch.tool(0);
+    tool.places
+        .write_app_checkouts(
+            "demo",
+            Lane::Mac,
+            &[crate::lane::AppCheckout::by_person("m1:mac-1")],
+        )
+        .unwrap();
+    assert_eq!(
+        write_in_lane(&tool, "demo", Lane::Mac, "side-1").unwrap(),
+        2
+    );
+    forget_in_lane(&tool, "demo", Lane::Mac, "side-1").unwrap();
+    assert_eq!(
+        tool.places.app_checkouts_of("demo", Lane::Mac).unwrap(),
+        ["m1:mac-1"]
+    );
+    // Forgetting what the lane does not hold changes nothing.
+    forget_in_lane(&tool, "demo", Lane::Mac, "side-1").unwrap();
+    assert_eq!(
+        tool.places.app_checkouts_of("demo", Lane::Mac).unwrap(),
+        ["m1:mac-1"]
+    );
+}

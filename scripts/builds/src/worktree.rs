@@ -563,9 +563,10 @@ pub fn ensure_local_app_checkout(tool: &Tool, ssh: &Ssh, repo: &str, lane: Lane)
         Ok(checkout)
     });
     let recorded = made.and_then(|checkout| {
-        // The record's write comes before the message to the lane's queue,
-        // so a failure there takes the record out again with the worktree.
-        if let Err(error) = record_in_lane(tool, repo, lane, &checkout.name()) {
+        write_in_lane(tool, repo, lane, &checkout.name())?;
+        // The lane holds the checkout now: a failure of the message to its
+        // queue takes it out again.
+        if let Err(error) = crate::queue::repoint(&tool.places, repo, lane) {
             return Err(undo(
                 error,
                 forget_in_lane(tool, repo, lane, &checkout.name()),
@@ -591,6 +592,15 @@ pub fn ensure_local_app_checkout(tool: &Tool, ssh: &Ssh, repo: &str, lane: Lane)
 /// checkout, the person now owns it, so it stays until a person removes it.
 /// Returns how many checkouts the lane has.
 fn record_in_lane(tool: &Tool, repo: &str, lane: Lane, entry: &str) -> Result<usize> {
+    let count = write_in_lane(tool, repo, lane, entry)?;
+    crate::queue::repoint(&tool.places, repo, lane)?;
+    Ok(count)
+}
+
+/// `record_in_lane` up to the lane's set: writes <entry> into it, under the
+/// lane's queue guard, and returns how many checkouts the lane has. Nothing
+/// is written when it fails.
+fn write_in_lane(tool: &Tool, repo: &str, lane: Lane, entry: &str) -> Result<usize> {
     let queue = crate::queue::Queue::of(&tool.places, repo, lane);
     let guard = queue.guard()?;
     let mut set = tool.places.app_checkouts_recorded(repo, lane)?;
@@ -600,7 +610,6 @@ fn record_in_lane(tool: &Tool, repo: &str, lane: Lane, entry: &str) -> Result<us
     }
     tool.places.write_app_checkouts(repo, lane, &set)?;
     drop(guard);
-    crate::queue::repoint(&tool.places, repo, lane)?;
     Ok(set.len())
 }
 
@@ -613,7 +622,7 @@ fn forget_in_lane(tool: &Tool, repo: &str, lane: Lane, entry: &str) -> Result<()
     set.retain(|checkout| checkout.entry != entry);
     tool.places.write_app_checkouts(repo, lane, &set)?;
     drop(guard);
-    crate::queue::repoint(&tool.places, repo, lane)
+    Ok(())
 }
 
 /// Takes <entry> (shown to the person as <shown>) out of <repo>'s <lane> app
