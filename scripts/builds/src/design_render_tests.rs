@@ -525,11 +525,11 @@ fn a_review_page_of_a_change_with_no_last_commit_says_to_amend_it() {
     assert!(error.contains("amend it"), "{error}");
 }
 
-/// Runs `circleMarks` of the review page's script (`circles.js`) over a
-/// board's circles and what each side found, and returns its marks.
-fn circle_marks(circles: &Value, now: &Value, proposed: &Value) -> Value {
+/// Runs <expression> after the review page's script (`circles.js`) in node
+/// and returns what it prints as JSON.
+fn run_circles(expression: &str) -> Value {
     let program = format!(
-        "{}\nconsole.log(JSON.stringify(circleMarks({circles}, {now}, {proposed})));",
+        "{}\nconsole.log(JSON.stringify({expression}));",
         CIRCLES_SCRIPT
     );
     let out = std::process::Command::new("node")
@@ -545,25 +545,16 @@ fn circle_marks(circles: &Value, now: &Value, proposed: &Value) -> Value {
     serde_json::from_slice(&out.stdout).unwrap()
 }
 
-/// What `boardStatus` of the review page's script (`circles.js`) says under a
-/// board's caption.
+/// Runs `circleMarks` over a board's circles and what each side found, and
+/// returns its marks.
+fn circle_marks(circles: &Value, now: &Value, proposed: &Value) -> Value {
+    run_circles(&format!("circleMarks({circles}, {now}, {proposed})"))
+}
+
+/// What `boardStatus` says under a board's caption.
 fn board_status(is_new: bool, labels: &[&str]) -> String {
-    let program = format!(
-        "{}\nconsole.log(JSON.stringify(boardStatus({is_new}, {})));",
-        CIRCLES_SCRIPT,
-        json!(labels)
-    );
-    let out = std::process::Command::new("node")
-        .arg("-e")
-        .arg(program)
-        .output()
-        .expect("these tests run the page's script in node, which must be installed");
-    assert!(
-        out.status.success(),
-        "{}",
-        String::from_utf8_lossy(&out.stderr)
-    );
-    serde_json::from_slice(&out.stdout).unwrap()
+    let said = run_circles(&format!("boardStatus({is_new}, {})", json!(labels)));
+    said.as_str().expect("a status is text").to_string()
 }
 
 #[test]
