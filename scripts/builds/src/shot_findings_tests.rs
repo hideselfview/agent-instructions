@@ -120,3 +120,80 @@ fn a_missing_run_of_a_lanes_whole_prefix_is_made_with_all_shots() {
         "builds app-build bae main --shots android.welcome."
     );
 }
+
+#[test]
+fn a_report_is_copied_with_its_pictures_and_its_findings_records_when_it_has_them() {
+    let scratch = crate::testing::Scratch::new("shots-copy");
+    let from = scratch.dir.join("from");
+    std::fs::create_dir_all(from.join("img")).unwrap();
+    std::fs::write(from.join("index.html"), r#"<img src="img/a.png">"#).unwrap();
+    std::fs::write(from.join("img/a.png"), "png").unwrap();
+    let into = scratch.dir.join("kept/old");
+    copy_report(&from, &into).unwrap();
+    assert!(into.join("img/a.png").is_file());
+    assert!(!into.join(crate::shot_causes::FILE).exists());
+    std::fs::write(from.join(crate::shot_causes::FILE), "{}").unwrap();
+    copy_report(&from, &into).unwrap();
+    assert_eq!(
+        std::fs::read_to_string(into.join(crate::shot_causes::FILE)).unwrap(),
+        "{}"
+    );
+}
+
+#[test]
+fn a_run_grouped_by_cause_reads_the_records_its_kept_report_holds() {
+    let scratch = crate::testing::Scratch::new("shots-causes");
+    let places = scratch.places();
+    let store = crate::lists::fixtures::make_store(&places, &["demo"]);
+    let database = store.dir.join(app_timing::DATABASE);
+    let key = Key {
+        repo: "demo".to_string(),
+        commit: "a".repeat(40),
+        lane: Lane::Mac,
+        prefix: "mac.".to_string(),
+        version: "b".repeat(40),
+    };
+    let missing = by_cause(&database, &key, "main")
+        .expect_err("refused")
+        .text();
+    assert!(
+        missing.contains("builds app-build demo main --all-shots mac --fresh"),
+        "{missing}"
+    );
+    let folder = report_folder(&database, &key);
+    std::fs::create_dir_all(&folder).unwrap();
+    std::fs::write(
+        folder.join(crate::shot_causes::FILE),
+        r#"{"findings": [{"scene": "mac.a", "component": "MacRow", "kind": "region", "sentence": "s"}], "skipped": []}"#,
+    )
+    .unwrap();
+    let text = by_cause(&database, &key, "main").unwrap();
+    assert!(
+        text.starts_with("1 finding in 1 scene, grouped by cause"),
+        "{text}"
+    );
+}
+
+#[test]
+fn the_script_that_copies_a_report_from_a_host_sends_its_page_pictures_and_records() {
+    let scratch = crate::testing::Scratch::new("shots-copy-script");
+    let from = scratch.dir.join("from dir");
+    std::fs::create_dir_all(from.join("img")).unwrap();
+    std::fs::write(from.join("index.html"), "page").unwrap();
+    std::fs::write(from.join("img/a b.png"), "png").unwrap();
+    for records in [false, true] {
+        if records {
+            std::fs::write(from.join(crate::shot_causes::FILE), "{}").unwrap();
+        }
+        let into = scratch.dir.join(format!("into-{records}"));
+        std::fs::create_dir_all(&into).unwrap();
+        let mut send = std::process::Command::new("sh");
+        send.args([
+            "-c",
+            &report_copy_script(from.to_str().unwrap(), &["img/a b.png".to_string()]),
+        ]);
+        crate::remote::unpack(send, &into, "the test report").unwrap();
+        assert!(into.join("index.html").is_file() && into.join("img/a b.png").is_file());
+        assert_eq!(into.join(crate::shot_causes::FILE).is_file(), records);
+    }
+}

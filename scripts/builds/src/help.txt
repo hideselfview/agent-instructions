@@ -1051,11 +1051,12 @@ beside the file `hosts` and runs the lane again on another host in the same
 way, until `builds host setup <name>` finds the settings on and removes the
 record.
 
-Each --shots and --all-shots run's findings (what the shots program printed)
-are stored in the project's store under the repo, the full commit, the lane,
-the prefix and the shots version, and its report (index.html and pictures) is
-copied to the store's folder, in shots/<commit>-<lane>-<prefix>-<version>/,
-the newest 30 runs, so the next run in the checkout cannot overwrite it. A run
+Each --shots and --all-shots run's findings (all that the shots program
+printed) are stored in the project's store under the repo, the full commit,
+the lane, the prefix and the shots version, and its report (index.html,
+pictures and findings.json, the findings as records) is copied to the store's
+folder, in shots/<commit>-<lane>-<prefix>-<version>/, for the newest 30 runs,
+so the next run in the checkout cannot overwrite it. A run
 that died before it made findings stores nothing, and a repo with no
 `shots-source` line stores none. The "before" side of a shots check is read
 from the store, never built again.
@@ -1160,13 +1161,28 @@ from the store, never built again.
                               again. A result with no .app-build needs no
                               build, whatever projects hold its repo, and
                               neither does a repo in no project
-  builds shots findings <repo> <ref> mac|android <prefix>
+  builds shots findings <repo> <ref> mac|android <prefix> [--by-cause]
                               print the findings stored for <ref>'s commit,
                               the lane and the prefix, with a line on stderr
                               that says how old they are, which shots version
                               made them and where the run's report is. With
                               none stored, it fails and names the app-build
-                              command that makes them
+                              command that makes them. With --by-cause, it
+                              prints them grouped by cause across every scene
+                              from the report's findings.json: by the
+                              design-system component that draws each
+                              finding's board element, ranked by the scenes
+                              and then the findings it breaks, each with its
+                              kinds of finding and the ten scenes where it
+                              makes the most; the findings that no component
+                              draws, by kind; every colour finding by its
+                              exact pair of board and shot colours; and every
+                              frame offset by its offset to the nearest point.
+                              It counts the causes of one finding each instead
+                              of listing them. A report that holds no
+                              findings.json (one from an older shots program,
+                              or one builds no longer keeps) fails, naming the
+                              command that runs the shots again
   builds shots run|capture|check|record|lint|runtime [<argument>...]
                               run builds-shots, which checks the shots of the
                               repo it runs in against the repo's boards, with
@@ -1193,7 +1209,14 @@ from the store, never built again.
                               shot draws that component, which both platforms
                               share (`android.component.artwork.default`
                               draws Artwork); the platform shows only in the
-                              shot's @<platform> file suffix. The program
+                              shot's @<platform> file suffix. `run` and
+                              `check` write the report: index.html, the
+                              pictures, and findings.json, which holds each
+                              finding as a record of its scene, its kind,
+                              the board element it names, the design-system
+                              component that draws that element (the nearest
+                              component above it in React's tree), its
+                              numbers and its sentence. The program
                               reads the
                               .app-build lines that start with shots- (other
                               than shots-source): `shots-capture <platform>

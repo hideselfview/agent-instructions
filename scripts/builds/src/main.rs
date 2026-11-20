@@ -118,6 +118,7 @@ mod sccache_readings;
 mod sccache_service;
 mod setup;
 mod shells;
+mod shot_causes;
 mod shot_findings;
 mod shots_program;
 mod side_git;

@@ -19,17 +19,20 @@
 //! The run's report and pictures are kept beside the findings, so the next
 //! run in the same app checkout (which rewrites the checkout's `shots/`
 //! folder) cannot take them. When the shots program prints `<its name>: report
-//! at <folder>/index.html`, the run copies that `index.html` and the files it
-//! names (`img/...`) from the checkout, or from a host's checkout, to
+//! at <folder>/index.html`, the run copies that `index.html`, the files it
+//! names (`img/...`) and the findings as records (`findings.json`, which
+//! shot_causes.rs reads) from the checkout, or from a host's checkout, to
 //! `<store folder>/shots/<commit>-<platform>-<prefix>-<version>/`: the folder
 //! of the run's key, replaced by a later run of the same key, and kept for
 //! only the newest `KEEP_REPORTS` runs. The run prints the local path of the
 //! report when it ends, and `builds shots findings` prints it again.
 //!
 //! `builds shots findings <repo> <ref> <platform> <prefix>` prints a stored
-//! run. `builds app-build <repo> <ref> --shots <prefix>` (or, in its lane form,
-//! `--shots <platform> <prefix>` with no build step) prints it too, in
-//! place of taking the lane's lock, unless the command has `--fresh`. A run of
+//! run, and with `--by-cause` its findings grouped by cause, from the records
+//! its kept report holds (shot_causes.rs). `builds app-build <repo> <ref>
+//! --shots <prefix>` (or, in its lane form, `--shots <platform> <prefix>` with
+//! no build step) prints it too, in place of taking the lane's lock, unless
+//! the command has `--fresh`. A run of
 //! a platform's full set of shots (`--all-shots <platform>`) is kept under the
 //! prefix every shot of the platform starts with (`mac.`).
 
@@ -43,8 +46,10 @@ use crate::app_timing::{self, now};
 use crate::db::{self, Sql};
 use crate::fail;
 use crate::fail::Result;
+use crate::host::sh_quote;
 use crate::lane::Lane;
 use crate::places::Places;
+use crate::shot_causes;
 use crate::text::note;
 
 /// The line the shots program's own output starts after: cargo's, for the
@@ -152,8 +157,9 @@ pub fn install_folder(staging: &Path, into: &Path) -> Result<()> {
     })
 }
 
-/// Copies the report in <from> (its `index.html` and the files that page
-/// shows) to the folder <into>.
+/// Copies the report in <from> (its `index.html`, the files that page shows
+/// and its findings as records, when the shots program wrote them) to the
+/// folder <into>.
 pub fn copy_report(from: &Path, into: &Path) -> Result<()> {
     let page = from.join("index.html");
     let html = std::fs::read_to_string(&page)
@@ -179,7 +185,27 @@ pub fn copy_report(from: &Path, into: &Path) -> Result<()> {
     for name in report_files(&html) {
         copy(&name)?;
     }
+    if from.join(shot_causes::FILE).is_file() {
+        copy(shot_causes::FILE)?;
+    }
     install_folder(&staging, into)
+}
+
+/// The shell script that writes to its output a tar of the report in <dir>:
+/// its `index.html`, <files> (the files the page shows) and its findings as
+/// records when the folder has them. A copy from a host's checkout runs it
+/// there.
+pub fn report_copy_script(dir: &str, files: &[String]) -> String {
+    let named: Vec<String> = std::iter::once("index.html")
+        .chain(files.iter().map(String::as_str))
+        .map(sh_quote)
+        .collect();
+    let records = sh_quote(shot_causes::FILE);
+    format!(
+        "cd {} && set -- {} && if [ -f {records} ]; then set -- \"$@\" {records}; fi && tar -chf - \"$@\"",
+        sh_quote(dir),
+        named.join(" ")
+    )
 }
 
 /// Deletes the report folders in <shots> beyond the newest `KEEP_REPORTS`.
@@ -347,6 +373,13 @@ pub fn key_for(
 
 /// Prints <stored>: a line to say which run it is, then its text.
 pub fn print(stored: &Stored) {
+    note_run(stored);
+    print!("{}", stored.findings);
+}
+
+/// Says on stderr which run <stored> is: its commit, lane and prefix, how old
+/// it is, the shots program's version and the exit status.
+fn note_run(stored: &Stored) {
     let Key {
         repo,
         commit,
@@ -362,7 +395,21 @@ pub fn print(stored: &Stored) {
         &version[..version.len().min(12)],
         stored.exit_code
     ));
-    print!("{}", stored.findings);
+}
+
+/// The findings of the run <key> grouped by cause, from the records its kept
+/// report holds in the store whose database is <database>. Fails when the
+/// store keeps no such records, naming the command that runs <key> again for
+/// <git_ref>.
+pub fn by_cause(database: &Path, key: &Key, git_ref: &str) -> Result<String> {
+    match shot_causes::read(&report_folder(database, key)) {
+        Ok(run) => Ok(shot_causes::text(&run)),
+        Err(error) => fail!(
+            "{}. The shots program writes its findings as records beside its report, and builds keeps the reports of the newest {KEEP_REPORTS} runs; `{} --fresh` runs this one again",
+            error.text(),
+            how_to_make(&key.repo, git_ref, key.lane, &key.prefix)
+        ),
+    }
 }
 
 fn age(seconds: i64) -> String {
@@ -374,7 +421,7 @@ fn age(seconds: i64) -> String {
     }
 }
 
-const USAGE: &str = "usage: builds shots findings <repo> <ref> mac|android <prefix>";
+const USAGE: &str = "usage: builds shots findings <repo> <ref> mac|android <prefix> [--by-cause]";
 
 /// The command a missing run of <prefix> on <lane> is made with: the
 /// lane's full set of shots for the prefix every shot of the lane starts
@@ -393,21 +440,28 @@ pub fn how_to_make(repo: &str, git_ref: &str, lane: Lane, prefix: &str) -> Strin
 
 /// `builds shots findings`, given the arguments after `findings`.
 pub fn cmd_findings(places: &Places, args: &[String]) -> Result<()> {
-    let [repo, git_ref, lane, prefix] = args else {
+    let grouped = args.iter().any(|arg| arg == "--by-cause");
+    let args: Vec<&String> = args.iter().filter(|arg| *arg != "--by-cause").collect();
+    let [repo, git_ref, lane, prefix] = args[..] else {
         fail!("{USAGE}");
     };
     let lane = Lane::parse_or_fail(lane)?;
     let (key, database) = key_for(places, repo, git_ref, lane, prefix)?;
     let stored = match &database {
-        Some(database) => lookup(database, &key)?,
+        Some(database) => lookup(database, &key)?.map(|stored| (database, stored)),
         None => None,
     };
     match stored {
-        Some(stored) => {
+        Some((database, stored)) if grouped => {
+            let text = by_cause(database, &stored.key, git_ref)?;
+            note_run(&stored);
+            print!("{text}");
+            note_report(database, &stored.key);
+            Ok(())
+        }
+        Some((database, stored)) => {
             print(&stored);
-            if let Some(database) = &database {
-                note_report(database, &stored.key);
-            }
+            note_report(database, &stored.key);
             Ok(())
         }
         None => fail!(

@@ -193,7 +193,10 @@ WHAT AN IMPLEMENTING AGENT DOES
      A shots check compares against the findings of the commit the branch
      started from: read them with `builds shots findings`, never by building
      that commit, and open the report path it prints, never a checkout's
-     shots/ folder. To run the hook's checks over every file the branch
+     shots/ folder. To fix a run's shot findings, start from `builds shots
+     findings ... --by-cause`, which ranks the design-system components
+     behind the findings by the scenes they break: fix the component at the
+     top once, not each scene it breaks. To run the hook's checks over every file the branch
      changed, run `builds checks run --since origin/main`, which leaves HEAD,
      the index and the files on the branch. Never move HEAD to check a
      branch: an app build started meanwhile builds what HEAD points at.
