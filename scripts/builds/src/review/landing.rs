@@ -391,13 +391,40 @@ pub fn judge(
     Ok(verdict)
 }
 
-/// The net change of <head> in the checkout at <dir> past origin/main, and
-/// how many lines it adds, when it adds more than the review's cap; None
-/// when it adds no more.
-fn over_the_cap(dir: &Path, head: &str) -> Result<Option<(String, i64)>> {
+/// A branch over the review's cap as `builds review` recorded it: how many
+/// lines its net change adds, the patch id of that change, and where the
+/// branch stands (`over_cap::standing`).
+struct OverTheCap {
+    added: i64,
+    patch_id: String,
+    standing: Option<over_cap::Standing>,
+}
+
+/// The branch <change> at <head> in the checkout at <dir>, when its net change
+/// past origin/main adds more lines than the review's cap; None when it adds
+/// no more.
+fn over_the_cap(
+    db: &Connection,
+    change: Change,
+    dir: &Path,
+    head: &str,
+) -> Result<Option<OverTheCap>> {
     let net = run::diff_between(dir, BRANCH_BASE, head)?;
     let added = check::added_lines(&net.diff.text);
-    Ok((added > check::MAX_ADDED_LINES).then_some((net.diff.text, added)))
+    if added <= check::MAX_ADDED_LINES {
+        return Ok(None);
+    }
+    let patch_id = over_cap::patch_id(&net.diff.text)?;
+    let branch = over_cap::Branch {
+        change,
+        patch_id: &patch_id,
+    };
+    let standing = over_cap::standing(db, branch)?;
+    Ok(Some(OverTheCap {
+        added,
+        patch_id,
+        standing,
+    }))
 }
 
 /// The branch <change> at <head> when its net change is over the review's cap
@@ -408,16 +435,12 @@ fn over_cap_needs_none(
     dir: &Path,
     head: &str,
 ) -> Result<Option<OverCap>> {
-    let Some((net, added)) = over_the_cap(dir, head)? else {
-        return Ok(None);
-    };
-    let patch_id = over_cap::patch_id(&net)?;
-    let branch = over_cap::Branch {
-        change,
-        patch_id: &patch_id,
-    };
-    Ok(match over_cap::standing(db, branch)? {
-        Some(over_cap::Standing::Waiting(over_cap::Waiting::Mechanical(why))) => Some(OverCap {
+    Ok(match over_the_cap(db, change, dir, head)? {
+        Some(OverTheCap {
+            added,
+            patch_id,
+            standing: Some(over_cap::Standing::Waiting(over_cap::Waiting::Mechanical(why))),
+        }) => Some(OverCap {
             added,
             why,
             patch_id,
@@ -622,20 +645,19 @@ pub fn check_landing_command(tool: &Tool, args: &[String]) -> Result<()> {
 /// cap and waits on the person's answer to whether it is reviewed, or was
 /// refused one; None when it is under the cap or needs no review.
 fn waits_over_cap(asked: &Asked) -> Result<Option<String>> {
-    let Some((net, added)) = over_the_cap(&asked.dir, "HEAD")? else {
-        return Ok(None);
-    };
-    let patch_id = over_cap::patch_id(&net)?;
-    let branch = over_cap::Branch {
-        change: asked.change(),
-        patch_id: &patch_id,
-    };
-    Ok(match over_cap::standing(&asked.conn, branch)? {
-        Some(over_cap::Standing::Waiting(
-            waiting @ (over_cap::Waiting::Asked(_) | over_cap::Waiting::Declined(_)),
-        )) => Some(over_cap::waiting_text(&asked.key, added, waiting)),
-        _ => None,
-    })
+    Ok(
+        match over_the_cap(&asked.conn, asked.change(), &asked.dir, "HEAD")? {
+            Some(OverTheCap {
+                added,
+                standing:
+                    Some(over_cap::Standing::Waiting(
+                        waiting @ (over_cap::Waiting::Asked(_) | over_cap::Waiting::Declined(_)),
+                    )),
+                ..
+            }) => Some(over_cap::waiting_text(&asked.key, added, waiting)),
+            _ => None,
+        },
+    )
 }
 
 /// What a verdict that lets the commits land says of them.
