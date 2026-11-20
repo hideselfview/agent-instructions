@@ -1090,8 +1090,10 @@ app-build passes the lane's app tree to each shots run on this Mac (`run
 --app-tree`). When the folder keeps every shot the run selects for that
 tree, the run takes the shots from it and runs no capture command;
 otherwise it captures them and keeps them there. A commit that changes no
-path of the lane's app takes no shot again. A shots run on a host gets no
-picture folder: it draws every board and captures every shot.
+path of the lane's app takes no shot again. For a shots run on a host,
+app-build copies the board pictures and the shots kept for the lane's app
+tree to a temporary folder on the host, passes that folder to the run, and
+afterwards moves the pictures the run added into the folder here.
 
 A shots run of a commit that origin/main lacks compares with the run of its
 merge base with origin/main: builds passes the findings.json of that run to
@@ -1846,7 +1848,8 @@ one of them. Whatever a run used in the last 30 minutes stays. `setup` and
 run which died left behind, and each folder the deleted runs left empty.
 They delete nothing in the folder while a shots step reads or writes it,
 which a step on this Mac does while it runs and a step on a host does while
-builds copies a before run to the host. `status` shows each repo's folder's
+builds copies a before run and pictures to the host and the new pictures
+back. `status` shows each repo's folder's
 size against the cap.
 
 When xcodebuild fails with "Couldn't check out revision" or "file not found" on

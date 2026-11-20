@@ -358,6 +358,56 @@ impl RemoteApp {
         Ok(there)
     }
 
+    /// Copies the parts <parts> of the folder <local> that exist (folders in
+    /// it) to a new temporary folder on the host, and returns the folder's
+    /// path there.
+    pub fn put_folder(&mut self, local: &Path, parts: &[String]) -> Result<String> {
+        let made = self.transport().capture(
+            "mktemp -d \"${TMPDIR:-/tmp}/builds-pictures.XXXXXX\"",
+            "making a temporary folder",
+        )?;
+        let there = made.trim().to_string();
+        let present: Vec<&String> = parts
+            .iter()
+            .filter(|part| local.join(part).is_dir())
+            .collect();
+        if present.is_empty() {
+            return Ok(there);
+        }
+        let mut tar = Command::new("tar");
+        tar.arg("-cf").arg("-").arg("-C").arg(local).args(present);
+        crate::remote::pipe(
+            tar,
+            self.transport()
+                .command(&format!("tar -xf - -C {}", sh_quote(&there))),
+            &format!("{} to host {}", local.display(), self.host.name),
+        )?;
+        Ok(there)
+    }
+
+    /// Copies the folder <there> on the host into the new folder <into>
+    /// here.
+    pub fn fetch_folder(&mut self, there: &str, into: &Path) -> Result<()> {
+        std::fs::create_dir_all(into).context(|| format!("creating {}", into.display()))?;
+        crate::remote::unpack(
+            self.transport()
+                .command(&format!("cd {} && tar -cf - .", sh_quote(there))),
+            into,
+            &format!("{there} from host {}", self.host.name),
+        )
+    }
+
+    /// Deletes the temporary folder <there> that `put_folder` made on the
+    /// host.
+    pub fn remove_temporary_folder(&mut self, there: &str) -> Result<()> {
+        self.transport()
+            .capture(
+                &format!("rm -rf {}", sh_quote(there)),
+                "deleting a temporary folder",
+            )
+            .map(|_| ())
+    }
+
     /// Deletes the temporary file <there> that `put_temporary` made on the
     /// host.
     pub fn remove_temporary(&mut self, there: &str) -> Result<()> {

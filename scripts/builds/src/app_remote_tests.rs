@@ -369,3 +369,29 @@ fn marking_reads_only_the_hosts_two_answers() {
         assert!(error.contains("lane file"), "{error}");
     }
 }
+
+#[test]
+fn a_picture_folders_parts_go_to_a_temporary_folder_on_the_host_and_come_back() {
+    let s = setup("remote-app-pictures");
+    let mut app = remote_app(&s, Lane::Mac);
+    let local = s.places.root.join("pictures");
+    std::fs::create_dir_all(local.join("boards")).unwrap();
+    std::fs::write(local.join("boards/h.png"), "png").unwrap();
+    std::fs::create_dir_all(local.join("android/other")).unwrap();
+    std::fs::write(local.join("android/other/x.png"), "x").unwrap();
+    let parts = ["boards".to_string(), "mac/tree1".to_string()];
+    let there = app.put_folder(&local, &parts).unwrap();
+    let there_path = Path::new(&there);
+    assert!(there_path.join("boards/h.png").is_file());
+    assert!(
+        !there_path.join("android").exists(),
+        "only the parts named go"
+    );
+    std::fs::create_dir_all(there_path.join("mac/tree1")).unwrap();
+    std::fs::write(there_path.join("mac/tree1/s.png"), "shot").unwrap();
+    let back = s.places.root.join("back");
+    app.fetch_folder(&there, &back).unwrap();
+    assert!(back.join("mac/tree1/s.png").is_file() && back.join("boards/h.png").is_file());
+    app.remove_temporary_folder(&there).unwrap();
+    assert!(!there_path.exists());
+}

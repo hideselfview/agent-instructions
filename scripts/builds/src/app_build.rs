@@ -747,18 +747,22 @@ fn run_remote_step(
     fault: Option<&Found>,
     read: &lock::EachLine,
 ) -> Result<Within> {
-    let placed = match (kind, shots.before_of(step)) {
-        (StepKind::Shots, Some(findings)) => {
-            // Held while the copy reads the before run, which the prune
-            // then leaves.
-            let _reading = shots.writing()?;
-            Some(remote.put_temporary(findings)?)
-        }
-        _ => None,
+    let store = (kind == StepKind::Shots).then_some(shots);
+    // Held while the copies read the before run and the picture folder,
+    // which the prune then leaves.
+    let reading = store.map(|store| store.writing()).transpose()?;
+    let placed = match store.and_then(|store| store.before_of(step)) {
+        Some(findings) => Some(remote.put_temporary(findings)?),
+        None => None,
     };
-    let command = match &placed {
-        Some(there) => with_before(&step.command, there),
-        None => step.command.clone(),
+    let pictures = match store {
+        Some(store) => Some(remote.put_folder(&store.pictures(), &store.picture_parts())?),
+        None => None,
+    };
+    drop(reading);
+    let command = match (store, &pictures) {
+        (Some(store), Some(there)) => store.command(step, placed.as_deref(), there),
+        _ => step.command.clone(),
     };
     let start = remote.step_command(&command)?;
     let kept = lock::Captured::default();
@@ -769,8 +773,9 @@ fn run_remote_step(
     {
         note(error.text());
     }
-    if kind == StepKind::Shots {
-        shots.keep_of(&ran, &kept, step, remote);
+    if let (Some(store), Some(there)) = (store, &pictures) {
+        store.bring_back_pictures(remote, there);
+        store.keep_of(&ran, &kept, step, remote);
     }
     if results.is_empty() || matches!(ran, Ok(Within::Ran(Ran::Stopped))) {
         return ran;
@@ -892,19 +897,42 @@ impl ShotsStore {
     /// runs of the lane's app tree took from the picture folder
     /// (builds-shots' `run --pictures --app-tree`).
     fn local_command(&self, step: &Step) -> Vec<String> {
-        let mut command = match self.before_of(step) {
-            Some(findings) => with_before(&step.command, &findings.display().to_string()),
+        let before = self
+            .before_of(step)
+            .map(|findings| findings.display().to_string());
+        let pictures = self.pictures().display().to_string();
+        self.command(step, before.as_deref(), &pictures)
+    }
+
+    /// The command of the shots run <step>: its line, comparing with the
+    /// findings.json at <before> when there is one, with the picture folder
+    /// at <pictures> and the lane's app tree.
+    fn command(&self, step: &Step, before: Option<&str>, pictures: &str) -> Vec<String> {
+        let mut command = match before {
+            Some(findings) => with_before(&step.command, findings),
             None => step.command.clone(),
         };
         command.extend([
             "--pictures".to_string(),
-            shot_store::pictures(&self.places, &self.repo)
-                .display()
-                .to_string(),
+            pictures.to_string(),
             "--app-tree".to_string(),
             self.app_tree.clone(),
         ]);
         command
+    }
+
+    /// The repo's picture folder on this Mac.
+    fn pictures(&self) -> std::path::PathBuf {
+        shot_store::pictures(&self.places, &self.repo)
+    }
+
+    /// The parts of the picture folder a run on a host reads: the board
+    /// pictures and the shots kept for the lane's app tree.
+    fn picture_parts(&self) -> Vec<String> {
+        vec![
+            shot_store::BOARD_PICTURES.to_string(),
+            format!("{}/{}", self.lane.word(), self.app_tree),
+        ]
     }
 
     /// The findings.json of the run the shots run <step> compares with, when
@@ -994,6 +1022,31 @@ impl ShotsStore {
         match staging.finish(exit, findings) {
             Ok(stored) => shot_findings::note_report(&stored),
             Err(error) => note(format!("the shots run was not kept: {}", error.text())),
+        }
+    }
+
+    /// Copies the pictures a run on the host drew or took into the picture
+    /// folder <there> on the host into the repo's picture folder here, and
+    /// deletes <there>. What fails is said and changes nothing about the
+    /// build's result.
+    fn bring_back_pictures(&self, remote: &mut RemoteApp, there: &str) {
+        let pictures = self.pictures();
+        let incoming = shot_store::incoming(&pictures);
+        // The lock keeps the prune from deleting the incoming folder while
+        // the copy fills it.
+        let brought = self.writing().and_then(|_writing| {
+            remote.fetch_folder(there, &incoming)?;
+            shot_store::merge_pictures(&incoming, &pictures)
+        });
+        if let Err(error) = brought {
+            note(format!(
+                "the pictures of the run on host {} were not kept: {}",
+                remote.host.name,
+                error.text()
+            ));
+        }
+        if let Err(error) = remote.remove_temporary_folder(there) {
+            note(error.text());
         }
     }
 

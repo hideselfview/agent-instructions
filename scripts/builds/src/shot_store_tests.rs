@@ -337,3 +337,35 @@ fn the_cap_deletes_an_app_source_trees_shots_whole_when_they_are_used_least_rece
     prune_runs(&tool, Run::Real, 500).unwrap();
     assert!(!old_tree.exists() && new_tree.exists());
 }
+
+#[test]
+fn pictures_a_host_made_move_into_place_and_kept_ones_stay() {
+    let scratch = Scratch::new("shot-store-merge");
+    let places = scratch.places();
+    let folder = pictures(&places, "demo");
+    std::fs::create_dir_all(folder.join(BOARD_PICTURES)).unwrap();
+    std::fs::write(folder.join("boards/kept.png"), "here").unwrap();
+    let incoming = incoming(&folder);
+    for (path, text) in [
+        ("boards/kept.png", "there"),
+        ("boards/new.png", "png"),
+        ("boards/new.json", "{}"),
+        ("mac/tree1/mac.a.b@macos.png", "shot"),
+    ] {
+        let file = incoming.join(path);
+        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+        std::fs::write(file, text).unwrap();
+    }
+    merge_pictures(&incoming, &folder).unwrap();
+    assert_eq!(
+        std::fs::read_to_string(folder.join("boards/kept.png")).unwrap(),
+        "here"
+    );
+    assert_eq!(
+        std::fs::read_to_string(folder.join("boards/new.png")).unwrap(),
+        "png"
+    );
+    assert!(folder.join("boards/new.json").is_file());
+    assert!(folder.join("mac/tree1/mac.a.b@macos.png").is_file());
+    assert!(!incoming.exists());
+}

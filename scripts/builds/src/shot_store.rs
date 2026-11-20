@@ -74,7 +74,10 @@ const OUTPUT_FILE: &str = "output.txt";
 /// The folder of a run's folder that holds its report.
 const REPORT: &str = "report";
 /// The folder of a picture folder that holds the board pictures.
-const BOARD_PICTURES: &str = "boards";
+pub const BOARD_PICTURES: &str = "boards";
+/// What the name of a folder starts with that holds, in a picture folder,
+/// the pictures a run on a host made while builds moves them into place.
+const INCOMING: &str = ".incoming-";
 /// What a staging folder's name starts with after the dot that hides it.
 const STAGING: &str = ".staging-";
 /// The lock file in the folder `shots` that each run storing its output
@@ -143,6 +146,55 @@ fn check_prefix(prefix: &str) -> Result<()> {
 /// board pictures to.
 pub fn pictures(places: &Places, repo: &str) -> PathBuf {
     root(places).join(repo).join("pictures")
+}
+
+/// A new folder in the picture folder <pictures> for the pictures a run on a
+/// host made, which `merge_pictures` then moves into place.
+pub fn incoming(pictures: &Path) -> PathBuf {
+    pictures.join(format!("{INCOMING}{}-{}", std::process::id(), now()))
+}
+
+/// Moves each picture file in <incoming> that <pictures> lacks to the same
+/// place in <pictures>, element lists before pictures, so that the shots
+/// program never finds a picture without its element list, and deletes
+/// <incoming>. A file <pictures> already has stays as it is: its key names
+/// the same inputs.
+pub fn merge_pictures(incoming: &Path, pictures: &Path) -> Result<()> {
+    let mut files = Vec::new();
+    let mut folders = vec![incoming.to_path_buf()];
+    while let Some(folder) = folders.pop() {
+        for (name, path) in entries_in(&folder)? {
+            if name.starts_with('.') {
+                continue;
+            }
+            if path.is_dir() {
+                folders.push(path);
+            } else {
+                files.push(path);
+            }
+        }
+    }
+    files.sort_by_key(|file| {
+        (
+            file.extension().is_some_and(|ext| ext == "png"),
+            file.clone(),
+        )
+    });
+    for file in files {
+        let relative = file
+            .strip_prefix(incoming)
+            .expect("the file was found in the folder");
+        let into = pictures.join(relative);
+        if into.exists() {
+            continue;
+        }
+        if let Some(parent) = into.parent() {
+            std::fs::create_dir_all(parent).context(|| format!("creating {}", parent.display()))?;
+        }
+        std::fs::rename(&file, &into)
+            .context(|| format!("moving {} to {}", file.display(), into.display()))?;
+    }
+    remove_all(incoming)
 }
 
 /// The folder of the runs of <repo>'s <commit> on <lane>, one folder per
@@ -458,7 +510,9 @@ fn held(places: &Places, repo: &str) -> Result<Held> {
         }
     }
     for (name, platform) in folders_in(&pictures(places, repo))? {
-        if name != BOARD_PICTURES {
+        if name.starts_with(INCOMING) {
+            held.stagings.push(platform);
+        } else if name != BOARD_PICTURES && !name.starts_with('.') {
             held.shots
                 .extend(folders_in(&platform)?.into_iter().map(|(_, tree)| tree));
         }
