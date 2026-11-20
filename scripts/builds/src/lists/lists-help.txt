@@ -581,12 +581,13 @@ the paths they change and by the bytes of the boards, components and sources
 at the change's last commit and at the commits' last one, never by commit
 hash.
 
-The review page shows the change's details, with every board
-of the change drawn twice, side by side, in frames the person can zoom (never
-an image): now, the board as it stands on origin/main, and proposed, the board
-at the last commit of the change's range, each drawn with its own commit's
-design system. A board the change adds says it has no now; a board it
-deletes shows only its now. Asked for at 127.0.0.1 or localhost on this Mac,
+The review page shows the change's details and the boards the recorder put on
+it (decision #369), in frames the person can zoom (never an image): proposed,
+the board at the last commit of the change's range, and, beside it where the
+recorder asked for it, now, the board as it stands on origin/main, each drawn
+with its own commit's design system. Under them the page lists the change's
+other boards by name, folded: a board the change changes opens to its
+proposal, and a board it deletes opens to its now. Asked for at 127.0.0.1 or localhost on this Mac,
 the page also links each scratch board in the change's worktree to its
 scratch view (`builds help workflow`, DESIGN CHANGES). The dashboard serves the page at /design/PROJECT/N, with the
 project's name before the change's id, since each project counts its own ids;
@@ -700,20 +701,25 @@ sent again.
       id that is no decision of the log, and a request that gives both `fix`
       and `decision`.
       `review` is the review page: one heading, because the person reviews
-      one concern per change, the words under it (optional, at most 25 words, naming
-      what changed in a few short sentences; `code`, **bold**, paragraphs and
-      `-` lists) and its boards (optional), each a board file of the repo's design
-      places that exists at the range's last commit, with its caption and the
-      theme it is drawn in (a board may be on the page twice, once per theme,
-      and a board the change did not touch may be there to compare). Every
-      board place of the change must be on the page. A board file the range
-      deletes needs no answer, link or place on the page: it is listed as
-      deleted, and the page shows only its now.
-      `circles` on a board names what changed on it, and a board that the
-      range changes needs at least one (decision #299): one circle per
-      change, around the area that holds it, not one circle on each element
-      in it. A board the range leaves as it is, shown to compare, takes
-      none. A circle gives the `selector` of a containing element or a `box`
+      one concern per change, and its boards (optional), each a board file
+      of the repo's design places that exists at the range's last commit,
+      with its caption, the theme it is drawn in and `show_now` (optional).
+      The recorder picks the fewest boards that show the proposed design,
+      each in a situation that fits it, and need not put every board the
+      change changes on the page (decision #369). A board may be on the page
+      twice, once per theme, and a board the change did not touch may be
+      there to compare. Each board shows its proposal alone, and with
+      `show_now` true the page also shows the board as it stands on
+      origin/main beside it. A board that is no file on origin/main has no
+      now, so record and amend refuse `show_now` on it. The page lists each
+      other board place of the change by name, folded, and the person opens
+      any of them to its proposal. A board file the range deletes needs no
+      answer, link or place on the page: the page lists it by name as
+      deleted, and it opens to its now.
+      `circles` on a board names what changed on it, and a board needs none
+      when its proposal shows the change without one (decision #369): one
+      circle per change, around the area that holds it, not one circle on
+      each element in it (decision #299). A circle gives the `selector` of a containing element or a `box`
       on the board in pixels (x, y, width, height), and one of them. The page
       circles each element that a circle's selector finds, on each side (now
       and proposed) where the selector finds it, and draws a box on each side
@@ -723,8 +729,7 @@ sent again.
       page also lists under the board's caption. The page names each circle
       whose selector is no CSS selector or finds nothing on either side. A
       board that is no file on origin/main is new: it takes circles too,
-      which the page draws on the Proposed side, and its Now side says the
-      board is new.
+      which the page draws on the Proposed side.
       `worktree` and the range's last commit are stored with the change, and
       the page reads each board from that repo at that commit, so the commit
       must stay in the repo while the change is open. A change recorded
@@ -737,9 +742,11 @@ sent again.
       change, `matches` has no how,
       an item is closed or missing, a board of a project that publishes a
       canvas has no link, a project that publishes none gives `boards`,
-      `review` is missing, has a heading with no text or more than 25
-      words, a board of it is no file, no board place or has no caption, a
-      circle has no selector, an empty label or a box with no width or height, or gives both or neither of a selector and a box, a board that the range changes has no circle, a board of the change is not on it, or the range
+      `review` is missing or has a heading with no text, a board of it is no
+      file, no board place or has no caption, a board of it that is no file
+      on origin/main has `show_now`, a circle has no selector, an empty label
+      or a box with no width or height, or gives both or neither of a
+      selector and a box, or the range
       changes no design files. A canvas.json the range changes is a place
       to answer like any other, and is no board: it takes no link and no
       place on the review page.
@@ -752,8 +759,7 @@ sent again.
       `null` or leaves out keeps the app work it has. `title` and
       `details` are optional;
       `worktree` replaces the one stored; `review`, when given, replaces the
-      whole page (left out, the page stays, and must still hold every board
-      of the change). The amend stores the new last commit and clears the
+      whole page (left out, the page stays). The amend stores the new last commit and clears the
       record that builds sent the recording session the approval message.
       The amend keeps the person's approval when the change keeps its
       places, deleted boards and review page, and the new last commit holds

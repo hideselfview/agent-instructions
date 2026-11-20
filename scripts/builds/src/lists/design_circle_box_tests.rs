@@ -15,6 +15,7 @@ fn one_board(db: &Connection) -> Id {
                 board: "design/mocks/A.dc.html".into(),
                 caption: "the A".into(),
                 theme: Theme::Dark,
+                show_now: false,
                 circles: vec![],
             }],
         }),

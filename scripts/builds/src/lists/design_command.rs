@@ -255,9 +255,9 @@ fn affected_components(scope: &Scope, request: &DesignRequest) -> Result<BTreeSe
 /// Every board on the request's review page is one of the repo's board
 /// places and a file at the range's last commit, which the dashboard draws it
 /// from. A board that is no file on origin/main is new, and its circles mark
-/// what it adds on the page's Proposed side. A board the range changes has a
-/// circle around the area that holds its change; a board it leaves as it is,
-/// shown to compare, has none.
+/// what it adds on the page's Proposed side; it has no now, so the page
+/// cannot show one. The recorder picks the boards and circles that show the
+/// proposal, and a board needs no circle (decision #369).
 fn require_review_boards(scope: &Scope, request: &DesignRequest) -> Result<()> {
     if let Some(section) = &request.review {
         for board in &section.boards {
@@ -277,10 +277,13 @@ fn require_review_boards(scope: &Scope, request: &DesignRequest) -> Result<()> {
                     scope.tip
                 );
             }
-            if board.circles.is_empty() && scope.changes.places.contains(&board.board) {
+            if board.show_now
+                && !boards::exists_in(&scope.checkout.top, crate::design_render::NOW, &board.board)?
+            {
                 fail!(
-                    "`review` shows {}, which the change changes, with no circle: circle the area that holds the change with the `selector` of a containing element or a `box` (x, y, width, height) on the board",
-                    board.board
+                    "`review` asks for the now of {}, which is no file on {}: a board the change adds has no now, so leave out `show_now`",
+                    board.board,
+                    crate::design_render::NOW
                 );
             }
         }

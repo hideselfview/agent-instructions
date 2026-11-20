@@ -171,18 +171,21 @@ fn review_of(dir: &Path, tip: &str) -> (DesignChange, DesignView) {
                     board: "design/mocks/A.dc.html".into(),
                     caption: "the A </script> caption".into(),
                     theme: Theme::Dark,
+                    show_now: true,
                     circles: vec![],
                 },
                 ReviewBoard {
                     board: "design/mocks/B.dc.html".into(),
                     caption: "no size".into(),
                     theme: Theme::Light,
+                    show_now: true,
                     circles: vec![],
                 },
                 ReviewBoard {
                     board: "design/mocks/Z.dc.html".into(),
                     caption: "no file".into(),
                     theme: Theme::Light,
+                    show_now: true,
                     circles: vec![],
                 },
             ],
@@ -333,12 +336,14 @@ fn a_board_the_change_adds_has_no_now_and_a_board_it_deletes_has_only_a_now() {
             board: "design/mocks/A.dc.html".into(),
             caption: "the A".into(),
             theme: Theme::Dark,
+            show_now: true,
             circles: vec![],
         },
         ReviewBoard {
             board: "design/mocks/New.dc.html".into(),
             caption: "the new one".into(),
             theme: Theme::Light,
+            show_now: true,
             circles: vec![],
         },
     ];
@@ -376,6 +381,87 @@ fn a_board_the_change_adds_has_no_now_and_a_board_it_deletes_has_only_a_now() {
     )
     .unwrap();
     assert!(old.contains("the old board"));
+}
+
+/// A board on the page shows its proposal alone unless the recorder asked
+/// for its now, and the page lists each other board the change changes or
+/// deletes by name, with the drawing the reviewer opens it to: a changed
+/// board's proposal, a deleted board's now (decision #369).
+#[test]
+fn a_review_page_shows_the_proposal_and_lists_the_other_boards_of_the_change() {
+    let scratch = Scratch::new("render-proposal-only");
+    let dir = tree(&scratch);
+    std::fs::write(
+        dir.join("design/mocks/Old.dc.html"),
+        "<x-dc><p>the old board</p></x-dc>",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("design/mocks/canvas.json"),
+        r#"{"v": 3, "boards": {"A.dc.html": {"w": 400, "h": 300}, "B.dc.html": {"w": 20, "h": 30}, "C.dc.html": {"w": 40, "h": 50}, "Old.dc.html": {"w": 50, "h": 60}}}"#,
+    )
+    .unwrap();
+    let main = commit(&dir);
+    set_origin_main(&dir, &main);
+    git(&dir, &["checkout", "-q", "-b", "change"]);
+    git(&dir, &["rm", "-q", "design/mocks/Old.dc.html"]);
+    std::fs::write(dir.join("design/mocks/C.dc.html"), "<x-dc><p>C</p></x-dc>").unwrap();
+    let tip = commit(&dir);
+    let db = db();
+    let id = design_drawn(
+        &db,
+        &dir.display().to_string(),
+        &[
+            ("design/mocks/A.dc.html", "https://canvas.example/#A"),
+            ("design/mocks/C.dc.html", "https://canvas.example/#C"),
+            ("design/mocks/B.dc.html", "https://canvas.example/#B"),
+        ],
+        Some(ReviewSection {
+            heading: "A heading".into(),
+            boards: vec![ReviewBoard {
+                board: "design/mocks/A.dc.html".into(),
+                caption: "the A".into(),
+                theme: Theme::Dark,
+                show_now: false,
+                circles: vec![],
+            }],
+        }),
+    );
+    design_tipped(&db, id, &tip);
+    let mut change = read(&db).design(id).unwrap().clone();
+    change.deleted.insert("design/mocks/Old.dc.html".into());
+    let view = design_view(&read(&db), &change, None).unwrap();
+    let data = page_data(&review_page(&change, &view, "demo", &Value::Null).unwrap());
+    let id = change.id.0;
+    let board = &data["section"]["boards"][0];
+    assert_eq!(board["now"], Value::Null, "{board}");
+    assert_eq!(
+        board["proposed"]["src"],
+        json!(format!("/design/demo/{id}/board/0/proposed"))
+    );
+    // B and C are changed and not on the page; Old is deleted.
+    assert_eq!(
+        data["others"],
+        json!([
+            {
+                "path": "design/mocks/B.dc.html",
+                "proposed": { "w": 20, "h": 30, "src": format!("/design/demo/{id}/changed/0/proposed") }
+            },
+            {
+                "path": "design/mocks/C.dc.html",
+                "proposed": { "w": 40, "h": 50, "src": format!("/design/demo/{id}/changed/1/proposed") }
+            },
+        ])
+    );
+    assert_eq!(
+        data["deleted"][0]["now"]["src"],
+        json!(format!("/design/demo/{id}/deleted/0/now"))
+    );
+    assert_eq!(
+        other_board(&change, 1).map(String::as_str),
+        Some("design/mocks/C.dc.html")
+    );
+    assert!(other_board(&change, 2).is_none());
 }
 
 #[test]

@@ -29,6 +29,12 @@ figcaption a { color: var(--accent); font-weight: 400; font-size: 12px; margin-l
 .work { max-width: 1100px; padding-left: 18px; }
 .work li { margin: 3px 0; }
 .work code { font: 13px ui-monospace, Menlo, monospace; }
+.others { max-width: 1100px; }
+.others details { margin: 4px 0; }
+.others summary { cursor: pointer; }
+.others summary code { font: 13px ui-monospace, Menlo, monospace; }
+.others summary .meta { color: var(--dim); font-size: 12px; margin-left: 6px; }
+.others details > .side { margin: 8px 0 12px; }
 </style>
 </head>
 <body>
@@ -139,20 +145,22 @@ function showApproval(problem) {
 showApproval();
 
 // Each drawing is a rendered page in a frame, drawn at the size the canvas
-// gives it and scaled (frames.js). A board shows its now and its proposed
-// side by side, each with the design system of its own commit.
+// gives it and scaled (frames.js). A board shows its proposal, and its now
+// beside it where the recorder asked for it, each with the design system of
+// its own commit. `halves` says whether the drawing shares the width with
+// another.
 let zoom = "fit";
 const frames = [];
-function side(label, d, absent, pair, which) {
+function side(label, d, absent, pair, which, halves) {
   const body = !d ? h("div", {class: "note"}, absent)
     : d.error ? h("div", {class: "problem"}, d.error)
     : d.absent ? h("div", {class: "note"}, absent)
-    : drawn(d, pair, which);
+    : drawn(d, pair, which, halves);
   return h("div", {class: "side"}, h("h3", {}, label), body);
 }
-function drawn(d, pair, which) {
+function drawn(d, pair, which, halves) {
   const {frame, box} = boardFrame(d.src, d.w, d.h);
-  const entry = {b: d, frame, box, circles: [], found: null};
+  const entry = {b: d, frame, box, circles: [], found: null, halves: !!halves};
   frames.push(entry);
   if (pair) {
     pair[which] = entry;
@@ -200,25 +208,34 @@ function board(b) {
     b.link ? h("a", {href: b.link, target: "_blank", rel: "noopener"}, "on the canvas") : null);
   const problems = h("div", {class: "status"});
   const pair = {problems, circles: b.circles};
+  const withNow = "now" in b;
   const sides = h("div", {class: "pair"},
-    side("Now (origin/main)", b.now, "This board is new: it has no now.", pair, "now"),
-    side("Proposed (the change)", b.proposed, "", pair, "proposed"));
+    withNow ? side("Now (origin/main)", b.now, "This board is new: it has no now.", pair, "now", true) : null,
+    side("Proposed (the change)", b.proposed, "", pair, "proposed", withNow));
   return h("figure", {}, caption, problems, sides);
 }
-function gone(d) {
-  return h("figure", {}, h("figcaption", {}, h("code", {}, d.path)),
-    h("div", {class: "pair"}, side("Now (origin/main)", d.now, "This board is not on origin/main."),
-      h("div", {class: "side"}, h("h3", {}, "Proposed (the change)"), h("div", {class: "note"}, "The change deletes this board."))));
+// A board of the change that the page does not show: its name, folded, and
+// the drawing it opens to, which the page loads on the first open.
+function folded(path, note, label, d, absent) {
+  const fold = h("details", {}, h("summary", {}, h("code", {}, path), note ? h("span", {class: "meta"}, note) : null));
+  fold.addEventListener("toggle", () => {
+    if (!fold.open || fold.dataset.drawn) return;
+    fold.dataset.drawn = "1";
+    fold.append(side(label, d, absent));
+    layout();
+  });
+  return fold;
 }
-function scaleOf(b) {
-  const room = (document.documentElement.clientWidth - 42 - 16) / 2;
+function scaleOf(entry) {
+  const b = entry.b;
+  const room = (document.documentElement.clientWidth - 42 - 16) / (entry.halves ? 2 : 1);
   if (zoom === "fit") return Math.min(1, room / b.w);
   return Number(zoom);
 }
 function layout() {
   for (const entry of frames) {
     const {b, circles} = entry;
-    const s = scaleOf(b);
+    const s = scaleOf(entry);
     scaleFrame(entry, b.w, b.h, s);
     for (const {el, label, box} of circles) {
       // A circle stands 8 screen pixels clear of what it marks at any zoom,
@@ -238,9 +255,13 @@ if (data.details.trim()) main.append(h("div", {class: "md"}, data.details.split(
 if (data.section && data.section.boards.length) {
   main.append(h("section", {}, h("div", {class: "boards"}, data.section.boards.map(board))));
 }
-if (data.deleted.length) {
-  main.append(h("section", {}, h("h2", {}, "Deleted boards"),
-    h("div", {class: "boards"}, data.deleted.map(gone))));
+// The change's other boards, by name: each changed board opens to its
+// proposal, and each deleted board to its now.
+if (data.others.length || data.deleted.length) {
+  main.append(h("section", {}, h("h2", {}, "Other boards the change changes"),
+    h("div", {class: "others"},
+      data.others.map(o => folded(o.path, null, "Proposed (the change)", o.proposed, "")),
+      data.deleted.map(d => folded(d.path, "deleted", "Now (origin/main)", d.now, "This board is not on origin/main.")))));
 }
 // The scratch boards in the change's worktree, each a link to its scratch
 // view, which the dashboard gives only on this Mac.

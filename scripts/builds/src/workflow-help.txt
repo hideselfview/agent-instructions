@@ -524,8 +524,9 @@ briefs, review pages and commit messages, and no other word for it:
     configurations.
   - design change: one concern that the person reviews and approves, recorded
     with `builds design record` (DESIGN CHANGES).
-  - review page: the page where the person reviews a design change. It shows
-    each board now and proposed, with one circle around what changed.
+  - review page: the page where the person reviews a design change. The page
+    shows the boards that the recorder picks to show the proposed design, and
+    lists the change's other boards by name (decision #369).
   - round: one redraw of the boards on a review page, after the person asks
     for a change.
   - approve: the person's approval of a design change, which lets it land.
@@ -586,13 +587,20 @@ already matches (`places`, `builds help lists`).
      that starts with a verb (decision #297); what changed; each board's
      canvas link (in a project that publishes a canvas); and the review
      page's heading and boards, with the
-     circles of each board. Circle one area per change (decision #299): one
+     circles of each board. The page shows what the person needs to judge
+     the proposed design: the fewest boards that show it, each in a
+     situation that fits it, and need not show every board the change
+     changes (decision #369). Each board shows the proposal alone, and the
+     board as it stands on origin/main beside it only where you ask for it
+     with `show_now`, when the before helps the person judge the proposal.
+     The page lists the change's other boards by name, folded, and the
+     person opens any of them. The shots compare every board with the app
+     later. Circle one area per change (decision #299): one
      large circle around the area that holds the change, never a circle on
      each element in it. A circle takes the CSS selector of a containing
      element, or a box (x, y, width, height) on the board, and a label if
-     the circle needs words. `builds design record` and `amend` refuse a
-     board the change changes that has no circle; a board the change leaves
-     as it is, shown to compare, takes none. Keep the change short: the page
+     the circle needs words. A board needs no circle when its proposal
+     shows the change without one. Keep the change short: the page
      has one heading, so record one change per concern. The details are at
      most 40 words, with no sentence over 15 words. The details name what changed in a few short
      sentences, and the boards and circles show the rest. Circle what the person must look at, not every element the
@@ -613,8 +621,9 @@ already matches (`places`, `builds help lists`).
      the dashboard lists the change under Design changes in review, and
      `builds design show N` says what the review lacks. The card's Details
      opens the review page, which shows each
-     board now and proposed side by side, circles on each side the elements
-     the selectors find there, and draws it again on each load. To change
+     board's proposal, and its now beside it where the recorder asked for
+     it, circles on each side the elements the selectors find there, lists
+     the change's other boards by name, and draws it again on each load. To change
      the boards again, commit and run `builds design amend`, which clears an
      approval unless every board comes out byte-identical. A rebase onto a
      moved main needs no amend: health and land compare the boards' files,

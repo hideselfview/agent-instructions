@@ -37,9 +37,12 @@
 //!                   which links the scratch boards in the change's worktree
 //!                   when it is asked for on this Mac
 //!     /design/<project>/<design id>/board/<n>/now and /proposed
+//!     /design/<project>/<design id>/changed/<k>/proposed
 //!     /design/<project>/<design id>/deleted/<k>/now
 //!                   a board of that page as it stands on origin/main (now)
-//!                   or at the change's last commit (proposed), drawn now;
+//!                   or at the change's last commit (proposed), drawn now:
+//!                   a board the page shows, a board the change changes that
+//!                   the page lists by name, or a board the change deletes;
 //!                   the page's frames load these
 //!     /design/<project>/scratch/<worktree>/<board>, with /events and
 //!     /<theme>/now and /<theme>/worktree under it
@@ -300,6 +303,7 @@ fn handle(mut stream: TcpStream, names: &[String], model: &Model) -> std::io::Re
                 DesignRoute::Board(project, id, n, side) => {
                     model.design_board(project, id, n, side)
                 }
+                DesignRoute::Changed(project, id, k) => model.design_changed_board(project, id, k),
                 DesignRoute::Deleted(project, id, k) => model.design_deleted_board(project, id, k),
             });
             drawn_page(&mut stream, drawn, b"no such open design change or board\n")
@@ -377,13 +381,16 @@ enum DesignRoute<'a> {
     Page(&'a str, u32),
     /// The now or proposed drawing of the <n>th board of its review page.
     Board(&'a str, u32, usize, Side),
+    /// The proposal of the <k>th board place of the change that its review
+    /// page does not show, which the page lists by name.
+    Changed(&'a str, u32, usize),
     /// The now of the <k>th board it deletes.
     Deleted(&'a str, u32, usize),
 }
 
 /// <rest> is the path after `/design/`: `<project>/<id>`,
 /// `<project>/<id>/board/<n>/now`, `.../board/<n>/proposed`,
-/// or `<project>/<id>/deleted/<k>/now`. Ids count per project, so the
+/// `<project>/<id>/changed/<k>/proposed` or `<project>/<id>/deleted/<k>/now`. Ids count per project, so the
 /// project is in every address.
 fn design_route(rest: &str) -> Option<DesignRoute<'_>> {
     let parts: Vec<&str> = rest.split('/').collect();
@@ -400,6 +407,11 @@ fn design_route(rest: &str) -> Option<DesignRoute<'_>> {
             id.parse().ok()?,
             n.parse().ok()?,
             Side::Proposed,
+        )),
+        [project, id, "changed", k, "proposed"] => Some(DesignRoute::Changed(
+            project,
+            id.parse().ok()?,
+            k.parse().ok()?,
         )),
         [project, id, "deleted", k, "now"] => Some(DesignRoute::Deleted(
             project,

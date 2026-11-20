@@ -1052,6 +1052,21 @@ impl Model {
         )
     }
 
+    /// The proposal of the <k>th board place of open design change <id> that
+    /// its review page does not show, drawn now; None when there is no such
+    /// change or board.
+    pub fn design_changed_board(
+        &self,
+        project: &str,
+        id: u32,
+        k: usize,
+    ) -> Option<crate::fail::Result<String>> {
+        let (_, snapshot) = self.lists.current();
+        let (design, _) = super::lists::open_design(&snapshot, project, id)?;
+        let board = crate::design_render::other_board(&design, k)?;
+        Some(self.draw_listed_board(&design, board, crate::design_render::Side::Proposed))
+    }
+
     /// The now of the <k>th board open design change <id> deletes, drawn now;
     /// None when there is no such change or board.
     pub fn design_deleted_board(
@@ -1063,18 +1078,26 @@ impl Model {
         let (_, snapshot) = self.lists.current();
         let (design, _) = super::lists::open_design(&snapshot, project, id)?;
         let board = crate::design_render::deleted_board(&design, k)?;
-        Some(
-            crate::design_render::source_of(&design, crate::design_render::Side::Now).and_then(
-                |from| {
-                    crate::design_render::render_board(
-                        from,
-                        board,
-                        crate::lists::Theme::Dark,
-                        &self.places.design_system_cache(),
-                    )
-                },
-            ),
-        )
+        Some(self.draw_listed_board(&design, board, crate::design_render::Side::Now))
+    }
+
+    /// <side> of <board>, a board that <design>'s review page lists by name
+    /// rather than shows, drawn now in the dark, since the recorder gave it
+    /// no theme.
+    fn draw_listed_board(
+        &self,
+        design: &crate::lists::DesignChange,
+        board: &str,
+        side: crate::design_render::Side,
+    ) -> crate::fail::Result<String> {
+        crate::design_render::source_of(design, side).and_then(|from| {
+            crate::design_render::render_board(
+                from,
+                board,
+                crate::lists::Theme::Dark,
+                &self.places.design_system_cache(),
+            )
+        })
     }
 
     /// The main checkout of the repo that holds project <project>'s design

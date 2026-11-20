@@ -264,8 +264,13 @@ fn design_store(scratch: &Scratch, places: &crate::places::Places) {
     )
     .unwrap();
     std::fs::write(
+        wt.join("design/mocks/B.dc.html"),
+        "<x-dc><p>board B off the page</p></x-dc>",
+    )
+    .unwrap();
+    std::fs::write(
         wt.join("design/mocks/canvas.json"),
-        r#"{"boards": {"A.dc.html": {"w": 300, "h": 200}}}"#,
+        r#"{"boards": {"A.dc.html": {"w": 300, "h": 200}, "B.dc.html": {"w": 30, "h": 20}}}"#,
     )
     .unwrap();
     crate::testing::repo(&wt, "");
@@ -290,7 +295,7 @@ fn design_store(scratch: &Scratch, places: &crate::places::Places) {
             let id = design_drawn(
                 db,
                 &wt.display().to_string(),
-                &[],
+                &[("design/mocks/B.dc.html", "https://canvas.example/#B")],
                 Some(ReviewSection {
                     heading: "The change".into(),
                     boards: vec![
@@ -298,12 +303,14 @@ fn design_store(scratch: &Scratch, places: &crate::places::Places) {
                             board: "design/mocks/A.dc.html".into(),
                             caption: "A".into(),
                             theme: Theme::Light,
+                            show_now: true,
                             circles: vec![],
                         },
                         ReviewBoard {
                             board: "design/mocks/Gone.dc.html".into(),
                             caption: "Gone".into(),
                             theme: Theme::Dark,
+                            show_now: false,
                             circles: vec![],
                         },
                     ],
@@ -359,8 +366,15 @@ fn the_daemon_draws_a_design_changes_review_page_and_its_boards_from_the_changes
     let (status, _, problem) = s.get("/design/demo/1/board/1/proposed");
     assert_eq!(status, 500);
     assert!(problem.contains("Gone.dc.html is not there"), "{problem}");
+    // A board the change changes that the page does not show opens from
+    // the page's list as its proposal.
+    let (status, _, other) = s.get("/design/demo/1/changed/0/proposed");
+    assert_eq!(status, 200);
+    assert!(other.contains("board B off the page"), "{other}");
     // No such change, board or route; and the image route is gone.
     for path in [
+        "/design/demo/1/changed/1/proposed",
+        "/design/demo/1/changed/0/now",
         "/design/demo/9",
         "/design/1",
         "/design/other/1",
@@ -393,6 +407,10 @@ fn a_design_path_is_a_page_or_a_board_of_a_page() {
         design_route("demo/7/deleted/2/now"),
         Some(DesignRoute::Deleted("demo", 7, 2))
     );
+    assert_eq!(
+        design_route("demo/7/changed/4/proposed"),
+        Some(DesignRoute::Changed("demo", 7, 4))
+    );
     for bad in [
         "",
         "demo/7/",
@@ -407,6 +425,8 @@ fn a_design_path_is_a_page_or_a_board_of_a_page() {
         "demo/7/board/3/then",
         "demo/7/deleted/2",
         "demo/7/deleted/2/proposed",
+        "demo/7/changed/4/now",
+        "demo/7/changed/4",
         "demo/7/boards/1",
         "demo/7/board/1/2/3",
         "demo/7/variant/1",

@@ -15,11 +15,13 @@
 //! branch.
 //!
 //! A design change's review page (`design_render/review.html`) shows the
-//! change's details, one point to a line, and each board twice, side by side in
-//! frames that load the board's own pages: now, the board as it stands on
-//! origin/main, and proposed, the board at the last commit of the change's
-//! range, each drawn with its own commit's design system. A board the change
-//! adds has no now, and a board it deletes has only a now. The daemon draws
+//! change's details, one point to a line, and the boards its recorder picks to
+//! show the proposal (decision #369), in frames that load the board's own
+//! pages: proposed, the board at the last commit of the change's range, and,
+//! beside it where the recorder asks, now, the board as it stands on
+//! origin/main, each drawn with its own commit's design system. The page lists
+//! the change's other boards by name, folded: each changed board opens to its
+//! proposal, and each deleted board to its now. The daemon draws
 //! each frame on every request, so the page shows a redraw on reload. The
 //! sizes of the frames come from each commit's `design/mocks/canvas.json`.
 //! The review page circles only what the designer says changed: it posts each
@@ -38,6 +40,7 @@ use serde_json::{Value, json};
 use crate::fail;
 use crate::fail::{Context, Result};
 use crate::lists::design::Circle;
+use crate::lists::design_paths::PlaceKind;
 use crate::lists::view::DesignView;
 use crate::lists::{DesignChange, ReviewBoard, Theme};
 
@@ -248,6 +251,26 @@ pub fn review_board(design: &DesignChange, n: usize) -> Option<&ReviewBoard> {
     design.review.as_ref()?.boards.get(n)
 }
 
+/// The board places of <design> that its review page does not show, in path
+/// order: the page lists them by name, and each opens to its proposal.
+fn other_boards(design: &DesignChange) -> impl Iterator<Item = &String> {
+    let shown: Vec<&str> = design
+        .review
+        .iter()
+        .flat_map(|section| &section.boards)
+        .map(|board| board.board.as_str())
+        .collect();
+    design.places.keys().filter(move |path| {
+        PlaceKind::of(path) == PlaceKind::Board && !shown.contains(&path.as_str())
+    })
+}
+
+/// The <k>th board place of <design> that its review page does not show
+/// (`other_boards`).
+pub fn other_board(design: &DesignChange, k: usize) -> Option<&String> {
+    other_boards(design).nth(k)
+}
+
 /// The <k>th board <design> deletes, in path order.
 pub fn deleted_board(design: &DesignChange, k: usize) -> Option<&String> {
     design.deleted.iter().nth(k)
@@ -345,19 +368,29 @@ pub fn review_page(
             .enumerate()
             .map(|(n, board)| {
                 let src = format!("/design/{project}/{}/board/{n}", design.id.0);
-                json!({
+                let mut shown = json!({
                     "path": board.board,
                     "caption": board.caption,
                     "theme": board.theme.word(),
                     "circles": board.circles.iter().map(circle_json).collect::<Vec<_>>(),
                     "link": design.boards.get(&board.board).map(|b| b.link.clone()),
-                    "now": drawing(design, Side::Now, &board.board, &src),
                     "proposed": drawing(design, Side::Proposed, &board.board, &src),
-                })
+                });
+                if board.show_now {
+                    shown["now"] = drawing(design, Side::Now, &board.board, &src);
+                }
+                shown
             })
             .collect();
         json!({ "boards": boards })
     });
+    let others: Vec<Value> = other_boards(design)
+        .enumerate()
+        .map(|(k, path)| {
+            let src = format!("/design/{project}/{}/changed/{k}", design.id.0);
+            json!({ "path": path, "proposed": drawing(design, Side::Proposed, path, &src) })
+        })
+        .collect();
     let deleted: Vec<Value> = design
         .deleted
         .iter()
@@ -370,6 +403,7 @@ pub fn review_page(
         .collect();
     let mut data = serde_json::to_value(view).expect("the view serializes");
     data["section"] = section.unwrap_or(Value::Null);
+    data["others"] = Value::Array(others);
     data["deleted"] = Value::Array(deleted);
     data["scratch"] = scratch.clone();
     Ok(fill(

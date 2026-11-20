@@ -71,12 +71,17 @@ CREATE TABLE review_section (
     heading TEXT NOT NULL CONSTRAINT review_section_heading_says_something CHECK (trim(heading) <> '')
 ) STRICT;
 
+-- A board the review page shows: the recorder picks the fewest boards that
+-- show the proposal, and the page lists the change's other boards by name.
 CREATE TABLE review_board (
     design_id INTEGER NOT NULL,
     position INTEGER NOT NULL CONSTRAINT review_board_position_not_negative CHECK (position >= 0),
     board TEXT NOT NULL CONSTRAINT review_board_is_a_board_file CHECK (board NOT GLOB '*#*' AND board NOT GLOB '*/'),
     caption TEXT NOT NULL CONSTRAINT review_board_caption_says_something CHECK (trim(caption) <> ''),
     theme TEXT NOT NULL CONSTRAINT review_board_theme_known CHECK (theme IN ('light', 'dark')),
+    -- 1 when the page shows the board as it stands on origin/main beside the
+    -- proposal, which it does only where the recorder asks for it.
+    show_now INTEGER NOT NULL CONSTRAINT review_board_show_now_is_a_flag CHECK (show_now IN (0, 1)),
     PRIMARY KEY (design_id, position),
     CONSTRAINT review_board_is_on_a_section FOREIGN KEY (design_id) REFERENCES review_section (design_id) ON DELETE CASCADE
 ) STRICT, WITHOUT ROWID;

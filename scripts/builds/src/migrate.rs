@@ -218,13 +218,17 @@ const BEFORE_DESIGN_VARIANTS_LEFT_STAMP: i64 = 294_983_269;
 /// turn of a landing that changes the apps and the app build of the result.
 const BEFORE_LAND_APP_STEPS_STAMP: i64 = 1_952_688_938;
 
+/// The stamp of the schema before a review board said whether the review
+/// page shows its now.
+const BEFORE_REVIEW_BOARD_SHOW_NOW_STAMP: i64 = 716_196_970;
+
 /// The stamp of today's schema (`db::STAMP`). A change to the schema changes
 /// its stamp, and builds then fails to compile until the change gives it a
 /// move from this schema, since every store carries this stamp: the change
 /// adds the move, puts this stamp at the end of `STAMPS` under a name that
 /// says what the schema lacked, and sets this to the new schema's stamp, which
 /// the compiler's error names.
-const SCHEMA_STAMP: i64 = 716_196_970;
+const SCHEMA_STAMP: i64 = 978_764_755;
 
 // The compiler refuses a schema whose stamp is not SCHEMA_STAMP. A const
 // assert could not print the new stamp, so the check compares two array
@@ -234,7 +238,7 @@ const _: [(); SCHEMA_STAMP as usize] = [(); db::STAMP as usize];
 
 /// Every stamp a store can carry that `move_store` moves, oldest schema first.
 /// A new move adds the stamp of the schema before it at the end.
-const STAMPS: [i64; 22] = [
+const STAMPS: [i64; 23] = [
     BEFORE_CONDITION_ENDERS_STAMP,
     BEFORE_ITEM_EVENT_STAMP,
     BEFORE_LAND_RUN_STAMP,
@@ -257,6 +261,7 @@ const STAMPS: [i64; 22] = [
     BEFORE_REVIEW_SECTION_HEADING_ONLY_STAMP,
     BEFORE_DESIGN_VARIANTS_LEFT_STAMP,
     BEFORE_LAND_APP_STEPS_STAMP,
+    BEFORE_REVIEW_BOARD_SHOW_NOW_STAMP,
 ];
 
 /// Whether a store stamped <found> comes before the move that follows the
@@ -461,6 +466,12 @@ fn move_store(path: &Path, now: i64) -> Result<()> {
     // each step keeps its row.
     if before(found, BEFORE_LAND_APP_STEPS_STAMP) {
         crate::land_run::allow_app_steps(&tx)?;
+    }
+    // Every store from before a review board said whether the page shows its
+    // now gets the board table again with the column; each board keeps its
+    // circles and shows its now, as every board's page did then.
+    if before(found, BEFORE_REVIEW_BOARD_SHOW_NOW_STAMP) {
+        crate::lists::design::add_review_board_show_now(&tx)?;
     }
     tx.pragma_update(None, "user_version", db::stamp()).sql()?;
     let broken: Option<String> = tx

@@ -82,16 +82,24 @@ impl Theme {
 
 /// A board on a review page: the board file (a place of the repo's design
 /// places, `design/mocks/<name>.dc.html`), what the caption under it says,
-/// the theme it is drawn in, and the elements the designer circles on it.
+/// the theme it is drawn in, whether the page shows its now, and the
+/// elements the designer circles on it. The recorder picks the fewest boards
+/// that show the proposal, each in a situation that fits it (decision #369).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ReviewBoard {
     pub board: String,
     pub caption: String,
     pub theme: Theme,
+    /// Does the page show the board as it stands on origin/main beside the
+    /// proposal? Only where the recorder asks: the proposal alone is the
+    /// page's default (decision #369).
+    #[serde(default)]
+    pub show_now: bool,
     /// What changed, as the designer says: the page circles these and
-    /// nothing else. On a board the change adds, the circles mark what it
-    /// adds, and the page draws them on the Proposed side only.
+    /// nothing else, and a board needs none. On a board the change adds, the
+    /// circles mark what it adds, and the page draws them on the Proposed
+    /// side only.
     #[serde(default)]
     pub circles: Vec<Circle>,
 }
@@ -333,10 +341,11 @@ struct RequestFields {
     /// canvas gives for every board and any other project leaves out.
     #[serde(default)]
     pub boards: BTreeMap<String, Board>,
-    /// How the review page reads: headings and its
-    /// boards, which the dashboard draws from the range's last commit. Required
-    /// to record; an amend that gives it replaces the page, one that doesn't
-    /// keeps it. Every board place of the change must be on it.
+    /// How the review page reads: its heading and the boards that show the
+    /// proposal, which the dashboard draws from the range's last commit and
+    /// which need not be every board the change changes (decision #369).
+    /// Required to record; an amend that gives it replaces the page, one that
+    /// doesn't keeps it.
     pub review: Option<ReviewSection>,
     /// Why shared design files changed and no drawing did.
     pub no_app_place: Option<String>,
@@ -560,24 +569,6 @@ fn resolve(
     {
         fail!("`boards` names {path}, which is no place of this design change");
     }
-    let on_page: BTreeSet<&str> = design
-        .review
-        .iter()
-        .flat_map(|s| &s.boards)
-        .map(|b| b.board.as_str())
-        .collect();
-    let missing: Vec<&str> = design
-        .places
-        .keys()
-        .filter(|p| PlaceKind::of(p) == PlaceKind::Board && !on_page.contains(p.as_str()))
-        .map(String::as_str)
-        .collect();
-    if !missing.is_empty() && request.settlement.needs_review() {
-        fail!(
-            "boards of the change missing from the review page: {}; the person reviews every board of a change on its page, so give each under `review`",
-            missing.join(", ")
-        );
-    }
     if let Some(why) = &request.no_app_place {
         if why.trim().is_empty() {
             fail!("no_app_place is empty; say why shared design files changed and no drawing did");
@@ -796,8 +787,8 @@ pub fn save(db: &Connection, design: &DesignChange) -> Result<()> {
         .sql()?;
         for (at, board) in section.boards.iter().enumerate() {
             db.execute(
-                "INSERT INTO review_board (design_id, position, board, caption, theme) VALUES (?1, ?2, ?3, ?4, ?5)",
-                params![design.id, at as i64, board.board, board.caption, board.theme.word()],
+                "INSERT INTO review_board (design_id, position, board, caption, theme, show_now) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![design.id, at as i64, board.board, board.caption, board.theme.word(), board.show_now],
             )
             .sql()?;
             for (n, circle) in board.circles.iter().enumerate() {
@@ -1473,9 +1464,10 @@ fn describe(lists: &Lists, design: &DesignChange, closed: Option<&Closed>) -> Re
         for board in &section.boards {
             let _ = writeln!(
                 out,
-                "    {} ({}) {}",
+                "    {} ({}{}) {}",
                 board.board,
                 board.theme.word(),
+                if board.show_now { ", with its now" } else { "" },
                 board.caption
             );
             for circle in &board.circles {
@@ -1684,7 +1676,7 @@ pub fn read(
         ));
     }
     let mut statement = db
-        .prepare("SELECT design_id, position, board, caption, theme FROM review_board ORDER BY design_id, position")
+        .prepare("SELECT design_id, position, board, caption, theme, show_now FROM review_board ORDER BY design_id, position")
         .sql()?;
     for row in statement
         .query_map([], |row| {
@@ -1694,11 +1686,12 @@ pub fn read(
                 row.get::<_, String>(2)?,
                 row.get::<_, String>(3)?,
                 row.get::<_, String>(4)?,
+                row.get::<_, bool>(5)?,
             ))
         })
         .sql()?
     {
-        let (design, position, board, caption, theme) = row.sql()?;
+        let (design, position, board, caption, theme, show_now) = row.sql()?;
         let theme = Theme::of_word(&theme)?;
         review
             .get_mut(&design)
@@ -1708,6 +1701,7 @@ pub fn read(
                 board,
                 caption,
                 theme,
+                show_now,
                 circles: {
                     let mut held = circles.remove(&(design, position)).unwrap_or_default();
                     held.sort_by_key(|(at, _)| *at);
@@ -1860,6 +1854,25 @@ pub fn drop_review_section_words(db: &Connection) -> Result<()> {
         |db| {
             db.execute_batch(
                 "INSERT INTO review_section (design_id, heading) SELECT design_id, heading FROM review_section_old",
+            )
+            .sql()
+        },
+        &[],
+    )
+}
+
+/// Makes `review_board` again as design.sql writes it, with whether the page
+/// shows each board's now: a store from before kept no such column, and its
+/// review pages showed every board's now, so each board keeps showing it.
+pub fn add_review_board_show_now(db: &Connection) -> Result<()> {
+    let schema = include_str!("design.sql");
+    crate::db::remake_table(
+        db,
+        "review_board",
+        crate::db::statement(schema, "CREATE TABLE review_board", ";"),
+        |db| {
+            db.execute_batch(
+                "INSERT INTO review_board (design_id, position, board, caption, theme, show_now) SELECT design_id, position, board, caption, theme, 1 FROM review_board_old",
             )
             .sql()
         },

@@ -1617,8 +1617,10 @@ fn every_board_needs_a_canvas_link() {
     );
 }
 
+/// The recorder picks the boards that show the proposal (decision #369): the
+/// page need not hold every board the change changes, nor any board at all.
 #[test]
-fn a_design_change_needs_a_review_page_with_every_board_of_the_change_on_it() {
+fn a_design_change_needs_a_review_page_that_shows_the_boards_its_recorder_picks() {
     let w = world("design-review");
     w.commit(&["design/mocks/A.dc.html", "design/mocks/B.dc.html"]);
     let before = w.bytes();
@@ -1634,13 +1636,6 @@ fn a_design_change_needs_a_review_page_with_every_board_of_the_change_on_it() {
     assert!(message(w.request(request)).contains("needs its `review`"));
     assert!(
         message(w.request(with(json!({ "heading": " ", "boards": [] })))).contains("empty heading")
-    );
-    let refused = message(w.request(with(review_of(&[a]))));
-    assert!(
-        refused.contains("missing from the review page")
-            && refused.contains(b)
-            && !refused.contains(&format!("{a},")),
-        "{refused}"
     );
     assert!(
         message(w.request(with(review_of(&[a, b, "design/mocks/Gone.dc.html"]))))
@@ -1700,6 +1695,70 @@ fn a_design_change_needs_a_review_page_with_every_board_of_the_change_on_it() {
         w.state().designs[0].review.as_ref().unwrap().heading,
         "Other"
     );
+}
+
+/// A page that shows one of the change's two boards records, and so does a
+/// page that shows none: the recorder picks what shows the proposal
+/// (decision #369).
+#[test]
+fn a_review_page_may_leave_out_boards_the_change_changes() {
+    for (name, shown) in [("design-review-some", 1), ("design-review-none", 0)] {
+        let w = world(name);
+        let (a, b) = ("design/mocks/A.dc.html", "design/mocks/B.dc.html");
+        w.commit(&[a, b]);
+        let mut request = base_request(&w, json!({ a: { "matches": "x" }, b: { "matches": "y" } }));
+        request["review"] = review_of(&[a, b][..shown]);
+        w.request(request).unwrap();
+        let design = &w.state().designs[0];
+        assert_eq!(design.review.as_ref().unwrap().boards.len(), shown);
+        assert!(design.places.contains_key(a) && design.places.contains_key(b));
+    }
+}
+
+/// A board on the page shows the proposal alone unless the recorder asks
+/// for its now with `show_now` (decision #369). A board that is no file on
+/// origin/main has no now to show, so a page that asks for one is refused.
+#[test]
+fn a_review_board_shows_its_now_only_where_the_recorder_asks() {
+    let w = world("design-review-show-now");
+    let (a, b) = ("design/mocks/A.dc.html", "design/mocks/B.dc.html");
+    w.commit(&[a]);
+    git(&w.dir, &["tag", "-f", "base"]);
+    git(&w.dir, &["update-ref", "refs/remotes/origin/main", "base"]);
+    // The change redraws A and adds B.
+    w.commit(&[a, b]);
+    let places = json!({ a: { "matches": "x" }, b: { "matches": "x" } });
+    let with = |now_a: bool, now_b: bool| {
+        let mut request = base_request(&w, places.clone());
+        request["review"]["boards"][0]["show_now"] = json!(now_a);
+        request["review"]["boards"][1]["show_now"] = json!(now_b);
+        request
+    };
+    let before = w.bytes();
+    let refused = message(w.request(with(true, true)));
+    assert!(
+        refused.contains(b) && refused.contains("no now") && !refused.contains(a),
+        "{refused}"
+    );
+    assert_eq!(w.bytes(), before);
+    w.request(with(true, false)).unwrap();
+    let page = w.state().designs[0].review.clone().unwrap();
+    assert_eq!(
+        page.boards.iter().map(|b| b.show_now).collect::<Vec<_>>(),
+        [true, false]
+    );
+    let shown = w.run("show 1").unwrap();
+    assert!(
+        shown.contains(&format!("    {a} (dark, with its now) the {a}\n"))
+            && shown.contains(&format!("    {b} (dark) the {b}\n")),
+        "{shown}"
+    );
+    // A page that leaves `show_now` out shows each board's proposal alone.
+    let mut request = base_request(&w, places.clone());
+    request.as_object_mut().unwrap().remove("title");
+    w.amend(1, request).unwrap();
+    let page = w.state().designs[0].review.clone().unwrap();
+    assert!(page.boards.iter().all(|b| !b.show_now));
 }
 
 #[test]
@@ -2179,6 +2238,7 @@ fn every_named_constraint_of_the_design_tables_refuses_its_row() {
         ("board", v("design/mocks/A.dc.html")),
         ("caption", v("c")),
         ("theme", v("dark")),
+        ("show_now", v(0)),
     ];
     refused.check(
         "review_board_position_not_negative",
@@ -2199,6 +2259,10 @@ fn every_named_constraint_of_the_design_tables_refuses_its_row() {
     refused.check(
         "review_board_theme_known",
         plant(&db, "review_board", &row(&review, &[("theme", v("sepia"))])),
+    );
+    refused.check(
+        "review_board_show_now_is_a_flag",
+        plant(&db, "review_board", &row(&review, &[("show_now", v(2))])),
     );
     refused.check_as(
         "review_board_is_on_a_section",
@@ -2252,6 +2316,7 @@ fn dropping_a_place_takes_its_board_with_it_and_a_section_its_review_boards_and_
                 board: "design/mocks/A.dc.html".into(),
                 caption: "c".into(),
                 theme: Theme::Dark,
+                show_now: false,
                 circles: vec![Circle {
                     around: Around::Selector("#disc-1".into()),
                     label: None,
@@ -2385,11 +2450,12 @@ fn a_review_board_keeps_the_circles_the_designer_names_and_so_does_a_board_the_c
     assert!(!amend(json!([{ "selector": "#disc-1" }])));
 }
 
-/// A board the range changes takes a circle; a board it leaves as it is,
-/// shown to compare, takes none. A circle takes the selector of a containing
-/// element or a box on the board, and the page keeps their order.
+/// A board takes circles where they help the reviewer, and none where the
+/// proposal speaks for itself (decision #369). A circle takes the selector of
+/// a containing element or a box on the board, and the page keeps their
+/// order.
 #[test]
-fn a_changed_board_needs_a_circle_and_a_circle_takes_a_selector_or_a_box() {
+fn a_board_takes_circles_or_none_and_a_circle_takes_a_selector_or_a_box() {
     let w = world("design-circle-areas");
     let (a, b) = ("design/mocks/A.dc.html", "design/mocks/B.dc.html");
     w.commit(&[a]);
@@ -2407,11 +2473,6 @@ fn a_changed_board_needs_a_circle_and_a_circle_takes_a_selector_or_a_box() {
         request
     };
     let before = w.bytes();
-    let refused = message(w.request(page(json!([]), json!([]))));
-    assert!(
-        refused.contains(b) && refused.contains("with no circle") && !refused.contains(a),
-        "{refused}"
-    );
     for (circle, expect) in [
         (
             json!({ "selector": "#x", "box": { "x": 1, "y": 2, "width": 3, "height": 4 } }),
@@ -2481,6 +2542,10 @@ fn a_changed_board_needs_a_circle_and_a_circle_takes_a_selector_or_a_box() {
         json,
         json!({ "box": { "x": 10, "y": 20, "width": 300, "height": 40 }, "label": "The sheet" })
     );
+    // The board the change adds may also go with no circle.
+    w.request(page(json!([]), json!([]))).unwrap();
+    let held = w.state().designs[1].review.clone().unwrap();
+    assert!(held.boards.iter().all(|b| b.circles.is_empty()));
 }
 
 #[test]
