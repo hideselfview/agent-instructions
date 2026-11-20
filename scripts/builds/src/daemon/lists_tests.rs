@@ -21,8 +21,8 @@ fn no_claims(_: &str) -> ClaimFacts {
     panic!("no item runs")
 }
 
-fn no_reviews(_: &str, _: crate::lists::Id) -> Option<RulesReview> {
-    None
+fn no_reviews(_: &str, _: crate::lists::Id) -> RulesReview {
+    panic!("no design change waits on approval")
 }
 
 fn error_of(snapshot: Snapshot) -> String {
@@ -91,7 +91,7 @@ fn a_design_change_to_approve_carries_its_rules_review() {
     let view_with = |review: RulesReview| {
         let composed = compose(&snapshot, NOON, &no_claims, &|project, id| {
             assert_eq!((project, id), ("demo", waiting));
-            Some(review.clone())
+            review.clone()
         });
         serde_json::to_value(&composed[0]).unwrap()
     };
@@ -713,7 +713,7 @@ fn a_projects_lists_json_keeps_each_field_once_with_its_own_shape() {
         &Ok(vec![loaded("demo", Ok(lists))]),
         NOON,
         &no_claims,
-        &|_, _| Some(RulesReview::Read),
+        &|_, _| RulesReview::Read,
     );
     // The page reads the text a client gets: a key that appears twice in it
     // keeps only its last value there.

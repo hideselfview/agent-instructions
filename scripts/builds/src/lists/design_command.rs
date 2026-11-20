@@ -21,7 +21,7 @@ use crate::lists::design_paths::{self, Changes, Globs, PlaceKind};
 use crate::lists::design_session;
 use crate::lists::rulings::{self, Source};
 use crate::lists::store::{self, Store, project_of};
-use crate::lists::{DesignChange, Id, Lists, Stamp};
+use crate::lists::{Id, Lists, Stamp};
 use crate::text::local_minute;
 use crate::tool::Tool;
 
@@ -330,6 +330,13 @@ enum Review {
     Waits,
 }
 
+impl Review {
+    /// Does the change wait on the person's approval?
+    fn awaits_approval(&self) -> bool {
+        matches!(self, Review::Cleared | Review::Waits)
+    }
+}
+
 /// What a record or amend printed: the change, where it stands with the
 /// person's review, and the items waiting on it.
 fn recorded_words(verb: &str, recorded: &design::Recorded, title: &str, review: Review) -> String {
@@ -411,7 +418,11 @@ fn record(
         Settlement::Decision(decision) => Review::Decided(decision),
         Settlement::Review => Review::Waits,
     };
+    let awaits = review.awaits_approval();
     let words = recorded_words("recorded", &recorded, &title, review) + &rulings::lines(cited);
+    if !awaits {
+        return Ok(words);
+    }
     review_first(
         tool,
         &scope.store,
@@ -423,11 +434,11 @@ fn record(
     )
 }
 
-/// <words>, what a record or amend of design change <id> said, followed by
-/// where the change's rules review stands when the change waits on the
-/// person's approval, after `design_review::start` starts the review of its
-/// branch when the review has a change to read: the person reviews the
-/// change only once that review takes the branch (decision #362).
+/// <words>, what a record or amend of design change <id>, which waits on the
+/// person's approval, said, followed by where the change's rules review
+/// stands, after `design_review::start` starts the review of its branch when
+/// the review has a change to read: the person reviews the change only once
+/// that review takes the branch (decision #362).
 fn review_first(
     tool: &Tool,
     store: &Store,
@@ -437,13 +448,6 @@ fn review_first(
     session: Option<&Messaging>,
     words: String,
 ) -> Result<String> {
-    if !store
-        .load()?
-        .design(id)
-        .is_some_and(DesignChange::awaits_approval)
-    {
-        return Ok(words);
-    }
     match crate::review::design_review::start(tool, store, id, stamp, runner, session) {
         Ok(review) => Ok(words + &review),
         Err(error) => fail!(
@@ -507,7 +511,11 @@ fn amend(
                 };
                 Ok((recorded, design.title.clone(), review))
             })?;
+    let awaits = review.awaits_approval();
     let words = recorded_words("amended", &recorded, &title, review) + &rulings::lines(cited);
+    if !awaits {
+        return Ok(words);
+    }
     review_first(tool, &scope.store, id, &stamp, runner, session, words)
 }
 

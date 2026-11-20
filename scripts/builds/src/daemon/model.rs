@@ -977,6 +977,7 @@ impl Model {
                     .iter()
                     .find(|(p, i, _)| p == project && *i == id)
                     .map(|(_, _, review)| review.clone())
+                    .expect("every design change that waits on approval was asked")
             },
         );
         let json = Arc::new(

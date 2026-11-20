@@ -567,7 +567,7 @@ impl Composed {
 
 /// Where the rules review of a project's open design change, by its id,
 /// stands, as the daemon reads it from the change's worktree.
-pub type Reviews<'a> = dyn Fn(&str, Id) -> Option<RulesReview> + 'a;
+pub type Reviews<'a> = dyn Fn(&str, Id) -> RulesReview + 'a;
 
 fn compose_view(
     loaded: &Loaded,
@@ -589,7 +589,7 @@ fn compose_view(
             }
             for design in &mut view.designs {
                 if design.closed.is_none() && design.approved.is_none() {
-                    design.rules_review = reviews(&lists.project, design.id);
+                    design.rules_review = Some(reviews(&lists.project, design.id));
                 }
             }
             view
