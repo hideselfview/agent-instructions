@@ -90,6 +90,59 @@ fn ignored_nodes_are_left_out_and_their_children_attach_to_the_next_kept_ancesto
 }
 
 #[test]
+fn an_open_menu_is_read_after_the_page_it_opens_over() {
+    let raw = [
+        node("1", "list", &["2", "3", "5"]),
+        named(node("2", "button", &[]), "Kitchen"),
+        node("3", "menu", &["4"]),
+        named(node("4", "button", &[]), "Details"),
+        named(node("5", "button", &[]), "Den"),
+    ];
+    let elements = build(&raw, Platform::Android).unwrap();
+    let order: Vec<_> = elements
+        .iter()
+        .map(|e| e.label.as_deref().unwrap_or(&e.native))
+        .collect();
+    assert_eq!(order, ["list", "Kitchen", "Den", "menu", "Details"]);
+    assert_eq!(elements[3].parent, Some(0));
+    assert_eq!(elements[4].parent, Some(3));
+}
+
+#[test]
+fn open_menus_are_read_in_the_order_the_page_opens_them() {
+    let mut hidden = node("6", "menu", &["7"]);
+    hidden.ignored = true;
+    let raw = [
+        node("1", "list", &["2", "4", "6", "8"]),
+        node("2", "menu", &["3"]),
+        named(node("3", "button", &[]), "First"),
+        node("4", "menu", &["5"]),
+        named(node("5", "button", &[]), "Second"),
+        hidden,
+        named(node("7", "button", &[]), "Inside a hidden menu"),
+        named(node("8", "button", &[]), "Page"),
+    ];
+    let elements = build(&raw, Platform::Mac).unwrap();
+    let order: Vec<_> = elements
+        .iter()
+        .map(|e| e.label.as_deref().unwrap_or(&e.native))
+        .collect();
+    assert_eq!(
+        order,
+        [
+            "list",
+            "Inside a hidden menu",
+            "Page",
+            "menu",
+            "First",
+            "menu",
+            "Second"
+        ],
+        "an ignored menu is no window: its visible children stay in the page"
+    );
+}
+
+#[test]
 fn a_button_that_opens_a_menu_is_a_popup() {
     let mut menu = named(node("2", "button", &[]), "Never");
     menu.has_popup = true;
@@ -148,6 +201,7 @@ const BOARD: &str = r##"<x-dc><helmet><style>body{margin:0;font:13px sans-serif}
 <div role="radio" aria-checked="true" aria-label="Dark" tabindex="0">x</div>
 <input type="text" aria-label="Name" placeholder="Library name" value="Odile">
 <input type="text" aria-label="Restore" placeholder="Restore code">
+<input type="password" aria-label="Secret" value="abc">
 <div role="textbox" aria-label="Code empty"><span aria-hidden="true">Code empty</span></div>
 <div role="textbox" aria-label="Code typed">CVR1 ABCD</div>
 <select aria-label="Mode"><option>Never</option><option selected>Always</option></select>
@@ -248,6 +302,11 @@ async fn a_board_reads_as_the_shots_do() {
         "an empty field's value is not its placeholder"
     );
     assert_eq!(empty.placeholder.as_deref(), Some("Restore code"));
+    assert_eq!(
+        find(&elements, Role::Field, "Secret").value.as_deref(),
+        Some("\u{F79A}\u{F79A}\u{F79A}"),
+        "a password field reads masked, as a Mac's secure field does"
+    );
     assert_eq!(
         find(&elements, Role::Field, "Code empty").value.as_deref(),
         Some("")
@@ -391,4 +450,32 @@ async fn a_list_items_marker_is_no_element_of_its_own() {
     );
     let items: Vec<&Element> = elements.iter().filter(|e| e.native == "listitem").collect();
     assert_eq!(items.len(), 2);
+}
+
+#[test]
+fn a_password_field_reads_masked_as_each_platform_masks_it() {
+    let mut secret = named(node("2", "textbox", &[]), "Secret");
+    secret.value = Some("abcd".to_string());
+    secret.secret = true;
+    let raw = [node("1", "RootWebArea", &["2"]), secret];
+    let value = |platform| {
+        build(&raw, platform)
+            .unwrap()
+            .into_iter()
+            .find(|e| e.role == Role::Field)
+            .unwrap()
+            .value
+    };
+    assert_eq!(
+        value(Platform::Mac).as_deref(),
+        Some("\u{F79A}\u{F79A}\u{F79A}\u{F79A}")
+    );
+    assert_eq!(
+        value(Platform::Android).as_deref(),
+        Some("\u{2022}\u{2022}\u{2022}\u{2022}")
+    );
+    assert_eq!(
+        value(Platform::Web).as_deref(),
+        Some("\u{2022}\u{2022}\u{2022}\u{2022}")
+    );
 }

@@ -19,7 +19,7 @@ use chromiumoxide::cdp::browser_protocol::accessibility::{
 use chromiumoxide::cdp::browser_protocol::dom::ResolveNodeParams;
 use chromiumoxide::cdp::js_protocol::runtime::CallFunctionOnParams;
 use serde::Deserialize;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum ReadError {
@@ -108,6 +108,8 @@ pub(crate) struct Raw {
     pub(crate) placeholder: Option<String>,
     /// The design-system component that draws the node's DOM node.
     pub(crate) component: Option<String>,
+    /// A password field: what is typed shows masked, never as itself.
+    pub(crate) secret: bool,
 }
 
 fn nonempty(text: Option<&str>) -> Option<String> {
@@ -117,7 +119,10 @@ fn nonempty(text: Option<&str>) -> Option<String> {
 /// The elements of `raw`, in reading order (the tree's order from its first
 /// node). Ignored nodes (hidden, `aria-hidden`, presentational) are left out,
 /// their visible children kept; a text inside a named control is the
-/// control's name, not an element of its own.
+/// control's name, not an element of its own. An open menu (`role=menu`) is a
+/// window of its own on mac and android, which the shots read after the
+/// window it opens over, so its elements come after the rest of the page's,
+/// in the order the page opens its menus.
 pub(crate) fn build(raw: &[Raw], platform: Platform) -> Result<Vec<Element>, ReadError> {
     let by_id: HashMap<&str, &Raw> = raw.iter().map(|n| (n.id.as_str(), n)).collect();
     let Some(first) = raw.first() else {
@@ -126,7 +131,17 @@ pub(crate) fn build(raw: &[Raw], platform: Platform) -> Result<Vec<Element>, Rea
     let mut elements = Vec::new();
     // (node, index of the nearest kept ancestor, a named control above it)
     let mut pending = vec![(first, None, false)];
-    while let Some((node, parent, folded)) = pending.pop() {
+    // The open menus the page holds, each read once the page before it is.
+    let mut menus = VecDeque::new();
+    let mut reading_menu = false;
+    while let Some((node, parent, folded)) = pending.pop().or_else(|| {
+        reading_menu = true;
+        menus.pop_front()
+    }) {
+        if node.chrome_role == "menu" && !node.ignored && !std::mem::take(&mut reading_menu) {
+            menus.push_back((node, parent, folded));
+            continue;
+        }
         let role = Role::for_node(node, platform);
         let label = nonempty(node.name.as_deref()).filter(|_| role != Role::Other);
         let kept = !node.ignored && !STRUCTURE.contains(&node.chrome_role.as_str());
@@ -142,7 +157,7 @@ pub(crate) fn build(raw: &[Raw], platform: Platform) -> Result<Vec<Element>, Rea
                 });
             };
             next_parent = Some(elements.len());
-            elements.push(element(node, role, label.clone(), bounds, parent));
+            elements.push(element(node, role, label.clone(), bounds, parent, platform));
         }
         if kept && role.is_control() && label.is_some() {
             next_folded = true;
@@ -163,6 +178,7 @@ fn element(
     label: Option<String>,
     bounds: Bounds,
     parent: Option<usize>,
+    platform: Platform,
 ) -> Element {
     let value = match role {
         Role::Toggle => node.checked.as_deref().map(|c| match c {
@@ -170,7 +186,14 @@ fn element(
             "false" => "off".to_string(),
             other => other.to_string(),
         }),
-        Role::Field => Some(node.value.clone().unwrap_or_default()),
+        Role::Field => {
+            let typed = node.value.clone().unwrap_or_default();
+            Some(if node.secret {
+                masked(&typed, platform)
+            } else {
+                typed
+            })
+        }
         Role::Popup | Role::Slider | Role::Progress => node.value.clone(),
         _ => None,
     };
@@ -202,6 +225,18 @@ fn element(
     }
 }
 
+/// What a password field holds as its platform reports it: one mask
+/// character for each character typed. The board's DOM holds the typed text
+/// itself; macOS reports its secure field's private-use bullet, and Compose
+/// its password field's bullet, as Chrome's accessibility tree does.
+fn masked(typed: &str, platform: Platform) -> String {
+    let mask = match platform {
+        Platform::Mac => '\u{F79A}',
+        Platform::Android | Platform::Web => '\u{2022}',
+    };
+    typed.chars().map(|_| mask).collect()
+}
+
 /// What a DOM node reports about its box and its font.
 #[derive(Debug, Deserialize)]
 struct Geometry {
@@ -223,6 +258,8 @@ struct Geometry {
     /// The design-system component that draws the node: the nearest one
     /// above it in React's tree.
     component: Option<String>,
+    /// The node is a password input.
+    secret: bool,
 }
 
 const GEOMETRY: &str = r#"function() {
@@ -297,6 +334,7 @@ const GEOMETRY: &str = r#"function() {
     current: !isText && this.hasAttribute('aria-current')
       && this.getAttribute('aria-current') !== 'false',
     component: componentOf(this),
+    secret: !isText && this.tagName === 'INPUT' && this.type === 'password',
   };
 }"#;
 
@@ -479,10 +517,11 @@ async fn gather(page: &Page) -> Result<Vec<Raw>, ReadError> {
                     }
                     // Chrome gives an empty field its placeholder as its
                     // accessibility value; the DOM holds what is typed.
-                    if matches!(raw.chrome_role.as_str(), "textbox" | "searchbox")
-                        && let Some(value) = geometry.field_value
-                    {
-                        raw.value = Some(value);
+                    if matches!(raw.chrome_role.as_str(), "textbox" | "searchbox") {
+                        if let Some(value) = geometry.field_value {
+                            raw.value = Some(value);
+                        }
+                        raw.secret = geometry.secret;
                     }
                 }
                 Err(why) => raw.no_box = Some(why),
