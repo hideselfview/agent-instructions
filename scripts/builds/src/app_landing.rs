@@ -69,10 +69,34 @@ fn lane_paths<'a>(config: &Config, lane: Lane, paths: &'a [String]) -> Vec<&'a s
 
 /// Whether the change of <paths> changes some lane's apps in <config>: one
 /// of the paths matches an `on` line that names a step of the lane.
-pub fn changes_apps(config: &Config, paths: &[String]) -> bool {
+fn changes_apps(config: &Config, paths: &[String]) -> bool {
     Lane::ALL
         .into_iter()
         .any(|lane| !lane_paths(config, lane, paths).is_empty())
+}
+
+/// The `.app-build` of the commit <rev> in the repository at <top>, or None
+/// when the commit has none.
+fn config_of(top: &Path, rev: &str) -> Result<Option<Config>> {
+    if run_git(top, &["ls-tree", "--name-only", rev, "--", CONFIG])?.is_empty() {
+        return Ok(None);
+    }
+    parse_config(&run_git(top, &["show", &format!("{rev}:{CONFIG}")])?).map(Some)
+}
+
+/// Whether the commits <shas> in the repository at <top>, a landing's,
+/// change what some lane's apps compile, by the `.app-build` of the last
+/// one. Commits whose last has no `.app-build` change no apps.
+pub fn commits_change_apps(top: &Path, shas: &[String]) -> Result<bool> {
+    let last = shas.last().expect("a landing names a commit");
+    let Some(config) = config_of(top, last)? else {
+        return Ok(false);
+    };
+    let mut paths = Vec::new();
+    for sha in shas {
+        paths.extend(paths_between(top, &format!("{sha}^"), sha)?);
+    }
+    Ok(changes_apps(&config, &paths))
 }
 
 /// A lane whose apps the landing changes and that no passing run covers at
@@ -266,12 +290,12 @@ pub fn cmd_landing_build(places: &Places, args: &[String]) -> Result<()> {
     let Some(checkout) = crate::checkout::Checkout::at(top)? else {
         fail!("git finds no checkout at {worktree}");
     };
-    if run_git(top, &["ls-tree", "--name-only", result, "--", CONFIG])?.is_empty() {
+    let Some(config) = config_of(top, result)? else {
         crate::text::note(format!(
             "{result} has no {CONFIG}, so it builds no apps and needs no app build"
         ));
         return Ok(());
-    }
+    };
     let repo = checkout.repo();
     let Some(database) = crate::app_timing::database_of(places, &repo)? else {
         crate::text::note(format!(
@@ -279,7 +303,6 @@ pub fn cmd_landing_build(places: &Places, args: &[String]) -> Result<()> {
         ));
         return Ok(());
     };
-    let config = parse_config(&run_git(top, &["show", &format!("{result}:{CONFIG}")])?)?;
     let changed = paths_between(top, before, result)?;
     let conn = crate::db::open(&database, crate::db::Make::Never)?;
     let found = needs(

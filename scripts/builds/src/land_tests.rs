@@ -187,13 +187,17 @@ fn profiled(f: &Fixture, dir: &Path, args: &[&str], cues: Cues) -> (i32, Option<
     let mut all = vec![dir.display().to_string()];
     all.extend(args.iter().map(|a| a.to_string()));
     let mut out = Vec::new();
-    let Ended { result, run, .. } = land_profiled(&stub, &all, &mut out, StoreUse::holding(None));
+    let Ended::Ran { result, run, .. } =
+        land_profiled(&stub, &all, &mut out, StoreUse::Held { _holding: None })
+    else {
+        panic!("no install ran in the test");
+    };
     let code = match result {
         Ok(()) => 0,
         Err(Fail::Exit(code)) => code,
         Err(Fail::Message(message)) => panic!("landing failed: {message}"),
     };
-    (code, run)
+    (code, run.map(|run| *run))
 }
 
 /// Side-1 on branch `a` with a.txt committed, and side-2 on branch `b` with
@@ -2054,11 +2058,7 @@ fn a_landing_that_changes_the_apps_waits_for_the_one_ahead_and_names_it() {
     let (reader, writer) = std::io::pipe().unwrap();
     let landing = land_on_thread(&f, &stub, &one, &["--done", "7", &a], writer);
     let mut lines = std::io::BufReader::new(reader).lines();
-    let waiting = lines
-        .by_ref()
-        .map(|line| line.unwrap())
-        .find(|line| line.starts_with("waiting for"))
-        .expect("the landing says it waits");
+    let waiting = line_starting(&mut lines, "waiting for");
     assert!(
         waiting.contains("the landing that changes the apps of repo ahead of this one")
             && waiting.contains("process 1 landing ahead"),
@@ -2089,26 +2089,49 @@ fn a_landing_that_changes_no_app_lands_while_an_app_landing_holds_its_turn() {
     assert!(landed && main_of(&f) == a);
 }
 
-/// Two landings that change the apps and start together land one after the
-/// other, and each builds its result once: the second builds on the first's
-/// pushed result, so no build is of a result that never reached main.
+/// Reads <lines> until one starts with <start>, and returns that line.
+fn line_starting(lines: &mut impl Iterator<Item = std::io::Result<String>>, start: &str) -> String {
+    lines
+        .map(|line| line.unwrap())
+        .find(|line| line.starts_with(start))
+        .unwrap_or_else(|| panic!("no line starts with {start:?}"))
+}
+
+/// Two landings that change the apps run one after the other, and each
+/// builds its result once: the second waits while the first builds, then
+/// builds on the first's pushed result, so no build is of a result that never
+/// reached main.
 #[test]
-fn two_app_landings_started_together_each_build_once_and_land() {
+fn two_app_landings_each_build_once_and_the_second_waits_for_the_first() {
     let f = app_fixture("land-app-turns");
     let (one, a) = app_branch(&f, 1, "a", "a.swift");
     let (two, b) = app_branch(&f, 2, "b", "b.swift");
+    let go = f.scratch.dir.join("go");
+    let made = Command::new("mkfifo").arg(&go).status().unwrap();
+    assert!(made.success(), "mkfifo {}", go.display());
     let (stub, _) = stub(
         &f,
         &Cues {
             landing_build: "grep -qx \"$5\" '{root}/built' 2>/dev/null || echo \"builds app-build repo $5 macos\"",
-            // Long enough that the other landing reaches its turn meanwhile.
-            app_build: "sleep 1; echo \"$3\" >> '{root}/built'",
+            // The first build waits until the test lets it finish.
+            app_build: "[ -e '{root}/built' ] || read go < '{root}/go'; echo \"$3\" >> '{root}/built'",
             ..project()
         },
     );
-    let first = land_on_thread(&f, &stub, &one, &["--done", "7", &a], Vec::new());
-    let second = land_on_thread(&f, &stub, &two, &["--done", "8", &b], Vec::new());
-    assert!(first.join().unwrap() && second.join().unwrap());
+    let (first_out, first_in) = std::io::pipe().unwrap();
+    let first = land_on_thread(&f, &stub, &one, &["--done", "7", &a], first_in);
+    let mut first_lines = std::io::BufReader::new(first_out).lines();
+    line_starting(&mut first_lines, "another landing that changed the apps");
+    let (second_out, second_in) = std::io::pipe().unwrap();
+    let second = land_on_thread(&f, &stub, &two, &["--done", "8", &b], second_in);
+    let mut second_lines = std::io::BufReader::new(second_out).lines();
+    let waiting = line_starting(&mut second_lines, "waiting for");
+    assert!(waiting.contains(&a), "{waiting}");
+    std::fs::write(&go, "go\n").unwrap();
+    let first_rest: Vec<String> = first_lines.map(|line| line.unwrap()).collect();
+    let second_rest: Vec<String> = second_lines.map(|line| line.unwrap()).collect();
+    assert!(first.join().unwrap(), "{first_rest:?}");
+    assert!(second.join().unwrap(), "{second_rest:?}");
     assert_eq!(git_out(&f.origin, &["show", "main:app/a.swift"]), "app");
     assert_eq!(git_out(&f.origin, &["show", "main:app/b.swift"]), "app");
     let built = std::fs::read_to_string(f.scratch.dir.join("built")).unwrap();
