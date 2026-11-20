@@ -22,3 +22,8 @@ fn an_unfinished_comment_or_quote_reads_to_the_end() {
     assert_eq!(shape("a -- b"), "a");
     assert_eq!(shape("a 'b  c"), "a 'b  c");
 }
+
+#[test]
+fn a_character_of_several_bytes_passes_through_whole() {
+    assert_eq!(shape("a  'é  ü'  -- ö\n  ß"), "a 'é  ü' ß");
+}

@@ -2965,8 +2965,11 @@ INSTALLING
                               command started by a hook run, review, landing
                               or app build lane runs under it, and an install
                               that would wait refuses to run under one. Then
-                              move the
-                              stores to this builds' schema, copy
+                              move the stores to this builds' schema (builds
+                              refuses to compile when its schema's stamp
+                              differs from the one migrate.rs records, so each
+                              schema change records the new stamp beside its
+                              move from the schema before), copy
                               builds-shots and then builds onto PATH, each in
                               one rename (a failed build leaves the installed
                               ones; install fails when no builds-shots sits

@@ -284,15 +284,20 @@ pub fn file_end(path: &Path, cap: u64) -> std::io::Result<(String, bool)> {
     Ok((text, cut))
 }
 
-/// The 32-bit FNV-1a hash of <text>: the stamp of a schema (db.rs) and the
-/// version of the text agents acknowledge (ack/text.rs).
+/// The 32-bit FNV-1a hash of <text>: the version of the text agents
+/// acknowledge (ack/text.rs).
 pub fn fnv1a(text: &str) -> u32 {
-    let mut hash: u32 = 0x811c_9dc5;
-    for byte in text.bytes() {
-        hash ^= u32::from(byte);
-        hash = hash.wrapping_mul(0x0100_0193);
-    }
-    hash
+    text.bytes().fold(FNV1A_START, fnv1a_add)
+}
+
+/// The FNV-1a hash of no bytes, which `fnv1a_add` hashes each byte into.
+pub const FNV1A_START: u32 = 0x811c_9dc5;
+
+/// The FNV-1a hash <hash> of some bytes, with <byte> hashed in after them: a
+/// const function, so db.rs hashes the schema's shape while the program
+/// compiles.
+pub const fn fnv1a_add(hash: u32, byte: u8) -> u32 {
+    (hash ^ byte as u32).wrapping_mul(0x0100_0193)
 }
 
 #[cfg(test)]

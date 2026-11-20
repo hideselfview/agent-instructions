@@ -211,6 +211,20 @@ const BEFORE_OVER_CAP_STAMP: i64 = 1_558_212_582;
 /// The stamp of the schema before the review section kept only its heading.
 const BEFORE_REVIEW_SECTION_HEADING_ONLY_STAMP: i64 = 2_044_746_774;
 
+/// The stamp of today's schema (`db::STAMP`). A change to the schema changes
+/// its stamp, and builds then fails to compile until the change gives it a
+/// move from this schema, since every store carries this stamp: the change
+/// adds the move, puts this stamp at the end of `STAMPS` under a name that
+/// says what the schema lacked, and sets this to the new schema's stamp, which
+/// the compiler's error names.
+const SCHEMA_STAMP: i64 = 294_983_269;
+
+// The compiler refuses a schema whose stamp is not SCHEMA_STAMP. A const
+// assert could not print the new stamp, so the check compares two array
+// lengths, and the compiler's error names both: the array's expected size is
+// SCHEMA_STAMP, and the size it found is the new schema's stamp.
+const _: [(); SCHEMA_STAMP as usize] = [(); db::STAMP as usize];
+
 /// Every stamp a store can carry that `move_store` moves, oldest schema first.
 /// A new move adds the stamp of the schema before it at the end.
 const STAMPS: [i64; 20] = [

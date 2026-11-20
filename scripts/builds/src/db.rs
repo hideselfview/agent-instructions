@@ -12,7 +12,10 @@
 //! The stamp is `PRAGMA user_version`, a hash of the shape of the assembled
 //! schema text: the text without its comments and spacing (`sql_shape`). A
 //! database whose stamp differs was made by another builds schema and is
-//! refused; there is no version number and no chain of changes.
+//! refused; there is no version number and no chain of changes. The schema
+//! and its stamp are constants the compiler computes, and migrate.rs refuses
+//! to compile a stamp it does not record, so a change to the schema comes with
+//! the move from the schema before it.
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -25,22 +28,6 @@ use crate::fail::{Context, Result};
 /// The database's file name in a project's store folder.
 pub const DATABASE: &str = "builds.sqlite";
 
-/// Each owner's SQL, in the order the schema is read: a table points at ones
-/// earlier or later (SQLite resolves foreign keys when rows are written), but
-/// the order is the one to read it in.
-const LISTS_PARTS: [&str; 11] = [
-    include_str!("lists/project.sql"),
-    include_str!("lists/area.sql"),
-    include_str!("lists/record.sql"),
-    TAG_PART,
-    include_str!("lists/question.sql"),
-    include_str!("lists/decision.sql"),
-    include_str!("lists/item.sql"),
-    include_str!("lists/running.sql"),
-    include_str!("lists/landing.sql"),
-    include_str!("lists/design.sql"),
-    include_str!("lists/store.sql"),
-];
 const HOOK_PART: &str = include_str!("hook_stats.sql");
 
 /// The tags of questions and items (lists/tag.sql), read after the records.
@@ -166,90 +153,186 @@ pub const DESIGN_VARIANTS_PART: &str = include_str!("lists/design_variants.sql")
 /// it after the variants of a design change.
 pub const OVER_CAP_PART: &str = include_str!("review/over_cap.sql");
 
-/// The whole schema: the lists' tables, then the hook stats', then the
-/// app-build timings', then the design changes' recording sessions', then the
-/// stored shot findings, then the review's, then the hook checks' starting
-/// loads, then the cargo runs', then the kept work's, then the dropped
-/// items' work, then the spec checks', then the acknowledgements', then the
-/// publish requests', then the Rust release items', then the Rust checks',
-/// then the items' events, then the landings', then the reviewer processes'
-/// times, then the hosts' samples, then the crates of the cargo runs, then
-/// the judge's, then the cards' states, then the cargo runs' outcomes, then
-/// the commits of the cargo runs and the app builds, then what the failed
-/// hook checks said, then what the failed app build steps said, then what
-/// builds told the judge, then the circles of a review board that surround a
-/// box, then the variants of a design change, then the branches over the
-/// review's cap.
+/// Each part of the schema, in the order the schema holds them: the lists'
+/// tables, then the hook stats', then the app-build timings', then the design
+/// changes' recording sessions', then the stored shot findings, then the
+/// review's, then the hook checks' starting loads, then the cargo runs', then
+/// the kept work's, then the dropped items' work, then the spec checks', then
+/// the acknowledgements', then the publish requests', then the Rust release
+/// items', then the Rust checks', then the items' events, then the landings',
+/// then the reviewer processes' times, then the hosts' samples, then the
+/// crates of the cargo runs, then the judge's, then the cards' states, then
+/// the cargo runs' outcomes, then the commits of the cargo runs and the app
+/// builds, then what the failed hook checks said, then what the failed app
+/// build steps said, then what builds told the judge, then the circles of a
+/// review board that surround a box, then the variants of a design change,
+/// then the branches over the review's cap. A table points at ones earlier or
+/// later (SQLite resolves foreign keys when rows are written), but the order is
+/// the one to read the schema in. A part that joins the schema goes at the end.
+const SCHEMA_PARTS: [&str; 41] = [
+    include_str!("lists/project.sql"),
+    include_str!("lists/area.sql"),
+    include_str!("lists/record.sql"),
+    TAG_PART,
+    include_str!("lists/question.sql"),
+    include_str!("lists/decision.sql"),
+    include_str!("lists/item.sql"),
+    include_str!("lists/running.sql"),
+    include_str!("lists/landing.sql"),
+    include_str!("lists/design.sql"),
+    include_str!("lists/store.sql"),
+    HOOK_PART,
+    APP_TIMING_PART,
+    DESIGN_SESSION_PART,
+    SHOT_FINDINGS_PART,
+    REVIEW_PART,
+    HOOK_CHECK_STARTS_PART,
+    CARGO_RUNS_PART,
+    KEPT_WORK_PART,
+    DROPPED_PART,
+    SPEC_CHECK_PART,
+    ACK_PART,
+    PUBLISH_PART,
+    RUST_RELEASE_PART,
+    RUST_CHECK_PART,
+    ITEM_EVENT_PART,
+    LAND_RUN_PART,
+    EXCHANGE_TIME_PART,
+    HOST_SAMPLE_PART,
+    CARGO_RUN_CRATE_PART,
+    JUDGE_PART,
+    CARD_STATE_PART,
+    CARGO_RUN_OUTCOME_PART,
+    CARGO_RUN_COMMIT_PART,
+    APP_BUILD_COMMIT_PART,
+    HOOK_CHECK_FAILURE_PART,
+    APP_BUILD_STEP_FAILURE_PART,
+    JUDGE_TOLD_PART,
+    DESIGN_CIRCLE_BOX_PART,
+    DESIGN_VARIANTS_PART,
+    OVER_CAP_PART,
+];
+
+/// The length of <parts> joined with a newline between each two.
+const fn joined_len(parts: &[&str]) -> usize {
+    let mut len = 0;
+    let mut at = 0;
+    while at < parts.len() {
+        len += parts[at].len();
+        at += 1;
+    }
+    len + parts.len() - 1
+}
+
+/// <parts> joined with a newline between each two, as the bytes of a text
+/// <N> bytes long (`joined_len`).
+const fn joined<const N: usize>(parts: &[&str]) -> [u8; N] {
+    let mut out = [0u8; N];
+    let mut written = 0;
+    let mut part = 0;
+    while part < parts.len() {
+        if part > 0 {
+            out[written] = b'\n';
+            written += 1;
+        }
+        let bytes = parts[part].as_bytes();
+        let mut at = 0;
+        while at < bytes.len() {
+            out[written] = bytes[at];
+            written += 1;
+            at += 1;
+        }
+        part += 1;
+    }
+    assert!(written == N, "the joined parts fill the text");
+    out
+}
+
+static SCHEMA_BYTES: [u8; joined_len(&SCHEMA_PARTS)] = joined(&SCHEMA_PARTS);
+
+/// The whole schema: each part of `SCHEMA_PARTS`, in order, with a newline
+/// between each two.
+pub const SCHEMA: &str = match std::str::from_utf8(&SCHEMA_BYTES) {
+    Ok(text) => text,
+    Err(_) => panic!("the schema's parts are text, so their join is too"),
+};
+
+/// The stamp of today's schema, computed while the program compiles.
+pub const STAMP: i64 = stamp_of_bytes(SCHEMA.as_bytes());
+
+/// The whole schema (`SCHEMA`).
 pub fn schema() -> String {
-    format!("{}\n{OVER_CAP_PART}", schema_before_over_cap())
+    SCHEMA.to_string()
+}
+
+/// The schema as it was before <part> joined it: the parts of
+/// `SCHEMA_PARTS` before <part>, with a newline between each two.
+#[cfg(test)]
+fn schema_before(part: &str) -> String {
+    let at = SCHEMA_PARTS
+        .iter()
+        .position(|known| *known == part)
+        .expect("the part is one of the schema's parts");
+    SCHEMA_PARTS[..at].join("\n")
 }
 
 /// The schema as it was before the branches over the review's cap joined it.
 /// This and each older schema below hold today's text of the review section:
 /// before the section kept only its heading, each kept the review page's
 /// words too, which migrate.rs's tests put back.
+#[cfg(test)]
 pub fn schema_before_over_cap() -> String {
-    format!(
-        "{}\n{DESIGN_VARIANTS_PART}",
-        schema_before_design_variants()
-    )
+    schema_before(OVER_CAP_PART)
 }
 
 /// The schema as it was before the variants of a design change joined it.
+#[cfg(test)]
 pub fn schema_before_design_variants() -> String {
-    format!(
-        "{}\n{DESIGN_CIRCLE_BOX_PART}",
-        schema_before_design_circle_box()
-    )
+    schema_before(DESIGN_VARIANTS_PART)
 }
 
 /// The schema as it was before the boxes' circles joined it.
+#[cfg(test)]
 pub fn schema_before_design_circle_box() -> String {
-    format!("{}\n{JUDGE_TOLD_PART}", schema_before_judge_told())
+    schema_before(DESIGN_CIRCLE_BOX_PART)
 }
 
 /// The schema as it was before what builds told the judge joined it.
+#[cfg(test)]
 pub fn schema_before_judge_told() -> String {
-    format!(
-        "{}\n{APP_BUILD_STEP_FAILURE_PART}",
-        schema_before_app_build_step_failure()
-    )
+    schema_before(JUDGE_TOLD_PART)
 }
 
 /// The schema as it was before what the failed app build steps said joined
 /// it.
+#[cfg(test)]
 pub fn schema_before_app_build_step_failure() -> String {
-    format!(
-        "{}\n{HOOK_CHECK_FAILURE_PART}",
-        schema_before_hook_check_failure()
-    )
+    schema_before(APP_BUILD_STEP_FAILURE_PART)
 }
 
 /// The schema as it was before what the failed hook checks said joined it.
+#[cfg(test)]
 pub fn schema_before_hook_check_failure() -> String {
-    format!(
-        "{}\n{CARGO_RUN_COMMIT_PART}\n{APP_BUILD_COMMIT_PART}",
-        schema_before_step_commits()
-    )
+    schema_before(HOOK_CHECK_FAILURE_PART)
 }
 
 /// The schema as it was before the commits of the cargo runs and the app
 /// builds joined it.
+#[cfg(test)]
 pub fn schema_before_step_commits() -> String {
-    format!(
-        "{}\n{CARGO_RUN_OUTCOME_PART}",
-        schema_before_cargo_run_outcome()
-    )
+    schema_before(CARGO_RUN_COMMIT_PART)
 }
 
 /// The schema as it was before the cargo runs' outcomes joined it.
+#[cfg(test)]
 pub fn schema_before_cargo_run_outcome() -> String {
-    format!("{}\n{CARD_STATE_PART}", schema_before_card_state())
+    schema_before(CARGO_RUN_OUTCOME_PART)
 }
 
 /// The schema as it was before the cards' states joined it.
+#[cfg(test)]
 pub fn schema_before_card_state() -> String {
-    format!("{}\n{JUDGE_PART}", schema_before_judge())
+    schema_before(CARD_STATE_PART)
 }
 
 /// The schema as it was before the judge's tables joined it. This and each
@@ -257,74 +340,39 @@ pub fn schema_before_card_state() -> String {
 /// schema: before builds found a review's landing by its repo and key, each
 /// had an index on the landing's key alone, which migrate.rs's tests put
 /// back.
+#[cfg(test)]
 pub fn schema_before_judge() -> String {
-    format!(
-        "{}\n{CARGO_RUN_CRATE_PART}",
-        schema_before_cargo_run_crate()
-    )
+    schema_before(JUDGE_PART)
 }
 
 /// The schema as it was before the cargo runs' crates joined it.
+#[cfg(test)]
 pub fn schema_before_cargo_run_crate() -> String {
-    format!("{}\n{HOST_SAMPLE_PART}", schema_before_host_sample())
+    schema_before(CARGO_RUN_CRATE_PART)
 }
 
 /// The schema as it was before the hosts' samples joined it.
+#[cfg(test)]
 pub fn schema_before_host_sample() -> String {
-    format!("{}\n{EXCHANGE_TIME_PART}", schema_before_exchange_time())
+    schema_before(HOST_SAMPLE_PART)
 }
 
 /// The schema as it was before the reviewer processes' times joined it.
+#[cfg(test)]
 pub fn schema_before_exchange_time() -> String {
-    format!("{}\n{LAND_RUN_PART}", schema_before_land_run())
+    schema_before(EXCHANGE_TIME_PART)
 }
 
 /// The schema as it was before the landings' tables joined it.
+#[cfg(test)]
 pub fn schema_before_land_run() -> String {
-    format!("{}\n{ITEM_EVENT_PART}", schema_before_item_event())
+    schema_before(LAND_RUN_PART)
 }
 
 /// The schema as it was before the items' events joined it.
+#[cfg(test)]
 pub fn schema_before_item_event() -> String {
-    format!("{}\n{RUST_CHECK_PART}", schema_before_rust_check())
-}
-
-/// The schema as it was before the Rust checks' table joined it.
-pub fn schema_before_rust_check() -> String {
-    format!("{}\n{RUST_RELEASE_PART}", schema_before_rust_release())
-}
-
-/// The schema as it was before the Rust release items' table joined it.
-pub fn schema_before_rust_release() -> String {
-    format!("{}\n{PUBLISH_PART}", schema_before_publish())
-}
-
-/// The schema as it was before the publish requests' tables joined it.
-pub fn schema_before_publish() -> String {
-    format!(
-        "{}\n{REVIEW_PART}\n{HOOK_CHECK_STARTS_PART}\n{CARGO_RUNS_PART}\n{KEPT_WORK_PART}\n{DROPPED_PART}\n{SPEC_CHECK_PART}\n{ACK_PART}",
-        schema_before_review()
-    )
-}
-
-/// The schema as it was before the review's tables joined it.
-pub fn schema_before_review() -> String {
-    format!("{}\n{SHOT_FINDINGS_PART}", schema_before_shot_findings())
-}
-
-/// The schema as it was before the shot findings' table joined it.
-pub fn schema_before_shot_findings() -> String {
-    format!("{}\n{DESIGN_SESSION_PART}", schema_before_design_session())
-}
-
-/// The schema as it was before the design sessions' table joined it.
-pub fn schema_before_design_session() -> String {
-    format!("{}\n{APP_TIMING_PART}", schema_before_app_timing())
-}
-
-/// The schema as it was before the app-build timing tables joined it.
-pub fn schema_before_app_timing() -> String {
-    format!("{}\n{HOOK_PART}", LISTS_PARTS.join("\n"))
+    schema_before(ITEM_EVENT_PART)
 }
 
 /// The statement of <schema> that starts with <from>, through the first <end>
@@ -370,18 +418,30 @@ PRAGMA legacy_alter_table = OFF;",
     .sql()
 }
 
-/// The stamp of today's schema: the stamp of its shape.
+/// The stamp of today's schema (`STAMP`).
 pub fn stamp() -> i64 {
-    stamp_of_text(&schema())
+    STAMP
 }
 
-/// The stamp of a schema whose text is <text>: the FNV-1a hash (`text::fnv1a`)
-/// of the text's shape, so a comment or a change of spacing leaves the stamp
-/// as it was, folded into `user_version`'s positive range and kept off 0 (no
-/// schema) and 1 (which a hook-stats-only database once carried).
+/// The stamp of a schema whose text is <text> (`stamp_of_bytes`).
+#[cfg(test)]
 pub fn stamp_of_text(text: &str) -> i64 {
-    let shape = crate::sql_shape::shape(text);
-    i64::from(crate::text::fnv1a(&shape) % (i32::MAX as u32 - 2)) + 2
+    stamp_of_bytes(text.as_bytes())
+}
+
+/// The stamp of a schema whose text's bytes are <sql>: the FNV-1a hash
+/// (`text::fnv1a_add`) of the text's shape (`sql_shape::next`), so a comment
+/// or a change of spacing leaves the stamp as it was, folded into
+/// `user_version`'s positive range and kept off 0 (no schema) and 1 (which a
+/// hook-stats-only database once carried).
+const fn stamp_of_bytes(sql: &[u8]) -> i64 {
+    let mut hash = crate::text::FNV1A_START;
+    let mut reader = crate::sql_shape::Reader::START;
+    while let Some((byte, after)) = crate::sql_shape::next(sql, reader) {
+        hash = crate::text::fnv1a_add(hash, byte);
+        reader = after;
+    }
+    (hash % (i32::MAX as u32 - 2)) as i64 + 2
 }
 
 fn configure(conn: &Connection, path: &Path) -> Result<()> {
