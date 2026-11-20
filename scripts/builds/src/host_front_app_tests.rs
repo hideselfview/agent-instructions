@@ -54,6 +54,12 @@ fn reads_the_front_app_from_lsappinfo() {
             pid: 43839
         }))
     );
+    // macOS 26's lsappinfo prints each field as `"<key>"=<value>`, on lines
+    // of their own, as m1 did while a shot run held the front.
+    assert_eq!(
+        parse(Some(r#""LSDisplayName"="bae" "pid"=93913 "#)),
+        Ok(Some(app("bae", 93913)))
+    );
     assert_eq!(parse(None), Ok(None));
     assert!(
         parse(Some("lsappinfo: no such app"))

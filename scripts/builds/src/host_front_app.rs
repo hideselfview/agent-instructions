@@ -20,8 +20,7 @@ const SYSTEM_ALERTS: [&str; 3] = [
 ];
 
 /// The line the scan script runs on a Mac (host_scan.rs) to print what
-/// `parse` reads: lsappinfo's description of the front app, its name in
-/// quotes on the first line and its pid after `pid =`, on one line.
+/// `parse` reads: lsappinfo's name and pid of the front app, on one line.
 pub const SCRIPT_LINE: &str =
     r#"echo "front_app=$(lsappinfo info -only name,pid "$(lsappinfo front)" 2>&1 | tr '\n' ' ')""#;
 
@@ -46,23 +45,44 @@ impl FrontApp {
 /// Reads the scan's `front_app` line, <line>: None when the host printed
 /// none, as a host that runs no lsappinfo does, and an error that quotes
 /// the line when it names no pid.
+///
+/// lsappinfo prints the fields one of two ways, by macOS version: macOS 26
+/// prints each as `"<key>"=<value>` (`"LSDisplayName"="bae" "pid"=93913`),
+/// and macOS 27 describes the app, its name in quotes first and its pid
+/// after `pid =` (`"Terminal" ASN:0x0-0x66066: (in front) ... pid = 43839`).
 pub fn parse(line: Option<&str>) -> std::result::Result<Option<FrontApp>, String> {
     let Some(line) = line else {
         return Ok(None);
     };
-    let pid = line
-        .split_once("pid = ")
-        .and_then(|(_, rest)| rest.split_whitespace().next())
-        .and_then(|pid| pid.parse().ok());
-    let Some(pid) = pid else {
+    let (name, pid) = match line.split_once(r#""pid"="#) {
+        Some((_, after_pid)) => (
+            line.split_once(r#""LSDisplayName"=""#)
+                .and_then(|(_, rest)| rest.split_once('"'))
+                .map(|(name, _)| name),
+            after_pid,
+        ),
+        None => (
+            line.trim_start()
+                .strip_prefix('"')
+                .and_then(|rest| rest.split_once('"'))
+                .map(|(name, _)| name),
+            match line.split_once("pid = ") {
+                Some((_, after_pid)) => after_pid,
+                None => return Err(format!("lsappinfo named no front app: {line:?}")),
+            },
+        ),
+    };
+    let Some(pid) = pid
+        .split_whitespace()
+        .next()
+        .and_then(|pid| pid.parse().ok())
+    else {
         return Err(format!("lsappinfo named no front app: {line:?}"));
     };
-    let name = line
-        .trim_start()
-        .strip_prefix('"')
-        .and_then(|rest| rest.split_once('"'))
-        .map(|(name, _)| name.to_string());
-    Ok(Some(FrontApp { name, pid }))
+    Ok(Some(FrontApp {
+        name: name.map(str::to_string),
+        pid,
+    }))
 }
 
 /// The lines for <scans>: each host whose front app is a system alert, with
