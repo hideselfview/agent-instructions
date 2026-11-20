@@ -2,17 +2,23 @@
 //! mac lane, app-android.queue for the android lane (lane.rs). Each lane has
 //! its own locks, one per app checkout, and one line for all of them.
 //!
-//! `order` names one ticket per line, next first; the holders' are at the
-//! head: as many as the lane has app checkouts (its `slots`). A ticket among
-//! the first `slots` may take a free lock; one further back waits.
+//! `order` names one ticket per line, next first. The holders' tickets stay in
+//! it, and a ticket's name ends in where its build may run
+//! (`<pid>-<n>-here|hosts|anywhere`, `lock::Where`). A waiter may take a lock
+//! when a free checkout it may use is left once each waiter ahead of it has
+//! taken one (`may_go`): a ticket whose pid is in the record beside a held
+//! lock has taken its checkout already. A waiter that may use only a checkout
+//! an earlier waiter cannot use goes ahead of that waiter; two that may use
+//! the same checkouts go in the order they came.
 //! Every change to it happens under a short guard lock, `.next`. A ticket is a
-//! file named `<pid>-<n>` (n counts that process's tickets), held locked for
+//! file named `<pid>-<n>-<where>` (n counts that process's tickets), held locked for
 //! the life of its process and of every process that process starts, and
 //! holding nothing else: the name carries the pid.
 //!
 //! A waiter blocks, in a thread inside `flock` for each, on the
-//! ticket of the entry before it and on the tickets of the first `slots`
-//! entries (one of those leaving is what lets it forward). Getting that lock
+//! tickets of every other entry (one of those leaving frees a lock or a place
+//! for it). A build that takes a lock signals the waiters to read the locks
+//! and its record again. Getting a ticket's lock
 //! means the ticket's owner is gone, so the waiter takes the entry out of the
 //! order and looks again: a waiter that dies in line never lets anyone past
 //! the holders. SIGUSR1 means the order changed:
@@ -40,6 +46,7 @@ use std::sync::{Arc, Mutex};
 use crate::fail;
 use crate::fail::{Context, Result};
 use crate::lane::{AddedBy, Lane};
+use crate::lock::Where;
 use crate::lock_wake::{Shared, Wake};
 use crate::places::Places;
 use crate::procs::{self, Processes};
@@ -126,6 +133,17 @@ pub fn is_held(path: &Path) -> Result<bool> {
 /// The pid in a ticket's name.
 pub fn pid_of(ticket: &str) -> Option<i32> {
     ticket.split_once('-')?.0.parse().ok()
+}
+
+/// Which checkouts the build behind <ticket> may take: the last word of its
+/// name (`<pid>-<n>-<where>`).
+pub fn allowed_of(ticket: &str) -> Result<Where> {
+    match ticket.splitn(3, '-').nth(2).and_then(Where::parse) {
+        Some(allowed) => Ok(allowed),
+        None => fail!(
+            "{ticket} is no ticket of this builds: its name does not end in where it may build"
+        ),
+    }
 }
 
 /// One ticket of this process: held locked until its descriptor closes.
@@ -239,9 +257,9 @@ impl Queue {
 
     /// Makes this process's next ticket, locked, and puts it last in line;
     /// returns it with how many were in line before it.
-    pub fn join(&self) -> Result<(Ticket, usize)> {
+    pub fn join(&self, allowed: Where) -> Result<(Ticket, usize)> {
         let _guard = self.guard()?;
-        let ticket = self.new_ticket()?;
+        let ticket = self.new_ticket(allowed)?;
         let mut order = self.order();
         let ahead = order.len();
         order.push(ticket.name.clone());
@@ -250,9 +268,9 @@ impl Queue {
     }
 
     /// A fresh ticket, locked, not yet in the order. Needs the guard.
-    fn new_ticket(&self) -> Result<Ticket> {
+    fn new_ticket(&self, allowed: Where) -> Result<Ticket> {
         let number = TICKETS.fetch_add(1, Ordering::SeqCst) + 1;
-        let name = format!("{}-{number}", std::process::id());
+        let name = format!("{}-{number}-{}", std::process::id(), allowed.word());
         let fd = open_locked(&self.ticket_path(&name))?;
         Ok(Ticket { name, fd })
     }
@@ -261,7 +279,7 @@ impl Queue {
     /// descriptor is the caller's to close.
     pub fn reissue(&self, old: &Ticket) -> Result<Ticket> {
         let _guard = self.guard()?;
-        let new = self.new_ticket()?;
+        let new = self.new_ticket(allowed_of(&old.name)?)?;
         let mut order = self.order();
         match order.iter_mut().find(|name| **name == old.name) {
             Some(entry) => *entry = new.name.clone(),
@@ -294,7 +312,60 @@ impl Queue {
         self.unlink(name)
     }
 
-    /// Waits until <mine> is among the first `slots` of the order.
+    /// Whether the build behind <mine>, with the tickets <ahead> in front of
+    /// it, may take a lock now: a free checkout it may use is left once each
+    /// earlier waiter has taken one. A ticket whose owner holds a lock (its
+    /// pid is in the record beside a held lock) has taken its checkout
+    /// already, so only the other tickets ahead take one of the free ones.
+    /// A ticket takes what its own where allows, and the tickets that may
+    /// take any checkout are counted as taking the ones <mine> needs.
+    fn may_go(&self, mine: &str, ahead: &[String]) -> Result<bool> {
+        let allowed = allowed_of(mine)?;
+        let text = std::fs::read_to_string(&self.checkouts_file).unwrap_or_default();
+        let entries: Vec<String> = crate::lane::parse_set(&text)?
+            .into_iter()
+            .map(|checkout| checkout.entry)
+            .collect();
+        // With none <mine> may take, going on is what says so.
+        if !entries.iter().any(|entry| allowed.allows(entry)) {
+            return Ok(true);
+        }
+        let (mut free_here, mut free_hosts) = (0usize, 0usize);
+        let mut holders: Vec<i32> = Vec::new();
+        for entry in &entries {
+            if is_held(&self.lock_path(entry))? {
+                let record = self.locks_dir.join(format!("{entry}.run"));
+                if let Some(run) = crate::holder_run::HolderRun::read(&record)? {
+                    holders.push(run.pid);
+                }
+            } else if crate::app_remote::split(entry).is_some() {
+                free_hosts += 1;
+            } else {
+                free_here += 1;
+            }
+        }
+        let (mut here, mut hosts, mut anywhere) = (0usize, 0usize, 0usize);
+        for name in ahead {
+            if pid_of(name).is_some_and(|pid| holders.contains(&pid)) {
+                continue;
+            }
+            match allowed_of(name)? {
+                Where::Here => here += 1,
+                Where::Hosts => hosts += 1,
+                Where::Anywhere => anywhere += 1,
+            }
+        }
+        let left_here = free_here - here.min(free_here);
+        let left_hosts = free_hosts - hosts.min(free_hosts);
+        Ok(match allowed {
+            Where::Here => left_here > anywhere,
+            Where::Hosts => left_hosts > anywhere,
+            Where::Anywhere => left_here + left_hosts > anywhere,
+        })
+    }
+
+    /// Waits until a free checkout <mine> may use is left once the tickets
+    /// ahead of it have taken theirs (`may_go`).
     pub fn wait_for_turn(&self, mine: &str) -> Result<()> {
         self.wait_for_turn_with(mine, || {})
     }
@@ -323,16 +394,12 @@ impl Queue {
                         self.dir.join("order").display()
                     );
                 };
-                let slots = self.slots();
-                if at < slots {
+                if self.may_go(mine, &order[..at])? {
                     return Ok(());
                 }
-                // The holders': one leaving moves this forward. And the entry
-                // before it: a waiter that died there is taken out at once.
-                let mut ahead: Vec<&String> = order[..slots].iter().collect();
-                if !ahead.contains(&&order[at - 1]) {
-                    ahead.push(&order[at - 1]);
-                }
+                // Every other ticket: one leaving, a holder's or a waiter's
+                // that died, changes what is left for this one.
+                let ahead: Vec<&String> = order.iter().filter(|name| *name != mine).collect();
                 waiting.retain(|(started, name)| {
                     let keep = ahead.contains(&name);
                     if !keep {

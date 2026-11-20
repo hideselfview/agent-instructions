@@ -142,7 +142,24 @@ pub enum Where {
 }
 
 impl Where {
-    fn allows(self, entry: &str) -> bool {
+    /// The word a ticket's name carries (queue.rs): which checkouts the
+    /// build behind the ticket may take.
+    pub fn word(self) -> &'static str {
+        match self {
+            Where::Here => "here",
+            Where::Hosts => "hosts",
+            Where::Anywhere => "anywhere",
+        }
+    }
+
+    /// The value <word> names, `word`'s inverse.
+    pub fn parse(word: &str) -> Option<Where> {
+        [Where::Here, Where::Hosts, Where::Anywhere]
+            .into_iter()
+            .find(|place| place.word() == word)
+    }
+
+    pub fn allows(self, entry: &str) -> bool {
         let on_host = crate::app_remote::split(entry).is_some();
         match self {
             Where::Here => !on_host,
@@ -279,6 +296,7 @@ impl Held {
             waited: waited + waiting.elapsed(),
         };
         held.record(None)?;
+        queue::repoint(&held.places, &held.repo, held.lane)?;
         Ok(held)
     }
 }
@@ -566,7 +584,7 @@ fn take_in(
     let queue = Queue::of(places, repo, lane);
     crate::lane_size::shrink(sized, crate::prune::Run::Real, now)?;
     let waiting = Instant::now();
-    let (ticket, ahead) = queue.join()?;
+    let (ticket, ahead) = queue.join(allowed)?;
     if ahead >= queue.slots() {
         note(format!(
             "{ahead} ahead in {repo}'s {} app queue",
@@ -592,6 +610,9 @@ fn take_in(
         waited: waiting.elapsed(),
     };
     held.record(None)?;
+    // The waiters behind read the locks and the holders' records again: a
+    // waiter that could not tell this ticket from a waiter waits for this.
+    queue::repoint(places, repo, lane)?;
     Ok(held)
 }
 

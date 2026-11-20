@@ -869,8 +869,12 @@ Gradle and target-android. Each lane has its own app checkouts, locks and
 queue, so a Mac build and an Android build never wait on each other, and each
 app checkout keeps only its own lane's folders built. A checkout is one lane's,
 never both. A lane with several app checkouts builds in as many at once, and
-its queue gives a free lock to the next build in line: waiters go in the order
-they came, and one that dies in line never lets anyone past the holders.
+its queue gives each free checkout to the first build in line that may use it:
+waiters go in the order they came, a waiter takes a free checkout it may use
+even when a waiter ahead of it may not (a build that runs only on this Mac
+passes one that waits for a host's checkout, and the reverse), and one that
+dies in line never lets anyone past the holders. A ticket's name ends in the
+words here, hosts or anywhere, which say where its build may run.
 
 An app checkout's working tree belongs to whoever holds its lock, and only for
 the command they run holding it: nobody edits there or leaves changes behind.
