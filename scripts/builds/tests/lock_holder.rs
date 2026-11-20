@@ -55,6 +55,11 @@ impl Demo {
             .as_secs()
             - 3 * 3600;
         let old = format!("{three_hours_ago} +0000");
+        // Health counts every `builds app-build <repo> <branch>` process on
+        // the machine as a build of the worktree on that branch, so this
+        // branch is named for this run: another test's or agent's
+        // `app-build demo work` must not make side-2 look busy.
+        let branch = format!("bl-{name}-{}", std::process::id());
         std::fs::create_dir_all(&main).unwrap();
         git(&main, &["init", "-q", "-b", "main"], None);
         git(&main, &["config", "user.email", "test@example.com"], None);
@@ -88,7 +93,7 @@ impl Demo {
                 "add",
                 "-q",
                 "-b",
-                "work",
+                &branch,
                 side.to_str().unwrap(),
                 "origin/main",
             ],
