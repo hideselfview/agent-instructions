@@ -163,6 +163,9 @@ pub fn cmd_check_landing(places: &Places, args: &[String]) -> Result<()> {
     }
     let repo = checkout.repo();
     let Some(database) = crate::app_timing::database_of(places, &repo)? else {
+        crate::text::note(format!(
+            "repo {repo} is in no project, so no store records its app builds and builds checks none"
+        ));
         return Ok(());
     };
     let config = parse_config(&run_git(top, &["show", &format!("{result}:{CONFIG}")])?)?;
