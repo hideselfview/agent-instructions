@@ -13,8 +13,7 @@
 //!
 //! The Design system tab shows the components in the groups and subgroups
 //! that the design system's `groups.json` lists, each under the line that
-//! introduces it (`boards::preview::contents`), with a field that shows only
-//! the components whose names hold what the person types. Each component's
+//! introduces it (`boards::preview::contents`). Each component's
 //! frame draws its preview at the preview's own size, up to the width of the
 //! tab (`preview_fit.js`).
 //!
@@ -89,7 +88,6 @@ pub fn page(
         pages.push((page.id, name, Vec::new()));
     }
     let first = pages[0].0;
-    let mut count = 0;
     for (file, entry) in placed(&index)? {
         let Some(name) = file.strip_suffix(BOARD_SUFFIX) else {
             fail!(
@@ -114,7 +112,6 @@ pub fn page(
             }
         };
         boards.push(drawn);
-        count += 1;
     }
     let pages: Vec<Value> = pages
         .into_iter()
@@ -156,7 +153,6 @@ pub fn page(
         "project": project,
         "publish": publish,
         "commit": commit,
-        "boards": count,
         "base": format!("/designs/{project}/{commit}"),
         "pages": pages,
         "system": system,

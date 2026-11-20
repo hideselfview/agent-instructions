@@ -17,7 +17,9 @@
 .dz-sub{color:var(--muted);font-size:13px}
 .dz-sub code{font:500 12px var(--font-mono);color:var(--text-2)}
 .dz-tools{margin-left:auto;display:flex;gap:8px;align-items:center}
-.dz-pages{display:flex;gap:4px;flex-wrap:wrap;border-bottom:1px solid var(--line);padding-bottom:8px}
+.dz-row{display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap;border-bottom:1px solid var(--line);padding-bottom:8px}
+.dz-pages{flex:1 1 0;min-width:0;display:flex;gap:4px;flex-wrap:wrap}
+.dz-filter{font:inherit;flex:none;width:240px;color:var(--text);background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:5px 10px}
 .dz-pages button{font:inherit;font-size:13px;color:var(--text-2);background:none;border:1px solid transparent;border-radius:6px;padding:3px 10px;cursor:pointer}
 .dz-pages button[aria-selected="true"]{color:var(--text);border-color:var(--line);background:var(--surface)}
 .dz-pages .n{color:var(--muted);margin-left:6px;font-size:12px}
@@ -38,10 +40,10 @@
 <div class="dz">
 <div class="dz-head">
   <h1>bae designs</h1>
-  <span class="dz-sub">main at <code>43b9c69</code> · 571 boards</span>
-  <span class="dz-sub">claude.ai has <code>43b9c69</code>, published 14:20</span>
+  <span class="dz-sub">main at <code>43b9c69</code></span>
   <div class="dz-tools"><button type="button" class="qbtn">Publish to claude.ai…</button></div>
 </div>
+<div class="dz-row">
 <div class="dz-pages" role="tablist" aria-label="Pages">
   <button type="button" role="tab" aria-selected="true">Design system</button>
   <button type="button" role="tab" aria-selected="false" id="scratch-tab">Scratch<span class="n">2</span></button>
@@ -51,6 +53,8 @@
   <button type="button" role="tab" aria-selected="false">Library<span class="n">178</span></button>
   <button type="button" role="tab" aria-selected="false">Settings<span class="n">60</span></button>
   <button type="button" role="tab" aria-selected="false">Shared<span class="n">16</span></button>
+</div>
+<input class="dz-filter" type="search" placeholder="Filter" aria-label="Filter">
 </div>
 <section class="ds-sec"><h2>Colors</h2><div class="ds-swatches">
   <div class="ds-sw"><div class="ds-chip" style="background:#141416"></div><span class="ds-k">bg</span></div>

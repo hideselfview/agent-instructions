@@ -13,7 +13,7 @@
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 var(--sans); }
 .dz { display: flex; flex-direction: column; gap: 16px; padding: 0 24px 48px; }
-/* The toolbar (the heading line, the tabs and the find field) stays at the top
+/* The toolbar (the heading line, and the tabs with the Filter field) stays at the top
    of the window while the page scrolls. --bar is its height, which the script
    sets, and the section headings stick just under it. */
 .dz-bar { position: sticky; top: 0; z-index: 3; display: flex; flex-direction: column; gap: 12px; padding: 16px 0 0; background: var(--bg); }
@@ -24,7 +24,8 @@ body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 var
 .pub-now { color: var(--muted); }
 .pub-now code, .bstatus code { font: 500 12px var(--mono); color: var(--text-2); }
 .dz-sub code, .problem code { font: 500 12px var(--mono); color: var(--text-2); }
-.dz-pages { display: flex; gap: 4px; flex-wrap: wrap; border-bottom: 1px solid var(--line); padding-bottom: 8px; }
+.dz-row { display: flex; gap: 12px; align-items: flex-start; flex-wrap: wrap; border-bottom: 1px solid var(--line); padding-bottom: 8px; }
+.dz-pages { flex: 1 1 0; min-width: 0; display: flex; gap: 4px; flex-wrap: wrap; }
 .dz-pages button { font: inherit; font-size: 13px; color: var(--text-2); background: none; border: 1px solid transparent; border-radius: 6px; padding: 3px 10px; cursor: pointer; }
 .dz-pages button[aria-selected="true"] { color: var(--text); border-color: var(--line); background: var(--surface); }
 .dz-pages button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
@@ -51,9 +52,8 @@ body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 var
 .ds-type div { display: flex; align-items: baseline; gap: 16px; min-width: 0; }
 .ds-type .ds-k { flex: none; width: 120px; }
 [hidden] { display: none !important; }
-.ds-find { display: flex; gap: 12px; align-items: center; padding-bottom: 8px; }
-.ds-find input { font: inherit; width: 320px; max-width: 100%; color: var(--text); background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 5px 10px; }
-.ds-find input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.dz-filter { font: inherit; flex: none; width: 240px; max-width: 100%; color: var(--text); background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 5px 10px; }
+.dz-filter:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .ds-groups { display: flex; flex-direction: column; gap: 32px; }
 .ds-group { display: flex; flex-direction: column; gap: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
 .ds-group > h3, .ds-sub > h4 { position: sticky; z-index: 2; margin: 0; background: var(--bg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -77,8 +77,10 @@ body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 var
 <div class="dz">
   <div class="dz-bar" id="bar">
     <div class="dz-head"><h1 id="title"></h1><span class="dz-sub" id="at"></span><span class="dz-sub" id="claude"></span><div class="dz-tools" id="tools"></div></div>
-    <div class="dz-pages" id="tabs" role="tablist" aria-label="Pages"></div>
-    <div id="find" hidden></div>
+    <div class="dz-row">
+      <div class="dz-pages" id="tabs" role="tablist" aria-label="Pages"></div>
+      <input class="dz-filter" id="filter" type="search" placeholder="Filter" aria-label="Filter">
+    </div>
   </div>
   <div id="main"></div>
 </div>
@@ -103,8 +105,7 @@ const h = (tag, attrs, ...kids) => {
 };
 document.title = data.project + " designs";
 document.getElementById("title").textContent = data.project + " designs";
-document.getElementById("at").append("main at ", h("code", {title: data.commit}, data.commit.slice(0, 7)),
-  " · " + data.boards + (data.boards === 1 ? " board" : " boards"));
+document.getElementById("at").append("main at ", h("code", {title: data.commit}, data.commit.slice(0, 7)));
 
 // The tabs: the design system, the scratch boards on this Mac, then one per
 // page of the canvas index. The chosen tab is in the address's #, so a reload
@@ -231,9 +232,11 @@ function canvasView(boards) {
 }
 function pageView(page) {
   if (!page.boards.length) return h("div", {class: "dz-sub"}, "No board is on this page.");
-  const problems = page.boards.filter(b => b.error);
+  const boards = page.boards.filter(b => matches(b.title || b.name));
+  if (!boards.length) return noMatch();
+  const problems = boards.filter(b => b.error);
   return [problems.map(b => h("div", {class: "problem"}, b.name + ": " + b.error)),
-    canvasView(page.boards.filter(b => !b.error))];
+    canvasView(boards.filter(b => !b.error))];
 }
 
 // The design system: its colors in the first theme, its text styles, and
@@ -241,8 +244,8 @@ function pageView(page) {
 // under the line that introduces it. Each component's frame draws its
 // preview at the preview's own size: the page sends the frame the width it
 // has room for when the frame loads and when the preview says it is ready,
-// and the frame answers with the size the preview takes (preview_fit.js). The field in the toolbar shows only the components whose
-// names hold what the person types.
+// and the frame answers with the size the preview takes (preview_fit.js). The Filter field in the toolbar hides the colors, text
+// styles and components whose names do not hold what the person types.
 function cardView(card) {
   const box = h("div", {class: "ds-comp", "data-name": card.name});
   if (card.error) box.append(h("div", {class: "problem"}, card.name + ": " + card.error));
@@ -286,44 +289,44 @@ window.addEventListener("resize", () => {
     document.querySelectorAll("iframe.ds-prev").forEach(sendRoom);
   });
 });
-function findView(groups) {
-  const input = h("input", {type: "search", placeholder: "Find a component by name", "aria-label": "Find a component by name"});
-  const none = h("span", {class: "dz-sub", hidden: ""});
-  input.addEventListener("input", () => {
-    const words = input.value.trim().toLowerCase();
-    let shown = 0;
-    for (const card of groups.querySelectorAll(".ds-comp")) {
-      card.hidden = !!words && !card.dataset.name.toLowerCase().includes(words);
-      if (!card.hidden) shown++;
-    }
-    for (const part of groups.querySelectorAll(".ds-cards, .ds-sub, .ds-group"))
-      part.hidden = !part.querySelector(".ds-comp:not([hidden])");
-    none.hidden = shown > 0;
-    none.textContent = "No component's name holds \u201c" + input.value.trim() + "\u201d.";
-  });
-  return h("div", {class: "ds-find"}, input, none);
+// The Filter field's text, which every tab uses and which the tabs keep.
+const filterInput = document.getElementById("filter");
+const words = () => filterInput.value.trim().toLowerCase();
+const matches = title => title.toLowerCase().includes(words());
+const noMatch = () => h("div", {class: "dz-sub", "data-none": ""}, "Nothing here has \u201c" + filterInput.value.trim() + "\u201d in its title.");
+// Hides the items of the design system tab that the Filter text does not
+// match, and each part that is left with none. The tab keeps its frames, so
+// typing does not load them again.
+function filterSystem() {
+  const main = document.getElementById("main");
+  for (const none of main.querySelectorAll("[data-none]")) none.remove();
+  const items = main.querySelectorAll("[data-name]");
+  let shown = 0;
+  for (const item of items) {
+    item.hidden = !matches(item.dataset.name);
+    if (!item.hidden) shown++;
+  }
+  const all = !words();
+  for (const part of main.querySelectorAll(".ds-cards, .ds-sub, .ds-group, .ds-swatches, .ds-type, .ds-sec"))
+    part.hidden = !all && !part.querySelector("[data-name]:not([hidden])");
+  if (!all && items.length && !shown) main.append(noMatch());
 }
-// The find field of the Components section, which the toolbar holds so it
-// stays in view; null when the section has no components.
-let find = null;
 function systemView() {
   const out = [];
-  find = null;
   const s = data.system;
   if (s.error) out.push(h("div", {class: "problem"}, s.error));
   else {
     if (s.colors.length) out.push(h("section", {class: "ds-sec"}, h("h2", {}, "Colors"),
-      h("div", {class: "ds-swatches"}, s.colors.map(c => h("div", {class: "ds-sw", title: c.value},
+      h("div", {class: "ds-swatches"}, s.colors.map(c => h("div", {class: "ds-sw", title: c.value, "data-name": c.name},
         h("div", {class: "ds-chip", style: "background: " + c.value}), h("span", {class: "ds-k"}, c.name))))));
     if (s.styles.length) out.push(h("section", {class: "ds-sec"}, h("h2", {}, "Type"),
-      h("div", {class: "ds-type"}, s.styles.map(t => h("div", {},
+      h("div", {class: "ds-type"}, s.styles.map(t => h("div", {"data-name": t.name},
         h("span", {class: "ds-k"}, t.name), h("span", {style: t.css}, t.words))))));
   }
   const c = data.components;
   if (c.error) out.push(h("div", {class: "problem"}, c.error));
   else if (c.groups.length || c.problems.length) {
     const groups = h("div", {class: "ds-groups"}, c.groups.map(groupView));
-    find = findView(groups);
     out.push(h("section", {class: "ds-sec"}, h("h2", {}, "Components"),
       c.problems.map(p => h("div", {class: "problem"}, p)), groups));
   }
@@ -339,7 +342,9 @@ function scratchView() {
   const s = data.scratch;
   if (s.error) return h("div", {class: "problem"}, s.error);
   if (!s.boards.length) return h("div", {class: "dz-sub"}, "No worktree has a scratch board, a file design/mocks/scratch.<name>.dc.html that no commit holds.");
-  return h("ul", {class: "scratch"}, s.boards.map(b => h("li", {},
+  const boards = s.boards.filter(b => matches(b.board || b.file));
+  if (!boards.length) return noMatch();
+  return h("ul", {class: "scratch"}, boards.map(b => h("li", {},
     b.error ? h("span", {class: "problem"}, b.file + " in " + b.worktree + ": " + b.error)
       : [h("a", {href: b.link}, b.board), h("span", {class: "dz-sub"}, " in " + b.worktree)])));
 }
@@ -350,10 +355,11 @@ function render() {
   const page = data.pages.find(p => p.id === id);
   const view = [page ? pageView(page) : id === SCRATCH ? scratchView() : systemView()].flat();
   document.getElementById("main").replaceChildren(...view);
-  const slot = document.getElementById("find");
-  slot.replaceChildren(...(id === SYSTEM && find ? [find] : []));
-  slot.hidden = !slot.children.length;
+  if (id === SYSTEM) filterSystem();
 }
+// Typing redraws the tab: a page or the scratch list draws only the entries
+// that match, and the design system tab hides the ones that do not.
+filterInput.addEventListener("input", () => { if (chosen() === SYSTEM) filterSystem(); else render(); });
 // The toolbar's height, which the stuck headings sit under.
 new ResizeObserver(() => document.documentElement.style.setProperty("--bar", document.getElementById("bar").offsetHeight + "px"))
   .observe(document.getElementById("bar"));
@@ -371,7 +377,7 @@ render();
 // request, and the form shows it as the session takes it and ends it. The
 // form keeps the newest request's result until the person dismisses it.
 const pub = data.publish;
-let standing = pub.standing || {latest: null, published: null};
+let standing = pub.standing || {latest: null};
 let failure = null;
 const here = ["127.0.0.1", "localhost", "[::1]"].includes(location.hostname);
 const DISMISSED = "designs-publish-dismissed:" + data.project;
@@ -388,11 +394,6 @@ function minute(at) {
   return new Date(at * 1000).toLocaleTimeString([], {hour: "2-digit", minute: "2-digit", hour12: false});
 }
 const short = commit => h("code", {title: commit}, commit.slice(0, 7));
-function claudeHas() {
-  const p = standing.published;
-  return p ? ["claude.ai has ", short(p.commit), ", published " + minute(p.ended.at)]
-    : ["claude.ai has no publish that builds recorded"];
-}
 function renderHead() {
   const line = document.getElementById("claude"), tools = document.getElementById("tools");
   if (pub.error) { line.replaceChildren(h("span", {class: "problem"}, pub.error)); tools.replaceChildren(); return; }
@@ -401,7 +402,7 @@ function renderHead() {
     tools.replaceChildren();
     return;
   }
-  line.replaceChildren(...claudeHas());
+  line.replaceChildren();
   const button = h("button", {type: "button", class: "qbtn"}, "Publish to claude.ai…");
   button.addEventListener("click", openPublish);
   tools.replaceChildren(button);
@@ -431,8 +432,8 @@ function renderPublish() {
   if (open) { input.disabled = true; go.disabled = true; }
   go.addEventListener("click", () => ask(input.value, go));
   const parts = [];
-  if (!r && !failure) parts.push(h("div", {class: "pub-now"}, ...claudeHas(),
-    ". Publish sends every canvas and the design system from one commit."));
+  if (!r && !failure) parts.push(h("div", {class: "pub-now"},
+    "Publish sends every canvas and the design system from one commit."));
   parts.push(h("div", {class: "bform"}, input, go));
   if (failure) parts.push(h("div", {class: "bresult"}, h("div", {class: "bstatus failed"}, failure),
     dismissButton(() => { failure = null; renderPublish(); })));

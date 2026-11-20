@@ -90,7 +90,6 @@ fn the_page_has_each_page_of_the_index_with_its_boards_at_their_canvas_places_at
     assert!(!page.contains("@@"), "every marker is filled");
     let data = page_data(&page);
     assert_eq!(data["commit"], json!(commit));
-    assert_eq!(data["boards"], json!(5));
     assert_eq!(data["base"], json!(format!("/designs/demo/{commit}")));
     assert_eq!(
         data["pages"],
@@ -234,7 +233,7 @@ fn the_page_offers_publishing_only_where_canvases_toml_names_the_artifacts() {
         data["publish"],
         json!({
             "canvas": true,
-            "standing": { "latest": null, "published": null },
+            "standing": { "latest": null },
         })
     );
     let unreadable = page(

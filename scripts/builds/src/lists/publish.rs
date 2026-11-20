@@ -165,31 +165,25 @@ fn request(db: &Connection, id: i64) -> Result<Request> {
     }
 }
 
-/// What the dashboard shows of the project's publishing: the newest request,
-/// and the newest that published.
+/// What the dashboard shows of the project's publishing: the newest request.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
 pub struct Standing {
     pub latest: Option<Request>,
-    pub published: Option<Request>,
 }
 
 /// The project's publishing as <db> holds it.
 pub fn standing(db: &Connection) -> Result<Standing> {
-    let newest = |filter: &str| {
-        db.query_row(
-            &format!("SELECT {COLUMNS} FROM publish_request {filter} ORDER BY id DESC LIMIT 1"),
+    let latest = db
+        .query_row(
+            &format!("SELECT {COLUMNS} FROM publish_request ORDER BY id DESC LIMIT 1"),
             [],
             request_of,
         )
         .optional()
         .sql()?
         .map(|request| with_links(db, request))
-        .transpose()
-    };
-    Ok(Standing {
-        latest: newest("")?,
-        published: newest("WHERE outcome = 'published'")?,
-    })
+        .transpose()?;
+    Ok(Standing { latest })
 }
 
 /// Records a request to publish <commit> (a full commit id), asked by

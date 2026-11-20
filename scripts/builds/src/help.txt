@@ -2092,9 +2092,14 @@ STATUS, HEALTH AND THE DASHBOARD
                               it. Each component's preview draws at its own
                               size, up to the tab's width, and a preview
                               taller than 640 pixels lets its rows sit side
-                              by side when that makes it shorter. A field
-                              above the components shows only those whose
-                              names hold what the person types. A component
+                              by side when that makes it shorter. The
+                              Filter field, in the row of the tabs, works the
+                              same on every tab: it keeps the entries whose
+                              title holds what the person types, ignoring
+                              case (on the Design system tab, the colors,
+                              text styles and components whose names hold
+                              it), and keeps its text when the person
+                              switches tabs. A component
                               that groups.json leaves out or lists twice,
                               a name it lists that no component has, and
                               a group or subgroup it gives no components
@@ -2103,8 +2108,7 @@ STATUS, HEALTH AND THE DASHBOARD
                               page says that it draws the boards of one. For
                               a repo whose design/mocks/canvases.toml names
                               the claude.ai artifacts, the page's header
-                              says which commit claude.ai has and when it
-                              was published, and its Publish to claude.ai…
+                              has a Publish to claude.ai… button, and its
                               form asks the design session that listens for
                               the project to publish a commit (`builds help
                               lists`, design publish take); without the file

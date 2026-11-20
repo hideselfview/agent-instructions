@@ -63,7 +63,6 @@ fn a_request_wakes_the_listening_session_which_takes_it_and_records_the_commit_i
     );
     let open = h.standing();
     assert_eq!(open.latest.as_ref().unwrap().taken, None);
-    assert_eq!(open.published, None);
     let untaken = h.run(&["publish", "done", "1"]).unwrap_err().text();
     assert!(untaken.contains("was never taken"), "{untaken}");
     let taken = h.run(&["publish", "take", "1"]).unwrap();
@@ -87,7 +86,11 @@ fn a_request_wakes_the_listening_session_which_takes_it_and_records_the_commit_i
         .unwrap_err()
         .text();
     assert!(bad.contains("no link"), "{bad}");
-    assert_eq!(h.standing().published, None, "a refused done ends nothing");
+    assert_eq!(
+        h.standing().latest.unwrap().ended,
+        None,
+        "a refused done ends nothing"
+    );
     let done = h
         .run(&[
             "publish",
@@ -106,8 +109,7 @@ fn a_request_wakes_the_listening_session_which_takes_it_and_records_the_commit_i
     let twice = h.run(&["publish", "done", "1"]).unwrap_err().text();
     assert!(twice.contains("has ended"), "{twice}");
     let done = h.standing();
-    assert_eq!(done.latest, done.published);
-    let ended = done.published.unwrap();
+    let ended = done.latest.unwrap();
     assert_eq!(
         ended.ended,
         Some(Ended::Published {
@@ -219,7 +221,6 @@ fn a_failed_publish_ends_with_its_reason_and_a_new_listener_replaces_the_old() {
         .unwrap_err()
         .text();
     assert!(ended.contains("has ended"), "{ended}");
-    assert_eq!(h.standing().published, None);
 }
 
 #[test]
