@@ -359,7 +359,14 @@ pub fn propose(inputs: &Inputs) -> Result<Proposed> {
         let clean = clean_lines(&diff, &candidate.findings);
         let lines = clean.len();
         additions.extend(clean.into_iter().map(Addition::Site));
-        cases::add(inputs.root, &name, inputs.project, &patch, &additions)?;
+        cases::add(
+            inputs.root,
+            &name,
+            inputs.project,
+            &repo,
+            &patch,
+            &additions,
+        )?;
         text.push_str(&format!(
             "  case {name}: {}, {}\n",
             render::plural(expected, "expected finding"),
@@ -376,11 +383,12 @@ pub fn propose(inputs: &Inputs) -> Result<Proposed> {
 }
 
 /// Writes a case for each confirmed candidate miss, over the diff the audit
-/// reviewer that raised it read, which the store keeps. Returns what to
-/// print.
+/// reviewer that raised it read, which the store keeps, in its landing's
+/// repo. Returns what to print.
 fn misses(inputs: &Inputs, conn: &rusqlite::Connection) -> Result<String> {
     let mut text = String::new();
     for landing in record::audited_landings(conn)? {
+        let repo = record::landing(conn, landing)?.repo;
         let findings = record::findings_of_landing(conn, landing)?;
         let confirmed: Vec<&Finding> = candidate_misses(&findings)
             .into_iter()
@@ -432,7 +440,14 @@ fn misses(inputs: &Inputs, conn: &rusqlite::Connection) -> Result<String> {
                     .map(Addition::Site),
             );
             let name = case_name(landing, run);
-            cases::add(inputs.root, &name, inputs.project, &text_cut, &additions)?;
+            cases::add(
+                inputs.root,
+                &name,
+                inputs.project,
+                &repo,
+                &text_cut,
+                &additions,
+            )?;
             text.push_str(&format!(
                 "landing {landing}: case {name} expects {}\n",
                 crate::text::counted(found.len(), "confirmed miss", "confirmed misses")

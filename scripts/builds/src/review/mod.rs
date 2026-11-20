@@ -1535,6 +1535,7 @@ fn case_command(tool: &Tool, args: &[String]) -> Result<()> {
         fail!("name the agent-instructions worktree to write the case in with --rules-root");
     };
     let repo_dir = PathBuf::from(args.require("repo-dir")?);
+    let repo = Checkout::find(args.require("repo-dir")?)?.repo();
     let patch_of = |base: &str, head: &str| cases::patch_of(&repo_dir, base, head);
     let (project, patch, addition, default_name) = match args.positional() {
         [landing, finding] => {
@@ -1600,7 +1601,7 @@ fn case_command(tool: &Tool, args: &[String]) -> Result<()> {
         Some(file) => cases::Addition::Finding { rule: &rule, file },
         None => cases::Addition::Clean { rule: &rule },
     };
-    let dir = cases::add(Path::new(root), &name, &project, &patch, &[addition])?;
+    let dir = cases::add(Path::new(root), &name, &project, &repo, &patch, &[addition])?;
     println!("case {name} written in {}; commit it", dir.display());
     Ok(())
 }

@@ -47,6 +47,8 @@ pub struct SiteLabel {
 #[serde(deny_unknown_fields)]
 struct ExpectedFile {
     project: String,
+    /// The repo of the project the change is in.
+    repo: String,
     /// Rules that must raise no blocking finding on this change.
     #[serde(default)]
     clean_for: Vec<String>,
@@ -61,6 +63,8 @@ struct ExpectedFile {
 pub struct Case {
     pub name: String,
     pub project: String,
+    /// The repo of the project the change is in.
+    pub repo: String,
     pub patch: String,
     pub clean_for: Vec<String>,
     pub expected: Vec<Expect>,
@@ -111,6 +115,7 @@ pub fn load(root: &Path) -> Result<Vec<Case>> {
         cases.push(Case {
             name,
             project: file.project,
+            repo: file.repo,
             patch,
             clean_for: file.clean_for,
             expected: file.finding,
@@ -139,12 +144,14 @@ pub enum Addition<'a> {
     Site(SiteLabel),
 }
 
-/// Adds <additions> to the case <name> of <root>, making it from <patch> when
-/// it is new; an existing case must hold the same patch.
+/// Adds <additions> to the case <name> of <root>, making it from <patch>, a
+/// change in <repo> of <project>, when it is new; an existing case must hold
+/// the same patch of the same repo.
 pub fn add(
     root: &Path,
     name: &str,
     project: &str,
+    repo: &str,
     patch: &str,
     additions: &[Addition],
 ) -> Result<PathBuf> {
@@ -169,15 +176,23 @@ pub fn add(
         }
         let text = std::fs::read_to_string(&expected_path)
             .context(|| format!("reading {}", expected_path.display()))?;
-        toml::from_str::<ExpectedFile>(&text).map_err(|error| {
+        let held = toml::from_str::<ExpectedFile>(&text).map_err(|error| {
             crate::fail::Fail::Message(format!("{}: {error}", expected_path.display()))
-        })?
+        })?;
+        if held.repo != repo {
+            fail!(
+                "case {name} holds a change of repo {}, not {repo}; name this one differently with --name",
+                held.repo
+            );
+        }
+        held
     } else {
         std::fs::create_dir_all(&dir).context(|| format!("creating {}", dir.display()))?;
         std::fs::write(&patch_path, patch)
             .context(|| format!("writing {}", patch_path.display()))?;
         ExpectedFile {
             project: project.to_string(),
+            repo: repo.to_string(),
             clean_for: Vec::new(),
             finding: Vec::new(),
             site: Vec::new(),

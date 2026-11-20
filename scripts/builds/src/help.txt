@@ -2879,9 +2879,10 @@ run `review replay --rules-root` on it.
                               run the grouping of the checkout (--rules-root)
                               over every case in its review/cases folder (a
                               change as `git format-patch` output, and
-                              expected.toml: the findings it must produce by
-                              rule and file, and the rules that must raise no
-                              blocking finding on it). Prints each
+                              expected.toml: the project and repo the change
+                              is in, the findings it must produce by rule and
+                              file, and the rules that must raise no blocking
+                              finding on it). Prints each
                               case's findings found and missed, then recall,
                               false blocking findings on clean cases and
                               tokens, and for the sites an expected.toml

@@ -20,6 +20,7 @@ fn adding_a_case_writes_its_patch_and_findings_and_refuses_another_change_under_
         &root,
         "one",
         "demo",
+        "demo",
         PATCH,
         &[Addition::Finding {
             rule: "rule-a",
@@ -31,6 +32,7 @@ fn adding_a_case_writes_its_patch_and_findings_and_refuses_another_change_under_
         &root,
         "one",
         "demo",
+        "demo",
         PATCH,
         &[Addition::Finding {
             rule: "rule-b",
@@ -42,6 +44,7 @@ fn adding_a_case_writes_its_patch_and_findings_and_refuses_another_change_under_
         &root,
         "one",
         "demo",
+        "demo",
         PATCH,
         &[Addition::Finding {
             rule: "rule-b",
@@ -51,11 +54,15 @@ fn adding_a_case_writes_its_patch_and_findings_and_refuses_another_change_under_
     .unwrap();
     let cases = load(&root).unwrap();
     assert_eq!(cases.len(), 1);
-    assert_eq!(cases[0].project, "demo");
+    assert_eq!(
+        (cases[0].project.as_str(), cases[0].repo.as_str()),
+        ("demo", "demo")
+    );
     assert_eq!(cases[0].expected.len(), 2);
     add(
         &root,
         "quiet",
+        "demo",
         "demo",
         PATCH,
         &[Addition::Clean { rule: "rule-a" }],
@@ -73,6 +80,7 @@ fn adding_a_case_writes_its_patch_and_findings_and_refuses_another_change_under_
         &root,
         "one",
         "demo",
+        "demo",
         &other,
         &[Addition::Finding {
             rule: "rule-a",
@@ -84,7 +92,25 @@ fn adding_a_case_writes_its_patch_and_findings_and_refuses_another_change_under_
     assert!(refused.contains("another change"), "{refused}");
     let refused = add(
         &root,
+        "one",
+        "demo",
+        "other-repo",
+        PATCH,
+        &[Addition::Finding {
+            rule: "rule-a",
+            file: "a.rs",
+        }],
+    )
+    .unwrap_err()
+    .text();
+    assert!(
+        refused.contains("holds a change of repo demo, not other-repo"),
+        "{refused}"
+    );
+    let refused = add(
+        &root,
         "two",
+        "demo",
         "demo",
         PATCH,
         &[Addition::Finding {
@@ -104,11 +130,15 @@ fn a_case_that_expects_nothing_or_a_file_the_patch_leaves_alone_is_refused() {
     let dir = root.join(DIR).join("bad");
     std::fs::create_dir_all(&dir).unwrap();
     std::fs::write(dir.join(PATCH_FILE), PATCH).unwrap();
-    std::fs::write(dir.join("expected.toml"), "project = \"demo\"\n").unwrap();
+    std::fs::write(
+        dir.join("expected.toml"),
+        "project = \"demo\"\nrepo = \"demo\"\n",
+    )
+    .unwrap();
     assert!(load(&root).unwrap_err().text().contains("expects nothing"));
     std::fs::write(
         dir.join("expected.toml"),
-        "project = \"demo\"\n[[finding]]\nrule = \"r\"\nfile = \"z.rs\"\n",
+        "project = \"demo\"\nrepo = \"demo\"\n[[finding]]\nrule = \"r\"\nfile = \"z.rs\"\n",
     )
     .unwrap();
     assert!(load(&root).unwrap_err().text().contains("does not change"));
@@ -127,6 +157,7 @@ fn a_replay_counts_the_expected_findings_found_and_the_false_blocking_ones() {
     add(
         &fake.root,
         "hit",
+        "demo",
         "demo",
         PATCH,
         &[Addition::Finding {
@@ -162,6 +193,7 @@ fn a_replay_counts_the_expected_findings_found_and_the_false_blocking_ones() {
     let clean = Case {
         name: "clean".to_string(),
         project: "demo".to_string(),
+        repo: "demo".to_string(),
         patch: PATCH.to_string(),
         clean_for: vec!["rule-a".to_string()],
         expected: Vec::new(),
@@ -190,6 +222,7 @@ fn a_failed_call_in_a_replay_is_counted_and_named() {
     add(
         &fake.root,
         "hit",
+        "demo",
         "demo",
         PATCH,
         &[Addition::Finding {
@@ -231,6 +264,7 @@ fn a_group_that_lists_sites_is_asked_once_per_file_its_rule_covers() {
     let case = Case {
         name: "n".to_string(),
         project: "demo".to_string(),
+        repo: "demo".to_string(),
         patch,
         clean_for: Vec::new(),
         expected: Vec::new(),
@@ -279,6 +313,7 @@ fn site_labels_score_recall_wrong_findings_and_unlabelled_ones_per_rule() {
     let case = |labels: Vec<SiteLabel>| Case {
         name: "n".to_string(),
         project: "demo".to_string(),
+        repo: "demo".to_string(),
         patch: PATCH.to_string(),
         clean_for: Vec::new(),
         expected: Vec::new(),
@@ -328,6 +363,7 @@ fn a_case_takes_site_labels_and_a_finding_in_the_commit_messages() {
         &root,
         "one",
         "demo",
+        "demo",
         &patch,
         &[
             Addition::Finding {
@@ -351,6 +387,7 @@ fn a_comparison_prints_each_setups_caught_missed_and_wrong_flags_with_tokens_and
     let case = Case {
         name: "n".to_string(),
         project: "demo".to_string(),
+        repo: "demo".to_string(),
         patch: PATCH.to_string(),
         clean_for: Vec::new(),
         expected: vec![Expect {
