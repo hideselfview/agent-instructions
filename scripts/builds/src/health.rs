@@ -582,7 +582,14 @@ pub fn sample(
                     Vec::new()
                 }
             },
-            None => Vec::new(),
+            None => {
+                unread.push(format!(
+                    "{} has no repo folder, so health cannot tell who waits in {repo}'s {} lane",
+                    path.display(),
+                    lane.word()
+                ));
+                Vec::new()
+            }
         };
         let mut queue = Vec::new();
         for process in in_line.into_iter().filter_map(|pid| {

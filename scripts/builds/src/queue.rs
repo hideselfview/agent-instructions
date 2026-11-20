@@ -249,12 +249,11 @@ impl Queue {
     /// Where a waiter moved to the top goes: in front of the first ticket
     /// of <order> whose build holds no lock, so with a lock free it is the
     /// first that may take it.
-    fn first_waiter(&self, order: &[String]) -> Result<usize> {
-        let holders = self.locks()?.holders;
-        Ok(order
+    fn first_waiter(order: &[String], holders: &[i32]) -> usize {
+        order
             .iter()
             .position(|name| !pid_of(name).is_some_and(|pid| holders.contains(&pid)))
-            .unwrap_or(order.len()))
+            .unwrap_or(order.len())
     }
 
     /// How many builds the lane holds locks for at once: its app checkouts,
@@ -511,8 +510,7 @@ impl Queue {
             fail!("{pid} holds a lock");
         }
         let name = order.remove(at);
-        let first = self.first_waiter(&order)?;
-        order.insert(first, name);
+        order.insert(Queue::first_waiter(&order, &holders), name);
         self.write_order(&order)
     }
 }
@@ -616,7 +614,7 @@ pub fn takeover(places: &Places, repo: &str, pid: Option<i32>, lane: Option<Lane
     let queue = Queue::of(places, repo, lane);
     let holder = {
         let _guard = queue.guard()?;
-        let holders = queue.locks()?.holders;
+        let Locks { free, holders, .. } = queue.locks()?;
         let mut order = queue.order();
         let holds = |name: &String| pid_of(name).is_some_and(|pid| holders.contains(&pid));
         let taker = match pid {
@@ -632,14 +630,9 @@ pub fn takeover(places: &Places, repo: &str, pid: Option<i32>, lane: Option<Lane
         if holds(&order[taker]) {
             fail!("{} holds a lock", pid.unwrap_or_default());
         }
-        let mut holding = true;
-        for checkout in places.app_checkouts_of(repo, lane)? {
-            holding &= is_held(&places.app_lock_file(repo, lane, &checkout))?;
-        }
         let name = order.remove(taker);
-        if !holding {
-            let first = queue.first_waiter(&order)?;
-            order.insert(first, name);
+        if !free.is_empty() {
+            order.insert(Queue::first_waiter(&order, &holders), name);
             queue.write_order(&order)?;
             None
         } else {
