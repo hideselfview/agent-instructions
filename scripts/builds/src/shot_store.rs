@@ -24,9 +24,9 @@
 //! there as `boards/<board hash>.png` and `.json`, the hash of everything the
 //! picture depends on, and draws only the boards whose hash the folder lacks.
 //!
-//! builds keeps the folder `shots` under `CAP_KIB`: `setup` and `prune`
-//! delete whole runs and board pictures, least recently used first, while it
-//! is over (prune.rs calls `prune`). A run's last use is the time of its
+//! builds keeps each repo's folder in `shots` under `CAP_KIB`: `setup` and
+//! `prune` delete the repo's whole runs and board pictures, least recently
+//! used first, while it is over (prune.rs calls `prune`). A run's last use is the time of its
 //! run.json, which the run sets as it ends and each read sets again, and a
 //! board picture's is the time of its picture, which the shots program sets
 //! each time it takes the picture, so what agents keep using stays.
@@ -57,10 +57,10 @@ use crate::tool::Tool;
 /// The folder on the build volume that holds every repo's runs.
 pub const FOLDER: &str = "shots";
 
-/// How much the folder `shots` may hold. A run of a lane's every shot keeps
-/// about 10 MB of report, so the cap holds several hundred runs: every
-/// recent commit of main and of the branches agents work on.
-pub const CAP_KIB: u64 = 10 * 1024 * 1024;
+/// How much each repo's folder in `shots` may hold, its runs and its picture
+/// folder together. A run of a lane's every shot keeps about 10 MB of
+/// report, so the cap holds main's runs and many branch runs.
+pub const CAP_KIB: u64 = 2 * 1024 * 1024;
 
 /// The file of a run's folder that says how it ended.
 const RUN_FILE: &str = "run.json";
@@ -376,7 +376,7 @@ enum Unit {
     Picture { png: PathBuf, json: PathBuf },
 }
 
-/// What the folder `shots` holds, as the cap sees it.
+/// What a repo's folder in `shots` holds, as the cap sees it.
 #[derive(Default)]
 struct Held {
     /// Each run's folder.
@@ -418,35 +418,33 @@ fn entries_in(dir: &Path) -> Result<Vec<(String, PathBuf)>> {
     Ok(found)
 }
 
-/// What the folder `shots` of <places> holds.
-fn held(places: &Places) -> Result<Held> {
+/// What the folder of <repo> in `shots` holds.
+fn held(places: &Places, repo: &str) -> Result<Held> {
     let mut held = Held::default();
-    for (repo_name, repo) in folders_in(&root(places))? {
-        for (_, commit) in folders_in(&repo.join("runs"))? {
-            for (_, lane) in folders_in(&commit)? {
-                for (_, prefix) in folders_in(&lane)? {
-                    for (name, folder) in folders_in(&prefix)? {
-                        if name.starts_with(STAGING) {
-                            held.stagings.push(folder);
-                        } else {
-                            held.runs.push(folder);
-                        }
+    for (_, commit) in folders_in(&root(places).join(repo).join("runs"))? {
+        for (_, lane) in folders_in(&commit)? {
+            for (_, prefix) in folders_in(&lane)? {
+                for (name, folder) in folders_in(&prefix)? {
+                    if name.starts_with(STAGING) {
+                        held.stagings.push(folder);
+                    } else {
+                        held.runs.push(folder);
                     }
                 }
             }
         }
-        let boards = pictures(places, &repo_name).join(BOARD_PICTURES);
-        for (name, path) in entries_in(&boards)? {
-            if name.starts_with('.') {
-                held.loose.push(path);
-            } else if let Some(hash) = name.strip_suffix(".png") {
-                held.pictures
-                    .push((path.clone(), boards.join(format!("{hash}.json"))));
-            } else if let Some(hash) = name.strip_suffix(".json")
-                && !boards.join(format!("{hash}.png")).exists()
-            {
-                held.loose.push(path);
-            }
+    }
+    let boards = pictures(places, repo).join(BOARD_PICTURES);
+    for (name, path) in entries_in(&boards)? {
+        if name.starts_with('.') {
+            held.loose.push(path);
+        } else if let Some(hash) = name.strip_suffix(".png") {
+            held.pictures
+                .push((path.clone(), boards.join(format!("{hash}.json"))));
+        } else if let Some(hash) = name.strip_suffix(".json")
+            && !boards.join(format!("{hash}.png")).exists()
+        {
+            held.loose.push(path);
         }
     }
     Ok(held)
@@ -470,40 +468,54 @@ fn file_kib(path: &Path) -> Result<u64> {
     }
 }
 
-/// Deletes the runs and board pictures that keep the folder `shots` over
-/// `CAP_KIB` (prune.rs).
+/// Deletes the runs and board pictures that keep a repo's folder in `shots`
+/// over `CAP_KIB` (prune.rs).
 pub fn prune(tool: &Tool, run: Run) -> Result<()> {
     prune_runs(tool, run, CAP_KIB)
 }
 
-/// Deletes each staging folder and loose picture file when no run stores
-/// its output (the runs that wrote them ended), then, while the folder
-/// `shots` holds more than <cap_kib>, whole runs and board pictures, least
-/// recently used first, then the folders the deleted runs left empty when no
-/// run stores its output. A run or picture used in the last
-/// FLOOR_IDLE_MINUTES stays: an agent may be reading it.
+/// Deletes, in each repo's folder in `shots`, each staging folder and loose
+/// picture file when no run writes to the folder `shots` (the runs that
+/// wrote them ended), then, while the repo's folder holds more than
+/// <cap_kib>, whole runs and board pictures, least recently used first. A
+/// run or picture used in the last FLOOR_IDLE_MINUTES stays: an agent may be
+/// reading it. Last, when no run writes to the folder, it removes the folders
+/// the deletions left empty.
 pub fn prune_runs(tool: &Tool, run: Run, cap_kib: u64) -> Result<()> {
     let shots = root(&tool.places);
     if !shots.is_dir() {
         return Ok(());
     }
     // Held to the end, so that no run makes a folder while the prune removes
-    // empty ones; None while a run stores its output.
+    // empty ones; None while a run writes to the folder.
     let alone = crate::evict::try_lock_creating(&shots.join(WRITING))?;
     if alone.is_none() {
         note(format!(
-            "a shots run is storing its output in {}, so prune leaves its staging folders, half-written picture files and empty folders",
+            "a shots run is writing to {}, so prune leaves its staging folders, half-written picture files and empty folders",
             shots.display()
         ));
     }
-    let held = held(&tool.places)?;
+    for (repo, _) in folders_in(&shots)? {
+        prune_repo(tool, run, cap_kib, &repo, alone.is_some())?;
+    }
+    if alone.is_some() && !run.dry() {
+        remove_empty(tool)?;
+    }
+    Ok(())
+}
+
+/// `prune_runs` for the folder of <repo>, which deletes leftovers only when
+/// no run writes to the folder `shots` (<alone>).
+fn prune_repo(tool: &Tool, run: Run, cap_kib: u64, repo: &str, alone: bool) -> Result<()> {
+    let shots = root(&tool.places).join(repo);
+    let held = held(&tool.places, repo)?;
     let mut paths = vec![shots.clone()];
     paths.extend(held.stagings.iter().cloned());
     paths.extend(held.runs.iter().cloned());
     let mut measures = tool.measure_all(&paths)?.into_iter();
     let mut total = measures.next().expect("the folder was measured").kib;
     for (folder, measured) in held.stagings.iter().zip(measures.by_ref()) {
-        if alone.is_none() {
+        if !alone {
             continue;
         }
         let reason = format!(
@@ -522,7 +534,7 @@ pub fn prune_runs(tool: &Tool, run: Run, cap_kib: u64) -> Result<()> {
             total = total.saturating_sub(measured.kib);
         }
     }
-    for file in held.loose.iter().filter(|_| alone.is_some()) {
+    for file in held.loose.iter().filter(|_| alone) {
         let kib = file_kib(file)?;
         let reason = format!(
             "{}, a picture file that a shots run which ended left half written",
@@ -581,9 +593,6 @@ pub fn prune_runs(tool: &Tool, run: Run, cap_kib: u64) -> Result<()> {
         if deleted {
             total = total.saturating_sub(kib);
         }
-    }
-    if alone.is_some() && !run.dry() {
-        remove_empty(tool)?;
     }
     Ok(())
 }

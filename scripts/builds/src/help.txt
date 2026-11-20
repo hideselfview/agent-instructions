@@ -1067,8 +1067,8 @@ the version of the builds-shots that install puts beside builds (`builds
 shots version`), which each run's findings.json names; builds keeps no run
 whose findings.json names another version, as a run on a host with another
 builds-shots does. A run that died before it made findings keeps nothing.
-builds keeps the folder shots under its cap and deletes the runs that agents
-used least recently first (DISK).
+builds keeps each repo's folder in shots under its cap and deletes the runs
+and pictures that agents used least recently first (DISK).
 
 Beside the runs, builds keeps each repo's board pictures in
 /Volumes/Builds/shots/<repo>/pictures/boards/, as <board hash>.png with its
@@ -1816,16 +1816,16 @@ NuGet.Config). Nothing else deletes one: every checkout would download it all
 again, and a SwiftPM fetch cut off halfway corrupts its cache. sccache keeps
 its own cache under its cap; builds only shows it.
 
-Shots runs. The folder shots holds the output of every shots run and the
-board pictures (APP BUILDS), with a cap of 10 GiB. `setup` and `prune`
-delete whole runs and board pictures while the folder is over its cap, least
-recently used first: a run's last use is when it ended or when builds last
+Shots runs. The folder shots holds each repo's shots runs and board
+pictures (APP BUILDS), with a cap of 2 GiB for each repo's runs and pictures
+together. `setup` and `prune` delete a repo's whole runs and board pictures
+while its folder is over the cap, least recently used first: a run's last use is when it ended or when builds last
 read it (to print its findings or to compare a branch's run with it), a
 picture's is when a run last drew or took it, and a run or picture used in
 the last 30 minutes stays. While no shots run is writing to the folder,
 they also delete each staging folder and half-written picture file that a
 run which died left behind, and each folder the deleted runs left empty.
-`status` shows the folder's size against its cap.
+`status` shows each repo's folder's size against the cap.
 
 When xcodebuild fails with "Couldn't check out revision" or "file not found" on
 a SwiftPM dependency (often Sparkle), its cache is corrupt: disconnect any VPN

@@ -416,23 +416,28 @@ fn caches_lines(tool: &Tool, out: &mut Vec<String>) -> Result<()> {
     Ok(())
 }
 
-/// The line for the folder of the shots runs (shot_store.rs) at <dir>: its
-/// size against its cap and its last write.
-fn shots_line(tool: &Tool, dir: &Path) -> Result<String> {
-    let measured = tool.measure(dir)?;
+/// The lines for the folder of the shots runs (shot_store.rs) at <dir>: each
+/// repo's folder, with its size against its cap and its last write.
+fn shots_lines(tool: &Tool, dir: &Path, out: &mut Vec<String>) -> Result<()> {
+    out.push("shots  (the shots runs and board pictures of each repo)".to_string());
     let cap = crate::shot_store::CAP_KIB;
-    let over = if measured.kib > cap {
-        "OVER CAP: prune deletes the runs least recently used"
-    } else {
-        ""
-    };
-    Ok(format!(
-        "{:<38} {:>8} / {:<6}  last write {}  {over}",
-        "shots (the shots runs' output)",
-        human(measured.kib),
-        human(cap),
-        last_write(measured.newest)
-    ))
+    for name in glob_names(dir)? {
+        let folder = dir.join(&name);
+        let measured = tool.measure(&folder)?;
+        let over = if measured.kib > cap {
+            "OVER CAP: prune deletes the runs and pictures least recently used"
+        } else {
+            ""
+        };
+        out.push(format!(
+            "    {:<34} {:>8} / {:<6}  last write {}  {over}",
+            name.to_string_lossy(),
+            human(measured.kib),
+            human(cap),
+            last_write(measured.newest)
+        ));
+    }
+    Ok(())
 }
 
 /// `sccache: ...` lines from a running server, or the line that says why
@@ -573,7 +578,7 @@ pub fn cmd_status(tool: &mut Tool, ssh: &Ssh, args: &[String]) -> Result<()> {
         } else if entry == tool.places.caches() && entry.is_dir() {
             caches_lines(tool, &mut out)?;
         } else if entry == crate::shot_store::root(&tool.places) && entry.is_dir() {
-            out.push(shots_line(tool, &entry)?);
+            shots_lines(tool, &entry, &mut out)?;
         } else if let Some(repo) = repos.iter().find(|repo| repo.dir == entry) {
             for item in &repo.entries {
                 match item {

@@ -305,3 +305,19 @@ fn a_loose_picture_file_goes_once_no_run_writes_to_the_folder() {
     prune_runs(&tool, Run::Real, CAP_KIB).unwrap();
     assert!(!temporary.exists() && !orphan.exists());
 }
+
+#[test]
+fn each_repo_keeps_its_own_runs_and_pictures_under_the_cap() {
+    let scratch = Scratch::new("shot-store-per-repo");
+    let places = scratch.places();
+    let tool = scratch.tool(0);
+    let small = keep_picture(&places, "small", "h", 300, 30);
+    let big_old = keep_picture(&places, "big", "old", 400, 20);
+    let big_new = keep_picture(&places, "big", "new", 400, 10);
+    prune_runs(&tool, Run::Real, 500).unwrap();
+    assert!(
+        small.exists(),
+        "its repo holds less than the cap, though it is the oldest"
+    );
+    assert!(!big_old.exists() && big_new.exists());
+}
