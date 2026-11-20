@@ -100,6 +100,18 @@ fn a_repo_with_no_globs_has_no_design_files() {
 }
 
 #[test]
+fn the_design_files_sit_in_the_folders_their_place_and_source_globs_start_in() {
+    assert_eq!(full_globs().folders(), set(&["design"]));
+    let g = Globs {
+        places: vec!["web/design/*.html".into(), "app/boards/*/x.html".into()],
+        sources: vec!["*.css".into()],
+        spec: vec!["spec/*.md".into()],
+    };
+    assert_eq!(g.folders(), set(&["", "app/boards", "web/design"]));
+    assert!(Globs::default().folders().is_empty());
+}
+
+#[test]
 fn star_and_question_mark_stay_within_a_segment() {
     let g = Globs {
         places: vec!["design/a?c/*.dc.html".into()],

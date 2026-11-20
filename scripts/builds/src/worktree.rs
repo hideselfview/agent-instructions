@@ -240,10 +240,7 @@ fn lock_picking(main: &Path) -> Result<std::fs::File> {
 /// Adds the next side-N worktree of <main>'s repo, at <start>.
 fn add_new(tool: &Tool, main: &Path, start: &Start) -> Result<std::path::PathBuf> {
     let repo = crate::checkout::file_name(main);
-    let parent = main
-        .parent()
-        .expect("a main checkout has a folder")
-        .join(format!("{repo}-worktrees"));
+    let parent = crate::checkout::worktrees_folder(main).expect("a main checkout has a folder");
     let mut n = 1;
     while parent.join(format!("side-{n}")).exists()
         || tool

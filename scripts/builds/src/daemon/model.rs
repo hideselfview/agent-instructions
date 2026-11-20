@@ -22,6 +22,7 @@ use crate::claim::Claim;
 use crate::health::{
     Claimed, Health, Machine, Unclaimed, assess, locks_of, places_of, sample, sccache_reading,
 };
+use crate::lists::design_paths::Globs;
 use crate::lists::design_variants::Props;
 use crate::lists::view::ClaimFacts;
 use crate::manifest::{BuildDir, build_dirs};
@@ -1061,15 +1062,27 @@ impl Model {
     }
 
     /// The main checkout of the repo that holds project <project>'s design
-    /// files (`lists::design_repo`); None when the lists hold no such project
-    /// or the project has no design files.
-    fn design_checkout(&self, project: &str) -> Option<crate::fail::Result<PathBuf>> {
+    /// files (`lists::design_repo`), and the repo's globs; None when the
+    /// lists hold no such project or the project has no design files.
+    pub(super) fn design_repo(
+        &self,
+        project: &str,
+    ) -> Option<crate::fail::Result<(PathBuf, Globs)>> {
         let (_, snapshot) = self.lists.current();
-        let repo = match super::lists::project_design_repo(&snapshot, project)? {
-            Ok(repo) => repo?,
+        let (repo, globs) = match super::lists::project_design_repo(&snapshot, project)? {
+            Ok(found) => found?,
             Err(error) => return Some(Err(error)),
         };
-        Some(Ok(self.places.home.join(crate::host::clone_path(&repo))))
+        Some(Ok((
+            self.places.home.join(crate::host::clone_path(&repo)),
+            globs,
+        )))
+    }
+
+    /// The main checkout of the repo that holds project <project>'s design
+    /// files, as `design_repo` finds it.
+    fn design_checkout(&self, project: &str) -> Option<crate::fail::Result<PathBuf>> {
+        Some(self.design_repo(project)?.map(|(main, _)| main))
     }
 
     /// The Designs page of project <project>, drawn now from origin/main;

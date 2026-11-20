@@ -43,6 +43,11 @@
 //!                   the change's <k>th variant: the variants' board drawn
 //!                   with its <k>th set of props at the variants' commit,
 //!                   drawn now; the page's frames load these
+//!     /design/<project>/live/<worktree>/<board>, with /events and
+//!     /<theme>/now and /<theme>/worktree under it
+//!                   the live view of a board, drawn from a worktree's files
+//!                   as they are, and the pages and events it reads; only on
+//!                   this Mac (live_view.rs)
 //!     /designs/<project>
 //!                   the Designs page of the project: every board of the
 //!                   repo that holds its design files as it stands on
@@ -110,7 +115,12 @@ pub fn serve(listener: TcpListener, names: Arc<[String]>, model: Arc<Model>) {
     }
 }
 
-fn respond(stream: &mut TcpStream, status: &str, kind: &str, body: &[u8]) -> std::io::Result<()> {
+pub(super) fn respond(
+    stream: &mut TcpStream,
+    status: &str,
+    kind: &str,
+    body: &[u8],
+) -> std::io::Result<()> {
     write!(
         stream,
         "HTTP/1.1 {status}\r\nContent-Type: {kind}\r\nContent-Length: {}\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n",
@@ -158,15 +168,13 @@ fn handle(mut stream: TcpStream, names: &[String], model: &Model) -> std::io::Re
         );
     }
     let path = target.split('?').next().unwrap_or("");
-    if !allowed(
-        method,
-        &Asker {
-            here: stream.peer_addr().is_ok_and(|peer| peer.ip().is_loopback()),
-            host: host.as_deref(),
-            origin: origin.as_deref(),
-            names,
-        },
-    ) {
+    let asker = Asker {
+        here: stream.peer_addr().is_ok_and(|peer| peer.ip().is_loopback()),
+        host: host.as_deref(),
+        origin: origin.as_deref(),
+        names,
+    };
+    if !allowed(method, &asker) {
         return refuse_not_here(&mut stream);
     }
     if method == "POST"
@@ -228,6 +236,12 @@ fn handle(mut stream: TcpStream, names: &[String], model: &Model) -> std::io::Re
             "text/plain; charset=utf-8",
             b"GET only, and POST /api/queue, /api/build-app, /api/question-effect, /design/PROJECT/N/approve and /designs/PROJECT/publish\n",
         );
+    }
+    if let Some(route) = super::live_view::route(path) {
+        if !on_this_mac(&asker) {
+            return refuse_not_here(&mut stream);
+        }
+        return super::live_view::serve(stream, model, route);
     }
     match path {
         "/" => respond(
@@ -301,7 +315,7 @@ fn handle(mut stream: TcpStream, names: &[String], model: &Model) -> std::io::Re
 
 /// Answers with <drawn>, a page drawn now: the page, the error that stopped
 /// it, or <missing> when the address names nothing.
-fn drawn_page(
+pub(super) fn drawn_page(
     stream: &mut TcpStream,
     drawn: Option<crate::fail::Result<String>>,
     missing: &[u8],
@@ -428,14 +442,20 @@ fn is_this_mac(name: &str) -> bool {
     host == "127.0.0.1" || host == "localhost" || host == "[::1]"
 }
 
-/// Does <asker> come from this Mac: a loopback peer address, and the page
-/// served at a loopback name as both its Host and its Origin (one of the
-/// names the daemon answers to)? Every route that changes state requires it,
-/// since the Host and Origin headers alone can be forged by anyone who can
-/// reach the dashboard when it listens on the Wi-Fi's address.
+/// Is <asker> on this Mac: a loopback peer address that asks for a page at a
+/// loopback name? The live view (live_view.rs), which shows files that no
+/// commit holds, answers only such a request.
+fn on_this_mac(asker: &Asker<'_>) -> bool {
+    asker.here && asker.host.is_some_and(is_this_mac)
+}
+
+/// Does <asker> come from this Mac (`on_this_mac`), with the page served at
+/// a loopback name as its Origin too (one of the names the daemon answers
+/// to)? Every route that changes state requires it, since the Host and
+/// Origin headers alone can be forged by anyone who can reach the dashboard
+/// when it listens on the Wi-Fi's address.
 fn from_this_mac(asker: &Asker<'_>) -> bool {
-    asker.here
-        && asker.host.is_some_and(is_this_mac)
+    on_this_mac(asker)
         && from_own_page(asker.origin, asker.names)
         && asker
             .origin

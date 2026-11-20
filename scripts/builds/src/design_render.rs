@@ -66,9 +66,12 @@ const REACT: &str = r#"<script src="https://cdnjs.cloudflare.com/ajax/libs/react
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>"#;
 
 /// The script that draws a board's page in a frame at the board's own size,
-/// scaled (`design_render/frames.js`), which the review page and the
-/// dashboard's Designs page run.
+/// scaled (`design_render/frames.js`), which the review page, the
+/// dashboard's Designs page and its live view run.
 pub const FRAMES_SCRIPT: &str = include_str!("design_render/frames.js");
+/// The look of a page that shows boards in frames: the review page and the
+/// dashboard's live view (`design_render/frames.css`).
+pub const FRAMES_CSS: &str = include_str!("design_render/frames.css");
 
 /// What a board with no script of its own runs.
 const NO_SCRIPT: &str =
@@ -232,7 +235,7 @@ pub fn render_board(
 
 /// <value> as JSON to put inline in a `<script>`: `<` never appears in it as
 /// itself, so no text in it can end the script.
-fn script_json(value: &Value) -> String {
+pub fn script_json(value: &Value) -> String {
     value.to_string().replace('<', "\\u003c")
 }
 
@@ -310,26 +313,28 @@ fn size_at(from: &Source, name: &str) -> Result<(u64, u64)> {
     Ok(canvas_size(&canvas, &format!("{name}{BOARD_SUFFIX}"))?)
 }
 
+/// The size that the canvas file of <from> gives board <board> (a name or a
+/// path), or None when the board is no file there.
+pub fn board_size(from: &Source, board: &str) -> Result<Option<(u64, u64)>> {
+    from.check()?;
+    let name = board_name(board)?;
+    if !from.has(&board_path(&name))? {
+        return Ok(None);
+    }
+    Ok(Some(size_at(from, &name)?))
+}
+
 /// How <side> of board <board> shows on the review page: its frame (`w`, `h`
 /// and the `src` the frame loads), `absent` (the board is no file there), or
 /// the `error` that stops it.
 fn drawing(design: &DesignChange, side: Side, board: &str, src: &str) -> Value {
-    let drawn = (|| -> Result<Value> {
-        let from = source_of(design, side)?;
-        from.check()?;
-        let name = board_name(board)?;
-        if !from.has(&board_path(&name))? {
-            return Ok(json!({ "absent": true }));
-        }
-        let (w, h) = size_at(&from, &name)?;
-        Ok(json!({ "w": w, "h": h, "src": format!("{src}/{}", side.word()) }))
-    })();
-    // A board that is no file where the change draws it is that change's fault, not an absence.
-    match drawn {
-        Ok(value) if side == Side::Proposed && value.get("absent").is_some() => {
+    match source_of(design, side).and_then(|from| board_size(&from, board)) {
+        Ok(Some((w, h))) => json!({ "w": w, "h": h, "src": format!("{src}/{}", side.word()) }),
+        // A board that is no file where the change draws it is that change's fault, not an absence.
+        Ok(None) if side == Side::Proposed => {
             json!({ "error": format!("{board} is no file at the change's last commit") })
         }
-        Ok(value) => value,
+        Ok(None) => json!({ "absent": true }),
         Err(error) => json!({ "error": error.text() }),
     }
 }
@@ -386,6 +391,7 @@ pub fn review_page(design: &DesignChange, view: &DesignView, project: &str) -> R
     Ok(fill(
         REVIEW_PAGE,
         &[
+            ("FRAMES_CSS", FRAMES_CSS),
             ("DATA", &script_json(&data)),
             ("CIRCLES", CIRCLES_SCRIPT),
             ("VARIANTS", VARIANTS_SCRIPT),

@@ -150,10 +150,7 @@ impl Checkout {
     /// The worktree's folder name, when it is in the repo's worktrees folder,
     /// <main's folder>/../<repo>-worktrees.
     fn name_in_worktrees(&self) -> Option<String> {
-        let folder = self
-            .main
-            .parent()?
-            .join(format!("{}-worktrees", self.repo()));
+        let folder = worktrees_folder(&self.main)?;
         (self.top.parent() == Some(folder.as_path())).then(|| file_name(&self.top))
     }
 
@@ -281,6 +278,16 @@ pub fn file_name(path: &Path) -> String {
     path.file_name()
         .map(|name| name.to_string_lossy().into_owned())
         .unwrap_or_default()
+}
+
+/// The folder that holds the worktrees of the repo whose main checkout is
+/// <main>: <main's folder>/<repo>-worktrees. None for a main checkout at the
+/// filesystem's root.
+pub fn worktrees_folder(main: &Path) -> Option<PathBuf> {
+    Some(
+        main.parent()?
+            .join(format!("{}-worktrees", file_name(main))),
+    )
 }
 
 /// A build root on the volume and what its `.checkout` says.

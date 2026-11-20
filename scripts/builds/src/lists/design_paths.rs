@@ -70,6 +70,18 @@ impl Globs {
     pub fn names_spec_file(&self, path: &str) -> bool {
         self.spec.iter().any(|glob| Glob::parse(glob).matches(path))
     }
+
+    /// The folders, relative to the repo's top, that hold every design place
+    /// and shared source: the folder each place or source glob starts in
+    /// (`Glob::root`), or the top itself ("") for a glob that starts with a
+    /// wildcard.
+    pub fn folders(&self) -> BTreeSet<String> {
+        self.places
+            .iter()
+            .chain(&self.sources)
+            .map(|glob| Glob::parse(glob).root().unwrap_or_default())
+            .collect()
+    }
 }
 
 /// What a place is, read from how its key is written.

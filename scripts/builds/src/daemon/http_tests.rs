@@ -872,3 +872,98 @@ fn the_daemon_draws_each_variant_of_a_design_change_with_its_props_at_the_varian
     );
     assert_eq!(s.get("/design/demo/1/variant/2").0, 404);
 }
+
+/// Project `demo`, whose repo `bae` keeps its boards in design/mocks, with
+/// bae's main checkout and its worktree `side-1`, whose files hold an edit
+/// of board `A` that no commit holds (`live_view::tests::checkouts`).
+fn live_store(scratch: &Scratch, places: &crate::places::Places) {
+    use crate::lists::fixtures::{NOON, make_store, stamp};
+    use crate::lists::project::{GlobKind, set_design_globs};
+    crate::daemon::live_view::tests::checkouts(scratch);
+    let places_globs = std::collections::BTreeMap::from([(
+        "bae".to_string(),
+        vec!["design/mocks/*.dc.html".to_string()],
+    )]);
+    make_store(places, &["bae"])
+        .write(&stamp(NOON), "lists design-globs demo", |db| {
+            set_design_globs(db, GlobKind::Place, &places_globs)
+        })
+        .unwrap();
+}
+
+#[test]
+fn the_live_view_draws_a_worktrees_files_and_redraws_after_each_change_only_on_this_mac() {
+    let s = server_with("http-live", live_store);
+    let (status, kind, page) = s.get("/design/demo/live/side-1/A");
+    assert_eq!((status, kind.as_str()), (200, "text/html; charset=utf-8"));
+    assert!(
+        page.contains(r#""base":"/design/demo/live/side-1/A""#),
+        "{page}"
+    );
+    let (status, _, live) = s.get("/design/demo/live/side-1/A/light/worktree");
+    assert_eq!(status, 200, "{live}");
+    assert!(
+        live.contains("board A edited") && live.contains(r#"data-theme="light""#),
+        "{live}"
+    );
+    let (_, _, now) = s.get("/design/demo/live/side-1/A/dark/now");
+    assert!(
+        now.contains("board A") && !now.contains("edited") && now.contains(r#"data-theme="dark""#),
+        "{now}"
+    );
+    assert_eq!(s.get("/design/other/live/side-1/A").0, 404);
+    let (status, _, problem) = s.get("/design/demo/live/side-9/A");
+    assert_eq!(status, 500);
+    assert!(problem.contains("has no worktree side-9"), "{problem}");
+
+    // At the address the dashboard also listens on, which another machine
+    // reaches, the live view answers nothing.
+    let mut stream = TcpStream::connect(("127.0.0.1", s.port)).unwrap();
+    write!(
+        stream,
+        "GET /design/demo/live/side-1/A/dark/worktree HTTP/1.1\r\nHost: {ALSO}:{}\r\n\r\n",
+        s.port
+    )
+    .unwrap();
+    let mut reply = String::new();
+    stream.read_to_string(&mut reply).unwrap();
+    assert!(reply.starts_with("HTTP/1.1 403"), "{reply}");
+    assert!(!reply.contains("board A"), "{reply}");
+
+    // The events: a drawing on connect, and another after a change to the
+    // worktree's design files.
+    let mut stream = TcpStream::connect(("127.0.0.1", s.port)).unwrap();
+    stream.set_read_timeout(Some(LIVE_HANG_GUARD)).unwrap();
+    write!(
+        stream,
+        "GET /design/demo/live/side-1/A/events HTTP/1.1\r\nHost: 127.0.0.1:{}\r\n\r\n",
+        s.port
+    )
+    .unwrap();
+    let mut reader = BufReader::new(stream);
+    let first: serde_json::Value =
+        serde_json::from_str(&next_event(&mut reader, "drawing")).unwrap();
+    assert_eq!(
+        first,
+        serde_json::json!({ "now": { "w": 300, "h": 200 }, "worktree": { "w": 500, "h": 100 } })
+    );
+    let canvas = crate::checkout::worktrees_folder(&s.scratch.repo_path("bae"))
+        .unwrap()
+        .join("side-1/design/mocks/canvas.json");
+    std::fs::write(
+        &canvas,
+        r#"{"boards": {"A.dc.html": {"w": 640, "h": 480}}}"#,
+    )
+    .unwrap();
+    loop {
+        let next: serde_json::Value =
+            serde_json::from_str(&next_event(&mut reader, "drawing")).unwrap();
+        if next["worktree"] == serde_json::json!({ "w": 640, "h": 480 }) {
+            break;
+        }
+    }
+}
+
+/// The limit on a read of the live view's events: a guard against a stuck
+/// stream, not the pass condition.
+const LIVE_HANG_GUARD: Duration = Duration::from_secs(300);

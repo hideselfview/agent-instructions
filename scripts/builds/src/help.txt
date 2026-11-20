@@ -2079,7 +2079,24 @@ STATUS, HEALTH AND THE DASHBOARD
                               the project to publish a commit (`builds help
                               lists`, design publish take); without the file
                               the page says that the designs publish
-                              nowhere yet
+                              nowhere yet. The live view of a board,
+                              /design/<project>/live/<worktree>/<board>,
+                              draws the board from the files of one
+                              worktree of that repo as they are, commits
+                              or not, beside the board as origin/main
+                              draws it, in the dark unless ?theme=light
+                              asks for the light theme. <worktree> is the
+                              worktree's folder name, such as side-4, or
+                              main for the main checkout, and <board> is
+                              the board's name. Each time FSEvents reports
+                              a change in the folders that hold the
+                              repo's design places and sources, the page
+                              draws both sides again, and the worktree's
+                              side builds its design system's bundles
+                              from its files with its build-bundle.py on
+                              each draw. The dashboard serves the live
+                              view only at 127.0.0.1 or localhost on this
+                              Mac (decision #341)
 
 
 COMMIT CHECKS

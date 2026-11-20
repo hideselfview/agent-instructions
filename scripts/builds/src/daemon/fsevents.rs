@@ -36,6 +36,12 @@ pub mod flags {
     pub const HISTORY_DONE: u32 = 0x10;
     pub const ROOT_CHANGED: u32 = 0x20;
     pub const UNMOUNT: u32 = 0x80;
+    /// The item was cloned: a copy on APFS read it, which changed nothing
+    /// in it.
+    pub const ITEM_CLONED: u32 = 0x40_0000;
+    /// What kind of item the event names (a file, a folder, a link, a hard
+    /// link, its last hard link), which says nothing about what happened.
+    pub const ITEM_KINDS: u32 = 0x1_0000 | 0x2_0000 | 0x4_0000 | 0x10_0000 | 0x20_0000;
 }
 
 /// One changed path and what the stream says about it.

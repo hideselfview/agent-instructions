@@ -543,7 +543,15 @@ work in the same request: its own item, or how it checked that the app
 already matches (`places`, `builds help lists`).
 
   1. While drawing, look at a board with `builds design render`, which draws
-     it from the worktree as one page of HTML. It publishes nothing.
+     it from the worktree as one page of HTML. It publishes nothing. To try
+     changes with the person before any commit, give them the board's live
+     view on the dashboard,
+     http://127.0.0.1:7787/design/PROJECT/live/WORKTREE/BOARD, with the
+     worktree's folder name (side-4) and the board's name: the page draws
+     the board from the worktree's files beside the board as origin/main
+     draws it, and draws both again within a second or two of each save.
+     Commit, record and amend the change once the person settles it
+     (decision #341).
   2. When the boards are drawn, record the change (`builds design record`):
      its title, which names the part of the app the change draws in a few
      plain words, such as "People rows" or "AirPlay wait", and not a sentence

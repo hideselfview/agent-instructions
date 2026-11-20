@@ -24,6 +24,7 @@ use std::time::Duration;
 use super::fsevents::Stream;
 use super::model::SETTLE;
 use crate::lists::DesignChange;
+use crate::lists::design_paths::Globs;
 use crate::lists::store::{Loaded, database_paths, load_all, reload, stores};
 use crate::lists::view::{ClaimFacts, DesignView, View, design_view};
 use crate::places::Places;
@@ -478,18 +479,20 @@ pub fn design_repo(lists: &crate::lists::Lists) -> crate::fail::Result<Option<&s
 }
 
 /// The repo that holds project <project>'s design files, as `design_repo`
-/// finds it; None when the lists hold no such project.
+/// finds it, with that repo's globs; None when the lists hold no such
+/// project.
 pub fn project_design_repo(
     snapshot: &Snapshot,
     project: &str,
-) -> Option<crate::fail::Result<Option<String>>> {
+) -> Option<crate::fail::Result<Option<(String, Globs)>>> {
     let loaded = snapshot
         .as_deref()
         .ok()?
         .iter()
         .find(|loaded| loaded.project == project)?;
     Some(match &loaded.lists {
-        Ok(lists) => design_repo(lists).map(|repo| repo.map(str::to_string)),
+        Ok(lists) => design_repo(lists)
+            .map(|repo| repo.map(|repo| (repo.to_string(), Globs::of(lists, repo)))),
         Err(fault) => Err(crate::fail::Fail::Message(fault.clone())),
     })
 }

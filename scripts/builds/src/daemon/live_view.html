@@ -1,0 +1,164 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Live board</title>
+<style>
+@@FRAMES_CSS@@
+header .where, header .state { color: var(--dim); font-size: 13px; }
+header .where code { font: 12px ui-monospace, Menlo, monospace; }
+header .state.bad { color: var(--bad); }
+.tools .sep { width: 1px; align-self: stretch; background: var(--line); margin: 2px 4px; }
+/* A redraw loads into a second frame over the first, hidden, and takes the
+   first one's place once it has drawn. */
+.frame iframe.loading { position: absolute; left: 0; top: 0; visibility: hidden; }
+</style>
+</head>
+<body>
+<header>
+  <h1 id="title"></h1><span class="where" id="where"></span><span class="state" id="state"></span>
+  <div class="tools" id="tools">
+    <button type="button" data-theme="light" aria-pressed="false">Light</button>
+    <button type="button" data-theme="dark" aria-pressed="false">Dark</button>
+    <span class="sep"></span>Zoom
+    <button type="button" data-zoom="fit" aria-pressed="true">Fit</button>
+    <button type="button" data-zoom="0.5" aria-pressed="false">50%</button>
+    <button type="button" data-zoom="0.75" aria-pressed="false">75%</button>
+    <button type="button" data-zoom="1" aria-pressed="false">100%</button>
+    <button type="button" data-zoom="1.5" aria-pressed="false">150%</button>
+    <button type="button" data-zoom="2" aria-pressed="false">200%</button>
+  </div>
+</header>
+<main><div class="pair" id="pair"></div></main>
+<script type="application/json" id="data">@@DATA@@</script>
+<script>
+@@FRAMES@@
+</script>
+<script>
+const data = JSON.parse(document.getElementById("data").textContent);
+const h = (tag, attrs, ...kids) => {
+  const el = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) if (v !== null && v !== undefined) el.setAttribute(k, v);
+  el.append(...kids.flat(Infinity).filter(k => k !== null && k !== undefined));
+  return el;
+};
+
+document.title = data.board + " (" + data.worktree + ", live)";
+document.getElementById("title").textContent = data.board;
+document.getElementById("where").append("drawn from the files of ", h("code", {}, data.top));
+const state = document.getElementById("state");
+function say(text, bad) {
+  state.textContent = text;
+  state.classList.toggle("bad", !!bad);
+}
+
+// The theme is in the address (?theme=light), so a reload keeps it.
+let theme = new URLSearchParams(location.search).get("theme") === "light" ? "light" : "dark";
+let zoom = "fit";
+
+// Each side is the board drawn in a frame at the size the canvas gives it,
+// scaled (frames.js), or a note that says why it has no drawing. Each
+// `drawing` event loads both frames again: the worktree's files may have
+// changed, and origin/main may have moved since the last load.
+const sides = {
+  now: {label: "Now (origin/main)", absent: "This board is new: origin/main has no file of it."},
+  worktree: {label: "Live (the files of " + data.worktree + ")"},
+};
+const pair = document.getElementById("pair");
+for (const side of Object.values(sides)) {
+  side.body = h("div", {});
+  side.drawn = null;
+  pair.append(h("div", {class: "side"}, h("h3", {}, side.label), side.body));
+}
+let last = null;
+function show(name, d) {
+  const side = sides[name];
+  if (d.error || d.absent) {
+    side.drawn = null;
+    side.body.replaceChildren(h("div", {class: d.error ? "problem" : "note"}, d.error || side.absent));
+    return;
+  }
+  const src = data.base + "/" + theme + "/" + name + "?t=" + Date.now();
+  if (!side.drawn) {
+    side.drawn = boardFrame(src, d.w, d.h);
+    side.drawn.frame.addEventListener("load", drawnOnce);
+    side.body.replaceChildren(side.drawn.box);
+  } else {
+    // A redraw that has not loaded yet gives way to this one.
+    if (side.drawn.loading) side.drawn.loading.remove();
+    const next = boardFrame(src, d.w, d.h).frame;
+    next.classList.add("loading");
+    side.drawn.loading = next;
+    next.addEventListener("load", () => {
+      if (side.drawn.loading !== next) return;
+      side.drawn.frame.remove();
+      next.classList.remove("loading");
+      side.drawn.frame = next;
+      side.drawn.loading = null;
+      drawnOnce();
+    });
+    side.drawn.box.append(next);
+  }
+  side.drawn.w = d.w;
+  side.drawn.h = d.h;
+}
+function drawnOnce() {
+  say("Drawn at " + new Date().toLocaleTimeString() + ".");
+}
+function draw() {
+  if (!last) return;
+  show("now", last.now);
+  show("worktree", last.worktree);
+  layout();
+}
+function scaleOf(w) {
+  const room = (document.documentElement.clientWidth - 42 - 16) / 2;
+  return zoom === "fit" ? Math.min(1, room / w) : Number(zoom);
+}
+function layout() {
+  for (const side of Object.values(sides)) {
+    const drawn = side.drawn;
+    if (!drawn) continue;
+    const s = scaleOf(drawn.w);
+    scaleFrame(drawn, drawn.w, drawn.h, s);
+    if (drawn.loading) drawn.loading.style.transform = drawn.frame.style.transform;
+  }
+}
+
+// The dashboard sends a `drawing` event when the page connects and after
+// each change to the worktree's design files.
+const events = new EventSource(data.base + "/events");
+events.addEventListener("drawing", e => {
+  last = JSON.parse(e.data);
+  draw();
+});
+events.addEventListener("error", () => {
+  if (events.readyState === EventSource.CLOSED) say("The dashboard refused the live view's events. Reload the page.", true);
+  else say("The page lost the dashboard's events and connects again.", true);
+});
+
+function pressTheme() {
+  for (const b of document.querySelectorAll("button[data-theme]")) b.setAttribute("aria-pressed", String(b.dataset.theme === theme));
+}
+pressTheme();
+document.getElementById("tools").addEventListener("click", e => {
+  const b = e.target.closest("button");
+  if (!b) return;
+  if (b.dataset.theme) {
+    theme = b.dataset.theme;
+    const query = new URLSearchParams(location.search);
+    query.set("theme", theme);
+    history.replaceState(null, "", "?" + query);
+    pressTheme();
+    draw();
+    return;
+  }
+  zoom = b.dataset.zoom;
+  for (const x of document.querySelectorAll("button[data-zoom]")) x.setAttribute("aria-pressed", String(x === b));
+  layout();
+});
+window.addEventListener("resize", layout);
+</script>
+</body>
+</html>
