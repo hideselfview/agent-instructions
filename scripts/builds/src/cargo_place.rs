@@ -42,7 +42,7 @@ use crate::fail::{Context, Fail, Result};
 use crate::host::{self, Host, Ssh};
 use crate::places::Places;
 use crate::procs::{Place, Processes, live_args, place_of_process};
-use crate::remote::{self, Job, Request, Start, Transport, What};
+use crate::remote::{self, Job, Request, SSH_FAILED, Start, Transport, What};
 use crate::text::note;
 
 /// The environment variable naming a program to run before cargo (`Before`).
@@ -117,10 +117,6 @@ const FORWARDED: [&str; 7] = [
     "RUST_LOG",
     "RUST_TEST_THREADS",
 ];
-
-/// An exit status of ssh itself: the connection failed or dropped. cargo and
-/// the test programs it runs exit with 0, 1, 101 and the like, never 255.
-const SSH_FAILED: i32 = 255;
 
 /// Where one `builds cargo` command runs.
 #[derive(Debug, PartialEq)]
@@ -796,12 +792,13 @@ pub fn finish_untimed(job: Job) -> Result<i32> {
     Ok(code)
 }
 
-/// Fails, naming <host>, when <code> is ssh's own failure: the host stopped
-/// answering while the job ran.
+/// Fails, naming <host>, when <code> is ssh's own failure: the connection to
+/// the host failed while the job ran. cargo and the test programs it runs
+/// exit with 0, 1, 101 and the like, never 255.
 fn answered(host: &str, code: i32) -> Result<()> {
     if code == SSH_FAILED {
         fail!(
-            "host {host} stopped answering while the command ran (ssh exited {SSH_FAILED}); nothing ran the command again"
+            "the connection to host {host} failed while the command ran (ssh exited {SSH_FAILED}); nothing ran the command again"
         );
     }
     Ok(())

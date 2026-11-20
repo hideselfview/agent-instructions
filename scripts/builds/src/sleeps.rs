@@ -18,7 +18,7 @@
 //! where the last number is how long the Mac slept.
 
 use crate::host::{self, Accept, Host, Ssh, Terminal};
-use crate::text::local_second;
+use crate::text::{local_second, parse_tm};
 
 /// Prints the lines of the power log that record a sleep. The log of a Mac
 /// that has run for weeks holds tens of megabytes, so the host picks the
@@ -31,7 +31,9 @@ printf '%s\n' "$log" | awk '$4 == "Sleep"'"#;
 pub struct Sleep {
     /// When the sleep began, in seconds since 1970.
     pub at: i64,
-    /// How long the Mac slept; None when the log does not say yet.
+    /// How long the Mac slept; None when the log does not say yet, which
+    /// it writes when the Mac wakes, so the sleep lasted until the log was
+    /// read.
     pub seconds: Option<i64>,
     /// The reason macOS gave, such as `Clamshell Sleep` or `Idle Sleep`.
     pub reason: String,
@@ -57,9 +59,10 @@ impl Sleep {
         )
     }
 
-    /// Whether the sleep began or lasted into <from>..=<to>.
+    /// Whether the sleep began or lasted into <from>..=<to>. A sleep with no
+    /// length yet lasted until the log was read, after <to>.
     fn overlaps(&self, from: i64, to: i64) -> bool {
-        self.at <= to && self.at + self.seconds.unwrap_or(0) >= from
+        self.at <= to && self.seconds.is_none_or(|seconds| self.at + seconds >= from)
     }
 }
 
@@ -98,12 +101,7 @@ fn parse_line(line: &str) -> Option<Sleep> {
 
 /// The epoch of a local time `2026-11-20 12:51:20` at the offset `-0500`.
 fn epoch_of(date: &str, time: &str, zone: &str) -> Option<i64> {
-    let text = std::ffi::CString::new(format!("{date} {time}")).ok()?;
-    let mut tm: libc::tm = unsafe { std::mem::zeroed() };
-    let rest = unsafe { libc::strptime(text.as_ptr(), c"%Y-%m-%d %H:%M:%S".as_ptr(), &mut tm) };
-    if rest.is_null() || unsafe { *rest } != 0 {
-        return None;
-    }
+    let mut tm = parse_tm(&format!("{date} {time}"), c"%Y-%m-%d %H:%M:%S")?;
     let as_utc = unsafe { libc::timegm(&mut tm) };
     let (sign, digits) = match zone.as_bytes().first()? {
         b'+' => (1, &zone[1..]),

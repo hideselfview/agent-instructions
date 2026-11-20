@@ -59,7 +59,7 @@ const STOPPED_EXIT: i32 = 130;
 
 /// The exit status of ssh when its connection fails, which is also ssh's
 /// status when the command it ran exits 255.
-const SSH_FAILED: i32 = 255;
+pub const SSH_FAILED: i32 = 255;
 
 /// Set by the signal handler `stop_on_signals` installs: the person or a
 /// parent stopped this command.

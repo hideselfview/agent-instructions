@@ -677,8 +677,9 @@ refusing jobs, says so on stderr with what the host said, and runs the command
 on this Mac. A stop signal stops cargo on the host, and so does the end of
 `builds cargo` by any other signal, SIGKILL included, or a connection to the
 host that closes: no job on a host outlives the command that started it. A
-host that drops mid-run fails the command, naming the host; builds never runs
-the command again here, since cargo may have run part of it there. A landing's
+connection that fails mid-run fails the command, naming the host and each
+sleep either Mac recorded meanwhile (HOSTS); builds never runs the command
+again here, since cargo may have run part of it there. A landing's
 compile check runs `builds cargo`, so it follows the same rules. These stay on
 this Mac:
 

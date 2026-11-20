@@ -791,7 +791,10 @@ fn a_host_that_drops_fails_loudly_naming_it() {
     else {
         panic!("expected a failure");
     };
-    assert!(message.contains("host m1 stopped answering"), "{message}");
+    assert!(
+        message.contains("the connection to host m1 failed"),
+        "{message}"
+    );
     assert!(
         message.contains("nothing ran the command again"),
         "{message}"

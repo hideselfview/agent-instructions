@@ -102,8 +102,17 @@ mod os {
     }
 
     impl Drop for Assertion {
+        /// Releases the assertion. A drop cannot fail its caller, so a
+        /// release that IOKit refuses is said on stderr: the assertion then
+        /// lasts until this process ends.
         fn drop(&mut self) {
-            unsafe { IOPMAssertionRelease(self.0) };
+            let code = unsafe { IOPMAssertionRelease(self.0) };
+            if code != 0 {
+                crate::text::note(format!(
+                    "macOS refused to release builds' power assertion {}: IOKit returned {code:#x}, so this Mac stays awake until this process ends",
+                    self.0
+                ));
+            }
         }
     }
 }

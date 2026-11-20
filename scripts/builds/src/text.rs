@@ -111,15 +111,22 @@ pub fn local_second(epoch: i64) -> String {
 /// The epoch of a local `%Y-%m-%d %H:%M` form (`local_minute`'s), or None
 /// when <text> is not one.
 pub fn local_minute_epoch(text: &str) -> Option<i64> {
-    let text = std::ffi::CString::new(text).ok()?;
-    let mut tm: libc::tm = unsafe { std::mem::zeroed() };
-    let rest = unsafe { libc::strptime(text.as_ptr(), c"%Y-%m-%d %H:%M".as_ptr(), &mut tm) };
-    if rest.is_null() || unsafe { *rest } != 0 {
-        return None;
-    }
+    let mut tm = parse_tm(text, c"%Y-%m-%d %H:%M")?;
     tm.tm_isdst = -1;
     let epoch = unsafe { libc::mktime(&mut tm) };
     (epoch != -1).then_some(epoch)
+}
+
+/// <text> broken into a date and time by strptime's <format>, or None
+/// unless the format reads the whole text.
+pub fn parse_tm(text: &str, format: &std::ffi::CStr) -> Option<libc::tm> {
+    let text = std::ffi::CString::new(text).ok()?;
+    let mut tm: libc::tm = unsafe { std::mem::zeroed() };
+    let rest = unsafe { libc::strptime(text.as_ptr(), format.as_ptr(), &mut tm) };
+    if rest.is_null() || unsafe { *rest } != 0 {
+        return None;
+    }
+    Some(tm)
 }
 
 /// <epoch> as local `%Y-%m-%d`.

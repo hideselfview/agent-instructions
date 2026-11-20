@@ -71,6 +71,12 @@ fn a_sleep_counts_when_it_began_or_lasted_into_the_command() {
     assert!(sleep.overlaps(began + 10, began + 20));
     assert!(!sleep.overlaps(woke + 1, woke + 100));
     assert!(!sleep.overlaps(began - 100, began - 1));
+    let still_asleep = Sleep {
+        seconds: None,
+        ..clamshell()
+    };
+    assert!(still_asleep.overlaps(began + 1000, began + 1100));
+    assert!(!still_asleep.overlaps(began - 100, began - 1));
 }
 
 #[test]
