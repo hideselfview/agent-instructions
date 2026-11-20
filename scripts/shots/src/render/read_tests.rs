@@ -163,6 +163,7 @@ const BOARD: &str = r##"<x-dc><helmet><style>body{margin:0;font:13px sans-serif}
 <p>Words   with
    <span>spans</span> mixed</p>
 <button disabled>Off</button>
+<ul style="padding-left:16px"><li><span>First address</span><button aria-label="Copy first">c</button></li><li><span>Second address</span></li></ul>
 <button aria-haspopup="menu">Never</button>
 <div class="demo-keyboard" aria-hidden="true" style="position:absolute;left:0;top:400px;width:300px;height:150px">k</div>
 </x-dc>"##;
@@ -378,4 +379,16 @@ fn a_kept_node_with_no_box_fails_the_read_and_says_why() {
         error,
         "the board's button node \"Add\" has no box: its DOM node has no box to measure"
     );
+}
+
+#[tokio::test]
+async fn a_list_items_marker_is_no_element_of_its_own() {
+    let elements = read_fixture().await;
+    find(&elements, Role::Text, "First address");
+    assert!(
+        !elements.iter().any(|e| e.native == "ListMarker"),
+        "a marker has no element of its own"
+    );
+    let items: Vec<&Element> = elements.iter().filter(|e| e.native == "listitem").collect();
+    assert_eq!(items.len(), 2);
 }

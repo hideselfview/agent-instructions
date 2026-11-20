@@ -70,8 +70,11 @@ impl Role {
     }
 }
 
-/// Chrome roles that only hold other nodes and say nothing of their own.
-const STRUCTURE: [&str; 6] = [
+/// Chrome roles that only hold other nodes and say nothing of their own. A
+/// list item's marker (`ListMarker`, "\u{2022} ") is one: it has no DOM node
+/// to measure, so the list item stands for it.
+const STRUCTURE: [&str; 7] = [
+    "ListMarker",
     "generic",
     "none",
     "presentation",
