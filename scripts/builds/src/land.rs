@@ -158,7 +158,7 @@ pub fn cmd_land(places: &crate::places::Places, args: &[String]) -> Result<()> {
 /// program started, this program writes a store of another schema, so it runs
 /// the installed builds in its place.
 fn hold_stores() -> Result<Option<crate::install_gate::Holding<'static>>> {
-    match crate::install_gate::hold_current()? {
+    match crate::install_gate::hold_current(crate::install_gate::OnInstall::Wait)? {
         crate::install_gate::Hold::Holds(stores) => Ok(stores),
         crate::install_gate::Hold::InstallRan => Err(crate::install_gate::run_installed(
             "builds install ran before this landing began, so the landing runs the installed builds program in its place",

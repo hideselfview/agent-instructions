@@ -50,8 +50,11 @@
 //!
 //! Waiters go in the order of queue.rs. A takeover sends the holder SIGUSR2:
 //! it stops its build's group and, once the build has exited, `run_in_group`
-//! says `Ran::TakenOver`; the caller then takes a new place in the queue
-//! (`Held::requeue`), straight behind the taker, and runs again.
+//! says `Ran::Stopped`; the caller then takes a new place in the queue
+//! (`Held::requeue`), straight behind the taker, and runs again. An install
+//! that moves the stores sends the same signal to each app build lane that
+//! holds a lock (install_gate.rs), and the lane, finding the install waiting,
+//! leaves the queue and runs the installed builds instead.
 
 use std::collections::HashMap;
 use std::os::unix::process::CommandExt;
@@ -73,10 +76,10 @@ use crate::text::note;
 /// The command's process group, for the signal handlers; 0 when none runs.
 static GROUP: AtomicI32 = AtomicI32::new(0);
 /// Whether this process holds, or waits to hold, its place in a queue and
-/// answers a takeover.
+/// answers a stop.
 static QUEUED: AtomicBool = AtomicBool::new(false);
-/// A takeover stopped, or is stopping, the build.
-static TAKEN_OVER: AtomicBool = AtomicBool::new(false);
+/// A takeover or an install stopped, or is stopping, the build.
+static STOPPED: AtomicBool = AtomicBool::new(false);
 
 extern "C" fn pass_on(signal: libc::c_int) {
     let group = GROUP.load(Ordering::SeqCst);
@@ -86,13 +89,13 @@ extern "C" fn pass_on(signal: libc::c_int) {
     }
 }
 
-/// SIGUSR2: stops the build for a takeover. Outside the time between joining
-/// the queue and `Held::release` it does nothing.
-extern "C" fn take_over(_: libc::c_int) {
+/// SIGUSR2: stops the build, for a takeover or an install. Outside the time
+/// between joining the queue and `Held::release` it does nothing.
+extern "C" fn stop(_: libc::c_int) {
     if !QUEUED.load(Ordering::SeqCst) {
         return;
     }
-    TAKEN_OVER.store(true, Ordering::SeqCst);
+    STOPPED.store(true, Ordering::SeqCst);
     pass_on(libc::SIGTERM);
 }
 
@@ -114,7 +117,9 @@ pub fn cmd_lock(places: &Places, args: &[String]) -> Result<()> {
         start.args(rest).env("BUILDS_APP_CHECKOUT", &held.checkout);
         match run_in_group(start, command)? {
             Ran::Finished => return Ok(()),
-            Ran::TakenOver => {
+            // Only a takeover stops it: it holds no use of the stores, so
+            // install never stops it.
+            Ran::Stopped => {
                 note(format!(
                     "{command} was stopped for a takeover; it runs again after it"
                 ));
@@ -220,14 +225,14 @@ pub struct Held {
 impl Held {
     /// Takes the window lock of this checkout's host for <step>, waiting
     /// while another run that opens windows holds it (window_lock.rs). None
-    /// when a takeover stopped this build while it waited.
+    /// when a takeover or an install stopped this build while it waited.
     pub fn take_window(&self, step: &str) -> Result<Option<crate::window_lock::Window>> {
         crate::window_lock::take(
             &self.places,
             host_of(&self.checkout),
             &format!("{}'s {}, step {step}", self.repo, self.checkout),
             &|words| note(words),
-            &|| TAKEN_OVER.load(Ordering::SeqCst),
+            &|| STOPPED.load(Ordering::SeqCst),
         )
     }
 
@@ -258,7 +263,7 @@ impl Held {
     /// Frees the lock and lets the next in the queue go. No process this one
     /// started may still run.
     pub fn release(self) {
-        // Past its build, a takeover has nothing to stop.
+        // Past its build, a stop has nothing to stop.
         QUEUED.store(false, Ordering::SeqCst);
         drop(self);
     }
@@ -277,7 +282,7 @@ impl Held {
     /// the lock and the place up, takes a new place where the old one stood,
     /// and waits for a lock again (the one just freed, or another's).
     pub fn requeue(self) -> Result<Held> {
-        TAKEN_OVER.store(false, Ordering::SeqCst);
+        STOPPED.store(false, Ordering::SeqCst);
         let waiting = Instant::now();
         let ticket = self.queue.reissue(&self.ticket)?;
         let queue = self.queue.clone();
@@ -661,15 +666,15 @@ fn take_in(
         );
     }
     queue::route_repoint_signal();
-    if unsafe { libc::signal(libc::SIGUSR2, take_over as *const () as libc::sighandler_t) }
+    if unsafe { libc::signal(libc::SIGUSR2, stop as *const () as libc::sighandler_t) }
         == libc::SIG_ERR
     {
         fail!(
-            "installing the takeover signal's handler: {}",
+            "installing the stop signal's handler: {}",
             std::io::Error::last_os_error()
         );
     }
-    TAKEN_OVER.store(false, Ordering::SeqCst);
+    STOPPED.store(false, Ordering::SeqCst);
     QUEUED.store(true, Ordering::SeqCst);
     let queue = Queue::of(places, repo, lane);
     crate::lane_size::shrink(sized, crate::prune::Run::Real, now)?;
@@ -746,8 +751,9 @@ const KILL_GRACE: Duration = Duration::from_secs(10);
 #[derive(Debug, PartialEq, Eq)]
 pub enum Ran {
     Finished,
-    /// A takeover stopped it: it didn't finish and is to run again.
-    TakenOver,
+    /// A takeover or an install stopped it: it didn't finish and is to run
+    /// again.
+    Stopped,
 }
 
 /// How a command run by `run_in_group_within` ended, when it didn't fail.
@@ -760,7 +766,7 @@ pub enum Within {
 
 /// Runs <start> in a process group of its own, passing SIGTERM, SIGINT and
 /// SIGHUP on to the whole group, and fails with its exit status, unless a
-/// takeover stopped it.
+/// takeover or an install stopped it.
 pub fn run_in_group(start: Command, command: &str) -> Result<Ran> {
     match run_in_group_within(start, command, None)? {
         Within::Ran(ran) => Ok(ran),
@@ -973,8 +979,8 @@ fn run_group(
         copies += 1;
     }
     drop(output_done);
-    // A takeover that came before the group was known stops it now.
-    if TAKEN_OVER.load(Ordering::SeqCst) {
+    // A stop that came before the group was known stops it now.
+    if STOPPED.load(Ordering::SeqCst) {
         unsafe { libc::kill(-group, libc::SIGTERM) };
     }
     // Dropping `ended` tells the watcher the command is over.
@@ -1016,7 +1022,7 @@ fn run_group(
     match crate::fail::exit_code(status) {
         _ if timed_out.load(Ordering::SeqCst) => Ok(Within::TimedOut),
         0 => Ok(Within::Ran(Ran::Finished)),
-        _ if TAKEN_OVER.load(Ordering::SeqCst) => Ok(Within::Ran(Ran::TakenOver)),
+        _ if STOPPED.load(Ordering::SeqCst) => Ok(Within::Ran(Ran::Stopped)),
         code => Err(Fail::Exit(code)),
     }
 }

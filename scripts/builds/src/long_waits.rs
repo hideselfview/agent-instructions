@@ -232,7 +232,12 @@ pub fn findings(
                     .iter()
                     .map(|held| {
                         name_tree(held.pid, &mut named);
-                        format!("{} ({})", held.text, read.waits_on(held.pid))
+                        let stopped = if held.stopped {
+                            ", which it stopped so that the lane runs again with the installed builds"
+                        } else {
+                            ""
+                        };
+                        format!("{}{stopped} ({})", held.text, read.waits_on(held.pid))
                     })
                     .collect();
                 let what = if held.is_empty() {

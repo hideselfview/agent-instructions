@@ -19,6 +19,8 @@ enum Event {
     /// What it returned: that the gates are closed, or that the command must
     /// run again or may go on.
     Done(bool),
+    /// Install stopped the lane of this process.
+    Stopped(i32),
 }
 
 /// How long a test waits for an event that must come before it fails: the
@@ -33,18 +35,25 @@ fn said(line: &str) -> Event {
     Event::Said(line.to_string())
 }
 
-/// Runs `close` on a thread, which sends each line `close` gives its `say`,
-/// then `Done(true)` once it has closed both gates.
+/// Runs `close` on a thread, which sends each line `close` gives its `say`
+/// and each process whose lane it stops, then `Done(true)` once it has
+/// closed both gates.
 fn closing(places: &Places) -> (std::thread::JoinHandle<Closed>, Receiver<Event>) {
     let (events, received) = channel();
     let places = places.clone();
     let closer = std::thread::spawn(move || {
         let say = &mut |line| events.send(Event::Said(line)).unwrap();
-        let closed = begin(&places, say).unwrap().close(say).unwrap();
+        let stop = &mut |pid| events.send(Event::Stopped(pid)).unwrap();
+        let closed = begin(&places, say).unwrap().close(say, stop).unwrap();
         events.send(Event::Done(true)).unwrap();
         closed
     });
     (closer, received)
+}
+
+/// The stop of an install that finds no lane holding a use.
+fn no_lane(pid: i32) {
+    panic!("no lane holds a use, yet install stopped process {pid}")
 }
 
 fn count(dir: &Path) -> usize {
@@ -137,7 +146,12 @@ fn while_install_waits_for_a_command_use_connections_still_open_and_install_wait
     // files.
     let mut lines = Vec::new();
     let say = &mut |line| lines.push(line);
-    drop(begin(&places, say).unwrap().close(say).unwrap());
+    drop(
+        begin(&places, say)
+            .unwrap()
+            .close(say, &mut no_lane)
+            .unwrap(),
+    );
     assert!(lines.is_empty(), "{lines:?}");
     assert_eq!(count(&Kind::Command.uses(&places)), 0);
     assert_eq!(count(&Kind::Connection.uses(&places)), 0);
@@ -181,7 +195,7 @@ fn a_second_install_waits_for_the_first() {
     );
     drop(first);
     assert_eq!(next(&events), Event::Done(true));
-    let closed = install.join().unwrap().close(quiet).unwrap();
+    let closed = install.join().unwrap().close(quiet, &mut no_lane).unwrap();
     let (install, events) = second(&places);
     assert_eq!(
         next(&events),
@@ -206,7 +220,10 @@ fn the_file_of_a_use_whose_process_died_holds_no_install() {
     }
     let mut said = Vec::new();
     let say = &mut |line| said.push(line);
-    let closed = begin(&places, say).unwrap().close(say).unwrap();
+    let closed = begin(&places, say)
+        .unwrap()
+        .close(say, &mut no_lane)
+        .unwrap();
     assert!(said.is_empty(), "{said:?}");
     assert_eq!(count(&Kind::Command.uses(&places)), 0);
     assert_eq!(count(&Kind::Connection.uses(&places)), 0);
@@ -228,8 +245,8 @@ fn a_lane_holds_a_use_once_it_holds_its_lock_and_sees_an_install_that_ran_while_
     };
     let waiting = lane(21);
     let building = lane(22);
-    let held = building.hold().unwrap();
-    assert!(holds_use(&places, Kind::Command, 22));
+    let held = building.hold(OnInstall::Stop).unwrap();
+    assert!(holds_use(&places, Kind::Lane, 22));
     assert!(
         building.take().unwrap().is_none(),
         "its connections take no use of their own"
@@ -240,10 +257,10 @@ fn a_lane_holds_a_use_once_it_holds_its_lock_and_sees_an_install_that_ran_while_
     drop(
         begin(&places, &mut |_| {})
             .unwrap()
-            .close(&mut |_| {})
+            .close(&mut |_| {}, &mut no_lane)
             .unwrap(),
     );
-    let held = waiting.hold().unwrap();
+    let held = waiting.hold(OnInstall::Stop).unwrap();
     assert!(
         waiting.install_ran().unwrap(),
         "the lane runs the installed builds in its place"
@@ -267,12 +284,12 @@ fn a_lane_that_queues_again_holds_no_use_while_it_waits() {
         "10:00:00",
     )
     .unwrap();
-    let held = building.hold().unwrap();
-    assert!(holds_use(&places, Kind::Command, 23));
+    let held = building.hold(OnInstall::Stop).unwrap();
+    assert!(holds_use(&places, Kind::Lane, 23));
     // The lane goes back to the queue.
     drop(held);
     assert!(
-        !Kind::Command.uses(&places).join("23").exists(),
+        !Kind::Lane.uses(&places).join("23").exists(),
         "the lane's use removed its file when it ended"
     );
     let connection = building
@@ -283,14 +300,19 @@ fn a_lane_that_queues_again_holds_no_use_while_it_waits() {
     drop(connection);
     let mut said = Vec::new();
     let say = &mut |line| said.push(line);
-    drop(begin(&places, say).unwrap().close(say).unwrap());
+    drop(
+        begin(&places, say)
+            .unwrap()
+            .close(say, &mut no_lane)
+            .unwrap(),
+    );
     assert!(
         said.is_empty(),
         "install waited for the queued lane: {said:?}"
     );
     // The lane holds a lock again.
-    let held = building.hold().unwrap();
-    assert!(holds_use(&places, Kind::Command, 23));
+    let held = building.hold(OnInstall::Stop).unwrap();
+    assert!(holds_use(&places, Kind::Lane, 23));
     assert!(
         building.install_ran().unwrap(),
         "the lane runs the installed builds in its place"
@@ -388,6 +410,7 @@ fn waiting_names_each_use_a_running_install_waits_for() {
             held: vec![Held {
                 pid: 11,
                 text: "process 11, builds checks run, since 10:00:00".to_string(),
+                stopped: false,
             }],
         })
     );
@@ -403,6 +426,7 @@ fn waiting_names_each_use_a_running_install_waits_for() {
             held: vec![Held {
                 pid: 12,
                 text: "process 12, builds item list, since 10:00:01".to_string(),
+                stopped: false,
             }],
         })
     );
@@ -423,4 +447,82 @@ fn waiting_names_each_use_a_running_install_waits_for() {
         enter_for_life(&places, 15, "checks run", "10:00:04", quiet).unwrap(),
     ));
     assert_eq!(waiting(&places).unwrap(), None, "install ended");
+}
+
+/// An install that moves the stores stops each app build lane that holds its
+/// lock, and, while the lane still holds its use, the lane can tell the stop
+/// is an install's. Install moves on once the lane gives its use up, without
+/// waiting for the lane's steps, and waits for a hook run as before.
+#[test]
+fn an_install_stops_each_lane_that_holds_a_use_and_waits_only_for_the_use_to_end() {
+    let scratch = Scratch::new("install-gate-stop-lane");
+    let places = scratch.places();
+    let quiet = &mut |_: &str| {};
+    let building = PerConnection::new(
+        places.clone(),
+        22,
+        "app-build demo --lane mac main",
+        "10:00:00",
+    )
+    .unwrap();
+    let lane = building.hold(OnInstall::Stop).unwrap();
+    assert!(holds_use(&places, Kind::Lane, 22));
+    assert!(
+        !holds_use(&places, Kind::Command, 22),
+        "a lane's use is no use install waits for"
+    );
+    let hook_run = holds(enter_for_life(&places, 11, "checks run", "10:00:01", quiet).unwrap());
+    assert!(!install_waits(&places).unwrap(), "no install runs");
+    let (closer, install) = closing(&places);
+    assert_eq!(
+        next(&install),
+        said(
+            "stopping process 22, builds app-build demo --lane mac main, since 10:00:00, which runs its lane again with the installed builds"
+        )
+    );
+    assert_eq!(next(&install), Event::Stopped(22));
+    assert!(
+        install_waits(&places).unwrap(),
+        "the stopped lane sees that an install waits, so it runs the installed builds"
+    );
+    assert_eq!(
+        waiting(&places).unwrap(),
+        Some(Waiting {
+            connections_closed: false,
+            held: vec![
+                Held {
+                    pid: 22,
+                    text: "process 22, builds app-build demo --lane mac main, since 10:00:00"
+                        .to_string(),
+                    stopped: true,
+                },
+                Held {
+                    pid: 11,
+                    text: "process 11, builds checks run, since 10:00:01".to_string(),
+                    stopped: false,
+                },
+            ],
+        })
+    );
+    // The lane's step ended, and the lane gives its use up.
+    drop(lane);
+    assert_eq!(
+        next(&install),
+        said("waiting for process 11, builds checks run, since 10:00:01")
+    );
+    drop(hook_run);
+    assert_eq!(next(&install), Event::Done(true));
+    let closed = closer.join().unwrap();
+    assert!(
+        install_waits(&places).unwrap(),
+        "install holds the gates closed while it moves the stores"
+    );
+    drop(closed);
+    // A child process that another test forks while the gate is closed keeps
+    // its lock until it calls exec, so wait for the gate to open first.
+    drop(holds(
+        enter_for_life(&places, 12, "checks run", "10:00:02", quiet).unwrap(),
+    ));
+    assert!(!install_waits(&places).unwrap(), "install finished");
+    assert_eq!(count(&Kind::Lane.uses(&places)), 0);
 }

@@ -81,6 +81,7 @@ fn waiting_for_the_hook_run() -> Waiting {
         held: vec![Held {
             pid: 200,
             text: "process 200, builds checks run, since 01:00:00".to_string(),
+            stopped: false,
         }],
     }
 }
@@ -104,6 +105,21 @@ fn an_install_names_what_it_waits_for_down_to_the_job_on_a_host() {
     assert!(
         lines(&install_behind_a_hook_run(), Ok(Some(stores)))[0]
             .ends_with("; every builds command that opens a store waits for it")
+    );
+}
+
+/// An install that stopped an app build lane says so where it names the
+/// lane's use, since the lane ends its steps instead of finishing them.
+#[test]
+fn an_install_names_a_lane_it_stopped_as_stopped() {
+    let mut stores = waiting_for_the_hook_run();
+    stores.held[0].stopped = true;
+    let line = &lines(&install_behind_a_hook_run(), Ok(Some(stores)))[0];
+    assert!(
+        line.contains(
+            "since 01:00:00, which it stopped so that the lane runs again with the installed builds (it waits on"
+        ),
+        "{line}"
     );
 }
 

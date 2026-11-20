@@ -468,9 +468,11 @@ commits unless a finished review read the branch's net change as it is now.
     landed. In agent-instructions, the main checkout's post-merge hook then
     runs install.sh, which installs the landed builds and links the landed
     rules and skills. When the landed builds changes a store's schema, install
-    waits for every running hook run, review, landing and app build lane, and
-    every hook run, review and landing that starts meanwhile waits for install,
-    so commits in every project wait until it ends (`builds help`, INSTALLING).
+    stops every app build lane that holds its lock, which runs again with the
+    installed builds under the same command, and waits for every running hook
+    run, review and landing. Every hook run, review and landing that starts
+    meanwhile waits for install, so commits in every project wait until it ends
+    (`builds help`, INSTALLING).
     A landing writes all its records before it fast-forwards the main
     checkout, so the install that the fast-forward runs moves the stores only
     after the landing has written them. An install that changes no store's

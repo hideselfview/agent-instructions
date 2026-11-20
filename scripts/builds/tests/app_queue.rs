@@ -649,6 +649,68 @@ fn a_lane_that_waited_through_an_install_runs_the_installed_builds_and_builds_on
     );
 }
 
+/// An install that moves the stores stops the app build lane that holds its
+/// lock instead of waiting for its steps. The lane frees its lock and its
+/// place in line, ends its use of the stores, waits for the install to finish
+/// and runs the installed builds in the same process, which builds again
+/// from the first step, so the request sees one run that finishes. The test
+/// stands for builds install: it closes the commands gate, stops the lane as
+/// install does, waits for the lane's use to end, counts one more install and
+/// opens the gate.
+#[test]
+fn an_install_stops_a_running_app_build_which_builds_again_with_the_installed_builds() {
+    use std::os::fd::AsRawFd;
+    let volume = Volume::new("app-build-install-stop");
+    volume.app_repo();
+    let build = start_app_build(&volume, &["one", "two"]);
+    volume.until_logged("start one");
+    let install = volume
+        .dir
+        .join("home/Library/Application Support/builds/install");
+    let lanes = install.join("lanes");
+    let lane: i32 = std::fs::read_dir(&lanes)
+        .expect("the lane holds a use of the stores while it holds the lock")
+        .map(|entry| {
+            entry
+                .unwrap()
+                .file_name()
+                .to_string_lossy()
+                .parse()
+                .unwrap()
+        })
+        .next()
+        .expect("the lane's use names its process");
+    let gate = std::fs::File::open(install.join("commands.gate")).unwrap();
+    assert_eq!(unsafe { libc::flock(gate.as_raw_fd(), libc::LOCK_EX) }, 0);
+    assert_eq!(unsafe { libc::kill(lane, libc::SIGUSR2) }, 0);
+    volume.until_logged("stop one");
+    until("the lane's use of the stores to end", || {
+        !lanes.join(lane.to_string()).exists()
+    });
+    volume.until_queued(0);
+    std::fs::write(install.join("generation"), "1\n").unwrap();
+    drop(gate);
+    volume.open_gate("one");
+    volume.open_gate("two");
+    let (status, said) = finish(build);
+    assert!(status.success(), "{said}");
+    assert!(
+        said.contains("builds install stopped this build to move the stores"),
+        "{said}"
+    );
+    assert_eq!(
+        volume.log(),
+        lines(&[
+            "start one",
+            "stop one",
+            "start one",
+            "end one",
+            "start two",
+            "end two"
+        ])
+    );
+}
+
 #[test]
 fn app_build_runs_the_steps_named_and_lists_them() {
     let volume = Volume::new("app-build-steps");

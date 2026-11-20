@@ -55,6 +55,14 @@
 //! A takeover stops the step running; the lane's build then runs again from
 //! the checkout, behind the build that took over.
 //!
+//! An install that moves the stores stops the step running in the same way
+//! (install_gate.rs). The lane, finding the install waiting, leaves the queue,
+//! frees its lock and ends its use of the stores without recording the run,
+//! waits for the install to finish, and runs the installed builds in its
+//! place with the same arguments. The installed builds joins the queue again
+//! and builds from the start, in the same process, so the request that started
+//! the lane sees one run.
+//!
 //! When a step of the mac lane fails after xcodebuild printed that it cannot
 //! start (xcode.rs), or after XCTest printed that it timed out turning on
 //! automation mode (ui_test_settings.rs), the host caused the failure, not
@@ -443,8 +451,8 @@ impl Built {
 #[derive(Debug, PartialEq, Eq)]
 enum Ended {
     Finished,
-    /// A takeover stopped a step.
-    TakenOver,
+    /// A takeover or an install stopped a step.
+    Stopped,
     /// A step failed after printing a line that says the host failed it
     /// (`HOST_FAULTS`): what the host refuses from now on, and the line.
     HostFault(Refused, String),
@@ -549,7 +557,7 @@ fn run_steps_with(
         let _window = if step.place == lock::Where::Hosts {
             match held.take_window(&step.name)? {
                 Some(window) => Some(window),
-                None => return Ok(Ended::TakenOver),
+                None => return Ok(Ended::Stopped),
             }
         } else {
             None
@@ -567,14 +575,16 @@ fn run_steps_with(
         let outcome = run(step, kind, watch.then_some(&found), &read.each_line());
         let result = match &outcome {
             Ok(Within::Ran(Ran::Finished)) => StepResult::Passed,
-            Ok(Within::Ran(Ran::TakenOver)) => StepResult::TakenOver,
+            // A run that an install stopped is never recorded: the installed
+            // builds records the run it makes in its place.
+            Ok(Within::Ran(Ran::Stopped)) => StepResult::TakenOver,
             Ok(Within::TimedOut) => StepResult::TimedOut(read.failure()),
             Err(_) => StepResult::Failed(read.failure()),
         };
         log.push(timer.finish(&step.name, kind, result));
         match outcome {
             Ok(Within::Ran(Ran::Finished)) => {}
-            Ok(Within::Ran(Ran::TakenOver)) => return Ok(Ended::TakenOver),
+            Ok(Within::Ran(Ran::Stopped)) => return Ok(Ended::Stopped),
             Ok(Within::TimedOut) => {
                 let hint = if pick_kind_of(&step.name).is_some() {
                     String::new()
@@ -714,7 +724,7 @@ fn run_remote_step(
         let source = remote.source()?;
         store.keep_of(&ran, &kept, step, &source, remote);
     }
-    if results.is_empty() || matches!(ran, Ok(Within::Ran(Ran::TakenOver))) {
+    if results.is_empty() || matches!(ran, Ok(Within::Ran(Ran::Stopped))) {
         return ran;
     }
     match (remote.pull(results), &ran) {
@@ -883,8 +893,8 @@ struct Timing {
     /// The commit the run checked out to build; None until it checks one out.
     commit: Option<String>,
     /// The use of the stores the lane takes each time it holds the lane's
-    /// lock (`hold_stores`), held until `record` has written the run or the
-    /// lane goes back to the queue.
+    /// lock (`hold_stores`), held until `record` has written the run, the
+    /// lane goes back to the queue, or an install stops the lane.
     stores: Option<install_gate::Holding<'static>>,
 }
 
@@ -963,13 +973,32 @@ fn who_asked() -> Option<String> {
 /// Builds what <request> asks for in <lane>'s app checkout on the lane's
 /// lock, and times the run and its steps and records them (app_timing.rs). A
 /// lane that adds a checkout on a host keeps the host's free disk above
-/// the floor of <tool>'s rules.
+/// the floor of <tool>'s rules. A lane that must run the installed builds
+/// records nothing: this program writes a store of another schema, and the
+/// installed builds records the run it makes in this one's place.
 fn run_lane(tool: &Tool, repo: &str, lane: Lane, request: LaneRequest) -> Result<()> {
     let mut timing = Timing::start();
     let result = build_lane(tool, repo, lane, request, &mut timing);
+    if let Ok(LaneEnd::RunInstalled(why)) = &result {
+        // The lane holds no lock, no place in the queue and no use of the
+        // stores by now.
+        drop(timing);
+        return Err(install_gate::run_installed_after_install(&tool.places, why));
+    }
     let passed = result.is_ok();
     timing.record(&tool.places, repo, lane, request.commit, passed);
-    result
+    result.map(|_| ())
+}
+
+/// How a lane's run ended, when it did not fail.
+enum LaneEnd {
+    /// The lane ran its steps.
+    Built,
+    /// An install ran while the lane waited for its lock, or stopped the
+    /// lane's steps to move the stores. The lane gave up its lock, its place
+    /// in the queue and its use of the stores, and runs the installed builds
+    /// in its place, saying why.
+    RunInstalled(String),
 }
 
 /// What a caller asked one lane to build: <commit>, with the lane's steps
@@ -983,26 +1012,41 @@ struct LaneRequest<'a> {
 }
 
 /// Takes the use of the stores a lane holds while it holds the lane's lock
-/// <held> (install_gate.rs), into <stores>. When install ran while the lane
-/// waited, the lane's program writes a store of another schema, so the lane
-/// leaves the queue and runs the installed builds in its place.
+/// <held> (install_gate.rs), into <stores>, and returns the lock. When install
+/// ran while the lane waited, the lane's program writes a store of another
+/// schema, so the lane leaves the queue and returns None: it runs the
+/// installed builds in its place.
 fn hold_stores(
     held: lock::Held,
     stores: &mut Option<install_gate::Holding<'static>>,
-) -> Result<lock::Held> {
-    match install_gate::hold_current()? {
+) -> Result<Option<lock::Held>> {
+    match install_gate::hold_current(install_gate::OnInstall::Stop)? {
         install_gate::Hold::Holds(use_of_stores) => {
             *stores = use_of_stores;
-            Ok(held)
+            Ok(Some(held))
         }
         install_gate::Hold::InstallRan => {
             held.leave()?;
-            Err(install_gate::run_installed(
-                "builds install ran while this build waited for the lane, so this build leaves the queue and runs the installed builds program, which joins the queue again",
-            ))
+            Ok(None)
         }
     }
 }
+
+/// Gives up what a lane that an install stopped holds: its place in the
+/// queue and its lock <held>, so the next build may go, then its use of the
+/// stores <stores>, whose end lets the install move the stores.
+fn leave_for_install(
+    held: lock::Held,
+    stores: &mut Option<install_gate::Holding<'static>>,
+) -> Result<()> {
+    held.leave()?;
+    *stores = None;
+    Ok(())
+}
+
+/// Why a lane that found an install ran while it waited runs the installed
+/// builds.
+const RAN_WHILE_WAITING: &str = "builds install ran while this build waited for the lane, so this build leaves the queue and runs the installed builds program, which joins the queue again";
 
 fn build_lane(
     tool: &Tool,
@@ -1010,7 +1054,7 @@ fn build_lane(
     lane: Lane,
     request: LaneRequest,
     timing: &mut Timing,
-) -> Result<()> {
+) -> Result<LaneEnd> {
     let places = &tool.places;
     let floor_kib = tool.rules.floor_kib;
     let LaneRequest {
@@ -1053,7 +1097,9 @@ fn build_lane(
     } else {
         lock::take_where(places, &ssh, repo, lane, allowed, floor_kib)?
     };
-    let mut held = hold_stores(held, &mut timing.stores)?;
+    let Some(mut held) = hold_stores(held, &mut timing.stores)? else {
+        return Ok(LaneEnd::RunInstalled(RAN_WHILE_WAITING.to_string()));
+    };
     loop {
         let mut site = Site::of(places, &ssh, repo, lane, &held.checkout)?;
         timing.held = Some(HeldTimes::of(&held, site.load(places, &ssh)));
@@ -1134,8 +1180,16 @@ fn build_lane(
             Ok(ended)
         })();
         match left_unchanged(&mut site, &built_file, ran)? {
-            Ended::Finished => return Ok(()),
-            Ended::TakenOver => {
+            Ended::Finished => return Ok(LaneEnd::Built),
+            // The lane still holds its use, so an install that stopped it
+            // still waits.
+            Ended::Stopped if install_gate::install_waits(places)? => {
+                leave_for_install(held, &mut timing.stores)?;
+                return Ok(LaneEnd::RunInstalled(format!(
+                    "builds install stopped this build to move the stores, so this build leaves the queue, waits for install to finish and runs the installed builds program, which joins the queue again and builds {commit} from the start"
+                )));
+            }
+            Ended::Stopped => {
                 note(format!(
                     "the build was stopped for a takeover; building {commit} again after it"
                 ));
@@ -1155,7 +1209,10 @@ fn build_lane(
         // use until it holds a lock again, and an install that runs meanwhile
         // waits for no queued build.
         timing.stores = None;
-        held = hold_stores(held.requeue()?, &mut timing.stores)?;
+        held = match hold_stores(held.requeue()?, &mut timing.stores)? {
+            Some(held) => held,
+            None => return Ok(LaneEnd::RunInstalled(RAN_WHILE_WAITING.to_string())),
+        };
     }
 }
 

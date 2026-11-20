@@ -595,6 +595,56 @@ fn what_was_built_is_kept_in_a_file_and_cleared_by_the_next_run() {
     Built::clear(&file).unwrap();
 }
 
+/// A lane that an install stopped gives up its place in the queue, its lock
+/// and its use of the stores: the next build takes the checkout, and the
+/// install, which waited for the lane's use, finishes.
+#[test]
+fn a_lane_an_install_stopped_gives_up_its_place_its_lock_and_its_use() {
+    let scratch = Scratch::new("app-build-install-stop");
+    let held = held_in(&scratch);
+    let places = scratch.places();
+    let lane: &'static install_gate::PerConnection = Box::leak(Box::new(
+        install_gate::PerConnection::new(
+            places.clone(),
+            4343,
+            "app-build steps --lane mac main",
+            "10:00:00",
+        )
+        .unwrap(),
+    ));
+    let mut stores = Some(lane.hold(install_gate::OnInstall::Stop).unwrap());
+    let (stops, stopped) = std::sync::mpsc::channel();
+    let install = std::thread::spawn({
+        let places = places.clone();
+        move || {
+            let stop = &mut |pid| stops.send(pid).unwrap();
+            let closed = install_gate::begin(&places, &mut |_| {})
+                .unwrap()
+                .close(&mut |_| {}, stop)
+                .unwrap();
+            drop(closed);
+        }
+    });
+    assert_eq!(
+        stopped.recv_timeout(Duration::from_secs(30)).unwrap(),
+        4343,
+        "install stops the lane"
+    );
+    assert!(install_gate::install_waits(&places).unwrap());
+    leave_for_install(held, &mut stores).unwrap();
+    assert!(stores.is_none(), "the lane holds no use of the stores");
+    install.join().unwrap();
+    let next = lock::take(&places, "steps", Lane::Mac).unwrap();
+    assert_eq!(next.checkout, "side-1", "the next build takes the checkout");
+    assert_eq!(
+        crate::queue::Queue::of(&places, "steps", Lane::Mac)
+            .order()
+            .len(),
+        1,
+        "the stopped lane left the queue, so only the next build's ticket is in line"
+    );
+}
+
 fn fake(name: &str, command: &[&str], limit: Option<Duration>) -> Step {
     Step {
         name: name.to_string(),

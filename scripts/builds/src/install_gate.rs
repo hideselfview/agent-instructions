@@ -8,26 +8,34 @@
 //! schema, install moves no store and closes no gate: a command that started
 //! before the install still writes the schema that the new program reads.
 //!
-//! A command uses the stores in one of three ways. A use is a locked file of
+//! A command uses the stores in one of four ways. A use is a locked file of
 //! its own in its kind's folder that says which process runs what and since
 //! when.
 //! - A command that writes a store after long work, with what it measured
 //!   since it started (main.rs's `holds_for_life` names them: a hook run and
 //!   a review that asks reviewers), holds a command use for its life.
-//! - An app build's lane holds a command use while it holds the lane's lock
-//!   (`hold`): from the moment it takes the lock until it ends, or until a
-//!   takeover or a host fault sends it back to the queue. A build waiting in
-//!   the queue builds nothing and writes nothing, so it holds no use. When
-//!   install ran while the lane waited, the lane leaves the queue and runs
-//!   the installed builds in its place.
-//! - A landing (`builds land`) holds a command use (`hold`) from its start
-//!   until it has written the record of its run, then ends it before it
-//!   fast-forwards the main checkout, whose post-merge hook in
-//!   agent-instructions runs install: install would wait forever for a use
-//!   the landing still held.
+//! - An app build's lane holds a lane use while it holds the lane's lock
+//!   (`hold` with `OnInstall::Stop`): from the moment it takes the lock until
+//!   it ends, or until a takeover or a host fault sends it back to the queue.
+//!   A build waiting in the queue builds nothing and writes nothing, so it
+//!   holds no use. When install ran while the lane waited, the lane leaves
+//!   the queue and runs the installed builds in its place.
+//! - A landing (`builds land`) holds a command use (`hold` with
+//!   `OnInstall::Wait`) from its start until it has written the record of its
+//!   run, then ends it before it fast-forwards the main checkout, whose
+//!   post-merge hook in agent-instructions runs install: install would wait
+//!   forever for a use the landing still held.
 //! - Every other command takes a connection use while each store connection
 //!   it opens is open. Its writes are each one short transaction, so a
 //!   command such as `builds cargo test` holds no use while it builds.
+//!
+//! Install waits for a command use to end, but stops the process of each
+//! lane use (SIGUSR2, which lock.rs's handler answers by stopping the step
+//! that runs) and then waits for that use to end. A lane that a stop ended
+//! while an install waits (`install_waits`) lets go of its lock, its place in
+//! the queue and its use, waits for the install to finish and runs the
+//! installed builds in its place with the same arguments, which builds again
+//! from the start. So an install never waits for an app build's steps.
 //!
 //! Install first takes the install lock, which it holds until its program
 //! is on PATH, so a second install waits for it, and no install moves a
@@ -35,10 +43,11 @@
 //! reads each store's schema (migrate.rs) and, when every store has its
 //! program's, puts the program on PATH with both gates open.
 //!
-//! A command use and a connection use each have a gate: a file that a use
-//! holds a shared lock on while it starts and that install locks
-//! exclusively. An install that moves a store, or that finds no store with a
-//! schema, closes the commands gate and waits for every command use, then
+//! A command use and a connection use each have a gate, which a lane use
+//! shares with command uses: a file that a use holds a shared lock on while
+//! it starts and that install locks exclusively. An install that moves a
+//! store, or that finds no store with a schema, closes the commands gate,
+//! stops each lane and waits for every lane use and every command use, then
 //! closes the connections gate and waits for every connection use, then
 //! counts one more install in the generation file, moves the stores, puts
 //! its program on PATH and opens both gates. So while install waits for a
@@ -133,8 +142,12 @@ fn advance_generation(places: &Places) -> Result<()> {
 /// What a use spans.
 #[derive(Clone, Copy)]
 enum Kind {
-    /// A command's life.
+    /// A command's life, or the stretch of it that writes the stores after
+    /// long work. Install waits for it to end.
     Command,
+    /// The stretch of an app build lane's life that holds the lane's lock.
+    /// Install stops the lane, then waits for the use to end.
+    Lane,
     /// An open store connection.
     Connection,
 }
@@ -142,7 +155,7 @@ enum Kind {
 impl Kind {
     fn gate(self, places: &Places) -> PathBuf {
         places.install_dir().join(match self {
-            Kind::Command => "commands.gate",
+            Kind::Command | Kind::Lane => "commands.gate",
             Kind::Connection => "connections.gate",
         })
     }
@@ -150,9 +163,37 @@ impl Kind {
     fn uses(self, places: &Places) -> PathBuf {
         places.install_dir().join(match self {
             Kind::Command => "commands",
+            Kind::Lane => "lanes",
             Kind::Connection => "connections",
         })
     }
+}
+
+/// What a running install does about a use that a process holds for a
+/// stretch of its life (`PerConnection::hold`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OnInstall {
+    /// Install waits for the use to end: a landing, which writes its records
+    /// with the schema it started with.
+    Wait,
+    /// Install stops the process (`stop_lane`), then waits for the use to
+    /// end: an app build's lane, which runs again with the installed builds.
+    Stop,
+}
+
+impl OnInstall {
+    fn kind(self) -> Kind {
+        match self {
+            OnInstall::Wait => Kind::Command,
+            OnInstall::Stop => Kind::Lane,
+        }
+    }
+}
+
+/// Asks the app build lane of process <pid>, which holds a lane use, to stop
+/// its build: SIGUSR2, which lock.rs's handler answers.
+pub fn stop_lane(pid: i32) {
+    unsafe { libc::kill(pid, libc::SIGUSR2) };
 }
 
 fn open(path: &Path) -> Result<File> {
@@ -327,25 +368,19 @@ impl PerConnection {
         })
     }
 
-    /// Takes a command use that the process holds until it drops the value
-    /// returned, waiting at the gate while an install runs. No connection of
-    /// the process may be open: install waits for it before it opens the
-    /// gate.
-    pub fn hold(&self) -> Result<Holding<'_>> {
+    /// Takes a use that the process holds until it drops the value returned,
+    /// which a running install waits for or stops as <on_install> says,
+    /// waiting at the gate while an install runs. No connection of the
+    /// process may be open: install waits for it before it opens the gate.
+    pub fn hold(&self, on_install: OnInstall) -> Result<Holding<'_>> {
+        let kind = on_install.kind();
         let (gate, _) = pass(
             &self.places,
-            Kind::Command,
+            kind,
             "builds install runs: this command waits until it finishes",
             &mut |line| crate::text::note(line),
         )?;
-        let taken = take(
-            &self.places,
-            Kind::Command,
-            gate,
-            self.pid,
-            &self.what,
-            &self.since,
-        )?;
+        let taken = take(&self.places, kind, gate, self.pid, &self.what, &self.since)?;
         self.holding.store(true, Ordering::SeqCst);
         Ok(Holding {
             per_connection: self,
@@ -448,16 +483,17 @@ pub fn for_connection() -> Result<Option<ConnectionUse>> {
     }
 }
 
-/// Takes a command use of the stores that this process holds until it drops
-/// the value returned, for a command that holds none at start
+/// Takes a use of the stores that this process holds until it drops the
+/// value returned, which a running install waits for or stops as
+/// <on_install> says, for a command that holds none at start
 /// (`PerConnection::hold`). Every builds command the process starts while it
 /// holds the use runs under it. None for a process that takes no use per
 /// connection: a holder's use covers it, or it runs in a test.
-fn hold() -> Result<Option<Holding<'static>>> {
+fn hold(on_install: OnInstall) -> Result<Option<Holding<'static>>> {
     let Some(per_connection) = PER_CONNECTION.get() else {
         return Ok(None);
     };
-    let mut holding = per_connection.hold()?;
+    let mut holding = per_connection.hold(on_install)?;
     // SAFETY: the other threads an app build's lane runs here wait in `open`
     // on the queue's tickets, or copy a finished step's output, and read no
     // environment.
@@ -478,11 +514,12 @@ pub enum Hold {
     InstallRan,
 }
 
-/// Takes a command use (`hold`) for a command that writes the stores after
-/// long work from here on, unless an install that closed the gates ran since
-/// this process started.
-pub fn hold_current() -> Result<Hold> {
-    let held = hold()?;
+/// Takes a use (`hold`), which a running install waits for or stops as
+/// <on_install> says, for a command that writes the stores after long work
+/// from here on, unless an install that closed the gates ran since this
+/// process started.
+pub fn hold_current(on_install: OnInstall) -> Result<Hold> {
+    let held = hold(on_install)?;
     if install_ran()? {
         drop(held);
         return Ok(Hold::InstallRan);
@@ -496,6 +533,47 @@ pub fn hold_current() -> Result<Hold> {
 pub fn run_installed(why: &str) -> Fail {
     crate::text::note(why);
     run_again()
+}
+
+/// Says <why>, waits until no install holds the gates closed, and runs the
+/// installed program in this one's place (`run_again`): for an app build's
+/// lane that an install stopped (`install_waits`) or that `hold_current`
+/// found an install ran under, once the lane holds no use. Run before the
+/// install puts its program on PATH, `run_again` would run the program
+/// install replaces.
+pub fn run_installed_after_install(places: &Places, why: &str) -> Fail {
+    crate::text::note(why);
+    match pass(places, Kind::Command, RUNS_AGAIN, &mut |line| {
+        crate::text::note(line)
+    }) {
+        Ok((gate, _)) => {
+            // Closing the gate's file releases the shared lock.
+            drop(gate);
+            run_again()
+        }
+        Err(fault) => fault,
+    }
+}
+
+/// Whether a running install has closed the gates and waits for the uses to
+/// end. An app build's lane that a stop ended asks it, while it still holds
+/// its use, to tell an install's stop from a takeover: install holds the
+/// commands gate closed until it has moved the stores and put its program on
+/// PATH, so it cannot have finished while the lane holds its use.
+pub fn install_waits(places: &Places) -> Result<bool> {
+    gate_closed(&Kind::Command.gate(places))
+}
+
+/// Whether some process holds the lock of the gate or lock file at <path>
+/// exclusively. Asks for a shared lock without waiting and lets it go at
+/// once, so it takes no use and holds up no install.
+fn gate_closed(path: &Path) -> Result<bool> {
+    let file = match File::open(path) {
+        Ok(file) => file,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(error) => fail!("opening {}: {error}", path.display()),
+    };
+    Ok(!try_lock(&file, libc::LOCK_SH, path)?)
 }
 
 /// Whether an install that closed the gates ran since this process started;
@@ -533,15 +611,21 @@ impl Installing {
     /// Removes the file of each use whose process ended without removing it,
     /// with both gates open: for an install that waits for no use.
     pub fn remove_ended_uses(&self) -> Result<()> {
-        remove_ended_uses(&self.places, Kind::Command)?;
-        remove_ended_uses(&self.places, Kind::Connection)
+        for kind in [Kind::Command, Kind::Lane, Kind::Connection] {
+            remove_ended_uses(&self.places, kind)?;
+        }
+        Ok(())
     }
 
-    /// Closes the commands gate and waits for every command use, then closes
-    /// the connections gate and waits for every connection use, telling
-    /// <say> each use it waits on; then counts one more install.
-    pub fn close(self, say: &mut dyn FnMut(String)) -> Result<Closed> {
+    /// Closes the commands gate, stops the process of each lane use with
+    /// <stop> (`stop_lane`) and waits for every lane use, then waits for
+    /// every command use, then closes the connections gate and waits for
+    /// every connection use, telling <say> each lane it stops and each use it
+    /// waits on; then counts one more install.
+    pub fn close(self, say: &mut dyn FnMut(String), stop: &mut dyn FnMut(i32)) -> Result<Closed> {
         let commands = close_gate(&self.places, Kind::Command)?;
+        stop_lanes(&self.places, say, stop)?;
+        wait_for_uses(&self.places, Kind::Lane, &mut |_| {})?;
         wait_for_uses(&self.places, Kind::Command, say)?;
         let connections = close_gate(&self.places, Kind::Connection)?;
         wait_for_uses(&self.places, Kind::Connection, say)?;
@@ -615,6 +699,47 @@ fn wait_for_uses(places: &Places, kind: Kind, say: &mut dyn FnMut(String)) -> Re
     Ok(())
 }
 
+/// Stops the process of each lane use that holds its lock with <stop>,
+/// telling <say> each one. The commands gate is closed, so no lane takes a
+/// use from here on: each lane use that will exist is in its folder.
+fn stop_lanes(
+    places: &Places,
+    say: &mut dyn FnMut(String),
+    stop: &mut dyn FnMut(i32),
+) -> Result<()> {
+    for held in held_uses(places, Kind::Lane)? {
+        say(format!(
+            "stopping {}, which runs its lane again with the installed builds",
+            held.text
+        ));
+        stop(held.pid);
+    }
+    Ok(())
+}
+
+/// Each use of <kind> that holds its lock, read by asking for a shared lock
+/// without waiting and letting it go at once.
+fn held_uses(places: &Places, kind: Kind) -> Result<Vec<Held>> {
+    let mut held = Vec::new();
+    for (mut file, path) in use_files(places, kind)? {
+        if try_lock(&file, libc::LOCK_SH, &path)? {
+            continue;
+        }
+        let mut text = String::new();
+        file.read_to_string(&mut text)
+            .context(|| format!("reading which process holds {}", path.display()))?;
+        let Some(pid) = crate::checkout::file_name(&path).parse().ok() else {
+            fail!("{} is not named for a process", path.display());
+        };
+        held.push(Held {
+            pid,
+            text: text.trim().to_string(),
+            stopped: matches!(kind, Kind::Lane),
+        });
+    }
+    Ok(held)
+}
+
 /// Removes the file of each use of <kind> whose lock is free: its process
 /// ended without removing it, so nothing reads the file. Leaves the file of
 /// each use that holds its lock.
@@ -627,12 +752,14 @@ fn remove_ended_uses(places: &Places, kind: Kind) -> Result<()> {
     Ok(())
 }
 
-/// A use that a running install waits for: its process and what its file
-/// says (`process <pid>, builds <what>, since <time>`).
+/// A use that a running install waits for: its process, what its file says
+/// (`process <pid>, builds <what>, since <time>`), and whether install
+/// stopped the process (a lane use) rather than waiting for it to finish.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Held {
     pub pid: i32,
     pub text: String,
+    pub stopped: bool,
 }
 
 /// What a running install waits for, as `waiting` reads it. Install closes
@@ -652,44 +779,22 @@ pub struct Waiting {
 /// gate). Reads each lock by asking for a shared lock without waiting and
 /// letting it go at once, so it takes no use and holds up no install.
 pub fn waiting(places: &Places) -> Result<Option<Waiting>> {
-    let closed = |path: &Path| -> Result<bool> {
-        let file = match File::open(path) {
-            Ok(file) => file,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
-            Err(error) => fail!("opening {}: {error}", path.display()),
-        };
-        Ok(!try_lock(&file, libc::LOCK_SH, path)?)
-    };
-    if !closed(&places.install_dir().join("install.lock"))? {
+    if !gate_closed(&places.install_dir().join("install.lock"))? {
         return Ok(None);
     }
-    let commands_closed = closed(&Kind::Command.gate(places))?;
-    let connections_closed = closed(&Kind::Connection.gate(places))?;
+    let commands_closed = gate_closed(&Kind::Command.gate(places))?;
+    let connections_closed = gate_closed(&Kind::Connection.gate(places))?;
     if !commands_closed && !connections_closed {
         return Ok(None);
     }
     let mut held = Vec::new();
     for (kind, closed) in [
+        (Kind::Lane, commands_closed),
         (Kind::Command, commands_closed),
         (Kind::Connection, connections_closed),
     ] {
-        if !closed {
-            continue;
-        }
-        for (mut file, path) in use_files(places, kind)? {
-            if try_lock(&file, libc::LOCK_SH, &path)? {
-                continue;
-            }
-            let mut text = String::new();
-            file.read_to_string(&mut text)
-                .context(|| format!("reading which process holds {}", path.display()))?;
-            let Some(pid) = crate::checkout::file_name(&path).parse().ok() else {
-                fail!("{} is not named for a process", path.display());
-            };
-            held.push(Held {
-                pid,
-                text: text.trim().to_string(),
-            });
+        if closed {
+            held.extend(held_uses(places, kind)?);
         }
     }
     Ok(Some(Waiting {

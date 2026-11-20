@@ -251,7 +251,9 @@ pub fn cmd_build_app(tool: &Tool, args: &[String]) -> Result<()> {
         let config = site.check_out(places, repo, commit)?.config;
         match run_build(&mut site, platform.build(&config)?)? {
             Within::Ran(lock::Ran::Finished) => break (config, site),
-            Within::Ran(lock::Ran::TakenOver) => {
+            // Only a takeover stops it: it holds no use of the stores, so
+            // install never stops it.
+            Within::Ran(lock::Ran::Stopped) => {
                 note(format!(
                     "the build was stopped for a takeover; building {commit} again after it"
                 ));
