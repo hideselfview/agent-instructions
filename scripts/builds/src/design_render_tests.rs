@@ -217,7 +217,7 @@ fn a_review_page_has_each_board_now_and_proposed_sized_from_the_canvas() {
     let tip = commit(&dir);
     set_origin_main(&dir, &tip);
     let (change, view) = review_of(&dir, &tip);
-    let page = review_page(&change, &view, "demo").unwrap();
+    let page = review_page(&change, &view, "demo", &Value::Null).unwrap();
     assert!(
         !page.contains("A </script> caption"),
         "text can't end the data script"
@@ -281,7 +281,7 @@ fn now_is_origin_main_and_proposed_is_the_last_commit_each_with_its_own_design_s
     .unwrap();
     let tip = commit(&dir);
     let (change, view) = review_of(&dir, &tip);
-    let data = page_data(&review_page(&change, &view, "demo").unwrap());
+    let data = page_data(&review_page(&change, &view, "demo", &Value::Null).unwrap());
     let board = &data["section"]["boards"][0];
     assert_eq!(
         (&board["now"]["w"], &board["now"]["h"]),
@@ -344,7 +344,7 @@ fn a_board_the_change_adds_has_no_now_and_a_board_it_deletes_has_only_a_now() {
     ];
     change.deleted.insert("design/mocks/Old.dc.html".into());
     let view = design_view(&crate::lists::fixtures::read(&db()), &change, None).unwrap();
-    let data = page_data(&review_page(&change, &view, "demo").unwrap());
+    let data = page_data(&review_page(&change, &view, "demo", &Value::Null).unwrap());
     let id = change.id.0;
     let boards = &data["section"]["boards"];
     assert_eq!(
@@ -384,7 +384,7 @@ fn a_review_page_with_no_origin_main_says_so_at_each_now() {
     let dir = tree(&scratch);
     let tip = commit(&dir);
     let (change, view) = review_of(&dir, &tip);
-    let data = page_data(&review_page(&change, &view, "demo").unwrap());
+    let data = page_data(&review_page(&change, &view, "demo", &Value::Null).unwrap());
     let board = &data["section"]["boards"][0];
     assert!(
         board["now"]["error"]
@@ -402,7 +402,7 @@ fn a_review_page_of_a_commit_with_no_canvas_file_says_so_at_each_board() {
     std::fs::remove_file(dir.join("design/mocks/canvas.json")).unwrap();
     let tip = commit(&dir);
     let (change, view) = review_of(&dir, &tip);
-    let data = page_data(&review_page(&change, &view, "demo").unwrap());
+    let data = page_data(&review_page(&change, &view, "demo", &Value::Null).unwrap());
     assert!(
         data["section"]["boards"][0]["proposed"]["error"]
             .as_str()
@@ -488,7 +488,7 @@ fn two_changes_in_one_worktree_each_draw_their_own_last_commit() {
     // The worktree has the second change's branch checked out.
     let boards = |tip: &str| {
         let (change, view) = review_of(&dir, tip);
-        let data = page_data(&review_page(&change, &view, "demo").unwrap());
+        let data = page_data(&review_page(&change, &view, "demo", &Value::Null).unwrap());
         data["section"]["boards"][0]["proposed"].clone()
     };
     let (one, two) = (boards(&first), boards(&second));
@@ -503,7 +503,7 @@ fn a_review_page_of_a_change_with_no_last_commit_says_to_amend_it() {
     commit(&dir);
     let (mut change, view) = review_of(&dir, "0000000");
     change.tip = None;
-    let data = page_data(&review_page(&change, &view, "demo").unwrap());
+    let data = page_data(&review_page(&change, &view, "demo", &Value::Null).unwrap());
     let error = data["section"]["boards"][0]["proposed"]["error"]
         .as_str()
         .unwrap();
@@ -638,7 +638,7 @@ fn the_review_page_gives_each_board_its_circles_and_each_board_page_answers_what
         label: Some("The greeting".into()),
     };
     change.review.as_mut().unwrap().boards[0].circles = vec![circle];
-    let page = review_page(&change, &view, "demo").unwrap();
+    let page = review_page(&change, &view, "demo", &Value::Null).unwrap();
     assert!(page.contains("function circleMarks") && !page.contains("@@CIRCLES@@"));
     let data = page_data(&page);
     assert_eq!(

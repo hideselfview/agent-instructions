@@ -126,6 +126,20 @@ window.addEventListener('message', function (e) {
     parent.postMessage({ designBoxes: { src: location.pathname, found: asked.map(function (s) { return s === null ? { boxes: [] } : foundBy(s); }) } }, '*');
   });
 });
+// The scratch view frames a board that is on no canvas, such as a scratch
+// board, as wide as it has room for, and asks this page what size the board
+// draws ({designSize: true}). This page answers, once it has drawn, with
+// the width of the whole page and the height of what the board draws.
+window.addEventListener('message', function (e) {
+  if (e.source !== parent || !e.data || e.data.designSize !== true) return;
+  drawn.then(function () {
+    var r = document.getElementById('r');
+    parent.postMessage({ designSize: {
+      w: document.documentElement.scrollWidth,
+      h: Math.max(1, Math.ceil(r.getBoundingClientRect().top + window.scrollY + r.scrollHeight)),
+    } }, '*');
+  });
+});
 // The board is drawn once React has drawn it and the fonts are in.
 function Drawn(props) {
   React.useEffect(function () {

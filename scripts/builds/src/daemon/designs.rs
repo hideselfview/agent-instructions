@@ -17,6 +17,11 @@
 //! the components whose names hold what the person types. Each component's
 //! frame draws its preview at the preview's own size, up to the width of the
 //! tab (`preview_fit.js`).
+//!
+//! The Scratch tab lists the scratch boards of the repo's worktrees, each a
+//! link to its scratch view (`scratch_view.rs`). They are files that no
+//! commit holds, so the page lists them only when it is asked for on this
+//! Mac.
 
 use std::path::Path;
 
@@ -61,12 +66,14 @@ pub fn is_commit(text: &str) -> bool {
 /// as that problem in its place; a canvas index that can't be read fails the
 /// page.
 /// <standing> is the project's publishing as its store holds it, which the
-/// page's Publish to claude.ai form shows.
+/// page's Publish to claude.ai form shows, and <scratch> the scratch boards
+/// that its Scratch tab lists (`Model::scratch_boards`).
 pub fn page(
     project: &str,
     repo: &Path,
     cache: &Path,
     standing: Result<Standing>,
+    scratch: &Value,
 ) -> Result<String> {
     let commit = Source::Commit { repo, rev: NOW }
         .check()?
@@ -154,6 +161,7 @@ pub fn page(
         "pages": pages,
         "system": system,
         "components": components,
+        "scratch": scratch,
     });
     // `<` never appears in the JSON as itself, so no text can end the script.
     let data = data.to_string().replace('<', "\\u003c");

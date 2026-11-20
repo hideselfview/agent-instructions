@@ -585,7 +585,9 @@ of the change drawn twice, side by side, in frames the person can zoom (never
 an image): now, the board as it stands on origin/main, and proposed, the board
 at the last commit of the change's range, each drawn with its own commit's
 design system. A board the change adds says it has no now; a board it
-deletes shows only its now. The dashboard serves the page at /design/PROJECT/N, with the
+deletes shows only its now. Asked for at 127.0.0.1 or localhost on this Mac,
+the page also links each scratch board in the change's worktree to its
+scratch view (`builds help workflow`, DESIGN CHANGES). The dashboard serves the page at /design/PROJECT/N, with the
 project's name before the change's id, since each project counts its own ids;
 the change's card in the Waiting on you tab opens it, and the page draws each board again on
 every request from the files at those commits, read with git, so a worktree

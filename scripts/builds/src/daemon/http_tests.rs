@@ -819,11 +819,12 @@ fn the_publish_events_follow_the_store_and_a_project_with_no_design_files_has_no
 
 /// Project `demo`, whose repo `bae` keeps its boards in design/mocks, with
 /// bae's main checkout and its worktree `side-1`, whose files hold an edit
-/// of board `A` that no commit holds (`live_view::tests::checkouts`).
-fn live_store(scratch: &Scratch, places: &crate::places::Places) {
+/// of board `A` that no commit holds and a scratch board
+/// (`scratch_view::tests::checkouts`).
+fn scratch_store(scratch: &Scratch, places: &crate::places::Places) {
     use crate::lists::fixtures::{NOON, make_store, stamp};
     use crate::lists::project::{GlobKind, set_design_globs};
-    crate::daemon::live_view::tests::checkouts(scratch);
+    crate::daemon::scratch_view::tests::checkouts(scratch);
     let places_globs = std::collections::BTreeMap::from([(
         "bae".to_string(),
         vec!["design/mocks/*.dc.html".to_string()],
@@ -836,36 +837,36 @@ fn live_store(scratch: &Scratch, places: &crate::places::Places) {
 }
 
 #[test]
-fn the_live_view_draws_a_worktrees_files_and_redraws_after_each_change_only_on_this_mac() {
-    let s = server_with("http-live", live_store);
-    let (status, kind, page) = s.get("/design/demo/live/side-1/A");
+fn the_scratch_view_draws_a_worktrees_files_and_redraws_after_each_change_only_on_this_mac() {
+    let s = server_with("http-scratch", scratch_store);
+    let (status, kind, page) = s.get("/design/demo/scratch/side-1/A");
     assert_eq!((status, kind.as_str()), (200, "text/html; charset=utf-8"));
     assert!(
-        page.contains(r#""base":"/design/demo/live/side-1/A""#),
+        page.contains(r#""base":"/design/demo/scratch/side-1/A""#),
         "{page}"
     );
-    let (status, _, live) = s.get("/design/demo/live/side-1/A/light/worktree");
-    assert_eq!(status, 200, "{live}");
+    let (status, _, drawn) = s.get("/design/demo/scratch/side-1/A/light/worktree");
+    assert_eq!(status, 200, "{drawn}");
     assert!(
-        live.contains("board A edited") && live.contains(r#"data-theme="light""#),
-        "{live}"
+        drawn.contains("board A edited") && drawn.contains(r#"data-theme="light""#),
+        "{drawn}"
     );
-    let (_, _, now) = s.get("/design/demo/live/side-1/A/dark/now");
+    let (_, _, now) = s.get("/design/demo/scratch/side-1/A/dark/now");
     assert!(
         now.contains("board A") && !now.contains("edited") && now.contains(r#"data-theme="dark""#),
         "{now}"
     );
-    assert_eq!(s.get("/design/other/live/side-1/A").0, 404);
-    let (status, _, problem) = s.get("/design/demo/live/side-9/A");
+    assert_eq!(s.get("/design/other/scratch/side-1/A").0, 404);
+    let (status, _, problem) = s.get("/design/demo/scratch/side-9/A");
     assert_eq!(status, 500);
     assert!(problem.contains("has no worktree side-9"), "{problem}");
 
     // At the address the dashboard also listens on, which another machine
-    // reaches, the live view answers nothing.
+    // reaches, the scratch view answers nothing.
     let mut stream = TcpStream::connect(("127.0.0.1", s.port)).unwrap();
     write!(
         stream,
-        "GET /design/demo/live/side-1/A/dark/worktree HTTP/1.1\r\nHost: {ALSO}:{}\r\n\r\n",
+        "GET /design/demo/scratch/side-1/A/dark/worktree HTTP/1.1\r\nHost: {ALSO}:{}\r\n\r\n",
         s.port
     )
     .unwrap();
@@ -877,10 +878,10 @@ fn the_live_view_draws_a_worktrees_files_and_redraws_after_each_change_only_on_t
     // The events: a drawing on connect, and another after a change to the
     // worktree's design files.
     let mut stream = TcpStream::connect(("127.0.0.1", s.port)).unwrap();
-    stream.set_read_timeout(Some(LIVE_HANG_GUARD)).unwrap();
+    stream.set_read_timeout(Some(SCRATCH_HANG_GUARD)).unwrap();
     write!(
         stream,
-        "GET /design/demo/live/side-1/A/events HTTP/1.1\r\nHost: 127.0.0.1:{}\r\n\r\n",
+        "GET /design/demo/scratch/side-1/A/events HTTP/1.1\r\nHost: 127.0.0.1:{}\r\n\r\n",
         s.port
     )
     .unwrap();
@@ -908,6 +909,106 @@ fn the_live_view_draws_a_worktrees_files_and_redraws_after_each_change_only_on_t
     }
 }
 
-/// The limit on a read of the live view's events: a guard against a stuck
+/// The limit on a read of the scratch view's events: a guard against a stuck
 /// stream, not the pass condition.
-const LIVE_HANG_GUARD: Duration = Duration::from_secs(300);
+const SCRATCH_HANG_GUARD: Duration = Duration::from_secs(300);
+
+/// The data of the page at <path>, asked for at <host>.
+fn page_data_at(s: &Server, path: &str, host: &str) -> serde_json::Value {
+    let mut stream = TcpStream::connect(("127.0.0.1", s.port)).unwrap();
+    write!(
+        stream,
+        "GET {path} HTTP/1.1\r\nHost: {host}:{}\r\n\r\n",
+        s.port
+    )
+    .unwrap();
+    let mut reply = String::new();
+    stream.read_to_string(&mut reply).unwrap();
+    assert!(reply.starts_with("HTTP/1.1 200"), "{reply}");
+    let start = reply
+        .find("<script type=\"application/json\" id=\"data\">")
+        .expect("the data")
+        + "<script type=\"application/json\" id=\"data\">".len();
+    let end = start + reply[start..].find("</script>").unwrap();
+    serde_json::from_str(&reply[start..end]).unwrap()
+}
+
+#[test]
+fn the_designs_page_lists_the_scratch_boards_only_on_this_mac() {
+    let s = server_with("http-scratch-list", scratch_store);
+    let side = crate::checkout::worktrees_folder(&s.scratch.repo_path("bae"))
+        .unwrap()
+        .join("side-1");
+    assert_eq!(
+        page_data_at(&s, "/designs/demo", "127.0.0.1")["scratch"],
+        serde_json::json!({ "boards": [{
+            "worktree": "side-1",
+            "top": std::fs::canonicalize(side).unwrap().display().to_string(),
+            "board": "scratch.rows",
+            "link": "/design/demo/scratch/side-1/scratch.rows",
+        }] })
+    );
+    // Another machine sees no scratch board, and no name of one.
+    assert_eq!(
+        page_data_at(&s, "/designs/demo", ALSO)["scratch"],
+        serde_json::Value::Null
+    );
+    // The scratch view sizes a scratch board's frame to what it draws.
+    let mut stream = TcpStream::connect(("127.0.0.1", s.port)).unwrap();
+    stream.set_read_timeout(Some(SCRATCH_HANG_GUARD)).unwrap();
+    write!(
+        stream,
+        "GET /design/demo/scratch/side-1/scratch.rows/events HTTP/1.1\r\nHost: 127.0.0.1:{}\r\n\r\n",
+        s.port
+    )
+    .unwrap();
+    let mut reader = BufReader::new(stream);
+    let first: serde_json::Value =
+        serde_json::from_str(&next_event(&mut reader, "drawing")).unwrap();
+    assert_eq!(
+        first,
+        serde_json::json!({ "now": { "absent": true }, "worktree": { "fit": true } })
+    );
+    let (status, _, drawn) = s.get("/design/demo/scratch/side-1/scratch.rows/dark/worktree");
+    assert_eq!(status, 200, "{drawn}");
+    assert!(
+        drawn.contains("rows two") && drawn.contains("designSize"),
+        "{drawn}"
+    );
+}
+
+#[test]
+fn a_review_page_links_the_scratch_boards_of_its_changes_worktree_only_on_this_mac() {
+    let s = server_with("http-scratch-review", |scratch, places| {
+        use crate::lists::fixtures::{NOON, design_drawn, stamp};
+        scratch_store(scratch, places);
+        let main = scratch.repo_path("bae");
+        // A scratch board of another worktree, which the page leaves out.
+        std::fs::write(
+            main.join("design/mocks/scratch.other.dc.html"),
+            "<x-dc></x-dc>",
+        )
+        .unwrap();
+        let side = crate::checkout::worktrees_folder(&main)
+            .unwrap()
+            .join("side-1");
+        crate::lists::store::Store::named(places, "demo")
+            .unwrap()
+            .write(&stamp(NOON), "design record", |db| {
+                design_drawn(db, &side.display().to_string(), &[], None);
+                Ok(())
+            })
+            .unwrap();
+    });
+    let scratch = &page_data_at(&s, "/design/demo/1", "127.0.0.1")["scratch"];
+    let boards = scratch["boards"].as_array().unwrap();
+    assert_eq!(boards.len(), 1, "{scratch}");
+    assert_eq!(
+        boards[0]["link"],
+        serde_json::json!("/design/demo/scratch/side-1/scratch.rows")
+    );
+    assert_eq!(
+        page_data_at(&s, "/design/demo/1", ALSO)["scratch"],
+        serde_json::Value::Null
+    );
+}

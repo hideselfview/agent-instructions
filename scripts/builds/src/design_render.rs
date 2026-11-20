@@ -54,10 +54,10 @@ const REACT: &str = r#"<script src="https://cdnjs.cloudflare.com/ajax/libs/react
 
 /// The script that draws a board's page in a frame at the board's own size,
 /// scaled (`design_render/frames.js`), which the review page, the
-/// dashboard's Designs page and its live view run.
+/// dashboard's Designs page and its scratch view run.
 pub const FRAMES_SCRIPT: &str = include_str!("design_render/frames.js");
 /// The look of a page that shows boards in frames: the review page and the
-/// dashboard's live view (`design_render/frames.css`).
+/// dashboard's scratch view (`design_render/frames.css`).
 pub const FRAMES_CSS: &str = include_str!("design_render/frames.css");
 
 /// What a board with no script of its own runs.
@@ -328,10 +328,16 @@ fn circle_json(circle: &Circle) -> Value {
 }
 
 /// <design>'s review page. <view> is the design as the dashboard's lists JSON
-/// has it, which holds the app work its places resolve to. A board whose size
-/// or file can't be read shows as that problem in its place, not as a page
-/// that fails whole.
-pub fn review_page(design: &DesignChange, view: &DesignView, project: &str) -> Result<String> {
+/// has it, which holds the app work its places resolve to, and <scratch> the
+/// scratch boards in the change's worktree that the page links to
+/// (`Model::scratch_boards`). A board whose size or file can't be read shows
+/// as that problem in its place, not as a page that fails whole.
+pub fn review_page(
+    design: &DesignChange,
+    view: &DesignView,
+    project: &str,
+    scratch: &Value,
+) -> Result<String> {
     let section = design.review.as_ref().map(|section| {
         let boards: Vec<Value> = section
             .boards
@@ -365,6 +371,7 @@ pub fn review_page(design: &DesignChange, view: &DesignView, project: &str) -> R
     let mut data = serde_json::to_value(view).expect("the view serializes");
     data["section"] = section.unwrap_or(Value::Null);
     data["deleted"] = Value::Array(deleted);
+    data["scratch"] = scratch.clone();
     Ok(fill(
         REVIEW_PAGE,
         &[

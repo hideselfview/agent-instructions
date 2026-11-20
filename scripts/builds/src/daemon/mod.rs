@@ -21,10 +21,10 @@ pub mod http;
 pub mod index;
 pub mod lists;
 pub mod live;
-pub mod live_view;
 pub mod model;
 pub mod review_cards;
 pub mod runs;
+pub mod scratch_view;
 pub mod tracker;
 #[cfg(target_os = "macos")]
 pub mod vnode;

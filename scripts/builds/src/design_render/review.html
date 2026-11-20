@@ -242,6 +242,14 @@ if (data.deleted.length) {
   main.append(h("section", {}, h("h2", {}, "Deleted boards"),
     h("div", {class: "boards"}, data.deleted.map(gone))));
 }
+// The scratch boards in the change's worktree, each a link to its scratch
+// view, which the dashboard gives only on this Mac.
+const scratch = data.scratch;
+if (scratch && (scratch.error || scratch.boards.length)) {
+  main.append(h("section", {}, h("h2", {}, "Scratch boards"),
+    scratch.error ? h("div", {class: "problem"}, scratch.error)
+      : h("ul", {class: "work"}, scratch.boards.map(b => h("li", {}, h("a", {href: b.link}, h("code", {}, b.board)))))));
+}
 if (data.places.length || data.no_app_place) {
   main.append(h("section", {}, h("h2", {}, "App work"),
     data.no_app_place ? md("No drawing changes: " + data.no_app_place) : null,

@@ -14,10 +14,11 @@ fn globs() -> Globs {
 }
 
 /// Repo `bae`'s main checkout in the scratch home, whose origin/main holds
-/// board `A` at 300 by 200 and the design system, and its worktree `side-1`,
-/// whose files hold an edit of `A` at 500 by 100 that no commit holds and a
-/// board `N` that origin/main has no file of. Returns the main checkout and
-/// the worktree.
+/// board `A` at 300 by 200 on the canvas's one page and the design system,
+/// and its worktree `side-1`, whose files hold an edit of `A` at 500 by 100
+/// that no commit holds, a board `N` that origin/main has no file of, and
+/// the scratch board `scratch.rows`. Returns the main checkout and the
+/// worktree.
 pub(in crate::daemon) fn checkouts(scratch: &Scratch) -> (PathBuf, PathBuf) {
     let main = scratch.repo_path("bae");
     let mocks = main.join("design/mocks");
@@ -26,7 +27,7 @@ pub(in crate::daemon) fn checkouts(scratch: &Scratch) -> (PathBuf, PathBuf) {
     std::fs::write(mocks.join("A.dc.html"), "<x-dc><p>board A</p></x-dc>").unwrap();
     std::fs::write(
         mocks.join("canvas.json"),
-        r#"{"boards": {"A.dc.html": {"w": 300, "h": 200}}}"#,
+        r#"{"pages": [{"id": "one", "name": "One"}], "boards": {"A.dc.html": {"x": 0, "y": 0, "w": 300, "h": 200}}}"#,
     )
     .unwrap();
     repo(&main, "");
@@ -46,6 +47,11 @@ pub(in crate::daemon) fn checkouts(scratch: &Scratch) -> (PathBuf, PathBuf) {
     .unwrap();
     std::fs::write(mocks.join("N.dc.html"), "<x-dc><p>board N</p></x-dc>").unwrap();
     std::fs::write(
+        mocks.join("scratch.rows.dc.html"),
+        "<x-dc><p>rows one</p><p>rows two</p></x-dc>",
+    )
+    .unwrap();
+    std::fs::write(
         mocks.join("canvas.json"),
         r#"{"boards": {"A.dc.html": {"w": 500, "h": 100}, "N.dc.html": {"w": 40, "h": 30}}}"#,
     )
@@ -54,36 +60,37 @@ pub(in crate::daemon) fn checkouts(scratch: &Scratch) -> (PathBuf, PathBuf) {
 }
 
 #[test]
-fn a_live_view_address_names_a_project_a_worktree_and_a_board() {
+fn a_scratch_view_address_names_a_project_a_worktree_and_a_board() {
     let target = Target {
         project: "bae",
         worktree: "side-4",
         board: "mac.welcome",
     };
     assert_eq!(
-        route("/design/bae/live/side-4/mac.welcome"),
+        route("/design/bae/scratch/side-4/mac.welcome"),
         Some(Route::Page(target))
     );
     assert_eq!(
-        route("/design/bae/live/side-4/mac.welcome/events"),
+        route("/design/bae/scratch/side-4/mac.welcome/events"),
         Some(Route::Events(target))
     );
     assert_eq!(
-        route("/design/bae/live/side-4/mac.welcome/light/now"),
+        route("/design/bae/scratch/side-4/mac.welcome/light/now"),
         Some(Route::Drawing(target, Theme::Light, Side::Now))
     );
     assert_eq!(
-        route("/design/bae/live/side-4/mac.welcome/dark/worktree"),
+        route("/design/bae/scratch/side-4/mac.welcome/dark/worktree"),
         Some(Route::Drawing(target, Theme::Dark, Side::Worktree))
     );
     for other in [
         "/design/bae/7",
-        "/design/bae/live/side-4",
-        "/design/bae/live/side-4/mac.welcome/other",
-        "/design/bae/live/side-4/mac.welcome/grey/now",
-        "/design/bae/live/side-4/mac.welcome/dark/proposed",
-        "/design/bae/live/side-4/mac.welcome/dark/now/more",
-        "/designs/bae/live/side-4/mac.welcome",
+        "/design/bae/scratch/side-4",
+        "/design/bae/scratch/side-4/mac.welcome/other",
+        "/design/bae/scratch/side-4/mac.welcome/grey/now",
+        "/design/bae/scratch/side-4/mac.welcome/dark/proposed",
+        "/design/bae/scratch/side-4/mac.welcome/dark/now/more",
+        "/designs/bae/scratch/side-4/mac.welcome",
+        "/design/bae/live/side-4/mac.welcome",
     ] {
         assert_eq!(route(other), None, "{other}");
     }
@@ -91,7 +98,7 @@ fn a_live_view_address_names_a_project_a_worktree_and_a_board() {
 
 #[test]
 fn a_worktree_is_the_main_checkout_or_a_folder_of_the_repos_worktrees_folder() {
-    let scratch = Scratch::new("live-worktree");
+    let scratch = Scratch::new("scratch-worktree");
     let (main, side) = checkouts(&scratch);
     let found = worktree_of(&main, &globs(), "side-1").unwrap();
     let top = std::fs::canonicalize(&side).unwrap();
@@ -127,7 +134,7 @@ fn a_worktree_is_the_main_checkout_or_a_folder_of_the_repos_worktrees_folder() {
 
 #[test]
 fn the_drawing_gives_each_sides_size_or_why_it_has_none() {
-    let scratch = Scratch::new("live-drawing");
+    let scratch = Scratch::new("scratch-drawing");
     let (main, _) = checkouts(&scratch);
     let worktree = worktree_of(&main, &globs(), "side-1").unwrap();
     assert_eq!(
@@ -150,11 +157,74 @@ fn the_drawing_gives_each_sides_size_or_why_it_has_none() {
     );
     let bad = drawing(&worktree, "../A");
     assert!(bad["now"]["error"].is_string() && bad["worktree"]["error"].is_string());
+    // A scratch board is on no canvas: the page sizes its frame to what it
+    // draws.
+    assert_eq!(
+        drawing(&worktree, "scratch.rows"),
+        json!({ "now": { "absent": true }, "worktree": { "fit": true } })
+    );
+    let gone = drawing(&worktree, "scratch.gone");
+    assert!(
+        gone["worktree"]["error"]
+            .as_str()
+            .unwrap()
+            .contains("scratch.gone is no file in"),
+        "{gone}"
+    );
+}
+
+#[test]
+fn the_scratch_list_names_each_scratch_board_of_each_worktree_of_the_repo() {
+    let scratch = Scratch::new("scratch-list");
+    let (main, side) = checkouts(&scratch);
+    let side_top = std::fs::canonicalize(&side).unwrap();
+    let main_top = std::fs::canonicalize(&main).unwrap();
+    assert_eq!(
+        named_worktrees(&main).unwrap(),
+        vec![
+            ("main".to_string(), main_top.clone()),
+            ("side-1".to_string(), side_top.clone())
+        ]
+    );
+    // A scratch board in the main checkout lists first; a file whose name is
+    // no board's, or that is no scratch board, is left out.
+    let mocks = main.join("design/mocks");
+    for file in [
+        "scratch.b.dc.html",
+        "scratch.a.dc.html",
+        "scratch.c.html",
+        "scratchy.dc.html",
+        "scratch.x y.dc.html",
+    ] {
+        std::fs::write(mocks.join(file), "<x-dc></x-dc>").unwrap();
+    }
+    assert_eq!(
+        scratch_boards_in(&main_top).unwrap(),
+        ["scratch.a", "scratch.b"]
+    );
+    let entry = |worktree: &str, top: &Path, board: &str| {
+        json!({
+            "worktree": worktree,
+            "top": top.display().to_string(),
+            "board": board,
+            "link": format!("/design/bae/scratch/{worktree}/{board}"),
+        })
+    };
+    assert_eq!(
+        scratch_list("bae", &main).unwrap(),
+        vec![
+            entry("main", &main_top, "scratch.a"),
+            entry("main", &main_top, "scratch.b"),
+            entry("side-1", &side_top, "scratch.rows"),
+        ]
+    );
+    // A worktree with no design/mocks has no scratch boards.
+    assert!(scratch_boards_in(&scratch.dir).unwrap().is_empty());
 }
 
 #[test]
 fn the_page_names_its_board_and_where_its_frames_and_events_are() {
-    let scratch = Scratch::new("live-page");
+    let scratch = Scratch::new("scratch-page");
     let (main, _) = checkouts(&scratch);
     let worktree = worktree_of(&main, &globs(), "side-1").unwrap();
     let target = Target {
@@ -164,7 +234,7 @@ fn the_page_names_its_board_and_where_its_frames_and_events_are() {
     };
     let html = page(target, &worktree).unwrap();
     assert!(
-        html.contains(r#""base":"/design/bae/live/side-1/A""#)
+        html.contains(r#""base":"/design/bae/scratch/side-1/A""#)
             && html.contains(r#""board":"A""#)
             && !html.contains("@@"),
         "{html}"

@@ -68,6 +68,8 @@ body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 var
 @media (max-width: 900px) { .ds-swatches { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
 @media (max-width: 600px) { .dz { padding: 0 12px 32px; } .dz-bar { padding-top: 8px; gap: 8px; } .dz-pages { flex-wrap: nowrap; overflow-x: auto; } .dz-pages button { flex: none; white-space: nowrap; } }
 .pub-links { display: flex; flex-direction: column; gap: 4px; color: var(--text-2); }
+.scratch { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.scratch a { color: var(--accent); font: 500 13px var(--mono); }
 .pub-links a { color: var(--accent); }
 </style>
 </head>
@@ -104,12 +106,12 @@ document.getElementById("title").textContent = data.project + " designs";
 document.getElementById("at").append("main at ", h("code", {title: data.commit}, data.commit.slice(0, 7)),
   " · " + data.boards + (data.boards === 1 ? " board" : " boards"));
 
-// The tabs: the design system, then one per page of the canvas index. The
-// chosen tab is in the address's #, so a reload keeps it.
-const SYSTEM = "system";
+// The tabs: the design system, the scratch boards, then one per page of the
+// canvas index. The chosen tab is in the address's #, so a reload keeps it.
+const SYSTEM = "system", SCRATCH = "scratch";
 function chosen() {
   const id = decodeURIComponent(location.hash.slice(1));
-  if (id === SYSTEM || data.pages.some(p => p.id === id)) return id;
+  if (id === SYSTEM || id === SCRATCH || data.pages.some(p => p.id === id)) return id;
   return data.pages.length ? data.pages[0].id : SYSTEM;
 }
 function tab(id, label, count) {
@@ -117,7 +119,9 @@ function tab(id, label, count) {
     label, count === undefined ? null : h("span", {class: "n"}, String(count)));
 }
 function renderTabs() {
+  const scratch = data.scratch && data.scratch.boards;
   document.getElementById("tabs").replaceChildren(tab(SYSTEM, "Design system"),
+    tab(SCRATCH, "Scratch", scratch ? scratch.length : undefined),
     h("span", {class: "dz-sep", "aria-hidden": "true"}),
     ...data.pages.map(p => tab(p.id, p.name, p.boards.length)));
 }
@@ -326,14 +330,26 @@ function systemView() {
   return out;
 }
 
+// The scratch boards of the repo's worktrees: boards that no commit holds,
+// which a design session draws to compare versions with the person. Each
+// opens its scratch view. The dashboard lists them only on this Mac.
+function scratchView() {
+  const s = data.scratch;
+  if (!s) return h("div", {class: "dz-sub"}, "Scratch boards are files that no commit holds, so the dashboard lists them only on this Mac.");
+  if (s.error) return h("div", {class: "problem"}, s.error);
+  if (!s.boards.length) return h("div", {class: "dz-sub"}, "No worktree has a scratch board, a file design/mocks/scratch.<name>.dc.html that no commit holds.");
+  return h("ul", {class: "scratch"}, s.boards.map(b => h("li", {},
+    h("a", {href: b.link}, b.board), h("span", {class: "dz-sub"}, " in " + b.worktree))));
+}
+
 function render() {
   renderTabs();
   const id = chosen();
   const page = data.pages.find(p => p.id === id);
-  const view = [page ? pageView(page) : systemView()].flat();
+  const view = [page ? pageView(page) : id === SCRATCH ? scratchView() : systemView()].flat();
   document.getElementById("main").replaceChildren(...view);
   const slot = document.getElementById("find");
-  slot.replaceChildren(...(page || !find ? [] : [find]));
+  slot.replaceChildren(...(id === SYSTEM && find ? [find] : []));
   slot.hidden = !slot.children.length;
 }
 // The toolbar's height, which the stuck headings sit under.

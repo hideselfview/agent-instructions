@@ -1,8 +1,19 @@
-//! The dashboard's live view of a board: the board as the files of one
+//! The dashboard's scratch view of a board: the board as the files of one
 //! worktree of the repo that holds a project's design files draw it now,
 //! uncommitted edits included, beside the board as origin/main draws it
 //! (decision #341). The page redraws both each time a file in the worktree's
 //! design folders changes, so a design round needs no commit.
+//!
+//! A scratch board is a board that no commit holds:
+//! `design/mocks/scratch.<name>.dc.html` (`SCRATCH_PREFIX`), which each
+//! design repo's .gitignore leaves out, so git, and with it health, release and
+//! land, never counts it as work. A design session draws versions of a board
+//! on one, side by side, shows the person its scratch view, and commits only
+//! the version the person picks to the real board (decision #349). A scratch
+//! board is on no canvas, so canvas.json gives it no size: the page sizes its
+//! frame to what the board draws, which the board's page measures
+//! (`design_render/board.html`). origin/main has no file of a scratch board,
+//! so its page shows the worktree's drawing alone.
 //!
 //! The page follows a stream of server-sent events: one `drawing` event on
 //! connect, and one after each batch of changes that FSEvents reports in the
@@ -14,13 +25,15 @@
 //! bundles that its build-bundle.py builds from its design system's sources
 //! on each draw, and origin/main's from that commit.
 //!
-//! The live view shows files that no commit holds, so the dashboard serves it
-//! only on this Mac: to a loopback peer, at 127.0.0.1 or localhost
-//! (`http::on_this_mac`).
+//! The scratch view shows files that no commit holds, so the dashboard serves
+//! it only on this Mac: to a loopback peer, at 127.0.0.1 or localhost
+//! (`http::on_this_mac`). The Designs page lists every scratch board of the
+//! project's worktrees (`scratch_list`), and a design change's review page
+//! the ones in its worktree, also only on this Mac.
 //!
-//!     /design/<project>/live/<worktree>/<board>          the page
-//!     /design/<project>/live/<worktree>/<board>/events   its `drawing` events
-//!     /design/<project>/live/<worktree>/<board>/<theme>/now and /worktree
+//!     /design/<project>/scratch/<worktree>/<board>          the page
+//!     /design/<project>/scratch/<worktree>/<board>/events   its `drawing` events
+//!     /design/<project>/scratch/<worktree>/<board>/<theme>/now and /worktree
 //!                   the board in the light or dark theme, as origin/main or
 //!                   the worktree's files draw it; the page's frames load
 //!                   these
@@ -34,13 +47,13 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc::{RecvTimeoutError, channel};
 use std::time::Duration;
 
-use boards::{MOCKS, Source, board_name};
+use boards::{BOARD_SUFFIX, MOCKS, Source, board_name, board_path};
 use serde_json::{Value, json};
 
 use super::fsevents::{Event, Stream, flags};
 use super::http::{drawn_page, respond};
 use super::model::Model;
-use crate::checkout::{Checkout, worktrees_folder};
+use crate::checkout::{Checkout, worktree_list, worktrees_folder};
 use crate::design_render::{
     FRAMES_CSS, FRAMES_SCRIPT, NOW, board_size, fill, render_board, script_json,
 };
@@ -49,7 +62,11 @@ use crate::fail::{Context, Result};
 use crate::lists::Theme;
 use crate::lists::design_paths::Globs;
 
-const LIVE_PAGE: &str = include_str!("live_view.html");
+const SCRATCH_PAGE: &str = include_str!("scratch_view.html");
+/// How a scratch board's name starts: its path is
+/// `design/mocks/scratch.<name>.dc.html`, the pattern that each design repo's
+/// .gitignore holds.
+const SCRATCH_PREFIX: &str = "scratch.";
 /// How long FSEvents holds changes back to report them as one batch, in
 /// seconds: a save that writes several files redraws the board once.
 const LATENCY: f64 = 0.1;
@@ -58,7 +75,7 @@ const LATENCY: f64 = 0.1;
 /// the page has gone.
 const KEEPALIVE: Duration = Duration::from_secs(15);
 
-/// The board a live view address names: the project, the worktree and the
+/// The board a scratch view address names: the project, the worktree and the
 /// board, as the address gives them.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Target<'a> {
@@ -76,7 +93,7 @@ pub enum Side {
     Worktree,
 }
 
-/// What a live view address asks for.
+/// What a scratch view address asks for.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Route<'a> {
     Page(Target<'a>),
@@ -92,7 +109,8 @@ impl<'a> Route<'a> {
     }
 }
 
-/// The live view route of <path>, or None when it is no live view address.
+/// The scratch view route of <path>, or None when it is no scratch view
+/// address.
 pub fn route(path: &str) -> Option<Route<'_>> {
     let parts: Vec<&str> = path.strip_prefix("/design/")?.split('/').collect();
     let target = |project, worktree, board| Target {
@@ -101,11 +119,13 @@ pub fn route(path: &str) -> Option<Route<'_>> {
         board,
     };
     match parts.as_slice() {
-        [project, "live", worktree, board] => Some(Route::Page(target(project, worktree, board))),
-        [project, "live", worktree, board, "events"] => {
+        [project, "scratch", worktree, board] => {
+            Some(Route::Page(target(project, worktree, board)))
+        }
+        [project, "scratch", worktree, board, "events"] => {
             Some(Route::Events(target(project, worktree, board)))
         }
-        [project, "live", worktree, board, theme, side] => Some(Route::Drawing(
+        [project, "scratch", worktree, board, theme, side] => Some(Route::Drawing(
             target(project, worktree, board),
             Theme::of_word(theme).ok()?,
             match *side {
@@ -118,7 +138,7 @@ pub fn route(path: &str) -> Option<Route<'_>> {
     }
 }
 
-/// A worktree the live view draws from: its top, and the folders in it that
+/// A worktree the scratch view draws from: its top, and the folders in it that
 /// hold its design places and shared sources, which the view follows.
 #[derive(Debug, PartialEq, Eq)]
 pub struct Worktree {
@@ -172,12 +192,32 @@ fn source(worktree: &Worktree, side: Side) -> Source<'_> {
     }
 }
 
+/// Is the board named <name> a scratch board?
+pub fn is_scratch(name: &str) -> bool {
+    name.starts_with(SCRATCH_PREFIX)
+}
+
+/// The frame of board <board> as <from> draws it: the size canvas.json gives
+/// it (`w` and `h`), or for a scratch board, which is on no canvas, `fit`:
+/// the page sizes the frame to what the board draws. None when the board is
+/// no file there.
+fn frame(from: &Source, board: &str) -> Result<Option<Value>> {
+    let name = board_name(board)?;
+    if !is_scratch(&name) {
+        return Ok(board_size(from, board)?.map(|(w, h)| json!({ "w": w, "h": h })));
+    }
+    from.check()?;
+    Ok(from
+        .has(&board_path(&name))?
+        .then(|| json!({ "fit": true })))
+}
+
 /// The `drawing` event's data for board <board> of <worktree>: for each side
-/// (`now` and `worktree`), its frame's size (`w` and `h`), `absent` for a
-/// board that origin/main has no file of, or the `error` that stops it.
+/// (`now` and `worktree`), its frame (`frame`), `absent` for a board that
+/// origin/main has no file of, or the `error` that stops it.
 pub fn drawing(worktree: &Worktree, board: &str) -> Value {
-    let side = |side: Side| match board_size(&source(worktree, side), board) {
-        Ok(Some((w, h))) => json!({ "w": w, "h": h }),
+    let side = |side: Side| match frame(&source(worktree, side), board) {
+        Ok(Some(frame)) => frame,
         Ok(None) if side == Side::Now => json!({ "absent": true }),
         Ok(None) => json!({
             "error": format!("{board} is no file in {}", Source::Dir(&worktree.top).label(MOCKS))
@@ -187,7 +227,7 @@ pub fn drawing(worktree: &Worktree, board: &str) -> Value {
     json!({ "now": side(Side::Now), "worktree": side(Side::Worktree) })
 }
 
-/// The live view's page of board <target> of <worktree>.
+/// The scratch view's page of board <target> of <worktree>.
 pub fn page(target: Target, worktree: &Worktree) -> Result<String> {
     board_name(target.board)?;
     let Target {
@@ -199,10 +239,10 @@ pub fn page(target: Target, worktree: &Worktree) -> Result<String> {
         "worktree": name,
         "top": worktree.top.display().to_string(),
         "board": board,
-        "base": format!("/design/{project}/live/{name}/{board}"),
+        "base": format!("/design/{project}/scratch/{name}/{board}"),
     });
     Ok(fill(
-        LIVE_PAGE,
+        SCRATCH_PAGE,
         &[
             ("FRAMES_CSS", FRAMES_CSS),
             ("FRAMES", FRAMES_SCRIPT),
@@ -237,6 +277,80 @@ pub fn serve(mut stream: TcpStream, model: &Model, route: Route) -> std::io::Res
         ),
     };
     drawn_page(&mut stream, Some(answer), b"")
+}
+
+/// The worktrees of the repo whose main checkout is <main> that a scratch
+/// view address names, each with its name there (`worktree_of`): `main` for
+/// the main checkout, then each worktree in the repo's worktrees folder, by
+/// name. git lists the worktrees.
+pub fn named_worktrees(main: &Path) -> Result<Vec<(String, PathBuf)>> {
+    let canonical =
+        |path: &Path| std::fs::canonicalize(path).context(|| format!("reading {}", path.display()));
+    let main_top = canonical(main)?;
+    let folder = worktrees_folder(main).and_then(|folder| std::fs::canonicalize(folder).ok());
+    let mut named = vec![("main".to_string(), main_top.clone())];
+    let mut sides = Vec::new();
+    for listed in worktree_list(main)? {
+        // A worktree that git still lists after its folder went is in no
+        // folder to read.
+        let Ok(top) = std::fs::canonicalize(&listed.top) else {
+            continue;
+        };
+        if top != main_top
+            && folder.is_some()
+            && top.parent() == folder.as_deref()
+            && let Some(name) = top.file_name()
+        {
+            sides.push((name.to_string_lossy().into_owned(), top));
+        }
+    }
+    sides.sort();
+    named.extend(sides);
+    Ok(named)
+}
+
+/// The names of the scratch boards in the worktree whose top is <top>, in
+/// name order.
+pub fn scratch_boards_in(top: &Path) -> Result<Vec<String>> {
+    let mocks = top.join(MOCKS);
+    let entries = match std::fs::read_dir(&mocks) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => fail!("listing {}: {error}", mocks.display()),
+    };
+    let mut names = Vec::new();
+    for entry in entries {
+        let entry = entry.context(|| format!("listing {}", mocks.display()))?;
+        let file = entry.file_name().to_string_lossy().into_owned();
+        if let Some(name) = file.strip_suffix(BOARD_SUFFIX)
+            && is_scratch(name)
+            && board_name(name).is_ok()
+        {
+            names.push(name.to_string());
+        }
+    }
+    names.sort();
+    Ok(names)
+}
+
+/// Every scratch board of the worktrees of the repo whose main checkout is
+/// <main>, as the Designs page and a review page list them: the worktree's
+/// name (`named_worktrees`), its folder (`top`), the board's name, and the
+/// address of its scratch view in project <project> (`link`), by worktree
+/// then board.
+pub fn scratch_list(project: &str, main: &Path) -> Result<Vec<Value>> {
+    let mut list = Vec::new();
+    for (name, top) in named_worktrees(main)? {
+        for board in scratch_boards_in(&top)? {
+            list.push(json!({
+                "worktree": name,
+                "top": top.display().to_string(),
+                "board": board,
+                "link": format!("/design/{project}/scratch/{name}/{board}"),
+            }));
+        }
+    }
+    Ok(list)
 }
 
 /// Does a batch of <events> change a file? A copy that reads a file, such as
@@ -295,5 +409,5 @@ fn events(mut stream: TcpStream, worktree: &Worktree, board: &str) -> std::io::R
 }
 
 #[cfg(test)]
-#[path = "live_view_tests.rs"]
+#[path = "scratch_view_tests.rs"]
 pub(super) mod tests;

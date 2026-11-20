@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Live board</title>
+<title>Scratch view</title>
 <style>
 @@FRAMES_CSS@@
 header .where, header .state { color: var(--dim); font-size: 13px; }
@@ -17,7 +17,7 @@ header .state.bad { color: var(--bad); }
 </head>
 <body>
 <header>
-  <h1 id="title"></h1><span class="where" id="where"></span><span class="state" id="state"></span>
+  <h1 id="title"></h1><span class="where" id="where"></span><span class="where" id="absent"></span><span class="state" id="state"></span>
   <div class="tools" id="tools">
     <button type="button" data-theme="light" aria-pressed="false">Light</button>
     <button type="button" data-theme="dark" aria-pressed="false">Dark</button>
@@ -44,7 +44,7 @@ const h = (tag, attrs, ...kids) => {
   return el;
 };
 
-document.title = data.board + " (" + data.worktree + ", live)";
+document.title = data.board + " (" + data.worktree + ", scratch)";
 document.getElementById("title").textContent = data.board;
 document.getElementById("where").append("drawn from the files of ", h("code", {}, data.top));
 const state = document.getElementById("state");
@@ -56,73 +56,109 @@ function say(text, bad) {
 // The theme is in the address (?theme=light), so a reload keeps it.
 let theme = new URLSearchParams(location.search).get("theme") === "light" ? "light" : "dark";
 let zoom = "fit";
+// The height a frame of a board on no canvas, such as a scratch board, lays
+// the board out in before the board's page says what it draws.
+const FIT_HEIGHT = 600;
 
 // Each side is the board drawn in a frame at the size the canvas gives it,
-// scaled (frames.js), or a note that says why it has no drawing. Each
-// `drawing` event loads both frames again: the worktree's files may have
-// changed, and origin/main may have moved since the last load.
+// scaled (frames.js), or a note that says why it has no drawing. A board on
+// no canvas (`fit`) is drawn as wide as the side has room for, and its frame
+// then takes the size the board's page measures (board.html). A board that
+// origin/main has no file of, as no scratch board has, shows its worktree's
+// side alone. Each `drawing` event loads both frames again: the worktree's
+// files may have changed, and origin/main may have moved since the last load.
+// A redraw loads into a second frame, hidden, which takes the first one's
+// place once it has drawn.
 const sides = {
-  now: {label: "Now (origin/main)", absent: "This board is new: origin/main has no file of it."},
-  worktree: {label: "Live (the files of " + data.worktree + ")"},
+  now: {label: "Now (origin/main)"},
+  worktree: {label: "The files of " + data.worktree},
 };
 const pair = document.getElementById("pair");
 for (const side of Object.values(sides)) {
   side.body = h("div", {});
-  side.drawn = null;
-  pair.append(h("div", {class: "side"}, h("h3", {}, side.label), side.body));
+  side.el = h("div", {class: "side"}, h("h3", {}, side.label), side.body);
+  side.box = null;
+  side.shown = null;
+  side.loading = null;
+  pair.append(side.el);
 }
 let last = null;
+// The width each side has room for.
+function room() {
+  const shown = Object.values(sides).filter(side => !side.el.hidden).length || 1;
+  return Math.floor((document.documentElement.clientWidth - 42 - 16 * (shown - 1)) / shown);
+}
 function show(name, d) {
   const side = sides[name];
-  if (d.error || d.absent) {
-    side.drawn = null;
-    side.body.replaceChildren(h("div", {class: d.error ? "problem" : "note"}, d.error || side.absent));
+  side.el.hidden = !!d.absent;
+  if (d.absent || d.error) {
+    side.box = side.shown = side.loading = null;
+    side.body.replaceChildren(...(d.error ? [h("div", {class: "problem"}, d.error)] : []));
     return;
   }
   const src = data.base + "/" + theme + "/" + name + "?t=" + Date.now();
-  if (!side.drawn) {
-    side.drawn = boardFrame(src, d.w, d.h);
-    side.drawn.frame.addEventListener("load", drawnOnce);
-    side.body.replaceChildren(side.drawn.box);
+  const fit = !!d.fit;
+  const w = fit ? room() : d.w;
+  const height = fit ? (side.shown && side.shown.fit ? side.shown.h : FIT_HEIGHT) : d.h;
+  const made = boardFrame(src, w, height);
+  const entry = {frame: made.frame, w, h: height, fit};
+  // A redraw that has not drawn yet gives way to this one.
+  if (side.loading) side.loading.frame.remove();
+  side.loading = entry;
+  made.frame.addEventListener("load", () => {
+    if (fit) made.frame.contentWindow.postMessage({designSize: true}, "*");
+    else ready(side, entry);
+  });
+  if (!side.box) {
+    side.box = made.box;
+    side.shown = null;
+    side.body.replaceChildren(made.box);
   } else {
-    // A redraw that has not loaded yet gives way to this one.
-    if (side.drawn.loading) side.drawn.loading.remove();
-    const next = boardFrame(src, d.w, d.h).frame;
-    next.classList.add("loading");
-    side.drawn.loading = next;
-    next.addEventListener("load", () => {
-      if (side.drawn.loading !== next) return;
-      side.drawn.frame.remove();
-      next.classList.remove("loading");
-      side.drawn.frame = next;
-      side.drawn.loading = null;
-      drawnOnce();
-    });
-    side.drawn.box.append(next);
+    made.frame.classList.add("loading");
+    side.box.append(made.frame);
   }
-  side.drawn.w = d.w;
-  side.drawn.h = d.h;
 }
-function drawnOnce() {
+// <entry>'s frame has drawn: it takes the place of the frame <side> shows.
+function ready(side, entry) {
+  if (side.loading !== entry) return;
+  if (side.shown) side.shown.frame.remove();
+  entry.frame.classList.remove("loading");
+  side.shown = entry;
+  side.loading = null;
   say("Drawn at " + new Date().toLocaleTimeString() + ".");
+  layout();
 }
+// The page of a board on no canvas says the size it draws (board.html).
+window.addEventListener("message", e => {
+  const size = e.data && e.data.designSize;
+  if (!size) return;
+  for (const side of Object.values(sides)) {
+    const entry = [side.loading, side.shown].find(x => x && x.fit && x.frame.contentWindow === e.source);
+    if (!entry) continue;
+    entry.w = size.w;
+    entry.h = size.h;
+    entry.frame.setAttribute("width", size.w);
+    entry.frame.setAttribute("height", size.h);
+    if (entry === side.loading) ready(side, entry);
+    else layout();
+  }
+});
 function draw() {
   if (!last) return;
   show("now", last.now);
   show("worktree", last.worktree);
+  document.getElementById("absent").textContent = last.now.absent ? "origin/main has no file of this board." : "";
   layout();
 }
 function scaleOf(w) {
-  const room = (document.documentElement.clientWidth - 42 - 16) / 2;
-  return zoom === "fit" ? Math.min(1, room / w) : Number(zoom);
+  return zoom === "fit" ? Math.min(1, room() / w) : Number(zoom);
 }
 function layout() {
   for (const side of Object.values(sides)) {
-    const drawn = side.drawn;
-    if (!drawn) continue;
-    const s = scaleOf(drawn.w);
-    scaleFrame(drawn, drawn.w, drawn.h, s);
-    if (drawn.loading) drawn.loading.style.transform = drawn.frame.style.transform;
+    const shown = side.shown || side.loading;
+    if (!shown) continue;
+    scaleFrame({frame: shown.frame, box: side.box}, shown.w, shown.h, scaleOf(shown.w));
+    if (side.shown && side.loading) side.loading.frame.style.transform = "scale(" + scaleOf(side.loading.w) + ")";
   }
 }
 
@@ -134,7 +170,7 @@ events.addEventListener("drawing", e => {
   draw();
 });
 events.addEventListener("error", () => {
-  if (events.readyState === EventSource.CLOSED) say("The dashboard refused the live view's events. Reload the page.", true);
+  if (events.readyState === EventSource.CLOSED) say("The dashboard refused the scratch view's events. Reload the page.", true);
   else say("The page lost the dashboard's events and connects again.", true);
 });
 

@@ -11,6 +11,7 @@ use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
 use serde::Serialize;
+use serde_json::{Value, json};
 
 use super::cards::{CardState, ItemWait, KeptCard, ReviewWait, RunningItem};
 use super::fsevents::{Stream, flags};
@@ -979,12 +980,54 @@ impl Model {
         self.lists.hooks()
     }
 
-    /// The review page of open design change <id>, drawn now; None when no
-    /// open design change has that id.
-    pub fn design_page(&self, project: &str, id: u32) -> Option<crate::fail::Result<String>> {
+    /// The review page of open design change <id>, drawn now, with the
+    /// scratch boards in the change's worktree when <here>
+    /// (`scratch_boards`); None when no open design change has that id.
+    pub fn design_page(
+        &self,
+        project: &str,
+        id: u32,
+        here: bool,
+    ) -> Option<crate::fail::Result<String>> {
         let (_, snapshot) = self.lists.current();
         let (design, view) = super::lists::open_design(&snapshot, project, id)?;
-        Some(view.and_then(|view| crate::design_render::review_page(&design, &view, project)))
+        let scratch = self.scratch_boards(project, here, Some(Path::new(&design.worktree)));
+        Some(
+            view.and_then(|view| {
+                crate::design_render::review_page(&design, &view, project, &scratch)
+            }),
+        )
+    }
+
+    /// The scratch boards of the worktrees of the repo that holds project
+    /// <project>'s design files, as a page shows them: null unless <here>,
+    /// since they are files that no commit holds, which the dashboard shows
+    /// only on this Mac; else `boards` (`scratch_view::scratch_list`), only
+    /// those of the worktree whose top is <only> when it is given, or the
+    /// `error` that stops the listing.
+    fn scratch_boards(&self, project: &str, here: bool, only: Option<&Path>) -> Value {
+        if !here {
+            return Value::Null;
+        }
+        let Some(main) = self.design_checkout(project) else {
+            return json!({ "boards": [] });
+        };
+        let listed = main.and_then(|main| super::scratch_view::scratch_list(project, &main));
+        let only = only.map(|top| {
+            std::fs::canonicalize(top).map_or_else(
+                |_| top.display().to_string(),
+                |top| top.display().to_string(),
+            )
+        });
+        match listed {
+            Ok(boards) => json!({
+                "boards": boards
+                    .into_iter()
+                    .filter(|board| only.as_ref().is_none_or(|top| board["top"] == json!(top)))
+                    .collect::<Vec<_>>(),
+            }),
+            Err(error) => json!({ "error": error.text() }),
+        }
     }
 
     /// <side> of the <n>th board of open design change <id>'s review page,
@@ -1060,15 +1103,18 @@ impl Model {
         Some(self.design_repo(project)?.map(|(main, _)| main))
     }
 
-    /// The Designs page of project <project>, drawn now from origin/main;
-    /// None when the lists hold no such project or it has no design files.
-    pub fn designs_page(&self, project: &str) -> Option<crate::fail::Result<String>> {
+    /// The Designs page of project <project>, drawn now from origin/main,
+    /// with the scratch boards of the repo's worktrees when <here>
+    /// (`scratch_boards`); None when the lists hold no such project or it
+    /// has no design files.
+    pub fn designs_page(&self, project: &str, here: bool) -> Option<crate::fail::Result<String>> {
         Some(self.design_checkout(project)?.and_then(|repo| {
             super::designs::page(
                 project,
                 &repo,
                 &self.places.design_system_cache(),
                 super::designs::standing(&self.places, project),
+                &self.scratch_boards(project, here, None),
             )
         }))
     }

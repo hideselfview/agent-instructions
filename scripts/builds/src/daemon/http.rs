@@ -33,21 +33,25 @@
 //!     /api/hooks    the hook runs' figures and latest runs (hook_stats.rs),
 //!                   as the `hooks` event carries them
 //!     /design/<project>/<design id>
-//!                   the review page of an open design change, drawn now
+//!                   the review page of an open design change, drawn now,
+//!                   which links the scratch boards in the change's worktree
+//!                   when it is asked for on this Mac
 //!     /design/<project>/<design id>/board/<n>/now and /proposed
 //!     /design/<project>/<design id>/deleted/<k>/now
 //!                   a board of that page as it stands on origin/main (now)
 //!                   or at the change's last commit (proposed), drawn now;
 //!                   the page's frames load these
-//!     /design/<project>/live/<worktree>/<board>, with /events and
+//!     /design/<project>/scratch/<worktree>/<board>, with /events and
 //!     /<theme>/now and /<theme>/worktree under it
-//!                   the live view of a board, drawn from a worktree's files
-//!                   as they are, and the pages and events it reads; only on
-//!                   this Mac (live_view.rs)
+//!                   the scratch view of a board, drawn from a worktree's
+//!                   files as they are, and the pages and events it reads;
+//!                   only on this Mac (scratch_view.rs)
 //!     /designs/<project>
 //!                   the Designs page of the project: every board of the
 //!                   repo that holds its design files as it stands on
-//!                   origin/main, and its design system (designs.rs)
+//!                   origin/main, its design system, and, when it is asked
+//!                   for on this Mac, the scratch boards of the repo's
+//!                   worktrees (designs.rs)
 //!     /designs/<project>/publish/events
 //!                   `publish` events: the project's publishing (its newest
 //!                   publish request and the newest that published,
@@ -233,12 +237,13 @@ fn handle(mut stream: TcpStream, names: &[String], model: &Model) -> std::io::Re
             b"GET only, and POST /api/queue, /api/build-app, /api/question-effect, /design/PROJECT/N/approve and /designs/PROJECT/publish\n",
         );
     }
-    if let Some(route) = super::live_view::route(path) {
+    if let Some(route) = super::scratch_view::route(path) {
         if !on_this_mac(&asker) {
             return refuse_not_here(&mut stream);
         }
-        return super::live_view::serve(stream, model, route);
+        return super::scratch_view::serve(stream, model, route);
     }
+    let here = on_this_mac(&asker);
     match path {
         "/" => respond(
             &mut stream,
@@ -275,7 +280,7 @@ fn handle(mut stream: TcpStream, names: &[String], model: &Model) -> std::io::Re
         "/events" => events(stream, model),
         _ if path.starts_with("/designs/") => {
             let drawn = designs_route(&path["/designs/".len()..]).and_then(|route| match route {
-                DesignsRoute::Page(project) => model.designs_page(project),
+                DesignsRoute::Page(project) => model.designs_page(project, here),
                 DesignsRoute::Board(project, commit, name) => {
                     model.designs_board(project, commit, name)
                 }
@@ -291,7 +296,7 @@ fn handle(mut stream: TcpStream, names: &[String], model: &Model) -> std::io::Re
         }
         _ if path.starts_with("/design/") => {
             let drawn = design_route(&path["/design/".len()..]).and_then(|route| match route {
-                DesignRoute::Page(project, id) => model.design_page(project, id),
+                DesignRoute::Page(project, id) => model.design_page(project, id, here),
                 DesignRoute::Board(project, id, n, side) => {
                     model.design_board(project, id, n, side)
                 }
@@ -431,8 +436,9 @@ fn is_this_mac(name: &str) -> bool {
 }
 
 /// Is <asker> on this Mac: a loopback peer address that asks for a page at a
-/// loopback name? The live view (live_view.rs), which shows files that no
-/// commit holds, answers only such a request.
+/// loopback name? The scratch view (scratch_view.rs), which shows files that
+/// no commit holds, answers only such a request, and only such a request
+/// gets the scratch boards on the Designs page and a review page.
 fn on_this_mac(asker: &Asker<'_>) -> bool {
     asker.here && asker.host.is_some_and(is_this_mac)
 }

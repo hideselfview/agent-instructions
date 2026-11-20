@@ -496,6 +496,12 @@ briefs, review pages and commit messages, and no other word for it:
     (design/mocks/<name>.dc.html). The app is built to match it.
   - shared board: a board that draws one piece several screens show, such as a
     row or a sheet. The canvas shows it on its Shared page.
+  - scratch board: a board that no commit holds,
+    design/mocks/scratch.<name>.dc.html in a worktree, which each design
+    repo's .gitignore leaves out. A design session draws versions of a
+    board on it, side by side, to compare them with the person on the
+    dashboard's scratch view, then commits the version the person picks to
+    the real board (decision #349).
   - canvas: the published page on claude.ai that shows every board. The
     repo's boards are its source (PUBLISHING DESIGNS).
   - design system: the tokens and the components, in design/system.
@@ -549,14 +555,20 @@ already matches (`places`, `builds help lists`).
 
   1. While drawing, look at a board with `builds design render`, which draws
      it from the worktree as one page of HTML. It publishes nothing. To try
-     changes with the person before any commit, give them the board's live
-     view on the dashboard,
-     http://127.0.0.1:7787/design/PROJECT/live/WORKTREE/BOARD, with the
-     worktree's folder name (side-4) and the board's name: the page draws
-     the board from the worktree's files beside the board as origin/main
-     draws it, and draws both again within a second or two of each save.
-     Commit, record and amend the change once the person settles it
-     (decision #341).
+     or compare versions with the person before any commit, draw them on a
+     scratch board in your worktree, such as
+     design/mocks/scratch.people-rows.dc.html: a board file in the same
+     format as every board, which can draw a component several times with
+     different props side by side. Give the person its scratch view on the
+     dashboard, http://127.0.0.1:7787/design/PROJECT/scratch/WORKTREE/BOARD,
+     with the worktree's folder name (side-4) and the board's name
+     (scratch.people-rows): the page draws the board from the worktree's
+     files, and draws it again within a second or two of each save. The
+     scratch view of a real board draws it beside the board as origin/main
+     draws it. Once the person picks a version, draw it on the real board,
+     delete the scratch board, then commit, record and amend the change
+     (decisions #341 and #349). Never commit a scratch board: git ignores
+     it, so health, release and land never count it as work.
   2. When the boards are drawn, record the change (`builds design record`):
      its title, which names the part of the app the change draws in a few
      plain words, such as "People rows" or "AirPlay wait", and not a sentence
@@ -586,7 +598,11 @@ already matches (`places`, `builds help lists`).
   3. Everything the person reviews goes on that page: new boards, proposals,
      before and after examples. Never make a page of your own (a review.html,
      a page in the scratchpad) or open a browser tab; the person reloads the
-     review page.
+     review page. To compare versions during a round, draw them on a
+     scratch board in the change's worktree (step 1): the review page links
+     each scratch board in that worktree to its scratch view. Once the
+     person picks, draw the pick on the real board, delete the scratch
+     board, commit and run `builds design amend` (decision #349).
   4. The person approves with the page's Approve button, which sends "Design
      change #N of project P approved: land it." to the session that recorded
      the change. That message is the cue to name the app work and land. First

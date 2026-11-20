@@ -1,5 +1,5 @@
 /* The look of a page that shows boards in frames (frames.js): the review
-   page and the live view. */
+   page and the scratch view. */
 :root { color-scheme: light dark; --bg: #f6f6f8; --fg: #1d1d22; --dim: #62626e; --line: #d4d4dc; --surface: #ffffff; --accent: #3a6df0; --bad: #c0392b; }
 @media (prefers-color-scheme: dark) { :root { --bg: #0b0b10; --fg: #e4e4ea; --dim: #9a9aa8; --line: #2b2b36; --surface: #15151c; --accent: #7ea1ff; --bad: #ff7b6b; } }
 * { box-sizing: border-box; }
