@@ -26,6 +26,7 @@ use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 use std::time::Duration;
 
+use crate::awake::KeepAwake;
 use crate::checkout::Checkout;
 use crate::fail;
 use crate::fail::{Context, Fail, Result};
@@ -813,11 +814,14 @@ pub struct Job<'a> {
     command: Vec<String>,
     worktree: String,
     id: String,
+    /// Keeps this Mac awake from the job's send until its command has run
+    /// and its claim is released (awake.rs).
+    _awake: KeepAwake,
 }
 
 /// How the start of a job went.
 pub enum Start<'a> {
-    Started(Job<'a>),
+    Started(Box<Job<'a>>),
     /// The host would not take the job: sending its commit or claiming a
     /// worktree failed there, before its command ran. Holds what the host
     /// said; `start_job` has recorded the host as refusing jobs.
@@ -835,6 +839,7 @@ pub fn start_job<'a>(
     source: &Path,
     request: &Request,
 ) -> Result<Start<'a>> {
+    let awake = KeepAwake::for_host(host, &format!("a job of {}", request.repo))?;
     let sha = commit_of(source, &request.what)?;
     let pinned = pinned_name(source)?;
     let id = job_id();
@@ -872,7 +877,7 @@ pub fn start_job<'a>(
     };
     let said = match started {
         Ok(Ok(worktree)) => {
-            return Ok(Start::Started(Job {
+            return Ok(Start::Started(Box::new(Job {
                 places,
                 ssh,
                 host: host.clone(),
@@ -880,7 +885,8 @@ pub fn start_job<'a>(
                 command: request.command.clone(),
                 worktree,
                 id,
-            }));
+                _awake: awake,
+            })));
         }
         Ok(Err(said)) => said,
         Err(error) => {

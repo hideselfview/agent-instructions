@@ -969,9 +969,11 @@ its command exits: builds stops the processes the command left in its process
 group, and a process it left elsewhere (a build daemon) cannot keep the step
 running, since the command's output reaches ssh through relays that builds
 ends. A connection to a host that stops answering ends within a minute and
-fails the step. A mac lane checkout on a host needs Xcode there. The lane's
-list of checkouts stays on this Mac, so builds writes the lane's name to the
-file builds-app-lane in the checkout's git dir on the host: when a person adds
+fails the step, and builds keeps this Mac awake while a build holds a
+checkout on a host, since a sleep here ends the connection (HOSTS). A mac
+lane checkout on a host needs Xcode there. The lane's list of checkouts stays
+on this Mac, so builds writes the lane's name to the file builds-app-lane in
+the checkout's git dir on the host: when a person adds
 a checkout the host already has, and when a build makes a new one there. The
 host's own `builds setup` and `builds prune` read the file and keep the
 checkout's builds warm, as this Mac does for its own app checkouts.
@@ -1306,6 +1308,18 @@ uses the host again. `builds host list` probes every host, and so does every
 `builds cargo` and `builds remote run` that picks one. A host whose Xcode
 cannot start, or whose UI tests timed out turning on automation mode, refuses
 mac app builds only (APP BUILDS).
+
+While builds works on a host over ssh, in a lane's app checkout there or in
+a job of `builds remote run` or `builds cargo`, it keeps this Mac awake with
+two of macOS's power assertions, which `pmset -g assertions` lists under
+builds' name: PreventUserIdleSystemSleep keeps the Mac from sleeping when
+nobody uses it, on battery or on power, and NetworkClientActive also keeps
+it awake through a maintenance wake while it runs on power. A Mac that sleeps
+answers nothing on its connections, and the host ends a connection that
+gets no answer for about twenty seconds, which stops the command there.
+Neither assertion keeps a Mac on battery awake once its lid closes or
+through a maintenance wake. Work on this Mac alone holds no assertion, since
+a sleep only pauses it.
 
 A Mac runs UI tests with nobody at its screen only with three settings on.
 Without them, XCTest asks for a password on its screen, or says "Timed out

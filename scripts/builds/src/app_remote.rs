@@ -32,6 +32,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use crate::app_config::{app_checkout_top, run_git};
+use crate::awake::KeepAwake;
 use crate::checkout::{APP_LANE_FILE, Checkout};
 use crate::fail;
 use crate::fail::{Context, Result};
@@ -127,7 +128,8 @@ pub fn fetched_local_source(places: &Places, repo: &str) -> Result<PathBuf> {
 }
 
 /// The commands that make, switch and read the checkout `<name>` of <repo> on
-/// a host.
+/// a host. While a `RemoteApp` exists, this Mac stays awake (awake.rs): its
+/// steps and copies run over ssh, and a sleep here ends their connections.
 #[derive(Debug)]
 pub struct RemoteApp {
     places: Places,
@@ -139,6 +141,7 @@ pub struct RemoteApp {
     /// The checkout's folder on the host, once `switch_to` or `locate` has
     /// asked.
     worktree: Option<String>,
+    _awake: KeepAwake,
 }
 
 impl RemoteApp {
@@ -159,6 +162,7 @@ impl RemoteApp {
         else {
             fail!("{entry} is on host {host_name}, which `builds host list` does not have");
         };
+        let awake = KeepAwake::for_host(&host, &format!("{repo}'s app checkout {name}"))?;
         Ok(Some(RemoteApp {
             places: places.clone(),
             ssh: ssh.clone(),
@@ -167,6 +171,7 @@ impl RemoteApp {
             name: name.to_string(),
             lane,
             worktree: None,
+            _awake: awake,
         }))
     }
 

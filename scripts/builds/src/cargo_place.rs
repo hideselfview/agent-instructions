@@ -758,7 +758,7 @@ pub fn start<'a>(
         command: words,
     };
     match remote::start_job(places, ssh, &host, &checkout.top, &request)? {
-        Start::Started(job) => Ok(Some(job)),
+        Start::Started(job) => Ok(Some(*job)),
         Start::Refused(said) => {
             note(format!(
                 "host {name} refused the job: {said}\nbuilds {command} runs it on this Mac, and passes over host {name} until a probe finds it answering with git running (`builds health` says what to do)",
