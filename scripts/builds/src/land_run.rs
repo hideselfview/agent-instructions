@@ -25,8 +25,15 @@ pub enum StepKind {
     Fetch,
     /// The fast-forward or cherry-pick onto origin/main.
     Pick,
-    /// The whole-tree checks and the compile check of the result.
+    /// Waiting for the turn of a landing that changes the apps, while an
+    /// earlier landing that changes the repo's apps holds it.
+    AppWait,
+    /// The whole-tree checks and the compile check of the result, and the
+    /// question which app build the result needs.
     Checks,
+    /// The app build of the result, when main moved under the branch's last
+    /// app build.
+    AppBuild,
     Push,
     /// The records after the push.
     Records,
@@ -43,7 +50,9 @@ impl StepKind {
             StepKind::ListsCheck => "lists-check",
             StepKind::Fetch => "fetch",
             StepKind::Pick => "pick",
+            StepKind::AppWait => "app-wait",
             StepKind::Checks => "checks",
+            StepKind::AppBuild => "app-build",
             StepKind::Push => "push",
             StepKind::Records => "records",
             StepKind::Finish => "finish",
@@ -86,7 +95,8 @@ pub fn record(path: &Path, run: &LandRun) -> Result<()> {
     write(&mut conn, run)
 }
 
-fn write(conn: &mut Connection, run: &LandRun) -> Result<()> {
+/// Writes <run> to the store database open as <conn>, in one transaction.
+pub fn write(conn: &mut Connection, run: &LandRun) -> Result<()> {
     let tx = conn.transaction().sql()?;
     tx.execute(
         "INSERT INTO land_run (started_at, repo, worktree, branch, by, ms, landed) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
@@ -124,6 +134,25 @@ fn write(conn: &mut Connection, run: &LandRun) -> Result<()> {
         .sql()?;
     }
     tx.commit().sql()
+}
+
+/// Makes `land_step` again as land_run.sql writes it, with the kinds of the
+/// wait for the turn of a landing that changes the apps and of the app build
+/// of the result, which a store from before allowed neither; each step keeps
+/// its row.
+pub fn allow_app_steps(db: &Connection) -> Result<()> {
+    crate::db::remake_table(
+        db,
+        "land_step",
+        crate::db::statement(include_str!("land_run.sql"), "CREATE TABLE land_step", ";"),
+        |db| {
+            db.execute_batch(
+                "INSERT INTO land_step (land_id, position, kind, started_at, ms) SELECT land_id, position, kind, started_at, ms FROM land_step_old",
+            )
+            .sql()
+        },
+        &[],
+    )
 }
 
 #[cfg(test)]

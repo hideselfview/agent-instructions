@@ -214,13 +214,17 @@ const BEFORE_REVIEW_SECTION_HEADING_ONLY_STAMP: i64 = 2_044_746_774;
 /// The stamp of the schema before the variants of a design change left it.
 const BEFORE_DESIGN_VARIANTS_LEFT_STAMP: i64 = 294_983_269;
 
+/// The stamp of the schema before a landing's steps took the wait for the
+/// turn of a landing that changes the apps and the app build of the result.
+const BEFORE_LAND_APP_STEPS_STAMP: i64 = 1_952_688_938;
+
 /// The stamp of today's schema (`db::STAMP`). A change to the schema changes
 /// its stamp, and builds then fails to compile until the change gives it a
 /// move from this schema, since every store carries this stamp: the change
 /// adds the move, puts this stamp at the end of `STAMPS` under a name that
 /// says what the schema lacked, and sets this to the new schema's stamp, which
 /// the compiler's error names.
-const SCHEMA_STAMP: i64 = 1_952_688_938;
+const SCHEMA_STAMP: i64 = 716_196_970;
 
 // The compiler refuses a schema whose stamp is not SCHEMA_STAMP. A const
 // assert could not print the new stamp, so the check compares two array
@@ -230,7 +234,7 @@ const _: [(); SCHEMA_STAMP as usize] = [(); db::STAMP as usize];
 
 /// Every stamp a store can carry that `move_store` moves, oldest schema first.
 /// A new move adds the stamp of the schema before it at the end.
-const STAMPS: [i64; 21] = [
+const STAMPS: [i64; 22] = [
     BEFORE_CONDITION_ENDERS_STAMP,
     BEFORE_ITEM_EVENT_STAMP,
     BEFORE_LAND_RUN_STAMP,
@@ -252,6 +256,7 @@ const STAMPS: [i64; 21] = [
     BEFORE_OVER_CAP_STAMP,
     BEFORE_REVIEW_SECTION_HEADING_ONLY_STAMP,
     BEFORE_DESIGN_VARIANTS_LEFT_STAMP,
+    BEFORE_LAND_APP_STEPS_STAMP,
 ];
 
 /// Whether a store stamped <found> comes before the move that follows the
@@ -445,9 +450,17 @@ fn move_store(path: &Path, now: i64) -> Result<()> {
     // Every store whose schema held the variants of a design change loses
     // their tables, and with them the versions they kept: scratch boards in
     // the worktrees replace them, and nothing reads the variants.
-    if !before(found, BEFORE_DESIGN_VARIANTS_STAMP) {
+    if !before(found, BEFORE_DESIGN_VARIANTS_STAMP)
+        && before(found, BEFORE_DESIGN_VARIANTS_LEFT_STAMP)
+    {
         tx.execute_batch("DROP TABLE design_variant;\nDROP TABLE design_variants;")
             .sql()?;
+    }
+    // Every store from before a landing's steps took the app wait and the
+    // app build gets the steps' table again with the check that allows them;
+    // each step keeps its row.
+    if before(found, BEFORE_LAND_APP_STEPS_STAMP) {
+        crate::land_run::allow_app_steps(&tx)?;
     }
     tx.pragma_update(None, "user_version", db::stamp()).sql()?;
     let broken: Option<String> = tx

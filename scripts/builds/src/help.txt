@@ -2619,11 +2619,12 @@ run `review replay --rules-root` on it.
                               When the landing ends, in a repo of a project,
                               land writes the run to the project's store: its
                               items, each commit's time, and the time of each
-                              step (the wait for an earlier landing, the
-                              lists' checks, each fetch, pick, result check
-                              and push attempt, the records, and leaving and
-                              releasing the worktree), which `builds item
-                              times` shows. Land holds a use of the stores
+                              step (the wait for an earlier landing in the
+                              worktree, the lists' checks, the wait for the
+                              app landing lock, each fetch, pick, result
+                              check, app build of the result and push
+                              attempt, the records, and leaving and releasing
+                              the worktree), which `builds item times` shows. Land holds a use of the stores
                               from its start until it writes the run, so an
                               install that moves a store waits for the
                               landing, and the landing writes every record

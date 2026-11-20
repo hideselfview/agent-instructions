@@ -1158,25 +1158,23 @@ impl Landing<'_> {
         Ok(())
     }
 
-    /// In a repo of a project, makes sure that a passing app build covers
-    /// the result <landed>, which land built on origin/main at <before>, when
-    /// it changes what a lane's apps compile (app_landing.rs). When another
-    /// landing that changed the apps reached main after the branch's last app
-    /// build, land builds the result itself, in this worktree, with the
-    /// steps, test classes and shots of that build, and copies the build's
-    /// output to <out> as it prints it. Land ends its use of the stores
-    /// (<stores>) for the build, which takes many minutes. When the branch has
-    /// no app build of its own, or the result's build fails, land checks out
-    /// what the worktree had when the landing began and prints why.
-    fn cover_app_builds(
+    /// In a repo of a project, the app build that the result <landed>, which
+    /// land built on origin/main at <before>, needs before its push, when it
+    /// changes what a lane's apps compile (app_landing.rs): None when passing
+    /// app builds cover it, else the arguments after `builds app-build` of
+    /// the build of the result with the steps, test classes and shots of the
+    /// branch's last app build, since another landing that changed the apps
+    /// reached main after that build. When the branch has no app build of its
+    /// own, land checks out what the worktree had when the landing began and
+    /// prints why.
+    fn app_build_needed(
         &self,
         before: &str,
         landed: &str,
-        stores: &mut StoreUse,
         out: &mut dyn Write,
-    ) -> Result<()> {
+    ) -> Result<Option<Vec<String>>> {
         if self.recording.is_none() {
-            return Ok(());
+            return Ok(None);
         }
         let workdir = self.workdir.display().to_string();
         let branch = self.request.shas.last().expect("a landing names a commit");
@@ -1216,7 +1214,7 @@ impl Landing<'_> {
             return Err(uncovered(out, both.trim().to_string()));
         }
         if said.is_empty() {
-            return Ok(());
+            return Ok(None);
         }
         let words: Vec<&str> = said.split_whitespace().collect();
         let ["builds", "app-build", args @ ..] = words.as_slice() else {
@@ -1233,6 +1231,20 @@ impl Landing<'_> {
             "another landing that changed the apps reached main after the branch's last app build, so land builds the result {} with that build's steps, test classes and shots before it pushes:\n{said}",
             &landed[..landed.len().min(12)]
         );
+        Ok(Some(args.iter().map(|arg| arg.to_string()).collect()))
+    }
+
+    /// Runs `builds app-build <args>` in this worktree, the build of the
+    /// result that `app_build_needed` names, and copies its output to <out>
+    /// as it prints it. Land ends its use of the stores (<stores>) for the
+    /// build, which takes many minutes. When the build fails, land checks out
+    /// what the worktree had when the landing began and prints why.
+    fn build_result(
+        &self,
+        args: &[String],
+        stores: &mut StoreUse,
+        out: &mut dyn Write,
+    ) -> Result<()> {
         stores.end();
         let mut build = Command::new(self.program);
         build.arg("app-build").args(args).current_dir(&self.workdir);
@@ -1244,7 +1256,8 @@ impl Landing<'_> {
         Err(refuse(
             out,
             format!(
-                "the app build above failed on the result, the branch's commits on origin/main. Next: in {workdir}, run `git fetch origin && git rebase origin/main` on {}, fix what the build names, commit, run `builds app-build` on the branch, review the branch again and land the new commit ids.",
+                "the app build above failed on the result, the branch's commits on origin/main. Next: in {}, run `git fetch origin && git rebase origin/main` on {}, fix what the build names, commit, run `builds app-build` on the branch, review the branch again and land the new commit ids.",
+                self.workdir.display(),
                 self.start.name()
             ),
         ))
@@ -1343,6 +1356,7 @@ impl Landing<'_> {
             shell_words(&self.request.shas),
             dir.display()
         );
+        let _timing = self.timing(StepKind::AppWait);
         let turn = take_turn(
             &PathBuf::from(common).join(APP_TURN_FILE),
             &format!(
@@ -1435,10 +1449,14 @@ impl Landing<'_> {
             }
             let landed = git_text(dir, &["rev-parse", "HEAD"]).unwrap_or_default();
             drop(picking);
-            {
+            let build = {
                 let _timing = self.timing(StepKind::Checks);
                 self.check_result(out)?;
-                self.cover_app_builds(&before, &landed, stores, out)?;
+                self.app_build_needed(&before, &landed, out)?
+            };
+            if let Some(args) = build {
+                let _timing = self.timing(StepKind::AppBuild);
+                self.build_result(&args, stores, out)?;
             }
             if !stores.take_again()? {
                 self.go_back(out);

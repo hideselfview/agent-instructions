@@ -1578,6 +1578,41 @@ fn a_landing_in_a_project_records_its_steps_items_and_commits() {
     );
 }
 
+/// A landing that changes the apps records its wait for its turn before its
+/// fetch, and the app build of its result between its checks and its push.
+#[test]
+fn an_app_landing_records_its_wait_for_its_turn_and_the_app_build_of_its_result() {
+    let f = app_fixture("land-profile-app");
+    let (one, a) = app_branch(&f, 1, "a", "a.swift");
+    let (code, run) = profiled(
+        &f,
+        &one,
+        &["--done", "7", &a],
+        Cues {
+            landing_build: "echo \"builds app-build repo $5 macos\"",
+            ..project()
+        },
+    );
+    assert_eq!(code, 0);
+    let kinds: Vec<StepKind> = run.unwrap().steps.iter().map(|step| step.kind).collect();
+    assert_eq!(
+        kinds,
+        vec![
+            StepKind::Lock,
+            StepKind::ListsCheck,
+            StepKind::AppWait,
+            StepKind::Fetch,
+            StepKind::Pick,
+            StepKind::Checks,
+            StepKind::AppBuild,
+            StepKind::Push,
+            StepKind::Finish,
+            StepKind::Records,
+            StepKind::Finish,
+        ]
+    );
+}
+
 #[test]
 fn a_refused_landing_records_that_it_did_not_land() {
     let f = fixture("land-profile-refused", "true\n", None);

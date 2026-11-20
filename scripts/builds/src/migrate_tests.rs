@@ -221,6 +221,20 @@ pub fn before_design_place_naming(schema: String) -> String {
     )
 }
 
+/// The kinds a landing's step takes, as land_run.sql writes them.
+const LAND_STEP_KINDS: &str = "kind IN ('lock', 'lists-check', 'app-wait', 'fetch', 'pick', 'checks', 'app-build', 'push', 'records', 'finish')";
+
+/// <schema>, which holds today's landing tables, as a schema from before a
+/// landing's steps took the app wait and the app build.
+pub fn before_land_app_steps(schema: String) -> String {
+    assert_eq!(schema.matches(LAND_STEP_KINDS).count(), 1);
+    schema.replacen(
+        LAND_STEP_KINDS,
+        "kind IN ('lock', 'lists-check', 'fetch', 'pick', 'checks', 'push', 'records', 'finish')",
+        1,
+    )
+}
+
 /// The column that names who ends a condition, as item.sql writes it.
 const CONDITION_ENDER_COLUMN: &str = "    until TEXT NOT NULL CONSTRAINT item_wait_condition_ender_known CHECK (until IN ('agent', 'coordinator', 'ci')),\n";
 
@@ -397,8 +411,8 @@ fn a_store_from_before_the_landings_record_gains_their_tables_and_equals_a_fresh
 #[test]
 fn the_exchange_time_stamp_is_the_schema_before_the_reviewer_processes_times() {
     assert_eq!(
-        db::stamp_of_text(&before_design_place_naming(before_landing_repo(
-            with_review_section_words(db::schema_before_exchange_time())
+        db::stamp_of_text(&before_land_app_steps(before_design_place_naming(
+            before_landing_repo(with_review_section_words(db::schema_before_exchange_time()))
         ))),
         BEFORE_EXCHANGE_TIME_STAMP
     );
@@ -439,8 +453,8 @@ fn a_store_from_before_the_exchange_times_gains_their_table_and_equals_a_fresh_s
 #[test]
 fn the_host_sample_stamp_is_the_schema_before_the_hosts_samples() {
     assert_eq!(
-        db::stamp_of_text(&before_design_place_naming(before_landing_repo(
-            with_review_section_words(db::schema_before_host_sample())
+        db::stamp_of_text(&before_land_app_steps(before_design_place_naming(
+            before_landing_repo(with_review_section_words(db::schema_before_host_sample()))
         ))),
         BEFORE_HOST_SAMPLE_STAMP
     );
@@ -479,8 +493,10 @@ fn a_store_from_before_the_host_samples_gains_their_table_and_equals_a_fresh_sch
 #[test]
 fn the_cargo_run_crate_stamp_is_the_schema_before_the_cargo_runs_crates() {
     assert_eq!(
-        db::stamp_of_text(&before_design_place_naming(before_landing_repo(
-            with_review_section_words(db::schema_before_cargo_run_crate())
+        db::stamp_of_text(&before_land_app_steps(before_design_place_naming(
+            before_landing_repo(with_review_section_words(
+                db::schema_before_cargo_run_crate()
+            ))
         ))),
         BEFORE_CARGO_RUN_CRATE_STAMP
     );
@@ -602,8 +618,8 @@ fn a_store_from_before_condition_enders_gives_each_condition_the_coordinator() {
 #[test]
 fn the_judge_stamp_is_the_schema_before_the_judge() {
     assert_eq!(
-        db::stamp_of_text(&before_design_place_naming(before_landing_repo(
-            with_review_section_words(db::schema_before_judge())
+        db::stamp_of_text(&before_land_app_steps(before_design_place_naming(
+            before_landing_repo(with_review_section_words(db::schema_before_judge()))
         ))),
         BEFORE_JUDGE_STAMP
     );
@@ -642,8 +658,8 @@ fn a_store_from_before_the_judge_gains_its_table_and_equals_a_fresh_schema() {
 #[test]
 fn the_landing_repo_stamp_is_the_schema_before_landings_were_found_by_repo() {
     assert_eq!(
-        db::stamp_of_text(&before_design_place_naming(before_landing_repo(
-            with_review_section_words(db::schema_before_card_state())
+        db::stamp_of_text(&before_land_app_steps(before_design_place_naming(
+            before_landing_repo(with_review_section_words(db::schema_before_card_state()))
         ))),
         BEFORE_LANDING_REPO_STAMP
     );
@@ -733,8 +749,8 @@ fn a_store_with_two_open_landings_of_one_change_is_left_as_it_was() {
 #[test]
 fn the_card_states_stamp_is_the_schema_before_them() {
     assert_eq!(
-        db::stamp_of_text(&before_design_place_naming(before_review_text_rowid(
-            with_review_section_words(db::schema_before_card_state())
+        db::stamp_of_text(&before_land_app_steps(before_design_place_naming(
+            before_review_text_rowid(with_review_section_words(db::schema_before_card_state()))
         ))),
         BEFORE_CARD_STATE_STAMP
     );
@@ -769,8 +785,10 @@ fn a_store_from_before_the_card_states_gains_their_tables_and_equals_a_fresh_sch
 #[test]
 fn the_cargo_run_outcomes_stamp_is_the_schema_before_them() {
     assert_eq!(
-        db::stamp_of_text(&before_design_place_naming(before_review_text_rowid(
-            with_review_section_words(db::schema_before_cargo_run_outcome())
+        db::stamp_of_text(&before_land_app_steps(before_design_place_naming(
+            before_review_text_rowid(with_review_section_words(
+                db::schema_before_cargo_run_outcome()
+            ))
         ))),
         BEFORE_CARGO_RUN_OUTCOME_STAMP
     );
@@ -805,8 +823,8 @@ fn a_store_from_before_the_cargo_run_outcomes_gains_their_tables_and_equals_a_fr
 #[test]
 fn the_step_commits_stamp_is_the_schema_before_them() {
     assert_eq!(
-        db::stamp_of_text(&before_design_place_naming(before_review_text_rowid(
-            with_review_section_words(db::schema_before_step_commits())
+        db::stamp_of_text(&before_land_app_steps(before_design_place_naming(
+            before_review_text_rowid(with_review_section_words(db::schema_before_step_commits()))
         ))),
         BEFORE_STEP_COMMITS_STAMP
     );
@@ -841,8 +859,10 @@ fn a_store_from_before_the_step_commits_gains_their_tables_and_equals_a_fresh_sc
 #[test]
 fn the_review_text_stamp_is_the_schema_before_the_texts_had_row_ids() {
     assert_eq!(
-        db::stamp_of_text(&before_design_place_naming(before_review_text_rowid(
-            with_review_section_words(db::schema_before_hook_check_failure())
+        db::stamp_of_text(&before_land_app_steps(before_design_place_naming(
+            before_review_text_rowid(with_review_section_words(
+                db::schema_before_hook_check_failure()
+            ))
         ))),
         BEFORE_REVIEW_TEXT_ROWID_STAMP
     );
@@ -851,8 +871,8 @@ fn the_review_text_stamp_is_the_schema_before_the_texts_had_row_ids() {
 #[test]
 fn the_hook_check_failures_stamp_is_the_schema_before_them() {
     assert_eq!(
-        db::stamp_of_text(&before_design_place_naming(with_review_section_words(
-            db::schema_before_hook_check_failure()
+        db::stamp_of_text(&before_land_app_steps(before_design_place_naming(
+            with_review_section_words(db::schema_before_hook_check_failure())
         ))),
         BEFORE_HOOK_CHECK_FAILURE_STAMP
     );
@@ -887,8 +907,8 @@ fn a_store_from_before_the_hook_check_failures_gains_their_tables_and_equals_a_f
 #[test]
 fn the_app_build_step_failures_stamp_is_the_schema_before_them() {
     assert_eq!(
-        db::stamp_of_text(&before_design_place_naming(with_review_section_words(
-            db::schema_before_app_build_step_failure()
+        db::stamp_of_text(&before_land_app_steps(before_design_place_naming(
+            with_review_section_words(db::schema_before_app_build_step_failure())
         ))),
         BEFORE_APP_BUILD_STEP_FAILURE_STAMP
     );
@@ -923,8 +943,8 @@ fn a_store_from_before_the_app_build_step_failures_gains_their_tables_and_equals
 #[test]
 fn the_judge_told_stamp_is_the_schema_before_it() {
     assert_eq!(
-        db::stamp_of_text(&before_design_place_naming(with_review_section_words(
-            db::schema_before_judge_told()
+        db::stamp_of_text(&before_land_app_steps(before_design_place_naming(
+            with_review_section_words(db::schema_before_judge_told())
         ))),
         BEFORE_JUDGE_TOLD_STAMP
     );
@@ -957,8 +977,8 @@ fn a_store_from_before_the_judge_told_table_gains_it_and_equals_a_fresh_schema()
 #[test]
 fn the_design_circle_box_stamp_is_the_schema_before_it() {
     assert_eq!(
-        db::stamp_of_text(&before_design_place_naming(with_review_section_words(
-            db::schema_before_design_circle_box()
+        db::stamp_of_text(&before_land_app_steps(before_design_place_naming(
+            with_review_section_words(db::schema_before_design_circle_box())
         ))),
         BEFORE_DESIGN_CIRCLE_BOX_STAMP
     );
@@ -993,8 +1013,8 @@ fn a_store_from_before_the_design_circle_box_table_gains_it_and_equals_a_fresh_s
 #[test]
 fn the_design_place_naming_stamp_is_the_schema_before_it() {
     assert_eq!(
-        db::stamp_of_text(&before_design_place_naming(with_review_section_words(
-            db::schema_before_design_variants()
+        db::stamp_of_text(&before_land_app_steps(before_design_place_naming(
+            with_review_section_words(db::schema_before_design_variants())
         ))),
         BEFORE_DESIGN_PLACE_NAMING_STAMP
     );
@@ -1030,9 +1050,9 @@ fn a_store_from_before_design_places_named_no_app_work_keeps_its_places_and_equa
 #[test]
 fn the_design_variants_stamp_is_the_schema_before_it() {
     assert_eq!(
-        db::stamp_of_text(&with_review_section_words(
+        db::stamp_of_text(&before_land_app_steps(with_review_section_words(
             db::schema_before_design_variants()
-        )),
+        ))),
         BEFORE_DESIGN_VARIANTS_STAMP
     );
 }
@@ -1066,8 +1086,8 @@ fn a_store_from_before_the_design_variants_tables_equals_a_fresh_schema() {
 #[test]
 fn the_over_cap_stamp_is_the_schema_before_it() {
     assert_eq!(
-        db::stamp_of_text(&with_review_section_words(with_design_variants(
-            db::schema_before_over_cap()
+        db::stamp_of_text(&before_land_app_steps(with_review_section_words(
+            with_design_variants(db::schema_before_over_cap())
         ))),
         BEFORE_OVER_CAP_STAMP
     );
@@ -1102,8 +1122,8 @@ fn a_store_from_before_the_over_cap_table_gains_it_and_equals_a_fresh_schema() {
 #[test]
 fn the_review_section_heading_only_stamp_is_the_schema_before_it() {
     assert_eq!(
-        db::stamp_of_text(&with_review_section_words(with_design_variants(
-            db::schema()
+        db::stamp_of_text(&before_land_app_steps(with_review_section_words(
+            with_design_variants(db::schema())
         ))),
         BEFORE_REVIEW_SECTION_HEADING_ONLY_STAMP
     );
@@ -1185,7 +1205,7 @@ fn a_store_from_before_the_review_section_kept_only_its_heading_keeps_each_headi
 #[test]
 fn the_design_variants_left_stamp_is_the_schema_before_it() {
     assert_eq!(
-        db::stamp_of_text(&with_design_variants(db::schema())),
+        db::stamp_of_text(&before_land_app_steps(with_design_variants(db::schema()))),
         BEFORE_DESIGN_VARIANTS_LEFT_STAMP
     );
 }
@@ -1252,4 +1272,67 @@ INSERT INTO design_variant (design_id, position, props) VALUES (1, 0, '{{}}');",
         .collect::<std::result::Result<_, _>>()
         .unwrap();
     assert_eq!(titles, ["People rows"]);
+}
+
+#[test]
+fn the_land_app_steps_stamp_is_the_schema_before_it() {
+    assert_eq!(
+        db::stamp_of_text(&before_land_app_steps(db::schema())),
+        BEFORE_LAND_APP_STEPS_STAMP
+    );
+}
+
+/// A landing of one step of <kind>.
+fn landing(kind: crate::land_run::StepKind) -> crate::land_run::LandRun {
+    crate::land_run::LandRun {
+        project: "bae".to_string(),
+        started_at: 5,
+        repo: "bae".to_string(),
+        worktree: "/w".to_string(),
+        branch: None,
+        by: "agent".to_string(),
+        ms: 9,
+        landed: true,
+        items: Vec::new(),
+        commits: Vec::new(),
+        steps: vec![crate::land_run::Step {
+            kind,
+            started_at: 5,
+            ms: 3,
+        }],
+    }
+}
+
+/// A store from before a landing's steps took the app wait and the app
+/// build keeps each step and equals a fresh schema, whose check takes both.
+#[test]
+fn a_store_from_before_the_app_landing_steps_keeps_its_steps_and_takes_them() {
+    let scratch = Scratch::new("move-land-app-steps");
+    let places = scratch.places();
+    let dir = places.lists.join("bae");
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join(DATABASE);
+    {
+        let mut conn = Connection::open(&path).unwrap();
+        conn.execute_batch(&before_land_app_steps(db::schema()))
+            .unwrap();
+        conn.pragma_update(None, "user_version", BEFORE_LAND_APP_STEPS_STAMP)
+            .unwrap();
+        crate::land_run::write(&mut conn, &landing(crate::land_run::StepKind::Checks)).unwrap();
+    }
+    migrate_stores(&places, 0).unwrap();
+    let mut conn = db::open(&path, db::Make::Never).unwrap();
+    assert_eq!(
+        db::schema_rows(&conn).unwrap(),
+        db::schema_rows(&db::memory()).unwrap()
+    );
+    crate::land_run::write(&mut conn, &landing(crate::land_run::StepKind::AppBuild)).unwrap();
+    let kinds: Vec<String> = conn
+        .prepare("SELECT kind FROM land_step ORDER BY land_id")
+        .unwrap()
+        .query_map([], |row| row.get(0))
+        .unwrap()
+        .collect::<std::result::Result<_, _>>()
+        .unwrap();
+    assert_eq!(kinds, ["checks", "app-build"]);
 }

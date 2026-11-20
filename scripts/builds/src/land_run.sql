@@ -45,9 +45,12 @@ CREATE TABLE land_run_commit (
 
 -- The steps the run took, in the order taken. `lock`: waiting for an earlier
 -- landing in the worktree. `lists-check`: the checks of the lists and of the
--- review before anything is fetched. `fetch`, `pick` (the fast-forward or
--- cherry-pick onto origin/main), `checks` (the whole-tree checks and the
--- compile check of the result) and `push`: one of each for every attempt, so
+-- review before anything is fetched. `app-wait`: waiting, before the first
+-- fetch, for an earlier landing that changes the repo's apps. `fetch`, `pick`
+-- (the fast-forward or cherry-pick onto origin/main), `checks` (the
+-- whole-tree checks and the compile check of the result, and which app build
+-- it needs), `app-build` (the app build of the result, when main moved under
+-- the branch's last app build) and `push`: one of each for every attempt, so
 -- a refused push shows as another round. `records`: the records after the
 -- push. `finish`: leaving the worktree on the landed commit or its branch, and
 -- releasing it.
@@ -55,7 +58,7 @@ CREATE TABLE land_step (
     land_id INTEGER NOT NULL REFERENCES land_run (id) ON DELETE CASCADE,
     position INTEGER NOT NULL CHECK (position >= 0),
     kind TEXT NOT NULL CHECK (
-        kind IN ('lock', 'lists-check', 'fetch', 'pick', 'checks', 'push', 'records', 'finish')
+        kind IN ('lock', 'lists-check', 'app-wait', 'fetch', 'pick', 'checks', 'app-build', 'push', 'records', 'finish')
     ),
     started_at INTEGER NOT NULL CHECK (started_at > 0),
     ms INTEGER NOT NULL CHECK (ms >= 0),
