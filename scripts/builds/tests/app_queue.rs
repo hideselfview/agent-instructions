@@ -1247,7 +1247,7 @@ fn app_build_with_no_step_named_builds_both_lanes_and_runs_each_class_and_shots_
 fn all_shots_runs_the_lanes_shots_line_for_every_shot_of_the_lane() {
     let volume = Volume::new("all-shots");
     volume.app_repo_with(
-        "step mac one ./one.sh\nneeds mac one\nshots mac ./shot.sh --windows --select {select}\n",
+        "step mac one ./one.sh\nneeds mac one\nshots mac ./shot.sh --select {select}\n",
     );
     let top = volume.dir.join("checkout");
     let shot = top.join("shot.sh");
@@ -1289,7 +1289,7 @@ fn all_shots_runs_the_lanes_shots_line_for_every_shot_of_the_lane() {
     assert!(built.status.success(), "{said}");
     assert_eq!(
         volume.log(),
-        lines(&["start one", "end one", "shots --windows --select mac."]),
+        lines(&["start one", "end one", "shots --select mac."]),
         "{said}"
     );
 }
