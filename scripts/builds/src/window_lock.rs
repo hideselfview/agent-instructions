@@ -4,7 +4,9 @@
 //! XCUITest see the other run's windows as interruptions. So each of those
 //! steps holds the host's window lock while it runs, whichever repo, lane and
 //! app checkout it runs in, and a step that finds the lock held waits for it
-//! and says which run holds it.
+//! and says which run holds it. A `builds remote run` job on a Mac holds the
+//! same lock (remote.rs `run_job_on`), since builds cannot tell whether its
+//! command opens windows.
 //!
 //! The lock is the file `<root>/.app-windows/<host>`, held like an app lock:
 //! its descriptor stays open in every process the step starts, so the lock

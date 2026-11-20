@@ -997,7 +997,11 @@ share the display. The lock covers the host across repos, lanes and checkouts,
 and a step on another host takes its own. A step that finds the lock held waits
 for it and prints that it waits, naming the run that holds it. The build keeps
 its app checkout and its place in the lane while it waits, and a takeover ends
-the wait. Steps that open no windows never wait for it.
+the wait. Steps that open no windows never wait for it. builds cannot tell
+whether the command of a `builds remote run` job opens windows, so every such
+job on a Mac holds that Mac's window lock from before it sends its commit
+until it ends, and waits for it the same way; a job on a Linux host takes no
+lock. `builds cargo` jobs open no windows and take no lock.
 
 A --shots or --all-shots run of a `shots` line that passes --windows draws each
 scene on the host's screen, and macOS makes the shot display only when the Mac
@@ -1501,7 +1505,10 @@ indexes the build root.
                               to the host that closes. The job ends when the
                               command exits, even when it leaves processes
                               behind, as an app build's step does (APP
-                              BUILDS). Without --host, builds picks
+                              BUILDS). A job on a Mac holds the Mac's
+                              window lock while it runs, and waits for it
+                              while another run that opens windows there
+                              holds it (APP BUILDS). Without --host, builds picks
                               the host with the lowest load average per core
                               among those that answer, have free disk above the
                               floor and do not refuse jobs, this Mac included,

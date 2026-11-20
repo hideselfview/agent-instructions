@@ -1,5 +1,6 @@
 use super::*;
 use crate::host::tests::fake_ssh;
+use crate::host_platform::Os;
 use crate::testing::{Scratch, fifo, git, gone_pid, host_builds};
 
 fn args(words: &[&str]) -> Vec<String> {
@@ -265,12 +266,12 @@ fn an_unreachable_named_host_fails_naming_it() {
     };
     assert!(message.contains("host gone is not reachable"), "{message}");
     assert!(message.contains("Connection refused"), "{message}");
-    let (picked, why) = pick_host(&places, &s.ssh, 0, Some("m1")).unwrap();
-    assert_eq!(picked.name, "m1");
-    assert!(why.contains("named with --host"));
+    let picked = pick_host(&places, &s.ssh, 0, Some("m1")).unwrap();
+    assert_eq!(picked.host.name, "m1");
+    assert!(picked.why.contains("named with --host"));
     // Unnamed, the unreachable host is skipped and the line says so.
-    let (_, why) = pick_host(&places, &s.ssh, 0, None).unwrap();
-    assert!(why.contains("gone is unreachable"), "{why}");
+    let picked = pick_host(&places, &s.ssh, 0, None).unwrap();
+    assert!(picked.why.contains("gone is unreachable"), "{}", picked.why);
 }
 
 #[test]
@@ -968,4 +969,33 @@ fn a_finished_job_leaves_no_job_status_lines_on_stderr() {
     drop(lifeline);
     assert_eq!(status.code(), Some(0));
     assert_eq!(std::fs::read_to_string(&errors).unwrap(), "oops\n");
+}
+
+/// Only one process at a time opens windows on a Mac, and builds cannot tell
+/// whether a command opens any: a job on a Mac holds the host's window lock
+/// while its command runs, naming itself as the holder, and lets it go when
+/// the job ends. A job on a Linux host, which has no display, takes none.
+#[test]
+fn a_job_on_a_mac_holds_the_hosts_window_lock_while_it_runs() {
+    let s = setup("remote-window");
+    let places = s.scratch.places();
+    let holder = places.app_window_lock_file("m1").with_file_name("m1.run");
+    let copy = format!("cat {} > ../holder.txt 2>&1", holder.display());
+    let job = request(What::Ref("main".to_string()), &["sh", "-c", &copy]);
+    let wts = s.home.join("dev/demo-worktrees");
+
+    let code = run_job_on(&places, &s.ssh, &s.host, Os::Mac, &s.source, &job).unwrap();
+    assert_eq!(code, 0);
+    let held = std::fs::read_to_string(wts.join("holder.txt")).unwrap();
+    assert!(
+        held.contains(&format!("demo's job `sh -c {copy}`")),
+        "{held}"
+    );
+    assert!(!holder.exists(), "the job let the lock go");
+
+    std::fs::remove_file(wts.join("holder.txt")).unwrap();
+    let code = run_job_on(&places, &s.ssh, &s.host, Os::Linux, &s.source, &job).unwrap();
+    assert_eq!(code, 1, "cat finds no holder");
+    let held = std::fs::read_to_string(wts.join("holder.txt")).unwrap();
+    assert!(held.contains("No such file"), "{held}");
 }

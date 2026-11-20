@@ -31,6 +31,7 @@ use crate::checkout::Checkout;
 use crate::fail;
 use crate::fail::{Context, Fail, Result};
 use crate::host::{self, Host, LINUX_ROOT, REMOTE_ROOT, Ssh, VOLUME, choose, clone_path, sh_quote};
+use crate::host_platform::Os;
 use crate::job_claim::Holders;
 use crate::places::Places;
 use crate::setup::Prepare;
@@ -996,13 +997,22 @@ pub fn run_job(
     }
 }
 
-/// Picks the host: the one named, or the least loaded.
+/// The host a job runs on, the OS it runs, and the line that says why
+/// `pick_host` picked it.
+pub struct Picked {
+    pub host: Host,
+    pub os: Os,
+    pub why: String,
+}
+
+/// Picks the host: the one named, or the least loaded, which runs this
+/// machine's OS (`host::choose`).
 pub fn pick_host(
     places: &Places,
     ssh: &Ssh,
     floor_kib: u64,
     named: Option<&str>,
-) -> Result<(Host, String)> {
+) -> Result<Picked> {
     let hosts = host::all(places)?;
     match named {
         Some(name) => {
@@ -1012,12 +1022,57 @@ pub fn pick_host(
             // A named host that does not answer fails the job; nothing falls
             // back to another.
             match host::probe(places, ssh, &found) {
-                Ok(_) => Ok((found, format!("host {name}, named with --host"))),
+                Ok(probe) => Ok(Picked {
+                    host: found,
+                    os: probe.platform.os,
+                    why: format!("host {name}, named with --host"),
+                }),
                 Err(error) => fail!("host {name} is not reachable: {error}"),
             }
         }
-        None => choose(&host::probe_all(places, ssh, hosts), floor_kib),
+        None => {
+            let (host, why) = choose(&host::probe_all(places, ssh, hosts), floor_kib)?;
+            Ok(Picked {
+                host,
+                os: Os::here(),
+                why,
+            })
+        }
     }
+}
+
+/// Runs <request> on <host>, which runs <os>, as `run_job` does. Only one
+/// process at a time opens windows on a Mac, and builds cannot tell whether a
+/// command opens any, so a job on a Mac holds the host's window lock
+/// (window_lock.rs) from before it sends the commit until it ends, and waits
+/// for the lock while an app build's step or another job holds it. A Linux
+/// host has no display, so a job there takes no lock. The wait comes before
+/// `stop_on_signals`, so a stop signal ends a job that waits at once.
+pub fn run_job_on(
+    places: &Places,
+    ssh: &Ssh,
+    host: &Host,
+    os: Os,
+    source: &Path,
+    request: &Request,
+) -> Result<i32> {
+    let _window = match os {
+        Os::Mac => {
+            let what = format!("{}'s job `{}`", request.repo, request.command.join(" "));
+            let taken =
+                crate::window_lock::take(places, &host.name, &what, &|words| note(words), &|| {
+                    false
+                })?;
+            let Some(window) = taken else {
+                unreachable!("nothing ends the wait for the window lock but the lock");
+            };
+            Some(window)
+        }
+        Os::Linux => None,
+    };
+    // A stop during the send or the claim stops the command once it starts.
+    stop_on_signals();
+    run_job(places, ssh, host, source, request)
 }
 
 /// `builds remote step <host> <worktree> -- <command>...`: runs the command in
@@ -1058,16 +1113,21 @@ pub fn cmd_remote(tool: &Tool, ssh: &Ssh, args: &[String]) -> Result<()> {
     }
     let request = parse(args)?;
     let source = source_of(&tool.places, &request.repo, &request.what)?;
-    let (host, why) = pick_host(
+    let picked = pick_host(
         &tool.places,
         ssh,
         tool.rules.floor_kib,
         request.host.as_deref(),
     )?;
-    note(why);
-    // A stop during the send or the claim stops the command once it starts.
-    stop_on_signals();
-    match run_job(&tool.places, ssh, &host, &source, &request)? {
+    note(picked.why);
+    match run_job_on(
+        &tool.places,
+        ssh,
+        &picked.host,
+        picked.os,
+        &source,
+        &request,
+    )? {
         0 => Ok(()),
         code => Err(Fail::Exit(code)),
     }
