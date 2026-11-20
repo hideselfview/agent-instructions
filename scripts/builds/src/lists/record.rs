@@ -248,14 +248,6 @@ impl Record {
             Record::Design(_) => Kind::Design,
         }
     }
-
-    pub fn opened(&self) -> &Stamp {
-        match self {
-            Record::Question(q) => &q.opened,
-            Record::Item(i) => &i.opened,
-            Record::Design(d) => &d.opened,
-        }
-    }
 }
 
 impl Lists {

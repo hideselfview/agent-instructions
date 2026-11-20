@@ -1048,9 +1048,8 @@ PROJECTS
       The stack in the order it is asked, then the queue, as text, each record
       with its trail; with --tag T only the records whose trail has T; with
       --json the whole state with its derived fields (each item's state, what
-      each question blocks, each record's trail, the flow of the last 14
-      days), the JSON the dashboard reads. The dashboard adds, to each
-      worktree a running item runs in, the agent, note, note state and
+      each question blocks, each record's trail), the JSON the dashboard reads. The dashboard adds,
+      to each worktree a running item runs in, the agent, note, note state and
       commits waiting to land of its claim.
 
   builds lists project-of DIR

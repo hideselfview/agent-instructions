@@ -9,7 +9,7 @@ use serde::Serialize;
 use crate::fail::Result;
 use crate::lists::Ender;
 use crate::lists::citation::{CitedDecision, question_cites};
-use crate::lists::derive::{self, FLOW_DAYS, FlowDay, Times};
+use crate::lists::derive::{self, FLOW_DAYS, Times};
 use crate::lists::trail::{Trail, trail};
 use crate::lists::{
     Audience, DesignChange, Effect, Id, Item, LandedPart, Lists, Located, Note, Placement, PlanRef,
@@ -28,7 +28,6 @@ pub struct View {
     pub items: Vec<ItemView>,
     pub designs: Vec<DesignView>,
     pub decisions: Vec<DecisionView>,
-    pub flow: Vec<FlowDay>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -249,7 +248,6 @@ impl View {
             items: Vec::new(),
             designs: Vec::new(),
             decisions: Vec::new(),
-            flow: Vec::new(),
         }
     }
 
@@ -301,7 +299,6 @@ impl View {
             },
             designs: designs(lists, now)?,
             decisions: decisions(lists),
-            flow: derive::flow(lists, now),
         })
     }
 }

@@ -5,10 +5,8 @@ use crate::lists::fixtures::{
 };
 use crate::lists::question::Spot;
 use crate::lists::record::close;
-use crate::lists::{Audience, Effect, How, Priority, Running, Stamp};
+use crate::lists::{Audience, Effect, How, Priority, Running};
 use rusqlite::Connection;
-
-const DAY: i64 = 86400;
 
 fn place(db: &Connection, question: Id, spot: Spot) {
     crate::lists::question::place(db, question, spot, "why", true).unwrap();
@@ -358,66 +356,6 @@ fn the_design_session_gets_its_ready_items_in_the_same_order() {
         .map(|i| i.id)
         .collect();
     assert_eq!(ids, vec![blocker, plain]);
-}
-
-#[test]
-fn flow_counts_the_last_fourteen_days_by_who_opened_and_how_closed() {
-    let db = db();
-    let now = NOON;
-    item_opened(
-        &db,
-        vec![],
-        Stamp {
-            at: now,
-            by: "design-session".into(),
-        },
-    );
-    item(&db, vec![]); // coordinator, today
-    item_opened(&db, vec![], stamp(now - 3 * DAY));
-    item_opened(&db, vec![], stamp(now - 40 * DAY));
-    question(&db);
-    let landed = item_opened(&db, vec![], stamp(now - 2 * DAY));
-    close(
-        &db,
-        landed,
-        How::Landed(vec![crate::lists::fixtures::sha('a')]),
-        &stamp(now),
-    )
-    .unwrap();
-    let dropped = item(&db, vec![]);
-    close(&db, dropped, How::Dropped("x".into()), &stamp(now - DAY)).unwrap();
-    let board = design(&db);
-    close(
-        &db,
-        board,
-        How::Landed(vec![crate::lists::fixtures::sha('a')]),
-        &stamp(now),
-    )
-    .unwrap();
-
-    let days = flow(&read(&db), now);
-    assert_eq!(days.len(), FLOW_DAYS);
-    assert_eq!(days[0].day, crate::text::local_day(now));
-    assert_eq!(days[1].day, crate::text::local_day(now - DAY));
-    let opened_today = BTreeMap::from([
-        ("coordinator".to_string(), 3),
-        ("design-session".to_string(), 1),
-    ]);
-    assert_eq!(days[0].opened, opened_today);
-    assert_eq!(days[0].closed, BTreeMap::from([("landed".to_string(), 1)]));
-    assert_eq!(days[1].closed, BTreeMap::from([("dropped".to_string(), 1)]));
-    assert_eq!(
-        days[2].opened,
-        BTreeMap::from([("coordinator".to_string(), 1)])
-    );
-    assert_eq!(
-        days[3].opened,
-        BTreeMap::from([("coordinator".to_string(), 1)])
-    );
-    // The ancient item, and the design change (not an item or a question),
-    // count nowhere.
-    let total: u32 = days.iter().flat_map(|d| d.opened.values()).sum();
-    assert_eq!(total, 6);
 }
 
 #[test]

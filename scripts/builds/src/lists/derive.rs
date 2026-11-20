@@ -1,5 +1,5 @@
 //! What is derived, never stored: met waits, an item's state, the stack's
-//! order and what each entry blocks, dispatch order, flow, and what the runs
+//! order and what each entry blocks, dispatch order, and what the runs
 //! of an item or a branch add up to. The commands and the daemon both use
 //! these functions.
 
@@ -11,12 +11,11 @@ use serde::Serialize;
 use crate::fail;
 use crate::fail::Result;
 use crate::lists::{
-    Audience, Closed, Decision, DesignChange, Ended, How, Id, Item, Kind, Level, Lists, Located,
-    Position, Question, Record, Span, SpanKind, Standing, Wait, day, side_worktree_parts,
+    Audience, Closed, Decision, DesignChange, Ended, How, Id, Item, Level, Lists, Located,
+    Position, Question, Record, Span, SpanKind, Standing, Wait, side_worktree_parts,
 };
-use crate::text::local_day;
 
-/// How many days back flow counts, today included.
+/// How many days back a recently landed item or design change stays shown.
 pub const FLOW_DAYS: usize = 14;
 
 /// Does a record that closed this way free the items that wait on it? A
@@ -285,60 +284,6 @@ pub fn dispatch_order(lists: &Lists, audience: Audience) -> Vec<&Item> {
         .collect();
     queue_order(lists, &mut ready);
     ready
-}
-
-/// One day of flow.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-pub struct FlowDay {
-    pub day: String,
-    /// Items and questions opened, by who.
-    pub opened: BTreeMap<String, u32>,
-    /// Items and questions that left, by how.
-    pub closed: BTreeMap<String, u32>,
-}
-
-/// The last `FLOW_DAYS` days ending with the day of <now>, newest first, from
-/// the opened and closed stamps.
-pub fn flow(lists: &Lists, now: i64) -> Vec<FlowDay> {
-    let today = local_day(now);
-    let mut days: Vec<FlowDay> = (0..FLOW_DAYS as i64)
-        .map(|back| FlowDay {
-            day: day::days_before(&today, back).expect("local_day gives a valid date"),
-            opened: BTreeMap::new(),
-            closed: BTreeMap::new(),
-        })
-        .collect();
-    let mut opened = |at: i64, by: &str| {
-        let day = local_day(at);
-        if let Some(entry) = days.iter_mut().find(|d| d.day == day) {
-            *entry.opened.entry(by.to_string()).or_insert(0) += 1;
-        }
-    };
-    for question in &lists.questions {
-        opened(question.opened.at, &question.opened.by);
-    }
-    for item in &lists.items {
-        opened(item.opened.at, &item.opened.by);
-    }
-    for closed in &lists.closed {
-        if closed.record.kind() != Kind::Design {
-            opened(closed.record.opened().at, &closed.record.opened().by);
-        }
-    }
-    for closed in lists
-        .closed
-        .iter()
-        .filter(|c| c.record.kind() != Kind::Design)
-    {
-        let day = local_day(closed.closed.at);
-        if let Some(entry) = days.iter_mut().find(|d| d.day == day) {
-            *entry
-                .closed
-                .entry(closed.how.label().to_string())
-                .or_insert(0) += 1;
-        }
-    }
-    days
 }
 
 /// A time that adds up spans: the seconds of the spans that ended, and the

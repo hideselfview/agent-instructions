@@ -152,7 +152,6 @@ fn the_json_has_the_pages_shape() {
         json!(second.decision.0)
     );
     assert_eq!(json["decisions"][1]["work"][0]["open"], json!(true));
-    assert_eq!(json["flow"].as_array().unwrap().len(), 14);
 }
 
 #[test]
