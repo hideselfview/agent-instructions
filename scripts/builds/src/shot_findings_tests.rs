@@ -82,11 +82,13 @@ fn store_run(database: &Path, key: &Key, exit: i64, findings: &str) {
 
 #[test]
 fn the_report_folder_and_its_pictures_are_read_from_the_shots_programs_lines_and_page() {
-    let output = "x\nbae-shots: report at /w/side-1/shots/report/index.html\n";
-    assert_eq!(
-        report_dir_in(output).as_deref(),
-        Some("/w/side-1/shots/report")
-    );
+    for program in ["bae-shots", "builds shots"] {
+        let output = format!("x\n{program}: report at /w/side-1/shots/report/index.html\n");
+        assert_eq!(
+            report_dir_in(&output).as_deref(),
+            Some("/w/side-1/shots/report")
+        );
+    }
     assert_eq!(report_dir_in("no report here\n"), None);
     let html = r#"<img src="img/a.png"><img src="img/a.png"><img src="/etc/x"><img src="../up.png"><img src="https://x/y.png"><img src="img/b c.png">"#;
     assert_eq!(report_files(html), vec!["img/a.png", "img/b c.png"]);

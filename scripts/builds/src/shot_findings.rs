@@ -18,7 +18,7 @@
 //!
 //! The run's report and pictures are kept beside the findings, so the next
 //! run in the same app checkout (which rewrites the checkout's `shots/`
-//! folder) cannot take them. When the shots program prints `bae-shots: report
+//! folder) cannot take them. When the shots program prints `<its name>: report
 //! at <folder>/index.html`, the run copies that `index.html` and the files it
 //! names (`img/...`) from the checkout, or from a host's checkout, to
 //! `<store folder>/shots/<commit>-<platform>-<prefix>-<version>/`: the folder
@@ -69,16 +69,17 @@ pub struct Key {
 /// How many runs' report folders a store keeps: the newest by their time.
 pub const KEEP_REPORTS: usize = 30;
 
-/// The line the shots program prints before the path of its report.
-const REPORT_AT: &str = "bae-shots: report at ";
+/// What the shots program prints, after its own name (`bae-shots`, `builds
+/// shots`), before the path of its report.
+const REPORT_AT: &str = ": report at ";
 
 /// The folder of the shots report <output> names (the folder that holds the
-/// `index.html` its last `bae-shots: report at` line gives), if it does.
+/// `index.html` its last `<program>: report at` line gives), if it does.
 pub fn report_dir_in(output: &str) -> Option<String> {
     let line = output
         .lines()
         .rev()
-        .find_map(|line| line.trim().strip_prefix(REPORT_AT))?;
+        .find_map(|line| line.trim().split_once(REPORT_AT).map(|(_, path)| path))?;
     let dir = line.trim().strip_suffix("/index.html")?;
     (!dir.is_empty()).then(|| dir.to_string())
 }
