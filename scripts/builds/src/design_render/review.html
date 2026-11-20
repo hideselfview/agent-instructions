@@ -225,8 +225,7 @@ function board(b) {
   const isNew = b.now && b.now.absent;
   const labels = b.circles.map(c => c.label).filter(Boolean);
   const problems = h("div", {});
-  const status = h("div", {class: "status"}, isNew ? "New board" : "",
-    labels.length ? "Circled: " + labels.join("; ") : "", problems);
+  const status = h("div", {class: "status"}, boardStatus(isNew, labels), problems);
   const pair = {problems, circles: b.circles};
   const sides = h("div", {class: "pair"},
     side("Now (origin/main)", b.now, "This board is new: it has no now.", pair, "now"),

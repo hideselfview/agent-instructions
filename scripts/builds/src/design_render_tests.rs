@@ -545,6 +545,41 @@ fn circle_marks(circles: &Value, now: &Value, proposed: &Value) -> Value {
     serde_json::from_slice(&out.stdout).unwrap()
 }
 
+/// What `boardStatus` of the review page's script (`circles.js`) says under a
+/// board's caption.
+fn board_status(is_new: bool, labels: &[&str]) -> String {
+    let program = format!(
+        "{}\nconsole.log(JSON.stringify(boardStatus({is_new}, {})));",
+        CIRCLES_SCRIPT,
+        json!(labels)
+    );
+    let out = std::process::Command::new("node")
+        .arg("-e")
+        .arg(program)
+        .output()
+        .expect("these tests run the page's script in node, which must be installed");
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    serde_json::from_slice(&out.stdout).unwrap()
+}
+
+#[test]
+fn a_new_boards_status_keeps_its_words_apart_from_the_circles() {
+    assert_eq!(
+        board_status(true, &["The greeting", "The button"]),
+        "New board. Circled: The greeting; The button"
+    );
+    assert_eq!(board_status(true, &[]), "New board.");
+    assert_eq!(
+        board_status(false, &["The greeting"]),
+        "Circled: The greeting"
+    );
+    assert_eq!(board_status(false, &[]), "");
+}
+
 fn found(boxes: &[(i64, i64)]) -> Value {
     json!({ "boxes": boxes.iter().map(|(x, y)| json!({ "x": x, "y": y, "w": 100, "h": 20 })).collect::<Vec<_>>() })
 }

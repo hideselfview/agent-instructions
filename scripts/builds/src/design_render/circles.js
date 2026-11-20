@@ -36,3 +36,11 @@ function circleMarks(circles, now, proposed) {
   });
   return out;
 }
+
+// The line under a board's caption: "New board." for a board with no now, then
+// "Circled: " and the labels of its circles, the parts apart by a space.
+function boardStatus(isNew, labels) {
+  return [isNew ? "New board." : "", labels.length ? "Circled: " + labels.join("; ") : ""]
+    .filter(Boolean)
+    .join(" ");
+}
