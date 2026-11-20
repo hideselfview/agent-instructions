@@ -11,7 +11,8 @@
 //! sleeping because nobody uses it, on battery as on power, and
 //! NetworkClientActive, on power, also keeps it awake through a maintenance
 //! wake (a dark wake), where the first has no effect. Neither keeps a Mac on
-//! battery awake once its lid closes or through a maintenance wake.
+//! battery awake once its lid closes or through a maintenance wake; when such
+//! a sleep ends a connection, the failure names it (sleeps.rs).
 //!
 //! Work on this Mac itself needs neither: a sleep only pauses it. macOS
 //! releases a process's assertions when the process ends, however it ends.

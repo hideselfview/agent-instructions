@@ -118,6 +118,7 @@ mod shells;
 mod shot_findings;
 mod shots_program;
 mod side_git;
+mod sleeps;
 mod spotlight;
 mod sql_shape;
 mod status;

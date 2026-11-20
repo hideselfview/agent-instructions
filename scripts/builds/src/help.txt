@@ -1319,7 +1319,12 @@ answers nothing on its connections, and the host ends a connection that
 gets no answer for about twenty seconds, which stops the command there.
 Neither assertion keeps a Mac on battery awake once its lid closes or
 through a maintenance wake. Work on this Mac alone holds no assertion, since
-a sleep only pauses it.
+a sleep only pauses it. When ssh to a host exits 255, the status it gives
+when its connection fails, builds reads the power log (`pmset -g log`) of
+this Mac and of the host, and says on stderr each sleep either one recorded
+while the command ran: when it began, how long it lasted, the reason macOS
+gave, such as Clamshell Sleep or Idle Sleep, and whether the Mac ran on
+battery.
 
 A Mac runs UI tests with nobody at its screen only with three settings on.
 Without them, XCTest asks for a password on its screen, or says "Timed out

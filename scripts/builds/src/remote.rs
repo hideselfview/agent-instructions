@@ -57,6 +57,10 @@ pub const RUN_FILE: &str = "run";
 /// The exit status builds gives a job a signal stopped.
 const STOPPED_EXIT: i32 = 130;
 
+/// The exit status of ssh when its connection fails, which is also ssh's
+/// status when the command it ran exits 255.
+const SSH_FAILED: i32 = 255;
+
 /// Set by the signal handler `stop_on_signals` installs: the person or a
 /// parent stopped this command.
 static STOPPED: AtomicBool = AtomicBool::new(false);
@@ -695,7 +699,9 @@ pub fn release_script(repo: &str, worktree: Option<&str>, id: &str) -> String {
 /// stdin (`run_script`). When <cargo> is given (the command is cargo), builds
 /// reads the command's stdout and stderr as they pass through, gives each
 /// line to that watch, and also returns how long cargo waited for its file
-/// locks (lock_wait.rs).
+/// locks (lock_wait.rs). When ssh to a host exits 255, builds says on stderr
+/// which sleeps this Mac's power log and the host's record while the command
+/// ran (sleeps.rs).
 pub fn run_command(
     transport: &Transport,
     worktree: &str,
@@ -707,6 +713,7 @@ pub fn run_command(
     stop_on_signals();
     let lifeline = Lifeline::claim()?;
     let run = job_id();
+    let started = crate::app_timing::now();
     let mut child = transport
         .command(&run_script(transport.host, worktree, command, &run))
         // The command's lifeline (`run_script`): this process holds the
@@ -748,13 +755,23 @@ pub fn run_command(
         relay.map(|relay| relay.join().expect("the relay does not panic"))
     };
     let status = child.wait();
+    let ended = crate::app_timing::now();
     drop(lifeline);
     let status = status.context(|| "waiting for the command".to_string())?;
     let waited = waited();
     if STOPPED.load(Ordering::SeqCst) {
         return Ok((STOPPED_EXIT, waited));
     }
-    Ok((crate::fail::exit_code(status), waited))
+    let code = crate::fail::exit_code(status);
+    if code == SSH_FAILED && transport.host.target.is_some() {
+        note(crate::sleeps::why_dropped(
+            transport.ssh,
+            transport.host,
+            started,
+            ended,
+        ));
+    }
+    Ok((code, waited))
 }
 
 /// Passes the host's stdout <from> on to this process's stdout, giving each
