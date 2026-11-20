@@ -150,7 +150,7 @@ fn review_of(boards: &[&str]) -> serde_json::Value {
         .iter()
         .map(|b| json!({ "board": b, "caption": format!("the {b}"), "theme": "dark", "circles": [{ "selector": "#r" }] }))
         .collect();
-    json!({ "heading": "What changed", "words": "the words under it", "boards": boards })
+    json!({ "heading": "What changed", "boards": boards })
 }
 
 /// A request for `base..HEAD` answering <places>, with a canvas link and a place on the review page for each board among them.
@@ -1695,7 +1695,7 @@ fn a_design_change_needs_a_review_page_with_every_board_of_the_change_on_it() {
 }
 
 #[test]
-fn a_review_page_is_one_section_with_at_most_25_words() {
+fn a_review_page_is_one_section() {
     let w = world("design-review-short");
     let (a, b) = ("design/mocks/A.dc.html", "design/mocks/B.dc.html");
     w.commit(&[a, b]);
@@ -1712,28 +1712,8 @@ fn a_review_page_is_one_section_with_at_most_25_words() {
         refused.contains("review") || refused.contains("sequence"),
         "{refused}"
     );
-    let mut long = review_of(&[a, b]);
-    long["words"] = json!(vec!["word"; 26].join(" "));
-    let refused = message(w.request(with(long)));
-    assert!(
-        refused.contains("26 words") && refused.contains("at most 25"),
-        "{refused}"
-    );
     assert_eq!(w.bytes(), before);
     w.request(with(review_of(&[a, b]))).unwrap();
-    // An amend refuses the same page.
-    let mut over = review_of(&[a, b]);
-    over["words"] = json!(vec!["word"; 26].join(" "));
-    let mut amend = base_request(&w, places.clone());
-    amend.as_object_mut().unwrap().remove("title");
-    amend["review"] = over;
-    assert!(message(w.amend(1, amend)).contains("26 words"));
-    let mut exact = review_of(&[a, b]);
-    exact["words"] = json!(vec!["word"; 25].join("\n"));
-    let mut amend = base_request(&w, places.clone());
-    amend.as_object_mut().unwrap().remove("title");
-    amend["review"] = exact;
-    w.amend(1, amend).unwrap();
 }
 
 #[test]
@@ -2175,11 +2155,7 @@ fn every_named_constraint_of_the_design_tables_refuses_its_row() {
         ),
     );
     plant(&db, "design_board", &board).unwrap();
-    let section = [
-        ("design_id", v(good.0)),
-        ("heading", v("H")),
-        ("words", v("")),
-    ];
+    let section = [("design_id", v(good.0)), ("heading", v("H"))];
     refused.check(
         "review_section_heading_says_something",
         plant(
@@ -2264,7 +2240,6 @@ fn dropping_a_place_takes_its_board_with_it_and_a_section_its_review_boards_and_
         &[("design/mocks/A.dc.html", "https://x/#A")],
         Some(ReviewSection {
             heading: "H".into(),
-            words: String::new(),
             boards: vec![ReviewBoard {
                 board: "design/mocks/A.dc.html".into(),
                 caption: "c".into(),

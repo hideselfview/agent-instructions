@@ -186,13 +186,11 @@ impl From<Circle> for CircleFields {
     }
 }
 
-/// The heading of a review page, the words under it, and the boards.
+/// The heading of a review page and its boards.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ReviewSection {
     pub heading: String,
-    #[serde(default)]
-    pub words: String,
     #[serde(default)]
     pub boards: Vec<ReviewBoard>,
 }
@@ -225,7 +223,7 @@ pub struct DesignChange {
     /// The board files the change deletes: they need no answer or link, and
     /// the review page names them without a drawing.
     pub deleted: BTreeSet<String>,
-    /// How the review page reads: its heading, words and boards. None for a
+    /// How the review page reads: its heading and boards. None for a
     /// change recorded as a fix or a decision, which has no page.
     pub review: Option<ReviewSection>,
     /// Why shared design files changed and no drawing did.
@@ -337,7 +335,7 @@ struct RequestFields {
     /// canvas gives for every board and any other project leaves out.
     #[serde(default)]
     pub boards: BTreeMap<String, Board>,
-    /// How the review page reads: headings, the words under each, and its
+    /// How the review page reads: headings and its
     /// boards, which the dashboard draws from the range's last commit. Required
     /// to record; an amend that gives it replaces the page, one that doesn't
     /// keeps it. Every board place of the change must be on it.
@@ -605,10 +603,6 @@ fn resolve(
     Ok(new_items)
 }
 
-/// The most words under a review page's heading: the person reads every
-/// design change on it.
-const MAX_SECTION_WORDS: usize = 25;
-
 /// The most words in a design change's details, and in each sentence of them:
 /// the review page shows them beside the boards, which carry the change.
 const MAX_DETAILS_WORDS: usize = 40;
@@ -635,20 +629,13 @@ fn check_details(details: &str) -> Result<()> {
     Ok(())
 }
 
-/// A review page's own rules: its heading has text, its words are at most
-/// `MAX_SECTION_WORDS`, every board on it has a caption, and each circle has a
+/// A review page's own rules: its heading has text, every board on it has a caption, and each circle has a
 /// selector and, if it has a label, words in it. (That a board is a board file,
 /// one of the repo's board places, and exists in the worktree is the command's,
 /// which reads git and the files.)
 fn check_review(section: &ReviewSection) -> Result<()> {
     if section.heading.trim().is_empty() {
         fail!("`review` has an empty heading");
-    }
-    let words = section.words.split_whitespace().count();
-    if words > MAX_SECTION_WORDS {
-        fail!(
-            "the words of the review page are {words} words; they are at most {MAX_SECTION_WORDS}"
-        );
     }
     for board in &section.boards {
         if board.caption.trim().is_empty() {
@@ -805,8 +792,8 @@ pub fn save(db: &Connection, design: &DesignChange) -> Result<()> {
     }
     if let Some(section) = &design.review {
         db.execute(
-            "INSERT INTO review_section (design_id, heading, words) VALUES (?1, ?2, ?3)",
-            params![design.id, section.heading, section.words],
+            "INSERT INTO review_section (design_id, heading) VALUES (?1, ?2)",
+            params![design.id, section.heading],
         )
         .sql()?;
         for (at, board) in section.boards.iter().enumerate() {
@@ -871,7 +858,7 @@ pub fn record(
     check_details(&details)?;
     if request.review.is_none() && request.settlement.needs_review() {
         fail!(
-            "a design change needs its `review`: the headings, words and boards of the page the person reviews it on (a `fix` that changes no design, or a board edit of a change the person decided in a `decision`, needs none)"
+            "a design change needs its `review`: the headings and boards of the page the person reviews it on (a `fix` that changes no design, or a board edit of a change the person decided in a `decision`, needs none)"
         );
     }
     let design = open_change(
@@ -1660,24 +1647,19 @@ pub fn read(
     }
     let mut review: BTreeMap<Id, ReviewSection> = BTreeMap::new();
     let mut statement = db
-        .prepare("SELECT design_id, heading, words FROM review_section")
+        .prepare("SELECT design_id, heading FROM review_section")
         .sql()?;
     for row in statement
         .query_map([], |row| {
-            Ok((
-                row.get::<_, Id>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, String>(2)?,
-            ))
+            Ok((row.get::<_, Id>(0)?, row.get::<_, String>(1)?))
         })
         .sql()?
     {
-        let (design, heading, words) = row.sql()?;
+        let (design, heading) = row.sql()?;
         review.insert(
             design,
             ReviewSection {
                 heading,
-                words,
                 boards: Vec::new(),
             },
         );

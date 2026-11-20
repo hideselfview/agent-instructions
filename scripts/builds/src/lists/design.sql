@@ -65,11 +65,10 @@ CREATE TABLE design_board (
     CONSTRAINT design_board_is_a_place FOREIGN KEY (design_id, path) REFERENCES design_place (design_id, path) ON DELETE CASCADE
 ) STRICT, WITHOUT ROWID;
 
--- The review page's heading and words: one per design change.
+-- The review page's heading: one per design change.
 CREATE TABLE review_section (
     design_id INTEGER PRIMARY KEY REFERENCES design (id) ON DELETE CASCADE,
-    heading TEXT NOT NULL CONSTRAINT review_section_heading_says_something CHECK (trim(heading) <> ''),
-    words TEXT NOT NULL
+    heading TEXT NOT NULL CONSTRAINT review_section_heading_says_something CHECK (trim(heading) <> '')
 ) STRICT;
 
 CREATE TABLE review_board (

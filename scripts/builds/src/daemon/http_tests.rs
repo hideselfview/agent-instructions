@@ -293,7 +293,6 @@ fn design_store(scratch: &Scratch, places: &crate::places::Places) {
                 &[],
                 Some(ReviewSection {
                     heading: "The change".into(),
-                    words: "what it shows".into(),
                     boards: vec![
                         ReviewBoard {
                             board: "design/mocks/A.dc.html".into(),
@@ -322,10 +321,7 @@ fn the_daemon_draws_a_design_changes_review_page_and_its_boards_from_the_changes
     let s = server_with("http-design", design_store);
     let (status, kind, page) = s.get("/design/demo/1");
     assert_eq!((status, kind.as_str()), (200, "text/html; charset=utf-8"));
-    assert!(
-        page.contains("\"heading\":\"The change\"") && page.contains("/design/demo/1/board/0"),
-        "{page}"
-    );
+    assert!(page.contains("/design/demo/1/board/0"), "{page}");
     assert!(
         page.contains("/design/demo/1/board/0/now")
             && page.contains("/design/demo/1/board/0/proposed")

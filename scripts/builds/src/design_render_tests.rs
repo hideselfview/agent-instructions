@@ -178,12 +178,11 @@ fn review_of(dir: &Path, tip: &str) -> (DesignChange, DesignView) {
         &dir.display().to_string(),
         &[("design/mocks/A.dc.html", "https://canvas.example/#A")],
         Some(ReviewSection {
-            heading: "A </script> heading".into(),
-            words: "words".into(),
+            heading: "A heading".into(),
             boards: vec![
                 ReviewBoard {
                     board: "design/mocks/A.dc.html".into(),
-                    caption: "the A".into(),
+                    caption: "the A </script> caption".into(),
                     theme: Theme::Dark,
                     circles: vec![],
                 },
@@ -225,7 +224,7 @@ fn set_origin_main(dir: &Path, commit: &str) {
 }
 
 #[test]
-fn a_review_page_has_its_heading_and_each_board_now_and_proposed_sized_from_the_canvas() {
+fn a_review_page_has_each_board_now_and_proposed_sized_from_the_canvas() {
     let scratch = Scratch::new("render-review");
     let dir = tree(&scratch);
     let tip = commit(&dir);
@@ -233,11 +232,14 @@ fn a_review_page_has_its_heading_and_each_board_now_and_proposed_sized_from_the_
     let (change, view) = review_of(&dir, &tip);
     let page = review_page(&change, &view, "demo").unwrap();
     assert!(
-        !page.contains("A </script> heading"),
+        !page.contains("A </script> caption"),
         "text can't end the data script"
     );
     let data = page_data(&page);
-    assert_eq!(data["section"]["heading"], json!("A </script> heading"));
+    assert_eq!(
+        data["section"]["boards"][0]["caption"],
+        json!("the A </script> caption")
+    );
     let boards = &data["section"]["boards"];
     let id = change.id.0;
     for side in ["now", "proposed"] {

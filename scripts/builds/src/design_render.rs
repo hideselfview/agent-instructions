@@ -365,7 +365,7 @@ pub fn review_page(design: &DesignChange, view: &DesignView, project: &str) -> R
                 })
             })
             .collect();
-        json!({ "heading": section.heading, "words": section.words, "boards": boards })
+        json!({ "boards": boards })
     });
     let deleted: Vec<Value> = design
         .deleted

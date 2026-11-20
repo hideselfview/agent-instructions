@@ -11,7 +11,6 @@ fn one_board(db: &Connection) -> Id {
         &[],
         Some(ReviewSection {
             heading: "What changed".into(),
-            words: String::new(),
             boards: vec![ReviewBoard {
                 board: "design/mocks/A.dc.html".into(),
                 caption: "the A".into(),

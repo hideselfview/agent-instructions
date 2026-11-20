@@ -578,7 +578,7 @@ the paths they change and by the bytes of the boards, components and sources
 at the change's last commit and at the commits' last one, never by commit
 hash.
 
-The review page shows the change's words under its heading, with every board
+The review page shows the change's details, with every board
 of the change drawn twice, side by side, in frames the person can zoom (never
 an image): now, the board as it stands on origin/main, and proposed, the board
 at the last commit of the change's range, each drawn with its own commit's
@@ -626,7 +626,7 @@ sent again.
       FILE: {"title", "details", "worktree", "range": "origin/main..HEAD",
       "places": {PLACE: null | {"item": N} | {"new": ITEM_DRAFT} | {"matches": HOW}},
       "boards": {BOARD: {"link": CANVAS_URL}},
-      "review": {"heading": H, "words": WORDS,
+      "review": {"heading": H,
                  "boards": [{"board": BOARD_PATH, "caption": C,
                              "theme": "light" | "dark",
                              "circles": [{"selector": CSS_SELECTOR |
