@@ -62,6 +62,7 @@ mod hook_impact;
 mod hook_stats;
 mod host;
 mod host_band;
+mod host_front_app;
 mod host_installed;
 mod host_linux;
 mod host_load;

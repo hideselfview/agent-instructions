@@ -79,8 +79,8 @@ pub enum FindingKind {
     Claim,
     /// A process with a lot of CPU time that looks stuck.
     Busy,
-    /// A build host that refuses work, or lacks something builds sets up
-    /// there.
+    /// A build host that refuses work, lacks something builds sets up
+    /// there, or shows a system alert in front of every app.
     Host,
     /// No dashboard runs.
     Dashboard,
@@ -1503,7 +1503,8 @@ impl Scanned {
 /// `builds` differs from this Mac's or that builds could not ask, and each
 /// Mac whose sccache server launchd does not run (host_installed.rs), and
 /// each Mac that lacks a setting that UI tests need or whose UI tests timed out
-/// (ui_test_settings.rs). `assess` judges
+/// (ui_test_settings.rs), and each Mac whose front app is a system alert
+/// (host_front_app.rs). `assess` judges
 /// only what this Mac's process reading finds, which runs no ssh, so `builds
 /// health` and the dashboard each add these findings to the ones `assess`
 /// returns.
@@ -1551,6 +1552,7 @@ pub fn host_findings(
                 .map(crate::host::refusal_finding)
                 .chain(crate::host_installed::installed_findings(installed))
                 .chain(crate::ui_test_settings::findings(refusals, installed))
+                .chain(crate::host_front_app::findings(&scanned.scans))
                 .map(|advice| Finding::new(FindingKind::Host, advice)),
         )
         .collect()

@@ -11,6 +11,7 @@ use std::path::Path;
 use crate::fail;
 use crate::fail::Result;
 use crate::host::{Accept, Host, Ssh, Terminal, command_at, output_of, place};
+use crate::host_front_app::FrontApp;
 use crate::process_readings::{self, Reading, measure};
 use crate::stuck::{PS_FORMAT, Row, parse_ps};
 
@@ -35,6 +36,9 @@ pub struct Scan {
     /// The sccache server that listens there, or None when none does; Err
     /// when the script could not tell.
     pub sccache: std::result::Result<Option<CacheServer>, String>,
+    /// The app in front there (host_front_app.rs): None on a host that runs
+    /// no lsappinfo, and Err when the host's answer names no app.
+    pub front_app: std::result::Result<Option<FrontApp>, String>,
 }
 
 /// A host's sccache server and what it says about its compiles.
@@ -98,13 +102,14 @@ impl JobRun {
 /// folder's run record when its command ends, but one that was killed leaves
 /// the record behind, naming a group that no longer runs, so the script
 /// prints only the groups that run. dash, Linux's sh, takes no `--` before a
-/// process group.
+/// process group. A Mac also prints its front app (host_front_app.rs).
 pub fn script(host: &Host) -> String {
     format!(
         r#"{root}echo "uid=$(id -u)"
 echo "now=$(date +%s)"
 case "$(uname -s)" in
-Darwin) echo "cpu=$(top -l 2 -n 0 -s 1 2>&1 | awk '/^CPU usage/{{line=$0}} END{{print line}}')" ;;
+Darwin) echo "cpu=$(top -l 2 -n 0 -s 1 2>&1 | awk '/^CPU usage/{{line=$0}} END{{print line}}')"
+  {front_app} ;;
 *) echo "cpu_idle=$( (head -n 1 /proc/stat; sleep 1; head -n 1 /proc/stat) | awk '{{t = 0; for (i = 2; i <= 9; i++) t += $i; if (NR == 1) {{ t1 = t; i1 = $5 + $6 }} else if (t > t1) printf "%.1f", ($5 + $6 - i1) * 100 / (t - t1)}}')" ;;
 esac
 for claim in "$HOME"/dev/*-worktrees/*.job; do
@@ -118,6 +123,7 @@ echo {PS_FOLLOWS}
 ps -axww -o {PS_FORMAT}"#,
         root = crate::remote::root_script(host),
         listener = crate::sccache::listener_script(),
+        front_app = crate::host_front_app::SCRIPT_LINE,
         run_file = crate::remote::RUN_FILE,
     )
 }
@@ -181,6 +187,7 @@ pub fn parse(text: &str, readings: &[Reading]) -> std::result::Result<Scan, Stri
         },
         jobs,
         sccache,
+        front_app: crate::host_front_app::parse(value("front_app")),
     })
 }
 

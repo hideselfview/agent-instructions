@@ -774,3 +774,8 @@ whose caller is gone. The lines below are what remains to act on.
   - An app lock held long, or with agents waiting: check that the holder is
     building, not stuck. A step past its time limit is killed and passes the
     lock on.
+  - A Mac that shows a system alert in front of every app
+    (UserNotificationCenter, SecurityAgent or CoreServicesUIAgent): the alert
+    keeps the focus from every Mac window shot there, so each one fails. The
+    line names the alert and its pid. Answer or close the alert on that Mac,
+    or end its process with the command the line gives.

@@ -149,6 +149,22 @@ exit 1
     )
     .unwrap();
     std::fs::set_permissions(&lsof, std::fs::Permissions::from_mode(0o755)).unwrap();
+    // lsappinfo as macOS's prints it while the notification alert holds the
+    // focus: `front` names the app's ASN, and `info` describes it over
+    // several lines.
+    let lsappinfo = bin.join("lsappinfo");
+    std::fs::write(
+        &lsappinfo,
+        r#"#!/bin/sh
+case "$1 $4" in
+front*) echo 'ASN:0x0-0x1a01a:' ;;
+'info ASN:0x0-0x1a01a:') printf '%s\n' '"UserNotificationCenter" ASN:0x0-0x1a01a: (in front) ' '    bundleID=[ NULL ] ' '    pid = 812 !cgsConnection !signalled' ;;
+*) exit 1 ;;
+esac
+"#,
+    )
+    .unwrap();
+    std::fs::set_permissions(&lsappinfo, std::fs::Permissions::from_mode(0o755)).unwrap();
     let home = scratch.dir.join("home");
     let worktrees = home.join("dev/demo-worktrees");
     let (running, ended) = (
@@ -211,6 +227,13 @@ exit 1
     assert_eq!(scan_while_running.uid, unsafe { libc::getuid() });
     assert_eq!(scan_while_running.cpu_idle, Ok(40.0));
     assert_eq!(scan_while_running.sccache, Ok(None));
+    assert_eq!(
+        scan_while_running.front_app,
+        Ok(Some(FrontApp {
+            name: Some("UserNotificationCenter".to_string()),
+            pid: 812,
+        }))
+    );
     assert_eq!(
         scan_while_running.jobs,
         [JobRun {
