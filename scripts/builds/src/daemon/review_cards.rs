@@ -297,7 +297,7 @@ impl Reads {
                 .map_err(Fail::text)?
             {
                 Verdict::NotNeeded => Judgment::NotNeeded,
-                Verdict::Takes(_) => Judgment::Takes,
+                Verdict::Takes(_) | Verdict::OverCap(_) => Judgment::Takes,
                 Verdict::NoRun => Judgment::NotRun,
                 Verdict::Unfinished(_, unfinished) if !unfinished.unsettled.is_empty() => {
                     Judgment::ToSettle(unfinished.unsettled.len())

@@ -942,18 +942,9 @@ fn big_commit(side: &Path, file: &str, body: &str) -> String {
     crate::testing::git_out(side, &["rev-parse", "HEAD"])
 }
 
-fn over_the_cap_of(demo: &Demo, fake: &Fake, side: &Path, sha: &str) -> Over {
+fn waits_over_cap_of(demo: &Demo, fake: &Fake, side: &Path, sha: &str) -> Option<String> {
     let asked = asked(demo, fake, side, &[sha.to_string()]);
-    let verdict = judge(
-        &asked.conn,
-        asked.change(),
-        side,
-        &asked.needs,
-        CodeCheck::Branch("HEAD"),
-        &asked.material,
-    )
-    .unwrap();
-    super::over_the_cap(&asked, &verdict).unwrap()
+    super::waits_over_cap(&asked).unwrap()
 }
 
 #[test]
@@ -975,19 +966,21 @@ fn a_branch_over_the_cap_that_needs_no_review_lands_with_land_saying_why() {
     let reported = review_of(&demo, &fake, &side);
     assert!(reported.refusal.is_none(), "{}", reported.text);
     assert!(fake.prompts().is_empty());
-    let Over::Takes(said) = over_the_cap_of(&demo, &fake, &side, &board) else {
-        panic!("a branch of design files only needs no review")
-    };
+    // The review's verdict takes the branch, so land, the dashboard's card
+    // and health all say it lands.
+    let (verdict, refusal) = verdict_of(&demo, &fake, &side, std::slice::from_ref(&board));
+    assert!(matches!(verdict, Verdict::OverCap(_)), "{verdict:?}");
+    assert_eq!(refusal, None);
+    assert!(blockers(&verdict).is_empty());
+    let said = taken(&verdict);
     assert!(said.starts_with(over_cap::TAKEN), "{said}");
     assert!(said.contains("design files only"), "{said}");
     assert!(said.contains("patch id"), "{said}");
     // A rebase that keeps the lines keeps the answer: another commit that
     // changes a line makes it another branch.
     let code = big_commit(&side, "a.rs", "let x = 1;\n");
-    assert!(matches!(
-        over_the_cap_of(&demo, &fake, &side, &code),
-        Over::Under
-    ));
+    let (verdict, _) = verdict_of(&demo, &fake, &side, &[board, code]);
+    assert_eq!(verdict, Verdict::NoRun);
 }
 
 #[test]
@@ -998,7 +991,7 @@ fn a_branch_over_the_cap_that_waits_on_the_person_does_not_land() {
     let code = big_commit(&side, "a.rs", "let x = 1;\n");
     let reported = review_of(&demo, &fake, &side);
     assert!(reported.refusal.is_some());
-    let Over::Waits(said) = over_the_cap_of(&demo, &fake, &side, &code) else {
+    let Some(said) = waits_over_cap_of(&demo, &fake, &side, &code) else {
         panic!("a branch of code over the cap waits on the person")
     };
     assert!(said.contains("Question"), "{said}");

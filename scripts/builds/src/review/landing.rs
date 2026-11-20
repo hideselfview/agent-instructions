@@ -15,7 +15,11 @@
 //! commit message a group reads, changed since the last review
 //! (`run::diff_since`, which `builds review` reads as its next run), every
 //! group asked over a diff a run read answered over it (`Coverage`, which
-//! `builds review` uses too), and the coordinator settled every finding.
+//! `builds review` uses too), and the coordinator settled every finding. It
+//! also takes a branch that adds more lines than the review's cap when
+//! `builds review` recorded it as needing no review (`over_cap.rs`) and no
+//! finding waits; `judge` decides that too, so land, the dashboard's cards
+//! and health agree on such a branch.
 //! A confirmed finding stays open until a later review closes it, because the
 //! changes that review read fix it, or the coordinator settles it again as
 //! dropped. A rebase that keeps every line the branch adds and removes leaves
@@ -43,6 +47,7 @@ use crate::lists::store::{Store, resolve_by};
 use crate::review::check;
 use crate::review::commits;
 use crate::review::files;
+use crate::review::mechanical::Mechanical;
 use crate::review::over_cap;
 use crate::review::record::{self, Change, LandingRow};
 use crate::review::render;
@@ -129,6 +134,16 @@ impl Unfinished {
     }
 }
 
+/// A branch over the review's cap that needs no review: how many lines it
+/// adds, why it needs none, and the patch id of its net change, which
+/// `builds review` recorded.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OverCap {
+    pub added: i64,
+    pub why: Mechanical,
+    pub patch_id: String,
+}
+
 /// What the review says of a landing.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Verdict {
@@ -136,6 +151,9 @@ pub enum Verdict {
     NotNeeded,
     /// A finished review covers the commits.
     Takes(Covered),
+    /// The branch adds more lines than the review's cap and needs no review,
+    /// and no finding of an earlier review waits.
+    OverCap(OverCap),
     /// The change's key has no open review.
     NoRun,
     /// The change's review does not take the commits yet.
@@ -331,8 +349,10 @@ fn assess(
 }
 
 /// Whether the review lets the commits of <needs>, read from the checkout at
-/// <dir>, land: the open review of <change> must take them. <check> says whether
-/// to read the branch's net change, and <material> holds the groups and the
+/// <dir>, land: the open review of <change> must take them, or, when <check>
+/// reads the branch, the branch is over the review's cap and needs no review
+/// while no finding waits (`over_cap_needs_none`). <check> says whether to
+/// read the branch's net change, and <material> holds the groups and the
 /// rules that say which group reads a path or a commit message.
 pub fn judge(
     db: &Connection,
@@ -345,23 +365,72 @@ pub fn judge(
     if needs.iter().all(|n| n.groups.is_empty()) {
         return Ok(Verdict::NotNeeded);
     }
-    let Some(open) = record::open_landing(db, change)? else {
-        return Ok(Verdict::NoRun);
+    let verdict = match record::open_landing(db, change)? {
+        None => Verdict::NoRun,
+        Some(open) => {
+            let landing = record::landing(db, open)?;
+            let (covered, unfinished) = assess(db, dir, &landing, check, material)?;
+            if unfinished.is_empty() {
+                return Ok(Verdict::Takes(covered));
+            }
+            Verdict::Unfinished(covered, unfinished)
+        }
     };
-    let landing = record::landing(db, open)?;
-    let (covered, unfinished) = assess(db, dir, &landing, check, material)?;
-    if unfinished.is_empty() {
-        Ok(Verdict::Takes(covered))
-    } else {
-        Ok(Verdict::Unfinished(covered, unfinished))
+    let findings_wait = match &verdict {
+        Verdict::Unfinished(_, unfinished) => {
+            !unfinished.unsettled.is_empty() || !unfinished.open.is_empty()
+        }
+        _ => false,
+    };
+    if let CodeCheck::Branch(head) = check
+        && !findings_wait
+        && let Some(over) = over_cap_needs_none(db, change, dir, head)?
+    {
+        return Ok(Verdict::OverCap(over));
     }
+    Ok(verdict)
+}
+
+/// The net change of <head> in the checkout at <dir> past origin/main, and
+/// how many lines it adds, when it adds more than the review's cap; None
+/// when it adds no more.
+fn over_the_cap(dir: &Path, head: &str) -> Result<Option<(String, i64)>> {
+    let net = run::diff_between(dir, BRANCH_BASE, head)?;
+    let added = check::added_lines(&net.diff.text);
+    Ok((added > check::MAX_ADDED_LINES).then_some((net.diff.text, added)))
+}
+
+/// The branch <change> at <head> when its net change is over the review's cap
+/// and `builds review` recorded it as needing no review; None otherwise.
+fn over_cap_needs_none(
+    db: &Connection,
+    change: Change,
+    dir: &Path,
+    head: &str,
+) -> Result<Option<OverCap>> {
+    let Some((net, added)) = over_the_cap(dir, head)? else {
+        return Ok(None);
+    };
+    let patch_id = over_cap::patch_id(&net)?;
+    let branch = over_cap::Branch {
+        change,
+        patch_id: &patch_id,
+    };
+    Ok(match over_cap::standing(db, branch)? {
+        Some(over_cap::Standing::Waiting(over_cap::Waiting::Mechanical(why))) => Some(OverCap {
+            added,
+            why,
+            patch_id,
+        }),
+        _ => None,
+    })
 }
 
 /// Why <verdict> does not let the commits of <needs> land, in words; None
 /// when it does.
 pub fn refusal(needs: &[Need], verdict: &Verdict) -> Option<String> {
     let (covered, unfinished) = match verdict {
-        Verdict::NotNeeded | Verdict::Takes(_) => return None,
+        Verdict::NotNeeded | Verdict::Takes(_) | Verdict::OverCap(_) => return None,
         Verdict::NoRun => {
             return Some(format!(
                 "no review of this change is open, so no review read the commits this lands ({}).\n{ONE_REVIEW}\nReview them as a change (builds review <worktree> [<base>] in the branch's worktree), settle every finding, and land them once no confirmed finding is open.\n",
@@ -439,7 +508,7 @@ pub fn refusal(needs: &[Need], verdict: &Verdict) -> Option<String> {
 /// idle worktree, from the same records `refusal` reads.
 pub fn blockers(verdict: &Verdict) -> Vec<String> {
     let unfinished = match verdict {
-        Verdict::NotNeeded | Verdict::Takes(_) => return Vec::new(),
+        Verdict::NotNeeded | Verdict::Takes(_) | Verdict::OverCap(_) => return Vec::new(),
         Verdict::NoRun => {
             return vec![
                 "no review of the branch is open: its agent must run builds review".to_string(),
@@ -545,58 +614,27 @@ pub fn check_landing_command(tool: &Tool, args: &[String]) -> Result<()> {
         println!("{}", taken(&verdict));
         return Ok(());
     };
-    match over_the_cap(&asked, &verdict)? {
-        Over::Takes(said) => println!("{said}"),
-        Over::Waits(said) => {
-            print!("{said}");
-            return Err(Fail::Exit(1));
-        }
-        Over::Under => {
-            print!("{why}");
-            return Err(Fail::Exit(1));
-        }
-    }
-    Ok(())
+    print!("{}", waits_over_cap(&asked)?.unwrap_or(why));
+    Err(Fail::Exit(1))
 }
 
-/// What the branch's size adds to a refusal of its commits.
-enum Over {
-    /// The branch is under the cap, or the person approved a review of it.
-    Under,
-    /// The branch is over the cap and no review is needed.
-    Takes(String),
-    /// The branch is over the cap and waits on the person.
-    Waits(String),
-}
-
-/// Whether the branch, which the review refuses, is over the review cap and
-/// so was recorded by `builds review` as needing no review or as waiting on
-/// the person. A review's open or unsettled findings keep it from landing.
-fn over_the_cap(asked: &Asked, verdict: &Verdict) -> Result<Over> {
-    let findings_wait = match verdict {
-        Verdict::Unfinished(_, unfinished) => {
-            !unfinished.unsettled.is_empty() || !unfinished.open.is_empty()
-        }
-        _ => false,
+/// What a branch that the review refuses says when it is over the review's
+/// cap and waits on the person's answer to whether it is reviewed, or was
+/// refused one; None when it is under the cap or needs no review.
+fn waits_over_cap(asked: &Asked) -> Result<Option<String>> {
+    let Some((net, added)) = over_the_cap(&asked.dir, "HEAD")? else {
+        return Ok(None);
     };
-    let net = run::diff_between(&asked.dir, BRANCH_BASE, "HEAD")?;
-    let added = check::added_lines(&net.diff.text);
-    if added <= check::MAX_ADDED_LINES {
-        return Ok(Over::Under);
-    }
-    let patch_id = over_cap::patch_id(&net.diff.text)?;
+    let patch_id = over_cap::patch_id(&net)?;
     let branch = over_cap::Branch {
         change: asked.change(),
         patch_id: &patch_id,
     };
     Ok(match over_cap::standing(&asked.conn, branch)? {
-        Some(over_cap::Standing::Waiting(over_cap::Waiting::Mechanical(why))) if !findings_wait => {
-            Over::Takes(over_cap::taken_text(added, why, &patch_id))
-        }
         Some(over_cap::Standing::Waiting(
             waiting @ (over_cap::Waiting::Asked(_) | over_cap::Waiting::Declined(_)),
-        )) => Over::Waits(over_cap::waiting_text(&asked.key, added, waiting)),
-        _ => Over::Under,
+        )) => Some(over_cap::waiting_text(&asked.key, added, waiting)),
+        _ => None,
     })
 }
 
@@ -607,6 +645,7 @@ pub fn taken(verdict: &Verdict) -> String {
             "review landing {} ({}), last reviewed by run {}, takes these commits: nothing changed since the last review, and no confirmed finding is open",
             covered.landing.id, covered.landing.key, covered.run
         ),
+        Verdict::OverCap(over) => over_cap::taken_text(over.added, over.why, &over.patch_id),
         _ => "no group's rules cover the changed paths: the landing needs no review".to_string(),
     }
 }
@@ -628,7 +667,7 @@ fn record_landed(asked: &Asked, stamp: &Stamp, more: bool) -> Result<Option<i64>
         &asked.material,
     )?;
     let covered = match &verdict {
-        Verdict::NotNeeded => return Ok(None),
+        Verdict::NotNeeded | Verdict::OverCap(_) => return Ok(None),
         Verdict::NoRun => {
             // A rerun after review landed recorded the landing finds no open
             // review, and so does a key other than the one check-landing
