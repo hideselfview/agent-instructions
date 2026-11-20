@@ -936,14 +936,10 @@ fn page_data_at(s: &Server, path: &str, host: &str) -> serde_json::Value {
 #[test]
 fn the_designs_page_lists_the_scratch_boards_only_on_this_mac() {
     let s = server_with("http-scratch-list", scratch_store);
-    let side = crate::checkout::worktrees_folder(&s.scratch.repo_path("bae"))
-        .unwrap()
-        .join("side-1");
     assert_eq!(
         page_data_at(&s, "/designs/demo", "127.0.0.1")["scratch"],
         serde_json::json!({ "boards": [{
             "worktree": "side-1",
-            "top": std::fs::canonicalize(side).unwrap().display().to_string(),
             "board": "scratch.rows",
             "link": "/design/demo/scratch/side-1/scratch.rows",
         }] })

@@ -20,7 +20,7 @@
 //!
 //! The Scratch tab lists the scratch boards of the repo's worktrees, each a
 //! link to its scratch view (`scratch_view.rs`). They are files that no
-//! commit holds, so the page lists them only when it is asked for on this
+//! commit holds, so the page has the tab only when it is asked for on this
 //! Mac.
 
 use std::path::Path;

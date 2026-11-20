@@ -248,7 +248,9 @@ const scratch = data.scratch;
 if (scratch && (scratch.error || scratch.boards.length)) {
   main.append(h("section", {}, h("h2", {}, "Scratch boards"),
     scratch.error ? h("div", {class: "problem"}, scratch.error)
-      : h("ul", {class: "work"}, scratch.boards.map(b => h("li", {}, h("a", {href: b.link}, h("code", {}, b.board)))))));
+      : h("ul", {class: "work"}, scratch.boards.map(b => h("li", {}, b.error
+        ? h("span", {class: "problem"}, b.file + ": " + b.error)
+        : h("a", {href: b.link}, h("code", {}, b.board)))))));
 }
 if (data.places.length || data.no_app_place) {
   main.append(h("section", {}, h("h2", {}, "App work"),

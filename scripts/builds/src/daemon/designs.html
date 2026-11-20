@@ -106,12 +106,13 @@ document.getElementById("title").textContent = data.project + " designs";
 document.getElementById("at").append("main at ", h("code", {title: data.commit}, data.commit.slice(0, 7)),
   " · " + data.boards + (data.boards === 1 ? " board" : " boards"));
 
-// The tabs: the design system, the scratch boards, then one per page of the
-// canvas index. The chosen tab is in the address's #, so a reload keeps it.
+// The tabs: the design system, the scratch boards on this Mac, then one per
+// page of the canvas index. The chosen tab is in the address's #, so a reload
+// keeps it.
 const SYSTEM = "system", SCRATCH = "scratch";
 function chosen() {
   const id = decodeURIComponent(location.hash.slice(1));
-  if (id === SYSTEM || id === SCRATCH || data.pages.some(p => p.id === id)) return id;
+  if (id === SYSTEM || (id === SCRATCH && data.scratch) || data.pages.some(p => p.id === id)) return id;
   return data.pages.length ? data.pages[0].id : SYSTEM;
 }
 function tab(id, label, count) {
@@ -119,9 +120,9 @@ function tab(id, label, count) {
     label, count === undefined ? null : h("span", {class: "n"}, String(count)));
 }
 function renderTabs() {
-  const scratch = data.scratch && data.scratch.boards;
+  const scratch = data.scratch;
   document.getElementById("tabs").replaceChildren(tab(SYSTEM, "Design system"),
-    tab(SCRATCH, "Scratch", scratch ? scratch.length : undefined),
+    ...(scratch ? [tab(SCRATCH, "Scratch", scratch.boards ? scratch.boards.length : undefined)] : []),
     h("span", {class: "dz-sep", "aria-hidden": "true"}),
     ...data.pages.map(p => tab(p.id, p.name, p.boards.length)));
 }
@@ -332,14 +333,15 @@ function systemView() {
 
 // The scratch boards of the repo's worktrees: boards that no commit holds,
 // which a design session draws to compare versions with the person. Each
-// opens its scratch view. The dashboard lists them only on this Mac.
+// opens its scratch view, and a file whose name names no board says why.
+// The dashboard gives the list, and the tab, only on this Mac.
 function scratchView() {
   const s = data.scratch;
-  if (!s) return h("div", {class: "dz-sub"}, "Scratch boards are files that no commit holds, so the dashboard lists them only on this Mac.");
   if (s.error) return h("div", {class: "problem"}, s.error);
   if (!s.boards.length) return h("div", {class: "dz-sub"}, "No worktree has a scratch board, a file design/mocks/scratch.<name>.dc.html that no commit holds.");
   return h("ul", {class: "scratch"}, s.boards.map(b => h("li", {},
-    h("a", {href: b.link}, b.board), h("span", {class: "dz-sub"}, " in " + b.worktree))));
+    b.error ? h("span", {class: "problem"}, b.file + " in " + b.worktree + ": " + b.error)
+      : [h("a", {href: b.link}, b.board), h("span", {class: "dz-sub"}, " in " + b.worktree)])));
 }
 
 function render() {

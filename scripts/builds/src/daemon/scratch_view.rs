@@ -284,17 +284,31 @@ pub fn serve(mut stream: TcpStream, model: &Model, route: Route) -> std::io::Res
 /// the main checkout, then each worktree in the repo's worktrees folder, by
 /// name. git lists the worktrees.
 pub fn named_worktrees(main: &Path) -> Result<Vec<(String, PathBuf)>> {
-    let canonical =
-        |path: &Path| std::fs::canonicalize(path).context(|| format!("reading {}", path.display()));
     let main_top = canonical(main)?;
-    let folder = worktrees_folder(main).and_then(|folder| std::fs::canonicalize(folder).ok());
+    let folder = match worktrees_folder(main) {
+        None => None,
+        Some(folder) => match std::fs::canonicalize(&folder) {
+            Ok(folder) => Some(folder),
+            // A repo with no worktrees folder has no worktree in it.
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+            Err(error) => fail!("reading {}: {error}", folder.display()),
+        },
+    };
     let mut named = vec![("main".to_string(), main_top.clone())];
     let mut sides = Vec::new();
     for listed in worktree_list(main)? {
-        // A worktree that git still lists after its folder went is in no
-        // folder to read.
-        let Ok(top) = std::fs::canonicalize(&listed.top) else {
-            continue;
+        let top = match std::fs::canonicalize(&listed.top) {
+            Ok(top) => top,
+            // git lists a worktree whose folder someone deleted until
+            // `git worktree prune` forgets it; it holds no files.
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                eprintln!(
+                    "builds: the scratch list leaves out {}, a worktree that git lists and whose folder is gone",
+                    listed.top.display()
+                );
+                continue;
+            }
+            Err(error) => fail!("reading {}: {error}", listed.top.display()),
         };
         if top != main_top
             && folder.is_some()
@@ -309,48 +323,89 @@ pub fn named_worktrees(main: &Path) -> Result<Vec<(String, PathBuf)>> {
     Ok(named)
 }
 
-/// The names of the scratch boards in the worktree whose top is <top>, in
-/// name order.
-pub fn scratch_boards_in(top: &Path) -> Result<Vec<String>> {
+/// <path> with every link resolved.
+fn canonical(path: &Path) -> Result<PathBuf> {
+    std::fs::canonicalize(path).context(|| format!("reading {}", path.display()))
+}
+
+/// A file in a worktree's design/mocks whose name says it is a scratch
+/// board (`scratch.*.dc.html`): its file name, and the board's name, or why
+/// the file's name names no board.
+pub struct ScratchFile {
+    pub file: String,
+    pub board: Result<String>,
+}
+
+/// The scratch board files in the worktree whose top is <top>, in file name
+/// order.
+pub fn scratch_files_in(top: &Path) -> Result<Vec<ScratchFile>> {
     let mocks = top.join(MOCKS);
     let entries = match std::fs::read_dir(&mocks) {
         Ok(entries) => entries,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
         Err(error) => fail!("listing {}: {error}", mocks.display()),
     };
-    let mut names = Vec::new();
+    let mut files = Vec::new();
     for entry in entries {
         let entry = entry.context(|| format!("listing {}", mocks.display()))?;
         let file = entry.file_name().to_string_lossy().into_owned();
         if let Some(name) = file.strip_suffix(BOARD_SUFFIX)
             && is_scratch(name)
-            && board_name(name).is_ok()
         {
-            names.push(name.to_string());
+            let board = board_name(name).map_err(Into::into);
+            files.push(ScratchFile { file, board });
         }
     }
-    names.sort();
-    Ok(names)
+    files.sort_by(|a, b| a.file.cmp(&b.file));
+    Ok(files)
 }
 
-/// Every scratch board of the worktrees of the repo whose main checkout is
-/// <main>, as the Designs page and a review page list them: the worktree's
-/// name (`named_worktrees`), its folder (`top`), the board's name, and the
-/// address of its scratch view in project <project> (`link`), by worktree
-/// then board.
-pub fn scratch_list(project: &str, main: &Path) -> Result<Vec<Value>> {
+/// The scratch boards of <worktrees> (`named_worktrees`), as the Designs page
+/// and a review page list them, by worktree then file: each with the
+/// worktree's name, and the board's name and the address of its scratch view
+/// in project <project> (`link`), or its file's name and why that names no
+/// board (`error`).
+fn list_of(project: &str, worktrees: &[(String, PathBuf)]) -> Result<Vec<Value>> {
     let mut list = Vec::new();
-    for (name, top) in named_worktrees(main)? {
-        for board in scratch_boards_in(&top)? {
-            list.push(json!({
-                "worktree": name,
-                "top": top.display().to_string(),
-                "board": board,
-                "link": format!("/design/{project}/scratch/{name}/{board}"),
-            }));
+    for (name, top) in worktrees {
+        for file in scratch_files_in(top)? {
+            list.push(match file.board {
+                Ok(board) => json!({
+                    "worktree": name,
+                    "board": board,
+                    "link": format!("/design/{project}/scratch/{name}/{board}"),
+                }),
+                Err(error) => json!({ "worktree": name, "file": file.file, "error": error.text() }),
+            });
         }
     }
     Ok(list)
+}
+
+/// The scratch boards of every worktree of the repo whose main checkout is
+/// <main>, as the Designs page lists them (`list_of`).
+pub fn scratch_list(project: &str, main: &Path) -> Result<Vec<Value>> {
+    list_of(project, &named_worktrees(main)?)
+}
+
+/// The scratch boards of the worktree whose folder is <top>, as the review
+/// page of a design change drawn there lists them (`list_of`). Fails when
+/// <top> is no worktree of the repo whose main checkout is <main> that a
+/// scratch view address names.
+pub fn scratch_list_of(project: &str, main: &Path, top: &Path) -> Result<Vec<Value>> {
+    let at = canonical(top)?;
+    let worktrees: Vec<(String, PathBuf)> = named_worktrees(main)?
+        .into_iter()
+        .filter(|(_, folder)| *folder == at)
+        .collect();
+    if worktrees.is_empty() {
+        fail!(
+            "{} is no worktree of {} that a scratch view draws from",
+            top.display(),
+            main.display()
+        );
+    }
+    list_of(project, &worktrees)
 }
 
 /// Does a batch of <events> change a file? A copy that reads a file, such as

@@ -186,8 +186,9 @@ fn the_scratch_list_names_each_scratch_board_of_each_worktree_of_the_repo() {
             ("side-1".to_string(), side_top.clone())
         ]
     );
-    // A scratch board in the main checkout lists first; a file whose name is
-    // no board's, or that is no scratch board, is left out.
+    // The main checkout's scratch boards list first. A file that is no
+    // scratch board is left out, and one whose name names no board lists
+    // with why.
     let mocks = main.join("design/mocks");
     for file in [
         "scratch.b.dc.html",
@@ -198,28 +199,38 @@ fn the_scratch_list_names_each_scratch_board_of_each_worktree_of_the_repo() {
     ] {
         std::fs::write(mocks.join(file), "<x-dc></x-dc>").unwrap();
     }
-    assert_eq!(
-        scratch_boards_in(&main_top).unwrap(),
-        ["scratch.a", "scratch.b"]
-    );
-    let entry = |worktree: &str, top: &Path, board: &str| {
+    let entry = |worktree: &str, board: &str| {
         json!({
             "worktree": worktree,
-            "top": top.display().to_string(),
             "board": board,
             "link": format!("/design/bae/scratch/{worktree}/{board}"),
         })
     };
+    let list = scratch_list("bae", &main).unwrap();
+    assert_eq!(list.len(), 4, "{list:?}");
     assert_eq!(
-        scratch_list("bae", &main).unwrap(),
-        vec![
-            entry("main", &main_top, "scratch.a"),
-            entry("main", &main_top, "scratch.b"),
-            entry("side-1", &side_top, "scratch.rows"),
-        ]
+        list[..2],
+        [entry("main", "scratch.a"), entry("main", "scratch.b")]
     );
+    assert_eq!(list[2]["file"], json!("scratch.x y.dc.html"));
+    assert!(
+        list[2]["error"]
+            .as_str()
+            .unwrap()
+            .contains("\"scratch.x y\" is no board"),
+        "{list:?}"
+    );
+    assert_eq!(list[3], entry("side-1", "scratch.rows"));
+    // A review page lists its change's worktree alone, named by its folder
+    // through any link, and refuses a folder that is no worktree of the repo.
+    assert_eq!(
+        scratch_list_of("bae", &main, &side).unwrap(),
+        [entry("side-1", "scratch.rows")]
+    );
+    assert!(message(scratch_list_of("bae", &main, &scratch.dir)).contains("is no worktree of"),);
+    assert!(message(scratch_list_of("bae", &main, &scratch.dir.join("gone"))).contains("reading"));
     // A worktree with no design/mocks has no scratch boards.
-    assert!(scratch_boards_in(&scratch.dir).unwrap().is_empty());
+    assert!(scratch_files_in(&scratch.dir).unwrap().is_empty());
 }
 
 #[test]

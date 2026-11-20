@@ -2100,10 +2100,11 @@ STATUS, HEALTH AND THE DASHBOARD
                               the project to publish a commit (`builds help
                               lists`, design publish take); without the file
                               the page says that the designs publish
-                              nowhere yet. The Scratch tab lists the scratch
-                              boards of the repo's worktrees, each a link to
-                              its scratch view: a scratch board is a board
-                              file that no commit holds,
+                              nowhere yet. On this Mac, a Scratch tab lists
+                              the scratch boards of the repo's worktrees, each
+                              a link to its scratch view, and says why for a
+                              file whose name names no board: a scratch board
+                              is a board file that no commit holds,
                               design/mocks/scratch.<name>.dc.html, which each
                               design repo's .gitignore leaves out, and which a
                               design session draws to compare versions with
@@ -2129,9 +2130,9 @@ STATUS, HEALTH AND THE DASHBOARD
                               build-bundle.py on each draw. The scratch view
                               shows files that no commit holds, so the
                               dashboard serves it only at 127.0.0.1 or
-                              localhost on this Mac (decision #341), and lists
-                              scratch boards on the Scratch tab and on a
-                              review page only there too
+                              localhost on this Mac (decision #341), and shows
+                              the Scratch tab and a review page's scratch
+                              boards only there too
 
 
 COMMIT CHECKS
