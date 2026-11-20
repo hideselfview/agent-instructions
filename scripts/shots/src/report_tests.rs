@@ -126,6 +126,7 @@ fn the_page_holds_each_finding_sentence_and_every_picture_it_names_exists() {
     assert!(html.contains("abc123def") && html.contains("2026-11-11T23:20:00Z"));
     assert!(html.contains("Chrome/157.0.8103.78"));
     assert!(html.contains("new against the base"));
+    assert!(out.join(crate::findings_file::FILE).is_file());
 }
 
 #[test]

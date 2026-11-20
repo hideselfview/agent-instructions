@@ -103,6 +103,8 @@ pub(crate) struct Raw {
     pub(crate) no_box: Option<&'static str>,
     pub(crate) text: Option<TextStyle>,
     pub(crate) placeholder: Option<String>,
+    /// The design-system component that draws the node's DOM node.
+    pub(crate) component: Option<String>,
 }
 
 fn nonempty(text: Option<&str>) -> Option<String> {
@@ -188,6 +190,7 @@ fn element(
         },
         parent,
         focused: node.focused.then_some(true),
+        component: node.component.clone(),
         placeholder: if role == Role::Field {
             nonempty(node.placeholder.as_deref())
         } else {
@@ -214,9 +217,51 @@ struct Geometry {
     /// `false`). Chrome's accessibility tree has no selected state for a
     /// button, where the Mac marks the open row of a sidebar selected.
     current: bool,
+    /// The design-system component that draws the node: the nearest one
+    /// above it in React's tree.
+    component: Option<String>,
 }
 
 const GEOMETRY: &str = r#"function() {
+  // The design system's components by their values: each function or
+  // memo/forwardRef object that a global the page's scripts added holds
+  // (`Bae.MacButton` is MacButton). React's globals, and the double-underscore
+  // ones of the runtime and of this program, hold none.
+  const components = () => {
+    const shots = window.__buildsShots;
+    if (shots.components) return shots.components;
+    const found = new Map();
+    for (const name of Object.getOwnPropertyNames(window)) {
+      if (shots.globals.has(name) || name.startsWith('__')
+        || name === 'React' || name === 'ReactDOM') continue;
+      let holder;
+      try { holder = window[name]; } catch (e) { continue; }
+      if (!holder || typeof holder !== 'object') continue;
+      for (const [key, value] of Object.entries(holder)) {
+        const component = typeof value === 'function'
+          || (value && typeof value === 'object' && value.$$typeof
+            && ('render' in value || 'type' in value));
+        if (component && !found.has(value)) found.set(value, key);
+      }
+    }
+    shots.components = found;
+    return found;
+  };
+  // The nearest component above a DOM node in React's tree: the first fiber
+  // up from the node's own (or its nearest ancestor's) whose type is one.
+  const componentOf = (node) => {
+    for (let dom = node; dom; dom = dom.parentNode) {
+      const key = Object.keys(dom).find((k) => k.startsWith('__reactFiber$'));
+      if (!key) continue;
+      const known = components();
+      for (let fiber = dom[key]; fiber; fiber = fiber.return) {
+        const name = known.get(fiber.elementType) || known.get(fiber.type);
+        if (name) return name;
+      }
+      return null;
+    }
+    return null;
+  };
   // What a role=textbox element holds: its text without the descendants
   // hidden from the accessibility tree (a placeholder drawn inside it).
   const typed = (field) => {
@@ -249,6 +294,7 @@ const GEOMETRY: &str = r#"function() {
       : this.getAttribute('role') === 'textbox' ? typed(this) : null,
     current: !isText && this.hasAttribute('aria-current')
       && this.getAttribute('aria-current') !== 'false',
+    component: componentOf(this),
   };
 }"#;
 
@@ -425,6 +471,7 @@ async fn gather(page: &Page) -> Result<Vec<Raw>, ReadError> {
                         _ => None,
                     };
                     raw.placeholder = geometry.placeholder;
+                    raw.component = geometry.component;
                     if geometry.current && raw.selected.is_none() {
                         raw.selected = Some(true);
                     }

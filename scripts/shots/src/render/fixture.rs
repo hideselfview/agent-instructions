@@ -18,15 +18,16 @@ pub(crate) fn write(root: &Path, path: &str, text: &str) {
     std::fs::write(path, text).unwrap();
 }
 
-/// The design system the fixture's boards load: one component, `Demo.Box`.
+/// The design system the fixture's boards load: `Demo.Box`, and `Demo.Card`,
+/// which draws a heading and a `Demo.Box`.
 pub(crate) fn design() -> DesignSystem {
     DesignSystem {
         namespace: "demo".to_string(),
         tokens_css: ":root{--text-primary:#fff}".to_string(),
         bundle_css: String::new(),
-        bundle_js:
-            "window.Demo={Box:function(){return React.createElement('div',{id:'inner'},'hello')}};"
-                .to_string(),
+        bundle_js: "window.Demo={Box:function(){return React.createElement('div',{id:'inner'},'hello')},\
+Card:function(){return React.createElement('section',null,React.createElement('h3',null,'Card title'),React.createElement(window.Demo.Box))}};"
+            .to_string(),
     }
 }
 

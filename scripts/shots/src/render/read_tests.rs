@@ -311,6 +311,34 @@ async fn a_texts_box_is_its_words_not_its_container() {
     assert_eq!(style.color.as_ref().map(String::len), Some(9));
 }
 
+#[tokio::test]
+async fn each_board_element_names_the_nearest_component_that_draws_it() {
+    let root = fixture::tree(&[(
+        "fixture.components",
+        "<x-dc><p>Loose words</p><x-import component-from-global-scope=\"Demo.Card\"></x-import></x-dc>",
+    )]);
+    let elements = fixture::with_browser(root.path(), async |server, chrome| {
+        let page = chrome.new_page().await.unwrap();
+        let url = server.board_url("fixture.components");
+        render(
+            &page,
+            "fixture.components",
+            &url,
+            Frame { w: 300, h: 200 },
+            1.0,
+        )
+        .await
+        .unwrap();
+        elements(&page, Platform::Mac).await
+    })
+    .await
+    .unwrap();
+    let component = |label: &str| find(&elements, Role::Text, label).component.clone();
+    assert_eq!(component("hello").as_deref(), Some("Box"));
+    assert_eq!(component("Card title").as_deref(), Some("Card"));
+    assert_eq!(component("Loose words"), None);
+}
+
 #[test]
 fn a_kept_node_with_no_box_fails_the_read_and_says_why() {
     let mut button = named(node("2", "button", &[]), "Add");

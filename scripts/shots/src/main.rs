@@ -6,6 +6,7 @@ mod capture;
 mod compare;
 mod declared;
 mod design;
+mod findings_file;
 mod hex;
 mod lint;
 mod lists;

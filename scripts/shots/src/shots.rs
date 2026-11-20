@@ -250,6 +250,12 @@ pub(crate) struct Element {
     pub(crate) text: Option<TextStyle>,
     /// The index in the list of the element that holds this one.
     pub(crate) parent: Option<usize>,
+    /// On a board, the design-system component that draws the element: the
+    /// nearest component above it in React's tree, by its name in the design
+    /// system's global (`MacIconButton` of `Bae.MacIconButton`). Absent for
+    /// an element no component draws, and in every shot.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) component: Option<String>,
 }
 
 /// Words: composed Unicode, whitespace runs collapsed to one space, trimmed.

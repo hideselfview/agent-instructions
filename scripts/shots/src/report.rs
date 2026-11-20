@@ -1,4 +1,5 @@
-//! The report of a verification: `index.html` with its pictures beside it, and
+//! The report of a verification: `index.html` with its pictures and its findings
+//! as records (`findings.json`) beside it, and
 //! the same findings as Markdown for a CI step summary.
 
 use crate::compare::{self, Finding, Warning};
@@ -465,7 +466,8 @@ pub(crate) fn summary(outcome: &Outcome, header: &Header) -> String {
     text
 }
 
-/// Writes `index.html` and the pictures of the checked pairs into `dir`.
+/// Writes `index.html`, the pictures of the checked pairs and the findings as
+/// records (findings_file.rs) into `dir`.
 pub(crate) fn write(dir: &Path, outcome: &Outcome, header: &Header) -> Result<(), String> {
     let images = dir.join("img");
     std::fs::create_dir_all(&images)
@@ -482,7 +484,8 @@ pub(crate) fn write(dir: &Path, outcome: &Outcome, header: &Header) -> Result<()
     }
     let index = dir.join("index.html");
     std::fs::write(&index, page(outcome, header))
-        .map_err(|e| format!("cannot write {}: {e}", index.display()))
+        .map_err(|e| format!("cannot write {}: {e}", index.display()))?;
+    crate::findings_file::write(dir, &outcome.checked, &outcome.skipped)
 }
 
 #[cfg(test)]

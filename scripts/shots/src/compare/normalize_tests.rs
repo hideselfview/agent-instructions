@@ -19,6 +19,7 @@ pub(crate) fn element(role: Role, label: Option<&str>, parent: Option<usize>) ->
         focused: None,
         text: None,
         parent,
+        component: None,
     }
 }
 

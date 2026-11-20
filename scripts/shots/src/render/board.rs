@@ -79,12 +79,18 @@ async fn grant(page: &Page, budget: f64) -> Result<(), BoardError> {
 
 /// The script a page runs before its own: it records in
 /// `window.__buildsShots.state` how far the page got toward drawn, waiting on
-/// the element <mounted> selects to appear and then on the page's fonts.
+/// the element <mounted> selects to appear and then on the page's fonts, and
+/// in `globals` the names the window holds before the page's scripts run, so
+/// that the board's reader tells the design system's global from the
+/// browser's own (read.rs).
 fn watch_script(mounted: &str) -> String {
     let selector = serde_json::to_string(mounted).expect("a string serializes");
     format!(
         r#"(() => {{
-  const watch = {{ state: 'nothing matches ' + {selector} }};
+  const watch = {{
+    state: 'nothing matches ' + {selector},
+    globals: new Set(Object.getOwnPropertyNames(window)),
+  }};
   window.__buildsShots = watch;
   new Promise((resolve) => {{
     const look = () => {{
