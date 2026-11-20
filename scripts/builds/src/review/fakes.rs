@@ -35,21 +35,36 @@ pub fn group_file(root: &Path, dir: &str, name: &str, model: &str, extra: &str) 
 
 /// Writes rule <slug> in folder <dir>, covering the paths <glob> matches.
 pub fn rule_file(root: &Path, dir: &str, slug: &str, glob: &str, blocking: bool, body: &str) {
-    std::fs::write(
-        root.join("rules").join(dir).join(format!("{slug}.md")),
-        format!("---\ndigest: d\npaths:\n  - '{glob}'\nblocking: {blocking}\n---\n\n{body}\n"),
-    )
-    .unwrap();
+    write_rule(
+        root,
+        dir,
+        slug,
+        glob,
+        &format!("blocking: {blocking}\n"),
+        body,
+    );
+}
+
+/// Writes rule <slug> in folder <dir>, a blocking rule covering the paths
+/// <glob> matches, design files among them: its front matter says it judges
+/// design files.
+pub fn design_rule_file(root: &Path, dir: &str, slug: &str, glob: &str, body: &str) {
+    write_rule(
+        root,
+        dir,
+        slug,
+        glob,
+        "blocking: true\ndesign: true\n",
+        body,
+    );
 }
 
 /// Writes rule <slug> in folder <dir>, covering the paths <glob> matches,
-/// design files among them: its front matter says it judges design files.
-pub fn design_rule_file(root: &Path, dir: &str, slug: &str, glob: &str, body: &str) {
+/// with the lines <front> in its front matter after its paths.
+fn write_rule(root: &Path, dir: &str, slug: &str, glob: &str, front: &str, body: &str) {
     std::fs::write(
         root.join("rules").join(dir).join(format!("{slug}.md")),
-        format!(
-            "---\ndigest: d\npaths:\n  - '{glob}'\nblocking: true\ndesign: true\n---\n\n{body}\n"
-        ),
+        format!("---\ndigest: d\npaths:\n  - '{glob}'\n{front}---\n\n{body}\n"),
     )
     .unwrap();
 }

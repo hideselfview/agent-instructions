@@ -50,13 +50,37 @@ pub struct Globs {
 impl Globs {
     /// The globs of <repo> in <lists>.
     pub fn of(lists: &Lists, repo: &str) -> Globs {
-        let get = |map: &std::collections::BTreeMap<String, Vec<String>>| {
-            map.get(repo).cloned().unwrap_or_default()
-        };
+        Globs::of_repo(
+            repo,
+            &lists.design_places,
+            &lists.design_sources,
+            &lists.spec_files,
+        )
+    }
+
+    /// The globs of <repo> in the project's store <db> holds.
+    pub fn read(db: &rusqlite::Connection, repo: &str) -> Result<Globs> {
+        let project = crate::lists::project::read(db)?;
+        Ok(Globs::of_repo(
+            repo,
+            &project.places,
+            &project.sources,
+            &project.specs,
+        ))
+    }
+
+    /// The globs of <repo> among each repo's places, sources and spec files.
+    fn of_repo(
+        repo: &str,
+        places: &BTreeMap<String, Vec<String>>,
+        sources: &BTreeMap<String, Vec<String>>,
+        spec: &BTreeMap<String, Vec<String>>,
+    ) -> Globs {
+        let get = |map: &BTreeMap<String, Vec<String>>| map.get(repo).cloned().unwrap_or_default();
         Globs {
-            places: get(&lists.design_places),
-            sources: get(&lists.design_sources),
-            spec: get(&lists.spec_files),
+            places: get(places),
+            sources: get(sources),
+            spec: get(spec),
         }
     }
 
@@ -64,17 +88,6 @@ impl Globs {
     /// component folder with its trailing `/`?
     pub fn names_place(&self, key: &str) -> bool {
         self.places.iter().any(|glob| Glob::parse(glob).names(key))
-    }
-
-    /// The globs the project's store <db> holds for <repo>.
-    pub fn read(db: &rusqlite::Connection, repo: &str) -> Result<Globs> {
-        let project = crate::lists::project::read(db)?;
-        let get = |map: &BTreeMap<String, Vec<String>>| map.get(repo).cloned().unwrap_or_default();
-        Ok(Globs {
-            places: get(&project.places),
-            sources: get(&project.sources),
-            spec: get(&project.specs),
-        })
     }
 
     /// Is <path> a design file: a board or component file of a place, a
