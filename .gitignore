@@ -4,3 +4,6 @@ claude/CLAUDE.md
 codex/AGENTS.md
 .worktrees/
 plans/
+# Scratch boards: boards a design session draws to compare versions with the
+# person on the dashboard's scratch view. Nobody commits one.
+design/mocks/scratch.*.dc.html
