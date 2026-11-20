@@ -1,6 +1,6 @@
 use super::*;
 use crate::lists::fixtures::{NOON, db, item, read, stamp};
-use crate::lists::view::ClaimFacts;
+use crate::lists::view::{ClaimFacts, RulesReview};
 use crate::lists::{Id, Running};
 
 fn start(db: &rusqlite::Connection, item: Id, checkout: &str) {
@@ -126,7 +126,23 @@ fn facts_of(note_state: Option<&str>) -> ClaimFacts {
 }
 
 fn board_of(db: &rusqlite::Connection, claims: &[(&str, Option<&str>)]) -> Board {
+    board_reviewed(db, claims, RulesReview::Read)
+}
+
+/// The board of <db>'s lists, with each running worktree's claim note state
+/// in <claims> and the rules review of every design change that waits on
+/// the person's approval standing at <review>, as the daemon joins them.
+fn board_reviewed(
+    db: &rusqlite::Connection,
+    claims: &[(&str, Option<&str>)],
+    review: RulesReview,
+) -> Board {
     let mut view = View::build(&read(db), NOON).unwrap();
+    for design in &mut view.designs {
+        if design.closed.is_none() && design.approved.is_none() {
+            design.rules_review = Some(review.clone());
+        }
+    }
     for item in &mut view.items {
         for running in &mut item.running {
             let state = claims
@@ -192,6 +208,17 @@ fn a_design_change_waits_on_review_until_approved_and_then_runs() {
     crate::lists::design::approve(&db, id, &stamp(NOON)).unwrap();
     let after = board_of(&db, &[]);
     assert_eq!(after.waiting, 0);
+}
+
+/// A design change waits on the person's review only once its rules review
+/// takes its branch (decision #362).
+#[test]
+fn a_design_change_in_its_rules_review_is_not_under_waiting_on_you() {
+    use crate::lists::fixtures::design;
+    let db = db();
+    design(&db);
+    assert_eq!(board_reviewed(&db, &[], RulesReview::InReview).waiting, 0);
+    assert_eq!(board_reviewed(&db, &[], RulesReview::Read).waiting, 1);
 }
 
 #[test]

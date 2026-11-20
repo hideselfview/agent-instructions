@@ -184,6 +184,7 @@ fn record_and_amend_keep_the_recording_sessions_inbox() {
     let dir = scratch.dir.join("bae");
     repo(&dir, "target 1\n");
     git(&dir, &["tag", "base"]);
+    git(&dir, &["update-ref", "refs/remotes/origin/main", "base"]);
     let tool = scratch.tool(0);
     let store = Store::named(&tool.places, "demo").unwrap();
     let globs = |g: &[&str]| {

@@ -24,7 +24,7 @@ use crate::health::{
     Claimed, Health, Machine, Unclaimed, assess, locks_of, places_of, sample, sccache_reading,
 };
 use crate::lists::design_paths::Globs;
-use crate::lists::view::ClaimFacts;
+use crate::lists::view::{ClaimFacts, RulesReview};
 use crate::manifest::{BuildDir, build_dirs};
 use crate::places::{DiskSpace, Places, Rules};
 use crate::procs::Place;
@@ -171,8 +171,14 @@ pub struct Model {
 }
 
 /// What the lists JSON is built from besides the clock's second: the read
-/// of the stores, the day and each running item's claim facts.
-type ServedKey = (u64, String, Vec<ClaimFacts>);
+/// of the stores, the day, each running item's claim facts and the rules
+/// review of each design change that waits on the person's approval.
+type ServedKey = (
+    u64,
+    String,
+    Vec<ClaimFacts>,
+    Vec<(String, crate::lists::Id, RulesReview)>,
+);
 
 pub(super) fn now_seconds() -> i64 {
     std::time::SystemTime::now()
@@ -942,10 +948,12 @@ impl Model {
             .into_iter()
             .map(|worktree| (worktree.clone(), self.claim_facts(&worktree)))
             .collect();
+        let reviews = self.design_reviews(&snapshot);
         let key: ServedKey = (
             version,
             crate::text::local_day(now),
             claims.iter().map(|(_, facts)| facts.clone()).collect(),
+            reviews,
         );
         let mut served = self.served.lock().expect("no panic holding it");
         if let Some((built, json)) = &*served
@@ -953,13 +961,24 @@ impl Model {
         {
             return Ok(json.clone());
         }
-        let view = compose(&snapshot, now, &|worktree| {
-            claims
-                .iter()
-                .find(|(w, _)| w == worktree)
-                .map(|(_, facts)| facts.clone())
-                .expect("every running worktree was asked")
-        });
+        let reviews = &key.3;
+        let view = compose(
+            &snapshot,
+            now,
+            &|worktree| {
+                claims
+                    .iter()
+                    .find(|(w, _)| w == worktree)
+                    .map(|(_, facts)| facts.clone())
+                    .expect("every running worktree was asked")
+            },
+            &|project, id| {
+                reviews
+                    .iter()
+                    .find(|(p, i, _)| p == project && *i == id)
+                    .map(|(_, _, review)| review.clone())
+            },
+        );
         let json = Arc::new(
             serde_json::to_string(&super::lists::Served { projects: &view })
                 .expect("the lists serialize"),
@@ -1134,6 +1153,94 @@ impl Model {
         Some(self.design_checkout(project)?.and_then(|repo| {
             super::designs::preview(&repo, commit, name, &self.places.design_system_cache())
         }))
+    }
+
+    /// Where the rules review of each open design change that waits on the
+    /// person's approval stands, by project and id (`design_review`).
+    fn design_reviews(
+        &self,
+        snapshot: &std::result::Result<Vec<crate::lists::store::Loaded>, String>,
+    ) -> Vec<(String, crate::lists::Id, RulesReview)> {
+        let Ok(stores) = snapshot else {
+            return Vec::new();
+        };
+        let state = self.state.lock().expect("no panic holding it");
+        let mut found = Vec::new();
+        for loaded in stores {
+            let Ok(lists) = &loaded.lists else { continue };
+            for design in lists.designs.iter().filter(|d| d.awaits_approval()) {
+                let review = self.design_review(&state, lists, design);
+                found.push((lists.project.clone(), design.id, review));
+            }
+        }
+        found
+    }
+
+    /// Where the rules review of open design change <design> of <lists>, which
+    /// waits on the person's approval, stands: read when the change covers a
+    /// commit that its worktree holds past origin/main, as <state> last read
+    /// the worktree, and the rules review of the worktree's commits takes them
+    /// as `builds land` would (decision #362); in review when no live
+    /// worktree holds the commits it covers or the review does not take them;
+    /// unread, with why, when git or the review's records can't be read.
+    fn design_review(
+        &self,
+        state: &State,
+        lists: &crate::lists::Lists,
+        design: &crate::lists::DesignChange,
+    ) -> RulesReview {
+        let top = Path::new(&design.worktree);
+        let seen = state.roots.iter().find_map(|root| {
+            let live = root.live.as_ref().filter(|live| live.top == top)?;
+            Some((live, state.facts.get(&root.path)?))
+        });
+        let Some((live, facts)) = seen else {
+            return RulesReview::InReview;
+        };
+        let git = match &facts.git {
+            Some(SideGit::Side(Ok(git))) => git,
+            Some(SideGit::Side(Err(error))) => return RulesReview::Unread(error.clone()),
+            _ => return RulesReview::InReview,
+        };
+        let repo = live.repo();
+        match super::design_cards::standing(&self.design_reads, lists, &repo, top, git) {
+            Ok(Some(super::design_cards::Standing::Approval(covering)))
+                if covering.id == design.id => {}
+            Ok(_) => return RulesReview::InReview,
+            Err(error) => return RulesReview::Unread(error.text()),
+        }
+        let worktree = super::review_cards::Worktree {
+            repo: &repo,
+            top,
+            branch: facts.branch.as_deref(),
+            git,
+        };
+        match self.rules_review(lists, &worktree) {
+            Ok(None) => RulesReview::Read,
+            Ok(Some(_)) => RulesReview::InReview,
+            Err(error) => RulesReview::Unread(error),
+        }
+    }
+
+    /// Where the rules review of the commits of <worktree>, a worktree of the
+    /// project of <lists>, stands (`review_cards::Reads::standing`): None when
+    /// land would take them as far as the review goes, or when they need no
+    /// review.
+    fn rules_review(
+        &self,
+        lists: &crate::lists::Lists,
+        worktree: &super::review_cards::Worktree,
+    ) -> std::result::Result<Option<ItemWait>, String> {
+        crate::lists::store::Store::named(&self.places, &lists.project)
+            .map_err(crate::fail::Fail::text)
+            .and_then(|store| {
+                self.review_reads.standing(
+                    &store,
+                    lists.version,
+                    &self.places.claude_sessions(),
+                    worktree,
+                )
+            })
     }
 
     /// The claim and git facts of the worktree at <worktree>; no agent and no
@@ -1464,38 +1571,38 @@ impl Model {
             }
             _ => None,
         };
-        // The rules review stands only between commits waiting to land and
-        // Ready to land.
-        let review = match (project, seen.git) {
-            (Some(lists), Some(SideGit::Side(Ok(git)))) if worktree == CardState::ReadyToLand => {
+        let awaits_approval = matches!(design, Some(super::design_cards::Standing::Approval(_)));
+        let ready = worktree == CardState::ReadyToLand;
+        // The card shows the rules review only between commits waiting to land
+        // and Ready to land. A design change that waits on the person's
+        // approval waits on their review only once the review takes the
+        // commits, so its worktree's review is read whatever the card's state.
+        let rules = match (project, seen.git) {
+            (Some(lists), Some(SideGit::Side(Ok(git)))) if ready || awaits_approval => {
                 let reviewed = super::review_cards::Worktree {
                     repo: seen.repo,
                     top,
                     branch: seen.branch,
                     git,
                 };
-                let standing = crate::lists::store::Store::named(&self.places, &lists.project)
-                    .map_err(crate::fail::Fail::text)
-                    .and_then(|store| {
-                        self.review_reads.standing(
-                            &store,
-                            lists.version,
-                            &self.places.claude_sessions(),
-                            &reviewed,
-                        )
-                    });
-                match standing {
-                    Ok(standing) => standing,
-                    Err(error) => {
-                        errors.push(format!(
-                            "The daemon can't read the rules review of this worktree's commits: {error}"
-                        ));
-                        // The review the daemon could not read may not take the
-                        // commits, so the card says Needs review, never Ready to land.
-                        worktree = CardState::InReview(ReviewWait::NotRun);
-                        None
-                    }
+                Some(self.rules_review(lists, &reviewed))
+            }
+            _ => None,
+        };
+        let review_takes = matches!(rules, Some(Ok(None)));
+        let design = design.and_then(|design| super::design_cards::wait(&design, review_takes));
+        let review = match rules {
+            Some(Ok(standing)) if ready => standing,
+            Some(Err(error)) => {
+                errors.push(format!(
+                    "The daemon can't read the rules review of this worktree's commits: {error}"
+                ));
+                if ready {
+                    // The review the daemon could not read may not take the
+                    // commits, so the card says Needs review, never Ready to land.
+                    worktree = CardState::InReview(ReviewWait::NotRun);
                 }
+                None
             }
             _ => None,
         };

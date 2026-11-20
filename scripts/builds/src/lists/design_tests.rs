@@ -29,6 +29,9 @@ fn world(name: &str) -> World {
     let dir = scratch.dir.join("bae");
     repo(&dir, "target 1\n");
     git(&dir, &["tag", "base"]);
+    // The repo's main as its origin has it: what a branch's commits and its
+    // rules review are read past.
+    git(&dir, &["update-ref", "refs/remotes/origin/main", "base"]);
     let tool = scratch.tool(0);
     let store = Store::named(&tool.places, "demo").unwrap();
     let globs = |globs: &[&str]| {
@@ -785,11 +788,13 @@ fn health_of(w: &World, range: &str) -> Vec<String> {
 }
 
 /// The dashboard's design card for the worktree of <w> whose commits past
-/// origin/main are those of <range>.
+/// origin/main are those of <range>, once their rules review takes them.
 fn card_of(w: &World, range: &str) -> Option<crate::daemon::cards::ItemWait> {
     let git = side_read_of(w, range);
-    crate::daemon::design_cards::standing(&Default::default(), &w.state(), "bae", &w.dir, &git)
+    let lists = w.state();
+    crate::daemon::design_cards::standing(&Default::default(), &lists, "bae", &w.dir, &git)
         .unwrap()
+        .and_then(|standing| crate::daemon::design_cards::wait(&standing, true))
 }
 
 /// The dashboard's design card and health decide coverage the same way: on
@@ -1121,7 +1126,10 @@ fn drop_closes_an_open_change_keeps_why_and_leaves_the_open_lists() {
         shown.contains("[dropped ") && shown.contains(&format!("dropped: {why}")),
         "{shown}"
     );
-    assert!(!shown.contains("waiting on the person's review"), "{shown}");
+    assert!(
+        !shown.contains("waiting on the person's approval"),
+        "{shown}"
+    );
 
     let once = w.bytes();
     assert!(message(drop_change(&w, 1, why)).contains("tester dropped design change #1"));

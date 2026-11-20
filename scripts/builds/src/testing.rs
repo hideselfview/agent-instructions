@@ -108,7 +108,7 @@ impl Scratch {
     }
 
     /// A reviewer stand-in that answers every rulings check with no claim,
-    /// over a rules checkout in the scratch folder. The program is written
+    /// over a rules checkout in the scratch folder that holds no group. The program is written
     /// to another name and moved into place, so no test runs it while it is
     /// still open for writing.
     pub fn no_rulings_reviewer(&self) -> crate::review::Reviewer {
@@ -125,9 +125,16 @@ impl Scratch {
                 .expect("the scratch folder is writable");
             std::fs::rename(&writing, &program).expect("the scratch folder is writable");
         }
+        // A rules checkout with no group: a review reads nothing in it, so
+        // `builds design record` finds a change's branch needs no review.
+        let rules_root = self.dir.join("instructions");
+        for folder in ["rules", "projects"] {
+            std::fs::create_dir_all(rules_root.join(folder))
+                .expect("the scratch folder is writable");
+        }
         crate::review::Reviewer {
             program,
-            rules_root: self.dir.join("instructions"),
+            rules_root,
         }
     }
 }

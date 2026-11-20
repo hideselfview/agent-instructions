@@ -1620,8 +1620,10 @@ function questionRow(q) {
       md(q.details)),
     "l-work");
 }
-// Design changes that wait on your review: recorded, not approved, not landed.
-function reviews() { return lists.designs.filter(g => !g.closed && !g.approved); }
+// Design changes that wait on your review: recorded, not approved, not landed,
+// and read by their rules review (board.rs, to_review).
+function toReview(g) { return !g.closed && !g.approved && g.rules_review === "read"; }
+function reviews() { return lists.designs.filter(toReview); }
 function heldWorks() { return lists.board.works.filter(w => w.tab === "waiting"); }
 // The questions and held work Waiting on you shows while the reader has chosen no tag.
 function stackEntries() { return {own: lists.stack, held: heldWorks()}; }
@@ -1766,10 +1768,11 @@ function runningShown() {
   return {
     works: runningWorks().filter(w => tagged(workTags(w))),
     drawn: tagFilter ? [] : lists.designs.filter(g => !g.closed && g.approved),
+    inReview: tagFilter ? [] : lists.designs.filter(g => !g.closed && !g.approved && !toReview(g)),
   };
 }
 function runningItems() {
-  const {works, drawn} = runningShown();
+  const {works, drawn, inReview} = runningShown();
   const ready = works.filter(w => checkoutState(w) === "ready-to-land");
   const reviewing = works.filter(w => checkoutState(w) === "in-review");
   const working = works.filter(w => !ready.includes(w) && !reviewing.includes(w));
@@ -1780,6 +1783,8 @@ function runningItems() {
     h("div", {class: "l-works"}, reviewing.map(workRow)))});
   if (ready.length) out.push({key: "ready", data: ready, make: () => section("Ready to land", ready.length,
     h("div", {class: "l-works"}, ready.map(workRow)))});
+  if (inReview.length) out.push({key: "designs-review", data: inReview, make: () => section("Design changes in review", inReview.length,
+    h("div", {class: "l-works"}, inReview.map(designRow)))});
   if (drawn.length) out.push({key: "drawn", data: drawn, make: () => section("Design changes being drawn", drawn.length,
     h("div", {class: "l-works"}, drawn.map(designRow)))});
   return out.length ? out : [empty(tagFilter ? "Nothing tagged " + tagFilter + " is running." : "Nothing is running.")];
@@ -1839,6 +1844,8 @@ function designRow(g) {
       h("ul", {class: "l-list"}, g.blocks.map(b => h("li", {}, recLink(b.id, b.title))))) : fact("Blocks nothing."),
     g.landed.length ? fact("Landed:", g.landed.map(l => l.commits.join(" ") + " " + stamp(l.at)).join("; ")) : null,
     g.approved ? fact("Approved, waiting to land:", stamp(g.approved.at)) : null,
+    g.rules_review && g.rules_review.unread ? fact("The daemon can't read its rules review:", g.rules_review.unread)
+      : !g.closed && !g.approved && !toReview(g) ? fact("In review: you review it once its rules review has read its branch and no finding waits.") : null,
     g.decision ? fact("The person decided the change in decision #" + g.decision.id + ": " + g.decision.title + ". The coordinator lands it with its item.") : null,
     g.approved && !g.decision && sessionNote[g.session] ? fact(sessionNote[g.session]) : null,
     h("span", {class: "l-sub"}, "#" + g.id + " · ", opened(g, "Recorded")),
@@ -1865,7 +1872,7 @@ function indexLists() {
   for (const q of lists.stack) index.set(q.id, {tab: "stack", key: "q:" + q.id, title: q.title});
   for (const it of lists.items) index.set(it.id, {tab: "queue", key: "i:" + it.id, title: it.title});
   for (const w of lists.board.works) for (const i of w.items) index.set(i.id, {tab: w.tab === "waiting" ? "stack" : "running", key: "i:" + w.items[0].id, title: i.title});
-  for (const g of lists.designs) if (!g.closed) index.set(g.id, {tab: g.approved ? "running" : "stack", key: "g:" + g.id, title: g.title});
+  for (const g of lists.designs) if (!g.closed) index.set(g.id, {tab: toReview(g) ? "stack" : "running", key: "g:" + g.id, title: g.title});
 }
 // `next` is {projects: [one lists JSON each]}; the sidebar shows the chosen one.
 function setLists(next) {

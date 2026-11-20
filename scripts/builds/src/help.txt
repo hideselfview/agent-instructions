@@ -458,7 +458,7 @@ work: `builds item stop`, `builds help lists`), Can't read what this worktree wa
 not read what a running item waits on, and the card says why), Waiting on you
 (the claim's note says so, a running item waits on a question or on a design
 change the person has not approved, or the worktree's commits are a design
-change the person has not approved), Paused (the claim's note has --state
+change the person has not approved whose rules review takes them), Paused (the claim's note has --state
 held: the card says what its running items wait on), Ready to land (commits
 waiting to land, claimed or not: an unclaimed worktree with such commits holds
 work an agent left behind; a claimed one waits for its agent to land it),

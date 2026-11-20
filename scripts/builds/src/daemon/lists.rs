@@ -23,10 +23,10 @@ use std::time::Duration;
 
 use super::fsevents::Stream;
 use super::model::SETTLE;
-use crate::lists::DesignChange;
 use crate::lists::design_paths::Globs;
 use crate::lists::store::{Loaded, database_paths, load_all, reload, stores};
-use crate::lists::view::{ClaimFacts, DesignView, View, design_view};
+use crate::lists::view::{ClaimFacts, DesignView, RulesReview, View, design_view};
+use crate::lists::{DesignChange, Id};
 use crate::places::Places;
 
 type Snapshot = Result<Vec<Loaded>, String>;
@@ -499,11 +499,14 @@ pub fn project_design_repo(
 
 /// What the page reads: one lists JSON per project, in project order. No
 /// project, or a store that fails its check, is that project's `error`.
-/// <claims> answers for a running item's worktree.
+/// <claims> answers for a running item's worktree, and <reviews> for an open
+/// design change of a project, by its id, that waits on the person's
+/// approval.
 pub fn compose(
     snapshot: &Snapshot,
     now: i64,
     claims: &dyn Fn(&str) -> ClaimFacts,
+    reviews: &Reviews,
 ) -> Vec<Composed> {
     match snapshot.as_deref() {
         Ok([]) => vec![Composed::of(
@@ -521,7 +524,7 @@ pub fn compose(
                     .lists
                     .as_ref()
                     .is_ok_and(|lists| !matches!(design_repo(lists), Ok(None)));
-                Composed::of(compose_view(loaded, now, claims), designs)
+                Composed::of(compose_view(loaded, now, claims, reviews), designs)
             })
             .collect(),
         Err(fault) => vec![Composed::of(View::failed("", 0, fault.clone()), false)],
@@ -562,7 +565,16 @@ impl Composed {
     }
 }
 
-fn compose_view(loaded: &Loaded, now: i64, claims: &dyn Fn(&str) -> ClaimFacts) -> View {
+/// Where the rules review of a project's open design change, by its id,
+/// stands, as the daemon reads it from the change's worktree.
+pub type Reviews<'a> = dyn Fn(&str, Id) -> Option<RulesReview> + 'a;
+
+fn compose_view(
+    loaded: &Loaded,
+    now: i64,
+    claims: &dyn Fn(&str) -> ClaimFacts,
+    reviews: &Reviews,
+) -> View {
     match &loaded.lists {
         Err(fault) => View::failed(&loaded.project, 0, fault.clone()),
         Ok(lists) => {
@@ -573,6 +585,11 @@ fn compose_view(loaded: &Loaded, now: i64, claims: &dyn Fn(&str) -> ClaimFacts) 
             for item in &mut view.items {
                 for running in &mut item.running {
                     running.claim = Some(claims(&running.worktree));
+                }
+            }
+            for design in &mut view.designs {
+                if design.closed.is_none() && design.approved.is_none() {
+                    design.rules_review = reviews(&lists.project, design.id);
                 }
             }
             view

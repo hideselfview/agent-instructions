@@ -1,45 +1,69 @@
 //! Which worktrees hold a design branch and where its design change stands:
 //! for each commit of a worktree that changes design files, an open design
 //! change covers it or none does, as `design::design_commits` decides for
-//! health and land. A worktree with a commit whose covering change waits
-//! on the person's review waits on that review; one with a commit no change
-//! covers waits until someone records one: the design session, or the
-//! implementing agent for a board edit of a change the person decided.
+//! health and land. A worktree with a commit whose covering change waits on
+//! the person's approval waits on their review once the rules review of the
+//! branch takes its commits (decision #362), and on that review until then;
+//! one with a commit no change covers waits until someone records one: the
+//! design session, or the implementing agent for a board edit of a change the
+//! person decided.
 
 use std::path::Path;
 
 use super::cards::ItemWait;
 use crate::fail::Result;
-use crate::lists::Lists;
 use crate::lists::design_reads::DesignReads;
+use crate::lists::{DesignChange, Lists};
 use crate::side_git::SideRead;
+
+/// Where the design branch of a worktree stands.
+#[derive(Debug)]
+pub enum Standing<'a> {
+    /// An open design change that waits on the person's approval covers one
+    /// of its commits.
+    Approval(&'a DesignChange),
+    /// No open design change covers one of its commits.
+    Unrecorded,
+}
 
 /// The standing of the design branch in <top>, a worktree of <repo> whose
 /// side read is <git>, from the design commits in <reads>; None when the
 /// commits change no design files or approved changes cover them. Fails when
 /// git can't read the commits or a change's last commit.
-pub fn standing(
+pub fn standing<'a>(
     reads: &DesignReads,
-    lists: &Lists,
+    lists: &'a Lists,
     repo: &str,
     top: &Path,
     git: &SideRead,
-) -> Result<Option<ItemWait>> {
+) -> Result<Option<Standing<'a>>> {
     let commits = reads.of(lists, repo, top, git)?;
-    let reviewing = commits
+    let awaiting = commits
         .iter()
         .filter_map(|commit| commit.covering(lists))
-        .find(|design| design.waits_on_person());
-    Ok(match reviewing {
-        Some(design) => Some(ItemWait::Review {
-            id: design.id.0,
-            title: design.title.clone(),
-        }),
+        .find(|design| design.awaits_approval());
+    Ok(match awaiting {
+        Some(design) => Some(Standing::Approval(design)),
         None if commits.iter().any(|commit| commit.covered_by.is_none()) => {
-            Some(ItemWait::Unrecorded)
+            Some(Standing::Unrecorded)
         }
         None => None,
     })
+}
+
+/// What the design branch at <standing> waits on: a change that waits on the
+/// person's approval waits on their review once the rules review of the
+/// branch takes its commits (<review_takes>), and on nothing of theirs
+/// before that, while the card shows the rules review's wait.
+pub fn wait(standing: &Standing, review_takes: bool) -> Option<ItemWait> {
+    match standing {
+        Standing::Approval(design) if review_takes => Some(ItemWait::Review {
+            id: design.id.0,
+            title: design.title.clone(),
+        }),
+        Standing::Approval(_) => None,
+        Standing::Unrecorded => Some(ItemWait::Unrecorded),
+    }
 }
 
 #[cfg(test)]

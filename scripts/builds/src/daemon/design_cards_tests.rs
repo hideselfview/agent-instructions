@@ -32,7 +32,7 @@ fn branch(dir: &Path, files: &[&str]) -> Vec<Commit> {
 
 /// The standing of <top>, whose commits waiting to land are <ahead>, as a
 /// fresh dashboard reads it.
-fn standing_of(lists: &Lists, top: &Path, ahead: &[Commit]) -> Result<Option<ItemWait>> {
+fn standing_of<'a>(lists: &'a Lists, top: &Path, ahead: &[Commit]) -> Result<Option<Standing<'a>>> {
     let git = SideRead {
         head: ahead.first().cloned(),
         ahead: ahead.to_vec(),
@@ -59,15 +59,24 @@ fn lists_with(worktree: &Path, ahead: &[Commit], places: &[&str]) -> (Lists, cra
     (lists, id)
 }
 
+/// A change that waits on the person's approval waits on their review only
+/// once the rules review of its branch takes the commits (decision #362):
+/// until then the card shows the rules review's wait, and the change waits
+/// on nothing of the person's.
 #[test]
-fn a_branch_whose_change_waits_on_review_names_the_change() {
+fn a_branch_whose_change_waits_on_approval_waits_on_the_person_once_its_rules_review_takes_it() {
     let scratch = Scratch::new("design-cards-review");
     let top = scratch.dir.join("side-2");
     let ahead = branch(&top, &[BOARD]);
     let (lists, id) = lists_with(&top, &ahead, &[BOARD]);
     let title = lists.design(id).unwrap().title.clone();
-    let wait = standing_of(&lists, &top, &ahead).unwrap();
-    assert_eq!(wait, Some(ItemWait::Review { id: id.0, title }));
+    let standing = standing_of(&lists, &top, &ahead).unwrap().unwrap();
+    assert!(matches!(standing, Standing::Approval(design) if design.id == id));
+    assert_eq!(wait(&standing, false), None);
+    assert_eq!(
+        wait(&standing, true),
+        Some(ItemWait::Review { id: id.0, title })
+    );
 }
 
 #[test]
@@ -76,8 +85,10 @@ fn a_design_branch_no_recorded_change_covers_waits_on_the_design_session() {
     let top = scratch.dir.join("side-2");
     let ahead = branch(&top, &[BOARD, "design/mocks/Other.dc.html"]);
     let (lists, _) = lists_with(&top, &ahead, &[BOARD]);
-    let wait = standing_of(&lists, &top, &ahead).unwrap();
-    assert_eq!(wait, Some(ItemWait::Unrecorded));
+    let standing = standing_of(&lists, &top, &ahead).unwrap().unwrap();
+    assert!(matches!(standing, Standing::Unrecorded));
+    assert_eq!(wait(&standing, false), Some(ItemWait::Unrecorded));
+    assert_eq!(wait(&standing, true), Some(ItemWait::Unrecorded));
 }
 
 #[test]
@@ -86,7 +97,7 @@ fn a_branch_with_no_design_files_has_no_design_standing() {
     let top = scratch.dir.join("side-2");
     let ahead = branch(&top, &["src/main.rs"]);
     let (lists, _) = lists_with(&top, &ahead, &[BOARD]);
-    assert_eq!(standing_of(&lists, &top, &ahead).unwrap(), None);
+    assert!(standing_of(&lists, &top, &ahead).unwrap().is_none());
 }
 
 /// A change whose last commit git can't read is an error the card shows,
@@ -99,6 +110,9 @@ fn a_change_whose_last_commit_git_cannot_read_is_an_error() {
     let mut gone = ahead.clone();
     gone[0].full = "0".repeat(40);
     let (lists, _) = lists_with(&top, &gone, &[BOARD]);
-    let fault = standing_of(&lists, &top, &ahead).unwrap_err().text();
+    let Err(fault) = standing_of(&lists, &top, &ahead) else {
+        panic!("git can't read the change's last commit")
+    };
+    let fault = fault.text();
     assert!(fault.contains(&"0".repeat(40)), "{fault}");
 }

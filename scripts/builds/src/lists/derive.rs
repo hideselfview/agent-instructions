@@ -76,7 +76,7 @@ pub fn wait_met(lists: &Lists, wait: &Wait) -> bool {
 pub fn wait_on_person(lists: &Lists, wait: &Wait) -> bool {
     match wait {
         Wait::Question(_) => !wait_met(lists, wait),
-        Wait::Design(id) => lists.design(*id).is_some_and(DesignChange::waits_on_person),
+        Wait::Design(id) => lists.design(*id).is_some_and(DesignChange::awaits_approval),
         Wait::Item(_) | Wait::Condition { .. } => false,
     }
 }

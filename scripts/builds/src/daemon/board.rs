@@ -9,7 +9,7 @@ use serde::Serialize;
 
 use crate::lists::Stamp;
 use crate::lists::derive::Times;
-use crate::lists::view::{ItemView, Named, View};
+use crate::lists::view::{DesignView, ItemView, Named, RulesReview, View};
 
 /// The tab a running work is under.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -21,7 +21,8 @@ pub enum Tab {
 }
 
 /// What Waiting on you counts for the project's tab: the stack's questions, the
-/// design changes waiting on review and the running work held on the person.
+/// design changes waiting on the person's review and the running work held on
+/// the person.
 /// The page counts the other tabs from the rows it draws.
 #[derive(Clone, Debug, Default, Serialize)]
 pub struct Board {
@@ -66,6 +67,15 @@ fn job(agent: &str) -> &str {
     agent.strip_suffix(" agent").unwrap_or(agent)
 }
 
+/// Does <design> wait on the person's review? It waits on their approval
+/// until they give it, and on their review only once its rules review takes
+/// its branch (decision #362).
+pub fn to_review(design: &DesignView) -> bool {
+    design.closed.is_none()
+        && design.approved.is_none()
+        && design.rules_review == Some(RulesReview::Read)
+}
+
 /// Does <item> wait on the person's answer or review
 /// (`derive::wait_on_person`)?
 fn waits_on_person(item: &ItemView) -> bool {
@@ -76,11 +86,7 @@ fn waits_on_person(item: &ItemView) -> bool {
 pub fn board(view: &View) -> Board {
     let works = works(view);
     let count = |tab| works.iter().filter(|work| work.tab == tab).count();
-    let to_review = view
-        .designs
-        .iter()
-        .filter(|design| design.closed.is_none() && design.approved.is_none())
-        .count();
+    let to_review = view.designs.iter().filter(|d| to_review(d)).count();
     Board {
         waiting: view.stack.len() + to_review + count(Tab::Waiting),
         works,

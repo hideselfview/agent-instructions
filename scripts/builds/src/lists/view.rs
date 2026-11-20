@@ -203,6 +203,10 @@ pub struct DesignView {
     pub no_app_place: Option<String>,
     /// The person's review: None while it waits on them.
     pub approved: Option<Stamp>,
+    /// Where the rules review of an open change that waits on the person's
+    /// approval stands, which the daemon joins from the change's worktree;
+    /// None for any other change, and in `lists show --json`.
+    pub rules_review: Option<RulesReview>,
     /// The person's decision that settled a board edit of an existing
     /// screen, which approved the change when the implementing agent
     /// recorded it.
@@ -213,6 +217,21 @@ pub struct DesignView {
     pub landed: Vec<crate::lists::DesignLanding>,
     /// When it landed, for one that did in the last `FLOW_DAYS` days.
     pub closed: Option<Stamp>,
+}
+
+/// Where the rules review of a design change that waits on the person's
+/// approval stands (decision #362, `review::design_review`).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum RulesReview {
+    /// The review of the change's branch takes its commits: the change waits
+    /// on the person's review, under Waiting on you.
+    Read,
+    /// The review does not take the commits yet, or no live worktree holds
+    /// the commits the change covers: the change waits on its rules review.
+    InReview,
+    /// The daemon could not read where the review stands, for this reason.
+    Unread(String),
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -443,6 +462,7 @@ pub fn design_view(
             .collect(),
         no_app_place: design.no_app_place.clone(),
         approved: design.approved.clone(),
+        rules_review: None,
         decision,
         session: design.session,
         opened: design.opened.clone(),

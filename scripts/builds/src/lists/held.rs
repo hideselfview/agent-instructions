@@ -206,27 +206,23 @@ impl Worktree {
     }
 
     /// What blocks its branch from landing, read from the review records
-    /// (`review::idle::advice`): None for a held worktree, an app checkout,
-    /// one with no commits that origin/main lacks, and one whose lists
-    /// `findings` already names as unreadable.
+    /// (`review::idle::landing`), or why builds cannot tell: None for a held
+    /// worktree, an app checkout, one with no commits that origin/main lacks,
+    /// and one whose lists `findings` already names as unreadable.
     pub fn landing(
         &self,
         places: &Places,
         loaded: &std::result::Result<Vec<Loaded>, String>,
-    ) -> Option<Advice> {
+    ) -> Option<std::result::Result<crate::review::idle::Landing, String>> {
         if self.app_checkout || self.claim.is_held() {
             return None;
         }
         let ahead = self.git.as_ref().ok()?.ahead_oldest_first();
         let lists = self.lists(loaded).ok()??;
         let root = crate::review::installed_rules_root(&places.home);
-        match crate::review::idle::advice(places, lists, &self.top, &self.repo, &ahead, &root) {
-            Ok(advice) => advice,
-            Err(fault) => Some(Advice::said(format!(
-                "builds cannot tell what blocks its branch from landing: {}",
-                fault.text()
-            ))),
-        }
+        crate::review::idle::landing(places, lists, &self.top, &self.repo, &ahead, &root)
+            .map_err(|fault| fault.text())
+            .transpose()
     }
 
     /// The lists of the project its work is in (`store::lists_of`).
@@ -239,11 +235,12 @@ impl Worktree {
 }
 
 /// The labels of the worktrees whose commits an open design change covers
-/// and that waits on the person's review: they wait on the person, so they
-/// are not quiet. Once the person approves, the change waits on landing and
-/// the worktree is quiet again. <reads> holds the design commits read so
-/// far.
-pub fn awaiting_review(
+/// that waits on the person's approval. Such a worktree waits on the
+/// person's review once the rules review takes its commits (decision #362),
+/// and then it is not quiet; once the person approves, the change waits on
+/// landing and the worktree is quiet again. <reads> holds the design commits
+/// read so far.
+pub fn awaiting_approval(
     loaded: &std::result::Result<Vec<Loaded>, String>,
     worktrees: &[Worktree],
     reads: &DesignReads,
@@ -266,7 +263,7 @@ pub fn awaiting_review(
             commits.iter().any(|commit| {
                 commit
                     .covering(lists)
-                    .is_some_and(DesignChange::waits_on_person)
+                    .is_some_and(DesignChange::awaits_approval)
             })
         })
         .map(|worktree| worktree.label.clone())

@@ -540,8 +540,9 @@ place of it and of claude.
 DESIGN CHANGES
 
 The design session records a design change when its boards are drawn, and the
-change waits on the person's review until they approve it; `builds help
-workflow` says how the session and the person work through one. builds land
+change waits on its rules review and then on the person's review until they
+approve it; `builds help workflow` says how the session and the person work
+through one. builds land
 --design N refuses the change before approval, and landing closes it. When the
 commits hold several changes, builds land takes --design once for each and
 closes each one. An implementing agent that edits an existing board for a
@@ -646,6 +647,17 @@ sent again.
       Design changes to review by this title, and builds land uses it as the
       message of the commit that squashes the change. Record and amend refuse
       only a title that is empty, has several lines or has spaces at its ends.
+      A change that waits on the person's review waits on its rules review
+      first (decision #362). Record and amend of such a change run `builds
+      review` on the branch that the change's worktree has checked out, as
+      `builds review <worktree>` does, when the review has not read the
+      branch, print the review's report, and say where the review stands.
+      The change shows under Waiting on you once the review takes the
+      branch's commits as builds land would and no finding waits. Until then,
+      and after a commit that changes the branch until a review reads it,
+      the dashboard lists the change under Design changes in review, and
+      `builds design show N` says what the review lacks. builds stores none
+      of this: it reads the review's records and the branch each time.
       Record stores every design place the range changes (a board, a
       component folder, a spec section) with no app work, and `places` is
       optional: no app work item exists for a change before the person
@@ -788,8 +800,9 @@ sent again.
       design:N` command that removes the item's wait.
 
   builds design show N | builds design list
-      `show` prints one design change, whether open, landed or dropped;
-      `list` prints the open ones, one line each.
+      `show` prints one design change, whether open, landed or dropped, and
+      for an open change that waits on the person's approval, where its
+      rules review stands; `list` prints the open ones, one line each.
 
   builds design render DIR BOARD [--theme light|dark] [--now | --at REV]
       Prints board BOARD of worktree DIR as one page of HTML, the way the

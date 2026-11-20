@@ -593,8 +593,21 @@ already matches (`places`, `builds help lists`).
      most 40 words, with no sentence over 15 words. The details name what changed in a few short
      sentences, and the boards and circles show the rest. Circle what the person must look at, not every element the
      change moves: when one heading goes and every row below it moves up,
-     circle the area that holds the heading and the rows. The change shows in the dashboard's Waiting on you
-     tab as a card, and its Details opens the review page, which shows each
+     circle the area that holds the heading and the rows. The rules review
+     reads the change before the person does (decision #362). Run record
+     and amend as background tasks: when the change waits on the person's
+     review and the rules review has not read its branch, record and amend
+     run `builds review` on the branch that the worktree has checked out
+     and print the review's landing. Wait with `builds review wait
+     <landing>` as a background task, fix each confirmed finding in a new
+     commit, and run `builds design amend`, which reads the fix in a new run
+     of the review. The change shows in the dashboard's Waiting on you tab
+     as a card only once the rules review takes the branch's commits, as
+     `builds land` would, and no finding waits. A commit that changes the
+     branch takes the card off the tab until a review reads it. Until then
+     the dashboard lists the change under Design changes in review, and
+     `builds design show N` says what the review lacks. The card's Details
+     opens the review page, which shows each
      board now and proposed side by side, circles on each side the elements
      the selectors find there, and draws it again on each load. To change
      the boards again, commit and run `builds design amend`, which clears an
@@ -627,9 +640,13 @@ already matches (`places`, `builds help lists`).
      refuses when the squashed tree differs from the last commit's tree.
      Landing does not publish. When that session has ended,
      the next design session runs `builds land` for the change. `builds design
-     approve N --by-person` is for an approval the person gives in words. When
-     a rule group covers a path the commits change, `builds land` refuses them
-     until the rules review finishes, as for any branch (REVIEW).
+     approve N --by-person` is for an approval the person gives in words. The
+     rules review took the branch before the person reviewed it (step 2), so
+     land needs no new review after the approval unless the branch changed
+     since, and a commit that changes a board needs an amend, which clears
+     the approval. `builds
+     land` refuses commits that a rule group covers until the rules review
+     takes them, as for any branch (REVIEW).
 
 PUBLISHING DESIGNS
 

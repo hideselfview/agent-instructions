@@ -267,9 +267,11 @@ impl Settlement {
 }
 
 impl DesignChange {
-    /// Does the change wait on the person? The change waits on their review
-    /// until they approve it, and after that only on its landing.
-    pub fn waits_on_person(&self) -> bool {
+    /// Does the change wait on the person's approval? Until they give it, the
+    /// change waits on its rules review and then on their review
+    /// (`review::design_review`, decision #362), and after that only on its
+    /// landing.
+    pub fn awaits_approval(&self) -> bool {
         self.approved.is_none()
     }
 }
@@ -1444,7 +1446,7 @@ fn describe(lists: &Lists, design: &DesignChange, closed: Option<&Closed>) -> Re
             );
         }
         None if closed.is_none() => {
-            let _ = writeln!(out, "waiting on the person's review");
+            let _ = writeln!(out, "waiting on the person's approval");
         }
         None => {}
     }

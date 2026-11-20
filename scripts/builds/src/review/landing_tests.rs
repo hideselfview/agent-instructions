@@ -802,7 +802,7 @@ fn a_confirmed_finding_the_person_allowed_blocks_no_landing() {
 }
 
 /// What `builds health` says of the branch in <side>, whose commits are
-/// <shas>, as the clauses of `blockers` and as the advice `idle::advice` gives.
+/// <shas>, as the clauses of `blockers` and as the advice `idle::landing` gives.
 fn idle_says(
     demo: &Demo,
     fake: &Fake,
@@ -812,9 +812,10 @@ fn idle_says(
     let (verdict, _) = verdict_of(demo, fake, side, shas);
     let lists = demo.store.load().unwrap();
     let advice =
-        crate::review::idle::advice(&demo.tool.places, &lists, side, "demo", shas, &fake.root)
+        crate::review::idle::landing(&demo.tool.places, &lists, side, "demo", shas, &fake.root)
             .unwrap()
-            .unwrap();
+            .unwrap()
+            .advice();
     (blockers(&verdict), advice)
 }
 

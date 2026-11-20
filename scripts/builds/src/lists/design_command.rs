@@ -10,6 +10,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
+use crate::ack::agent::Caller;
 use crate::checkout::Checkout;
 use crate::fail;
 use crate::fail::{Context, Result};
@@ -20,7 +21,7 @@ use crate::lists::design_paths::{self, Changes, Globs, PlaceKind};
 use crate::lists::design_session;
 use crate::lists::rulings::{self, Source};
 use crate::lists::store::{self, Store, project_of};
-use crate::lists::{Id, Lists, Stamp};
+use crate::lists::{DesignChange, Id, Lists, Stamp};
 use crate::text::local_minute;
 use crate::tool::Tool;
 
@@ -38,11 +39,24 @@ pub fn run_to_text(tool: &Tool, args: &[String]) -> Result<String> {
 
 /// A design command run by the session whose inbox <session> reads, if any:
 /// only `record`, `amend` and `listen` call it, and keep the inbox as the
-/// session to tell, so no other command depends on the environment.
+/// session to tell, so no other command depends on the environment. The
+/// agent that runs it is the one the environment names.
 pub fn run_in_session(
     tool: &Tool,
     args: &[String],
     session: impl FnOnce() -> Result<Option<Messaging>>,
+) -> Result<String> {
+    run_as(tool, args, session, Caller::from_env)
+}
+
+/// `run_in_session`, run by the agent that <runner> gives: only `record` and
+/// `amend` call it, when they start the rules review of a change's branch
+/// (`design_review::start`), which records who runs the review.
+pub fn run_as(
+    tool: &Tool,
+    args: &[String],
+    session: impl FnOnce() -> Result<Option<Messaging>>,
+    runner: impl FnOnce() -> Result<Option<Caller>>,
 ) -> Result<String> {
     let cwd = std::env::current_dir().context(|| "reading the current directory".to_string())?;
     let Some((command, rest)) = args.split_first() else {
@@ -51,8 +65,8 @@ pub fn run_in_session(
     match command.as_str() {
         "places" => places(tool, rest),
         "only" => only(tool, rest),
-        "record" => record(tool, rest, &cwd, session()?.as_ref()),
-        "amend" => amend(tool, rest, &cwd, session()?.as_ref()),
+        "record" => record(tool, rest, &cwd, session()?.as_ref(), runner),
+        "amend" => amend(tool, rest, &cwd, session()?.as_ref(), runner),
         "approve" => approve(tool, rest, &cwd),
         "check" => check(tool, rest),
         "landed" => landed(tool, rest),
@@ -322,7 +336,7 @@ fn recorded_words(verb: &str, recorded: &design::Recorded, title: &str, review: 
     let id = recorded.design;
     let mut out = format!("{verb} design change {id} \"{title}\"\n");
     let waits = format!(
-        "design change {id} waits on the person's review (the Waiting on you tab); builds land --design refuses it until `builds design approve --by-person`\n"
+        "design change {id} waits on the person's approval, which builds land --design needs (`builds design approve --by-person` records it); the person reviews it once its rules review takes its branch\n"
     );
     match review {
         Review::Fix => out.push_str(&format!(
@@ -352,7 +366,13 @@ fn recorded_words(verb: &str, recorded: &design::Recorded, title: &str, review: 
     out
 }
 
-fn record(tool: &Tool, args: &[String], cwd: &Path, session: Option<&Messaging>) -> Result<String> {
+fn record(
+    tool: &Tool,
+    args: &[String],
+    cwd: &Path,
+    session: Option<&Messaging>,
+    runner: impl FnOnce() -> Result<Option<Caller>>,
+) -> Result<String> {
     let args = Args::parse(args, &["request"], &[])?;
     args.exactly(0, USAGE)?;
     let request: DesignRequest = read_request(args.require("request")?)?;
@@ -391,10 +411,55 @@ fn record(tool: &Tool, args: &[String], cwd: &Path, session: Option<&Messaging>)
         Settlement::Decision(decision) => Review::Decided(decision),
         Settlement::Review => Review::Waits,
     };
-    Ok(recorded_words("recorded", &recorded, &title, review) + &rulings::lines(cited))
+    let words = recorded_words("recorded", &recorded, &title, review) + &rulings::lines(cited);
+    review_first(
+        tool,
+        &scope.store,
+        recorded.design,
+        &stamp,
+        runner,
+        session,
+        words,
+    )
 }
 
-fn amend(tool: &Tool, args: &[String], cwd: &Path, session: Option<&Messaging>) -> Result<String> {
+/// <words>, what a record or amend of design change <id> said, followed by
+/// where the change's rules review stands when the change waits on the
+/// person's approval, after `design_review::start` starts the review of its
+/// branch when the review has a change to read: the person reviews the
+/// change only once that review takes the branch (decision #362).
+fn review_first(
+    tool: &Tool,
+    store: &Store,
+    id: Id,
+    stamp: &Stamp,
+    runner: impl FnOnce() -> Result<Option<Caller>>,
+    session: Option<&Messaging>,
+    words: String,
+) -> Result<String> {
+    if !store
+        .load()?
+        .design(id)
+        .is_some_and(DesignChange::awaits_approval)
+    {
+        return Ok(words);
+    }
+    match crate::review::design_review::start(tool, store, id, stamp, runner, session) {
+        Ok(review) => Ok(words + &review),
+        Err(error) => fail!(
+            "{words}builds could not run the rules review of design change {id}, which waits on it before the person reviews it: {}\nRun builds review in the change's worktree.",
+            error.text()
+        ),
+    }
+}
+
+fn amend(
+    tool: &Tool,
+    args: &[String],
+    cwd: &Path,
+    session: Option<&Messaging>,
+    runner: impl FnOnce() -> Result<Option<Caller>>,
+) -> Result<String> {
     let args = Args::parse(args, &["request"], &[])?;
     let [id] = args.exactly(1, USAGE)? else {
         unreachable!("exactly one")
@@ -442,7 +507,8 @@ fn amend(tool: &Tool, args: &[String], cwd: &Path, session: Option<&Messaging>) 
                 };
                 Ok((recorded, design.title.clone(), review))
             })?;
-    Ok(recorded_words("amended", &recorded, &title, review) + &rulings::lines(cited))
+    let words = recorded_words("amended", &recorded, &title, review) + &rulings::lines(cited);
+    review_first(tool, &scope.store, id, &stamp, runner, session, words)
 }
 
 /// The last commit of open change <id> of the scope's repo, when the range's
@@ -596,13 +662,31 @@ fn drop(tool: &Tool, args: &[String], cwd: &Path) -> Result<String> {
     Ok(format!("closed design change {id}; it will not land\n"))
 }
 
+/// `show N`: design change N, and, for an open change that waits on the
+/// person's approval, where its rules review stands (`design_review`).
 fn show(tool: &Tool, args: &[String], cwd: &Path) -> Result<String> {
     let args = Args::parse(args, &[], &[])?;
     let [id] = args.exactly(1, USAGE)? else {
         unreachable!("exactly one")
     };
+    let id = Id::parse(id)?;
     let store = Store::resolve(&tool.places, &args, cwd)?;
-    design::show(&store.load()?, Id::parse(id)?)
+    let lists = store.load()?;
+    let mut out = design::show(&lists, id)?;
+    if let Some(design) = lists.design(id).filter(|d| d.awaits_approval()) {
+        let standing =
+            crate::review::run::Material::load(&tool.reviewer.rules_root, &lists.project).and_then(
+                |material| crate::review::design_review::read(&store, &lists, design, &material),
+            );
+        out.push_str(&match standing {
+            Ok(standing) => standing.line(id, &design.worktree),
+            Err(error) => format!(
+                "builds cannot tell where the rules review of design change {id} stands: {}\n",
+                error.text()
+            ),
+        });
+    }
+    Ok(out)
 }
 
 /// `title N`: the title of open design change N, which `builds land` gives

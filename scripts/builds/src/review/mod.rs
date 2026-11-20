@@ -64,6 +64,7 @@ mod cases;
 pub mod check;
 pub mod commits;
 pub mod copy;
+pub mod design_review;
 mod exchange_time;
 #[cfg(test)]
 pub mod fakes;
@@ -773,25 +774,109 @@ fn run_command(tool: &Tool, args: &[String]) -> Result<()> {
         stamp,
     }) = to_settle
     {
-        if let Some(notice) = to_settle.notice() {
-            print!(
-                "{}",
-                judge::tell(
-                    &store,
-                    &stamp,
-                    &tool.places.claude_sessions(),
-                    &notice,
-                    caller.as_ref(),
-                    crate::inbox::Messaging::from_env()?.as_ref(),
-                )?
-            );
-        }
-        tell_judge_waiting(tool, &store, &stamp)?;
+        print!(
+            "{}",
+            tell_settlers(
+                tool,
+                &store,
+                &stamp,
+                &to_settle,
+                caller.as_ref(),
+                crate::inbox::Messaging::from_env()?.as_ref(),
+            )?
+        );
     }
     match reported.refusal {
         Some(_) => Err(Fail::Exit(1)),
         None => Ok(()),
     }
+}
+
+/// Reviews the branch that the worktree <worktree> of <repo> has checked out
+/// past origin/main, as `builds review <worktree>` does with the rules and
+/// reviewer of <tool>, as <runner>, whose session's inbox is <own>; tells
+/// the judge, or the coordinator, of the findings nobody has settled; and
+/// returns what the review and the telling said. `builds design record` and
+/// `amend` run it for a design change whose review has a change to read
+/// (`design_review::start`).
+pub fn review_branch(
+    tool: &Tool,
+    store: &Store,
+    repo: &str,
+    worktree: &Path,
+    stamp: &Stamp,
+    runner: Option<&Caller>,
+    own: Option<&crate::inbox::Messaging>,
+) -> Result<String> {
+    let key = default_key(worktree)?;
+    let reported = review(&Inputs {
+        store,
+        project: &store.project,
+        repo,
+        worktree,
+        base: "origin/main",
+        head: None,
+        key: &key,
+        root: &tool.reviewer.rules_root,
+        reviewer: &tool.reviewer.program,
+        stamp,
+        brief: None,
+        runner,
+    })?;
+    let mut text = reported.text;
+    if let Some(refusal) = &reported.refusal {
+        text.push_str(refusal);
+    }
+    let Some(landing) = reported.landing else {
+        return Ok(text);
+    };
+    text.push_str(&format!(
+        "builds review show {landing} lists every run of this landing, and builds review wait {landing} waits until no finding waits for a settle\n"
+    ));
+    let to_settle = judge::ToSettle {
+        project: store.project.clone(),
+        landing,
+        key,
+        worktree: Some(worktree.to_path_buf()),
+        findings: unsettled(store, landing)?,
+    };
+    text.push_str(&tell_settlers(tool, store, stamp, &to_settle, runner, own)?);
+    Ok(text)
+}
+
+/// The findings of review landing <landing> in <store> that nobody has
+/// settled.
+fn unsettled(store: &Store, landing: i64) -> Result<Vec<i64>> {
+    Ok(
+        record::findings_of_landing(&*store.open_existing()?, landing)?
+            .into_iter()
+            .filter(record::Finding::is_unsettled)
+            .map(|finding| finding.id)
+            .collect(),
+    )
+}
+
+/// Tells the judge, or the coordinator, of the findings of <to_settle>, as
+/// <caller>, whose session's inbox is <own>, then sends the judge each
+/// finding that waits for it and that builds has not told the judge's
+/// session of (`tell_judge_waiting`), and returns what both said.
+fn tell_settlers(
+    tool: &Tool,
+    store: &Store,
+    stamp: &Stamp,
+    to_settle: &judge::ToSettle,
+    caller: Option<&Caller>,
+    own: Option<&crate::inbox::Messaging>,
+) -> Result<String> {
+    let sessions = tool.places.claude_sessions();
+    let mut text = match to_settle.notice() {
+        Some(notice) => judge::tell(store, stamp, &sessions, &notice, caller, own)?,
+        None => String::new(),
+    };
+    for line in judge_told::tell_waiting(store, stamp, &sessions)? {
+        text.push_str(&format!("{line}\n"));
+    }
+    Ok(text)
 }
 
 /// Sends the project's judge each finding that waits for it and that builds
@@ -923,17 +1008,12 @@ fn run_review(
     let Some(landing) = reported.landing else {
         return Ok((reported, None));
     };
-    let findings = record::findings_of_landing(&*store.open_existing()?, landing)?
-        .into_iter()
-        .filter(record::Finding::is_unsettled)
-        .map(|finding| finding.id)
-        .collect();
     let to_settle = judge::ToSettle {
         project,
         landing,
         key,
         worktree: Some(worktree),
-        findings,
+        findings: unsettled(&store, landing)?,
     };
     Ok((
         reported,

@@ -21,8 +21,12 @@ fn no_claims(_: &str) -> ClaimFacts {
     panic!("no item runs")
 }
 
+fn no_reviews(_: &str, _: crate::lists::Id) -> Option<RulesReview> {
+    None
+}
+
 fn error_of(snapshot: Snapshot) -> String {
-    let composed = compose(&snapshot, NOON, &no_claims);
+    let composed = compose(&snapshot, NOON, &no_claims, &no_reviews);
     assert_eq!(composed.len(), 1);
     let view = serde_json::to_value(&composed[0]).unwrap();
     assert_eq!(view["items"], json!([]));
@@ -60,6 +64,7 @@ fn no_project_is_an_error_and_a_failing_store_is_only_its_own_projects() {
         ]),
         NOON,
         &no_claims,
+        &no_reviews,
     );
     let views: Vec<serde_json::Value> = several
         .iter()
@@ -71,6 +76,41 @@ fn no_project_is_an_error_and_a_failing_store_is_only_its_own_projects() {
         (&json!("b"), &json!("ids repeat"))
     );
     assert_eq!(error_of(Err("listing failed".into())), "listing failed");
+}
+
+/// An open design change that waits on the person's approval carries where
+/// its rules review stands, and is under Waiting on you only once that
+/// review takes its branch (decision #362); an approved one carries nothing.
+#[test]
+fn a_design_change_to_approve_carries_its_rules_review() {
+    let db = db();
+    let waiting = design(&db);
+    let approved = design(&db);
+    crate::lists::design::approve(&db, approved, &stamp(NOON)).unwrap();
+    let snapshot: Snapshot = Ok(vec![loaded("demo", Ok(read(&db)))]);
+    let view_with = |review: RulesReview| {
+        let composed = compose(&snapshot, NOON, &no_claims, &|project, id| {
+            assert_eq!((project, id), ("demo", waiting));
+            Some(review.clone())
+        });
+        serde_json::to_value(&composed[0]).unwrap()
+    };
+    let view = view_with(RulesReview::InReview);
+    let rules_review = |view: &serde_json::Value, id: crate::lists::Id| {
+        view["designs"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|d| d["id"] == json!(id.0))
+            .unwrap()["rules_review"]
+            .clone()
+    };
+    assert_eq!(rules_review(&view, waiting), json!("in-review"));
+    assert_eq!(rules_review(&view, approved), json!(null));
+    assert_eq!(view["board"]["waiting"], json!(0));
+    let view = view_with(RulesReview::Read);
+    assert_eq!(rules_review(&view, waiting), json!("read"));
+    assert_eq!(view["board"]["waiting"], json!(1));
 }
 
 #[test]
@@ -98,10 +138,15 @@ fn a_running_item_carries_its_claim_facts_and_nothing_else_does() {
         note_state: Some("held".into()),
         waiting_to_land: 2,
     };
-    let composed = compose(&snapshot, NOON, &|asked| {
-        assert_eq!(asked, worktree);
-        facts.clone()
-    });
+    let composed = compose(
+        &snapshot,
+        NOON,
+        &|asked| {
+            assert_eq!(asked, worktree);
+            facts.clone()
+        },
+        &no_reviews,
+    );
     assert_eq!(composed.len(), 1);
     let view = serde_json::to_value(&composed[0]).unwrap();
     let find = |id: crate::lists::Id| {
@@ -619,7 +664,12 @@ fn the_design_repo_is_the_one_repo_with_design_places_and_any_design_places_give
         .design_places
         .insert("bae".into(), vec!["design/mocks/*.html".into()]);
     assert_eq!(design_repo(&lists).unwrap(), Some("bae"));
-    let one = compose(&Ok(vec![loaded("a", Ok(lists.clone()))]), NOON, &no_claims);
+    let one = compose(
+        &Ok(vec![loaded("a", Ok(lists.clone()))]),
+        NOON,
+        &no_claims,
+        &no_reviews,
+    );
     assert_eq!(
         serde_json::to_value(&one[0]).unwrap()["has_designs"],
         json!(true)
@@ -630,13 +680,23 @@ fn the_design_repo_is_the_one_repo_with_design_places_and_any_design_places_give
     let error = design_repo(&lists).unwrap_err().text();
     assert!(error.contains("in 2 repos (bae, coven)"), "{error}");
     // The page says why it draws no boards.
-    let several = compose(&Ok(vec![loaded("a", Ok(lists.clone()))]), NOON, &no_claims);
+    let several = compose(
+        &Ok(vec![loaded("a", Ok(lists.clone()))]),
+        NOON,
+        &no_claims,
+        &no_reviews,
+    );
     assert_eq!(
         serde_json::to_value(&several[0]).unwrap()["has_designs"],
         json!(true)
     );
     lists.design_places.clear();
-    let none = compose(&Ok(vec![loaded("a", Ok(lists))]), NOON, &no_claims);
+    let none = compose(
+        &Ok(vec![loaded("a", Ok(lists))]),
+        NOON,
+        &no_claims,
+        &no_reviews,
+    );
     assert_eq!(
         serde_json::to_value(&none[0]).unwrap()["has_designs"],
         json!(false)
@@ -649,7 +709,12 @@ fn a_projects_lists_json_keeps_each_field_once_with_its_own_shape() {
     let question = crate::lists::fixtures::question(&db);
     let change = design(&db);
     let lists = read(&db);
-    let composed = compose(&Ok(vec![loaded("demo", Ok(lists))]), NOON, &no_claims);
+    let composed = compose(
+        &Ok(vec![loaded("demo", Ok(lists))]),
+        NOON,
+        &no_claims,
+        &|_, _| Some(RulesReview::Read),
+    );
     // The page reads the text a client gets: a key that appears twice in it
     // keeps only its last value there.
     let text = serde_json::to_string(&Served {

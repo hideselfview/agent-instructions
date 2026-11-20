@@ -713,7 +713,9 @@ pub struct Claimed {
     pub claim: Claim,
     pub branch: Option<String>,
     pub git: GitRead,
-    /// Do its commits wait on the person's review of a design change?
+    /// Do its commits wait on the person's review of a design change: one
+    /// that waits on their approval covers them, and the rules review takes
+    /// them (decision #362)?
     pub awaiting_review: bool,
     /// What blocks its branch from landing, from the review records; None
     /// when health did not read them (nothing waits to land there).
@@ -1087,8 +1089,9 @@ fn held_for(holder: &Holder) -> String {
 /// lists/held.rs),
 /// each kept item whose worktree is gone (lists/kept_work.rs), and each repo with a design folder and no design globs
 /// (lists/project.rs). Also
-/// marks the worktrees whose design change waits on the person's review, so
-/// <claimed> is judged with that known. Both read the worktrees' design
+/// marks the worktrees whose design change waits on the person's review,
+/// which a change that waits on their approval does once the rules review
+/// takes the worktree's commits, so <claimed> is judged with that known. Both read the worktrees' design
 /// commits through <designs>.
 pub fn lists_findings(
     places_in: &crate::places::Places,
@@ -1099,13 +1102,20 @@ pub fn lists_findings(
     worktrees: &[crate::lists::held::Worktree],
     designs: &crate::lists::design_reads::DesignReads,
 ) -> Result<Vec<Advice>> {
-    let reviewing = crate::lists::held::awaiting_review(loaded, worktrees, designs);
+    let approving = crate::lists::held::awaiting_approval(loaded, worktrees, designs);
     for one in claimed.iter_mut() {
-        one.awaiting_review = reviewing.contains(&places[one.place].label);
-        one.landing = worktrees
+        let landing = worktrees
             .iter()
             .find(|worktree| worktree.label == places[one.place].label)
             .and_then(|worktree| worktree.landing(places_in, loaded));
+        one.awaiting_review = approving.contains(&places[one.place].label)
+            && matches!(landing, Some(Ok(crate::review::idle::Landing::Free(_))));
+        one.landing = landing.map(|landing| match landing {
+            Ok(landing) => landing.advice(),
+            Err(fault) => Advice::said(format!(
+                "builds cannot tell what blocks its branch from landing: {fault}"
+            )),
+        });
     }
     let mut lists = crate::lists::running::findings(integrity, loaded)?;
     lists.extend(crate::lists::kept_work::findings(loaded)?);

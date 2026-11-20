@@ -374,7 +374,7 @@ fn health_names_a_worktree_whose_commits_git_cannot_read_and_never_calls_it_cove
         !tree.claim_is_idle(true),
         "commits git could not read may wait to land"
     );
-    assert!(awaiting_review(&loaded(lists), &[tree], &DesignReads::default()).is_empty());
+    assert!(awaiting_approval(&loaded(lists), &[tree], &DesignReads::default()).is_empty());
 }
 
 #[test]
@@ -488,23 +488,23 @@ fn held_takes_only_an_item_that_waits_on_something_open() {
 }
 
 #[test]
-fn a_worktree_whose_design_change_waits_on_review_awaits_review_until_approved() {
+fn a_worktree_whose_design_change_waits_on_approval_awaits_it_until_approved() {
     let (_demo, tree, mut lists) = design_branch("held-review", true);
     let trees = [tree];
     assert_eq!(
-        awaiting_review(&loaded(lists.clone()), &trees, &DesignReads::default()),
+        awaiting_approval(&loaded(lists.clone()), &trees, &DesignReads::default()),
         vec!["demo/side-1".to_string()]
     );
     for design in &mut lists.designs {
         design.approved = Some(stamp(NOON));
     }
-    assert!(awaiting_review(&loaded(lists), &trees, &DesignReads::default()).is_empty());
+    assert!(awaiting_approval(&loaded(lists), &trees, &DesignReads::default()).is_empty());
 }
 
 #[test]
-fn a_worktree_with_no_design_change_does_not_await_review() {
+fn a_worktree_with_no_design_change_does_not_await_approval() {
     let (_demo, tree, lists) = design_branch("held-review-none", false);
-    assert!(awaiting_review(&loaded(lists), &[tree], &DesignReads::default()).is_empty());
+    assert!(awaiting_approval(&loaded(lists), &[tree], &DesignReads::default()).is_empty());
 }
 
 #[test]
