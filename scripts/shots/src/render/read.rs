@@ -234,8 +234,7 @@ const GEOMETRY: &str = r#"function() {
     for (const name of Object.getOwnPropertyNames(window)) {
       if (shots.globals.has(name) || name.startsWith('__')
         || name === 'React' || name === 'ReactDOM') continue;
-      let holder;
-      try { holder = window[name]; } catch (e) { continue; }
+      const holder = window[name];
       if (!holder || typeof holder !== 'object') continue;
       for (const [key, value] of Object.entries(holder)) {
         const component = typeof value === 'function'
@@ -512,6 +511,17 @@ async fn measure(page: &Page, node: &AxNode) -> Result<Result<Geometry, &'static
     call.object_id = Some(object_id);
     call.return_by_value = Some(true);
     let called = page.execute(call).await.map_err(protocol)?;
+    if let Some(thrown) = &called.result.exception_details {
+        let detail = thrown
+            .exception
+            .as_ref()
+            .and_then(|e| e.description.clone())
+            .unwrap_or_default();
+        return Err(ReadError::Protocol(format!(
+            "measuring a board node threw: {} {detail}",
+            thrown.text
+        )));
+    }
     match called.result.result.value {
         Some(value) if !value.is_null() => Ok(Ok(serde_json::from_value(value).map_err(protocol)?)),
         _ => Ok(Err("its DOM node has no box to measure")),

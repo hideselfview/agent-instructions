@@ -339,6 +339,27 @@ async fn each_board_element_names_the_nearest_component_that_draws_it() {
     assert_eq!(component("Loose words"), None);
 }
 
+#[tokio::test]
+async fn a_page_global_that_throws_when_read_fails_the_read() {
+    let root = fixture::tree(&[(
+        "fixture.throws",
+        "<script>Object.defineProperty(window, 'Broken', \
+         { get() { throw new Error('no reading this'); } });</script>\
+         <x-dc><p>Words</p></x-dc>",
+    )]);
+    let read = fixture::with_browser(root.path(), async |server, chrome| {
+        let page = chrome.new_page().await.unwrap();
+        let url = server.board_url("fixture.throws");
+        render(&page, "fixture.throws", &url, Frame { w: 300, h: 200 }, 1.0)
+            .await
+            .unwrap();
+        elements(&page, Platform::Mac).await
+    })
+    .await;
+    let error = read.expect_err("the read fails").to_string();
+    assert!(error.contains("no reading this"), "{error}");
+}
+
 #[test]
 fn a_kept_node_with_no_box_fails_the_read_and_says_why() {
     let mut button = named(node("2", "button", &[]), "Add");
