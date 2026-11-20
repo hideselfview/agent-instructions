@@ -586,16 +586,7 @@ already matches (`places`, `builds help lists`).
   3. Everything the person reviews goes on that page: new boards, proposals,
      before and after examples. Never make a page of your own (a review.html,
      a page in the scratchpad) or open a browser tab; the person reloads the
-     review page. While the person and the session compare versions of one
-     area of a board, give the board a prop for each version and run
-     `builds design variants N` with the board, the CSS selector of the
-     area and a set of props for each version: the page's Variants section
-     draws the board once for each set, side by side, each cropped to the
-     area. Commit each redraw and run `variants` again, which replaces the
-     versions shown; `--clear` deletes them. Variants need no amend and
-     change nothing the person approves, and builds deletes them when the
-     change lands or someone drops it (`builds help lists`, `design
-     variants`).
+     review page.
   4. The person approves with the page's Approve button, which sends "Design
      change #N of project P approved: land it." to the session that recorded
      the change. That message is the cue to name the app work and land. First

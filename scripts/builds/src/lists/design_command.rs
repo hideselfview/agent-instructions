@@ -1,5 +1,5 @@
 //! `builds design places | only | record | amend | approve | check | landed |
-//! drop | show | title | list | variants | render | tokens-css | publish-find |
+//! drop | show | title | list | render | tokens-css | publish-find |
 //! publish-files | publish-last | listen | publish take | publish done |
 //! publish failed`.
 //!
@@ -18,14 +18,13 @@ use crate::lists::args::{Args, read_request};
 use crate::lists::design::{self, DesignRequest, Drawn, Landed, PlaceAnswer, Settlement};
 use crate::lists::design_paths::{self, Changes, Globs, PlaceKind};
 use crate::lists::design_session;
-use crate::lists::design_variants::{self, Props, Variants};
 use crate::lists::rulings::{self, Source};
 use crate::lists::store::{self, Store, project_of};
 use crate::lists::{Id, Lists, Stamp};
 use crate::text::local_minute;
 use crate::tool::Tool;
 
-const USAGE: &str = "usage: builds design places DIR REV...\n       builds design only DIR REV...\n       builds design record --request FILE\n       builds design amend N --request FILE\n       builds design approve N --by-person\n       builds design check N[,N...] DIR REV...\n       builds design landed N DIR SHA...\n       builds design drop N --why WHY\n       builds design show N\n       builds design title N\n       builds design list\n       builds design variants N --board BOARD --selector CSS_SELECTOR --props JSON [--theme light|dark] [--at REV]\n       builds design variants N --clear\n       builds design render DIR BOARD [--theme light|dark] [--now | --at REV]\n       builds design tokens-css DIR\n       builds design publish-find DIR --artifacts FILE [--at REV]\n       builds design publish-files DIR OUT --artifacts FILE (--index FILE | --no-index) [--at REV]\n       builds design publish-last FOLDER --listing FILE [(--index FILE | --no-index) --by WHO [--uploaded FILE]]\n       builds design listen --project P\n       builds design publish take N [--project P] [--by WHO]\n       builds design publish done N --link TITLE=URL... [--project P] [--by WHO]\n       builds design publish failed N --why WHY [--project P] [--by WHO]";
+const USAGE: &str = "usage: builds design places DIR REV...\n       builds design only DIR REV...\n       builds design record --request FILE\n       builds design amend N --request FILE\n       builds design approve N --by-person\n       builds design check N[,N...] DIR REV...\n       builds design landed N DIR SHA...\n       builds design drop N --why WHY\n       builds design show N\n       builds design title N\n       builds design list\n       builds design render DIR BOARD [--theme light|dark] [--now | --at REV]\n       builds design tokens-css DIR\n       builds design publish-find DIR --artifacts FILE [--at REV]\n       builds design publish-files DIR OUT --artifacts FILE (--index FILE | --no-index) [--at REV]\n       builds design publish-last FOLDER --listing FILE [(--index FILE | --no-index) --by WHO [--uploaded FILE]]\n       builds design listen --project P\n       builds design publish take N [--project P] [--by WHO]\n       builds design publish done N --link TITLE=URL... [--project P] [--by WHO]\n       builds design publish failed N --why WHY [--project P] [--by WHO]";
 
 pub fn cmd_design(tool: &Tool, args: &[String]) -> Result<()> {
     print!("{}", run_to_text(tool, args)?);
@@ -61,7 +60,6 @@ pub fn run_in_session(
         "show" => show(tool, rest, &cwd),
         "title" => title(tool, rest, &cwd),
         "list" => list(tool, rest, &cwd),
-        "variants" => variants(tool, rest, &cwd),
         "render" => render(tool, rest),
         "tokens-css" => tokens_css(rest),
         "publish-find" => publish_find(rest),
@@ -638,82 +636,6 @@ fn theme_of(args: &Args) -> Result<crate::lists::Theme> {
     }
 }
 
-/// `variants N --board BOARD --selector CSS_SELECTOR --props JSON [--theme
-/// light|dark] [--at REV]`: keeps the variants of open design change N,
-/// replacing the ones it had: BOARD (a board place of the change's repo)
-/// drawn at commit REV of the change's worktree (its HEAD unless given) once
-/// for each object of the JSON array, each cropped to the first element the
-/// selector finds. `variants N --clear` deletes them. Git runs before the
-/// store's lock is taken, and the write refuses a change that closed
-/// meanwhile.
-fn variants(tool: &Tool, args: &[String], cwd: &Path) -> Result<String> {
-    let args = Args::parse(
-        args,
-        &["board", "selector", "props", "theme", "at"],
-        &["clear"],
-    )?;
-    let [id] = args.exactly(1, USAGE)? else {
-        unreachable!("exactly one")
-    };
-    let id = Id::parse(id)?;
-    let store = Store::resolve(&tool.places, &args, cwd)?;
-    let stamp = Stamp::resolve(tool.now, &args, cwd)?;
-    if args.switch("clear") {
-        for flag in ["board", "selector", "props", "theme", "at"] {
-            if args.value(flag)?.is_some() {
-                fail!("--clear deletes the variants and takes no --{flag}");
-            }
-        }
-        let had = store.write(&stamp, &format!("design variants {id} --clear"), |db| {
-            design::open_design(&store::read(db)?, id)?;
-            design_variants::clear(db, id)
-        })?;
-        return Ok(if had {
-            format!("deleted the variants of design change {id}\n")
-        } else {
-            format!("design change {id} has no variants\n")
-        });
-    }
-    let lists = store.load()?;
-    let design = design::open_design(&lists, id)?;
-    let board = boards::board_path(&boards::board_name(args.require("board")?)?);
-    if !Globs::of(&lists, &design.repo).names_place(&board) {
-        fail!(
-            "{board} is no board place of repo {}'s design places",
-            design.repo
-        );
-    }
-    let top = Path::new(&design.worktree);
-    let tip = design_paths::full_sha(top, args.value("at")?.unwrap_or("HEAD"))?;
-    if !boards::exists_in(top, &tip, &board)? {
-        fail!("{board} is no file at commit {tip} of {}", design.worktree);
-    }
-    let props: Vec<Props> = match serde_json::from_str(args.require("props")?) {
-        Ok(props) => props,
-        Err(error) => fail!(
-            "--props is a JSON array of objects, one object of props for each variant: {error}"
-        ),
-    };
-    let variants = Variants {
-        board,
-        selector: args.require("selector")?.to_string(),
-        theme: theme_of(&args)?,
-        tip,
-        props,
-    };
-    store.write(&stamp, &format!("design variants {id}"), |db| {
-        design_variants::keep(db, id, &variants)
-    })?;
-    Ok(format!(
-        "design change {id} shows {} variant{} of {} drawn at {}, each cropped to the first element {} finds; reload its review page\n",
-        variants.props.len(),
-        if variants.props.len() == 1 { "" } else { "s" },
-        variants.board,
-        variants.tip,
-        variants.selector
-    ))
-}
-
 /// `render DIR BOARD [--theme light|dark] [--now | --at REV]`: the board as one
 /// page of HTML, drawn with the design system it is drawn from. BOARD is the
 /// board's name (`mac.welcome.open-failed`) or its path
@@ -737,13 +659,7 @@ fn render(tool: &Tool, args: &[String]) -> Result<String> {
         (false, Some(rev)) => boards::Source::Commit { repo: dir, rev },
         (false, None) => boards::Source::Dir(dir),
     };
-    crate::design_render::render_board(
-        source,
-        board,
-        theme,
-        &Props::new(),
-        &tool.places.design_system_cache(),
-    )
+    crate::design_render::render_board(source, board, theme, &tool.places.design_system_cache())
 }
 
 /// `tokens-css DIR`: writes DIR's design/system/tokens.css from its

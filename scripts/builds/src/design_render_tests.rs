@@ -59,14 +59,7 @@ fn commit(dir: &Path) -> String {
 fn a_board_renders_with_its_imported_board_its_values_and_the_design_system() {
     let scratch = Scratch::new("render-board");
     let dir = tree(&scratch);
-    let page = render_board(
-        Source::Dir(&dir),
-        "A",
-        Theme::Light,
-        &Props::new(),
-        &cache(&scratch),
-    )
-    .unwrap();
+    let page = render_board(Source::Dir(&dir), "A", Theme::Light, &cache(&scratch)).unwrap();
     assert!(page.contains("<html data-theme=\"light\">"));
     for part in [
         "--tokens: 1",
@@ -90,7 +83,6 @@ fn a_board_renders_with_its_imported_board_its_values_and_the_design_system() {
         Source::Dir(&dir),
         "design/mocks/A.dc.html",
         Theme::Dark,
-        &Props::new(),
         &cache(&scratch),
     )
     .unwrap();
@@ -106,7 +98,6 @@ fn a_board_that_cannot_be_drawn_says_what_is_missing() {
             Source::Dir(&dir),
             "Nope",
             Theme::Dark,
-            &Props::new(),
             &cache(&scratch)
         ))
         .contains("Nope.dc.html is not there")
@@ -116,7 +107,6 @@ fn a_board_that_cannot_be_drawn_says_what_is_missing() {
             Source::Dir(&dir),
             "../A",
             Theme::Dark,
-            &Props::new(),
             &cache(&scratch)
         ))
         .contains("is no board")
@@ -131,7 +121,6 @@ fn a_board_that_cannot_be_drawn_says_what_is_missing() {
             Source::Dir(&dir),
             "C",
             Theme::Dark,
-            &Props::new(),
             &cache(&scratch)
         ))
         .contains("mounts the board Gone, which is no file")
@@ -142,7 +131,6 @@ fn a_board_that_cannot_be_drawn_says_what_is_missing() {
             Source::Dir(&dir),
             "D",
             Theme::Dark,
-            &Props::new(),
             &cache(&scratch)
         ))
         .contains("has no <x-dc>")
@@ -157,7 +145,6 @@ fn a_board_that_cannot_be_drawn_says_what_is_missing() {
             Source::Dir(&dir),
             "A",
             Theme::Dark,
-            &Props::new(),
             &cache(&scratch)
         ))
         .contains("build-bundle.py failed")
@@ -306,7 +293,7 @@ fn now_is_origin_main_and_proposed_is_the_last_commit_each_with_its_own_design_s
     );
     let draw = |side| {
         let from = source_of(&change, side).unwrap();
-        render_board(from, "A", Theme::Dark, &Props::new(), &cache(&scratch)).unwrap()
+        render_board(from, "A", Theme::Dark, &cache(&scratch)).unwrap()
     };
     let now = draw(Side::Now);
     assert!(now.contains("hello from A") && now.contains("BUNDLE_MARK"));
@@ -385,7 +372,6 @@ fn a_board_the_change_adds_has_no_now_and_a_board_it_deletes_has_only_a_now() {
         source_of(&change, Side::Now).unwrap(),
         "design/mocks/Old.dc.html",
         Theme::Dark,
-        &Props::new(),
         &cache(&scratch),
     )
     .unwrap();
@@ -450,7 +436,6 @@ fn a_board_is_read_at_a_commit_whatever_the_worktree_has_checked_out() {
             Source::Commit { repo: &dir, rev },
             "A",
             Theme::Dark,
-            &Props::new(),
             &cache(&scratch),
         )
         .unwrap()
@@ -470,7 +455,6 @@ fn a_board_is_read_at_a_commit_whatever_the_worktree_has_checked_out() {
         },
         "A",
         Theme::Dark,
-        &Props::new(),
         &cache(&scratch),
     ));
     assert!(missing.contains("find the commit nope"), "{missing}");
@@ -481,7 +465,6 @@ fn a_board_is_read_at_a_commit_whatever_the_worktree_has_checked_out() {
         },
         "Nope",
         Theme::Dark,
-        &Props::new(),
         &cache(&scratch),
     ));
     assert!(
@@ -667,149 +650,8 @@ fn the_review_page_gives_each_board_its_circles_and_each_board_page_answers_what
         source_of(&change, Side::Proposed).unwrap(),
         "A",
         Theme::Dark,
-        &Props::new(),
         &cache(&scratch),
     )
     .unwrap();
     assert!(board.contains("function foundBy") && board.contains("designBoxes"));
-}
-
-/// Runs `variantCrop` of the review page's script (`variants.js`) over what a
-/// variant's board page found for the selector on a board of <w> by <h>.
-fn variant_crop(found: &Value, w: i64, h: i64) -> Value {
-    run_script(
-        VARIANTS_SCRIPT,
-        &format!("variantCrop(\".fields\", {found}, {w}, {h})"),
-    )
-}
-
-#[test]
-fn a_variant_crops_to_the_first_element_its_selector_finds_with_a_margin_inside_the_board() {
-    // The first of two elements, 16 pixels clear of it on each side.
-    assert_eq!(
-        variant_crop(
-            &json!({ "boxes": [{ "x": 40, "y": 50, "w": 100, "h": 20 }, { "x": 0, "y": 0, "w": 5, "h": 5 }] }),
-            400,
-            300
-        ),
-        json!({ "crop": { "x": 24, "y": 34, "w": 132, "h": 52 } })
-    );
-    // Near the board's corner, the margin stops at the board's edges.
-    assert_eq!(
-        variant_crop(
-            &json!({ "boxes": [{ "x": 4, "y": 2, "w": 390, "h": 290 }] }),
-            400,
-            300
-        ),
-        json!({ "crop": { "x": 0, "y": 0, "w": 400, "h": 300 } })
-    );
-    assert_eq!(
-        variant_crop(&json!({ "boxes": [] }), 400, 300),
-        json!({ "problem": "The selector .fields finds no element on this variant." })
-    );
-    assert_eq!(
-        variant_crop(
-            &json!({ "error": "'[[' is not a valid selector" }),
-            400,
-            300
-        ),
-        json!({ "problem": "The selector .fields is no CSS selector: '[[' is not a valid selector" })
-    );
-    assert_eq!(
-        variant_crop(
-            &json!({ "boxes": [{ "x": 900, "y": 10, "w": 10, "h": 10 }] }),
-            400,
-            300
-        ),
-        json!({ "problem": "The selector .fields finds an element outside the board." })
-    );
-}
-
-#[test]
-fn the_review_page_gives_each_variant_its_label_and_frame_and_each_variant_draws_with_its_props() {
-    let scratch = Scratch::new("render-variants");
-    let dir = tree(&scratch);
-    std::fs::write(
-        dir.join("design/mocks/A.dc.html"),
-        r#"<x-dc><p class="fields">{{word}}</p></x-dc>
-<script type="text/x-dc">class Component extends DCLogic { renderVals() { return { word: this.props.storage ?? "none" }; } }</script>"#,
-    )
-    .unwrap();
-    let tip = commit(&dir);
-    set_origin_main(&dir, &tip);
-    let (mut change, view) = review_of(&dir, &tip);
-    let props = |value: Value| value.as_object().unwrap().clone();
-    change.variants = Some(Variants {
-        board: "design/mocks/A.dc.html".into(),
-        selector: ".fields".into(),
-        theme: Theme::Light,
-        tip: tip.clone(),
-        props: vec![
-            props(json!({ "storage": "dropbox" })),
-            props(json!({ "storage": "</script>", "rows": 2 })),
-        ],
-    });
-    let page = review_page(&change, &view, "demo").unwrap();
-    assert!(page.contains("function variantCrop") && !page.contains("@@VARIANTS@@"));
-    let id = change.id.0;
-    assert_eq!(
-        page_data(&page)["variants"],
-        json!({
-            "board": "design/mocks/A.dc.html",
-            "selector": ".fields",
-            "theme": "light",
-            "tip": tip,
-            "drawings": [
-                { "label": "storage: dropbox", "w": 400, "h": 300, "src": format!("/design/demo/{id}/variant/0") },
-                { "label": "rows: 2, storage: </script>", "w": 400, "h": 300, "src": format!("/design/demo/{id}/variant/1") }
-            ]
-        })
-    );
-    // Each variant's page draws the board with its props, and no prop's text ends a script.
-    let variants = change.variants.as_ref().unwrap();
-    let draw = |k: usize| {
-        render_board(
-            variants_source(&change, variants),
-            &variants.board,
-            variants.theme,
-            &variants.props[k],
-            &cache(&scratch),
-        )
-        .unwrap()
-    };
-    let first = draw(0);
-    assert!(
-        first.contains(r#"var PROPS = {"storage":"dropbox"};"#)
-            && first.contains("this.props.storage"),
-        "{first}"
-    );
-    assert!(draw(1).contains(r#"var PROPS = {"rows":2,"storage":"\u003c/script>"};"#));
-    assert!(
-        render_board(
-            Source::Dir(&dir),
-            "A",
-            Theme::Dark,
-            &Props::new(),
-            &cache(&scratch)
-        )
-        .unwrap()
-        .contains("var PROPS = {};")
-    );
-
-    // A board with no size at the variants' commit is said at each drawing, under its label.
-    change.variants.as_mut().unwrap().board = "design/mocks/B.dc.html".into();
-    let drawings =
-        &page_data(&review_page(&change, &view, "demo").unwrap())["variants"]["drawings"];
-    assert_eq!(drawings[1]["label"], json!("rows: 2, storage: </script>"));
-    let error = drawings[0]["error"].as_str().unwrap();
-    assert!(
-        error.contains("no width and height for B.dc.html"),
-        "{error}"
-    );
-    // A change with no variants has none on its page.
-    change.variants = None;
-    assert_eq!(
-        page_data(&review_page(&change, &view, "demo").unwrap())["variants"],
-        Value::Null
-    );
 }

@@ -26,14 +26,6 @@
 //! board's page the CSS selectors of the board's circles, the page answers
 //! with the boxes of the elements each finds, and the review page circles
 //! them on each side where they are (`design_render/circles.js`).
-//!
-//! A board takes props as a board that mounts it passes its attributes: its
-//! script reads them from `this.props`. A change's variants
-//! (`design_variants`) draw one board once per set of props, at the commit
-//! the variants keep, and the review page shows them side by side, each
-//! cropped to the first element the variants' selector finds there: it asks
-//! each variant's page what the selector finds, as it asks for the circles,
-//! and crops the frame to it (`design_render/variants.js`).
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -46,7 +38,6 @@ use serde_json::{Value, json};
 use crate::fail;
 use crate::fail::{Context, Result};
 use crate::lists::design::Circle;
-use crate::lists::design_variants::{self, Props, Variants};
 use crate::lists::view::DesignView;
 use crate::lists::{DesignChange, ReviewBoard, Theme};
 
@@ -55,10 +46,6 @@ const REVIEW_PAGE: &str = include_str!("design_render/review.html");
 /// The script that decides where the review page draws the designer's
 /// circles (`design_render/circles.js`), which the review page runs.
 const CIRCLES_SCRIPT: &str = include_str!("design_render/circles.js");
-/// The script that decides where the review page crops each drawing of a
-/// change's variants (`design_render/variants.js`), which the review page
-/// runs.
-const VARIANTS_SCRIPT: &str = include_str!("design_render/variants.js");
 
 /// The script tags that load React 18.3.1, which a board page and a
 /// component's preview page draw with.
@@ -166,16 +153,10 @@ fn script_safe(js: &str) -> String {
     js.replace("</script", "<\\/script")
 }
 
-/// Board <board> of <from> as one page of HTML in <theme>, drawn with
-/// <props> and the design system of <from>; a commit's is generated into
-/// <cache> (`Places::design_system_cache`).
-pub fn render_board(
-    from: Source,
-    board: &str,
-    theme: Theme,
-    props: &Props,
-    cache: &Path,
-) -> Result<String> {
+/// Board <board> of <from> as one page of HTML in <theme>, drawn with the
+/// design system of <from>; a commit's is generated into <cache>
+/// (`Places::design_system_cache`).
+pub fn render_board(from: Source, board: &str, theme: Theme, cache: &Path) -> Result<String> {
     from.check()?;
     let name = board_name(board)?;
     let mut parts: BTreeMap<String, Part> = BTreeMap::new();
@@ -228,7 +209,6 @@ pub fn render_board(
             ("STYLES", &styles),
             ("TEMPLATES", &templates),
             ("CLASSES", &classes),
-            ("PROPS", &script_json(&Value::Object(props.clone()))),
         ],
     ))
 }
@@ -385,67 +365,15 @@ pub fn review_page(design: &DesignChange, view: &DesignView, project: &str) -> R
     let mut data = serde_json::to_value(view).expect("the view serializes");
     data["section"] = section.unwrap_or(Value::Null);
     data["deleted"] = Value::Array(deleted);
-    data["variants"] = design.variants.as_ref().map_or(Value::Null, |variants| {
-        variants_json(design, variants, project)
-    });
     Ok(fill(
         REVIEW_PAGE,
         &[
             ("FRAMES_CSS", FRAMES_CSS),
             ("DATA", &script_json(&data)),
             ("CIRCLES", CIRCLES_SCRIPT),
-            ("VARIANTS", VARIANTS_SCRIPT),
             ("FRAMES", FRAMES_SCRIPT),
         ],
     ))
-}
-
-/// Where <variants> of <design> draw their board: at their commit, in the
-/// change's worktree, whatever branch it has checked out.
-pub fn variants_source<'a>(design: &'a DesignChange, variants: &'a Variants) -> Source<'a> {
-    Source::Commit {
-        repo: Path::new(&design.worktree),
-        rev: &variants.tip,
-    }
-}
-
-/// <variants> as the review page reads them: the board, the selector, the
-/// theme, the commit, and each drawing with its label and its frame (`w`,
-/// `h` and the `src` it loads) or the `error` that stops it, which the page
-/// shows in its place.
-fn variants_json(design: &DesignChange, variants: &Variants, project: &str) -> Value {
-    // `design variants` kept the board only as a file at the commit, so the
-    // page reads its size there without looking for the file again.
-    let size = (|| -> Result<(u64, u64)> {
-        let from = variants_source(design, variants);
-        from.check()?;
-        size_at(&from, &board_name(&variants.board)?)
-    })()
-    .map_err(crate::fail::Fail::text);
-    let drawings: Vec<Value> = variants
-        .props
-        .iter()
-        .enumerate()
-        .map(|(k, props)| {
-            let label = design_variants::label(props);
-            match &size {
-                Ok((w, h)) => json!({
-                    "label": label,
-                    "w": w,
-                    "h": h,
-                    "src": format!("/design/{project}/{}/variant/{k}", design.id.0),
-                }),
-                Err(error) => json!({ "label": label, "error": error }),
-            }
-        })
-        .collect();
-    json!({
-        "board": variants.board,
-        "selector": variants.selector,
-        "theme": variants.theme.word(),
-        "tip": variants.tip,
-        "drawings": drawings,
-    })
 }
 
 #[cfg(test)]

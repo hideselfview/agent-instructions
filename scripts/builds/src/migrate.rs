@@ -211,13 +211,16 @@ const BEFORE_OVER_CAP_STAMP: i64 = 1_558_212_582;
 /// The stamp of the schema before the review section kept only its heading.
 const BEFORE_REVIEW_SECTION_HEADING_ONLY_STAMP: i64 = 2_044_746_774;
 
+/// The stamp of the schema before the variants of a design change left it.
+const BEFORE_DESIGN_VARIANTS_LEFT_STAMP: i64 = 294_983_269;
+
 /// The stamp of today's schema (`db::STAMP`). A change to the schema changes
 /// its stamp, and builds then fails to compile until the change gives it a
 /// move from this schema, since every store carries this stamp: the change
 /// adds the move, puts this stamp at the end of `STAMPS` under a name that
 /// says what the schema lacked, and sets this to the new schema's stamp, which
 /// the compiler's error names.
-const SCHEMA_STAMP: i64 = 294_983_269;
+const SCHEMA_STAMP: i64 = 1_952_688_938;
 
 // The compiler refuses a schema whose stamp is not SCHEMA_STAMP. A const
 // assert could not print the new stamp, so the check compares two array
@@ -227,7 +230,7 @@ const _: [(); SCHEMA_STAMP as usize] = [(); db::STAMP as usize];
 
 /// Every stamp a store can carry that `move_store` moves, oldest schema first.
 /// A new move adds the stamp of the schema before it at the end.
-const STAMPS: [i64; 20] = [
+const STAMPS: [i64; 21] = [
     BEFORE_CONDITION_ENDERS_STAMP,
     BEFORE_ITEM_EVENT_STAMP,
     BEFORE_LAND_RUN_STAMP,
@@ -248,6 +251,7 @@ const STAMPS: [i64; 20] = [
     BEFORE_DESIGN_VARIANTS_STAMP,
     BEFORE_OVER_CAP_STAMP,
     BEFORE_REVIEW_SECTION_HEADING_ONLY_STAMP,
+    BEFORE_DESIGN_VARIANTS_LEFT_STAMP,
 ];
 
 /// Whether a store stamped <found> comes before the move that follows the
@@ -428,11 +432,6 @@ fn move_store(path: &Path, now: i64) -> Result<()> {
     if before(found, BEFORE_DESIGN_PLACE_NAMING_STAMP) {
         crate::lists::design::allow_places_with_no_app_work(&tx)?;
     }
-    // Every store from before the variants of a design change gets their
-    // empty tables: no change has any yet.
-    if before(found, BEFORE_DESIGN_VARIANTS_STAMP) {
-        tx.execute_batch(db::DESIGN_VARIANTS_PART).sql()?;
-    }
     // Every store from before the branches over the review's cap gets the
     // empty table: no branch has been over it yet.
     if before(found, BEFORE_OVER_CAP_STAMP) {
@@ -442,6 +441,13 @@ fn move_store(path: &Path, now: i64) -> Result<()> {
     // the table again without the words; each change keeps its heading.
     if before(found, BEFORE_REVIEW_SECTION_HEADING_ONLY_STAMP) {
         crate::lists::design::drop_review_section_words(&tx)?;
+    }
+    // Every store whose schema held the variants of a design change loses
+    // their tables, and with them the versions they kept: scratch boards in
+    // the worktrees replace them, and nothing reads the variants.
+    if !before(found, BEFORE_DESIGN_VARIANTS_STAMP) {
+        tx.execute_batch("DROP TABLE design_variant;\nDROP TABLE design_variants;")
+            .sql()?;
     }
     tx.pragma_update(None, "user_version", db::stamp()).sql()?;
     let broken: Option<String> = tx

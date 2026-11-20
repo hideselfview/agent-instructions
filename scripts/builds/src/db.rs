@@ -1,8 +1,7 @@
 //! `builds.sqlite`, the one database in each project's store folder: the
 //! lists (every table of `lists/*.sql`), the hook-run stats (`hook_stats.sql`
 //! and `hook_check_starts.sql`), the app-build timings (`app_timing.sql`), the
-//! design changes' recording sessions (`lists/design_session.sql`) and
-//! variants (`lists/design_variants.sql`), the shot
+//! design changes' recording sessions (`lists/design_session.sql`), the shot
 //! findings, the review's tables, the `builds cargo` runs
 //! (`cargo_run.sql`), the spec checks (`lists/spec_check.sql`), the agents'
 //! acknowledgements (`ack/record.sql`), the judge (`review/judge.sql`). This module does all opening:
@@ -144,13 +143,8 @@ pub const JUDGE_TOLD_PART: &str = include_str!("review/judge_told.sql");
 /// the judge.
 pub const DESIGN_CIRCLE_BOX_PART: &str = include_str!("lists/design_circle_box.sql");
 
-/// The variants of a design change that its review page shows side by side
-/// (lists/design_variants.sql); the schema holds it after the circles of a
-/// review board that surround a box.
-pub const DESIGN_VARIANTS_PART: &str = include_str!("lists/design_variants.sql");
-
 /// The branches over the review's cap (review/over_cap.sql); the schema holds
-/// it after the variants of a design change.
+/// it after the circles of a review board that surround a box.
 pub const OVER_CAP_PART: &str = include_str!("review/over_cap.sql");
 
 /// Each part of the schema, in the order the schema holds them: the lists'
@@ -165,11 +159,11 @@ pub const OVER_CAP_PART: &str = include_str!("review/over_cap.sql");
 /// the cargo runs' outcomes, then the commits of the cargo runs and the app
 /// builds, then what the failed hook checks said, then what the failed app
 /// build steps said, then what builds told the judge, then the circles of a
-/// review board that surround a box, then the variants of a design change,
-/// then the branches over the review's cap. A table points at ones earlier or
+/// review board that surround a box, then the branches over the review's
+/// cap. A table points at ones earlier or
 /// later (SQLite resolves foreign keys when rows are written), but the order is
 /// the one to read the schema in. A part that joins the schema goes at the end.
-const SCHEMA_PARTS: [&str; 41] = [
+const SCHEMA_PARTS: [&str; 40] = [
     include_str!("lists/project.sql"),
     include_str!("lists/area.sql"),
     include_str!("lists/record.sql"),
@@ -209,7 +203,6 @@ const SCHEMA_PARTS: [&str; 41] = [
     APP_BUILD_STEP_FAILURE_PART,
     JUDGE_TOLD_PART,
     DESIGN_CIRCLE_BOX_PART,
-    DESIGN_VARIANTS_PART,
     OVER_CAP_PART,
 ];
 
@@ -276,19 +269,23 @@ fn schema_before(part: &str) -> String {
     SCHEMA_PARTS[..at].join("\n")
 }
 
-/// The schema as it was before the branches over the review's cap joined it.
-/// This and each older schema below hold today's text of the review section:
-/// before the section kept only its heading, each kept the review page's
-/// words too, which migrate.rs's tests put back.
+/// The schema as it was before the branches over the review's cap joined it,
+/// less the variants of a design change, which it held after the circles
+/// that surround a box and which migrate.rs's tests put back. This and each
+/// older schema below hold today's text of the review section: before the
+/// section kept only its heading, each kept the review page's words too,
+/// which migrate.rs's tests put back.
 #[cfg(test)]
 pub fn schema_before_over_cap() -> String {
     schema_before(OVER_CAP_PART)
 }
 
-/// The schema as it was before the variants of a design change joined it.
+/// The schema as it was before the variants of a design change joined it:
+/// the parts before the branches over the review's cap, which joined after
+/// the variants.
 #[cfg(test)]
 pub fn schema_before_design_variants() -> String {
-    schema_before(DESIGN_VARIANTS_PART)
+    schema_before(OVER_CAP_PART)
 }
 
 /// The schema as it was before the boxes' circles joined it.

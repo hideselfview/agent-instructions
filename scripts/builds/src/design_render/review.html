@@ -52,9 +52,6 @@ figcaption a { color: var(--accent); font-weight: 400; font-size: 12px; margin-l
 @@CIRCLES@@
 </script>
 <script>
-@@VARIANTS@@
-</script>
-<script>
 @@FRAMES@@
 </script>
 <script>
@@ -175,13 +172,6 @@ window.addEventListener("message", e => {
   const sent = e.data && e.data.designBoxes;
   if (!sent || !Array.isArray(sent.found)) return;
   const entry = frames.find(f => f.frame.contentWindow === e.source && f.b.src === sent.src);
-  if (entry && entry.variant) {
-    const answer = variantCrop(entry.variant.selector, sent.found[0], entry.b.w, entry.b.h);
-    entry.crop = answer.crop || null;
-    entry.variant.problem.replaceChildren(...(answer.problem ? [h("div", {class: "bad"}, answer.problem)] : []));
-    layout();
-    return;
-  }
   if (!entry || !entry.pair) return;
   entry.found = sent.found;
   settle(entry.pair);
@@ -220,31 +210,6 @@ function gone(d) {
     h("div", {class: "pair"}, side("Now (origin/main)", d.now, "This board is not on origin/main."),
       h("div", {class: "side"}, h("h3", {}, "Proposed (the change)"), h("div", {class: "note"}, "The change deletes this board."))));
 }
-// A drawing of the change's variants: the board drawn with one set of
-// props, in a frame cropped to the first element the selector finds
-// (variants.js). Each load of the frame asks its board page what the selector
-// finds, as a board with circles does, and the page shows the whole board
-// until the board page answers.
-function variant(d, v) {
-  const label = h("h3", {}, d.label);
-  if (d.error) return h("div", {class: "side"}, label, h("div", {class: "problem"}, d.error));
-  const problem = h("div", {class: "status"});
-  const {frame, box} = boardFrame(d.src, d.w, d.h);
-  const entry = {b: d, frame, box, circles: [], crop: null, variant: {selector: v.selector, problem}};
-  frames.push(entry);
-  frame.addEventListener("load", () => {
-    entry.crop = null;
-    frame.contentWindow.postMessage({designCircles: [v.selector]}, "*");
-  });
-  return h("div", {class: "side"}, label, problem, box);
-}
-function variants(v) {
-  return h("section", {}, h("h2", {}, "Variants"),
-    h("p", {class: "status"}, "The page draws ", h("code", {}, v.board), " at commit ",
-      h("code", {}, v.tip.slice(0, 10)), " in the " + v.theme + " theme once for each set of props, and crops each drawing to the first element that ",
-      h("code", {}, v.selector), " finds."),
-    h("div", {class: "pair"}, v.drawings.map(d => variant(d, v))));
-}
 function scaleOf(b) {
   const room = (document.documentElement.clientWidth - 42 - 16) / 2;
   if (zoom === "fit") return Math.min(1, room / b.w);
@@ -252,15 +217,7 @@ function scaleOf(b) {
 }
 function layout() {
   for (const entry of frames) {
-    const {b, circles, crop} = entry;
-    if (crop) {
-      // A cropped frame moves the board so the crop's corner is the box's.
-      const s = scaleOf(crop);
-      entry.frame.style.transform = "translate(" + (-crop.x * s) + "px, " + (-crop.y * s) + "px) scale(" + s + ")";
-      entry.box.style.width = Math.round(crop.w * s) + "px";
-      entry.box.style.height = Math.round(crop.h * s) + "px";
-      continue;
-    }
+    const {b, circles} = entry;
     const s = scaleOf(b);
     scaleFrame(entry, b.w, b.h, s);
     for (const {el, label, box} of circles) {
@@ -281,7 +238,6 @@ if (data.details.trim()) main.append(h("div", {class: "md"}, data.details.split(
 if (data.section && data.section.boards.length) {
   main.append(h("section", {}, h("div", {class: "boards"}, data.section.boards.map(board))));
 }
-if (data.variants) main.append(variants(data.variants));
 if (data.deleted.length) {
   main.append(h("section", {}, h("h2", {}, "Deleted boards"),
     h("div", {class: "boards"}, data.deleted.map(gone))));

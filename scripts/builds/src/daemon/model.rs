@@ -23,7 +23,6 @@ use crate::health::{
     Claimed, Health, Machine, Unclaimed, assess, locks_of, places_of, sample, sccache_reading,
 };
 use crate::lists::design_paths::Globs;
-use crate::lists::design_variants::Props;
 use crate::lists::view::ClaimFacts;
 use crate::manifest::{BuildDir, build_dirs};
 use crate::places::{DiskSpace, Places, Rules};
@@ -1006,7 +1005,6 @@ impl Model {
                     from,
                     &board.board,
                     board.theme,
-                    &Props::new(),
                     &self.places.design_system_cache(),
                 )
             }),
@@ -1031,34 +1029,11 @@ impl Model {
                         from,
                         board,
                         crate::lists::Theme::Dark,
-                        &Props::new(),
                         &self.places.design_system_cache(),
                     )
                 },
             ),
         )
-    }
-
-    /// The <k>th variant of open design change <id>: its board drawn with the
-    /// <k>th set of props at the variants' commit, drawn now; None when there
-    /// is no such change or variant.
-    pub fn design_variant(
-        &self,
-        project: &str,
-        id: u32,
-        k: usize,
-    ) -> Option<crate::fail::Result<String>> {
-        let (_, snapshot) = self.lists.current();
-        let (design, _) = super::lists::open_design(&snapshot, project, id)?;
-        let variants = design.variants.as_ref()?;
-        let props = variants.props.get(k)?;
-        Some(crate::design_render::render_board(
-            crate::design_render::variants_source(&design, variants),
-            &variants.board,
-            variants.theme,
-            props,
-            &self.places.design_system_cache(),
-        ))
     }
 
     /// The main checkout of the repo that holds project <project>'s design

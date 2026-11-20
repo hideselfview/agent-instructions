@@ -148,6 +148,39 @@ pub fn with_review_section_words(schema: String) -> String {
     )
 }
 
+/// The tables of the variants of a design change, as design_variants.sql
+/// wrote them before they left the schema.
+const DESIGN_VARIANTS_TABLES: &str = "CREATE TABLE design_variants (
+    design_id INTEGER PRIMARY KEY REFERENCES design (id) ON DELETE CASCADE,
+    board TEXT NOT NULL CONSTRAINT design_variants_board_is_a_board_file CHECK (board GLOB '*.dc.html' AND board NOT GLOB '*#*' AND board NOT GLOB '*/'),
+    selector TEXT NOT NULL CONSTRAINT design_variants_selector_says_something CHECK (trim(selector) <> ''),
+    theme TEXT NOT NULL CONSTRAINT design_variants_theme_known CHECK (theme IN ('light', 'dark')),
+    tip TEXT NOT NULL CONSTRAINT design_variants_tip_is_a_commit CHECK (length(tip) = 40 AND tip NOT GLOB '*[^0-9a-f]*')
+) STRICT;
+CREATE TABLE design_variant (
+    design_id INTEGER NOT NULL,
+    position INTEGER NOT NULL CONSTRAINT design_variant_position_not_negative CHECK (position >= 0),
+    props TEXT NOT NULL CONSTRAINT design_variant_props_are_an_object CHECK (CASE WHEN json_valid(props) THEN json_type(props) = 'object' ELSE 0 END),
+    PRIMARY KEY (design_id, position),
+    CONSTRAINT design_variant_is_of_the_variants FOREIGN KEY (design_id) REFERENCES design_variants (design_id) ON DELETE CASCADE
+) STRICT, WITHOUT ROWID;
+";
+
+/// <schema>, which holds today's parts up to the circles that surround a
+/// box, as every schema from after the variants of a design change joined
+/// it until they left: their tables stood after those circles, before the
+/// branches over the review's cap if <schema> holds them.
+fn with_design_variants(schema: String) -> String {
+    match schema.find(db::OVER_CAP_PART) {
+        Some(at) => format!(
+            "{}{DESIGN_VARIANTS_TABLES}\n{}",
+            &schema[..at],
+            &schema[at..]
+        ),
+        None => format!("{schema}\n{DESIGN_VARIANTS_TABLES}"),
+    }
+}
+
 /// <schema>, which holds today's review tables, as a schema from before
 /// builds found a review's landing by its repo and key: with the index on
 /// the key alone, and the review's texts in a table without row ids, since
@@ -1004,10 +1037,10 @@ fn the_design_variants_stamp_is_the_schema_before_it() {
     );
 }
 
-/// A store from before the variants of a design change gains their empty
-/// tables and equals a fresh schema.
+/// A store from before the variants of a design change equals a fresh
+/// schema, which holds none of their tables either.
 #[test]
-fn a_store_from_before_the_design_variants_tables_gains_them_and_equals_a_fresh_schema() {
+fn a_store_from_before_the_design_variants_tables_equals_a_fresh_schema() {
     let scratch = Scratch::new("move-design-variants");
     let places = scratch.places();
     let dir = places.lists.join("bae");
@@ -1033,7 +1066,9 @@ fn a_store_from_before_the_design_variants_tables_gains_them_and_equals_a_fresh_
 #[test]
 fn the_over_cap_stamp_is_the_schema_before_it() {
     assert_eq!(
-        db::stamp_of_text(&with_review_section_words(db::schema_before_over_cap())),
+        db::stamp_of_text(&with_review_section_words(with_design_variants(
+            db::schema_before_over_cap()
+        ))),
         BEFORE_OVER_CAP_STAMP
     );
 }
@@ -1049,8 +1084,10 @@ fn a_store_from_before_the_over_cap_table_gains_it_and_equals_a_fresh_schema() {
     let path = dir.join(DATABASE);
     {
         let conn = Connection::open(&path).unwrap();
-        conn.execute_batch(&with_review_section_words(db::schema_before_over_cap()))
-            .unwrap();
+        conn.execute_batch(&with_review_section_words(with_design_variants(
+            db::schema_before_over_cap(),
+        )))
+        .unwrap();
         conn.pragma_update(None, "user_version", BEFORE_OVER_CAP_STAMP)
             .unwrap();
     }
@@ -1065,7 +1102,9 @@ fn a_store_from_before_the_over_cap_table_gains_it_and_equals_a_fresh_schema() {
 #[test]
 fn the_review_section_heading_only_stamp_is_the_schema_before_it() {
     assert_eq!(
-        db::stamp_of_text(&with_review_section_words(db::schema())),
+        db::stamp_of_text(&with_review_section_words(with_design_variants(
+            db::schema()
+        ))),
         BEFORE_REVIEW_SECTION_HEADING_ONLY_STAMP
     );
 }
@@ -1081,8 +1120,10 @@ fn a_store_from_before_the_review_section_kept_only_its_heading_keeps_each_headi
     let path = dir.join(DATABASE);
     {
         let conn = Connection::open(&path).unwrap();
-        conn.execute_batch(&with_review_section_words(db::schema()))
-            .unwrap();
+        conn.execute_batch(&with_review_section_words(with_design_variants(
+            db::schema(),
+        )))
+        .unwrap();
         conn.pragma_update(
             None,
             "user_version",
@@ -1139,4 +1180,76 @@ fn a_store_from_before_the_review_section_kept_only_its_heading_keeps_each_headi
         .collect::<std::result::Result<_, _>>()
         .unwrap();
     assert_eq!(headings, [(1, "Rows".to_string())]);
+}
+
+#[test]
+fn the_design_variants_left_stamp_is_the_schema_before_it() {
+    assert_eq!(
+        db::stamp_of_text(&with_design_variants(db::schema())),
+        BEFORE_DESIGN_VARIANTS_LEFT_STAMP
+    );
+}
+
+/// A store from before the variants of a design change left the schema
+/// loses their tables, with the variants they kept, keeps its design changes
+/// and equals a fresh schema.
+#[test]
+fn a_store_from_before_the_design_variants_left_loses_their_tables() {
+    let scratch = Scratch::new("move-design-variants-left");
+    let places = scratch.places();
+    let dir = places.lists.join("bae");
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join(DATABASE);
+    {
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(&with_design_variants(db::schema()))
+            .unwrap();
+        conn.pragma_update(None, "user_version", BEFORE_DESIGN_VARIANTS_LEFT_STAMP)
+            .unwrap();
+        use crate::lists::fixtures::v;
+        crate::lists::project::plant(&conn, "repo", &[("name", v("bae"))]).unwrap();
+        crate::lists::record::plant(
+            &conn,
+            "record",
+            &[
+                ("id", v(1)),
+                ("kind", v("design")),
+                ("opened_at", v(5)),
+                ("opened_by", v("tester")),
+            ],
+        )
+        .unwrap();
+        crate::lists::design::plant(
+            &conn,
+            "design",
+            &[
+                ("id", v(1)),
+                ("title", v("People rows")),
+                ("details", v("d")),
+                ("repo", v("bae")),
+                ("worktree", v("/w")),
+            ],
+        )
+        .unwrap();
+        conn.execute_batch(&format!(
+            "INSERT INTO design_variants (design_id, board, selector, theme, tip) VALUES (1, 'design/mocks/A.dc.html', 'p', 'dark', '{}');
+INSERT INTO design_variant (design_id, position, props) VALUES (1, 0, '{{}}');",
+            "a".repeat(40)
+        ))
+        .unwrap();
+    }
+    migrate_stores(&places, 0).unwrap();
+    let conn = db::open(&path, db::Make::Never).unwrap();
+    assert_eq!(
+        db::schema_rows(&conn).unwrap(),
+        db::schema_rows(&db::memory()).unwrap()
+    );
+    let titles: Vec<String> = conn
+        .prepare("SELECT title FROM design")
+        .unwrap()
+        .query_map([], |row| row.get(0))
+        .unwrap()
+        .collect::<std::result::Result<_, _>>()
+        .unwrap();
+    assert_eq!(titles, ["People rows"]);
 }

@@ -48,7 +48,6 @@ use crate::fail;
 use crate::fail::{Context, Result};
 use crate::lists::Theme;
 use crate::lists::design_paths::Globs;
-use crate::lists::design_variants::Props;
 
 const LIVE_PAGE: &str = include_str!("live_view.html");
 /// How long FSEvents holds changes back to report them as one batch, in
@@ -234,7 +233,6 @@ pub fn serve(mut stream: TcpStream, model: &Model, route: Route) -> std::io::Res
             source(&worktree, side),
             target.board,
             theme,
-            &Props::new(),
             &model.places.design_system_cache(),
         ),
     };
