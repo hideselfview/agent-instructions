@@ -232,6 +232,9 @@ pub fn cmd_build_app(tool: &Tool, args: &[String]) -> Result<()> {
         platform.word()
     ));
     let allowed = platform.allowed(&config_at(places, repo, commit)?)?;
+    if allowed == Where::Here {
+        crate::worktree::ensure_local_app_checkout(tool, &ssh, repo, platform.lane())?;
+    }
     let mut held = lock::take_where(
         places,
         &ssh,

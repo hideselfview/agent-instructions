@@ -850,8 +850,12 @@ load) among those with at least one core free, free disk above the floor
 (BUILDS_FREE_FLOOR_GIB) by one checkout of the lane (about 22 GB for mac and 10
 GB for android, as measured on the M1), and fewer than 6 app checkouts in all;
 a lane has at most 4. The new checkout's first build makes it on the host, as for one `builds
-app-checkout --host` records. builds adds checkouts only on hosts, never on
-this Mac. A build that joins a lane's queue, and `builds prune`, remove each
+app-checkout --host` records. A build that waits adds a checkout only on a
+host. A build that may run only on this Mac (the android build-app, a mac
+build-app or app-build that runs a `here` step) and finds the lane with no
+checkout on this Mac adds a new side worktree of ~/dev/<repo>, set up as `builds
+new` sets one up and recorded in the lane as the person's, so no `builds new`
+hands it out and builds never removes it. A build that joins a lane's queue, and `builds prune`, remove each
 checkout builds added that no build has used for 60 minutes, with its worktree
 and build folders on the host. A checkout a person added stays until a person
 removes it. builds reads and changes a lane's set of checkouts, and a build

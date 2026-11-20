@@ -667,3 +667,58 @@ fn new_that_fails_in_a_free_worktree_leaves_it_unclaimed_and_without_the_new_bra
         "the worktree is not detached"
     );
 }
+
+#[test]
+fn a_lane_with_no_app_checkout_on_this_mac_gets_one_and_keeps_it_from_new() {
+    let scratch = Scratch::new("worktree-local-app-checkout");
+    let tool = scratch.tool(0);
+    let main = scratch.repo_path("demo");
+    repo(&main, "target 1G\n");
+    let origin = scratch.dir.join("origin.git");
+    git(
+        &scratch.dir,
+        &["init", "-q", "--bare", &origin.display().to_string()],
+    );
+    git(
+        &main,
+        &["remote", "add", "origin", &origin.display().to_string()],
+    );
+    git(&main, &["push", "-q", "origin", "main"]);
+    let ssh = crate::testing::no_ssh();
+    // The lane lists a checkout on a host only, as the person's did.
+    tool.places
+        .write_app_checkouts(
+            "demo",
+            Lane::Mac,
+            &[crate::lane::AppCheckout::by_person("m1:mac-1")],
+        )
+        .unwrap();
+
+    ensure_local_app_checkout(&tool, &ssh, "demo", Lane::Mac).unwrap();
+    let entries = tool.places.app_checkouts_of("demo", Lane::Mac).unwrap();
+    assert_eq!(entries, ["m1:mac-1", "side-1"]);
+    let side = scratch.dir.join("home/dev/demo-worktrees/side-1");
+    assert!(side.join("target").is_symlink(), "the checkout is set up");
+    assert_eq!(
+        crate::app_config::app_checkout_top(&tool.places, "demo", "side-1").unwrap(),
+        side
+    );
+    let checkout = Checkout::find(&side.display().to_string()).unwrap();
+    assert!(
+        Claim::read(&checkout.claim_file()).unwrap().is_none(),
+        "no agent holds it"
+    );
+    assert!(
+        crate::free_worktrees::find_free(&tool, &main)
+            .unwrap()
+            .is_none(),
+        "`builds new` never hands out a lane's checkout"
+    );
+
+    // A lane that has one on this Mac is left as it is.
+    ensure_local_app_checkout(&tool, &ssh, "demo", Lane::Mac).unwrap();
+    assert_eq!(
+        tool.places.app_checkouts_of("demo", Lane::Mac).unwrap(),
+        entries
+    );
+}

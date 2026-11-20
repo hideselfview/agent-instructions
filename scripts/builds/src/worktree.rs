@@ -523,6 +523,59 @@ pub fn cmd_app_checkout(tool: &Tool, ssh: &Ssh, args: &[String]) -> Result<()> {
     Ok(())
 }
 
+/// Gives <repo>'s <lane> an app checkout on this Mac when it has none, for a
+/// build that runs only here (an `.app-build` `here` step, or the Android
+/// install): a new side worktree of the repo's clone at ~/dev/<repo>, detached
+/// at origin/main, set up as `builds new` sets one up and recorded in the
+/// lane as a checkout of the person's, which no `builds new` hands out and
+/// builds never removes. A lane that has one already is left as it is.
+pub fn ensure_local_app_checkout(tool: &Tool, ssh: &Ssh, repo: &str, lane: Lane) -> Result<()> {
+    let has_local = || -> Result<bool> {
+        Ok(tool
+            .places
+            .app_checkouts_of(repo, lane)?
+            .iter()
+            .any(|entry| crate::app_remote::split(entry).is_none()))
+    };
+    if has_local()? {
+        return Ok(());
+    }
+    tool.places.require_volume()?;
+    let main = tool.places.home.join(crate::host::clone_path(repo));
+    if !main.is_dir() {
+        fail!(
+            "{repo} has no app checkout on this Mac, and {} is no clone to add one to",
+            main.display()
+        );
+    }
+    // Held from picking a worktree to recording it, as `builds new` holds it,
+    // so no other build adds one meanwhile and no `builds new` hands this one
+    // out before the lane holds it.
+    let _picking = lock_picking(&main)?;
+    if has_local()? {
+        return Ok(());
+    }
+    run_checked(git(&main).args(["fetch", "-q", "origin"]), "git fetch")?;
+    let start = Start::Fresh(None);
+    let dir = add_new(tool, &main, &start)?;
+    let made = Checkout::find(&dir.display().to_string()).and_then(|checkout| {
+        prepare(tool, ssh, &checkout)?;
+        record_in_lane(tool, repo, lane, &checkout.name())?;
+        Ok(checkout)
+    });
+    match made {
+        Ok(checkout) => {
+            note(format!(
+                "{repo}'s {} lane had no app checkout on this Mac, so builds made {} for it",
+                lane.word(),
+                checkout.top.display()
+            ));
+            Ok(())
+        }
+        Err(error) => Err(undo(error, undo_add(tool, &main, &dir, &start))),
+    }
+}
+
 /// Records <entry> as one of <repo>'s <lane> app checkouts that a person
 /// added, under the lane's queue guard. When the builds tool added the
 /// checkout, the person now owns it, so it stays until a person removes it.

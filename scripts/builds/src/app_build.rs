@@ -1041,6 +1041,10 @@ fn build_lane(
             windowed.name
         ));
     }
+    if allowed == lock::Where::Here {
+        let tool = crate::tool::Tool::new(places.clone(), crate::places::Rules::from_env()?);
+        crate::worktree::ensure_local_app_checkout(&tool, &ssh, repo, lane)?;
+    }
     let held = lock::take_where(places, &ssh, repo, lane, allowed, floor_kib)?;
     let mut held = hold_stores(held, &mut timing.stores)?;
     loop {

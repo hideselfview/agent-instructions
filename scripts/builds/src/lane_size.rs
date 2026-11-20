@@ -11,8 +11,10 @@
 //! than `LANE_CAP`. builds names it `builds-<lane>-<n>` and records it in the
 //! lane's set as its own, with when and why (lane.rs `AppCheckout`). Its first
 //! build makes it on the host, as for a checkout `builds app-checkout --host`
-//! records. builds adds checkouts only on hosts: this Mac is the person's, and
-//! its disk holds every side worktree's builds.
+//! records. A waiting build adds checkouts only on hosts: this Mac is the
+//! person's, and its disk holds every side worktree's builds. A build that
+//! may run only on this Mac, in a lane with no checkout here, makes one local
+//! checkout (worktree.rs `ensure_local_app_checkout`) that stays.
 //!
 //! A build that joins a lane's queue, and `builds prune`, remove each
 //! checkout builds added that no build has used for `IDLE_MINUTES`
