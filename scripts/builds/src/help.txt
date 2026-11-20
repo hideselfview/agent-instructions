@@ -1765,6 +1765,13 @@ sessions' scratch, whose entries go three days after the session's last
 change), com.apple.* and tmux-* (live sockets), and anything the user doesn't
 own.
 
+Agent registrations. `builds agent start` registers each agent in
+<the lists folder's parent>/agents/<session>/, and only a command that an
+agent of that session runs reads it. `prune` (not `setup`) deletes each
+session's folder once Claude Code's record of running sessions (~/.claude/
+sessions) no longer names the session. When builds cannot read that record, it
+deletes none and says so.
+
 Never run `cargo sweep --time` or `--maxsize`: APFS doesn't refresh access
 times, so sweep deletes the builds needed next. `cargo sweep --installed` after
 a toolchain upgrade is fine.

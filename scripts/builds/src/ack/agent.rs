@@ -34,6 +34,24 @@ pub fn dir(places: &Places) -> Result<PathBuf> {
     Ok(parent.join("agents"))
 }
 
+/// The session folders of the agents folder (`dir`) that belong to no session
+/// among the <live> ones: the registrations nothing reads, since only an
+/// agent of a running session runs a command that reads one. <now> is
+/// seconds since 1970.
+pub fn ended_sessions(
+    places: &Places,
+    live: &std::collections::HashSet<std::ffi::OsString>,
+    now: i64,
+) -> std::result::Result<Vec<PathBuf>, String> {
+    let agents = dir(places).map_err(|error| error.text())?;
+    if !agents.is_dir() {
+        return Ok(Vec::new());
+    }
+    crate::prune::old_entries(&[agents], 0, places.uid, now, |name, meta| {
+        meta.is_dir() && !name.starts_with('.') && !live.contains(std::ffi::OsStr::new(name))
+    })
+}
+
 /// Whether <c> may appear in a session or agent id.
 pub fn is_id_char(c: char) -> bool {
     c.is_ascii_alphanumeric() || c == '-' || c == '_'

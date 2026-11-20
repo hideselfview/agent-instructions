@@ -395,7 +395,7 @@ pub fn prune_listed(run: Run, what: &str, listing: std::result::Result<Vec<PathB
 
 /// The entries directly in <folders> nothing wrote to for more than <days>
 /// days, owned by <uid>, that <pick> picks.
-fn old_entries(
+pub fn old_entries(
     folders: &[PathBuf],
     days: i64,
     uid: u32,
@@ -481,8 +481,32 @@ pub fn prune_scratchpads(tool: &Tool, run: Run) -> Result<()> {
     Ok(())
 }
 
+/// Deletes each session's folder of agent registrations (ack/agent.rs) whose
+/// session Claude Code's record no longer lists as running. When builds cannot
+/// read the record, it deletes nothing and says so.
+pub fn prune_agents(tool: &Tool, run: Run) -> Result<()> {
+    let live = match live_sessions(&tool.places.claude_sessions()) {
+        Ok(live) => live,
+        Err(error) => {
+            note(format!(
+                "reading the running Claude Code sessions failed, so no agent registration was deleted: {error}"
+            ));
+            return Ok(());
+        }
+    };
+    prune_listed(
+        run,
+        &format!(
+            "agent registration folders of ended sessions under {}",
+            crate::ack::agent::dir(&tool.places)?.display()
+        ),
+        crate::ack::agent::ended_sessions(&tool.places, &live, tool.now),
+    );
+    Ok(())
+}
+
 /// The ids of the Claude Code sessions still running.
-fn live_sessions(
+pub fn live_sessions(
     sessions: &Path,
 ) -> std::result::Result<std::collections::HashSet<std::ffi::OsString>, String> {
     Ok(crate::claude_sessions::running(sessions)?
@@ -802,6 +826,7 @@ pub fn cmd_prune(tool: &Tool, args: &[String]) -> Result<()> {
     prune_test_temps(tool, run)?;
     prune_temp_builds(tool, run)?;
     prune_scratchpads(tool, run)?;
+    prune_agents(tool, run)?;
     prune_cargo_git(tool, &roots, run)?;
     prune_installed(tool, &roots, run)?;
     crate::built_tools::prune_tools(&tool.places, &roots, run)?;

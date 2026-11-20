@@ -454,3 +454,54 @@ fn a_live_checkout_git_cannot_list_fails_the_prune() {
     let checkouts = tool.places.cargo_home.join("git/checkouts/dep-1");
     assert!(checkouts.join(&side_sha[..7]).exists());
 }
+
+/// Registers the agents "a1" and the session's main agent in <session>.
+fn register_agents(tool: &Tool, session: &str) {
+    crate::ack::agent::register(&tool.places, session, session).unwrap();
+    crate::ack::agent::register(&tool.places, session, "a1").unwrap();
+}
+
+#[test]
+fn the_folder_of_an_ended_session_goes_and_a_running_sessions_stays() {
+    use crate::ack::agent::{dir, is_registered};
+    let scratch = Scratch::new("prune-agents");
+    let tool = scratch.tool(0);
+    register_agents(&tool, "running");
+    register_agents(&tool, "ended");
+    for session in ["running", "ended"] {
+        age(&dir(&tool.places).unwrap().join(session), 1);
+    }
+    let sessions = tool.places.claude_sessions();
+    std::fs::create_dir_all(&sessions).unwrap();
+    let me = unsafe { libc::getpid() };
+    std::fs::write(
+        sessions.join(format!("{me}.json")),
+        format!(r#"{{"pid":{me},"sessionId":"running"}}"#),
+    )
+    .unwrap();
+    // A run that writes nothing.
+    prune_agents(&tool, Run::Dry).unwrap();
+    assert!(is_registered(&tool.places, "ended", "a1").unwrap());
+    prune_agents(&tool, Run::Real).unwrap();
+    assert!(!dir(&tool.places).unwrap().join("ended").exists());
+    assert!(is_registered(&tool.places, "running", "a1").unwrap());
+    assert!(is_registered(&tool.places, "running", "running").unwrap());
+}
+
+/// When builds cannot read Claude Code's record of its sessions, it cannot
+/// tell which sessions run, so it deletes none.
+#[test]
+fn a_record_of_sessions_builds_cannot_read_deletes_no_registration() {
+    let scratch = Scratch::new("prune-agents-unreadable");
+    let tool = scratch.tool(0);
+    register_agents(&tool, "ended");
+    age(
+        &crate::ack::agent::dir(&tool.places).unwrap().join("ended"),
+        1,
+    );
+    let sessions = tool.places.claude_sessions();
+    std::fs::create_dir_all(&sessions).unwrap();
+    std::fs::write(sessions.join("1.json"), "not json").unwrap();
+    prune_agents(&tool, Run::Real).unwrap();
+    assert!(crate::ack::agent::is_registered(&tool.places, "ended", "a1").unwrap());
+}
