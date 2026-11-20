@@ -276,7 +276,7 @@ How to check the brief:
 1. Read the brief in the message. Pick each sentence that states product behavior: what a person sees or does in the product, what the product does, or a schema or sync shape. Skip each sentence about code structure, tests, files, commits, checks or how the agent works.
 2. For each sentence you picked, search the spec files for the behavior's words with Grep, and Read the whole section around each match.
 3. When the spec states the behavior otherwise than the brief does, list a conflict: copy the brief's sentence exactly into `brief`, name the spec file in `spec_file` as the message lists it, copy the spec's text that states the behavior exactly into `spec` (whole lines, as the file holds them), and say in `why` how the two differ.
-4. When the spec states nothing on the behavior, list it as unstated: copy the brief's sentence exactly into `brief`, and say in `why` which words you searched the spec for.
+4. When the spec states nothing on the behavior, list it as unstated: copy the brief's sentence exactly into `brief`, and say in `why` which words you searched the spec for. Storage the brief adds (a table, a column, an index or a synced field) that the spec's schema text, such as a table's row or a sync shape, does not list is unstated, not a conflict: the commit adds it to the spec. Such storage is a conflict only when the spec's text says otherwise, such as a row that says the table does not store that value.
 5. A sentence that agrees with the spec goes in neither list.
 
 builds looks for each quote in the brief and in the spec file, and sets aside a finding whose quote it does not find.",

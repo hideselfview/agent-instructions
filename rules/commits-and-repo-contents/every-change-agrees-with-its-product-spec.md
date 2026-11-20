@@ -1,5 +1,5 @@
 ---
-digest: The product spec is a draft that the coding rules outrank. Read the spec's text on a behavior before you plan, brief, build or review a change to it, and never treat that text as a decision the person made. When working code already does something sensible and the spec differs only on a detail, the code holds and the agent edits the spec without asking. When the spec contradicts a rule, the code in a way the person would notice, or what a change builds, ask the person, say which text looks wrong and why, offer the edit, and edit the spec only after they agree. A commit adds to the spec what it builds where the spec states nothing or the person already decided.
+digest: The product spec is a draft that the coding rules outrank. Read the spec's text on a behavior before you plan, brief, build or review a change to it, and never treat that text as a decision the person made. When working code already does something sensible and the spec differs only on a detail, the code holds and the agent edits the spec without asking. When the spec contradicts a rule, the code in a way the person would notice, or what a change builds, ask the person, say which text looks wrong and why, offer the edit, and edit the spec only after they agree. A commit adds to the spec what it builds where the spec states nothing or the person already decided, such as a column or table the work needs that the spec's schema text does not list.
 paths:
   - '**/*'
 blocking: true
@@ -36,6 +36,14 @@ is such a detail: a button that opens the restore screen, where the person
 pastes or scans the code, settles a spec line that says it opens the camera. A
 difference in what the person can do, what they keep or lose, or what a screen
 tells them is theirs to decide.
+
+**Storage the work needs.** A table, a column, an index or a synced field that
+the work needs is how the product does what the person decided, not a decision
+of its own. When the spec's schema text, such as a table's row or a sync shape,
+does not list that storage, the spec states nothing on it: the commit adds the
+storage to the spec, and no one asks the person. Storage conflicts with the spec
+only when the spec's text says otherwise, such as a table's row that says the
+table does not store that value.
 
 **Planning and briefs.** Before you write a plan or a brief, or settle an open
 choice an agent raises, search the spec for the behavior the change touches and

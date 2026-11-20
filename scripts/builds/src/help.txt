@@ -2410,7 +2410,8 @@ every-change-agrees-with-its-product-spec, and its system prompt holds that
 rule's text. The reviewer quotes each sentence of the brief that states a
 behavior the spec states otherwise (a conflict), with the spec file and the
 spec's text, and each sentence that states a behavior the spec doesn't state
-(unstated). builds
+(unstated). Storage the brief adds that the spec's schema text does not list,
+such as a new column, is unstated, since the commit adds it to the spec. builds
 looks for each quote in the brief and in the spec file, finds the line the
 spec's text starts on, and sets aside a finding whose quote it does not find.
 When the reviewer finds a conflict, take refuses the items unless

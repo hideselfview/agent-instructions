@@ -257,7 +257,9 @@ main checkout holds or that more than one holds; an absolute path is itself.
       with a reviewer that runs in W with read-only tools, as `builds review`
       runs one (LANDING AND REVIEW in `builds help`). The reviewer lists each
       sentence of P that states a behavior the spec states otherwise (a
-      conflict) or doesn't state (unstated). When the reviewer finds a
+      conflict) or doesn't state (unstated). Storage P adds that the spec's
+      schema text does not list, such as a new column, is unstated, since the
+      commit adds it to the spec. When the reviewer finds a
       conflict, take refuses the items and quotes the brief's sentence and
       the spec's text with its file and line: the person decides each
       conflict. Once they have, take the
