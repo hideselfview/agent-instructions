@@ -228,9 +228,13 @@ fn a_dispute_that_reached_no_judge_is_sent_when_the_judge_settles_another_findin
     assert_eq!(told_sessions(&r, r.finding, "answer"), ["s-judge"]);
 }
 
-/// Runs `builds health`'s fix for the judges, in the scratch folder of <r>.
+/// Runs `builds health`'s fix for the judges, in the scratch folder of <r>,
+/// and returns its lines about findings: the tests here give the judge no
+/// acknowledgement, which judge_ack_tests.rs covers.
 fn health(r: &Reviewed) -> Vec<String> {
-    crate::health_fix::tell_judges(&r.demo.scratch.tool(0)).unwrap()
+    let mut lines = crate::health_fix::tell_judges(&r.demo.scratch.tool(0)).unwrap();
+    lines.retain(|line| !line.contains("acknowledge the text again"));
+    lines
 }
 
 #[test]

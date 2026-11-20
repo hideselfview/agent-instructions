@@ -52,6 +52,21 @@ pub fn last(
     .sql()
 }
 
+/// Every acknowledgement by <agent> in <session>, one for each text it read.
+pub fn acknowledgements(db: &Connection, session: &str, agent: &str) -> Result<Vec<Ack>> {
+    db.prepare("SELECT version, at FROM ack WHERE session = ?1 AND agent = ?2")
+        .sql()?
+        .query_map(params![session, agent], |row| {
+            Ok(Ack {
+                version: row.get(0)?,
+                at: row.get(1)?,
+            })
+        })
+        .sql()?
+        .collect::<rusqlite::Result<_>>()
+        .sql()
+}
+
 /// Each section of version <version> of the text, by name, with its hash,
 /// in the order of their names; None when builds no longer keeps that
 /// version.

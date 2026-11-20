@@ -245,6 +245,10 @@ impl Settler<'_> {
 /// Whom a message reached.
 enum Told {
     Judge(Judge),
+    /// A judge listens (its session runs) and its inbox is gone: nobody was
+    /// told, and the coordinator does not settle while the judge's session
+    /// runs (`may_judge`).
+    JudgeGone(Judge),
     Coordinator,
     /// No judge listens, and <caller> is the person or a session's main
     /// agent, which settles the findings itself: nothing was sent.
@@ -256,10 +260,10 @@ enum Told {
 
 /// Sends <message> for the session that settles, once: the judge when one
 /// listens (`listening`, with Claude Code's running sessions in
-/// <sessions>); else, when a session dispatched <caller>, the coordinator,
-/// which is <caller>'s own session and reads its inbox <own>. A send whose
-/// session ended goes on to the next; any other failure of a send is the
-/// error.
+/// <sessions>), the same fact that `may_judge` reads; else, when a session
+/// dispatched <caller>, the coordinator, which is <caller>'s own session and
+/// reads its inbox <own>. A judge whose inbox is gone stays the judge: the
+/// message goes to no one else. Any other failure of a send is the error.
 fn tell_settler(
     db: &Connection,
     sessions: &Path,
@@ -267,10 +271,13 @@ fn tell_settler(
     own: Option<&Messaging>,
     message: impl Fn(&Settler) -> String,
 ) -> Result<Told> {
-    if let Some(judge) = listening(db, sessions)?
-        && send(&judge.inbox, &message(&Settler::Judge(&judge)))? == Sent::Delivered
-    {
-        return Ok(Told::Judge(judge));
+    if let Some(judge) = listening(db, sessions)? {
+        return Ok(
+            match send(&judge.inbox, &message(&Settler::Judge(&judge)))? {
+                Sent::Delivered => Told::Judge(judge),
+                Sent::Gone => Told::JudgeGone(judge),
+            },
+        );
     }
     let Some(caller) = caller.filter(|caller| caller.is_dispatched()) else {
         return Ok(Told::Caller);
@@ -411,6 +418,12 @@ pub fn tell(
                 judge.by
             )
         }
+        Told::JudgeGone(judge) => format!(
+            "The judge of project {project} ({}) runs, but its inbox is gone, so builds told nobody, and only the judge settles while its session runs: tell the judge to run `builds judge listen --project {project} --by {}` again, which sends it {asked}, then {}",
+            judge.by,
+            judge.by,
+            waits.replacen("Run", "run", 1)
+        ),
         Told::Coordinator => format!(
             "No judge listens for project {project}, so builds told your coordinator {asked}. {waits}"
         ),

@@ -359,6 +359,32 @@ fn with_no_judge_a_dispatched_agents_coordinator_is_told() {
 }
 
 #[test]
+fn a_judge_whose_session_runs_but_whose_inbox_is_gone_is_still_the_judge() {
+    let agent = caller("s1", "a1");
+    let r = reviewed("judge-inbox-gone", Some(&agent));
+    // The judge's session runs, and nothing listens on its inbox socket.
+    r.listen_as_judge(&r.inbox("j.sock"));
+    running_session(&r.demo.tool.places, "s-judge");
+    let said = r.tell(Some(&agent), Some(&r.inbox("c.sock")));
+    assert!(!said.contains("No judge listens"), "{said}");
+    assert!(
+        said.contains("builds judge listen --project demo --by judge"),
+        "{said}"
+    );
+    // Settle reads the same fact: the coordinator may not settle.
+    let conn = r.demo.store.open_existing().unwrap();
+    let refused = may_judge(
+        &conn,
+        &r.demo.tool.places.claude_sessions(),
+        r.finding,
+        Some(&caller("s1", "s1")),
+    )
+    .unwrap_err()
+    .text();
+    assert!(refused.contains("only the judge settles"), "{refused}");
+}
+
+#[test]
 fn with_no_judge_a_main_agent_or_the_person_settles_and_nobody_is_told() {
     let r = reviewed("judge-self", None);
     for who in [Some(caller("s1", "s1")), None] {

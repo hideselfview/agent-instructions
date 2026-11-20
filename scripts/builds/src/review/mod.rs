@@ -75,6 +75,7 @@ mod frequent;
 pub mod groups;
 pub mod idle;
 pub mod judge;
+pub mod judge_ack;
 pub mod judge_told;
 pub mod landing;
 pub mod mechanical;

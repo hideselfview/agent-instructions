@@ -605,3 +605,57 @@ fn a_repo_two_projects_hold_is_refused_without_project_and_with_one_that_lacks_i
     ));
     assert!(lacking.contains("does not hold repo bae"), "{lacking}");
 }
+
+/// The judge's session as `judge listen` keeps it: its main agent's id is its
+/// session id.
+fn judge_world(name: &str) -> World {
+    let world = world(name);
+    agent::register(&world.places, SESSION_ID, SESSION_ID).unwrap();
+    world
+}
+
+fn outdated_at(world: &World, now: i64) -> Option<String> {
+    let store = Store::named(&world.places, "bae").unwrap();
+    outdated(&world.places, &store, SESSION_ID, now).unwrap()
+}
+
+#[test]
+fn a_judge_that_acknowledged_the_current_text_has_nothing_to_acknowledge() {
+    let world = judge_world("ack-judge-current");
+    world.acknowledge_as(SESSION_ID, NOON);
+    assert_eq!(outdated_at(&world, NOON + 60), None);
+}
+
+#[test]
+fn a_judge_with_no_acknowledgement_is_told_so() {
+    let world = judge_world("ack-judge-none");
+    let why = outdated_at(&world, NOON).expect("it has acknowledged nothing");
+    assert!(why.contains("has no acknowledgement"), "{why}");
+}
+
+#[test]
+fn a_judge_is_told_when_its_acknowledgement_passes_its_hours() {
+    let world = judge_world("ack-judge-old");
+    world.acknowledge_as(SESSION_ID, NOON);
+    let why = outdated_at(&world, NOON + HOURS * 3600 + 1).expect("the hours passed");
+    assert!(why.contains("more than 12 hours ago"), "{why}");
+}
+
+#[test]
+fn a_judge_is_told_when_the_text_changed_and_which_section() {
+    let world = judge_world("ack-judge-changed");
+    world.acknowledge_as(SESSION_ID, NOON);
+    std::fs::write(
+        world
+            .scratch
+            .dir
+            .join("agent-instructions/rules/text/plain.md"),
+        "---\npaths:\n  - '**/*'\n---\n\nWrite plain, literal sentences.\n",
+    )
+    .unwrap();
+    let why = outdated_at(&world, NOON + 60).expect("the text changed");
+    assert!(why.contains("rules/text/plain.md"), "{why}");
+    // A repo's CLAUDE.md is no part of the text the judge's check reads.
+    world.acknowledge_as(SESSION_ID, NOON + 120);
+    assert_eq!(outdated_at(&world, NOON + 180), None);
+}

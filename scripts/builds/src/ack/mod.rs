@@ -327,6 +327,48 @@ fn check(
     )
 }
 
+/// Why the main agent of <session>, which `builds judge listen` keeps as the
+/// judge, must acknowledge the text of <store>'s project again, or None when
+/// its newest acknowledgement is at most `HOURS` hours old and the text it
+/// read has not changed since. The text is the text that holds no repo's
+/// CLAUDE.md: the judge may work in any repo of the project, so a change of
+/// one repo's CLAUDE.md alone never counts.
+pub fn outdated(places: &Places, store: &Store, session: &str, now: i64) -> Result<Option<String>> {
+    let who = format!("agent {session}");
+    let Some(db) = db::open_reader(&store.database())? else {
+        return Ok(Some(format!("{who} has no acknowledgement in this store")));
+    };
+    let Some(ack) = record::acknowledgements(&db, session, session)?
+        .into_iter()
+        .max_by_key(|ack| ack.at)
+    else {
+        return Ok(Some(format!("{who} has no acknowledgement of the text")));
+    };
+    if now - ack.at > HOURS * 3600 {
+        return Ok(Some(format!(
+            "{who} acknowledged it at {}, more than {HOURS} hours ago",
+            local_minute(ack.at)
+        )));
+    }
+    let Some(kept) = record::kept_sections(&db, &ack.version)? else {
+        return Ok(Some(format!(
+            "{who} acknowledged version {} at {}, which builds no longer keeps",
+            ack.version,
+            local_minute(ack.at)
+        )));
+    };
+    let text = Text::read(places, &store.project, None)?;
+    let changed = text.changed_since(&kept);
+    if changed.is_empty() {
+        return Ok(None);
+    }
+    Ok(Some(format!(
+        "the text changed since {who} acknowledged it at {}: {} changed",
+        local_minute(ack.at),
+        changed.join(", ")
+    )))
+}
+
 /// `builds ack`.
 pub fn cmd_ack(places: &Places, args: &[String]) -> Result<()> {
     let args = Args::parse(args, &[], &["compacted"])?;

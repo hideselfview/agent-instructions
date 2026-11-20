@@ -2916,7 +2916,15 @@ run `review replay --rules-root` on it.
                               finding again once no running builds process
                               is still telling the judge of it, and forgets a
                               judge whose session ended, so the
-                              coordinator settles.
+                              coordinator settles. A judge whose session runs
+                              stays the judge when its inbox is gone: builds
+                              tells the agent so and tells nobody else, and
+                              the judge runs `judge listen` again. `builds
+                              health` and `builds install` message a judge
+                              whose acknowledgement of the text every agent
+                              reads is out of date (older than the hours it
+                              holds, or the text changed), so the judge
+                              acknowledges again before its next settle.
                               builds refuses it outside a session with an
                               inbox, and from an agent that a session
                               dispatched, which shares that session's inbox
