@@ -811,7 +811,7 @@ fn a_finished_lane_run_writes_its_wait_steps_and_checkout_to_its_projects_store(
         false,
     )
     .unwrap();
-    timing.record(&places, "demo", Lane::Mac, "my-branch", Outcome::Passed);
+    timing.record(&places, "demo", Lane::Mac, "my-branch", RunEnd::Passed);
     let path = store.dir.join(app_timing::DATABASE);
     let conn = rusqlite::Connection::open(&path).unwrap();
     let row: (i64, i64, String, String, String, i64, f64) = conn
@@ -859,7 +859,7 @@ fn a_run_that_never_took_a_checkout_writes_nothing() {
     let scratch = crate::testing::Scratch::new("timing-no-checkout");
     let places = scratch.places();
     let store = crate::lists::fixtures::make_store(&places, &["demo"]);
-    Timing::start().record(&places, "demo", Lane::Mac, "my-branch", Outcome::Failed);
+    Timing::start().record(&places, "demo", Lane::Mac, "my-branch", RunEnd::Failed);
     assert!(
         app_timing::stats(&store.dir.join(app_timing::DATABASE), 0)
             .unwrap()

@@ -11,39 +11,12 @@ use rusqlite::{Connection, params};
 use crate::db::Sql;
 use crate::fail::Result;
 use crate::output_excerpt::Excerpt;
-
-/// How a run ended.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Ended {
-    Passed,
-    Failed,
-    Stopped,
-}
-
-impl Ended {
-    pub fn word(self) -> &'static str {
-        match self {
-            Ended::Passed => "passed",
-            Ended::Failed => "failed",
-            Ended::Stopped => "stopped",
-        }
-    }
-
-    /// How a run whose cargo exited with <code> ended: a code above 128 is
-    /// a signal's (`fail::exit_code`).
-    pub fn of_code(code: i32) -> Ended {
-        match code {
-            0 => Ended::Passed,
-            129.. => Ended::Stopped,
-            _ => Ended::Failed,
-        }
-    }
-}
+use crate::run_end::RunEnd;
 
 /// How a run ended, the tests it reported failed and why.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Outcome {
-    pub ended: Ended,
+    pub ended: RunEnd,
     /// In the order cargo first reported them.
     pub failed: Vec<String>,
     pub excerpt: Option<String>,
@@ -54,7 +27,7 @@ impl Outcome {
     #[cfg(test)]
     pub fn passed() -> Outcome {
         Outcome {
-            ended: Ended::Passed,
+            ended: RunEnd::Passed,
             failed: Vec::new(),
             excerpt: None,
         }
@@ -109,11 +82,11 @@ impl Watch {
     /// How the run ended, given cargo's exit <code>.
     pub fn outcome(&self, code: i32) -> Outcome {
         let read = self.0.lock().expect("no panic holding it");
-        let ended = Ended::of_code(code);
+        let ended = RunEnd::of_code(code);
         Outcome {
             ended,
             failed: read.failed.clone(),
-            excerpt: (ended != Ended::Passed)
+            excerpt: (ended != RunEnd::Passed)
                 .then(|| read.excerpt.text())
                 .flatten(),
         }

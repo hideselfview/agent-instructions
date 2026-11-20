@@ -97,7 +97,7 @@ use crate::app_config::{
 };
 use crate::app_remote::{RemoteApp, fetched_local_source, local_source};
 use crate::app_site::Site;
-use crate::app_timing::{self, Outcome, RunRecord, StepKind, StepRecord, StepResult, Timer};
+use crate::app_timing::{self, RunRecord, StepKind, StepRecord, StepResult, Timer};
 use crate::checkout::Checkout;
 use crate::claim::Claim;
 use crate::fail;
@@ -107,6 +107,7 @@ use crate::install_gate;
 use crate::lane::Lane;
 use crate::lock::{self, Found, Keep, Ran, Within};
 use crate::places::Places;
+use crate::run_end::RunEnd;
 use crate::shot_findings;
 use crate::text::note;
 use crate::tool::Tool;
@@ -954,7 +955,7 @@ impl Timing {
     /// Writes the run, which ended with <outcome>, to the repo's project
     /// store when it took a checkout. A repo in no project, or a write that
     /// fails, is said and changes nothing about the build's result.
-    fn record(self, places: &Places, repo: &str, lane: Lane, built_ref: &str, outcome: Outcome) {
+    fn record(self, places: &Places, repo: &str, lane: Lane, built_ref: &str, outcome: RunEnd) {
         let Some(held) = self.held else {
             return;
         };
@@ -1011,9 +1012,9 @@ fn run_lane(tool: &Tool, repo: &str, lane: Lane, request: LaneRequest) -> Result
         return Err(install_gate::run_installed_after_install(&tool.places, why));
     }
     let outcome = match &result {
-        Ok(_) => Outcome::Passed,
-        Err(_) if lock::stop_signal().is_some() => Outcome::Stopped,
-        Err(_) => Outcome::Failed,
+        Ok(_) => RunEnd::Passed,
+        Err(_) if lock::stop_signal().is_some() => RunEnd::Stopped,
+        Err(_) => RunEnd::Failed,
     };
     timing.record(&tool.places, repo, lane, request.commit, outcome);
     result.map(|_| ())

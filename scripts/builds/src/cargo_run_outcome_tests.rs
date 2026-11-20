@@ -36,7 +36,7 @@ fn a_failed_run_keeps_its_failed_tests_once_and_the_lines_from_the_first_panic()
     }
     drop(out);
     let outcome = watch.outcome(100);
-    assert_eq!(outcome.ended, Ended::Failed);
+    assert_eq!(outcome.ended, RunEnd::Failed);
     assert_eq!(outcome.failed, vec!["a::one".to_string()]);
     assert_eq!(
         outcome.excerpt.as_deref(),
@@ -51,12 +51,12 @@ fn a_passed_run_keeps_no_excerpt_and_a_signal_stops_a_run() {
     let watch = Watch::default();
     watch.line(b"error: something\n");
     assert_eq!(watch.outcome(0).excerpt, None);
-    assert_eq!(watch.outcome(0).ended, Ended::Passed);
-    assert_eq!(watch.outcome(130).ended, Ended::Stopped);
+    assert_eq!(watch.outcome(0).ended, RunEnd::Passed);
+    assert_eq!(watch.outcome(130).ended, RunEnd::Stopped);
     assert_eq!(
         Watch::default().outcome(101),
         Outcome {
-            ended: Ended::Failed,
+            ended: RunEnd::Failed,
             failed: Vec::new(),
             excerpt: None,
         },

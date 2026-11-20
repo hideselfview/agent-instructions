@@ -26,6 +26,7 @@ use crate::fail;
 use crate::fail::{Context, Result};
 use crate::hook_stats::median_of;
 use crate::lane::Lane;
+use crate::run_end::RunEnd;
 use crate::step_failure::StepFailure;
 
 pub use crate::db::DATABASE;
@@ -97,26 +98,6 @@ impl StepResult {
     }
 }
 
-/// How a lane's run ended.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Outcome {
-    Passed,
-    Failed,
-    /// A stop signal (SIGTERM, SIGINT or SIGHUP) reached the run before it
-    /// passed.
-    Stopped,
-}
-
-impl Outcome {
-    pub fn word(self) -> &'static str {
-        match self {
-            Outcome::Passed => "passed",
-            Outcome::Failed => "failed",
-            Outcome::Stopped => "stopped",
-        }
-    }
-}
-
 /// One step a run started.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StepRecord {
@@ -144,7 +125,7 @@ pub struct RunRecord {
     pub built_commit: Option<String>,
     pub who: Option<String>,
     pub wait_ms: u64,
-    pub outcome: Outcome,
+    pub outcome: RunEnd,
     /// The cores and load of the checkout's host when the run took the
     /// checkout; None when the host did not answer.
     pub load: Option<crate::host::Load>,

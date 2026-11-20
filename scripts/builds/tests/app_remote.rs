@@ -3,9 +3,12 @@
 //! the command on this Mac with a second folder as the host's home) and a
 //! scratch repo `demo` whose clone sits in that home. Never a real host.
 
+use std::io::{BufRead, BufReader};
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
+use std::process::{Command, ExitStatus, Output, Stdio};
+use std::sync::mpsc::{Receiver, channel};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 const BUILDS: &str = env!("CARGO_BIN_EXE_builds");
@@ -165,23 +168,41 @@ cd "$home" && HOME="$home" exec sh -c "$*"
             .unwrap()
     }
 
-    /// Starts `builds app-build demo <args>` with its stderr in the file
-    /// `app-build.err`.
+    /// Starts `builds app-build demo <args>`, reading its stderr line by
+    /// line.
     fn start_app_build(&self, args: &[&str]) -> Running {
-        let child = self
+        let mut child = self
             .builds(&[&["app-build", "demo"], args].concat())
-            .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::null())
-            .stderr(std::fs::File::create(self.dir.join("app-build.err")).unwrap())
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped())
             .spawn()
             .unwrap();
-        Running(child)
-    }
-
-    /// What the app build that `start_app_build` started has printed on
-    /// stderr so far.
-    fn app_build_err(&self) -> String {
-        std::fs::read_to_string(self.dir.join("app-build.err")).unwrap_or_default()
+        let pid = child.id() as i32;
+        let stderr = child.stderr.take().unwrap();
+        let said = Arc::new(Mutex::new(String::new()));
+        let (line_sent, lines) = channel();
+        let heard = said.clone();
+        std::thread::spawn(move || {
+            for line in BufReader::new(stderr).lines() {
+                let Ok(line) = line else { break };
+                heard.lock().unwrap().push_str(&format!("{line}\n"));
+                if line_sent.send(line).is_err() {
+                    break;
+                }
+            }
+        });
+        let (status_sent, ended) = channel();
+        std::thread::spawn(move || {
+            let _ = status_sent.send(child.wait().unwrap());
+        });
+        Running {
+            pid,
+            lines,
+            said,
+            ended,
+            status: None,
+        }
     }
 
     /// Makes the project store that records demo's app builds, and puts the
@@ -223,42 +244,71 @@ cd "$home" && HOME="$home" exec sh -c "$*"
     }
 }
 
+/// How long a test waits for what a build prints or does before it fails.
+const PATIENCE: Duration = Duration::from_secs(60);
+
 /// An app build the test started, killed when the test ends however it ends.
-struct Running(std::process::Child);
+struct Running {
+    pid: i32,
+    /// Each line of its stderr, as it prints it.
+    lines: Receiver<String>,
+    /// All of its stderr so far.
+    said: Arc<Mutex<String>>,
+    /// Its exit status, once it has ended.
+    ended: Receiver<ExitStatus>,
+    status: Option<ExitStatus>,
+}
 
 impl Running {
     fn signal(&self, signal: i32) {
-        assert_eq!(unsafe { libc::kill(self.0.id() as i32, signal) }, 0);
+        assert_eq!(unsafe { libc::kill(self.pid, signal) }, 0);
+    }
+
+    /// What it has printed on stderr so far.
+    fn said(&self) -> String {
+        self.said.lock().unwrap().clone()
+    }
+
+    /// Waits until it prints a line on stderr that holds <text>.
+    fn until_said(&self, text: &str) {
+        let deadline = Instant::now() + PATIENCE;
+        loop {
+            let left = deadline.saturating_duration_since(Instant::now());
+            match self.lines.recv_timeout(left) {
+                Ok(line) if line.contains(text) => return,
+                Ok(_) => {}
+                Err(_) => panic!("never saw {text:?} in:\n{}", self.said()),
+            }
+        }
     }
 
     /// Its exit status once it has ended, or None when it still runs after
     /// <patience>.
-    fn ended_within(&mut self, patience: Duration) -> Option<std::process::ExitStatus> {
-        let deadline = Instant::now() + patience;
-        while Instant::now() < deadline {
-            if let Some(status) = self.0.try_wait().unwrap() {
-                return Some(status);
-            }
-            std::thread::sleep(Duration::from_millis(50));
-        }
-        None
+    fn ended_within(&mut self, patience: Duration) -> Option<ExitStatus> {
+        self.status = self.ended.recv_timeout(patience).ok();
+        self.status
     }
 }
 
 impl Drop for Running {
     fn drop(&mut self) {
-        let _ = self.0.kill();
-        let _ = self.0.wait();
+        if self.status.is_none() {
+            unsafe { libc::kill(self.pid, libc::SIGKILL) };
+            let _ = self.ended.recv();
+        }
     }
 }
 
-/// Waits until <done>, failing the test after a minute with <what>.
-fn until(what: &dyn Fn() -> String, done: &dyn Fn() -> bool) {
-    let deadline = Instant::now() + Duration::from_secs(60);
-    while !done() {
-        assert!(Instant::now() < deadline, "never saw {}", what());
-        std::thread::sleep(Duration::from_millis(50));
-    }
+/// What a step writes to the FIFO <path>, read as soon as the step writes
+/// it; the test fails when no step writes it within `PATIENCE`.
+fn read_fifo(path: &Path) -> String {
+    let (sent, read) = channel();
+    let path = path.to_path_buf();
+    std::thread::spawn(move || {
+        let _ = sent.send(std::fs::read_to_string(&path).unwrap());
+    });
+    read.recv_timeout(PATIENCE)
+        .unwrap_or_else(|_| panic!("no step wrote to the FIFO"))
 }
 
 /// Opens the lock file <path>, taking its lock, or None while a process
@@ -413,20 +463,12 @@ fn a_stop_signal_ends_an_app_build_that_waits_for_its_hosts_display() {
     world.with_store_and_mac_checkout();
     let display = try_lock(&world.dir.join("volume/.app-windows/m1")).unwrap();
     let mut build = world.start_app_build(&["main", "quick", "--test", "mac", "Good"]);
-    until(
-        &|| {
-            format!(
-                "the build waiting for m1's display: {}",
-                world.app_build_err()
-            )
-        },
-        &|| world.app_build_err().contains("takes m1's display"),
-    );
+    build.until_said("takes m1's display");
     build.signal(libc::SIGTERM);
     let status = build
         .ended_within(Duration::from_secs(20))
-        .unwrap_or_else(|| panic!("the build ignored SIGTERM: {}", world.app_build_err()));
-    assert!(!status.success(), "{}", world.app_build_err());
+        .unwrap_or_else(|| panic!("the build ignored SIGTERM: {}", build.said()));
+    assert!(!status.success(), "{}", build.said());
     assert!(
         try_lock(&world.dir.join("volume/demo/app.locks/m1:mac-1")).is_some(),
         "the lane's lock is free"
@@ -449,22 +491,16 @@ fn a_stop_signal_ends_an_app_build_that_waits_for_its_hosts_display() {
 fn a_stop_signal_ends_an_app_builds_step_on_the_host_and_frees_its_locks() {
     let world = World::new("stop-step");
     world.with_store_and_mac_checkout();
+    let pid_fifo = world.dir.join("remote-home/sleepy.pid");
+    let path = std::ffi::CString::new(pid_fifo.to_str().unwrap()).unwrap();
+    assert_eq!(unsafe { libc::mkfifo(path.as_ptr(), 0o600) }, 0);
     let mut build = world.start_app_build(&["main", "quick", "--test", "mac", "Sleepy"]);
-    let pid_file = world.dir.join("remote-home/sleepy.pid");
-    until(
-        &|| format!("the step running on the host: {}", world.app_build_err()),
-        &|| pid_file.exists(),
-    );
-    let pid = std::fs::read_to_string(&pid_file)
-        .unwrap()
-        .trim()
-        .parse::<i32>()
-        .unwrap();
+    let pid = read_fifo(&pid_fifo).trim().parse::<i32>().unwrap();
     build.signal(libc::SIGTERM);
     let status = build
         .ended_within(Duration::from_secs(20))
-        .unwrap_or_else(|| panic!("the build ignored SIGTERM: {}", world.app_build_err()));
-    assert!(!status.success(), "{}", world.app_build_err());
+        .unwrap_or_else(|| panic!("the build ignored SIGTERM: {}", build.said()));
+    assert!(!status.success(), "{}", build.said());
     assert!(!alive(pid), "the step's process on the host is gone");
     assert!(
         try_lock(&world.dir.join("volume/demo/app.locks/m1:mac-1")).is_some(),

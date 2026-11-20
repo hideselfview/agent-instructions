@@ -248,7 +248,7 @@ fn landed_card(scratch: &Scratch) -> (crate::lists::store::Store, Id) {
             built_commit: None,
             who: None,
             wait_ms: 20_000,
-            outcome: crate::app_timing::Outcome::Passed,
+            outcome: crate::run_end::RunEnd::Passed,
             load: None,
             steps: vec![crate::app_timing::StepRecord {
                 name: "build".into(),
@@ -462,7 +462,7 @@ fn a_failed_cargo_run_that_a_later_run_passed_after_a_fix_shows_as_fixed() {
         },
         &["builds".into()],
         &crate::cargo_run_outcome::Outcome {
-            ended: crate::cargo_run_outcome::Ended::Failed,
+            ended: crate::run_end::RunEnd::Failed,
             failed: vec!["a::one".into()],
             excerpt: Some("thread 'a::one' panicked at src/a.rs:3:5:".into()),
         },
@@ -575,7 +575,7 @@ fn a_failed_shots_step_names_its_shots_in_the_cards_failures_and_totals() {
             built_commit: Some(sha('c')),
             who: None,
             wait_ms: 0,
-            outcome: crate::app_timing::Outcome::Failed,
+            outcome: crate::run_end::RunEnd::Failed,
             load: None,
             steps: vec![crate::app_timing::StepRecord {
                 name: "shots mac.a.".into(),

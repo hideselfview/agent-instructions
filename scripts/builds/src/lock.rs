@@ -131,13 +131,14 @@ pub fn stop_signal() -> Option<libc::c_int> {
     }
 }
 
-/// The name of <signal>, one of `STOP_SIGNALS`.
+/// The name of <signal>, one of `STOP_SIGNALS`: only the handlers of those
+/// signals record one.
 pub fn signal_name(signal: libc::c_int) -> &'static str {
     match signal {
         libc::SIGTERM => "SIGTERM",
         libc::SIGINT => "SIGINT",
         libc::SIGHUP => "SIGHUP",
-        _ => "a signal",
+        other => unreachable!("signal {other} is not one of the stop signals"),
     }
 }
 

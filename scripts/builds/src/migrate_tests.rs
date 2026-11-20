@@ -1561,7 +1561,7 @@ INSERT INTO app_build_steps (run_id, position, name, kind, started_at, wall_ms, 
             built_commit: None,
             who: None,
             wait_ms: 0,
-            outcome: crate::app_timing::Outcome::Stopped,
+            outcome: crate::run_end::RunEnd::Stopped,
             load: None,
             steps: vec![crate::app_timing::StepRecord {
                 name: "macos".into(),
