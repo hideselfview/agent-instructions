@@ -132,6 +132,22 @@ const LANDING_KEY_INDEX: &str = "CREATE INDEX review_landing_key ON review_landi
 /// record.sql writes them.
 const LANDING_CHANGE_INDEXES: &str = "CREATE INDEX review_landing_change ON review_landing (repo, key);\n-- A change has one landing under review at a time.\nCREATE UNIQUE INDEX review_landing_open_once ON review_landing (repo, key) WHERE landed_at IS NULL;\n";
 
+/// The review section's heading, the last column of its table as design.sql
+/// writes it.
+const REVIEW_SECTION_HEADING: &str = "    heading TEXT NOT NULL CONSTRAINT review_section_heading_says_something CHECK (trim(heading) <> '')\n) STRICT;\n";
+
+/// <schema>, which holds today's design tables, as every schema from before
+/// the review section kept only its heading: the section kept the review
+/// page's words too.
+pub fn with_review_section_words(schema: String) -> String {
+    assert_eq!(schema.matches(REVIEW_SECTION_HEADING).count(), 1);
+    schema.replacen(
+        REVIEW_SECTION_HEADING,
+        "    heading TEXT NOT NULL CONSTRAINT review_section_heading_says_something CHECK (trim(heading) <> ''),\n    words TEXT NOT NULL\n) STRICT;\n",
+        1,
+    )
+}
+
 /// <schema>, which holds today's review tables, as a schema from before
 /// builds found a review's landing by its repo and key: with the index on
 /// the key alone, and the review's texts in a table without row ids, since
@@ -178,7 +194,7 @@ const CONDITION_ENDER_COLUMN: &str = "    until TEXT NOT NULL CONSTRAINT item_wa
 /// The schema text before a condition named who ends it: the schema before
 /// the item events without the ender's column.
 fn schema_before_condition_enders() -> String {
-    let schema = before_landing_repo(db::schema_before_item_event());
+    let schema = before_landing_repo(with_review_section_words(db::schema_before_item_event()));
     assert_eq!(schema.matches(CONDITION_ENDER_COLUMN).count(), 1);
     schema.replacen(CONDITION_ENDER_COLUMN, "", 1)
 }
@@ -189,8 +205,10 @@ pub fn store_before_judge(dir: &std::path::Path) -> std::path::PathBuf {
     std::fs::create_dir_all(dir).unwrap();
     let path = dir.join(DATABASE);
     let conn = Connection::open(&path).unwrap();
-    conn.execute_batch(&before_landing_repo(db::schema_before_judge()))
-        .unwrap();
+    conn.execute_batch(&before_landing_repo(with_review_section_words(
+        db::schema_before_judge(),
+    )))
+    .unwrap();
     conn.pragma_update(None, "user_version", BEFORE_JUDGE_STAMP)
         .unwrap();
     path
@@ -263,7 +281,7 @@ fn each_stamp_names_one_schema_and_before_counts_the_stamp_and_older_ones() {
 fn the_item_event_stamp_is_the_schema_before_the_item_events() {
     assert_eq!(
         db::stamp_of_text(&before_design_place_naming(before_landing_repo(
-            db::schema_before_item_event()
+            with_review_section_words(db::schema_before_item_event())
         ))),
         BEFORE_ITEM_EVENT_STAMP
     );
@@ -280,8 +298,10 @@ fn a_store_from_before_the_item_events_gains_their_table_and_equals_a_fresh_sche
     let path = dir.join(DATABASE);
     {
         let conn = Connection::open(&path).unwrap();
-        conn.execute_batch(&before_landing_repo(db::schema_before_item_event()))
-            .unwrap();
+        conn.execute_batch(&before_landing_repo(with_review_section_words(
+            db::schema_before_item_event(),
+        )))
+        .unwrap();
         conn.pragma_update(None, "user_version", BEFORE_ITEM_EVENT_STAMP)
             .unwrap();
     }
@@ -305,7 +325,7 @@ fn a_store_from_before_the_item_events_gains_their_table_and_equals_a_fresh_sche
 fn the_land_run_stamp_is_the_schema_before_the_landings_record() {
     assert_eq!(
         db::stamp_of_text(&before_design_place_naming(before_landing_repo(
-            db::schema_before_land_run()
+            with_review_section_words(db::schema_before_land_run())
         ))),
         BEFORE_LAND_RUN_STAMP
     );
@@ -322,8 +342,10 @@ fn a_store_from_before_the_landings_record_gains_their_tables_and_equals_a_fresh
     let path = dir.join(DATABASE);
     {
         let conn = Connection::open(&path).unwrap();
-        conn.execute_batch(&before_landing_repo(db::schema_before_land_run()))
-            .unwrap();
+        conn.execute_batch(&before_landing_repo(with_review_section_words(
+            db::schema_before_land_run(),
+        )))
+        .unwrap();
         conn.pragma_update(None, "user_version", BEFORE_LAND_RUN_STAMP)
             .unwrap();
     }
@@ -343,7 +365,7 @@ fn a_store_from_before_the_landings_record_gains_their_tables_and_equals_a_fresh
 fn the_exchange_time_stamp_is_the_schema_before_the_reviewer_processes_times() {
     assert_eq!(
         db::stamp_of_text(&before_design_place_naming(before_landing_repo(
-            db::schema_before_exchange_time()
+            with_review_section_words(db::schema_before_exchange_time())
         ))),
         BEFORE_EXCHANGE_TIME_STAMP
     );
@@ -360,8 +382,10 @@ fn a_store_from_before_the_exchange_times_gains_their_table_and_equals_a_fresh_s
     let path = dir.join(DATABASE);
     {
         let conn = Connection::open(&path).unwrap();
-        conn.execute_batch(&before_landing_repo(db::schema_before_exchange_time()))
-            .unwrap();
+        conn.execute_batch(&before_landing_repo(with_review_section_words(
+            db::schema_before_exchange_time(),
+        )))
+        .unwrap();
         conn.pragma_update(None, "user_version", BEFORE_EXCHANGE_TIME_STAMP)
             .unwrap();
     }
@@ -383,7 +407,7 @@ fn a_store_from_before_the_exchange_times_gains_their_table_and_equals_a_fresh_s
 fn the_host_sample_stamp_is_the_schema_before_the_hosts_samples() {
     assert_eq!(
         db::stamp_of_text(&before_design_place_naming(before_landing_repo(
-            db::schema_before_host_sample()
+            with_review_section_words(db::schema_before_host_sample())
         ))),
         BEFORE_HOST_SAMPLE_STAMP
     );
@@ -400,8 +424,10 @@ fn a_store_from_before_the_host_samples_gains_their_table_and_equals_a_fresh_sch
     let path = dir.join(DATABASE);
     {
         let conn = Connection::open(&path).unwrap();
-        conn.execute_batch(&before_landing_repo(db::schema_before_host_sample()))
-            .unwrap();
+        conn.execute_batch(&before_landing_repo(with_review_section_words(
+            db::schema_before_host_sample(),
+        )))
+        .unwrap();
         conn.pragma_update(None, "user_version", BEFORE_HOST_SAMPLE_STAMP)
             .unwrap();
     }
@@ -421,7 +447,7 @@ fn a_store_from_before_the_host_samples_gains_their_table_and_equals_a_fresh_sch
 fn the_cargo_run_crate_stamp_is_the_schema_before_the_cargo_runs_crates() {
     assert_eq!(
         db::stamp_of_text(&before_design_place_naming(before_landing_repo(
-            db::schema_before_cargo_run_crate()
+            with_review_section_words(db::schema_before_cargo_run_crate())
         ))),
         BEFORE_CARGO_RUN_CRATE_STAMP
     );
@@ -438,8 +464,10 @@ fn a_store_from_before_the_cargo_run_crates_gains_their_table_and_equals_a_fresh
     let path = dir.join(DATABASE);
     {
         let conn = Connection::open(&path).unwrap();
-        conn.execute_batch(&before_landing_repo(db::schema_before_cargo_run_crate()))
-            .unwrap();
+        conn.execute_batch(&before_landing_repo(with_review_section_words(
+            db::schema_before_cargo_run_crate(),
+        )))
+        .unwrap();
         conn.pragma_update(None, "user_version", BEFORE_CARGO_RUN_CRATE_STAMP)
             .unwrap();
     }
@@ -542,7 +570,7 @@ fn a_store_from_before_condition_enders_gives_each_condition_the_coordinator() {
 fn the_judge_stamp_is_the_schema_before_the_judge() {
     assert_eq!(
         db::stamp_of_text(&before_design_place_naming(before_landing_repo(
-            db::schema_before_judge()
+            with_review_section_words(db::schema_before_judge())
         ))),
         BEFORE_JUDGE_STAMP
     );
@@ -559,8 +587,10 @@ fn a_store_from_before_the_judge_gains_its_table_and_equals_a_fresh_schema() {
     let path = dir.join(DATABASE);
     {
         let conn = Connection::open(&path).unwrap();
-        conn.execute_batch(&before_landing_repo(db::schema_before_judge()))
-            .unwrap();
+        conn.execute_batch(&before_landing_repo(with_review_section_words(
+            db::schema_before_judge(),
+        )))
+        .unwrap();
         conn.pragma_update(None, "user_version", BEFORE_JUDGE_STAMP)
             .unwrap();
     }
@@ -580,7 +610,7 @@ fn a_store_from_before_the_judge_gains_its_table_and_equals_a_fresh_schema() {
 fn the_landing_repo_stamp_is_the_schema_before_landings_were_found_by_repo() {
     assert_eq!(
         db::stamp_of_text(&before_design_place_naming(before_landing_repo(
-            db::schema_before_card_state()
+            with_review_section_words(db::schema_before_card_state())
         ))),
         BEFORE_LANDING_REPO_STAMP
     );
@@ -597,8 +627,10 @@ fn store_before_landing_repo(places: &Places, landings: &[&str]) -> std::path::P
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join(DATABASE);
     let conn = Connection::open(&path).unwrap();
-    conn.execute_batch(&before_landing_repo(db::schema_before_card_state()))
-        .unwrap();
+    conn.execute_batch(&before_landing_repo(with_review_section_words(
+        db::schema_before_card_state(),
+    )))
+    .unwrap();
     crate::lists::project::init(
         &conn,
         &crate::lists::project::NewProject {
@@ -669,7 +701,7 @@ fn a_store_with_two_open_landings_of_one_change_is_left_as_it_was() {
 fn the_card_states_stamp_is_the_schema_before_them() {
     assert_eq!(
         db::stamp_of_text(&before_design_place_naming(before_review_text_rowid(
-            db::schema_before_card_state()
+            with_review_section_words(db::schema_before_card_state())
         ))),
         BEFORE_CARD_STATE_STAMP
     );
@@ -686,8 +718,10 @@ fn a_store_from_before_the_card_states_gains_their_tables_and_equals_a_fresh_sch
     let path = dir.join(DATABASE);
     {
         let conn = Connection::open(&path).unwrap();
-        conn.execute_batch(&before_review_text_rowid(db::schema_before_card_state()))
-            .unwrap();
+        conn.execute_batch(&before_review_text_rowid(with_review_section_words(
+            db::schema_before_card_state(),
+        )))
+        .unwrap();
         conn.pragma_update(None, "user_version", BEFORE_CARD_STATE_STAMP)
             .unwrap();
     }
@@ -703,7 +737,7 @@ fn a_store_from_before_the_card_states_gains_their_tables_and_equals_a_fresh_sch
 fn the_cargo_run_outcomes_stamp_is_the_schema_before_them() {
     assert_eq!(
         db::stamp_of_text(&before_design_place_naming(before_review_text_rowid(
-            db::schema_before_cargo_run_outcome()
+            with_review_section_words(db::schema_before_cargo_run_outcome())
         ))),
         BEFORE_CARGO_RUN_OUTCOME_STAMP
     );
@@ -720,9 +754,9 @@ fn a_store_from_before_the_cargo_run_outcomes_gains_their_tables_and_equals_a_fr
     let path = dir.join(DATABASE);
     {
         let conn = Connection::open(&path).unwrap();
-        conn.execute_batch(&before_review_text_rowid(
+        conn.execute_batch(&before_review_text_rowid(with_review_section_words(
             db::schema_before_cargo_run_outcome(),
-        ))
+        )))
         .unwrap();
         conn.pragma_update(None, "user_version", BEFORE_CARGO_RUN_OUTCOME_STAMP)
             .unwrap();
@@ -739,7 +773,7 @@ fn a_store_from_before_the_cargo_run_outcomes_gains_their_tables_and_equals_a_fr
 fn the_step_commits_stamp_is_the_schema_before_them() {
     assert_eq!(
         db::stamp_of_text(&before_design_place_naming(before_review_text_rowid(
-            db::schema_before_step_commits()
+            with_review_section_words(db::schema_before_step_commits())
         ))),
         BEFORE_STEP_COMMITS_STAMP
     );
@@ -756,8 +790,10 @@ fn a_store_from_before_the_step_commits_gains_their_tables_and_equals_a_fresh_sc
     let path = dir.join(DATABASE);
     {
         let conn = Connection::open(&path).unwrap();
-        conn.execute_batch(&before_review_text_rowid(db::schema_before_step_commits()))
-            .unwrap();
+        conn.execute_batch(&before_review_text_rowid(with_review_section_words(
+            db::schema_before_step_commits(),
+        )))
+        .unwrap();
         conn.pragma_update(None, "user_version", BEFORE_STEP_COMMITS_STAMP)
             .unwrap();
     }
@@ -773,7 +809,7 @@ fn a_store_from_before_the_step_commits_gains_their_tables_and_equals_a_fresh_sc
 fn the_review_text_stamp_is_the_schema_before_the_texts_had_row_ids() {
     assert_eq!(
         db::stamp_of_text(&before_design_place_naming(before_review_text_rowid(
-            db::schema_before_hook_check_failure()
+            with_review_section_words(db::schema_before_hook_check_failure())
         ))),
         BEFORE_REVIEW_TEXT_ROWID_STAMP
     );
@@ -782,9 +818,9 @@ fn the_review_text_stamp_is_the_schema_before_the_texts_had_row_ids() {
 #[test]
 fn the_hook_check_failures_stamp_is_the_schema_before_them() {
     assert_eq!(
-        db::stamp_of_text(&before_design_place_naming(
+        db::stamp_of_text(&before_design_place_naming(with_review_section_words(
             db::schema_before_hook_check_failure()
-        )),
+        ))),
         BEFORE_HOOK_CHECK_FAILURE_STAMP
     );
 }
@@ -800,8 +836,10 @@ fn a_store_from_before_the_hook_check_failures_gains_their_tables_and_equals_a_f
     let path = dir.join(DATABASE);
     {
         let conn = Connection::open(&path).unwrap();
-        conn.execute_batch(&db::schema_before_hook_check_failure())
-            .unwrap();
+        conn.execute_batch(&with_review_section_words(
+            db::schema_before_hook_check_failure(),
+        ))
+        .unwrap();
         conn.pragma_update(None, "user_version", BEFORE_HOOK_CHECK_FAILURE_STAMP)
             .unwrap();
     }
@@ -816,9 +854,9 @@ fn a_store_from_before_the_hook_check_failures_gains_their_tables_and_equals_a_f
 #[test]
 fn the_app_build_step_failures_stamp_is_the_schema_before_them() {
     assert_eq!(
-        db::stamp_of_text(&before_design_place_naming(
+        db::stamp_of_text(&before_design_place_naming(with_review_section_words(
             db::schema_before_app_build_step_failure()
-        )),
+        ))),
         BEFORE_APP_BUILD_STEP_FAILURE_STAMP
     );
 }
@@ -834,8 +872,10 @@ fn a_store_from_before_the_app_build_step_failures_gains_their_tables_and_equals
     let path = dir.join(DATABASE);
     {
         let conn = Connection::open(&path).unwrap();
-        conn.execute_batch(&db::schema_before_app_build_step_failure())
-            .unwrap();
+        conn.execute_batch(&with_review_section_words(
+            db::schema_before_app_build_step_failure(),
+        ))
+        .unwrap();
         conn.pragma_update(None, "user_version", BEFORE_APP_BUILD_STEP_FAILURE_STAMP)
             .unwrap();
     }
@@ -850,7 +890,9 @@ fn a_store_from_before_the_app_build_step_failures_gains_their_tables_and_equals
 #[test]
 fn the_judge_told_stamp_is_the_schema_before_it() {
     assert_eq!(
-        db::stamp_of_text(&before_design_place_naming(db::schema_before_judge_told())),
+        db::stamp_of_text(&before_design_place_naming(with_review_section_words(
+            db::schema_before_judge_told()
+        ))),
         BEFORE_JUDGE_TOLD_STAMP
     );
 }
@@ -866,7 +908,8 @@ fn a_store_from_before_the_judge_told_table_gains_it_and_equals_a_fresh_schema()
     let path = dir.join(DATABASE);
     {
         let conn = Connection::open(&path).unwrap();
-        conn.execute_batch(&db::schema_before_judge_told()).unwrap();
+        conn.execute_batch(&with_review_section_words(db::schema_before_judge_told()))
+            .unwrap();
         conn.pragma_update(None, "user_version", BEFORE_JUDGE_TOLD_STAMP)
             .unwrap();
     }
@@ -881,9 +924,9 @@ fn a_store_from_before_the_judge_told_table_gains_it_and_equals_a_fresh_schema()
 #[test]
 fn the_design_circle_box_stamp_is_the_schema_before_it() {
     assert_eq!(
-        db::stamp_of_text(&before_design_place_naming(
+        db::stamp_of_text(&before_design_place_naming(with_review_section_words(
             db::schema_before_design_circle_box()
-        )),
+        ))),
         BEFORE_DESIGN_CIRCLE_BOX_STAMP
     );
 }
@@ -899,8 +942,10 @@ fn a_store_from_before_the_design_circle_box_table_gains_it_and_equals_a_fresh_s
     let path = dir.join(DATABASE);
     {
         let conn = Connection::open(&path).unwrap();
-        conn.execute_batch(&db::schema_before_design_circle_box())
-            .unwrap();
+        conn.execute_batch(&with_review_section_words(
+            db::schema_before_design_circle_box(),
+        ))
+        .unwrap();
         conn.pragma_update(None, "user_version", BEFORE_DESIGN_CIRCLE_BOX_STAMP)
             .unwrap();
     }
@@ -915,9 +960,9 @@ fn a_store_from_before_the_design_circle_box_table_gains_it_and_equals_a_fresh_s
 #[test]
 fn the_design_place_naming_stamp_is_the_schema_before_it() {
     assert_eq!(
-        db::stamp_of_text(&before_design_place_naming(
+        db::stamp_of_text(&before_design_place_naming(with_review_section_words(
             db::schema_before_design_variants()
-        )),
+        ))),
         BEFORE_DESIGN_PLACE_NAMING_STAMP
     );
 }
@@ -934,9 +979,9 @@ fn a_store_from_before_design_places_named_no_app_work_keeps_its_places_and_equa
     let path = dir.join(DATABASE);
     {
         let conn = Connection::open(&path).unwrap();
-        conn.execute_batch(&before_design_place_naming(
+        conn.execute_batch(&before_design_place_naming(with_review_section_words(
             db::schema_before_design_variants(),
-        ))
+        )))
         .unwrap();
         conn.pragma_update(None, "user_version", BEFORE_DESIGN_PLACE_NAMING_STAMP)
             .unwrap();
@@ -952,7 +997,9 @@ fn a_store_from_before_design_places_named_no_app_work_keeps_its_places_and_equa
 #[test]
 fn the_design_variants_stamp_is_the_schema_before_it() {
     assert_eq!(
-        db::stamp_of_text(&db::schema_before_design_variants()),
+        db::stamp_of_text(&with_review_section_words(
+            db::schema_before_design_variants()
+        )),
         BEFORE_DESIGN_VARIANTS_STAMP
     );
 }
@@ -968,8 +1015,10 @@ fn a_store_from_before_the_design_variants_tables_gains_them_and_equals_a_fresh_
     let path = dir.join(DATABASE);
     {
         let conn = Connection::open(&path).unwrap();
-        conn.execute_batch(&db::schema_before_design_variants())
-            .unwrap();
+        conn.execute_batch(&with_review_section_words(
+            db::schema_before_design_variants(),
+        ))
+        .unwrap();
         conn.pragma_update(None, "user_version", BEFORE_DESIGN_VARIANTS_STAMP)
             .unwrap();
     }
@@ -984,7 +1033,7 @@ fn a_store_from_before_the_design_variants_tables_gains_them_and_equals_a_fresh_
 #[test]
 fn the_over_cap_stamp_is_the_schema_before_it() {
     assert_eq!(
-        db::stamp_of_text(&db::schema_before_over_cap()),
+        db::stamp_of_text(&with_review_section_words(db::schema_before_over_cap())),
         BEFORE_OVER_CAP_STAMP
     );
 }
@@ -1000,7 +1049,8 @@ fn a_store_from_before_the_over_cap_table_gains_it_and_equals_a_fresh_schema() {
     let path = dir.join(DATABASE);
     {
         let conn = Connection::open(&path).unwrap();
-        conn.execute_batch(&db::schema_before_over_cap()).unwrap();
+        conn.execute_batch(&with_review_section_words(db::schema_before_over_cap()))
+            .unwrap();
         conn.pragma_update(None, "user_version", BEFORE_OVER_CAP_STAMP)
             .unwrap();
     }
@@ -1010,4 +1060,83 @@ fn a_store_from_before_the_over_cap_table_gains_it_and_equals_a_fresh_schema() {
         db::schema_rows(&conn).unwrap(),
         db::schema_rows(&db::memory()).unwrap()
     );
+}
+
+#[test]
+fn the_review_section_heading_only_stamp_is_the_schema_before_it() {
+    assert_eq!(
+        db::stamp_of_text(&with_review_section_words(db::schema())),
+        BEFORE_REVIEW_SECTION_HEADING_ONLY_STAMP
+    );
+}
+
+/// A store from before the review section kept only its heading drops the
+/// words, keeps each change's heading and equals a fresh schema.
+#[test]
+fn a_store_from_before_the_review_section_kept_only_its_heading_keeps_each_heading() {
+    let scratch = Scratch::new("move-review-section-heading");
+    let places = scratch.places();
+    let dir = places.lists.join("bae");
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join(DATABASE);
+    {
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(&with_review_section_words(db::schema()))
+            .unwrap();
+        conn.pragma_update(
+            None,
+            "user_version",
+            BEFORE_REVIEW_SECTION_HEADING_ONLY_STAMP,
+        )
+        .unwrap();
+        use crate::lists::fixtures::v;
+        crate::lists::project::plant(&conn, "repo", &[("name", v("bae"))]).unwrap();
+        crate::lists::record::plant(
+            &conn,
+            "record",
+            &[
+                ("id", v(1)),
+                ("kind", v("design")),
+                ("opened_at", v(5)),
+                ("opened_by", v("tester")),
+            ],
+        )
+        .unwrap();
+        crate::lists::design::plant(
+            &conn,
+            "design",
+            &[
+                ("id", v(1)),
+                ("title", v("People rows")),
+                ("details", v("d")),
+                ("repo", v("bae")),
+                ("worktree", v("/w")),
+            ],
+        )
+        .unwrap();
+        crate::lists::design::plant(
+            &conn,
+            "review_section",
+            &[
+                ("design_id", v(1)),
+                ("heading", v("Rows")),
+                ("words", v("The rows")),
+            ],
+        )
+        .unwrap();
+    }
+    migrate_stores(&places, 0).unwrap();
+    let conn = db::open(&path, db::Make::Never).unwrap();
+    assert_eq!(
+        db::schema_rows(&conn).unwrap(),
+        db::schema_rows(&db::memory()).unwrap()
+    );
+    let headings: Vec<(i64, String)> = conn
+        .prepare("SELECT design_id, heading FROM review_section")
+        .unwrap()
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+        .unwrap()
+        .collect::<std::result::Result<_, _>>()
+        .unwrap();
+    assert_eq!(headings, [(1, "Rows".to_string())]);
 }

@@ -1858,6 +1858,25 @@ pub fn allow_places_with_no_app_work(db: &Connection) -> Result<()> {
     )
 }
 
+/// Makes `review_section` again as design.sql writes it, with only each
+/// change's heading: a store from before kept the review page's words too,
+/// which no page shows.
+pub fn drop_review_section_words(db: &Connection) -> Result<()> {
+    let schema = include_str!("design.sql");
+    crate::db::remake_table(
+        db,
+        "review_section",
+        crate::db::statement(schema, "CREATE TABLE review_section", ";"),
+        |db| {
+            db.execute_batch(
+                "INSERT INTO review_section (design_id, heading) SELECT design_id, heading FROM review_section_old",
+            )
+            .sql()
+        },
+        &[],
+    )
+}
+
 /// The tables design.rs owns.
 #[cfg(test)]
 const TABLES: [&str; 12] = [

@@ -208,9 +208,12 @@ const BEFORE_DESIGN_VARIANTS_STAMP: i64 = 66_978_370;
 /// The stamp of the schema before the branches over the review's cap.
 const BEFORE_OVER_CAP_STAMP: i64 = 1_558_212_582;
 
+/// The stamp of the schema before the review section kept only its heading.
+const BEFORE_REVIEW_SECTION_HEADING_ONLY_STAMP: i64 = 2_044_746_774;
+
 /// Every stamp a store can carry that `move_store` moves, oldest schema first.
 /// A new move adds the stamp of the schema before it at the end.
-const STAMPS: [i64; 19] = [
+const STAMPS: [i64; 20] = [
     BEFORE_CONDITION_ENDERS_STAMP,
     BEFORE_ITEM_EVENT_STAMP,
     BEFORE_LAND_RUN_STAMP,
@@ -230,6 +233,7 @@ const STAMPS: [i64; 19] = [
     BEFORE_DESIGN_PLACE_NAMING_STAMP,
     BEFORE_DESIGN_VARIANTS_STAMP,
     BEFORE_OVER_CAP_STAMP,
+    BEFORE_REVIEW_SECTION_HEADING_ONLY_STAMP,
 ];
 
 /// Whether a store stamped <found> comes before the move that follows the
@@ -419,6 +423,11 @@ fn move_store(path: &Path, now: i64) -> Result<()> {
     // empty table: no branch has been over it yet.
     if before(found, BEFORE_OVER_CAP_STAMP) {
         tx.execute_batch(db::OVER_CAP_PART).sql()?;
+    }
+    // Every store from before the review section kept only its heading gets
+    // the table again without the words; each change keeps its heading.
+    if before(found, BEFORE_REVIEW_SECTION_HEADING_ONLY_STAMP) {
+        crate::lists::design::drop_review_section_words(&tx)?;
     }
     tx.pragma_update(None, "user_version", db::stamp()).sql()?;
     let broken: Option<String> = tx

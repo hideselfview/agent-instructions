@@ -185,6 +185,9 @@ pub fn schema() -> String {
 }
 
 /// The schema as it was before the branches over the review's cap joined it.
+/// This and each older schema below hold today's text of the review section:
+/// before the section kept only its heading, each kept the review page's
+/// words too, which migrate.rs's tests put back.
 pub fn schema_before_over_cap() -> String {
     format!(
         "{}\n{DESIGN_VARIANTS_PART}",
