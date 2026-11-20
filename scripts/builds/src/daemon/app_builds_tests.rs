@@ -392,6 +392,26 @@ fn the_lanes_real_queue_and_command_lines_name_each_waiting_branch() {
         "side-1\nside-14\n",
     )
     .unwrap();
+    // The first two tickets are the builds that hold the two locks.
+    let locks = scratch.dir.join(Lane::Mac.locks_dir_name());
+    std::fs::create_dir_all(&locks).unwrap();
+    let _held: Vec<_> = [("side-1", 31898), ("side-14", 59768)]
+        .into_iter()
+        .map(|(checkout, pid)| {
+            let lock = crate::queue::try_lock(&locks.join(checkout))
+                .unwrap()
+                .unwrap();
+            crate::holder_run::HolderRun {
+                pid,
+                joined_at: 0,
+                waited_ms: 0,
+                step: None,
+            }
+            .write(&crate::places::run_file_in(&locks, checkout))
+            .unwrap();
+            lock
+        })
+        .collect();
     let line = |branch: &str, tail: &str| {
         format!("/Users/dima/.local/bin/builds app-build bae --lane mac {branch} {tail}")
     };
@@ -418,7 +438,9 @@ fn the_lanes_real_queue_and_command_lines_name_each_waiting_branch() {
             ),
         ),
     ];
-    let waiting = Queue::in_repo_dir(&scratch.dir, Lane::Mac).waiting();
+    let waiting = Queue::in_repo_dir(&scratch.dir, Lane::Mac)
+        .waiting()
+        .unwrap();
     assert_eq!(waiting, vec![26684, 29988, 10239]);
     let queue: Vec<Queued> = waiting
         .iter()

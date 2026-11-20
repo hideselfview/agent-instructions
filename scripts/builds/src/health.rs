@@ -569,12 +569,21 @@ pub fn sample(
         if queues.iter().any(|q| q.repo == *repo && q.lane == *lane) {
             continue;
         }
-        // `Queue::waiting` is those after the lane's holders.
-        let in_line = path
-            .parent()
-            .and_then(|locks_dir| locks_dir.parent())
-            .map(|repo_dir| crate::queue::Queue::in_repo_dir(repo_dir, *lane).waiting())
-            .unwrap_or_default();
+        // `Queue::waiting` is the tickets whose builds hold no lock.
+        let in_line = match path.parent().and_then(|locks_dir| locks_dir.parent()) {
+            Some(repo_dir) => match crate::queue::Queue::in_repo_dir(repo_dir, *lane).waiting() {
+                Ok(in_line) => in_line,
+                Err(error) => {
+                    unread.push(format!(
+                        "{}, so health cannot tell who waits in {repo}'s {} lane",
+                        error.text(),
+                        lane.word()
+                    ));
+                    Vec::new()
+                }
+            },
+            None => Vec::new(),
+        };
         let mut queue = Vec::new();
         for process in in_line.into_iter().filter_map(|pid| {
             processes

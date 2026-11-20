@@ -38,11 +38,6 @@ fn a_ticket_names_its_process_and_counts_its_own() {
     assert_eq!(ahead, 1);
     assert_eq!(queue.order(), vec![first.name.clone(), second.name.clone()]);
     assert_eq!(pid_of(&first.name), Some(std::process::id() as i32));
-    assert_eq!(
-        queue.waiting(),
-        vec![std::process::id() as i32],
-        "the head is the holder, not waiting"
-    );
     close(&first);
     close(&second);
 }
@@ -80,6 +75,7 @@ fn a_waiter_moves_to_right_behind_the_holder() {
     ] {
         plant_dead(&queue, name);
     }
+    let _held = hold(&queue, "side-1", 10);
     queue.move_to_top(40).unwrap();
     assert_eq!(
         queue.order(),
@@ -90,10 +86,7 @@ fn a_waiter_moves_to_right_behind_the_holder() {
             "30-1-anywhere"
         ]
     );
-    assert!(
-        queue.move_to_top(10).is_err(),
-        "the holder is already first"
-    );
+    assert!(queue.move_to_top(10).is_err(), "the holder holds a lock");
     assert!(queue.move_to_top(99).is_err(), "no such waiter");
 }
 
@@ -181,14 +174,26 @@ fn a_queue_has_a_slot_for_each_app_checkout_and_at_least_one() {
     assert_eq!(queue.slots(), 1);
     set_slots(&queue, 3);
     assert_eq!(queue.slots(), 3);
-    let tickets: Vec<_> = (0..5)
-        .map(|_| queue.join(Where::Anywhere).unwrap().0)
+}
+
+#[test]
+fn the_waiting_are_the_tickets_whose_builds_hold_no_lock_wherever_they_stand() {
+    let scratch = Scratch::new("queue-waiting");
+    let queue = queue_with(&scratch, &["side-1", "side-2", "side-3"]);
+    let tickets: Vec<Ticket> = [10, 20, 30, 40, 50]
+        .into_iter()
+        .map(|pid| plant_live(&queue, pid, Where::Anywhere))
         .collect();
-    assert_eq!(
-        queue.waiting().len(),
-        2,
-        "the first three hold or may take a lock"
-    );
+    // The builds of the first, the third and the fifth ticket hold locks.
+    let held = [
+        hold(&queue, "side-1", 10),
+        hold(&queue, "side-2", 30),
+        hold(&queue, "side-3", 50),
+    ];
+    assert_eq!(queue.waiting().unwrap(), vec![20, 40]);
+    for fd in held {
+        unsafe { libc::close(fd) };
+    }
     for ticket in &tickets {
         close(ticket);
     }
@@ -239,12 +244,7 @@ fn a_waiter_moves_to_right_behind_the_holders() {
         plant_dead(&queue, name);
     }
     // Both locks are held.
-    let locks = [queue.lock_path("side-1"), queue.lock_path("side-2")];
-    std::fs::create_dir_all(locks[0].parent().unwrap()).unwrap();
-    let held: Vec<_> = locks
-        .iter()
-        .map(|lock| open_with(lock, libc::O_CREAT | libc::O_CLOEXEC).unwrap())
-        .collect();
+    let held = [hold(&queue, "side-1", 10), hold(&queue, "side-2", 20)];
     queue.move_to_top(40).unwrap();
     assert_eq!(
         queue.order(),
@@ -255,10 +255,7 @@ fn a_waiter_moves_to_right_behind_the_holders() {
             "30-1-anywhere"
         ]
     );
-    assert!(
-        queue.move_to_top(20).is_err(),
-        "a holder is already among the first"
-    );
+    assert!(queue.move_to_top(20).is_err(), "a holder holds a lock");
     for fd in held {
         unsafe { libc::close(fd) };
     }
@@ -278,9 +275,7 @@ fn with_a_lock_free_a_waiter_moves_in_behind_the_builds_that_hold_one() {
         plant_dead(&queue, name);
     }
     // One lock held: the waiter goes second, where it may take the free one.
-    let lock = queue.lock_path("side-1");
-    std::fs::create_dir_all(lock.parent().unwrap()).unwrap();
-    let held = open_with(&lock, libc::O_CREAT | libc::O_CLOEXEC).unwrap();
+    let held = hold(&queue, "side-1", 10);
     queue.move_to_top(40).unwrap();
     assert_eq!(
         queue.order(),
@@ -325,7 +320,7 @@ fn hold(queue: &Queue, checkout: &str, pid: i32) -> libc::c_int {
         waited_ms: 0,
         step: None,
     }
-    .write(&queue.locks_dir.join(format!("{checkout}.run")))
+    .write(&crate::places::run_file_in(&queue.locks_dir, checkout))
     .unwrap();
     lock
 }

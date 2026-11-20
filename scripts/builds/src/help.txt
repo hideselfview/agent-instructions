@@ -128,9 +128,10 @@ on it:
                         and when the last build there let the lock go
                         (side-N.ended)
   <repo>/app.queue/     the builds waiting for the lane's locks: `order` holds
-                        one ticket per line, next first, with the holders'
-                        tickets at the head (one per app checkout), and each
-                        waiting process holds a ticket file
+                        one ticket per line, next first, the holders' tickets
+                        among them, and each process in line holds a ticket
+                        file named <pid>-<n>-here|hosts|anywhere, for where
+                        its build may run
   <repo>/app-android-checkouts, app-android-checkouts-removed,
   app-android.locks/, app-android.queue/
                         the same for the android lane

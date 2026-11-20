@@ -146,6 +146,14 @@ pub fn allowed_of(ticket: &str) -> Result<Where> {
     }
 }
 
+/// What the lane's locks say: its checkouts, those no build holds, and the
+/// processes of the builds that hold the others.
+struct Locks {
+    entries: Vec<String>,
+    free: Vec<String>,
+    holders: Vec<i32>,
+}
+
 /// One ticket of this process: held locked until its descriptor closes.
 pub struct Ticket {
     pub name: String,
@@ -201,18 +209,52 @@ impl Queue {
         self.locks_dir.join(checkout)
     }
 
-    /// Where a waiter moved to the top goes: right behind the builds that
-    /// hold a lock (at least the first, at most `slots`), so with a lock free
-    /// it is among those that may take it.
-    fn behind_holders(&self) -> Result<usize> {
-        let text = std::fs::read_to_string(&self.checkouts_file).unwrap_or_default();
-        let mut held = 0;
-        for checkout in crate::lane::parse_set(&text)? {
-            if is_held(&self.lock_path(&checkout.entry))? {
-                held += 1;
+    /// The names of the lane's app checkouts, in the order recorded; none
+    /// when the lane has no set yet.
+    fn entries(&self) -> Result<Vec<String>> {
+        let text = match std::fs::read_to_string(&self.checkouts_file) {
+            Ok(text) => text,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
+            Err(error) => fail!("reading {}: {error}", self.checkouts_file.display()),
+        };
+        Ok(crate::lane::parse_set(&text)?
+            .into_iter()
+            .map(|checkout| checkout.entry)
+            .collect())
+    }
+
+    /// The lane's app checkouts that no build holds, and the pid in the
+    /// record beside each lock a build holds: the processes whose tickets
+    /// have taken a checkout already.
+    fn locks(&self) -> Result<Locks> {
+        let entries = self.entries()?;
+        let (mut free, mut holders) = (Vec::new(), Vec::new());
+        for entry in &entries {
+            if is_held(&self.lock_path(entry))? {
+                let record = crate::places::run_file_in(&self.locks_dir, entry);
+                if let Some(run) = crate::holder_run::HolderRun::read(&record)? {
+                    holders.push(run.pid);
+                }
+            } else {
+                free.push(entry.clone());
             }
         }
-        Ok(held.clamp(1, self.slots()))
+        Ok(Locks {
+            entries,
+            free,
+            holders,
+        })
+    }
+
+    /// Where a waiter moved to the top goes: in front of the first ticket
+    /// of <order> whose build holds no lock, so with a lock free it is the
+    /// first that may take it.
+    fn first_waiter(&self, order: &[String]) -> Result<usize> {
+        let holders = self.locks()?.holders;
+        Ok(order
+            .iter()
+            .position(|name| !pid_of(name).is_some_and(|pid| holders.contains(&pid)))
+            .unwrap_or(order.len()))
     }
 
     /// How many builds the lane holds locks for at once: its app checkouts,
@@ -245,14 +287,15 @@ impl Queue {
         crate::whole_file::write(&self.dir.join("order"), text)
     }
 
-    /// The pid of each ticket in line after the holders' (the first `slots`),
-    /// next first.
-    pub fn waiting(&self) -> Vec<i32> {
-        self.order()
+    /// The pid of each ticket in line whose build holds no lock, next first.
+    pub fn waiting(&self) -> Result<Vec<i32>> {
+        let holders = self.locks()?.holders;
+        Ok(self
+            .order()
             .iter()
-            .skip(self.slots())
             .filter_map(|name| pid_of(name))
-            .collect()
+            .filter(|pid| !holders.contains(pid))
+            .collect())
     }
 
     /// Makes this process's next ticket, locked, and puts it last in line;
@@ -321,29 +364,20 @@ impl Queue {
     /// take any checkout are counted as taking the ones <mine> needs.
     fn may_go(&self, mine: &str, ahead: &[String]) -> Result<bool> {
         let allowed = allowed_of(mine)?;
-        let text = std::fs::read_to_string(&self.checkouts_file).unwrap_or_default();
-        let entries: Vec<String> = crate::lane::parse_set(&text)?
-            .into_iter()
-            .map(|checkout| checkout.entry)
-            .collect();
+        let Locks {
+            entries,
+            free,
+            holders,
+        } = self.locks()?;
         // With none <mine> may take, going on is what says so.
         if !entries.iter().any(|entry| allowed.allows(entry)) {
             return Ok(true);
         }
-        let (mut free_here, mut free_hosts) = (0usize, 0usize);
-        let mut holders: Vec<i32> = Vec::new();
-        for entry in &entries {
-            if is_held(&self.lock_path(entry))? {
-                let record = self.locks_dir.join(format!("{entry}.run"));
-                if let Some(run) = crate::holder_run::HolderRun::read(&record)? {
-                    holders.push(run.pid);
-                }
-            } else if crate::app_remote::split(entry).is_some() {
-                free_hosts += 1;
-            } else {
-                free_here += 1;
-            }
-        }
+        let free_hosts = free
+            .iter()
+            .filter(|entry| Where::Hosts.allows(entry))
+            .count();
+        let free_here = free.len() - free_hosts;
         let (mut here, mut hosts, mut anywhere) = (0usize, 0usize, 0usize);
         for name in ahead {
             if pid_of(name).is_some_and(|pid| holders.contains(&pid)) {
@@ -464,20 +498,21 @@ impl Queue {
         result
     }
 
-    /// Moves the ticket of <pid> to right behind the holders, which are the
-    /// first `slots`.
+    /// Moves the ticket of <pid> to right behind the builds that hold a
+    /// lock.
     fn move_to_top(&self, pid: i32) -> Result<()> {
         let _guard = self.guard()?;
-        let slots = self.slots();
+        let holders = self.locks()?.holders;
         let mut order = self.order();
         let Some(at) = order.iter().position(|name| pid_of(name) == Some(pid)) else {
             fail!("{pid} is not in the queue");
         };
-        if at < slots {
-            fail!("{pid} is among the first {slots} in the queue: it holds a lock or is about to");
+        if holders.contains(&pid) {
+            fail!("{pid} holds a lock");
         }
         let name = order.remove(at);
-        order.insert(self.behind_holders()?.min(order.len()), name);
+        let first = self.first_waiter(&order)?;
+        order.insert(first, name);
         self.write_order(&order)
     }
 }
@@ -581,11 +616,12 @@ pub fn takeover(places: &Places, repo: &str, pid: Option<i32>, lane: Option<Lane
     let queue = Queue::of(places, repo, lane);
     let holder = {
         let _guard = queue.guard()?;
-        let slots = queue.slots();
+        let holders = queue.locks()?.holders;
         let mut order = queue.order();
+        let holds = |name: &String| pid_of(name).is_some_and(|pid| holders.contains(&pid));
         let taker = match pid {
             Some(pid) => order.iter().position(|name| pid_of(name) == Some(pid)),
-            None => (order.len() > slots).then_some(slots),
+            None => order.iter().position(|name| !holds(name)),
         };
         let Some(taker) = taker else {
             match pid {
@@ -593,11 +629,8 @@ pub fn takeover(places: &Places, repo: &str, pid: Option<i32>, lane: Option<Lane
                 None => fail!("nobody waits in {repo}'s {} queue", lane.word()),
             }
         };
-        if taker < slots {
-            fail!(
-                "{} is among the first {slots} in the queue: it holds a lock or is about to",
-                pid.unwrap_or_default()
-            );
+        if holds(&order[taker]) {
+            fail!("{} holds a lock", pid.unwrap_or_default());
         }
         let mut holding = true;
         for checkout in places.app_checkouts_of(repo, lane)? {
@@ -605,13 +638,18 @@ pub fn takeover(places: &Places, repo: &str, pid: Option<i32>, lane: Option<Lane
         }
         let name = order.remove(taker);
         if !holding {
-            order.insert(queue.behind_holders()?.min(order.len()), name);
+            let first = queue.first_waiter(&order)?;
+            order.insert(first, name);
             queue.write_order(&order)?;
             None
         } else {
             // Every lock is held: the build that joined last of the holders
             // is the one stopped.
-            let holder = order[slots - 1].clone();
+            let Some(holder) = order.iter().rev().find(|name| holds(name)).cloned() else {
+                fail!(
+                    "every lock is held and no ticket in line is its holder's, so no build can be told to stop; kill its processes by pid"
+                );
+            };
             let processes = Processes::read()?;
             let Some(holder_pid) = pid_of(&holder).filter(|pid| is_builds(&processes, *pid)) else {
                 fail!(
@@ -679,11 +717,7 @@ pub fn cmd_queue(places: &Places, args: &[String]) -> Result<()> {
             for lane in lanes {
                 let queue = Queue::of(places, repo, lane);
                 let order = queue.order();
-                let first: Vec<i32> = order
-                    .iter()
-                    .take(queue.slots())
-                    .filter_map(|name| pid_of(name))
-                    .collect();
+                let first: Vec<i32> = order.iter().filter_map(|name| pid_of(name)).collect();
                 for recorded in places.app_checkouts_recorded(repo, lane)? {
                     let checkout = &recorded.entry;
                     let lock = places.app_lock_file(repo, lane, checkout);
@@ -722,7 +756,7 @@ pub fn cmd_queue(places: &Places, args: &[String]) -> Result<()> {
                         removed.why
                     );
                 }
-                let waiting = queue.waiting();
+                let waiting = queue.waiting()?;
                 if waiting.is_empty() {
                     println!("{}: nobody waits", lane.word());
                 }

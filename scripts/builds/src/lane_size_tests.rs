@@ -178,7 +178,7 @@ fn two_builds_that_wait_at_once_each_add_a_checkout_of_their_own() {
     assert_eq!(world.entries().len(), 3);
     let queue = Queue::of(&world.places, "demo", Lane::Android);
     assert!(
-        queue.waiting().is_empty(),
+        queue.order().len() <= queue.slots(),
         "the lane has a checkout for each build in line"
     );
 }
@@ -195,7 +195,7 @@ fn a_lane_at_its_cap_or_a_host_with_no_room_gets_no_checkout() {
         order,
     )
     .unwrap();
-    assert_eq!(queue.waiting().len(), 2);
+    assert_eq!(queue.order().len() - queue.slots(), 2);
     let grown = grow(world.at(Lane::Android), 0, Need::Waits, NOW).unwrap();
     assert_eq!(grown, None, "the lane has its cap");
     assert_eq!(world.entries().len(), LANE_CAP);

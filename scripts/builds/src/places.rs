@@ -58,6 +58,12 @@ pub fn is_trash_entry(name: &str) -> bool {
     name == ".trash" || name == ".trash.lock" || name.starts_with(EMPTYING_PREFIX)
 }
 
+/// The record of the build that holds <checkout>'s lock, in the lane's locks
+/// folder <locks_dir>.
+pub fn run_file_in(locks_dir: &std::path::Path, checkout: &str) -> PathBuf {
+    locks_dir.join(format!("{checkout}.run"))
+}
+
 #[derive(Clone, Debug)]
 pub struct Places {
     /// The build volume, `/Volumes/Builds` (BUILDS_ROOT).
@@ -230,8 +236,7 @@ impl Places {
     /// The record that the build holding <checkout>'s lock keeps of its run
     /// (holder_run.rs).
     pub fn app_lock_run_file(&self, repo: &str, lane: Lane, checkout: &str) -> PathBuf {
-        self.app_locks_dir(repo, lane)
-            .join(format!("{checkout}.run"))
+        run_file_in(&self.app_locks_dir(repo, lane), checkout)
     }
 
     /// When the last build that held <checkout>'s lock let it go, in seconds
