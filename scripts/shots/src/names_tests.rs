@@ -32,10 +32,13 @@ fn a_component_name_names_its_platforms_component_and_state() {
     preview(root.path(), "AndroidCastRow");
     preview(root.path(), "MacRow");
     let c = component_of("android.component.cast-row.long-name");
-    assert_eq!(c.component(root.path()).unwrap(), "AndroidCastRow");
+    assert_eq!(
+        c.component(&Previews::of(root.path()).unwrap()),
+        "AndroidCastRow"
+    );
     assert_eq!(c.state(), "long-name");
     let c = component_of("mac.component.row.nested-off");
-    assert_eq!(c.component(root.path()).unwrap(), "MacRow");
+    assert_eq!(c.component(&Previews::of(root.path()).unwrap()), "MacRow");
 }
 
 #[test]
@@ -47,7 +50,7 @@ fn a_shared_component_is_named_without_a_platform_on_both_platforms() {
         "android.component.status-chip.done",
     ] {
         assert_eq!(
-            component_of(text).component(root.path()).unwrap(),
+            component_of(text).component(&Previews::of(root.path()).unwrap()),
             "StatusChip"
         );
     }
@@ -69,15 +72,11 @@ fn a_platform_preview_wins_over_a_shared_one_of_the_same_thing() {
     preview(root.path(), "Row");
     preview(root.path(), "MacRow");
     assert_eq!(
-        component_of("mac.component.row.label")
-            .component(root.path())
-            .unwrap(),
+        component_of("mac.component.row.label").component(&Previews::of(root.path()).unwrap()),
         "MacRow"
     );
     assert_eq!(
-        component_of("android.component.row.label")
-            .component(root.path())
-            .unwrap(),
+        component_of("android.component.row.label").component(&Previews::of(root.path()).unwrap()),
         "Row"
     );
 }
@@ -87,8 +86,7 @@ fn a_component_with_no_preview_is_named_for_its_platform() {
     let root = tempfile::tempdir().unwrap();
     assert_eq!(
         component_of("android.component.nothing.default")
-            .component(root.path())
-            .unwrap(),
+            .component(&Previews::of(root.path()).unwrap()),
         "AndroidNothing"
     );
 }
@@ -135,14 +133,12 @@ fn a_component_shot_finds_a_component_whose_name_holds_an_acronym() {
     preview(root.path(), "MacS3KeyFields");
     assert_eq!(
         component_of("mac.component.qr-scanner.scanning")
-            .component(root.path())
-            .unwrap(),
+            .component(&Previews::of(root.path()).unwrap()),
         "MacQRScanner"
     );
     assert_eq!(
         component_of("mac.component.s3-key-fields.empty")
-            .component(root.path())
-            .unwrap(),
+            .component(&Previews::of(root.path()).unwrap()),
         "MacS3KeyFields"
     );
 }
@@ -215,4 +211,25 @@ fn a_prefix_selects_the_names_it_starts() {
     for text in ["mac", "ios.welcome.", "mac.Welcome", "mac.welcome "] {
         assert!(Prefix::parse(text).is_err(), "{text:?}");
     }
+}
+
+#[test]
+fn previews_hold_each_folder_with_a_preview_and_name_the_folders_that_are_no_component() {
+    let root = tempfile::tempdir().unwrap();
+    preview(root.path(), "MacRow");
+    preview(root.path(), "row");
+    preview(root.path(), "Bad-Name");
+    std::fs::create_dir_all(root.path().join("design/system/components/Empty")).unwrap();
+    std::fs::write(root.path().join("design/system/components/index.d.ts"), "").unwrap();
+    let previews = Previews::of(root.path()).unwrap();
+    let names: Vec<&str> = previews
+        .components
+        .iter()
+        .map(|(n, _)| n.as_str())
+        .collect();
+    assert_eq!(names, ["MacRow"]);
+    assert_eq!(previews.unnamed, ["Bad-Name", "row"]);
+    let none = tempfile::tempdir().unwrap();
+    let previews = Previews::of(none.path()).unwrap();
+    assert!(previews.components.is_empty() && previews.unnamed.is_empty());
 }

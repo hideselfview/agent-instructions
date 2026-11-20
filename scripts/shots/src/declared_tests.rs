@@ -282,3 +282,24 @@ fn a_component_capture_file_declares_its_shots_from_the_components_folder() {
         ["mac.component.row.label", "mac.component.row.nested-off"]
     );
 }
+
+#[test]
+fn a_shot_two_files_declare_fails_the_read_naming_both() {
+    let root = tempfile::tempdir().unwrap();
+    write(
+        root.path(),
+        &format!("{SWIFT_DIRECTORY}/ShotScenes.swift"),
+        r#"ShotScene(id: "mac.component.row.label") { }"#,
+    );
+    write(
+        root.path(),
+        &format!("{SWIFT_DIRECTORY}/Components/MacRow.swift"),
+        r#"ShotScene(id: "mac.component.row.label") { }
+           ShotScene(id: "mac.component.row.label") { }"#,
+    );
+    write(root.path(), &format!("{KOTLIN_DIRECTORY}/Shots.kt"), "");
+    let error = read(root.path(), &folders()).unwrap_err().to_string();
+    assert!(error.contains("mac.component.row.label"), "{error}");
+    assert!(error.contains("ShotScenes.swift"), "{error}");
+    assert!(error.contains("Components/MacRow.swift"), "{error}");
+}

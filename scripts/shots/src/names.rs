@@ -191,61 +191,31 @@ impl Prefix {
 }
 
 impl ComponentName {
-    /// The design-system component the shot draws, as a folder of the repo at
-    /// <root>: the folder with a preview whose key (`ComponentKey::of`) is
-    /// the shot's platform and thing, so `cast-row` on Android is
-    /// `AndroidCastRow` and `qr-scanner` on mac is `MacQRScanner`. A thing
-    /// with no preview under its platform but one with no platform, such as
-    /// `artwork` (`Artwork`), is a component both platforms share; the shot's
-    /// platform stays in its `@<platform>` file suffix. A thing with neither
-    /// preview names the platform's component, so a missing preview is
-    /// reported under that name.
-    pub(crate) fn component(&self, root: &std::path::Path) -> Result<String, String> {
-        let folder = root.join(boards::preview::COMPONENTS);
-        let mut names: Vec<String> = match std::fs::read_dir(&folder) {
-            Ok(entries) => entries
-                .map(|entry| {
-                    entry
-                        .map(|e| e.file_name().to_string_lossy().into_owned())
-                        .map_err(|e| format!("cannot list {}: {e}", folder.display()))
-                })
-                .collect::<Result<_, _>>()?,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
-            Err(e) => return Err(format!("cannot list {}: {e}", folder.display())),
+    /// The design-system component the shot draws, among <previews>: the one
+    /// whose key (`ComponentKey::of`) is the shot's platform and thing, so
+    /// `cast-row` on Android is `AndroidCastRow` and `qr-scanner` on mac is
+    /// `MacQRScanner`. A thing with no preview under its platform but one with
+    /// no platform, such as `artwork` (`Artwork`), is a component both
+    /// platforms share; the shot's platform stays in its `@<platform>` file
+    /// suffix. A thing with neither preview names the platform's component, so
+    /// a missing preview is reported under that name.
+    pub(crate) fn component(&self, previews: &Previews) -> String {
+        let find = |platform: Option<Platform>| {
+            previews
+                .components
+                .iter()
+                .find(|(_, key)| key.platform == platform && key.thing == self.thing)
+                .map(|(name, _)| name.clone())
         };
-        names.sort();
-        let has_preview = |name: &str| {
-            let path = root.join(boards::preview::preview_path(name));
-            match std::fs::metadata(&path) {
-                Ok(found) => Ok(found.is_file()),
-                Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(false),
-                Err(e) => Err(format!("cannot read {}: {e}", path.display())),
-            }
-        };
-        let find = |platform: Option<Platform>| -> Result<Option<String>, String> {
-            for name in &names {
-                let key = ComponentKey::of(name);
-                if key
-                    .as_ref()
-                    .is_some_and(|k| k.platform == platform && k.thing == self.thing)
-                    && has_preview(name)?
-                {
-                    return Ok(Some(name.clone()));
-                }
-            }
-            Ok(None)
-        };
-        if let Some(name) = find(Some(self.platform))? {
-            return Ok(name);
-        }
-        if let Some(name) = find(None)? {
-            return Ok(name);
-        }
-        Ok(format!(
-            "{}{}",
-            self.platform.component_prefix(),
-            pascal_case(&self.thing)
-        ))
+        find(Some(self.platform))
+            .or_else(|| find(None))
+            .unwrap_or_else(|| {
+                format!(
+                    "{}{}",
+                    self.platform.component_prefix(),
+                    pascal_case(&self.thing)
+                )
+            })
     }
 
     pub(crate) fn state(&self) -> &str {
@@ -298,6 +268,62 @@ impl ComponentKey {
             platform.word(),
             self.thing
         ))
+    }
+}
+
+/// The design-system components of a repo that have a preview: each folder
+/// of `boards::preview::COMPONENTS` that holds a `preview.html`. The folder's
+/// files, such as a types file, are no components.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub(crate) struct Previews {
+    /// The folders whose name is a component's name, by name, each with its
+    /// key.
+    pub(crate) components: Vec<(String, ComponentKey)>,
+    /// The folders whose name is no component's name, by name, which no shot
+    /// can draw.
+    pub(crate) unnamed: Vec<String>,
+}
+
+impl Previews {
+    /// The previews of the repo at <root>; none when it has no components
+    /// folder.
+    pub(crate) fn of(root: &std::path::Path) -> Result<Self, String> {
+        let folder = root.join(boards::preview::COMPONENTS);
+        let entries = match std::fs::read_dir(&folder) {
+            Ok(entries) => entries,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Self::default()),
+            Err(e) => return Err(format!("cannot list {}: {e}", folder.display())),
+        };
+        let mut previews = Self::default();
+        for entry in entries {
+            let entry = entry.map_err(|e| format!("cannot list {}: {e}", folder.display()))?;
+            let kind = entry
+                .file_type()
+                .map_err(|e| format!("cannot read {}: {e}", entry.path().display()))?;
+            if !kind.is_dir() {
+                continue;
+            }
+            let preview = entry.path().join("preview.html");
+            match std::fs::metadata(&preview) {
+                Ok(found) if found.is_file() => {}
+                Ok(_) => continue,
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
+                Err(e) => return Err(format!("cannot read {}: {e}", preview.display())),
+            }
+            let name = entry.file_name().into_string().map_err(|name| {
+                format!(
+                    "{}: the name {name:?} of a folder that holds a preview is not UTF-8",
+                    folder.display()
+                )
+            })?;
+            match ComponentKey::of(&name) {
+                Some(key) => previews.components.push((name, key)),
+                None => previews.unnamed.push(name),
+            }
+        }
+        previews.components.sort_by(|a, b| a.0.cmp(&b.0));
+        previews.unnamed.sort();
+        Ok(previews)
     }
 }
 

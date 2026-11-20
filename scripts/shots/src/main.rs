@@ -312,7 +312,14 @@ fn run(action: Action) -> Result<bool, String> {
             let record =
                 record::Record::load(&root.join(record::FILE)).map_err(|e| e.to_string())?;
             let declared = read_declared()?;
-            let problems = lint::problems(&root, &settings.preview_calls, &declared, &record);
+            let previews = names::Previews::of(&root)?;
+            let problems = lint::problems(
+                &root,
+                &settings.preview_calls,
+                &previews,
+                &declared,
+                &record,
+            );
             for problem in &problems {
                 crate::log::note(&problem.sentence);
             }
@@ -320,7 +327,8 @@ fn run(action: Action) -> Result<bool, String> {
         }
         Action::Components { components } => {
             let declared = read_declared()?;
-            let listing = component_files::list(&root, &cache_dir()?, &settings, &declared)?;
+            let previews = names::Previews::of(&root)?;
+            let listing = component_files::list(&root, &previews, &settings, &declared)?;
             component_files::check_names(&listing, &components)?;
             for line in component_files::lines(&listing, &components) {
                 crate::log::outcome(line);

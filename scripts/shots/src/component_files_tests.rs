@@ -61,6 +61,16 @@ fn repo() -> tempfile::TempDir {
     write(root_path, &format!("{MAC}/Components/Notes.txt"), "");
     write(
         root_path,
+        &format!("{MAC}/Components/MacRowTests.swift"),
+        "",
+    );
+    write(
+        root_path,
+        "design/system/components/row-old/preview.html",
+        "N('Plain', a)",
+    );
+    write(
+        root_path,
         &format!("{ANDROID}/Components/AndroidRow.kt"),
         r#"fun a() = component("android.component.row.default") {}"#,
     );
@@ -70,7 +80,7 @@ fn repo() -> tempfile::TempDir {
 fn listing(root: &Path) -> Listing {
     let settings = settings();
     let declared = crate::declared::read(root, &settings.declared).unwrap();
-    list(root, root, &settings, &declared).unwrap()
+    list(root, &Previews::of(root).unwrap(), &settings, &declared).unwrap()
 }
 
 #[test]
@@ -191,7 +201,9 @@ fn the_listing_names_each_gap_under_its_component_and_ends_with_the_counts() {
             "Capture files with no preview:",
             "  app/Shots/Components/AndroidRow.swift: AndroidRow is a component of android, not of mac",
             "  app/Shots/Components/MacGone.swift: no folder design/system/components/MacGone holds a preview.html",
-            "3 preview rows of 3 components have no shot in their capture files, and 2 capture files have no preview.",
+            "Preview folders whose name is no component name, so no capture file can be named for them:",
+            "  design/system/components/row-old",
+            "3 preview rows of 3 components have no shot in their capture files, 2 capture files have no preview, and 1 preview folder has no component name.",
         ]
     );
 }
@@ -236,7 +248,7 @@ fn a_repo_with_no_component_shots_to_keep_says_so() {
     std::fs::create_dir_all(root.path().join(MAC)).unwrap();
     std::fs::create_dir_all(root.path().join(ANDROID)).unwrap();
     let found = listing(root.path());
-    assert!(found.components.is_empty() && found.strays.is_empty());
+    assert!(found.components.is_empty() && found.strays.is_empty() && found.unnamed.is_empty());
     assert_eq!(
         lines(&found, &[]),
         ["Each preview row has its shot in its component's capture file."]

@@ -13,7 +13,7 @@
 //! web keeps no capture files and the listing leaves it out.
 
 use crate::declared::{self, COMPONENTS, Declared};
-use crate::names::{ComponentKey, Name, Platform};
+use crate::names::{Name, Platform, Previews};
 use crate::settings::Settings;
 use std::path::{Path, PathBuf};
 
@@ -26,6 +26,10 @@ pub(crate) struct Listing {
     /// The capture files whose component has no preview on their platform,
     /// by path.
     pub(crate) strays: Vec<Stray>,
+    /// The folders that hold a preview and whose name is no component's
+    /// name, relative to the repo's top: no capture file can be named for
+    /// them.
+    pub(crate) unnamed: Vec<String>,
 }
 
 /// A component on one platform: its capture file and its preview's rows.
@@ -63,30 +67,29 @@ pub(crate) enum Place {
 pub(crate) struct Stray {
     /// The file, relative to the repo's top.
     pub(crate) file: PathBuf,
+    /// The file's name without its extension, the component it is named for.
+    pub(crate) stem: String,
     pub(crate) why: String,
 }
 
 impl Listing {
     /// The sentence that counts every row the components leave out of their
-    /// capture files and every capture file with no preview.
+    /// capture files, every capture file with no preview and every preview
+    /// folder with no component name.
     pub(crate) fn counts(&self) -> String {
         counts(
             &self.components.iter().collect::<Vec<_>>(),
             self.strays.len(),
+            self.unnamed.len(),
         )
     }
 
-    /// Whether a row is left out of its capture file or a capture file has
-    /// no preview.
+    /// Whether a row is left out of its capture file, a capture file has no
+    /// preview or a preview folder has no component name.
     pub(crate) fn has_gaps(&self) -> bool {
-        !self.strays.is_empty() || self.components.iter().any(|c| c.missing().next().is_some())
-    }
-}
-
-impl Stray {
-    /// The file's name without its extension, the component it is named for.
-    fn stem(&self) -> &str {
-        self.file.file_stem().and_then(|s| s.to_str()).unwrap_or("")
+        !self.strays.is_empty()
+            || !self.unnamed.is_empty()
+            || self.components.iter().any(|c| c.missing().next().is_some())
     }
 }
 
@@ -97,12 +100,11 @@ impl Component {
     }
 }
 
-/// The listing for the repo at <root>, with its settings and the shots its
-/// harnesses declare. The design system's components are read as
-/// `boards::preview::cards` reads them, with <cache> for its scratch folders.
+/// The listing for the repo at <root>, with its previews, its settings and
+/// the shots its harnesses declare.
 pub(crate) fn list(
     root: &Path,
-    cache: &Path,
+    previews: &Previews,
     settings: &Settings,
     declared: &[Declared],
 ) -> Result<Listing, String> {
@@ -114,16 +116,10 @@ pub(crate) fn list(
                 .map(|extension| (*platform, extension, Path::new(folder).join(COMPONENTS)))
         })
         .collect();
-    let cards =
-        boards::preview::cards(&boards::Source::Dir(root), cache).map_err(|e| e.to_string())?;
-    let previews: Vec<(String, ComponentKey)> = cards
-        .into_iter()
-        .filter_map(|card| ComponentKey::of(&card.name).map(|key| (card.name, key)))
-        .collect();
     let relative = |path: &Path| path.strip_prefix(root).unwrap_or(path).to_path_buf();
 
     let mut components = Vec::new();
-    for (name, key) in &previews {
+    for (name, key) in &previews.components {
         let preview = root.join(boards::preview::preview_path(name));
         let html = std::fs::read_to_string(&preview)
             .map_err(|e| format!("cannot read {}: {e}", preview.display()))?;
@@ -133,36 +129,24 @@ pub(crate) fn list(
                 continue;
             }
             let file = folder.join(format!("{name}.{extension}"));
-            let file_exists = root.join(&file).is_file();
-            let in_file: Vec<Name> = if file_exists {
-                declared::declared_in(*platform, &root.join(&file))
-                    .map_err(|e| e.to_string())?
-                    .into_iter()
-                    .map(|d| d.name)
-                    .collect()
-            } else {
-                Vec::new()
-            };
+            let path = root.join(&file);
             let mut rows = Vec::new();
             for state in &states {
                 let shot = key
                     .shot(*platform, state)
                     .map_err(|e| format!("{}: {e}", preview.display()))?;
-                let place = if in_file.contains(&shot) {
-                    Place::File
-                } else {
-                    match declared.iter().find(|d| d.name == shot) {
-                        Some(d) => Place::Elsewhere(relative(&d.file)),
-                        None => Place::Nowhere,
-                    }
+                let place = match declared.iter().find(|d| d.name == shot) {
+                    Some(d) if d.file == path => Place::File,
+                    Some(d) => Place::Elsewhere(relative(&d.file)),
+                    None => Place::Nowhere,
                 };
                 rows.push(Row { shot, place });
             }
             components.push(Component {
                 name: name.clone(),
                 platform: *platform,
+                file_exists: path.is_file(),
                 file,
-                file_exists,
                 rows,
             });
         }
@@ -170,21 +154,18 @@ pub(crate) fn list(
     components.sort_by(|a, b| a.name.cmp(&b.name).then(a.platform.cmp(&b.platform)));
 
     let mut strays = Vec::new();
-    for (platform, extension, folder) in &platforms {
-        let entries = match std::fs::read_dir(root.join(folder)) {
-            Ok(entries) => entries,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
-            Err(e) => return Err(format!("cannot list {}: {e}", folder.display())),
-        };
-        for entry in entries {
-            let path = entry
-                .map_err(|e| format!("cannot list {}: {e}", folder.display()))?
-                .path();
-            if path.extension().and_then(|e| e.to_str()) != Some(*extension) {
-                continue;
-            }
-            let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
-            let why = match previews.iter().find(|(name, _)| name == stem) {
+    for (platform, _, folder) in &platforms {
+        let folder = root.join(folder);
+        if !folder.is_dir() {
+            continue;
+        }
+        for path in declared::harness_files(&folder, *platform).map_err(|e| e.to_string())? {
+            let stem = path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .ok_or_else(|| format!("{}: the file's name is not UTF-8", path.display()))?
+                .to_string();
+            let why = match previews.components.iter().find(|(name, _)| *name == stem) {
                 Some((_, key)) => match key.platform {
                     Some(owner) if owner != *platform => format!(
                         "{stem} is a component of {}, not of {}",
@@ -200,12 +181,22 @@ pub(crate) fn list(
             };
             strays.push(Stray {
                 file: relative(&path),
+                stem,
                 why,
             });
         }
     }
     strays.sort_by(|a, b| a.file.cmp(&b.file));
-    Ok(Listing { components, strays })
+    let unnamed = previews
+        .unnamed
+        .iter()
+        .map(|name| format!("{}/{name}", boards::preview::COMPONENTS))
+        .collect();
+    Ok(Listing {
+        components,
+        strays,
+        unnamed,
+    })
 }
 
 /// Fails, naming it, when a name in <only> names no component with a preview
@@ -213,7 +204,7 @@ pub(crate) fn list(
 pub(crate) fn check_names(listing: &Listing, only: &[String]) -> Result<(), String> {
     for name in only {
         if !listing.components.iter().any(|c| &c.name == name)
-            && !listing.strays.iter().any(|s| s.stem() == name)
+            && !listing.strays.iter().any(|s| &s.stem == name)
         {
             return Err(format!(
                 "no component {name} has a preview, and no capture file is named {name}"
@@ -228,8 +219,9 @@ pub(crate) fn check_names(listing: &Listing, only: &[String]) -> Result<(), Stri
 /// declares each instead, named from the declare folder, then each capture
 /// file with no preview. With component names in <only>, those components
 /// with every row, so that someone moving one component's shots sees each
-/// row's place, and the capture files named for them. The last line counts
-/// what the lines show.
+/// row's place, and the capture files named for them. With no <only>, the
+/// preview folders whose name is no component name come last. The last line
+/// counts what the lines show.
 pub(crate) fn lines(listing: &Listing, only: &[String]) -> Vec<String> {
     let named = |name: &str| only.iter().any(|n| n == name);
     let components: Vec<&Component> = listing
@@ -246,7 +238,7 @@ pub(crate) fn lines(listing: &Listing, only: &[String]) -> Vec<String> {
     let strays: Vec<&Stray> = listing
         .strays
         .iter()
-        .filter(|s| only.is_empty() || named(s.stem()))
+        .filter(|s| only.is_empty() || named(&s.stem))
         .collect();
 
     let mut lines = Vec::new();
@@ -289,13 +281,27 @@ pub(crate) fn lines(listing: &Listing, only: &[String]) -> Vec<String> {
             lines.push(format!("  {}: {}", stray.file.display(), stray.why));
         }
     }
-    lines.push(counts(&components, strays.len()));
+    let unnamed: &[String] = if only.is_empty() {
+        &listing.unnamed
+    } else {
+        &[]
+    };
+    if !unnamed.is_empty() {
+        lines.push(
+            "Preview folders whose name is no component name, so no capture file can be named for them:"
+                .to_string(),
+        );
+        for folder in unnamed {
+            lines.push(format!("  {folder}"));
+        }
+    }
+    lines.push(counts(&components, strays.len(), unnamed.len()));
     lines
 }
 
 /// The sentence that counts the rows <components> leave out of their capture
-/// files and the <strays>.
-fn counts(components: &[&Component], strays: usize) -> String {
+/// files, the <strays> and the <unnamed> preview folders.
+fn counts(components: &[&Component], strays: usize, unnamed: usize) -> String {
     let rows = components
         .iter()
         .map(|c| c.missing().count())
@@ -329,10 +335,20 @@ fn counts(components: &[&Component], strays: usize) -> String {
             }
         ));
     }
-    if parts.is_empty() {
-        "Each preview row has its shot in its component's capture file.".to_string()
-    } else {
-        format!("{}.", parts.join(", and "))
+    if unnamed > 0 {
+        parts.push(format!(
+            "{unnamed} preview {} no component name",
+            if unnamed == 1 {
+                "folder has"
+            } else {
+                "folders have"
+            }
+        ));
+    }
+    match parts.split_last() {
+        None => "Each preview row has its shot in its component's capture file.".to_string(),
+        Some((last, [])) => format!("{last}."),
+        Some((last, rest)) => format!("{}, and {last}.", rest.join(", ")),
     }
 }
 

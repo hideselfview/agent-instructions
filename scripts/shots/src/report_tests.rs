@@ -44,8 +44,10 @@ fn component_gaps() -> Listing {
         }],
         strays: vec![component_files::Stray {
             file: "app/Shots/Components/MacGone.swift".into(),
+            stem: "MacGone".to_string(),
             why: "no folder design/system/components/MacGone holds a preview.html".to_string(),
         }],
+        unnamed: Vec::new(),
     }
 }
 

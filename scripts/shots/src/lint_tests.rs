@@ -15,12 +15,16 @@ fn write(root: &Path, path: &str, text: &str) {
     std::fs::write(path, text).unwrap();
 }
 
+fn previews(root: &Path) -> Previews {
+    Previews::of(root).unwrap()
+}
+
 fn calls() -> Vec<String> {
     vec!["N".to_string(), "W".to_string()]
 }
 
 fn sentences(root: &Path, shots: &[Declared]) -> Vec<String> {
-    problems(root, &calls(), shots, &Record::default())
+    problems(root, &calls(), &previews(root), shots, &Record::default())
         .into_iter()
         .map(|p| p.sentence)
         .collect()
@@ -116,7 +120,7 @@ fn a_record_entry_needs_its_board_too() {
     record.set("mac.welcome.libraries", entry());
     record.set("mac.welcome.gone", entry());
     record.set("not a name", entry());
-    let found = problems(root.path(), &calls(), &[], &record);
+    let found = problems(root.path(), &calls(), &previews(root.path()), &[], &record);
     assert_eq!(found.len(), 2, "{found:?}");
     assert!(found.iter().all(|p| !p.declared));
     assert_eq!(found[1].name, "not a name");

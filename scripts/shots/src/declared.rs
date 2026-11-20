@@ -21,6 +21,14 @@ pub(crate) enum DeclaredError {
         "{0}: a scene shown in its window is written `ShotScene(id: \"<board name>\", …, frame: .window(…)) {{ … }}` so the tool can tell it needs the window"
     )]
     WindowScene(PathBuf),
+    #[error("{0}: the file's name is not UTF-8")]
+    NotUtf8(PathBuf),
+    #[error("{first} and {second} both declare {name}; one file declares each shot")]
+    Twice {
+        name: String,
+        first: PathBuf,
+        second: PathBuf,
+    },
     #[error(
         "{} has no shots-declared line, so there is no harness to read",
         crate::settings::FILE
@@ -66,18 +74,39 @@ pub(crate) fn source_extension(platform: Platform) -> Option<&'static str> {
     }
 }
 
-/// Is <path> a file of a harness with <extension>, and not a test of the
-/// harness, which writes its own boards and declares none?
-fn is_harness_file(path: &Path, extension: &str) -> bool {
-    let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
-    path.extension().and_then(|e| e.to_str()) == Some(extension)
-        && !stem.ends_with("Test")
-        && !stem.ends_with("Tests")
+/// The name of the file at <path> without its extension.
+fn stem(path: &Path) -> Result<&str, DeclaredError> {
+    path.file_stem()
+        .and_then(|s| s.to_str())
+        .ok_or_else(|| DeclaredError::NotUtf8(path.to_path_buf()))
+}
+
+/// The harness files of <platform> in <directory>, each a file with the
+/// harness's extension that is no test of the harness: a test writes its own
+/// boards and declares none.
+pub(crate) fn harness_files(
+    directory: &Path,
+    platform: Platform,
+) -> Result<Vec<PathBuf>, DeclaredError> {
+    let (extension, _) = harness(platform);
+    let mut harness = Vec::new();
+    for path in files(directory)? {
+        if path.extension().and_then(|e| e.to_str()) != Some(extension) {
+            continue;
+        }
+        let stem = stem(&path)?;
+        if !stem.ends_with("Test") && !stem.ends_with("Tests") {
+            harness.push(path);
+        }
+    }
+    Ok(harness)
 }
 
 /// Every shot the harnesses in <folders> (each platform's declare folder,
-/// relative to <root>) declare, in name order, each once. A declare folder's
-/// files and those of its `Components` folder declare shots.
+/// relative to <root>) declare, in name order. A declare folder's files and
+/// those of its `Components` folder declare shots. A file may write a shot's
+/// name more than once; two files that declare one shot fail the read, since
+/// both would write its picture.
 pub(crate) fn read(
     root: &Path,
     folders: &[(Platform, String)],
@@ -87,21 +116,25 @@ pub(crate) fn read(
     }
     let mut all = Vec::new();
     for (platform, directory) in folders {
-        let (extension, _) = harness(*platform);
         let directory = root.join(directory);
-        let mut paths = files(&directory)?;
+        let mut paths = harness_files(&directory, *platform)?;
         let components = directory.join(COMPONENTS);
         if components.is_dir() {
-            paths.extend(files(&components)?);
+            paths.extend(harness_files(&components, *platform)?);
         }
         for path in paths {
-            if is_harness_file(&path, extension) {
-                all.extend(declared_in(*platform, &path)?);
-            }
+            all.extend(declared_in(*platform, &path)?);
         }
     }
     all.sort_by(|a, b| a.name.cmp(&b.name).then(a.file.cmp(&b.file)));
-    all.dedup_by(|a, b| a.name == b.name);
+    all.dedup_by(|a, b| a.name == b.name && a.file == b.file);
+    if let Some(pair) = all.windows(2).find(|pair| pair[0].name == pair[1].name) {
+        return Err(DeclaredError::Twice {
+            name: pair[0].name.to_string(),
+            first: pair[0].file.clone(),
+            second: pair[1].file.clone(),
+        });
+    }
     Ok(all)
 }
 
@@ -118,8 +151,8 @@ fn files(directory: &Path) -> Result<Vec<PathBuf>, DeclaredError> {
 pub(crate) fn declared_in(platform: Platform, path: &Path) -> Result<Vec<Declared>, DeclaredError> {
     let (extension, find) = harness(platform);
     let Some(find) = find else {
-        let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
-        let name = Name::parse(stem).map_err(|e| DeclaredError::Name(path.to_path_buf(), e))?;
+        let name =
+            Name::parse(stem(path)?).map_err(|e| DeclaredError::Name(path.to_path_buf(), e))?;
         return Ok(vec![Declared {
             name,
             file: path.to_path_buf(),

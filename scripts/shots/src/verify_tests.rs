@@ -89,8 +89,10 @@ fn a_run_passes_without_findings_or_problems() {
             components: Vec::new(),
             strays: vec![crate::component_files::Stray {
                 file: "app/Shots/Components/MacGone.swift".into(),
+                stem: "MacGone".to_string(),
                 why: "no preview".to_string(),
             }],
+            unnamed: Vec::new(),
         },
         gate: Gate::EveryPair,
         base_empty: false,

@@ -8,7 +8,7 @@ use crate::declared::Declared;
 use crate::design::{self, DesignSystem};
 use crate::lint::{self, Problem};
 use crate::lists::{self, Lists};
-use crate::names::{Name, Platform};
+use crate::names::{Name, Platform, Previews};
 use crate::record::{self, Entry, Record, Standing};
 use crate::render::serve::Tree;
 use crate::render::{self, runtime};
@@ -181,7 +181,14 @@ pub(crate) fn verify(job: &Verification) -> Result<Outcome, String> {
         .transpose()
         .map_err(|e| e.to_string())?;
 
-    let problems = lint::problems(root, &job.settings.preview_calls, job.declared, &record);
+    let previews = Previews::of(root)?;
+    let problems = lint::problems(
+        root,
+        &job.settings.preview_calls,
+        &previews,
+        job.declared,
+        &record,
+    );
     let boardless = |name: &Name| {
         problems
             .iter()
@@ -193,7 +200,7 @@ pub(crate) fn verify(job: &Verification) -> Result<Outcome, String> {
         .map(|d| d.name.clone())
         .filter(|n| !boardless(n))
         .collect();
-    let board_hashes = render::hashes(root, &hashed, &design, runtime.copy.sha256)?;
+    let board_hashes = render::hashes(root, &hashed, &previews, &design, runtime.copy.sha256)?;
     let names: Vec<Name> = job
         .names
         .iter()
@@ -227,7 +234,7 @@ pub(crate) fn verify(job: &Verification) -> Result<Outcome, String> {
         design: &design,
         runtime: runtime.copy.text,
     };
-    render::boards(tree, job.settings, job.cache, &pending, &boards)?;
+    render::boards(tree, job.settings, &previews, job.cache, &pending, &boards)?;
     let mut checked = Vec::new();
     for name in &pending {
         let shot = &shots[name];
@@ -314,7 +321,7 @@ pub(crate) fn verify(job: &Verification) -> Result<Outcome, String> {
         &board_hashes,
         &problems,
     );
-    let components = component_files::list(root, job.cache, job.settings, job.declared)?;
+    let components = component_files::list(root, &previews, job.settings, job.declared)?;
     Ok(Outcome {
         runtime: runtime.said,
         checked,

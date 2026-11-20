@@ -24,6 +24,7 @@ const BOARD_SCALE: f64 = 1.0;
 pub(crate) fn hashes(
     root: &Path,
     names: &[Name],
+    previews: &names::Previews,
     design: &DesignSystem,
     runtime_sha256: &str,
 ) -> Result<std::collections::BTreeMap<Name, String>, String> {
@@ -38,10 +39,10 @@ pub(crate) fn hashes(
                 chrome::PINNED,
             )
             .map_err(|e| e.to_string()),
-            Name::Component(c) => c.component(root).and_then(|component| {
-                design::preview_hash(root, &component, design, chrome::PINNED)
+            Name::Component(c) => {
+                design::preview_hash(root, &c.component(previews), design, chrome::PINNED)
                     .map_err(|e| e.to_string())
-            }),
+            }
         }
         .map_err(|e| format!("{name}: {e}"))?;
         hashes.insert(name.clone(), hash);
@@ -55,6 +56,7 @@ pub(crate) fn hashes(
 pub(crate) fn boards(
     tree: Tree<'_>,
     settings: &Settings,
+    previews: &names::Previews,
     cache: &Path,
     names: &[Name],
     out: &Path,
@@ -67,19 +69,20 @@ pub(crate) fn boards(
         .enable_all()
         .build()
         .map_err(|e| e.to_string())?
-        .block_on(draw(tree, settings, cache, names, out))
+        .block_on(draw(tree, settings, previews, cache, names, out))
 }
 
 async fn draw(
     tree: Tree<'_>,
     settings: &Settings,
+    previews: &names::Previews,
     cache: &Path,
     names: &[Name],
     out: &Path,
 ) -> Result<(), String> {
     serve::with_server(tree, async |server| {
         chrome::with_chrome(cache, async |chrome| {
-            draw_with(tree.root, settings, names, out, server, chrome).await
+            draw_with(tree.root, settings, previews, names, out, server, chrome).await
         })
         .await
         .map_err(|e| e.to_string())?
@@ -99,6 +102,7 @@ struct Drawn {
 async fn draw_with(
     root: &Path,
     settings: &Settings,
+    previews: &names::Previews,
     names: &[Name],
     out: &Path,
     server: &serve::Server,
@@ -112,7 +116,15 @@ async fn draw_with(
                 draw_screen(root, settings, &board, &page, server, name.platform()).await
             }
             Name::Component(component) => {
-                draw_component(root, settings, component, &page, server, name.platform()).await
+                draw_component(
+                    settings,
+                    previews,
+                    component,
+                    &page,
+                    server,
+                    name.platform(),
+                )
+                .await
             }
         };
         if let Err(error) = page.close().await {
@@ -171,14 +183,14 @@ async fn draw_screen(
 }
 
 async fn draw_component(
-    root: &Path,
     settings: &Settings,
+    previews: &names::Previews,
     name: &names::ComponentName,
     page: &chromiumoxide::Page,
     server: &serve::Server,
     platform: names::Platform,
 ) -> Result<Drawn, String> {
-    let component = name.component(root)?;
+    let component = name.component(previews);
     let marks = settings.preview(&component).map_err(|e| e.to_string())?;
     let row = preview::render_row(
         page,

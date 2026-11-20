@@ -6,7 +6,7 @@
 //! functions the app's `shots-preview-calls` line names.
 
 use crate::declared::Declared;
-use crate::names::{Name, state_id};
+use crate::names::{Name, Previews, state_id};
 use crate::record::{FILE, Record};
 use regex::Regex;
 use std::path::Path;
@@ -51,15 +51,17 @@ pub(crate) struct Problem {
 }
 
 /// One problem for each declared shot and each entry of the record that has
-/// no board. <calls> are the functions whose calls name a preview's rows.
+/// no board. <calls> are the functions whose calls name a preview's rows, and
+/// <previews> the components a component shot can draw.
 pub(crate) fn problems(
     root: &Path,
     calls: &[String],
+    previews: &Previews,
     declared: &[Declared],
     record: &Record,
 ) -> Vec<Problem> {
     let shots = declared.iter().filter_map(|d| {
-        no_board(root, calls, &d.name).map(|why| Problem {
+        no_board(root, calls, previews, &d.name).map(|why| Problem {
             name: d.name.to_string(),
             declared: true,
             sentence: format!("shot '{}' has no board: {why}", d.name),
@@ -67,7 +69,7 @@ pub(crate) fn problems(
     });
     let entries = record.names().filter_map(|text| {
         let why = match Name::parse(text) {
-            Ok(name) => no_board(root, calls, &name)?,
+            Ok(name) => no_board(root, calls, previews, &name)?,
             Err(e) => e.to_string(),
         };
         Some(Problem {
@@ -80,7 +82,7 @@ pub(crate) fn problems(
 }
 
 /// Why `name` has no board, when it has none.
-fn no_board(root: &Path, calls: &[String], name: &Name) -> Option<String> {
+fn no_board(root: &Path, calls: &[String], previews: &Previews, name: &Name) -> Option<String> {
     match name {
         Name::Screen(_) => {
             let board = Path::new(BOARDS).join(format!("{name}.dc.html"));
@@ -91,10 +93,7 @@ fn no_board(root: &Path, calls: &[String], name: &Name) -> Option<String> {
             }
         }
         Name::Component(c) => {
-            let component = match c.component(root) {
-                Ok(component) => component,
-                Err(why) => return Some(why),
-            };
+            let component = c.component(previews);
             let preview = std::path::PathBuf::from(boards::preview::preview_path(&component));
             let html = match std::fs::read_to_string(root.join(&preview)) {
                 Ok(html) => html,
