@@ -536,12 +536,7 @@ fn remove_kept_reports(path: &Path) -> Result<()> {
         .parent()
         .expect("a store's database is in its store's folder")
         .join("shots");
-    match std::fs::remove_dir_all(&reports) {
-        Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
-            fail!("removing {}: {error}", reports.display())
-        }
-        _ => Ok(()),
-    }
+    crate::shot_store::remove_all(&reports)
 }
 
 #[cfg(test)]

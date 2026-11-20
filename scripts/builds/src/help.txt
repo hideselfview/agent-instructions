@@ -1768,9 +1768,9 @@ BUILDS), with a cap of 10 GiB. `setup` and `prune` delete whole runs while
 the folder is over its cap, least recently used first: a run's last use is
 when it ended or when builds last read it (to print its findings or to
 compare a branch's run with it), and a run used in the last 30 minutes stays.
-They also delete a staging folder that a run which died left behind, once
-nothing has written to it for 30 minutes. `status` shows the folder's size
-against its cap.
+While no shots run is storing its output, they also delete each staging
+folder that a run which died left behind and each folder the deleted runs
+left empty. `status` shows the folder's size against its cap.
 
 When xcodebuild fails with "Couldn't check out revision" or "file not found" on
 a SwiftPM dependency (often Sparkle), its cache is corrupt: disconnect any VPN

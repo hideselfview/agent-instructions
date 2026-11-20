@@ -493,47 +493,46 @@ fn refused_after(said: &str) -> Refused {
         .expect("the watch keeps only a line that holds one of the texts")
 }
 
-/// What a step's run keeps of its output: all of it for a shots run with a
-/// store that keeps its findings (<all>), the first line saying the host
+/// What a step's run keeps of its output: all of it for a shots run, whose
+/// findings the shots store keeps (<all>), the first line saying the host
 /// failed the step when the lane watches for one (<fault>), and each line
 /// for <read>.
 fn keep_for<'a>(
     kind: StepKind,
-    shots: Option<&ShotsStore>,
     all: &'a lock::Captured,
     fault: Option<&'a Found>,
     read: &'a lock::EachLine,
 ) -> Keep<'a> {
     Keep {
-        all: (kind == StepKind::Shots && shots.is_some()).then_some(all),
+        all: (kind == StepKind::Shots).then_some(all),
         line_with: fault.map(|found| (HOST_FAULT_TEXTS, found)),
         each_line: Some(read),
     }
 }
 
 /// Runs <step> (of <kind>) in the checkout <top>, watching for a line of
-/// `HOST_FAULTS` in <fault> and giving each line to <read>; a shots run with
-/// a store compares with its before run, read where the store keeps it, and
+/// `HOST_FAULTS` in <fault> and giving each line to <read>; a shots run
+/// compares with its before run, read where the store <shots> keeps it, and
 /// keeps the findings it printed.
 fn run_local_step(
     top: &Path,
     step: &Step,
     kind: StepKind,
-    shots: Option<&ShotsStore>,
+    shots: &ShotsStore,
     fault: Option<&Found>,
     read: &lock::EachLine,
 ) -> Result<Within> {
     let kept = lock::Captured::default();
-    let keep = keep_for(kind, shots, &kept, fault, read);
-    let command = match (kind, shots.and_then(|store| store.before_of(step))) {
+    let keep = keep_for(kind, &kept, fault, read);
+    let command = match (kind, shots.before_of(step)) {
         (StepKind::Shots, Some(findings)) => {
             with_before(&step.command, &findings.display().to_string())
         }
         _ => step.command.clone(),
     };
     let outcome = run_command_keeping(top, &command, Some(step.limit()), keep);
-    if let (StepKind::Shots, Some(store)) = (kind, shots) {
-        store.keep_of(&outcome, &kept, step, &mut LocalRun(top));
+    if kind == StepKind::Shots {
+        shots.keep_of(&outcome, &kept, step, &mut LocalRun(top));
     }
     outcome
 }
@@ -544,7 +543,7 @@ fn run_steps(
     held: &lock::Held,
     steps: &[Step],
     log: &mut Vec<StepRecord>,
-    shots: Option<&ShotsStore>,
+    shots: &ShotsStore,
     watch: bool,
 ) -> Result<Ended> {
     run_steps_with(held, steps, log, watch, &mut |step, kind, fault, read| {
@@ -715,7 +714,7 @@ impl Site {
         held: &lock::Held,
         steps: &[Step],
         results: &[String],
-        shots: Option<&ShotsStore>,
+        shots: &ShotsStore,
         watch: bool,
         log: &mut Vec<StepRecord>,
     ) -> Result<Ended> {
@@ -731,8 +730,8 @@ impl Site {
 }
 
 /// Runs <step> (of <kind>) in the checkout on a host, watching for a line of
-/// `HOST_FAULTS` in <fault> and giving each line to <read>; a shots run with a
-/// store compares with its before run, which the run copies to a temporary
+/// `HOST_FAULTS` in <fault> and giving each line to <read>; a shots run
+/// compares with its before run, which the run copies to a temporary
 /// file on the host and deletes after, and keeps its findings here. Then
 /// copies <results> back, since a step that failed or ran out of time has
 /// written the reports its reader needs most. A copy that fails fails a step
@@ -743,11 +742,11 @@ fn run_remote_step(
     step: &Step,
     kind: StepKind,
     results: &[String],
-    shots: Option<&ShotsStore>,
+    shots: &ShotsStore,
     fault: Option<&Found>,
     read: &lock::EachLine,
 ) -> Result<Within> {
-    let placed = match (kind, shots.and_then(|store| store.before_of(step))) {
+    let placed = match (kind, shots.before_of(step)) {
         (StepKind::Shots, Some(findings)) => Some(remote.put_temporary(findings)?),
         _ => None,
     };
@@ -757,15 +756,15 @@ fn run_remote_step(
     };
     let start = remote.step_command(&command)?;
     let kept = lock::Captured::default();
-    let keep = keep_for(kind, shots, &kept, fault, read);
+    let keep = keep_for(kind, &kept, fault, read);
     let ran = lock::run_in_group_keeping(start, &command[0], Some(step.limit()), keep);
     if let Some(there) = &placed
         && let Err(error) = remote.remove_temporary(there)
     {
         note(error.text());
     }
-    if let (StepKind::Shots, Some(store)) = (kind, shots) {
-        store.keep_of(&ran, &kept, step, remote);
+    if kind == StepKind::Shots {
+        shots.keep_of(&ran, &kept, step, remote);
     }
     if results.is_empty() || matches!(ran, Ok(Within::Ran(Ran::Stopped))) {
         return ran;
@@ -1274,17 +1273,11 @@ fn build_lane(
         let (tests, builds): (Vec<Step>, Vec<Step>) = steps
             .into_iter()
             .partition(|step| pick_kind_of(&step.name).is_some());
-        let shots = Some(ShotsStore::of(places, &source, repo, lane, &sha, picks)?);
+        let shots = ShotsStore::of(places, &source, repo, lane, &sha, picks)?;
         let watch = lane.uses_xcode();
         let ran = (|| {
-            let mut ended = site.run_steps(
-                &held,
-                &builds,
-                &[],
-                shots.as_ref(),
-                watch,
-                &mut timing.steps,
-            )?;
+            let mut ended =
+                site.run_steps(&held, &builds, &[], &shots, watch, &mut timing.steps)?;
             if ended == Ended::Finished && !builds.is_empty() {
                 let steps = builds.iter().map(|step| step.name.clone()).collect();
                 Built {
@@ -1298,7 +1291,7 @@ fn build_lane(
                     &held,
                     &tests,
                     &config.results_of(lane),
-                    shots.as_ref(),
+                    &shots,
                     watch,
                     &mut timing.steps,
                 )?;

@@ -23,6 +23,13 @@
 //! calls `prune_runs`). A run's last use is the time of its run.json, which
 //! the run sets as it ends and each read sets again, so a run that agents
 //! keep reading stays.
+//!
+//! A run that stores its output holds a shared lock on `shots/.writing`
+//! (`WRITING`) from before it makes its folders until its run is in place.
+//! The prune deletes staging folders and the folders deleted runs leave
+//! empty only while it holds that lock exclusively: then no run is filling a
+//! staging folder or about to make a folder in the one it would remove, so
+//! each staging folder there is one a run that ended left.
 
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
@@ -36,7 +43,7 @@ use crate::fail::{Context, Result};
 use crate::lane::Lane;
 use crate::places::{FLOOR_IDLE_MINUTES, Places};
 use crate::prune::{Run, delete_folder};
-use crate::text::human;
+use crate::text::{human, note};
 use crate::tool::Tool;
 
 /// The folder on the build volume that holds every repo's runs.
@@ -55,6 +62,10 @@ const OUTPUT_FILE: &str = "output.txt";
 const REPORT: &str = "report";
 /// What a staging folder's name starts with after the dot that hides it.
 const STAGING: &str = ".staging-";
+/// The lock file in the folder `shots` that each run storing its output
+/// holds shared, and the prune exclusively while it deletes staging folders
+/// and empty folders.
+const WRITING: &str = ".writing";
 
 /// What a stored run is found by.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -136,6 +147,9 @@ pub struct Staging {
     key: Key,
     dir: PathBuf,
     into: PathBuf,
+    /// The shared lock on `WRITING`, which the prune waits for before it
+    /// deletes a staging folder or an empty folder.
+    _writing: std::fs::File,
 }
 
 /// Starts storing a run of <key>: an empty staging folder that the run's
@@ -153,12 +167,16 @@ pub fn stage(places: &Places, key: &Key) -> Result<Staging> {
         std::process::id(),
         now()
     ));
-    let _ = std::fs::remove_dir_all(&dir);
+    let shots = root(places);
+    std::fs::create_dir_all(&shots).context(|| format!("creating {}", shots.display()))?;
+    let writing = crate::evict::lock_shared_creating(&shots.join(WRITING))?;
+    remove_all(&dir)?;
     std::fs::create_dir_all(&dir).context(|| format!("creating {}", dir.display()))?;
     Ok(Staging {
         key: key.clone(),
         dir,
         into,
+        _writing: writing,
     })
 }
 
@@ -215,7 +233,7 @@ impl Staging {
 }
 
 /// Deletes <dir> and what it holds, if it is there.
-fn remove_all(dir: &Path) -> Result<()> {
+pub fn remove_all(dir: &Path) -> Result<()> {
     match std::fs::remove_dir_all(dir) {
         Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
             fail!("deleting {}: {error}", dir.display())
@@ -225,11 +243,20 @@ fn remove_all(dir: &Path) -> Result<()> {
 }
 
 /// A staging folder dropped unfinished, as on an early return or a panic,
-/// goes; one whose deletion fails stays hidden beside the run's folder until
-/// the cap deletes it (`prune_runs`).
+/// goes. A deletion that fails is said, and the folder stays hidden beside
+/// the run's folder until a prune that no run keeps out deletes it
+/// (`prune_runs`). After `finish` or `discard` the folder is gone already.
 impl Drop for Staging {
     fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.dir);
+        match std::fs::remove_dir_all(&self.dir) {
+            Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
+                crate::text::note(format!(
+                    "deleting {}, an unfinished shots run's staging folder: {error}",
+                    self.dir.display()
+                ))
+            }
+            _ => {}
+        }
     }
 }
 
@@ -368,14 +395,17 @@ fn kept(places: &Places) -> Result<Vec<Kept>> {
 }
 
 /// When <folder>'s run was last used, seconds since 1970: its run.json's
-/// time, or 0 when it has none.
-fn last_use(folder: &Path) -> i64 {
-    std::fs::metadata(folder.join(RUN_FILE))
-        .and_then(|meta| meta.modified())
-        .ok()
-        .and_then(|time| time.duration_since(SystemTime::UNIX_EPOCH).ok())
-        .map(|since| since.as_secs() as i64)
-        .unwrap_or(0)
+/// time.
+fn last_use(folder: &Path) -> Result<i64> {
+    written_at(&folder.join(RUN_FILE))
+}
+
+/// When <path> was last written, seconds since 1970.
+fn written_at(path: &Path) -> Result<i64> {
+    use std::os::unix::fs::MetadataExt;
+    std::fs::metadata(path)
+        .map(|meta| meta.mtime())
+        .context(|| format!("reading the time of {}", path.display()))
 }
 
 /// Deletes the runs that keep the folder `shots` over `CAP_KIB` (prune.rs).
@@ -383,14 +413,24 @@ pub fn prune(tool: &Tool, run: Run) -> Result<()> {
     prune_runs(tool, run, CAP_KIB)
 }
 
-/// Deletes each staging folder nothing wrote to for FLOOR_IDLE_MINUTES (the
-/// run that filled it died), then, while the folder `shots` holds more than
-/// <cap_kib>, whole runs, least recently used first. A run used in the last
-/// FLOOR_IDLE_MINUTES stays: an agent may be reading it.
+/// Deletes each staging folder when no run stores its output (the runs that
+/// filled them ended), then, while the folder `shots` holds more than
+/// <cap_kib>, whole runs, least recently used first, then the folders the
+/// deleted runs left empty when no run stores its output. A run used in the
+/// last FLOOR_IDLE_MINUTES stays: an agent may be reading it.
 pub fn prune_runs(tool: &Tool, run: Run, cap_kib: u64) -> Result<()> {
     let shots = root(&tool.places);
     if !shots.is_dir() {
         return Ok(());
+    }
+    // Held to the end, so that no run makes a folder while the prune removes
+    // empty ones; None while a run stores its output.
+    let alone = crate::evict::try_lock_creating(&shots.join(WRITING))?;
+    if alone.is_none() {
+        note(format!(
+            "a shots run is storing its output in {}, so prune leaves its staging folders and empty folders",
+            shots.display()
+        ));
     }
     let kept = kept(&tool.places)?;
     let mut paths = vec![shots.clone()];
@@ -400,10 +440,10 @@ pub fn prune_runs(tool: &Tool, run: Run, cap_kib: u64) -> Result<()> {
     let mut runs = Vec::new();
     for (kept, measured) in kept.into_iter().zip(measures) {
         if !kept.staging {
-            runs.push((last_use(&kept.folder), kept.folder, measured.kib));
-        } else if !tool.written_within(&measured, FLOOR_IDLE_MINUTES) {
+            runs.push((last_use(&kept.folder)?, kept.folder, measured.kib));
+        } else if alone.is_some() {
             let reason = format!(
-                "{}, a shots run's staging folder that nothing wrote to in {FLOOR_IDLE_MINUTES}m",
+                "{}, the staging folder of a shots run that ended",
                 human(measured.kib)
             );
             if delete_folder(
@@ -447,64 +487,32 @@ pub fn prune_runs(tool: &Tool, run: Run, cap_kib: u64) -> Result<()> {
             total = total.saturating_sub(kib);
         }
     }
-    if !run.dry() {
+    if alone.is_some() && !run.dry() {
         remove_empty(tool)?;
     }
     Ok(())
 }
 
-/// Removes each folder under the folder `shots` that the deleted runs left
-/// holding nothing and that nothing else changed in the last
-/// FLOOR_IDLE_MINUTES (a run may be about to fill it): a prefix's, a lane's,
-/// a commit's and a repo's. Each folder's time is read before the folders in
-/// it go, since removing them changes it.
+/// Removes each folder under the folder `shots` that holds nothing: a
+/// prefix's, a lane's, a commit's and a repo's. The caller holds `WRITING`
+/// exclusively, so no run is about to make a folder in one of them.
 fn remove_empty(tool: &Tool) -> Result<()> {
     let root = root(&tool.places);
     for (_, repo) in folders_in(&root)? {
         let runs = repo.join("runs");
-        let idle_repo = idle(tool, &repo)?;
-        let idle_runs = idle(tool, &runs)?;
         for (_, commit) in folders_in(&runs)? {
-            let idle_commit = idle(tool, &commit)?;
             for (_, lane) in folders_in(&commit)? {
-                let idle_lane = idle(tool, &lane)?;
                 for (_, prefix) in folders_in(&lane)? {
-                    if idle(tool, &prefix)? {
-                        remove_if_empty(&prefix)?;
-                    }
+                    remove_if_empty(&prefix)?;
                 }
-                if idle_lane {
-                    remove_if_empty(&lane)?;
-                }
+                remove_if_empty(&lane)?;
             }
-            if idle_commit {
-                remove_if_empty(&commit)?;
-            }
+            remove_if_empty(&commit)?;
         }
-        if idle_runs {
-            remove_if_empty(&runs)?;
-        }
-        if idle_repo {
-            remove_if_empty(&repo)?;
-        }
+        remove_if_empty(&runs)?;
+        remove_if_empty(&repo)?;
     }
     Ok(())
-}
-
-/// Whether nothing changed in the folder <dir> in the last
-/// FLOOR_IDLE_MINUTES; false when it is gone.
-fn idle(tool: &Tool, dir: &Path) -> Result<bool> {
-    match std::fs::metadata(dir).and_then(|meta| meta.modified()) {
-        Ok(time) => {
-            let changed = time
-                .duration_since(SystemTime::UNIX_EPOCH)
-                .map(|since| since.as_secs() as i64)
-                .unwrap_or(0);
-            Ok(changed < tool.now - (FLOOR_IDLE_MINUTES * 60) as i64)
-        }
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
-        Err(error) => fail!("reading {}: {error}", dir.display()),
-    }
 }
 
 /// Removes <dir> when it holds nothing.

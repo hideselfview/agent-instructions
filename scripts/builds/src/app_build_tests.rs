@@ -130,7 +130,14 @@ fn steps_stop_at_the_first_failure() {
         step("c", &["touch", "c"]),
     ];
     assert!(matches!(
-        run_steps(&scratch.dir, &held, &steps, &mut Vec::new(), None, false),
+        run_steps(
+            &scratch.dir,
+            &held,
+            &steps,
+            &mut Vec::new(),
+            &any_store(&scratch),
+            false
+        ),
         Err(Fail::Exit(1))
     ));
     assert!(scratch.dir.join("a").exists());
@@ -144,7 +151,7 @@ fn steps_stop_at_the_first_failure() {
             &held,
             &steps[..1],
             &mut Vec::new(),
-            None,
+            &any_store(&scratch),
             false
         )
         .unwrap(),
@@ -176,7 +183,7 @@ fn a_step_that_fails_after_xcodebuild_said_it_cannot_start_is_the_hosts_failure(
             &held,
             std::slice::from_ref(&broken),
             &mut Vec::new(),
-            None,
+            &any_store(&scratch),
             true
         )
         .unwrap(),
@@ -184,14 +191,29 @@ fn a_step_that_fails_after_xcodebuild_said_it_cannot_start_is_the_hosts_failure(
     );
     assert!(
         matches!(
-            run_steps(&scratch.dir, &held, &[broken], &mut Vec::new(), None, false),
+            run_steps(
+                &scratch.dir,
+                &held,
+                &[broken],
+                &mut Vec::new(),
+                &any_store(&scratch),
+                false
+            ),
             Err(Fail::Exit(70))
         ),
         "a lane that does not watch for the line fails as the step did"
     );
     let passed = step(format!("echo \"{said}\"; exit 0"));
     assert_eq!(
-        run_steps(&scratch.dir, &held, &[passed], &mut Vec::new(), None, true).unwrap(),
+        run_steps(
+            &scratch.dir,
+            &held,
+            &[passed],
+            &mut Vec::new(),
+            &any_store(&scratch),
+            true
+        )
+        .unwrap(),
         Ended::Finished
     );
     assert!(matches!(
@@ -200,7 +222,7 @@ fn a_step_that_fails_after_xcodebuild_said_it_cannot_start_is_the_hosts_failure(
             &held,
             &[step("exit 65".to_string())],
             &mut Vec::new(),
-            None,
+            &any_store(&scratch),
             true
         ),
         Err(Fail::Exit(65))
@@ -235,7 +257,7 @@ fn a_step_past_its_limit_is_killed_with_what_it_started_and_fails_the_build() {
         &held,
         &[slow, after],
         &mut Vec::new(),
-        None,
+        &any_store(&scratch),
         false,
     ) else {
         panic!("fails")
@@ -669,7 +691,14 @@ fn running_fake_steps_times_each_one_with_its_kind_and_result() {
         fake("never", &["true"], None),
     ];
     let mut log = Vec::new();
-    let _ = run_steps(&scratch.dir, &held, &steps, &mut log, None, false);
+    let _ = run_steps(
+        &scratch.dir,
+        &held,
+        &steps,
+        &mut log,
+        &any_store(&scratch),
+        false,
+    );
     let seen: Vec<(&str, StepKind, &str)> = log
         .iter()
         .map(|s| (s.name.as_str(), s.kind, s.result.word()))
@@ -702,7 +731,7 @@ fn a_failed_step_keeps_what_its_output_said() {
             fake("shots mac.a.", &["sh", "-c", said], None),
         ],
         &mut log,
-        None,
+        &any_store(&scratch),
         false,
     );
     assert_eq!(log[0].result, StepResult::Passed);
@@ -735,7 +764,7 @@ fn each_step_is_recorded_beside_the_lock_as_the_step_that_runs() {
             fake("macos-tests", &["sh", "-c", &names], None),
         ],
         &mut Vec::new(),
-        None,
+        &any_store(&scratch),
         false,
     )
     .unwrap();
@@ -760,7 +789,7 @@ fn a_fake_step_that_burns_cpu_records_cpu_time_and_one_past_its_limit_records_a_
         &held,
         &[fake("burn", &["sh", "-c", burn], None)],
         &mut log,
-        None,
+        &any_store(&scratch),
         false,
     )
     .unwrap();
@@ -776,7 +805,7 @@ fn a_fake_step_that_burns_cpu_records_cpu_time_and_one_past_its_limit_records_a_
             Some(Duration::from_millis(300)),
         )],
         &mut log,
-        None,
+        &any_store(&scratch),
         false,
     );
     assert_eq!(log[0].result.word(), "timed out");
@@ -806,7 +835,7 @@ fn a_finished_lane_run_writes_its_wait_steps_and_checkout_to_its_projects_store(
             fake("test Foo", &["true"], None),
         ],
         &mut timing.steps,
-        None,
+        &any_store(&scratch),
         false,
     )
     .unwrap();
@@ -884,8 +913,18 @@ fn shots_repo(dir: &std::path::Path) {
     crate::testing::git(dir, &["fetch", "-q", "origin"]);
 }
 
+/// A shots store for a run of steps that keeps no shots run.
+fn any_store(scratch: &crate::testing::Scratch) -> ShotsStore {
+    a_store(&scratch.places())
+}
+
 fn shots_store(dir: &std::path::Path, places: &Places) -> ShotsStore {
     shots_repo(dir);
+    a_store(places)
+}
+
+/// The shots store of repo `demo`'s Mac lane in <places>.
+fn a_store(places: &Places) -> ShotsStore {
     ShotsStore {
         places: places.clone(),
         repo: "demo".to_string(),
@@ -925,7 +964,7 @@ fn a_shots_run_that_printed_findings_is_kept_under_its_commit_platform_prefix_an
     let top = scratch.dir.join("repo");
     let kept = shots_store(&top, &places);
     let step = fake("shots mac.a.", &["sh", "-c", FINDINGS_RUN], None);
-    let result = run_steps(&top, &held, &[step], &mut Vec::new(), Some(&kept), false);
+    let result = run_steps(&top, &held, &[step], &mut Vec::new(), &kept, false);
     assert!(matches!(result, Err(Fail::Exit(1))));
     let key = shots_key(&resolve(&top, "HEAD").unwrap(), "mac.a.");
     let stored = shot_store::lookup(&places, &key).unwrap().expect("stored");
@@ -957,7 +996,7 @@ fn a_shots_run_that_died_on_an_error_keeps_nothing() {
         ],
         None,
     );
-    let _ = run_steps(&top, &held, &[step], &mut Vec::new(), Some(&kept), false);
+    let _ = run_steps(&top, &held, &[step], &mut Vec::new(), &kept, false);
     let key = shots_key(&resolve(&top, "HEAD").unwrap(), "mac.a.");
     assert!(shot_store::lookup(&places, &key).unwrap().is_none());
     assert!(!shot_store::root(&places).exists());
@@ -981,7 +1020,7 @@ fn app_build_with_only_a_shots_pick_prints_a_stored_run_and_takes_no_lane() {
     std::fs::create_dir_all(&marker).unwrap();
     std::fs::write(marker.join(".checkout"), top.display().to_string()).unwrap();
     let step = fake("shots mac.a.", &["sh", "-c", FINDINGS_RUN], None);
-    let _ = run_steps(&top, &held, &[step], &mut Vec::new(), Some(&kept), false);
+    let _ = run_steps(&top, &held, &[step], &mut Vec::new(), &kept, false);
     let args = |words: &[&str]| words.iter().map(|w| w.to_string()).collect::<Vec<_>>();
     // Served from the store: no lane process starts (one would run this test
     // program as `builds`, and wait for a lock that does not exist).
@@ -1024,7 +1063,7 @@ fn a_shots_run_keeps_its_report_and_the_pictures_it_shows_under_its_key_in_the_s
     let kept = shots_store(&top, &places);
     let run = report_run(crate::shots_program::VERSION);
     let step = fake("shots mac.a.", &["sh", "-c", &run], None);
-    run_steps(&top, &held, &[step], &mut Vec::new(), Some(&kept), false).unwrap();
+    run_steps(&top, &held, &[step], &mut Vec::new(), &kept, false).unwrap();
     let key = shots_key(&resolve(&top, "HEAD").unwrap(), "mac.a.");
     let stored = shot_store::lookup(&places, &key).unwrap().expect("kept");
     assert!(
@@ -1057,7 +1096,7 @@ fn a_report_whose_findings_name_another_builds_shots_keeps_nothing() {
     let kept = shots_store(&top, &places);
     let run = report_run("another");
     let step = fake("shots mac.a.", &["sh", "-c", &run], None);
-    run_steps(&top, &held, &[step], &mut Vec::new(), Some(&kept), false).unwrap();
+    run_steps(&top, &held, &[step], &mut Vec::new(), &kept, false).unwrap();
     let key = shots_key(&resolve(&top, "HEAD").unwrap(), "mac.a.");
     assert!(shot_store::lookup(&places, &key).unwrap().is_none());
     assert!(!shot_store::run_folder(&places, &key).exists());
@@ -1084,7 +1123,7 @@ fn a_shots_run_with_a_before_run_is_given_its_findings_and_another_prefix_is_not
             ],
             None,
         );
-        run_steps(&top, &held, &[step], &mut Vec::new(), Some(&kept), false).unwrap();
+        run_steps(&top, &held, &[step], &mut Vec::new(), &kept, false).unwrap();
         std::fs::read_to_string(&out).unwrap()
     };
     assert_eq!(

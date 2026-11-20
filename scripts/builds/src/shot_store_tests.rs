@@ -206,34 +206,47 @@ fn a_run_used_in_the_last_half_hour_stays_over_the_cap() {
 }
 
 #[test]
-fn a_staging_folder_left_by_a_run_that_died_goes_once_nothing_wrote_to_it_for_half_an_hour() {
+fn a_staging_folder_goes_once_no_run_stores_its_output_and_stays_while_one_does() {
     let scratch = Scratch::new("shot-store-leftover");
     let places = scratch.places();
     let tool = scratch.tool(0);
-    let staging = stage(&places, &key("mac.a.")).unwrap();
-    std::fs::create_dir_all(staging.report()).unwrap();
-    let left = staging.dir.clone();
-    std::mem::forget(staging);
+    let filling = stage(&places, &key("mac.a.")).unwrap();
+    std::fs::create_dir_all(filling.report()).unwrap();
+    let left = filling.dir.parent().unwrap().join(".staging-v-1-2");
+    std::fs::create_dir_all(left.join("report")).unwrap();
     prune_runs(&tool, Run::Real, CAP_KIB).unwrap();
-    assert!(left.exists(), "a run may still be filling it");
-    crate::testing::age_all(&left, 1);
+    assert!(
+        left.exists() && filling.dir.exists(),
+        "a run is storing its output"
+    );
+    let dir = filling.dir.clone();
+    drop(filling);
+    assert!(!dir.exists());
     prune_runs(&tool, Run::Real, CAP_KIB).unwrap();
-    assert!(!left.exists());
+    assert!(!left.exists(), "the run that filled it ended");
 }
 
 #[test]
-fn the_folders_deleted_runs_leave_empty_go_once_nothing_changed_in_them_for_half_an_hour() {
+fn the_folders_deleted_runs_leave_empty_go_unless_a_run_stores_its_output() {
     let scratch = Scratch::new("shot-store-empty");
     let places = scratch.places();
     let tool = scratch.tool(0);
     let stored = store_run(&places, &key("mac.a."), 0, "ok\n", true);
     fill(&stored.report().join("img/a.png"), 400);
     crate::testing::age_all(&root(&places), 2);
+    let other = stage(
+        &places,
+        &Key {
+            commit: "c2".to_string(),
+            ..key("mac.b.")
+        },
+    )
+    .unwrap();
     prune_runs(&tool, Run::Real, 100).unwrap();
     assert!(!stored.folder.exists());
     let prefix = stored.folder.parent().unwrap().to_path_buf();
-    assert!(prefix.exists(), "the deletion just changed it");
-    crate::testing::age_all(&root(&places), 2);
+    assert!(prefix.exists(), "a run may be about to make a folder in it");
+    other.discard().unwrap();
     prune_runs(&tool, Run::Real, 100).unwrap();
     assert!(!root(&places).join("demo").exists());
     assert!(root(&places).exists());
