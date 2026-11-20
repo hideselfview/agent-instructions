@@ -235,6 +235,59 @@ pub fn record(path: &Path, run: &RunRecord) -> Result<()> {
     tx.commit().context(what)
 }
 
+/// A passing app build run: the commit it built (app_build_commit.rs) and
+/// the steps that passed in it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PassedRun {
+    pub commit: String,
+    pub steps: Vec<String>,
+}
+
+/// The latest <limit> passing runs of <repo>'s <lane> that recorded the
+/// commit they built, in the database open as <conn> at <path>, newest first.
+pub fn passed_runs(
+    conn: &Connection,
+    repo: &str,
+    lane: Lane,
+    limit: usize,
+    path: &Path,
+) -> Result<Vec<PassedRun>> {
+    let what = || format!("reading {}", path.display());
+    let mut runs = conn
+        .prepare(
+            "SELECT r.id, c.built_commit FROM app_build_runs r
+             JOIN app_build_run_commit c ON c.run_id = r.id
+             WHERE r.repo = ?1 AND r.lane = ?2 AND r.passed = 1
+             ORDER BY r.id DESC LIMIT ?3",
+        )
+        .context(what)?;
+    let mut steps = conn
+        .prepare(
+            "SELECT name FROM app_build_steps WHERE run_id = ?1 AND result = 'passed' ORDER BY position",
+        )
+        .context(what)?;
+    let found: Vec<(i64, String)> = runs
+        .query_map(params![repo, lane.word(), limit as i64], |row| {
+            Ok((row.get(0)?, row.get(1)?))
+        })
+        .context(what)?
+        .collect::<std::result::Result<_, _>>()
+        .context(what)?;
+    let mut passed = Vec::new();
+    for (id, commit) in found {
+        let names = steps
+            .query_map([id], |row| row.get(0))
+            .context(what)?
+            .collect::<std::result::Result<_, _>>()
+            .context(what)?;
+        passed.push(PassedRun {
+            commit,
+            steps: names,
+        });
+    }
+    Ok(passed)
+}
+
 /// Each app build run's queue wait and each step, of the runs and steps that
 /// started at or after <since>, as waits (waits.rs), whatever their result,
 /// each with the load of the run's host when the run took its checkout.

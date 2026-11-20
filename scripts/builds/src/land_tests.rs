@@ -1087,6 +1087,53 @@ fn commits_the_review_does_not_take_are_refused_before_anything_is_fetched() {
     );
 }
 
+/// When no passing app build covers the result, land pushes nothing, checks
+/// the branch out again and prints why; it asks after it built the result,
+/// with origin/main as it found it and the result.
+#[test]
+fn a_result_no_passing_app_build_covers_is_refused_and_nothing_is_pushed() {
+    let f = fixture("land-app-builds", "true\n", None);
+    let (one, a, _two, _b) = two_branches(&f);
+    let before = main_of(&f);
+    let dir = one.display();
+    let (code, out, calls) = run_land(
+        &f,
+        &one,
+        &["--done", "7", &a],
+        Cues {
+            refuse: "app-build --check-landing",
+            says: "no passing mac app build built the result",
+            ..project()
+        },
+    );
+    assert!(
+        code == 1
+            && out.contains("APP BUILDS DO NOT COVER the result, nothing pushed:")
+            && out.contains("no passing mac app build built the result"),
+        "{out}"
+    );
+    assert_eq!(main_of(&f), before);
+    assert_eq!(branch_of(&one).as_deref(), Some("a"));
+    assert_eq!(head_of(&one), a);
+    assert_eq!(
+        calls.last().unwrap(),
+        &format!("app-build --check-landing {dir} {before} {a}")
+    );
+}
+
+/// A repo in no project records no app builds, so land asks nothing of them.
+#[test]
+fn a_repo_in_no_project_lands_without_asking_about_app_builds() {
+    let f = fixture("land-app-builds-none", "true\n", None);
+    let (one, a, _two, _b) = two_branches(&f);
+    let (code, _, calls) = run_land(&f, &one, &[&a], Cues::default());
+    assert!(code == 0 && main_of(&f) == a);
+    assert!(
+        !calls.iter().any(|call| call.starts_with("app-build")),
+        "{calls:?}"
+    );
+}
+
 #[test]
 fn a_landing_the_review_takes_is_pushed_and_recorded_as_landed_after_the_items() {
     let f = fixture("land-review-takes", "true\n", None);

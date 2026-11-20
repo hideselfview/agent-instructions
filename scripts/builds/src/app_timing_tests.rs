@@ -79,6 +79,64 @@ fn a_run_keeps_the_commit_it_built_and_a_run_with_none_has_no_row() {
     assert_eq!(commits, vec![(1, Some(commit.to_string())), (2, None)]);
 }
 
+/// The passing runs of a repo's lane that recorded their commit come back
+/// newest first, each with the steps that passed in it; failed runs, runs of
+/// the other lane and runs with no commit do not.
+#[test]
+fn passing_runs_of_a_lane_come_back_newest_first_with_their_passed_steps() {
+    let scratch = Scratch::new("timing-passed");
+    let path = store(&scratch);
+    let built = |commit: &str, lane: Lane, passed: bool, steps: Vec<StepRecord>| {
+        let mut run = run(NOW, lane, 0, passed, steps);
+        run.built_commit = Some(commit.repeat(40));
+        run
+    };
+    let passing = |name: &str| step(name, StepKind::Step, NOW, 1, StepResult::Passed);
+    record(&path, &built("a", Lane::Mac, true, vec![passing("macos")])).unwrap();
+    record(&path, &built("b", Lane::Mac, false, vec![passing("macos")])).unwrap();
+    record(
+        &path,
+        &built("c", Lane::Android, true, vec![passing("android")]),
+    )
+    .unwrap();
+    record(&path, &run(NOW, Lane::Mac, 0, true, vec![passing("macos")])).unwrap();
+    record(
+        &path,
+        &built(
+            "d",
+            Lane::Mac,
+            true,
+            vec![
+                passing("macos"),
+                step("macos-shots", StepKind::Step, NOW, 1, StepResult::TakenOver),
+                passing("macos-shots"),
+            ],
+        ),
+    )
+    .unwrap();
+    let conn = crate::db::open_reader(&path).unwrap().unwrap();
+    let runs = passed_runs(&conn, "bae", Lane::Mac, 10, &path).unwrap();
+    assert_eq!(
+        runs,
+        vec![
+            PassedRun {
+                commit: "d".repeat(40),
+                steps: vec!["macos".to_string(), "macos-shots".to_string()],
+            },
+            PassedRun {
+                commit: "a".repeat(40),
+                steps: vec!["macos".to_string()],
+            },
+        ]
+    );
+    assert_eq!(
+        passed_runs(&conn, "bae", Lane::Mac, 1, &path)
+            .unwrap()
+            .len(),
+        1
+    );
+}
+
 #[test]
 fn a_recorded_run_comes_back_in_the_figures_with_its_steps() {
     let scratch = Scratch::new("timing-record");

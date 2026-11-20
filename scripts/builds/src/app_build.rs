@@ -1526,6 +1526,11 @@ pub fn requested(argv: &[String]) -> Option<(&str, &str)> {
 /// host keeps when a lane adds a checkout there (lane_size.rs).
 pub fn cmd_app_build(tool: &Tool, args: &[String]) -> Result<()> {
     let places = &tool.places;
+    if let [flag, rest @ ..] = args
+        && flag == "--check-landing"
+    {
+        return crate::app_landing::cmd_check_landing(places, rest);
+    }
     let [repo, rest @ ..] = args else {
         fail!("{USAGE}");
     };

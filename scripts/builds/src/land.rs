@@ -988,6 +988,26 @@ impl Landing<'_> {
         Ok(())
     }
 
+    /// In a repo of a project, refuses the result <landed>, which land built
+    /// on origin/main at <before>, when it changes what a lane's apps compile
+    /// and no passing app build of the lane built its files (app_landing.rs):
+    /// another landing that changed the apps may have reached main after the
+    /// branch's last app build. Land checks out what the worktree had when the
+    /// landing began and prints why.
+    fn check_app_builds(&self, before: &str, landed: &str, out: &mut dyn Write) -> Result<()> {
+        if self.recording.is_none() {
+            return Ok(());
+        }
+        let workdir = self.workdir.display().to_string();
+        let (ok, said) = self.builds(&["app-build", "--check-landing", &workdir, before, landed]);
+        if ok {
+            return Ok(());
+        }
+        self.go_back(out);
+        let _ = writeln!(out, "APP BUILDS DO NOT COVER the result, nothing pushed:");
+        Err(refuse(out, said))
+    }
+
     /// Puts the commits on origin/main and returns their copies there, or
     /// refuses after it checks out what the worktree had when the landing
     /// began.
@@ -1069,6 +1089,7 @@ impl Landing<'_> {
             {
                 let _timing = self.timing(StepKind::Checks);
                 self.check_result(out)?;
+                self.check_app_builds(&before, &landed, out)?;
             }
             // Something else that moved this worktree's HEAD during the checks
             // (a checkout run by hand) leaves nothing of the landing's to push,

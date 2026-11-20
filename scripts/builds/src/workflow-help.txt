@@ -462,6 +462,11 @@ commits unless a finished review read the branch's net change as it is now.
     command it prints.
   - When a landing fails its checks or its cherry-pick, the branch's agent
     fixes the branch in a new commit, reviews the fix and lands again.
+  - When land prints APP BUILDS DO NOT COVER the result, another landing that
+    changed the apps reached main after the branch's last app build, or the
+    branch changed the apps after it. The agent rebases the branch onto
+    origin/main, runs `builds app-build` on it again, reviews the branch again
+    when the rebase changed its lines, and lands again.
   - A CI run on main that fails or stalls is the coordinator's to run down.
   - After each landing, `builds land` fast-forwards the repo's main checkout to
     origin/main, so the person and the agents who read code there see what
