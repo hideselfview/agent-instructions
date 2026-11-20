@@ -15,11 +15,12 @@
 //! run's wait counts always.
 
 use std::path::Path;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use rusqlite::{Connection, params};
 
 use crate::app_config::PickKind;
+use crate::clock::Moment;
 use crate::fail;
 use crate::fail::{Context, Result};
 use crate::hook_stats::median_of;
@@ -99,6 +100,7 @@ pub struct StepRecord {
     pub kind: StepKind,
     /// Seconds since 1970.
     pub started_at: i64,
+    /// How long the step took, the time the Mac slept during it included.
     pub wall_ms: u64,
     pub cpu_ms: u64,
     pub result: StepResult,
@@ -145,7 +147,9 @@ pub fn children_cpu() -> Duration {
 /// Times one step: start it with `Timer::start`, end it with `finish`.
 pub struct Timer {
     started_at: i64,
-    began: Instant,
+    /// When the step began, on a clock that counts the time the machine
+    /// sleeps during it (clock.rs).
+    began: Moment,
     cpu: Duration,
 }
 
@@ -153,7 +157,7 @@ impl Timer {
     pub fn start() -> Timer {
         Timer {
             started_at: now(),
-            began: Instant::now(),
+            began: Moment::now(),
             cpu: children_cpu(),
         }
     }
