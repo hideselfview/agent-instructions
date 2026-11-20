@@ -114,26 +114,34 @@ fn marks(pair: &Checked) -> (Vec<Mark>, Vec<Mark>) {
     };
     for warning in &pair.warnings {
         let sentence = warning.sentence();
-        if let Some(entry) = warning.entry() {
-            board.push(on_board(entry.index, "warning", &sentence));
-            if let Some(s) = partner(entry.index) {
-                shot.push(on_shot(s, "warning", &sentence));
+        match warning {
+            Warning::FrameOffset { .. } => {}
+            Warning::Region { bounds, .. } => {
+                board.push(Mark {
+                    class: "region",
+                    bounds: *bounds,
+                    sentence: sentence.clone(),
+                });
+                shot.push(Mark {
+                    class: "region",
+                    bounds: crate::shots::Bounds {
+                        x: bounds.x + pair.offset.0,
+                        y: bounds.y + pair.offset.1,
+                        ..*bounds
+                    },
+                    sentence,
+                });
             }
-        } else if let Warning::Region { bounds, .. } = warning {
-            board.push(Mark {
-                class: "region",
-                bounds: *bounds,
-                sentence: sentence.clone(),
-            });
-            shot.push(Mark {
-                class: "region",
-                bounds: crate::shots::Bounds {
-                    x: bounds.x + pair.offset.0,
-                    y: bounds.y + pair.offset.1,
-                    ..*bounds
-                },
-                sentence,
-            });
+            Warning::Moved { entry, .. }
+            | Warning::Resized { entry, .. }
+            | Warning::FontSize { entry, .. }
+            | Warning::FontWeight { entry, .. }
+            | Warning::Colour { entry, .. } => {
+                board.push(on_board(entry.index, "warning", &sentence));
+                if let Some(s) = partner(entry.index) {
+                    shot.push(on_shot(s, "warning", &sentence));
+                }
+            }
         }
     }
     (board, shot)
