@@ -109,7 +109,7 @@ fn or_note<T>(result: Result<T>) -> Option<T> {
 }
 
 /// When the machine booted, seconds since 1970 (`btime` in /proc/stat).
-fn boot_time() -> Result<i64> {
+pub(crate) fn boot_time() -> Result<i64> {
     let text =
         std::fs::read_to_string("/proc/stat").context(|| "reading /proc/stat".to_string())?;
     match text

@@ -20,13 +20,7 @@ fn boot_epoch() -> i64 {
     }
     #[cfg(target_os = "linux")]
     {
-        let stat = std::fs::read_to_string("/proc/stat").expect("/proc/stat reads");
-        stat.lines()
-            .find_map(|line| line.strip_prefix("btime "))
-            .expect("/proc/stat names btime")
-            .trim()
-            .parse()
-            .expect("btime is a number")
+        crate::procs::os::boot_time().expect("/proc/stat names the boot time")
     }
 }
 

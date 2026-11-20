@@ -15,7 +15,7 @@ use crate::fail::Result;
 mod os;
 #[cfg(target_os = "linux")]
 #[path = "procs_linux.rs"]
-mod os;
+pub(crate) mod os;
 
 pub use os::{args, cwd, ended, environment, open_files, tree_cpu, usage};
 
