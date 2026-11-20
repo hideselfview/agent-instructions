@@ -82,7 +82,7 @@ enum What {
     },
     StateDiffers {
         element: Element,
-        aspect: &'static str,
+        aspect: Aspect,
         board: String,
         shot: String,
     },
@@ -112,7 +112,7 @@ enum What {
     },
     Colour {
         element: Element,
-        part: &'static str,
+        part: Part,
         board: String,
         shot: String,
         delta: f64,
@@ -130,17 +130,6 @@ enum What {
 fn tenth(length: f64) -> f64 {
     let rounded = (length * 10.0).round() / 10.0;
     if rounded == 0.0 { 0.0 } else { rounded }
-}
-
-fn state(aspect: Aspect, entry: &Entry) -> String {
-    let word = match aspect {
-        Aspect::Value => return entry.value.clone(),
-        Aspect::Enabled if entry.enabled => "enabled",
-        Aspect::Enabled => "disabled",
-        Aspect::Selected if entry.selected => "selected",
-        Aspect::Selected => "not selected",
-    };
-    word.to_string()
 }
 
 impl From<&Finding> for What {
@@ -165,13 +154,9 @@ impl From<&Finding> for What {
                 aspect,
             } => Self::StateDiffers {
                 element: board.into(),
-                aspect: match aspect {
-                    Aspect::Value => "value",
-                    Aspect::Enabled => "enabled",
-                    Aspect::Selected => "selected",
-                },
-                board: state(*aspect, board),
-                shot: state(*aspect, shot),
+                aspect: *aspect,
+                board: aspect.of(board),
+                shot: aspect.of(shot),
             },
         }
     }
@@ -212,11 +197,7 @@ impl From<&Warning> for What {
                 delta,
             } => Self::Colour {
                 element: entry.into(),
-                part: match part {
-                    Part::Background => "background",
-                    Part::Foreground => "foreground",
-                    Part::Text => "text",
-                },
+                part: *part,
                 board: hex(*board),
                 shot: hex(*shot),
                 delta: *delta,
@@ -244,19 +225,6 @@ fn board_entry(finding: &Finding) -> Option<&Entry> {
     }
 }
 
-/// The board's element a warning names; none for a warning about the whole
-/// frame or an area of the picture.
-fn warned_entry(warning: &Warning) -> Option<&Entry> {
-    match warning {
-        Warning::Moved { entry, .. }
-        | Warning::Resized { entry, .. }
-        | Warning::FontSize { entry, .. }
-        | Warning::FontWeight { entry, .. }
-        | Warning::Colour { entry, .. } => Some(entry),
-        Warning::FrameOffset { .. } | Warning::Region { .. } => None,
-    }
-}
-
 /// The file's text for the pairs a run checked and skipped.
 pub(crate) fn text(checked: &[Checked], skipped: &[Skipped]) -> String {
     let mut findings = Vec::new();
@@ -276,7 +244,7 @@ pub(crate) fn text(checked: &[Checked], skipped: &[Skipped]) -> String {
         for warning in &pair.warnings {
             findings.push(Record {
                 scene: scene.clone(),
-                component: component(warned_entry(warning)),
+                component: component(warning.entry()),
                 what: warning.into(),
                 sentence: warning.sentence(),
             });

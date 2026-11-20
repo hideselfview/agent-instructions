@@ -12,6 +12,7 @@ use crate::shots::{Bounds, Element, Picture};
 use align::Step;
 use colour::{Rgb, hex};
 use normalize::{Entry, entries, fold_merged};
+use serde::Serialize;
 
 /// A box edge may differ by this many points before it warns.
 pub(crate) const EDGE_TOLERANCE: f64 = 2.0;
@@ -37,11 +38,27 @@ pub(crate) fn tolerances() -> Vec<String> {
 }
 
 /// What differs between a matched board element and shot element.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
 pub(crate) enum Aspect {
     Value,
     Enabled,
     Selected,
+}
+
+impl Aspect {
+    /// The state of <entry> in this aspect: its value, `enabled` or
+    /// `disabled`, `selected` or `not selected`.
+    pub(crate) fn of(self, entry: &Entry) -> String {
+        let word = match self {
+            Self::Value => return entry.value.clone(),
+            Self::Enabled if entry.enabled => "enabled",
+            Self::Enabled => "disabled",
+            Self::Selected if entry.selected => "selected",
+            Self::Selected => "not selected",
+        };
+        word.to_string()
+    }
 }
 
 /// A reason the run fails.
@@ -268,7 +285,8 @@ pub(crate) struct Side<'a> {
 }
 
 /// Which colour of an element differs.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
 pub(crate) enum Part {
     Background,
     Foreground,
@@ -418,26 +436,13 @@ impl Finding {
                 match aspect {
                     Aspect::Value => format!(
                         "{subject} has the value {} on the board and {} in the shot",
-                        quoted(&board.value),
-                        quoted(&shot.value)
+                        quoted(&aspect.of(board)),
+                        quoted(&aspect.of(shot))
                     ),
-                    Aspect::Enabled => format!(
+                    Aspect::Enabled | Aspect::Selected => format!(
                         "{subject} is {} on the board and {} in the shot",
-                        if board.enabled { "enabled" } else { "disabled" },
-                        if shot.enabled { "enabled" } else { "disabled" }
-                    ),
-                    Aspect::Selected => format!(
-                        "{subject} is {} on the board and {} in the shot",
-                        if board.selected {
-                            "selected"
-                        } else {
-                            "not selected"
-                        },
-                        if shot.selected {
-                            "selected"
-                        } else {
-                            "not selected"
-                        }
+                        aspect.of(board),
+                        aspect.of(shot)
                     ),
                 }
             }
@@ -452,6 +457,19 @@ fn pt(length: f64) -> String {
 }
 
 impl Warning {
+    /// The board's element the warning is about; none for a warning about the
+    /// whole frame or an area of the picture.
+    pub(crate) fn entry(&self) -> Option<&Entry> {
+        match self {
+            Self::Moved { entry, .. }
+            | Self::Resized { entry, .. }
+            | Self::FontSize { entry, .. }
+            | Self::FontWeight { entry, .. }
+            | Self::Colour { entry, .. } => Some(entry),
+            Self::FrameOffset { .. } | Self::Region { .. } => None,
+        }
+    }
+
     /// The warning as a sentence for the report.
     pub(crate) fn sentence(&self) -> String {
         match self {
