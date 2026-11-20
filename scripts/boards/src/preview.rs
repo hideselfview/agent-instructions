@@ -197,23 +197,53 @@ fn place(listed: Vec<ListedGroup>, cards: Vec<Card>) -> Contents {
     Contents { groups, problems }
 }
 
-/// The cards of the components in <top>, a folder that holds `COMPONENTS`
-/// at its path in the repo.
-fn cards_in(top: &Path) -> Result<Vec<Card>> {
+/// The names of the folders of `COMPONENTS` that hold a `preview.html`, in
+/// <top>, a folder that holds `COMPONENTS` at its path in the repo, in name
+/// order, whether or not each name is a component name. A <top> with no
+/// `COMPONENTS` has none; a folder whose name is not UTF-8 fails.
+pub fn preview_folders(top: &Path) -> Result<Vec<String>> {
     let folder = top.join(COMPONENTS);
     let entries = match std::fs::read_dir(&folder) {
         Ok(entries) => entries,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
         Err(error) => fail!("listing {}: {error}", folder.display()),
     };
-    let mut cards = Vec::new();
+    let mut names = Vec::new();
     for entry in entries {
         let entry = entry.context(|| format!("listing {}", folder.display()))?;
-        let name = entry.file_name().to_string_lossy().into_owned();
         let preview = entry.path().join("preview.html");
-        if !preview.is_file() {
-            continue;
+        match std::fs::metadata(&preview) {
+            Ok(found) if found.is_file() => {}
+            Ok(_) => continue,
+            // A file of the folder, such as a types file, holds no preview.
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory
+                ) =>
+            {
+                continue;
+            }
+            Err(error) => fail!("reading {}: {error}", preview.display()),
         }
+        let name = entry.file_name().into_string().map_err(|name| {
+            crate::Error::new(format!(
+                "{}: the name {name:?} of a folder that holds a preview.html is not UTF-8",
+                folder.display()
+            ))
+        })?;
+        names.push(name);
+    }
+    names.sort();
+    Ok(names)
+}
+
+/// The cards of the components in <top>, a folder that holds `COMPONENTS`
+/// at its path in the repo.
+fn cards_in(top: &Path) -> Result<Vec<Card>> {
+    let mut cards = Vec::new();
+    for name in preview_folders(top)? {
+        let preview = top.join(preview_path(&name));
         let height = if is_component_name(&name) {
             let text = std::fs::read_to_string(&preview)
                 .context(|| format!("reading {}", preview_path(&name)))?;
@@ -230,7 +260,6 @@ fn cards_in(top: &Path) -> Result<Vec<Card>> {
         };
         cards.push(Card { name, height });
     }
-    cards.sort_by(|a, b| a.name.cmp(&b.name));
     Ok(cards)
 }
 

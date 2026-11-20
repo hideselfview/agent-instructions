@@ -272,8 +272,7 @@ impl ComponentKey {
 }
 
 /// The design-system components of a repo that have a preview: each folder
-/// of `boards::preview::COMPONENTS` that holds a `preview.html`. The folder's
-/// files, such as a types file, are no components.
+/// `boards::preview::preview_folders` names.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub(crate) struct Previews {
     /// The folders whose name is a component's name, by name, each with its
@@ -288,41 +287,13 @@ impl Previews {
     /// The previews of the repo at <root>; none when it has no components
     /// folder.
     pub(crate) fn of(root: &std::path::Path) -> Result<Self, String> {
-        let folder = root.join(boards::preview::COMPONENTS);
-        let entries = match std::fs::read_dir(&folder) {
-            Ok(entries) => entries,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Self::default()),
-            Err(e) => return Err(format!("cannot list {}: {e}", folder.display())),
-        };
         let mut previews = Self::default();
-        for entry in entries {
-            let entry = entry.map_err(|e| format!("cannot list {}: {e}", folder.display()))?;
-            let kind = entry
-                .file_type()
-                .map_err(|e| format!("cannot read {}: {e}", entry.path().display()))?;
-            if !kind.is_dir() {
-                continue;
-            }
-            let preview = entry.path().join("preview.html");
-            match std::fs::metadata(&preview) {
-                Ok(found) if found.is_file() => {}
-                Ok(_) => continue,
-                Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
-                Err(e) => return Err(format!("cannot read {}: {e}", preview.display())),
-            }
-            let name = entry.file_name().into_string().map_err(|name| {
-                format!(
-                    "{}: the name {name:?} of a folder that holds a preview is not UTF-8",
-                    folder.display()
-                )
-            })?;
+        for name in boards::preview::preview_folders(root).map_err(|e| e.to_string())? {
             match ComponentKey::of(&name) {
                 Some(key) => previews.components.push((name, key)),
                 None => previews.unnamed.push(name),
             }
         }
-        previews.components.sort_by(|a, b| a.0.cmp(&b.0));
-        previews.unnamed.sort();
         Ok(previews)
     }
 }

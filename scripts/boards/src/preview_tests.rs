@@ -175,3 +175,16 @@ fn contents_puts_each_card_in_its_listed_group_and_names_each_disagreement() {
     let none = contents(&Source::Dir(&dir), &cache).unwrap();
     assert!(none.groups.is_empty() && none.problems.is_empty());
 }
+
+#[test]
+fn the_preview_folders_are_the_folders_that_hold_a_preview_whatever_their_name() {
+    let scratch = Scratch::new("preview-folders");
+    let dir = components(&scratch);
+    std::fs::write(dir.join(COMPONENTS).join("index.d.ts"), "").unwrap();
+    assert_eq!(preview_folders(&dir).unwrap(), ["Bare", "Mac-Row", "Row"]);
+    assert!(
+        preview_folders(&scratch.dir.join("none"))
+            .unwrap()
+            .is_empty()
+    );
+}

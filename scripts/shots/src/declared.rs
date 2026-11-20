@@ -81,22 +81,49 @@ fn stem(path: &Path) -> Result<&str, DeclaredError> {
         .ok_or_else(|| DeclaredError::NotUtf8(path.to_path_buf()))
 }
 
+/// A harness file: its path, and its name without its extension.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct HarnessFile {
+    pub(crate) path: PathBuf,
+    pub(crate) stem: String,
+}
+
 /// The harness files of <platform> in <directory>, each a file with the
 /// harness's extension that is no test of the harness: a test writes its own
 /// boards and declares none.
-pub(crate) fn harness_files(
-    directory: &Path,
+fn harness_files(directory: &Path, platform: Platform) -> Result<Vec<HarnessFile>, DeclaredError> {
+    harness_among(files(directory)?, platform)
+}
+
+/// The harness files of <platform> in the `Components` folder of the declare
+/// folder <declare_folder>, which hold the components' capture files; none
+/// when it has no `Components` folder.
+pub(crate) fn capture_files(
+    declare_folder: &Path,
     platform: Platform,
-) -> Result<Vec<PathBuf>, DeclaredError> {
+) -> Result<Vec<HarnessFile>, DeclaredError> {
+    match files(&declare_folder.join(COMPONENTS)) {
+        Err(DeclaredError::Read(_, e)) if e.kind() == std::io::ErrorKind::NotFound => {
+            Ok(Vec::new())
+        }
+        paths => harness_among(paths?, platform),
+    }
+}
+
+/// The harness files of <platform> among <paths>.
+fn harness_among(
+    paths: Vec<PathBuf>,
+    platform: Platform,
+) -> Result<Vec<HarnessFile>, DeclaredError> {
     let (extension, _) = harness(platform);
     let mut harness = Vec::new();
-    for path in files(directory)? {
+    for path in paths {
         if path.extension().and_then(|e| e.to_str()) != Some(extension) {
             continue;
         }
-        let stem = stem(&path)?;
+        let stem = stem(&path)?.to_string();
         if !stem.ends_with("Test") && !stem.ends_with("Tests") {
-            harness.push(path);
+            harness.push(HarnessFile { path, stem });
         }
     }
     Ok(harness)
@@ -117,13 +144,10 @@ pub(crate) fn read(
     let mut all = Vec::new();
     for (platform, directory) in folders {
         let directory = root.join(directory);
-        let mut paths = harness_files(&directory, *platform)?;
-        let components = directory.join(COMPONENTS);
-        if components.is_dir() {
-            paths.extend(harness_files(&components, *platform)?);
-        }
-        for path in paths {
-            all.extend(declared_in(*platform, &path)?);
+        let mut harness = harness_files(&directory, *platform)?;
+        harness.extend(capture_files(&directory, *platform)?);
+        for file in harness {
+            all.extend(declared_in(*platform, &file.path)?);
         }
     }
     all.sort_by(|a, b| a.name.cmp(&b.name).then(a.file.cmp(&b.file)));

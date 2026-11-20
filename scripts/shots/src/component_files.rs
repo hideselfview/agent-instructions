@@ -108,12 +108,14 @@ pub(crate) fn list(
     settings: &Settings,
     declared: &[Declared],
 ) -> Result<Listing, String> {
-    let platforms: Vec<(Platform, &str, PathBuf)> = settings
+    // Each platform whose harness declares shots in source, with the
+    // extension of its files and its declare folder.
+    let platforms: Vec<(Platform, &str, &Path)> = settings
         .declared
         .iter()
         .filter_map(|(platform, folder)| {
             declared::source_extension(*platform)
-                .map(|extension| (*platform, extension, Path::new(folder).join(COMPONENTS)))
+                .map(|extension| (*platform, extension, Path::new(folder)))
         })
         .collect();
     let relative = |path: &Path| path.strip_prefix(root).unwrap_or(path).to_path_buf();
@@ -128,7 +130,7 @@ pub(crate) fn list(
             if key.platform.is_some_and(|p| p != *platform) {
                 continue;
             }
-            let file = folder.join(format!("{name}.{extension}"));
+            let file = folder.join(COMPONENTS).join(format!("{name}.{extension}"));
             let path = root.join(&file);
             let mut rows = Vec::new();
             for state in &states {
@@ -155,16 +157,10 @@ pub(crate) fn list(
 
     let mut strays = Vec::new();
     for (platform, _, folder) in &platforms {
-        let folder = root.join(folder);
-        if !folder.is_dir() {
-            continue;
-        }
-        for path in declared::harness_files(&folder, *platform).map_err(|e| e.to_string())? {
-            let stem = path
-                .file_stem()
-                .and_then(|s| s.to_str())
-                .ok_or_else(|| format!("{}: the file's name is not UTF-8", path.display()))?
-                .to_string();
+        for file in
+            declared::capture_files(&root.join(folder), *platform).map_err(|e| e.to_string())?
+        {
+            let stem = file.stem;
             let why = match previews.components.iter().find(|(name, _)| *name == stem) {
                 Some((_, key)) => match key.platform {
                     Some(owner) if owner != *platform => format!(
@@ -180,7 +176,7 @@ pub(crate) fn list(
                 ),
             };
             strays.push(Stray {
-                file: relative(&path),
+                file: relative(&file.path),
                 stem,
                 why,
             });
