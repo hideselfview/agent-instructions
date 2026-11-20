@@ -14,7 +14,7 @@
 //! after printing that pairs fail the run; a command that died on an error
 //! (a build that failed, a simulator that did not start) has no findings and
 //! stores nothing. What is stored is what the shots program printed, from the
-//! line that starts it (cargo's `Running` line) to the end.
+//! line that starts it (cargo's `Running` line) to the end, whole.
 //!
 //! The run's report and pictures are kept beside the findings, so the next
 //! run in the same app checkout (which rewrites the checkout's `shots/`
@@ -54,9 +54,6 @@ const PROGRAM_STARTS: &str = "Running `";
 /// What a failing run prints when pairs fail it, as bae-shots words it: the
 /// sign that the run made findings and did not die first.
 const PAIRS_FAIL: &str = "fail the run";
-
-/// The most of a run's text that is kept: its end.
-const KEEP: usize = 1 << 20;
 
 /// What a stored run is found by.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -237,28 +234,17 @@ pub fn version_at(top: &Path, commit: &str, source: &str) -> Result<String> {
 }
 
 /// What the shots program printed in <output>: the text after the line that
-/// starts it, or all of it when no such line is there; its last `KEEP` bytes.
+/// starts it, or all of it when no such line is there.
 pub fn findings_of(output: &str) -> &str {
     let mut start = 0;
     for line in output.split_inclusive('\n') {
         let end = start + line.len();
         if line.trim_start().starts_with(PROGRAM_STARTS) {
-            return tail(&output[end..]);
+            return &output[end..];
         }
         start = end;
     }
-    tail(output)
-}
-
-fn tail(text: &str) -> &str {
-    if text.len() <= KEEP {
-        return text;
-    }
-    let mut from = text.len() - KEEP;
-    while !text.is_char_boundary(from) {
-        from += 1;
-    }
-    &text[from..]
+    output
 }
 
 /// What the shots program prints before the names of the pairs that fail the

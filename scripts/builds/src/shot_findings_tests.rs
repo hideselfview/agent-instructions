@@ -24,11 +24,12 @@ fn a_run_has_findings_when_it_passed_or_said_that_pairs_fail_it() {
 }
 
 #[test]
-fn only_the_last_megabyte_of_a_long_run_is_kept_cut_at_a_character() {
-    let long = "é".repeat(KEEP);
-    let kept = findings_of(&long);
-    assert!(kept.len() <= KEEP && kept.len() > KEEP - 4);
-    assert!(kept.chars().all(|c| c == 'é'));
+fn a_long_run_is_kept_whole() {
+    let long = format!(
+        "{}\nbae-shots: no pair fails the run\n",
+        "é".repeat(1 << 21)
+    );
+    assert_eq!(findings_of(&long), long);
 }
 
 #[test]
