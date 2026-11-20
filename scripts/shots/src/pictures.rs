@@ -1,14 +1,19 @@
 //! The picture folder (`--pictures`): the board pictures earlier runs drew,
 //! kept by the hash of everything each picture depends on (design.rs), so a
-//! run draws only the boards whose hash the folder lacks. builds passes its
+//! run draws only the boards whose hash the folder lacks; and the app's
+//! shots earlier runs took, kept by the app source tree builds names
+//! (`--app-tree`), so a run of an app tree the folder holds every selected
+//! shot of takes none again. builds passes its
 //! folder on the build volume and keeps it under a cap, deleting the
 //! pictures used least recently; a run sets a picture's time when it uses it.
 //!
 //! A board picture is `boards/<hash>.png` with its element list
-//! `boards/<hash>.json`. A run writes each file under a hidden temporary name
+//! `boards/<hash>.json`, and an app's shot is
+//! `<platform>/<app tree>/<name>@<platform>.png` with its element list. A run writes each file under a hidden temporary name
 //! and renames it into place, the element list before the picture, so a
 //! picture whose element list is missing is never there.
 
+use crate::names::{Name, Platform};
 use std::path::{Path, PathBuf};
 
 /// A picture folder.
@@ -78,6 +83,69 @@ impl Pictures {
             .map_err(|e| format!("cannot prepare {}: {e}", boards.display()))?;
         place(&out.join(format!("{shot}.json")), &json)?;
         place(&out.join(format!("{shot}.png")), &png)
+    }
+}
+
+impl Pictures {
+    /// The folder of the shots of <platform> kept for the app source tree
+    /// <tree>.
+    fn shots_dir(&self, platform: Platform, tree: &str) -> PathBuf {
+        self.dir.join(platform.word()).join(tree)
+    }
+
+    /// Copies the shots <names> of <platform> kept for the app source tree
+    /// <tree> into <out>, and marks them used, when the folder keeps every
+    /// one; false, copying nothing, when it lacks one.
+    pub(crate) fn take_shots(
+        &self,
+        platform: Platform,
+        tree: &str,
+        names: &[Name],
+        out: &Path,
+    ) -> Result<bool, String> {
+        let dir = self.shots_dir(platform, tree);
+        let files: Vec<String> = names
+            .iter()
+            .flat_map(|name| [name.file_name("json"), name.file_name("png")])
+            .collect();
+        if !files.iter().all(|file| dir.join(file).is_file()) {
+            return Ok(false);
+        }
+        std::fs::create_dir_all(out)
+            .map_err(|e| format!("cannot prepare {}: {e}", out.display()))?;
+        for file in &files {
+            copy(&dir.join(file), &out.join(file))?;
+        }
+        for name in names {
+            let png = dir.join(name.file_name("png"));
+            std::fs::File::options()
+                .write(true)
+                .open(&png)
+                .and_then(|file| file.set_modified(std::time::SystemTime::now()))
+                .map_err(|e| format!("cannot mark {} used: {e}", png.display()))?;
+        }
+        Ok(true)
+    }
+
+    /// Keeps the shots <names> of <platform> taken into <out> for the app
+    /// source tree <tree>.
+    pub(crate) fn keep_shots(
+        &self,
+        platform: Platform,
+        tree: &str,
+        names: &[Name],
+        out: &Path,
+    ) -> Result<(), String> {
+        let dir = self.shots_dir(platform, tree);
+        std::fs::create_dir_all(&dir)
+            .map_err(|e| format!("cannot prepare {}: {e}", dir.display()))?;
+        for name in names {
+            for extension in ["json", "png"] {
+                let file = name.file_name(extension);
+                place(&out.join(&file), &dir.join(&file))?;
+            }
+        }
+        Ok(())
     }
 }
 

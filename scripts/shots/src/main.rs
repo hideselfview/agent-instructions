@@ -63,6 +63,12 @@ enum Action {
         /// drawing.
         #[arg(long)]
         pictures: Option<PathBuf>,
+        /// The app source tree the shots are taken of, which builds names:
+        /// when the picture folder keeps every selected shot of a platform
+        /// for it, the run takes none and uses those, and otherwise it keeps
+        /// the shots it takes there.
+        #[arg(long, requires = "pictures")]
+        app_tree: Option<String>,
     },
     /// Take the shots into a directory.
     Capture {
@@ -157,14 +163,18 @@ impl Selection {
 }
 
 /// Takes the shots `selection` selects, each platform's into the folder
-/// `out_for` gives, with the repo's capture commands. Returns the declared
-/// shots the selection takes and those it leaves out because they need a
-/// window the run was not given.
+/// `out_for` gives, with the repo's capture commands. With a picture folder
+/// and an app source tree (<kept>), a platform whose every selected shot the
+/// folder keeps for the tree takes none and gets those, and each shot a
+/// platform takes is kept there. Returns the declared shots the selection
+/// takes and those it leaves out because they need a window the run was not
+/// given.
 fn capture(
     root: &Path,
     settings: &Settings,
     declared: &[Declared],
     selection: &Selection,
+    kept: Option<(&pictures::Pictures, &str)>,
     out_for: impl Fn(Platform) -> PathBuf,
 ) -> Result<capture::Taken, String> {
     let mut all = capture::Taken {
@@ -172,13 +182,28 @@ fn capture(
         not_taken: Vec::new(),
     };
     for platform in selection.platforms(settings) {
+        let out = std::path::absolute(out_for(platform)).map_err(|e| e.to_string())?;
+        if let Some((pictures, tree)) = kept {
+            let taken = capture::taken(declared, platform, &selection.prefixes, selection.windows)
+                .map_err(|e| e.to_string())?;
+            capture::clear(&out, platform).map_err(|e| e.to_string())?;
+            if pictures.take_shots(platform, tree, &taken.names, &out)? {
+                crate::log::note(format_args!(
+                    "took the {} {} shots of app tree {tree} from the picture folder; capturing none",
+                    taken.names.len(),
+                    platform.word()
+                ));
+                all.names.extend(taken.names);
+                all.not_taken.extend(taken.not_taken);
+                continue;
+            }
+        }
         let command = settings
             .capture
             .iter()
             .find(|(p, _)| *p == platform)
             .map(|(_, command)| command.as_slice())
             .unwrap_or_default();
-        let out = std::path::absolute(out_for(platform)).map_err(|e| e.to_string())?;
         let taken = capture::capture(
             root,
             command,
@@ -189,6 +214,9 @@ fn capture(
             &out,
         )
         .map_err(|e| e.to_string())?;
+        if let Some((pictures, tree)) = kept {
+            pictures.keep_shots(platform, tree, &taken.names, &out)?;
+        }
         all.names.extend(taken.names);
         all.not_taken.extend(taken.not_taken);
     }
@@ -229,10 +257,16 @@ fn repository_root() -> Result<PathBuf, String> {
     Ok(PathBuf::from(top.trim()))
 }
 
-fn header(commit: String, base: Option<String>, outcome: &verify::Outcome) -> report::Header {
+fn header(
+    commit: String,
+    base: Option<String>,
+    app_tree: Option<String>,
+    outcome: &verify::Outcome,
+) -> report::Header {
     report::Header {
         commit,
         base,
+        app_tree,
         runtime: outcome.runtime.clone(),
         chrome: format!("Chrome for Testing {}", render::chrome::PINNED),
     }
@@ -273,7 +307,9 @@ fn run(action: Action) -> Result<bool, String> {
             selection,
             before,
             pictures,
+            app_tree,
         } => {
+            let pictures = pictures.map(pictures::Pictures::new);
             let before = before
                 .map(|path| {
                     let before = before::Before::load(&path)?;
@@ -287,7 +323,8 @@ fn run(action: Action) -> Result<bool, String> {
                 .transpose()?;
             let declared = read_declared()?;
             let shots = root.join("shots");
-            let taken = capture(&root, &settings, &declared, &selection, |p| {
+            let kept = pictures.as_ref().zip(app_tree.as_deref());
+            let taken = capture(&root, &settings, &declared, &selection, kept, |p| {
                 shots.join(p.word())
             })?;
             let cache = cache_dir()?;
@@ -301,15 +338,17 @@ fn run(action: Action) -> Result<bool, String> {
                 shots_for: &|p| shots.join(p.word()),
                 out: &shots,
                 before: before.as_ref(),
-                pictures: pictures.map(pictures::Pictures::new).as_ref(),
+                pictures: pictures.as_ref(),
             })?;
             let base = before.as_ref().map(|b| b.commit().to_string());
-            let header = header(commit(&root)?, base, &outcome);
+            let header = header(commit(&root)?, base, app_tree, &outcome);
             finish(&outcome, &header, &shots.join("report"))
         }
         Action::Capture { selection, out } => {
             let declared = read_declared()?;
-            capture(&root, &settings, &declared, &selection, |_| out.clone())?;
+            capture(&root, &settings, &declared, &selection, None, |_| {
+                out.clone()
+            })?;
             Ok(true)
         }
         Action::Check {
@@ -342,7 +381,7 @@ fn run(action: Action) -> Result<bool, String> {
                 before: None,
                 pictures: pictures.map(pictures::Pictures::new).as_ref(),
             })?;
-            let header = header(sha, None, &outcome);
+            let header = header(sha, None, None, &outcome);
             finish(&outcome, &header, &out)
         }
         Action::Lint => {

@@ -822,6 +822,9 @@ struct ShotsStore {
     /// The findings.json of the run each shots prefix of the lane compares
     /// with, by its prefix.
     befores: Vec<(String, std::path::PathBuf)>,
+    /// The lane's app source tree at the commit (app_tree.rs), which keys
+    /// the shots the app takes in the picture folder.
+    app_tree: String,
 }
 
 impl ShotsStore {
@@ -838,6 +841,7 @@ impl ShotsStore {
         repo: &str,
         lane: Lane,
         commit: &str,
+        config: &Config,
         picks: &[Pick],
     ) -> Result<ShotsStore> {
         let version = crate::shots_program::VERSION.to_string();
@@ -867,6 +871,7 @@ impl ShotsStore {
             lane,
             version,
             befores,
+            app_tree: crate::app_tree::of(source, commit, config, lane)?,
         })
     }
 
@@ -878,8 +883,9 @@ impl ShotsStore {
 
     /// The command of the shots run <step> in a checkout on this Mac: its
     /// line, comparing with its before run when its prefix has one, and
-    /// taking the board pictures earlier runs drew from the picture folder
-    /// (builds-shots' `run --pictures`).
+    /// taking the board pictures earlier runs drew and the shots earlier
+    /// runs of the lane's app tree took from the picture folder
+    /// (builds-shots' `run --pictures --app-tree`).
     fn local_command(&self, step: &Step) -> Vec<String> {
         let mut command = match self.before_of(step) {
             Some(findings) => with_before(&step.command, &findings.display().to_string()),
@@ -890,6 +896,8 @@ impl ShotsStore {
             shot_store::pictures(&self.places, &self.repo)
                 .display()
                 .to_string(),
+            "--app-tree".to_string(),
+            self.app_tree.clone(),
         ]);
         command
     }
@@ -1298,7 +1306,7 @@ fn build_lane(
         let (tests, builds): (Vec<Step>, Vec<Step>) = steps
             .into_iter()
             .partition(|step| pick_kind_of(&step.name).is_some());
-        let shots = ShotsStore::of(places, &source, repo, lane, &sha, picks)?;
+        let shots = ShotsStore::of(places, &source, repo, lane, &sha, &config, picks)?;
         let watch = lane.uses_xcode();
         let ran = (|| {
             let mut ended =

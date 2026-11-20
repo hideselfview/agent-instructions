@@ -23,6 +23,7 @@ fn header() -> Header {
     Header {
         commit: "abc123def".to_string(),
         base: Some("0a1b2c3d4".to_string()),
+        app_tree: None,
         runtime: "version v1, canvas v2 published 2026-11-11T23:20:00Z".to_string(),
         chrome: "Chrome/157.0.8103.78".to_string(),
     }

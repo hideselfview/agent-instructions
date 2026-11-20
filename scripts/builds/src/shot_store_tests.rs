@@ -321,3 +321,19 @@ fn each_repo_keeps_its_own_runs_and_pictures_under_the_cap() {
     );
     assert!(!big_old.exists() && big_new.exists());
 }
+
+#[test]
+fn the_cap_deletes_an_app_source_trees_shots_whole_when_they_are_used_least_recently() {
+    let scratch = Scratch::new("shot-store-app-shots");
+    let places = scratch.places();
+    let tool = scratch.tool(0);
+    let old_tree = pictures(&places, "demo").join("mac/aaaa");
+    let new_tree = pictures(&places, "demo").join("mac/bbbb");
+    for (tree, hours) in [(&old_tree, 20), (&new_tree, 2)] {
+        fill(&tree.join("mac.a.b@macos.png"), 400);
+        std::fs::write(tree.join("mac.a.b@macos.json"), "{}").unwrap();
+        crate::testing::age_all(tree, hours);
+    }
+    prune_runs(&tool, Run::Real, 500).unwrap();
+    assert!(!old_tree.exists() && new_tree.exists());
+}

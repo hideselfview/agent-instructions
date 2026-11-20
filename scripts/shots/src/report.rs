@@ -28,6 +28,8 @@ pub(crate) struct Header {
     /// The commit of the run the pairs were compared with, when there was
     /// one.
     pub(crate) base: Option<String>,
+    /// The app source tree the shots were taken of, when builds named one.
+    pub(crate) app_tree: Option<String>,
     /// What the run says of the runtime copy it drew the boards with.
     pub(crate) runtime: String,
     pub(crate) chrome: String,
@@ -430,7 +432,12 @@ pub(crate) fn write(dir: &Path, outcome: &Outcome, header: &Header) -> Result<()
     let index = dir.join("index.html");
     std::fs::write(&index, page(outcome, header))
         .map_err(|e| format!("cannot write {}: {e}", index.display()))?;
-    crate::findings_file::write(dir, &header.commit, &outcome.checked)
+    crate::findings_file::write(
+        dir,
+        &header.commit,
+        header.app_tree.as_deref(),
+        &outcome.checked,
+    )
 }
 
 #[cfg(test)]

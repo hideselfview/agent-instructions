@@ -6,7 +6,8 @@
 //!
 //! The file is one object: `version`, the version of the program that wrote
 //! it (`builds-shots version`); `commit`, the commit the run checked;
-//! `scenes`, every pair the run checked; `boards`, each pair's board hash,
+//! `app_tree`, the app source tree the shots were taken of when builds named
+//! one (`run --app-tree`); `scenes`, every pair the run checked; `boards`, each pair's board hash,
 //! the hash of everything its board picture depends on, which keys the
 //! picture in builds' picture folder; and `findings`, the records pair by
 //! pair, each pair's findings before its warnings. A later run compares its
@@ -36,6 +37,8 @@ pub(crate) const FILE: &str = "findings.json";
 struct File<'a> {
     version: &'a str,
     commit: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    app_tree: Option<&'a str>,
     scenes: Vec<String>,
     boards: BTreeMap<String, String>,
     findings: Vec<Record>,
@@ -243,7 +246,7 @@ fn board_entry(finding: &Finding) -> Option<&Entry> {
 }
 
 /// The file's text for the pairs a run of <commit> checked.
-pub(crate) fn text(commit: &str, checked: &[Checked]) -> String {
+pub(crate) fn text(commit: &str, app_tree: Option<&str>, checked: &[Checked]) -> String {
     let mut findings = Vec::new();
     for pair in checked {
         let scene = pair.name.to_string();
@@ -272,6 +275,7 @@ pub(crate) fn text(commit: &str, checked: &[Checked]) -> String {
     let file = File {
         version: crate::VERSION,
         commit,
+        app_tree,
         scenes: checked.iter().map(|pair| pair.name.to_string()).collect(),
         boards: checked
             .iter()
@@ -282,11 +286,17 @@ pub(crate) fn text(commit: &str, checked: &[Checked]) -> String {
     serde_json::to_string(&file).expect("the records are plain data")
 }
 
-/// Writes the file for the pairs a run of <commit> checked into the report's
-/// folder `dir`.
-pub(crate) fn write(dir: &Path, commit: &str, checked: &[Checked]) -> Result<(), String> {
+/// Writes the file for the pairs a run of <commit> checked, of the app
+/// source tree <app_tree> when builds named one, into the report's folder
+/// `dir`.
+pub(crate) fn write(
+    dir: &Path,
+    commit: &str,
+    app_tree: Option<&str>,
+    checked: &[Checked],
+) -> Result<(), String> {
     let path = dir.join(FILE);
-    std::fs::write(&path, text(commit, checked))
+    std::fs::write(&path, text(commit, app_tree, checked))
         .map_err(|e| format!("cannot write {}: {e}", path.display()))
 }
 

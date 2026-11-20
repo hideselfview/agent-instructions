@@ -11,6 +11,7 @@ mod app_remote;
 mod app_reset;
 mod app_site;
 mod app_timing;
+mod app_tree;
 mod awake;
 mod build_app;
 mod built_tools;

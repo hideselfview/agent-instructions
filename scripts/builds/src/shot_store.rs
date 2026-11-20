@@ -22,14 +22,19 @@
 //! `<volume>/shots/<repo>/pictures/`, which app-build passes to the shots
 //! program (`run --pictures`): the program keeps each board picture it draws
 //! there as `boards/<board hash>.png` and `.json`, the hash of everything the
-//! picture depends on, and draws only the boards whose hash the folder lacks.
+//! picture depends on, and draws only the boards whose hash the folder lacks;
+//! and it keeps each shot the app takes as
+//! `<platform>/<app source tree>/<shot>.png` and `.json` (app_tree.rs), and
+//! takes no shot again when the folder keeps every one the run selects.
 //!
 //! builds keeps each repo's folder in `shots` under `CAP_KIB`: `setup` and
-//! `prune` delete the repo's whole runs and board pictures, least recently
-//! used first, while it is over (prune.rs calls `prune`). A run's last use is the time of its
-//! run.json, which the run sets as it ends and each read sets again, and a
-//! board picture's is the time of its picture, which the shots program sets
-//! each time it takes the picture, so what agents keep using stays.
+//! `prune` delete the repo's whole runs, board pictures and app source
+//! trees' shots, least recently used first, while it is over (prune.rs calls
+//! `prune`). A run's last use is the time of its run.json, which the run
+//! sets as it ends and each read sets again; a board picture's is the time of
+//! its picture, and an app source tree's shots' the newest time in their
+//! folder, which the shots program sets each time it takes them; so what
+//! agents keep using stays.
 //!
 //! A run that stores its output holds a shared lock on `shots/.writing`
 //! (`WRITING`) from before it makes its folders until its run is in place,
@@ -373,7 +378,12 @@ pub fn before_run(
 /// element list.
 enum Unit {
     Run(PathBuf),
-    Picture { png: PathBuf, json: PathBuf },
+    Picture {
+        png: PathBuf,
+        json: PathBuf,
+    },
+    /// The shots of one platform kept for one app source tree.
+    Shots(PathBuf),
 }
 
 /// What a repo's folder in `shots` holds, as the cap sees it.
@@ -385,6 +395,8 @@ struct Held {
     stagings: Vec<PathBuf>,
     /// Each board picture's picture and element list.
     pictures: Vec<(PathBuf, PathBuf)>,
+    /// Each folder of the shots of one platform for one app source tree.
+    shots: Vec<PathBuf>,
     /// Each hidden file the shots program writes before it renames it into
     /// the picture folder, and each element list whose picture is gone.
     loose: Vec<PathBuf>,
@@ -432,6 +444,12 @@ fn held(places: &Places, repo: &str) -> Result<Held> {
                     }
                 }
             }
+        }
+    }
+    for (name, platform) in folders_in(&pictures(places, repo))? {
+        if name != BOARD_PICTURES {
+            held.shots
+                .extend(folders_in(&platform)?.into_iter().map(|(_, tree)| tree));
         }
     }
     let boards = pictures(places, repo).join(BOARD_PICTURES);
@@ -512,6 +530,7 @@ fn prune_repo(tool: &Tool, run: Run, cap_kib: u64, repo: &str, alone: bool) -> R
     let mut paths = vec![shots.clone()];
     paths.extend(held.stagings.iter().cloned());
     paths.extend(held.runs.iter().cloned());
+    paths.extend(held.shots.iter().cloned());
     let mut measures = tool.measure_all(&paths)?.into_iter();
     let mut total = measures.next().expect("the folder was measured").kib;
     for (folder, measured) in held.stagings.iter().zip(measures.by_ref()) {
@@ -545,12 +564,18 @@ fn prune_repo(tool: &Tool, run: Run, cap_kib: u64, repo: &str, alone: bool) -> R
         }
     }
     let mut units: Vec<(i64, u64, Unit)> = Vec::new();
-    for (folder, measured) in held.runs.into_iter().zip(measures) {
+    for (folder, measured) in held.runs.into_iter().zip(measures.by_ref()) {
         units.push((
             written_at(&folder.join(RUN_FILE))?,
             measured.kib,
             Unit::Run(folder),
         ));
+    }
+    for (folder, measured) in held.shots.into_iter().zip(measures) {
+        // None: a run deleted the folder since `held` listed it.
+        if let Some(newest) = measured.newest {
+            units.push((newest, measured.kib, Unit::Shots(folder)));
+        }
     }
     for (png, json) in held.pictures {
         units.push((
@@ -580,6 +605,15 @@ fn prune_repo(tool: &Tool, run: Run, cap_kib: u64, repo: &str, alone: bool) -> R
                 folder,
                 run,
                 &format!("{}, a shots run; {over}", human(kib)),
+                Recreate::No,
+                Removal::Background,
+                "",
+            )?,
+            Unit::Shots(folder) => delete_folder(
+                tool,
+                folder,
+                run,
+                &format!("{}, an app source tree's shots; {over}", human(kib)),
                 Recreate::No,
                 Removal::Background,
                 "",

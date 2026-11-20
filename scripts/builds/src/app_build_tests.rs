@@ -931,6 +931,7 @@ fn a_store(places: &Places) -> ShotsStore {
         lane: Lane::Mac,
         version: crate::shots_program::VERSION.to_string(),
         befores: Vec::new(),
+        app_tree: "0123456789abcdef".to_string(),
     }
 }
 
@@ -1103,7 +1104,8 @@ fn a_report_whose_findings_name_another_builds_shots_keeps_nothing() {
 }
 
 #[test]
-fn a_shots_run_is_given_the_picture_folder_and_its_before_runs_findings_when_its_prefix_has_one() {
+fn a_shots_run_is_given_the_picture_folder_its_app_tree_and_its_before_runs_findings_when_its_prefix_has_one()
+ {
     let scratch = crate::testing::Scratch::new("shots-before-arg");
     let held = held_in(&scratch);
     let places = scratch.places();
@@ -1130,14 +1132,17 @@ fn a_shots_run_is_given_the_picture_folder_and_its_before_runs_findings_when_its
     assert_eq!(
         said("shots mac.a."),
         format!(
-            "--before\n{}\n--pictures\n{}\n",
+            "--before\n{}\n--pictures\n{}\n--app-tree\n0123456789abcdef\n",
             findings.display(),
             pictures.display()
         )
     );
     assert_eq!(
         said("shots mac.b."),
-        format!("--pictures\n{}\n", pictures.display())
+        format!(
+            "--pictures\n{}\n--app-tree\n0123456789abcdef\n",
+            pictures.display()
+        )
     );
 }
 
@@ -1153,7 +1158,18 @@ fn a_lanes_shots_runs_compare_with_the_kept_run_of_the_merge_base_and_a_run_of_m
     let top = scratch.dir.join("repo");
     shots_repo(&top);
     let main = resolve(&top, "HEAD").unwrap();
-    let of = |commit: &str| ShotsStore::of(&places, &top, "demo", Lane::Mac, commit, &a_screens());
+    let config = parse_config(&std::fs::read_to_string(top.join(CONFIG)).unwrap()).unwrap();
+    let of = |commit: &str| {
+        ShotsStore::of(
+            &places,
+            &top,
+            "demo",
+            Lane::Mac,
+            commit,
+            &config,
+            &a_screens(),
+        )
+    };
     let on_main = of(&main).unwrap();
     assert!(
         on_main.befores.is_empty(),

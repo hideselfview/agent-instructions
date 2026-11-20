@@ -61,3 +61,43 @@ fn taking_a_picture_marks_it_used() {
         .unwrap();
     assert!(std::fs::metadata(&png).unwrap().modified().unwrap() > old);
 }
+
+fn shot(text: &str) -> Name {
+    Name::parse(text).unwrap()
+}
+
+#[test]
+fn an_app_trees_shots_are_taken_only_when_the_folder_keeps_every_selected_one() {
+    let dir = tempfile::tempdir().unwrap();
+    let pictures = Pictures::new(dir.path().join("pictures"));
+    let names = [shot("mac.a.b"), shot("mac.a.c")];
+    let taken = dir.path().join("taken");
+    std::fs::create_dir_all(&taken).unwrap();
+    for name in &names[..1] {
+        std::fs::write(taken.join(name.file_name("png")), "png").unwrap();
+        std::fs::write(taken.join(name.file_name("json")), "{}").unwrap();
+    }
+    pictures
+        .keep_shots(Platform::Mac, "tree1", &names[..1], &taken)
+        .unwrap();
+    let out = dir.path().join("out");
+    assert!(
+        !pictures
+            .take_shots(Platform::Mac, "tree1", &names, &out)
+            .unwrap(),
+        "the folder lacks mac.a.c"
+    );
+    assert!(!out.exists(), "nothing is copied when one shot is missing");
+    assert!(
+        pictures
+            .take_shots(Platform::Mac, "tree1", &names[..1], &out)
+            .unwrap()
+    );
+    assert!(out.join(names[0].file_name("png")).is_file());
+    assert!(
+        !pictures
+            .take_shots(Platform::Mac, "tree2", &names[..1], &out)
+            .unwrap(),
+        "another app tree's shots never stand in"
+    );
+}
