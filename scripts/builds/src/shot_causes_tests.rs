@@ -1,9 +1,21 @@
 use super::*;
 use serde_json::{Value, json};
 
-/// A run's findings.json with these records and skipped pairs.
-fn run(records: &[Value], skipped: &[&str]) -> Run {
-    parse(&json!({"findings": records, "skipped": skipped}).to_string()).unwrap()
+/// A run's findings.json with these records, of a run that checked their
+/// scenes and the <clean> scenes, which have none.
+fn run(records: &[Value], clean: &[&str]) -> Run {
+    let mut scenes: Vec<&str> = records
+        .iter()
+        .filter_map(|record| record["scene"].as_str())
+        .chain(clean.iter().copied())
+        .collect();
+    scenes.sort();
+    scenes.dedup();
+    parse(
+        &json!({"version": "v1", "commit": "abc", "scenes": scenes, "findings": records})
+            .to_string(),
+    )
+    .unwrap()
 }
 
 fn element() -> Value {
@@ -155,12 +167,11 @@ fn the_text_names_each_cause_with_its_scenes_findings_and_kinds_under_its_groupi
             frame("mac.a", 8.0, 8.0),
             frame("mac.b", 8.0, 8.0),
         ],
-        &["mac.c", "mac.d"],
+        &["mac.c"],
     );
     assert_eq!(
         text(&run),
-        "4 findings in 2 scenes, grouped by cause, largest first.\n\
-         2 scenes the run skipped on the shots record are in no group, since the record holds their findings only as sentences: mac.c, mac.d\n\
+        "4 findings in 2 of the 3 scenes the run checked, grouped by cause, largest first.\n\
          \n\
          By component:\n\
          \x20 MacRow: 2 scenes, 2 findings\n\
@@ -201,7 +212,7 @@ fn a_cause_names_its_ten_largest_scenes_and_causes_of_one_finding_are_counted() 
 fn a_run_without_findings_says_each_grouping_has_none() {
     assert_eq!(
         text(&run(&[], &[])),
-        "0 findings in 0 scenes, grouped by cause, largest first.\n\nBy component: none\n\nFindings that no component draws, by kind: none\n\nBy colour pair: none\n\nBy frame offset: none\n"
+        "0 findings in 0 of the 0 scenes the run checked, grouped by cause, largest first.\n\nBy component: none\n\nFindings that no component draws, by kind: none\n\nBy colour pair: none\n\nBy frame offset: none\n"
     );
 }
 

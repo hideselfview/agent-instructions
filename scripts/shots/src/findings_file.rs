@@ -4,39 +4,52 @@
 //! the sentences. builds keeps the file with the report and groups it by cause
 //! (`builds shots findings --by-cause`).
 //!
-//! The file is one object: `findings`, the records pair by pair, each pair's
-//! findings before its warnings, and `skipped`, the pairs the run skipped on the record that
-//! hold recorded findings or warnings. The record keeps those as sentences
-//! only, so the file has no records for them.
+//! The file is one object: `version`, the version of the program that wrote
+//! it (`builds-shots version`); `commit`, the commit the run checked;
+//! `scenes`, every pair the run checked; and `findings`, the records pair by
+//! pair, each pair's findings before its warnings. A later run compares its
+//! pairs with the file (before.rs).
 //!
-//! A record holds the pair's name (`scene`), its `kind`, the sentence the run
-//! printed, the design-system `component` that draws the board element it
-//! names (absent when it names none, or no component draws it), and its kind's
-//! fields: the `element` it names (its role and
-//! words), and lengths in points rounded to a tenth as the sentence writes
-//! them. A positive `dx` is right and a positive `dy` is down, in the shot
+//! A record holds the pair's name (`scene`), its `level` (`finding`, which
+//! can fail a run, or `warning`), its `kind`, the sentence the run printed,
+//! the design-system `component` that draws the board element it names
+//! (absent when it names none, or no component draws it), and its kind's
+//! fields: the `element` it names (its role and words), and lengths in points
+//! rounded to a tenth as the sentence writes them. A positive `dx` is right and a positive `dy` is down, in the shot
 //! against the board.
 
 use crate::compare::colour::hex;
 use crate::compare::normalize::Entry;
 use crate::compare::{Aspect, Finding, Part, Warning};
 use crate::shots::Role;
-use crate::verify::{Checked, Skipped};
-use serde::Serialize;
+use crate::verify::Checked;
+use serde::{Deserialize, Serialize};
 use std::path::Path;
 
 /// The file's name in the report's folder.
 pub(crate) const FILE: &str = "findings.json";
 
 #[derive(Serialize)]
-struct File {
+struct File<'a> {
+    version: &'a str,
+    commit: &'a str,
+    scenes: Vec<String>,
     findings: Vec<Record>,
-    skipped: Vec<String>,
+}
+
+/// Whether a record is a finding, which can fail a run, or a warning, which
+/// never does.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum Level {
+    Finding,
+    Warning,
 }
 
 #[derive(Serialize)]
 struct Record {
     scene: String,
+    level: Level,
     /// The design-system component that draws the board's element the record
     /// names (shots.rs); none when the record names no board element or no
     /// component draws it.
@@ -225,8 +238,8 @@ fn board_entry(finding: &Finding) -> Option<&Entry> {
     }
 }
 
-/// The file's text for the pairs a run checked and skipped.
-pub(crate) fn text(checked: &[Checked], skipped: &[Skipped]) -> String {
+/// The file's text for the pairs a run of <commit> checked.
+pub(crate) fn text(commit: &str, checked: &[Checked]) -> String {
     let mut findings = Vec::new();
     for pair in checked {
         let scene = pair.name.to_string();
@@ -236,6 +249,7 @@ pub(crate) fn text(checked: &[Checked], skipped: &[Skipped]) -> String {
         for finding in &pair.findings {
             findings.push(Record {
                 scene: scene.clone(),
+                level: Level::Finding,
                 component: component(board_entry(finding)),
                 what: finding.into(),
                 sentence: finding.sentence(),
@@ -244,24 +258,27 @@ pub(crate) fn text(checked: &[Checked], skipped: &[Skipped]) -> String {
         for warning in &pair.warnings {
             findings.push(Record {
                 scene: scene.clone(),
+                level: Level::Warning,
                 component: component(warning.entry()),
                 what: warning.into(),
                 sentence: warning.sentence(),
             });
         }
     }
-    let skipped = skipped
-        .iter()
-        .filter(|pair| !pair.findings.is_empty() || !pair.warnings.is_empty())
-        .map(|pair| pair.name.to_string())
-        .collect();
-    serde_json::to_string(&File { findings, skipped }).expect("the records are plain data")
+    let file = File {
+        version: crate::VERSION,
+        commit,
+        scenes: checked.iter().map(|pair| pair.name.to_string()).collect(),
+        findings,
+    };
+    serde_json::to_string(&file).expect("the records are plain data")
 }
 
-/// Writes the file into the report's folder `dir`.
-pub(crate) fn write(dir: &Path, checked: &[Checked], skipped: &[Skipped]) -> Result<(), String> {
+/// Writes the file for the pairs a run of <commit> checked into the report's
+/// folder `dir`.
+pub(crate) fn write(dir: &Path, commit: &str, checked: &[Checked]) -> Result<(), String> {
     let path = dir.join(FILE);
-    std::fs::write(&path, text(checked, skipped))
+    std::fs::write(&path, text(commit, checked))
         .map_err(|e| format!("cannot write {}: {e}", path.display()))
 }
 

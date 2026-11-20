@@ -7,7 +7,6 @@
 
 use crate::declared::Declared;
 use crate::names::{Name, Previews, state_id};
-use crate::record::{FILE, Record};
 use regex::Regex;
 use std::path::Path;
 
@@ -41,44 +40,31 @@ pub(crate) fn rows(html: &str, calls: &[String]) -> Vec<String> {
     rows
 }
 
-/// A shot or a record entry with no board.
+/// A declared shot with no board.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Problem {
     pub(crate) name: String,
-    /// True for a shot a harness declares, false for an entry of the record.
-    pub(crate) declared: bool,
     pub(crate) sentence: String,
 }
 
-/// One problem for each declared shot and each entry of the record that has
-/// no board. <calls> are the functions whose calls name a preview's rows, and
-/// <previews> the components a component shot can draw.
+/// One problem for each declared shot that has no board. <calls> are the
+/// functions whose calls name a preview's rows, and <previews> the components
+/// a component shot can draw.
 pub(crate) fn problems(
     root: &Path,
     calls: &[String],
     previews: &Previews,
     declared: &[Declared],
-    record: &Record,
 ) -> Vec<Problem> {
-    let shots = declared.iter().filter_map(|d| {
-        no_board(root, calls, previews, &d.name).map(|why| Problem {
-            name: d.name.to_string(),
-            declared: true,
-            sentence: format!("shot '{}' has no board: {why}", d.name),
+    declared
+        .iter()
+        .filter_map(|d| {
+            no_board(root, calls, previews, &d.name).map(|why| Problem {
+                name: d.name.to_string(),
+                sentence: format!("shot '{}' has no board: {why}", d.name),
+            })
         })
-    });
-    let entries = record.names().filter_map(|text| {
-        let why = match Name::parse(text) {
-            Ok(name) => no_board(root, calls, previews, &name)?,
-            Err(e) => e.to_string(),
-        };
-        Some(Problem {
-            name: text.clone(),
-            declared: false,
-            sentence: format!("{FILE} has an entry '{text}' with no board: {why}"),
-        })
-    });
-    shots.chain(entries).collect()
+        .collect()
 }
 
 /// Why `name` has no board, when it has none.

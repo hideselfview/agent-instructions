@@ -164,12 +164,12 @@ fn a_run_grouped_by_cause_reads_the_records_its_kept_report_holds() {
     std::fs::create_dir_all(&folder).unwrap();
     std::fs::write(
         folder.join(crate::shot_causes::FILE),
-        r#"{"findings": [{"scene": "mac.a", "component": "MacRow", "kind": "region", "sentence": "s"}], "skipped": []}"#,
+        r#"{"findings": [{"scene": "mac.a", "component": "MacRow", "kind": "region", "sentence": "s"}], "scenes": ["mac.a"]}"#,
     )
     .unwrap();
     let text = by_cause(&database, &key, "main").unwrap();
     assert!(
-        text.starts_with("1 finding in 1 scene, grouped by cause"),
+        text.starts_with("1 finding in 1 of the 1 scene the run checked, grouped by cause"),
         "{text}"
     );
 }

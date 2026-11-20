@@ -27,14 +27,13 @@ use crate::text::plural;
 /// The file's name in the report's folder, as the shots program writes it.
 pub const FILE: &str = "findings.json";
 
-/// A run's findings.json.
+/// The parts of a run's findings.json that the grouping reads. The file also
+/// names the program's version and the commit, which builds leaves unread.
 #[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct Run {
+    /// Every scene the run checked.
+    pub scenes: Vec<String>,
     pub findings: Vec<Record>,
-    /// The scenes the run skipped on the shots record whose recorded findings
-    /// the file has no records for.
-    pub skipped: Vec<String>,
 }
 
 /// One finding or warning of one scene.
@@ -301,18 +300,11 @@ pub fn text(run: &Run) -> String {
     let scenes: std::collections::BTreeSet<&str> =
         run.findings.iter().map(|r| r.scene.as_str()).collect();
     let mut out = format!(
-        "{} in {}, grouped by cause, largest first.\n",
+        "{} in {} of the {} the run checked, grouped by cause, largest first.\n",
         plural(run.findings.len(), "finding"),
-        plural(scenes.len(), "scene")
+        scenes.len(),
+        plural(run.scenes.len(), "scene")
     );
-    if !run.skipped.is_empty() {
-        out.push_str(&format!(
-            "{} the run skipped on the shots record {} in no group, since the record holds their findings only as sentences: {}\n",
-            plural(run.skipped.len(), "scene"),
-            if run.skipped.len() == 1 { "is" } else { "are" },
-            run.skipped.join(", ")
-        ));
-    }
     for (title, groups) in [
         ("By component", &causes.components),
         (

@@ -9,7 +9,7 @@ pub(crate) mod read;
 pub(crate) mod runtime;
 pub(crate) mod serve;
 
-use crate::design::{self, DesignSystem};
+use crate::design;
 use crate::names::{self, Name};
 use crate::settings::Settings;
 use crate::shots::{ElementList, Size};
@@ -18,37 +18,6 @@ use std::path::Path;
 
 /// Pixels per point the boards are drawn at.
 const BOARD_SCALE: f64 = 1.0;
-
-/// The hash of the board of each of `names`: everything its picture depends
-/// on, the pinned browser included. Starts no browser.
-pub(crate) fn hashes(
-    root: &Path,
-    names: &[Name],
-    previews: &names::Previews,
-    design: &DesignSystem,
-    runtime_sha256: &str,
-) -> Result<std::collections::BTreeMap<Name, String>, String> {
-    let mut hashes = std::collections::BTreeMap::new();
-    for name in names {
-        let hash = match name {
-            Name::Screen(_) => design::board_hash(
-                root,
-                &name.to_string(),
-                design,
-                runtime_sha256,
-                chrome::PINNED,
-            )
-            .map_err(|e| e.to_string()),
-            Name::Component(c) => {
-                design::preview_hash(root, &c.component(previews), design, chrome::PINNED)
-                    .map_err(|e| e.to_string())
-            }
-        }
-        .map_err(|e| format!("{name}: {e}"))?;
-        hashes.insert(name.clone(), hash);
-    }
-    Ok(hashes)
-}
 
 /// Renders the board of each of `names` from `tree` into `out` as
 /// `<name>.png` and `<name>.json`, in the Chrome kept in the program's cache

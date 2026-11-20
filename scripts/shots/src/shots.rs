@@ -7,7 +7,6 @@
 
 use crate::names::{Name, Platform};
 use serde::{Deserialize, Deserializer, Serialize};
-use sha2::{Digest, Sha256};
 use std::path::Path;
 use unicode_normalization::UnicodeNormalization;
 
@@ -26,8 +25,6 @@ pub(crate) enum ShotError {
 pub(crate) struct Shot {
     pub(crate) list: ElementList,
     pub(crate) picture: Picture,
-    /// The sha256 of the list file and the picture's decoded pixels.
-    pub(crate) hash: String,
 }
 
 impl Shot {
@@ -40,18 +37,7 @@ impl Shot {
         let bytes = std::fs::read(dir.join(&png)).map_err(|e| ShotError::Read(png.clone(), e))?;
         let list = ElementList::parse(&text).map_err(|e| ShotError::List(json, e))?;
         let picture = Picture::decode(&bytes).map_err(|e| ShotError::Picture(png, e))?;
-        let mut hasher = Sha256::new();
-        hasher.update((text.len() as u64).to_le_bytes());
-        hasher.update(text.as_bytes());
-        hasher.update(picture.width.to_le_bytes());
-        hasher.update(picture.height.to_le_bytes());
-        hasher.update(&picture.pixels);
-        let hash = crate::hex::hex(&hasher.finalize());
-        Ok(Self {
-            list,
-            picture,
-            hash,
-        })
+        Ok(Self { list, picture })
     }
 
     /// What is inconsistent in the shot named `name`: the list names another

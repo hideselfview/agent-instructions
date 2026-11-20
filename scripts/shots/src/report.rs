@@ -4,8 +4,7 @@
 
 use crate::compare::{self, Finding, Warning};
 use crate::component_files::{self, Listing};
-use crate::record::Standing;
-use crate::verify::{Checked, Outcome, Skipped};
+use crate::verify::{Checked, Outcome};
 use std::path::Path;
 
 /// Appends formatted text to a string.
@@ -26,6 +25,8 @@ macro_rules! putln {
 /// What the report says about the run it describes.
 pub(crate) struct Header {
     pub(crate) commit: String,
+    /// The commit of the run the pairs were compared with, when there was
+    /// one.
     pub(crate) base: Option<String>,
     /// What the run says of the runtime copy it drew the boards with.
     pub(crate) runtime: String,
@@ -40,21 +41,11 @@ fn esc(text: &str) -> String {
         .replace('"', "&quot;")
 }
 
-fn standing_note(standing: Option<Standing>) -> &'static str {
-    match standing {
-        Some(Standing::New) => "new against the base",
-        Some(Standing::Changed) => "changed against the base",
-        Some(Standing::Unchanged) | None => "",
-    }
-}
-
 /// The standing note as a bracketed suffix, empty when there is none.
-fn bracketed_note(standing: Option<Standing>) -> String {
-    let note = standing_note(standing);
-    if note.is_empty() {
-        String::new()
-    } else {
-        format!(" ({note})")
+fn bracketed_note(pair: &Checked) -> String {
+    match crate::verify::note(pair.against) {
+        "" => String::new(),
+        note => format!(" ({note})"),
     }
 }
 
@@ -175,7 +166,7 @@ fn checked_row(pair: &Checked) -> String {
     let name = pair.name.to_string();
     let (board_marks, shot_marks) = marks(pair);
     let mut html = format!("<article id=\"{id}\"><h3>{id}", id = esc(&name));
-    let note = standing_note(pair.against_base);
+    let note = crate::verify::note(pair.against);
     if !note.is_empty() {
         put!(html, " <span class=\"note\">{note}</span>");
     }
@@ -210,25 +201,6 @@ fn checked_row(pair: &Checked) -> String {
         board = frame(&board_picture(&name), &pair.board.size, &board_marks),
         shot = frame(&shot_picture(&name), &pair.shot.size, &shot_marks),
     );
-    html
-}
-
-fn skipped_row(pair: &Skipped) -> String {
-    let mut html = format!("<li><code>{}</code>", esc(&pair.name.to_string()));
-    let note = standing_note(pair.against_base);
-    if !note.is_empty() {
-        put!(html, " <span class=\"note\">{note}</span>");
-    }
-    for (items, class) in [(&pair.findings, "findings"), (&pair.warnings, "warnings")] {
-        if !items.is_empty() {
-            put!(html, "<ul class=\"{class}\">");
-            for item in items {
-                put!(html, "<li>{}</li>", esc(item));
-            }
-            html.push_str("</ul>");
-        }
-    }
-    html.push_str("</li>");
     html
 }
 
@@ -277,8 +249,6 @@ pub(crate) fn page(outcome: &Outcome, header: &Header) -> String {
         .iter()
         .filter(|c| c.findings.is_empty() && c.warnings.is_empty())
         .collect();
-    let (red, held): (Vec<&Skipped>, Vec<&Skipped>) =
-        outcome.skipped.iter().partition(|s| !s.findings.is_empty());
     let mut html = String::from("<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">");
     html.push_str("<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">");
     html.push_str("<title>Shots against boards</title>");
@@ -288,7 +258,7 @@ pub(crate) fn page(outcome: &Outcome, header: &Header) -> String {
     );
     put!(html, "<dt>Commit</dt><dd>{}</dd>", esc(&header.commit));
     if let Some(base) = &header.base {
-        put!(html, "<dt>Base</dt><dd>{}</dd>", esc(base));
+        put!(html, "<dt>Base</dt><dd>the run of {}</dd>", esc(base));
     }
     put!(
         html,
@@ -299,18 +269,17 @@ pub(crate) fn page(outcome: &Outcome, header: &Header) -> String {
     );
     put!(
         html,
-        "<dt>Pairs</dt><dd>{} failing, {} with warnings, {} confirmed ({} skipped on the record)</dd></dl>",
-        failing.len() + red.len() + outcome.problems.len(),
+        "<dt>Pairs</dt><dd>{} failing, {} with warnings, {} confirmed</dd></dl>",
+        failing.len() + outcome.problems.len(),
         warned.len(),
-        clean.len() + held.len(),
-        outcome.skipped.len()
+        clean.len()
     );
     put!(
         html,
         "<section><h2>Failures ({})</h2>",
-        failing.len() + red.len() + outcome.problems.len()
+        failing.len() + outcome.problems.len()
     );
-    if failing.is_empty() && red.is_empty() && outcome.problems.is_empty() {
+    if failing.is_empty() && outcome.problems.is_empty() {
         html.push_str("<p>None.</p>");
     }
     if !outcome.problems.is_empty() {
@@ -322,13 +291,6 @@ pub(crate) fn page(outcome: &Outcome, header: &Header) -> String {
     }
     for pair in &failing {
         html.push_str(&checked_row(pair));
-    }
-    if !red.is_empty() {
-        html.push_str("<ul class=\"findings\">");
-        for pair in &red {
-            html.push_str(&skipped_row(pair));
-        }
-        html.push_str("</ul>");
     }
     put!(
         html,
@@ -344,20 +306,13 @@ pub(crate) fn page(outcome: &Outcome, header: &Header) -> String {
     put!(
         html,
         "</section><section><h2>Confirmed ({})</h2>",
-        clean.len() + held.len()
+        clean.len()
     );
-    if clean.is_empty() && held.is_empty() {
+    if clean.is_empty() {
         html.push_str("<p>None.</p>");
     }
     for pair in &clean {
         html.push_str(&checked_row(pair));
-    }
-    if !held.is_empty() {
-        html.push_str("<ul>");
-        for pair in &held {
-            html.push_str(&skipped_row(pair));
-        }
-        html.push_str("</ul>");
     }
     html.push_str("</section>");
     if !outcome.not_taken.is_empty() {
@@ -375,10 +330,6 @@ pub(crate) fn page(outcome: &Outcome, header: &Header) -> String {
     html.push_str(&list_section(
         "Boards with no shot (to build)",
         &outcome.lists.to_build,
-    ));
-    html.push_str(&list_section(
-        "Shots whose board changed since confirmed (to update)",
-        &outcome.lists.to_update,
     ));
     html.push_str(&list_section(
         "Shots with no board (to delete)",
@@ -402,34 +353,27 @@ fn components_section(listing: &Listing) -> String {
 /// The findings as Markdown for a CI step summary: counts, every failure and
 /// the lists; no pictures.
 pub(crate) fn summary(outcome: &Outcome, header: &Header) -> String {
-    let red = outcome
-        .skipped
-        .iter()
-        .filter(|s| !s.findings.is_empty())
-        .count();
-    let checked_failing = outcome
+    let failing = outcome
         .checked
         .iter()
         .filter(|c| !c.findings.is_empty())
         .count();
-    let failing = checked_failing + red;
     let warned = outcome
         .checked
         .iter()
         .filter(|c| c.findings.is_empty() && !c.warnings.is_empty())
         .count();
-    let confirmed = outcome.checked.len() - checked_failing - warned + outcome.skipped.len() - red;
+    let confirmed = outcome.checked.len() - failing - warned;
     let mut text = format!("## Shots against boards\n\nCommit `{}`", header.commit);
     if let Some(base) = &header.base {
-        put!(text, ", base `{base}`");
+        put!(text, ", base: the run of `{base}`");
     }
     put!(
         text,
-        ". {} failing, {} with warnings, {} confirmed ({} skipped on the record). Runtime: {}; Chrome {}.\n\n",
+        ". {} failing, {} with warnings, {} confirmed. Runtime: {}; Chrome {}.\n\n",
         failing + outcome.problems.len(),
         warned,
         confirmed,
-        outcome.skipped.len(),
         header.runtime,
         header.chrome
     );
@@ -439,15 +383,9 @@ pub(crate) fn summary(outcome: &Outcome, header: &Header) -> String {
             putln!(text, "- {}", problem.sentence);
         }
         for pair in outcome.checked.iter().filter(|c| !c.findings.is_empty()) {
-            let note = bracketed_note(pair.against_base);
+            let note = bracketed_note(pair);
             for finding in &pair.findings {
                 putln!(text, "- `{}`{note}: {}", pair.name, finding.sentence());
-            }
-        }
-        for pair in outcome.skipped.iter().filter(|s| !s.findings.is_empty()) {
-            let note = bracketed_note(pair.against_base);
-            for finding in &pair.findings {
-                putln!(text, "- `{}`{note}: {finding} (from the record)", pair.name);
             }
         }
         text.push('\n');
@@ -461,10 +399,6 @@ pub(crate) fn summary(outcome: &Outcome, header: &Header) -> String {
     }
     for (title, items) in [
         ("Boards with no shot (to build)", &outcome.lists.to_build),
-        (
-            "Shots whose board changed since confirmed (to update)",
-            &outcome.lists.to_update,
-        ),
         ("Shots with no board (to delete)", &outcome.lists.to_delete),
     ] {
         if !items.is_empty() {
@@ -504,7 +438,7 @@ pub(crate) fn write(dir: &Path, outcome: &Outcome, header: &Header) -> Result<()
     let index = dir.join("index.html");
     std::fs::write(&index, page(outcome, header))
         .map_err(|e| format!("cannot write {}: {e}", index.display()))?;
-    crate::findings_file::write(dir, &outcome.checked, &outcome.skipped)
+    crate::findings_file::write(dir, &header.commit, &outcome.checked)
 }
 
 #[cfg(test)]

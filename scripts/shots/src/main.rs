@@ -2,6 +2,7 @@
 //! shots …` runs it; it reads the repo it runs in, its design files and the
 //! `shots-` lines of its `.app-build` (settings.rs), and names no app.
 
+mod before;
 mod capture;
 mod compare;
 mod component_files;
@@ -13,7 +14,6 @@ mod lint;
 mod lists;
 mod log;
 mod names;
-mod record;
 mod render;
 mod report;
 mod settings;
@@ -27,8 +27,10 @@ use clap::{Args, Parser, Subcommand};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-/// The branch a local run marks its pairs new or changed against.
-const LOCAL_BASE: &str = "origin/main";
+/// The version of this program: a hash of every file cargo builds it from
+/// (build.rs). A run's findings.json names it, and a run compares only with a
+/// run of its own version (before.rs).
+pub(crate) const VERSION: &str = env!("SHOTS_SOURCE");
 
 #[derive(Parser)]
 #[command(name = "builds-shots")]
@@ -41,17 +43,20 @@ struct Cli {
 enum Action {
     /// Name the canvas runtime copy that draws the boards.
     Runtime,
-    /// Write a results record to design/shots.toml, for whoever commits it.
-    /// With no --from, the record the last `run` made (shots/record.toml).
-    Record {
-        /// A results file, such as the record.toml of a `check`'s --out folder.
-        #[arg(long)]
-        from: Option<PathBuf>,
-    },
+    /// Print this program's version, which each run's findings.json names.
+    Version,
     /// Take the shots into shots/, a folder for each platform, and check them.
-    /// Only pairs new or changed against origin/main's record fail the run;
-    /// the rest are listed.
-    Run(Selection),
+    /// With --before, only pairs new or worse against that run fail the run,
+    /// and the rest are listed; without it, every pair with a finding fails.
+    Run {
+        #[command(flatten)]
+        selection: Selection,
+        /// The findings.json of the run to compare with, written by this
+        /// version of the program, such as the run of the branch's merge base
+        /// with origin/main, which builds passes.
+        #[arg(long)]
+        before: Option<PathBuf>,
+    },
     /// Take the shots into a directory.
     Capture {
         #[command(flatten)]
@@ -65,18 +70,14 @@ enum Action {
         /// The directory holding every platform's PNGs and element lists.
         #[arg(long)]
         shots: PathBuf,
-        /// The directory the report and the results record (record.toml) are
-        /// written to, with the rendered boards.
+        /// The directory the report is written to, with the rendered boards.
         #[arg(long)]
         out: PathBuf,
-        /// A git ref whose record the pairs are marked new or changed against.
-        #[arg(long)]
-        base: Option<String>,
         /// The commit the shots were taken at, for the report.
         #[arg(long)]
         sha: String,
     },
-    /// Fail when a declared shot or an entry of the record has no board.
+    /// Fail when a declared shot has no board.
     Lint,
     /// List each design-system component's preview rows whose shot its
     /// capture file (Components/<Component>.<extension> under the platform's
@@ -240,7 +241,18 @@ fn run(action: Action) -> Result<bool, String> {
     let settings = Settings::load(&root).map_err(|e| e.to_string())?;
     let read_declared = || declared::read(&root, &settings.declared).map_err(|e| e.to_string());
     match action {
-        Action::Run(selection) => {
+        Action::Run { selection, before } => {
+            let before = before
+                .map(|path| {
+                    let before = before::Before::load(&path)?;
+                    crate::log::note(format_args!(
+                        "comparing with the run of {} ({})",
+                        before.commit(),
+                        path.display()
+                    ));
+                    Ok::<_, String>(before)
+                })
+                .transpose()?;
             let declared = read_declared()?;
             let shots = root.join("shots");
             let taken = capture(&root, &settings, &declared, &selection, |p| {
@@ -256,11 +268,10 @@ fn run(action: Action) -> Result<bool, String> {
                 declared: &declared,
                 shots_for: &|p| shots.join(p.word()),
                 out: &shots,
-                base: Some(LOCAL_BASE),
-                results: Some(&shots.join(record::RESULTS)),
-                gate: verify::Gate::NewOrChanged,
+                before: before.as_ref(),
             })?;
-            let header = header(commit(&root)?, Some(LOCAL_BASE.to_string()), &outcome);
+            let base = before.as_ref().map(|b| b.commit().to_string());
+            let header = header(commit(&root)?, base, &outcome);
             finish(&outcome, &header, &shots.join("report"))
         }
         Action::Capture { selection, out } => {
@@ -268,12 +279,7 @@ fn run(action: Action) -> Result<bool, String> {
             capture(&root, &settings, &declared, &selection, |_| out.clone())?;
             Ok(true)
         }
-        Action::Check {
-            shots,
-            out,
-            base,
-            sha,
-        } => {
+        Action::Check { shots, out, sha } => {
             let declared = read_declared()?;
             let names: Vec<Name> = declared.iter().map(|d| d.name.clone()).collect();
             for platform in settings.platforms() {
@@ -295,31 +301,15 @@ fn run(action: Action) -> Result<bool, String> {
                 declared: &declared,
                 shots_for: &|_| shots.clone(),
                 out: &out,
-                base: base.as_deref(),
-                results: Some(&out.join(record::RESULTS)),
-                gate: verify::Gate::EveryPair,
+                before: None,
             })?;
-            let header = header(sha, base, &outcome);
+            let header = header(sha, None, &outcome);
             finish(&outcome, &header, &out)
         }
-        Action::Record { from } => {
-            let from = from.unwrap_or_else(|| root.join("shots").join(record::RESULTS));
-            record::Record::promote(&from, &root).map_err(|e| e.to_string())?;
-            crate::log::note(format_args!("wrote {}", record::FILE));
-            Ok(true)
-        }
         Action::Lint => {
-            let record =
-                record::Record::load(&root.join(record::FILE)).map_err(|e| e.to_string())?;
             let declared = read_declared()?;
             let previews = names::Previews::of(&root)?;
-            let problems = lint::problems(
-                &root,
-                &settings.preview_calls,
-                &previews,
-                &declared,
-                &record,
-            );
+            let problems = lint::problems(&root, &settings.preview_calls, &previews, &declared);
             for problem in &problems {
                 crate::log::note(&problem.sentence);
             }
@@ -335,6 +325,7 @@ fn run(action: Action) -> Result<bool, String> {
             }
             Ok(true)
         }
+        Action::Version => unreachable!("main prints the version before it reads a repo"),
         Action::Runtime => {
             let checked = render::runtime::check(&root).map_err(|e| e.to_string())?;
             crate::log::note(format_args!(
@@ -347,7 +338,14 @@ fn run(action: Action) -> Result<bool, String> {
 }
 
 fn main() -> ExitCode {
-    match run(Cli::parse().action) {
+    let outcome = match Cli::parse().action {
+        Action::Version => {
+            println!("{VERSION}");
+            Ok(true)
+        }
+        action => run(action),
+    };
+    match outcome {
         Ok(true) => ExitCode::SUCCESS,
         Ok(false) => ExitCode::FAILURE,
         Err(message) => {

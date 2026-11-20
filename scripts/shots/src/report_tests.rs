@@ -22,7 +22,7 @@ fn entry(index: usize, words: &str, kind: Role) -> Entry {
 fn header() -> Header {
     Header {
         commit: "abc123def".to_string(),
-        base: Some("origin/main".to_string()),
+        base: Some("0a1b2c3d4".to_string()),
         runtime: "version v1, canvas v2 published 2026-11-11T23:20:00Z".to_string(),
         chrome: "Chrome/157.0.8103.78".to_string(),
     }
@@ -51,7 +51,7 @@ fn component_gaps() -> Listing {
     }
 }
 
-/// A run of one failing pair, one with a warning and one skipped, with its
+/// A run of one failing pair new against the base and one with a warning, with its
 /// pictures written under `dir`.
 fn outcome(dir: &Path, words: &str) -> Outcome {
     let name = Name::parse("mac.welcome.a").unwrap();
@@ -64,7 +64,7 @@ fn outcome(dir: &Path, words: &str) -> Outcome {
         name: name.clone(),
         findings,
         warnings,
-        against_base: Some(Standing::New),
+        against: Some(crate::before::Against::New),
         board: ElementList::parse(LIST).unwrap(),
         shot: ElementList::parse(LIST).unwrap(),
         pairs: vec![(2, 2)],
@@ -93,26 +93,16 @@ fn outcome(dir: &Path, words: &str) -> Outcome {
                 }],
             ),
         ],
-        skipped: vec![Skipped {
-            name: Name::parse("mac.welcome.c").unwrap(),
-            findings: Vec::new(),
-            warnings: vec!["“Theme” moved 3 pt down in the shot".to_string()],
-            against_base: None,
-        }],
         problems: vec![Problem {
             name: "mac.welcome.gone".to_string(),
-            declared: true,
             sentence: "shot 'mac.welcome.gone' has no board: x is missing".to_string(),
         }],
         lists: Lists {
             to_build: vec!["mac.welcome.todo".to_string()],
-            to_update: Vec::new(),
             to_delete: vec!["mac.welcome.gone".to_string()],
         },
         not_taken: vec![Name::parse("mac.settings.toolbar").unwrap()],
         components: component_gaps(),
-        gate: crate::verify::Gate::EveryPair,
-        base_empty: false,
     }
 }
 
@@ -127,7 +117,6 @@ fn the_page_holds_each_finding_sentence_and_every_picture_it_names_exists() {
         "Shot is missing the button “Set up”",
         "Shot has the text “Beta”, which the board does not",
         "“Continue” moved 4 pt down in the shot",
-        "“Theme” moved 3 pt down in the shot",
         "shot 'mac.welcome.gone' has no board",
     ] {
         let sentence = esc(sentence);
@@ -151,6 +140,7 @@ fn the_page_holds_each_finding_sentence_and_every_picture_it_names_exists() {
     assert!(html.contains("abc123def") && html.contains("2026-11-11T23:20:00Z"));
     assert!(html.contains("Chrome/157.0.8103.78"));
     assert!(html.contains("new against the base"));
+    assert!(html.contains("<dt>Base</dt><dd>the run of 0a1b2c3d4</dd>"));
     assert!(out.join(crate::findings_file::FILE).is_file());
 }
 
@@ -177,7 +167,7 @@ fn the_summary_has_counts_the_failures_and_the_lists() {
     let dir = tempfile::tempdir().unwrap();
     let text = summary(&outcome(dir.path(), "Set up"), &header());
     assert!(
-        text.contains("2 failing, 1 with warnings, 1 confirmed (1 skipped on the record)"),
+        text.contains("base: the run of `0a1b2c3d4`. 2 failing, 1 with warnings, 0 confirmed."),
         "{text}"
     );
     assert!(

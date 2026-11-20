@@ -1,20 +1,10 @@
 //! The design files the boards render from: the design system the boards
-//! load, a board's frame, and the hash of everything a board's picture
-//! depends on.
+//! load and a board's frame.
 
-use crate::render::preview::{REACT, REACT_DOM};
-use boards::{MOCKS, Source, board_path};
-use regex::Regex;
+use boards::{MOCKS, Source};
 use serde::Deserialize;
-use sha2::{Digest, Sha256};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-
-/// The design system's built files, as the hashes name them: their paths in
-/// the repo.
-pub(crate) const TOKENS: &str = boards::TOKENS_CSS;
-pub(crate) const BUNDLE_CSS: &str = "design/system/components/bundle.css";
-pub(crate) const BUNDLE_JS: &str = "design/system/components/bundle.js";
 
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum DesignError {
@@ -26,12 +16,6 @@ pub(crate) enum DesignError {
     BadCanvas(PathBuf, String),
     #[error("canvas.json has no board {0}")]
     NoFrame(String),
-    #[error("board {board} imports {part}, but {file} does not exist")]
-    MissingPart {
-        board: String,
-        part: String,
-        file: PathBuf,
-    },
 }
 
 /// A board's frame on the canvas, in points.
@@ -72,15 +56,6 @@ impl DesignSystem {
             bundle_js,
         })
     }
-
-    /// The built files under the names the hashes give them.
-    fn built(&self) -> [(&'static str, &str); 3] {
-        [
-            (TOKENS, &self.tokens_css),
-            (BUNDLE_CSS, &self.bundle_css),
-            (BUNDLE_JS, &self.bundle_js),
-        ]
-    }
 }
 
 fn read(path: &Path) -> Result<Vec<u8>, DesignError> {
@@ -88,11 +63,6 @@ fn read(path: &Path) -> Result<Vec<u8>, DesignError> {
         path: path.to_path_buf(),
         reason: e.to_string(),
     })
-}
-
-/// The file of the board `name`.
-pub(crate) fn board_file(root: &Path, name: &str) -> PathBuf {
-    root.join(board_path(name))
 }
 
 /// The boards the design session marks ready to be shot, one name a line.
@@ -116,88 +86,6 @@ pub(crate) fn frame(root: &Path, name: &str) -> Result<Frame, DesignError> {
         .get(&format!("{name}{}", boards::BOARD_SUFFIX))
         .copied()
         .ok_or_else(|| DesignError::NoFrame(name.to_string()))
-}
-
-/// The board's file and every part it mounts with `dc-import`, parts of parts
-/// included, by name.
-fn reached(root: &Path, name: &str) -> Result<BTreeMap<String, PathBuf>, DesignError> {
-    let import = Regex::new(r#"<dc-import\s[^>]*?\bname="([^"]+)""#).unwrap();
-    let mut files = BTreeMap::new();
-    let mut pending = vec![(name.to_string(), name.to_string())];
-    let mut seen = BTreeSet::new();
-    while let Some((part, importer)) = pending.pop() {
-        if !seen.insert(part.clone()) {
-            continue;
-        }
-        let file = board_file(root, &part);
-        if !file.is_file() {
-            return Err(DesignError::MissingPart {
-                board: importer,
-                part,
-                file,
-            });
-        }
-        let html = String::from_utf8_lossy(&read(&file)?).into_owned();
-        for captures in import.captures_iter(&html) {
-            pending.push((captures[1].to_string(), part.clone()));
-        }
-        files.insert(part, file);
-    }
-    Ok(files)
-}
-
-fn feed(hasher: &mut Sha256, label: &str, bytes: &[u8]) {
-    hasher.update(label.as_bytes());
-    hasher.update([0]);
-    hasher.update((bytes.len() as u64).to_le_bytes());
-    hasher.update(bytes);
-}
-
-/// What a board's picture depends on: its file and the parts it mounts, the
-/// design system's built token sheet, style sheet and script, the runtime
-/// copy and the browser.
-pub(crate) fn board_hash(
-    root: &Path,
-    name: &str,
-    design: &DesignSystem,
-    runtime_sha256: &str,
-    browser_version: &str,
-) -> Result<String, DesignError> {
-    let mut hasher = Sha256::new();
-    for (part, file) in reached(root, name)? {
-        feed(&mut hasher, &format!("board {part}"), &read(&file)?);
-    }
-    for (label, text) in design.built() {
-        feed(&mut hasher, label, text.as_bytes());
-    }
-    feed(&mut hasher, "runtime", runtime_sha256.as_bytes());
-    feed(&mut hasher, "browser", browser_version.as_bytes());
-    Ok(crate::hex::hex(&hasher.finalize()))
-}
-
-/// What a component state's picture depends on: the component's preview page,
-/// the design system's built token sheet, style sheet and script, the copies
-/// of React and the browser.
-pub(crate) fn preview_hash(
-    root: &Path,
-    component: &str,
-    design: &DesignSystem,
-    browser_version: &str,
-) -> Result<String, DesignError> {
-    let mut hasher = Sha256::new();
-    let preview = root.join(boards::preview::preview_path(component));
-    feed(
-        &mut hasher,
-        &format!("preview {component}"),
-        &read(&preview)?,
-    );
-    for (label, text) in design.built() {
-        feed(&mut hasher, label, text.as_bytes());
-    }
-    feed(&mut hasher, "react", REACT.as_bytes());
-    feed(&mut hasher, "react-dom", REACT_DOM.as_bytes());
-    feed(&mut hasher, "browser", browser_version.as_bytes());
-    Ok(crate::hex::hex(&hasher.finalize()))
 }
 
 #[cfg(test)]

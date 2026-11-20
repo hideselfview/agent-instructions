@@ -24,7 +24,7 @@ fn calls() -> Vec<String> {
 }
 
 fn sentences(root: &Path, shots: &[Declared]) -> Vec<String> {
-    problems(root, &calls(), &previews(root), shots, &Record::default())
+    problems(root, &calls(), &previews(root), shots)
         .into_iter()
         .map(|p| p.sentence)
         .collect()
@@ -100,40 +100,6 @@ fn a_screen_shot_needs_its_board_file() {
     let problems = sentences(root.path(), &shots);
     assert_eq!(problems.len(), 1, "{problems:?}");
     assert!(problems[0].contains("design/mocks/mac.welcome.create-name.dc.html"));
-}
-
-#[test]
-fn a_record_entry_needs_its_board_too() {
-    let root = tempfile::tempdir().unwrap();
-    write(
-        root.path(),
-        "design/mocks/mac.welcome.libraries.dc.html",
-        "<x-dc></x-dc>",
-    );
-    let mut record = Record::default();
-    let entry = || crate::record::Entry {
-        board: "b".to_string(),
-        shot: "s".to_string(),
-        findings: Vec::new(),
-        warnings: Vec::new(),
-    };
-    record.set("mac.welcome.libraries", entry());
-    record.set("mac.welcome.gone", entry());
-    record.set("not a name", entry());
-    let found = problems(root.path(), &calls(), &previews(root.path()), &[], &record);
-    assert_eq!(found.len(), 2, "{found:?}");
-    assert!(found.iter().all(|p| !p.declared));
-    assert_eq!(found[1].name, "not a name");
-    assert!(
-        found[0]
-            .sentence
-            .contains("design/shots.toml has an entry 'mac.welcome.gone'")
-    );
-    assert!(
-        found[0]
-            .sentence
-            .contains("mac.welcome.gone.dc.html is missing")
-    );
 }
 
 #[test]

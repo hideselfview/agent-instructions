@@ -1183,26 +1183,29 @@ from the store, never built again.
                               findings.json (one from an older shots program,
                               or one builds no longer keeps) fails, naming the
                               command that runs the shots again
-  builds shots run|capture|check|record|lint|runtime|components [<argument>...]
+  builds shots run|capture|check|lint|runtime|components|version [<argument>...]
                               run builds-shots, which checks the shots of the
                               repo it runs in against the repo's boards, with
                               these arguments; builds gives it a cache folder
                               in the build volume's caches for the Chrome it
                               pins. `builds shots <command> --help` lists a
                               command's arguments. `run` takes the selected
-                              shots into shots/ and checks them, failing on
-                              the pairs new or changed against origin/main's
-                              record (design/shots.toml); `capture` takes
-                              them into a folder; `check` checks shots
+                              shots into shots/ and checks them; with
+                              --before <findings.json>, the findings.json of
+                              a run by the same version of builds-shots, it
+                              fails only on the pairs new or worse against
+                              that run: a pair it did not check, or one with
+                              a finding whose sentence its findings for the
+                              pair lack. Without --before, `run` fails on
+                              every pair with findings. `capture` takes the
+                              shots into a folder; `check` checks shots
                               already taken, failing on every pair with
-                              findings, and writes the report and a results
-                              record; `record` writes a results record to
-                              design/shots.toml; `lint` names each declared
-                              shot and each record entry with no board;
-                              `runtime` names the canvas runtime copy that
-                              draws the boards; `components [<Component>...]`
-                              lists the gaps in the components' capture files
-                              (below) and fails nothing. A component shot is
+                              findings, and writes the report; `lint` names
+                              each declared shot with no board; `runtime`
+                              names the canvas runtime copy that draws the
+                              boards; `components [<Component>...]` lists the
+                              gaps in the components' capture files (below)
+                              and fails nothing. A component shot is
                               named <platform>.component.<thing>.<state> and
                               draws the component <Platform><Thing>, whose
                               name after its platform spells the thing's
@@ -1243,12 +1246,17 @@ from the store, never built again.
                               shot by its name, so web has no capture files.
                               `run` and
                               `check` write the report: index.html, the
-                              pictures, and findings.json, which holds each
-                              finding as a record of its scene, its kind,
-                              the board element it names, the design-system
-                              component that draws that element (the nearest
-                              component above it in React's tree), its
-                              numbers and its sentence. The program
+                              pictures, and findings.json, which names the
+                              program's version, the commit and every pair
+                              the run checked, and holds each finding and
+                              warning as a record of its scene, its level
+                              (finding or warning), its kind, the board
+                              element it names, the design-system component
+                              that draws that element (the nearest component
+                              above it in React's tree), its numbers and its
+                              sentence. `version` prints the program's
+                              version: a hash of the sources it was built
+                              from. The program
                               reads the
                               .app-build lines that start with shots- (other
                               than shots-source): `shots-capture <platform>
