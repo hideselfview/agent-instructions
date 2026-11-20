@@ -560,10 +560,20 @@ pub fn ensure_local_app_checkout(tool: &Tool, ssh: &Ssh, repo: &str, lane: Lane)
     let dir = add_new(tool, &main, &start)?;
     let made = Checkout::find(&dir.display().to_string()).and_then(|checkout| {
         prepare(tool, ssh, &checkout)?;
-        record_in_lane(tool, repo, lane, &checkout.name())?;
         Ok(checkout)
     });
-    match made {
+    let recorded = made.and_then(|checkout| {
+        // The record's write comes before the message to the lane's queue,
+        // so a failure there takes the record out again with the worktree.
+        if let Err(error) = record_in_lane(tool, repo, lane, &checkout.name()) {
+            return Err(undo(
+                error,
+                forget_in_lane(tool, repo, lane, &checkout.name()),
+            ));
+        }
+        Ok(checkout)
+    });
+    match recorded {
         Ok(checkout) => {
             note(format!(
                 "{repo}'s {} lane had no app checkout on this Mac, so builds made {} for it",
@@ -592,6 +602,18 @@ fn record_in_lane(tool: &Tool, repo: &str, lane: Lane, entry: &str) -> Result<us
     drop(guard);
     crate::queue::repoint(&tool.places, repo, lane)?;
     Ok(set.len())
+}
+
+/// Takes <entry> out of <repo>'s <lane> set when it is in it, under the
+/// lane's queue guard.
+fn forget_in_lane(tool: &Tool, repo: &str, lane: Lane, entry: &str) -> Result<()> {
+    let queue = crate::queue::Queue::of(&tool.places, repo, lane);
+    let guard = queue.guard()?;
+    let mut set = tool.places.app_checkouts_recorded(repo, lane)?;
+    set.retain(|checkout| checkout.entry != entry);
+    tool.places.write_app_checkouts(repo, lane, &set)?;
+    drop(guard);
+    crate::queue::repoint(&tool.places, repo, lane)
 }
 
 /// Takes <entry> (shown to the person as <shown>) out of <repo>'s <lane> app

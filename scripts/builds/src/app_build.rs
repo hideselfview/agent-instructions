@@ -91,6 +91,7 @@ use crate::lock::{self, Found, Keep, Ran, Within};
 use crate::places::Places;
 use crate::shot_findings;
 use crate::text::note;
+use crate::tool::Tool;
 
 const USAGE: &str = "usage: builds app-build <repo> <ref> [--test <Class>]... [--shots <prefix>]... [--all-shots mac|android]... [--fresh] | builds app-build <repo> <ref> <step>... [--test mac|android <Class>]... [--shots mac|android <prefix>]... [--all-shots mac|android]... [--fresh] | builds app-build <repo> --list | builds app-build <repo> --lane mac|android <ref> [<step>...] [--test mac|android <Class>]... [--shots mac|android <prefix>]... [--all-shots mac|android]...";
 
@@ -962,18 +963,12 @@ fn who_asked() -> Option<String> {
 /// Builds what <request> asks for in <lane>'s app checkout on the lane's
 /// lock, and times the run and its steps and records them (app_timing.rs). A
 /// lane that adds a checkout on a host keeps the host's free disk above
-/// <floor_kib>.
-fn run_lane(
-    places: &Places,
-    floor_kib: u64,
-    repo: &str,
-    lane: Lane,
-    request: LaneRequest,
-) -> Result<()> {
+/// the floor of <tool>'s rules.
+fn run_lane(tool: &Tool, repo: &str, lane: Lane, request: LaneRequest) -> Result<()> {
     let mut timing = Timing::start();
-    let result = build_lane(places, floor_kib, repo, lane, request, &mut timing);
+    let result = build_lane(tool, repo, lane, request, &mut timing);
     let passed = result.is_ok();
-    timing.record(places, repo, lane, request.commit, passed);
+    timing.record(&tool.places, repo, lane, request.commit, passed);
     result
 }
 
@@ -1010,13 +1005,14 @@ fn hold_stores(
 }
 
 fn build_lane(
-    places: &Places,
-    floor_kib: u64,
+    tool: &Tool,
     repo: &str,
     lane: Lane,
     request: LaneRequest,
     timing: &mut Timing,
 ) -> Result<()> {
+    let places = &tool.places;
+    let floor_kib = tool.rules.floor_kib;
     let LaneRequest {
         commit,
         names,
@@ -1042,8 +1038,7 @@ fn build_lane(
         ));
     }
     if allowed == lock::Where::Here {
-        let tool = crate::tool::Tool::new(places.clone(), crate::places::Rules::from_env()?);
-        crate::worktree::ensure_local_app_checkout(&tool, &ssh, repo, lane)?;
+        crate::worktree::ensure_local_app_checkout(tool, &ssh, repo, lane)?;
     }
     let held = lock::take_where(places, &ssh, repo, lane, allowed, floor_kib)?;
     let mut held = hold_stores(held, &mut timing.stores)?;
@@ -1458,9 +1453,10 @@ pub fn requested(argv: &[String]) -> Option<(&str, &str)> {
     }
 }
 
-/// `builds app-build`. <floor_kib> is the free-disk floor a host keeps when
-/// a lane adds a checkout there (lane_size.rs).
-pub fn cmd_app_build(places: &Places, floor_kib: u64, args: &[String]) -> Result<()> {
+/// `builds app-build`. The floor of <tool>'s rules is the free-disk floor a
+/// host keeps when a lane adds a checkout there (lane_size.rs).
+pub fn cmd_app_build(tool: &Tool, args: &[String]) -> Result<()> {
+    let places = &tool.places;
     let [repo, rest @ ..] = args else {
         fail!("{USAGE}");
     };
@@ -1510,7 +1506,7 @@ pub fn cmd_app_build(places: &Places, floor_kib: u64, args: &[String]) -> Result
             names: &names,
             picks: &picks,
         };
-        return match run_lane(places, floor_kib, repo, lane, request) {
+        return match run_lane(tool, repo, lane, request) {
             Err(Fail::Exit(code)) => {
                 note(format!(
                     "the {} lane's build failed (exit {code})",

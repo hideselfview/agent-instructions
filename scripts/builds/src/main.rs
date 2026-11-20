@@ -304,8 +304,7 @@ fn run(command: &str, args: &[String]) -> Result<()> {
         "lock" => return lock::cmd_lock(&Places::from_env()?, args),
         "app-build" => {
             return app_build::cmd_app_build(
-                &Places::from_env()?,
-                Rules::from_env()?.floor_kib,
+                &Tool::new(Places::from_env()?, Rules::from_env()?),
                 args,
             );
         }

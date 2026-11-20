@@ -685,7 +685,7 @@ fn a_lane_with_no_app_checkout_on_this_mac_gets_one_and_keeps_it_from_new() {
     );
     git(&main, &["push", "-q", "origin", "main"]);
     let ssh = crate::testing::no_ssh();
-    // The lane lists a checkout on a host only, as the person's did.
+    // The lane lists a checkout on a host only.
     tool.places
         .write_app_checkouts(
             "demo",

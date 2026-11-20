@@ -931,8 +931,7 @@ fn app_build_with_only_a_shots_pick_prints_a_stored_run_and_takes_no_lane() {
     // Served from the store: no lane process starts (one would run this test
     // program as `builds`, and wait for a lock that does not exist).
     cmd_app_build(
-        &places,
-        30 * 1024 * 1024,
+        &scratch.tool(30),
         &args(&["demo", "HEAD", "--shots", "mac.a."]),
     )
     .unwrap();
