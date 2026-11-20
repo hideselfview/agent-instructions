@@ -15,7 +15,7 @@
 //! branch.
 //!
 //! A design change's review page (`design_render/review.html`) shows the
-//! change's words under their heading, and each board twice, side by side in
+//! change's details, one point to a line, and each board twice, side by side in
 //! frames that load the board's own pages: now, the board as it stands on
 //! origin/main, and proposed, the board at the last commit of the change's
 //! range, each drawn with its own commit's design system. A board the change

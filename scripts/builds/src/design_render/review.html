@@ -37,6 +37,8 @@ figcaption a { color: var(--accent); font-weight: 400; font-size: 12px; margin-l
 .frame { position: relative; overflow: hidden; border: 1px solid var(--line); background: #000; }
 .hide-circles .circle { display: none; }
 .circle { position: absolute; box-sizing: border-box; border: 2px solid #f5d90a; border-radius: 16px; pointer-events: auto; }
+.circle .label { position: absolute; left: 6px; bottom: 100%; margin-bottom: 2px; white-space: nowrap; font: 600 12px/1.3 -apple-system, "Segoe UI", Roboto, sans-serif; color: #1d1d22; background: #f5d90a; border-radius: 4px; padding: 1px 6px; }
+.circle .label.below { bottom: auto; top: 100%; margin: 2px 0 0; }
 .status { margin: 0 0 6px; color: var(--dim); font-size: 13px; max-width: 700px; }
 .status .bad { color: var(--bad); }
 .status code { font: 12px ui-monospace, Menlo, monospace; }
@@ -211,9 +213,10 @@ function settle(pair) {
     if (!entry || !entry.found) continue;
     for (const c of entry.circles) c.el.remove();
     entry.circles = list.map(m => {
-      const el = h("div", {class: "circle", title: m.title});
+      const label = m.label ? h("span", {class: "label"}, m.label) : null;
+      const el = h("div", {class: "circle", title: m.title}, label);
       entry.box.append(el);
-      return {el, box: m.box};
+      return {el, label, box: m.box};
     });
   }
   if (!waiting) pair.problems.replaceChildren(...marks.problems.map(p => h("div", {class: "bad"}, p)));
@@ -222,15 +225,12 @@ function settle(pair) {
 function board(b) {
   const caption = h("figcaption", {}, b.caption, h("span", {class: "meta"}, b.theme),
     b.link ? h("a", {href: b.link, target: "_blank", rel: "noopener"}, "on the canvas") : null);
-  const isNew = b.now && b.now.absent;
-  const labels = b.circles.map(c => c.label).filter(Boolean);
-  const problems = h("div", {});
-  const status = h("div", {class: "status"}, boardStatus(isNew, labels), problems);
+  const problems = h("div", {class: "status"});
   const pair = {problems, circles: b.circles};
   const sides = h("div", {class: "pair"},
     side("Now (origin/main)", b.now, "This board is new: it has no now.", pair, "now"),
     side("Proposed (the change)", b.proposed, "", pair, "proposed"));
-  return h("figure", {}, caption, status, sides);
+  return h("figure", {}, caption, problems, sides);
 }
 function gone(d) {
   return h("figure", {}, h("figcaption", {}, h("code", {}, d.path)),
@@ -280,22 +280,23 @@ function layout() {
     }
     const s = scaleOf(b);
     scaleFrame(entry, b.w, b.h, s);
-    for (const {el, box} of circles) {
+    for (const {el, label, box} of circles) {
       // A circle stands 8 screen pixels clear of what it marks at any zoom,
       // so its line never covers the element.
       el.style.left = Math.round(box.x * s - 8) + "px";
       el.style.top = Math.round(box.y * s - 8) + "px";
       el.style.width = Math.round(box.w * s + 16) + "px";
       el.style.height = Math.round(box.h * s + 16) + "px";
+      // A label stands above its circle, and below it where the board's top edge would cut it off.
+      if (label) label.classList.toggle("below", Number.parseInt(el.style.top) < label.offsetHeight + 2);
     }
   }
 }
 const main = document.getElementById("main");
-if (data.details.trim()) main.append(md(data.details));
-if (data.section) {
-  const s = data.section;
-  main.append(h("section", {}, h("h2", {}, s.heading), s.words.trim() ? md(s.words) : null,
-    s.boards.length ? h("div", {class: "boards"}, s.boards.map(board)) : null));
+// The change's details, one point to a line.
+if (data.details.trim()) main.append(h("div", {class: "md"}, data.details.split("\n").filter(l => l.trim()).map(l => h("p", {}, inline(l.trim())))));
+if (data.section && data.section.boards.length) {
+  main.append(h("section", {}, h("div", {class: "boards"}, data.section.boards.map(board))));
 }
 if (data.variants) main.append(variants(data.variants));
 if (data.deleted.length) {

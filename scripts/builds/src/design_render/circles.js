@@ -6,8 +6,8 @@
 // y, w, h in board pixels) of the elements it finds, or the error that stops
 // the selector (board.html's `foundBy`). `circleMarks` takes the circles and
 // each side's answers, null for a side with no drawing or no answer yet, and
-// returns the marks to draw on each side, each a box and the title the circle
-// shows, and the problems to show above the board: a selector that is no
+// returns the marks to draw on each side, each a box, the title the circle
+// shows and the label the page draws beside it, and the problems to show above the board: a selector that is no
 // selector, or one that finds nothing on any side. A side that has not
 // answered is null and gets no marks, so each side draws its marks when its
 // own drawing answers; the page shows the problems once every drawing has.
@@ -18,7 +18,7 @@ function circleMarks(circles, now, proposed) {
     if (circle.box) {
       const b = circle.box;
       const title = circle.label || circle.name;
-      for (const [side] of sides) out[side].push({box: {x: b.x, y: b.y, w: b.width, h: b.height}, title});
+      for (const [side] of sides) out[side].push({box: {x: b.x, y: b.y, w: b.width, h: b.height}, title, label: circle.label});
       return;
     }
     const title = circle.label || circle.name;
@@ -29,18 +29,10 @@ function circleMarks(circles, now, proposed) {
     }
     let boxes = 0;
     for (const [side, found] of sides) {
-      for (const box of found[i].boxes) out[side].push({box, title});
+      for (const box of found[i].boxes) out[side].push({box, title, label: circle.label});
       boxes += found[i].boxes.length;
     }
     if (!boxes) out.problems.push("The circle " + circle.name + " finds no element on the board.");
   });
   return out;
-}
-
-// The line under a board's caption: "New board." for a board with no now, then
-// "Circled: " and the labels of its circles, the parts apart by a space.
-function boardStatus(isNew, labels) {
-  return [isNew ? "New board." : "", labels.length ? "Circled: " + labels.join("; ") : ""]
-    .filter(Boolean)
-    .join(" ");
 }

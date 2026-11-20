@@ -551,29 +551,6 @@ fn circle_marks(circles: &Value, now: &Value, proposed: &Value) -> Value {
     )
 }
 
-/// What `boardStatus` says under a board's caption.
-fn board_status(is_new: bool, labels: &[&str]) -> String {
-    let said = run_script(
-        CIRCLES_SCRIPT,
-        &format!("boardStatus({is_new}, {})", json!(labels)),
-    );
-    said.as_str().expect("a status is text").to_string()
-}
-
-#[test]
-fn a_new_boards_status_keeps_its_words_apart_from_the_circles() {
-    assert_eq!(
-        board_status(true, &["The greeting", "The button"]),
-        "New board. Circled: The greeting; The button"
-    );
-    assert_eq!(board_status(true, &[]), "New board.");
-    assert_eq!(
-        board_status(false, &["The greeting"]),
-        "Circled: The greeting"
-    );
-    assert_eq!(board_status(false, &[]), "");
-}
-
 fn found(boxes: &[(i64, i64)]) -> Value {
     json!({ "boxes": boxes.iter().map(|(x, y)| json!({ "x": x, "y": y, "w": 100, "h": 20 })).collect::<Vec<_>>() })
 }
@@ -591,7 +568,7 @@ fn each_circle_marks_what_its_selector_finds_on_each_side_with_its_label() {
         circle_marks(&circles, &now, &proposed),
         json!({
             "now": [
-                { "box": { "x": 10, "y": 10, "w": 100, "h": 20 }, "title": "The Disc 1 heading goes" },
+                { "box": { "x": 10, "y": 10, "w": 100, "h": 20 }, "title": "The Disc 1 heading goes", "label": "The Disc 1 heading goes" },
                 { "box": { "x": 10, "y": 40, "w": 100, "h": 20 }, "title": ".row:first-child" }
             ],
             "proposed": [
@@ -616,7 +593,7 @@ fn a_box_circle_marks_its_box_on_each_side_the_page_draws_and_finds_no_selector(
         marks,
         json!({
             "now": [
-                { "box": { "x": 10, "y": 20, "w": 300, "h": 40 }, "title": "The sheet" },
+                { "box": { "x": 10, "y": 20, "w": 300, "h": 40 }, "title": "The sheet", "label": "The sheet" },
                 { "box": { "x": 1, "y": 2, "w": 3, "h": 4 }, "title": "box 1,2 3x4" },
                 { "box": { "x": 5, "y": 6, "w": 100, "h": 20 }, "title": ".row" }
             ],
