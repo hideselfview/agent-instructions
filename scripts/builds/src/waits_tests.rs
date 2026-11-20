@@ -167,7 +167,7 @@ fn a_store_gives_each_kind_its_own_rows_and_leaves_out_other_cargo_runs() {
             built_commit: None,
             who: None,
             wait_ms: 7_000,
-            passed: true,
+            outcome: crate::app_timing::Outcome::Passed,
             load: here,
             steps: vec![step("macos", 300_000), step("macos-tests", 100_000)],
         },

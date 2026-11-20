@@ -55,6 +55,16 @@
 //! A takeover stops the step running; the lane's build then runs again from
 //! the checkout, behind the build that took over.
 //!
+//! A stop signal (SIGTERM, SIGINT or SIGHUP) ends the build. The command
+//! passes it on to each lane's process, and each lane, which answers it from
+//! before it joins the queue (lock.rs `end_on_stop_signals`), passes it on to
+//! the step that runs: a step on a host stops there. A lane that waits, for
+//! its turn in the queue or for a host's display, ends the wait, and a lane
+//! between two steps starts no other. The lane then puts the checkout back
+//! on its commit if the steps changed it, gives up its locks and records the
+//! run as stopped, with the step the signal ended as stopped. The command
+//! says it stopped once the lanes have ended.
+//!
 //! An install that moves the stores stops the step running in the same way
 //! (install_gate.rs). The lane, finding the install waiting, leaves the queue,
 //! frees its lock and ends its use of the stores without recording the run,
@@ -87,7 +97,7 @@ use crate::app_config::{
 };
 use crate::app_remote::{RemoteApp, fetched_local_source, local_source};
 use crate::app_site::Site;
-use crate::app_timing::{self, RunRecord, StepKind, StepRecord, StepResult, Timer};
+use crate::app_timing::{self, Outcome, RunRecord, StepKind, StepRecord, StepResult, Timer};
 use crate::checkout::Checkout;
 use crate::claim::Claim;
 use crate::fail;
@@ -544,7 +554,9 @@ type RunStep<'a> =
 /// <log> (app_timing.rs), with what a step that failed or ran past its limit
 /// said (app_build_step_failure.rs). With <watch>, each step's run watches for a line of
 /// `HOST_FAULTS`, and a step that fails after printing one ends the run with
-/// `HostFault`.
+/// `HostFault`. Once this process got a stop signal, it starts no step and
+/// fails, naming the signal; the step the signal ended is recorded as
+/// stopped.
 fn run_steps_with(
     held: &lock::Held,
     steps: &[Step],
@@ -562,6 +574,7 @@ fn run_steps_with(
         } else {
             None
         };
+        lock::refuse_when_stopped(&format!("was to start step {}", step.name))?;
         note(format!("step {}", step.name));
         held.runs(&step.name)?;
         let kind = match pick_kind_of(&step.name) {
@@ -573,8 +586,10 @@ fn run_steps_with(
         let found = Found::default();
         let read = StepRead::default();
         let outcome = run(step, kind, watch.then_some(&found), &read.each_line());
+        let stopped_by = lock::stop_signal();
         let result = match &outcome {
             Ok(Within::Ran(Ran::Finished)) => StepResult::Passed,
+            _ if stopped_by.is_some() => StepResult::Stopped,
             // A run that an install stopped is never recorded: the installed
             // builds records the run it makes in its place.
             Ok(Within::Ran(Ran::Stopped)) => StepResult::TakenOver,
@@ -582,6 +597,13 @@ fn run_steps_with(
             Err(_) => StepResult::Failed(read.failure()),
         };
         log.push(timer.finish(&step.name, kind, result));
+        if let Some(signal) = stopped_by {
+            fail!(
+                "the build stopped on {} during step {}",
+                lock::signal_name(signal),
+                step.name
+            );
+        }
         match outcome {
             Ok(Within::Ran(Ran::Finished)) => {}
             Ok(Within::Ran(Ran::Stopped)) => return Ok(Ended::Stopped),
@@ -929,10 +951,10 @@ impl Timing {
         }
     }
 
-    /// Writes the run to the repo's project store when it took a checkout. A
-    /// repo in no project, or a write that fails, is said and changes nothing
-    /// about the build's result.
-    fn record(self, places: &Places, repo: &str, lane: Lane, built_ref: &str, passed: bool) {
+    /// Writes the run, which ended with <outcome>, to the repo's project
+    /// store when it took a checkout. A repo in no project, or a write that
+    /// fails, is said and changes nothing about the build's result.
+    fn record(self, places: &Places, repo: &str, lane: Lane, built_ref: &str, outcome: Outcome) {
         let Some(held) = self.held else {
             return;
         };
@@ -951,7 +973,7 @@ impl Timing {
                     built_commit: self.commit,
                     who: who_asked(),
                     wait_ms: held.wait.as_millis() as u64,
-                    passed,
+                    outcome,
                     load: held.load,
                     steps: self.steps,
                 },
@@ -975,8 +997,11 @@ fn who_asked() -> Option<String> {
 /// lane that adds a checkout on a host keeps the host's free disk above
 /// the floor of <tool>'s rules. A lane that must run the installed builds
 /// records nothing: this program writes a store of another schema, and the
-/// installed builds records the run it makes in this one's place.
+/// installed builds records the run it makes in this one's place. A stop
+/// signal ends the lane from the moment it starts, and a run that one
+/// reached before it passed is recorded as stopped.
 fn run_lane(tool: &Tool, repo: &str, lane: Lane, request: LaneRequest) -> Result<()> {
+    lock::end_on_stop_signals();
     let mut timing = Timing::start();
     let result = build_lane(tool, repo, lane, request, &mut timing);
     if let Ok(LaneEnd::RunInstalled(why)) = &result {
@@ -985,8 +1010,12 @@ fn run_lane(tool: &Tool, repo: &str, lane: Lane, request: LaneRequest) -> Result
         drop(timing);
         return Err(install_gate::run_installed_after_install(&tool.places, why));
     }
-    let passed = result.is_ok();
-    timing.record(&tool.places, repo, lane, request.commit, passed);
+    let outcome = match &result {
+        Ok(_) => Outcome::Passed,
+        Err(_) if lock::stop_signal().is_some() => Outcome::Stopped,
+        Err(_) => Outcome::Failed,
+    };
+    timing.record(&tool.places, repo, lane, request.commit, outcome);
     result.map(|_| ())
 }
 
@@ -1294,8 +1323,11 @@ pub fn serve_stored(
 
 /// The pids of the lanes' processes, for the signal handler to pass on to.
 static LANE_PIDS: [AtomicI32; 2] = [AtomicI32::new(0), AtomicI32::new(0)];
+/// The stop signal the command got and passed on to the lanes; 0 before.
+static PASSED_ON: AtomicI32 = AtomicI32::new(0);
 
 extern "C" fn pass_to_lanes(signal: libc::c_int) {
+    PASSED_ON.store(signal, Ordering::SeqCst);
     for pid in &LANE_PIDS {
         let pid = pid.load(Ordering::SeqCst);
         if pid > 0 {
@@ -1372,7 +1404,8 @@ fn copy_lines(
 }
 
 /// Runs the lanes in <lanes> at the same time, each as a process of its own;
-/// fails, naming the lanes, if any does.
+/// fails, naming the lanes, if any does. A stop signal goes on to each lane,
+/// and the command, once they have ended, fails saying it stopped.
 pub fn run_lanes(
     repo: &str,
     commit: &str,
@@ -1381,7 +1414,7 @@ pub fn run_lanes(
 ) -> Result<()> {
     let exe = std::env::current_exe().context(|| "finding the builds program".to_string())?;
     unsafe {
-        for signal in [libc::SIGTERM, libc::SIGINT, libc::SIGHUP] {
+        for signal in lock::STOP_SIGNALS {
             libc::signal(signal, pass_to_lanes as *const () as libc::sighandler_t);
         }
     }
@@ -1479,7 +1512,14 @@ pub fn run_lanes(
     if failed.is_empty() {
         Ok(())
     } else {
-        let mut message = format!("app-build failed in {}", failed.join(" and "));
+        let mut message = match PASSED_ON.load(Ordering::SeqCst) {
+            0 => format!("app-build failed in {}", failed.join(" and ")),
+            signal => format!(
+                "app-build stopped on {}, which ended {}",
+                lock::signal_name(signal),
+                failed.join(" and ")
+            ),
+        };
         for (lane, lines) in tails {
             message.push_str(&format!(
                 "\nthe last {} lines of the {} lane:\n{}",

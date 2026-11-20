@@ -957,6 +957,16 @@ builds limits each run of a test line, with all of its classes, to 10 minutes,
 and each --shots or --all-shots run to 20. `builds build-app` and `builds
 lock` set no limit.
 
+SIGTERM, SIGINT or SIGHUP stops an app build. `builds app-build` passes the
+signal to each lane, and each lane passes it to the process group of the step
+that runs; a step on a host stops there. A lane that waits for its turn in the
+queue or for a host's display stops waiting, and a lane between two steps
+starts no other. The lane puts the checkout back on its commit when the steps
+changed it and gives up its lock and the host's window lock. When the lane had
+taken a checkout, builds records its run as stopped, with the step that the
+signal ended as stopped. Once every lane has ended, app-build exits and says
+which signal stopped it.
+
 An app checkout may be on another host (`builds host`). Its lock, queue and
 record of its last build stay on this Mac, under the entry <host>:<name>. A
 build there sends the commit to the host's clone as a job ref (never to
@@ -1089,8 +1099,10 @@ from the store, never built again.
                               for it, the claim of the worktree it ran
                               from, the checkout, the cores and one-minute
                               load of the checkout's host when the run took
-                              the checkout, its wait in the queue, and each
-                              step's start, wall time, CPU time and result,
+                              the checkout, its wait in the queue, how the
+                              run ended (passed, failed, or stopped by a
+                              signal), and each step's start, wall time, CPU
+                              time and result,
                               with, for a step that failed or ran past its
                               limit, an excerpt of its output (the lines from
                               the first test panic or compiler error, else the

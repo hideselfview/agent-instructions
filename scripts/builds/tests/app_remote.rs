@@ -6,10 +6,11 @@
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
+use std::time::{Duration, Instant};
 
 const BUILDS: &str = env!("CARGO_BIN_EXE_builds");
 
-const APP_BUILD: &str = "step mac xcode ./xcode.sh\nstep android hello ./hello.sh\nstep android hang ./hang.sh\nstep android signed ./hello.sh\nhere signed\nlimit hang 1s\ntest android ./t.sh {class}\nresults android out\n";
+const APP_BUILD: &str = "step mac xcode ./xcode.sh\nstep mac quick ./hello.sh\nstep android hello ./hello.sh\nstep android hang ./hang.sh\nstep android signed ./hello.sh\nhere signed\nlimit hang 1s\ntest android ./t.sh {class}\ntest mac ./t.sh {class}\nopens-windows mac\nresults android out\n";
 
 struct World {
     dir: PathBuf,
@@ -78,7 +79,7 @@ impl World {
         );
         script(
             &source.join("t.sh"),
-            "#!/bin/sh\nmkdir -p out\necho \"report of $1\" > out/report\necho \"ran $1\"\n[ \"$1\" != Bad ] || exit 4\n",
+            "#!/bin/sh\nif [ \"$1\" = Sleepy ]; then echo $$ > \"$HOME/sleepy.pid\"; exec sleep 300; fi\nmkdir -p out\necho \"report of $1\" > out/report\necho \"ran $1\"\n[ \"$1\" != Bad ] || exit 4\n",
         );
         run(&source, &["add", "-A"]);
         run(&source, &["commit", "-q", "-m", "Start"]);
@@ -143,20 +144,136 @@ cd "$home" && HOME="$home" exec sh -c "$*"
         World { dir, source }
     }
 
-    fn app_build(&self, args: &[&str]) -> Output {
-        Command::new(BUILDS)
-            .arg("app-build")
-            .arg("demo")
+    /// A `builds` command with <args>, run in the repo with the world's
+    /// volume, home, store and ssh.
+    fn builds(&self, args: &[&str]) -> Command {
+        let mut command = Command::new(BUILDS);
+        command
             .args(args)
             .current_dir(&self.source)
             .env("BUILDS_ROOT", self.dir.join("volume"))
             .env("HOME", self.dir.join("home"))
             .env_remove("CLAUDE_CODE_SESSION_ID")
             .env("BUILDS_LISTS", self.dir.join("lists"))
-            .env("BUILDS_SSH", self.dir.join("bin/ssh"))
+            .env("BUILDS_SSH", self.dir.join("bin/ssh"));
+        command
+    }
+
+    fn app_build(&self, args: &[&str]) -> Output {
+        self.builds(&[&["app-build", "demo"], args].concat())
             .output()
             .unwrap()
     }
+
+    /// Starts `builds app-build demo <args>` with its stderr in the file
+    /// `app-build.err`.
+    fn start_app_build(&self, args: &[&str]) -> Running {
+        let child = self
+            .builds(&[&["app-build", "demo"], args].concat())
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::fs::File::create(self.dir.join("app-build.err")).unwrap())
+            .spawn()
+            .unwrap();
+        Running(child)
+    }
+
+    /// What the app build that `start_app_build` started has printed on
+    /// stderr so far.
+    fn app_build_err(&self) -> String {
+        std::fs::read_to_string(self.dir.join("app-build.err")).unwrap_or_default()
+    }
+
+    /// Makes the project store that records demo's app builds, and puts the
+    /// mac lane's app checkout m1:mac-1 on host m1.
+    fn with_store_and_mac_checkout(&self) {
+        let made = self
+            .builds(&["lists", "init", "demo", "--repos", "demo", "--by", "person"])
+            .output()
+            .unwrap();
+        assert!(made.status.success(), "{made:?}");
+        std::fs::write(self.dir.join("volume/demo/app-checkouts"), "m1:mac-1\n").unwrap();
+    }
+
+    /// The outcome of each recorded app build run, and the result of each of
+    /// its steps, oldest first.
+    fn recorded_runs(&self) -> Vec<(String, Vec<(String, String)>)> {
+        let conn = rusqlite::Connection::open(self.dir.join("lists/demo/builds.sqlite")).unwrap();
+        let runs: Vec<(i64, String)> = conn
+            .prepare("SELECT id, outcome FROM app_build_runs ORDER BY id")
+            .unwrap()
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap();
+        runs.into_iter()
+            .map(|(id, outcome)| {
+                let steps = conn
+                    .prepare(
+                        "SELECT name, result FROM app_build_steps WHERE run_id = ?1 ORDER BY position",
+                    )
+                    .unwrap()
+                    .query_map([id], |row| Ok((row.get(0)?, row.get(1)?)))
+                    .unwrap()
+                    .collect::<Result<_, _>>()
+                    .unwrap();
+                (outcome, steps)
+            })
+            .collect()
+    }
+}
+
+/// An app build the test started, killed when the test ends however it ends.
+struct Running(std::process::Child);
+
+impl Running {
+    fn signal(&self, signal: i32) {
+        assert_eq!(unsafe { libc::kill(self.0.id() as i32, signal) }, 0);
+    }
+
+    /// Its exit status once it has ended, or None when it still runs after
+    /// <patience>.
+    fn ended_within(&mut self, patience: Duration) -> Option<std::process::ExitStatus> {
+        let deadline = Instant::now() + patience;
+        while Instant::now() < deadline {
+            if let Some(status) = self.0.try_wait().unwrap() {
+                return Some(status);
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        None
+    }
+}
+
+impl Drop for Running {
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
+}
+
+/// Waits until <done>, failing the test after a minute with <what>.
+fn until(what: &dyn Fn() -> String, done: &dyn Fn() -> bool) {
+    let deadline = Instant::now() + Duration::from_secs(60);
+    while !done() {
+        assert!(Instant::now() < deadline, "never saw {}", what());
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
+/// Opens the lock file <path>, taking its lock, or None while a process
+/// holds it. The lock lasts as long as the file stays open.
+fn try_lock(path: &Path) -> Option<std::fs::File> {
+    use std::os::unix::io::AsRawFd;
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    let file = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(path)
+        .unwrap();
+    let taken = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0;
+    taken.then_some(file)
 }
 
 impl Drop for World {
@@ -222,19 +339,12 @@ fn a_step_past_its_limit_is_stopped_on_the_host() {
         .trim()
         .parse::<i32>()
         .unwrap();
-    assert_ne!(
-        unsafe { libc_kill(pid) },
-        0,
-        "the step's process on the host is gone"
-    );
+    assert!(!alive(pid), "the step's process on the host is gone");
 }
 
-/// `kill(pid, 0)`: 0 while the process exists.
-unsafe fn libc_kill(pid: i32) -> i32 {
-    unsafe extern "C" {
-        fn kill(pid: i32, signal: i32) -> i32;
-    }
-    unsafe { kill(pid, 0) }
+/// Whether process <pid> exists.
+fn alive(pid: i32) -> bool {
+    unsafe { libc::kill(pid, 0) == 0 }
 }
 
 #[test]
@@ -291,5 +401,87 @@ fn a_build_skips_and_records_a_host_whose_xcode_cannot_start() {
     assert!(
         !out.contains("m1:mac-1") && !err.contains("m1:mac-1"),
         "{out}\n{err}"
+    );
+}
+
+/// A stop signal reaches an app build while its lane waits between steps for
+/// its host's display, which another run holds. The build ends, its lane's
+/// lock is free, and builds records the run as stopped.
+#[test]
+fn a_stop_signal_ends_an_app_build_that_waits_for_its_hosts_display() {
+    let world = World::new("stop-wait");
+    world.with_store_and_mac_checkout();
+    let display = try_lock(&world.dir.join("volume/.app-windows/m1")).unwrap();
+    let mut build = world.start_app_build(&["main", "quick", "--test", "mac", "Good"]);
+    until(
+        &|| {
+            format!(
+                "the build waiting for m1's display: {}",
+                world.app_build_err()
+            )
+        },
+        &|| world.app_build_err().contains("takes m1's display"),
+    );
+    build.signal(libc::SIGTERM);
+    let status = build
+        .ended_within(Duration::from_secs(20))
+        .unwrap_or_else(|| panic!("the build ignored SIGTERM: {}", world.app_build_err()));
+    assert!(!status.success(), "{}", world.app_build_err());
+    assert!(
+        try_lock(&world.dir.join("volume/demo/app.locks/m1:mac-1")).is_some(),
+        "the lane's lock is free"
+    );
+    drop(display);
+    assert_eq!(
+        world.recorded_runs(),
+        vec![(
+            "stopped".to_string(),
+            vec![("quick".to_string(), "passed".to_string())]
+        )]
+    );
+}
+
+/// A stop signal reaches an app build while a step that opens windows runs
+/// on the host. The step's process on the host ends, the lane's lock and the
+/// host's display lock are free, and builds records the run and the step as
+/// stopped.
+#[test]
+fn a_stop_signal_ends_an_app_builds_step_on_the_host_and_frees_its_locks() {
+    let world = World::new("stop-step");
+    world.with_store_and_mac_checkout();
+    let mut build = world.start_app_build(&["main", "quick", "--test", "mac", "Sleepy"]);
+    let pid_file = world.dir.join("remote-home/sleepy.pid");
+    until(
+        &|| format!("the step running on the host: {}", world.app_build_err()),
+        &|| pid_file.exists(),
+    );
+    let pid = std::fs::read_to_string(&pid_file)
+        .unwrap()
+        .trim()
+        .parse::<i32>()
+        .unwrap();
+    build.signal(libc::SIGTERM);
+    let status = build
+        .ended_within(Duration::from_secs(20))
+        .unwrap_or_else(|| panic!("the build ignored SIGTERM: {}", world.app_build_err()));
+    assert!(!status.success(), "{}", world.app_build_err());
+    assert!(!alive(pid), "the step's process on the host is gone");
+    assert!(
+        try_lock(&world.dir.join("volume/demo/app.locks/m1:mac-1")).is_some(),
+        "the lane's lock is free"
+    );
+    assert!(
+        try_lock(&world.dir.join("volume/.app-windows/m1")).is_some(),
+        "the host's display lock is free"
+    );
+    assert_eq!(
+        world.recorded_runs(),
+        vec![(
+            "stopped".to_string(),
+            vec![
+                ("quick".to_string(), "passed".to_string()),
+                ("test Sleepy".to_string(), "stopped".to_string())
+            ]
+        )]
     );
 }

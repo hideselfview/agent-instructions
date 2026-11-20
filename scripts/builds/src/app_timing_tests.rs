@@ -19,7 +19,7 @@ fn step(name: &str, kind: StepKind, at: i64, wall_ms: u64, result: StepResult) -
     }
 }
 
-fn run(at: i64, lane: Lane, wait_ms: u64, passed: bool, steps: Vec<StepRecord>) -> RunRecord {
+fn run(at: i64, lane: Lane, wait_ms: u64, outcome: Outcome, steps: Vec<StepRecord>) -> RunRecord {
     RunRecord {
         started_at: at,
         repo: "bae".to_string(),
@@ -29,7 +29,7 @@ fn run(at: i64, lane: Lane, wait_ms: u64, passed: bool, steps: Vec<StepRecord>) 
         built_commit: None,
         who: Some("agent".to_string()),
         wait_ms,
-        passed,
+        outcome,
         load: None,
         steps,
     }
@@ -41,13 +41,13 @@ const NOW: i64 = 1_000_000;
 fn a_run_keeps_the_load_of_its_checkouts_host() {
     let scratch = Scratch::new("timing-load");
     let path = store(&scratch);
-    let mut loaded = run(NOW, Lane::Mac, 0, true, Vec::new());
+    let mut loaded = run(NOW, Lane::Mac, 0, Outcome::Passed, Vec::new());
     loaded.load = Some(crate::host::Load {
         cores: 10,
         one_minute: 25.5,
     });
     record(&path, &loaded).unwrap();
-    record(&path, &run(NOW, Lane::Mac, 0, true, Vec::new())).unwrap();
+    record(&path, &run(NOW, Lane::Mac, 0, Outcome::Passed, Vec::new())).unwrap();
     let conn = crate::db::open_reader(&path).unwrap().unwrap();
     let loads: Vec<(Option<i64>, Option<f64>)> = conn
         .prepare("SELECT cores, load FROM app_build_runs ORDER BY id")
@@ -64,10 +64,10 @@ fn a_run_keeps_the_commit_it_built_and_a_run_with_none_has_no_row() {
     let scratch = Scratch::new("timing-commit");
     let path = store(&scratch);
     let commit = "0123456789abcdef0123456789abcdef01234567";
-    let mut built = run(NOW, Lane::Mac, 0, true, Vec::new());
+    let mut built = run(NOW, Lane::Mac, 0, Outcome::Passed, Vec::new());
     built.built_commit = Some(commit.to_string());
     record(&path, &built).unwrap();
-    record(&path, &run(NOW, Lane::Mac, 0, true, Vec::new())).unwrap();
+    record(&path, &run(NOW, Lane::Mac, 0, Outcome::Passed, Vec::new())).unwrap();
     let conn = crate::db::open_reader(&path).unwrap().unwrap();
     let commits: Vec<(i64, Option<String>)> = conn
         .prepare("SELECT r.id, c.built_commit FROM app_build_runs r LEFT JOIN app_build_run_commit c ON c.run_id = r.id ORDER BY r.id")
@@ -80,32 +80,62 @@ fn a_run_keeps_the_commit_it_built_and_a_run_with_none_has_no_row() {
 }
 
 /// The passing runs of a repo's lane that recorded their commit come back
-/// newest first, each with the steps that passed in it; failed runs, runs of
-/// the other lane and runs with no commit do not.
+/// newest first, each with the steps that passed in it; failed and stopped
+/// runs, runs of the other lane and runs with no commit do not.
 #[test]
 fn passing_runs_of_a_lane_come_back_newest_first_with_their_passed_steps() {
     let scratch = Scratch::new("timing-passed");
     let path = store(&scratch);
-    let built = |commit: &str, lane: Lane, passed: bool, steps: Vec<StepRecord>| {
-        let mut run = run(NOW, lane, 0, passed, steps);
+    let built = |commit: &str, lane: Lane, outcome: Outcome, steps: Vec<StepRecord>| {
+        let mut run = run(NOW, lane, 0, outcome, steps);
         run.built_commit = Some(commit.repeat(40));
         run
     };
     let passing = |name: &str| step(name, StepKind::Step, NOW, 1, StepResult::Passed);
-    record(&path, &built("a", Lane::Mac, true, vec![passing("macos")])).unwrap();
-    record(&path, &built("b", Lane::Mac, false, vec![passing("macos")])).unwrap();
     record(
         &path,
-        &built("c", Lane::Android, true, vec![passing("android")]),
+        &built("a", Lane::Mac, Outcome::Passed, vec![passing("macos")]),
     )
     .unwrap();
-    record(&path, &run(NOW, Lane::Mac, 0, true, vec![passing("macos")])).unwrap();
+    record(
+        &path,
+        &built("b", Lane::Mac, Outcome::Failed, vec![passing("macos")]),
+    )
+    .unwrap();
+    record(
+        &path,
+        &built(
+            "e",
+            Lane::Mac,
+            Outcome::Stopped,
+            vec![
+                passing("macos"),
+                step("macos-shots", StepKind::Step, NOW, 1, StepResult::Stopped),
+            ],
+        ),
+    )
+    .unwrap();
+    record(
+        &path,
+        &built(
+            "c",
+            Lane::Android,
+            Outcome::Passed,
+            vec![passing("android")],
+        ),
+    )
+    .unwrap();
+    record(
+        &path,
+        &run(NOW, Lane::Mac, 0, Outcome::Passed, vec![passing("macos")]),
+    )
+    .unwrap();
     record(
         &path,
         &built(
             "d",
             Lane::Mac,
-            true,
+            Outcome::Passed,
             vec![
                 passing("macos"),
                 step("macos-shots", StepKind::Step, NOW, 1, StepResult::TakenOver),
@@ -141,7 +171,7 @@ fn a_recorded_run_comes_back_in_the_figures_with_its_steps() {
             NOW - 100,
             Lane::Mac,
             2_000,
-            true,
+            Outcome::Passed,
             vec![
                 step(
                     "macos",
@@ -216,7 +246,7 @@ fn a_steps_figures_count_passing_runs_in_the_window_and_total_runs_times_median(
             NOW - WINDOW_SECONDS - 10,
             Lane::Mac,
             0,
-            true,
+            Outcome::Passed,
             vec![step(
                 "macos",
                 StepKind::Step,
@@ -234,7 +264,7 @@ fn a_steps_figures_count_passing_runs_in_the_window_and_total_runs_times_median(
                 NOW - 1000 + n as i64,
                 Lane::Mac,
                 0,
-                true,
+                Outcome::Passed,
                 vec![step(
                     "macos",
                     StepKind::Step,
@@ -252,7 +282,7 @@ fn a_steps_figures_count_passing_runs_in_the_window_and_total_runs_times_median(
             NOW - 5,
             Lane::Mac,
             0,
-            false,
+            Outcome::Failed,
             vec![step(
                 "macos",
                 StepKind::Step,
@@ -287,7 +317,7 @@ fn steps_are_ranked_by_the_time_they_took_in_all() {
                 NOW - 100 + n,
                 Lane::Mac,
                 0,
-                true,
+                Outcome::Passed,
                 vec![step(
                     "fast",
                     StepKind::Step,
@@ -305,7 +335,7 @@ fn steps_are_ranked_by_the_time_they_took_in_all() {
             NOW - 50,
             Lane::Mac,
             0,
-            true,
+            Outcome::Passed,
             vec![step(
                 "slow",
                 StepKind::Step,
@@ -328,13 +358,13 @@ fn queue_waits_are_per_lane_oldest_first_with_the_lanes_median() {
     for (n, wait) in [(1, 1_000), (2, 9_000), (3, 5_000)] {
         record(
             &path,
-            &run(NOW - 100 + n, Lane::Mac, wait, true, Vec::new()),
+            &run(NOW - 100 + n, Lane::Mac, wait, Outcome::Passed, Vec::new()),
         )
         .unwrap();
     }
     record(
         &path,
-        &run(NOW - 50, Lane::Android, 40_000, false, Vec::new()),
+        &run(NOW - 50, Lane::Android, 40_000, Outcome::Failed, Vec::new()),
     )
     .unwrap();
     let repo = &stats(&path, NOW - WINDOW_SECONDS).unwrap()[0];
@@ -359,7 +389,13 @@ fn only_the_latest_waits_get_a_bar() {
     for n in 0..(WAITS_SHOWN as i64 + 5) {
         record(
             &path,
-            &run(NOW - 1000 + n, Lane::Mac, n as u64, true, Vec::new()),
+            &run(
+                NOW - 1000 + n,
+                Lane::Mac,
+                n as u64,
+                Outcome::Passed,
+                Vec::new(),
+            ),
         )
         .unwrap();
     }
@@ -376,7 +412,13 @@ fn a_store_with_no_run_in_the_window_has_no_figures_and_a_missing_file_has_none(
     let path = store(&scratch);
     record(
         &path,
-        &run(NOW - WINDOW_SECONDS - 1, Lane::Mac, 0, true, Vec::new()),
+        &run(
+            NOW - WINDOW_SECONDS - 1,
+            Lane::Mac,
+            0,
+            Outcome::Passed,
+            Vec::new(),
+        ),
     )
     .unwrap();
     assert!(stats(&path, NOW - WINDOW_SECONDS).unwrap().is_empty());
@@ -397,7 +439,7 @@ fn the_dashboard_json_names_the_window_and_each_repos_figures() {
             NOW - 10,
             Lane::Android,
             3_000,
-            true,
+            Outcome::Passed,
             vec![step(
                 "android",
                 StepKind::Step,

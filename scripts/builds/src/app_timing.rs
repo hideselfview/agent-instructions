@@ -5,9 +5,10 @@
 //!
 //! A run records when it joined the lane's queue, how long it waited there
 //! before it took a checkout (a wait after a takeover included), the checkout,
-//! the ref and the claim of the worktree the caller ran in, and for each step
-//! its start, wall time, CPU time and result. It is written once, when the run
-//! ends, in one transaction. A write that fails is a warning and changes
+//! the ref and the claim of the worktree the caller ran in, how it ended
+//! (passed, failed, or stopped by a stop signal), and for each step its start,
+//! wall time, CPU time and result. It is written once, when the run ends, in
+//! one transaction. A write that fails is a warning and changes
 //! nothing about the build's result, as with the hook's record.
 //!
 //! A step's figures count only its passing runs: the time of a failed,
@@ -72,6 +73,8 @@ pub enum StepResult {
     Failed(StepFailure),
     TimedOut(StepFailure),
     TakenOver,
+    /// A stop signal (SIGTERM, SIGINT or SIGHUP) ended it.
+    Stopped,
 }
 
 impl StepResult {
@@ -81,6 +84,7 @@ impl StepResult {
             StepResult::Failed(_) => "failed",
             StepResult::TimedOut(_) => "timed out",
             StepResult::TakenOver => "taken over",
+            StepResult::Stopped => "stopped",
         }
     }
 
@@ -88,7 +92,27 @@ impl StepResult {
     pub fn failure(&self) -> Option<&StepFailure> {
         match self {
             StepResult::Failed(failure) | StepResult::TimedOut(failure) => Some(failure),
-            StepResult::Passed | StepResult::TakenOver => None,
+            StepResult::Passed | StepResult::TakenOver | StepResult::Stopped => None,
+        }
+    }
+}
+
+/// How a lane's run ended.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Outcome {
+    Passed,
+    Failed,
+    /// A stop signal (SIGTERM, SIGINT or SIGHUP) reached the run before it
+    /// passed.
+    Stopped,
+}
+
+impl Outcome {
+    pub fn word(self) -> &'static str {
+        match self {
+            Outcome::Passed => "passed",
+            Outcome::Failed => "failed",
+            Outcome::Stopped => "stopped",
         }
     }
 }
@@ -120,7 +144,7 @@ pub struct RunRecord {
     pub built_commit: Option<String>,
     pub who: Option<String>,
     pub wait_ms: u64,
-    pub passed: bool,
+    pub outcome: Outcome,
     /// The cores and load of the checkout's host when the run took the
     /// checkout; None when the host did not answer.
     pub load: Option<crate::host::Load>,
@@ -198,7 +222,7 @@ pub fn record(path: &Path, run: &RunRecord) -> Result<()> {
     let what = || format!("writing {}", path.display());
     let tx = conn.transaction().context(what)?;
     tx.execute(
-        "INSERT INTO app_build_runs (started_at, repo, lane, checkout, built_ref, who, wait_ms, passed, cores, load) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+        "INSERT INTO app_build_runs (started_at, repo, lane, checkout, built_ref, who, wait_ms, outcome, cores, load) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
         params![
             run.started_at,
             run.repo,
@@ -207,7 +231,7 @@ pub fn record(path: &Path, run: &RunRecord) -> Result<()> {
             run.built_ref,
             run.who,
             run.wait_ms as i64,
-            run.passed,
+            run.outcome.word(),
             run.load.map(|load| load.cores),
             run.load.map(|load| load.one_minute)
         ],
@@ -239,6 +263,58 @@ pub fn record(path: &Path, run: &RunRecord) -> Result<()> {
     tx.commit().context(what)
 }
 
+/// Moves a store from before an app build run could end stopped: makes the
+/// runs' table again with how each run ended in place of whether it passed
+/// (a run that passed keeps `passed`, and every other run is `failed`), and
+/// the steps' table again with the check that takes a stopped step. Each run
+/// and step keeps its row. migrate.rs runs it with the foreign keys off.
+pub fn record_stopped_runs(db: &Connection) -> Result<()> {
+    use crate::db::{Sql, remake_table, statement};
+    let schema = include_str!("app_timing.sql");
+    remake_table(
+        db,
+        "app_build_runs",
+        // A comment in the table holds a semicolon, so the statement ends at
+        // the table's options.
+        statement(
+            schema,
+            "CREATE TABLE IF NOT EXISTS app_build_runs",
+            ") STRICT;",
+        ),
+        |db| {
+            db.execute_batch(
+                "INSERT INTO app_build_runs (id, started_at, repo, lane, checkout, built_ref, who, wait_ms, outcome, cores, load) SELECT id, started_at, repo, lane, checkout, built_ref, who, wait_ms, CASE passed WHEN 1 THEN 'passed' ELSE 'failed' END, cores, load FROM app_build_runs_old",
+            )
+            .sql()
+        },
+        &[statement(
+            schema,
+            "CREATE INDEX IF NOT EXISTS idx_app_build_runs_started",
+            ";",
+        )],
+    )?;
+    remake_table(
+        db,
+        "app_build_steps",
+        statement(
+            schema,
+            "CREATE TABLE IF NOT EXISTS app_build_steps",
+            ") STRICT, WITHOUT ROWID;",
+        ),
+        |db| {
+            db.execute_batch(
+                "INSERT INTO app_build_steps (run_id, position, name, kind, started_at, wall_ms, cpu_ms, result) SELECT run_id, position, name, kind, started_at, wall_ms, cpu_ms, result FROM app_build_steps_old",
+            )
+            .sql()
+        },
+        &[statement(
+            schema,
+            "CREATE INDEX IF NOT EXISTS idx_app_build_steps_name",
+            ";",
+        )],
+    )
+}
+
 /// A passing app build run: the commit it built (app_build_commit.rs) and
 /// the steps that passed in it.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -264,7 +340,7 @@ pub fn passed_runs(
         .prepare(
             "SELECT r.id, c.built_commit FROM app_build_runs r
              JOIN app_build_run_commit c ON c.run_id = r.id
-             WHERE r.repo = ?1 AND r.lane = ?2 AND r.passed = 1
+             WHERE r.repo = ?1 AND r.lane = ?2 AND r.outcome = 'passed'
              ORDER BY r.id DESC LIMIT ?3",
         )
         .context(what)?;

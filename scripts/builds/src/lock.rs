@@ -17,6 +17,16 @@
 //! SIGHUP sent to this process are passed on to that whole group, so killing
 //! the holder stops its build; the lock goes once the build has exited.
 //!
+//! Those stop signals end the holder's whole run, not only the command that
+//! runs when one comes. The handler records the signal (`stop_signal`), and
+//! every wait of a build ends on it: the wait for a turn in the queue
+//! (queue.rs), for a free lock among the lane's checkouts and for a host's
+//! window lock (window_lock.rs) each fail, naming the signal
+//! (`refuse_when_stopped`), and a command started after the signal gets it
+//! as soon as its group exists. An app build's lane installs the handler
+//! before it joins the queue (`end_on_stop_signals`), so a stop signal that
+//! comes between two steps, or while the lane waits, ends the lane too.
+//!
 //! A group of its own is a background group of the terminal, which the kernel
 //! stops (SIGTTOU, SIGTTIN) when it sets terminal modes or reads, as Gradle's
 //! console does, leaving `wait` waiting for a build that never runs again. So
@@ -81,13 +91,66 @@ static GROUP: AtomicI32 = AtomicI32::new(0);
 static QUEUED: AtomicBool = AtomicBool::new(false);
 /// A takeover or an install stopped, or is stopping, the build.
 static STOPPED: AtomicBool = AtomicBool::new(false);
+/// The stop signal this process got (`STOP_SIGNALS`); 0 before it got one.
+static STOP_SIGNAL: AtomicI32 = AtomicI32::new(0);
 
+/// The signals that end a build: whoever started it, a terminal or a
+/// supervisor wants it to stop.
+pub const STOP_SIGNALS: [libc::c_int; 3] = [libc::SIGTERM, libc::SIGINT, libc::SIGHUP];
+
+/// Sends <signal> to the command's process group, when one runs.
 extern "C" fn pass_on(signal: libc::c_int) {
     let group = GROUP.load(Ordering::SeqCst);
     if group > 0 {
         // kill is async-signal-safe.
         unsafe { libc::kill(-group, signal) };
     }
+}
+
+/// A stop signal: records it, then passes it on to the command's group.
+extern "C" fn end_on(signal: libc::c_int) {
+    STOP_SIGNAL.store(signal, Ordering::SeqCst);
+    pass_on(signal);
+}
+
+/// Makes each of `STOP_SIGNALS` end this process's build: the handler records
+/// the signal and passes it on to the group of the command that runs.
+pub fn end_on_stop_signals() {
+    unsafe {
+        for signal in STOP_SIGNALS {
+            libc::signal(signal, end_on as *const () as libc::sighandler_t);
+        }
+    }
+}
+
+/// The stop signal this process got since `end_on_stop_signals`, if any.
+pub fn stop_signal() -> Option<libc::c_int> {
+    match STOP_SIGNAL.load(Ordering::SeqCst) {
+        0 => None,
+        signal => Some(signal),
+    }
+}
+
+/// The name of <signal>, one of `STOP_SIGNALS`.
+pub fn signal_name(signal: libc::c_int) -> &'static str {
+    match signal {
+        libc::SIGTERM => "SIGTERM",
+        libc::SIGINT => "SIGINT",
+        libc::SIGHUP => "SIGHUP",
+        _ => "a signal",
+    }
+}
+
+/// Fails, naming the stop signal and <waiting> (what the build was doing),
+/// once this process got a stop signal.
+pub fn refuse_when_stopped(waiting: &str) -> Result<()> {
+    if let Some(signal) = stop_signal() {
+        fail!(
+            "the build stopped on {} while it {waiting}",
+            signal_name(signal)
+        );
+    }
+    Ok(())
 }
 
 /// SIGUSR2: stops the build, for a takeover or an install. Outside the time
@@ -465,6 +528,10 @@ fn take_free_lock(
         asked: HashMap::new(),
     };
     loop {
+        refuse_when_stopped(&format!(
+            "waited for a free app checkout of {repo}'s {} lane",
+            lane.word()
+        ))?;
         let checkouts: Vec<String> = places
             .app_checkouts_of(repo, lane)?
             .into_iter()
@@ -766,8 +833,8 @@ pub enum Within {
 }
 
 /// Runs <start> in a process group of its own, passing SIGTERM, SIGINT and
-/// SIGHUP on to the whole group, and fails with its exit status, unless a
-/// takeover or an install stopped it.
+/// SIGHUP on to the whole group and recording them (`stop_signal`), and fails
+/// with its exit status, unless a takeover or an install stopped it.
 pub fn run_in_group(start: Command, command: &str) -> Result<Ran> {
     match run_in_group_within(start, command, None)? {
         Within::Ran(ran) => Ok(ran),
@@ -934,12 +1001,12 @@ fn run_group(
     let mut passed = unsafe { std::mem::zeroed::<libc::sigset_t>() };
     unsafe {
         libc::sigemptyset(&mut passed);
-        for signal in [libc::SIGTERM, libc::SIGINT, libc::SIGHUP] {
+        for signal in STOP_SIGNALS {
             libc::sigaddset(&mut passed, signal);
-            libc::signal(signal, pass_on as *const () as libc::sighandler_t);
         }
         libc::sigprocmask(libc::SIG_BLOCK, &passed, std::ptr::null_mut());
     }
+    end_on_stop_signals();
     let foreground = is_terminal_foreground();
     start.process_group(0);
     unsafe {
@@ -983,6 +1050,9 @@ fn run_group(
     // A stop that came before the group was known stops it now.
     if STOPPED.load(Ordering::SeqCst) {
         unsafe { libc::kill(-group, libc::SIGTERM) };
+    }
+    if let Some(signal) = stop_signal() {
+        unsafe { libc::kill(-group, signal) };
     }
     // Dropping `ended` tells the watcher the command is over.
     let (ended, over) = channel::<()>();

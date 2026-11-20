@@ -1,8 +1,9 @@
 //! A wait for a file lock that a signal can end, shared by the queue's wait
 //! for its turn (queue.rs, SIGUSR1) and the wait for a host's window lock
 //! (window_lock.rs, SIGUSR2). Threads blocked in `flock` report through a
-//! pipe, and the waiter sleeps in a kqueue that watches the pipe and the
-//! signal. The kqueue counts the signal from `Wake::new` on, so a signal is
+//! pipe, and the waiter sleeps in a kqueue that watches the pipe, the signal
+//! and the stop signals (lock.rs `STOP_SIGNALS`), which end every wait of a
+//! build. The kqueue counts the signals from `Wake::new` on, so a signal is
 //! seen whether or not the waiter is blocked at that moment.
 
 use std::path::PathBuf;
@@ -62,7 +63,7 @@ impl Wake {
         unreachable!("Wake::new fails off macOS")
     }
 
-    /// Starts a wait for <signal>, counted from now on.
+    /// Starts a wait for <signal> and the stop signals, counted from now on.
     #[cfg(target_os = "macos")]
     pub fn new(signal: libc::c_int) -> Result<Wake> {
         let mut ends = [0; 2];
@@ -85,19 +86,22 @@ impl Wake {
             read: ends[0],
             write: ends[1],
         };
-        let changes = [
-            change(
-                signal as usize,
-                libc::EVFILT_SIGNAL,
-                libc::EV_ADD | libc::EV_CLEAR,
-            ),
-            change(wake.read as usize, libc::EVFILT_READ, libc::EV_ADD),
-        ];
+        let mut changes: Vec<libc::kevent> = std::iter::once(signal)
+            .chain(crate::lock::STOP_SIGNALS)
+            .map(|signal| {
+                change(
+                    signal as usize,
+                    libc::EVFILT_SIGNAL,
+                    libc::EV_ADD | libc::EV_CLEAR,
+                )
+            })
+            .collect();
+        changes.push(change(wake.read as usize, libc::EVFILT_READ, libc::EV_ADD));
         let set = unsafe {
             libc::kevent(
                 kqueue,
                 changes.as_ptr(),
-                2,
+                changes.len() as libc::c_int,
                 std::ptr::null_mut(),
                 0,
                 std::ptr::null(),
@@ -163,10 +167,11 @@ impl Wake {
         }
     }
 
-    /// Blocks until the signal came or a thread reported.
+    /// Blocks until a signal came or a thread reported.
     #[cfg(target_os = "macos")]
     pub fn wait(&self) -> Result<Woke> {
-        let mut events = [change(0, 0, 0); 4];
+        // Room for every signal the kqueue counts and the pipe.
+        let mut events = [change(0, 0, 0); 8];
         loop {
             let count = unsafe {
                 libc::kevent(
@@ -174,7 +179,7 @@ impl Wake {
                     std::ptr::null(),
                     0,
                     events.as_mut_ptr(),
-                    4,
+                    events.len() as libc::c_int,
                     std::ptr::null(),
                 )
             };

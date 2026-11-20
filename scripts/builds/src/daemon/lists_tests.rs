@@ -405,7 +405,7 @@ fn a_recorded_app_build_run_reaches_the_feeds_hooks_json() {
         built_commit: None,
         who: None,
         wait_ms: 1234,
-        passed: true,
+        outcome: crate::app_timing::Outcome::Passed,
         load: None,
         steps: vec![StepRecord {
             name: "macos".into(),

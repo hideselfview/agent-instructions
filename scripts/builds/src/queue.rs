@@ -398,7 +398,8 @@ impl Queue {
     }
 
     /// Waits until a free checkout <mine> may use is left once the tickets
-    /// ahead of it have taken theirs (`may_go`).
+    /// ahead of it have taken theirs (`may_go`). Fails once this process got
+    /// a stop signal (lock.rs `refuse_when_stopped`).
     pub fn wait_for_turn(&self, mine: &str) -> Result<()> {
         self.wait_for_turn_with(mine, || {})
     }
@@ -420,6 +421,10 @@ impl Queue {
         let mut waiting: Vec<(u64, String)> = Vec::new();
         let result = (|| -> Result<()> {
             loop {
+                crate::lock::refuse_when_stopped(&format!(
+                    "waited for its turn in {}",
+                    self.dir.display()
+                ))?;
                 let order = self.order();
                 let Some(at) = order.iter().position(|name| name == mine) else {
                     fail!(

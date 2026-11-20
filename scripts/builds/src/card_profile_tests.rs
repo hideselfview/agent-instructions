@@ -248,7 +248,7 @@ fn landed_card(scratch: &Scratch) -> (crate::lists::store::Store, Id) {
             built_commit: None,
             who: None,
             wait_ms: 20_000,
-            passed: true,
+            outcome: crate::app_timing::Outcome::Passed,
             load: None,
             steps: vec![crate::app_timing::StepRecord {
                 name: "build".into(),
@@ -575,7 +575,7 @@ fn a_failed_shots_step_names_its_shots_in_the_cards_failures_and_totals() {
             built_commit: Some(sha('c')),
             who: None,
             wait_ms: 0,
-            passed: false,
+            outcome: crate::app_timing::Outcome::Failed,
             load: None,
             steps: vec![crate::app_timing::StepRecord {
                 name: "shots mac.a.".into(),

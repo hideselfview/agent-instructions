@@ -233,10 +233,41 @@ pub fn before_review_board_show_now(schema: String) -> String {
 }
 
 /// The stamp of <schema>, a schema older than today's that holds today's
-/// review board table, less the column that says whether the page shows a
-/// board's now, which every older schema lacked.
+/// review board table and app build tables, less the column that says
+/// whether the page shows a board's now and how an app build run ended,
+/// which every older schema lacked.
 fn stamp_before_show_now(schema: String) -> i64 {
-    db::stamp_of_text(&before_review_board_show_now(schema))
+    db::stamp_of_text(&before_review_board_show_now(before_app_build_stopped(
+        schema,
+    )))
+}
+
+/// How an app build run ended, as app_timing.sql writes the column, with the
+/// end of the comment above it, since a cargo run's outcome has the same
+/// column.
+const APP_BUILD_OUTCOME: &str = "    -- SIGHUP) reached it before it passed.\n    outcome TEXT NOT NULL CHECK (outcome IN ('passed', 'failed', 'stopped')),\n";
+
+/// The results an app build step takes, as app_timing.sql writes them.
+const APP_BUILD_STEP_RESULTS: &str =
+    "result IN ('passed', 'failed', 'timed out', 'taken over', 'stopped')";
+
+/// <schema>, which holds today's app build tables, as a schema from before an
+/// app build run could end stopped: a run says whether it passed, and a step
+/// cannot be stopped.
+pub fn before_app_build_stopped(schema: String) -> String {
+    assert_eq!(schema.matches(APP_BUILD_OUTCOME).count(), 1);
+    assert_eq!(schema.matches(APP_BUILD_STEP_RESULTS).count(), 1);
+    schema
+        .replacen(
+            APP_BUILD_OUTCOME,
+            "    passed INTEGER NOT NULL CHECK (passed IN (0, 1)),\n",
+            1,
+        )
+        .replacen(
+            APP_BUILD_STEP_RESULTS,
+            "result IN ('passed', 'failed', 'timed out', 'taken over')",
+            1,
+        )
 }
 
 /// The kinds a landing's step takes, as land_run.sql writes them.
@@ -270,8 +301,8 @@ pub fn store_before_judge(dir: &std::path::Path) -> std::path::PathBuf {
     std::fs::create_dir_all(dir).unwrap();
     let path = dir.join(DATABASE);
     let conn = Connection::open(&path).unwrap();
-    conn.execute_batch(&before_landing_repo(with_review_section_words(
-        db::schema_before_judge(),
+    conn.execute_batch(&before_app_build_stopped(before_landing_repo(
+        with_review_section_words(db::schema_before_judge()),
     )))
     .unwrap();
     conn.pragma_update(None, "user_version", BEFORE_JUDGE_STAMP)
@@ -363,8 +394,8 @@ fn a_store_from_before_the_item_events_gains_their_table_and_equals_a_fresh_sche
     let path = dir.join(DATABASE);
     {
         let conn = Connection::open(&path).unwrap();
-        conn.execute_batch(&before_landing_repo(with_review_section_words(
-            db::schema_before_item_event(),
+        conn.execute_batch(&before_app_build_stopped(before_landing_repo(
+            with_review_section_words(db::schema_before_item_event()),
         )))
         .unwrap();
         conn.pragma_update(None, "user_version", BEFORE_ITEM_EVENT_STAMP)
@@ -407,8 +438,8 @@ fn a_store_from_before_the_landings_record_gains_their_tables_and_equals_a_fresh
     let path = dir.join(DATABASE);
     {
         let conn = Connection::open(&path).unwrap();
-        conn.execute_batch(&before_landing_repo(with_review_section_words(
-            db::schema_before_land_run(),
+        conn.execute_batch(&before_app_build_stopped(before_landing_repo(
+            with_review_section_words(db::schema_before_land_run()),
         )))
         .unwrap();
         conn.pragma_update(None, "user_version", BEFORE_LAND_RUN_STAMP)
@@ -447,8 +478,8 @@ fn a_store_from_before_the_exchange_times_gains_their_table_and_equals_a_fresh_s
     let path = dir.join(DATABASE);
     {
         let conn = Connection::open(&path).unwrap();
-        conn.execute_batch(&before_landing_repo(with_review_section_words(
-            db::schema_before_exchange_time(),
+        conn.execute_batch(&before_app_build_stopped(before_landing_repo(
+            with_review_section_words(db::schema_before_exchange_time()),
         )))
         .unwrap();
         conn.pragma_update(None, "user_version", BEFORE_EXCHANGE_TIME_STAMP)
@@ -489,8 +520,8 @@ fn a_store_from_before_the_host_samples_gains_their_table_and_equals_a_fresh_sch
     let path = dir.join(DATABASE);
     {
         let conn = Connection::open(&path).unwrap();
-        conn.execute_batch(&before_landing_repo(with_review_section_words(
-            db::schema_before_host_sample(),
+        conn.execute_batch(&before_app_build_stopped(before_landing_repo(
+            with_review_section_words(db::schema_before_host_sample()),
         )))
         .unwrap();
         conn.pragma_update(None, "user_version", BEFORE_HOST_SAMPLE_STAMP)
@@ -531,8 +562,8 @@ fn a_store_from_before_the_cargo_run_crates_gains_their_table_and_equals_a_fresh
     let path = dir.join(DATABASE);
     {
         let conn = Connection::open(&path).unwrap();
-        conn.execute_batch(&before_landing_repo(with_review_section_words(
-            db::schema_before_cargo_run_crate(),
+        conn.execute_batch(&before_app_build_stopped(before_landing_repo(
+            with_review_section_words(db::schema_before_cargo_run_crate()),
         )))
         .unwrap();
         conn.pragma_update(None, "user_version", BEFORE_CARGO_RUN_CRATE_STAMP)
@@ -571,7 +602,7 @@ fn a_store_from_before_condition_enders_gives_each_condition_the_coordinator() {
     let path = dir.join(DATABASE);
     {
         let conn = Connection::open(&path).unwrap();
-        conn.execute_batch(&schema_before_condition_enders())
+        conn.execute_batch(&before_app_build_stopped(schema_before_condition_enders()))
             .unwrap();
         conn.pragma_update(None, "user_version", BEFORE_CONDITION_ENDERS_STAMP)
             .unwrap();
@@ -654,8 +685,8 @@ fn a_store_from_before_the_judge_gains_its_table_and_equals_a_fresh_schema() {
     let path = dir.join(DATABASE);
     {
         let conn = Connection::open(&path).unwrap();
-        conn.execute_batch(&before_landing_repo(with_review_section_words(
-            db::schema_before_judge(),
+        conn.execute_batch(&before_app_build_stopped(before_landing_repo(
+            with_review_section_words(db::schema_before_judge()),
         )))
         .unwrap();
         conn.pragma_update(None, "user_version", BEFORE_JUDGE_STAMP)
@@ -694,8 +725,8 @@ fn store_before_landing_repo(places: &Places, landings: &[&str]) -> std::path::P
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join(DATABASE);
     let conn = Connection::open(&path).unwrap();
-    conn.execute_batch(&before_landing_repo(with_review_section_words(
-        db::schema_before_card_state(),
+    conn.execute_batch(&before_app_build_stopped(before_landing_repo(
+        with_review_section_words(db::schema_before_card_state()),
     )))
     .unwrap();
     crate::lists::project::init(
@@ -785,8 +816,8 @@ fn a_store_from_before_the_card_states_gains_their_tables_and_equals_a_fresh_sch
     let path = dir.join(DATABASE);
     {
         let conn = Connection::open(&path).unwrap();
-        conn.execute_batch(&before_review_text_rowid(with_review_section_words(
-            db::schema_before_card_state(),
+        conn.execute_batch(&before_app_build_stopped(before_review_text_rowid(
+            with_review_section_words(db::schema_before_card_state()),
         )))
         .unwrap();
         conn.pragma_update(None, "user_version", BEFORE_CARD_STATE_STAMP)
@@ -823,8 +854,8 @@ fn a_store_from_before_the_cargo_run_outcomes_gains_their_tables_and_equals_a_fr
     let path = dir.join(DATABASE);
     {
         let conn = Connection::open(&path).unwrap();
-        conn.execute_batch(&before_review_text_rowid(with_review_section_words(
-            db::schema_before_cargo_run_outcome(),
+        conn.execute_batch(&before_app_build_stopped(before_review_text_rowid(
+            with_review_section_words(db::schema_before_cargo_run_outcome()),
         )))
         .unwrap();
         conn.pragma_update(None, "user_version", BEFORE_CARGO_RUN_OUTCOME_STAMP)
@@ -859,8 +890,8 @@ fn a_store_from_before_the_step_commits_gains_their_tables_and_equals_a_fresh_sc
     let path = dir.join(DATABASE);
     {
         let conn = Connection::open(&path).unwrap();
-        conn.execute_batch(&before_review_text_rowid(with_review_section_words(
-            db::schema_before_step_commits(),
+        conn.execute_batch(&before_app_build_stopped(before_review_text_rowid(
+            with_review_section_words(db::schema_before_step_commits()),
         )))
         .unwrap();
         conn.pragma_update(None, "user_version", BEFORE_STEP_COMMITS_STAMP)
@@ -907,9 +938,9 @@ fn a_store_from_before_the_hook_check_failures_gains_their_tables_and_equals_a_f
     let path = dir.join(DATABASE);
     {
         let conn = Connection::open(&path).unwrap();
-        conn.execute_batch(&with_review_section_words(
+        conn.execute_batch(&before_app_build_stopped(with_review_section_words(
             db::schema_before_hook_check_failure(),
-        ))
+        )))
         .unwrap();
         conn.pragma_update(None, "user_version", BEFORE_HOOK_CHECK_FAILURE_STAMP)
             .unwrap();
@@ -943,9 +974,9 @@ fn a_store_from_before_the_app_build_step_failures_gains_their_tables_and_equals
     let path = dir.join(DATABASE);
     {
         let conn = Connection::open(&path).unwrap();
-        conn.execute_batch(&with_review_section_words(
+        conn.execute_batch(&before_app_build_stopped(with_review_section_words(
             db::schema_before_app_build_step_failure(),
-        ))
+        )))
         .unwrap();
         conn.pragma_update(None, "user_version", BEFORE_APP_BUILD_STEP_FAILURE_STAMP)
             .unwrap();
@@ -979,8 +1010,10 @@ fn a_store_from_before_the_judge_told_table_gains_it_and_equals_a_fresh_schema()
     let path = dir.join(DATABASE);
     {
         let conn = Connection::open(&path).unwrap();
-        conn.execute_batch(&with_review_section_words(db::schema_before_judge_told()))
-            .unwrap();
+        conn.execute_batch(&before_app_build_stopped(with_review_section_words(
+            db::schema_before_judge_told(),
+        )))
+        .unwrap();
         conn.pragma_update(None, "user_version", BEFORE_JUDGE_TOLD_STAMP)
             .unwrap();
     }
@@ -1013,9 +1046,9 @@ fn a_store_from_before_the_design_circle_box_table_gains_it_and_equals_a_fresh_s
     let path = dir.join(DATABASE);
     {
         let conn = Connection::open(&path).unwrap();
-        conn.execute_batch(&with_review_section_words(
+        conn.execute_batch(&before_app_build_stopped(with_review_section_words(
             db::schema_before_design_circle_box(),
-        ))
+        )))
         .unwrap();
         conn.pragma_update(None, "user_version", BEFORE_DESIGN_CIRCLE_BOX_STAMP)
             .unwrap();
@@ -1050,8 +1083,8 @@ fn a_store_from_before_design_places_named_no_app_work_keeps_its_places_and_equa
     let path = dir.join(DATABASE);
     {
         let conn = Connection::open(&path).unwrap();
-        conn.execute_batch(&before_design_place_naming(with_review_section_words(
-            db::schema_before_design_variants(),
+        conn.execute_batch(&before_app_build_stopped(before_design_place_naming(
+            with_review_section_words(db::schema_before_design_variants()),
         )))
         .unwrap();
         conn.pragma_update(None, "user_version", BEFORE_DESIGN_PLACE_NAMING_STAMP)
@@ -1086,9 +1119,9 @@ fn a_store_from_before_the_design_variants_tables_equals_a_fresh_schema() {
     let path = dir.join(DATABASE);
     {
         let conn = Connection::open(&path).unwrap();
-        conn.execute_batch(&with_review_section_words(
+        conn.execute_batch(&before_app_build_stopped(with_review_section_words(
             db::schema_before_design_variants(),
-        ))
+        )))
         .unwrap();
         conn.pragma_update(None, "user_version", BEFORE_DESIGN_VARIANTS_STAMP)
             .unwrap();
@@ -1122,8 +1155,8 @@ fn a_store_from_before_the_over_cap_table_gains_it_and_equals_a_fresh_schema() {
     let path = dir.join(DATABASE);
     {
         let conn = Connection::open(&path).unwrap();
-        conn.execute_batch(&with_review_section_words(with_design_variants(
-            db::schema_before_over_cap(),
+        conn.execute_batch(&before_app_build_stopped(with_review_section_words(
+            with_design_variants(db::schema_before_over_cap()),
         )))
         .unwrap();
         conn.pragma_update(None, "user_version", BEFORE_OVER_CAP_STAMP)
@@ -1158,8 +1191,8 @@ fn a_store_from_before_the_review_section_kept_only_its_heading_keeps_each_headi
     let path = dir.join(DATABASE);
     {
         let conn = Connection::open(&path).unwrap();
-        conn.execute_batch(&with_review_section_words(with_design_variants(
-            db::schema(),
+        conn.execute_batch(&before_app_build_stopped(with_review_section_words(
+            with_design_variants(db::schema()),
         )))
         .unwrap();
         conn.pragma_update(
@@ -1240,8 +1273,10 @@ fn a_store_from_before_the_design_variants_left_loses_their_tables() {
     let path = dir.join(DATABASE);
     {
         let conn = Connection::open(&path).unwrap();
-        conn.execute_batch(&with_design_variants(db::schema()))
-            .unwrap();
+        conn.execute_batch(&before_app_build_stopped(
+            with_design_variants(db::schema()),
+        ))
+        .unwrap();
         conn.pragma_update(None, "user_version", BEFORE_DESIGN_VARIANTS_LEFT_STAMP)
             .unwrap();
         use crate::lists::fixtures::v;
@@ -1332,8 +1367,10 @@ fn a_store_from_before_the_app_landing_steps_keeps_its_steps_and_takes_them() {
     let path = dir.join(DATABASE);
     {
         let mut conn = Connection::open(&path).unwrap();
-        conn.execute_batch(&before_land_app_steps(db::schema()))
-            .unwrap();
+        conn.execute_batch(&before_app_build_stopped(before_land_app_steps(
+            db::schema(),
+        )))
+        .unwrap();
         conn.pragma_update(None, "user_version", BEFORE_LAND_APP_STEPS_STAMP)
             .unwrap();
         crate::land_run::write(&mut conn, &landing(crate::land_run::StepKind::Checks)).unwrap();
@@ -1358,7 +1395,9 @@ fn a_store_from_before_the_app_landing_steps_keeps_its_steps_and_takes_them() {
 #[test]
 fn the_review_board_show_now_stamp_is_the_schema_before_it() {
     assert_eq!(
-        db::stamp_of_text(&before_review_board_show_now(db::schema())),
+        db::stamp_of_text(&before_review_board_show_now(before_app_build_stopped(
+            db::schema()
+        ))),
         BEFORE_REVIEW_BOARD_SHOW_NOW_STAMP
     );
 }
@@ -1375,8 +1414,10 @@ fn a_store_from_before_the_review_boards_show_now_keeps_each_board_with_its_now(
     let path = dir.join(DATABASE);
     {
         let conn = Connection::open(&path).unwrap();
-        conn.execute_batch(&before_review_board_show_now(db::schema()))
-            .unwrap();
+        conn.execute_batch(&before_app_build_stopped(before_review_board_show_now(
+            db::schema(),
+        )))
+        .unwrap();
         conn.pragma_update(None, "user_version", BEFORE_REVIEW_BOARD_SHOW_NOW_STAMP)
             .unwrap();
         use crate::lists::fixtures::v;
@@ -1452,4 +1493,85 @@ fn a_store_from_before_the_review_boards_show_now_keeps_each_board_with_its_now(
         .query_row("SELECT count(*) FROM review_circle", [], |row| row.get(0))
         .unwrap();
     assert_eq!(circles, 1);
+}
+
+#[test]
+fn the_app_build_stopped_stamp_is_the_schema_before_it() {
+    assert_eq!(
+        db::stamp_of_text(&before_app_build_stopped(db::schema())),
+        BEFORE_APP_BUILD_STOPPED_STAMP
+    );
+}
+
+/// A store from before an app build run could end stopped keeps each run
+/// and step: a run that passed says so, every other run failed. The store
+/// then equals a fresh schema, which takes a stopped run and step.
+#[test]
+fn a_store_from_before_stopped_app_builds_keeps_each_run_with_how_it_ended() {
+    let scratch = Scratch::new("move-app-build-stopped");
+    let places = scratch.places();
+    let dir = places.lists.join("bae");
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join(DATABASE);
+    {
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(&before_app_build_stopped(db::schema()))
+            .unwrap();
+        conn.pragma_update(None, "user_version", BEFORE_APP_BUILD_STOPPED_STAMP)
+            .unwrap();
+        conn.execute_batch(
+            "INSERT INTO app_build_runs (id, started_at, repo, lane, checkout, built_ref, wait_ms, passed) VALUES (1, 5, 'bae', 'mac', 'side-1', 'one', 0, 1), (2, 6, 'bae', 'mac', 'side-1', 'two', 0, 0);
+INSERT INTO app_build_steps (run_id, position, name, kind, started_at, wall_ms, cpu_ms, result) VALUES (1, 0, 'macos', 'step', 5, 1, 1, 'passed'), (2, 0, 'macos', 'step', 6, 1, 1, 'failed');",
+        )
+        .unwrap();
+    }
+    migrate_stores(&places, 0).unwrap();
+    let conn = db::open(&path, db::Make::Never).unwrap();
+    assert_eq!(
+        db::schema_rows(&conn).unwrap(),
+        db::schema_rows(&db::memory()).unwrap()
+    );
+    let runs: Vec<(String, String)> = conn
+        .prepare("SELECT built_ref, outcome FROM app_build_runs ORDER BY id")
+        .unwrap()
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+        .unwrap()
+        .collect::<std::result::Result<_, _>>()
+        .unwrap();
+    assert_eq!(
+        runs,
+        [
+            ("one".to_string(), "passed".to_string()),
+            ("two".to_string(), "failed".to_string())
+        ]
+    );
+    let steps: i64 = conn
+        .query_row("SELECT count(*) FROM app_build_steps", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(steps, 2);
+    drop(conn);
+    crate::app_timing::record(
+        &path,
+        &crate::app_timing::RunRecord {
+            started_at: 7,
+            repo: "bae".into(),
+            lane: crate::lane::Lane::Mac,
+            checkout: "side-1".into(),
+            built_ref: "three".into(),
+            built_commit: None,
+            who: None,
+            wait_ms: 0,
+            outcome: crate::app_timing::Outcome::Stopped,
+            load: None,
+            steps: vec![crate::app_timing::StepRecord {
+                name: "macos".into(),
+                kind: crate::app_timing::StepKind::Step,
+                started_at: 7,
+                wall_ms: 1,
+                cpu_ms: 1,
+                result: crate::app_timing::StepResult::Stopped,
+            }],
+        },
+    )
+    .unwrap();
 }

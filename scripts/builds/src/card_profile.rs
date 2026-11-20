@@ -624,7 +624,7 @@ fn read_app_builds(
 ) -> Result<()> {
     let mut runs = db
         .prepare(
-            "SELECT r.id, r.started_at, r.lane, r.checkout, r.wait_ms, r.passed, c.built_commit \
+            "SELECT r.id, r.started_at, r.lane, r.checkout, r.wait_ms, r.outcome, c.built_commit \
              FROM app_build_runs r LEFT JOIN app_build_run_commit c ON c.run_id = r.id \
              WHERE r.repo = ?1 AND r.built_ref = ?2 AND r.started_at >= ?3 AND r.started_at <= ?4",
         )
@@ -637,13 +637,13 @@ fn read_app_builds(
                 row.get::<_, String>(2)?,
                 row.get::<_, String>(3)?,
                 row.get::<_, i64>(4)?,
-                row.get::<_, bool>(5)?,
+                row.get::<_, String>(5)?,
                 row.get::<_, Option<String>>(6)?,
             ))
         })
         .sql()?;
     for row in rows {
-        let (id, at, lane, checkout, wait_ms, passed, built) = row.sql()?;
+        let (id, at, lane, checkout, wait_ms, outcome, built) = row.sql()?;
         let host = host_of_checkout(&checkout);
         let built_words = built
             .as_deref()
@@ -654,10 +654,7 @@ fn read_app_builds(
             start: at,
             end: at + (wait_ms + 999) / 1000,
             host: Some(host.clone()),
-            detail: format!(
-                "then built{built_words} in {checkout}; {}",
-                if passed { "passed" } else { "failed" }
-            ),
+            detail: format!("then built{built_words} in {checkout}; {outcome}"),
             attributed: true,
             leaf: true,
         });
@@ -681,8 +678,9 @@ fn read_app_builds(
             .sql()?;
         for step in rows {
             let (position, name, start, wall_ms, result) = step.sql()?;
-            // A step another build took over says nothing of the change.
-            if result != "taken over" {
+            // A step another build took over, or a stop signal ended, says
+            // nothing of the change.
+            if result != "taken over" && result != "stopped" {
                 card.attempts.push(Attempt {
                     kind: StepKind::AppBuild,
                     name: format!("{lane} {name}"),

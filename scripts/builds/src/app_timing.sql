@@ -21,7 +21,9 @@ CREATE TABLE IF NOT EXISTS app_build_runs (
     -- How long the run waited in the lane's queue before it took a
     -- checkout, a wait after a takeover included.
     wait_ms INTEGER NOT NULL CHECK (wait_ms >= 0),
-    passed INTEGER NOT NULL CHECK (passed IN (0, 1)),
+    -- How the run ended. `stopped`: a stop signal (SIGTERM, SIGINT or
+    -- SIGHUP) reached it before it passed.
+    outcome TEXT NOT NULL CHECK (outcome IN ('passed', 'failed', 'stopped')),
     -- The cores and the one-minute load average of the host of the checkout,
     -- when the run took the checkout. Both columns are NULL for a run that
     -- builds recorded before it kept them, and for a run whose host did not
@@ -35,7 +37,8 @@ CREATE INDEX IF NOT EXISTS idx_app_build_runs_started ON app_build_runs (started
 
 -- One row per step the run started, in the order started: a step of
 -- `.app-build`, or a `--test` class or `--shots` selection. A step that a
--- takeover stopped has a row too, and the run's next attempt another.
+-- takeover stopped has a row too, and the run's next attempt another. A step
+-- that a stop signal ended is `stopped`.
 CREATE TABLE IF NOT EXISTS app_build_steps (
     run_id INTEGER NOT NULL REFERENCES app_build_runs (id) ON DELETE CASCADE,
     position INTEGER NOT NULL CHECK (position >= 0),
@@ -45,7 +48,7 @@ CREATE TABLE IF NOT EXISTS app_build_steps (
     wall_ms INTEGER NOT NULL CHECK (wall_ms >= 0),
     -- User and system CPU time of the step's processes.
     cpu_ms INTEGER NOT NULL CHECK (cpu_ms >= 0),
-    result TEXT NOT NULL CHECK (result IN ('passed', 'failed', 'timed out', 'taken over')),
+    result TEXT NOT NULL CHECK (result IN ('passed', 'failed', 'timed out', 'taken over', 'stopped')),
     PRIMARY KEY (run_id, position)
 ) STRICT, WITHOUT ROWID;
 

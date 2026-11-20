@@ -222,13 +222,16 @@ const BEFORE_LAND_APP_STEPS_STAMP: i64 = 1_952_688_938;
 /// page shows its now.
 const BEFORE_REVIEW_BOARD_SHOW_NOW_STAMP: i64 = 716_196_970;
 
+/// The stamp of the schema before an app build run could end stopped.
+const BEFORE_APP_BUILD_STOPPED_STAMP: i64 = 978_764_755;
+
 /// The stamp of today's schema (`db::STAMP`). A change to the schema changes
 /// its stamp, and builds then fails to compile until the change gives it a
 /// move from this schema, since every store carries this stamp: the change
 /// adds the move, puts this stamp at the end of `STAMPS` under a name that
 /// says what the schema lacked, and sets this to the new schema's stamp, which
 /// the compiler's error names.
-const SCHEMA_STAMP: i64 = 978_764_755;
+const SCHEMA_STAMP: i64 = 1_758_641_369;
 
 // The compiler refuses a schema whose stamp is not SCHEMA_STAMP. A const
 // assert could not print the new stamp, so the check compares two array
@@ -238,7 +241,7 @@ const _: [(); SCHEMA_STAMP as usize] = [(); db::STAMP as usize];
 
 /// Every stamp a store can carry that `move_store` moves, oldest schema first.
 /// A new move adds the stamp of the schema before it at the end.
-const STAMPS: [i64; 23] = [
+const STAMPS: [i64; 24] = [
     BEFORE_CONDITION_ENDERS_STAMP,
     BEFORE_ITEM_EVENT_STAMP,
     BEFORE_LAND_RUN_STAMP,
@@ -262,6 +265,7 @@ const STAMPS: [i64; 23] = [
     BEFORE_DESIGN_VARIANTS_LEFT_STAMP,
     BEFORE_LAND_APP_STEPS_STAMP,
     BEFORE_REVIEW_BOARD_SHOW_NOW_STAMP,
+    BEFORE_APP_BUILD_STOPPED_STAMP,
 ];
 
 /// Whether a store stamped <found> comes before the move that follows the
@@ -472,6 +476,13 @@ fn move_store(path: &Path, now: i64) -> Result<()> {
     // circles and shows its now, as every board's page did then.
     if before(found, BEFORE_REVIEW_BOARD_SHOW_NOW_STAMP) {
         crate::lists::design::add_review_board_show_now(&tx)?;
+    }
+    // Every store from before an app build run could end stopped gets the
+    // runs' table again with how each run ended, and the steps' table again
+    // with the check that takes a stopped step; each run and step keeps its
+    // row.
+    if before(found, BEFORE_APP_BUILD_STOPPED_STAMP) {
+        crate::app_timing::record_stopped_runs(&tx)?;
     }
     tx.pragma_update(None, "user_version", db::stamp()).sql()?;
     let broken: Option<String> = tx
