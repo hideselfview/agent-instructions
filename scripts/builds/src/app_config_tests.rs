@@ -40,7 +40,6 @@ fn a_config_names_each_platforms_build() {
             }),
             steps: Vec::new(),
             pickers: Vec::new(),
-            shots_source: None,
             results: Vec::new(),
             rules: Vec::new(),
             needs: Vec::new(),
@@ -353,29 +352,10 @@ fn a_shots_line_needs_a_lane_a_select_placeholder_and_to_be_the_only_one_of_its_
 }
 
 #[test]
-fn a_shots_source_line_names_the_folder_of_the_shots_program_once() {
-    assert_eq!(
-        parse_config("shots-source bae-shots\n")
-            .unwrap()
-            .shots_source,
-        Some("bae-shots".to_string())
-    );
-    assert_eq!(parse_config("").unwrap().shots_source, None);
-    assert!(parse_config("shots-source\n").is_err(), "no folder");
-    assert!(parse_config("shots-source a b\n").is_err(), "two words");
-    assert!(
-        parse_config("shots-source a\nshots-source b\n").is_err(),
-        "two lines"
-    );
-}
-
-#[test]
 fn the_shots_programs_lines_are_skipped() {
-    let config = parse_config(
-        "shots-capture mac ./capture.sh\nshots-preview .row .name .cell\nshots-source s\n",
-    )
-    .unwrap();
-    assert_eq!(config, parse_config("shots-source s\n").unwrap());
+    let config =
+        parse_config("shots-capture mac ./capture.sh\nshots-preview .row .name .cell\n").unwrap();
+    assert_eq!(config, parse_config("").unwrap());
 }
 
 #[test]

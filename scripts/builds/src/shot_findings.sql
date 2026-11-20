@@ -12,8 +12,8 @@ CREATE TABLE IF NOT EXISTS shot_findings (
     platform TEXT NOT NULL CHECK (platform IN ('mac', 'android')),
     -- The shot-name prefix the run was given (`mac.welcome.`).
     prefix TEXT NOT NULL CHECK (prefix <> ''),
-    -- The id of the git tree of the shots program's source folder
-    -- (`shots-source` in .app-build) at that commit, so that findings from
+    -- The version of the builds-shots that made the run (a hash of its
+    -- sources, which the run's findings.json names), so that findings from
     -- another version of the checker are never taken for these.
     shots_version TEXT NOT NULL CHECK (shots_version <> ''),
     -- When the run ended, seconds since 1970.

@@ -209,11 +209,6 @@ impl RemoteApp {
         Ok(worktree)
     }
 
-    /// Where this Mac reads the repo's commits from (`local_source`).
-    pub fn source(&self) -> Result<PathBuf> {
-        local_source(&self.places, &self.repo)
-    }
-
     /// The commit the checkout is on, or "" when the host has none yet.
     pub fn head(&mut self) -> Result<String> {
         let worktree = self.locate()?;
@@ -342,6 +337,36 @@ impl RemoteApp {
             .args(["remote", "step", &self.host.name, &worktree, "--"])
             .args(command);
         Ok(start)
+    }
+
+    /// Copies the file <local> here to a new temporary file on the host and
+    /// returns its path there; `remove_temporary` deletes it.
+    pub fn put_temporary(&mut self, local: &Path) -> Result<String> {
+        let made = self.transport().capture(
+            "mktemp \"${TMPDIR:-/tmp}/builds-before.XXXXXX\"",
+            "making a temporary file",
+        )?;
+        let there = made.trim().to_string();
+        let mut cat = Command::new("cat");
+        cat.arg(local);
+        crate::remote::pipe(
+            cat,
+            self.transport()
+                .command(&format!("cat > {}", sh_quote(&there))),
+            &format!("{} to host {}", local.display(), self.host.name),
+        )?;
+        Ok(there)
+    }
+
+    /// Deletes the temporary file <there> that `put_temporary` made on the
+    /// host.
+    pub fn remove_temporary(&mut self, there: &str) -> Result<()> {
+        self.transport()
+            .capture(
+                &format!("rm -f {}", sh_quote(there)),
+                "deleting a temporary file",
+            )
+            .map(|_| ())
     }
 
     /// Copies the shots report in <dir> (a folder of the checkout on the

@@ -3,7 +3,6 @@ use super::*;
 const APP_BUILD: &str = "\
 mac build ./run.sh
 shots mac builds shots run --platform mac --select {select}
-shots-source app-shots
 shots-capture mac ./mac/shots-capture.sh --quiet
 shots-capture android ./android/shots-capture.sh
 shots-declared mac mac/Shots
@@ -71,6 +70,7 @@ fn a_shots_line_it_cannot_read_is_refused() {
         ("shots-preview .row .name", "selectors"),
         ("shots-unshot", "names nothing"),
         ("shots-guess x", "no line builds-shots knows"),
+        ("shots-source app-shots", "no line builds-shots knows"),
     ] {
         let error = Settings::parse(line).unwrap_err().to_string();
         assert!(error.contains(why), "{line}: {error}");

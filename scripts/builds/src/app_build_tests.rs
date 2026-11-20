@@ -867,23 +867,22 @@ fn a_run_that_never_took_a_checkout_writes_nothing() {
     );
 }
 
-/// A git repo at <dir> with a `bae-shots` folder, a `.app-build` that names it
-/// as the shots source, and itself as its `origin`.
+/// A git repo at <dir> with a `.app-build` that has a shots line, and itself
+/// as its `origin`, fetched, so origin/main is its main.
 fn shots_repo(dir: &std::path::Path) {
     crate::testing::repo(dir, "target\n");
-    std::fs::create_dir_all(dir.join("bae-shots")).unwrap();
-    std::fs::write(dir.join("bae-shots/main.rs"), "fn main() {}\n").unwrap();
     std::fs::write(
         dir.join(CONFIG),
-        "step mac macos true\nshots mac true {select}\nshots-source bae-shots\n",
+        "step mac macos true\nshots mac true {select}\n",
     )
     .unwrap();
-    crate::testing::git(dir, &["add", "bae-shots", CONFIG]);
+    crate::testing::git(dir, &["add", CONFIG]);
     crate::testing::git(dir, &["commit", "-q", "-m", "Add shots"]);
     crate::testing::git(
         dir,
         &["remote", "add", "origin", &dir.display().to_string()],
     );
+    crate::testing::git(dir, &["fetch", "-q", "origin"]);
 }
 
 fn shots_store(dir: &std::path::Path, database: &std::path::Path) -> ShotsStore {
@@ -891,8 +890,9 @@ fn shots_store(dir: &std::path::Path, database: &std::path::Path) -> ShotsStore 
     ShotsStore {
         repo: "demo".to_string(),
         lane: Lane::Mac,
-        source: "bae-shots".to_string(),
+        version: crate::shots_program::VERSION.to_string(),
         database: database.to_path_buf(),
+        befores: Vec::new(),
     }
 }
 
@@ -913,7 +913,7 @@ fn a_shots_run_that_printed_findings_is_kept_under_its_commit_platform_prefix_an
     let commit = resolve(&top, "HEAD").unwrap();
     let key = shot_findings::Key {
         repo: "demo".to_string(),
-        version: shot_findings::version_at(&top, &commit, "bae-shots").unwrap(),
+        version: crate::shots_program::VERSION.to_string(),
         commit,
         lane: Lane::Mac,
         prefix: "mac.a.".to_string(),
@@ -1005,7 +1005,13 @@ fn app_build_with_only_a_shots_pick_prints_a_stored_run_and_takes_no_lane() {
     );
 }
 
-const REPORT_RUN: &str = "mkdir -p shots/report/img; echo png > shots/report/img/a.png; echo stale > shots/report/img/old.png; echo \"<img src=\\\"img/a.png\\\">\" > shots/report/index.html; echo '    Running `target/debug/bae-shots run`' >&2; echo 'bae-shots: report at '\"$PWD\"'/shots/report/index.html' >&2; exit 0";
+/// A shots run that writes a report, with a findings.json that names
+/// builds-shots <version>, and says where it is.
+fn report_run(version: &str) -> String {
+    format!(
+        "mkdir -p shots/report/img; echo png > shots/report/img/a.png; echo stale > shots/report/img/old.png; echo \"<img src=\\\"img/a.png\\\">\" > shots/report/index.html; echo '{{\"version\": \"{version}\", \"commit\": \"c\", \"scenes\": [], \"findings\": []}}' > shots/report/findings.json; echo '    Running `target/debug/builds-shots run`' >&2; echo 'builds shots: report at '\"$PWD\"'/shots/report/index.html' >&2; exit 0"
+    )
+}
 
 #[test]
 fn a_shots_run_keeps_its_report_and_the_pictures_it_shows_under_its_key_in_the_store() {
@@ -1016,12 +1022,13 @@ fn a_shots_run_keeps_its_report_and_the_pictures_it_shows_under_its_key_in_the_s
     let database = store.dir.join(app_timing::DATABASE);
     let top = scratch.dir.join("repo");
     let kept = shots_store(&top, &database);
-    let step = fake("shots mac.a.", &["sh", "-c", REPORT_RUN], None);
+    let run = report_run(crate::shots_program::VERSION);
+    let step = fake("shots mac.a.", &["sh", "-c", &run], None);
     run_steps(&top, &held, &[step], &mut Vec::new(), Some(&kept), false).unwrap();
     let commit = resolve(&top, "HEAD").unwrap();
     let key = shot_findings::Key {
         repo: "demo".to_string(),
-        version: shot_findings::version_at(&top, &commit, "bae-shots").unwrap(),
+        version: crate::shots_program::VERSION.to_string(),
         commit,
         lane: Lane::Mac,
         prefix: "mac.a.".to_string(),
@@ -1041,6 +1048,161 @@ fn a_shots_run_keeps_its_report_and_the_pictures_it_shows_under_its_key_in_the_s
     // copy stays.
     std::fs::remove_dir_all(top.join("shots")).unwrap();
     assert!(folder.join("img/a.png").exists());
+}
+
+#[test]
+fn a_report_whose_findings_name_another_builds_shots_keeps_nothing() {
+    let scratch = crate::testing::Scratch::new("shots-version");
+    let held = held_in(&scratch);
+    let places = scratch.places();
+    let store = crate::lists::fixtures::make_store(&places, &["demo"]);
+    let database = store.dir.join(app_timing::DATABASE);
+    let top = scratch.dir.join("repo");
+    let kept = shots_store(&top, &database);
+    let run = report_run("another");
+    let step = fake("shots mac.a.", &["sh", "-c", &run], None);
+    run_steps(&top, &held, &[step], &mut Vec::new(), Some(&kept), false).unwrap();
+    let key = shot_findings::Key {
+        repo: "demo".to_string(),
+        version: crate::shots_program::VERSION.to_string(),
+        commit: resolve(&top, "HEAD").unwrap(),
+        lane: Lane::Mac,
+        prefix: "mac.a.".to_string(),
+    };
+    assert!(shot_findings::lookup(&database, &key).unwrap().is_none());
+    assert!(!shot_findings::report_folder(&database, &key).exists());
+}
+
+#[test]
+fn a_shots_run_with_a_before_run_is_given_its_findings_and_another_prefix_is_not() {
+    let scratch = crate::testing::Scratch::new("shots-before-arg");
+    let held = held_in(&scratch);
+    let places = scratch.places();
+    let store = crate::lists::fixtures::make_store(&places, &["demo"]);
+    let database = store.dir.join(app_timing::DATABASE);
+    let top = scratch.dir.join("repo");
+    let mut kept = shots_store(&top, &database);
+    let findings = scratch.dir.join("before.json");
+    let key = shot_findings::Key {
+        repo: "demo".to_string(),
+        version: crate::shots_program::VERSION.to_string(),
+        commit: "a".repeat(40),
+        lane: Lane::Mac,
+        prefix: "mac.".to_string(),
+    };
+    kept.befores.push((
+        "mac.a.".to_string(),
+        shot_findings::Before {
+            key,
+            findings: findings.clone(),
+        },
+    ));
+    let said = |name: &str| {
+        let out = scratch.dir.join("args.txt");
+        let step = fake(
+            name,
+            &[
+                "sh",
+                "-c",
+                "printf '%s\\n' \"$@\" > \"$0\"",
+                &out.display().to_string(),
+            ],
+            None,
+        );
+        run_steps(&top, &held, &[step], &mut Vec::new(), Some(&kept), false).unwrap();
+        std::fs::read_to_string(&out).unwrap()
+    };
+    assert_eq!(
+        said("shots mac.a."),
+        format!("--before\n{}\n", findings.display())
+    );
+    // printf prints its format once with no argument.
+    assert_eq!(said("shots mac.b."), "\n");
+}
+
+/// The pick of the shots of the Mac's a screens.
+fn a_screens() -> Vec<Pick> {
+    vec![(Lane::Mac, PickKind::Shots, "mac.a.".to_string())]
+}
+
+#[test]
+fn a_lanes_shots_runs_compare_with_the_kept_run_of_the_merge_base_and_a_run_of_main_with_none() {
+    let scratch = crate::testing::Scratch::new("shots-store-of");
+    let places = scratch.places();
+    let store = crate::lists::fixtures::make_store(&places, &["demo"]);
+    let database = store.dir.join(app_timing::DATABASE);
+    let top = scratch.dir.join("repo");
+    shots_repo(&top);
+    let main = resolve(&top, "HEAD").unwrap();
+    let of = |commit: &str| ShotsStore::of(&places, &top, "demo", Lane::Mac, commit, &a_screens());
+    let on_main = of(&main).unwrap().expect("the repo has a store");
+    assert!(
+        on_main.befores.is_empty(),
+        "a commit on origin/main compares with none"
+    );
+    crate::testing::git(&top, &["checkout", "-q", "-b", "work"]);
+    crate::testing::git(&top, &["commit", "-q", "--allow-empty", "-m", "Work"]);
+    let work = resolve(&top, "HEAD").unwrap();
+    let Err(Fail::Message(message)) = of(&work) else {
+        panic!("builds keeps no run of the merge base")
+    };
+    assert!(
+        message.contains(&format!("builds app-build demo {main} --shots mac.a.")),
+        "{message}"
+    );
+    let key = shot_findings::Key {
+        repo: "demo".to_string(),
+        version: crate::shots_program::VERSION.to_string(),
+        commit: main.clone(),
+        lane: Lane::Mac,
+        prefix: "mac.".to_string(),
+    };
+    shot_findings::store(&database, &key, 1, "FAIL x: y\n").unwrap();
+    let folder = shot_findings::report_folder(&database, &key);
+    std::fs::create_dir_all(&folder).unwrap();
+    std::fs::write(folder.join(crate::shot_causes::FILE), "{}").unwrap();
+    let on_work = of(&work).unwrap().expect("the repo has a store");
+    assert_eq!(on_work.befores.len(), 1);
+    assert_eq!(on_work.befores[0].0, "mac.a.");
+    assert_eq!(on_work.befores[0].1.key, key);
+}
+
+#[test]
+fn a_branch_whose_merge_base_run_is_kept_builds_no_before_run() {
+    let scratch = crate::testing::Scratch::new("shots-ensure");
+    let places = scratch.places();
+    let store = crate::lists::fixtures::make_store(&places, &["demo"]);
+    let database = store.dir.join(app_timing::DATABASE);
+    let top = scratch.dir.join("repo");
+    shots_repo(&top);
+    places
+        .write_app_checkouts(
+            "demo",
+            Lane::Mac,
+            &[crate::lane::AppCheckout::by_person("side-1")],
+        )
+        .unwrap();
+    let marker = places.root.join("demo/side-1");
+    std::fs::create_dir_all(&marker).unwrap();
+    std::fs::write(marker.join(".checkout"), top.display().to_string()).unwrap();
+    let main = resolve(&top, "HEAD").unwrap();
+    // A commit on origin/main needs none, and no lane starts (one would run
+    // this test program as `builds`).
+    ensure_before_runs(&places, "demo", &main, &a_screens()).unwrap();
+    crate::testing::git(&top, &["checkout", "-q", "-b", "work"]);
+    crate::testing::git(&top, &["commit", "-q", "--allow-empty", "-m", "Work"]);
+    let key = shot_findings::Key {
+        repo: "demo".to_string(),
+        version: crate::shots_program::VERSION.to_string(),
+        commit: main,
+        lane: Lane::Mac,
+        prefix: "mac.a.".to_string(),
+    };
+    shot_findings::store(&database, &key, 0, "").unwrap();
+    let folder = shot_findings::report_folder(&database, &key);
+    std::fs::create_dir_all(&folder).unwrap();
+    std::fs::write(folder.join(crate::shot_causes::FILE), "{}").unwrap();
+    ensure_before_runs(&places, "demo", "work", &a_screens()).unwrap();
 }
 
 /// A request names its repo and ref; a lane's process, `--list` and other

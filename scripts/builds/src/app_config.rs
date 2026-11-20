@@ -13,8 +13,7 @@
 //! limit macos 90m
 //! test mac ./bae-macos/test.sh --run-only {class}
 //! test android ./bae-android/test-class.sh {class}
-//! shots mac scripts/cargo.sh run -p bae-shots -- run --platform mac --select {select}
-//! shots-source bae-shots
+//! shots mac builds shots run --platform mac --select {select}
 //! ```
 //!
 //! A line starting with `#` is a comment.
@@ -28,14 +27,12 @@
 //! program needs a flag before each class wraps the program in a script that
 //! adds the flags. A `shots <lane> <command>` line is the same for a
 //! selection of screenshots, `{select}` standing for the prefix of their
-//! names: `--shots <lane> <prefix>` runs it, once for each prefix.
+//! names: `--shots <lane> <prefix>` runs it, once for each prefix. The line
+//! runs builds-shots' `run` (`builds shots run`): builds adds `--before
+//! <findings.json>` to it when it compares the run with another
+//! (shot_findings.rs).
 //!
-//! A `shots-source <folder>` line names the folder, relative to the repo's top,
-//! that holds the shots program's source. Its git tree at a commit is the
-//! version of the checker that made a run's findings (shot_findings.rs); with
-//! no such line, builds stores and reads no findings.
-//!
-//! Every other line whose keyword starts with `shots-` holds a screenshot
+//! Every line whose keyword starts with `shots-` holds a screenshot
 //! setting for builds-shots, the program `builds shots` runs, which reads
 //! those lines itself (scripts/shots/src/settings.rs): this parser skips them.
 //! A `results <lane> <path>...` line names folders of the lane's app checkout
@@ -122,8 +119,6 @@ pub struct Config {
     /// How each lane runs test classes and one selection of shots: at most
     /// one test line per lane and program, and one shots line per lane.
     pub pickers: Vec<Picker>,
-    /// The `shots-source` line: the folder of the shots program's source.
-    pub shots_source: Option<String>,
     /// The folders each lane's runs of tests and screenshots write, from the
     /// `results` lines, in the order written.
     pub results: Vec<(Lane, String)>,
@@ -398,7 +393,6 @@ pub fn parse_config(text: &str) -> Result<Config> {
     let mut steps: Vec<Step> = Vec::new();
     let mut pickers: Vec<Picker> = Vec::new();
     let mut limits: Vec<(String, Duration)> = Vec::new();
-    let mut shots_source: Option<String> = None;
     let mut results: Vec<(Lane, String)> = Vec::new();
     let mut here: Vec<String> = Vec::new();
     let mut ci_only: Vec<String> = Vec::new();
@@ -495,15 +489,6 @@ pub fn parse_config(text: &str) -> Result<Config> {
                     command,
                     place,
                 });
-            }
-            ("shots-source", _) => {
-                let folder = field.trim();
-                if folder.is_empty() || folder.contains(char::is_whitespace) {
-                    fail!("{CONFIG}: {line:?} needs one folder name");
-                }
-                if shots_source.replace(folder.to_string()).is_some() {
-                    fail!("{CONFIG}: two shots-source lines");
-                }
             }
             (keyword, _) if keyword.starts_with("shots-") => {}
             ("on", _) => {
@@ -688,7 +673,6 @@ pub fn parse_config(text: &str) -> Result<Config> {
         android,
         steps,
         pickers,
-        shots_source,
         results,
         rules,
         needs,

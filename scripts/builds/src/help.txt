@@ -923,10 +923,9 @@ A repo's `.app-build` at its root says what its app builds run, one line each:
   shots <lane> <program> [<args>...]
                     how the lane runs the shots (pictures of app views, each
                     checked against its board) whose names start with the
-                    prefix in its {select}
-  shots-source <folder>
-                    the shots program's sources; their git tree at a commit
-                    is the shots version stored findings are keyed by
+                    prefix in its {select}: `builds shots run`, to which
+                    builds adds --before <findings.json> when the run
+                    compares with another (below)
   shots-<setting> ...
                     a setting of builds-shots (`builds shots`), which reads
                     these lines itself: builds skips them
@@ -1056,10 +1055,29 @@ printed) are stored in the project's store under the repo, the full commit,
 the lane, the prefix and the shots version, and its report (index.html,
 pictures and findings.json, the findings as records) is copied to the store's
 folder, in shots/<commit>-<lane>-<prefix>-<version>/, for the newest 30 runs,
-so the next run in the checkout cannot overwrite it. A run
-that died before it made findings stores nothing, and a repo with no
-`shots-source` line stores none. The "before" side of a shots check is read
-from the store, never built again.
+so the next run in the checkout cannot overwrite it. The shots version is
+the version of the builds-shots that install puts beside builds (`builds
+shots version`), which each run's findings.json names; builds keeps no run
+whose findings.json names another version, as a run on a host with another
+builds-shots does. A run that died before it made findings stores nothing,
+and a repo in no project stores none.
+
+A shots run of a commit that origin/main lacks compares with the run of its
+merge base with origin/main: builds passes the findings.json of that run to
+the `shots` line as --before, and the run fails only on the pairs it makes
+new or worse, a pair the merge base's run did not check or one with a
+finding that run lacks for it, and lists the pairs whose findings the merge
+base's run has too. The run it compares with is the newest stored run of the
+merge base in the same lane, by the same shots version, whose prefix starts
+the run's own (a run of mac. stands in for a run of mac.welcome.), and whose
+report builds still keeps. When builds keeps none, `builds app-build` builds
+the merge base first in the lane, with the lane's `needs` steps, and runs the
+same prefixes there. That run compares with nothing, so it fails on every
+pair with findings, and builds keeps its findings all the same. A run of a
+commit on origin/main compares with nothing. A lane's process (`--lane`)
+builds no merge base: it fails, naming the command that makes the run it
+lacks. A shots check's "before" side is read from the store, never built
+again.
 
   builds app-build <repo> <ref> [--test <Class>]... [--shots <prefix>]... [--all-shots mac|android]... [--fresh]
                               build <ref> where it is needed; builds picks the
@@ -1258,8 +1276,8 @@ from the store, never built again.
                               version: a hash of the sources it was built
                               from. The program
                               reads the
-                              .app-build lines that start with shots- (other
-                              than shots-source): `shots-capture <platform>
+                              .app-build lines that start with shots-:
+                              `shots-capture <platform>
                               <command>...` takes a platform's shots,
                               `shots-declared <platform> <folder>` holds the
                               source that declares them, `shots-preview

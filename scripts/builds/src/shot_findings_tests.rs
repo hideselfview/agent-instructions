@@ -197,3 +197,89 @@ fn the_script_that_copies_a_report_from_a_host_sends_its_page_pictures_and_recor
         assert_eq!(into.join(crate::shot_causes::FILE).is_file(), records);
     }
 }
+
+/// Stores a run of <key> in <database> with its report folder, which holds a
+/// findings.json when <with_findings>.
+fn store_with_report(database: &Path, key: &Key, with_findings: bool) {
+    store_run(database, key, 1, "FAIL x: y\n");
+    let folder = report_folder(database, key);
+    std::fs::create_dir_all(&folder).unwrap();
+    if with_findings {
+        std::fs::write(
+            folder.join(crate::shot_causes::FILE),
+            format!(r#"{{"version": "{}"}}"#, key.version),
+        )
+        .unwrap();
+    }
+}
+
+#[test]
+fn the_before_run_is_the_newest_run_of_the_version_whose_prefix_starts_the_runs_and_keeps_its_findings()
+ {
+    let scratch = crate::testing::Scratch::new("shots-before");
+    let places = scratch.places();
+    let store = crate::lists::fixtures::make_store(&places, &["demo"]);
+    let database = store.dir.join(app_timing::DATABASE);
+    let base = "a".repeat(40);
+    let key = |prefix: &str, version: &str| Key {
+        repo: "demo".to_string(),
+        commit: base.clone(),
+        lane: Lane::Mac,
+        prefix: prefix.to_string(),
+        version: version.to_string(),
+    };
+    let find = |prefix: &str| {
+        before_run(&database, "demo", &base, Lane::Mac, prefix, "v1")
+            .unwrap()
+            .map(|before| before.key.prefix)
+    };
+    assert_eq!(find("mac.welcome."), None);
+    store_with_report(&database, &key("mac.welcome.", "v2"), true);
+    store_with_report(&database, &key("mac.settings.", "v1"), true);
+    store_with_report(&database, &key("mac.welcome.a.", "v1"), true);
+    assert_eq!(
+        find("mac.welcome."),
+        None,
+        "another version's run, another screen's and a narrower prefix's do not stand in"
+    );
+    store_with_report(&database, &key("mac.", "v1"), true);
+    assert_eq!(find("mac.welcome."), Some("mac.".to_string()));
+    let before = before_run(&database, "demo", &base, Lane::Mac, "mac.welcome.", "v1")
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        before.findings,
+        report_folder(&database, &key("mac.", "v1")).join(crate::shot_causes::FILE)
+    );
+    // A run stored later wins; one whose report keeps no findings.json does
+    // not count. The run of mac. ended ten seconds before the runs below.
+    db::open(&database, db::Make::Never)
+        .unwrap()
+        .execute(
+            "UPDATE shot_findings SET recorded_at = recorded_at - 10 WHERE prefix = 'mac.'",
+            [],
+        )
+        .unwrap();
+    store_with_report(&database, &key("mac.welcome.", "v1"), false);
+    assert_eq!(find("mac.welcome."), Some("mac.".to_string()));
+    store_with_report(&database, &key("mac.welcome.", "v1"), true);
+    assert_eq!(find("mac.welcome."), Some("mac.welcome.".to_string()));
+}
+
+#[test]
+fn a_reports_findings_name_the_version_that_made_them() {
+    let scratch = crate::testing::Scratch::new("shots-version");
+    std::fs::write(
+        scratch.dir.join(crate::shot_causes::FILE),
+        r#"{"version": "v1", "commit": "c", "scenes": [], "findings": []}"#,
+    )
+    .unwrap();
+    assert_eq!(version_in(&scratch.dir).unwrap(), "v1");
+    std::fs::write(scratch.dir.join(crate::shot_causes::FILE), "{}").unwrap();
+    assert!(
+        version_in(&scratch.dir)
+            .unwrap_err()
+            .text()
+            .contains("names no builds-shots version")
+    );
+}

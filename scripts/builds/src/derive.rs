@@ -77,11 +77,18 @@ pub fn plan(config: &Config, changed: &[String], picks: &[Pick]) -> Vec<(Lane, V
         .collect()
 }
 
+/// The full id of <commit>'s merge-base with `origin/main` in the repository
+/// at <top>.
+pub fn merge_base(top: &Path, commit: &str) -> Result<String> {
+    Ok(run_git(top, &["merge-base", commit, "origin/main"])?
+        .trim()
+        .to_string())
+}
+
 /// The paths that differ between <commit> and its merge-base with
 /// `origin/main`, relative to the repo's top.
 pub fn changed_paths(top: &Path, commit: &str) -> Result<Vec<String>> {
-    let base = run_git(top, &["merge-base", commit, "origin/main"])?;
-    paths_between(top, base.trim(), commit)
+    paths_between(top, &merge_base(top, commit)?, commit)
 }
 
 /// The paths that differ between the commits <from> and <to> in the
@@ -302,11 +309,12 @@ pub fn derive_and_run(places: &Places, args: &[String]) -> Result<()> {
         }
     }
     if !picks.is_empty() && !fresh {
-        picks = app_build::serve_stored(places, repo, &commit, &config, picks)?;
+        picks = app_build::serve_stored(places, repo, &commit, picks)?;
         if picks.is_empty() {
             return Ok(());
         }
     }
+    app_build::ensure_before_runs(places, repo, &commit, &picks)?;
     let lanes = plan(&config, &changed_paths(&top, &commit)?, &picks);
     if lanes.is_empty() {
         note(format!(

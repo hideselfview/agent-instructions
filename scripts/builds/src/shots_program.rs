@@ -18,6 +18,11 @@ use crate::places::Places;
 /// and in ~/.local/bin.
 pub const PROGRAM: &str = "builds-shots";
 
+/// The version of the builds-shots built from this program's sources, which
+/// install puts beside it (build.rs): the version `builds-shots version`
+/// prints and each run's findings.json names.
+pub const VERSION: &str = env!("SHOTS_SOURCE");
+
 const USAGE: &str = "usage: builds shots findings <repo> <ref> mac|android <prefix> [--by-cause] | builds shots run|capture|check|lint|runtime|components|version [<argument>...] (builds shots <command> --help)";
 
 /// The builds-shots beside the `builds` program at <builds>.

@@ -1,14 +1,19 @@
 //! Names the sources this program is built from and keeps a copy of them:
 //! `BUILDS_SOURCE` is a hash of every file cargo builds it from, here and in
-//! the boards library beside it, and `$OUT_DIR/source.tar` holds those files,
-//! which the program carries (`SOURCE`, main.rs). Two builds of the same
-//! sources print the same name with `builds version`, on macOS and on Linux,
-//! and `builds host setup` sends a Linux host the copy to build there, so
-//! the host runs the builds this Mac runs, though each OS builds a program of
-//! its own.
+//! the boards library beside it, and of the sources of builds-shots, which
+//! install builds and installs beside it; `$OUT_DIR/source.tar` holds those
+//! files, which the program carries (`SOURCE`, main.rs). Two builds of the
+//! same sources print the same name with `builds version`, on macOS and on
+//! Linux, and `builds host setup` sends a Linux host the copy to build there,
+//! so the host runs the builds this Mac runs, though each OS builds a program
+//! of its own. `SHOTS_SOURCE` is the version of the builds-shots built from
+//! the same sources (scripts/shots/version.rs), which keys the shot findings
+//! builds stores.
 
 use sha2::{Digest, Sha256};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
+
+include!("../shots/version.rs");
 
 /// The files and folders, relative to a crate's folder, that cargo builds
 /// the crate from.
@@ -17,6 +22,7 @@ const PARTS: [&str; 5] = ["Cargo.toml", "Cargo.lock", "build.rs", "src", "runtim
 fn main() {
     let here = PathBuf::from(std::env::var_os("CARGO_MANIFEST_DIR").expect("cargo sets it"));
     let boards = here.join("../boards");
+    let scripts = here.parent().expect("the crate is in the scripts folder");
     let mut files = Vec::new();
     for (name, folder) in [("builds", &here), ("boards", &boards)] {
         for part in PARTS {
@@ -24,6 +30,14 @@ fn main() {
             println!("cargo:rerun-if-changed={}", path.display());
             collect(&path, &format!("{name}/{part}"), &mut files);
         }
+    }
+    let (shots, shots_parts) = SHOTS_PARTS[0];
+    for part in shots_parts {
+        collect(
+            &scripts.join(shots).join(part),
+            &format!("{shots}/{part}"),
+            &mut files,
+        );
     }
     files.sort();
     let mut hash = Sha256::new();
@@ -44,28 +58,7 @@ fn main() {
     let digest = hash.finalize();
     let name: String = digest[..8].iter().map(|b| format!("{b:02x}")).collect();
     println!("cargo:rustc-env=BUILDS_SOURCE={name}");
-}
-
-/// Adds <path> (shown as <shown>), or every file under it when it is a
-/// folder, to <files>. A part a crate lacks adds nothing; any other failure
-/// to read a part stops the build.
-fn collect(path: &Path, shown: &str, files: &mut Vec<(String, PathBuf)>) {
-    let meta = match std::fs::metadata(path) {
-        Ok(meta) => meta,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return,
-        Err(error) => panic!("reading {}: {error}", path.display()),
-    };
-    if meta.is_file() {
-        files.push((shown.to_string(), path.to_path_buf()));
-        return;
-    }
-    let entries = std::fs::read_dir(path)
-        .unwrap_or_else(|error| panic!("listing {}: {error}", path.display()));
-    for entry in entries {
-        let entry = entry.unwrap_or_else(|error| panic!("listing {}: {error}", path.display()));
-        let name = entry.file_name().to_string_lossy().into_owned();
-        collect(&entry.path(), &format!("{shown}/{name}"), files);
-    }
+    println!("cargo:rustc-env=SHOTS_SOURCE={}", shots_version(scripts));
 }
 
 /// Appends <bytes> to <tar> as the file <name>, in the ustar format: a

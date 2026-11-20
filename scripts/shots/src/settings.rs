@@ -1,7 +1,7 @@
 //! An app's screenshot settings: the lines of its repo's `.app-build` that
 //! start with `shots-`. builds reads the file's other lines and passes these
 //! through; this program reads only these, and refuses a `shots-` line it
-//! does not know. `shots-source` is builds' line, not one of these.
+//! does not know.
 //!
 //! ```text
 //! shots-capture mac ./app-macos/shots-capture.sh
@@ -34,9 +34,6 @@ use std::path::{Path, PathBuf};
 
 /// The file the settings are read from, at the repo's top.
 pub(crate) const FILE: &str = ".app-build";
-
-/// The lines that belong to builds, which this program skips.
-const BUILDS_LINES: [&str; 1] = ["shots-source"];
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub(crate) enum SettingsError {
@@ -85,7 +82,7 @@ impl Settings {
             let Some(keyword) = words.next() else {
                 continue;
             };
-            if !keyword.starts_with("shots-") || BUILDS_LINES.contains(&keyword) {
+            if !keyword.starts_with("shots-") {
                 continue;
             }
             let bad = |why| SettingsError::Line(line.to_string(), why);

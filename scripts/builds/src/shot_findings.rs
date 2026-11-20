@@ -1,14 +1,22 @@
 //! The findings of `--shots` runs, kept in the repo's project store
-//! (shot_findings.sql) so that an agent that wants the "before" side of a
-//! shots check for a commit reads what an earlier run of that commit printed
-//! and does not build it again.
+//! (shot_findings.sql) so that the "before" side of a branch's shots run, the
+//! run of its merge base with origin/main, is read from the store and not
+//! built again, and an agent that wants a commit's findings reads what an
+//! earlier run printed.
 //!
 //! A row is keyed by the repo, the full commit id, the platform, the prefix
-//! the run was given and the version of the shots program: the id of the git
-//! tree of the folder `.app-build`'s `shots-source` line names, at that
-//! commit. A run by another version of the checker has another key, so its
-//! findings never stand in for these. A repo with no `shots-source` line
-//! stores and reads nothing.
+//! the run was given and the version of builds-shots (`VERSION` in
+//! shots_program.rs: a hash of its sources, which each run's findings.json
+//! names). A run by another version of the checker has another key, so its
+//! findings never stand in for these, and builds keeps no run whose
+//! findings.json names another version than its own.
+//!
+//! A branch's run compares with its before run (`before_run`): the newest
+//! stored run of the merge base, on the same platform, by the same version,
+//! whose prefix starts the branch run's prefix (a run of `mac.` holds every
+//! pair a run of `mac.welcome.` checks), and whose report keeps its
+//! findings.json. builds passes that file to the shots line as `--before
+//! <file>` (app_build.rs).
 //!
 //! A run is stored when the shots command exits 0, or exits another status
 //! after printing that pairs fail the run; a command that died on an error
@@ -41,7 +49,6 @@ use std::path::Path;
 use rusqlite::params;
 
 use crate::app_build;
-use crate::app_config::CONFIG;
 use crate::app_timing::{self, now};
 use crate::db::{self, Sql};
 use crate::fail;
@@ -245,21 +252,6 @@ pub struct Stored {
     pub findings: String,
 }
 
-/// The git tree id of <source> at <commit> in the checkout <top>.
-pub fn version_at(top: &Path, commit: &str, source: &str) -> Result<String> {
-    Ok(crate::app_config::run_git(
-        top,
-        &["rev-parse", "--verify", &format!("{commit}:{source}")],
-    )
-    .map_err(|_| {
-        crate::fail::Fail::Message(format!(
-            "{commit} has no {source} folder, which {CONFIG}'s shots-source line names"
-        ))
-    })?
-    .trim()
-    .to_string())
-}
-
 /// What the shots program printed in <output>: the text after the line that
 /// starts it, or all of it when no such line is there.
 pub fn findings_of(output: &str) -> &str {
@@ -347,9 +339,9 @@ pub fn lookup(database: &Path, key: &Key) -> Result<Option<Stored>> {
     }
 }
 
-/// The key of a run of <prefix> on <lane> for <repo> at <git_ref>, and the
-/// repo's database: the commit and the version are read from the repo's app
-/// checkout. Fails when the repo has no `shots-source` line.
+/// The key of a run of <prefix> on <lane> for <repo> at <git_ref> by this
+/// builds' builds-shots, and the repo's database: the commit is read from the
+/// repo's app checkout.
 pub fn key_for(
     places: &Places,
     repo: &str,
@@ -357,18 +349,83 @@ pub fn key_for(
     lane: Lane,
     prefix: &str,
 ) -> Result<(Key, Option<std::path::PathBuf>)> {
-    let (top, commit, config) = app_build::commit_and_config(places, repo, git_ref)?;
-    let Some(source) = config.shots_source else {
-        fail!("{CONFIG} has no shots-source line, so {repo} keeps no shot findings");
-    };
+    let (_, commit, _) = app_build::commit_and_config(places, repo, git_ref)?;
     let key = Key {
         repo: repo.to_string(),
-        version: version_at(&top, &commit, &source)?,
+        version: crate::shots_program::VERSION.to_string(),
         commit,
         lane,
         prefix: prefix.to_string(),
     };
     Ok((key, app_timing::database_of(places, repo)?))
+}
+
+/// A stored run a branch's run compares with: its key and the findings.json
+/// its kept report holds.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Before {
+    pub key: Key,
+    pub findings: std::path::PathBuf,
+}
+
+/// The run a run of <prefix> on <lane> by builds-shots <version> compares
+/// with, among the runs of <repo> at <commit> in the database at <database>:
+/// the newest by that version whose prefix starts <prefix> and whose report
+/// keeps its findings.json. None when the store holds no such run.
+pub fn before_run(
+    database: &Path,
+    repo: &str,
+    commit: &str,
+    lane: Lane,
+    prefix: &str,
+    version: &str,
+) -> Result<Option<Before>> {
+    let Some(conn) = db::open_reader(database)? else {
+        return Ok(None);
+    };
+    let mut statement = conn
+        .prepare("SELECT prefix FROM shot_findings WHERE repo = ?1 AND commit_id = ?2 AND platform = ?3 AND shots_version = ?4 AND substr(?5, 1, length(prefix)) = prefix ORDER BY recorded_at DESC")
+        .sql()?;
+    let prefixes = statement
+        .query_map(params![repo, commit, lane.word(), version, prefix], |row| {
+            row.get::<_, String>(0)
+        })
+        .sql()?
+        .collect::<std::result::Result<Vec<String>, _>>()
+        .sql()?;
+    for covering in prefixes {
+        let key = Key {
+            repo: repo.to_string(),
+            commit: commit.to_string(),
+            lane,
+            prefix: covering,
+            version: version.to_string(),
+        };
+        let findings = report_folder(database, &key).join(shot_causes::FILE);
+        if findings.is_file() {
+            return Ok(Some(Before { key, findings }));
+        }
+    }
+    Ok(None)
+}
+
+/// The version of builds-shots that the findings.json in the report folder
+/// <folder> names.
+pub fn version_in(folder: &Path) -> Result<String> {
+    #[derive(serde::Deserialize)]
+    struct Named {
+        version: String,
+    }
+    let file = folder.join(shot_causes::FILE);
+    let text = std::fs::read_to_string(&file)
+        .map_err(|e| crate::fail::Fail::Message(format!("reading {}: {e}", file.display())))?;
+    let named: Named = serde_json::from_str(&text).map_err(|e| {
+        crate::fail::Fail::Message(format!(
+            "{} names no builds-shots version: {e}",
+            file.display()
+        ))
+    })?;
+    Ok(named.version)
 }
 
 /// Prints <stored>: a line to say which run it is, then its text.
