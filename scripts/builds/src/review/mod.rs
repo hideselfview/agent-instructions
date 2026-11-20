@@ -368,6 +368,9 @@ pub fn review(inputs: &Inputs) -> Result<Reported> {
             .filter(record::Finding::is_open)
             .collect(),
     };
+    // A finding in a file the branch deleted needs no reviewer to say its
+    // code is gone: the run closes it.
+    let gone = run::deleted_findings(inputs.worktree, &change.head, &open_findings)?;
     let asks = match open {
         None => vec![Ask {
             groups: material.group_names(&change.diff.changed),
@@ -376,7 +379,15 @@ pub fn review(inputs: &Inputs) -> Result<Reported> {
             last_review: true,
             note: None,
         }],
-        Some(landing) => later_asks(&conn, inputs, &material, &change, landing, &open_findings)?,
+        Some(landing) => later_asks(
+            &conn,
+            inputs,
+            &material,
+            &change,
+            landing,
+            &open_findings,
+            !gone.is_empty(),
+        )?,
     };
     if let Some(added) = check::over_the_cap(asks.iter().map(|ask| ask.change.diff.text.as_str())) {
         let net = run::diff_between(inputs.worktree, inputs.base, inputs.head.unwrap_or("HEAD"))?;
@@ -405,6 +416,9 @@ pub fn review(inputs: &Inputs) -> Result<Reported> {
             inputs.brief.as_ref(),
             &open_findings,
         ));
+    }
+    if let Some(last) = answers.last_mut() {
+        material.close_deleted(last, &gone);
     }
     // Two runs of one review can each close the same finding: the first
     // closes it.
@@ -558,6 +572,7 @@ fn later_asks(
     change: &run::NetChange,
     landing: i64,
     open: &[record::Finding],
+    closing: bool,
 ) -> Result<Vec<Ask>> {
     let coverage = landing::Coverage::of(conn, &record::landing(conn, landing)?)?;
     let calls = record::calls_of_landing(conn, landing)?;
@@ -672,6 +687,20 @@ fn later_asks(
             since: Some(last.id),
             last_review: true,
             groups,
+        });
+    }
+    if asks.is_empty() && closing {
+        // No reviewer reads the changes since the last review, which are
+        // none: the run closes the findings in files the branch deleted.
+        asks.push(Ask {
+            note: Some(format!(
+                "closed the findings in files the branch deleted, with no reviewer, after run {}\n",
+                last.id
+            )),
+            change: since_run(last)?,
+            since: Some(last.id),
+            last_review: false,
+            groups: Vec::new(),
         });
     }
     if asks.is_empty() {

@@ -753,6 +753,53 @@ impl Tokens {
     }
 }
 
+/// The findings of <open> whose file is in no commit's tree at <head>: the
+/// branch deleted it, so the code of the finding is gone. The commit message
+/// file is no file of the tree.
+pub fn deleted_findings(worktree: &Path, head: &str, open: &[Finding]) -> Result<Vec<Finding>> {
+    if open.is_empty() {
+        return Ok(Vec::new());
+    }
+    let tree = commits::git_text(worktree, &["ls-tree", "-r", "--name-only", head])?;
+    Ok(open
+        .iter()
+        .filter(|finding| {
+            finding.file != files::COMMIT_MESSAGE
+                && !tree.lines().any(|path| names_file(path, &finding.file))
+        })
+        .cloned()
+        .collect())
+}
+
+impl Material {
+    /// Closes each finding of <gone> in the call of its group in <asked>,
+    /// adding a call that ran no reviewer for a group with none: no reviewer
+    /// decides whether a finding in a deleted file is fixed.
+    pub fn close_deleted(&self, asked: &mut Asked, gone: &[Finding]) {
+        for (name, held) in self.holding_groups(gone) {
+            let ids: Vec<i64> = held.iter().map(|finding| finding.id).collect();
+            let at = asked.calls.iter().position(|call| call.group == name);
+            let call = match at {
+                Some(at) => &mut asked.calls[at],
+                None => {
+                    let (group, members) = self
+                        .groups
+                        .reviewing(&self.rules)
+                        .find(|(group, _)| group.name == name)
+                        .expect("a group that holds a finding is a group of the rules");
+                    asked.calls.push(bare_call(group, &members, None));
+                    asked.calls.last_mut().expect("a call was just added")
+                }
+            };
+            for id in ids {
+                if !call.closes.contains(&id) {
+                    call.closes.push(id);
+                }
+            }
+        }
+    }
+}
+
 /// A call of <group> that ran no reviewer: failed with <failure>, or, with
 /// none, an answer of no findings.
 fn bare_call(group: &Group, members: &[&Rule], failure: Option<String>) -> NewCall {

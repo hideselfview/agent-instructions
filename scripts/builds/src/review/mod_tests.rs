@@ -219,6 +219,66 @@ fn a_change_gets_one_review_and_a_second_run_is_refused() {
     );
 }
 
+/// A branch with a finding in a.rs and a commit that deletes a.rs: the
+/// review of it, and the finding's id.
+fn finding_in_a_deleted_file(name: &str, settle_first: bool) -> (Demo, Fake, PathBuf, i64, i64) {
+    let demo = demo(name);
+    let fake = fake(&demo.scratch.dir);
+    let side = demo.add_side(1, "agent", "work");
+    demo.commit(&side, "a.rs");
+    demo.commit(&side, "b.swift");
+    fake.answer("alpha", &[("rule-a", Some(BAD))]);
+    let first = run_review(&demo, &fake, &side, "k");
+    let landing = first.landing.unwrap();
+    let finding = findings_of(&demo, landing)[0].id;
+    if settle_first {
+        settle_as(&demo, finding, "confirmed", "a real break");
+    }
+    crate::testing::git(&side, &["rm", "-q", "a.rs"]);
+    crate::testing::git(&side, &["commit", "-q", "-m", "delete a.rs"]);
+    (demo, fake, side, landing, finding)
+}
+
+#[test]
+fn a_confirmed_finding_in_a_file_the_branch_deletes_is_closed_with_no_answer_from_the_reviewer() {
+    let (demo, fake, side, landing, finding) = finding_in_a_deleted_file("review-deleted", true);
+    // The reviewer answers that it closes nothing.
+    closes(&fake, &[]);
+    let read = run_review(&demo, &fake, &side, "k");
+    assert!(
+        read.text.contains(&format!("closed finding {finding}")),
+        "{}",
+        read.text
+    );
+    assert!(read.refusal.is_none(), "{:?}", read.refusal);
+    assert!(findings_of(&demo, landing)[0].closed_by.is_some());
+}
+
+#[test]
+fn a_finding_confirmed_after_the_run_that_read_the_deletion_is_closed_by_the_next_run() {
+    let (demo, fake, side, landing, finding) =
+        finding_in_a_deleted_file("review-deleted-late", false);
+    closes(&fake, &[]);
+    let read = run_review(&demo, &fake, &side, "k");
+    assert!(
+        findings_of(&demo, landing)[0].closed_by.is_none(),
+        "{}",
+        read.text
+    );
+    fake.prompts();
+    settle_as(&demo, finding, "confirmed", "a real break");
+    // Every group has read every change, and no reviewer is asked.
+    let closed = run_review(&demo, &fake, &side, "k");
+    assert!(fake.prompts().is_empty());
+    assert!(
+        closed.text.contains(&format!("closed finding {finding}")),
+        "{}",
+        closed.text
+    );
+    assert!(closed.refusal.is_none(), "{:?}", closed.refusal);
+    assert!(findings_of(&demo, landing)[0].closed_by.is_some());
+}
+
 /// What the reviewer of group alpha answers: no finding for rule-a, and
 /// <closed> closed.
 fn closes(fake: &Fake, closed: &[i64]) {

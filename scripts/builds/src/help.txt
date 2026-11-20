@@ -2549,6 +2549,11 @@ run `review replay --rules-root` on it.
                               a landing under review in that repo, which
                               stays open until its change lands.
                               A run starts at most 3 reviewers at once.
+                              A run closes each open finding whose file the
+                              branch deleted (no path of the file at the
+                              branch's head), with no reviewer's answer, and a
+                              run with nothing else to read runs for that
+                              alone.
                               A branch whose diffs add more than 2,000
                               lines (the cap: in bae's last 200 main
                               commits, a commit added a median of 27
