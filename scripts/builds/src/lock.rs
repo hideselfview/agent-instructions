@@ -23,9 +23,10 @@
 //! (queue.rs), for a free lock among the lane's checkouts and for a host's
 //! window lock (window_lock.rs) each fail, naming the signal
 //! (`refuse_when_stopped`), and a command started after the signal gets it
-//! as soon as its group exists. An app build's lane installs the handler
-//! before it joins the queue (`end_on_stop_signals`), so a stop signal that
-//! comes between two steps, or while the lane waits, ends the lane too.
+//! as soon as its group exists. `builds lock`, `builds build-app` and an app
+//! build's lane each install the handler before they join the queue
+//! (`end_on_stop_signals`), so a stop signal that comes between two steps, or
+//! while the command waits, ends the command too.
 //!
 //! A group of its own is a background group of the terminal, which the kernel
 //! stops (SIGTTOU, SIGTTIN) when it sets terminal modes or reads, as Gradle's
@@ -176,11 +177,14 @@ pub fn cmd_lock(places: &Places, args: &[String]) -> Result<()> {
     let [repo, command, rest @ ..] = &args[..] else {
         fail!("{USAGE}");
     };
+    end_on_stop_signals();
     let mut held = take(places, repo, lane)?;
     loop {
         let mut start = Command::new(command);
         start.args(rest).env("BUILDS_APP_CHECKOUT", &held.checkout);
-        match run_in_group(start, command)? {
+        let ran = run_in_group(start, command);
+        refuse_when_stopped(&format!("ran {command}"))?;
+        match ran? {
             Ran::Finished => return Ok(()),
             // Only a takeover stops it: it holds no use of the stores, so
             // install never stops it.

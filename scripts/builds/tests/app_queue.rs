@@ -1390,3 +1390,43 @@ fn queue_shows_every_checkout_and_why_builds_added_or_removed_one() {
         "{shown}"
     );
 }
+
+/// A takeover stops the holder H, which waits in the queue to run again. A
+/// stop signal then ends H's wait: H exits instead of running its build
+/// again, and the build that took over runs on.
+#[test]
+fn a_stop_signal_ends_a_holder_that_waits_to_run_again_after_a_takeover() {
+    let mut volume = Volume::new("stop-requeued");
+    let pids = queue_up(&mut volume, &["A"]);
+    let taken = volume.run(&["takeover", "demo", &pids[1].to_string()]);
+    assert!(
+        taken.status.success(),
+        "{}",
+        String::from_utf8_lossy(&taken.stderr)
+    );
+    volume.until_logged("start A");
+    volume.until_logged("stop H");
+    unsafe { libc::kill(pids[0], libc::SIGTERM) };
+    let at = volume
+        .started
+        .iter()
+        .position(|child| child.id() as i32 == pids[0])
+        .unwrap();
+    let mut holder = volume.started.remove(at);
+    let (sent, ended) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = sent.send(holder.wait().unwrap());
+    });
+    let status = ended
+        .recv_timeout(Duration::from_secs(20))
+        .expect("the holder ignored SIGTERM while it waited to run again");
+    assert!(!status.success());
+    volume.open_gate("A");
+    volume.open_gate("H");
+    volume.until_logged("end A");
+    assert_eq!(
+        volume.log(),
+        lines(&["start H", "stop H", "start A", "end A"]),
+        "H never ran again"
+    );
+}

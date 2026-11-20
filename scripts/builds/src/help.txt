@@ -967,6 +967,12 @@ taken a checkout, builds records its run as stopped, with the step that the
 signal ended as stopped. Once every lane has ended, app-build exits and says
 which signal stopped it.
 
+The same signals stop `builds build-app` and `builds lock`. Each passes the
+signal to the process group of the command that runs, and a build on a host
+stops there. Each stops waiting for its turn in the queue, starts nothing
+after the signal (build-app copies, installs and quits no app), gives up its
+lock and exits saying which signal stopped it.
+
 An app checkout may be on another host (`builds host`). Its lock, queue and
 record of its last build stay on this Mac, under the entry <host>:<name>. A
 build there sends the commit to the host's clone as a job ref (never to
@@ -1231,8 +1237,9 @@ from the store, never built again.
                               as a background task. The lock lasts until the
                               command's last process exits, and SIGTERM,
                               SIGINT and SIGHUP go to the command's whole
-                              process group. It is for a command that is no
-                              repo's build
+                              process group and stop builds lock too, even
+                              while it waits in the queue. It is for a
+                              command that is no repo's build
   builds queue <repo> [--lane mac|android]
                               show each lane's app checkouts, free or with
                               their holder, when and why builds added each one

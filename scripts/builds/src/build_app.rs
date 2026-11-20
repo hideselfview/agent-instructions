@@ -8,6 +8,12 @@
 //! replaces it, in place of the copy there, the running one quit first. The
 //! Android build is the repo's own script, which installs the app where it
 //! should go, so it takes only a checkout on this Mac.
+//!
+//! A stop signal (SIGTERM, SIGINT or SIGHUP) ends the command from the moment
+//! it starts (lock.rs `end_on_stop_signals`): it ends the wait for the lane's
+//! lock, the build that runs (on the host too) and the wait for the running
+//! app to quit, starts nothing after it, and fails, naming the signal. The
+//! lane's lock goes as the command ends.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -172,6 +178,10 @@ fn quit(bundle: &str, app: &Path) -> Result<()> {
         );
     }
     for _ in 0..QUIT_CHECKS {
+        lock::refuse_when_stopped(&format!(
+            "waited for {bundle} to quit; the new app is at {}",
+            with_new(app).display()
+        ))?;
         if !running(bundle)? {
             return Ok(());
         }
@@ -223,6 +233,7 @@ fn built_app(site: &mut Site, mac: &MacApp) -> Result<PathBuf> {
 
 pub fn cmd_build_app(tool: &Tool, args: &[String]) -> Result<()> {
     let (repo, platform, commit) = parse_args(args)?;
+    lock::end_on_stop_signals();
     let places = &tool.places;
     let ssh = Ssh::from_env();
 
@@ -249,7 +260,9 @@ pub fn cmd_build_app(tool: &Tool, args: &[String]) -> Result<()> {
         let mut site = Site::of(places, &ssh, repo, platform.lane(), &held.checkout)?;
         note(format!("building in {}", held.checkout));
         let config = site.check_out(places, repo, commit)?.config;
-        match run_build(&mut site, platform.build(&config)?)? {
+        let ran = run_build(&mut site, platform.build(&config)?);
+        lock::refuse_when_stopped(&format!("built {commit}'s {} app", platform.word()))?;
+        match ran? {
             Within::Ran(lock::Ran::Finished) => break (config, site),
             // Only a takeover stops it: it holds no use of the stores, so
             // install never stops it.
@@ -268,6 +281,10 @@ pub fn cmd_build_app(tool: &Tool, args: &[String]) -> Result<()> {
     };
     let app = copy_path(places, repo, mac)?;
     copy_out(&built_app(&mut site, mac)?, &app)?;
+    lock::refuse_when_stopped(&format!(
+        "copied the built app to {}",
+        with_new(&app).display()
+    ))?;
     // The build and the copy are done: the next build can start.
     held.release();
 

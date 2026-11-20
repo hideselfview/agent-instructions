@@ -13,7 +13,7 @@ use std::time::{Duration, Instant};
 
 const BUILDS: &str = env!("CARGO_BIN_EXE_builds");
 
-const APP_BUILD: &str = "step mac xcode ./xcode.sh\nstep mac quick ./hello.sh\nstep android hello ./hello.sh\nstep android hang ./hang.sh\nstep android signed ./hello.sh\nhere signed\nlimit hang 1s\ntest android ./t.sh {class}\ntest mac ./t.sh {class}\nopens-windows mac\nresults android out\n";
+const APP_BUILD: &str = "step mac xcode ./xcode.sh\nstep mac quick ./hello.sh\nstep android hello ./hello.sh\nstep android hang ./hang.sh\nstep android signed ./hello.sh\nhere signed\nlimit hang 1s\ntest android ./t.sh {class}\ntest mac ./t.sh {class}\nopens-windows mac\nresults android out\nmac build ./t.sh Sleepy\nmac app out.app\nmac bundle demo.test\n";
 
 struct World {
     dir: PathBuf,
@@ -168,11 +168,10 @@ cd "$home" && HOME="$home" exec sh -c "$*"
             .unwrap()
     }
 
-    /// Starts `builds app-build demo <args>`, reading its stderr line by
-    /// line.
-    fn start_app_build(&self, args: &[&str]) -> Running {
+    /// Starts `builds <args>`, reading its stderr line by line.
+    fn start(&self, args: &[&str]) -> Running {
         let mut child = self
-            .builds(&[&["app-build", "demo"], args].concat())
+            .builds(args)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::piped())
@@ -247,7 +246,8 @@ cd "$home" && HOME="$home" exec sh -c "$*"
 /// How long a test waits for what a build prints or does before it fails.
 const PATIENCE: Duration = Duration::from_secs(60);
 
-/// An app build the test started, killed when the test ends however it ends.
+/// A builds command the test started, killed when the test ends however it
+/// ends.
 struct Running {
     pid: i32,
     /// Each line of its stderr, as it prints it.
@@ -462,7 +462,15 @@ fn a_stop_signal_ends_an_app_build_that_waits_for_its_hosts_display() {
     let world = World::new("stop-wait");
     world.with_store_and_mac_checkout();
     let display = try_lock(&world.dir.join("volume/.app-windows/m1")).unwrap();
-    let mut build = world.start_app_build(&["main", "quick", "--test", "mac", "Good"]);
+    let mut build = world.start(&[
+        "app-build",
+        "demo",
+        "main",
+        "quick",
+        "--test",
+        "mac",
+        "Good",
+    ]);
     build.until_said("takes m1's display");
     build.signal(libc::SIGTERM);
     let status = build
@@ -492,9 +500,16 @@ fn a_stop_signal_ends_an_app_builds_step_on_the_host_and_frees_its_locks() {
     let world = World::new("stop-step");
     world.with_store_and_mac_checkout();
     let pid_fifo = world.dir.join("remote-home/sleepy.pid");
-    let path = std::ffi::CString::new(pid_fifo.to_str().unwrap()).unwrap();
-    assert_eq!(unsafe { libc::mkfifo(path.as_ptr(), 0o600) }, 0);
-    let mut build = world.start_app_build(&["main", "quick", "--test", "mac", "Sleepy"]);
+    make_fifo(&pid_fifo);
+    let mut build = world.start(&[
+        "app-build",
+        "demo",
+        "main",
+        "quick",
+        "--test",
+        "mac",
+        "Sleepy",
+    ]);
     let pid = read_fifo(&pid_fifo).trim().parse::<i32>().unwrap();
     build.signal(libc::SIGTERM);
     let status = build
@@ -520,4 +535,60 @@ fn a_stop_signal_ends_an_app_builds_step_on_the_host_and_frees_its_locks() {
             ]
         )]
     );
+}
+
+/// Makes the FIFO <path>, which a step writes its pid to.
+fn make_fifo(path: &Path) {
+    let path = std::ffi::CString::new(path.to_str().unwrap()).unwrap();
+    assert_eq!(unsafe { libc::mkfifo(path.as_ptr(), 0o600) }, 0);
+}
+
+/// A stop signal reaches a build-app while its build runs on the host. The
+/// build's process on the host ends, the lane's lock is free, and build-app
+/// says the signal stopped it.
+#[test]
+fn a_stop_signal_ends_a_build_apps_build_on_the_host_and_frees_its_lock() {
+    let world = World::new("stop-build-app");
+    world.with_store_and_mac_checkout();
+    let pid_fifo = world.dir.join("remote-home/sleepy.pid");
+    make_fifo(&pid_fifo);
+    let mut build = world.start(&["build-app", "demo", "mac", "main"]);
+    let pid = read_fifo(&pid_fifo).trim().parse::<i32>().unwrap();
+    build.signal(libc::SIGTERM);
+    let status = build
+        .ended_within(Duration::from_secs(20))
+        .unwrap_or_else(|| panic!("build-app ignored SIGTERM: {}", build.said()));
+    assert!(!status.success(), "{}", build.said());
+    assert!(
+        build.said().contains("stopped on SIGTERM"),
+        "{}",
+        build.said()
+    );
+    assert!(!alive(pid), "the build's process on the host is gone");
+    assert!(
+        try_lock(&world.dir.join("volume/demo/app.locks/m1:mac-1")).is_some(),
+        "the lane's lock is free"
+    );
+}
+
+/// A stop signal reaches a build-app that waits in the lane's queue for the
+/// lock another build holds. build-app ends and says the signal stopped it.
+#[test]
+fn a_stop_signal_ends_a_build_app_that_waits_for_its_turn() {
+    let world = World::new("stop-build-app-wait");
+    world.with_store_and_mac_checkout();
+    let lane = try_lock(&world.dir.join("volume/demo/app.locks/m1:mac-1")).unwrap();
+    let mut build = world.start(&["build-app", "demo", "mac", "main"]);
+    build.until_said("waiting for demo's mac app lock");
+    build.signal(libc::SIGTERM);
+    let status = build
+        .ended_within(Duration::from_secs(20))
+        .unwrap_or_else(|| panic!("build-app ignored SIGTERM: {}", build.said()));
+    assert!(!status.success(), "{}", build.said());
+    assert!(
+        build.said().contains("stopped on SIGTERM"),
+        "{}",
+        build.said()
+    );
+    drop(lane);
 }
