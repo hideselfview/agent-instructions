@@ -197,7 +197,6 @@ pub fn page(target: Target, worktree: &Worktree) -> Result<String> {
         board,
     } = target;
     let data = json!({
-        "project": project,
         "worktree": name,
         "top": worktree.top.display().to_string(),
         "board": board,
