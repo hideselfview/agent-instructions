@@ -13,8 +13,8 @@ use crate::lists::design_paths::Globs;
 use crate::review::check::{parse_diff, squash};
 use crate::review::files::{self, Source};
 use crate::review::record::{Kind, NewCall, NewRun};
-use crate::review::render;
 use crate::review::run::{Diff, Material, Scope, Tokens, ask_groups};
+use crate::text::plural;
 
 pub const DIR: &str = "review/cases";
 const PATCH: &str = "change.patch";
@@ -667,7 +667,7 @@ fn setup_line(name: &str, results: &[CaseResult]) -> String {
         t.cost_microdollars as f64 / 1_000_000.0,
         match t.failed_calls {
             0 => String::new(),
-            n => format!(", {} failed", render::plural(n, "call")),
+            n => format!(", {} failed", plural(n, "call")),
         }
     )
 }

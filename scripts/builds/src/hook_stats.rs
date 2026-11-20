@@ -35,6 +35,7 @@ use crate::fail;
 use crate::fail::{Context, Result};
 use crate::host::Load;
 use crate::step_failure::{RunResult, StepFailure};
+use crate::text::plural;
 
 pub use crate::db::DATABASE;
 
@@ -798,10 +799,6 @@ fn kinds_of(run: &Run) -> std::collections::BTreeMap<String, u32> {
     kinds
 }
 
-fn plural(n: u32, one: &str, many: &str) -> String {
-    format!("{n} {}", if n == 1 { one } else { many })
-}
-
 /// The text `builds checks stats` prints: <stats> of <repo> in <project>, read since
 /// <since> (a day, for the heading).
 pub fn report(project: &str, repo: &str, since: Option<&str>, stats: Option<&Stats>) -> String {
@@ -815,7 +812,7 @@ pub fn report(project: &str, repo: &str, since: Option<&str>, stats: Option<&Sta
     };
     let mut out = format!(
         "{heading}: {}, median {}, slowest {}\n\n",
-        plural(stats.runs, "passing run", "passing runs"),
+        plural(stats.runs as usize, "passing run"),
         seconds(stats.median_ms),
         seconds(stats.slowest_ms)
     );
@@ -866,7 +863,7 @@ pub fn report(project: &str, repo: &str, since: Option<&str>, stats: Option<&Sta
             local_minute(run.at),
             seconds(run.total_ms),
             run.branch.as_deref().unwrap_or("(detached)"),
-            plural(run.files.len() as u32, "file", "files"),
+            plural(run.files.len(), "file"),
             run.added(),
             run.removed(),
             kinds.join(", ")
@@ -898,8 +895,8 @@ pub fn handed_text(run: &Run) -> String {
         .collect();
     format!(
         "{}, {}; slowest {}",
-        plural(files, "file", "files"),
-        plural(crates, "crate", "crates"),
+        plural(files as usize, "file"),
+        plural(crates as usize, "crate"),
         slowest.join(", ")
     )
 }

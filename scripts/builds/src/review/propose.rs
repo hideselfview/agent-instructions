@@ -22,9 +22,9 @@ use crate::review::check::{code_in, names_file, squash};
 use crate::review::files;
 use crate::review::model_check;
 use crate::review::record::{self, Finding, RunRow};
-use crate::review::render;
 use crate::review::rerun::net_change;
 use crate::review::run::{self, Diff, Material};
+use crate::text::plural;
 
 /// The settle reasons that say only that a finding is real as it says, with
 /// no reason of its own. The coordinator confirmed bae's findings with these
@@ -369,8 +369,8 @@ pub fn propose(inputs: &Inputs) -> Result<Proposed> {
         )?;
         text.push_str(&format!(
             "  case {name}: {}, {}\n",
-            render::plural(expected, "expected finding"),
-            render::plural(lines, "clean line")
+            plural(expected, "expected finding"),
+            plural(lines, "clean line")
         ));
     }
     text.push_str(&misses(inputs, &conn)?);

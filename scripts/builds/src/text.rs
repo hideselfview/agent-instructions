@@ -8,6 +8,12 @@ use std::path::Path;
 
 use crate::fail::{Context, Result};
 
+/// <count> and <word>, with an `s` unless the count is one: `1 file`,
+/// `3 files`.
+pub fn plural(count: usize, word: &str) -> String {
+    format!("{count} {word}{}", if count == 1 { "" } else { "s" })
+}
+
 /// This process's stderr, to give a child as its stdout: a command whose
 /// stdout carries an answer (`builds tool` prints a folder) shows a child's
 /// output on stderr.

@@ -22,6 +22,7 @@ use serde::Deserialize;
 
 use crate::fail;
 use crate::fail::Result;
+use crate::text::plural;
 
 /// The file's name in the report's folder, as the shots program writes it.
 pub const FILE: &str = "findings.json";
@@ -293,10 +294,6 @@ pub fn causes(run: &Run) -> Causes {
 /// findings.
 const SCENES_SHOWN: usize = 10;
 
-fn plural(n: usize, one: &str, many: &str) -> String {
-    format!("{n} {}", if n == 1 { one } else { many })
-}
-
 /// <run>'s findings grouped by cause, as `builds shots findings --by-cause`
 /// prints them.
 pub fn text(run: &Run) -> String {
@@ -305,13 +302,13 @@ pub fn text(run: &Run) -> String {
         run.findings.iter().map(|r| r.scene.as_str()).collect();
     let mut out = format!(
         "{} in {}, grouped by cause, largest first.\n",
-        plural(run.findings.len(), "finding", "findings"),
-        plural(scenes.len(), "scene", "scenes")
+        plural(run.findings.len(), "finding"),
+        plural(scenes.len(), "scene")
     );
     if !run.skipped.is_empty() {
         out.push_str(&format!(
             "{} the run skipped on the shots record {} in no group, since the record holds their findings only as sentences: {}\n",
-            plural(run.skipped.len(), "scene", "scenes"),
+            plural(run.skipped.len(), "scene"),
             if run.skipped.len() == 1 { "is" } else { "are" },
             run.skipped.join(", ")
         ));
@@ -337,8 +334,8 @@ pub fn text(run: &Run) -> String {
             out.push_str(&format!(
                 "  {}: {}, {}\n",
                 group.cause,
-                plural(group.scenes.len(), "scene", "scenes"),
-                plural(group.findings, "finding", "findings")
+                plural(group.scenes.len(), "scene"),
+                plural(group.findings, "finding")
             ));
             if !group.kinds.is_empty() {
                 let kinds: Vec<String> = group
@@ -362,7 +359,7 @@ pub fn text(run: &Run) -> String {
         if !single.is_empty() {
             out.push_str(&format!(
                 "  and {} with one finding each\n",
-                plural(single.len(), "cause", "causes")
+                plural(single.len(), "cause")
             ));
         }
     }
