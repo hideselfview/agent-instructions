@@ -609,6 +609,32 @@ fn resolve(
 /// design change on it.
 const MAX_SECTION_WORDS: usize = 25;
 
+/// The most words in a design change's details, and in each sentence of them:
+/// the review page shows them beside the boards, which carry the change.
+const MAX_DETAILS_WORDS: usize = 40;
+const MAX_DETAILS_SENTENCE_WORDS: usize = 15;
+
+/// Refuses details longer than `MAX_DETAILS_WORDS` words or holding a sentence
+/// longer than `MAX_DETAILS_SENTENCE_WORDS` words.
+fn check_details(details: &str) -> Result<()> {
+    let words = details.split_whitespace().count();
+    if words > MAX_DETAILS_WORDS {
+        fail!(
+            "the details are {words} words; they are at most {MAX_DETAILS_WORDS}. The boards and circles show the change: name what changed in a few short sentences"
+        );
+    }
+    for sentence in details.split(['.', '!', '?', '\n']) {
+        let words = sentence.split_whitespace().count();
+        if words > MAX_DETAILS_SENTENCE_WORDS {
+            fail!(
+                "a sentence of the details is {words} words; each is at most {MAX_DETAILS_SENTENCE_WORDS}. The boards and circles show the change: name what changed in a few short sentences (\"{}\")",
+                sentence.trim()
+            );
+        }
+    }
+    Ok(())
+}
+
 /// A review page's own rules: its heading has text, its words are at most
 /// `MAX_SECTION_WORDS`, every board on it has a caption, and each circle has a
 /// selector and, if it has a label, words in it. (That a board is a board file,
@@ -842,6 +868,7 @@ pub fn record(
         fail!("{fault}");
     }
     let details = require_text("details", request.details.as_ref())?;
+    check_details(&details)?;
     if request.review.is_none() && request.settlement.needs_review() {
         fail!(
             "a design change needs its `review`: the headings, words and boards of the page the person reviews it on (a `fix` that changes no design, or a board edit of a change the person decided in a `decision`, needs none)"
@@ -966,6 +993,7 @@ pub fn amend(
     }
     if let Some(details) = &request.details {
         let details = require_text("details", Some(details))?;
+        check_details(&details)?;
         db.execute(
             "UPDATE design SET details = ?2 WHERE id = ?1",
             params![id, details],

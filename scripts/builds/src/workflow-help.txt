@@ -556,7 +556,9 @@ already matches (`places`, `builds help lists`).
      board the change changes that has no circle; a board the change leaves
      as it is, shown to compare, takes none. Keep the change short: the page
      has one heading, so record one change per concern, and its words are at
-     most 25. Circle what the person must look at, not every element the
+     most 25. The details are at most 40 words, with no sentence over 15
+     words. The details and the words name what changed in a few short
+     sentences, and the boards and circles show the rest. Circle what the person must look at, not every element the
      change moves: when one heading goes and every row below it moves up,
      circle the area that holds the heading and the rows. The change shows in the dashboard's Waiting on you
      tab as a card, and its Details opens the review page, which shows each

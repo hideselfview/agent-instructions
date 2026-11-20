@@ -1737,6 +1737,49 @@ fn a_review_page_is_one_section_with_at_most_25_words() {
 }
 
 #[test]
+fn details_are_at_most_40_words_with_no_sentence_over_15() {
+    let w = world("design-details-short");
+    let a = "design/mocks/A.dc.html";
+    w.commit(&[a]);
+    let places = json!({ a: { "matches": "x" } });
+    let with = |details: String| {
+        let mut request = base_request(&w, places.clone());
+        request["details"] = json!(details);
+        request
+    };
+    let before = w.bytes();
+    let long = vec!["word"; 41].join(" ");
+    let refused = message(w.request(with(long.clone())));
+    assert!(
+        refused.contains("41 words") && refused.contains("boards and circles"),
+        "{refused}"
+    );
+    let sentence = format!("{}. Short one.", vec!["word"; 16].join(" "));
+    let refused = message(w.request(with(sentence.clone())));
+    assert!(refused.contains("16 words"), "{refused}");
+    assert_eq!(w.bytes(), before);
+    // An amend refuses the same text.
+    w.request(with("Short one. Another short one.".to_string()))
+        .unwrap();
+    for bad in [long, sentence] {
+        let mut amend = base_request(&w, places.clone());
+        amend.as_object_mut().unwrap().remove("title");
+        amend["details"] = json!(bad);
+        assert!(message(w.amend(1, amend)).contains("details"));
+    }
+    let ok = format!(
+        "{}. {}. {}.",
+        vec!["word"; 15].join(" "),
+        vec!["word"; 15].join(" "),
+        ["word"; 10].join(" ")
+    );
+    let mut amend = base_request(&w, places.clone());
+    amend.as_object_mut().unwrap().remove("title");
+    amend["details"] = json!(ok);
+    w.amend(1, amend).unwrap();
+}
+
+#[test]
 fn a_changed_shared_source_lists_the_components_whose_drawing_changes() {
     let w = world("design-sources");
     w.commit(&[

@@ -634,6 +634,9 @@ sent again.
                                                   "width": W, "height": H},
                                           "label": WORDS}]}]},
       "no_app_place": WHY, "fix": WHAT, "decision": N}.
+      `details` name what changed in a few short sentences: at most 40 words,
+      and no sentence over 15 words. The boards and circles show the rest, and
+      record and amend refuse longer details.
       `title` names the part of the app the change draws in a few plain
       words, such as "People rows" or "AirPlay wait", not a sentence that
       starts with a verb (decision #297). The dashboard lists the change under
@@ -682,8 +685,9 @@ sent again.
       id that is no decision of the log, and a request that gives both `fix`
       and `decision`.
       `review` is the review page: one heading, because the person reviews
-      one concern per change, the words under it (optional, at most 25 words;
-      `code`, **bold**, paragraphs and `-` lists) and its boards (optional), each a board file of the repo's design
+      one concern per change, the words under it (optional, at most 25 words, naming
+      what changed in a few short sentences; `code`, **bold**, paragraphs and
+      `-` lists) and its boards (optional), each a board file of the repo's design
       places that exists at the range's last commit, with its caption and the
       theme it is drawn in (a board may be on the page twice, once per theme,
       and a board the change did not touch may be there to compare). Every
