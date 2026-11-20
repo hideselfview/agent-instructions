@@ -375,6 +375,32 @@ fn a_repo_in_no_project_lands_with_only_the_project_lookup_and_the_release_and_r
 }
 
 #[test]
+fn done_refuses_while_commits_of_the_branch_stay_unlanded() {
+    let f = fixture("done-leaves-commits", CHECK, None);
+    let one = f.side(1, "a");
+    let first = commit_file(&one, "a.txt", "a\n", "add a");
+    let second = commit_file(&one, "c.txt", "c\n", "add c");
+    let (code, out, calls) = run_land(&f, &one, &["--done", "7", &first], project());
+    assert!(
+        code == 1 && out.contains("--part") && out.contains(&second[..12]) && main_of(&f) != first,
+        "{out}"
+    );
+    assert!(
+        !calls.iter().any(|c| c.starts_with("item landed")),
+        "{calls:?}"
+    );
+    assert_eq!(branch_of(&one).as_deref(), Some("a"));
+    let (code, _, calls) = run_land(&f, &one, &["--part", "7", &first], project());
+    assert!(code == 0 && main_of(&f) == first);
+    assert!(calls.iter().any(|c| c.starts_with("item landed")));
+    let (code, _, _) = run_land(&f, &one, &["--done", "7", &second], project());
+    assert!(
+        code == 0 && main_of(&f) != first,
+        "the last commit closes the item"
+    );
+}
+
+#[test]
 fn a_project_repo_names_its_work_item_before_anything_moves() {
     let f = fixture("land-project", "true\n", None);
     let (one, a, _two, _b) = two_branches(&f);
@@ -472,7 +498,7 @@ fn a_landing_that_leaves_commits_on_the_branch_goes_back_on_it_and_keeps_the_cla
     let one = f.side(1, "a");
     let a = commit_file(&one, "a.txt", "a\n", "add a");
     let later = commit_file(&one, "d.txt", "d\n", "add d");
-    let (code, out, calls) = run_land(&f, &one, &["--done", "7", &a], project());
+    let (code, out, calls) = run_land(&f, &one, &["--part", "7", &a], project());
     assert!(code == 0 && main_of(&f) == a, "{out}");
     assert_eq!(branch_of(&one).as_deref(), Some("a"));
     assert_eq!(head_of(&one), later);

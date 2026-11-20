@@ -49,7 +49,9 @@
 //! item check-landing` refuses an item that runs in another worktree of the
 //! repo, since landing it here would check out other commits in the worktree
 //! that item's agent works in, and refuses `--done N` while N's branch in a
-//! worktree of another repo holds commits origin/main lacks. `builds design places`
+//! worktree of another repo holds commits origin/main lacks. Land also refuses
+//! `--done N` while the branch holds a commit the landing does not put on
+//! origin/main; `--part N` lands the earlier commits. `builds design places`
 //! prints one line per changed design path (`place`, `source`, `spec` or
 //! `shared`, then the path), nothing when none;
 //! any line, shared-only included, requires `--design`. When every commit's
@@ -601,6 +603,45 @@ impl Landing<'_> {
         self.builds(&args)
     }
 
+    /// Refuses `--done N` while the branch holds commits that this landing
+    /// does not put on origin/main: the item stays open for them, which
+    /// `--part N` does. A landing without `--done` has nothing to check.
+    fn check_done_leaves_nothing(&self, out: &mut dyn Write) -> Result<()> {
+        if !self.request.items.iter().any(|word| word == "--done") {
+            return Ok(());
+        }
+        let waiting = match crate::side_git::waiting_to_land(&self.workdir, self.start.rev()) {
+            Ok(waiting) => waiting,
+            Err(error) => {
+                return Err(refuse(
+                    out,
+                    format!(
+                        "refusing: reading what waits to land on {} failed: {error}",
+                        self.start.name()
+                    ),
+                ));
+            }
+        };
+        let left: Vec<String> = waiting
+            .iter()
+            .filter(|commit| !self.request.shas.contains(&commit.full))
+            .map(|commit| commit.full[..commit.full.len().min(12)].to_string())
+            .collect();
+        if left.is_empty() {
+            return Ok(());
+        }
+        let _ = writeln!(out, "LANDING REFUSED, land fetched and pushed nothing:");
+        Err(refuse(
+            out,
+            format!(
+                "refusing --done: this landing leaves {} commit(s) of {} unlanded ({}), so the item must stay open for them. Land these commits with --part N, and pass --done N with the landing of the last one",
+                left.len(),
+                self.start.name(),
+                left.join(", ")
+            ),
+        ))
+    }
+
     /// The checks of the lists that run before anything is fetched or picked.
     fn check_lists(&self, out: &mut dyn Write) -> Result<()> {
         let request = &self.request;
@@ -665,6 +706,7 @@ impl Landing<'_> {
                 let _ = writeln!(out, "LANDING REFUSED, land fetched and pushed nothing:");
                 return Err(refuse(out, said));
             }
+            self.check_done_leaves_nothing(out)?;
         }
         if !places.is_empty() && request.designs.is_empty() {
             let _ = writeln!(

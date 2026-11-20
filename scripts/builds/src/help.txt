@@ -2545,7 +2545,12 @@ run `review replay --rules-root` on it.
                               still wait to land. --done N finishes item N and
                               --part N records a landed part of it: land checks
                               both before it fetches anything and records them
-                              after the push. Commits that change design places
+                              after the push. Land refuses --done N, before it
+                              fetches anything, while the branch holds a commit
+                              that this landing does not put on origin/main:
+                              the item must stay open for that commit, so land
+                              the earlier commits with --part N and pass
+                              --done N with the last. Commits that change design places
                               need --design N for an approved design change.
                               When several approved design changes resolve
                               those places, pass --design once for each change:
