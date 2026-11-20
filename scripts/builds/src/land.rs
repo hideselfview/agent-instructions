@@ -622,10 +622,9 @@ impl Landing<'_> {
                 ));
             }
         };
-        let left: Vec<String> = waiting
-            .iter()
+        let left: Vec<_> = waiting
+            .into_iter()
             .filter(|commit| !self.request.shas.contains(&commit.full))
-            .map(|commit| commit.full[..commit.full.len().min(12)].to_string())
             .collect();
         if left.is_empty() {
             return Ok(());
@@ -637,7 +636,7 @@ impl Landing<'_> {
                 "refusing --done: this landing leaves {} commit(s) of {} unlanded ({}), so the item must stay open for them. Land these commits with --part N, and pass --done N with the landing of the last one",
                 left.len(),
                 self.start.name(),
-                left.join(", ")
+                crate::unlanded::commit_words(&left)
             ),
         ))
     }

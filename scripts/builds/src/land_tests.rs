@@ -382,7 +382,10 @@ fn done_refuses_while_commits_of_the_branch_stay_unlanded() {
     let second = commit_file(&one, "c.txt", "c\n", "add c");
     let (code, out, calls) = run_land(&f, &one, &["--done", "7", &first], project());
     assert!(
-        code == 1 && out.contains("--part") && out.contains(&second[..12]) && main_of(&f) != first,
+        code == 1
+            && out.contains("--part")
+            && out.contains(&format!("{} add c", &second[..7]))
+            && main_of(&f) != first,
         "{out}"
     );
     assert!(
