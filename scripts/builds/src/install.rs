@@ -514,7 +514,7 @@ fn replace_program(
     // program is on PATH, so none writes a store of another schema. Each app
     // build lane that holds its lock stops and runs again with the installed
     // builds, so install waits for no app build's steps.
-    let closed = installing.close(say, &mut crate::install_gate::stop_lane)?;
+    let closed = installing.close(say, &mut crate::queue::stop_holder)?;
     crate::migrate::migrate_app_files(places)?;
     crate::migrate::migrate_stores(places, now)?;
     let replaced = put()?;

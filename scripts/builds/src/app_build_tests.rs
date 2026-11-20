@@ -617,7 +617,10 @@ fn a_lane_an_install_stopped_gives_up_its_place_its_lock_and_its_use() {
     let install = std::thread::spawn({
         let places = places.clone();
         move || {
-            let stop = &mut |pid| stops.send(pid).unwrap();
+            let stop = &mut |pid| {
+                stops.send(pid).unwrap();
+                Ok(())
+            };
             let closed = install_gate::begin(&places, &mut |_| {})
                 .unwrap()
                 .close(&mut |_| {}, stop)

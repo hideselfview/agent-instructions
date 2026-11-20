@@ -661,9 +661,38 @@ pub fn takeover(places: &Places, repo: &str, pid: Option<i32>, lane: Option<Lane
         .collect();
     signal_all(&waiters, libc::SIGUSR1)?;
     if let Some(holder) = holder {
-        signal_all(&[holder], libc::SIGUSR2)?;
+        stop_holder(holder)?;
     }
     Ok(())
+}
+
+/// Stops the build of <pid>, which holds a lock of a lane: SIGUSR2, which
+/// lock.rs's handler answers by stopping the step that runs. A takeover
+/// stops the holder that joined last, and an install stops every holder that
+/// holds a use of the stores (install_gate.rs). A process that ended before
+/// the signal reached it lets its lock go by itself, so the stop says so and
+/// succeeds; any other failure fails it, since the build would run on.
+pub fn stop_holder(pid: i32) -> Result<()> {
+    match Processes::read()?.get(pid) {
+        None => {
+            crate::text::note(format!("process {pid} ended before builds could stop it"));
+            return Ok(());
+        }
+        Some(process) if process.name != "builds" => fail!(
+            "process {pid} ({}) holds a lane's lock but is not a builds process, so builds does not signal it",
+            process.name
+        ),
+        Some(_) => {}
+    }
+    if unsafe { libc::kill(pid, libc::SIGUSR2) } == 0 {
+        return Ok(());
+    }
+    let error = std::io::Error::last_os_error();
+    if error.raw_os_error() == Some(libc::ESRCH) {
+        crate::text::note(format!("process {pid} ended before builds could stop it"));
+        return Ok(());
+    }
+    fail!("stopping the build of process {pid}: {error}")
 }
 
 /// Tells every ticket's process in <lane>'s line to read the order again: its

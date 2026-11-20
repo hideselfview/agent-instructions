@@ -176,8 +176,9 @@ pub enum OnInstall {
     /// Install waits for the use to end: a landing, which writes its records
     /// with the schema it started with.
     Wait,
-    /// Install stops the process (`stop_lane`), then waits for the use to
-    /// end: an app build's lane, which runs again with the installed builds.
+    /// Install stops the process (`queue::stop_holder`), then waits for the
+    /// use to end: an app build's lane, which runs again with the installed
+    /// builds.
     Stop,
 }
 
@@ -188,12 +189,6 @@ impl OnInstall {
             OnInstall::Stop => Kind::Lane,
         }
     }
-}
-
-/// Asks the app build lane of process <pid>, which holds a lane use, to stop
-/// its build: SIGUSR2, which lock.rs's handler answers.
-pub fn stop_lane(pid: i32) {
-    unsafe { libc::kill(pid, libc::SIGUSR2) };
 }
 
 fn open(path: &Path) -> Result<File> {
@@ -618,11 +613,15 @@ impl Installing {
     }
 
     /// Closes the commands gate, stops the process of each lane use with
-    /// <stop> (`stop_lane`) and waits for every lane use, then waits for
+    /// <stop> (`queue::stop_holder`) and waits for every lane use, then waits for
     /// every command use, then closes the connections gate and waits for
     /// every connection use, telling <say> each lane it stops and each use it
     /// waits on; then counts one more install.
-    pub fn close(self, say: &mut dyn FnMut(String), stop: &mut dyn FnMut(i32)) -> Result<Closed> {
+    pub fn close(
+        self,
+        say: &mut dyn FnMut(String),
+        stop: &mut dyn FnMut(i32) -> Result<()>,
+    ) -> Result<Closed> {
         let commands = close_gate(&self.places, Kind::Command)?;
         stop_lanes(&self.places, say, stop)?;
         wait_for_uses(&self.places, Kind::Lane, &mut |_| {})?;
@@ -700,19 +699,20 @@ fn wait_for_uses(places: &Places, kind: Kind, say: &mut dyn FnMut(String)) -> Re
 }
 
 /// Stops the process of each lane use that holds its lock with <stop>,
-/// telling <say> each one. The commands gate is closed, so no lane takes a
+/// telling <say> each one, and fails when a stop fails: install would wait
+/// through the lane's steps. The commands gate is closed, so no lane takes a
 /// use from here on: each lane use that will exist is in its folder.
 fn stop_lanes(
     places: &Places,
     say: &mut dyn FnMut(String),
-    stop: &mut dyn FnMut(i32),
+    stop: &mut dyn FnMut(i32) -> Result<()>,
 ) -> Result<()> {
     for held in held_uses(places, Kind::Lane)? {
         say(format!(
             "stopping {}, which runs its lane again with the installed builds",
             held.text
         ));
-        stop(held.pid);
+        stop(held.pid)?;
     }
     Ok(())
 }

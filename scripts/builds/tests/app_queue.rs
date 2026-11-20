@@ -684,9 +684,14 @@ fn an_install_stops_a_running_app_build_which_builds_again_with_the_installed_bu
     assert_eq!(unsafe { libc::flock(gate.as_raw_fd(), libc::LOCK_EX) }, 0);
     assert_eq!(unsafe { libc::kill(lane, libc::SIGUSR2) }, 0);
     volume.until_logged("stop one");
-    until("the lane's use of the stores to end", || {
-        !lanes.join(lane.to_string()).exists()
-    });
+    // The lane holds its use file's lock until its use ends.
+    match std::fs::File::open(lanes.join(lane.to_string())) {
+        Ok(lane_use) => assert_eq!(
+            unsafe { libc::flock(lane_use.as_raw_fd(), libc::LOCK_EX) },
+            0
+        ),
+        Err(error) => assert_eq!(error.kind(), std::io::ErrorKind::NotFound, "{error}"),
+    }
     volume.until_queued(0);
     std::fs::write(install.join("generation"), "1\n").unwrap();
     drop(gate);

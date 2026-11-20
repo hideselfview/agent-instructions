@@ -43,7 +43,10 @@ fn closing(places: &Places) -> (std::thread::JoinHandle<Closed>, Receiver<Event>
     let places = places.clone();
     let closer = std::thread::spawn(move || {
         let say = &mut |line| events.send(Event::Said(line)).unwrap();
-        let stop = &mut |pid| events.send(Event::Stopped(pid)).unwrap();
+        let stop = &mut |pid| {
+            events.send(Event::Stopped(pid)).unwrap();
+            Ok(())
+        };
         let closed = begin(&places, say).unwrap().close(say, stop).unwrap();
         events.send(Event::Done(true)).unwrap();
         closed
@@ -52,7 +55,7 @@ fn closing(places: &Places) -> (std::thread::JoinHandle<Closed>, Receiver<Event>
 }
 
 /// The stop of an install that finds no lane holding a use.
-fn no_lane(pid: i32) {
+fn no_lane(pid: i32) -> Result<()> {
     panic!("no lane holds a use, yet install stopped process {pid}")
 }
 
@@ -452,7 +455,7 @@ fn waiting_names_each_use_a_running_install_waits_for() {
 /// An install that moves the stores stops each app build lane that holds its
 /// lock, and, while the lane still holds its use, the lane can tell the stop
 /// is an install's. Install moves on once the lane gives its use up, without
-/// waiting for the lane's steps, and waits for a hook run as before.
+/// waiting for the lane's steps, and waits for a hook run to end.
 #[test]
 fn an_install_stops_each_lane_that_holds_a_use_and_waits_only_for_the_use_to_end() {
     let scratch = Scratch::new("install-gate-stop-lane");
