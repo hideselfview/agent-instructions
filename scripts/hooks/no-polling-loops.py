@@ -29,7 +29,7 @@ REASON = (
     "work in the background (run_in_background) and wait for its completion notification."
 )
 
-LOOP = re.compile(r"\b(while|until)\b(?P<cond>.*?)\bdo\b(?P<body>.*?)\bdone\b", re.S)
+LOOP = re.compile(r"\b(while|until)\b(?P<cond>.*?)\bdo\b", re.S)
 # A loop condition that asks whether a process still runs.
 PROCESS_CHECK = re.compile(r"\b(pgrep|pidof|lsof)\b|\bkill\s+-0\b|\bps\b[^;|&]*\s-p\b")
 FOLLOW = re.compile(r"-[a-zA-Z]*[fF][a-zA-Z]*|--follow\S*")
@@ -128,6 +128,36 @@ def simple_wait(words: list[str]) -> bool:
     )
 
 
+# Words that start a command's line in a compound statement without being
+# the command: `do sleep 5`, `then sleep 1`, `! sleep 1`.
+STATEMENT_START = {"do", "then", "else", "elif", "{", "!", "time"}
+LOOP_HEADS = {"while", "until"}
+OTHER_LOOP_HEADS = {"for", "select"}
+
+
+def sleeps_in_loop(command: str) -> bool:
+    """A `sleep` command inside a while or until loop, at any depth: in its
+    condition or body, after a nested loop's `done`, in any `if` or `&&`.
+    Read as shell words, so a `sleep` inside a quoted string is text. Each
+    `done` closes the innermost loop, so a for loop's `done` does not end the
+    while loop around it."""
+    open_loops = []
+    for words, _ in shell_words.commands(command):
+        while words and words[0] in STATEMENT_START:
+            words = words[1:]
+        if not words:
+            continue
+        if words[0] in LOOP_HEADS | OTHER_LOOP_HEADS:
+            open_loops.append(words[0])
+        elif words[0] == "done" and open_loops:
+            open_loops.pop()
+        if any(loop in LOOP_HEADS for loop in open_loops):
+            run = program(words[1:] if words[0] in LOOP_HEADS else words)
+            if run and Path(run[0]).name == "sleep":
+                return True
+    return False
+
+
 def blocked(command: str) -> bool:
     # A loop that checks a process, or any loop that sleeps between checks:
     # both poll for a condition the harness already reports, and a condition
@@ -137,10 +167,8 @@ def blocked(command: str) -> bool:
         follows_into_pipe(command)
         or waits_on_pid(command)
         or any(simple_wait(words) for words, _ in shell_words.commands(command))
-        or any(
-            PROCESS_CHECK.search(m.group("cond")) or re.search(r"\bsleep\b", m.group("body"))
-            for m in LOOP.finditer(command)
-        )
+        or sleeps_in_loop(command)
+        or any(PROCESS_CHECK.search(m.group("cond")) for m in LOOP.finditer(command))
     )
 
 
