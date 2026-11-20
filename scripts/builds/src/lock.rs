@@ -209,10 +209,7 @@ pub struct Held {
     repo: String,
     lane: Lane,
     ssh: Ssh,
-    allowed: Where,
-    /// Whether the build draws window scenes, so it takes no host that cannot
-    /// (`host::screen_lacking`).
-    screen: bool,
+    takes: Takes,
     /// When this build joined the lane's queue, seconds since 1970.
     pub joined_at: i64,
     /// How long it waited in the queue in all, a wait after a takeover
@@ -287,18 +284,12 @@ impl Held {
         let places = self.places.clone();
         let repo = self.repo.clone();
         let ssh = self.ssh.clone();
-        let (lane, allowed, screen, joined_at, waited) = (
-            self.lane,
-            self.allowed,
-            self.screen,
-            self.joined_at,
-            self.waited,
-        );
+        let (lane, takes, joined_at, waited) = (self.lane, self.takes, self.joined_at, self.waited);
         // Records the end of this use of the checkout and frees its lock and
         // the old ticket.
         drop(self);
         queue.wait_for_turn(&ticket.name)?;
-        let (lock, checkout) = take_free_lock(&places, &ssh, &repo, lane, allowed, screen)?;
+        let (lock, checkout) = take_free_lock(&places, &ssh, &repo, lane, takes)?;
         let held = Held {
             lock,
             ticket,
@@ -308,8 +299,7 @@ impl Held {
             repo,
             lane,
             ssh,
-            allowed,
-            screen,
+            takes,
             joined_at,
             waited: waited + waiting.elapsed(),
         };
@@ -341,72 +331,59 @@ impl Drop for Held {
     }
 }
 
-/// The load average per core of each host, asked once for each when a build
-/// first needs it.
-struct Loads<'a> {
+/// What each host answered to one question, asked once for each when a build
+/// first needs it: its load average per core (`Loads`), or whether it can
+/// draw a window scene (`Screens`).
+struct Asked<'a, T> {
     places: &'a Places,
     ssh: &'a Ssh,
-    asked: HashMap<String, std::result::Result<f64, String>>,
+    asked: HashMap<String, std::result::Result<T, String>>,
+}
+
+type Loads<'a> = Asked<'a, f64>;
+type Screens<'a> = Asked<'a, Option<String>>;
+
+impl<T: Clone> Asked<'_, T> {
+    /// <host>'s answer to <ask>, or what went wrong asking it.
+    fn ask(
+        &mut self,
+        host: &str,
+        ask: impl Fn(&Ssh, &host::Host) -> std::result::Result<T, String>,
+    ) -> std::result::Result<T, String> {
+        if let Some(known) = self.asked.get(host) {
+            return known.clone();
+        }
+        let answer = match host::all(self.places) {
+            Err(error) => Err(error.text()),
+            Ok(hosts) => match hosts.iter().find(|known| known.name == host) {
+                None => Err(format!("`builds host list` does not have host {host}")),
+                Some(known) => ask(self.ssh, known),
+            },
+        };
+        self.asked.insert(host.to_string(), answer.clone());
+        answer
+    }
 }
 
 impl Loads<'_> {
     /// <host>'s load average per core, or what went wrong asking it.
     fn of(&mut self, host: &str) -> std::result::Result<f64, String> {
-        if let Some(known) = self.asked.get(host) {
-            return known.clone();
-        }
-        let probed = match host::all(self.places) {
-            Err(error) => Err(error.text()),
-            Ok(hosts) => match hosts.iter().find(|known| known.name == host) {
-                None => Err(format!("`builds host list` does not have host {host}")),
-                Some(known) => {
-                    host::probe(self.places, self.ssh, known).map(|probe| probe.load_per_core())
-                }
-            },
-        };
-        self.asked.insert(host.to_string(), probed.clone());
-        probed
+        let places = self.places;
+        self.ask(host, |ssh, known| {
+            host::probe(places, ssh, known).map(|probe| probe.load_per_core())
+        })
     }
-}
-
-/// Whether each host can draw a window scene, asked once for each when a
-/// build first needs it.
-struct Screens<'a> {
-    places: &'a Places,
-    ssh: &'a Ssh,
-    asked: HashMap<String, std::result::Result<Option<String>, String>>,
 }
 
 impl Screens<'_> {
-    /// <host>'s answer: None when it can draw, why it cannot, or what went
-    /// wrong asking it.
-    fn of(&mut self, host: &str) -> std::result::Result<Option<String>, String> {
-        if let Some(known) = self.asked.get(host) {
-            return known.clone();
-        }
-        let asked = match host::all(self.places) {
-            Err(error) => Err(error.text()),
-            Ok(hosts) => match hosts.iter().find(|known| known.name == host) {
-                None => Err(format!("`builds host list` does not have host {host}")),
-                Some(known) => host::screen_lacks(self.ssh, known),
-            },
-        };
-        self.asked.insert(host.to_string(), asked.clone());
-        asked
-    }
-
-    /// <entries> that can draw a window scene (each on this Mac or on a host
-    /// that can), and the others, each with why not.
+    /// <entries>, each on a host, that can draw a window scene, and the
+    /// others, each with why not.
     fn split(&mut self, entries: Vec<String>) -> (Vec<String>, Vec<String>) {
         let mut drawing = Vec::new();
         let mut undrawn = Vec::new();
         for entry in entries {
             let host = host_of(&entry).to_string();
-            if host == host::LOCAL {
-                drawing.push(entry);
-                continue;
-            }
-            match self.of(&host) {
+            match self.ask(&host, host::screen_lacks) {
                 Ok(None) => drawing.push(entry),
                 Ok(Some(why)) => undrawn.push(format!(
                     "{entry} (on host {host}, {why}, so it cannot draw shots; open its lid or attach a display)"
@@ -464,9 +441,9 @@ fn take_free_lock(
     ssh: &Ssh,
     repo: &str,
     lane: Lane,
-    allowed: Where,
-    screen: bool,
+    takes: Takes,
 ) -> Result<(libc::c_int, String)> {
+    let Takes { allowed, screen } = takes;
     let dir = places.app_locks_dir(repo, lane);
     std::fs::create_dir_all(&dir).context(|| format!("creating {}", dir.display()))?;
     let queue = Queue::of(places, repo, lane);
@@ -475,6 +452,7 @@ fn take_free_lock(
         ssh,
         asked: HashMap::new(),
     };
+    // A build that draws takes only checkouts on hosts (`take_drawing`).
     let mut screens = Screens {
         places,
         ssh,
@@ -652,7 +630,7 @@ fn take_in(
     grows: Option<u64>,
     now: i64,
 ) -> Result<Held> {
-    let Takes { allowed, screen } = takes;
+    let allowed = takes.allowed;
     let sized = crate::lane_size::RepoLane {
         places,
         ssh,
@@ -707,7 +685,7 @@ fn take_in(
         }
     }
     queue.wait_for_turn(&ticket.name)?;
-    let (lock, checkout) = take_free_lock(places, ssh, repo, lane, allowed, screen)?;
+    let (lock, checkout) = take_free_lock(places, ssh, repo, lane, takes)?;
     let held = Held {
         lock,
         ticket,
@@ -717,8 +695,7 @@ fn take_in(
         repo: repo.to_string(),
         lane,
         ssh: ssh.clone(),
-        allowed,
-        screen,
+        takes,
         joined_at: now,
         waited: waiting.elapsed(),
     };

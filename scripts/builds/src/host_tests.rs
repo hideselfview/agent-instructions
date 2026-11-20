@@ -687,18 +687,48 @@ fn a_mutants_run_passes_over_a_host_without_the_pinned_cargo_mutants() {
 #[test]
 fn a_host_with_its_lid_closed_and_no_display_cannot_draw_a_window_scene() {
     assert_eq!(
-        screen_lacking("lid=closed\nscreens=0\n").as_deref(),
+        screen_lacking("lid=closed\nscreens=0\n")
+            .unwrap()
+            .as_deref(),
         Some("its lid is closed and it lists no other display")
     );
-    assert_eq!(screen_lacking("lid=open\n"), None);
+    assert_eq!(screen_lacking("lid=open\n").unwrap(), None);
     assert_eq!(
-        screen_lacking("lid=closed\nscreens=1\n"),
+        screen_lacking("lid=none\n").unwrap(),
+        None,
+        "a Mac with no lid"
+    );
+    assert_eq!(
+        screen_lacking("lid=closed\nscreens=1\n").unwrap(),
         None,
         "another display is attached"
     );
-    assert_eq!(
-        screen_lacking(""),
-        None,
-        "a host that says nothing of a lid"
+}
+
+#[test]
+fn an_answer_that_names_no_lid_or_no_screens_count_is_an_error_not_a_yes() {
+    assert!(screen_lacking("").unwrap_err().contains("names no lid"));
+    assert!(screen_lacking("lid=ajar\n").is_err());
+    assert!(
+        screen_lacking("lid=closed\n")
+            .unwrap_err()
+            .contains("no screens count")
     );
+    assert!(screen_lacking("lid=closed\nscreens=many\n").is_err());
+}
+
+#[test]
+fn the_screen_script_answers_on_this_mac_with_a_lid_line() {
+    let said = output_of(
+        command_at(
+            &Ssh::from_env(),
+            &Host::local(),
+            SCREEN_SCRIPT,
+            Terminal::None,
+        ),
+        "running the screen script here",
+        Accept::Zero,
+    )
+    .unwrap();
+    assert!(screen_lacking(&said).is_ok(), "{said:?}");
 }

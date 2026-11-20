@@ -487,42 +487,61 @@ pub fn probe_local(places: &Places) -> Result<Probe> {
 }
 
 /// The lines a host runs to say whether it can draw a window scene (a shot
-/// of a screen): `lid=open`, or `lid=closed` with `screens=<n>`, how many
-/// displays `system_profiler` lists with a resolution. A Mac whose lid is
+/// of a screen): `lid=closed` with `screens=<n>`, how many displays
+/// `system_profiler` lists with a resolution, `lid=open`, or `lid=none` for a
+/// Mac with no lid (`ioreg` lists no clamshell state). A Mac whose lid is
 /// closed makes no virtual display for the shot renderer unless another
-/// display is attached.
-pub const SCREEN_SCRIPT: &str = r#"if ioreg -r -k AppleClamshellState -d 1 2>/dev/null | grep -q '"AppleClamshellState" = Yes'; then echo lid=closed; echo "screens=$(system_profiler SPDisplaysDataType 2>/dev/null | grep -c 'Resolution:')"; else echo lid=open; fi"#;
+/// display is attached. A command that fails fails the script.
+pub const SCREEN_SCRIPT: &str = r#"lid=$(ioreg -r -k AppleClamshellState -d 1) || exit 1
+case "$lid" in
+*'"AppleClamshellState" = Yes'*)
+    displays=$(system_profiler SPDisplaysDataType) || exit 1
+    echo lid=closed
+    echo "screens=$(printf '%s\n' "$displays" | grep -c 'Resolution:')";;
+*'"AppleClamshellState" = No'*) echo lid=open;;
+*) echo lid=none;;
+esac"#;
 
 /// Why the host that printed <text> for `SCREEN_SCRIPT` cannot draw a window
-/// scene: its lid is closed and it lists no display. None when it can, or
-/// when <text> says nothing of a lid.
-pub fn screen_lacking(text: &str) -> Option<String> {
-    let closed = text.lines().any(|line| line.trim() == "lid=closed");
-    let screens = text
-        .lines()
-        .find_map(|line| line.trim().strip_prefix("screens="))
-        .and_then(|count| count.trim().parse::<u32>().ok());
-    (closed && screens == Some(0))
-        .then(|| "its lid is closed and it lists no other display".to_string())
+/// scene: its lid is closed and it lists no display. None when it can, and
+/// an error when <text> is no answer of the script's.
+pub fn screen_lacking(text: &str) -> std::result::Result<Option<String>, String> {
+    let line = |key: &str| {
+        text.lines()
+            .find_map(|line| line.trim().strip_prefix(key))
+            .map(str::trim)
+    };
+    match line("lid=") {
+        Some("open" | "none") => Ok(None),
+        Some("closed") => {
+            let screens = line("screens=").and_then(|count| count.parse::<u32>().ok());
+            match screens {
+                Some(0) => Ok(Some(
+                    "its lid is closed and it lists no other display".to_string(),
+                )),
+                Some(_) => Ok(None),
+                None => Err(format!(
+                    "its answer to the lid script has no screens count: {text:?}"
+                )),
+            }
+        }
+        _ => Err(format!(
+            "its answer to the lid script names no lid: {text:?}"
+        )),
+    }
 }
 
 /// Asks <host> whether it can draw a window scene: None when it can, or the
 /// reason it cannot (`screen_lacking`), and what went wrong when it cannot
 /// say.
 pub fn screen_lacks(ssh: &Ssh, host: &Host) -> std::result::Result<Option<String>, String> {
-    let output = command_at(ssh, host, SCREEN_SCRIPT, Terminal::None)
-        .stdin(Stdio::null())
-        .output()
-        .map_err(|error| format!("asking host {} about its displays: {error}", host.name))?;
-    if !output.status.success() {
-        return Err(format!(
-            "asking host {} about its displays failed ({}): {}",
-            host.name,
-            output.status,
-            String::from_utf8_lossy(&output.stderr).trim()
-        ));
-    }
-    Ok(screen_lacking(&String::from_utf8_lossy(&output.stdout)))
+    let what = format!("asking host {} about its displays", host.name);
+    let said = output_of(
+        command_at(ssh, host, SCREEN_SCRIPT, Terminal::None),
+        &what,
+        Accept::Zero,
+    )?;
+    screen_lacking(&said).map_err(|why| format!("{what}: {why}"))
 }
 
 /// Asks <host>, and keeps its record of refusing jobs current with the
