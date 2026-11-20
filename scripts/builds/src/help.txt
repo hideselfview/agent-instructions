@@ -1183,7 +1183,7 @@ from the store, never built again.
                               findings.json (one from an older shots program,
                               or one builds no longer keeps) fails, naming the
                               command that runs the shots again
-  builds shots run|capture|check|record|lint|runtime [<argument>...]
+  builds shots run|capture|check|record|lint|runtime|components [<argument>...]
                               run builds-shots, which checks the shots of the
                               repo it runs in against the repo's boards, with
                               these arguments; builds gives it a cache folder
@@ -1200,16 +1200,46 @@ from the store, never built again.
                               design/shots.toml; `lint` names each declared
                               shot and each record entry with no board;
                               `runtime` names the canvas runtime copy that
-                              draws the boards. A component shot is named
-                              <platform>.component.<thing>.<state> and draws
-                              the component <Platform><Thing> (`mac.component.row.label` draws
-                              MacRow). When the
+                              draws the boards; `components [<Component>...]`
+                              lists the gaps in the components' capture files
+                              (below) and fails nothing. A component shot is
+                              named <platform>.component.<thing>.<state> and
+                              draws the component <Platform><Thing>, whose
+                              name after its platform spells the thing's
+                              words in PascalCase, where a word may be all
+                              capitals (`mac.component.row.label` draws
+                              MacRow, and `mac.component.qr-scanner.on`
+                              draws MacQRScanner). When the
                               repo's design system has no preview for
                               <Platform><Thing> but has one for <Thing>, the
                               shot draws that component, which both platforms
                               share (`android.component.artwork.default`
                               draws Artwork); the platform shows only in the
-                              shot's @<platform> file suffix. `run` and
+                              shot's @<platform> file suffix. Each component
+                              with a preview keeps the code that captures it
+                              on a platform in one capture file,
+                              Components/<Component>.swift on mac or
+                              Components/<Component>.kt on android, in the
+                              platform's shots-declared folder; a component
+                              that both platforms share has a capture file
+                              on each platform. The
+                              file declares one shot for each row of the
+                              component's preview. builds-shots reads the
+                              shots in the Components folder as it reads the
+                              shots-declared folder's own files.
+                              `components` lists each preview row whose shot
+                              the capture file does not declare, with the
+                              file that declares it instead, and each capture
+                              file whose component has no preview on its
+                              platform. With component names, such as
+                              `builds shots components MacRow`, it lists those
+                              components with every row, each with the file
+                              that declares its shot. `run` and `check` print
+                              how many gaps the listing has and put the
+                              listing in the report, and a gap fails neither.
+                              A web shot is a fixture file that declares one
+                              shot by its name, so web has no capture files.
+                              `run` and
                               `check` write the report: index.html, the
                               pictures, and findings.json, which holds each
                               finding as a record of its scene, its kind,

@@ -192,15 +192,28 @@ impl Prefix {
 
 impl ComponentName {
     /// The design-system component the shot draws, as a folder of the repo at
-    /// <root>. `cast-row` on Android is `AndroidCastRow`. A thing with no
-    /// preview under its platform's name but one under the bare name, such as
+    /// <root>: the folder with a preview whose key (`ComponentKey::of`) is
+    /// the shot's platform and thing, so `cast-row` on Android is
+    /// `AndroidCastRow` and `qr-scanner` on mac is `MacQRScanner`. A thing
+    /// with no preview under its platform but one with no platform, such as
     /// `artwork` (`Artwork`), is a component both platforms share; the shot's
     /// platform stays in its `@<platform>` file suffix. A thing with neither
     /// preview names the platform's component, so a missing preview is
     /// reported under that name.
     pub(crate) fn component(&self, root: &std::path::Path) -> Result<String, String> {
-        let shared = self.shared_component();
-        let platform = format!("{}{shared}", self.platform.component_prefix());
+        let folder = root.join(boards::preview::COMPONENTS);
+        let mut names: Vec<String> = match std::fs::read_dir(&folder) {
+            Ok(entries) => entries
+                .map(|entry| {
+                    entry
+                        .map(|e| e.file_name().to_string_lossy().into_owned())
+                        .map_err(|e| format!("cannot list {}: {e}", folder.display()))
+                })
+                .collect::<Result<_, _>>()?,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+            Err(e) => return Err(format!("cannot list {}: {e}", folder.display())),
+        };
+        names.sort();
         let has_preview = |name: &str| {
             let path = root.join(boards::preview::preview_path(name));
             match std::fs::metadata(&path) {
@@ -209,30 +222,124 @@ impl ComponentName {
                 Err(e) => Err(format!("cannot read {}: {e}", path.display())),
             }
         };
-        Ok(if !has_preview(&platform)? && has_preview(&shared)? {
-            shared
-        } else {
-            platform
-        })
-    }
-
-    /// The thing in PascalCase, the name of a component both platforms share.
-    fn shared_component(&self) -> String {
-        self.thing
-            .split('-')
-            .map(|word| {
-                let mut chars = word.chars();
-                chars
-                    .next()
-                    .map(|first| first.to_uppercase().chain(chars).collect::<String>())
-                    .unwrap_or_default()
-            })
-            .collect()
+        let find = |platform: Option<Platform>| -> Result<Option<String>, String> {
+            for name in &names {
+                let key = ComponentKey::of(name);
+                if key
+                    .as_ref()
+                    .is_some_and(|k| k.platform == platform && k.thing == self.thing)
+                    && has_preview(name)?
+                {
+                    return Ok(Some(name.clone()));
+                }
+            }
+            Ok(None)
+        };
+        if let Some(name) = find(Some(self.platform))? {
+            return Ok(name);
+        }
+        if let Some(name) = find(None)? {
+            return Ok(name);
+        }
+        Ok(format!(
+            "{}{}",
+            self.platform.component_prefix(),
+            pascal_case(&self.thing)
+        ))
     }
 
     pub(crate) fn state(&self) -> &str {
         &self.state
     }
+}
+
+/// What a design-system component's folder name says: the platform that
+/// draws it, none for a component both platforms share, and its thing, the
+/// `<thing>` of its shots' names. The thing is the name after the platform in
+/// lower-case words joined by `-`, a run of capitals being one word:
+/// `MacQRScanner` is mac's `qr-scanner`, `StatusChip` the shared
+/// `status-chip`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ComponentKey {
+    pub(crate) platform: Option<Platform>,
+    pub(crate) thing: String,
+}
+
+impl ComponentKey {
+    /// The key of the component <name>; none when <name> is no component's
+    /// name (a capital, then letters and digits).
+    pub(crate) fn of(name: &str) -> Option<Self> {
+        if !boards::preview::is_component_name(name)
+            || !name.starts_with(|c: char| c.is_ascii_uppercase())
+        {
+            return None;
+        }
+        let platform = [Platform::Mac, Platform::Android, Platform::Web]
+            .into_iter()
+            .find(|p| {
+                name.strip_prefix(p.component_prefix())
+                    .is_some_and(|rest| rest.starts_with(|c: char| c.is_ascii_uppercase()))
+            });
+        let rest = match platform {
+            Some(p) => &name[p.component_prefix().len()..],
+            None => name,
+        };
+        Some(Self {
+            platform,
+            thing: words(rest).join("-"),
+        })
+    }
+
+    /// The name of the shot of this component's preview row <state> on
+    /// <platform>.
+    pub(crate) fn shot(&self, platform: Platform, state: &str) -> Result<Name, NameError> {
+        Name::parse(&format!(
+            "{}.component.{}.{state}",
+            platform.word(),
+            self.thing
+        ))
+    }
+}
+
+/// The words of a PascalCase name, in lower case. A capital starts a word
+/// after a small letter or a digit, and after a capital when a small letter
+/// follows it, so a run of capitals is one word: `QRScanner` is `qr`,
+/// `scanner`; `S3KeyFields` is `s3`, `key`, `fields`.
+fn words(name: &str) -> Vec<String> {
+    let chars: Vec<char> = name.chars().collect();
+    let mut words = Vec::new();
+    let mut word = String::new();
+    for (i, &c) in chars.iter().enumerate() {
+        let starts = i > 0
+            && c.is_ascii_uppercase()
+            && (chars[i - 1].is_ascii_lowercase()
+                || chars[i - 1].is_ascii_digit()
+                || (chars[i - 1].is_ascii_uppercase()
+                    && chars.get(i + 1).is_some_and(char::is_ascii_lowercase)));
+        if starts {
+            words.push(std::mem::take(&mut word));
+        }
+        word.push(c.to_ascii_lowercase());
+    }
+    if !word.is_empty() {
+        words.push(word);
+    }
+    words
+}
+
+/// <thing>, lower-case words joined by `-`, in PascalCase: the name a
+/// component of that thing has when no word of it is a run of capitals.
+fn pascal_case(thing: &str) -> String {
+    thing
+        .split('-')
+        .map(|word| {
+            let mut chars = word.chars();
+            chars
+                .next()
+                .map(|first| first.to_uppercase().chain(chars).collect::<String>())
+                .unwrap_or_default()
+        })
+        .collect()
 }
 
 fn is_segment(segment: &str) -> bool {

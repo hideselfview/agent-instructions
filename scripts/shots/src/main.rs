@@ -4,6 +4,7 @@
 
 mod capture;
 mod compare;
+mod component_files;
 mod declared;
 mod design;
 mod findings_file;
@@ -77,6 +78,16 @@ enum Action {
     },
     /// Fail when a declared shot or an entry of the record has no board.
     Lint,
+    /// List each design-system component's preview rows whose shot its
+    /// capture file (Components/<Component>.<extension> under the platform's
+    /// declare folder) does not declare, and each capture file with no
+    /// preview. The listing fails nothing.
+    Components {
+        /// A component to show with every row, such as MacRow; repeat for
+        /// several. With none, every component with a row its capture file
+        /// does not declare.
+        components: Vec<String>,
+    },
 }
 
 #[derive(Args)]
@@ -306,6 +317,15 @@ fn run(action: Action) -> Result<bool, String> {
                 crate::log::note(&problem.sentence);
             }
             Ok(problems.is_empty())
+        }
+        Action::Components { components } => {
+            let declared = read_declared()?;
+            let listing = component_files::list(&root, &cache_dir()?, &settings, &declared)?;
+            component_files::check_names(&listing, &components)?;
+            for line in component_files::lines(&listing, &components) {
+                crate::log::outcome(line);
+            }
+            Ok(true)
         }
         Action::Runtime => {
             let checked = render::runtime::check(&root).map_err(|e| e.to_string())?;

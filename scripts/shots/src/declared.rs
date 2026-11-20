@@ -2,7 +2,9 @@
 //! app's `shots-declared` line gives each platform: on android, the first
 //! argument of each Kotlin `shot("…")` and `component("…")` call; on mac,
 //! each Swift string literal of board form; on web, the name of each fixture
-//! file `<name>.json`. Reading source needs no build of the app, so the
+//! file `<name>.json`. The folder's `Components` folder holds each
+//! design-system component's capture file (component_files.rs), whose shots
+//! are read the same way. Reading source needs no build of the app, so the
 //! commit hook can run it.
 
 use crate::names::{Name, NameError, Platform};
@@ -39,8 +41,43 @@ pub(crate) struct Declared {
 /// the shot is shown in a window.
 type Reader = fn(&str) -> Vec<(String, bool)>;
 
+/// The folder under a declare folder that holds each design-system
+/// component's capture file (component_files.rs). Its files declare shots as
+/// the declare folder's own do.
+pub(crate) const COMPONENTS: &str = "Components";
+
+/// How <platform>'s harness declares its shots: the extension of its files,
+/// and the reader of its source. A web shot's fixture declares it by its
+/// name, so web has no reader.
+fn harness(platform: Platform) -> (&'static str, Option<Reader>) {
+    match platform {
+        Platform::Android => ("kt", Some(kotlin)),
+        Platform::Mac => ("swift", Some(swift)),
+        Platform::Web => ("json", None),
+    }
+}
+
+/// The extension of <platform>'s harness source, none for a platform whose
+/// shots are declared by their fixture files, which hold no capture code.
+pub(crate) fn source_extension(platform: Platform) -> Option<&'static str> {
+    match harness(platform) {
+        (extension, Some(_)) => Some(extension),
+        (_, None) => None,
+    }
+}
+
+/// Is <path> a file of a harness with <extension>, and not a test of the
+/// harness, which writes its own boards and declares none?
+fn is_harness_file(path: &Path, extension: &str) -> bool {
+    let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
+    path.extension().and_then(|e| e.to_str()) == Some(extension)
+        && !stem.ends_with("Test")
+        && !stem.ends_with("Tests")
+}
+
 /// Every shot the harnesses in <folders> (each platform's declare folder,
-/// relative to <root>) declare, in name order, each once.
+/// relative to <root>) declare, in name order, each once. A declare folder's
+/// files and those of its `Components` folder declare shots.
 pub(crate) fn read(
     root: &Path,
     folders: &[(Platform, String)],
@@ -50,63 +87,66 @@ pub(crate) fn read(
     }
     let mut all = Vec::new();
     for (platform, directory) in folders {
-        // A web shot's fixture declares it by its name; a harness's source
-        // declares its shots inside.
-        let (extension, find): (&str, Option<Reader>) = match platform {
-            Platform::Android => ("kt", Some(kotlin)),
-            Platform::Mac => ("swift", Some(swift)),
-            Platform::Web => ("json", None),
-        };
+        let (extension, _) = harness(*platform);
         let directory = root.join(directory);
-        let entries =
-            std::fs::read_dir(&directory).map_err(|e| DeclaredError::Read(directory.clone(), e))?;
-        for entry in entries {
-            let path = entry
-                .map_err(|e| DeclaredError::Read(directory.clone(), e))?
-                .path();
-            let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
-            // A test of the harness writes its own boards; it declares none.
-            if path.extension().and_then(|e| e.to_str()) != Some(extension)
-                || stem.ends_with("Test")
-                || stem.ends_with("Tests")
-            {
-                continue;
-            }
-            let Some(find) = find else {
-                let name = Name::parse(stem).map_err(|e| DeclaredError::Name(path.clone(), e))?;
-                all.push(Declared {
-                    name,
-                    file: path.clone(),
-                    needs_window: false,
-                });
-                continue;
-            };
-            let source =
-                std::fs::read_to_string(&path).map_err(|e| DeclaredError::Read(path.clone(), e))?;
-            let source = if extension == "swift" {
-                without_line_comments(&source)
-            } else {
-                source
-            };
-            let found = find(&source);
-            if extension == "swift"
-                && window_frames(&source) != found.iter().filter(|f| f.1).count()
-            {
-                return Err(DeclaredError::WindowScene(path));
-            }
-            for (text, needs_window) in found {
-                let name = Name::parse(&text).map_err(|e| DeclaredError::Name(path.clone(), e))?;
-                all.push(Declared {
-                    name,
-                    file: path.clone(),
-                    needs_window,
-                });
+        let mut paths = files(&directory)?;
+        let components = directory.join(COMPONENTS);
+        if components.is_dir() {
+            paths.extend(files(&components)?);
+        }
+        for path in paths {
+            if is_harness_file(&path, extension) {
+                all.extend(declared_in(*platform, &path)?);
             }
         }
     }
     all.sort_by(|a, b| a.name.cmp(&b.name).then(a.file.cmp(&b.file)));
     all.dedup_by(|a, b| a.name == b.name);
     Ok(all)
+}
+
+/// The paths of the entries of <directory>.
+fn files(directory: &Path) -> Result<Vec<PathBuf>, DeclaredError> {
+    std::fs::read_dir(directory)
+        .and_then(|entries| entries.map(|e| e.map(|e| e.path())).collect())
+        .map_err(|e| DeclaredError::Read(directory.to_path_buf(), e))
+}
+
+/// The shots the harness file <path> of <platform> declares, in the order
+/// it writes them: a source file's shots, or the one shot a web fixture
+/// file declares by its name.
+pub(crate) fn declared_in(platform: Platform, path: &Path) -> Result<Vec<Declared>, DeclaredError> {
+    let (extension, find) = harness(platform);
+    let Some(find) = find else {
+        let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
+        let name = Name::parse(stem).map_err(|e| DeclaredError::Name(path.to_path_buf(), e))?;
+        return Ok(vec![Declared {
+            name,
+            file: path.to_path_buf(),
+            needs_window: false,
+        }]);
+    };
+    let source =
+        std::fs::read_to_string(path).map_err(|e| DeclaredError::Read(path.to_path_buf(), e))?;
+    let source = if extension == "swift" {
+        without_line_comments(&source)
+    } else {
+        source
+    };
+    let found = find(&source);
+    if extension == "swift" && window_frames(&source) != found.iter().filter(|f| f.1).count() {
+        return Err(DeclaredError::WindowScene(path.to_path_buf()));
+    }
+    found
+        .into_iter()
+        .map(|(text, needs_window)| {
+            Ok(Declared {
+                name: Name::parse(&text).map_err(|e| DeclaredError::Name(path.to_path_buf(), e))?,
+                file: path.to_path_buf(),
+                needs_window,
+            })
+        })
+        .collect()
 }
 
 /// The first string argument of each `shot(` and `component(` call.

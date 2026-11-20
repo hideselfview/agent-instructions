@@ -3,6 +3,7 @@
 //! the same findings as Markdown for a CI step summary.
 
 use crate::compare::{self, Finding, Warning};
+use crate::component_files::{self, Listing};
 use crate::record::Standing;
 use crate::verify::{Checked, Outcome, Skipped};
 use std::path::Path;
@@ -383,7 +384,18 @@ pub(crate) fn page(outcome: &Outcome, header: &Header) -> String {
         "Shots with no board (to delete)",
         &outcome.lists.to_delete,
     ));
+    html.push_str(&components_section(&outcome.components));
     html.push_str("</body></html>");
+    html
+}
+
+/// The components' capture files: each component with a preview row its
+/// capture file does not declare, and each capture file with no preview, as
+/// `builds shots components` prints them.
+fn components_section(listing: &Listing) -> String {
+    let mut html = String::from("<section><h2>Component capture files</h2><pre>");
+    html.push_str(&esc(&component_files::lines(listing, &[]).join("\n")));
+    html.push_str("</pre></section>");
     html
 }
 
@@ -462,6 +474,13 @@ pub(crate) fn summary(outcome: &Outcome, header: &Header) -> String {
             }
             text.push('\n');
         }
+    }
+    if outcome.components.has_gaps() {
+        putln!(
+            text,
+            "### Component capture files\n\n{} `builds shots components` lists them.",
+            outcome.components.counts()
+        );
     }
     text
 }

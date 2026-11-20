@@ -196,7 +196,12 @@ WHAT AN IMPLEMENTING AGENT DOES
      shots/ folder. To fix a run's shot findings, start from `builds shots
      findings ... --by-cause`, which ranks the design-system components
      behind the findings by the scenes they break: fix the component at the
-     top once, not each scene it breaks. To run the hook's checks over every file the branch
+     top once, not each scene it breaks. A component's shots go in its
+     capture file, Components/<Component>.<extension> in the platform's
+     shots-declared folder, one shot for each row of its preview (`builds
+     help`, APP BUILDS): before you add or move them, run `builds shots
+     components <Component>`, which lists each row with the file that
+     declares its shot. To run the hook's checks over every file the branch
      changed, run `builds checks run --since origin/main`, which leaves HEAD,
      the index and the files on the branch. Never move HEAD to check a
      branch: an app build started meanwhile builds what HEAD points at.

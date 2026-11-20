@@ -26,6 +26,21 @@ fn states(html: &str, calls: &[String]) -> Vec<String> {
         .collect()
 }
 
+/// The state ids of a preview page's rows, each once, in the page's order;
+/// `default` alone for a page with no named rows, which draws one state.
+pub(crate) fn rows(html: &str, calls: &[String]) -> Vec<String> {
+    let mut rows: Vec<String> = Vec::new();
+    for state in states(html, calls) {
+        if !rows.contains(&state) {
+            rows.push(state);
+        }
+    }
+    if rows.is_empty() {
+        rows.push("default".to_string());
+    }
+    rows
+}
+
 /// A shot or a record entry with no board.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Problem {
@@ -85,10 +100,7 @@ fn no_board(root: &Path, calls: &[String], name: &Name) -> Option<String> {
                 Ok(html) => html,
                 Err(error) => return Some(unreadable(&preview, &error)),
             };
-            let mut states = states(&html, calls);
-            if states.is_empty() {
-                states.push("default".to_string());
-            }
+            let states = rows(&html, calls);
             (!states.iter().any(|s| s == c.state()))
                 .then(|| format!("{component} has the states {}", states.join(", ")))
         }

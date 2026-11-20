@@ -18,7 +18,7 @@ use crate::places::Places;
 /// and in ~/.local/bin.
 pub const PROGRAM: &str = "builds-shots";
 
-const USAGE: &str = "usage: builds shots findings <repo> <ref> mac|android <prefix> [--by-cause] | builds shots run|capture|check|record|lint|runtime [<argument>...] (builds shots <command> --help)";
+const USAGE: &str = "usage: builds shots findings <repo> <ref> mac|android <prefix> [--by-cause] | builds shots run|capture|check|record|lint|runtime|components [<argument>...] (builds shots <command> --help)";
 
 /// The builds-shots beside the `builds` program at <builds>.
 pub fn beside(builds: &Path) -> PathBuf {

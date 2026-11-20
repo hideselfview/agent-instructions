@@ -1,7 +1,9 @@
 //! Checking shots against their boards: hashes, the record's skips, rendering
-//! the boards that need it, the comparison, the record's update and the lists.
+//! the boards that need it, the comparison, the record's update, the lists and
+//! the components' capture files.
 
 use crate::compare::{self, Finding, Side, Warning};
+use crate::component_files::{self, Listing};
 use crate::declared::Declared;
 use crate::design::{self, DesignSystem};
 use crate::lint::{self, Problem};
@@ -92,6 +94,8 @@ pub(crate) struct Outcome {
     /// Declared shots the run was not given the means to take (they need a
     /// window); neither checked nor failing.
     pub(crate) not_taken: Vec<Name>,
+    /// Each component's capture file and its gaps, which fail nothing.
+    pub(crate) components: Listing,
     pub(crate) gate: Gate,
     /// The base was given and its record has no entries.
     pub(crate) base_empty: bool,
@@ -310,6 +314,7 @@ pub(crate) fn verify(job: &Verification) -> Result<Outcome, String> {
         &board_hashes,
         &problems,
     );
+    let components = component_files::list(root, job.cache, job.settings, job.declared)?;
     Ok(Outcome {
         runtime: runtime.said,
         checked,
@@ -317,6 +322,7 @@ pub(crate) fn verify(job: &Verification) -> Result<Outcome, String> {
         problems,
         lists,
         not_taken: job.not_taken.to_vec(),
+        components,
         gate: job.gate,
         base_empty,
     })
@@ -459,6 +465,12 @@ fn summarize(outcome: &Outcome) {
             "{} pair(s) have findings that are only listed ({why}): {}",
             listed.len(),
             names_of(listed.iter().copied())
+        ));
+    }
+    if outcome.components.has_gaps() {
+        crate::log::note(format_args!(
+            "{} `builds shots components` lists them; they fail nothing",
+            outcome.components.counts()
         ));
     }
     if outcome.passed() {

@@ -16,7 +16,9 @@
 //! - `shots-capture <platform> <command>...`: the command that takes the
 //!   platform's shots, run from the repo's top (capture.rs).
 //! - `shots-declared <platform> <folder>`: the folder of the harness source
-//!   that declares the platform's shots (declared.rs).
+//!   that declares the platform's shots (declared.rs), whose `Components`
+//!   folder holds each design-system component's capture file
+//!   (component_files.rs).
 //! - `shots-preview <row> <name> <cell>`: the CSS selectors of a component
 //!   preview's rows, of a row's state name, and of the part of a row that
 //!   draws the state (render/preview.rs).

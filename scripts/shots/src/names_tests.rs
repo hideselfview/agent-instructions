@@ -94,6 +94,60 @@ fn a_component_with_no_preview_is_named_for_its_platform() {
 }
 
 #[test]
+fn a_component_folder_names_its_platform_and_the_thing_its_shots_name() {
+    let key = |platform, thing: &str| {
+        Some(ComponentKey {
+            platform,
+            thing: thing.to_string(),
+        })
+    };
+    assert_eq!(ComponentKey::of("MacRow"), key(Some(Platform::Mac), "row"));
+    assert_eq!(
+        ComponentKey::of("AndroidCastRow"),
+        key(Some(Platform::Android), "cast-row")
+    );
+    assert_eq!(
+        ComponentKey::of("AndroidQRScanner"),
+        key(Some(Platform::Android), "qr-scanner")
+    );
+    assert_eq!(
+        ComponentKey::of("MacS3KeyFields"),
+        key(Some(Platform::Mac), "s3-key-fields")
+    );
+    assert_eq!(ComponentKey::of("StatusChip"), key(None, "status-chip"));
+    assert_eq!(ComponentKey::of("Machine"), key(None, "machine"));
+    assert_eq!(ComponentKey::of("index.d.ts"), None);
+    assert_eq!(ComponentKey::of("row"), None);
+    assert_eq!(
+        ComponentKey::of("MacQRScanner")
+            .unwrap()
+            .shot(Platform::Mac, "scanning")
+            .unwrap()
+            .to_string(),
+        "mac.component.qr-scanner.scanning"
+    );
+}
+
+#[test]
+fn a_component_shot_finds_a_component_whose_name_holds_an_acronym() {
+    let root = tempfile::tempdir().unwrap();
+    preview(root.path(), "MacQRScanner");
+    preview(root.path(), "MacS3KeyFields");
+    assert_eq!(
+        component_of("mac.component.qr-scanner.scanning")
+            .component(root.path())
+            .unwrap(),
+        "MacQRScanner"
+    );
+    assert_eq!(
+        component_of("mac.component.s3-key-fields.empty")
+            .component(root.path())
+            .unwrap(),
+        "MacS3KeyFields"
+    );
+}
+
+#[test]
 fn names_that_are_not_boards_are_refused() {
     for text in [
         "",

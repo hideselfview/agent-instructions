@@ -1,5 +1,6 @@
 use super::*;
 use crate::compare::normalize::Entry;
+use crate::component_files::{self, Listing, Place};
 use crate::lint::Problem;
 use crate::lists::Lists;
 use crate::names::Name;
@@ -24,6 +25,27 @@ fn header() -> Header {
         base: Some("origin/main".to_string()),
         runtime: "version v1, canvas v2 published 2026-11-11T23:20:00Z".to_string(),
         chrome: "Chrome/157.0.8103.78".to_string(),
+    }
+}
+
+/// One component whose capture file is missing, with one row a theme file
+/// declares, and one capture file with no preview.
+fn component_gaps() -> Listing {
+    Listing {
+        components: vec![component_files::Component {
+            name: "MacRow".to_string(),
+            platform: crate::names::Platform::Mac,
+            file: "app/Shots/Components/MacRow.swift".into(),
+            file_exists: false,
+            rows: vec![component_files::Row {
+                shot: Name::parse("mac.component.row.label").unwrap(),
+                place: Place::Elsewhere("app/Shots/ShotScenes.swift".into()),
+            }],
+        }],
+        strays: vec![component_files::Stray {
+            file: "app/Shots/Components/MacGone.swift".into(),
+            why: "no folder design/system/components/MacGone holds a preview.html".to_string(),
+        }],
     }
 }
 
@@ -86,6 +108,7 @@ fn outcome(dir: &Path, words: &str) -> Outcome {
             to_delete: vec!["mac.welcome.gone".to_string()],
         },
         not_taken: vec![Name::parse("mac.settings.toolbar").unwrap()],
+        components: component_gaps(),
         gate: crate::verify::Gate::EveryPair,
         base_empty: false,
     }
@@ -182,5 +205,33 @@ fn the_page_and_the_summary_name_the_shots_not_taken_and_why() {
     assert!(
         !text.contains("1 failing"),
         "a shot not taken is not a failure: {text}"
+    );
+}
+
+#[test]
+fn the_page_lists_each_component_capture_gap_and_the_summary_counts_them() {
+    let dir = tempfile::tempdir().unwrap();
+    let outcome = outcome(dir.path(), "Set up");
+    let html = page(&outcome, &header());
+    for text in [
+        "Component capture files",
+        "MacRow on mac: app/Shots/Components/MacRow.swift does not exist",
+        "mac.component.row.label: ShotScenes.swift declares it, not this file",
+        "app/Shots/Components/MacGone.swift: no folder design/system/components/MacGone holds a preview.html",
+    ] {
+        assert!(html.contains(&esc(text)), "{text} is not in the page");
+    }
+    let at = |text: &str| html.find(text).unwrap();
+    assert!(at("<h2>Confirmed") < at("Component capture files"));
+    let text = summary(&outcome, &header());
+    assert!(
+        text.contains(
+            "1 preview row of 1 component has no shot in its capture file, and 1 capture file has no preview."
+        ),
+        "{text}"
+    );
+    assert!(
+        text.contains("2 failing, 1 with warnings"),
+        "a capture gap is not a failure: {text}"
     );
 }

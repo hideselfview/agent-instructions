@@ -85,10 +85,20 @@ fn a_run_passes_without_findings_or_problems() {
         problems: Vec::new(),
         lists: Lists::default(),
         not_taken: Vec::new(),
+        components: crate::component_files::Listing {
+            components: Vec::new(),
+            strays: vec![crate::component_files::Stray {
+                file: "app/Shots/Components/MacGone.swift".into(),
+                why: "no preview".to_string(),
+            }],
+        },
         gate: Gate::EveryPair,
         base_empty: false,
     };
-    assert!(outcome.passed());
+    assert!(
+        outcome.passed(),
+        "a capture file with no preview fails nothing"
+    );
     outcome.problems.push(Problem {
         name: "x".into(),
         declared: false,
@@ -126,6 +136,7 @@ fn outcome_with_finding(gate: Gate, base_empty: bool, against_base: Option<Stand
         problems: Vec::new(),
         lists: Lists::default(),
         not_taken: Vec::new(),
+        components: crate::component_files::Listing::default(),
         gate,
         base_empty,
     }

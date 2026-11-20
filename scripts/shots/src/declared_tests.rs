@@ -217,3 +217,68 @@ fn a_harness_with_a_scene_and_no_board_is_declared_for_the_lint_to_find() {
     assert_eq!(found.len(), 1);
     assert_eq!(found[0].name.to_string(), "mac.album.credits");
 }
+
+#[test]
+fn a_component_capture_file_declares_its_shots_from_the_components_folder() {
+    let root = tempfile::tempdir().unwrap();
+    write(
+        root.path(),
+        &format!("{SWIFT_DIRECTORY}/ShotScenes.swift"),
+        r#"ShotScene(id: "mac.welcome.create-name")"#,
+    );
+    write(
+        root.path(),
+        &format!("{SWIFT_DIRECTORY}/Components/MacRow.swift"),
+        r#"ShotScene(id: "mac.component.row.label")
+           ShotScene(id: "mac.component.row.nested-off")"#,
+    );
+    write(
+        root.path(),
+        &format!("{KOTLIN_DIRECTORY}/Components/AndroidRow.kt"),
+        r#"fun a() = component("android.component.row.title") {}"#,
+    );
+    write(
+        root.path(),
+        &format!("{KOTLIN_DIRECTORY}/Components/AndroidRowTest.kt"),
+        r#"fun a() = component("android.component.row.test") {}"#,
+    );
+    let found = read(root.path(), &folders()).unwrap();
+    let names: Vec<(String, PathBuf)> = found
+        .iter()
+        .map(|d| (d.name.to_string(), d.file.clone()))
+        .collect();
+    let in_components =
+        |folder: &str, file: &str| root.path().join(folder).join("Components").join(file);
+    assert_eq!(
+        names,
+        [
+            (
+                "mac.welcome.create-name".to_string(),
+                root.path().join(SWIFT_DIRECTORY).join("ShotScenes.swift")
+            ),
+            (
+                "mac.component.row.label".to_string(),
+                in_components(SWIFT_DIRECTORY, "MacRow.swift")
+            ),
+            (
+                "mac.component.row.nested-off".to_string(),
+                in_components(SWIFT_DIRECTORY, "MacRow.swift")
+            ),
+            (
+                "android.component.row.title".to_string(),
+                in_components(KOTLIN_DIRECTORY, "AndroidRow.kt")
+            ),
+        ]
+    );
+    assert_eq!(
+        declared_in(
+            Platform::Mac,
+            &in_components(SWIFT_DIRECTORY, "MacRow.swift")
+        )
+        .unwrap()
+        .iter()
+        .map(|d| d.name.to_string())
+        .collect::<Vec<_>>(),
+        ["mac.component.row.label", "mac.component.row.nested-off"]
+    );
+}
