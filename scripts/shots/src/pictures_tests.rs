@@ -105,3 +105,18 @@ fn an_app_trees_shots_are_taken_only_when_the_folder_keeps_every_selected_one() 
         "another app tree's shots never stand in"
     );
 }
+
+#[test]
+fn a_taken_prefix_is_marked_with_whether_the_run_took_the_window_shots() {
+    let dir = tempfile::tempdir().unwrap();
+    let pictures = Pictures::new(dir.path().to_path_buf(), std::time::SystemTime::now());
+    pictures
+        .mark_taken(Platform::Mac, "tree1", &["mac.a.".to_string()], true)
+        .unwrap();
+    pictures
+        .mark_taken(Platform::Mac, "tree1", &["mac.b.".to_string()], false)
+        .unwrap();
+    let taken = dir.path().join("mac/tree1/.taken");
+    assert!(taken.join("mac.a.@windows").is_file());
+    assert!(taken.join("mac.b.@no-windows").is_file());
+}

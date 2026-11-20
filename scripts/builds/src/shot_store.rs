@@ -75,6 +75,9 @@ const OUTPUT_FILE: &str = "output.txt";
 const REPORT: &str = "report";
 /// The folder of a picture folder that holds the board pictures.
 pub const BOARD_PICTURES: &str = "boards";
+/// The folder of an app source tree's shots where the shots program marks
+/// each prefix it took every shot of.
+const TAKEN: &str = ".taken";
 /// What the name of a folder starts with that holds, in a picture folder,
 /// the pictures a run on a host made while builds moves them into place.
 const INCOMING: &str = ".incoming-";
@@ -146,6 +149,33 @@ fn check_prefix(prefix: &str) -> Result<()> {
 /// board pictures to.
 pub fn pictures(places: &Places, repo: &str) -> PathBuf {
     root(places).join(repo).join("pictures")
+}
+
+/// Whether <repo>'s picture folder keeps every shot a run of <prefix> takes
+/// for <lane>'s app source tree <tree>: the shots program marked taken, for
+/// that tree, a prefix that starts <prefix>, by a run that took the shots
+/// shown in a window when <windows> asks for them.
+pub fn shots_kept(
+    places: &Places,
+    repo: &str,
+    lane: Lane,
+    tree: &str,
+    prefix: &str,
+    windows: bool,
+) -> Result<bool> {
+    let taken = pictures(places, repo)
+        .join(lane.word())
+        .join(tree)
+        .join(TAKEN);
+    for (name, _) in entries_in(&taken)? {
+        let Some((marked, how)) = name.rsplit_once('@') else {
+            continue;
+        };
+        if prefix.starts_with(marked) && (how == "windows" || !windows) {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 /// A new folder in the picture folder <pictures> for the pictures a run on a

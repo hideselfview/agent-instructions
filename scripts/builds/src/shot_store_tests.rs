@@ -369,3 +369,25 @@ fn pictures_a_host_made_move_into_place_and_kept_ones_stay() {
     assert!(folder.join("mac/tree1/mac.a.b@macos.png").is_file());
     assert!(!incoming.exists());
 }
+
+#[test]
+fn a_prefix_is_kept_when_a_taken_mark_starts_it_and_took_the_window_shots_it_asks_for() {
+    let scratch = Scratch::new("shot-store-taken");
+    let places = scratch.places();
+    let taken = pictures(&places, "demo").join("mac/tree1").join(TAKEN);
+    std::fs::create_dir_all(&taken).unwrap();
+    let kept = |prefix: &str, windows: bool| {
+        shots_kept(&places, "demo", Lane::Mac, "tree1", prefix, windows).unwrap()
+    };
+    assert!(!kept("mac.a.", false));
+    std::fs::write(taken.join("mac.a.@no-windows"), "").unwrap();
+    assert!(kept("mac.a.b.", false));
+    assert!(!kept("mac.a.", true), "that run took no window's shots");
+    assert!(
+        !kept("mac.", false),
+        "a narrower mark does not cover a wider prefix"
+    );
+    std::fs::write(taken.join("mac.@windows"), "").unwrap();
+    assert!(kept("mac.", true) && kept("mac.b.", false));
+    assert!(!shots_kept(&places, "demo", Lane::Mac, "tree2", "mac.a.", false).unwrap());
+}

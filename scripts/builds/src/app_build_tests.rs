@@ -932,6 +932,7 @@ fn a_store(places: &Places) -> ShotsStore {
         version: crate::shots_program::VERSION.to_string(),
         befores: Vec::new(),
         app_tree: "0123456789abcdef".to_string(),
+        no_capture: false,
     }
 }
 
@@ -1168,6 +1169,7 @@ fn a_lanes_shots_runs_compare_with_the_kept_run_of_the_merge_base_and_a_run_of_m
             commit,
             &config,
             &a_screens(),
+            false,
         )
     };
     let on_main = of(&main).unwrap();
@@ -1280,4 +1282,53 @@ fn a_lanes_process_names_its_repo_and_commit() {
         None
     );
     assert_eq!(lane_requested(&argv(&["builds", "lock", "bae"])), None);
+}
+
+#[test]
+fn a_shots_run_of_a_lane_that_built_no_app_captures_none() {
+    let scratch = crate::testing::Scratch::new("shots-no-capture");
+    let places = scratch.places();
+    let top = scratch.dir.join("repo");
+    let mut kept = shots_store(&top, &places);
+    kept.no_capture = true;
+    let step = fake("shots mac.a.", &["true"], None);
+    let command = kept.local_command(&step);
+    assert_eq!(command.last().map(String::as_str), Some("--no-capture"));
+}
+
+#[test]
+fn a_shots_only_lane_whose_shots_the_picture_folder_keeps_builds_nothing() {
+    let scratch = crate::testing::Scratch::new("shots-kept-lanes");
+    let places = scratch.places();
+    let top = scratch.dir.join("repo");
+    shots_repo(&top);
+    let commit = resolve(&top, "HEAD").unwrap();
+    let config = parse_config(&std::fs::read_to_string(top.join(CONFIG)).unwrap()).unwrap();
+    let lanes = vec![(Lane::Mac, vec!["macos".to_string()])];
+    let kept = |picks: &[Pick], changed: &[String]| {
+        kept_shots_lanes(
+            &places, "demo", &top, &commit, &config, changed, &lanes, picks,
+        )
+        .unwrap()
+    };
+    assert!(
+        kept(&a_screens(), &[]).is_empty(),
+        "the folder keeps nothing yet"
+    );
+    let tree = crate::app_tree::of(&top, &commit, &config, Lane::Mac).unwrap();
+    let taken = shot_store::pictures(&places, "demo")
+        .join("mac")
+        .join(&tree)
+        .join(".taken");
+    std::fs::create_dir_all(&taken).unwrap();
+    std::fs::write(taken.join("mac.@no-windows"), "").unwrap();
+    assert_eq!(kept(&a_screens(), &[]), [Lane::Mac]);
+    let with_test = vec![
+        a_screens()[0].clone(),
+        (Lane::Mac, PickKind::Class, "SomeTests".to_string()),
+    ];
+    assert!(
+        kept(&with_test, &[]).is_empty(),
+        "a test class needs the app built"
+    );
 }

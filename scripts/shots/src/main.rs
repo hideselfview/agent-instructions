@@ -69,6 +69,10 @@ enum Action {
         /// the shots it takes there.
         #[arg(long, requires = "pictures")]
         app_tree: Option<String>,
+        /// Fail instead of capturing when the picture folder lacks a selected
+        /// shot of the app tree: builds passes it when it built no app.
+        #[arg(long, requires = "app_tree")]
+        no_capture: bool,
     },
     /// Take the shots into a directory.
     Capture {
@@ -172,7 +176,7 @@ fn capture(
     settings: &Settings,
     declared: &[Declared],
     selection: &Selection,
-    kept: Option<(&pictures::Pictures, &str)>,
+    kept: Option<Kept>,
     out_for: impl Fn(Platform) -> PathBuf,
 ) -> Result<capture::Taken, String> {
     let mut all = capture::Taken {
@@ -181,7 +185,12 @@ fn capture(
     };
     for platform in selection.platforms(settings) {
         let out = std::path::absolute(out_for(platform)).map_err(|e| e.to_string())?;
-        if let Some((pictures, tree)) = kept {
+        if let Some(Kept {
+            pictures,
+            tree,
+            no_capture,
+        }) = kept
+        {
             let taken = capture::taken(declared, platform, &selection.prefixes, selection.windows)
                 .map_err(|e| e.to_string())?;
             capture::clear(&out, platform).map_err(|e| e.to_string())?;
@@ -191,9 +200,21 @@ fn capture(
                     taken.names.len(),
                     platform.word()
                 ));
+                pictures.mark_taken(
+                    platform,
+                    tree,
+                    &taken_prefixes(platform, &selection.prefixes),
+                    selection.windows,
+                )?;
                 all.names.extend(taken.names);
                 all.not_taken.extend(taken.not_taken);
                 continue;
+            }
+            if no_capture {
+                return Err(format!(
+                    "the picture folder keeps not every selected {} shot of app tree {tree}, and the run may capture none (--no-capture)",
+                    platform.word()
+                ));
             }
         }
         let command = settings
@@ -212,13 +233,41 @@ fn capture(
             &out,
         )
         .map_err(|e| e.to_string())?;
-        if let Some((pictures, tree)) = kept {
+        if let Some(Kept { pictures, tree, .. }) = kept {
             pictures.keep_shots(platform, tree, &taken.names, &out)?;
+            pictures.mark_taken(
+                platform,
+                tree,
+                &taken_prefixes(platform, &selection.prefixes),
+                selection.windows,
+            )?;
         }
         all.names.extend(taken.names);
         all.not_taken.extend(taken.not_taken);
     }
     Ok(all)
+}
+
+/// A picture folder and the app source tree a run keeps its shots by.
+#[derive(Clone, Copy)]
+struct Kept<'a> {
+    pictures: &'a pictures::Pictures,
+    tree: &'a str,
+    /// Fail instead of capturing when the folder lacks a selected shot.
+    no_capture: bool,
+}
+
+/// The prefixes of <platform> a run of <prefixes> takes every shot of: those
+/// of the platform, or the platform's every shot when none is given.
+fn taken_prefixes(platform: Platform, prefixes: &[Prefix]) -> Vec<String> {
+    if prefixes.is_empty() {
+        return vec![format!("{}.", platform.word())];
+    }
+    prefixes
+        .iter()
+        .filter(|prefix| prefix.platform() == platform)
+        .map(|prefix| prefix.as_str().to_string())
+        .collect()
 }
 
 /// The commit at the checkout's head.
@@ -300,6 +349,7 @@ fn run(action: Action) -> Result<bool, String> {
             before,
             pictures,
             app_tree,
+            no_capture,
         } => {
             // The one time the run marks each picture it takes used.
             let now = std::time::SystemTime::now();
@@ -317,7 +367,14 @@ fn run(action: Action) -> Result<bool, String> {
                 .transpose()?;
             let declared = read_declared()?;
             let shots = root.join("shots");
-            let kept = pictures.as_ref().zip(app_tree.as_deref());
+            let kept = pictures
+                .as_ref()
+                .zip(app_tree.as_deref())
+                .map(|(pictures, tree)| Kept {
+                    pictures,
+                    tree,
+                    no_capture,
+                });
             let taken = capture(&root, &settings, &declared, &selection, kept, |p| {
                 shots.join(p.word())
             })?;

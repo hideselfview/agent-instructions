@@ -1090,7 +1090,15 @@ app-build passes the lane's app tree to each shots run on this Mac (`run
 --app-tree`). When the folder keeps every shot the run selects for that
 tree, the run takes the shots from it and runs no capture command;
 otherwise it captures them and keeps them there. A commit that changes no
-path of the lane's app takes no shot again. For a shots run on a host,
+path of the lane's app takes no shot again. Once a run has kept every shot
+a prefix selects, builds-shots marks the prefix taken for the tree (and
+whether the run took the shots shown in a window). When an app-build asks a
+lane only for shots, no changed path needs a step of the lane, and the
+folder holds a mark for each prefix (a mark of mac. covers mac.welcome.),
+the lane runs no step: it checks out the commit and runs the shots line with
+--no-capture, which takes every shot from the folder and fails rather than
+capture from an app nobody built. The output says which lanes build nothing
+and why. For a shots run on a host,
 app-build copies the board pictures and the shots kept for the lane's app
 tree to a temporary folder on the host, passes that folder to the run, and
 afterwards moves the pictures the run added into the folder here.
@@ -1257,7 +1265,8 @@ built again.
                               platform's shots from the folder when it keeps
                               every selected one for that app source tree,
                               and otherwise captures them and keeps them
-                              there. `capture` takes the
+                              there; with --no-capture as well, `run`
+                              fails instead of capturing `capture` takes the
                               shots into a folder; `check` checks shots
                               already taken, failing on every pair with
                               findings, and writes the report; `lint` names

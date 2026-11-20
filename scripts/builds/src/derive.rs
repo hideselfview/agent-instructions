@@ -315,25 +315,41 @@ pub fn derive_and_run(places: &Places, args: &[String]) -> Result<()> {
         }
     }
     app_build::ensure_before_runs(places, repo, &commit, &picks)?;
-    let lanes = plan(&config, &changed_paths(&top, &commit)?, &picks);
+    let changed = changed_paths(&top, &commit)?;
+    let lanes = plan(&config, &changed, &picks);
     if lanes.is_empty() {
         note(format!(
             "nothing to build: no path {git_ref} changes needs a step ({CONFIG}'s `on` lines)"
         ));
         return Ok(());
     }
+    let kept = app_build::kept_shots_lanes(
+        places, repo, &top, &commit, &config, &changed, &lanes, &picks,
+    )?;
+    let lanes: Vec<(Lane, Vec<String>)> = lanes
+        .into_iter()
+        .map(|(lane, names)| {
+            if kept.contains(&lane) {
+                (lane, Vec::new())
+            } else {
+                (lane, names)
+            }
+        })
+        .collect();
     for (lane, names) in &lanes {
         note(format!(
             "{} lane: {}",
             lane.word(),
-            if names.is_empty() {
+            if kept.contains(lane) {
+                "no build: the picture folder keeps every shot the runs take for the lane's app tree".to_string()
+            } else if names.is_empty() {
                 "no build, only the runs asked for".to_string()
             } else {
                 names.join(" ")
             }
         ));
     }
-    app_build::run_lanes(repo, &commit, &lanes, &picks)
+    app_build::run_lanes(repo, &commit, &lanes, &picks, &kept)
 }
 
 #[cfg(test)]

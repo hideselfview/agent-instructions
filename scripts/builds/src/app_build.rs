@@ -812,6 +812,55 @@ fn shots_prefix(step: &Step) -> &str {
         .unwrap_or(&step.name)
 }
 
+/// What a lane's process is given first when the picture folder keeps every
+/// shot its shots picks take for its app tree, so it builds nothing
+/// (`kept_shots_lanes`).
+const KEPT_SHOTS: &str = "--kept-shots";
+
+/// The lanes of <lanes> that build nothing for <picks>: each lane whose picks
+/// are all shots, which no path <changed> names in an `on` line of the lane,
+/// and whose every shots prefix the picture folder of <repo> keeps for the
+/// lane's app tree at <commit> (shot_store.rs). Such a lane's steps would
+/// only build the app for shots the folder already keeps.
+#[allow(clippy::too_many_arguments)]
+pub fn kept_shots_lanes(
+    places: &Places,
+    repo: &str,
+    top: &Path,
+    commit: &str,
+    config: &Config,
+    changed: &[String],
+    lanes: &[(Lane, Vec<String>)],
+    picks: &[Pick],
+) -> Result<Vec<Lane>> {
+    let built_for_changes: Vec<Lane> = crate::derive::plan(config, changed, &[])
+        .into_iter()
+        .map(|(lane, _)| lane)
+        .collect();
+    let mut kept = Vec::new();
+    for (lane, _) in lanes {
+        let own: Vec<&Pick> = picks.iter().filter(|(own, _, _)| own == lane).collect();
+        if own.is_empty()
+            || own.iter().any(|(_, kind, _)| *kind != PickKind::Shots)
+            || built_for_changes.contains(lane)
+        {
+            continue;
+        }
+        let windows = config
+            .picker(*lane, PickKind::Shots)
+            .is_some_and(|picker| picker.command.iter().any(|word| word == "--windows"));
+        let tree = crate::app_tree::of(top, commit, config, *lane)?;
+        let mut every = true;
+        for (_, _, prefix) in &own {
+            every &= shot_store::shots_kept(places, repo, *lane, &tree, prefix, windows)?;
+        }
+        if every {
+            kept.push(*lane);
+        }
+    }
+    Ok(kept)
+}
+
 /// <command>, a run of a `shots` line, comparing with the findings.json at
 /// <file>: builds-shots' `run --before`.
 fn with_before(command: &[String], file: &str) -> Vec<String> {
@@ -835,6 +884,9 @@ struct ShotsStore {
     /// The lane's app source tree at the commit (app_tree.rs), which keys
     /// the shots the app takes in the picture folder.
     app_tree: String,
+    /// The lane built no app, so a shots run fails instead of capturing
+    /// (builds-shots' `run --no-capture`).
+    no_capture: bool,
 }
 
 impl ShotsStore {
@@ -845,6 +897,7 @@ impl ShotsStore {
     /// none. Fails when the store holds no before run for a pick, naming the
     /// command that makes one: `builds app-build` with no lane named makes
     /// them first.
+    #[allow(clippy::too_many_arguments)]
     fn of(
         places: &Places,
         source: &Path,
@@ -853,6 +906,7 @@ impl ShotsStore {
         commit: &str,
         config: &Config,
         picks: &[Pick],
+        kept_shots: bool,
     ) -> Result<ShotsStore> {
         let version = crate::shots_program::VERSION.to_string();
         let mut befores = Vec::new();
@@ -882,6 +936,7 @@ impl ShotsStore {
             version,
             befores,
             app_tree: crate::app_tree::of(source, commit, config, lane)?,
+            no_capture: kept_shots,
         })
     }
 
@@ -918,6 +973,9 @@ impl ShotsStore {
             "--app-tree".to_string(),
             self.app_tree.clone(),
         ]);
+        if self.no_capture {
+            command.push("--no-capture".to_string());
+        }
         command
     }
 
@@ -1225,6 +1283,10 @@ struct LaneRequest<'a> {
     commit: &'a str,
     names: &'a [String],
     picks: &'a [Pick],
+    /// The picture folder keeps every shot of the shots picks for the
+    /// lane's app tree (`KEPT_SHOTS`): the lane builds nothing, and its shots
+    /// runs capture none.
+    kept_shots: bool,
 }
 
 /// Takes the use of the stores a lane holds while it holds the lane's lock
@@ -1277,6 +1339,7 @@ fn build_lane(
         commit,
         names,
         picks,
+        kept_shots,
     } = request;
     note(format!(
         "waiting for {repo}'s {} app lock, then building {commit}",
@@ -1332,7 +1395,12 @@ fn build_lane(
             std::fs::create_dir_all(&folder)
                 .context(|| format!("creating {}", folder.display()))?;
         }
-        if names.is_empty() && !picks.is_empty() {
+        if kept_shots {
+            note(
+                "the picture folder keeps every shot these runs take for the lane's app tree, so the lane builds nothing and takes the shots from it",
+            );
+            Built::clear(&built_file)?;
+        } else if names.is_empty() && !picks.is_empty() {
             let (wanted, head) = site.resolved_and_head(places, repo, commit)?;
             Built::allows_class_run(
                 Built::read(&built_file)?.as_ref(),
@@ -1364,7 +1432,9 @@ fn build_lane(
         let (tests, builds): (Vec<Step>, Vec<Step>) = steps
             .into_iter()
             .partition(|step| pick_kind_of(&step.name).is_some());
-        let shots = ShotsStore::of(places, &source, repo, lane, &sha, &config, picks)?;
+        let shots = ShotsStore::of(
+            places, &source, repo, lane, &sha, &config, picks, kept_shots,
+        )?;
         let watch = lane.uses_xcode();
         let ran = (|| {
             let mut ended =
@@ -1553,7 +1623,7 @@ pub fn ensure_before_runs(
     ));
     let config = config_at(places, repo, &base)?;
     let lanes = crate::derive::plan(&config, &[], &wanted);
-    let built = run_lanes(repo, &base, &lanes, &wanted);
+    let built = run_lanes(repo, &base, &lanes, &wanted, &[]);
     if PASSED_ON.load(Ordering::SeqCst) != 0 {
         return built;
     }
@@ -1667,6 +1737,7 @@ pub fn run_lanes(
     commit: &str,
     lanes: &[(Lane, Vec<String>)],
     picks: &[Pick],
+    kept: &[Lane],
 ) -> Result<()> {
     let exe = std::env::current_exe().context(|| "finding the builds program".to_string())?;
     unsafe {
@@ -1679,6 +1750,7 @@ pub fn run_lanes(
         let mut command = Command::new(&exe);
         command
             .args(["app-build", repo, "--lane", lane.word(), commit])
+            .args(kept.contains(lane).then_some(KEPT_SHOTS))
             .args(names)
             .args(
                 picks
@@ -1867,6 +1939,8 @@ pub fn cmd_app_build(tool: &Tool, args: &[String]) -> Result<()> {
         && flag == "--lane"
         && !commit.starts_with('-')
     {
+        let kept_shots = names.first().is_some_and(|arg| arg == KEPT_SHOTS);
+        let names = if kept_shots { &names[1..] } else { names };
         let (names, picks) = split_picks(names)?;
         let lane = Lane::parse_or_fail(word)?;
         // A lane's process always says why it ended badly: a bare exit status
@@ -1875,6 +1949,7 @@ pub fn cmd_app_build(tool: &Tool, args: &[String]) -> Result<()> {
             commit,
             names: &names,
             picks: &picks,
+            kept_shots,
         };
         return match run_lane(tool, repo, lane, request) {
             Err(Fail::Exit(code)) => {
@@ -1938,7 +2013,7 @@ pub fn cmd_app_build(tool: &Tool, args: &[String]) -> Result<()> {
     if lanes.is_empty() {
         fail!("{CONFIG} names no step");
     }
-    run_lanes(repo, commit, &lanes, &picks)
+    run_lanes(repo, commit, &lanes, &picks, &[])
 }
 
 #[cfg(test)]

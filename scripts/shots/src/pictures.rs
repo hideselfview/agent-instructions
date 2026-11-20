@@ -9,7 +9,11 @@
 //!
 //! A board picture is `boards/<hash>.png` with its element list
 //! `boards/<hash>.json`, and an app's shot is
-//! `<platform>/<app tree>/<name>@<platform>.png` with its element list. A run writes each file under a hidden temporary name
+//! `<platform>/<app tree>/<name>@<platform>.png` with its element list. Once
+//! a run has kept every shot a prefix selects, it marks the prefix taken in
+//! `<platform>/<app tree>/.taken/<prefix>@windows` (or `@no-windows` for a
+//! run without `--windows`), so builds knows without the harness sources
+//! which runs need no app built. A run writes each file under a hidden temporary name
 //! and renames it into place, the element list before the picture, so a
 //! picture whose element list is missing is never there.
 
@@ -26,6 +30,8 @@ pub(crate) struct Pictures {
 
 /// The folder of the board pictures in a picture folder.
 const BOARDS: &str = "boards";
+/// The folder of an app source tree's shots that marks the prefixes taken.
+const TAKEN: &str = ".taken";
 
 impl Pictures {
     pub(crate) fn new(dir: PathBuf, now: std::time::SystemTime) -> Self {
@@ -128,6 +134,28 @@ impl Pictures {
             self.mark_used(&dir.join(name.file_name("png")))?;
         }
         Ok(true)
+    }
+
+    /// Marks each of <prefixes> taken for <platform>'s app source tree
+    /// <tree>, by a run with or without the shots shown in a window
+    /// (<windows>): the folder keeps every shot each selects.
+    pub(crate) fn mark_taken(
+        &self,
+        platform: Platform,
+        tree: &str,
+        prefixes: &[String],
+        windows: bool,
+    ) -> Result<(), String> {
+        let taken = self.shots_dir(platform, tree).join(TAKEN);
+        std::fs::create_dir_all(&taken)
+            .map_err(|e| format!("cannot prepare {}: {e}", taken.display()))?;
+        let mark = if windows { "windows" } else { "no-windows" };
+        for prefix in prefixes {
+            let file = taken.join(format!("{prefix}@{mark}"));
+            std::fs::write(&file, "")
+                .map_err(|e| format!("cannot write {}: {e}", file.display()))?;
+        }
+        Ok(())
     }
 
     /// Keeps the shots <names> of <platform> taken into <out> for the app
