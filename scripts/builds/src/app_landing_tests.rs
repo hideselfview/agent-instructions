@@ -169,3 +169,17 @@ fn the_refusal_names_each_lane_the_paths_and_the_next_steps() {
     );
     assert!(said.contains("`builds app-build bae <branch>`"), "{said}");
 }
+
+/// agent-instructions is in two projects and has no `.app-build`: the check
+/// passes without asking which project's store records its app builds.
+#[test]
+fn a_result_with_no_app_build_file_passes_in_a_repo_two_projects_hold() {
+    let scratch = crate::testing::Scratch::new("app-landing-two-projects");
+    let places = scratch.places();
+    let dir = scratch.dir.join("bae");
+    crate::testing::repo(&dir, "target 1\n");
+    crate::lists::fixtures::make_store_named(&places, "demo", &["bae"]);
+    crate::lists::fixtures::make_store_named(&places, "second", &["bae"]);
+    let args = [dir.display().to_string(), "HEAD".into(), "HEAD".into()];
+    cmd_check_landing(&places, &args).unwrap();
+}

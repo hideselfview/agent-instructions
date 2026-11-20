@@ -155,16 +155,16 @@ pub fn cmd_check_landing(places: &Places, args: &[String]) -> Result<()> {
     let Some(checkout) = crate::checkout::Checkout::at(top)? else {
         fail!("git finds no checkout at {worktree}");
     };
-    let repo = checkout.repo();
-    let Some(database) = crate::app_timing::database_of(places, &repo)? else {
-        return Ok(());
-    };
     if run_git(top, &["ls-tree", "--name-only", result, "--", CONFIG])?.is_empty() {
         crate::text::note(format!(
             "{result} has no {CONFIG}, so it builds no apps and no app build has to cover it"
         ));
         return Ok(());
     }
+    let repo = checkout.repo();
+    let Some(database) = crate::app_timing::database_of(places, &repo)? else {
+        return Ok(());
+    };
     let config = parse_config(&run_git(top, &["show", &format!("{result}:{CONFIG}")])?)?;
     let changed = paths_between(top, before, result)?;
     let conn = crate::db::open(&database, crate::db::Make::Never)?;

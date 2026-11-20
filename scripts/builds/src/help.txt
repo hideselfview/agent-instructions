@@ -1120,9 +1120,9 @@ from the store, never built again.
                               the paths where that commit differs from the
                               result, and exits 1: rebase the branch onto
                               origin/main, run `builds app-build` again and land
-                              again. Land runs no app build itself. A repo in
-                              no project, or a result with no .app-build,
-                              passes
+                              again. Land runs no app build itself. A result
+                              with no .app-build passes, whatever projects
+                              hold its repo, and so does a repo in no project
   builds shots findings <repo> <ref> mac|android <prefix>
                               print the findings stored for <ref>'s commit,
                               the lane and the prefix, with a line on stderr
