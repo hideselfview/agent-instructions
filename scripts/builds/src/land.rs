@@ -102,13 +102,28 @@
 //! as landed and starts the audit of a sampled one, which never fails the
 //! landing.
 //!
+//! In a repo of a project, a result that changes what a lane's apps compile
+//! needs a passing app build that built its files (app_landing.rs). After the
+//! whole-tree checks, land asks `builds app-build --landing-build` which build
+//! the result needs. When another landing that changed the apps reached main
+//! after the branch's last app build, that build covers an older main, and
+//! land builds the result itself in the worktree with the same steps, test
+//! classes and shots, copying the build's output as it prints it, and pushes
+//! the result once the build passes. A build that fails refuses the landing
+//! (exit 1, no retry), and so does a branch with no app build of its own.
+//!
 //! A landing holds a use of the stores (install_gate.rs) from before it takes
 //! the worktree's lock until it has written the record of its run
 //! (land_run.rs), so a `builds install` that moves a store to another schema
 //! waits for the landing, and every record the landing writes, in this program
 //! and in the `builds` commands it runs, meets the schema it started with.
 //! When an install ran after this program started and before it took the use,
-//! land runs the installed builds in its place.
+//! land runs the installed builds in its place. The landing ends its use while
+//! it waits for the app build of its result, which takes many minutes and
+//! takes uses of its own, and takes the use again before it pushes or records
+//! anything. When an install that moved the stores ran meanwhile, land checks
+//! out the branch again and runs the installed builds in its place, with the
+//! same arguments, recording nothing.
 //!
 //! After the record of its run, land ends its use of the stores and releases
 //! the worktree's lock, then fast-forwards the repo's main checkout to
@@ -130,9 +145,9 @@
 //! program, so their output is held back and shown only when one fails.
 
 use std::cell::{Cell, RefCell};
-use std::io::{Read, Seek, SeekFrom, Write};
+use std::io::{BufRead, BufReader, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, Stdio};
 use std::time::Instant;
 
 use crate::fail;
@@ -182,15 +197,62 @@ fn land_recorded(
     out: &mut dyn Write,
     stores: Option<crate::install_gate::Holding<'_>>,
 ) -> Result<()> {
-    let ended = land_profiled(program, args, out);
+    let ended = land_profiled(program, args, out, StoreUse::holding(stores));
+    if ended.install_ran {
+        return Err(crate::install_gate::run_installed_after_install(
+            places,
+            "builds install moved the stores while this landing waited for its app build, so the landing runs the installed builds program again in its place",
+        ));
+    }
     if let Some(run) = &ended.run {
         record_run(places, run);
     }
-    drop(stores);
+    drop(ended.stores);
     if let Some(workdir) = &ended.pushed_from {
         forward_main_checkout(workdir, out);
     }
     ended.result
+}
+
+/// The landing's use of the stores (install_gate.rs), which it holds from its
+/// start until it writes the record of its run, except while it waits for an
+/// app build of its result: such a build takes many minutes, and an install
+/// that moves the stores waits for every use, so the landing ends its use
+/// for the wait, and the app build takes uses of its own. The landing takes
+/// the use again before it pushes or records anything.
+struct StoreUse<'a> {
+    held: Option<crate::install_gate::Holding<'a>>,
+    /// Whether the landing ended its use, and has not taken it again.
+    ended: bool,
+}
+
+impl<'a> StoreUse<'a> {
+    fn holding(held: Option<crate::install_gate::Holding<'a>>) -> StoreUse<'a> {
+        StoreUse { held, ended: false }
+    }
+
+    /// Ends the use until `take_again`.
+    fn end(&mut self) {
+        self.held = None;
+        self.ended = true;
+    }
+
+    /// Takes the use again after `end`, waiting while an install runs. Says
+    /// false when an install that moved the stores ran since this program
+    /// started: this program then writes a store of another schema.
+    fn take_again(&mut self) -> Result<bool> {
+        if !self.ended {
+            return Ok(true);
+        }
+        match crate::install_gate::hold_current(crate::install_gate::OnInstall::Wait)? {
+            crate::install_gate::Hold::Holds(held) => {
+                self.held = held;
+                self.ended = false;
+                Ok(true)
+            }
+            crate::install_gate::Hold::InstallRan => Ok(false),
+        }
+    }
 }
 
 /// Writes <run> to its project's store; a failure is said and changes
@@ -211,17 +273,11 @@ fn refuse(out: &mut dyn Write, message: impl AsRef<str>) -> Fail {
     Fail::Exit(1)
 }
 
-/// Runs <command> with stdin closed and stdout and stderr in one stream.
-/// Says whether it succeeded and what it printed, without trailing newlines.
-fn merged(mut command: Command) -> (bool, String) {
-    let (mut reader, writer) = match std::io::pipe() {
-        Ok(pipe) => pipe,
-        Err(error) => return (false, error.to_string()),
-    };
-    let again = match writer.try_clone() {
-        Ok(again) => again,
-        Err(error) => return (false, error.to_string()),
-    };
+/// Starts <command> with stdin closed and stdout and stderr in one pipe, and
+/// returns the pipe's read end with the running command.
+fn start_merged(mut command: Command) -> std::io::Result<(std::io::PipeReader, Child)> {
+    let (reader, writer) = std::io::pipe()?;
+    let again = writer.try_clone()?;
     command
         .stdin(Stdio::null())
         .stdout(Stdio::from(writer))
@@ -230,15 +286,58 @@ fn merged(mut command: Command) -> (bool, String) {
     // The command holds the write ends until it is dropped; the reader sees
     // the end of the stream only once they are closed.
     drop(command);
-    let mut child = match child {
-        Ok(child) => child,
+    Ok((reader, child?))
+}
+
+/// Runs <command> with stdin closed and stdout and stderr in one stream.
+/// Says whether it succeeded and what it printed, without trailing newlines.
+fn merged(command: Command) -> (bool, String) {
+    let (mut reader, mut child) = match start_merged(command) {
+        Ok(started) => started,
         Err(error) => return (false, error.to_string()),
     };
     let mut bytes = Vec::new();
-    let _ = reader.read_to_end(&mut bytes);
+    let read = reader.read_to_end(&mut bytes);
     let ok = child.wait().is_ok_and(|status| status.success());
-    let text = String::from_utf8_lossy(&bytes);
+    let mut text = String::from_utf8_lossy(&bytes).into_owned();
+    if let Err(error) = read {
+        text.push_str(&format!(
+            "\nreading what the command printed failed: {error}"
+        ));
+        return (false, text);
+    }
     (ok, text.trim_end_matches('\n').to_string())
+}
+
+/// Runs <command> as `merged` does, and copies each line it prints to <out>
+/// as it prints it. Says whether it succeeded.
+fn streamed(command: Command, out: &mut dyn Write) -> bool {
+    let (reader, mut child) = match start_merged(command) {
+        Ok(started) => started,
+        Err(error) => {
+            let _ = writeln!(out, "{error}");
+            return false;
+        }
+    };
+    let mut reader = BufReader::new(reader);
+    let mut line = Vec::new();
+    let read = loop {
+        line.clear();
+        match reader.read_until(b'\n', &mut line) {
+            Ok(0) => break Ok(()),
+            Ok(_) => {
+                let _ = out.write_all(&line);
+                let _ = out.flush();
+            }
+            Err(error) => break Err(error),
+        }
+    };
+    let ok = child.wait().is_ok_and(|status| status.success());
+    if let Err(error) = read {
+        let _ = writeln!(out, "reading what the command printed failed: {error}");
+        return false;
+    }
+    ok
 }
 
 /// Whether the git command succeeded, saying nothing.
@@ -536,6 +635,10 @@ struct Landing<'a> {
     steps: RefCell<Vec<Step>>,
     /// Did the push succeed?
     pushed: Cell<bool>,
+    /// Did an install that moved the stores run while the landing waited for
+    /// its app build? This program then writes a store of another schema, so
+    /// it records nothing and runs the installed builds in its place.
+    install_ran: Cell<bool>,
     /// What `builds design only` said of the landing's commits, once
     /// `squash_design` has asked it, so `check_lists` does not ask again.
     design_only: RefCell<Option<(bool, String)>>,
@@ -1029,30 +1132,102 @@ impl Landing<'_> {
         Ok(())
     }
 
-    /// In a repo of a project, refuses the result <landed>, which land built
-    /// on origin/main at <before>, when it changes what a lane's apps compile
-    /// and no passing app build of the lane built its files (app_landing.rs):
-    /// another landing that changed the apps may have reached main after the
-    /// branch's last app build. Land checks out what the worktree had when the
-    /// landing began and prints why.
-    fn check_app_builds(&self, before: &str, landed: &str, out: &mut dyn Write) -> Result<()> {
+    /// In a repo of a project, makes sure that a passing app build covers
+    /// the result <landed>, which land built on origin/main at <before>, when
+    /// it changes what a lane's apps compile (app_landing.rs). When another
+    /// landing that changed the apps reached main after the branch's last app
+    /// build, land builds the result itself, in this worktree, with the
+    /// steps, test classes and shots of that build, and copies the build's
+    /// output to <out> as it prints it. Land ends its use of the stores
+    /// (<stores>) for the build, which takes many minutes. When the branch has
+    /// no app build of its own, or the result's build fails, land checks out
+    /// what the worktree had when the landing began and prints why.
+    fn cover_app_builds(
+        &self,
+        before: &str,
+        landed: &str,
+        stores: &mut StoreUse,
+        out: &mut dyn Write,
+    ) -> Result<()> {
         if self.recording.is_none() {
             return Ok(());
         }
         let workdir = self.workdir.display().to_string();
-        let (ok, said) = self.builds(&["app-build", "--check-landing", &workdir, before, landed]);
-        if ok {
+        let branch = self.request.shas.last().expect("a landing names a commit");
+        let mut command = Command::new(self.program);
+        command
+            .args([
+                "app-build",
+                crate::app_landing::FLAG,
+                &workdir,
+                before,
+                landed,
+                branch,
+            ])
+            .stdin(Stdio::null());
+        let asked = command.output();
+        let uncovered = |out: &mut dyn Write, said: String| {
+            self.go_back(out);
+            let _ = writeln!(out, "APP BUILDS DO NOT COVER the result, nothing pushed:");
+            refuse(out, said)
+        };
+        let output = match asked {
+            Ok(output) => output,
+            Err(error) => {
+                return Err(uncovered(
+                    out,
+                    format!(
+                        "land could not run builds app-build {}: {error}",
+                        crate::app_landing::FLAG
+                    ),
+                ));
+            }
+        };
+        let said = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        let notes = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        if !output.status.success() {
+            let both = [notes, said].join("\n");
+            return Err(uncovered(out, both.trim().to_string()));
+        }
+        if said.is_empty() {
+            return Ok(());
+        }
+        let words: Vec<&str> = said.split_whitespace().collect();
+        let ["builds", "app-build", args @ ..] = words.as_slice() else {
+            return Err(uncovered(
+                out,
+                format!(
+                    "builds app-build {} printed {said:?}, not the builds command of the build the result needs",
+                    crate::app_landing::FLAG
+                ),
+            ));
+        };
+        let _ = writeln!(
+            out,
+            "another landing that changed the apps reached main after the branch's last app build, so land builds the result {} with that build's steps, test classes and shots before it pushes:\n{said}",
+            &landed[..landed.len().min(12)]
+        );
+        stores.end();
+        let mut build = Command::new(self.program);
+        build.arg("app-build").args(args).current_dir(&self.workdir);
+        if streamed(build, out) {
             return Ok(());
         }
         self.go_back(out);
-        let _ = writeln!(out, "APP BUILDS DO NOT COVER the result, nothing pushed:");
-        Err(refuse(out, said))
+        let _ = writeln!(out, "APP BUILD FAILED on the result, nothing pushed:");
+        Err(refuse(
+            out,
+            format!(
+                "the app build above failed on the result, the branch's commits on origin/main. Next: in {workdir}, run `git fetch origin && git rebase origin/main` on {}, fix what the build names, commit, run `builds app-build` on the branch, review the branch again and land the new commit ids.",
+                self.start.name()
+            ),
+        ))
     }
 
     /// Puts the commits on origin/main and returns their copies there, or
     /// refuses after it checks out what the worktree had when the landing
     /// began.
-    fn put_on_main(&self, out: &mut dyn Write) -> Result<Vec<String>> {
+    fn put_on_main(&self, stores: &mut StoreUse, out: &mut dyn Write) -> Result<Vec<String>> {
         let dir = &self.workdir;
         let shas = &self.request.shas;
         let last = shas.last().expect("a landing names a commit").as_str();
@@ -1130,7 +1305,15 @@ impl Landing<'_> {
             {
                 let _timing = self.timing(StepKind::Checks);
                 self.check_result(out)?;
-                self.check_app_builds(&before, &landed, out)?;
+                self.cover_app_builds(&before, &landed, stores, out)?;
+            }
+            if !stores.take_again()? {
+                self.go_back(out);
+                self.install_ran.set(true);
+                return Err(refuse(
+                    out,
+                    "builds install moved the stores while this landing waited for its app build; nothing pushed",
+                ));
             }
             // Something else that moved this worktree's HEAD during the checks
             // (a checkout run by hand) leaves nothing of the landing's to push,
@@ -1426,7 +1609,7 @@ fn forward_main_checkout(workdir: &Path, out: &mut dyn Write) {
 
 /// How a landing ended, before land writes the record of its run and moves
 /// the main checkout.
-struct Ended {
+struct Ended<'a> {
     result: Result<()>,
     /// The record of the run, when the repo is in a project and the run got
     /// as far as reading which one.
@@ -1434,26 +1617,40 @@ struct Ended {
     /// The worktree the landing pushed from, whose repo's main checkout land
     /// fast-forwards; None when the landing pushed nothing.
     pushed_from: Option<PathBuf>,
+    /// The landing's use of the stores, which land ends once it has written
+    /// the record of the run.
+    stores: StoreUse<'a>,
+    /// Whether an install that moved the stores ran while the landing waited
+    /// for its app build, so that land runs the installed builds in its place.
+    install_ran: bool,
 }
 
-impl Ended {
-    fn before_landing(result: Result<()>) -> Ended {
+impl<'a> Ended<'a> {
+    fn before_landing(result: Result<()>, stores: StoreUse<'a>) -> Ended<'a> {
         Ended {
             result,
             run: None,
             pushed_from: None,
+            stores,
+            install_ran: false,
         }
     }
 }
 
 /// The landing, with the program that answers the `builds` commands it runs
-/// (this program; tests pass a stand-in) and <out> for what it says, up to
-/// the record of its run. Land holds the worktree's lock only until then.
-fn land_profiled(program: &Path, args: &[String], out: &mut dyn Write) -> Ended {
+/// (this program; tests pass a stand-in), <out> for what it says and
+/// <stores>, its use of the stores, up to the record of its run. Land holds
+/// the worktree's lock only until then.
+fn land_profiled<'a>(
+    program: &Path,
+    args: &[String],
+    out: &mut dyn Write,
+    mut stores: StoreUse<'a>,
+) -> Ended<'a> {
     let started_at = crate::app_timing::now();
     let began = Instant::now();
     let Some((worktree, rest)) = args.split_first() else {
-        return Ended::before_landing(Err(refuse(out, USAGE)));
+        return Ended::before_landing(Err(refuse(out, USAGE)), stores);
     };
     let waiting = (crate::app_timing::now(), Instant::now());
     let (workdir, lock) = match std::path::absolute(worktree)
@@ -1461,7 +1658,7 @@ fn land_profiled(program: &Path, args: &[String], out: &mut dyn Write) -> Ended 
         .and_then(|workdir| Ok((workdir.clone(), lock_worktree(&workdir, rest, out)?)))
     {
         Ok(held) => held,
-        Err(error) => return Ended::before_landing(Err(error)),
+        Err(error) => return Ended::before_landing(Err(error), stores),
     };
     let lock_step = Step {
         kind: StepKind::Lock,
@@ -1471,11 +1668,25 @@ fn land_profiled(program: &Path, args: &[String], out: &mut dyn Write) -> Ended 
     let _lock = lock;
     let mut landing = match open_landing(program, workdir, rest, out) {
         Ok(landing) => landing,
-        Err(error) => return Ended::before_landing(Err(error)),
+        Err(error) => return Ended::before_landing(Err(error), stores),
     };
     landing.steps.borrow_mut().push(lock_step);
-    let result = landing.proceed(out);
-    let run = match landing.run_record(started_at, began) {
+    let result = landing.proceed(&mut stores, out);
+    if landing.install_ran.get() {
+        return Ended {
+            install_ran: true,
+            ..Ended::before_landing(result, stores)
+        };
+    }
+    // A landing refused while it waited for its app build ended its use.
+    let run = match stores.take_again() {
+        Ok(true) => landing.run_record(started_at, began),
+        Ok(false) => Err(Fail::Message(
+            "builds install moved the stores while it waited for its app build".to_string(),
+        )),
+        Err(error) => Err(error),
+    };
+    let run = match run {
         Ok(run) => run,
         Err(error) => {
             crate::text::note(format!("this landing was not recorded: {}", error.text()));
@@ -1486,6 +1697,8 @@ fn land_profiled(program: &Path, args: &[String], out: &mut dyn Write) -> Ended 
         result,
         run,
         pushed_from: landing.pushed.get().then(|| landing.workdir.clone()),
+        stores,
+        install_ran: false,
     }
 }
 
@@ -1508,14 +1721,15 @@ fn open_landing<'a>(
         recording: None,
         steps: RefCell::new(Vec::new()),
         pushed: Cell::new(false),
+        install_ran: Cell::new(false),
         design_only: RefCell::new(None),
     })
 }
 
 impl Landing<'_> {
     /// Reads the project, checks the lists, puts the commits on origin/main
-    /// and finishes.
-    fn proceed(&mut self, out: &mut dyn Write) -> Result<()> {
+    /// with the landing's use of the stores (<stores>) and finishes.
+    fn proceed(&mut self, stores: &mut StoreUse, out: &mut dyn Write) -> Result<()> {
         let (ok, project) =
             self.builds(&["lists", "project-of", &self.workdir.display().to_string()]);
         if !ok {
@@ -1549,7 +1763,7 @@ impl Landing<'_> {
             let _timing = self.timing(StepKind::ListsCheck);
             self.check_lists(out)?;
         }
-        let on_main = self.put_on_main(out)?;
+        let on_main = self.put_on_main(stores, out)?;
         self.pushed.set(true);
         self.finish(&on_main, out)
     }

@@ -24,7 +24,10 @@
 //!   `OnInstall::Wait`) from its start until it has written the record of its
 //!   run, then ends it before it fast-forwards the main checkout, whose
 //!   post-merge hook in agent-instructions runs install: install would wait
-//!   forever for a use the landing still held.
+//!   forever for a use the landing still held. A landing ends its use while
+//!   it waits for an app build of its result, which holds lane uses of its
+//!   own, and takes it again before it pushes; when install ran meanwhile,
+//!   the landing runs the installed builds in its place.
 //! - Every other command takes a connection use while each store connection
 //!   it opens is open. Its writes are each one short transaction, so a
 //!   command such as `builds cargo test` holds no use while it builds.

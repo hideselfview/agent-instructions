@@ -117,7 +117,9 @@ fn claim(dir: &Path) {
 /// What the stand-in `builds` answers: the project `lists project-of` prints
 /// (nothing when none), the lines `design places` prints, and the command
 /// ("<group> <command>") it refuses, saying `says` when that is set. `title`
-/// is what `design title` prints.
+/// is what `design title` prints, and `landing_build` the shell words that
+/// answer `app-build --landing-build` (its result is $5). Each app build
+/// that is not `--landing-build` also logs the folder it ran in.
 #[derive(Default)]
 struct Cues {
     project: &'static str,
@@ -125,6 +127,7 @@ struct Cues {
     places: &'static str,
     refuse: &'static str,
     says: &'static str,
+    landing_build: &'static str,
 }
 
 /// Writes the stand-in `builds` for <cues> and returns it with the file it
@@ -133,7 +136,7 @@ fn stub(f: &Fixture, cues: &Cues) -> (PathBuf, PathBuf) {
     let stub = f.scratch.dir.join("stub-builds");
     let log = f.scratch.dir.join("calls.log");
     let script = format!(
-        "#!/bin/bash\necho \"$*\" >> '{log}'\n[ '{refuse}' = \"$1 $2\" ] && {{ echo '{says}'; exit 1; }}\ncase \"$1 $2\" in\n  'lists project-of') echo '{project}' ;;\n  'design places') printf '%s' '{places}' ;;\n  'design title') echo '{title}' ;;\nesac\nexit 0\n",
+        "#!/bin/bash\necho \"$*\" >> '{log}'\n[ \"$1\" = app-build ] && [ \"$2\" != --landing-build ] && echo \"app-build ran in $PWD\" >> '{log}'\n[ '{refuse}' = \"$1 $2\" ] && {{ echo '{says}'; exit 1; }}\ncase \"$1 $2\" in\n  'lists project-of') echo '{project}' ;;\n  'design places') printf '%s' '{places}' ;;\n  'design title') echo '{title}' ;;\n  'app-build --landing-build') {landing_build} ;;\nesac\nexit 0\n",
         log = log.display(),
         refuse = cues.refuse,
         says = if cues.says.is_empty() {
@@ -144,6 +147,11 @@ fn stub(f: &Fixture, cues: &Cues) -> (PathBuf, PathBuf) {
         project = cues.project,
         title = cues.title,
         places = cues.places,
+        landing_build = if cues.landing_build.is_empty() {
+            "true"
+        } else {
+            cues.landing_build
+        },
     );
     std::fs::write(&stub, script).unwrap();
     std::fs::set_permissions(&stub, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
@@ -177,7 +185,7 @@ fn profiled(f: &Fixture, dir: &Path, args: &[&str], cues: Cues) -> (i32, Option<
     let mut all = vec![dir.display().to_string()];
     all.extend(args.iter().map(|a| a.to_string()));
     let mut out = Vec::new();
-    let Ended { result, run, .. } = land_profiled(&stub, &all, &mut out);
+    let Ended { result, run, .. } = land_profiled(&stub, &all, &mut out, StoreUse::holding(None));
     let code = match result {
         Ok(()) => 0,
         Err(Fail::Exit(code)) => code,
@@ -1116,11 +1124,12 @@ fn commits_the_review_does_not_take_are_refused_before_anything_is_fetched() {
     );
 }
 
-/// When no passing app build covers the result, land pushes nothing, checks
-/// the branch out again and prints why; it asks after it built the result,
-/// with origin/main as it found it and the result.
+/// When the branch has no passing app build that covers what it lands, land
+/// pushes nothing, checks the branch out again and prints why; it asks after
+/// it built the result, with origin/main as it found it, the result and the
+/// branch's last commit it lands.
 #[test]
-fn a_result_no_passing_app_build_covers_is_refused_and_nothing_is_pushed() {
+fn a_result_the_branch_has_no_app_build_for_is_refused_and_nothing_is_pushed() {
     let f = fixture("land-app-builds", "true\n", None);
     let (one, a, _two, _b) = two_branches(&f);
     let before = main_of(&f);
@@ -1130,15 +1139,15 @@ fn a_result_no_passing_app_build_covers_is_refused_and_nothing_is_pushed() {
         &one,
         &["--done", "7", &a],
         Cues {
-            refuse: "app-build --check-landing",
-            says: "no passing mac app build built the result",
+            refuse: "app-build --landing-build",
+            says: "no passing mac app build built the branch",
             ..project()
         },
     );
     assert!(
         code == 1
             && out.contains("APP BUILDS DO NOT COVER the result, nothing pushed:")
-            && out.contains("no passing mac app build built the result"),
+            && out.contains("no passing mac app build built the branch"),
         "{out}"
     );
     assert_eq!(main_of(&f), before);
@@ -1146,7 +1155,93 @@ fn a_result_no_passing_app_build_covers_is_refused_and_nothing_is_pushed() {
     assert_eq!(head_of(&one), a);
     assert_eq!(
         calls.last().unwrap(),
-        &format!("app-build --check-landing {dir} {before} {a}")
+        &format!("app-build --landing-build {dir} {before} {a} {a}")
+    );
+}
+
+/// The build the branch's builds name for a result on a newer main.
+const REBUILD: &str = "echo \"builds app-build bae $5 macos --test mac CardTests\"";
+
+/// When main moved under the branch's app build, land builds the result
+/// itself, in the branch's worktree, with the command `app-build
+/// --landing-build` prints, and pushes the result once the build passes.
+#[test]
+fn a_result_on_a_newer_main_is_built_in_the_worktree_before_it_is_pushed() {
+    let f = fixture("land-app-rebuild", "true\n", None);
+    let (one, a, two, b) = two_branches(&f);
+    let (code, _, _) = run_land(&f, &one, &["--done", "7", &a], project());
+    assert!(code == 0 && main_of(&f) == a);
+    let (code, out, calls) = run_land(
+        &f,
+        &two,
+        &["--done", "8", &b],
+        Cues {
+            landing_build: REBUILD,
+            ..project()
+        },
+    );
+    let result = main_of(&f);
+    assert!(code == 0 && result != b, "{out}");
+    assert_eq!(git_out(&f.origin, &["show", "main:a.txt"]), "a");
+    assert_eq!(git_out(&f.origin, &["show", "main:b.txt"]), "b");
+    let build = format!("app-build bae {result} macos --test mac CardTests");
+    let asked = calls
+        .iter()
+        .position(|c| {
+            c == &format!(
+                "app-build --landing-build {} {a} {result} {b}",
+                two.display()
+            )
+        })
+        .expect("land asks which build the result needs");
+    let built = calls
+        .iter()
+        .position(|c| c == &build)
+        .expect("land runs the build");
+    let recorded = calls
+        .iter()
+        .position(|c| c.starts_with("item landed"))
+        .unwrap();
+    assert!(asked < built && built < recorded, "{calls:?}");
+    assert_eq!(
+        calls[built + 1],
+        format!("app-build ran in {}", two.display())
+    );
+    assert!(out.contains(&format!("builds {build}")), "{out}");
+}
+
+/// A build of the result that fails refuses the landing with the build's
+/// output: nothing is pushed and the branch is checked out again.
+#[test]
+fn a_result_whose_app_build_fails_is_refused_with_the_builds_output() {
+    let f = fixture("land-app-rebuild-fails", "true\n", None);
+    let (one, a, two, b) = two_branches(&f);
+    let (code, _, _) = run_land(&f, &one, &["--done", "7", &a], project());
+    assert!(code == 0 && main_of(&f) == a);
+    let (code, out, calls) = run_land(
+        &f,
+        &two,
+        &["--done", "8", &b],
+        Cues {
+            landing_build: REBUILD,
+            refuse: "app-build bae",
+            says: "CardTests failed: the card has no title",
+            ..project()
+        },
+    );
+    assert!(
+        code == 1
+            && out.contains("CardTests failed: the card has no title")
+            && out.contains("APP BUILD FAILED on the result, nothing pushed"),
+        "{out}"
+    );
+    assert_eq!(main_of(&f), a);
+    assert_eq!(branch_of(&two).as_deref(), Some("b"));
+    assert_eq!(head_of(&two), b);
+    assert_eq!(git_out(&two, &["status", "--porcelain"]), "");
+    assert!(
+        !calls.iter().any(|c| c.starts_with("item landed")),
+        "{calls:?}"
     );
 }
 

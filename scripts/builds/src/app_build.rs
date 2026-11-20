@@ -206,10 +206,10 @@ pub fn all_shots_flag<'a>(after: &'a [String], usage: &str) -> Result<(Pick, &'a
     Ok((all_shots(Lane::parse_or_fail(lane)?), rest))
 }
 
-/// The command-line words that ask for <pick> in a lane's process:
-/// `--all-shots <lane>` for a lane's full set of shots, else the kind's flag,
-/// the lane and the argument.
-fn pick_words(pick: &Pick) -> Vec<&str> {
+/// The command-line words that ask for <pick> in a lane's process, or in a
+/// request that names steps: `--all-shots <lane>` for a lane's full set of
+/// shots, else the kind's flag, the lane and the argument.
+pub fn pick_words(pick: &Pick) -> Vec<&str> {
     let (lane, kind, arg) = pick;
     if *pick == all_shots(*lane) {
         vec![ALL_SHOTS, lane.word()]
@@ -219,7 +219,7 @@ fn pick_words(pick: &Pick) -> Vec<&str> {
 }
 
 /// The kind of step <name> is, when it is the run of a pick.
-fn pick_kind_of(name: &str) -> Option<PickKind> {
+pub fn pick_kind_of(name: &str) -> Option<PickKind> {
     PickKind::ALL
         .into_iter()
         .find(|kind| name.starts_with(kind.step_prefix()))
@@ -1527,9 +1527,9 @@ pub fn requested(argv: &[String]) -> Option<(&str, &str)> {
 pub fn cmd_app_build(tool: &Tool, args: &[String]) -> Result<()> {
     let places = &tool.places;
     if let [flag, rest @ ..] = args
-        && flag == "--check-landing"
+        && flag == crate::app_landing::FLAG
     {
-        return crate::app_landing::cmd_check_landing(places, rest);
+        return crate::app_landing::cmd_landing_build(places, rest);
     }
     let [repo, rest @ ..] = args else {
         fail!("{USAGE}");

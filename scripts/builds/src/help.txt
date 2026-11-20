@@ -1102,27 +1102,36 @@ from the store, never built again.
                               print the steps (lane, name, command, and "(CI
                               only)" for a step a `ci-only` line names) and
                               each lane's test and shots lines
-  builds app-build --check-landing <worktree> <before> <result>
-                              whether the passing app builds the store records
-                              built what a landing puts on main: `builds land`
-                              runs it on the result it built on origin/main
-                              (<before>) before the push. The landing changes a
-                              lane's apps when a path that differs between
-                              <before> and <result> matches an `on` line of the
+  builds app-build --landing-build <worktree> <before> <result> <branch>
+                              the app build a landing needs before its push:
+                              `builds land` runs it on the result it built on
+                              origin/main (<before>), with <branch>, the last
+                              commit it lands. The landing changes a lane's
+                              apps when a path that differs between <before>
+                              and <result> matches an `on` line of the
                               result's .app-build that names a step of the
-                              lane. A passing run of the lane covers the
-                              landing when it passed every step the change
-                              needs in the lane and the commit it built has
-                              the result's files at every path the lane's `on`
+                              lane. A passing run of the lane covers a commit
+                              when it passed every step the change needs in
+                              the lane and the commit it built has that
+                              commit's files at every path the lane's `on`
                               lines match. builds reads each lane's latest 50
-                              passing runs, newest first. For each lane no run
-                              covers, it prints the newest run's commit and
-                              the paths where that commit differs from the
-                              result, and exits 1: rebase the branch onto
-                              origin/main, run `builds app-build` again and land
-                              again. Land runs no app build itself. A result
-                              with no .app-build passes, whatever projects
-                              hold its repo, and so does a repo in no project
+                              passing runs, newest first. When a run covers
+                              the result in every lane the landing changes,
+                              it prints nothing. Otherwise, for each lane no
+                              run covers, it takes the newest run that covers
+                              <branch>, the branch's own build, and prints
+                              one line: the `builds app-build <repo> <result>
+                              <step>... [--test <lane> <Class>]... [--shots
+                              <lane> <prefix>]...` command that builds the
+                              result in those lanes with the steps, test
+                              classes and shots of the branch's builds, which
+                              land runs. When a lane has no run that covers
+                              <branch>, it prints that run's commit and the
+                              paths where it differs from <branch>, and exits
+                              1: run `builds app-build` on the branch and land
+                              again. A result with no .app-build needs no
+                              build, whatever projects hold its repo, and
+                              neither does a repo in no project
   builds shots findings <repo> <ref> mac|android <prefix>
                               print the findings stored for <ref>'s commit,
                               the lane and the prefix, with a line on stderr
@@ -2548,12 +2557,18 @@ run `review replay --rules-root` on it.
                               check's time; when one fails, land names every
                               failing check with its output, pushes nothing and
                               checks the branch out again. In a repo of a
-                              project, land then asks whether the app builds
-                              cover the result (`builds app-build
-                              --check-landing`), and refuses the same way when
-                              they do not, so a landing that crossed another
-                              one that changed the apps builds again on the
-                              new main before it lands. After the push, land
+                              project, land then asks which app build the
+                              result needs (`builds app-build
+                              --landing-build`). When another landing that
+                              changed the apps reached main after the
+                              branch's last app build, land runs the build
+                              that command prints in the worktree, which
+                              builds the result with that build's steps, test
+                              classes and shots, prints its output as it
+                              runs, and pushes the result once it passes.
+                              When the build fails, or the branch has no app
+                              build of its own, land pushes nothing and checks
+                              the branch out again. After the push, land
                               leaves the worktree detached at the landed commit
                               when its branch has nothing left to land, and
                               checks the branch out again when commits on it
@@ -2602,6 +2617,13 @@ run `review replay --rules-root` on it.
                               install that moves a store waits for the
                               landing, and the landing writes every record
                               with the schema it started with (INSTALLING).
+                              Land ends that use while it runs the app build
+                              of its result, which takes uses of its own, and
+                              takes it again before the push; when an install
+                              that moved the stores ran meanwhile, land checks
+                              the branch out again and runs the installed
+                              builds with the same arguments, recording
+                              nothing.
                               Each record names the worktree, and land reads
                               who landed from the worktree's claim and passes
                               it to each record as --by, so in a repo of a
@@ -2996,7 +3018,9 @@ INSTALLING
                               stores, never for its steps. Then wait for every
                               hook run (`checks run`), review that asks
                               reviewers, and landing (`land`) until it records
-                              its run, each of which records after long work;
+                              its run, each of which records after long work,
+                              except a landing that runs the app build of its
+                              result, which holds no use meanwhile;
                               then for every other command's open store
                               connection, which lasts one transaction. An app
                               build waiting for its lane holds nothing, and
