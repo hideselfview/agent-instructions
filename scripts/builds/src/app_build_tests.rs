@@ -999,7 +999,7 @@ fn a_shots_run_that_died_on_an_error_keeps_nothing() {
     let _ = run_steps(&top, &held, &[step], &mut Vec::new(), &kept, false);
     let key = shots_key(&resolve(&top, "HEAD").unwrap(), "mac.a.");
     assert!(shot_store::lookup(&places, &key).unwrap().is_none());
-    assert!(!shot_store::root(&places).exists());
+    assert!(!shot_store::root(&places).join("demo").exists());
 }
 
 #[test]
@@ -1103,7 +1103,7 @@ fn a_report_whose_findings_name_another_builds_shots_keeps_nothing() {
 }
 
 #[test]
-fn a_shots_run_with_a_before_run_is_given_its_findings_and_another_prefix_is_not() {
+fn a_shots_run_is_given_the_picture_folder_and_its_before_runs_findings_when_its_prefix_has_one() {
     let scratch = crate::testing::Scratch::new("shots-before-arg");
     let held = held_in(&scratch);
     let places = scratch.places();
@@ -1126,12 +1126,19 @@ fn a_shots_run_with_a_before_run_is_given_its_findings_and_another_prefix_is_not
         run_steps(&top, &held, &[step], &mut Vec::new(), &kept, false).unwrap();
         std::fs::read_to_string(&out).unwrap()
     };
+    let pictures = shot_store::pictures(&places, "demo");
     assert_eq!(
         said("shots mac.a."),
-        format!("--before\n{}\n", findings.display())
+        format!(
+            "--before\n{}\n--pictures\n{}\n",
+            findings.display(),
+            pictures.display()
+        )
     );
-    // printf prints its format once with no argument.
-    assert_eq!(said("shots mac.b."), "\n");
+    assert_eq!(
+        said("shots mac.b."),
+        format!("--pictures\n{}\n", pictures.display())
+    );
 }
 
 /// The pick of the shots of the Mac's a screens.

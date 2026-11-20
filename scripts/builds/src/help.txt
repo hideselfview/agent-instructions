@@ -142,6 +142,9 @@ on it:
   caches/<name>/        the download caches every checkout shares
   shots/<repo>/runs/    the output of each shots run (APP BUILDS), one folder
                         per run under <commit>/<lane>/<prefix>/<version>/
+  shots/<repo>/pictures/
+                        the board pictures shots runs drew, by board hash
+                        (APP BUILDS)
   .trash/               folders being deleted in the background
   .trash.lock           taken shared by each deletion into .trash, and
                         exclusive only by the floor and prune, to rename
@@ -1067,6 +1070,19 @@ builds-shots does. A run that died before it made findings keeps nothing.
 builds keeps the folder shots under its cap and deletes the runs that agents
 used least recently first (DISK).
 
+Beside the runs, builds keeps each repo's board pictures in
+/Volumes/Builds/shots/<repo>/pictures/boards/, as <board hash>.png with its
+element list <board hash>.json. A board hash is the hash of everything the
+board's picture depends on: the board's file and the parts it mounts (for a
+component shot, the preview page and the shot's name), its frame on the
+canvas, the design system's built files, the canvas runtime copy, the copies
+of React, the pinned Chrome, the version of builds-shots, and the
+shots-unshot and shots-preview lines. app-build passes the folder to each shots run
+on this Mac (`run --pictures`), and the run draws only the boards whose hash
+the folder lacks and adds each new drawing to it, so builds draws a board
+once for its inputs. A shots run on a host gets no picture folder and draws
+every board.
+
 A shots run of a commit that origin/main lacks compares with the run of its
 merge base with origin/main: builds passes the findings.json of that run to
 the `shots` line as --before, and the run fails only on the pairs it makes
@@ -1221,7 +1237,10 @@ built again.
                               that run: a pair it did not check, or one with
                               a finding whose sentence its findings for the
                               pair lack. Without --before, `run` fails on
-                              every pair with findings. `capture` takes the
+                              every pair with findings. With --pictures
+                              <folder>, `run` and `check` draw only the
+                              boards whose board hash the folder lacks
+                              (APP BUILDS) and add each new drawing. `capture` takes the
                               shots into a folder; `check` checks shots
                               already taken, failing on every pair with
                               findings, and writes the report; `lint` names
@@ -1304,8 +1323,9 @@ built again.
                               `run` and
                               `check` write the report: index.html, the
                               pictures, and findings.json, which names the
-                              program's version, the commit and every pair
-                              the run checked, and holds each finding and
+                              program's version, the commit, every pair the
+                              run checked and each pair's board hash, and
+                              holds each finding and
                               warning as a record of its scene, its level
                               (finding or warning), its kind, the board
                               element it names, the design-system component
@@ -1796,14 +1816,16 @@ NuGet.Config). Nothing else deletes one: every checkout would download it all
 again, and a SwiftPM fetch cut off halfway corrupts its cache. sccache keeps
 its own cache under its cap; builds only shows it.
 
-Shots runs. The folder shots holds the output of every shots run (APP
-BUILDS), with a cap of 10 GiB. `setup` and `prune` delete whole runs while
-the folder is over its cap, least recently used first: a run's last use is
-when it ended or when builds last read it (to print its findings or to
-compare a branch's run with it), and a run used in the last 30 minutes stays.
-While no shots run is storing its output, they also delete each staging
-folder that a run which died left behind and each folder the deleted runs
-left empty. `status` shows the folder's size against its cap.
+Shots runs. The folder shots holds the output of every shots run and the
+board pictures (APP BUILDS), with a cap of 10 GiB. `setup` and `prune`
+delete whole runs and board pictures while the folder is over its cap, least
+recently used first: a run's last use is when it ended or when builds last
+read it (to print its findings or to compare a branch's run with it), a
+picture's is when a run last drew or took it, and a run or picture used in
+the last 30 minutes stays. While no shots run is writing to the folder,
+they also delete each staging folder and half-written picture file that a
+run which died left behind, and each folder the deleted runs left empty.
+`status` shows the folder's size against its cap.
 
 When xcodebuild fails with "Couldn't check out revision" or "file not found" on
 a SwiftPM dependency (often Sparkle), its cache is corrupt: disconnect any VPN

@@ -44,6 +44,161 @@ fn tree() -> tempfile::TempDir {
     root
 }
 
+fn hash_with(
+    root: &Path,
+    design: &DesignSystem,
+    runtime: &str,
+    browser: &str,
+    program: &str,
+    settings: &Settings,
+) -> String {
+    board_hash(root, "mac.a.b", design, runtime, browser, program, settings).unwrap()
+}
+
+fn hash(root: &Path) -> String {
+    hash_with(
+        root,
+        &system("tokens", "css", "js"),
+        "runtime",
+        "chrome-1",
+        "program-1",
+        &Settings::default(),
+    )
+}
+
+#[test]
+fn parts_are_reached_through_parts() {
+    let root = tree();
+    let reached: Vec<String> = reached(root.path(), "mac.a.b")
+        .unwrap()
+        .into_keys()
+        .collect();
+    assert_eq!(reached, ["mac.a.b", "mac.parts.one", "mac.parts.two"]);
+}
+
+#[test]
+fn a_part_that_is_missing_is_named() {
+    let root = tree();
+    std::fs::remove_file(root.path().join("design/mocks/mac.parts.two.dc.html")).unwrap();
+    let error = board_hash(
+        root.path(),
+        "mac.a.b",
+        &system("t", "c", "j"),
+        "r",
+        "c",
+        "p",
+        &Settings::default(),
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(
+        error.contains("mac.parts.one imports mac.parts.two"),
+        "{error}"
+    );
+}
+
+#[test]
+fn the_board_hash_changes_with_a_mounted_part_and_not_with_an_unmounted_one() {
+    let root = tree();
+    let before = hash(root.path());
+    assert_eq!(before, hash(root.path()));
+    write(
+        root.path(),
+        "design/mocks/mac.parts.other.dc.html",
+        "<x-dc>changed</x-dc>",
+    );
+    assert_eq!(before, hash(root.path()));
+    write(
+        root.path(),
+        "design/mocks/mac.parts.two.dc.html",
+        "<x-dc>changed</x-dc>",
+    );
+    assert_ne!(before, hash(root.path()));
+}
+
+#[test]
+fn the_board_hash_changes_with_the_frame_each_built_file_the_runtime_the_browser_the_program_and_the_unshot_parts()
+ {
+    let root = tree();
+    let r = root.path();
+    let before = hash(r);
+    let same = system("tokens", "css", "js");
+    let plain = Settings::default();
+    for changed in [
+        system("changed", "css", "js"),
+        system("tokens", "changed", "js"),
+        system("tokens", "css", "changed"),
+    ] {
+        assert_ne!(
+            before,
+            hash_with(r, &changed, "runtime", "chrome-1", "program-1", &plain)
+        );
+    }
+    assert_ne!(
+        before,
+        hash_with(r, &same, "other", "chrome-1", "program-1", &plain)
+    );
+    assert_ne!(
+        before,
+        hash_with(r, &same, "runtime", "chrome-2", "program-1", &plain)
+    );
+    assert_ne!(
+        before,
+        hash_with(r, &same, "runtime", "chrome-1", "program-2", &plain)
+    );
+    let unshot = Settings {
+        unshot: vec![".keyboard".to_string()],
+        ..Settings::default()
+    };
+    assert_ne!(
+        before,
+        hash_with(r, &same, "runtime", "chrome-1", "program-1", &unshot)
+    );
+    write(
+        r,
+        "design/mocks/canvas.json",
+        r#"{"v":3,"boards":{"mac.a.b.dc.html":{"w":700,"h":600,"x":0,"y":0,"title":"t","page":"p"}}}"#,
+    );
+    assert_ne!(before, hash(r));
+}
+
+#[test]
+fn a_preview_hash_names_its_shot_so_each_row_of_a_preview_has_its_own() {
+    let root = tree();
+    let r = root.path();
+    write(
+        r,
+        &boards::preview::preview_path("MacRow"),
+        "<x-preview></x-preview>",
+    );
+    let design = system("tokens", "css", "js");
+    let of = |shot: &str, settings: &Settings| {
+        preview_hash(
+            r,
+            shot,
+            "MacRow",
+            &design,
+            "chrome-1",
+            "program-1",
+            settings,
+        )
+        .unwrap()
+    };
+    let plain = Settings::default();
+    let label = of("mac.component.row.label", &plain);
+    assert_eq!(label, of("mac.component.row.label", &plain));
+    assert_ne!(label, of("mac.component.row.value", &plain));
+    let marked = Settings {
+        preview: Some(crate::settings::Preview {
+            row: ".row".to_string(),
+            name: ".name".to_string(),
+            cell: ".cell".to_string(),
+        }),
+        ..Settings::default()
+    };
+    assert_ne!(label, of("mac.component.row.label", &marked));
+}
+
 #[test]
 fn the_frame_comes_from_the_canvas() {
     let root = tree();

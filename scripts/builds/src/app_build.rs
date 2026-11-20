@@ -512,8 +512,11 @@ fn keep_for<'a>(
 
 /// Runs <step> (of <kind>) in the checkout <top>, watching for a line of
 /// `HOST_FAULTS` in <fault> and giving each line to <read>; a shots run
-/// compares with its before run, read where the store <shots> keeps it, and
-/// keeps the findings it printed.
+/// compares with its before run, read where the store <shots> keeps it,
+/// takes the board pictures earlier runs drew from the store's picture
+/// folder, and keeps the findings it printed. While the shots program runs,
+/// the step holds the shared lock that keeps the prune from deleting what
+/// it writes to the picture folder (shot_store.rs).
 fn run_local_step(
     top: &Path,
     step: &Step,
@@ -524,11 +527,9 @@ fn run_local_step(
 ) -> Result<Within> {
     let kept = lock::Captured::default();
     let keep = keep_for(kind, &kept, fault, read);
-    let command = match (kind, shots.before_of(step)) {
-        (StepKind::Shots, Some(findings)) => {
-            with_before(&step.command, &findings.display().to_string())
-        }
-        _ => step.command.clone(),
+    let (command, _writing) = match kind {
+        StepKind::Shots => (shots.local_command(step), Some(shots.writing()?)),
+        _ => (step.command.clone(), None),
     };
     let outcome = run_command_keeping(top, &command, Some(step.limit()), keep);
     if kind == StepKind::Shots {
@@ -867,6 +868,30 @@ impl ShotsStore {
             version,
             befores,
         })
+    }
+
+    /// The shared lock a shots run on this Mac holds while the shots program
+    /// writes to the picture folder (shot_store.rs `writing`).
+    fn writing(&self) -> Result<std::fs::File> {
+        shot_store::writing(&self.places)
+    }
+
+    /// The command of the shots run <step> in a checkout on this Mac: its
+    /// line, comparing with its before run when its prefix has one, and
+    /// taking the board pictures earlier runs drew from the picture folder
+    /// (builds-shots' `run --pictures`).
+    fn local_command(&self, step: &Step) -> Vec<String> {
+        let mut command = match self.before_of(step) {
+            Some(findings) => with_before(&step.command, &findings.display().to_string()),
+            None => step.command.clone(),
+        };
+        command.extend([
+            "--pictures".to_string(),
+            shot_store::pictures(&self.places, &self.repo)
+                .display()
+                .to_string(),
+        ]);
+        command
     }
 
     /// The findings.json of the run the shots run <step> compares with, when

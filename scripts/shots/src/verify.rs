@@ -1,4 +1,5 @@
-//! Checking shots against their boards: rendering the boards, the
+//! Checking shots against their boards: drawing the boards the picture
+//! folder lacks (pictures.rs), the
 //! comparison, the comparison with a before run (before.rs), the lists and
 //! the components' capture files.
 
@@ -10,6 +11,7 @@ use crate::design::{self, DesignSystem};
 use crate::lint::{self, Problem};
 use crate::lists::{self, Lists};
 use crate::names::{Name, Platform, Previews};
+use crate::pictures::Pictures;
 use crate::render::serve::Tree;
 use crate::render::{self, runtime};
 use crate::settings::Settings;
@@ -39,6 +41,10 @@ pub(crate) struct Verification<'a> {
     /// worse against it fail the run; with none, every pair with a finding
     /// does.
     pub(crate) before: Option<&'a Before>,
+    /// The folder of the board pictures earlier runs drew (pictures.rs):
+    /// with one, the run draws only the boards it lacks and keeps each new
+    /// drawing there; with none, it draws every board.
+    pub(crate) pictures: Option<&'a Pictures>,
 }
 
 /// One pair that was compared.
@@ -50,6 +56,8 @@ pub(crate) struct Checked {
     pub(crate) pairs: Vec<(usize, usize)>,
     /// How far the shot's frame sits right and down of the board's.
     pub(crate) offset: (f64, f64),
+    /// The hash of everything the board's picture depends on (design.rs).
+    pub(crate) board_hash: String,
     pub(crate) board_png: PathBuf,
     pub(crate) shot_png: PathBuf,
     pub(crate) findings: Vec<Finding>,
@@ -125,7 +133,21 @@ pub(crate) fn verify(job: &Verification) -> Result<Outcome, String> {
         design: &design,
         runtime: runtime.copy.text,
     };
-    render::boards(tree, job.settings, &previews, job.cache, &names, &boards)?;
+    let hashes = render::hashes(
+        root,
+        &names,
+        &previews,
+        &design,
+        runtime.copy.sha256,
+        job.settings,
+    )?;
+    let to_draw = take_pictures(job.pictures, &hashes, &names, &boards)?;
+    render::boards(tree, job.settings, &previews, job.cache, &to_draw, &boards)?;
+    if let Some(pictures) = job.pictures {
+        for name in &to_draw {
+            pictures.keep_board(&hashes[name], &name.to_string(), &boards)?;
+        }
+    }
     let mut checked = Vec::new();
     for name in &names {
         let shot = &shots[name];
@@ -167,6 +189,7 @@ pub(crate) fn verify(job: &Verification) -> Result<Outcome, String> {
                 .collect(),
             board: list,
             shot: shot.list.clone(),
+            board_hash: hashes[name].clone(),
             board_png: picture_file,
             shot_png: (job.shots_for)(name.platform()).join(name.file_name("png")),
             findings: result.findings,
@@ -187,6 +210,33 @@ pub(crate) fn verify(job: &Verification) -> Result<Outcome, String> {
         not_taken: job.not_taken.to_vec(),
         components,
     })
+}
+
+/// Copies into <boards> the picture <pictures> keeps for the hash of each
+/// of <names>, and returns the names whose board it keeps none of, which the
+/// run draws. With no picture folder, the run draws every board.
+pub(crate) fn take_pictures(
+    pictures: Option<&Pictures>,
+    hashes: &BTreeMap<Name, String>,
+    names: &[Name],
+    boards: &Path,
+) -> Result<Vec<Name>, String> {
+    let Some(pictures) = pictures else {
+        return Ok(names.to_vec());
+    };
+    let mut to_draw = Vec::new();
+    for name in names {
+        if !pictures.take_board(&hashes[name], &name.to_string(), boards)? {
+            to_draw.push(name.clone());
+        }
+    }
+    crate::log::note(format_args!(
+        "took {} of {} boards from the picture folder; drawing {}",
+        names.len() - to_draw.len(),
+        names.len(),
+        to_draw.len()
+    ));
+    Ok(to_draw)
 }
 
 fn hashed_all(declared: &[Declared]) -> Vec<Name> {

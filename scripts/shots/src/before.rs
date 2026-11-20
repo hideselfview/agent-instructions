@@ -29,9 +29,9 @@ pub(crate) enum Against {
     Held,
 }
 
-/// The parts of a findings.json that the comparison reads.
+/// The parts of a findings.json that the comparison reads; the file holds
+/// more, such as each scene's board hash.
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct File {
     version: String,
     commit: String,

@@ -69,6 +69,7 @@ fn outcome(dir: &Path, words: &str) -> Outcome {
         shot: ElementList::parse(LIST).unwrap(),
         pairs: vec![(2, 2)],
         offset: (0.0, 0.0),
+        board_hash: String::new(),
         board_png: pictures.join("board.png"),
         shot_png: pictures.join("shot.png"),
     };

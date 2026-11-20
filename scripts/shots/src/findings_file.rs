@@ -6,7 +6,9 @@
 //!
 //! The file is one object: `version`, the version of the program that wrote
 //! it (`builds-shots version`); `commit`, the commit the run checked;
-//! `scenes`, every pair the run checked; and `findings`, the records pair by
+//! `scenes`, every pair the run checked; `boards`, each pair's board hash,
+//! the hash of everything its board picture depends on, which keys the
+//! picture in builds' picture folder; and `findings`, the records pair by
 //! pair, each pair's findings before its warnings. A later run compares its
 //! pairs with the file (before.rs).
 //!
@@ -24,6 +26,7 @@ use crate::compare::{Aspect, Finding, Part, Warning};
 use crate::shots::Role;
 use crate::verify::Checked;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::path::Path;
 
 /// The file's name in the report's folder.
@@ -34,6 +37,7 @@ struct File<'a> {
     version: &'a str,
     commit: &'a str,
     scenes: Vec<String>,
+    boards: BTreeMap<String, String>,
     findings: Vec<Record>,
 }
 
@@ -269,6 +273,10 @@ pub(crate) fn text(commit: &str, checked: &[Checked]) -> String {
         version: crate::VERSION,
         commit,
         scenes: checked.iter().map(|pair| pair.name.to_string()).collect(),
+        boards: checked
+            .iter()
+            .map(|pair| (pair.name.to_string(), pair.board_hash.clone()))
+            .collect(),
         findings,
     };
     serde_json::to_string(&file).expect("the records are plain data")

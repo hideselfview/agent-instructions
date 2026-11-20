@@ -31,6 +31,7 @@ fn checked(name: &str, findings: Vec<Finding>, warnings: Vec<Warning>) -> Checke
         shot: ElementList::parse(LIST).unwrap(),
         pairs: Vec::new(),
         offset: (0.0, 0.0),
+        board_hash: "h".to_string(),
         board_png: "board.png".into(),
         shot_png: "shot.png".into(),
     }
@@ -97,6 +98,7 @@ fn each_finding_and_warning_is_a_record_with_its_kind_component_element_and_numb
         "version": crate::VERSION,
         "commit": "abc123",
         "scenes": ["mac.welcome.a", "mac.welcome.b"],
+        "boards": {"mac.welcome.a": "h", "mac.welcome.b": "h"},
         "findings": [
             {"scene": "mac.welcome.a", "level": "finding", "kind": "missing", "component": "MacRow",
              "element": {"role": "button", "words": "Set up"},

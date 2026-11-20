@@ -1,10 +1,21 @@
 //! The design files the boards render from: the design system the boards
-//! load and a board's frame.
+//! load, a board's frame, and the hash of everything a board's picture
+//! depends on, which keys the picture in the picture folder (pictures.rs).
 
-use boards::{MOCKS, Source};
+use crate::render::preview::{REACT, REACT_DOM};
+use crate::settings::Settings;
+use boards::{MOCKS, Source, board_path};
+use regex::Regex;
 use serde::Deserialize;
-use std::collections::BTreeMap;
+use sha2::{Digest, Sha256};
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
+
+/// The design system's built files, as the hashes name them: their paths in
+/// the repo.
+const TOKENS: &str = boards::TOKENS_CSS;
+const BUNDLE_CSS: &str = "design/system/components/bundle.css";
+const BUNDLE_JS: &str = "design/system/components/bundle.js";
 
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum DesignError {
@@ -18,6 +29,12 @@ pub(crate) enum DesignError {
     NoFrame(String),
     #[error("canvas.json has a board {0}, which names no board file (<name>.dc.html)")]
     NoBoardFile(String),
+    #[error("board {board} imports {part}, but {file} does not exist")]
+    MissingPart {
+        board: String,
+        part: String,
+        file: PathBuf,
+    },
 }
 
 /// A board's frame on the canvas, in points.
@@ -57,6 +74,15 @@ impl DesignSystem {
             bundle_css,
             bundle_js,
         })
+    }
+
+    /// The built files under the names the hashes give them.
+    fn built(&self) -> [(&'static str, &str); 3] {
+        [
+            (TOKENS, &self.tokens_css),
+            (BUNDLE_CSS, &self.bundle_css),
+            (BUNDLE_JS, &self.bundle_js),
+        ]
     }
 }
 
@@ -100,6 +126,139 @@ pub(crate) fn frame(root: &Path, name: &str) -> Result<Frame, DesignError> {
     frames(root)?
         .remove(name)
         .ok_or_else(|| DesignError::NoFrame(name.to_string()))
+}
+
+/// The file of the board `name`.
+fn board_file(root: &Path, name: &str) -> PathBuf {
+    root.join(board_path(name))
+}
+
+/// The board's file and every part it mounts with `dc-import`, parts of parts
+/// included, by name.
+fn reached(root: &Path, name: &str) -> Result<BTreeMap<String, PathBuf>, DesignError> {
+    let import = Regex::new(r#"<dc-import\s[^>]*?\bname="([^"]+)""#).unwrap();
+    let mut files = BTreeMap::new();
+    let mut pending = vec![(name.to_string(), name.to_string())];
+    let mut seen = BTreeSet::new();
+    while let Some((part, importer)) = pending.pop() {
+        if !seen.insert(part.clone()) {
+            continue;
+        }
+        let file = board_file(root, &part);
+        if !file.is_file() {
+            return Err(DesignError::MissingPart {
+                board: importer,
+                part,
+                file,
+            });
+        }
+        let html = String::from_utf8_lossy(&read(&file)?).into_owned();
+        for captures in import.captures_iter(&html) {
+            pending.push((captures[1].to_string(), part.clone()));
+        }
+        files.insert(part, file);
+    }
+    Ok(files)
+}
+
+fn feed(hasher: &mut Sha256, label: &str, bytes: &[u8]) {
+    hasher.update(label.as_bytes());
+    hasher.update([0]);
+    hasher.update((bytes.len() as u64).to_le_bytes());
+    hasher.update(bytes);
+}
+
+/// Feeds what every board's picture depends on: the design system's built
+/// files, the browser, the program that draws and reads it, and the
+/// settings it draws with.
+fn feed_common(
+    hasher: &mut Sha256,
+    design: &DesignSystem,
+    browser_version: &str,
+    program_version: &str,
+    settings: &Settings,
+) {
+    for (label, text) in design.built() {
+        feed(hasher, label, text.as_bytes());
+    }
+    feed(hasher, "browser", browser_version.as_bytes());
+    feed(hasher, "program", program_version.as_bytes());
+    feed(hasher, "unshot", settings.unshot.join("\n").as_bytes());
+}
+
+/// What the picture of the screen board `name` depends on: its file and the
+/// parts it mounts, its frame on the canvas, the runtime copy, and what every
+/// board's picture depends on (`feed_common`).
+pub(crate) fn board_hash(
+    root: &Path,
+    name: &str,
+    design: &DesignSystem,
+    runtime_sha256: &str,
+    browser_version: &str,
+    program_version: &str,
+    settings: &Settings,
+) -> Result<String, DesignError> {
+    let mut hasher = Sha256::new();
+    for (part, file) in reached(root, name)? {
+        feed(&mut hasher, &format!("board {part}"), &read(&file)?);
+    }
+    let frame = frame(root, name)?;
+    feed(
+        &mut hasher,
+        "frame",
+        format!("{}x{}", frame.w, frame.h).as_bytes(),
+    );
+    feed(&mut hasher, "runtime", runtime_sha256.as_bytes());
+    feed_common(
+        &mut hasher,
+        design,
+        browser_version,
+        program_version,
+        settings,
+    );
+    Ok(crate::hex::hex(&hasher.finalize()))
+}
+
+/// What the picture of the component shot `name`, which draws the row
+/// `state` of <component>'s preview, depends on: the preview page, the shot's
+/// name (its platform and state), the copies of React, the marks of a
+/// preview's rows, and what every board's picture depends on
+/// (`feed_common`).
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn preview_hash(
+    root: &Path,
+    name: &str,
+    component: &str,
+    design: &DesignSystem,
+    browser_version: &str,
+    program_version: &str,
+    settings: &Settings,
+) -> Result<String, DesignError> {
+    let mut hasher = Sha256::new();
+    let preview = root.join(boards::preview::preview_path(component));
+    feed(
+        &mut hasher,
+        &format!("preview {component}"),
+        &read(&preview)?,
+    );
+    feed(&mut hasher, "shot", name.as_bytes());
+    feed(&mut hasher, "react", REACT.as_bytes());
+    feed(&mut hasher, "react-dom", REACT_DOM.as_bytes());
+    if let Some(marks) = &settings.preview {
+        feed(
+            &mut hasher,
+            "preview marks",
+            format!("{}\n{}\n{}", marks.row, marks.name, marks.cell).as_bytes(),
+        );
+    }
+    feed_common(
+        &mut hasher,
+        design,
+        browser_version,
+        program_version,
+        settings,
+    );
+    Ok(crate::hex::hex(&hasher.finalize()))
 }
 
 #[cfg(test)]

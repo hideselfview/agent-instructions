@@ -14,6 +14,7 @@ mod lint;
 mod lists;
 mod log;
 mod names;
+mod pictures;
 mod render;
 mod report;
 mod settings;
@@ -57,6 +58,11 @@ enum Action {
         /// with origin/main, which builds passes.
         #[arg(long)]
         before: Option<PathBuf>,
+        /// The folder of the board pictures earlier runs drew, which builds
+        /// keeps: the run draws only the boards it lacks and adds each new
+        /// drawing.
+        #[arg(long)]
+        pictures: Option<PathBuf>,
     },
     /// Take the shots into a directory.
     Capture {
@@ -77,6 +83,9 @@ enum Action {
         /// The commit the shots were taken at, for the report.
         #[arg(long)]
         sha: String,
+        /// The folder of the board pictures earlier runs drew, as for `run`.
+        #[arg(long)]
+        pictures: Option<PathBuf>,
     },
     /// Fail when a declared shot has no board.
     Lint,
@@ -260,7 +269,11 @@ fn run(action: Action) -> Result<bool, String> {
     let settings = Settings::load(&root).map_err(|e| e.to_string())?;
     let read_declared = || declared::read(&root, &settings.declared).map_err(|e| e.to_string());
     match action {
-        Action::Run { selection, before } => {
+        Action::Run {
+            selection,
+            before,
+            pictures,
+        } => {
             let before = before
                 .map(|path| {
                     let before = before::Before::load(&path)?;
@@ -288,6 +301,7 @@ fn run(action: Action) -> Result<bool, String> {
                 shots_for: &|p| shots.join(p.word()),
                 out: &shots,
                 before: before.as_ref(),
+                pictures: pictures.map(pictures::Pictures::new).as_ref(),
             })?;
             let base = before.as_ref().map(|b| b.commit().to_string());
             let header = header(commit(&root)?, base, &outcome);
@@ -298,7 +312,12 @@ fn run(action: Action) -> Result<bool, String> {
             capture(&root, &settings, &declared, &selection, |_| out.clone())?;
             Ok(true)
         }
-        Action::Check { shots, out, sha } => {
+        Action::Check {
+            shots,
+            out,
+            sha,
+            pictures,
+        } => {
             let declared = read_declared()?;
             let names: Vec<Name> = declared.iter().map(|d| d.name.clone()).collect();
             for platform in settings.platforms() {
@@ -321,6 +340,7 @@ fn run(action: Action) -> Result<bool, String> {
                 shots_for: &|_| shots.clone(),
                 out: &out,
                 before: None,
+                pictures: pictures.map(pictures::Pictures::new).as_ref(),
             })?;
             let header = header(sha, None, &outcome);
             finish(&outcome, &header, &out)

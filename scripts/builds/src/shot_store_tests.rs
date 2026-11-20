@@ -251,3 +251,57 @@ fn the_folders_deleted_runs_leave_empty_go_unless_a_run_stores_its_output() {
     assert!(!root(&places).join("demo").exists());
     assert!(root(&places).exists());
 }
+
+/// Writes a board picture of <kib> KiB with its element list into <repo>'s
+/// picture folder under <hash>, as the shots program keeps one, last used
+/// <hours> ago.
+fn keep_picture(places: &Places, repo: &str, hash: &str, kib: usize, hours: u64) -> PathBuf {
+    let boards = pictures(places, repo).join(BOARD_PICTURES);
+    let png = boards.join(format!("{hash}.png"));
+    fill(&png, kib);
+    std::fs::write(boards.join(format!("{hash}.json")), "{}").unwrap();
+    age(&png, hours);
+    png
+}
+
+#[test]
+fn the_cap_deletes_board_pictures_and_runs_together_least_recently_used_first() {
+    let scratch = Scratch::new("shot-store-pictures-cap");
+    let places = scratch.places();
+    let tool = scratch.tool(0);
+    let old_picture = keep_picture(&places, "demo", "old", 400, 30);
+    let new_picture = keep_picture(&places, "demo", "new", 400, 2);
+    let stored = store_run(&places, &key("mac.a."), 0, "ok\n", true);
+    fill(&stored.report().join("img/a.png"), 400);
+    age(&stored.folder.join(RUN_FILE), 20);
+    prune_runs(&tool, Run::Real, 500).unwrap();
+    assert!(!old_picture.exists() && !old_picture.with_extension("json").exists());
+    assert!(
+        !stored.folder.exists(),
+        "used 20h ago, before the newer picture"
+    );
+    assert!(new_picture.exists() && new_picture.with_extension("json").exists());
+}
+
+#[test]
+fn a_loose_picture_file_goes_once_no_run_writes_to_the_folder() {
+    let scratch = Scratch::new("shot-store-loose");
+    let places = scratch.places();
+    let tool = scratch.tool(0);
+    let boards = pictures(&places, "demo").join(BOARD_PICTURES);
+    std::fs::create_dir_all(&boards).unwrap();
+    let temporary = boards.join(".h.png.123");
+    let orphan = boards.join("h2.json");
+    for file in [&temporary, &orphan] {
+        std::fs::write(file, "x").unwrap();
+    }
+    let run = writing(&places).unwrap();
+    prune_runs(&tool, Run::Real, CAP_KIB).unwrap();
+    assert!(
+        temporary.exists() && orphan.exists(),
+        "a run may be writing them"
+    );
+    drop(run);
+    prune_runs(&tool, Run::Real, CAP_KIB).unwrap();
+    assert!(!temporary.exists() && !orphan.exists());
+}

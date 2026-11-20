@@ -18,18 +18,26 @@
 //! moves it into place only when it is complete, so a reader finds either
 //! the old run or the new one.
 //!
+//! Beside the runs, each repo has a picture folder,
+//! `<volume>/shots/<repo>/pictures/`, which app-build passes to the shots
+//! program (`run --pictures`): the program keeps each board picture it draws
+//! there as `boards/<board hash>.png` and `.json`, the hash of everything the
+//! picture depends on, and draws only the boards whose hash the folder lacks.
+//!
 //! builds keeps the folder `shots` under `CAP_KIB`: `setup` and `prune`
-//! delete whole runs, least recently used first, while it is over (prune.rs
-//! calls `prune_runs`). A run's last use is the time of its run.json, which
-//! the run sets as it ends and each read sets again, so a run that agents
-//! keep reading stays.
+//! delete whole runs and board pictures, least recently used first, while it
+//! is over (prune.rs calls `prune`). A run's last use is the time of its
+//! run.json, which the run sets as it ends and each read sets again, and a
+//! board picture's is the time of its picture, which the shots program sets
+//! each time it takes the picture, so what agents keep using stays.
 //!
 //! A run that stores its output holds a shared lock on `shots/.writing`
-//! (`WRITING`) from before it makes its folders until its run is in place.
-//! The prune deletes staging folders and the folders deleted runs leave
-//! empty only while it holds that lock exclusively: then no run is filling a
-//! staging folder or about to make a folder in the one it would remove, so
-//! each staging folder there is one a run that ended left.
+//! (`WRITING`) from before it makes its folders until its run is in place,
+//! and app-build holds it while the shots program writes to the picture
+//! folder. The prune deletes staging folders, the picture files a run left
+//! half written and the folders deleted runs leave empty only while it holds
+//! that lock exclusively: then no run is writing any of them or about to make
+//! a folder in one it would remove.
 
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
@@ -60,6 +68,8 @@ const RUN_FILE: &str = "run.json";
 const OUTPUT_FILE: &str = "output.txt";
 /// The folder of a run's folder that holds its report.
 const REPORT: &str = "report";
+/// The folder of a picture folder that holds the board pictures.
+const BOARD_PICTURES: &str = "boards";
 /// What a staging folder's name starts with after the dot that hides it.
 const STAGING: &str = ".staging-";
 /// The lock file in the folder `shots` that each run storing its output
@@ -124,6 +134,12 @@ fn check_prefix(prefix: &str) -> Result<()> {
     Ok(())
 }
 
+/// The picture folder of <repo>, which the shots program reads and adds
+/// board pictures to.
+pub fn pictures(places: &Places, repo: &str) -> PathBuf {
+    root(places).join(repo).join("pictures")
+}
+
 /// The folder of the runs of <repo>'s <commit> on <lane>, one folder per
 /// prefix.
 fn prefixes_folder(places: &Places, repo: &str, commit: &str, lane: Lane) -> PathBuf {
@@ -152,6 +168,15 @@ pub struct Staging {
     _writing: std::fs::File,
 }
 
+/// Takes the shared lock on `WRITING` that a run holds while it writes to
+/// the folder `shots`, waiting while a prune holds it exclusively; the lock
+/// lasts as long as the file it returns.
+pub fn writing(places: &Places) -> Result<std::fs::File> {
+    let shots = root(places);
+    std::fs::create_dir_all(&shots).context(|| format!("creating {}", shots.display()))?;
+    crate::evict::lock_shared_creating(&shots.join(WRITING))
+}
+
 /// Starts storing a run of <key>: an empty staging folder that the run's
 /// report goes into (`Staging::report`) before `Staging::finish` puts it in
 /// place.
@@ -167,9 +192,7 @@ pub fn stage(places: &Places, key: &Key) -> Result<Staging> {
         std::process::id(),
         now()
     ));
-    let shots = root(places);
-    std::fs::create_dir_all(&shots).context(|| format!("creating {}", shots.display()))?;
-    let writing = crate::evict::lock_shared_creating(&shots.join(WRITING))?;
+    let writing = writing(places)?;
     remove_all(&dir)?;
     std::fs::create_dir_all(&dir).context(|| format!("creating {}", dir.display()))?;
     Ok(Staging {
@@ -346,14 +369,38 @@ pub fn before_run(
     Ok(newest)
 }
 
-/// A run's folder, or a staging folder a run left, as the cap sees it.
-struct Kept {
-    folder: PathBuf,
-    staging: bool,
+/// What the cap deletes: a run's folder, or a board picture with its
+/// element list.
+enum Unit {
+    Run(PathBuf),
+    Picture { png: PathBuf, json: PathBuf },
+}
+
+/// What the folder `shots` holds, as the cap sees it.
+#[derive(Default)]
+struct Held {
+    /// Each run's folder.
+    runs: Vec<PathBuf>,
+    /// Each staging folder a run left or fills now.
+    stagings: Vec<PathBuf>,
+    /// Each board picture's picture and element list.
+    pictures: Vec<(PathBuf, PathBuf)>,
+    /// Each hidden file the shots program writes before it renames it into
+    /// the picture folder, and each element list whose picture is gone.
+    loose: Vec<PathBuf>,
 }
 
 /// The folders <dir> holds, with their names; nothing when <dir> is gone.
 fn folders_in(dir: &Path) -> Result<Vec<(String, PathBuf)>> {
+    Ok(entries_in(dir)?
+        .into_iter()
+        .filter(|(_, path)| path.is_dir() && !path.is_symlink())
+        .collect())
+}
+
+/// The entries <dir> holds, with their names, sorted; nothing when <dir> is
+/// gone.
+fn entries_in(dir: &Path) -> Result<Vec<(String, PathBuf)>> {
     let entries = match std::fs::read_dir(dir) {
         Ok(entries) => entries,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
@@ -362,39 +409,47 @@ fn folders_in(dir: &Path) -> Result<Vec<(String, PathBuf)>> {
     let mut found = Vec::new();
     for entry in entries {
         let entry = entry.context(|| format!("listing {}", dir.display()))?;
-        let path = entry.path();
-        if path.is_dir() && !path.is_symlink() {
-            found.push((entry.file_name().to_string_lossy().into_owned(), path));
-        }
+        found.push((
+            entry.file_name().to_string_lossy().into_owned(),
+            entry.path(),
+        ));
     }
     found.sort();
     Ok(found)
 }
 
-/// Every run's folder and staging folder in the folder `shots`.
-fn kept(places: &Places) -> Result<Vec<Kept>> {
-    let mut kept = Vec::new();
-    for (_, repo) in folders_in(&root(places))? {
+/// What the folder `shots` of <places> holds.
+fn held(places: &Places) -> Result<Held> {
+    let mut held = Held::default();
+    for (repo_name, repo) in folders_in(&root(places))? {
         for (_, commit) in folders_in(&repo.join("runs"))? {
             for (_, lane) in folders_in(&commit)? {
                 for (_, prefix) in folders_in(&lane)? {
                     for (name, folder) in folders_in(&prefix)? {
-                        kept.push(Kept {
-                            staging: name.starts_with(STAGING),
-                            folder,
-                        });
+                        if name.starts_with(STAGING) {
+                            held.stagings.push(folder);
+                        } else {
+                            held.runs.push(folder);
+                        }
                     }
                 }
             }
         }
+        let boards = pictures(places, &repo_name).join(BOARD_PICTURES);
+        for (name, path) in entries_in(&boards)? {
+            if name.starts_with('.') {
+                held.loose.push(path);
+            } else if let Some(hash) = name.strip_suffix(".png") {
+                held.pictures
+                    .push((path.clone(), boards.join(format!("{hash}.json"))));
+            } else if let Some(hash) = name.strip_suffix(".json")
+                && !boards.join(format!("{hash}.png")).exists()
+            {
+                held.loose.push(path);
+            }
+        }
     }
-    Ok(kept)
-}
-
-/// When <folder>'s run was last used, seconds since 1970: its run.json's
-/// time.
-fn last_use(folder: &Path) -> Result<i64> {
-    written_at(&folder.join(RUN_FILE))
+    Ok(held)
 }
 
 /// When <path> was last written, seconds since 1970.
@@ -405,16 +460,28 @@ fn written_at(path: &Path) -> Result<i64> {
         .context(|| format!("reading the time of {}", path.display()))
 }
 
-/// Deletes the runs that keep the folder `shots` over `CAP_KIB` (prune.rs).
+/// The KiB the file <path> takes on disk; 0 when it is gone.
+fn file_kib(path: &Path) -> Result<u64> {
+    use std::os::unix::fs::MetadataExt;
+    match std::fs::metadata(path) {
+        Ok(meta) => Ok(meta.blocks() * 512 / 1024),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(0),
+        Err(error) => fail!("reading the size of {}: {error}", path.display()),
+    }
+}
+
+/// Deletes the runs and board pictures that keep the folder `shots` over
+/// `CAP_KIB` (prune.rs).
 pub fn prune(tool: &Tool, run: Run) -> Result<()> {
     prune_runs(tool, run, CAP_KIB)
 }
 
-/// Deletes each staging folder when no run stores its output (the runs that
-/// filled them ended), then, while the folder `shots` holds more than
-/// <cap_kib>, whole runs, least recently used first, then the folders the
-/// deleted runs left empty when no run stores its output. A run used in the
-/// last FLOOR_IDLE_MINUTES stays: an agent may be reading it.
+/// Deletes each staging folder and loose picture file when no run stores
+/// its output (the runs that wrote them ended), then, while the folder
+/// `shots` holds more than <cap_kib>, whole runs and board pictures, least
+/// recently used first, then the folders the deleted runs left empty when no
+/// run stores its output. A run or picture used in the last
+/// FLOOR_IDLE_MINUTES stays: an agent may be reading it.
 pub fn prune_runs(tool: &Tool, run: Run, cap_kib: u64) -> Result<()> {
     let shots = root(&tool.places);
     if !shots.is_dir() {
@@ -425,62 +492,93 @@ pub fn prune_runs(tool: &Tool, run: Run, cap_kib: u64) -> Result<()> {
     let alone = crate::evict::try_lock_creating(&shots.join(WRITING))?;
     if alone.is_none() {
         note(format!(
-            "a shots run is storing its output in {}, so prune leaves its staging folders and empty folders",
+            "a shots run is storing its output in {}, so prune leaves its staging folders, half-written picture files and empty folders",
             shots.display()
         ));
     }
-    let kept = kept(&tool.places)?;
+    let held = held(&tool.places)?;
     let mut paths = vec![shots.clone()];
-    paths.extend(kept.iter().map(|kept| kept.folder.clone()));
+    paths.extend(held.stagings.iter().cloned());
+    paths.extend(held.runs.iter().cloned());
     let mut measures = tool.measure_all(&paths)?.into_iter();
     let mut total = measures.next().expect("the folder was measured").kib;
-    let mut runs = Vec::new();
-    for (kept, measured) in kept.into_iter().zip(measures) {
-        if !kept.staging {
-            runs.push((last_use(&kept.folder)?, kept.folder, measured.kib));
-        } else if alone.is_some() {
-            let reason = format!(
-                "{}, the staging folder of a shots run that ended",
-                human(measured.kib)
-            );
-            if delete_folder(
-                tool,
-                &kept.folder,
-                run,
-                &reason,
-                Recreate::No,
-                Removal::Background,
-                "",
-            )? {
-                total = total.saturating_sub(measured.kib);
-            }
-        }
-    }
-    runs.sort();
-    let recent = tool.now - (FLOOR_IDLE_MINUTES * 60) as i64;
-    for (used, folder, kib) in runs {
-        if total <= cap_kib {
-            break;
-        }
-        if used >= recent {
+    for (folder, measured) in held.stagings.iter().zip(measures.by_ref()) {
+        if alone.is_none() {
             continue;
         }
         let reason = format!(
-            "{}, a shots run; {} is {} > {}",
-            human(kib),
-            shots.display(),
-            human(total),
-            human(cap_kib)
+            "{}, the staging folder of a shots run that ended",
+            human(measured.kib)
         );
         if delete_folder(
             tool,
-            &folder,
+            folder,
             run,
             &reason,
             Recreate::No,
             Removal::Background,
             "",
         )? {
+            total = total.saturating_sub(measured.kib);
+        }
+    }
+    for file in held.loose.iter().filter(|_| alone.is_some()) {
+        let kib = file_kib(file)?;
+        let reason = format!(
+            "{}, a picture file that a shots run which ended left half written",
+            human(kib)
+        );
+        if delete_files(run, &[file], &reason)? {
+            total = total.saturating_sub(kib);
+        }
+    }
+    let mut units: Vec<(i64, u64, Unit)> = Vec::new();
+    for (folder, measured) in held.runs.into_iter().zip(measures) {
+        units.push((
+            written_at(&folder.join(RUN_FILE))?,
+            measured.kib,
+            Unit::Run(folder),
+        ));
+    }
+    for (png, json) in held.pictures {
+        units.push((
+            written_at(&png)?,
+            file_kib(&png)? + file_kib(&json)?,
+            Unit::Picture { png, json },
+        ));
+    }
+    units.sort_by_key(|unit| unit.0);
+    let recent = tool.now - (FLOOR_IDLE_MINUTES * 60) as i64;
+    for (used, kib, unit) in units {
+        if total <= cap_kib {
+            break;
+        }
+        if used >= recent {
+            continue;
+        }
+        let over = format!(
+            "{} is {} > {}",
+            shots.display(),
+            human(total),
+            human(cap_kib)
+        );
+        let deleted = match &unit {
+            Unit::Run(folder) => delete_folder(
+                tool,
+                folder,
+                run,
+                &format!("{}, a shots run; {over}", human(kib)),
+                Recreate::No,
+                Removal::Background,
+                "",
+            )?,
+            Unit::Picture { png, json } => delete_files(
+                run,
+                &[png, json],
+                &format!("{}, a board picture; {over}", human(kib)),
+            )?,
+        };
+        if deleted {
             total = total.saturating_sub(kib);
         }
     }
@@ -488,6 +586,27 @@ pub fn prune_runs(tool: &Tool, run: Run, cap_kib: u64) -> Result<()> {
         remove_empty(tool)?;
     }
     Ok(())
+}
+
+/// Deletes <files> for <reason>, or says it would; returns whether they
+/// went, or on a dry run would go. The picture goes before its element
+/// list, so the shots program never finds a picture without one.
+fn delete_files(run: Run, files: &[&PathBuf], reason: &str) -> Result<bool> {
+    let shown = files[0].display();
+    if run.dry() {
+        note(format!("would delete {shown} ({reason})"));
+        return Ok(true);
+    }
+    for file in files {
+        match std::fs::remove_file(file) {
+            Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
+                fail!("deleting {}: {error}", file.display())
+            }
+            _ => {}
+        }
+    }
+    note(format!("deleted {shown} ({reason})"));
+    Ok(true)
 }
 
 /// Removes each folder under the folder `shots` that holds nothing: a
