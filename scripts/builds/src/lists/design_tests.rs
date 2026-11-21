@@ -383,7 +383,7 @@ fn record_and_amend_refuse_a_change_that_adds_a_component_state_no_preview_row_s
     let first = w.commit(&[board]);
     let tip = w.commit(&["design/mocks/B.dc.html"]);
     let shown = w.tool.shots.clone();
-    w.tool.shots = w.scratch.shots_stand_in(
+    w.tool.shots = w.scratch.script(
         "states-added",
         "echo \"asked: $*\" >&2; echo \"in: $(pwd -P)\" >&2; echo 'MacButton tinted: mac.a' >&2; exit 1",
     );

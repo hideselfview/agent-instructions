@@ -102,17 +102,17 @@ impl Scratch {
                 unused_days: 3,
                 incremental_hours: 6,
             },
+            // A builds-shots that finds no component state a change adds.
+            self.script("states-shown", "exit 0"),
         );
         tool.reviewer = self.no_rulings_reviewer();
-        tool.shots = self.shots_stand_in("states-shown", "exit 0");
         tool
     }
 
-    /// A builds-shots stand-in named <name> in the scratch folder: a shell
-    /// script whose body is <body>, whatever it is asked. The program is
-    /// written to another name and moved into place, so no test runs it
-    /// while it is still open for writing.
-    pub fn shots_stand_in(&self, name: &str, body: &str) -> PathBuf {
+    /// The shell script <name> in the scratch folder, whose body is <body>.
+    /// It is written to another name and moved into place, so no test runs
+    /// it while it is still open for writing.
+    pub fn script(&self, name: &str, body: &str) -> PathBuf {
         use std::os::unix::fs::PermissionsExt;
         let program = self.dir.join(name);
         let writing = self.dir.join(format!("{name}.writing"));
@@ -125,22 +125,14 @@ impl Scratch {
     }
 
     /// A reviewer stand-in that answers every rulings check with no claim,
-    /// over a rules checkout in the scratch folder that holds no group. The program is written
-    /// to another name and moved into place, so no test runs it while it is
-    /// still open for writing.
+    /// over a rules checkout in the scratch folder that holds no group.
     pub fn no_rulings_reviewer(&self) -> crate::review::Reviewer {
-        use std::os::unix::fs::PermissionsExt;
         let program = self.dir.join("no-rulings-reviewer");
         if !program.exists() {
-            let writing = self.dir.join("no-rulings-reviewer.writing");
-            std::fs::write(
-                &writing,
-                "#!/bin/sh\ncat > /dev/null\necho '{\"is_error\": false, \"structured_output\": {\"claims\": []}}'\n",
-            )
-            .expect("the scratch folder is writable");
-            std::fs::set_permissions(&writing, std::fs::Permissions::from_mode(0o755))
-                .expect("the scratch folder is writable");
-            std::fs::rename(&writing, &program).expect("the scratch folder is writable");
+            self.script(
+                "no-rulings-reviewer",
+                "cat > /dev/null\necho '{\"is_error\": false, \"structured_output\": {\"claims\": []}}'",
+            );
         }
         // A rules checkout with no group: a review reads nothing in it, so
         // `builds design record` finds a change's branch needs no review.

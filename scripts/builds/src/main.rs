@@ -314,7 +314,11 @@ fn run(command: &str, args: &[String]) -> Result<()> {
         "lock" => return lock::cmd_lock(&Places::from_env()?, args),
         "app-build" => {
             return app_build::cmd_app_build(
-                &Tool::new(Places::from_env()?, Rules::from_env()?),
+                &Tool::new(
+                    Places::from_env()?,
+                    Rules::from_env()?,
+                    shots_program::beside_this()?,
+                ),
                 args,
             );
         }
@@ -341,7 +345,11 @@ fn run(command: &str, args: &[String]) -> Result<()> {
     }
     checkout::drop_git_local_env()?;
     text::use_callers_collation();
-    let mut tool = Tool::new(Places::from_env()?, Rules::from_env()?);
+    let mut tool = Tool::new(
+        Places::from_env()?,
+        Rules::from_env()?,
+        shots_program::beside_this()?,
+    );
     match command {
         "setup" => setup::cmd_setup(&tool, &host::Ssh::from_env(), args),
         "new" => worktree::cmd_new(&tool, &host::Ssh::from_env(), args),

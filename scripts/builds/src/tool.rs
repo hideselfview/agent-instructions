@@ -24,8 +24,8 @@ pub struct Tool {
     pub reviewer: Reviewer,
     /// The builds-shots program `builds design record` and `amend` run to
     /// find the component states a design change adds
-    /// (`shots_program::require_states_shown`): the one `builds install`
-    /// copies beside builds into ~/.local/bin, found on PATH.
+    /// (`shots_program::require_states_shown`): the one beside this
+    /// program, as `builds shots` runs it.
     pub shots: PathBuf,
     /// Sizes measured ahead, for `status`, which reads every folder once.
     measured: HashMap<PathBuf, Measure>,
@@ -40,14 +40,15 @@ pub struct Tool {
 const DAEMON_SLOW: Duration = Duration::from_secs(3);
 
 impl Tool {
-    pub fn new(places: Places, rules: Rules) -> Tool {
+    /// A tool that runs the builds-shots at <shots>.
+    pub fn new(places: Places, rules: Rules, shots: PathBuf) -> Tool {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .expect("the clock is after 1970")
             .as_secs() as i64;
         Tool {
             reviewer: Reviewer::installed(&places.home),
-            shots: PathBuf::from(crate::shots_program::PROGRAM),
+            shots,
             places,
             rules,
             now,

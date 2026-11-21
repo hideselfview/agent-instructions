@@ -31,6 +31,12 @@ pub fn beside(builds: &Path) -> PathBuf {
     builds.with_file_name(PROGRAM)
 }
 
+/// The builds-shots beside this program.
+pub fn beside_this() -> Result<PathBuf> {
+    let me = std::env::current_exe().context(|| "finding this program".to_string())?;
+    Ok(beside(&me))
+}
+
 /// The cache folder builds gives the program.
 fn cache(places: &Places) -> PathBuf {
     places.caches().join(PROGRAM)
@@ -65,8 +71,7 @@ pub fn cmd_shots(places: &Places, args: &[String]) -> Result<()> {
         Some("findings") => crate::shot_findings::cmd_findings(places, &args[1..]),
         Some(_) => {
             places.require_volume()?;
-            let me = std::env::current_exe().context(|| "finding this program".to_string())?;
-            let program = beside(&me);
+            let program = beside_this()?;
             let error = Command::new(&program)
                 .args(args)
                 .env("BUILDS_SHOTS_CACHE", cache(places))
