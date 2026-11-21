@@ -399,7 +399,7 @@ fn dropped_lines(lane: Lane, drops: &[Drop]) -> Vec<String> {
 fn unrendered_line(lane: Lane, commit: &str, prefix: &str, findings: &str) -> Option<String> {
     let said = findings
         .lines()
-        .find(|line| crate::shot_findings::unrendered_pairs(line).is_some())?;
+        .find(|line| crate::shot_findings::says_unrendered(line))?;
     Some(format!(
         "{UNRENDERED} the {} shots run {prefix} of {}: {}",
         lane.word(),
@@ -427,10 +427,18 @@ fn unrendered_lines(
             prefix,
             crate::shots_program::VERSION,
         )?;
-        if let Some(cached) = found
-            && let Some(line) = unrendered_line(lane, &run.commit, prefix, &cached.findings)
-        {
-            lines.push(line);
+        match found {
+            Some(cached) => lines.extend(unrendered_line(
+                lane,
+                &run.commit,
+                prefix,
+                &cached.findings,
+            )),
+            None => lines.push(format!(
+                "{UNRENDERED} the {} shots run {prefix} of {} is no longer cached, so land cannot say whether the base rendered its pairs",
+                lane.word(),
+                &run.commit[..run.commit.len().min(12)]
+            )),
         }
     }
     Ok(lines)
