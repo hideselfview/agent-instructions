@@ -10,7 +10,8 @@ fn cached_run(scratch: &crate::testing::Scratch) -> Cached {
         commit: "a".repeat(40),
         lane: Lane::Mac,
         prefix: "mac.".to_string(),
-        version: "b".repeat(16),
+        capture_version: "c".repeat(16),
+        comparison_version: "b".repeat(16),
     };
     let cached = shots_cache::stage(&scratch.places(), &key)
         .unwrap()

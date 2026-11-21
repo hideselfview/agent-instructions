@@ -8,17 +8,37 @@ use crate::testing::{Scratch, git, git_out, repo};
 
 const BAE: &str = "bae";
 
-fn cache(places: &Places, commit: &str, prefix: &str, version: &str) -> PathBuf {
+/// Keeps a run of <commit> and <prefix> by <capture> and <comparison>, the
+/// versions of the shots checker that took its shots and compared them.
+fn cache_by(
+    places: &Places,
+    commit: &str,
+    prefix: &str,
+    capture: &str,
+    comparison: &str,
+) -> PathBuf {
     let key = Key {
         repo: BAE.to_string(),
         commit: commit.to_string(),
         lane: Lane::Mac,
         prefix: prefix.to_string(),
-        version: version.to_string(),
+        capture_version: capture.to_string(),
+        comparison_version: comparison.to_string(),
     };
     let staging = stage(places, &key).unwrap();
     std::fs::create_dir_all(staging.report()).unwrap();
     staging.finish(0, "ok\n").unwrap().folder
+}
+
+/// Keeps a run by this builds' capture version and <comparison>.
+fn cache(places: &Places, commit: &str, prefix: &str, comparison: &str) -> PathBuf {
+    cache_by(
+        places,
+        commit,
+        prefix,
+        crate::shots_program::VERSIONS.capture,
+        comparison,
+    )
 }
 
 fn build(branch: &str, commit: &str, prefix: &str) -> RunRecord {
@@ -46,8 +66,9 @@ fn build(branch: &str, commit: &str, prefix: &str) -> RunRecord {
 
 /// A branch with a commit origin/main lacks is waiting to land, and the run
 /// that covers its build and the run of the build's merge base are named; a
-/// branch whose commit landed, a run of another shots program version and a
-/// run of another prefix are not.
+/// branch whose commit landed, a run of another capture version and a run of
+/// another prefix are not. A run of another comparison version is named, since
+/// the next lookup compares its pictures again (shots_compare_again.rs).
 #[test]
 fn a_waiting_branchs_builds_name_their_covering_runs_and_their_base_runs() {
     let scratch = Scratch::new("in-use-named");
@@ -69,10 +90,17 @@ fn a_waiting_branchs_builds_name_their_covering_runs_and_their_base_runs() {
     let landed = git_out(&source, &["rev-parse", "HEAD"]);
     git(&source, &["update-ref", "refs/remotes/origin/main", "HEAD"]);
 
-    let version = crate::shots_program::VERSION;
+    let version = crate::shots_program::VERSIONS.comparison;
     let covering = cache(&places, &waiting, "mac.", version);
     let before = cache(&places, &base, "mac.welcome.", version);
-    let other_version = cache(&places, &waiting, "mac.welcome.", "0000");
+    let other_comparison = cache(&places, &waiting, "mac.welcome.", "0000");
+    let other_capture = cache_by(
+        &places,
+        &waiting,
+        "mac.welcome.",
+        "0000",
+        crate::shots_program::VERSIONS.comparison,
+    );
     let other_prefix = cache(&places, &waiting, "mac.seek.", version);
     let landed_run = cache(&places, &landed, "mac.welcome.", version);
 
@@ -90,7 +118,12 @@ fn a_waiting_branchs_builds_name_their_covering_runs_and_their_base_runs() {
         Some(&work),
         "the base run it compared with"
     );
-    assert_eq!(named.get(&other_version), None);
+    assert_eq!(
+        named.get(&other_comparison),
+        Some(&work),
+        "its pictures are what a comparison again reads"
+    );
+    assert_eq!(named.get(&other_capture), None);
     assert_eq!(named.get(&other_prefix), None);
     assert_eq!(named.get(&landed_run), None);
 }

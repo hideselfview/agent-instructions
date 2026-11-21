@@ -9,6 +9,8 @@ use crate::verify::Checked;
 
 /// The checker version the tests write and read files of.
 const VERSION: &str = "v1";
+/// The capture version the tests write files under.
+const CAPTURE: &str = "c1";
 
 fn entry(words: &str, kind: Role) -> Entry {
     Entry {
@@ -96,10 +98,18 @@ fn each_finding_and_warning_is_a_record_with_its_kind_component_element_and_numb
             ],
         ),
     ];
-    let json: serde_json::Value =
-        serde_json::from_str(&text(VERSION, "abc123", &checked, &[], &Listing::default())).unwrap();
+    let json: serde_json::Value = serde_json::from_str(&text(
+        VERSION,
+        CAPTURE,
+        "abc123",
+        &checked,
+        &[],
+        &Listing::default(),
+    ))
+    .unwrap();
     let expected = serde_json::json!({
         "version": VERSION,
+        "capture_version": CAPTURE,
         "commit": "abc123",
         "scenes": ["mac.welcome.a", "mac.welcome.b"],
         "failed": [],
@@ -147,6 +157,7 @@ fn the_file_is_written_beside_the_report() {
     write(
         dir.path(),
         VERSION,
+        CAPTURE,
         "abc123",
         &checked,
         &[],
@@ -173,7 +184,14 @@ fn a_later_run_compares_with_the_file_as_its_before_run() {
         vec![Warning::FrameOffset { dx: 1.0, dy: 0.0 }],
     )];
     let before = crate::before::Before::parse(
-        &text(VERSION, "abc123", &checked, &[], &Listing::default()),
+        &text(
+            VERSION,
+            CAPTURE,
+            "abc123",
+            &checked,
+            &[],
+            &Listing::default(),
+        ),
         "findings.json",
         VERSION,
     )
@@ -217,7 +235,7 @@ fn the_file_names_each_component_s_preview_rows_by_their_shots_in_the_preview_s_
         unnamed: Vec::new(),
     };
     let json: serde_json::Value =
-        serde_json::from_str(&text(VERSION, "abc123", &[], &[], &listing)).unwrap();
+        serde_json::from_str(&text(VERSION, CAPTURE, "abc123", &[], &[], &listing)).unwrap();
     assert_eq!(
         json["components"],
         serde_json::json!([{
@@ -235,8 +253,15 @@ fn the_file_gives_each_pair_s_board_and_shot_sizes_in_points() {
     pair.board.size.height = 16.0;
     pair.shot.size.width = 396.0;
     pair.shot.size.height = 40.0;
-    let json: serde_json::Value =
-        serde_json::from_str(&text(VERSION, "abc123", &[pair], &[], &Listing::default())).unwrap();
+    let json: serde_json::Value = serde_json::from_str(&text(
+        VERSION,
+        CAPTURE,
+        "abc123",
+        &[pair],
+        &[],
+        &Listing::default(),
+    ))
+    .unwrap();
     assert_eq!(
         json["sizes"],
         serde_json::json!({"mac.welcome.a": {
@@ -253,7 +278,14 @@ fn a_pair_the_base_failed_to_capture_is_unrendered_against_it_and_one_it_never_s
         why: "the capture crashed".to_string(),
     }];
     let before = crate::before::Before::parse(
-        &text(VERSION, "abc123", &[], &failed, &Listing::default()),
+        &text(
+            VERSION,
+            CAPTURE,
+            "abc123",
+            &[],
+            &failed,
+            &Listing::default(),
+        ),
         "findings.json",
         VERSION,
     )

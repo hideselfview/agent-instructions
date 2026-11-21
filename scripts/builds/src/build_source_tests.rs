@@ -1,4 +1,4 @@
-use super::build_source::{files, roots, shots_files};
+use super::build_source::{Side, files, roots, shots_files};
 use crate::testing::Scratch;
 use std::path::Path;
 
@@ -64,22 +64,108 @@ fn a_folder_with_no_builds_crate_stops_the_build() {
     roots(&scripts.join("nowhere"), &scripts);
 }
 
+/// The shown names of the files <side> of the shots checker reads in
+/// <scripts>.
+fn shots_names(scripts: &Path, side: Side) -> Vec<String> {
+    shots_files(scripts, side)
+        .into_iter()
+        .map(|(shown, _)| shown)
+        .collect()
+}
+
 /// The shots checker's files do not include the builds crate's.
 #[test]
 fn the_shots_checker_is_hashed_from_its_own_crates() {
     let scratch = Scratch::new("build-source-shots");
     let scripts = scripts(&scratch, "builds");
-    let names: Vec<String> = shots_files(&scripts)
-        .into_iter()
-        .map(|(shown, _)| shown)
-        .collect();
-    assert_eq!(
-        names,
-        [
-            "boards/Cargo.toml",
-            "boards/src/lib.rs",
-            "shots/Cargo.toml",
-            "shots/src/lib.rs"
-        ]
-    );
+    for side in [Side::Capture, Side::Comparison] {
+        assert_eq!(
+            shots_names(&scripts, side),
+            [
+                "boards/Cargo.toml",
+                "boards/src/lib.rs",
+                "shots/Cargo.toml",
+                "shots/src/lib.rs"
+            ]
+        );
+    }
+}
+
+/// A file of the shots checker is in the capture version or the comparison
+/// version by what reads it, so a change to the comparison leaves the capture
+/// version, which keys the cached shots and board pictures, as it was.
+#[test]
+fn a_file_only_the_comparison_reads_is_not_in_the_capture_version_and_the_reverse() {
+    let scratch = Scratch::new("build-source-sides");
+    let scripts = scripts(&scratch, "builds");
+    for file in [
+        "compare.rs",
+        "compare/colour.rs",
+        "verify.rs",
+        "render.rs",
+        "render/board.rs",
+        "capture/mod.rs",
+        "design.rs",
+        "compare_tests.rs",
+        "states.rs",
+    ] {
+        write(&scripts, &format!("shots/src/{file}"), "// 1\n");
+    }
+    write(&scripts, "shots/canvas/runtime.js", "// 1\n");
+    let capture = shots_names(&scripts, Side::Capture);
+    let comparison = shots_names(&scripts, Side::Comparison);
+    for read in [
+        "shots/src/render.rs",
+        "shots/src/render/board.rs",
+        "shots/src/capture/mod.rs",
+        "shots/src/design.rs",
+        "shots/canvas/runtime.js",
+    ] {
+        assert!(capture.contains(&read.to_string()), "{read}: {capture:?}");
+        assert!(
+            !comparison.contains(&read.to_string()),
+            "{read}: {comparison:?}"
+        );
+    }
+    for read in [
+        "shots/src/compare.rs",
+        "shots/src/compare/colour.rs",
+        "shots/src/verify.rs",
+    ] {
+        assert!(
+            comparison.contains(&read.to_string()),
+            "{read}: {comparison:?}"
+        );
+        assert!(!capture.contains(&read.to_string()), "{read}: {capture:?}");
+    }
+    for read in ["shots/src/lib.rs", "boards/src/lib.rs"] {
+        assert!(capture.contains(&read.to_string()), "{read}");
+        assert!(comparison.contains(&read.to_string()), "{read}");
+    }
+    for read in ["shots/src/compare_tests.rs", "shots/src/states.rs"] {
+        assert!(!capture.contains(&read.to_string()), "{read}");
+        assert!(!comparison.contains(&read.to_string()), "{read}");
+    }
+}
+
+/// A file of the shots crate that no list names makes build.rs fail, so a new
+/// file says which side reads it.
+#[test]
+#[should_panic(expected = "shots/src/brand_new.rs is in no list")]
+fn a_shots_file_no_list_names_stops_the_build() {
+    let scratch = Scratch::new("build-source-unlisted");
+    let scripts = scripts(&scratch, "builds");
+    write(&scripts, "shots/src/brand_new.rs", "// 1\n");
+    shots_files(&scripts, Side::Capture);
+}
+
+/// Every file of the real shots crate is in a list.
+#[test]
+fn every_file_of_the_shots_crate_is_in_a_list() {
+    let scripts = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("the crate is in the scripts folder");
+    for side in [Side::Capture, Side::Comparison] {
+        assert!(!shots_names(scripts, side).is_empty());
+    }
 }

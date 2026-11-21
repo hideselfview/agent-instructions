@@ -418,7 +418,7 @@ fn unrendered_lines(
             &run.commit,
             lane,
             prefix,
-            crate::shots_program::VERSION,
+            crate::shots_program::VERSIONS,
         )?;
         match found {
             Some(cached) => lines.extend(unrendered_line(

@@ -21,6 +21,7 @@ fn entry(index: usize, words: &str, kind: Role) -> Entry {
 
 fn header() -> Header {
     Header {
+        capture_version: "c1".to_string(),
         version: "v1".to_string(),
         commit: "abc123def".to_string(),
         base: Some("0a1b2c3d4".to_string()),

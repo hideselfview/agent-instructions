@@ -27,7 +27,7 @@ pub(crate) struct Verification<'a> {
     pub(crate) root: &'a Path,
     /// The repo's screenshot settings.
     pub(crate) settings: &'a Settings,
-    /// The checker's version, which keys the board pictures it draws, and its
+    /// The checker's capture version, which keys the board pictures it draws, and its
     /// cache folder, where the design system is built and Chrome is kept.
     pub(crate) checker: &'a Checker<'a>,
     /// The shots to check.
@@ -230,7 +230,7 @@ pub(crate) fn verify(job: &Verification) -> Result<Outcome, String> {
         &previews,
         &design,
         runtime.copy.sha256,
-        job.checker.version,
+        job.checker.capture_version,
         job.settings,
     )?;
     let to_draw = take_pictures(job.pictures, &hashes, &names, &boards)?;

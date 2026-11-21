@@ -5,8 +5,10 @@
 //! builds of the same sources print the same name with `builds version`, on
 //! macOS and on Linux, and `builds host setup` sends a Linux host the copy to
 //! build there, so the host runs the builds this Mac runs, though each OS
-//! builds a program of its own. `SHOTS_SOURCE` is the version of the shots
-//! checker (`shots_version`), which keys the shot findings builds stores.
+//! builds a program of its own. `CAPTURE_SOURCE` and `COMPARISON_SOURCE` are the
+//! two versions of the shots checker (`shots_version`): the files that take a
+//! shot and draw a board, and the files that compare them. They key the shots
+//! and board pictures builds stores and the findings builds stores.
 
 mod build_source;
 
@@ -33,19 +35,25 @@ fn main() {
     let out = PathBuf::from(std::env::var_os("OUT_DIR").expect("cargo sets it"));
     std::fs::write(out.join("source.tar"), tar).expect("writing source.tar");
     println!("cargo:rustc-env=BUILDS_SOURCE={}", hex8(hash));
+    let lock = here.join("Cargo.lock");
     println!(
-        "cargo:rustc-env=SHOTS_SOURCE={}",
-        shots_version(scripts, &here.join("Cargo.lock"))
+        "cargo:rustc-env=CAPTURE_SOURCE={}",
+        shots_version(scripts, &lock, build_source::Side::Capture)
+    );
+    println!(
+        "cargo:rustc-env=COMPARISON_SOURCE={}",
+        shots_version(scripts, &lock, build_source::Side::Comparison)
     );
 }
 
-/// The version of the shots checker built from the crates in <scripts> with
-/// the Cargo.lock at <lock>: the first 8 bytes, in hex, of a sha256 of every
-/// file of the shots checker (`build_source::shots_files`), each by its path and length, and of the lock's
-/// entry for each package the checker builds from. A change to builds alone
-/// keeps the version, so builds keeps the shot findings it stored.
-fn shots_version(scripts: &Path, lock: &Path) -> String {
-    let files = build_source::shots_files(scripts);
+/// The version of <side> of the shots checker built from the crates in
+/// <scripts> with the Cargo.lock at <lock>: the first 8 bytes, in hex, of a
+/// sha256 of every file that side reads (`build_source::shots_files`), each by
+/// its path and length, and of the lock's entry for each package the checker
+/// builds from. A change to builds alone keeps both versions, and a change to
+/// the other side keeps this one, so builds keeps what it stored.
+fn shots_version(scripts: &Path, lock: &Path, side: build_source::Side) -> String {
+    let files = build_source::shots_files(scripts, side);
     let mut hash = Sha256::new();
     for (shown, path) in &files {
         hash_file(&mut hash, shown, &read(path));

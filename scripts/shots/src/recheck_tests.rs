@@ -49,6 +49,7 @@ fn report_of_a_pair_missing_a_button(dir: &Path) -> std::path::PathBuf {
         &report,
         &outcome,
         &Header {
+            capture_version: "capture".to_string(),
             version: "old".to_string(),
             commit: "abc123def".to_string(),
             base: None,
@@ -75,6 +76,10 @@ fn a_report_is_compared_again_to_the_findings_it_holds_under_the_new_version() {
     assert_ne!(records(&again), serde_json::json!([]));
     let file: serde_json::Value = serde_json::from_str(&again).unwrap();
     assert_eq!(file["version"], "new");
+    assert_eq!(
+        file["capture_version"], "capture",
+        "the pictures keep the capture version of the checker that made them"
+    );
     assert_eq!(file["commit"], "abc123def");
     assert!(
         file.get("failed").is_none() && file.get("components").is_none(),

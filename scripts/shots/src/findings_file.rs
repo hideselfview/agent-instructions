@@ -4,8 +4,9 @@
 //! the sentences. builds keeps the file with the report and groups it by cause
 //! (`builds shots findings --by-cause`).
 //!
-//! The file is one object: `version`, the version of the checker that wrote
-//! it (`builds shots version`); `commit`, the commit the run checked;
+//! The file is one object: `version`, the comparison version of the checker
+//! that wrote it, and `capture_version`, the capture version of the checker
+//! that made the pictures it compares (`builds shots version`); `commit`, the commit the run checked;
 //! `scenes`, every pair the run checked; `failed`, each selected scene the
 //! capture wrote no usable shot of, with its `error`; `sizes`, each pair's board and shot
 //! sizes in points, by scene, at which a reader shows the report's pictures
@@ -311,21 +312,35 @@ fn records(checked: &[Checked]) -> Vec<Record> {
 #[derive(Serialize)]
 struct Rechecked<'a> {
     version: &'a str,
+    capture_version: &'a str,
     commit: &'a str,
     scenes: Vec<String>,
     findings: Vec<Record>,
 }
 
 /// The text `recheck` prints for the pairs <checked>, which the checker of
-/// <version> compared again from a run of <commit>.
-pub(crate) fn rechecked(version: &str, commit: &str, checked: &[Checked]) -> String {
-    serde_json::to_string(&compared(version, commit, checked)).expect("the records are plain data")
+/// comparison version <version> compared again from a run of <commit>, whose
+/// pictures the checker of capture version <capture_version> made.
+pub(crate) fn rechecked(
+    version: &str,
+    capture_version: &str,
+    commit: &str,
+    checked: &[Checked],
+) -> String {
+    serde_json::to_string(&compared(version, capture_version, commit, checked))
+        .expect("the records are plain data")
 }
 
 /// The scenes <checked> names and the records of their findings.
-fn compared<'a>(version: &'a str, commit: &'a str, checked: &[Checked]) -> Rechecked<'a> {
+fn compared<'a>(
+    version: &'a str,
+    capture_version: &'a str,
+    commit: &'a str,
+    checked: &[Checked],
+) -> Rechecked<'a> {
     Rechecked {
         version,
+        capture_version,
         commit,
         scenes: checked.iter().map(|pair| pair.name.to_string()).collect(),
         findings: records(checked),
@@ -333,16 +348,18 @@ fn compared<'a>(version: &'a str, commit: &'a str, checked: &[Checked]) -> Reche
 }
 
 /// The file's text for the pairs a run of <commit> by the checker of
-/// <version> checked, the scenes <failed>, and the components' preview rows that <listing> holds.
+/// comparison version <version> and capture version <capture_version> checked,
+/// the scenes <failed>, and the components' preview rows that <listing> holds.
 pub(crate) fn text(
     version: &str,
+    capture_version: &str,
     commit: &str,
     checked: &[Checked],
     failed: &[Failed],
     listing: &Listing,
 ) -> String {
     let file = File {
-        compared: compared(version, commit, checked),
+        compared: compared(version, capture_version, commit, checked),
         failed: failed
             .iter()
             .map(|f| FailedScene {
@@ -378,19 +395,23 @@ pub(crate) fn text(
 }
 
 /// Writes the file for the pairs a run of <commit> by the checker of
-/// <version> checked, the scenes that <failed>, and the components' rows <listing> holds, into the
+/// comparison version <version> and capture version <capture_version> checked, the scenes that <failed>, and the components' rows <listing> holds, into the
 /// report's folder `dir`.
 pub(crate) fn write(
     dir: &Path,
     version: &str,
+    capture_version: &str,
     commit: &str,
     checked: &[Checked],
     failed: &[Failed],
     listing: &Listing,
 ) -> Result<(), String> {
     let path = dir.join(FILE);
-    std::fs::write(&path, text(version, commit, checked, failed, listing))
-        .map_err(|e| format!("cannot write {}: {e}", path.display()))
+    std::fs::write(
+        &path,
+        text(version, capture_version, commit, checked, failed, listing),
+    )
+    .map_err(|e| format!("cannot write {}: {e}", path.display()))
 }
 
 #[cfg(test)]

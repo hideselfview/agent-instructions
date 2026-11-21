@@ -1020,7 +1020,7 @@ fn a_store(places: &Places) -> ShotsCache {
         places: places.clone(),
         repo: "demo".to_string(),
         lane: Lane::Mac,
-        version: crate::shots_program::VERSION.to_string(),
+        versions: crate::shots_program::VERSIONS,
         befores: Vec::new(),
         app_tree: "0123456789abcdef".to_string(),
         no_capture: false,
@@ -1050,13 +1050,13 @@ fn only_the_run_of_a_merge_base_passes_base_to_the_shots_program() {
 /// The key of a run of <prefix> on the Mac lane of repo `demo` at <commit>,
 /// by this builds' shots checker.
 fn shots_key(commit: &str, prefix: &str) -> shots_cache::Key {
-    shots_cache::Key {
-        repo: "demo".to_string(),
-        version: crate::shots_program::VERSION.to_string(),
-        commit: commit.to_string(),
-        lane: Lane::Mac,
-        prefix: prefix.to_string(),
-    }
+    shots_cache::Key::new(
+        "demo",
+        commit,
+        Lane::Mac,
+        prefix,
+        crate::shots_program::VERSIONS,
+    )
 }
 
 /// Keeps a run of <key> whose report holds a findings.json.
@@ -1086,11 +1086,18 @@ fn a_shots_run_that_printed_findings_is_cached_under_its_commit_platform_prefix_
         cached.findings, "FAIL mac.a: missing\nbae-shots: 1 pair(s) fail the run: mac.a\n",
         "the text after cargo's Running line"
     );
-    let other = shots_cache::Key {
-        version: "0".repeat(16),
-        ..key
-    };
-    assert!(shots_cache::lookup(&places, &other).unwrap().is_none());
+    for other in [
+        shots_cache::Key {
+            comparison_version: "0".repeat(16),
+            ..key.clone()
+        },
+        shots_cache::Key {
+            capture_version: "0".repeat(16),
+            ..key
+        },
+    ] {
+        assert!(shots_cache::lookup(&places, &other).unwrap().is_none());
+    }
 }
 
 #[test]
@@ -1243,10 +1250,11 @@ fn a_build_that_reuses_a_cached_run_leaves_the_passing_build_that_land_counts() 
 }
 
 /// A shots run that writes a report, with a findings.json that names
-/// shots checker <version>, and says where it is.
-fn report_run(version: &str) -> String {
+/// shots checker <versions>, and says where it is.
+fn report_run(versions: crate::shots_program::Versions) -> String {
+    let (capture, version) = (versions.capture, versions.comparison);
     format!(
-        "mkdir -p shots/report/img; echo png > shots/report/img/a.png; echo stale > shots/report/img/old.png; echo \"<img src=\\\"img/a.png\\\">\" > shots/report/index.html; echo '{{\"version\": \"{version}\", \"commit\": \"c\", \"scenes\": [], \"findings\": []}}' > shots/report/findings.json; echo '    Running `target/debug/builds-shots run`' >&2; echo 'builds shots: report at '\"$PWD\"'/shots/report/index.html' >&2; exit 0"
+        "mkdir -p shots/report/img; echo png > shots/report/img/a.png; echo stale > shots/report/img/old.png; echo \"<img src=\\\"img/a.png\\\">\" > shots/report/index.html; echo '{{\"version\": \"{version}\", \"capture_version\": \"{capture}\", \"commit\": \"c\", \"scenes\": [], \"findings\": []}}' > shots/report/findings.json; echo '    Running `target/debug/builds-shots run`' >&2; echo 'builds shots: report at '\"$PWD\"'/shots/report/index.html' >&2; exit 0"
     )
 }
 
@@ -1257,7 +1265,7 @@ fn a_shots_run_caches_its_report_and_the_pictures_it_shows_under_its_key_in_the_
     let places = scratch.places();
     let top = scratch.dir.join("repo");
     let cached = shots_cache(&top, &places);
-    let run = report_run(crate::shots_program::VERSION);
+    let run = report_run(crate::shots_program::VERSIONS);
     let step = fake("shots mac.a.", &["sh", "-c", &run], None);
     run_steps(&top, &held, &[step], &mut Vec::new(), &cached, false).unwrap();
     let key = shots_key(&resolve(&top, "HEAD").unwrap(), "mac.a.");
@@ -1290,7 +1298,10 @@ fn a_report_whose_findings_name_another_shots_checker_caches_nothing() {
     let places = scratch.places();
     let top = scratch.dir.join("repo");
     let cached = shots_cache(&top, &places);
-    let run = report_run("another");
+    let run = report_run(crate::shots_program::Versions {
+        comparison: "another",
+        ..crate::shots_program::VERSIONS
+    });
     let step = fake("shots mac.a.", &["sh", "-c", &run], None);
     run_steps(&top, &held, &[step], &mut Vec::new(), &cached, false).unwrap();
     let key = shots_key(&resolve(&top, "HEAD").unwrap(), "mac.a.");

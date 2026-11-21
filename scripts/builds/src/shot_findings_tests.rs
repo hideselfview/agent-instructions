@@ -1,4 +1,5 @@
 use super::*;
+use crate::shots_cache;
 
 #[test]
 fn the_findings_are_the_text_after_cargos_running_line_or_all_of_it_without_one() {
@@ -106,7 +107,8 @@ fn a_run_grouped_by_cause_reads_the_records_its_cached_report_holds() {
         commit: "a".repeat(40),
         lane: Lane::Mac,
         prefix: "mac.".to_string(),
-        version: "b".repeat(16),
+        capture_version: "c".repeat(16),
+        comparison_version: "b".repeat(16),
     };
     let cached = shots_cache::stage(&places, &key)
         .unwrap()
@@ -159,15 +161,18 @@ fn a_reports_findings_name_the_version_that_made_them() {
     let scratch = crate::testing::Scratch::new("shots-version");
     std::fs::write(
         scratch.dir.join(crate::shot_causes::FILE),
-        r#"{"version": "v1", "commit": "c", "scenes": [], "findings": []}"#,
+        r#"{"version": "v1", "capture_version": "c1", "commit": "c", "scenes": [], "findings": []}"#,
     )
     .unwrap();
-    assert_eq!(version_in(&scratch.dir).unwrap(), "v1");
+    assert_eq!(
+        versions_in(&scratch.dir).unwrap(),
+        ("c1".to_string(), "v1".to_string())
+    );
     std::fs::write(scratch.dir.join(crate::shot_causes::FILE), "{}").unwrap();
     assert!(
-        version_in(&scratch.dir)
+        versions_in(&scratch.dir)
             .unwrap_err()
             .text()
-            .contains("names no shots checker version")
+            .contains("names no shots checker versions")
     );
 }

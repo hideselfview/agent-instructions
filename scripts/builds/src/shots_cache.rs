@@ -5,15 +5,21 @@
 //!
 //! Each run has one folder, found by what made it:
 //!
-//!   <volume>/shots/<repo>/runs/<commit>/<lane>/<prefix>/<version>/
+//!   <volume>/shots/<repo>/runs/<commit>/<lane>/<prefix>/<capture>/<comparison>/
 //!     run.json     when the run ended and the shots command's exit status
 //!     output.txt   what the shots program printed, findings and verdict
 //!     report/      the program's report as it wrote it: index.html, the
 //!                  pictures that page shows and findings.json
 //!
 //! <commit> is the full commit id the run built, <prefix> the shot-name
-//! prefix it was given (`mac.` for a lane's every shot), and <version> the
-//! version of the shots program that made it. A later run of the same key
+//! prefix it was given (`mac.` for a lane's every shot), <capture> the capture
+//! version of the shots program that took the shots and drew the boards, and
+//! <comparison> the comparison version of the program that compared them
+//! (shots_program.rs `Versions`). Under one <capture> folder, each
+//! <comparison> folder holds the same pictures with its own findings:
+//! `compare_again` (shots_compare_again.rs) makes a run of the current
+//! comparison version from a run of another, so a change to the comparison
+//! takes no shot and draws no board again. A later run of the same key
 //! replaces the folder whole: a run fills a staging folder at the top of
 //! `shots` and moves it into place only when it is complete, so a reader
 //! finds either the old run or the new one, and a run that stops or caches
@@ -61,6 +67,7 @@ use crate::lane::Lane;
 use crate::places::Places;
 use crate::prune::Run;
 use crate::shots_in_use::{self, Named};
+use crate::shots_program::Versions;
 use crate::text::note;
 use crate::tool::Tool;
 
@@ -95,7 +102,27 @@ pub struct Key {
     pub commit: String,
     pub lane: Lane,
     pub prefix: String,
-    pub version: String,
+    /// The capture version of the shots program that made the run's shots
+    /// and board pictures.
+    pub capture_version: String,
+    /// The comparison version of the shots program that made the run's
+    /// findings.
+    pub comparison_version: String,
+}
+
+impl Key {
+    /// The key of a run of <prefix> on <lane> for <repo>'s <commit> by the
+    /// shots program <versions>.
+    pub fn new(repo: &str, commit: &str, lane: Lane, prefix: &str, versions: Versions<'_>) -> Key {
+        Key {
+            repo: repo.to_string(),
+            commit: commit.to_string(),
+            lane,
+            prefix: prefix.to_string(),
+            capture_version: versions.capture.to_string(),
+            comparison_version: versions.comparison.to_string(),
+        }
+    }
 }
 
 /// What run.json holds.
@@ -250,11 +277,17 @@ fn prefixes_folder(places: &Places, repo: &str, commit: &str, lane: Lane) -> Pat
         .join(lane.word())
 }
 
-/// The folder of the run <key>.
-pub fn run_folder(places: &Places, key: &Key) -> PathBuf {
+/// The folder of the runs of <key>'s capture version: one folder for each
+/// comparison version that compared its pictures.
+fn captures_folder(places: &Places, key: &Key) -> PathBuf {
     prefixes_folder(places, &key.repo, &key.commit, key.lane)
         .join(&key.prefix)
-        .join(&key.version)
+        .join(&key.capture_version)
+}
+
+/// The folder of the run <key>.
+pub fn run_folder(places: &Places, key: &Key) -> PathBuf {
+    captures_folder(places, key).join(&key.comparison_version)
 }
 
 /// A run's folder while the run fills it, beside the folder it replaces.
@@ -280,7 +313,7 @@ pub fn stage(places: &Places, key: &Key) -> Result<Staging> {
     let folder = run_folder(places, key);
     Ok(Staging {
         key: key.clone(),
-        inner: capped_store::stage(&root(places), folder.clone(), &key.version)?,
+        inner: capped_store::stage(&root(places), folder.clone(), &key.comparison_version)?,
         folder,
     })
 }
@@ -376,9 +409,9 @@ pub fn before_run(
     commit: &str,
     lane: Lane,
     prefix: &str,
-    version: &str,
+    versions: Versions<'_>,
 ) -> Result<Option<Cached>> {
-    let found = covering_run(places, repo, commit, lane, prefix, version)?;
+    let found = covering_run(places, repo, commit, lane, prefix, versions)?;
     if let Some(cached) = &found {
         mark_used(cached)?;
     }
@@ -386,14 +419,14 @@ pub fn before_run(
 }
 
 /// The keys of the runs of <repo>'s <commit> on <lane>, by shots program
-/// <version>, whose prefix starts <prefix>: the runs that can cover it.
-fn covering_keys(
+/// <versions>, whose prefix starts <prefix>: the runs that can cover it.
+pub fn covering_keys(
     places: &Places,
     repo: &str,
     commit: &str,
     lane: Lane,
     prefix: &str,
-    version: &str,
+    versions: Versions<'_>,
 ) -> Result<Vec<Key>> {
     let folder = prefixes_folder(places, repo, commit, lane);
     let mut found = Vec::new();
@@ -401,35 +434,56 @@ fn covering_keys(
         if name.starts_with('.') || !prefix.starts_with(&name) {
             continue;
         }
-        let key = Key {
-            repo: repo.to_string(),
-            commit: commit.to_string(),
-            lane,
-            prefix: name,
-            version: version.to_string(),
-        };
-        found.push(key);
+        found.push(Key::new(repo, commit, lane, &name, versions));
     }
     Ok(found)
 }
 
-/// The folders of the runs that can cover <prefix> (`covering_keys`).
+/// The folders of the runs that can cover <prefix> (`covering_keys`), of
+/// <versions>' capture version and every comparison version: the runs
+/// another comparison version made are what `compare_again` compares again.
 pub fn covering_folders(
     places: &Places,
     repo: &str,
     commit: &str,
     lane: Lane,
     prefix: &str,
-    version: &str,
+    versions: Versions<'_>,
 ) -> Result<Vec<PathBuf>> {
-    Ok(covering_keys(places, repo, commit, lane, prefix, version)?
-        .iter()
-        .map(|key| run_folder(places, key))
-        .collect())
+    let mut folders = Vec::new();
+    for key in covering_keys(places, repo, commit, lane, prefix, versions)? {
+        for (_, folder) in folders_in(&captures_folder(places, &key))? {
+            folders.push(folder);
+        }
+    }
+    Ok(folders)
+}
+
+/// The runs of <key>'s commit, lane, prefix and capture version that another
+/// comparison version made and whose report holds findings.json, newest
+/// first: the runs that `compare_again` compares again for <key>.
+pub fn other_comparisons(places: &Places, key: &Key) -> Result<Vec<Cached>> {
+    let mut found = Vec::new();
+    for (name, folder) in folders_in(&captures_folder(places, key))? {
+        if name == key.comparison_version {
+            continue;
+        }
+        let other = Key {
+            comparison_version: name,
+            ..key.clone()
+        };
+        if let Some(cached) = read(&folder, &other)?
+            && cached.findings_json().is_file()
+        {
+            found.push(cached);
+        }
+    }
+    found.sort_by_key(|cached| std::cmp::Reverse(cached.recorded_at));
+    Ok(found)
 }
 
 /// The newest cached run of <repo>'s <commit> on <lane>, by shots program
-/// <version>, whose prefix starts <prefix> (a run of `mac.` stands in for one
+/// <versions>, whose prefix starts <prefix> (a run of `mac.` stands in for one
 /// of `mac.welcome.`) and whose report holds findings.json. Finding it writes
 /// nothing: a caller that uses the run marks it used (`mark_used`).
 pub fn covering_run(
@@ -438,10 +492,10 @@ pub fn covering_run(
     commit: &str,
     lane: Lane,
     prefix: &str,
-    version: &str,
+    versions: Versions<'_>,
 ) -> Result<Option<Cached>> {
     let mut found: Vec<Cached> = Vec::new();
-    for key in covering_keys(places, repo, commit, lane, prefix, version)? {
+    for key in covering_keys(places, repo, commit, lane, prefix, versions)? {
         if let Some(cached) = read(&run_folder(places, &key), &key)?
             && cached.findings_json().is_file()
         {
@@ -459,18 +513,20 @@ fn group(places: &Places, repo: &str, named: &Named) -> Result<Group> {
     for (_, commit) in folders_in(&root(places).join(repo).join("runs"))? {
         for (_, lane) in folders_in(&commit)? {
             for (_, prefix) in folders_in(&lane)? {
-                for (_, folder) in folders_in(&prefix)? {
-                    kept.push(match named.get(&folder) {
-                        Some(branches) => Kept::InUse {
-                            by: branches.iter().cloned().collect(),
-                            folder,
-                        },
-                        None => Kept::Folder {
-                            last_use: Use::At(written_at(&folder.join(RUN_FILE))?),
-                            folder,
-                            what: "a shots run",
-                        },
-                    });
+                for (_, capture) in folders_in(&prefix)? {
+                    for (_, folder) in folders_in(&capture)? {
+                        kept.push(match named.get(&folder) {
+                            Some(branches) => Kept::InUse {
+                                by: branches.iter().cloned().collect(),
+                                folder,
+                            },
+                            None => Kept::Folder {
+                                last_use: Use::At(written_at(&folder.join(RUN_FILE))?),
+                                folder,
+                                what: "a shots run",
+                            },
+                        });
+                    }
                 }
             }
         }

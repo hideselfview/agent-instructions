@@ -102,7 +102,7 @@ fn text(cached: &Run, program: &Run) -> String {
 
 /// Runs <program>, a builds program, as `builds shots recheck` over the
 /// report of <cached>, and returns the findings.json it prints.
-fn recheck(program: &Path, cached: &Cached) -> Result<String> {
+pub(crate) fn recheck(program: &Path, cached: &Cached) -> Result<String> {
     let ran = Command::new(program)
         .args(["shots", "recheck", "--report"])
         .arg(cached.report())
@@ -186,10 +186,10 @@ pub fn cmd(places: &Places, args: &[String]) -> Result<()> {
     let program = build(&top)?;
     let report = compare(&cached, &program)?;
     note(format!(
-        "{repo} {} {} {prefix}: findings of the cached run (shots program version {}) beside those of the program built in {}",
+        "{repo} {} {} {prefix}: findings of the cached run (shots program comparison version {}) beside those of the program built in {}",
         &cached.key.commit[..cached.key.commit.len().min(12)],
         lane.word(),
-        &cached.key.version[..cached.key.version.len().min(12)],
+        &cached.key.comparison_version[..cached.key.comparison_version.len().min(12)],
         top.display()
     ));
     print!("{report}");

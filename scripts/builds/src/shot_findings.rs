@@ -6,11 +6,13 @@
 //! commit's findings reads what an earlier run printed.
 //!
 //! A run is cached under the repo, the full commit id, the platform, the prefix
-//! the run was given and the version of the shots checker (`VERSION` in
-//! shots_program.rs: a hash of its sources, which each run's findings.json
-//! names). A run by another version of the checker has another key, so its
-//! findings never stand in for these, and builds caches no run whose
-//! findings.json names another version than its own.
+//! the run was given and the two versions of the shots checker (`VERSIONS` in
+//! shots_program.rs: hashes of its capture and comparison sources, which each
+//! run's findings.json names). A run by another capture version has another
+//! key. A run of the same capture version and another comparison version is
+//! compared again with this builds' comparison instead of taken again
+//! (shots_compare_again.rs), and builds caches no run whose findings.json
+//! names other versions than its own.
 //!
 //! A run is cached when the shots command exits 0, or exits another status
 //! after printing that pairs fail the run; a command that died on an error
@@ -46,7 +48,7 @@ use crate::host::sh_quote;
 use crate::lane::Lane;
 use crate::places::Places;
 use crate::shot_causes;
-use crate::shots_cache::{self, Cached, Key};
+use crate::shots_cache::{Cached, Key};
 use crate::text::note;
 
 /// The line the shots program's own output starts after: cargo's, for the
@@ -214,27 +216,28 @@ pub fn key_for(
     prefix: &str,
 ) -> Result<Key> {
     let (_, commit, _) = app_build::commit_and_config(places, repo, git_ref)?;
-    Ok(Key {
-        repo: repo.to_string(),
-        version: crate::shots_program::VERSION.to_string(),
-        commit,
+    Ok(Key::new(
+        repo,
+        &commit,
         lane,
-        prefix: prefix.to_string(),
-    })
+        prefix,
+        crate::shots_program::VERSIONS,
+    ))
 }
 
-/// The version of the shots checker that the findings.json in the report folder
-/// <folder> names.
-pub fn version_in(folder: &Path) -> Result<String> {
+/// The capture and comparison versions of the shots checker that the
+/// findings.json in the report folder <folder> names.
+pub fn versions_in(folder: &Path) -> Result<(String, String)> {
     #[derive(serde::Deserialize)]
     struct Named {
+        capture_version: String,
         version: String,
     }
     let file = folder.join(shot_causes::FILE);
     let text = std::fs::read_to_string(&file).context(|| format!("reading {}", file.display()))?;
     let named: Named = serde_json::from_str(&text)
-        .context(|| format!("{} names no shots checker version", file.display()))?;
-    Ok(named.version)
+        .context(|| format!("{} names no shots checker versions", file.display()))?;
+    Ok((named.capture_version, named.version))
 }
 
 /// Prints <cached>: a line to say which run it is, then its text.
@@ -244,21 +247,22 @@ pub fn print(cached: &Cached) {
 }
 
 /// Says on stderr which run <cached> is: its commit, lane and prefix, how old
-/// it is, the shots program's version and the exit status.
+/// it is, the shots program's comparison version and the exit status.
 fn note_run(cached: &Cached) {
     let Key {
         repo,
         commit,
         lane,
         prefix,
-        version,
+        capture_version: _,
+        comparison_version,
     } = &cached.key;
     note(format!(
         "{repo} {} {} {prefix}: findings of a run that ended {} ago (shots program version {}), which exited {}",
         &commit[..commit.len().min(12)],
         lane.word(),
         age(now() - cached.recorded_at),
-        &version[..version.len().min(12)],
+        &comparison_version[..comparison_version.len().min(12)],
         cached.exit_code
     ));
 }
@@ -319,13 +323,14 @@ pub fn cached_run(
     prefix: &str,
 ) -> Result<Cached> {
     let key = key_for(places, repo, git_ref, lane, prefix)?;
-    match shots_cache::lookup(places, &key)? {
+    match crate::shots_compare_again::lookup(places, &key)? {
         Some(cached) => Ok(cached),
         None => fail!(
-            "no run of {prefix} on {} is cached for {repo} at {} (shots program version {}); `{}` makes one",
+            "no run of {prefix} on {} is cached for {repo} at {} (shots program capture version {}, comparison version {}); `{}` makes one",
             lane.word(),
             &key.commit[..12.min(key.commit.len())],
-            &key.version[..12.min(key.version.len())],
+            &key.capture_version[..12.min(key.capture_version.len())],
+            &key.comparison_version[..12.min(key.comparison_version.len())],
             how_to_make(repo, git_ref, lane, prefix)
         ),
     }

@@ -22,8 +22,7 @@ const PARTS: [&str; 6] = [
 ];
 
 /// The files and folders, relative to each crate's folder in the scripts
-/// folder, that the shots checker is built from, with the builds crate's
-/// Cargo.lock, which pins the checker's dependencies (`shots_files`).
+/// folder, that the shots checker is built from (`shots_files`).
 const SHOTS_PARTS: [(&str, &[&str]); 2] = [
     ("shots", &["Cargo.toml", "src", "canvas"]),
     ("boards", &["Cargo.toml", "src", "runtime"]),
@@ -69,14 +68,118 @@ pub fn files(roots: &[(String, PathBuf)]) -> Vec<(String, PathBuf)> {
     files
 }
 
-/// Every file the shots checker is built from, sorted: its shown name and
-/// its path, in the crates of <scripts>.
-pub fn shots_files(scripts: &Path) -> Vec<(String, PathBuf)> {
+/// The side of the shots checker a version covers: the files that take a shot
+/// and draw a board, or the files that compare a shot with its board.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Side {
+    /// What a cached shot and a cached board picture depend on.
+    Capture,
+    /// What a cached run's findings depend on, given its shots and pictures.
+    Comparison,
+}
+
+/// The files of the shots crate's `src` that both sides read: the command
+/// line, the shot and element-list types, and the names, settings and
+/// declarations that say which shots exist.
+const SHARED: [&str; 7] = [
+    "lib.rs",
+    "shots.rs",
+    "names.rs",
+    "settings.rs",
+    "declared.rs",
+    "hex.rs",
+    "log.rs",
+];
+
+/// The files and folders of the shots crate's `src` that only the capture
+/// side reads: taking shots, drawing boards and keeping their pictures.
+const CAPTURE_ONLY: [&str; 6] = [
+    "capture",
+    "render",
+    "render.rs",
+    "design.rs",
+    "board_sizes.rs",
+    "pictures.rs",
+];
+
+/// The files and folders of the shots crate's `src` that only the comparison
+/// side reads: comparing a pair, reading the run it compares with, and writing
+/// the findings and the report. `verify.rs` also draws the boards it compares,
+/// but the picture of a board is keyed by `design.rs`'s hash of everything it
+/// depends on, so what it draws does not depend on `verify.rs`.
+const COMPARISON_ONLY: [&str; 10] = [
+    "compare",
+    "compare.rs",
+    "before.rs",
+    "findings_file.rs",
+    "recheck.rs",
+    "report.rs",
+    "verify.rs",
+    "component_files.rs",
+    "lint.rs",
+    "lists.rs",
+];
+
+/// The files of the shots crate's `src` that neither side reads: `builds shots
+/// states`, which lists the component states the boards draw.
+const UNVERSIONED: [&str; 1] = ["states.rs"];
+
+/// Who reads a file of the shots checker.
+#[derive(PartialEq, Eq, Debug)]
+enum Readers {
+    Both,
+    Only(Side),
+    Nobody,
+}
+
+/// Who reads <shown>, a file of the shots checker (`shots_files`). Fails for
+/// a file of the shots crate's `src` that no list above names, so that a new
+/// file says which side it belongs to. A test file (`_tests.rs`) has no readers:
+/// it changes no run.
+fn readers(shown: &str) -> Readers {
+    if shown.starts_with("boards/") || shown == "shots/Cargo.toml" {
+        return Readers::Both;
+    }
+    if shown.starts_with("shots/canvas/") {
+        return Readers::Only(Side::Capture);
+    }
+    let Some(inside) = shown.strip_prefix("shots/src/") else {
+        panic!("{shown} is no file of the shots checker that build_source.rs knows");
+    };
+    if inside.ends_with("_tests.rs") {
+        return Readers::Nobody;
+    }
+    let top = inside.split('/').next().unwrap_or(inside);
+    if SHARED.contains(&top) {
+        Readers::Both
+    } else if CAPTURE_ONLY.contains(&top) {
+        Readers::Only(Side::Capture)
+    } else if COMPARISON_ONLY.contains(&top) {
+        Readers::Only(Side::Comparison)
+    } else if UNVERSIONED.contains(&top) {
+        Readers::Nobody
+    } else {
+        panic!(
+            "{shown} is in no list of build_source.rs (SHARED, CAPTURE_ONLY, COMPARISON_ONLY, UNVERSIONED): say which side of the shots checker reads it"
+        )
+    }
+}
+
+/// Every file of the shots checker that <side> reads, sorted: its shown name
+/// and its path, in the crates of <scripts>.
+pub fn shots_files(scripts: &Path, side: Side) -> Vec<(String, PathBuf)> {
     let roots: Vec<_> = SHOTS_PARTS
         .iter()
         .flat_map(|(name, parts)| crate_roots(name, &scripts.join(name), parts))
         .collect();
     files(&roots)
+        .into_iter()
+        .filter(|(shown, _)| match readers(shown) {
+            Readers::Both => true,
+            Readers::Only(only) => only == side,
+            Readers::Nobody => false,
+        })
+        .collect()
 }
 
 /// Adds <path> (shown as <shown>), or every file under it when it is a

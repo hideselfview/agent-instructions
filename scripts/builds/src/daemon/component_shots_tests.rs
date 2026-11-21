@@ -15,7 +15,8 @@ fn cache_run(places: &Places, lane: Lane, prefix: &str, findings: Value, picture
             commit: COMMIT.to_string(),
             lane,
             prefix: prefix.to_string(),
-            version: VERSION.to_string(),
+            capture_version: VERSIONS.capture.to_string(),
+            comparison_version: VERSIONS.comparison.to_string(),
         },
     )
     .unwrap();
@@ -39,7 +40,8 @@ fn cache_run(places: &Places, lane: Lane, prefix: &str, findings: Value, picture
 /// row `on`, whose shot no capture file declares.
 fn checkbox_findings() -> Value {
     json!({
-        "version": VERSION,
+        "version": VERSIONS.comparison,
+        "capture_version": VERSIONS.capture,
         "commit": COMMIT,
         "scenes": ["mac.component.checkbox.off", "mac.component.row.plain"],
         "sizes": {

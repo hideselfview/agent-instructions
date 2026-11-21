@@ -17,6 +17,9 @@ use std::path::Path;
 /// The parts of the report's findings.json that name what to compare.
 #[derive(Deserialize)]
 struct Named {
+    /// The capture version of the checker that made the report's pictures,
+    /// which a comparison again leaves as it is.
+    capture_version: String,
     commit: String,
     scenes: Vec<String>,
 }
@@ -46,7 +49,12 @@ pub(crate) fn text(report: &Path, version: &str) -> Result<String, String> {
         };
         checked.push(verify::compare_pair(&name, board, &shot, shot_png));
     }
-    Ok(findings_file::rechecked(version, &named.commit, &checked))
+    Ok(findings_file::rechecked(
+        version,
+        &named.capture_version,
+        &named.commit,
+        &checked,
+    ))
 }
 
 fn decode(path: &Path) -> Result<Picture, String> {

@@ -7,7 +7,8 @@ fn key(prefix: &str) -> Key {
         commit: "a".repeat(40),
         lane: Lane::Mac,
         prefix: prefix.to_string(),
-        version: "0123456789abcdef".to_string(),
+        capture_version: "c0c0c0c0c0c0c0c0".to_string(),
+        comparison_version: "0123456789abcdef".to_string(),
     }
 }
 
@@ -30,7 +31,7 @@ fn a_run_is_cached_on_the_build_volume_under_its_repo_commit_lane_prefix_and_ver
     assert_eq!(
         cached.folder,
         places.root.join(format!(
-            "shots/demo/runs/{}/mac/mac.welcome./0123456789abcdef",
+            "shots/demo/runs/{}/mac/mac.welcome./c0c0c0c0c0c0c0c0/0123456789abcdef",
             "a".repeat(40)
         ))
     );
@@ -66,7 +67,11 @@ fn a_cached_run_is_found_by_its_whole_key_and_a_later_run_of_the_key_replaces_it
             ..key.clone()
         },
         Key {
-            version: "fedcba9876543210".to_string(),
+            comparison_version: "fedcba9876543210".to_string(),
+            ..key.clone()
+        },
+        Key {
+            capture_version: "fedcba9876543210".to_string(),
             ..key.clone()
         },
         Key {
@@ -127,26 +132,40 @@ fn the_before_run_is_the_newest_run_of_the_version_whose_prefix_starts_the_runs_
     let places = scratch.places();
     let base = "a".repeat(40);
     let key = |prefix: &str, version: &str| Key {
-        version: version.to_string(),
+        comparison_version: version.to_string(),
         ..key(prefix)
     };
+    let versions = Versions {
+        capture: "c0c0c0c0c0c0c0c0",
+        comparison: "v1",
+    };
     let find = |prefix: &str| {
-        before_run(&places, "demo", &base, Lane::Mac, prefix, "v1")
+        before_run(&places, "demo", &base, Lane::Mac, prefix, versions)
             .unwrap()
             .map(|before| before.key.prefix)
     };
     assert_eq!(find("mac.welcome."), None);
     cache_run(&places, &key("mac.welcome.", "v2"), 1, "x\n", true);
+    cache_run(
+        &places,
+        &Key {
+            capture_version: "another".to_string(),
+            ..key("mac.welcome.", "v1")
+        },
+        1,
+        "x\n",
+        true,
+    );
     cache_run(&places, &key("mac.settings.", "v1"), 1, "x\n", true);
     cache_run(&places, &key("mac.welcome.a.", "v1"), 1, "x\n", true);
     assert_eq!(
         find("mac.welcome."),
         None,
-        "another version's run, another screen's and a narrower prefix's do not stand in"
+        "another comparison version's run, another capture version's, another screen's and a narrower prefix's do not stand in"
     );
     let all = cache_run(&places, &key("mac.", "v1"), 1, "x\n", true);
     assert_eq!(find("mac.welcome."), Some("mac.".to_string()));
-    let before = before_run(&places, "demo", &base, Lane::Mac, "mac.welcome.", "v1")
+    let before = before_run(&places, "demo", &base, Lane::Mac, "mac.welcome.", versions)
         .unwrap()
         .unwrap();
     assert_eq!(before.findings_json(), all.findings_json());
@@ -158,7 +177,7 @@ fn the_before_run_is_the_newest_run_of_the_version_whose_prefix_starts_the_runs_
     cache_run(&places, &key("mac.welcome.", "v1"), 1, "x\n", true);
     assert_eq!(find("mac.welcome."), Some("mac.welcome.".to_string()));
     assert_eq!(
-        before_run(&places, "demo", &base, Lane::Android, "android.", "v1").unwrap(),
+        before_run(&places, "demo", &base, Lane::Android, "android.", versions).unwrap(),
         None
     );
 }
@@ -177,7 +196,10 @@ fn the_run_that_covers_a_prefix_is_found_without_marking_it_used() {
         &"a".repeat(40),
         Lane::Mac,
         "mac.component.checkbox.",
-        "0123456789abcdef",
+        Versions {
+            capture: "c0c0c0c0c0c0c0c0",
+            comparison: "0123456789abcdef",
+        },
     )
     .unwrap()
     .expect("the run of mac.component. covers the component");

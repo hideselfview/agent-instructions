@@ -18,8 +18,9 @@
 //! and fail nothing: a branch that makes a crashed scene render again can
 //! land.
 //!
-//! Findings made by another version of the checker would not compare, so a
-//! file whose `version` is not this checker's is refused.
+//! Findings made by another comparison version of the checker would not
+//! compare, so a file whose `version` is not this checker's comparison version
+//! is refused.
 
 use crate::compare::Aspect;
 use crate::findings_file::{Element, Level, What};
@@ -48,6 +49,9 @@ pub(crate) enum Against {
 #[serde(deny_unknown_fields)]
 struct File {
     version: String,
+    /// The capture version, which a comparison leaves unread.
+    #[serde(rename = "capture_version")]
+    _capture_version: serde::de::IgnoredAny,
     commit: String,
     scenes: Vec<String>,
     /// The pairs' sizes and the components' preview rows, which the

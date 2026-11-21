@@ -1288,10 +1288,11 @@ echo \"shots $*\" >> \"$QUEUE_TEST_DIR/log\"
 report=\"$QUEUE_TEST_DIR/report-$$\"
 mkdir -p \"$report\"
 echo '<html></html>' > \"$report/index.html\"
-echo '{{\"version\": \"{}\", \"commit\": \"c\", \"scenes\": [], \"findings\": []}}' > \"$report/findings.json\"
+echo '{{\"version\": \"{}\", \"capture_version\": \"{}\", \"commit\": \"c\", \"scenes\": [], \"findings\": []}}' > \"$report/findings.json\"
 echo \"builds shots: report at $report/index.html\" >&2
 ",
-            env!("SHOTS_SOURCE")
+            env!("COMPARISON_SOURCE"),
+            env!("CAPTURE_SOURCE")
         ),
     )
     .unwrap();

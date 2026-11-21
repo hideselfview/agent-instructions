@@ -10,6 +10,7 @@ const EXTRA: &str = "Shot has the text “Beta”, which the board does not";
 fn before() -> Before {
     let text = serde_json::json!({
         "version": "v1",
+        "capture_version": "c1",
         "commit": "abc",
         "scenes": ["mac.a.b", "mac.a.c"],
         "failed": [],
@@ -134,7 +135,7 @@ fn a_value_that_is_no_number_counts_as_farther_than_a_number() {
         shot: shot.to_string(),
     };
     let text = serde_json::json!({
-        "version": "v1", "commit": "abc", "scenes": ["s"], "failed": [], "sizes": {},
+        "version": "v1", "capture_version": "c1", "commit": "abc", "scenes": ["s"], "failed": [], "sizes": {},
         "components": [],
         "findings": [{"scene": "s", "level": "finding", "kind": "state-differs",
             "element": {"role": "field", "words": "Name"}, "aspect": "value",
@@ -152,7 +153,7 @@ fn a_value_that_is_no_number_counts_as_farther_than_a_number() {
 
 #[test]
 fn a_file_of_another_version_is_refused() {
-    let text = r#"{"version": "v2", "commit": "abc", "scenes": [], "failed": [], "sizes": {}, "components": [], "findings": []}"#;
+    let text = r#"{"version": "v2", "capture_version": "c1", "commit": "abc", "scenes": [], "failed": [], "sizes": {}, "components": [], "findings": []}"#;
     let error = Before::parse(text, "before.json", "v1").unwrap_err();
     assert!(error.contains("shots checker version v2"), "{error}");
     assert!(error.contains("this is version v1"), "{error}");

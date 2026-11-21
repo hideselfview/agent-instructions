@@ -159,7 +159,8 @@ on it:
   DerivedData/          Xcode's default DerivedData location
   caches/<name>/        the download caches every checkout shares
   shots/<repo>/runs/    the output of each shots run (APP BUILDS), one folder
-                        per run under <commit>/<lane>/<prefix>/<version>/
+                        per run under
+                        <commit>/<lane>/<prefix>/<capture>/<comparison>/
   shots/<repo>/pictures/
                         the board pictures shots runs drew, by board hash,
                         and the shots the apps took, by app source tree (APP
@@ -1146,19 +1147,42 @@ folder there that no step holds and that this Mac no longer keeps, so a
 host keeps the folder of every build that runs here.
 
 builds caches each --shots and --all-shots run on the build volume, in
-/Volumes/Builds/shots/<repo>/runs/<commit>/<lane>/<prefix>/<version>/, so
-the next run in the checkout cannot overwrite it: run.json (when the run
+/Volumes/Builds/shots/<repo>/runs/<commit>/<lane>/<prefix>/<capture>/<comparison>/,
+so the next run in the checkout cannot overwrite it: run.json (when the run
 ended and its exit status), output.txt (all that the shots program printed)
 and report/ (the report's index.html, the pictures it shows and
 findings.json, the findings as records). The folder's path is the run's
-key: the repo, the full commit, the lane, the prefix and the shots version.
-A later run of the same key replaces the folder whole. The shots version is
-the version of the shots checker that builds is built with (`builds shots
-version`): a hash of the checker's sources, the boards library's and the
-versions of the packages they use, so a change to builds alone keeps every
-cached run. Each run's findings.json names the version, and builds caches no
-run whose findings.json names another version. A run that died before it
-made findings caches nothing.
+key: the repo, the full commit, the lane, the prefix, the capture version and
+the comparison version. A later run of the same key replaces the folder whole.
+
+The shots checker that builds is built with has two versions, which `builds
+shots version` prints. The capture version is a hash of the files that take a
+shot and draw a board, the boards library's files, and the versions of the
+packages they use. The comparison version is a hash of the files that compare
+a shot with its board and write the findings and the report, with the boards
+library's files and the same package versions (scripts/builds/build_source.rs
+lists the files each version reads). A change to builds alone keeps both
+versions, and so does a change to a test file. builds keys the shots, the
+element lists and the board pictures by the capture version, and the findings
+by the comparison version.
+
+A change to the comparison alone (a tolerance, the sentence of a finding, the
+report page) changes only the comparison version, so the next shots check
+takes no shot and builds no app for it. When builds has the run of a commit
+under the current capture version and no run under the current comparison
+version, the lookup of that run (`builds app-build --shots`, `builds shots
+findings`, and the lookup of a merge base's run below) runs the installed
+builds' `builds shots recheck` over the cached report, caches the findings as
+the run of the current comparison version, and prints one line that says so.
+That run holds its source run's pictures as hard links and a findings.json with
+the new findings. It has no report page, and no verdict against the merge
+base's run: its text and findings.json hold every finding of its pairs. A
+change to the capture (a file that takes a shot or draws a board), to a file
+both versions read, or to a package the checker builds from changes the
+capture version, and then the run takes its shots, draws its boards and
+builds the app again. Each run's findings.json names both versions, and
+builds caches no run whose findings.json names other versions. A run that died
+before it made findings caches nothing.
 The cache is build output on the build volume: builds holds each repo's folder
 in shots under its cap, deletes the runs and pictures that agents used least
 recently first (DISK), and makes a deleted run again when an agent asks for it.
@@ -1169,7 +1193,7 @@ element list <board hash>.json. A board hash is the hash of everything the
 board's picture depends on: the board's file and the parts it mounts (for a
 component shot, the preview page and the shot's name), its frame on the
 canvas, the design system's built files, the canvas runtime copy, the copies
-of React, the pinned Chrome, the version of the shots checker, and the
+of React, the pinned Chrome, the capture version of the shots checker, and the
 shots-unshot and shots-preview lines. app-build passes the folder to each shots run
 on this Mac (`run --pictures`), and the run draws only the boards whose hash
 the folder lacks and adds each new drawing to it, so builds draws a board
@@ -1223,7 +1247,7 @@ compare with: the run reports it as a pair the base never rendered, with its
 findings, and does not fail on it. `builds land` prints those pairs and
 their counts. A pair the merge base's run rendered still fails when the
 branch adds findings to it. The run it compares with is the newest cached run of the
-merge base in the same lane, by the same shots version, whose prefix starts
+merge base in the same lane, by the same shots versions, whose prefix starts
 the run's own (a run of mac. stands in for a run of mac.welcome.), and whose
 report holds findings.json. When builds has none cached, `builds app-build` builds
 the merge base first in the lane, with the lane's `needs` steps, and runs the
@@ -1381,7 +1405,7 @@ built again.
                               print the findings of the run builds has cached for
                               <ref>'s commit, the lane and the prefix, with a
                               line on stderr that says how old they are, which
-                              shots version made them and where the run's
+                              shots comparison version made them and where the run's
                               report is, and mark the run used. With none
                               kept, it fails and names the app-build
                               command that makes them. With --by-cause, it
@@ -1435,7 +1459,7 @@ built again.
                               command's arguments. `run` takes the selected
                               shots into shots/ and checks them; with
                               --before <findings.json>, the findings.json of
-                              a run by the same version of the checker, it
+                              a run by the same comparison version of the checker, it
                               fails only on the pairs new or worse against
                               that run: a pair it did not check, or one with
                               a finding whose sentence its findings for the
@@ -1543,7 +1567,7 @@ built again.
                               `run` and
                               `check` write the report: index.html, the
                               pictures, and findings.json, which names the
-                              program's version, the commit, every pair the
+                              program's comparison version and capture version, the commit, every pair the
                               run checked with its board's and shot's sizes
                               in points, and the shots of each component's
                               preview rows, in the preview's order, on each
@@ -1554,8 +1578,9 @@ built again.
                               that draws that element (the nearest component
                               above it in React's tree), its numbers and its
                               sentence. `version` prints the program's
-                              version: a hash of the sources it was built
-                              from. The program
+                              capture version and comparison version: hashes
+                              of the sources each was built from (APP
+                              BUILDS). The program
                               reads the
                               .app-build lines that start with shots-:
                               `shots-capture <platform>

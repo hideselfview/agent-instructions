@@ -1007,9 +1007,9 @@ struct ShotsCache {
     places: Places,
     repo: String,
     lane: Lane,
-    /// The version of the shots checker the store keys the runs on: the one
+    /// The versions of the shots checker the store keys the runs on: the ones
     /// this builds is built with.
-    version: String,
+    versions: crate::shots_program::Versions<'static>,
     /// The findings.json of the run each shots prefix of the lane compares
     /// with, by its prefix.
     befores: Vec<(String, std::path::PathBuf)>,
@@ -1048,7 +1048,7 @@ impl ShotsCache {
         retake: bool,
         base_run: bool,
     ) -> Result<ShotsCache> {
-        let version = crate::shots_program::VERSION.to_string();
+        let versions = crate::shots_program::VERSIONS;
         let mut befores = Vec::new();
         for (_, _, prefix) in picks
             .iter()
@@ -1058,13 +1058,15 @@ impl ShotsCache {
             if base == commit {
                 continue;
             }
-            match shots_cache::before_run(places, repo, &base, lane, prefix, &version)? {
+            match crate::shots_compare_again::before_run(places, repo, &base, lane, prefix)? {
                 Some(before) => befores.push((prefix.clone(), before.findings_json())),
                 None => fail!(
-                    "builds holds no run of {prefix} on {} for {}, the merge base of {} with origin/main, by shots checker {version}, so the run has nothing to compare with; `{}` makes one",
+                    "builds holds no run of {prefix} on {} for {}, the merge base of {} with origin/main, by shots checker {} (comparison) over {} (capture), so the run has nothing to compare with; `{}` makes one",
                     lane.word(),
                     &base[..base.len().min(12)],
                     &commit[..commit.len().min(12)],
+                    versions.comparison,
+                    versions.capture,
                     shot_findings::how_to_make(repo, &base, lane, prefix)
                 ),
             }
@@ -1073,7 +1075,7 @@ impl ShotsCache {
             places: places.clone(),
             repo: repo.to_string(),
             lane,
-            version,
+            versions,
             befores,
             app_tree: crate::app_tree::of(source, commit, config, lane)?,
             no_capture: cached_shots,
@@ -1188,13 +1190,7 @@ impl ShotsCache {
             return;
         }
         let staged = site.commit().and_then(|commit| {
-            let key = shots_cache::Key {
-                repo: self.repo.clone(),
-                version: self.version.clone(),
-                commit,
-                lane: self.lane,
-                prefix: prefix.to_string(),
-            };
+            let key = shots_cache::Key::new(&self.repo, &commit, self.lane, prefix, self.versions);
             shots_cache::stage(&self.places, &key)
         });
         let staging = match staged {
@@ -1213,7 +1209,7 @@ impl ShotsCache {
                         note(error.text());
                         return;
                     }
-                } else if let Err(why) = self.same_version(&report) {
+                } else if let Err(why) = self.same_versions(&report) {
                     note(format!("the shots run was not cached: {why}"));
                     if let Err(error) = staging.discard() {
                         note(error.text());
@@ -1257,15 +1253,16 @@ impl ShotsCache {
     }
 
     /// Whether the findings.json in the report folder <folder> names the
-    /// store's version of the shots checker; why not, when it names another.
-    fn same_version(&self, folder: &Path) -> std::result::Result<(), String> {
-        let named = shot_findings::version_in(folder).map_err(|error| error.text())?;
-        if named == self.version {
+    /// store's versions of the shots checker; why not, when it names others.
+    fn same_versions(&self, folder: &Path) -> std::result::Result<(), String> {
+        let (capture, comparison) =
+            shot_findings::versions_in(folder).map_err(|error| error.text())?;
+        if capture == self.versions.capture && comparison == self.versions.comparison {
             return Ok(());
         }
         Err(format!(
-            "the run's findings.json names shots checker {named}, and this builds caches the runs of shots checker {}: the run's `builds shots` was another builds than this one",
-            self.version
+            "the run's findings.json names shots checker {comparison} over {capture}, and this builds caches the runs of shots checker {} over {}: the run's `builds shots` was another builds than this one",
+            self.versions.comparison, self.versions.capture
         ))
     }
 }
@@ -1663,7 +1660,7 @@ pub fn serve_cached(
             continue;
         }
         let key = shot_findings::key_for(places, repo, git_ref, *lane, prefix)?;
-        let Some(cached) = shots_cache::lookup(places, &key)? else {
+        let Some(cached) = crate::shots_compare_again::lookup(places, &key)? else {
             left.push(pick);
             continue;
         };
@@ -1719,12 +1716,13 @@ pub fn ensure_before_runs(
     if base == commit {
         return Ok(());
     }
-    let version = crate::shots_program::VERSION;
+    let versions = crate::shots_program::VERSIONS;
     let missing = |picks: &[Pick]| -> Result<Vec<Pick>> {
         let mut missing = Vec::new();
         for pick in picks {
             let (lane, _, prefix) = pick;
-            if shots_cache::before_run(places, repo, &base, *lane, prefix, version)?.is_none() {
+            if crate::shots_compare_again::before_run(places, repo, &base, *lane, prefix)?.is_none()
+            {
                 missing.push(pick.clone());
             }
         }
@@ -1739,12 +1737,14 @@ pub fn ensure_before_runs(
         return Ok(());
     }
     note(format!(
-        "builds has no cached run of {} for {short}, the merge base with origin/main, by shots checker {version}: building {short} and running them first, to compare with",
+        "builds has no cached run of {} for {short}, the merge base with origin/main, by shots checker {} (comparison) over {} (capture): building {short} and running them first, to compare with",
         wanted
             .iter()
             .map(|(_, _, prefix)| prefix.as_str())
             .collect::<Vec<_>>()
-            .join(", ")
+            .join(", "),
+        versions.comparison,
+        versions.capture
     ));
     let config = config_at(places, repo, &base)?;
     let lanes = crate::derive::plan(&config, &[], &wanted);
