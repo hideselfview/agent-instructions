@@ -183,6 +183,13 @@ impl Places {
         self.root.join("caches")
     }
 
+    /// The folder of the build volume that the sccache server uses as its
+    /// TMPDIR (sccache_service.rs). Its name starts with a dot, so it is none
+    /// of the volume's repos (`is_reserved_name`).
+    pub fn sccache_tmp(&self) -> PathBuf {
+        self.root.join(".sccache-tmp")
+    }
+
     /// The file naming <repo>'s app checkouts in <lane>, one per line
     /// (lane.rs `AppCheckout`): the checkouts that keep that lane's app builds
     /// warm beside main. `builds app-checkout` and lane_size.rs write it.

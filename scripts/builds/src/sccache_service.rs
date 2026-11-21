@@ -55,12 +55,13 @@ impl Manager {
         }
     }
 
-    /// What the job's file holds for the server at <sccache>, in <home>.
-    pub fn job_text(self, sccache: &Path, home: &Path) -> String {
+    /// What the job's file holds for the server at <sccache>, in <home>,
+    /// whose scratch files go to <tmp>, a folder of the build volume.
+    pub fn job_text(self, sccache: &Path, home: &Path, tmp: &Path) -> String {
         let log = home.join(self.log_file());
         match self.0 {
-            Os::Mac => plist(sccache, &log),
-            Os::Linux => unit(sccache, &log),
+            Os::Mac => plist(sccache, &log, tmp),
+            Os::Linux => unit(sccache, &log, tmp),
         }
     }
 
@@ -197,11 +198,15 @@ fn run(program: &str, args: &[&str]) -> Result<()> {
     Ok(())
 }
 
-/// launchd's job for the server at <sccache>, writing its errors to <log>.
-fn plist(sccache: &Path, log: &Path) -> String {
-    // One server on sccache's default TCP port, started with the system
-    // TMPDIR: a server inherits the TMPDIR of whichever client starts it, and
-    // a session-scoped TMPDIR deleted later fails every compile. launchd
+/// launchd's job for the server at <sccache>, writing its errors to <log> and
+/// its scratch files to <tmp>.
+fn plist(sccache: &Path, log: &Path, tmp: &Path) -> String {
+    // One server on sccache's default TCP port, started with a TMPDIR of its
+    // own on the build volume, where fseventsd keeps no history of its
+    // writes: a server inherits the TMPDIR of whichever client starts it, and
+    // a run's TMPDIR, deleted when the run ends, fails every compile after.
+    // The job makes the folder first and fails when it cannot, as when the
+    // volume is not mounted yet at login; KeepAlive starts it again. launchd
     // starts it at login, restarts it if it exits, and it never idles out, so
     // no client has a reason to start one of its own. SCCACHE_START_SERVER=1
     // makes this process the server and SCCACHE_NO_DAEMON=1 keeps it from
@@ -221,7 +226,7 @@ fn plist(sccache: &Path, log: &Path) -> String {
   <array>
     <string>/bin/sh</string>
     <string>-c</string>
-    <string>TMPDIR="$(getconf DARWIN_USER_TEMP_DIR)" exec "{sccache}"</string>
+    <string>mkdir -p "{tmp}" &amp;&amp; TMPDIR="{tmp}" exec "{sccache}"</string>
   </array>
   <key>EnvironmentVariables</key>
   <dict>
@@ -252,18 +257,20 @@ fn plist(sccache: &Path, log: &Path) -> String {
 </plist>
 "#,
         sccache = sccache.display(),
-        log = log.display()
+        log = log.display(),
+        tmp = tmp.display()
     )
 }
 
-/// systemd's unit for the server at <sccache>, writing its errors to <log>:
-/// the same server as launchd's job (`plist`). A systemd user service gets
-/// no TMPDIR, so the server uses /tmp, which nothing deletes under it.
-fn unit(sccache: &Path, log: &Path) -> String {
+/// systemd's unit for the server at <sccache>, writing its errors to <log>
+/// and its scratch files to <tmp>: the same server as launchd's job
+/// (`plist`).
+fn unit(sccache: &Path, log: &Path, tmp: &Path) -> String {
     format!(
-        "# Written by builds install.\n[Unit]\nDescription=The sccache server every build on this host uses\n\n[Service]\nExecStart={sccache}\nEnvironment=SCCACHE_START_SERVER=1\nEnvironment=SCCACHE_NO_DAEMON=1\nEnvironment=SCCACHE_IDLE_TIMEOUT=0\nEnvironment=SCCACHE_ERROR_LOG={log}\nLimitNOFILE=65536\nRestart=always\n\n[Install]\nWantedBy=default.target\n",
+        "# Written by builds install.\n[Unit]\nDescription=The sccache server every build on this host uses\n\n[Service]\nExecStartPre=/bin/mkdir -p {tmp}\nExecStart={sccache}\nEnvironment=TMPDIR={tmp}\nEnvironment=SCCACHE_START_SERVER=1\nEnvironment=SCCACHE_NO_DAEMON=1\nEnvironment=SCCACHE_IDLE_TIMEOUT=0\nEnvironment=SCCACHE_ERROR_LOG={log}\nLimitNOFILE=65536\nRestart=always\n\n[Install]\nWantedBy=default.target\n",
         sccache = sccache.display(),
-        log = log.display()
+        log = log.display(),
+        tmp = tmp.display()
     )
 }
 
@@ -275,6 +282,58 @@ pub fn job_path(home: &Path) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The launchd job runs the server with TMPDIR on the build volume: the
+    /// shell command it names makes the folder and starts the server there.
+    #[test]
+    fn the_launchd_job_starts_the_server_with_a_tmpdir_on_the_build_volume() {
+        let dir = PathBuf::from(format!("/private/tmp/sccache-job-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let (volume, tmp) = (dir.join("volume"), dir.join("volume/.sccache-tmp"));
+        std::fs::create_dir_all(&volume).unwrap();
+        let record = dir.join("record");
+        let server = dir.join("sccache");
+        std::fs::write(
+            &server,
+            format!("#!/bin/sh\necho \"$TMPDIR\" > {}\n", record.display()),
+        )
+        .unwrap();
+        std::fs::set_permissions(&server, std::os::unix::fs::PermissionsExt::from_mode(0o755))
+            .unwrap();
+        let text = Manager(Os::Mac).job_text(&server, &dir, &tmp);
+        let (_, after) = text.split_once("<string>-c</string>").unwrap();
+        let command = after
+            .split_once("<string>")
+            .and_then(|(_, rest)| rest.split_once("</string>"))
+            .unwrap()
+            .0
+            .replace("&amp;", "&");
+        let ran = Command::new("/bin/sh")
+            .args(["-c", &command])
+            .env("TMPDIR", "/private/tmp")
+            .status()
+            .unwrap();
+        assert!(ran.success());
+        assert_eq!(
+            std::fs::read_to_string(&record).unwrap().trim(),
+            tmp.display().to_string()
+        );
+        assert!(tmp.is_dir());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The systemd unit gives the server the same folder.
+    #[test]
+    fn the_systemd_unit_gives_the_server_a_tmpdir_on_the_build_volume() {
+        let text = Manager(Os::Linux).job_text(
+            Path::new("/usr/bin/sccache"),
+            Path::new("/home/u"),
+            Path::new("/home/u/builds-root/.sccache-tmp"),
+        );
+        assert!(text.contains("Environment=TMPDIR=/home/u/builds-root/.sccache-tmp\n"));
+        assert!(text.contains("ExecStartPre=/bin/mkdir -p /home/u/builds-root/.sccache-tmp\n"));
+    }
 
     /// What `systemctl --user show` prints for the unit while it runs, after
     /// its server exited, and when systemd has no such unit.

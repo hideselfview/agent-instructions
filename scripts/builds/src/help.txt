@@ -281,10 +281,15 @@ follows these rules:
     A job on another host makes the folder under that host's build root
     (HOSTS). Each folder's name holds the pid of the `builds` process on this
     Mac that owns the run. `builds health` deletes the folders whose run has
-    ended, on every host that answers, and reports entries no run made. A run with no build volume mounted fails and writes nothing.
+    ended, on every host that answers, and reports entries no run made. A run
+    with no build volume mounted fails and writes nothing.
     TMPDIR is no CARGO_* variable, and sccache's key does not hold it (a
     compile with another TMPDIR hits the cache entry the first one wrote), so
     the folder's name never costs a cache hit.
+  - The sccache server, which launchd (macOS) or systemd (Linux) starts and no
+    run owns, gets a TMPDIR of its own, <build volume>/.sccache-tmp, from the
+    job file `builds install` and `builds host setup` write. The job makes the
+    folder first, and fails and starts again when the volume is not mounted.
 
 A link whose folder is gone breaks every tool (cargo fails with os error 20,
 xcodebuild with code 74, Gradle with "Could not open file hash cache"), so the

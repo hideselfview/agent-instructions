@@ -15,6 +15,7 @@ use crate::checkout::absolute_link_target;
 use crate::fail;
 use crate::fail::{Context, Result};
 use crate::manifest::SHARED_CACHES;
+use crate::places::Places;
 use crate::sccache::{Job, job_serves};
 use crate::sccache_service::Manager;
 use crate::text::{human, note, tilde};
@@ -366,7 +367,8 @@ const START_LIMIT: Duration = Duration::from_secs(10);
 /// manager runs it or a client started it, starts the manager's, and checks
 /// that the manager's server is the one listening. It fails, with what the
 /// manager and the server's log say, when it is not.
-pub fn run_sccache_server(home: &Path, uid: u32) -> Result<()> {
+pub fn run_sccache_server(places: &Places) -> Result<()> {
+    let (home, uid) = (places.home.as_path(), places.uid);
     let manager = Manager::here();
     let sccache_cap = sccache_cap_kib();
     let Some(sccache) = on_path("sccache") else {
@@ -387,7 +389,10 @@ pub fn run_sccache_server(home: &Path, uid: u32) -> Result<()> {
         ));
         changed = true;
     }
-    if write_if_changed(&job_path, &manager.job_text(&sccache, home))? {
+    if write_if_changed(
+        &job_path,
+        &manager.job_text(&sccache, home, &places.sccache_tmp()),
+    )? {
         note(format!("wrote {}", job_path.display()));
         changed = true;
     }
@@ -514,7 +519,7 @@ pub fn cmd_install(tool: &Tool, args: &[String]) -> Result<()> {
         link_cache(&caches.join(cache.name), &cache.link_path(home), home)?;
     }
     crate::cargo_program::install_all(home)?;
-    run_sccache_server(home, tool.places.uid)?;
+    run_sccache_server(&tool.places)?;
     crate::programs::remove_others(home, &[])?;
     // xcodebuild runs without -derivedDataPath, and the Xcode app, write
     // here.
