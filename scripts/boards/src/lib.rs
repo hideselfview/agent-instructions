@@ -5,6 +5,7 @@
 //! are, or the files at a commit, read with git without checking anything
 //! out. Nothing here writes into a repo's files.
 
+pub mod app_build;
 pub mod board;
 pub mod component_key;
 pub mod preview;

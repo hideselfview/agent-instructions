@@ -457,17 +457,6 @@ fn a_glob_builds_cannot_match_is_refused() {
 }
 
 #[test]
-fn the_capture_folders_are_the_folders_of_the_shots_declared_lines() {
-    let text = "step a mac x\nshots-declared mac bae-macos/bae/baeShots\n\
-                shots-declared android bae-android/shots/\nshots-capture mac run\n";
-    assert_eq!(
-        capture_folders(text),
-        ["bae-macos/bae/baeShots", "bae-android/shots"]
-    );
-    assert!(capture_folders("shots-capture mac run\n").is_empty());
-}
-
-#[test]
 fn a_file_below_a_capture_folder_is_a_capture_file_and_a_design_file_stays_a_design_file() {
     let g = Globs {
         capture: vec!["app/shots".into()],

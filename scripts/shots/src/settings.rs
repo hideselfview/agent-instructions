@@ -103,16 +103,11 @@ impl Settings {
                         }
                         settings.capture.push((platform, value.to_vec()));
                     } else {
-                        let [folder] = value else {
-                            return Err(bad("gives more than one declare folder"));
-                        };
-                        if folder.starts_with('/') || folder.split('/').any(|p| p == "..") {
-                            return Err(bad("names a folder outside the repo"));
-                        }
+                        let folder = boards::app_build::declared_folder(value).map_err(bad)?;
                         if settings.declared.iter().any(|(p, _)| *p == platform) {
                             return Err(bad("gives a platform a second declare folder"));
                         }
-                        settings.declared.push((platform, folder.clone()));
+                        settings.declared.push((platform, folder.to_string()));
                     }
                 }
                 "shots-preview" => {

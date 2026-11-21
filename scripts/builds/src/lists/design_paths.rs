@@ -46,7 +46,7 @@ pub struct Globs {
     pub places: Vec<String>,
     pub sources: Vec<String>,
     pub spec: Vec<String>,
-    /// The repo's `shots-declared` folders (`capture_folders`), relative to
+    /// The repo's `shots-declared` folders (`boards::app_build`), relative to
     /// the repo's top: every file below one is a capture file. Empty until
     /// `with_capture_folders` reads them from a checkout.
     pub capture: Vec<String>,
@@ -107,7 +107,8 @@ impl Globs {
     pub fn with_capture_folders(mut self, top: &Path) -> Result<Globs> {
         let file = top.join(".app-build");
         self.capture = match std::fs::read_to_string(&file) {
-            Ok(text) => capture_folders(&text),
+            Ok(text) => boards::app_build::declared_folders(&text)
+                .map_err(|e| fail::Fail::Message(e.text()))?,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => Vec::new(),
             Err(error) => fail!("reading {}: {error}", file.display()),
         };
@@ -160,23 +161,6 @@ impl Globs {
             .map(|glob| Glob::parse(glob).root().unwrap_or_default())
             .collect()
     }
-}
-
-/// The folders of the `shots-declared <platform> <folder>` lines of an
-/// `.app-build` file's <text>, each without a trailing `/`.
-pub fn capture_folders(text: &str) -> Vec<String> {
-    let mut folders: Vec<String> = text
-        .lines()
-        .filter_map(|line| {
-            let mut words = line.split_whitespace();
-            (words.next() == Some("shots-declared")).then_some(())?;
-            words
-                .nth(1)
-                .map(|folder| folder.trim_end_matches('/').to_string())
-        })
-        .collect();
-    folders.dedup();
-    folders
 }
 
 /// What a place is, read from how its key is written.
