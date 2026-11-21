@@ -97,6 +97,7 @@ fn step_lines_name_a_command_each_in_the_order_written() {
         lane: Lane::Mac,
         command: words(command),
         limit: None,
+        scenes: None,
         place: Where::Anywhere,
         ci_only: false,
     };
@@ -530,4 +531,41 @@ fn the_lane_and_program_word_reads_back_as_its_lane_and_program() {
         assert_eq!(lane_and_program(&word), Some((lane, program)), "{word}");
     }
     assert_eq!(lane_and_program_word(Lane::Mac, Some("shots")), "mac:shots");
+}
+
+#[test]
+fn a_run_of_the_checker_is_counted_by_the_same_command_with_scenes_for_run() {
+    let run = words("builds shots run --platform mac --windows --select mac.welcome.");
+    assert_eq!(
+        counting(&run),
+        Some(words(
+            "builds shots scenes --platform mac --windows --select mac.welcome."
+        ))
+    );
+    assert_eq!(counting(&words("./other.sh --select mac.")), None);
+}
+
+#[test]
+fn a_step_has_its_limit_and_the_time_of_one_scene_for_each_scene() {
+    let mut step = Step {
+        name: "shots mac.".to_string(),
+        lane: Lane::Mac,
+        command: words("builds shots run --select mac."),
+        limit: Some(Duration::from_secs(60)),
+        scenes: Some(Scenes {
+            count: words("builds shots scenes --select mac."),
+            each: Duration::from_secs(2),
+        }),
+        place: Where::Anywhere,
+        ci_only: false,
+    };
+    assert_eq!(step.limit_for(10), Duration::from_secs(80));
+    step.scenes = None;
+    assert_eq!(step.limit_for(10), Duration::from_secs(60));
+}
+
+#[test]
+fn the_number_a_counting_command_prints_is_the_scene_count() {
+    assert_eq!(parse_scene_count("467\n").unwrap(), 467);
+    assert!(parse_scene_count("many").is_err());
 }

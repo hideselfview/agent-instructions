@@ -987,9 +987,17 @@ A repo's `.app-build` at its root says what its app builds run, one line each:
 
 A step that runs past its limit gets SIGTERM to its whole process group and
 SIGKILL ten seconds later, and fails the build, which gives up the lock.
-builds limits each run of a test line, with all of its classes, to 10 minutes,
-and each --shots or --all-shots run to 20. `builds build-app` and `builds
-lock` set no limit.
+builds limits each run of a test line, with all of its classes, to 10 minutes.
+A --shots or --all-shots run of the shots checker (a `shots` line that runs
+`builds shots run`) has 20 minutes and 6 seconds for each scene it takes: before
+the run, builds counts the scenes with `builds shots scenes`, the same command
+with the same arguments, in the checkout where the run happens (on a host, under
+the build's programs there), prints the count and the limit it gives, and kills
+the run past that limit. A whole lane's run (467 Android scenes, 702 Mac scenes
+in bae) so finishes on the hosts builds has, and a run that hangs is still
+killed, since its limit is fixed before it starts. A `shots` line that runs
+another program has 20 minutes. `builds build-app` and `builds lock` set no
+limit.
 
 SIGTERM, SIGINT or SIGHUP stops an app build. `builds app-build` passes the
 signal to each lane, and each lane passes it to the process group of the step
@@ -1391,7 +1399,7 @@ built again.
                               run whose report lacks the element lists (one
                               made before the report kept them) fails,
                               naming the app-build command that makes it again
-  builds shots run|capture|check|lint|runtime|components|states|version [<argument>...]
+  builds shots run|scenes|capture|check|lint|runtime|components|states|version [<argument>...]
                               run the shots checker, which checks the shots
                               of the repo it runs in against the repo's
                               boards, with these arguments; builds gives it
@@ -1421,7 +1429,10 @@ built again.
                               every selected one for that app source tree,
                               and otherwise captures them and caches them
                               there; with --no-capture as well, `run`
-                              fails instead of capturing `capture` takes the
+                              fails instead of capturing; `scenes` prints the
+                              number of shots a `run` of the same --platform,
+                              --select and --windows takes, which builds uses
+                              for the run's time limit (APP BUILDS); `capture` takes the
                               shots into a folder; `check` checks shots
                               already taken, failing on every pair with
                               findings, and writes the report; `lint` names

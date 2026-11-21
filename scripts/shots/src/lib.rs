@@ -88,6 +88,12 @@ enum Action {
         #[arg(long, requires = "app_tree", conflicts_with = "no_capture")]
         retake: bool,
     },
+    /// Print the number of shots a run of the same selection takes, which
+    /// builds counts to give the run a time limit that grows with its work.
+    Scenes {
+        #[command(flatten)]
+        selection: Selection,
+    },
     /// Take the shots into a directory.
     Capture {
         #[command(flatten)]
@@ -448,6 +454,23 @@ fn run(checker: &Checker, action: Action) -> Result<bool, String> {
             let base = before.as_ref().map(|b| b.commit().to_string());
             let header = header(checker, commit(&root)?, base, &outcome);
             finish(&outcome, &header, &shots.join("report"))
+        }
+        Action::Scenes { selection } => {
+            let declared = read_declared()?;
+            let mut count = 0;
+            for platform in selection.platforms(&settings) {
+                let taken = capture::taken(
+                    &declared,
+                    platform,
+                    &selection.prefixes,
+                    selection.windows,
+                    selection.base,
+                )
+                .map_err(|e| e.to_string())?;
+                count += taken.names.len();
+            }
+            println!("{count}");
+            Ok(true)
         }
         Action::Capture { selection, out } => {
             let declared = read_declared()?;

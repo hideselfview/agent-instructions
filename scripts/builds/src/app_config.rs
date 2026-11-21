@@ -84,7 +84,10 @@
 //! lane's app checkout and lock are where it runs.
 //!
 //! A step runs for at most `DEFAULT_STEP_LIMIT`, or the time a `limit <step>
-//! <duration>` line gives it (`90s`, `30m`, `2h`).
+//! <duration>` line gives it (`90s`, `30m`, `2h`). A shots run has its kind's
+//! limit and, for each scene it takes, the time of one scene more (`Scenes`):
+//! its limit grows with its work, so a whole lane's run is not cut off at the
+//! limit of a run of one screen's shots, and a run that hangs still is.
 
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
@@ -260,6 +263,16 @@ impl PickKind {
         }
     }
 
+    /// How long one scene of a run may take, which the run's limit adds for
+    /// each scene it takes (`Scenes`). None for a kind whose runs have no
+    /// scenes.
+    pub fn scene_time(self) -> Option<Duration> {
+        match self {
+            PickKind::Class => None,
+            PickKind::Shots => Some(Duration::from_secs(6)),
+        }
+    }
+
     /// The start of the name a run goes by in messages and the dashboard's
     /// step lines: `test Foo`, `shots mac.welcome.`.
     pub fn step_prefix(self) -> &'static str {
@@ -345,6 +358,9 @@ pub struct Step {
     pub command: Vec<String>,
     /// From the step's `limit` line; `DEFAULT_STEP_LIMIT` without one.
     pub limit: Option<Duration>,
+    /// The scenes the step's run takes, when the run has any: its limit grows
+    /// with their number.
+    pub scenes: Option<Scenes>,
     /// Where it may run: `Where::Here` for a step a `here` line names, the
     /// place of its test line for a test run, else `Where::Anywhere`.
     pub place: Where,
@@ -354,9 +370,70 @@ pub struct Step {
 }
 
 impl Step {
+    /// The limit of the step before its scenes: what a run of no scene may take.
     pub fn limit(&self) -> Duration {
         self.limit.unwrap_or(DEFAULT_STEP_LIMIT)
     }
+
+    /// The limit of a run that takes <scenes> scenes: `limit` and the time of
+    /// one scene for each of them. A step with no `Scenes` has `limit`.
+    pub fn limit_for(&self, scenes: usize) -> Duration {
+        match &self.scenes {
+            Some(each) => self.limit() + each.each * u32::try_from(scenes).unwrap_or(u32::MAX),
+            None => self.limit(),
+        }
+    }
+}
+
+/// What a run's work is, for a step whose run takes scenes: how to count them
+/// and how long each may take.
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct Scenes {
+    /// The command that prints the number of scenes the step's run takes,
+    /// run in the checkout where the step runs.
+    pub count: Vec<String>,
+    /// How long one scene may take (`PickKind::scene_time`).
+    pub each: Duration,
+}
+
+/// The command that counts the scenes of the run <command> makes: the same
+/// command with `scenes` in place of `run`, for a command of the checker
+/// (`builds shots run ...`); None for any other program, whose run is not
+/// counted.
+pub fn counting(command: &[String]) -> Option<Vec<String>> {
+    match command {
+        [builds, shots, run, rest @ ..] if shots == "shots" && run == "run" => {
+            let mut count = vec![builds.clone(), shots.clone(), "scenes".to_string()];
+            count.extend(rest.iter().cloned());
+            Some(count)
+        }
+        _ => None,
+    }
+}
+
+/// The number a counting command printed, <said>.
+pub fn parse_scene_count(said: &str) -> Result<usize> {
+    match said.trim().parse() {
+        Ok(count) => Ok(count),
+        Err(_) => fail!("the command that counts a run's scenes printed {said:?}, not a number"),
+    }
+}
+
+/// The number of scenes <count> prints when it runs in the checkout <top>.
+pub fn count_scenes(top: &Path, count: &[String]) -> Result<usize> {
+    let output = start_of(top, count)?
+        .stdin(std::process::Stdio::null())
+        .output()
+        .context(|| format!("running {}", count.join(" ")))?;
+    if !output.status.success() {
+        fail!(
+            "{} failed ({}):\n{}",
+            count.join(" "),
+            output.status,
+            String::from_utf8_lossy(&output.stderr).trim_end()
+        );
+    }
+    parse_scene_count(&String::from_utf8_lossy(&output.stdout))
 }
 
 /// <text> (`90s`, `30m`, `2h`) as a time.
@@ -439,6 +516,7 @@ pub fn parse_config(text: &str) -> Result<Config> {
                     lane,
                     command,
                     limit: None,
+                    scenes: None,
                     place: Where::Anywhere,
                     ci_only: false,
                 });

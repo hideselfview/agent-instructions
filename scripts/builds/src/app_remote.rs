@@ -127,6 +127,15 @@ pub fn fetched_local_source(places: &Places, repo: &str) -> Result<PathBuf> {
     Ok(source)
 }
 
+/// <command> as one line for `sh`, each word quoted.
+pub fn shell_line(command: &[String]) -> String {
+    command
+        .iter()
+        .map(|word| sh_quote(word))
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 /// <command>, run under `caffeinate -d -u` in the mac lane, which holds a
 /// display assertion on the host for as long as the command runs, so the
 /// host's display neither sleeps nor locks during a step that opens windows

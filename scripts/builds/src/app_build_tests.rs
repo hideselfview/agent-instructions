@@ -121,6 +121,7 @@ fn steps_stop_at_the_first_failure() {
         lane: Lane::Mac,
         command: command.iter().map(|w| w.to_string()).collect(),
         limit: None,
+        scenes: None,
         place: lock::Where::Anywhere,
         ci_only: false,
     };
@@ -173,6 +174,7 @@ fn a_step_that_fails_after_xcodebuild_said_it_cannot_start_is_the_hosts_failure(
         lane: Lane::Mac,
         command: vec!["sh".to_string(), "-c".to_string(), script],
         limit: None,
+        scenes: None,
         place: lock::Where::Anywhere,
         ci_only: false,
     };
@@ -240,6 +242,7 @@ fn a_step_past_its_limit_is_killed_with_what_it_started_and_fails_the_build() {
             .map(str::to_string)
             .to_vec(),
         limit: Some(Duration::from_millis(500)),
+        scenes: None,
         place: lock::Where::Anywhere,
         ci_only: false,
     };
@@ -248,6 +251,7 @@ fn a_step_past_its_limit_is_killed_with_what_it_started_and_fails_the_build() {
         lane: Lane::Mac,
         command: vec!["touch".to_string(), "after".to_string()],
         limit: None,
+        scenes: None,
         place: lock::Where::Anywhere,
         ci_only: false,
     };
@@ -285,6 +289,59 @@ fn a_step_past_its_limit_is_killed_with_what_it_started_and_fails_the_build() {
         -1,
         "the step's background process was killed with its group"
     );
+}
+
+/// A shots step that runs <script> and counts <scenes> scenes of 400 ms
+/// each, with a plain limit of 500 ms.
+fn counted_shots(script: &str, scenes: usize) -> Step {
+    let mut step = fake(
+        "shots mac.",
+        &["sh", "-c", script],
+        Some(Duration::from_millis(500)),
+    );
+    step.scenes = Some(crate::app_config::Scenes {
+        count: ["echo", &scenes.to_string()].map(str::to_string).to_vec(),
+        each: Duration::from_millis(400),
+    });
+    step
+}
+
+#[test]
+fn a_shots_run_longer_than_the_plain_limit_finishes_when_its_scenes_account_for_the_time() {
+    let scratch = crate::testing::Scratch::new("app-build-scenes-limit");
+    let held = held_in(&scratch);
+    let places = scratch.places();
+    let top = scratch.dir.join("repo");
+    let cached = shots_cache(&top, &places);
+    let step = counted_shots("sleep 1.2", 3);
+    assert!(step.limit_for(3) > Duration::from_millis(1200));
+    run_steps(&top, &held, &[step], &mut Vec::new(), &cached, false)
+        .expect("1.2 s is within 500 ms and three scenes of 400 ms");
+}
+
+#[test]
+fn a_shots_run_that_hangs_is_killed_whatever_its_scenes() {
+    let scratch = crate::testing::Scratch::new("app-build-scenes-hang");
+    let held = held_in(&scratch);
+    let places = scratch.places();
+    let top = scratch.dir.join("repo");
+    let cached = shots_cache(&top, &places);
+    let started = std::time::Instant::now();
+    let Err(Fail::Message(message)) = run_steps(
+        &top,
+        &held,
+        &[counted_shots("sleep 300", 3)],
+        &mut Vec::new(),
+        &cached,
+        false,
+    ) else {
+        panic!("fails")
+    };
+    assert!(
+        started.elapsed() < Duration::from_secs(20),
+        "killed at the limit"
+    );
+    assert!(message.contains("ran past its limit of"), "{message}");
 }
 
 fn args(words: &[&str]) -> Vec<String> {
@@ -421,6 +478,37 @@ fn a_lanes_full_set_of_shots_runs_through_its_shots_line_and_is_cached_as_a_shot
         args(&["./s", "--windows", "--select", "mac."])
     );
     assert_eq!(pick_kind_of(&steps[0].name), Some(PickKind::Shots));
+    assert_eq!(
+        steps[0].scenes, None,
+        "./s is not the checker, so none counts its scenes"
+    );
+}
+
+#[test]
+fn a_lanes_full_run_of_the_checker_counts_its_scenes_for_its_limit() {
+    let config =
+        parse_config("shots mac builds shots run --platform mac --windows --select {select}\n")
+            .unwrap();
+    let steps = lane_steps(&config, Lane::Mac, &[], &[all_shots(Lane::Mac)], &|_| {
+        Ok(None)
+    })
+    .unwrap();
+    let scenes = steps[0].scenes.as_ref().expect("counts its scenes");
+    assert_eq!(
+        scenes.count,
+        args(&[
+            "builds",
+            "shots",
+            "scenes",
+            "--platform",
+            "mac",
+            "--windows",
+            "--select",
+            "mac."
+        ])
+    );
+    assert_eq!(Some(scenes.each), PickKind::Shots.scene_time());
+    assert!(steps[0].limit_for(702) > PickKind::Shots.limit() * 2);
 }
 
 #[test]
@@ -622,6 +710,7 @@ fn fake(name: &str, command: &[&str], limit: Option<Duration>) -> Step {
         lane: Lane::Mac,
         command: command.iter().map(|w| w.to_string()).collect(),
         limit,
+        scenes: None,
         place: lock::Where::Anywhere,
         ci_only: false,
     }

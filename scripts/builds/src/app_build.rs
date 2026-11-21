@@ -28,7 +28,9 @@
 //! `--test <lane> <Class>` and `--shots <lane> <prefix>` (any number of each,
 //! in any order, after the steps) add, to the end of that lane's steps, the
 //! lane's `test` or `shots` line (app_config.rs) with the classes or the
-//! prefix in it, each run with the kind's limit: one run of each test line
+//! prefix in it, each run with the kind's limit (a shots run of the checker
+//! also has the time of one scene for each scene it takes, which a count made
+//! in the checkout before the run gives, app_config.rs `Scenes`): one run of each test line
 //! for all of its classes, and one run of the shots line per prefix. With
 //! such flags and no step named in the `--lane` form, only those runs happen.
 //! An app build runs only what a change touches, so every form refuses a
@@ -89,8 +91,8 @@ use std::time::Duration;
 
 use crate::app_build_step_failure::StepRead;
 use crate::app_config::{
-    CONFIG, CheckedOut, Config, PickKind, Picker, Step, check_out, parse_config, resolve,
-    run_command_keeping, run_git, show_duration,
+    CONFIG, CheckedOut, Config, PickKind, Picker, Scenes, Step, check_out, count_scenes,
+    parse_config, parse_scene_count, resolve, run_command_keeping, run_git, show_duration,
 };
 use crate::app_remote::{RemoteApp, fetched_local_source, local_source};
 use crate::app_site::Site;
@@ -336,11 +338,16 @@ fn lane_steps(
     }
     for run in runs {
         let kind = run.picker.kind;
+        let command = run.picker.command_for(&run.args);
         steps.push(Step {
             name: format!("{}{}", kind.step_prefix(), run.args.join(" ")),
             lane,
-            command: run.picker.command_for(&run.args),
             limit: Some(kind.limit()),
+            scenes: kind
+                .scene_time()
+                .zip(crate::app_config::counting(&command))
+                .map(|(each, count)| Scenes { count, each }),
+            command,
             place: run.picker.place,
             ci_only: false,
         });
@@ -518,6 +525,7 @@ fn keep_for<'a>(
 fn run_local_step(
     top: &Path,
     step: &Step,
+    limit: Duration,
     kind: StepKind,
     shots: &ShotsCache,
     fault: Option<&Found>,
@@ -529,7 +537,7 @@ fn run_local_step(
         StepKind::Shots => (shots.local_command(step), Some(shots.writing()?)),
         _ => (step.command.clone(), None),
     };
-    let outcome = run_command_keeping(top, &command, Some(step.limit()), keep);
+    let outcome = run_command_keeping(top, &command, Some(limit), keep);
     if kind == StepKind::Shots {
         shots.cache_of(&outcome, &kept, step, &mut LocalRun(top));
     }
@@ -545,15 +553,78 @@ fn run_steps(
     shots: &ShotsCache,
     watch: bool,
 ) -> Result<Ended> {
-    run_steps_with(held, steps, log, watch, &mut |step, kind, fault, read| {
-        run_local_step(top, step, kind, shots, fault, read)
-    })
+    run_steps_with(held, steps, log, watch, &mut LocalSteps { top, shots })
 }
 
-/// Runs one step of a kind, watching for a line of `HOST_FAULTS` when given
-/// where to keep it, and giving each line of its output to the reader.
-type RunStep<'a> =
-    dyn FnMut(&Step, StepKind, Option<&Found>, &lock::EachLine) -> Result<Within> + 'a;
+/// Where a lane's steps run, and what a step's run needs from the checkout it
+/// runs in.
+trait StepRunner {
+    /// The number of scenes <count> prints when it runs in the checkout.
+    fn scenes(&mut self, count: &[String]) -> Result<usize>;
+
+    /// Runs <step> (of <kind>) for at most <limit>, watching for a line of
+    /// `HOST_FAULTS` when given where to keep it, and giving each line of its
+    /// output to the reader.
+    fn run(
+        &mut self,
+        step: &Step,
+        limit: Duration,
+        kind: StepKind,
+        fault: Option<&Found>,
+        read: &lock::EachLine,
+    ) -> Result<Within>;
+}
+
+/// The steps that run in the checkout <top> here.
+struct LocalSteps<'a> {
+    top: &'a Path,
+    shots: &'a ShotsCache,
+}
+
+impl StepRunner for LocalSteps<'_> {
+    fn scenes(&mut self, count: &[String]) -> Result<usize> {
+        count_scenes(self.top, count)
+    }
+
+    fn run(
+        &mut self,
+        step: &Step,
+        limit: Duration,
+        kind: StepKind,
+        fault: Option<&Found>,
+        read: &lock::EachLine,
+    ) -> Result<Within> {
+        run_local_step(self.top, step, limit, kind, self.shots, fault, read)
+    }
+}
+
+/// The steps that run in a checkout on a host, under the build's programs.
+struct RemoteSteps<'a> {
+    remote: &'a mut RemoteApp,
+    with: &'a StepsWith<'a>,
+}
+
+impl StepRunner for RemoteSteps<'_> {
+    fn scenes(&mut self, count: &[String]) -> Result<usize> {
+        let held = self.remote.with_programs(self.with.programs, count)?;
+        let said = self.remote.run_in(
+            &crate::app_remote::shell_line(&held),
+            "counting a run's scenes",
+        )?;
+        parse_scene_count(&said)
+    }
+
+    fn run(
+        &mut self,
+        step: &Step,
+        limit: Duration,
+        kind: StepKind,
+        fault: Option<&Found>,
+        read: &lock::EachLine,
+    ) -> Result<Within> {
+        run_remote_step(self.remote, step, limit, kind, self.with, fault, read)
+    }
+}
 
 /// Runs <steps> in order, each by <run>, stopping at the first that fails,
 /// except a shots run whose output names the pairs that fail it: that run
@@ -572,7 +643,7 @@ fn run_steps_with(
     steps: &[Step],
     log: &mut Vec<StepRecord>,
     watch: bool,
-    run: &mut RunStep,
+    runner: &mut dyn StepRunner,
 ) -> Result<Ended> {
     // The status of the first shots run whose pairs failed it.
     let mut pairs_failed = None;
@@ -594,10 +665,30 @@ fn run_steps_with(
             Some(PickKind::Shots) => StepKind::Shots,
             None => StepKind::Step,
         };
+        // A run's limit grows with its work, so a long run is not a stuck one.
+        let limit = match &step.scenes {
+            Some(scenes) => {
+                let count = runner.scenes(&scenes.count)?;
+                let limit = step.limit_for(count);
+                note(format!(
+                    "step {} takes {count} scenes, so its limit is {}",
+                    step.name,
+                    show_duration(limit)
+                ));
+                limit
+            }
+            None => step.limit(),
+        };
         let timer = Timer::start();
         let found = Found::default();
         let read = StepRead::default();
-        let outcome = run(step, kind, watch.then_some(&found), &read.each_line());
+        let outcome = runner.run(
+            step,
+            limit,
+            kind,
+            watch.then_some(&found),
+            &read.each_line(),
+        );
         let failed_pairs = kind == StepKind::Shots && !read.failure().failed.is_empty();
         let stopped_by = lock::stop_signal();
         let result = match &outcome {
@@ -630,7 +721,7 @@ fn run_steps_with(
                 fail!(
                     "step {} ran past its limit of {} and its process group was killed; the lock goes to the next build{hint}",
                     step.name,
-                    show_duration(step.limit()),
+                    show_duration(limit),
                 );
             }
             Err(Fail::Exit(code)) => {
@@ -735,9 +826,7 @@ impl Site {
                 steps,
                 log,
                 with.watch,
-                &mut |step, kind, fault, read| {
-                    run_remote_step(remote, step, kind, with, fault, read)
-                },
+                &mut RemoteSteps { remote, with },
             ),
         }
     }
@@ -768,6 +857,7 @@ struct StepsWith<'a> {
 fn run_remote_step(
     remote: &mut RemoteApp,
     step: &Step,
+    limit: Duration,
     kind: StepKind,
     with: &StepsWith,
     fault: Option<&Found>,
@@ -799,7 +889,7 @@ fn run_remote_step(
     let start = remote.step_command(&held)?;
     let kept = lock::Captured::default();
     let keep = keep_for(kind, &kept, fault, read);
-    let ran = lock::run_in_group_keeping(start, &command[0], Some(step.limit()), keep);
+    let ran = lock::run_in_group_keeping(start, &command[0], Some(limit), keep);
     if let Some(there) = &placed
         && let Err(error) = remote.remove_temporary(there)
     {
