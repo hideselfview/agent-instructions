@@ -494,3 +494,10 @@ fn a_shot_element_that_runs_past_a_preview_slot_is_left_out() {
     let found = compare(&board, &shot, Slots::new(&[slot], FRAME));
     assert!(found.findings.is_empty(), "{:?}", found.findings);
 }
+
+#[test]
+fn a_value_of_a_role_whose_value_the_board_never_states_is_no_finding() {
+    let mut with_value = button("Go");
+    with_value.value = Some("0.5".to_string());
+    assert!(sentences(&[button("Go")], &[with_value]).is_empty());
+}

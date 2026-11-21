@@ -97,8 +97,8 @@ struct Record {
 }
 
 /// An element as a record names it.
-#[derive(Serialize)]
-struct Element {
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+pub(crate) struct Element {
     role: Role,
     words: String,
 }
@@ -112,9 +112,11 @@ impl From<&Entry> for Element {
     }
 }
 
-#[derive(Serialize)]
+/// A record's kind and the fields of its kind. A later run reads the
+/// findings of a before run back as these (before.rs).
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "kebab-case")]
-enum What {
+pub(crate) enum What {
     Missing {
         element: Element,
     },

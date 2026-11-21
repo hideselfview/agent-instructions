@@ -15,7 +15,9 @@ pub(crate) struct Entry {
     pub(crate) folded: Vec<usize>,
     pub(crate) kind: Role,
     pub(crate) words: String,
-    /// A field's text, `on` or `off`, a pop-up's choice; empty when none.
+    /// A field's text, `on` or `off`, a pop-up's choice, a slider's number;
+    /// empty when none, and for every role whose value the board does not
+    /// state (`Role::has_value`), whatever the list says.
     pub(crate) value: String,
     pub(crate) enabled: bool,
     pub(crate) selected: bool,
@@ -85,6 +87,7 @@ pub(crate) fn entries(list: &[Element]) -> Vec<Entry> {
             value: element
                 .value
                 .as_deref()
+                .filter(|_| element.role.has_value())
                 .map(crate::shots::words)
                 .unwrap_or_default(),
             enabled: element.enabled,

@@ -182,6 +182,7 @@ fn element(
     platform: Platform,
 ) -> Element {
     let value = match role {
+        _ if !role.has_value() => None,
         Role::Toggle => node.checked.as_deref().map(|c| match c {
             "true" => "on".to_string(),
             "false" => "off".to_string(),
@@ -195,8 +196,7 @@ fn element(
                 typed
             })
         }
-        Role::Popup | Role::Slider | Role::Progress => node.value.clone(),
-        _ => None,
+        _ => node.value.clone(),
     };
     let selected = match role {
         Role::Radio => node.checked.as_deref().map(|c| c == "true"),

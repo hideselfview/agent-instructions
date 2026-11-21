@@ -180,8 +180,11 @@ fn a_later_run_compares_with_the_file_as_its_before_run() {
     .unwrap();
     assert_eq!(before.commit(), "abc123");
     let against = |findings: &[Finding]| {
-        let sentences: Vec<String> = findings.iter().map(Finding::sentence).collect();
-        before.against("mac.welcome.a", &sentences)
+        let whats: Vec<crate::findings_file::What> = findings
+            .iter()
+            .map(crate::findings_file::What::from)
+            .collect();
+        before.against("mac.welcome.a", &whats)
     };
     assert_eq!(against(&[beta]), crate::before::Against::Held);
     assert_eq!(

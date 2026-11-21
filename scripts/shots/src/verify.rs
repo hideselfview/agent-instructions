@@ -10,6 +10,7 @@ use crate::compare::{self, Finding, Side, Slots, Warning};
 use crate::component_files::{self, Listing};
 use crate::declared::Declared;
 use crate::design::{self, DesignSystem};
+use crate::findings_file::What;
 use crate::lint::{self, Problem};
 use crate::lists::{self, Lists};
 use crate::names::{Name, Platform, Previews};
@@ -206,7 +207,7 @@ pub(crate) fn verify(job: &Verification) -> Result<Outcome, String> {
             },
             &result.pairs,
         );
-        let sentences: Vec<String> = result.findings.iter().map(Finding::sentence).collect();
+        let whats: Vec<What> = result.findings.iter().map(What::from).collect();
         checked.push(Checked {
             name: name.clone(),
             offset: compare::geometry::frame_offset(
@@ -227,7 +228,7 @@ pub(crate) fn verify(job: &Verification) -> Result<Outcome, String> {
             warnings,
             against: job
                 .before
-                .map(|before| before.against(&name.to_string(), &sentences)),
+                .map(|before| before.against(&name.to_string(), &whats)),
         });
     }
     let ready = design::ready_boards(root).map_err(|e| e.to_string())?;

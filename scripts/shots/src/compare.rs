@@ -12,7 +12,7 @@ use crate::shots::{Bounds, Element, Picture, Size};
 use align::Step;
 use colour::{Rgb, hex};
 use normalize::{Entry, entries, fold_merged};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 /// A box edge may differ by this many points before it warns.
 pub(crate) const EDGE_TOLERANCE: f64 = 2.0;
@@ -38,7 +38,7 @@ pub(crate) fn tolerances() -> Vec<String> {
 }
 
 /// What differs between a matched board element and shot element.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub(crate) enum Aspect {
     Value,
@@ -383,7 +383,7 @@ pub(crate) struct Side<'a> {
 }
 
 /// Which colour of an element differs.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub(crate) enum Part {
     Background,

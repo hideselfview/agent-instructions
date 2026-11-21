@@ -190,6 +190,17 @@ impl Role {
         !matches!(self, Self::Text | Self::Image | Self::Other)
     }
 
+    /// Roles whose value the board reader keeps (render/read.rs): a toggle's
+    /// `on` or `off`, a field's text, a pop-up's choice, a slider's and a
+    /// progress bar's number. The comparison reads no value of another role,
+    /// on either side, since the board never states one.
+    pub(crate) fn has_value(self) -> bool {
+        matches!(
+            self,
+            Self::Toggle | Self::Field | Self::Popup | Self::Slider | Self::Progress
+        )
+    }
+
     /// The word a sentence uses for the role.
     pub(crate) fn word(self) -> &'static str {
         match self {
