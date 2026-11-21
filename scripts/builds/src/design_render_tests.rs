@@ -2,7 +2,7 @@ use super::*;
 use crate::lists::design::{Around, Circle, ReviewSection};
 use crate::lists::fixtures::{db, design_drawn, design_tipped, read};
 use crate::lists::view::design_view;
-use crate::testing::{Scratch, design_system, git, repo};
+use crate::testing::{Scratch, design_system, git, repo, run_script};
 use std::path::PathBuf;
 
 fn message<T: std::fmt::Debug>(result: Result<T>) -> String {
@@ -594,23 +594,6 @@ fn a_review_page_of_a_change_with_no_last_commit_says_to_amend_it() {
         .as_str()
         .unwrap();
     assert!(error.contains("amend it"), "{error}");
-}
-
-/// Runs <expression> after one of the review page's scripts, <script>, in
-/// node and returns what it prints as JSON.
-fn run_script(script: &str, expression: &str) -> Value {
-    let program = format!("{script}\nconsole.log(JSON.stringify({expression}));");
-    let out = std::process::Command::new("node")
-        .arg("-e")
-        .arg(program)
-        .output()
-        .expect("these tests run the page's script in node, which must be installed");
-    assert!(
-        out.status.success(),
-        "{}",
-        String::from_utf8_lossy(&out.stderr)
-    );
-    serde_json::from_slice(&out.stdout).unwrap()
 }
 
 /// Runs `circleMarks` over a board's circles and what each side found, and

@@ -1,5 +1,5 @@
 use super::*;
-use crate::testing::{Scratch, design_system, git, repo};
+use crate::testing::{Scratch, design_system, git, repo, run_script};
 use std::path::PathBuf;
 
 /// A repo whose origin/main holds four boards on two pages, a design system
@@ -341,21 +341,11 @@ const groupsShown = () => [first, second, sub].map(p => !p.hidden);
 "#;
 
 fn filter_run(steps: &str) -> Value {
-    let page_script = include_str!("designs_filter.js");
-    let program = format!(
-        "{page_script}\n{FAKE_DOM}\nconst out = [];\n{steps}\nconsole.log(JSON.stringify(out));"
+    let script = format!(
+        "{}\n{FAKE_DOM}\nconst out = [];\n{steps}",
+        include_str!("designs_filter.js")
     );
-    let out = std::process::Command::new("node")
-        .arg("-e")
-        .arg(program)
-        .output()
-        .expect("these tests run the page's script in node, which must be installed");
-    assert!(
-        out.status.success(),
-        "{}",
-        String::from_utf8_lossy(&out.stderr)
-    );
-    serde_json::from_slice(&out.stdout).unwrap()
+    run_script(&script, "out")
 }
 
 #[test]

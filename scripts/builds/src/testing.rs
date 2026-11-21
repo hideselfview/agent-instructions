@@ -357,6 +357,23 @@ pub fn design_system(dir: &Path, token: &str, bundle_css: &str, bundle_js: &str)
     write(components.join("bundle.js"), bundle_js);
 }
 
+/// Runs <expression> after one of the page's scripts, <script>, in
+/// node and returns what it prints as JSON.
+pub fn run_script(script: &str, expression: &str) -> serde_json::Value {
+    let program = format!("{script}\nconsole.log(JSON.stringify({expression}));");
+    let out = std::process::Command::new("node")
+        .arg("-e")
+        .arg(program)
+        .output()
+        .expect("these tests run the page's script in node, which must be installed");
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    serde_json::from_slice(&out.stdout).unwrap()
+}
+
 /// The ssh for a test that reaches no host: its store records none, so builds
 /// never runs it.
 pub fn no_ssh() -> crate::host::Ssh {
