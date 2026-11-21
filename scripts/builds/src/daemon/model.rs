@@ -169,7 +169,7 @@ pub struct Model {
     /// both read.
     design_reads: crate::lists::design_reads::DesignReads,
     /// What git said of each branch's commits for its rules review.
-    review_reads: super::review_cards::Reads,
+    review_reads: crate::review::verdicts::Reads,
     /// The build-app runs the page starts.
     pub runs: Arc<Runs>,
     /// The lists JSON last built and what it was built from.
@@ -1341,7 +1341,7 @@ impl Model {
             Ok(_) => return RulesReview::InReview,
             Err(error) => return RulesReview::Unread(error.text()),
         }
-        let worktree = super::review_cards::Worktree {
+        let worktree = crate::review::verdicts::Worktree {
             repo: &repo,
             top,
             branch: facts.branch.as_deref(),
@@ -1355,18 +1355,19 @@ impl Model {
     }
 
     /// Where the rules review of the commits of <worktree>, a worktree of the
-    /// project of <lists>, stands (`review_cards::Reads::standing`): None when
+    /// project of <lists>, stands (`review_cards::standing`): None when
     /// land would take them as far as the review goes, or when they need no
     /// review.
     fn rules_review(
         &self,
         lists: &crate::lists::Lists,
-        worktree: &super::review_cards::Worktree,
+        worktree: &crate::review::verdicts::Worktree,
     ) -> std::result::Result<Option<ItemWait>, String> {
         crate::lists::store::Store::named(&self.places, &lists.project)
             .map_err(crate::fail::Fail::text)
             .and_then(|store| {
-                self.review_reads.standing(
+                super::review_cards::standing(
+                    &self.review_reads,
                     &store,
                     lists.version,
                     &self.places.claude_sessions(),
@@ -1711,7 +1712,7 @@ impl Model {
         // commits, so its worktree's review is read whatever the card's state.
         let rules = match (project, seen.git) {
             (Some(lists), Some(SideGit::Side(Ok(git)))) if ready || awaits_approval => {
-                let reviewed = super::review_cards::Worktree {
+                let reviewed = crate::review::verdicts::Worktree {
                     repo: seen.repo,
                     top,
                     branch: seen.branch,

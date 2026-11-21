@@ -9,7 +9,6 @@ use std::path::PathBuf;
 
 use crate::checkout::Checkout;
 use crate::claim::Claim;
-use crate::daemon::review_cards::Reads;
 use crate::fail;
 use crate::fail::Result;
 use crate::health::Advice;
@@ -19,6 +18,7 @@ use crate::lists::running::{SpanKind, end_span, open_span, running_in, running_i
 use crate::lists::store::{Loaded, Store, lists_of};
 use crate::lists::{Id, Item, Lists, Located, Stamp, Standing, Wait};
 use crate::places::Places;
+use crate::review::verdicts::{Reads, Worktree as Reviewed};
 use crate::side_git::SideRead;
 
 /// Does <wait> still hold something: a condition, or an open question, item
@@ -228,7 +228,7 @@ impl Worktree {
             return None;
         }
         let lists = self.lists(loaded).ok()??;
-        let reviewed = crate::daemon::review_cards::Worktree {
+        let reviewed = Reviewed {
             repo: &self.repo,
             top: &self.top,
             branch: self.branch.as_deref(),

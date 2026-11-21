@@ -1134,7 +1134,7 @@ pub fn lists_findings(
 #[derive(Clone, Copy)]
 pub struct WorktreeReads<'a> {
     pub designs: &'a crate::lists::design_reads::DesignReads,
-    pub reviews: &'a crate::daemon::review_cards::Reads,
+    pub reviews: &'a crate::review::verdicts::Reads,
 }
 
 /// Gathers the machine's health now, reading everything itself.
@@ -1224,7 +1224,7 @@ pub fn health(tool: &Tool) -> Result<Health> {
         &held_worktrees,
         WorktreeReads {
             designs: &Default::default(),
-            reviews: &crate::daemon::review_cards::Reads::with_root(Ok(
+            reviews: &crate::review::verdicts::Reads::with_root(Ok(
                 crate::review::installed_rules_root(&tool.places.home),
             )),
         },

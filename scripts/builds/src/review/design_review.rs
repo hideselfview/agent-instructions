@@ -8,7 +8,7 @@
 //! `builds design record` and `amend` start the review when it has a change
 //! to read (`start`). The dashboard reads the same two facts, the design
 //! commits the change covers and the review's verdict, through its own
-//! caches (daemon/design_cards.rs, daemon/review_cards.rs).
+//! caches (daemon/design_cards.rs, review/verdicts.rs).
 
 use std::path::Path;
 

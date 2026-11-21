@@ -91,6 +91,7 @@ pub mod rules;
 pub mod run;
 mod score;
 pub mod texts;
+pub mod verdicts;
 
 use std::path::{Path, PathBuf};
 

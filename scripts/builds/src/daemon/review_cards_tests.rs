@@ -4,7 +4,10 @@ use crate::lists::fixtures::NOON;
 use crate::lists::item_fixtures::{Demo, demo};
 use crate::review::fakes::fake;
 
+use crate::review::verdicts::{Reads, Worktree};
 use crate::side_git;
+use crate::side_git::SideRead;
+use std::sync::Arc;
 
 /// What git prints in <side> for <args>, trimmed.
 fn git(side: &Path, args: &[&str]) -> String {
@@ -56,7 +59,8 @@ fn standing_at(
         branch: Some(branch),
         git,
     };
-    reads.standing(
+    super::standing(
+        reads,
         &demo.store,
         version,
         &demo.tool.places.claude_sessions(),
@@ -191,7 +195,13 @@ fn a_card_whose_project_has_no_store_says_so_and_never_that_land_takes_its_commi
         git: &git,
     };
     assert_eq!(
-        reads.standing(&ghost, 1, &demo.tool.places.claude_sessions(), &worktree),
+        super::standing(
+            &reads,
+            &ghost,
+            1,
+            &demo.tool.places.claude_sessions(),
+            &worktree
+        ),
         Err("there is no store for project ghost".to_string())
     );
 }
