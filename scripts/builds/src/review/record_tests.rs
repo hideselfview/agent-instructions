@@ -440,3 +440,21 @@ fn branches_of_one_name_in_two_repos_are_two_changes_and_a_change_opens_one_land
     assert_eq!(open_landing(&db, coven).unwrap(), Some(in_coven));
     assert!(add_landing(&db, bae, 7).is_err());
 }
+
+/// Writes, in the schema from before the review texts left the store, a replay
+/// run 4 with call 9 and exchange 6, whose prompt, system and message texts
+/// the store holds as rows of review_text under the hashes <prompt>,
+/// <system> and <message>: the state migrate.rs's move of the review texts
+/// to the build volume starts from. The current schema holds no such rows,
+/// so no write of this file's can build them.
+pub fn plant_run_with_texts_in_the_store(
+    db: &Connection,
+    (prompt, system, message): (&str, &str, &str),
+) -> rusqlite::Result<()> {
+    db.execute_batch(&format!(
+        "INSERT INTO review_run (id, kind, at, base, head, rules_version) VALUES (4, 'replay', 5, 'b', 'h', '');
+INSERT INTO review_text (hash, text) VALUES ('{prompt}', 'the prompt'), ('{system}', 'the system'), ('{message}', 'the message');
+INSERT INTO review_call (id, run_id, group_name, model, prompt, rules, tokens_in, tokens_out, tokens_cached, tokens_written) VALUES (9, 4, 'g', 'm', '{prompt}', '[]', 1, 1, 0, 0);
+INSERT INTO review_exchange (id, call_id, model, unit, pass, system_hash, message_hash, output, tokens_in, tokens_out, tokens_cached, tokens_written) VALUES (6, 9, 'm', 'f', 0, '{system}', '{message}', 'the answer', 1, 1, 0, 0);"
+    ))
+}

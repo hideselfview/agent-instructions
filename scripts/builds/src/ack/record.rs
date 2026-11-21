@@ -264,4 +264,4 @@ pub fn drop_repo(db: &Connection) -> Result<()> {
 
 #[cfg(test)]
 #[path = "record_tests.rs"]
-mod tests;
+pub mod tests;

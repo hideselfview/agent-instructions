@@ -68,7 +68,7 @@ pub mod check;
 pub mod commits;
 pub mod copy;
 pub mod design_review;
-mod exchange_time;
+pub mod exchange_time;
 #[cfg(test)]
 pub mod fakes;
 mod files;
@@ -79,6 +79,7 @@ pub mod judge;
 pub mod judge_ack;
 pub mod judge_told;
 pub mod landing;
+pub mod marked_mechanical;
 pub mod mechanical;
 mod model_check;
 pub mod over_cap;
@@ -855,7 +856,7 @@ fn call_mechanical(
     let by = runner.map_or("the person", |caller| caller.id.as_str());
     print!(
         "{}",
-        over_cap::call_mechanical(
+        marked_mechanical::call_mechanical(
             &store,
             &checkout.repo(),
             &checkout.top,

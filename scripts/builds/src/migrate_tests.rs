@@ -1693,17 +1693,16 @@ fn a_store_from_before_the_review_texts_left_it_keeps_them_on_the_volume_and_hol
             .unwrap();
         conn.pragma_update(None, "user_version", BEFORE_REVIEW_TEXTS_ON_VOLUME_STAMP)
             .unwrap();
-        conn.execute_batch(&format!(
-            "INSERT INTO review_run (id, kind, at, base, head, rules_version) VALUES (4, 'replay', 5, 'b', 'h', '');
-INSERT INTO review_text (hash, text) VALUES ('{prompt}', 'the prompt'), ('{system}', 'the system'), ('{message}', 'the message');
-INSERT INTO review_call (id, run_id, group_name, model, prompt, rules, tokens_in, tokens_out, tokens_cached, tokens_written) VALUES (9, 4, 'g', 'm', '{prompt}', '[]', 1, 1, 0, 0);
-INSERT INTO review_exchange (id, call_id, model, unit, pass, system_hash, message_hash, output, tokens_in, tokens_out, tokens_cached, tokens_written) VALUES (6, 9, 'm', 'f', 0, '{system}', '{message}', 'the answer', 1, 1, 0, 0);
-INSERT INTO review_exchange_time (exchange_id, started_at, ms) VALUES (6, 5, 7);",
-            prompt = hash("the prompt"),
-            system = hash("the system"),
-            message = hash("the message"),
-        ))
+        crate::review::record::tests::plant_run_with_texts_in_the_store(
+            &conn,
+            (
+                &hash("the prompt"),
+                &hash("the system"),
+                &hash("the message"),
+            ),
+        )
         .unwrap();
+        crate::review::exchange_time::tests::plant_time_of_exchange_6(&conn).unwrap();
     }
     migrate_stores(&places, 0).unwrap();
     let conn = db::open(&path, db::Make::Never).unwrap();
@@ -1819,11 +1818,7 @@ fn a_store_from_before_the_acks_left_the_repo_loses_them_and_equals_a_fresh_sche
     {
         let conn = Connection::open(&path).unwrap();
         conn.execute_batch(&db::schema_before_ack_repo()).unwrap();
-        conn.execute(
-            "INSERT INTO ack (session, agent, repo, version, at) VALUES ('s', 'a', 'bae', 'v1', 5), ('s', 'a', NULL, 'v2', 6)",
-            [],
-        )
-        .unwrap();
+        crate::ack::record::tests::plant_acks_keyed_by_repo(&conn).unwrap();
         conn.pragma_update(None, "user_version", BEFORE_ACK_REPO_STAMP)
             .unwrap();
     }

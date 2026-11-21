@@ -48,6 +48,7 @@ use crate::lists::store::{Store, resolve_by};
 use crate::review::check;
 use crate::review::commits;
 use crate::review::files;
+use crate::review::marked_mechanical;
 use crate::review::over_cap;
 use crate::review::record::{self, Change, LandingRow};
 use crate::review::render;
@@ -444,7 +445,7 @@ fn over_cap_needs_none(
         patch_id: &patch_id,
     };
     // An agent's call of mechanical work holds at any size.
-    let why = if let Some(call) = over_cap::call_of(db, branch)? {
+    let why = if let Some(call) = marked_mechanical::call_of(db, branch)? {
         over_cap::Needs::Called(call)
     } else if added > check::MAX_ADDED_LINES
         && let Some(over_cap::Standing::Waiting(over_cap::Waiting::Mechanical(why))) =

@@ -19,4 +19,4 @@ pub fn record(db: &Connection, exchange: i64, started_at: i64, ms: i64) -> Resul
 
 #[cfg(test)]
 #[path = "exchange_time_tests.rs"]
-mod tests;
+pub mod tests;

@@ -1,5 +1,5 @@
 -- A branch an agent called mechanical work (`builds review --kind
--- mechanical`, review/over_cap.rs owns this table and is the only code that
+-- mechanical`, review/marked_mechanical.rs owns this table and is the only code that
 -- writes it): moved or renamed code, regenerated files or a codemod, which
 -- the compiler, the hook and a machine check cover. `by` names who called it
 -- and `checked_by` the check that covers it. The branch's net change is

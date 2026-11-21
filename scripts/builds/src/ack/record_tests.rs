@@ -151,3 +151,13 @@ fn a_made_up_word_holds_only_lowercase_letters() {
         .is_err()
     );
 }
+
+/// Writes two acknowledgements, one keyed by repo and one with no repo, into
+/// the schema from before `ack` left the repo: the state migrate.rs's move of
+/// that table starts from. The current schema has no `repo` column, so no
+/// write of this file's can build them.
+pub fn plant_acks_keyed_by_repo(db: &Connection) -> rusqlite::Result<()> {
+    db.execute_batch(
+        "INSERT INTO ack (session, agent, repo, version, at) VALUES ('s', 'a', 'bae', 'v1', 5), ('s', 'a', NULL, 'v2', 6)",
+    )
+}

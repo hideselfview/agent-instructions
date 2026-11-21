@@ -1000,4 +1000,4 @@ pub fn first_reviews(db: &Connection) -> Result<Vec<FirstReview>> {
 
 #[cfg(test)]
 #[path = "record_tests.rs"]
-mod tests;
+pub mod tests;

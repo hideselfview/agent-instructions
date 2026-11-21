@@ -119,3 +119,11 @@ fn the_table_refuses_a_second_time_for_one_exchange() {
     .unwrap();
     assert!(record(&db, 1, 1_790_000_020, 1).is_err());
 }
+
+/// Writes the time of exchange 6, from `plant_run_with_texts_in_the_store`
+/// (record_tests.rs), for the migration test that starts from that state.
+pub fn plant_time_of_exchange_6(db: &Connection) -> rusqlite::Result<()> {
+    db.execute_batch(
+        "INSERT INTO review_exchange_time (exchange_id, started_at, ms) VALUES (6, 5, 7);",
+    )
+}

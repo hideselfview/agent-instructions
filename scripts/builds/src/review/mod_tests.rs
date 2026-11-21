@@ -1888,7 +1888,7 @@ fn a_call_of_mechanical_work_replaces_a_question_the_person_dropped() {
 }
 
 fn call(demo: &Demo, side: &Path) -> Result<String> {
-    over_cap::call_mechanical(
+    marked_mechanical::call_mechanical(
         &demo.store,
         "demo",
         side,

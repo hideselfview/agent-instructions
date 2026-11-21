@@ -1007,7 +1007,7 @@ fn a_branch_called_mechanical_lands_under_the_cap_with_land_saying_who_and_why()
     crate::testing::git(&side, &["commit", "-q", "-m", "a"]);
     let code = crate::testing::git_out(&side, &["rev-parse", "HEAD"]);
     let key = crate::review::default_key(&side).unwrap();
-    over_cap::call_mechanical(
+    marked_mechanical::call_mechanical(
         &demo.store,
         "demo",
         &side,
