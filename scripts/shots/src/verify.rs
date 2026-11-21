@@ -132,9 +132,13 @@ pub(crate) fn verify(job: &Verification) -> Result<Outcome, String> {
         design: &design,
         runtime: runtime.copy.text,
     };
+    let scales: render::Scales = shots
+        .iter()
+        .map(|(name, shot)| (name.clone(), shot.list.scale))
+        .collect();
     let hashes = render::hashes(
         root,
-        &names,
+        &scales,
         &previews,
         &design,
         runtime.copy.sha256,
@@ -148,6 +152,7 @@ pub(crate) fn verify(job: &Verification) -> Result<Outcome, String> {
         &previews,
         job.checker.cache,
         &to_draw,
+        &scales,
         &boards,
     )?;
     if let Some(pictures) = job.pictures {

@@ -168,35 +168,37 @@ fn feed(hasher: &mut Sha256, label: &str, bytes: &[u8]) {
     hasher.update(bytes);
 }
 
-/// Feeds what every board's picture depends on: the design system's built
-/// files, the browser, the program that draws and reads it, and the
-/// settings it draws with.
-fn feed_common(
-    hasher: &mut Sha256,
-    design: &DesignSystem,
-    browser_version: &str,
-    program_version: &str,
-    settings: &Settings,
-) {
-    for (label, text) in design.built() {
-        feed(hasher, label, text.as_bytes());
+/// What every board's picture depends on besides its own files: the design
+/// system's built files, the browser, the program that draws and reads it, the
+/// settings it draws with, and the pixels per point it draws at.
+pub(crate) struct Common<'a> {
+    pub(crate) design: &'a DesignSystem,
+    pub(crate) browser_version: &'a str,
+    pub(crate) program_version: &'a str,
+    pub(crate) settings: &'a Settings,
+    pub(crate) scale: f64,
+}
+
+impl Common<'_> {
+    fn feed(&self, hasher: &mut Sha256) {
+        for (label, text) in self.design.built() {
+            feed(hasher, label, text.as_bytes());
+        }
+        feed(hasher, "browser", self.browser_version.as_bytes());
+        feed(hasher, "program", self.program_version.as_bytes());
+        feed(hasher, "unshot", self.settings.unshot.join("\n").as_bytes());
+        feed(hasher, "scale", self.scale.to_string().as_bytes());
     }
-    feed(hasher, "browser", browser_version.as_bytes());
-    feed(hasher, "program", program_version.as_bytes());
-    feed(hasher, "unshot", settings.unshot.join("\n").as_bytes());
 }
 
 /// What the picture of the screen board `name` depends on: its file and the
 /// parts it mounts, its frame on the canvas, the runtime copy, and what every
-/// board's picture depends on (`feed_common`).
+/// board's picture depends on (`Common`).
 pub(crate) fn board_hash(
     root: &Path,
     name: &str,
-    design: &DesignSystem,
     runtime_sha256: &str,
-    browser_version: &str,
-    program_version: &str,
-    settings: &Settings,
+    common: &Common,
 ) -> Result<String, DesignError> {
     let mut hasher = Sha256::new();
     for (part, file) in reached(root, name)? {
@@ -209,30 +211,19 @@ pub(crate) fn board_hash(
         format!("{}x{}", frame.w, frame.h).as_bytes(),
     );
     feed(&mut hasher, "runtime", runtime_sha256.as_bytes());
-    feed_common(
-        &mut hasher,
-        design,
-        browser_version,
-        program_version,
-        settings,
-    );
+    common.feed(&mut hasher);
     Ok(crate::hex::hex(&hasher.finalize()))
 }
 
 /// What the picture of the component shot `name`, which draws the row
 /// `state` of <component>'s preview, depends on: the preview page, the shot's
 /// name (its platform and state), the copies of React, the marks of a
-/// preview's rows, and what every board's picture depends on
-/// (`feed_common`).
-#[allow(clippy::too_many_arguments)]
+/// preview's rows, and what every board's picture depends on (`Common`).
 pub(crate) fn preview_hash(
     root: &Path,
     name: &str,
     component: &str,
-    design: &DesignSystem,
-    browser_version: &str,
-    program_version: &str,
-    settings: &Settings,
+    common: &Common,
 ) -> Result<String, DesignError> {
     let mut hasher = Sha256::new();
     let preview = root.join(boards::preview::preview_path(component));
@@ -244,20 +235,14 @@ pub(crate) fn preview_hash(
     feed(&mut hasher, "shot", name.as_bytes());
     feed(&mut hasher, "react", REACT.as_bytes());
     feed(&mut hasher, "react-dom", REACT_DOM.as_bytes());
-    if let Some(marks) = &settings.preview {
+    if let Some(marks) = &common.settings.preview {
         feed(
             &mut hasher,
             "preview marks",
             format!("{}\n{}\n{}", marks.row, marks.name, marks.cell).as_bytes(),
         );
     }
-    feed_common(
-        &mut hasher,
-        design,
-        browser_version,
-        program_version,
-        settings,
-    );
+    common.feed(&mut hasher);
     Ok(crate::hex::hex(&hasher.finalize()))
 }
 

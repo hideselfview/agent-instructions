@@ -52,7 +52,19 @@ fn hash_with(
     program: &str,
     settings: &Settings,
 ) -> String {
-    board_hash(root, "mac.a.b", design, runtime, browser, program, settings).unwrap()
+    board_hash(
+        root,
+        "mac.a.b",
+        runtime,
+        &Common {
+            design,
+            browser_version: browser,
+            program_version: program,
+            settings,
+            scale: 2.0,
+        },
+    )
+    .unwrap()
 }
 
 fn hash(root: &Path) -> String {
@@ -64,6 +76,29 @@ fn hash(root: &Path) -> String {
         "program-1",
         &Settings::default(),
     )
+}
+
+#[test]
+fn a_board_hash_depends_on_the_scale() {
+    let root = tree();
+    let design = system("tokens", "css", "js");
+    let at = |scale: f64| {
+        board_hash(
+            root.path(),
+            "mac.a.b",
+            "runtime",
+            &Common {
+                design: &design,
+                browser_version: "chrome-1",
+                program_version: "program-1",
+                settings: &Settings::default(),
+                scale,
+            },
+        )
+        .unwrap()
+    };
+    assert_eq!(at(2.0), at(2.0));
+    assert_ne!(at(1.0), at(2.0));
 }
 
 #[test]
@@ -83,11 +118,14 @@ fn a_part_that_is_missing_is_named() {
     let error = board_hash(
         root.path(),
         "mac.a.b",
-        &system("t", "c", "j"),
         "r",
-        "c",
-        "p",
-        &Settings::default(),
+        &Common {
+            design: &system("t", "c", "j"),
+            browser_version: "c",
+            program_version: "p",
+            settings: &Settings::default(),
+            scale: 2.0,
+        },
     )
     .unwrap_err()
     .to_string();
@@ -177,10 +215,13 @@ fn a_preview_hash_names_its_shot_so_each_row_of_a_preview_has_its_own() {
             r,
             shot,
             "MacRow",
-            &design,
-            "chrome-1",
-            "program-1",
-            settings,
+            &Common {
+                design: &design,
+                browser_version: "chrome-1",
+                program_version: "program-1",
+                settings,
+                scale: 2.0,
+            },
         )
         .unwrap()
     };

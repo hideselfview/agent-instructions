@@ -17,15 +17,16 @@ use crate::shots::{ElementList, Size};
 use serve::Tree;
 use std::path::Path;
 
-/// Pixels per point the boards are drawn at.
-const BOARD_SCALE: f64 = 1.0;
+/// The pixels per point each board is drawn at: the scale of the shot it is
+/// compared with.
+pub(crate) type Scales = std::collections::BTreeMap<Name, f64>;
 
-/// The hash of the board picture of each of `names`: everything the picture
-/// depends on (design.rs), the pinned browser and this program's version
-/// included. Starts no browser.
+/// The hash of the board picture of each board in `scales`: everything the
+/// picture depends on (design.rs), the pinned browser, this program's version
+/// and the board's scale included. Starts no browser.
 pub(crate) fn hashes(
     root: &Path,
-    names: &[Name],
+    scales: &Scales,
     previews: &names::Previews,
     design: &DesignSystem,
     runtime_sha256: &str,
@@ -33,27 +34,20 @@ pub(crate) fn hashes(
     settings: &Settings,
 ) -> Result<std::collections::BTreeMap<Name, String>, String> {
     let mut hashes = std::collections::BTreeMap::new();
-    for name in names {
+    for (name, &scale) in scales {
         let shot = name.to_string();
+        let common = design::Common {
+            design,
+            browser_version: chrome::PINNED,
+            program_version: version,
+            settings,
+            scale,
+        };
         let hash = match name {
-            Name::Screen(_) => design::board_hash(
-                root,
-                &shot,
-                design,
-                runtime_sha256,
-                chrome::PINNED,
-                version,
-                settings,
-            ),
-            Name::Component(c) => design::preview_hash(
-                root,
-                &shot,
-                &c.component(previews),
-                design,
-                chrome::PINNED,
-                version,
-                settings,
-            ),
+            Name::Screen(_) => design::board_hash(root, &shot, runtime_sha256, &common),
+            Name::Component(c) => {
+                design::preview_hash(root, &shot, &c.component(previews), &common)
+            }
         }
         .map_err(|e| format!("{shot}: {e}"))?;
         hashes.insert(name.clone(), hash);
@@ -70,14 +64,16 @@ pub(crate) fn boards(
     previews: &names::Previews,
     cache: &Path,
     names: &[Name],
+    scales: &Scales,
     out: &Path,
 ) -> Result<(), String> {
     if names.is_empty() {
         return Ok(());
     }
     std::fs::create_dir_all(out).map_err(|e| format!("cannot prepare {}: {e}", out.display()))?;
+    let drawn: Scales = names.iter().map(|n| (n.clone(), scales[n])).collect();
     with_browser(tree, cache, async |server, chrome| {
-        draw_with(tree.root, settings, previews, names, out, server, chrome).await
+        draw_with(tree, settings, previews, &drawn, out, server, chrome).await
     })
 }
 
@@ -112,24 +108,41 @@ struct Drawn {
 }
 
 async fn draw_with(
-    root: &Path,
+    tree: Tree<'_>,
     settings: &Settings,
     previews: &names::Previews,
-    names: &[Name],
+    scales: &Scales,
     out: &Path,
     server: &serve::Server,
     chrome: &chrome::Chrome,
 ) -> Result<(), String> {
-    for name in names {
+    for (name, &scale) in scales {
         let board = name.to_string();
         let drawn = chrome
             .with_page(async |page| match name {
                 Name::Screen(_) => {
-                    draw_screen(root, settings, &board, page, server, name.platform()).await
+                    draw_screen(
+                        tree.root,
+                        settings,
+                        &board,
+                        page,
+                        server,
+                        name.platform(),
+                        scale,
+                    )
+                    .await
                 }
                 Name::Component(component) => {
-                    draw_component(settings, previews, component, page, server, name.platform())
-                        .await
+                    draw_component(
+                        settings,
+                        previews,
+                        component,
+                        page,
+                        server,
+                        name.platform(),
+                        scale,
+                    )
+                    .await
                 }
             })
             .await?;
@@ -140,7 +153,7 @@ async fn draw_with(
             board: board.clone(),
             platform: name.platform(),
             size: drawn.size,
-            scale: BOARD_SCALE,
+            scale,
             elements: drawn.elements,
             unshot: drawn.unshot,
         };
@@ -162,9 +175,10 @@ async fn draw_screen(
     page: &chromiumoxide::Page,
     server: &serve::Server,
     platform: names::Platform,
+    scale: f64,
 ) -> Result<Drawn, String> {
     let frame = design::frame(root, board).map_err(|e| e.to_string())?;
-    let rendered = board::render(page, board, &server.board_url(board), frame, BOARD_SCALE)
+    let rendered = board::render(page, board, &server.board_url(board), frame, scale)
         .await
         .map_err(|e| e.to_string())?;
     let elements = read::elements(page, platform)
@@ -191,6 +205,7 @@ async fn draw_component(
     page: &chromiumoxide::Page,
     server: &serve::Server,
     platform: names::Platform,
+    scale: f64,
 ) -> Result<Drawn, String> {
     let component = name.component(previews);
     let marks = settings.preview(&component).map_err(|e| e.to_string())?;
@@ -199,7 +214,7 @@ async fn draw_component(
         &component,
         name.state(),
         &server.preview_url(&component),
-        BOARD_SCALE,
+        scale,
         platform,
         marks,
     )
