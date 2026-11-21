@@ -442,3 +442,48 @@ fn a_prefix_is_cached_when_a_taken_mark_starts_it_and_took_the_window_shots_it_a
         .text();
     assert!(error.contains("mac.c."), "{error}");
 }
+
+#[test]
+fn a_run_that_a_waiting_branch_names_survives_a_prune_that_drops_an_older_unnamed_run() {
+    let scratch = Scratch::new("shot-store-named");
+    let places = scratch.places();
+    let tool = scratch.tool(0);
+    let mut folders = Vec::new();
+    // The named run is the oldest, so the cap would delete it first.
+    for (n, hours) in [(0, 30), (1, 20), (2, 10)] {
+        let cached = cache_run(&places, &key(&format!("mac.p{n}.")), 0, "ok\n", true);
+        fill(&cached.report().join("img/a.png"), 400);
+        age(&cached.folder.join(RUN_FILE), hours);
+        folders.push(cached.folder);
+    }
+    let named: Named = [(
+        folders[0].clone(),
+        BTreeSet::from(["android-components-4".to_string()]),
+    )]
+    .into();
+    prune_naming(&tool, Run::Real, 1000, &|_| Ok(named.clone())).unwrap();
+    let left: Vec<bool> = folders.iter().map(|folder| folder.exists()).collect();
+    assert_eq!(
+        left,
+        [true, false, true],
+        "the unnamed run used 20h ago went"
+    );
+}
+
+#[test]
+fn runs_in_use_that_pass_the_cap_all_stay() {
+    let scratch = Scratch::new("shot-store-named-over");
+    let places = scratch.places();
+    let tool = scratch.tool(0);
+    let mut named = Named::new();
+    let mut folders = Vec::new();
+    for (n, hours) in [(0, 30), (1, 20)] {
+        let cached = cache_run(&places, &key(&format!("mac.p{n}.")), 0, "ok\n", true);
+        fill(&cached.report().join("img/a.png"), 400);
+        age(&cached.folder.join(RUN_FILE), hours);
+        named.insert(cached.folder.clone(), BTreeSet::from(["work".to_string()]));
+        folders.push(cached.folder);
+    }
+    prune_naming(&tool, Run::Real, 500, &|_| Ok(named.clone())).unwrap();
+    assert!(folders.iter().all(|folder| folder.exists()));
+}

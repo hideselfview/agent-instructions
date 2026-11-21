@@ -101,6 +101,9 @@ pub enum FindingKind {
     Waits,
     /// A process whose caller is gone (orphans.rs).
     Orphan,
+    /// A repo's cached shots runs that branches waiting to land need take
+    /// more than the cache's cap (shots_cache.rs).
+    ShotsCache,
 }
 
 /// What a finding says, and the command it suggests running, if any. The
@@ -978,6 +981,34 @@ pub fn assess(
     }
 }
 
+/// What health says of each repo whose cached shots runs that branches
+/// waiting to land name take more than the cap, or of the failure to read
+/// them.
+fn shots_cache_findings(tool: &Tool) -> Vec<Finding> {
+    let advice = match crate::shots_cache::over_cap_in_use(tool) {
+        Ok(over) => over
+            .into_iter()
+            .map(|over| {
+                Advice::said(format!(
+                    "shots cache: the runs that {} still need take {} of {}'s folder in shots, over its {} cap; prune keeps them until those branches land",
+                    over.branches.join(", "),
+                    human(over.kib),
+                    over.repo,
+                    human(crate::shots_cache::CAP_KIB)
+                ))
+            })
+            .collect(),
+        Err(error) => vec![Advice::said(format!(
+            "shots cache: builds cannot tell which runs branches need: {}",
+            error.text()
+        ))],
+    };
+    advice
+        .into_iter()
+        .map(|advice| Finding::new(FindingKind::ShotsCache, advice))
+        .collect()
+}
+
 /// What health says of <branch>: its commits, and the command that takes it
 /// back into a worktree.
 fn loose_advice(branch: &crate::unlanded::LooseBranch) -> Advice {
@@ -1708,6 +1739,7 @@ pub fn cmd_health(tool: &Tool, args: &[String]) -> Result<()> {
             .into_iter()
             .map(|advice| Finding::new(FindingKind::Prune, advice)),
     );
+    health.findings.extend(shots_cache_findings(tool));
     let loaded = crate::lists::store::load_all(&tool.places);
     let ready = crate::host_load::ready_items(&loaded);
     let probed: Vec<_> = hosts.iter().cloned().zip(probes).collect();

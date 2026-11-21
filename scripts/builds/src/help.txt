@@ -1983,7 +1983,13 @@ first. A run's last use is when it ended or when builds last read it (to
 print its findings or to compare a branch's run with it). A board picture's
 is when a run last drew or took it. An app source tree's shots of one
 platform go together, and their last use is when a run last captured or took
-one of them. Whatever a run used in the last 30 minutes stays. `setup` and
+one of them. Whatever a run used in the last 30 minutes stays. A run that a
+branch with commits origin/main lacks still needs stays however long ago it
+was used: the run of the commit of any of the branch's app builds that ran
+the prefix, and the run of that commit's merge base with origin/main, which
+the build compared with. Only runs that no such branch names are deleted.
+When the runs that branches need take more than the cap, `prune` keeps them
+all, and `health` says so and names the branches. `setup` and
 `prune` also delete each staging folder and half-written picture file that a
 run which died left behind, and each folder the deleted runs left empty. A
 run fills its staging folder at the top of the folder shots and makes the

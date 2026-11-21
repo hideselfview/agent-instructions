@@ -37,11 +37,18 @@
 //! folder, which the shots program sets each time it takes them; so what
 //! agents keep using stays.
 //!
+//! The prune never deletes a run that a branch waiting to land names, as the
+//! run that covers one of the branch's app builds or as the run that build
+//! compared with (shots_in_use.rs), however long ago the run was used. When
+//! those runs alone pass `CAP_KIB`, the prune keeps them all and `builds
+//! health` names the branches (`over_cap_in_use`).
+//!
 //! The folder `shots` is a capped store (capped_store.rs): its lock on
 //! `shots/.writing` is held by each run that caches its output, and by
 //! app-build while a shots step reads a before run or the picture folder or
 //! writes to it, so the prune deletes nothing a run reads or writes.
 
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
@@ -53,6 +60,7 @@ use crate::fail::{Context, Result};
 use crate::lane::Lane;
 use crate::places::Places;
 use crate::prune::Run;
+use crate::shots_in_use::{self, Named};
 use crate::text::note;
 use crate::tool::Tool;
 
@@ -377,6 +385,49 @@ pub fn before_run(
     Ok(found)
 }
 
+/// The keys of the runs of <repo>'s <commit> on <lane>, by shots program
+/// <version>, whose prefix starts <prefix>: the runs that can cover it.
+fn covering_keys(
+    places: &Places,
+    repo: &str,
+    commit: &str,
+    lane: Lane,
+    prefix: &str,
+    version: &str,
+) -> Result<Vec<Key>> {
+    let folder = prefixes_folder(places, repo, commit, lane);
+    let mut found = Vec::new();
+    for (name, _) in folders_in(&folder)? {
+        if name.starts_with('.') || !prefix.starts_with(&name) {
+            continue;
+        }
+        let key = Key {
+            repo: repo.to_string(),
+            commit: commit.to_string(),
+            lane,
+            prefix: name,
+            version: version.to_string(),
+        };
+        found.push(key);
+    }
+    Ok(found)
+}
+
+/// The folders of the runs that can cover <prefix> (`covering_keys`).
+pub fn covering_folders(
+    places: &Places,
+    repo: &str,
+    commit: &str,
+    lane: Lane,
+    prefix: &str,
+    version: &str,
+) -> Result<Vec<PathBuf>> {
+    Ok(covering_keys(places, repo, commit, lane, prefix, version)?
+        .iter()
+        .map(|key| run_folder(places, key))
+        .collect())
+}
+
 /// The newest cached run of <repo>'s <commit> on <lane>, by shots program
 /// <version>, whose prefix starts <prefix> (a run of `mac.` stands in for one
 /// of `mac.welcome.`) and whose report holds findings.json. Finding it writes
@@ -389,26 +440,8 @@ pub fn covering_run(
     prefix: &str,
     version: &str,
 ) -> Result<Option<Cached>> {
-    let folder = prefixes_folder(places, repo, commit, lane);
-    let names = match std::fs::read_dir(&folder) {
-        Ok(entries) => entries,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(error) => fail!("listing {}: {error}", folder.display()),
-    };
     let mut found: Vec<Cached> = Vec::new();
-    for entry in names {
-        let entry = entry.context(|| format!("listing {}", folder.display()))?;
-        let name = entry.file_name().to_string_lossy().into_owned();
-        if name.starts_with('.') || !prefix.starts_with(&name) {
-            continue;
-        }
-        let key = Key {
-            repo: repo.to_string(),
-            commit: commit.to_string(),
-            lane,
-            prefix: name,
-            version: version.to_string(),
-        };
+    for key in covering_keys(places, repo, commit, lane, prefix, version)? {
         if let Some(cached) = read(&run_folder(places, &key), &key)?
             && cached.findings_json().is_file()
         {
@@ -421,16 +454,22 @@ pub fn covering_run(
 /// What the folder of <repo> in `shots` holds, as the cap sees it: its
 /// runs, board pictures and app source trees' shots, and the leftovers of
 /// runs that ended.
-fn group(places: &Places, repo: &str) -> Result<Group> {
+fn group(places: &Places, repo: &str, named: &Named) -> Result<Group> {
     let mut kept = Vec::new();
     for (_, commit) in folders_in(&root(places).join(repo).join("runs"))? {
         for (_, lane) in folders_in(&commit)? {
             for (_, prefix) in folders_in(&lane)? {
                 for (_, folder) in folders_in(&prefix)? {
-                    kept.push(Kept::Folder {
-                        last_use: Use::At(written_at(&folder.join(RUN_FILE))?),
-                        folder,
-                        what: "a shots run",
+                    kept.push(match named.get(&folder) {
+                        Some(branches) => Kept::InUse {
+                            by: branches.iter().cloned().collect(),
+                            folder,
+                        },
+                        None => Kept::Folder {
+                            last_use: Use::At(written_at(&folder.join(RUN_FILE))?),
+                            folder,
+                            what: "a shots run",
+                        },
                     });
                 }
             }
@@ -489,15 +528,63 @@ pub fn prune(tool: &Tool, run: Run) -> Result<()> {
 
 /// `capped_store::prune` of each repo's folder in `shots` with <cap_kib>.
 pub fn prune_runs(tool: &Tool, run: Run, cap_kib: u64) -> Result<()> {
+    prune_naming(tool, run, cap_kib, &|repo| {
+        shots_in_use::named(&tool.places, repo)
+    })
+}
+
+/// `prune_runs`, with <named> giving the runs of a repo that branches name.
+fn prune_naming(
+    tool: &Tool,
+    run: Run,
+    cap_kib: u64,
+    named: &dyn Fn(&str) -> Result<Named>,
+) -> Result<()> {
     let shots = root(&tool.places);
     if !shots.is_dir() {
         return Ok(());
     }
     let mut groups = Vec::new();
     for (repo, _) in capped_store::tops_in(&shots)? {
-        groups.push(group(&tool.places, &repo)?);
+        groups.push(group(&tool.places, &repo, &named(&repo)?)?);
     }
     capped_store::prune(tool, run, &shots, cap_kib, groups)
+}
+
+/// A repo whose runs that branches waiting to land name take more than
+/// `CAP_KIB`, so the prune keeps all of them and the folder stays over its
+/// cap.
+#[derive(Debug, PartialEq, Eq)]
+pub struct OverCap {
+    pub repo: String,
+    pub kib: u64,
+    /// The branches that name a run, sorted.
+    pub branches: Vec<String>,
+}
+
+/// The repos whose runs in use alone pass `CAP_KIB`, for `builds health`.
+pub fn over_cap_in_use(tool: &Tool) -> Result<Vec<OverCap>> {
+    let shots = root(&tool.places);
+    let mut over = Vec::new();
+    for (repo, folder) in capped_store::tops_in(&shots)? {
+        // The runs in use are part of the folder: a folder under its cap
+        // holds no more than the cap of them.
+        if tool.measure(&folder)?.kib <= CAP_KIB {
+            continue;
+        }
+        let named = shots_in_use::named(&tool.places, &repo)?;
+        let folders: Vec<PathBuf> = named.keys().cloned().collect();
+        let kib: u64 = tool.measure_all(&folders)?.iter().map(|m| m.kib).sum();
+        if kib > CAP_KIB {
+            let branches: BTreeSet<&String> = named.values().flatten().collect();
+            over.push(OverCap {
+                repo,
+                kib,
+                branches: branches.into_iter().cloned().collect(),
+            });
+        }
+    }
+    Ok(over)
 }
 
 #[cfg(test)]

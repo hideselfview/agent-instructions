@@ -532,6 +532,73 @@ pub fn shots_ran(
         .collect()
 }
 
+/// One shots run that an app build made of a commit: the branch the build
+/// named, the commit it built, and the shots prefix it ran.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ShotsBuild {
+    pub branch: String,
+    pub commit: String,
+    pub lane: Lane,
+    pub prefix: String,
+    /// When the app build joined the lane's queue, seconds since 1970.
+    pub started_at: i64,
+}
+
+/// The shots runs that app builds of <repo> made at or after <since>
+/// (seconds since 1970) of the commit they built, to a verdict, passed or
+/// not, in the database open as <conn> at <path>. A build that recorded no
+/// commit has none.
+pub fn shots_builds(
+    conn: &Connection,
+    repo: &str,
+    since: i64,
+    path: &Path,
+) -> Result<Vec<ShotsBuild>> {
+    let what = || format!("reading {}", path.display());
+    let mut statement = conn
+        .prepare(
+            "SELECT DISTINCT r.built_ref, c.built_commit, r.lane, s.name, r.started_at
+             FROM app_build_steps s
+             JOIN app_build_runs r ON r.id = s.run_id
+             JOIN app_build_run_commit c ON c.run_id = r.id
+             WHERE r.repo = ?1 AND r.started_at >= ?2
+               AND s.kind = 'shots' AND s.result IN ('passed', 'failed', 'timed out')
+             ORDER BY r.started_at, s.name",
+        )
+        .context(what)?;
+    let rows: Vec<(String, String, String, String, i64)> = statement
+        .query_map(params![repo, since], |row| {
+            Ok((
+                row.get(0)?,
+                row.get(1)?,
+                row.get(2)?,
+                row.get(3)?,
+                row.get(4)?,
+            ))
+        })
+        .context(what)?
+        .collect::<std::result::Result<_, _>>()
+        .context(what)?;
+    let step = PickKind::Shots.step_prefix();
+    rows.into_iter()
+        .map(|(branch, commit, lane, name, started_at)| {
+            let Some(prefix) = name.strip_prefix(step) else {
+                fail!(
+                    "{} holds a shots step named {name:?}, which does not start with {step:?}",
+                    path.display()
+                );
+            };
+            Ok(ShotsBuild {
+                branch,
+                commit,
+                lane: Lane::parse_or_fail(&lane)?,
+                prefix: prefix.to_string(),
+                started_at,
+            })
+        })
+        .collect()
+}
+
 /// Each app build run's queue wait and each step, of the runs and steps that
 /// started at or after <since>, as waits (waits.rs), whatever their result,
 /// each with the load of the run's host when the run took its checkout.

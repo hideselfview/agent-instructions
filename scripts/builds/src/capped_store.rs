@@ -18,8 +18,9 @@
 //!
 //! `setup` and `prune` delete units, least recently used first, while a group
 //! of the root is over its cap (`prune`). A unit used in the last
-//! FLOOR_IDLE_MINUTES stays.
+//! FLOOR_IDLE_MINUTES stays, and so does a unit marked in use (`Kept::InUse`).
 
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 use crate::evict::{Recreate, Removal};
@@ -190,6 +191,10 @@ pub enum Kept {
         last_use: Use,
         what: &'static str,
     },
+    /// A unit that is one folder and that a reader the cap cannot see still
+    /// needs, the branches of <by>: the cap never deletes it, but counts its
+    /// size.
+    InUse { folder: PathBuf, by: Vec<String> },
     /// A unit that is several files, which the prune deletes in order.
     Files {
         files: Vec<PathBuf>,
@@ -257,15 +262,24 @@ fn prune_group(tool: &Tool, run: Run, cap_kib: u64, group: Group) -> Result<()> 
     let mut paths = vec![group.folder.clone()];
     for kept in &group.kept {
         match kept {
-            Kept::Folder { folder, .. } | Kept::Staging { folder } => paths.push(folder.clone()),
+            Kept::Folder { folder, .. } | Kept::InUse { folder, .. } | Kept::Staging { folder } => {
+                paths.push(folder.clone())
+            }
             Kept::Files { .. } | Kept::Loose { .. } => {}
         }
     }
     let mut measures = tool.measure_all(&paths)?.into_iter();
     let mut total = measures.next().expect("the folder was measured").kib;
     let mut units: Vec<(i64, u64, &'static str, Unit)> = Vec::new();
+    let mut in_use: (u64, usize, BTreeSet<String>) = Default::default();
     for kept in group.kept {
         match kept {
+            Kept::InUse { by, .. } => {
+                let measured = measures.next().expect("the folder was measured");
+                in_use.0 += measured.kib;
+                in_use.1 += 1;
+                in_use.2.extend(by);
+            }
             Kept::Staging { folder } => {
                 let measured = measures.next().expect("the folder was measured");
                 let reason = format!(
@@ -357,6 +371,16 @@ fn prune_group(tool: &Tool, run: Run, cap_kib: u64, group: Group) -> Result<()> 
         if deleted {
             total = total.saturating_sub(kib);
         }
+    }
+    let (in_use_kib, count, by) = in_use;
+    if in_use_kib > cap_kib {
+        note(format!(
+            "{} holds {} of {count} units that {} still need, over its {} cap; kept",
+            group.folder.display(),
+            human(in_use_kib),
+            by.into_iter().collect::<Vec<_>>().join(", "),
+            human(cap_kib)
+        ));
     }
     Ok(())
 }
