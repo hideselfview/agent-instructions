@@ -88,8 +88,21 @@ pub fn named_in(
 /// longer has, whose runs no landing compares.
 fn merge_base_of(source: &Path, commit: &str) -> Result<Option<String>> {
     let known = format!("{commit}^{{commit}}");
-    if crate::app_config::run_git(source, &["rev-parse", "--verify", "--quiet", &known]).is_err() {
-        return Ok(None);
+    let checked = boards::git(source)
+        .args(["rev-parse", "--verify", "--quiet", &known])
+        .output()
+        .map_err(|error| {
+            fail::Fail::Message(format!("running git in {}: {error}", source.display()))
+        })?;
+    // `--quiet` exits 1 for a commit git lacks; any other failure is an error.
+    match checked.status.code() {
+        Some(0) => {}
+        Some(1) => return Ok(None),
+        _ => fail!(
+            "git rev-parse {known} in {}: {}",
+            source.display(),
+            String::from_utf8_lossy(&checked.stderr).trim()
+        ),
     }
     let base = crate::derive::merge_base(source, commit)?;
     Ok((base != commit).then_some(base))
