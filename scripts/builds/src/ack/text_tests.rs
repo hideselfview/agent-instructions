@@ -153,7 +153,7 @@ fn a_part_shows_each_blanked_word_as_its_first_letter_and_underscores() {
         "Nothing here is blanked.".to_string(),
         "A reader considers elephants carefully.".to_string(),
     ];
-    let shown = show_part(&lines, 2, 5, "abcd1234", &["elephants".to_string()]);
+    let shown = show_part(&lines, 2, 5, "abcd1234", &["elephants".to_string()]).unwrap();
     let shown: Vec<&str> = shown.lines().collect();
     assert!(shown[0].contains("part 2 of 5 of version abcd1234"));
     assert!(shown[0].contains("1 words in it are blanked"));
@@ -170,7 +170,7 @@ fn blanks_come_one_from_each_third_in_order_and_appear_nowhere_in_the_output() {
         next += 1;
         next
     };
-    let words = pick_blanks(&lines, &mut random);
+    let words = pick_blanks(&lines, &mut random).unwrap();
     assert_eq!(words.len(), WORDS_PER_PART);
     let at = |word: &String| {
         lines
@@ -181,7 +181,7 @@ fn blanks_come_one_from_each_third_in_order_and_appear_nowhere_in_the_output() {
     for (third, word) in words.iter().enumerate() {
         assert!((third * 10..(third + 1) * 10).contains(&at(word)), "{word}");
     }
-    let shown = show_part(&lines, 1, 1, "v", &words);
+    let shown = show_part(&lines, 1, 1, "v", &words).unwrap();
     for word in &words {
         assert!(!shown.contains(word.as_str()), "{word}");
     }
@@ -207,7 +207,7 @@ fn a_blank_is_a_lowercase_word_of_running_prose_that_occurs_once_in_the_part() {
     ];
     for start in 0..6 {
         let mut draws = start..;
-        for word in pick_blanks(&lines, &mut || draws.next().unwrap()) {
+        for word in pick_blanks(&lines, &mut || draws.next().unwrap()).unwrap() {
             assert!(!forbidden.contains(&word.as_str()), "{word}");
         }
     }
@@ -219,12 +219,24 @@ fn a_part_with_only_short_words_blanks_the_longest_it_has() {
         "Add the big red cat.".to_string(),
         "Now all of us run.".to_string(),
     ];
-    let words = pick_blanks(&lines, &mut || 0);
-    assert!(!words.is_empty());
+    let words = pick_blanks(&lines, &mut || 0).unwrap();
+    assert_eq!(words.len(), WORDS_PER_PART);
     assert!(words.iter().all(|word| word.len() == 3));
 }
 
 #[test]
 fn random_numbers_differ_on_each_draw() {
     assert_ne!(random().unwrap(), random().unwrap());
+}
+
+#[test]
+fn a_word_the_part_lacks_is_refused() {
+    let lines = vec!["Nothing here.".to_string()];
+    assert!(show_part(&lines, 1, 1, "v", &["elephants".to_string()]).is_err());
+}
+
+#[test]
+fn a_part_with_too_few_blankable_words_is_refused() {
+    let lines = vec!["Only two words.".to_string()];
+    assert!(pick_blanks(&lines, &mut || 0).is_err());
 }

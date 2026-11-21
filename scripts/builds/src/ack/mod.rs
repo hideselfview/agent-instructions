@@ -427,7 +427,9 @@ fn start(agent: &Agent, text: &Text, now: i64) -> Result<String> {
             draws.push(random()?);
         }
         let mut draws = draws.into_iter();
-        words.push(pick_blanks(lines, &mut || draws.next().unwrap_or(0)));
+        words.push(pick_blanks(lines, &mut || {
+            draws.next().expect("one draw for each third")
+        })?);
     }
     let version = text.version();
     let mut db = db::open(&agent.store.database(), Make::Never)?;
@@ -505,13 +507,13 @@ fn part_of(agent: &Agent, text: &Text, part: &str) -> Result<String> {
         Ok(number) if (1..=count).contains(&number) => number,
         _ => fail!("there are parts 1 to {count}; {part} is none of them\n{USAGE}"),
     };
-    Ok(show_part(
+    show_part(
         &parts[number - 1],
         number,
         count,
         &reading.version,
         &reading.words[number - 1],
-    ))
+    )
 }
 
 /// Records the acknowledgement of <version> with <words>, the blanked words of

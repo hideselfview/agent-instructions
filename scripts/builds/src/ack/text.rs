@@ -249,26 +249,53 @@ fn letter_runs(line: &str) -> Vec<(usize, &str)> {
     runs
 }
 
-/// The words to blank in a part with <lines>: from each third of its lines, a
-/// blankable word of the most letters among 7, 5 and 3 that the third has,
-/// picked with <random>. The words come in the order the part shows them.
-pub fn pick_blanks(lines: &[String], random: &mut dyn FnMut() -> usize) -> Vec<String> {
+/// The words to blank in a part with <lines>: one from each third of its
+/// lines, a blankable word of the most letters among 7, 5 and 3 that the
+/// third has, picked with <random>; a third with no such word takes one from
+/// anywhere in the part. The words come in the order the part shows them.
+/// Fails when the part has fewer than `WORDS_PER_PART` blankable words, so
+/// that no part has a weaker check than the others.
+pub fn pick_blanks(lines: &[String], random: &mut dyn FnMut() -> usize) -> Result<Vec<String>> {
     let thirds = WORDS_PER_PART;
+    let by_length: Vec<Vec<(usize, String)>> = BLANK_LENGTHS
+        .iter()
+        .map(|min| blankable(lines, *min))
+        .collect();
     let mut picked: Vec<(usize, String)> = Vec::new();
     for third in 0..thirds {
         let range = lines.len() * third / thirds..lines.len() * (third + 1) / thirds;
-        for min in BLANK_LENGTHS {
-            let options: Vec<(usize, String)> = blankable(lines, min)
-                .into_iter()
-                .filter(|(at, _)| range.contains(at))
-                .collect();
-            if !options.is_empty() {
-                picked.push(options[random() % options.len()].clone());
+        let draw = random();
+        for anywhere in [false, true] {
+            let options = by_length.iter().find_map(|found| {
+                let options: Vec<&(usize, String)> = found
+                    .iter()
+                    .filter(|(at, word)| {
+                        (anywhere || range.contains(at)) && !picked.iter().any(|(_, w)| w == word)
+                    })
+                    .collect();
+                (!options.is_empty()).then_some(options)
+            });
+            if let Some(options) = options {
+                picked.push(options[draw % options.len()].clone());
                 break;
             }
         }
     }
-    picked.into_iter().map(|(_, word)| word).collect()
+    if picked.len() < thirds {
+        fail!(
+            "a part of {} lines holds only {} words that builds can blank, and each part needs {thirds}",
+            lines.len(),
+            picked.len()
+        );
+    }
+    let column = |(at, word): &(usize, String)| {
+        letter_runs(&lines[*at])
+            .into_iter()
+            .find(|(_, run)| run == word)
+            .map(|(start, _)| (*at, start))
+    };
+    picked.sort_by_key(column);
+    Ok(picked.into_iter().map(|(_, word)| word).collect())
 }
 
 /// <line> with the word that starts at byte <start> and has <len> bytes
@@ -292,18 +319,21 @@ pub fn show_part(
     count: usize,
     version: &str,
     words: &[String],
-) -> String {
+) -> Result<String> {
     let mut shown: Vec<String> = lines.to_vec();
     for word in words {
-        for line in shown.iter_mut() {
-            let found = letter_runs(line)
+        let blank = shown.iter_mut().find_map(|line| {
+            let start = letter_runs(line)
                 .into_iter()
-                .find(|(_, run)| run == word)
-                .map(|(start, _)| start);
-            if let Some(start) = found {
-                *line = blanked(line, start, word.len());
-                break;
-            }
+                .find(|(_, run)| run == word)?
+                .0;
+            *line = blanked(line, start, word.len());
+            Some(())
+        });
+        if blank.is_none() {
+            fail!(
+                "part {number} of version {version} holds no word {word} to blank; run `builds ack` again"
+            );
         }
     }
     let mut out = vec![format!(
@@ -312,7 +342,7 @@ pub fn show_part(
     )];
     out.extend(shown);
     out.push(format!("builds ack: the end of part {number} of {count}."));
-    out.join("\n") + "\n"
+    Ok(out.join("\n") + "\n")
 }
 
 /// A random number from the system's random source.

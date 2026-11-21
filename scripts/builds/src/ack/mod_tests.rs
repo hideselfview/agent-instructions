@@ -386,7 +386,11 @@ fn an_edit_of_one_repos_claude_md_asks_again_only_in_that_repo_and_shows_only_th
     let world = world("ack-two-repos-edited");
     world.acknowledge(NOON);
     world.acknowledge_in(&world.coven, AGENT, NOON);
-    std::fs::write(world.coven.join("CLAUDE.md"), "Coven rules, edited.\n").unwrap();
+    std::fs::write(
+        world.coven.join("CLAUDE.md"),
+        "Coven rules, edited with several ordinary words.\n",
+    )
+    .unwrap();
     world.check(NOON + 60).unwrap();
     let refusal = message(world.check_in(&world.coven, AGENT, NOON + 60));
     assert!(
