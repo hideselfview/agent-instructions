@@ -1702,7 +1702,7 @@ fn a_store_from_before_the_review_texts_left_it_keeps_them_on_the_volume_and_hol
             ),
         )
         .unwrap();
-        crate::review::exchange_time::tests::plant_time_of_exchange_6(&conn).unwrap();
+        crate::review::exchange_time::record(&conn, 6, 5, 7).unwrap();
     }
     migrate_stores(&places, 0).unwrap();
     let conn = db::open(&path, db::Make::Never).unwrap();
