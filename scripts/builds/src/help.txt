@@ -1167,7 +1167,12 @@ merge base with origin/main: builds passes the findings.json of that run to
 the `shots` line as --before, and the run fails only on the pairs it makes
 new or worse, a pair the merge base's run did not check or one with a
 finding that run lacks for it, and lists the pairs whose findings the merge
-base's run has too. The run it compares with is the newest cached run of the
+base's run has too. A pair the merge base's run tried and captured no usable
+shot of, because the capture crashed or failed first, has no picture to
+compare with: the run reports it as a pair the base never rendered, with its
+findings, and does not fail on it. `builds land` prints those pairs and
+their counts. A pair the merge base's run rendered still fails when the
+branch adds findings to it. The run it compares with is the newest cached run of the
 merge base in the same lane, by the same shots version, whose prefix starts
 the run's own (a run of mac. stands in for a run of mac.welcome.), and whose
 report holds findings.json. When builds has none cached, `builds app-build` builds
@@ -1284,7 +1289,9 @@ built again.
                               other shots. A run of a prefix that the
                               required one starts with covers it (`mac.`
                               covers `mac.seek.`). Land prints each dropped
-                              prefix that it honors, below. builds reads each lane's latest 50
+                              prefix that it honors, and the pairs that the
+                              covering runs' shots rendered and the base
+                              never did, below. builds reads each lane's latest 50
                               passing runs, newest first. When a run covers
                               the result in every lane the landing changes,
                               it prints nothing. Otherwise, for each lane no
@@ -1358,7 +1365,9 @@ built again.
                               fails only on the pairs new or worse against
                               that run: a pair it did not check, or one with
                               a finding whose sentence its findings for the
-                              pair lack. Without --before, `run` fails on
+                              pair lack. A pair that run tried and captured
+                              no usable shot of fails nothing: `run` lists
+                              its findings as a pair the base never rendered. Without --before, `run` fails on
                               every pair with findings. With --pictures
                               <folder>, `run` draws only the
                               boards whose board hash the folder lacks

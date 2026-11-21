@@ -177,6 +177,26 @@ pub fn failing_shots(line: &str) -> Option<Vec<String>> {
     )
 }
 
+/// What the shots program prints between the count of the pairs the base
+/// never rendered and their names: `builds shots: 2 pair(s) the base never
+/// rendered, with 3 finding(s) that fail nothing: mac.a.b, mac.a.c`.
+const UNRENDERED_PAIRS: &str = "pair(s) the base never rendered, with ";
+
+/// The names of the pairs that <line> of a shots run's output says the base
+/// never rendered; None for any other line.
+pub fn unrendered_pairs(line: &str) -> Option<Vec<String>> {
+    let (_, rest) = line.split_once(UNRENDERED_PAIRS)?;
+    let (_, names) = rest.split_once(": ")?;
+    Some(
+        names
+            .split(',')
+            .map(str::trim)
+            .filter(|name| !name.is_empty())
+            .map(str::to_string)
+            .collect(),
+    )
+}
+
 /// Whether a run that exited <exit> printed findings: it passed, or said that
 /// pairs fail the run.
 pub fn has_findings(exit: i64, findings: &str) -> bool {

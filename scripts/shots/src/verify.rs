@@ -89,9 +89,11 @@ pub(crate) struct Outcome {
 
 impl Outcome {
     /// Whether the pair's findings fail the run: it has findings, and the run
-    /// has no before run, or the pair is new or worse against it.
+    /// has no before run, or the pair is new or worse against it. A pair the
+    /// before run never rendered has no picture to be worse than.
     fn gated(pair: &Checked) -> bool {
-        !pair.findings.is_empty() && !matches!(pair.against, Some(Against::Held))
+        !pair.findings.is_empty()
+            && !matches!(pair.against, Some(Against::Held | Against::Unrendered))
     }
 
     /// The pairs whose findings fail the run.
@@ -104,6 +106,13 @@ impl Outcome {
         self.checked
             .iter()
             .filter(|c| !c.findings.is_empty() && !Self::gated(c))
+    }
+
+    /// The pairs the before run never rendered, with or without findings.
+    pub(crate) fn unrendered(&self) -> impl Iterator<Item = &Checked> {
+        self.checked
+            .iter()
+            .filter(|c| c.against == Some(Against::Unrendered))
     }
 
     /// Whether nothing fails: no gated finding, no shot without a board and no
@@ -282,6 +291,7 @@ pub(crate) fn note(against: Option<Against>) -> &'static str {
     match against {
         Some(Against::New) => "new against the base",
         Some(Against::Worse) => "worse than the base",
+        Some(Against::Unrendered) => "the base never rendered it",
         Some(Against::Held) | None => "",
     }
 }
@@ -358,7 +368,11 @@ fn summarize(outcome: &Outcome) {
         .map(|c| &c.name)
         .chain(outcome.failed.iter().map(|f| &f.name))
         .collect();
-    let listed: Vec<&Name> = outcome.listed().map(|c| &c.name).collect();
+    let listed: Vec<&Name> = outcome
+        .listed()
+        .filter(|c| c.against != Some(Against::Unrendered))
+        .map(|c| &c.name)
+        .collect();
     if !failing.is_empty() {
         crate::log::note(format_args!(
             "{} pair(s) fail the run: {}",
@@ -377,6 +391,15 @@ fn summarize(outcome: &Outcome) {
             "{} pair(s) have findings that are only listed (the base has each of them too): {}",
             listed.len(),
             names_of(listed.iter().copied())
+        ));
+    }
+    let unrendered: Vec<&Checked> = outcome.unrendered().collect();
+    if !unrendered.is_empty() {
+        crate::log::note(format_args!(
+            "{} pair(s) the base never rendered, with {} finding(s) that fail nothing: {}",
+            unrendered.len(),
+            unrendered.iter().map(|c| c.findings.len()).sum::<usize>(),
+            names_of(unrendered.iter().map(|c| &c.name))
         ));
     }
     if outcome.components.has_gaps() {

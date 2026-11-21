@@ -1240,8 +1240,8 @@ impl Landing<'_> {
             let both = [notes, said].join("\n");
             return Err(uncovered(out, both.trim().to_string()));
         }
-        let (dropped, said) = crate::app_landing::split_output(&said);
-        for line in dropped {
+        let (notes, said) = crate::app_landing::split_output(&said);
+        for line in notes {
             let _ = writeln!(out, "{line}");
         }
         if said.is_empty() {

@@ -17,6 +17,21 @@ fn the_failing_shots_come_from_the_line_that_names_the_pairs_that_fail() {
 }
 
 #[test]
+fn the_unrendered_pairs_come_from_the_line_that_names_the_pairs_the_base_never_rendered() {
+    let line = "builds shots: 2 pair(s) the base never rendered, with 3 finding(s) that fail nothing: mac.a.b, mac.a.c";
+    assert_eq!(
+        unrendered_pairs(line),
+        Some(vec!["mac.a.b".to_string(), "mac.a.c".to_string()])
+    );
+    assert_eq!(failing_shots(line), None);
+    assert!(!has_findings(1, line));
+    assert_eq!(
+        unrendered_pairs("builds shots: no pair fails the run"),
+        None
+    );
+}
+
+#[test]
 fn a_run_has_findings_when_it_passed_or_said_that_pairs_fail_it() {
     assert!(has_findings(0, ""));
     assert!(has_findings(1, "bae-shots: 2 pair(s) fail the run: a, b\n"));

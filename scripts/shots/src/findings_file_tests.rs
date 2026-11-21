@@ -245,3 +245,29 @@ fn the_file_gives_each_pair_s_board_and_shot_sizes_in_points() {
         }})
     );
 }
+
+#[test]
+fn a_pair_the_base_failed_to_capture_is_unrendered_against_it_and_one_it_never_selected_is_new() {
+    let failed = vec![crate::capture::Failed {
+        name: Name::parse("mac.welcome.crashed").unwrap(),
+        why: "the capture crashed".to_string(),
+    }];
+    let before = crate::before::Before::parse(
+        &text(VERSION, "abc123", &[], &failed, &Listing::default()),
+        "findings.json",
+        VERSION,
+    )
+    .unwrap();
+    let missing = [crate::findings_file::What::from(&Finding::Missing(entry(
+        "Set up",
+        Role::Button,
+    )))];
+    assert_eq!(
+        before.against("mac.welcome.crashed", &missing),
+        crate::before::Against::Unrendered
+    );
+    assert_eq!(
+        before.against("mac.welcome.added", &missing),
+        crate::before::Against::New
+    );
+}

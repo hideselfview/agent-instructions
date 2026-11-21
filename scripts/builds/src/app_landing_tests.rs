@@ -72,6 +72,7 @@ fn check_shots(
                 .find(|(known, _)| *known == commit)
                 .map(|(_, list)| paths(list)))
         },
+        &mut |_, _| {},
     )
     .unwrap()
 }
@@ -384,6 +385,33 @@ fn the_output_splits_the_dropped_lines_from_the_rest() {
         )
     );
     assert_eq!(split_output(""), (vec![], String::new()));
+}
+
+/// Land prints the pairs a covering run rendered that the base never did.
+#[test]
+fn land_prints_the_pairs_the_base_never_rendered() {
+    let findings = "FAIL x\nbuilds shots: 2 pair(s) the base never rendered, with 3 finding(s) that fail nothing: mac.a.b, mac.a.c\nbuilds shots: no pair fails the run\n";
+    let line = unrendered_line(Lane::Mac, "0123456789abcdef", "mac.a.", findings).unwrap();
+    assert_eq!(
+        line,
+        "shots the base never rendered: the mac shots run mac.a. of 0123456789ab: builds shots: 2 pair(s) the base never rendered, with 3 finding(s) that fail nothing: mac.a.b, mac.a.c"
+    );
+    assert_eq!(
+        split_output(&format!("{line}\nbuilds app-build bae abc macos")),
+        (
+            vec![line.as_str()],
+            "builds app-build bae abc macos".to_string()
+        )
+    );
+    assert_eq!(
+        unrendered_line(
+            Lane::Mac,
+            "abc",
+            "mac.a.",
+            "builds shots: no pair fails the run\n"
+        ),
+        None
+    );
 }
 
 /// The refusal for a missing shots prefix names it and the drop command.

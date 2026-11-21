@@ -4,14 +4,19 @@
 //! branch's run fails only on the pairs it makes new or worse.
 //!
 //! A pair is new against the before run when that run did not check its
-//! scene, and worse when it has a finding that no finding of the before run
+//! scene, never rendered when the before run tried its scene and the capture
+//! wrote no usable shot of it (its `failed` list), and worse when it has a
+//! finding that no finding of the before run
 //! for the scene covers. A finding covers another when both are of one kind
 //! about one element (its role and words), and for a state, about one aspect,
 //! and the shot is at least as far from the board in it as in the other
 //! (`Size`). Each before finding covers one finding of the pair. So a value
 //! that moved closer to the board's is no new finding, and one that moved
 //! away is.
-//! Warnings never fail a run, so only findings count.
+//! Warnings never fail a run, so only findings count. A pair the before run
+//! never rendered has no picture to compare with, so its findings are listed
+//! and fail nothing: a branch that makes a crashed scene render again can
+//! land.
 //!
 //! Findings made by another version of the checker would not compare, so a
 //! file whose `version` is not this checker's is refused.
@@ -28,6 +33,9 @@ use std::path::Path;
 pub(crate) enum Against {
     /// The before run did not check the scene.
     New,
+    /// The before run tried the scene and its capture wrote no usable shot,
+    /// so the run has no picture of the pair to compare with.
+    Unrendered,
     /// The pair has a finding the before run lacks for the scene.
     Worse,
     /// Every finding of the pair is among the before run's for the scene.
@@ -35,8 +43,7 @@ pub(crate) enum Against {
 }
 
 /// The parts of a findings.json that the comparison reads. A scene the run
-/// failed to capture is in `failed` and not in `scenes`, so it reads as a
-/// scene the run did not check.
+/// failed to capture is in `failed` and not in `scenes`.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct File {
@@ -45,13 +52,21 @@ struct File {
     scenes: Vec<String>,
     /// The pairs' sizes and the components' preview rows, which the
     /// comparison leaves unread.
-    #[serde(rename = "failed")]
-    _failed: serde::de::IgnoredAny,
+    failed: Vec<FailedScene>,
     #[serde(rename = "sizes")]
     _sizes: serde::de::IgnoredAny,
     #[serde(rename = "components")]
     _components: serde::de::IgnoredAny,
     findings: Vec<Record>,
+}
+
+/// A scene the run selected and the capture wrote no usable shot of. The
+/// comparison reads its name and leaves its error unread.
+#[derive(Deserialize)]
+struct FailedScene {
+    scene: String,
+    #[serde(rename = "error")]
+    _error: serde::de::IgnoredAny,
 }
 
 /// The parts of a record that the comparison reads: its kind and the fields
@@ -69,6 +84,8 @@ struct Record {
 pub(crate) struct Before {
     commit: String,
     scenes: BTreeSet<String>,
+    /// The scenes whose capture wrote no usable shot.
+    failed: BTreeSet<String>,
     findings: BTreeMap<String, Vec<What>>,
 }
 
@@ -162,6 +179,7 @@ impl Before {
         Ok(Self {
             commit: file.commit,
             scenes: file.scenes.into_iter().collect(),
+            failed: file.failed.into_iter().map(|f| f.scene).collect(),
             findings,
         })
     }
@@ -185,7 +203,11 @@ impl Before {
     /// element, so which of them it takes does not change the outcome.
     pub(crate) fn against(&self, scene: &str, findings: &[What]) -> Against {
         if !self.scenes.contains(scene) {
-            return Against::New;
+            return if self.failed.contains(scene) {
+                Against::Unrendered
+            } else {
+                Against::New
+            };
         }
         let mut left: Vec<&What> = self
             .findings

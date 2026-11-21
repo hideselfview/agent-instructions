@@ -96,6 +96,17 @@ fn a_new_pair_without_findings_passes() {
 }
 
 #[test]
+fn a_pair_the_base_never_rendered_lists_its_findings_and_fails_nothing() {
+    let mut without = pair_with_finding(Some(Against::Unrendered));
+    without.findings.clear();
+    let outcome = outcome(vec![pair_with_finding(Some(Against::Unrendered)), without]);
+    assert!(outcome.passed());
+    assert_eq!(outcome.failing().count(), 0);
+    assert_eq!(outcome.listed().count(), 1);
+    assert_eq!(outcome.unrendered().count(), 2);
+}
+
+#[test]
 fn a_problem_fails_a_run_whose_pairs_hold() {
     let mut outcome = outcome(vec![pair_with_finding(Some(Against::Held))]);
     outcome.problems.push(Problem {
@@ -109,6 +120,10 @@ fn a_problem_fails_a_run_whose_pairs_hold() {
 fn a_line_names_how_its_pair_stands_against_the_base() {
     assert_eq!(mark(Some(Against::New)), " (new against the base)");
     assert_eq!(mark(Some(Against::Worse)), " (worse than the base)");
+    assert_eq!(
+        mark(Some(Against::Unrendered)),
+        " (the base never rendered it)"
+    );
     assert_eq!(mark(Some(Against::Held)), "");
     assert_eq!(mark(None), "");
 }

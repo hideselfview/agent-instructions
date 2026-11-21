@@ -26,8 +26,10 @@
 //! first. A lane with no build of the branch refuses the landing: the agent
 //! runs `builds app-build` on the branch first.
 //!
-//! The command prints a line `shots dropped: ...` for each drop it honors, and
-//! nothing else when every lane is covered, and otherwise one more line: the `builds app-build <repo> <result> <step>... [--test <lane>
+//! The command prints a line `shots dropped: ...` for each drop it honors, a
+//! line `shots the base never rendered: ...` for each shots run of a covering
+//! build that has such pairs (they fail nothing, and the record shows them),
+//! and nothing else when every lane is covered, and otherwise one more line: the `builds app-build <repo> <result> <step>... [--test <lane>
 //! <Class>]...` command that builds the result in the lanes no run covers,
 //! with the steps and picks of the branch's build of each. A step, class or
 //! shots prefix holds no white space (app_build.rs refuses one that does), so
@@ -57,6 +59,10 @@ const USAGE: &str =
 
 /// What starts each line that tells of a dropped shots prefix.
 pub const DROPPED: &str = "shots dropped:";
+
+/// What starts each line that tells of the pairs a shots run of the landing's
+/// build rendered that the base never rendered.
+pub const UNRENDERED: &str = "shots the base never rendered:";
 
 /// The paths of <paths> that one of <lane>'s `on` lines in <config> matches:
 /// a line that names a step of the lane.
@@ -218,7 +224,8 @@ fn search(
 /// lane's passing runs that cover <branch>. <passed> gives a lane's latest
 /// passing runs, newest first, and <required> the shots prefixes that a lane's
 /// covering run must have run: those the branch's app builds ran, less the
-/// ones dropped.
+/// ones dropped. <covering> hears of each passing run that covers a lane, at
+/// the result or at the branch, so land can say what its shots found.
 pub fn needs(
     config: &Config,
     changed: &[String],
@@ -226,6 +233,7 @@ pub fn needs(
     passed: &mut dyn FnMut(Lane) -> Result<Vec<PassedRun>>,
     shots_required: &mut dyn FnMut(Lane) -> Result<Vec<String>>,
     differ: &mut Differ,
+    covering: &mut dyn FnMut(Lane, &PassedRun),
 ) -> Result<Vec<Need>> {
     let mut found = Vec::new();
     for lane in Lane::ALL {
@@ -240,14 +248,18 @@ pub fn needs(
         let runs = passed(lane)?;
         let required = shots_required(lane)?;
         let asked = (needed.as_slice(), required.as_slice());
-        if let Search::Covers(_) = search(config, lane, asked, &runs, result, differ)? {
+        if let Search::Covers(run) = search(config, lane, asked, &runs, result, differ)? {
+            covering(lane, &run);
             continue;
         }
         found.push(match search(config, lane, asked, &runs, branch, differ)? {
-            Search::Covers(run) => Need::Build {
-                lane,
-                steps: run.steps,
-            },
+            Search::Covers(run) => {
+                covering(lane, &run);
+                Need::Build {
+                    lane,
+                    steps: run.steps,
+                }
+            }
             Search::Newest(newest) => Need::Unbuilt(Unbuilt { lane, newest }),
         });
     }
@@ -381,12 +393,57 @@ fn dropped_lines(lane: Lane, drops: &[Drop]) -> Vec<String> {
         .collect()
 }
 
+/// What land prints for the shots run of <prefix> in <lane> that the build of
+/// <commit> made, when the run's output <findings> has pairs the base never
+/// rendered; None when it has none.
+fn unrendered_line(lane: Lane, commit: &str, prefix: &str, findings: &str) -> Option<String> {
+    let said = findings
+        .lines()
+        .find(|line| crate::shot_findings::unrendered_pairs(line).is_some())?;
+    Some(format!(
+        "{UNRENDERED} the {} shots run {prefix} of {}: {}",
+        lane.word(),
+        &commit[..commit.len().min(12)],
+        said.trim()
+    ))
+}
+
+/// The lines that tell of the pairs the base never rendered in the shots runs
+/// of <run>, a passing build of <lane> that covers the landing of <repo>.
+fn unrendered_lines(
+    places: &Places,
+    repo: &str,
+    lane: Lane,
+    run: &PassedRun,
+) -> Result<Vec<String>> {
+    let shots = PickKind::Shots.step_prefix();
+    let mut lines = Vec::new();
+    for prefix in run.steps.iter().filter_map(|step| step.strip_prefix(shots)) {
+        let found = crate::shots_cache::covering_run(
+            places,
+            repo,
+            &run.commit,
+            lane,
+            prefix,
+            crate::shots_program::VERSION,
+        )?;
+        if let Some(cached) = found
+            && let Some(line) = unrendered_line(lane, &run.commit, prefix, &cached.findings)
+        {
+            lines.push(line);
+        }
+    }
+    Ok(lines)
+}
+
 /// Splits what `builds app-build --landing-build` printed into the lines
-/// that tell of dropped shots prefixes and the rest.
+/// that tell of dropped shots prefixes or of pairs the base never rendered,
+/// and the rest.
 pub fn split_output(said: &str) -> (Vec<&str>, String) {
-    let (dropped, rest): (Vec<&str>, Vec<&str>) =
-        said.lines().partition(|line| line.starts_with(DROPPED));
-    (dropped, rest.join("\n").trim().to_string())
+    let (notes, rest): (Vec<&str>, Vec<&str>) = said
+        .lines()
+        .partition(|line| line.starts_with(DROPPED) || line.starts_with(UNRENDERED));
+    (notes, rest.join("\n").trim().to_string())
 }
 
 /// `builds app-build --landing-build <worktree> <before> <result> <branch>
@@ -427,6 +484,7 @@ pub fn cmd_landing_build(places: &Places, args: &[String]) -> Result<()> {
         }
         drops_of.insert(lane, drops);
     }
+    let mut covering: Vec<(Lane, PassedRun)> = Vec::new();
     let found = needs(
         &config,
         &changed,
@@ -449,7 +507,13 @@ pub fn cmd_landing_build(places: &Places, args: &[String]) -> Result<()> {
             }
             paths_between(top, commit, target).map(Some)
         },
+        &mut |lane, run| covering.push((lane, run.clone())),
     )?;
+    for (lane, run) in &covering {
+        for line in unrendered_lines(places, &repo, *lane, run)? {
+            println!("{line}");
+        }
+    }
     let unbuilt: Vec<&Unbuilt> = found
         .iter()
         .filter_map(|need| match need {
