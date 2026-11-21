@@ -47,23 +47,14 @@ pub fn landing_worktree(pid: i32, argv: &[String]) -> Option<std::result::Result
 }
 
 /// The commits that the command line <argv> of a running `builds land
-/// <worktree> ...` lands: its words after the worktree that are no option or
-/// option value.
+/// <worktree> ...` lands, read as `builds land` reads them.
 fn landed_commits(argv: &[String]) -> Vec<String> {
-    let words = crate::ack::agent::without_flag(argv);
-    let mut rest = words.iter().skip(3);
-    let mut commits = Vec::new();
-    while let Some(word) = rest.next() {
-        match *word {
-            "--done" | "--part" | "--design" | "--project" => {
-                rest.next();
-            }
-            "--" => {}
-            flag if flag.starts_with("--") => {}
-            commit => commits.push(commit.to_string()),
-        }
-    }
-    commits
+    let args: Vec<String> = crate::ack::agent::without_flag(argv)
+        .into_iter()
+        .skip(3)
+        .map(str::to_string)
+        .collect();
+    crate::land::commits_named(&args).unwrap_or_default()
 }
 
 /// What the landing with process id <pid> and command line <argv> in

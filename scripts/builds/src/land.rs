@@ -624,6 +624,14 @@ fn resolve_on_head(
     Ok(full)
 }
 
+/// The commits that <args>, the arguments after a landing's worktree, name,
+/// read as `builds land` reads them: None when land refuses the arguments.
+pub fn commits_named(args: &[String]) -> Option<Vec<String>> {
+    parse(args, &mut std::io::sink())
+        .ok()
+        .map(|request| request.shas)
+}
+
 fn parse(args: &[String], out: &mut dyn Write) -> Result<Request> {
     let mut items = Vec::new();
     let mut designs: Vec<Id> = Vec::new();

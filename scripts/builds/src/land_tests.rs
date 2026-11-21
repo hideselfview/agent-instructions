@@ -2026,18 +2026,19 @@ fn app_fixture(name: &str) -> Fixture {
     f
 }
 
+/// Side worktree <n> on a new branch <branch> with the file <path>
+/// committed.
+fn branch_with(f: &Fixture, n: usize, branch: &str, path: &str) -> (PathBuf, String) {
+    let dir = f.side(n, branch);
+    std::fs::create_dir_all(dir.join(path).parent().unwrap()).unwrap();
+    let sha = commit_file(&dir, path, "app\n", &format!("change {path}"));
+    (dir, sha)
+}
+
 /// Side worktree <n> on a new branch <branch> with the file app/<file>,
 /// which the mac lane builds, committed.
 fn app_branch(f: &Fixture, n: usize, branch: &str, file: &str) -> (PathBuf, String) {
-    let dir = f.side(n, branch);
-    std::fs::create_dir_all(dir.join("app")).unwrap();
-    let sha = commit_file(
-        &dir,
-        &format!("app/{file}"),
-        "app\n",
-        &format!("change {file}"),
-    );
-    (dir, sha)
+    branch_with(f, n, branch, &format!("app/{file}"))
 }
 
 /// Holds the turn of the landings that change the apps of <lane> in <f>'s
@@ -2114,15 +2115,6 @@ fn a_landing_that_changes_no_app_lands_while_an_app_landing_holds_its_turn() {
         .recv_timeout(std::time::Duration::from_secs(60))
         .expect("the landing does not wait for the app landing's turn");
     assert!(landed && main_of(&f) == a);
-}
-
-/// Side worktree <n> on a new branch <branch> with the file <path>
-/// committed.
-fn branch_with(f: &Fixture, n: usize, branch: &str, path: &str) -> (PathBuf, String) {
-    let dir = f.side(n, branch);
-    std::fs::create_dir_all(dir.join(path).parent().unwrap()).unwrap();
-    let sha = commit_file(&dir, path, "app\n", &format!("change {path}"));
-    (dir, sha)
 }
 
 /// A landing that changes only the mac apps lands while another landing

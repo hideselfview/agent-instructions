@@ -34,6 +34,25 @@ fn a_global_agent_option_before_land_does_not_hide_the_landing() {
 }
 
 #[test]
+fn the_commits_of_a_running_landing_are_read_as_land_reads_them() {
+    let line = argv(&[
+        "builds",
+        "--agent",
+        "a1",
+        "land",
+        "/w/side-1",
+        "--done",
+        "7",
+        "--part",
+        "8",
+        "abc",
+        "def",
+    ]);
+    assert_eq!(landed_commits(&line), ["abc", "def"]);
+    assert!(landed_commits(&argv(&["builds", "land", "/w/side-1", "--bogus", "abc"])).is_empty());
+}
+
+#[test]
 fn a_landing_waits_for_the_other_process_that_holds_a_turn() {
     let dir = std::env::temp_dir().join(format!("land-turns-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
