@@ -41,13 +41,12 @@ pub(crate) const FILE: &str = "findings.json";
 
 #[derive(Serialize)]
 struct File<'a> {
-    version: &'a str,
-    commit: &'a str,
-    scenes: Vec<String>,
+    /// The version, commit, scenes and findings, which `recheck` prints alone.
+    #[serde(flatten)]
+    compared: Rechecked<'a>,
     failed: Vec<FailedScene>,
     sizes: BTreeMap<String, Sizes>,
     components: Vec<Component>,
-    findings: Vec<Record>,
 }
 
 /// A selected scene the capture wrote no usable shot of, and why. It is in no
@@ -320,13 +319,17 @@ struct Rechecked<'a> {
 /// The text `recheck` prints for the pairs <checked>, which the checker of
 /// <version> compared again from a run of <commit>.
 pub(crate) fn rechecked(version: &str, commit: &str, checked: &[Checked]) -> String {
-    let file = Rechecked {
+    serde_json::to_string(&compared(version, commit, checked)).expect("the records are plain data")
+}
+
+/// The scenes <checked> names and the records of their findings.
+fn compared<'a>(version: &'a str, commit: &'a str, checked: &[Checked]) -> Rechecked<'a> {
+    Rechecked {
         version,
         commit,
         scenes: checked.iter().map(|pair| pair.name.to_string()).collect(),
         findings: records(checked),
-    };
-    serde_json::to_string(&file).expect("the records are plain data")
+    }
 }
 
 /// The file's text for the pairs a run of <commit> by the checker of
@@ -339,9 +342,7 @@ pub(crate) fn text(
     listing: &Listing,
 ) -> String {
     let file = File {
-        version,
-        commit,
-        scenes: checked.iter().map(|pair| pair.name.to_string()).collect(),
+        compared: compared(version, commit, checked),
         failed: failed
             .iter()
             .map(|f| FailedScene {
@@ -372,7 +373,6 @@ pub(crate) fn text(
                     .collect(),
             })
             .collect(),
-        findings: records(checked),
     };
     serde_json::to_string(&file).expect("the records are plain data")
 }
