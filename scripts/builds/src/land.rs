@@ -482,8 +482,12 @@ fn lock_worktree(worktree: &Path, args: &[String], out: &mut dyn Write) -> Resul
 pub const WORKTREE_TURN_FILE: &str = "land.lock";
 
 /// The file in a repo's git folder whose lock a landing that changes the
-/// repo's apps holds from before its fetch until its push.
-pub const APP_TURN_FILE: &str = "land-apps.lock";
+/// apps of <lane> holds from before its fetch until its push. Landings that
+/// change the apps of different lanes hold different files, so they build
+/// their results at the same time.
+pub fn app_turn_file(lane: crate::lane::Lane) -> String {
+    format!("land-apps-{}.lock", lane.word())
+}
 
 /// What a landing was asked for, from the arguments after the worktree.
 struct Request {
@@ -1316,26 +1320,31 @@ impl Landing<'_> {
         ))
     }
 
-    /// In a repo of a project, when the landing's commits change the apps,
-    /// waits for the landing's turn among the landings of the repo that
-    /// change the apps, and returns the lock that holds it, which the landing
-    /// drops after its push. So no other landing that changes the apps
-    /// reaches main between this landing's fetch and its push, and the
-    /// landing builds its result at most once. The landing ends its use of the
+    /// In a repo of a project, for each lane whose apps the landing's
+    /// commits change, in the order of `Lane::ALL`, waits for the landing's
+    /// turn among the landings of the repo that change that lane's apps, and
+    /// returns the locks that hold the turns, which the landing drops after
+    /// its push. So no other landing that changes a lane's apps reaches main
+    /// between this landing's fetch and its push, and the landing builds its
+    /// result in each lane at most once. A change that both lanes compile
+    /// takes both turns, always in the same order, so two landings never wait
+    /// for each other. The landing ends its use of the
     /// stores (<stores>) while it waits, which may take as long as the app
     /// builds of the landings ahead of it.
     fn take_app_turn(
         &self,
         stores: &mut StoreUse,
         out: &mut dyn Write,
-    ) -> Result<Option<std::fs::File>> {
+    ) -> Result<Vec<std::fs::File>> {
         if self.recording.is_none() {
-            return Ok(None);
+            return Ok(Vec::new());
         }
-        match crate::app_landing::commits_change_apps(&self.workdir, &self.request.shas) {
-            Ok(true) => {}
-            Ok(false) => return Ok(None),
+        let lanes = match crate::app_landing::lanes_changed(&self.workdir, &self.request.shas) {
+            Ok(lanes) => lanes,
             Err(error) => return Err(refuse(out, format!("refusing: {}", error.text()))),
+        };
+        if lanes.is_empty() {
+            return Ok(Vec::new());
         }
         let dir = &self.workdir;
         let Some(common) = git_text(
@@ -1359,16 +1368,20 @@ impl Landing<'_> {
             &format!("{} from {}", shell_words(&self.request.shas), dir.display()),
         );
         let _timing = self.timing(StepKind::AppWait);
-        let turn = take_turn(
-            &PathBuf::from(common).join(APP_TURN_FILE),
-            &format!(
-                "the landing that changes the apps of {} ahead of this one",
-                checkout.repo()
-            ),
-            &me,
-            out,
-        )?;
-        Ok(Some(turn))
+        let mut turns = Vec::new();
+        for lane in lanes {
+            turns.push(take_turn(
+                &PathBuf::from(&common).join(app_turn_file(lane)),
+                &format!(
+                    "the landing that changes the {} apps of {} ahead of this one",
+                    lane.word(),
+                    checkout.repo()
+                ),
+                &me,
+                out,
+            )?);
+        }
+        Ok(turns)
     }
 
     /// Puts the commits on origin/main and returns their copies there, or

@@ -3150,16 +3150,21 @@ run `review replay --rules-root` on it.
                               whose push origin refuses because the other
                               pushed first fetches again and pushes after it.
                               In a repo of a project, the landings whose
-                              commits change the apps (a path they change
-                              matches an `on` line of the last commit's
-                              .app-build) run one at a time: each holds the
-                              repo's app landing lock (land-apps.lock in the
-                              repo's git folder) from before its first fetch
-                              until its push, and a landing that finds the
-                              lock held names the landing that holds it and
-                              waits. So no other app landing reaches main
+                              commits change the apps of a lane (a path they
+                              change matches an `on` line of the last
+                              commit's .app-build that names a step of the
+                              lane) take turns for each such lane: each holds
+                              the lane's app landing lock (land-apps-mac.lock
+                              or land-apps-android.lock in the repo's git
+                              folder), taken in the order mac, android, from
+                              before its first fetch until its push, and a
+                              landing that finds a lock held names the
+                              landing that holds it and waits. So no other
+                              landing that changes a lane's apps reaches main
                               between a landing's fetch and its push, and
-                              each builds its result at most once.
+                              each builds its result in each lane at most
+                              once. Landings that change the apps of
+                              different lanes build at the same time.
                               Land reads the project from the worktree's
                               claim; --project P only checks it and refuses
                               when the worktree's project is another.

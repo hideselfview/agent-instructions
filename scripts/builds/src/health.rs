@@ -511,7 +511,7 @@ pub fn sample(
                 }
             };
             if let Some(place) = crate::procs::place_of(places, &worktree) {
-                let waits = match crate::land_turns::waits_for(&worktree, process.pid) {
+                let waits = match crate::land_turns::waits_for(&worktree, process.pid, &argv) {
                     Ok(None) => LandingWait::Nothing,
                     Ok(Some(whose)) => LandingWait::For(whose.to_string()),
                     Err(error) => {
@@ -1663,7 +1663,9 @@ pub fn host_findings(
             return Ok(None);
         };
         match crate::land_turns::landing_worktree(pid, &argv) {
-            Some(worktree) => crate::land_turns::waits_for(&worktree?, pid).map_err(|e| e.text()),
+            Some(worktree) => {
+                crate::land_turns::waits_for(&worktree?, pid, &argv).map_err(|e| e.text())
+            }
             None => Ok(None),
         }
     };

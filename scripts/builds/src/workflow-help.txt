@@ -501,9 +501,11 @@ commits unless a finished review read the branch's net change as it is now.
   - Landings in different worktrees may run at the same time. When origin/main
     moves while a landing runs, origin refuses that landing's push, and the
     landing fetches again and pushes again. Two landings in one worktree run
-    one after the other, and so do two landings that change the apps of one
-    repo: each waits for the other from before its fetch until its push, so
-    each builds its result at most once.
+    one after the other, and so do two landings that change the apps of the
+    same lane (mac or android) of one repo: each waits for the other from
+    before its fetch until its push, so each builds its result in the lane at
+    most once. Landings that change the apps of different lanes run at the
+    same time.
   - A landing that leaves nothing to land on the branch leaves the worktree
     detached at the landed commit and releases it. A landing that leaves
     commits on the branch checks the branch out again and keeps the claim, and

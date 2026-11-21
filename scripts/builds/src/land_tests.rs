@@ -1,4 +1,5 @@
 use super::*;
+use crate::lane::Lane;
 use crate::testing::{Scratch, git_out};
 
 /// The landing in <f>, which records its run in the store of its project in
@@ -2011,13 +2012,14 @@ fn commits_that_change_app_files_land_one_by_one_with_their_item() {
 }
 
 /// The fixture, with an `.app-build` on main whose mac lane builds what
-/// changes under app/.
+/// changes under app/, whose android lane builds what changes under
+/// android/, and whose both lanes build what changes under shared/.
 fn app_fixture(name: &str) -> Fixture {
     let f = fixture(name, "true\n", None);
     commit_file(
         &f.main,
         ".app-build",
-        "step mac macos ./macos.sh\non app/ macos\n",
+        "step mac macos ./macos.sh\non app/ macos\nstep android gradle ./gradle.sh\non android/ gradle\non shared/ gradle macos\n",
         "build the apps",
     );
     git_out(&f.main, &["push", "-q", "origin", "HEAD:main"]);
@@ -2038,15 +2040,15 @@ fn app_branch(f: &Fixture, n: usize, branch: &str, file: &str) -> (PathBuf, Stri
     (dir, sha)
 }
 
-/// Holds the turn of the landings that change the apps of <f>'s repo, as a
-/// landing ahead of the next one would.
-fn hold_app_turn(f: &Fixture) -> std::fs::File {
+/// Holds the turn of the landings that change the apps of <lane> in <f>'s
+/// repo, as a landing ahead of the next one would.
+fn hold_app_turn(f: &Fixture, lane: crate::lane::Lane) -> std::fs::File {
     let common = git_out(
         &f.main,
         &["rev-parse", "--path-format=absolute", "--git-common-dir"],
     );
     take_turn(
-        &Path::new(&common).join(APP_TURN_FILE),
+        &Path::new(&common).join(app_turn_file(lane)),
         "the test's landing",
         "process 1 landing ahead",
         &mut Vec::new(),
@@ -2078,14 +2080,14 @@ fn a_landing_that_changes_the_apps_waits_for_the_one_ahead_and_names_it() {
     let f = app_fixture("land-app-turn");
     let before = main_of(&f);
     let (one, a) = app_branch(&f, 1, "a", "a.swift");
-    let held = hold_app_turn(&f);
+    let held = hold_app_turn(&f, Lane::Mac);
     let (stub, _) = stub(&f, &project());
     let (reader, writer) = std::io::pipe().unwrap();
     let landing = land_on_thread(&f, &stub, &one, &["--done", "7", &a], writer);
     let mut lines = std::io::BufReader::new(reader).lines();
     let waiting = line_starting(&mut lines, "waiting for");
     assert!(
-        waiting.contains("the landing that changes the apps of repo ahead of this one")
+        waiting.contains("the landing that changes the mac apps of repo ahead of this one")
             && waiting.contains("process 1 landing ahead"),
         "{waiting}"
     );
@@ -2103,7 +2105,7 @@ fn a_landing_that_changes_no_app_lands_while_an_app_landing_holds_its_turn() {
     let f = app_fixture("land-app-turn-other");
     let one = f.side(1, "a");
     let a = commit_file(&one, "notes.txt", "notes\n", "add notes");
-    let _held = hold_app_turn(&f);
+    let _held = hold_app_turn(&f, Lane::Mac);
     let (stub, _) = stub(&f, &project());
     let landing = land_on_thread(&f, &stub, &one, &["--done", "7", &a], Vec::new());
     let (done, ended) = std::sync::mpsc::channel();
@@ -2112,6 +2114,56 @@ fn a_landing_that_changes_no_app_lands_while_an_app_landing_holds_its_turn() {
         .recv_timeout(std::time::Duration::from_secs(60))
         .expect("the landing does not wait for the app landing's turn");
     assert!(landed && main_of(&f) == a);
+}
+
+/// Side worktree <n> on a new branch <branch> with the file <path>
+/// committed.
+fn branch_with(f: &Fixture, n: usize, branch: &str, path: &str) -> (PathBuf, String) {
+    let dir = f.side(n, branch);
+    std::fs::create_dir_all(dir.join(path).parent().unwrap()).unwrap();
+    let sha = commit_file(&dir, path, "app\n", &format!("change {path}"));
+    (dir, sha)
+}
+
+/// A landing that changes only the mac apps lands while another landing
+/// holds the turn of the android lane.
+#[test]
+fn a_mac_landing_lands_while_an_android_landing_holds_the_android_turn() {
+    let f = app_fixture("land-lane-turns-mac");
+    let (one, a) = branch_with(&f, 1, "a", "app/a.swift");
+    let _held = hold_app_turn(&f, Lane::Android);
+    let (stub, _) = stub(&f, &project());
+    let landing = land_on_thread(&f, &stub, &one, &["--done", "7", &a], Vec::new());
+    let (done, ended) = std::sync::mpsc::channel();
+    std::thread::spawn(move || done.send(landing.join().unwrap()));
+    let landed = ended
+        .recv_timeout(std::time::Duration::from_secs(60))
+        .expect("a mac landing waits for the android lane's turn");
+    assert!(landed && main_of(&f) == a);
+}
+
+/// A landing of a change that both lanes compile waits for the turn of the
+/// android lane too, and names it.
+#[test]
+fn a_landing_that_changes_both_lanes_waits_for_each_lanes_turn() {
+    let f = app_fixture("land-lane-turns-both");
+    let before = main_of(&f);
+    let (one, a) = branch_with(&f, 1, "a", "shared/x.txt");
+    let held = hold_app_turn(&f, Lane::Android);
+    let (stub, _) = stub(&f, &project());
+    let (reader, writer) = std::io::pipe().unwrap();
+    let landing = land_on_thread(&f, &stub, &one, &["--done", "7", &a], writer);
+    let mut lines = std::io::BufReader::new(reader).lines();
+    let waiting = line_starting(&mut lines, "waiting for");
+    assert!(
+        waiting.contains("the landing that changes the android apps"),
+        "{waiting}"
+    );
+    assert_eq!(main_of(&f), before);
+    drop(held);
+    let rest: Vec<String> = lines.map(|line| line.unwrap()).collect();
+    assert!(landing.join().unwrap(), "{rest:?}");
+    assert_eq!(main_of(&f), a);
 }
 
 /// Reads <lines> until one starts with <start>, and returns that line.

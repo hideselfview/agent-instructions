@@ -238,7 +238,7 @@ fn a_long_landing_names_the_landing_that_holds_its_turn() {
     };
     let waits = |pid: i32| {
         Ok((pid == 300).then(|| TurnWait {
-            turn: "the landing that changes the apps",
+            turn: "the landing that changes the mac apps".to_string(),
             holder: "process 400 landing --done 1253 def".to_string(),
         }))
     };
@@ -254,7 +254,7 @@ fn a_long_landing_names_the_landing_that_holds_its_turn() {
     .collect();
     assert_eq!(
         lines[1],
-        "landing: builds land /w/side-8 --done 1322 abc (pid 300, in bae/side-8) has run 31m, longer than 30m; it waits for the landing that changes the apps: builds land . --done 1253 def (pid 400, in bae/side-13), which has run 40m"
+        "landing: builds land /w/side-8 --done 1322 abc (pid 300, in bae/side-8) has run 31m, longer than 30m; it waits for the landing that changes the mac apps: builds land . --done 1253 def (pid 400, in bae/side-13), which has run 40m"
     );
 }
 

@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 
 use crate::fail;
 use crate::fail::Result;
-use crate::land::{APP_TURN_FILE, WORKTREE_TURN_FILE, read_holder, record_pid};
+use crate::land::{WORKTREE_TURN_FILE, app_turn_file, read_holder, record_pid};
 
 /// Returns the worktree that the command line <argv> of a running `builds
 /// land <worktree> ...` lands in. Returns None for any other command.
@@ -20,7 +20,7 @@ pub fn requested(argv: &[String]) -> Option<&str> {
 /// landing wrote itself into the turn file.
 #[derive(Clone, Debug, PartialEq)]
 pub struct TurnWait {
-    pub turn: &'static str,
+    pub turn: String,
     pub holder: String,
 }
 
@@ -46,33 +46,55 @@ pub fn landing_worktree(pid: i32, argv: &[String]) -> Option<std::result::Result
     )
 }
 
-/// What the landing with process id <pid> in <worktree> waits for: the
-/// landing of another process that holds the turn of landings in the
-/// worktree, or the turn of landings that change the repo's apps. None when
-/// no other landing holds either turn. A landing that has not yet reached the
-/// apps turn is also told of the landing that holds it, since it takes that
-/// turn before its fetch.
-pub fn waits_for(worktree: &Path, pid: i32) -> Result<Option<TurnWait>> {
+/// The commits that the command line <argv> of a running `builds land
+/// <worktree> ...` lands: its words after the worktree that are no option or
+/// option value.
+fn landed_commits(argv: &[String]) -> Vec<String> {
+    let words = crate::ack::agent::without_flag(argv);
+    let mut rest = words.iter().skip(3);
+    let mut commits = Vec::new();
+    while let Some(word) = rest.next() {
+        match *word {
+            "--done" | "--part" | "--design" | "--project" => {
+                rest.next();
+            }
+            "--" => {}
+            flag if flag.starts_with("--") => {}
+            commit => commits.push(commit.to_string()),
+        }
+    }
+    commits
+}
+
+/// What the landing with process id <pid> and command line <argv> in
+/// <worktree> waits for: the landing of another process that holds the turn
+/// of landings in the worktree, or the turn of landings that change the
+/// apps of a lane that this landing changes. None when no other landing
+/// holds a turn it takes. A landing that has not yet reached its app turns is
+/// also told of the landing that holds one, since it takes them before its
+/// fetch.
+pub fn waits_for(worktree: &Path, pid: i32, argv: &[String]) -> Result<Option<TurnWait>> {
     let git = |args: &[&str]| {
         crate::review::commits::git_text(worktree, args).map(|text| text.trim().to_string())
     };
     let git_dir = git(&["rev-parse", "--absolute-git-dir"])?;
     let common = git(&["rev-parse", "--path-format=absolute", "--git-common-dir"])?;
-    for (file, whose) in [
-        (
-            PathBuf::from(git_dir).join(WORKTREE_TURN_FILE),
-            "the landing in this worktree",
-        ),
-        (
-            PathBuf::from(common).join(APP_TURN_FILE),
-            "the landing that changes the apps",
-        ),
-    ] {
+    let mut turns = vec![(
+        PathBuf::from(git_dir).join(WORKTREE_TURN_FILE),
+        "the landing in this worktree".to_string(),
+    )];
+    let commits = landed_commits(argv);
+    if !commits.is_empty() {
+        for lane in crate::app_landing::lanes_changed(worktree, &commits)? {
+            turns.push((
+                PathBuf::from(&common).join(app_turn_file(lane)),
+                format!("the landing that changes the {} apps", lane.word()),
+            ));
+        }
+    }
+    for (file, turn) in turns {
         if let Some(holder) = held_by_another(&file, pid)? {
-            return Ok(Some(TurnWait {
-                turn: whose,
-                holder,
-            }));
+            return Ok(Some(TurnWait { turn, holder }));
         }
     }
     Ok(None)
