@@ -51,11 +51,11 @@ impl Platform {
     /// The prefix of this platform's component names in the design system
     /// (`MacRow`, `AndroidCastRow`).
     pub fn component_prefix(self) -> &'static str {
-        crate::component_key::PLATFORMS
-            .into_iter()
-            .find(|(word, _)| *word == self.word())
-            .map(|(_, start)| start)
-            .expect("boards gives every platform's component prefix")
+        match self {
+            Self::Mac => "Mac",
+            Self::Android => "Android",
+            Self::Web => "Web",
+        }
     }
 }
 
