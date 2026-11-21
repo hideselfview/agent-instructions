@@ -15,6 +15,12 @@ mod app_timing;
 mod app_tree;
 mod awake;
 mod build_app;
+#[cfg(test)]
+#[path = "../build_source.rs"]
+mod build_source;
+#[cfg(test)]
+#[path = "build_source_tests.rs"]
+mod build_source_tests;
 mod built_tools;
 mod capped_store;
 mod card_profile;

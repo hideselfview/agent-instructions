@@ -8,39 +8,19 @@
 //! builds a program of its own. `SHOTS_SOURCE` is the version of the shots
 //! checker (`shots_version`), which keys the shot findings builds stores.
 
+mod build_source;
+
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
-
-/// The files and folders, relative to a crate's folder, that cargo builds
-/// the crate from.
-const PARTS: [&str; 5] = ["Cargo.toml", "Cargo.lock", "build.rs", "src", "runtime"];
-
-/// The files and folders, relative to each crate's folder in the scripts
-/// folder, that the shots checker is built from, with this crate's
-/// Cargo.lock, which pins the checker's dependencies (`shots_version`).
-const SHOTS_PARTS: [(&str, &[&str]); 2] = [
-    ("shots", &["Cargo.toml", "src", "canvas"]),
-    ("boards", &["Cargo.toml", "src", "runtime"]),
-];
 
 fn main() {
     let here = PathBuf::from(std::env::var_os("CARGO_MANIFEST_DIR").expect("cargo sets it"));
     let scripts = here.parent().expect("the crate is in the scripts folder");
-    let mut files = Vec::new();
-    for name in ["builds", "boards"] {
-        for part in PARTS {
-            let path = scripts.join(name).join(part);
-            println!("cargo:rerun-if-changed={}", path.display());
-            collect(&path, &format!("{name}/{part}"), &mut files);
-        }
-    }
-    let (shots, shots_parts) = SHOTS_PARTS[0];
-    for part in shots_parts {
-        let path = scripts.join(shots).join(part);
+    let roots = build_source::roots(&here, scripts);
+    for (_, path) in &roots {
         println!("cargo:rerun-if-changed={}", path.display());
-        collect(&path, &format!("{shots}/{part}"), &mut files);
     }
-    files.sort();
+    let files = build_source::files(&roots);
     let mut hash = Sha256::new();
     let mut tar = Vec::new();
     for (shown, path) in &files {
@@ -61,21 +41,11 @@ fn main() {
 
 /// The version of the shots checker built from the crates in <scripts> with
 /// the Cargo.lock at <lock>: the first 8 bytes, in hex, of a sha256 of every
-/// file of `SHOTS_PARTS`, each by its path and length, and of the lock's
+/// file of the shots checker (`build_source::shots_files`), each by its path and length, and of the lock's
 /// entry for each package the checker builds from. A change to builds alone
 /// keeps the version, so builds keeps the shot findings it stored.
 fn shots_version(scripts: &Path, lock: &Path) -> String {
-    let mut files = Vec::new();
-    for (name, parts) in SHOTS_PARTS {
-        for part in parts {
-            collect(
-                &scripts.join(name).join(part),
-                &format!("{name}/{part}"),
-                &mut files,
-            );
-        }
-    }
-    files.sort();
+    let files = build_source::shots_files(scripts);
     let mut hash = Sha256::new();
     for (shown, path) in &files {
         hash_file(&mut hash, shown, &read(path));
@@ -158,28 +128,6 @@ fn hex8(hash: Sha256) -> String {
         .iter()
         .map(|b| format!("{b:02x}"))
         .collect()
-}
-
-/// Adds <path> (shown as <shown>), or every file under it when it is a
-/// folder, to <files>. A part a crate lacks adds nothing; any other failure
-/// to read a part stops the build.
-fn collect(path: &Path, shown: &str, files: &mut Vec<(String, PathBuf)>) {
-    let meta = match std::fs::metadata(path) {
-        Ok(meta) => meta,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return,
-        Err(error) => panic!("reading {}: {error}", path.display()),
-    };
-    if meta.is_file() {
-        files.push((shown.to_string(), path.to_path_buf()));
-        return;
-    }
-    let entries = std::fs::read_dir(path)
-        .unwrap_or_else(|error| panic!("listing {}: {error}", path.display()));
-    for entry in entries {
-        let entry = entry.unwrap_or_else(|error| panic!("listing {}: {error}", path.display()));
-        let name = entry.file_name().to_string_lossy().into_owned();
-        collect(&entry.path(), &format!("{shown}/{name}"), files);
-    }
 }
 
 /// Appends <bytes> to <tar> as the file <name>, in the ustar format: a

@@ -1070,7 +1070,10 @@ builds in ~/.local/lib/builds/<version>/, named by `builds version`'s hash.
 The first app build of a version copies the builds it started from into
 that folder, once the copy says that version (when an install replaced the
 program before the build copied it, the build copies nothing and runs the
-installed builds in its place). The build holds the folder while it runs,
+installed builds in its place). When the folder already holds a builds, the
+build compares it, byte for byte, with the one it started from, and stops with
+a message that names both when they differ, though both say that version. The
+build holds the folder while it runs,
 starts its lanes from the folder's builds and puts the folder first on PATH,
 so `builds shots run` in a `shots` line runs the folder's builds. Before each step on a host, the lane copies the folder
 to the same place on the host when the host lacks it, and runs the step

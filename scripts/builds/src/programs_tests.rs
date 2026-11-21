@@ -36,10 +36,57 @@ fn a_build_copies_its_builds_into_its_versions_folder_and_holds_it() {
     );
     drop(held);
     assert!(!locked(&dir.join(IN_USE)));
-    // The next build of the version finds the folder, whatever sits where it
-    // started from.
-    std::fs::remove_dir_all(scratch.dir.join("bin")).unwrap();
+    // The next build of the version finds the folder, and a copy of the
+    // program with the same bytes started from another path is the same
+    // program.
     drop(pinned(pin(&home, &from, "v1").unwrap()));
+    let copy = scratch.dir.join("other").join("builds");
+    std::fs::create_dir_all(copy.parent().unwrap()).unwrap();
+    std::fs::copy(&from, &copy).unwrap();
+    drop(pinned(pin(&home, &copy, "v1").unwrap()));
+}
+
+/// Two programs that say one version and differ in their bytes are not one
+/// version: a build that started from one while the folder holds the other
+/// stops, and the message names both programs.
+#[test]
+fn a_builds_that_says_the_folders_version_and_differs_from_it_stops_the_build() {
+    let scratch = Scratch::new("programs-differs");
+    let home = scratch.dir.join("home");
+    let first = started_from(&scratch, "v1");
+    drop(pinned(pin(&home, &first, "v1").unwrap()));
+    let second = scratch.dir.join("other").join("builds");
+    crate::testing::version_program(&second, "builds v1");
+    let mut bytes = std::fs::read(&second).unwrap();
+    bytes.extend(b"# built from other sources\n");
+    std::fs::write(&second, bytes).unwrap();
+    let Err(error) = pin(&home, &second, "v1") else {
+        panic!("a program of the same version with other bytes was pinned");
+    };
+    let text = error.text();
+    assert!(text.contains(&second.display().to_string()), "{text}");
+    assert!(
+        text.contains(&folder(&home, "v1").join("builds").display().to_string()),
+        "{text}"
+    );
+    assert!(text.contains("differ"), "{text}");
+}
+
+/// A program that an install replaced with another version after the build
+/// started, when the version's folder already holds the build's own, is
+/// reported as replaced, and not as a program that differs.
+#[test]
+fn a_replaced_builds_is_replaced_whether_or_not_the_folder_exists() {
+    let scratch = Scratch::new("programs-replaced-existing");
+    let home = scratch.dir.join("home");
+    let first = started_from(&scratch, "v1");
+    drop(pinned(pin(&home, &first, "v1").unwrap()));
+    let installed = scratch.dir.join("installed").join("builds");
+    crate::testing::version_program(&installed, "builds v2");
+    let Pin::Replaced(why) = pin(&home, &installed, "v1").unwrap() else {
+        panic!("a builds of another version is not this build's");
+    };
+    assert!(why.contains("install"), "{why}");
 }
 
 /// A builds that says another version was put where this one started from:
