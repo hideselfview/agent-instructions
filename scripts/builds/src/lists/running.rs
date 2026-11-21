@@ -598,9 +598,10 @@ pub fn findings(
                     Agent::Unclaimed => "has no claim",
                     Agent::Claimed(_) => continue,
                 };
-                let still_runs = reread(&project.project)?
-                    .item(item.id)
-                    .is_some_and(|now| now.running.iter().any(|r| r.worktree == running.worktree));
+                let fresh = reread(&project.project)?;
+                let still_runs = running_in(&fresh, &running.worktree)
+                    .iter()
+                    .any(|now| now.id == item.id);
                 if !still_runs {
                     continue;
                 }
