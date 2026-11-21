@@ -178,13 +178,16 @@ pub(crate) fn verify(job: &Verification) -> Result<Outcome, String> {
             .map_err(|e| format!("cannot read {}: {e}", picture_file.display()))?;
         let picture =
             Picture::decode(&picture).map_err(|e| format!("{}: {e}", picture_file.display()))?;
-        let result = compare::compare(&list.elements, &shot.list.elements);
+        let result = compare::compare(&list.elements, &shot.list.elements, &list.slots);
+        // The board's slots are areas its picture draws a stand-in for; the
+        // picture check leaves them out like the board's unshot parts.
+        let board_unshot: Vec<_> = list.unshot.iter().chain(&list.slots).copied().collect();
         let warnings = compare::warnings(
             &Side {
                 elements: &list.elements,
                 picture: &picture,
                 scale: list.scale,
-                unshot: &list.unshot,
+                unshot: &board_unshot,
             },
             &Side {
                 elements: &shot.list.elements,

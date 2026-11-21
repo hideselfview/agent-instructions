@@ -416,6 +416,28 @@ pub(crate) async fn unshot(page: &Page, selectors: &[String]) -> Result<Vec<Boun
     Ok(boxes)
 }
 
+/// The class of the dashed stand-in a container's preview holds for its
+/// content.
+const SLOT_CLASS: &str = "bae-preview-slot";
+
+/// The boxes of the board's preview slots, measured from `origin`. The
+/// comparison leaves out what either side draws inside them (compare.rs).
+pub(crate) async fn slots(page: &Page, origin: (f64, f64)) -> Result<Vec<Bounds>, ReadError> {
+    let boxes: Vec<Bounds> = page
+        .evaluate(format!(
+            "[...document.querySelectorAll('.{SLOT_CLASS}')].map(e => {{ \
+               const r = e.getBoundingClientRect(); \
+               return {{x: r.x - {}, y: r.y - {}, \
+                        width: r.width, height: r.height}}; }})",
+            origin.0, origin.1
+        ))
+        .await
+        .map_err(protocol)?
+        .into_value()
+        .map_err(protocol)?;
+    Ok(boxes)
+}
+
 /// The elements under the DOM node `backend`, in reading order, with boxes
 /// measured from `origin`, the node's top-left corner.
 pub(crate) async fn elements_in(

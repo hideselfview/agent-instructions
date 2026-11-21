@@ -1438,7 +1438,12 @@ built again.
                               <function>...` the functions that name a
                               preview's rows, and `shots-unshot
                               <selector>...` the parts of a board that the
-                              app draws nothing for. The checker runs a
+                              app draws nothing for. A board's elements with
+                              the class `bae-preview-slot` are a container's
+                              stand-in for its content: the checker records
+                              their boxes and leaves out, on both sides of
+                              the comparison, every element and picture area
+                              inside them. The checker runs a
                               capture command from the repo's top with
                               BUILDS_SHOTS_OUT (the folder to write each
                               <name>@<platform>.png and .json into),

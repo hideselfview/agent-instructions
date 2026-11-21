@@ -15,8 +15,8 @@ use crate::names::{Platform, state_id};
 use crate::render::board::{self, BoardError};
 use crate::render::read;
 use crate::settings::Preview;
-use crate::shots::Element;
 use crate::shots::Size;
+use crate::shots::{Bounds, Element};
 use chromiumoxide::Page;
 use chromiumoxide::cdp::browser_protocol::dom::DescribeNodeParams;
 use chromiumoxide::cdp::browser_protocol::page::{CaptureScreenshotFormat, Viewport};
@@ -98,6 +98,9 @@ pub(crate) struct Row {
     /// The cell's size in points.
     pub(crate) size: Size,
     pub(crate) elements: Vec<Element>,
+    /// The boxes of the preview slots in the cell, measured from its
+    /// top-left like the elements.
+    pub(crate) slots: Vec<Bounds>,
 }
 
 /// Loads the preview at `url` and draws the row of `state`, at `scale` pixels
@@ -199,6 +202,7 @@ pub(crate) async fn render_row(
         platform,
     )
     .await?;
+    let slots = read::slots(page, (rect.x, rect.y)).await?;
     Ok(Row {
         png,
         size: Size {
@@ -206,6 +210,7 @@ pub(crate) async fn render_row(
             height: rect.height,
         },
         elements,
+        slots,
     })
 }
 

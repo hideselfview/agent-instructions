@@ -88,10 +88,67 @@ pub(crate) struct Comparison {
     pub(crate) findings: Vec<Finding>,
 }
 
-/// Compares the board's list with the shot's.
-pub(crate) fn compare(boards: &[Element], shot: &[Element]) -> Comparison {
-    let shot = entries(shot);
-    let board = fold_merged(entries(boards), &shot);
+/// Compares the board's list with the shot's, leaving out what either draws
+/// inside a preview slot of the board: <slots> are the boxes of the board's
+/// `bae-preview-slot` stand-ins, which the app draws its real content in. An
+/// element is inside a slot when its box lies within the slot's, to the edge
+/// tolerance; that drops the slot's own element too. The shot's frame may sit
+/// off the board's, so the shot's slots are the board's moved by the offset
+/// the pairs outside the slots give. This is the one place slots filter the
+/// element comparison.
+pub(crate) fn compare<'a>(
+    boards: &'a [Element],
+    shot: &'a [Element],
+    slots: &[Bounds],
+) -> Comparison {
+    let outside = |list: &'a [Element], shift: (f64, f64)| {
+        let slots: Vec<Bounds> = slots
+            .iter()
+            .map(|s| Bounds {
+                x: s.x + shift.0,
+                y: s.y + shift.1,
+                ..*s
+            })
+            .collect();
+        move |entry: &Entry| {
+            let at = entry.bounds(list);
+            !slots.iter().any(|s| within(at, *s))
+        }
+    };
+    if slots.is_empty() {
+        return compare_kept(boards, shot, |_| true, |_| true);
+    }
+    let rough = compare_kept(boards, shot, outside(boards, (0.0, 0.0)), |_| true);
+    let offset = geometry::frame_offset(boards, shot, &rough.pairs);
+    compare_kept(
+        boards,
+        shot,
+        outside(boards, (0.0, 0.0)),
+        outside(shot, offset),
+    )
+}
+
+/// Whether `inner` lies within `outer`, each edge to the edge tolerance.
+fn within(inner: Bounds, outer: Bounds) -> bool {
+    inner.x >= outer.x - EDGE_TOLERANCE
+        && inner.y >= outer.y - EDGE_TOLERANCE
+        && inner.x + inner.width <= outer.x + outer.width + EDGE_TOLERANCE
+        && inner.y + inner.height <= outer.y + outer.height + EDGE_TOLERANCE
+}
+
+/// Compares the entries of the two lists that `keep_board` and `keep_shot`
+/// keep.
+fn compare_kept(
+    boards: &[Element],
+    shot: &[Element],
+    keep_board: impl Fn(&Entry) -> bool,
+    keep_shot: impl Fn(&Entry) -> bool,
+) -> Comparison {
+    let mut shot = entries(shot);
+    shot.retain(&keep_shot);
+    let mut board = entries(boards);
+    board.retain(&keep_board);
+    let board = fold_merged(board, &shot);
     let in_dialog: Vec<bool> = board
         .iter()
         .map(|e| inside_dialog(boards, e.index))

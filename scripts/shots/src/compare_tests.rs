@@ -11,7 +11,7 @@ fn button(words: &str) -> Element {
 }
 
 fn sentences(board: &[Element], shot: &[Element]) -> Vec<String> {
-    compare(board, shot)
+    compare(board, shot, &[])
         .findings
         .iter()
         .map(Finding::sentence)
@@ -21,7 +21,7 @@ fn sentences(board: &[Element], shot: &[Element]) -> Vec<String> {
 #[test]
 fn equal_lists_have_no_findings() {
     let list = [text("Title"), button("Set up")];
-    assert!(compare(&list, &list).findings.is_empty());
+    assert!(compare(&list, &list, &[]).findings.is_empty());
 }
 
 #[test]
@@ -65,7 +65,7 @@ fn a_dialog_the_shot_lists_first_is_not_out_of_order() {
     })
     .collect::<Vec<_>>();
     let shot = [text("Delete"), button("OK"), text("Title"), button("Play")];
-    assert!(compare(&board, &shot).findings.is_empty());
+    assert!(compare(&board, &shot, &[]).findings.is_empty());
 }
 
 #[test]
@@ -81,7 +81,7 @@ fn a_dialog_read_in_another_order_inside_itself_is_out_of_order() {
         })
         .collect::<Vec<_>>();
     let shot = [button("OK"), text("Delete"), text("Title")];
-    assert_eq!(compare(&board, &shot).findings.len(), 1);
+    assert_eq!(compare(&board, &shot, &[]).findings.len(), 1);
 }
 
 #[test]
@@ -89,6 +89,7 @@ fn a_swapped_pair_is_one_out_of_order_finding_not_two() {
     let result = compare(
         &[text("A"), text("B"), text("C")],
         &[text("A"), text("C"), text("B")],
+        &[],
     );
     assert_eq!(result.findings.len(), 1);
     assert!(matches!(result.findings[0], Finding::OutOfOrder { .. }));
@@ -103,6 +104,7 @@ fn the_same_words_in_another_kind_at_the_same_place_is_a_role_difference() {
     let result = compare(
         &[text("Title"), button("Set up"), text("End")],
         &[text("Title"), text("Set up"), text("End")],
+        &[],
     );
     assert_eq!(result.findings.len(), 1);
     assert_eq!(
@@ -116,6 +118,7 @@ fn the_same_words_in_another_kind_far_apart_are_missing_and_extra() {
     let result = compare(
         &[button("Go"), text("A"), text("B"), text("C")],
         &[text("A"), text("B"), text("C"), text("Go")],
+        &[],
     );
     let kinds: Vec<_> = result.findings.iter().map(Finding::sentence).collect();
     assert_eq!(
@@ -158,7 +161,7 @@ fn a_field_with_no_text_on_one_side_and_an_empty_string_on_the_other_agrees() {
     let mut empty = element(Role::Field, Some("Name"), None);
     empty.value = Some(String::new());
     let absent = element(Role::Field, Some("Name"), None);
-    assert!(compare(&[empty], &[absent]).findings.is_empty());
+    assert!(compare(&[empty], &[absent], &[]).findings.is_empty());
 }
 
 #[test]
@@ -166,6 +169,7 @@ fn findings_come_in_reading_order() {
     let result = compare(
         &[text("A"), button("B"), text("C"), button("D")],
         &[text("A"), text("C"), button("D"), text("E")],
+        &[],
     );
     let sentences: Vec<_> = result.findings.iter().map(Finding::sentence).collect();
     assert_eq!(
@@ -218,7 +222,7 @@ fn an_offset_frame_is_reported_once_and_not_per_element() {
         })
         .collect();
     let picture = flat(120, 200);
-    let found = compare(&board, &shot);
+    let found = compare(&board, &shot, &[]);
     let warnings = warnings(
         &Side {
             elements: &board,
@@ -253,7 +257,7 @@ fn an_offset_under_the_tolerance_is_not_reported() {
     shot.bounds.x += 2.0;
     let picture = flat(120, 60);
     let (board, shot) = ([board], [shot]);
-    let found = compare(&board, &shot);
+    let found = compare(&board, &shot, &[]);
     assert!(
         warnings(
             &Side {
@@ -291,7 +295,7 @@ fn a_field_named_with_the_text_under_it_is_the_board_field_and_that_text() {
         field("Name Everyone sees this."),
         button("Save"),
     ];
-    assert!(compare(&board, &shot).findings.is_empty());
+    assert!(compare(&board, &shot, &[]).findings.is_empty());
 }
 
 #[test]
@@ -308,14 +312,14 @@ fn the_label_text_above_a_field_is_the_field_when_the_shot_draws_it_inside() {
         field("Name Everyone sees this."),
         button("Save"),
     ];
-    assert!(compare(&board, &shot).findings.is_empty());
+    assert!(compare(&board, &shot, &[]).findings.is_empty());
 }
 
 #[test]
 fn the_label_text_above_a_field_stays_a_text_when_the_shot_draws_it_beside() {
     let board = [text("Name"), field("Name")];
     let shot = [text("Name"), field("Name")];
-    let found = compare(&board, &shot);
+    let found = compare(&board, &shot, &[]);
     assert!(found.findings.is_empty());
     assert_eq!(found.pairs.len(), 2);
 }
@@ -332,13 +336,13 @@ fn a_label_and_its_supporting_text_before_a_toggle_are_the_toggle_the_shot_words
         toggle("Restore"),
     ];
     let shot = [toggle("Restore Restores the last session.")];
-    assert!(compare(&board, &shot).findings.is_empty());
+    assert!(compare(&board, &shot, &[]).findings.is_empty());
 }
 
 #[test]
 fn a_label_before_a_toggle_is_the_toggle_when_the_shot_has_no_text_of_it() {
     assert!(
-        compare(&[text("Pause"), toggle("Pause")], &[toggle("Pause")])
+        compare(&[text("Pause"), toggle("Pause")], &[toggle("Pause")], &[])
             .findings
             .is_empty()
     );
@@ -372,35 +376,88 @@ fn a_field_name_that_adds_other_words_is_not_folded() {
 fn the_text_under_a_field_is_not_folded_across_another_element() {
     let board = [field("Name"), button("Go"), text("Everyone sees this.")];
     let shot = [field("Name Everyone sees this."), button("Go")];
-    assert!(!compare(&board, &shot).findings.is_empty());
+    assert!(!compare(&board, &shot, &[]).findings.is_empty());
 }
 
 #[test]
 fn a_run_of_texts_the_shot_merges_in_order_is_that_one_text() {
     let board = [text("Title"), text("Artist"), text("3:41"), button("Play")];
     let shot = [text("Title Artist 3:41"), button("Play")];
-    assert!(compare(&board, &shot).findings.is_empty());
+    assert!(compare(&board, &shot, &[]).findings.is_empty());
 }
 
 #[test]
 fn texts_the_shot_merges_in_another_order_are_not_folded() {
     let board = [text("Title"), text("Artist")];
     let shot = [text("Artist Title")];
-    assert_eq!(compare(&board, &shot).findings.len(), 3);
+    assert_eq!(compare(&board, &shot, &[]).findings.len(), 3);
 }
 
 #[test]
 fn texts_are_not_folded_across_another_element() {
     let board = [text("Title"), button("Play"), text("Artist")];
     let shot = [text("Title Artist"), button("Play")];
-    assert!(!compare(&board, &shot).findings.is_empty());
+    assert!(!compare(&board, &shot, &[]).findings.is_empty());
 }
 
 #[test]
 fn a_merged_text_is_not_matched_where_the_shot_keeps_the_texts_apart() {
     let board = [text("Title"), text("Artist")];
     let shot = [text("Title"), text("Artist")];
-    let result = compare(&board, &shot);
+    let result = compare(&board, &shot, &[]);
     assert!(result.findings.is_empty());
     assert_eq!(result.pairs.len(), 2);
+}
+
+fn boxed(mut element: Element, x: f64, y: f64, width: f64, height: f64) -> Element {
+    element.bounds = crate::shots::Bounds {
+        x,
+        y,
+        width,
+        height,
+    };
+    element
+}
+
+#[test]
+fn what_either_side_draws_inside_a_preview_slot_is_left_out() {
+    let slot = crate::shots::Bounds {
+        x: 10.0,
+        y: 100.0,
+        width: 200.0,
+        height: 80.0,
+    };
+    let board = [
+        boxed(text("Container"), 10.0, 10.0, 80.0, 20.0),
+        boxed(text("The section's content"), 20.0, 110.0, 120.0, 20.0),
+        boxed(button("Done"), 10.0, 200.0, 60.0, 30.0),
+    ];
+    // The shot's frame sits 4 points down; its real content fills the slot.
+    let shot = [
+        boxed(text("Container"), 10.0, 14.0, 80.0, 20.0),
+        boxed(button("Open"), 20.0, 114.0, 50.0, 30.0),
+        boxed(text("Albums"), 20.0, 150.0, 50.0, 20.0),
+        boxed(button("Done"), 10.0, 204.0, 60.0, 30.0),
+    ];
+    assert_eq!(compare(&board, &shot, &[]).findings.len(), 3);
+    let found = compare(&board, &shot, &[slot]);
+    assert!(found.findings.is_empty(), "{:?}", found.findings);
+    assert_eq!(found.pairs.len(), 2);
+}
+
+#[test]
+fn a_difference_outside_a_preview_slot_is_still_found() {
+    let slot = crate::shots::Bounds {
+        x: 10.0,
+        y: 100.0,
+        width: 200.0,
+        height: 80.0,
+    };
+    let board = [
+        boxed(text("Container"), 10.0, 10.0, 80.0, 20.0),
+        boxed(text("Stand-in"), 20.0, 110.0, 60.0, 20.0),
+    ];
+    let shot = [boxed(text("Other"), 10.0, 10.0, 80.0, 20.0)];
+    let found = compare(&board, &shot, &[slot]);
+    assert_eq!(found.findings.len(), 2);
 }

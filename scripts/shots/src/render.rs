@@ -105,6 +105,7 @@ struct Drawn {
     size: Size,
     elements: Vec<crate::shots::Element>,
     unshot: Vec<crate::shots::Bounds>,
+    slots: Vec<crate::shots::Bounds>,
 }
 
 async fn draw_with(
@@ -156,6 +157,7 @@ async fn draw_with(
             scale,
             elements: drawn.elements,
             unshot: drawn.unshot,
+            slots: drawn.slots,
         };
         let file = out.join(format!("{board}.json"));
         std::fs::write(
@@ -187,6 +189,9 @@ async fn draw_screen(
     let unshot = read::unshot(page, &settings.unshot)
         .await
         .map_err(|e| e.to_string())?;
+    let slots = read::slots(page, (0.0, 0.0))
+        .await
+        .map_err(|e| e.to_string())?;
     Ok(Drawn {
         png: rendered.png,
         size: Size {
@@ -195,6 +200,7 @@ async fn draw_screen(
         },
         elements,
         unshot,
+        slots,
     })
 }
 
@@ -225,5 +231,6 @@ async fn draw_component(
         size: row.size,
         elements: row.elements,
         unshot: Vec::new(),
+        slots: row.slots,
     })
 }

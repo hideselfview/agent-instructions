@@ -28,6 +28,10 @@
 //! - `shots-unshot <selector>...`: the parts of a board the app draws no
 //!   counterpart for, such as an on-screen keyboard, which the picture
 //!   comparison leaves out (render/read.rs).
+//!
+//! A board's elements of the class `bae-preview-slot` need no line: a container's
+//! preview draws one as a stand-in for its content, and the comparison leaves
+//! out what either side holds inside its box (render/read.rs, compare.rs).
 
 use crate::names::Platform;
 use std::path::{Path, PathBuf};
