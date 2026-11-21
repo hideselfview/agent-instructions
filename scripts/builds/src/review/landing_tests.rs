@@ -53,13 +53,24 @@ fn review_past(demo: &Demo, fake: &Fake, side: &Path, base: &str) -> super::supe
 /// What `builds land` would ask of <shas> in <side>: the verdict and its
 /// words.
 fn verdict_of(demo: &Demo, fake: &Fake, side: &Path, shas: &[String]) -> (Verdict, Option<String>) {
+    verdict_checked(demo, fake, side, shas, CodeCheck::Branch("HEAD"))
+}
+
+/// `verdict_of`, reading the branch as <check> says.
+fn verdict_checked(
+    demo: &Demo,
+    fake: &Fake,
+    side: &Path,
+    shas: &[String],
+    check: CodeCheck,
+) -> (Verdict, Option<String>) {
     let asked = asked(demo, fake, side, shas);
     let verdict = judge(
         &asked.conn,
         asked.change(),
         side,
         &asked.needs,
-        CodeCheck::Branch("HEAD"),
+        check,
         asked.scope(),
     )
     .unwrap();
@@ -1035,19 +1046,11 @@ fn squash_two(side: &Path, message: &str) -> String {
     head(side)
 }
 
-/// `check_landing`, as land asks it of a branch it squashed.
+/// Whether land's check of a branch it squashed takes <shas>.
 fn check_squashed(demo: &Demo, fake: &Fake, side: &Path, shas: &[String]) -> bool {
-    let asked = asked(demo, fake, side, shas);
-    let verdict = judge(
-        &asked.conn,
-        asked.change(),
-        side,
-        &asked.needs,
-        CodeCheck::Squashed("HEAD"),
-        asked.scope(),
-    )
-    .unwrap();
-    refusal(&asked.needs, &verdict).is_none()
+    verdict_checked(demo, fake, side, shas, CodeCheck::Squashed("HEAD"))
+        .1
+        .is_none()
 }
 
 /// A squash that leaves the net change as the review read it needs no new
@@ -1062,14 +1065,9 @@ fn a_squash_with_the_reviewed_net_change_lands_without_a_new_review() {
     commit_text(&side, "a.rs", "keep\nmore\n", "Add more");
     review_of(&demo, &fake, &side);
     let squashed = [squash_two(&side, "One change")];
-    assert!(!check_squashed_off(&demo, &fake, &side, &squashed));
+    assert!(verdict_of(&demo, &fake, &side, &squashed).1.is_some());
     assert!(check_squashed(&demo, &fake, &side, &squashed));
     commit_text(&side, "a.rs", "keep\nmore\nand more\n", "Add and more");
     let changed = [head(&side)];
     assert!(!check_squashed(&demo, &fake, &side, &changed));
-}
-
-/// What land asks of a branch it did not squash.
-fn check_squashed_off(demo: &Demo, fake: &Fake, side: &Path, shas: &[String]) -> bool {
-    verdict_of(demo, fake, side, shas).1.is_none()
 }
