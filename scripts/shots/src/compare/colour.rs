@@ -121,16 +121,38 @@ pub(crate) fn pixel(picture: &Picture, x: i64, y: i64) -> Option<Rgb> {
     ])
 }
 
-fn most_frequent(counts: &HashMap<Rgb, usize>) -> Option<Rgb> {
-    counts
-        .iter()
-        .max_by_key(|(colour, count)| (**count, **colour))
-        .map(|(colour, _)| *colour)
+/// The colour that fills most of a box, counting colours within
+/// [`DELTA_E_TOLERANCE`] of each other as one: a background drawn as a glow
+/// of many near shades counts as a whole, and a text's one fill never wins
+/// over it for being the most frequent single shade. Returns the most
+/// frequent colour of the biggest group, and that group's centre.
+fn biggest_group(counts: &HashMap<Rgb, usize>) -> Option<(Rgb, Lab)> {
+    let mut by_count: Vec<(Rgb, usize)> = counts.iter().map(|(c, n)| (*c, *n)).collect();
+    // The most frequent colour first, ties by colour, so a group's centre is
+    // always its most frequent colour and the result never depends on the
+    // hash map's order.
+    by_count.sort_by_key(|(colour, count)| (std::cmp::Reverse(*count), std::cmp::Reverse(*colour)));
+    let mut groups: Vec<(Rgb, Lab, usize)> = Vec::new();
+    for (colour, count) in by_count {
+        let lab = Lab::of(colour);
+        match groups
+            .iter_mut()
+            .find(|(_, centre, _)| delta_e(*centre, lab) <= DELTA_E_TOLERANCE)
+        {
+            Some(group) => group.2 += count,
+            None => groups.push((colour, lab, count)),
+        }
+    }
+    groups
+        .into_iter()
+        .max_by_key(|(colour, _, total)| (*total, *colour))
+        .map(|(colour, lab, _)| (colour, lab))
 }
 
 /// The background and foreground of `bounds` (points from the picture's
-/// top-left, `scale` pixels to the point): the most common colour, and the
-/// most frequent colour far from it. The foreground is absent when the box
+/// top-left, `scale` pixels to the point): the colour that fills most of the
+/// box, and the one that fills most of what is far from it, each counted with
+/// its near shades ([`biggest_group`]). The foreground is absent when the box
 /// holds one colour.
 pub(crate) fn palette(picture: &Picture, scale: f64, bounds: Bounds) -> Option<(Rgb, Option<Rgb>)> {
     let (left, top) = (
@@ -147,13 +169,12 @@ pub(crate) fn palette(picture: &Picture, scale: f64, bounds: Bounds) -> Option<(
             }
         }
     }
-    let background = most_frequent(&counts)?;
-    let lab = Lab::of(background);
+    let (background, lab) = biggest_group(&counts)?;
     let far: HashMap<Rgb, usize> = counts
         .into_iter()
         .filter(|(colour, _)| delta_e(lab, Lab::of(*colour)) > FAR_FROM_BACKGROUND)
         .collect();
-    Some((background, most_frequent(&far)))
+    Some((background, biggest_group(&far).map(|(colour, _)| colour)))
 }
 
 /// `#RRGGBB`.

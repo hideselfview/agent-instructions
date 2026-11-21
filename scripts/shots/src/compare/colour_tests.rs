@@ -96,6 +96,33 @@ fn the_background_is_the_most_common_colour_and_the_foreground_the_most_frequent
 }
 
 #[test]
+fn a_background_of_many_near_shades_beats_a_text_of_one_fill() {
+    let text = [168, 168, 179];
+    // 10 x 10 box: the text's one fill covers 30 px. The background is a glow of
+    // 70 px in 70 near shades, none of which covers more than 1 px.
+    let picture = picture(10, 10, |x, y| {
+        if y < 3 {
+            text
+        } else {
+            [
+                20 + (x % 3) as u8,
+                19 + (y % 3) as u8,
+                30 + ((x + y) % 7) as u8,
+            ]
+        }
+    });
+    let bounds = Bounds {
+        x: 0.0,
+        y: 0.0,
+        width: 10.0,
+        height: 10.0,
+    };
+    let (background, foreground) = palette(&picture, 1.0, bounds).unwrap();
+    assert!(rgb_delta(background, [21, 20, 33]) < 6.0, "{background:?}");
+    assert_eq!(foreground, Some(text));
+}
+
+#[test]
 fn a_box_of_one_colour_has_no_foreground() {
     let picture = picture(4, 4, |_, _| [9, 9, 9]);
     let bounds = Bounds {
