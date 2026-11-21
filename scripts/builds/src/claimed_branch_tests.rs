@@ -46,3 +46,22 @@ fn a_command_that_another_builds_command_started_is_not_checked() {
     assert!(!applies("cargo", true) && !applies("checks", true));
     assert!(!applies("status", false));
 }
+
+/// A commit hook in a main checkout runs with a session and no agent id, so
+/// reading the caller there would fail; the check never reads it.
+#[test]
+fn a_main_checkout_passes_without_reading_the_agent() {
+    let dir = std::env::temp_dir().join(format!("builds-test-claimed-main-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let init = std::process::Command::new("git")
+        .current_dir(&dir)
+        .args(["init", "-q"])
+        .status()
+        .unwrap();
+    assert!(init.success());
+    let dir = std::fs::canonicalize(&dir).unwrap();
+    let result = require_claimed_branch(&dir, || panic!("read the agent in a main checkout"));
+    std::fs::remove_dir_all(&dir).unwrap();
+    result.unwrap();
+}

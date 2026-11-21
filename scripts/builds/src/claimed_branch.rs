@@ -34,7 +34,7 @@ pub fn gate(command: &str, nested: bool) -> Result<()> {
     if !applies(command, nested) {
         return Ok(());
     }
-    require_claimed_branch(&crate::lists::args::current_dir()?)
+    require_claimed_branch(&crate::lists::args::current_dir()?, Caller::from_env)
 }
 
 /// Does the check cover `builds <command>`, which <nested> says another builds
@@ -44,8 +44,9 @@ fn applies(command: &str, nested: bool) -> bool {
 }
 
 /// Fails when <dir> is in a claimed side worktree whose running items'
-/// branches do not include the branch checked out.
-fn require_claimed_branch(dir: &Path) -> Result<()> {
+/// branches do not include the branch checked out. <caller> reads the agent
+/// that runs the command, and runs only in a claimed side worktree.
+fn require_claimed_branch(dir: &Path, caller: fn() -> Result<Option<Caller>>) -> Result<()> {
     let Some(checkout) = Checkout::at_keeping_env(dir)? else {
         return Ok(());
     };
@@ -57,7 +58,7 @@ fn require_claimed_branch(dir: &Path) -> Result<()> {
     };
     // Only a side worktree's claim needs to know who runs the command, so a
     // commit hook in a main checkout runs with a session and no agent id.
-    if Caller::from_env()?.is_none() {
+    if caller()?.is_none() {
         return Ok(());
     }
     let places = Places::from_env()?;
