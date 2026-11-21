@@ -44,8 +44,7 @@ pub fn setup_host(
     if os == Os::Linux {
         said = crate::host_linux::prepare(places, ssh, host, at_terminal)?;
     }
-    let (root, installed) =
-        install_on_host(places, ssh, host, os, &crate::install::this_binary()?)?;
+    let (root, installed) = install_on_host(places, ssh, host, os, &crate::this_program()?)?;
     said.push(installed);
     let said = said.join("\n");
     let printed = run_builds_there(places, ssh, host, "host speed-here", "timing a compile")?;

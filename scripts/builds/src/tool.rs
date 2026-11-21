@@ -24,7 +24,8 @@ pub struct Tool {
     pub reviewer: Reviewer,
     /// The builds program `builds design record` and `amend` run as `builds
     /// shots states` to find the component states a design change adds
-    /// (`shots_program::require_states_shown`): this program.
+    /// (`shots_program::require_states_shown`): this program
+    /// (`crate::this_program`).
     pub shots: PathBuf,
     /// Sizes measured ahead, for `status`, which reads every folder once.
     measured: HashMap<PathBuf, Measure>,

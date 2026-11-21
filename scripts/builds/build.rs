@@ -125,16 +125,17 @@ fn lock_entries(lock: &str, root: &str) -> std::collections::BTreeSet<String> {
         if !entries.insert(entry) {
             continue;
         }
-        let dependencies = package
-            .get("dependencies")
-            .and_then(toml::Value::as_array)
-            .into_iter()
-            .flatten();
-        wanted.extend(
-            dependencies
-                .filter_map(toml::Value::as_str)
-                .map(String::from),
-        );
+        // A package with no dependencies has no `dependencies` key.
+        let dependencies = package.get("dependencies").map(|list| {
+            list.as_array()
+                .unwrap_or_else(|| panic!("Cargo.lock lists {name}'s dependencies as no array"))
+        });
+        for dependency in dependencies.into_iter().flatten() {
+            let named = dependency.as_str().unwrap_or_else(|| {
+                panic!("Cargo.lock names a dependency of {name} by no text: {dependency}")
+            });
+            wanted.push(named.to_string());
+        }
     }
     entries
 }

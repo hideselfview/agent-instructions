@@ -157,11 +157,6 @@ fn require_new_build(me: &Path, dest: &Path) -> Result<()> {
     Ok(())
 }
 
-/// This program, which builds installs here and on each host.
-pub fn this_binary() -> Result<PathBuf> {
-    std::env::current_exe().context(|| "finding this binary".to_string())
-}
-
 /// Copies <program> to <bin>/<name> in one rename, so no hook ever finds the
 /// path missing or half written while it is replaced, and a process running
 /// the old file keeps that file: writing over it in place invalidates its code
@@ -180,11 +175,11 @@ fn put_in(bin: &Path, program: &Path, name: &str) -> Result<()> {
 }
 
 /// Copies this program to ~/.local/bin. Returns whether it replaced the
-/// binary (always, now: running from the installed binary fails).
+/// binary, which it always does: running from the installed binary fails.
 fn put_on_path(home: &Path) -> Result<bool> {
     let bin = crate::links::bin(home);
     std::fs::create_dir_all(&bin).context(|| format!("creating {}", bin.display()))?;
-    let builds = this_binary()?;
+    let builds = crate::this_program()?;
     require_new_build(&builds, &bin.join("builds"))?;
     put_in(&bin, &builds, "builds")?;
     for link in crate::links::LINKS {
@@ -565,7 +560,11 @@ pub fn cmd_install(tool: &Tool, args: &[String]) -> Result<()> {
             error.text()
         )),
     }
-    install_on_hosts(&tool.places, &crate::host::Ssh::from_env(), &this_binary()?)
+    install_on_hosts(
+        &tool.places,
+        &crate::host::Ssh::from_env(),
+        &crate::this_program()?,
+    )
 }
 
 /// Installs <builds>, this build, on every recorded host

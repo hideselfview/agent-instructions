@@ -31,12 +31,6 @@ fn cache(places: &Places) -> PathBuf {
     places.caches().join("builds-shots")
 }
 
-/// This program, which `builds design record` and `amend` run as `builds
-/// shots states` in the change's checkout (`require_states_shown`).
-pub fn this_program() -> Result<PathBuf> {
-    std::env::current_exe().context(|| "finding this program".to_string())
-}
-
 /// Fails, with what the checker printed, when the boards at <tip> of the
 /// repo at <top> draw a component state that no preview row shows and that
 /// the listing at <base> does not hold (`builds shots states --at <tip>

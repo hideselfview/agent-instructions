@@ -180,8 +180,7 @@ pub fn pin(home: &Path, builds: &Path, version: &str) -> Result<Pin> {
 
 /// `pin` with this program, of this program's version.
 pub fn pin_this(home: &Path) -> Result<Pin> {
-    let builds = std::env::current_exe().context(|| "finding this program".to_string())?;
-    pin(home, &builds, env!("BUILDS_SOURCE"))
+    pin(home, &crate::this_program()?, env!("BUILDS_SOURCE"))
 }
 
 /// The versions whose folders <home> holds, in the order of their names.

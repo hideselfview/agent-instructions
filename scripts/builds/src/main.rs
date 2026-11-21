@@ -300,6 +300,12 @@ fn enter_stores(command: &str, args: &[String]) -> Result<Option<install_gate::U
 /// `builds host setup` builds them on a Linux host.
 pub const SOURCE: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/source.tar"));
 
+/// The path of this program.
+pub fn this_program() -> Result<std::path::PathBuf> {
+    use fail::Context;
+    std::env::current_exe().context(|| "finding this program".to_string())
+}
+
 /// `builds <hash>`: the hash of the sources this program is built from
 /// (build.rs), the same for every OS's build of them.
 pub fn version() -> String {
@@ -323,11 +329,7 @@ fn run(command: &str, args: &[String]) -> Result<()> {
         "lock" => return lock::cmd_lock(&Places::from_env()?, args),
         "app-build" => {
             return app_build::cmd_app_build(
-                &Tool::new(
-                    Places::from_env()?,
-                    Rules::from_env()?,
-                    shots_program::this_program()?,
-                ),
+                &Tool::new(Places::from_env()?, Rules::from_env()?, this_program()?),
                 args,
             );
         }
@@ -354,11 +356,7 @@ fn run(command: &str, args: &[String]) -> Result<()> {
     }
     checkout::drop_git_local_env()?;
     text::use_callers_collation();
-    let mut tool = Tool::new(
-        Places::from_env()?,
-        Rules::from_env()?,
-        shots_program::this_program()?,
-    );
+    let mut tool = Tool::new(Places::from_env()?, Rules::from_env()?, this_program()?);
     match command {
         "setup" => setup::cmd_setup(&tool, &host::Ssh::from_env(), args),
         "new" => worktree::cmd_new(&tool, &host::Ssh::from_env(), args),
