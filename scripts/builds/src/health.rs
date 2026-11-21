@@ -218,6 +218,10 @@ pub struct WorktreeHealth {
     /// Minutes since the newer of HEAD's commit and the newest uncommitted
     /// write.
     pub quiet_minutes: Option<i64>,
+    /// Minutes since the newest of HEAD's commit, the newest uncommitted
+    /// write and the start of the claim: the time `stalled` and the release
+    /// of an idle claim (health_fix.rs) judge. None when git cannot tell.
+    pub idle_minutes: Option<i64>,
     /// No change and no build for QUIET_MINUTES, and not held or waiting on
     /// the person's review: health lists it under needs action, and the
     /// dashboard's card says it stalled.
@@ -953,6 +957,7 @@ pub fn assess(
             branch,
             git,
             quiet_minutes,
+            idle_minutes,
             stalled,
             building,
             remote_runs,
