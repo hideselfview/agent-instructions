@@ -1861,6 +1861,12 @@ fn a_design_change_with_several_amends_lands_as_one_commit_titled_by_the_change(
         out.contains("squashed 3 commits of design change 3"),
         "{out}"
     );
+    assert!(
+        calls
+            .iter()
+            .any(|c| c.starts_with("review check-landing") && c.ends_with("--squashed")),
+        "{calls:?}"
+    );
 }
 
 #[test]
@@ -1882,6 +1888,10 @@ fn a_design_change_with_one_commit_lands_as_it_is() {
     assert_eq!(main_of(&f), only);
     assert!(
         !calls.iter().any(|c| c.starts_with("design title")),
+        "{calls:?}"
+    );
+    assert!(
+        !calls.iter().any(|c| c.ends_with("--squashed")),
         "{calls:?}"
     );
 }

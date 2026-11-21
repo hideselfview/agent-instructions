@@ -3214,7 +3214,12 @@ run `review replay --rules-root` on it.
                               branch to it, and refuses, changing nothing,
                               when the squash would give a tree other than
                               the last commit's, or when the branch has
-                              commits after the last one named. In a repo of a
+                              commits after the last one named. For a
+                              squashed landing, land passes --squashed to
+                              `review check-landing`, which then takes the
+                              squash's new message as read and still counts
+                              every path that changed since the last review
+                              as unreviewed. In a repo of a
                               project, land runs `review check-landing` before
                               it fetches anything, and a refusal ends the
                               landing. Land passes the change's key, read
@@ -3459,7 +3464,7 @@ run `review replay --rules-root` on it.
                               findings, how each was settled (both settles of
                               one settled again) and the run that closed it,
                               and the run it landed with
-  builds review check-landing <worktree> --project P <sha>... [--landing KEY] [--rules-root DIR]
+  builds review check-landing <worktree> --project P <sha>... [--landing KEY] [--squashed] [--rules-root DIR]
                               what `builds land` asks before it fetches: says
                               that the commits need no review, or that the
                               review of KEY (default the worktree's branch)

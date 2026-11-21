@@ -1026,3 +1026,50 @@ fn a_branch_called_mechanical_lands_under_the_cap_with_land_saying_who_and_why()
         "{said}"
     );
 }
+
+/// The branch's two reviewed commits as one commit with a new message and
+/// the same tree, as land's squash of a design change builds it.
+fn squash_two(side: &Path, message: &str) -> String {
+    crate::testing::git(side, &["reset", "-q", "--soft", "HEAD~2"]);
+    crate::testing::git(side, &["commit", "-q", "-m", message]);
+    head(side)
+}
+
+/// `check_landing`, as land asks it of a branch it squashed.
+fn check_squashed(demo: &Demo, fake: &Fake, side: &Path, shas: &[String]) -> bool {
+    let asked = asked(demo, fake, side, shas);
+    let verdict = judge(
+        &asked.conn,
+        asked.change(),
+        side,
+        &asked.needs,
+        CodeCheck::Squashed("HEAD"),
+        asked.scope(),
+    )
+    .unwrap();
+    refusal(&asked.needs, &verdict).is_none()
+}
+
+/// A squash that leaves the net change as the review read it needs no new
+/// review, though its message is new; a squash of changed files does.
+#[test]
+fn a_squash_with_the_reviewed_net_change_lands_without_a_new_review() {
+    let demo = demo("landing-squashed");
+    let fake = fake(&demo.scratch.dir);
+    commit_text_group(&fake);
+    let side = demo.add_side(1, "agent", "work");
+    commit_text(&side, "a.rs", "keep\n", "Add a");
+    commit_text(&side, "a.rs", "keep\nmore\n", "Add more");
+    review_of(&demo, &fake, &side);
+    let squashed = [squash_two(&side, "One change")];
+    assert!(!check_squashed_off(&demo, &fake, &side, &squashed));
+    assert!(check_squashed(&demo, &fake, &side, &squashed));
+    commit_text(&side, "a.rs", "keep\nmore\nand more\n", "Add and more");
+    let changed = [head(&side)];
+    assert!(!check_squashed(&demo, &fake, &side, &changed));
+}
+
+/// What land asks of a branch it did not squash.
+fn check_squashed_off(demo: &Demo, fake: &Fake, side: &Path, shas: &[String]) -> bool {
+    verdict_of(demo, fake, side, shas).1.is_none()
+}

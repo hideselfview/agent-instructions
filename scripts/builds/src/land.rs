@@ -728,6 +728,9 @@ struct Landing<'a> {
     /// What `builds design only` said of the landing's commits, once
     /// `squash_design` has asked it, so `check_lists` does not ask again.
     design_only: RefCell<Option<(bool, String)>>,
+    /// Did `squash_design` squash the landing's commits into one commit with
+    /// a message of its own? The review check then ignores that message.
+    squashed: Cell<bool>,
 }
 
 /// A step that is running: it joins the landing's steps when it is dropped,
@@ -1032,6 +1035,7 @@ impl Landing<'_> {
             design.0
         );
         self.request.shas = vec![squashed];
+        self.squashed.set(true);
         Ok(())
     }
 
@@ -1048,6 +1052,9 @@ impl Landing<'_> {
             key.to_string(),
         ];
         line.extend(self.request.shas.iter().cloned());
+        if verb == "check-landing" && self.squashed.get() {
+            line.push("--squashed".to_string());
+        }
         line
     }
 
@@ -1902,6 +1909,7 @@ fn open_landing<'a>(
         steps: RefCell::new(Vec::new()),
         pushed: Cell::new(false),
         design_only: RefCell::new(None),
+        squashed: Cell::new(false),
     })
 }
 

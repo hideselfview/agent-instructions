@@ -2,7 +2,7 @@
 //! it pushes:
 //!
 //! ```text
-//! builds review check-landing DIR --project P SHA... [--landing KEY] [--rules-root DIR]
+//! builds review check-landing DIR --project P SHA... [--landing KEY] [--squashed] [--rules-root DIR]
 //! builds review landed DIR --project P SHA... [--landing KEY] [--more-to-land] [--rules-root DIR]
 //! ```
 //!
@@ -19,7 +19,11 @@
 //! also takes a branch that adds more lines than the review's cap when
 //! `builds review` recorded it as needing no review (`over_cap.rs`) and no
 //! finding waits; `judge` decides that too, so land, the dashboard's cards
-//! and health agree on such a branch.
+//! and health agree on such a branch. `--squashed`, which only land passes
+//! after it squashed a design change's commits into one commit with the
+//! change's title as its message, leaves out the commit message check: land
+//! wrote that message, and every path whose content changed since the last
+//! review still counts as unreviewed.
 //! A confirmed finding stays open until a later review closes it, because the
 //! changes that review read fix it, or the coordinator settles it again as
 //! dropped. A rebase that keeps every line the branch adds and removes leaves
@@ -55,7 +59,7 @@ use crate::review::render;
 use crate::review::run::{self, Material, Scope};
 use crate::tool::Tool;
 
-const USAGE: &str = "builds review check-landing|landed DIR --project P SHA... [--landing KEY] [--rules-root DIR] [--more-to-land]";
+const USAGE: &str = "builds review check-landing|landed DIR --project P SHA... [--landing KEY] [--rules-root DIR] [--more-to-land] [--squashed]";
 
 /// What every refusal and every refused run says first.
 pub const ONE_REVIEW: &str = "builds review sends a reviewer no diff twice. Each change gets one review: a review shows the changes since the last review, and nothing else, except that a group that holds an open confirmed finding reads the net change again when nothing is unread.";
@@ -105,6 +109,12 @@ pub enum CodeCheck<'a> {
     /// The net change of this commit past origin/main too: whether it changed
     /// since the last review.
     Branch(&'a str),
+    /// As `Branch`, for a branch that land squashed into one commit with a
+    /// message of its own: a commit message that changed since the last
+    /// review is no unread change, since land wrote it. Every path whose
+    /// content changed since the last review stays unreviewed, so a squash
+    /// that differs from what the review read still needs a review.
+    Squashed(&'a str),
 }
 
 /// The base builds reads a branch's change from.
@@ -321,10 +331,11 @@ fn assess(
             }
         }
     }
-    if let CodeCheck::Branch(head) = check {
+    if let CodeCheck::Branch(head) | CodeCheck::Squashed(head) = check {
         let since = run::diff_since(dir, &last.base, &last.head, BRANCH_BASE, head)?;
         let branch = commits::paths(dir, &commits::in_range(dir, &since.base, &since.head)?)?;
-        let messages_unread = !scope.commit_text_groups(&since.diff, &branch).is_empty();
+        let messages_unread = matches!(check, CodeCheck::Branch(_))
+            && !scope.commit_text_groups(&since.diff, &branch).is_empty();
         unfinished.unreviewed = since
             .diff
             .changed
@@ -384,7 +395,7 @@ pub fn judge(
         }
         _ => false,
     };
-    if let CodeCheck::Branch(head) = check
+    if let CodeCheck::Branch(head) | CodeCheck::Squashed(head) = check
         && !findings_wait
         && let Some(over) = over_cap_needs_none(db, change, dir, head)?
     {
@@ -652,14 +663,18 @@ fn ask(tool: &Tool, args: &Args) -> Result<Asked> {
 /// `builds review check-landing DIR --project P SHA...`: says why the commits
 /// can't land, exit 1, or that the review takes them.
 pub fn check_landing_command(tool: &Tool, args: &[String]) -> Result<()> {
-    let args = Args::parse(args, &["landing", "rules-root"], &[])?;
+    let args = Args::parse(args, &["landing", "rules-root"], &["squashed"])?;
     let asked = ask(tool, &args)?;
     let verdict = judge(
         &asked.conn,
         asked.change(),
         &asked.dir,
         &asked.needs,
-        CodeCheck::Branch("HEAD"),
+        if args.switch("squashed") {
+            CodeCheck::Squashed("HEAD")
+        } else {
+            CodeCheck::Branch("HEAD")
+        },
         asked.scope(),
     )?;
     let Some(why) = refusal(&asked.needs, &verdict) else {
