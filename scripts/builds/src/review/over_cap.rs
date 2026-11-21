@@ -82,8 +82,8 @@ pub fn record_mechanical(
 /// mechanical work (`builds review --kind mechanical`): moved or renamed
 /// code, regenerated files or a codemod, covered by <checked_by>, such as the
 /// compiler, the hook or a shots run. `builds land` takes the change with no
-/// review. Refuses a change that already asks the person whether to review
-/// it. Returns what to say.
+/// review. Refuses a change with an open or approved question to the person
+/// about reviewing it. Returns what to say.
 pub fn call_mechanical(
     store: &crate::lists::store::Store,
     repo: &str,
@@ -109,14 +109,13 @@ pub fn call_mechanical(
         Some(Standing::Waiting(Waiting::Mechanical(why))) => {
             return Ok(format!("{key} {}\n", why.says()));
         }
-        Some(
-            Standing::Waiting(Waiting::Asked(id) | Waiting::Declined(id)) | Standing::Approved(id),
-        ) => {
+        Some(Standing::Waiting(Waiting::Asked(id)) | Standing::Approved(id)) => {
             fail!(
                 "{key} already has question {id} about reviewing it, so the person decides it, and a call of mechanical work does not replace it"
             )
         }
-        None => {}
+        // A question the person closed without approving leaves nothing to decide.
+        Some(Standing::Waiting(Waiting::Declined(_))) | None => {}
     }
     store.write(stamp, &format!("call mechanical {key}"), |db| {
         db.execute(

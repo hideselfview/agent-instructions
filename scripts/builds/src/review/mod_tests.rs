@@ -1861,6 +1861,32 @@ fn a_call_of_mechanical_work_does_not_replace_a_question_to_the_person() {
     assert!(failed.contains("question"), "{failed}");
 }
 
+#[test]
+fn a_call_of_mechanical_work_replaces_a_question_the_person_dropped() {
+    let demo = demo("review-over-cap-call-after-drop");
+    let fake = fake(&demo.scratch.dir);
+    let side = demo.add_side(1, "agent", "work");
+    big_commit(&side, "big.rs", "let x = 1;\n");
+    run_review(&demo, &fake, &side, "k");
+    let Some(over_cap::Standing::Waiting(over_cap::Waiting::Asked(question))) =
+        over_cap_standing(&demo, &side)
+    else {
+        panic!("asked")
+    };
+    demo.store
+        .write(&stamp(), "drop", |db| {
+            crate::lists::record::close(
+                db,
+                question,
+                crate::lists::How::Dropped("no".into()),
+                &stamp(),
+            )
+        })
+        .unwrap();
+    let said = call(&demo, &side).unwrap();
+    assert!(said.contains("checked by the compiler"), "{said}");
+}
+
 fn call(demo: &Demo, side: &Path) -> Result<String> {
     over_cap::call_mechanical(
         &demo.store,
