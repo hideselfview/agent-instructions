@@ -248,14 +248,11 @@ pub fn remove_all(dir: &Path) -> Result<()> {
 /// (`prune_runs`). After `finish` or `discard` the folder is gone already.
 impl Drop for Staging {
     fn drop(&mut self) {
-        match std::fs::remove_dir_all(&self.dir) {
-            Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
-                crate::text::note(format!(
-                    "deleting {}, an unfinished shots run's staging folder: {error}",
-                    self.dir.display()
-                ))
-            }
-            _ => {}
+        if let Err(error) = remove_all(&self.dir) {
+            note(format!(
+                "{}, an unfinished shots run's staging folder",
+                error.text()
+            ));
         }
     }
 }
