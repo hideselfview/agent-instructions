@@ -76,7 +76,7 @@ enum Action {
         /// The findings.json of the run to compare with, written by this
         /// version of the checker, such as the run of the branch's merge base
         /// with origin/main, which builds passes.
-        #[arg(long)]
+        #[arg(long, conflicts_with = "base")]
         before: Option<PathBuf>,
         /// The folder of the board pictures earlier runs drew, which builds
         /// keeps: the run draws only the boards it lacks and adds each new
@@ -462,9 +462,7 @@ fn run(checker: &Checker, action: Action) -> Result<bool, String> {
                 shots_for: &|p| shots.join(p.word()),
                 out: &shots,
                 comparison: match (&before, selection.base) {
-                    (Some(_), true) => {
-                        return Err("--base and --before name two runs to compare with".to_string());
-                    }
+                    (Some(_), true) => unreachable!("clap refuses --base with --before"),
                     (Some(before), false) => verify::Comparison::Before(before),
                     (None, true) => verify::Comparison::Base,
                     (None, false) => verify::Comparison::Nothing,
@@ -603,4 +601,23 @@ pub fn main(checker: &Checker, args: &[String]) -> bool {
         crate::log::note(message);
         false
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn parse(args: &[&str]) -> Result<Cli, clap::Error> {
+        Cli::try_parse_from(std::iter::once("builds shots").chain(args.iter().copied()))
+    }
+
+    #[test]
+    fn a_run_names_the_merge_base_s_own_run_or_a_before_run_never_both() {
+        assert!(parse(&["run", "--base"]).is_ok());
+        assert!(parse(&["run", "--before", "findings.json"]).is_ok());
+        let error = parse(&["run", "--base", "--before", "findings.json"])
+            .err()
+            .expect("clap refuses the two flags together");
+        assert_eq!(error.kind(), clap::error::ErrorKind::ArgumentConflict);
+    }
 }
