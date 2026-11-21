@@ -8,17 +8,14 @@
 //! shared `status-chip`. builds-shots names each row's shot from it, and
 //! builds finds the shots of a component by it.
 
+use crate::app_build::Platform;
 use crate::preview::is_component_name;
-
-/// Each platform's word, which starts its shots' names, and the word in
-/// PascalCase that starts the names of its components.
-pub const PLATFORMS: [(&str, &str); 3] = [("mac", "Mac"), ("android", "Android"), ("web", "Web")];
 
 /// The platform that draws a component, none for a component every platform
 /// shares, and the `<thing>` of its shots' names.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ComponentKey {
-    /// The platform's word (`mac`), as `PLATFORMS` gives it.
+    /// The platform's word (`mac`), as `Platform::word` gives it.
     pub platform: Option<&'static str>,
     pub thing: String,
 }
@@ -30,16 +27,16 @@ impl ComponentKey {
         if !is_component_name(name) || !name.starts_with(|c: char| c.is_ascii_uppercase()) {
             return None;
         }
-        let platform = PLATFORMS.into_iter().find(|(_, start)| {
-            name.strip_prefix(start)
+        let platform = Platform::ALL.into_iter().find(|platform| {
+            name.strip_prefix(platform.component_prefix())
                 .is_some_and(|rest| rest.starts_with(|c: char| c.is_ascii_uppercase()))
         });
         let rest = match platform {
-            Some((_, start)) => &name[start.len()..],
+            Some(platform) => &name[platform.component_prefix().len()..],
             None => name,
         };
         Some(Self {
-            platform: platform.map(|(word, _)| word),
+            platform: platform.map(Platform::word),
             thing: words(rest).join("-"),
         })
     }

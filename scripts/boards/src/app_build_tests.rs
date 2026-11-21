@@ -37,12 +37,3 @@ fn a_shots_declared_line_that_the_shots_program_would_refuse_is_an_error() {
         assert_eq!(declared(line).unwrap_err().why, why, "{line}");
     }
 }
-
-#[test]
-fn each_platforms_word_and_component_prefix_are_those_of_the_component_keys() {
-    let keys: Vec<(&str, &str)> = Platform::ALL
-        .into_iter()
-        .map(|platform| (platform.word(), platform.component_prefix()))
-        .collect();
-    assert_eq!(keys, crate::component_key::PLATFORMS);
-}
