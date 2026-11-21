@@ -505,10 +505,16 @@ pub fn shots_ran(
         .collect::<std::result::Result<_, _>>()
         .context(what)?;
     let step = PickKind::Shots.step_prefix();
-    Ok(names
+    names
         .into_iter()
-        .map(|name| name.strip_prefix(step).unwrap_or(&name).to_string())
-        .collect())
+        .map(|name| match name.strip_prefix(step) {
+            Some(prefix) => Ok(prefix.to_string()),
+            None => fail!(
+                "{} holds a shots step named {name:?}, which does not start with {step:?}",
+                path.display()
+            ),
+        })
+        .collect()
 }
 
 /// Each app build run's queue wait and each step, of the runs and steps that

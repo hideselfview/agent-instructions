@@ -419,11 +419,13 @@ pub fn cmd_landing_build(places: &Places, args: &[String]) -> Result<()> {
     let changed = paths_between(top, before, result)?;
     let since = branch_since(top, before, branch)?;
     let conn = crate::db::open(&database, crate::db::Make::Never)?;
+    let mut drops_of = std::collections::HashMap::new();
     for lane in Lane::ALL {
         let drops = crate::app_shots_drop::dropped(&conn, &repo, named, lane, since)?;
         for line in dropped_lines(lane, &drops) {
             println!("{line}");
         }
+        drops_of.insert(lane, drops);
     }
     let found = needs(
         &config,
@@ -432,7 +434,7 @@ pub fn cmd_landing_build(places: &Places, args: &[String]) -> Result<()> {
         &mut |lane| crate::app_timing::passed_runs(&conn, &repo, lane, &database),
         &mut |lane| {
             let ran = crate::app_timing::shots_ran(&conn, &repo, lane, named, since, &database)?;
-            let drops = crate::app_shots_drop::dropped(&conn, &repo, named, lane, since)?;
+            let drops = &drops_of[&lane];
             Ok(ran
                 .into_iter()
                 .filter(|prefix| !drops.iter().any(|drop| drop.prefix == *prefix))
