@@ -279,7 +279,7 @@ fn the_design_system_comes_from_the_repos_sources_and_its_canvas_namespace() {
     write(
         r,
         "design/system/tokens.json",
-        r#"{"name":"t","color":{"themes":[{"id":"dark"}],"tokens":[]},"type":{"families":{},"groups":[]}}"#,
+        r#"{"name":"t","color":{"themes":[{"id":"dark","name":"Dark"}],"tokens":[]},"type":{"families":{},"groups":[]}}"#,
     );
     write(
         r,

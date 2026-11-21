@@ -9,7 +9,7 @@ use std::collections::BTreeMap;
 
 use serde::Deserialize;
 
-use crate::tokens::color_names;
+use crate::tokens::{Theme, color_names};
 use crate::{Context, Result, Source, TOKENS_JSON, fail};
 
 pub const COLORS_JSON: &str = "design/system/colors.json";
@@ -70,17 +70,10 @@ pub struct Row {
     pub colors: Vec<Option<String>>,
 }
 
-/// A theme of the tokens: the id its `data-theme` names, and its name.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ThemeName {
-    pub id: String,
-    pub name: String,
-}
-
 /// The color groups of a design system, with its themes.
 #[derive(Debug)]
 pub struct Palette {
-    pub themes: Vec<ThemeName>,
+    pub themes: Vec<Theme>,
     /// Every color of the tokens, in the file's order.
     pub names: Vec<String>,
     pub colors: Colors,
@@ -186,18 +179,24 @@ pub fn scene_path(scene: &str) -> String {
 }
 
 /// The colors that the elements of the scene <html> point at
-/// (`data-color="<color>"`), in the order the scene has them.
-pub fn scene_colors(html: &str) -> Vec<&str> {
+/// (`data-color="<color>"`), in the order the scene has them. Fails when a
+/// `data-color` mark has no closing quote.
+pub fn scene_colors(html: &str) -> Result<Vec<&str>> {
     const MARK: &str = "data-color=\"";
     let mut found = Vec::new();
     let mut rest = html;
     while let Some(start) = rest.find(MARK) {
         let after = &rest[start + MARK.len()..];
-        let Some(end) = after.find('"') else { break };
+        let Some(end) = after.find('"') else {
+            fail!(
+                "a data-color mark has no closing quote: {MARK}{}",
+                after.chars().take(40).collect::<String>()
+            );
+        };
         found.push(&after[..end]);
         rest = &after[end..];
     }
-    found
+    Ok(found)
 }
 
 #[cfg(test)]

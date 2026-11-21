@@ -105,11 +105,11 @@ fn the_color_names_are_the_themes_and_each_color_in_the_file_order() {
     assert_eq!(
         themes,
         [
-            ThemeName {
+            Theme {
                 id: "dark".into(),
                 name: "Dark".into()
             },
-            ThemeName {
+            Theme {
                 id: "light".into(),
                 name: "Light".into()
             },

@@ -69,5 +69,14 @@ impl<T, E: fmt::Display> Context<T> for std::result::Result<T, E> {
     }
 }
 
+/// <text> with `&`, `<`, `>` and `"` written as HTML text and attribute
+/// values hold them.
+pub fn escape_html(text: &str) -> String {
+    text.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+}
+
 #[cfg(test)]
 mod testing;

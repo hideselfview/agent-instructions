@@ -5,6 +5,7 @@
 use crate::compare::{self, Finding, Warning};
 use crate::component_files::{self, Listing};
 use crate::verify::{Checked, Outcome};
+use boards::escape_html as esc;
 use std::path::Path;
 
 /// Appends formatted text to a string.
@@ -35,14 +36,6 @@ pub(crate) struct Header {
     /// What the run says of the runtime copy it drew the boards with.
     pub(crate) runtime: String,
     pub(crate) chrome: String,
-}
-
-/// `&`, `<`, `>` and `"` as HTML text and attribute values hold them.
-fn esc(text: &str) -> String {
-    text.replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
 }
 
 /// The picture file names a checked pair uses inside the report directory.

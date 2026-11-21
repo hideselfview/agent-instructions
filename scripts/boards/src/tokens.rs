@@ -22,7 +22,6 @@ use serde::de::{Deserializer, MapAccess, Visitor};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::colors::ThemeName;
 use crate::{Context, Result, fail};
 
 /// Where a worktree's tokens are, and where their stylesheet goes.
@@ -88,14 +87,16 @@ const NOT_FAMILIES: [&str; 2] = ["version", "meta"];
 
 #[derive(Deserialize)]
 struct Colors {
-    themes: Vec<ThemeId>,
+    themes: Vec<Theme>,
     tokens: Vec<ColorToken>,
 }
 
-#[derive(Deserialize)]
-struct ThemeId {
-    id: String,
-    name: String,
+/// A color theme of the tokens: the id its `data-theme` names, and its
+/// name.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct Theme {
+    pub id: String,
+    pub name: String,
 }
 
 #[derive(Deserialize)]
@@ -255,20 +256,12 @@ pub struct TextSpecimen {
 /// The themes of the tokens in <json>, the text of a tokens.json, and the
 /// name of each color, in the file's order. Fails when the tokens name no
 /// theme.
-pub fn color_names(json: &str) -> Result<(Vec<ThemeName>, Vec<String>)> {
+pub fn color_names(json: &str) -> Result<(Vec<Theme>, Vec<String>)> {
     let tokens = parse(json)?;
     if tokens.color.themes.is_empty() {
         fail!("the tokens name no color theme");
     }
-    let themes = tokens
-        .color
-        .themes
-        .into_iter()
-        .map(|theme| ThemeName {
-            id: theme.id,
-            name: theme.name,
-        })
-        .collect();
+    let themes = tokens.color.themes;
     let names = tokens
         .color
         .tokens

@@ -16,8 +16,8 @@
 
 use std::path::Path;
 
-use boards::Source;
 use boards::colors::{self, Cluster, Group, Palette, Table};
+use boards::{Source, escape_html as escape};
 
 use crate::design_render::fill;
 use crate::fail;
@@ -69,8 +69,8 @@ pub fn frame(from: Source, n: usize, cache: &Path) -> Result<String> {
 }
 
 /// The scene named <scene> of <from>, or why it can't be drawn: it can't be
-/// read, or an element of it points at a name that is no color of
-/// <palette>.
+/// read, a `data-color` mark in it has no closing quote, or an element of
+/// it points at a name that is no color of <palette>.
 fn scene_html(
     from: &Source,
     palette: &Palette,
@@ -78,7 +78,9 @@ fn scene_html(
 ) -> std::result::Result<String, String> {
     let rel = colors::scene_path(scene);
     let html = from.read(&rel, "the scene").map_err(|error| error.text())?;
-    let unknown: Vec<&str> = colors::scene_colors(&html)
+    let named =
+        colors::scene_colors(&html).map_err(|error| format!("{}: {error}", from.label(&rel)))?;
+    let unknown: Vec<&str> = named
         .into_iter()
         .filter(|name| !palette.names.iter().any(|known| known == name))
         .collect();
@@ -191,14 +193,6 @@ fn in_use(palette: &Palette, html: &str) -> String {
         })
         .collect();
     format!("<div class=\"cg-use\"><div class=\"cg-gutter\"></div>{themes}</div>")
-}
-
-/// <text> as HTML text or an attribute's value.
-fn escape(text: &str) -> String {
-    text.replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
 }
 
 #[cfg(test)]

@@ -1,4 +1,5 @@
 use super::*;
+use crate::tokens::Theme;
 
 const TOKENS: &str = r##"{
   "name": "demo",
@@ -33,11 +34,11 @@ fn the_palette_has_the_themes_of_the_tokens_and_the_groups_in_their_order() {
     assert_eq!(
         palette.themes,
         [
-            ThemeName {
+            Theme {
                 id: "dark".into(),
                 name: "Dark".into()
             },
-            ThemeName {
+            Theme {
                 id: "light".into(),
                 name: "Light".into()
             },
@@ -104,8 +105,15 @@ fn a_scene_names_the_colors_its_elements_point_at_in_order() {
     assert_eq!(
         scene_colors(
             r#"<div data-color="surface"><span data-color="text" data-point="below">A</span></div>"#
-        ),
+        )
+        .unwrap(),
         ["surface", "text"]
     );
-    assert!(scene_colors("<div></div>").is_empty());
+    assert!(scene_colors("<div></div>").unwrap().is_empty());
+    assert_eq!(
+        scene_colors(r#"<div data-color="surface>A</div>"#)
+            .unwrap_err()
+            .text(),
+        "a data-color mark has no closing quote: data-color=\"surface>A</div>"
+    );
 }
