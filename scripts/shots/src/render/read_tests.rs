@@ -41,6 +41,7 @@ fn chrome_roles_become_the_shots_words() {
         "img",
         "slider",
         "progressbar",
+        "spinbutton",
         "StaticText",
         "heading",
     ]
@@ -52,7 +53,7 @@ fn chrome_roles_become_the_shots_words() {
         words,
         [
             Button, Toggle, Toggle, Radio, Field, Field, Popup, Popup, Tab, Link, Image, Slider,
-            Progress, Text, Other
+            Progress, Stepper, Text, Other
         ]
     );
 }
@@ -213,6 +214,7 @@ const BOARD: &str = r##"<x-dc><helmet><style>body{margin:0;font:13px sans-serif}
 <img alt="Cover" width="10" height="10" src="data:image/gif;base64,R0lGODlhAQABAAAAACw=">
 <div role="slider" aria-valuenow="5" aria-valuemin="0" aria-valuemax="10" aria-label="Volume" tabindex="0">x</div>
 <div role="progressbar" aria-valuenow="40" aria-valuemin="0" aria-valuemax="100" aria-label="Import">x</div>
+<span role="spinbutton" aria-label="Number of CD" tabindex="0">1</span>
 <p aria-hidden="true">Note for the builder</p>
 <p>Words   with
    <span>spans</span> mixed</p>
@@ -335,6 +337,7 @@ async fn a_board_reads_as_the_shots_do() {
         Some(true)
     );
     find(&elements, Role::Image, "Cover");
+    find(&elements, Role::Stepper, "Number of CD");
     assert_eq!(
         find(&elements, Role::Slider, "Volume").value.as_deref(),
         Some("5")

@@ -172,6 +172,9 @@ pub(crate) enum Role {
     Image,
     Slider,
     Progress,
+    /// A number's increment and decrement control: its arrow buttons belong
+    /// to the platform's control and are not elements of their own.
+    Stepper,
     Other,
 }
 
@@ -195,6 +198,7 @@ impl Role {
             Self::Image => "image",
             Self::Slider => "slider",
             Self::Progress => "progress bar",
+            Self::Stepper => "stepper",
             Self::Other => "element",
         }
     }

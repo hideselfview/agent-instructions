@@ -53,6 +53,7 @@ impl Role {
             "img" | "image" => Self::Image,
             "slider" => Self::Slider,
             "progressbar" => Self::Progress,
+            "spinbutton" => Self::Stepper,
             "StaticText" => Self::Text,
             _ => Self::Other,
         }
