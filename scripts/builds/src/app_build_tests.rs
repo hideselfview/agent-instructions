@@ -1570,3 +1570,33 @@ fn a_shots_only_lane_whose_shots_the_picture_folder_caches_builds_nothing() {
         "a test class needs the app built"
     );
 }
+
+/// A global `--agent` before the subcommand hides neither a request nor a lane.
+#[test]
+fn an_agent_option_does_not_hide_a_build_request_or_lane() {
+    let argv = |words: &[&str]| words.iter().map(|w| w.to_string()).collect::<Vec<_>>();
+    assert_eq!(
+        requested(&argv(&[
+            "builds",
+            "--agent",
+            "a1",
+            "app-build",
+            "bae",
+            "work"
+        ])),
+        Some(("bae", "work"))
+    );
+    assert_eq!(
+        lane_requested(&argv(&[
+            "builds",
+            "--agent",
+            "a1",
+            "app-build",
+            "bae",
+            "--lane",
+            "mac",
+            "abc"
+        ])),
+        Some("abc")
+    );
+}

@@ -239,7 +239,10 @@ pub fn program(row: &Row) -> &str {
 
 /// The words of <row>'s command after its program.
 pub fn arguments(row: &Row) -> Vec<&str> {
-    row.command.split_whitespace().skip(1).collect()
+    crate::ack::agent::without_flag_of(row.command.split_whitespace())
+        .into_iter()
+        .skip(1)
+        .collect()
 }
 
 #[cfg(test)]

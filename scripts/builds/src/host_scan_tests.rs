@@ -121,6 +121,13 @@ fn finds_a_processs_tree() {
     assert_eq!(arguments(&rows[0]), ["cargo", "test"]);
 }
 
+#[test]
+fn a_global_agent_option_is_no_argument_of_the_command() {
+    let rows =
+        parse_ps("10 1 501 0.0 0:01.00 01:00 S builds --agent a1 land . --part 3\n").unwrap();
+    assert_eq!(arguments(&rows[0]), ["land", ".", "--part", "3"]);
+}
+
 /// The script, run on this Mac with a stand-in for top, reads top's second
 /// sample, which covers the last second, lists the processes, and prints
 /// the job that the run script (`remote::run_script`) runs, not a claim

@@ -560,12 +560,14 @@ fn runs_a_build(argv: &[String]) -> bool {
         return false;
     };
     match basename(first) {
-        "builds" => argv.get(1).is_some_and(|sub| {
-            matches!(
-                sub.as_str(),
-                "app-build" | "build-app" | "cargo" | "land" | "checks"
-            )
-        }),
+        "builds" => crate::ack::agent::without_flag(argv)
+            .get(1)
+            .is_some_and(|sub| {
+                matches!(
+                    *sub,
+                    "app-build" | "build-app" | "cargo" | "land" | "checks"
+                )
+            }),
         "cargo" | "rustc" | "xcodebuild" | "gradle" | "gradlew" | "swift" | "swiftc"
         | "swift-build" | "swift-test" => true,
         _ => false,

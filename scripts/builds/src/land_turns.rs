@@ -10,10 +10,8 @@ use crate::land::{APP_TURN_FILE, WORKTREE_TURN_FILE, read_holder, record_pid};
 /// Returns the worktree that the command line <argv> of a running `builds
 /// land <worktree> ...` lands in. Returns None for any other command.
 pub fn requested(argv: &[String]) -> Option<&str> {
-    match argv {
-        [_, command, worktree, ..] if command == "land" && !worktree.starts_with('-') => {
-            Some(worktree.as_str())
-        }
+    match crate::ack::agent::without_flag(argv)[..] {
+        [_, "land", worktree, ..] if !worktree.starts_with('-') => Some(worktree),
         _ => None,
     }
 }

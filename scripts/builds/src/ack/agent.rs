@@ -124,6 +124,35 @@ pub fn take_flag(args: &[String]) -> Result<Vec<String>> {
     Ok(rest)
 }
 
+/// The words of a running builds command line <words> (its program first)
+/// without `--agent ID`, which may come anywhere before a `--`. Never fails:
+/// a trailing `--agent` with no value is dropped. Health and the daemon read
+/// every other process's command through this, so a global option before the
+/// subcommand never hides it.
+pub fn without_flag<T: AsRef<str>>(words: &[T]) -> Vec<&str> {
+    without_flag_of(words.iter().map(AsRef::as_ref))
+}
+
+/// `without_flag` over words that borrow from something longer lived than
+/// the list that holds them.
+pub fn without_flag_of<'a>(words: impl IntoIterator<Item = &'a str>) -> Vec<&'a str> {
+    let mut kept = Vec::new();
+    let mut items = words.into_iter();
+    while let Some(word) = items.next() {
+        if word == "--" {
+            kept.push(word);
+            kept.extend(items.by_ref());
+            break;
+        }
+        if word == "--agent" {
+            items.next();
+        } else {
+            kept.push(word);
+        }
+    }
+    kept
+}
+
 /// <args> without `--agent ID`, which may come anywhere before a `--`, and
 /// the ID. Fails when `--agent` has no value or comes twice.
 fn split_flag(args: &[String]) -> Result<(Vec<String>, Option<String>)> {

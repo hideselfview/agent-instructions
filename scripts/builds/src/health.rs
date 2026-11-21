@@ -579,9 +579,11 @@ pub fn sample(
             .filter(|p| p.name == "builds")
             .find(|process| {
                 let locking = |argv: Vec<String>| {
-                    argv.get(1)
-                        .is_some_and(|a| a == "lock" || a == "build-app" || a == "app-build")
-                        && argv.get(2) == Some(repo)
+                    let words = crate::ack::agent::without_flag(&argv);
+                    words
+                        .get(1)
+                        .is_some_and(|a| matches!(*a, "lock" | "build-app" | "app-build"))
+                        && words.get(2).is_some_and(|r| *r == repo.as_str())
                 };
                 args(process.pid).is_some_and(locking) && opened(process.pid)
             });

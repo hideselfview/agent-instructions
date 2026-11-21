@@ -13,6 +13,27 @@ fn a_land_command_names_its_worktree() {
 }
 
 #[test]
+fn a_global_agent_option_before_land_does_not_hide_the_landing() {
+    let line = argv(&[
+        "builds",
+        "--agent",
+        "ab12",
+        "land",
+        "/w/side-20",
+        "--part",
+        "5",
+        "abc",
+    ]);
+    assert_eq!(requested(&line), Some("/w/side-20"));
+    let after = argv(&["builds", "land", ".", "--agent", "ab12", "--part", "5"]);
+    assert_eq!(requested(&after), Some("."));
+    assert_eq!(
+        requested(&argv(&["builds", "--agent", "ab12", "land"])),
+        None
+    );
+}
+
+#[test]
 fn a_landing_waits_for_the_other_process_that_holds_a_turn() {
     let dir = std::env::temp_dir().join(format!("land-turns-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();

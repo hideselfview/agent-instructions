@@ -111,3 +111,20 @@ fn a_caller_is_a_session_and_an_agent_and_the_person_has_no_session() {
     let dispatched = Caller::of(Some("s1"), Some("a1")).unwrap().unwrap();
     assert!(dispatched.is_dispatched());
 }
+
+#[test]
+fn a_running_command_line_loses_its_agent_option_wherever_it_stands() {
+    let words = |line: &str| line.split(' ').map(str::to_string).collect::<Vec<_>>();
+    assert_eq!(
+        without_flag(&words("builds --agent a1 land . --part 3")),
+        ["builds", "land", ".", "--part", "3"]
+    );
+    assert_eq!(
+        without_flag(&words("builds land . --agent a1")),
+        ["builds", "land", "."]
+    );
+    assert_eq!(
+        without_flag(&words("builds cargo test -- --agent a1")),
+        ["builds", "cargo", "test", "--", "--agent", "a1"]
+    );
+}

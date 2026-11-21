@@ -2017,11 +2017,9 @@ pub fn run_lanes(
 /// starts for each lane (`run_lanes`) and which waits in that lane's queue.
 /// Returns None for any other command.
 pub fn lane_requested(argv: &[String]) -> Option<&str> {
-    match argv {
-        [_, command, _repo, flag, _lane, commit, ..]
-            if command == "app-build" && flag == "--lane" && !commit.starts_with('-') =>
-        {
-            Some(commit.as_str())
+    match crate::ack::agent::without_flag(argv)[..] {
+        [_, "app-build", _repo, "--lane", _lane, commit, ..] if !commit.starts_with('-') => {
+            Some(commit)
         }
         _ => None,
     }
@@ -2032,11 +2030,11 @@ pub fn lane_requested(argv: &[String]) -> Option<&str> {
 /// request. Returns None for any other command, for `--list`, and for a
 /// lane's process (`--lane`), which the request starts and waits for.
 pub fn requested(argv: &[String]) -> Option<(&str, &str)> {
-    match argv {
-        [_, command, repo, reference, ..]
-            if command == "app-build" && !repo.starts_with('-') && !reference.starts_with('-') =>
+    match crate::ack::agent::without_flag(argv)[..] {
+        [_, "app-build", repo, reference, ..]
+            if !repo.starts_with('-') && !reference.starts_with('-') =>
         {
-            Some((repo.as_str(), reference.as_str()))
+            Some((repo, reference))
         }
         _ => None,
     }
