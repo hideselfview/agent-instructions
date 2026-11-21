@@ -398,3 +398,18 @@ pub fn pinned(pin: crate::programs::Pin) -> crate::programs::Pinned {
         crate::programs::Pin::Replaced(why) => panic!("expected the programs pinned: {why}"),
     }
 }
+
+/// The folder of this builds' version of the programs in <home>, which the
+/// value returned holds, made from programs in <bin> that say this builds'
+/// versions.
+pub fn pinned_programs(bin: &Path, home: &Path) -> crate::programs::Pinned {
+    let version = env!("BUILDS_SOURCE");
+    let (builds, shots) = started_programs(bin, version, crate::shots_program::VERSION);
+    let sources = crate::programs::Sources {
+        builds: &builds,
+        shots: &shots,
+        version,
+        shots_version: crate::shots_program::VERSION,
+    };
+    pinned(crate::programs::pin(home, &sources).expect("the scratch folder is writable"))
+}

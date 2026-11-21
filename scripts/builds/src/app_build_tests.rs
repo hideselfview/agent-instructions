@@ -1150,23 +1150,6 @@ fn a_shots_run_is_given_the_picture_folder_its_app_tree_and_its_before_runs_find
     );
 }
 
-/// A folder of programs that a build holds, made from scripts that say this
-/// builds' versions.
-fn pinned_programs(scratch: &crate::testing::Scratch) -> Pinned {
-    let (builds, shots) = crate::testing::started_programs(
-        &scratch.dir.join("bin-started"),
-        env!("BUILDS_SOURCE"),
-        crate::shots_program::VERSION,
-    );
-    let sources = crate::programs::Sources {
-        builds: &builds,
-        shots: &shots,
-        version: env!("BUILDS_SOURCE"),
-        shots_version: crate::shots_program::VERSION,
-    };
-    crate::testing::pinned(crate::programs::pin(&scratch.places().home, &sources).unwrap())
-}
-
 /// The pick of the shots of the Mac's a screens.
 fn a_screens() -> Vec<Pick> {
     vec![(Lane::Mac, PickKind::Shots, "mac.a.".to_string())]
@@ -1235,7 +1218,7 @@ fn a_branch_whose_merge_base_run_is_kept_builds_no_before_run() {
     let main = resolve(&top, "HEAD").unwrap();
     // A commit on origin/main needs none, and no lane starts (one would run
     // this test program as `builds`).
-    let pinned = pinned_programs(&scratch);
+    let pinned = crate::testing::pinned_programs(&scratch.dir.join("bin-started"), &places.home);
     ensure_before_runs(&places, &pinned, "demo", &main, &a_screens()).unwrap();
     crate::testing::git(&top, &["checkout", "-q", "-b", "work"]);
     crate::testing::git(&top, &["commit", "-q", "--allow-empty", "-m", "Work"]);

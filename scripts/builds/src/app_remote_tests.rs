@@ -403,23 +403,8 @@ fn a_picture_folders_parts_go_to_a_temporary_folder_on_the_host_and_come_back() 
 fn a_step_on_a_host_runs_under_this_builds_programs_there() {
     let s = setup("remote-app-programs");
     let version = env!("BUILDS_SOURCE");
-    let (builds, shots) = crate::testing::started_programs(
-        &s.places.home.join("bin"),
-        version,
-        crate::shots_program::VERSION,
-    );
-    let pinned = crate::testing::pinned(
-        crate::programs::pin(
-            &s.places.home,
-            &crate::programs::Sources {
-                builds: &builds,
-                shots: &shots,
-                version,
-                shots_version: crate::shots_program::VERSION,
-            },
-        )
-        .unwrap(),
-    );
+    let bin = s.places.home.join("bin");
+    let pinned = crate::testing::pinned_programs(&bin, &s.places.home);
     let mut app = remote_app(&s, Lane::Mac);
     let there = s.home.join(crate::programs::FOLDER).join(version);
     let words = |words: &[&str]| words.iter().map(|w| w.to_string()).collect::<Vec<_>>();
@@ -438,10 +423,10 @@ fn a_step_on_a_host_runs_under_this_builds_programs_there() {
             "run"
         ])
     );
-    for (name, copied) in [("builds", &builds), (crate::shots_program::PROGRAM, &shots)] {
+    for name in ["builds", crate::shots_program::PROGRAM] {
         assert_eq!(
             std::fs::read(there.join(name)).unwrap(),
-            std::fs::read(copied).unwrap()
+            std::fs::read(bin.join(name)).unwrap()
         );
     }
     // The next step finds the folder there and copies nothing.
