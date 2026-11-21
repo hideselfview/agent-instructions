@@ -18,6 +18,7 @@ use crate::health::Advice;
 use crate::host::{Host, place};
 use crate::host_scan::{JobRun, Scan, arguments, program, tree};
 use crate::install_gate::Waiting;
+use crate::land_turns::TurnWait;
 use crate::shells::shown;
 use crate::stuck::Row;
 use crate::text::duration;
@@ -26,6 +27,7 @@ use crate::text::duration;
 /// A hook run's checks aim to finish in 45 seconds; an install that waits
 /// at closed gates holds up every command that starts meanwhile.
 const HOOK_MINUTES: i64 = 10;
+const LANDING: &str = "landing";
 const LAND_MINUTES: i64 = 30;
 const CARGO_MINUTES: i64 = 30;
 const JOB_MINUTES: i64 = 30;
@@ -39,7 +41,7 @@ fn limit_of(row: &Row) -> Option<(&'static str, i64)> {
     }
     match arguments(row)[..] {
         ["checks", "run", ..] => Some(("hook run", HOOK_MINUTES)),
-        ["land", ..] => Some(("landing", LAND_MINUTES)),
+        ["land", ..] => Some((LANDING, LAND_MINUTES)),
         ["cargo", ..] => Some(("cargo run", CARGO_MINUTES)),
         _ => None,
     }
@@ -52,9 +54,6 @@ struct Read<'a> {
     hosts: Vec<(&'a Host, &'a Scan)>,
     /// The checkout a process on this Mac works in, from its working folder.
     checkout: &'a dyn Fn(i32) -> Option<String>,
-    /// What the landing with a process id waits for, from the turn files
-    /// (`land_turns::waits_for`); None for any other process or no wait.
-    landing_wait: &'a dyn Fn(i32) -> Option<String>,
     now: i64,
 }
 
@@ -74,9 +73,6 @@ impl Read<'_> {
     /// What runs under process <pid> on this Mac, as the words after "it
     /// waits on".
     fn waits_on(&self, pid: i32) -> String {
-        if let Some(whose) = (self.landing_wait)(pid) {
-            return self.waits_for_landing(&whose);
-        }
         let Some(local) = self.local else {
             return "health could not read what it waits on".to_string();
         };
@@ -125,21 +121,18 @@ impl Read<'_> {
     }
 
     /// The words after "it waits": `for the landing that changes the apps:
-    /// builds land . (pid 12, in bae/side-13), which has run 40m`. <whose> is
-    /// what `land_turns::waits_for` says: the turn, then the holder's record.
-    fn waits_for_landing(&self, whose: &str) -> String {
-        let Some((turn, record)) = whose.split_once(", ") else {
-            return format!("it waits for {whose}");
-        };
-        let holder = crate::land::record_pid(record)
+    /// builds land . (pid 12, in bae/side-13), which has run 40m`.
+    fn waits_for_landing(&self, wait: &TurnWait) -> String {
+        let holder = crate::land::record_pid(&wait.holder)
             .and_then(|pid| self.local?.iter().find(|row| row.pid == pid));
         match holder {
             Some(row) => format!(
-                "it waits for {turn}: {}, which has run {}",
+                "it waits for {}: {}, which has run {}",
+                wait.turn,
                 self.named(row),
                 duration(row.age_seconds)
             ),
-            None => format!("it waits for {turn}: {record}"),
+            None => format!("it waits for {}: {}", wait.turn, wait.holder),
         }
     }
 
@@ -205,7 +198,7 @@ pub fn findings(
     scans: &[(Host, std::result::Result<Scan, String>)],
     install: &std::result::Result<Option<Waiting>, String>,
     checkout: &dyn Fn(i32) -> Option<String>,
-    landing_wait: &dyn Fn(i32) -> Option<String>,
+    landing_wait: &dyn Fn(i32) -> std::result::Result<Option<TurnWait>, String>,
     now: i64,
 ) -> Vec<Advice> {
     let hosts: Vec<(&Host, &Scan)> = scans
@@ -229,7 +222,6 @@ pub fn findings(
         local,
         hosts: hosts.clone(),
         checkout,
-        landing_wait,
         now,
     };
     // The processes on this Mac whose trees a line already names.
@@ -291,11 +283,19 @@ pub fn findings(
             continue;
         }
         name_tree(row.pid, &mut named);
-        found.push(Advice::said(format!(
-            "{kind}: {} has run {}, longer than {limit}m; {}",
-            read.named(row),
-            duration(row.age_seconds),
+        let waits = if kind == LANDING {
+            match landing_wait(row.pid) {
+                Ok(Some(wait)) => read.waits_for_landing(&wait),
+                Ok(None) => read.waits_on(row.pid),
+                Err(error) => format!("health could not read what it waits for: {error}"),
+            }
+        } else {
             read.waits_on(row.pid)
+        };
+        found.push(Advice::said(format!(
+            "{kind}: {} has run {}, longer than {limit}m; {waits}",
+            read.named(row),
+            duration(row.age_seconds)
         )));
     }
     for (host, scan) in &hosts {

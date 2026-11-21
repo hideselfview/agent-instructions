@@ -16,13 +16,43 @@ pub fn requested(argv: &[String]) -> Option<&str> {
     }
 }
 
+/// The turn a landing waits for and the landing that holds it, as that
+/// landing wrote itself into the turn file.
+#[derive(Clone, Debug, PartialEq)]
+pub struct TurnWait {
+    pub turn: &'static str,
+    pub holder: String,
+}
+
+impl std::fmt::Display for TurnWait {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}, {}", self.turn, self.holder)
+    }
+}
+
+/// The worktree that the running process <pid>, whose command line is <argv>,
+/// lands in: None when it is no `builds land`, and the text of what failed
+/// when builds cannot read its working directory.
+pub fn landing_worktree(pid: i32, argv: &[String]) -> Option<std::result::Result<PathBuf, String>> {
+    let worktree = requested(argv)?;
+    Some(
+        crate::procs::cwd(pid)
+            .map(|dir| dir.join(worktree))
+            .ok_or_else(|| {
+                format!(
+                    "builds cannot read the working directory of process {pid}, a `builds land`, so health cannot tell which worktree it lands in"
+                )
+            }),
+    )
+}
+
 /// What the landing with process id <pid> in <worktree> waits for: the
 /// landing of another process that holds the turn of landings in the
 /// worktree, or the turn of landings that change the repo's apps. None when
 /// no other landing holds either turn. A landing that has not yet reached the
 /// apps turn is also told of the landing that holds it, since it takes that
 /// turn before its fetch.
-pub fn waits_for(worktree: &Path, pid: i32) -> Result<Option<String>> {
+pub fn waits_for(worktree: &Path, pid: i32) -> Result<Option<TurnWait>> {
     let git = |args: &[&str]| {
         crate::review::commits::git_text(worktree, args).map(|text| text.trim().to_string())
     };
@@ -39,7 +69,10 @@ pub fn waits_for(worktree: &Path, pid: i32) -> Result<Option<String>> {
         ),
     ] {
         if let Some(holder) = held_by_another(&file, pid)? {
-            return Ok(Some(format!("{whose}, {holder}")));
+            return Ok(Some(TurnWait {
+                turn: whose,
+                holder,
+            }));
         }
     }
     Ok(None)

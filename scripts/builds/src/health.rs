@@ -502,19 +502,18 @@ pub fn sample(
                 reference: reference.to_string(),
                 started_from: started_from(places, process.pid),
             });
-        } else if let Some(worktree) = crate::land_turns::requested(&argv) {
-            let Some(dir) = crate::procs::cwd(process.pid) else {
-                unread.push(format!(
-                    "builds cannot read the working directory of process {}, a `builds land`, so health cannot tell which worktree it lands in",
-                    process.pid
-                ));
-                continue;
+        } else if let Some(worktree) = crate::land_turns::landing_worktree(process.pid, &argv) {
+            let worktree = match worktree {
+                Ok(worktree) => worktree,
+                Err(text) => {
+                    unread.push(text);
+                    continue;
+                }
             };
-            let worktree = dir.join(worktree);
             if let Some(place) = crate::procs::place_of(places, &worktree) {
                 let waits = match crate::land_turns::waits_for(&worktree, process.pid) {
                     Ok(None) => LandingWait::Nothing,
-                    Ok(Some(whose)) => LandingWait::For(whose),
+                    Ok(Some(whose)) => LandingWait::For(whose.to_string()),
                     Err(error) => {
                         unread.push(format!(
                             "{}, so health cannot tell whether the landing of process {} waits for another",
@@ -1660,10 +1659,13 @@ pub fn host_findings(
         ))],
     };
     let landing_wait = |pid: i32| {
-        let argv = crate::procs::args(pid)?;
-        let worktree = crate::land_turns::requested(&argv)?;
-        let worktree = crate::procs::cwd(pid)?.join(worktree);
-        crate::land_turns::waits_for(&worktree, pid).ok().flatten()
+        let Some(argv) = crate::procs::args(pid) else {
+            return Ok(None);
+        };
+        match crate::land_turns::landing_worktree(pid, &argv) {
+            Some(worktree) => crate::land_turns::waits_for(&worktree?, pid).map_err(|e| e.text()),
+            None => Ok(None),
+        }
     };
     crate::long_waits::findings(
         &scanned.scans,

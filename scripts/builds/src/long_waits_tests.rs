@@ -71,7 +71,7 @@ fn lines(
     scans: &[(Host, std::result::Result<Scan, String>)],
     install: std::result::Result<Option<Waiting>, String>,
 ) -> Vec<String> {
-    findings(scans, &install, &side_3, &|_| None, NOW)
+    findings(scans, &install, &side_3, &|_| Ok(None), NOW)
         .iter()
         .map(Advice::line)
         .collect()
@@ -237,9 +237,10 @@ fn a_long_landing_names_the_landing_that_holds_its_turn() {
         _ => None,
     };
     let waits = |pid: i32| {
-        (pid == 300).then(|| {
-            "the landing that changes the apps, process 400 landing --done 1253 def".to_string()
-        })
+        Ok((pid == 300).then(|| TurnWait {
+            turn: "the landing that changes the apps",
+            holder: "process 400 landing --done 1253 def".to_string(),
+        }))
     };
     let lines: Vec<String> = findings(
         &[(Host::local(), scan(here, Vec::new()))],
@@ -254,5 +255,28 @@ fn a_long_landing_names_the_landing_that_holds_its_turn() {
     assert_eq!(
         lines[1],
         "landing: builds land /w/side-8 --done 1322 abc (pid 300, in bae/side-8) has run 31m, longer than 30m; it waits for the landing that changes the apps: builds land . --done 1253 def (pid 400, in bae/side-13), which has run 40m"
+    );
+}
+
+/// A landing whose turn files health cannot read says so, and a hook run
+/// asks nothing of the turn files.
+#[test]
+fn a_long_landing_whose_turn_cannot_be_read_says_so() {
+    let here = rows("300 1 501 0.0 0:01.00 31:00 S builds land /w/side-8 --done 1322 abc\n");
+    let lines: Vec<String> = findings(
+        &[(Host::local(), scan(here, Vec::new()))],
+        &Ok(None),
+        &|_| None,
+        &|_| Err("git failed".to_string()),
+        NOW,
+    )
+    .iter()
+    .map(Advice::line)
+    .collect();
+    assert_eq!(
+        lines,
+        [
+            "landing: builds land /w/side-8 --done 1322 abc (pid 300) has run 31m, longer than 30m; health could not read what it waits for: git failed"
+        ]
     );
 }
