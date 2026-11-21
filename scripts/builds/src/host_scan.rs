@@ -39,9 +39,10 @@ pub struct Scan {
     /// The app in front there (host_front_app.rs): None on a host that runs
     /// no lsappinfo, and Err when the host's answer names no app.
     pub front_app: std::result::Result<Option<FrontApp>, String>,
-    /// Whether the host's screen is locked (host_screen_lock.rs); false on a
-    /// host that runs no ioreg.
-    pub screen_locked: bool,
+    /// Whether the host's screen is locked (host_screen_lock.rs): None on a
+    /// host that runs no ioreg, and Err when the host's answer names no lock
+    /// state.
+    pub screen_locked: std::result::Result<Option<bool>, String>,
 }
 
 /// A host's sccache server and what it says about its compiles.

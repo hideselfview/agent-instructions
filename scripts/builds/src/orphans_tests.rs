@@ -19,7 +19,7 @@ fn scan(ps: &str, jobs: Vec<JobRun>) -> std::result::Result<Scan, String> {
         jobs,
         sccache: Ok(None),
         front_app: Ok(None),
-        screen_locked: false,
+        screen_locked: Ok(None),
     })
 }
 

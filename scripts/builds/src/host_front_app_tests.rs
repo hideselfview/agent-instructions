@@ -26,7 +26,7 @@ fn scan(front_app: std::result::Result<Option<FrontApp>, String>) -> Scan {
         jobs: Vec::new(),
         sccache: Ok(None),
         front_app,
-        screen_locked: false,
+        screen_locked: Ok(None),
     }
 }
 

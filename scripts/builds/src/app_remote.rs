@@ -171,12 +171,7 @@ impl RemoteApp {
         let Some((host_name, name)) = split(entry) else {
             return Ok(None);
         };
-        let Some(host) = host::read_remote(places)?
-            .into_iter()
-            .find(|host| host.name == host_name)
-        else {
-            fail!("{entry} is on host {host_name}, which `builds host list` does not have");
-        };
+        let host = host::remote_named(places, entry, host_name)?;
         let awake = KeepAwake::for_host(&host, &format!("{repo}'s app checkout {name}"))?;
         Ok(Some(RemoteApp {
             places: places.clone(),

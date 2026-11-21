@@ -114,7 +114,7 @@ fn m1_with_server(
                 stats: stats(35361, 34774, size),
             })),
             front_app: Ok(None),
-            screen_locked: false,
+            screen_locked: Ok(None),
         }),
     )
 }

@@ -13,7 +13,7 @@ fn host(name: &str) -> Host {
     }
 }
 
-fn scan(screen_locked: bool) -> Scan {
+fn scan(screen_locked: std::result::Result<Option<bool>, String>) -> Scan {
     Scan {
         uid: 501,
         at: 0,
@@ -27,58 +27,76 @@ fn scan(screen_locked: bool) -> Scan {
 }
 
 /// ioreg prints the console's lock as `"IOConsoleLocked" = Yes` and the
-/// session's as `"CGSSessionScreenIsLocked"=Yes`; a host that prints neither,
-/// or none, is not locked.
+/// session's as `"CGSSessionScreenIsLocked"=Yes`; a host that printed no line
+/// runs no ioreg, and a line with no lock state is an error that quotes it.
 #[test]
 fn reads_a_locked_screen_from_ioreg() {
-    assert!(parse(Some(r#""IOConsoleLocked" = Yes "#)));
-    assert!(parse(Some(
-        r#""IOConsoleLocked" = No  "CGSSessionScreenIsLocked"=Yes "#
-    )));
-    assert!(!parse(Some(r#""IOConsoleLocked" = No "#)));
-    assert!(!parse(Some("")));
-    assert!(!parse(None));
+    assert_eq!(parse(Some(r#""IOConsoleLocked" = Yes "#)), Ok(Some(true)));
+    assert_eq!(
+        parse(Some(
+            r#""IOConsoleLocked" = No  "CGSSessionScreenIsLocked"=Yes "#
+        )),
+        Ok(Some(true))
+    );
+    assert_eq!(parse(Some(r#""IOConsoleLocked" = No "#)), Ok(Some(false)));
+    assert_eq!(parse(None), Ok(None));
+    for unreadable in ["", "ioreg failed: ioreg: no such tool"] {
+        assert!(parse(Some(unreadable)).unwrap_err().contains(unreadable));
+    }
 }
 
-/// A host whose screen is locked gets a line that names it; one whose screen
-/// is not, and one whose scan failed, get none.
+/// A host whose screen is locked gets a line that names it, and one whose
+/// lock health could not read gets a line that says why; one whose screen is
+/// not locked, one that runs no ioreg and one whose scan failed get none.
 #[test]
 fn a_host_with_a_locked_screen_needs_action() {
     let found = findings(&[
-        (host("m1"), Ok(scan(true))),
-        (host("m2"), Ok(scan(false))),
+        (host("m1"), Ok(scan(Ok(Some(true))))),
+        (host("m2"), Ok(scan(Ok(Some(false))))),
+        (host("m4"), Ok(scan(Ok(None)))),
+        (
+            host("m5"),
+            Ok(scan(Err("ioreg named no console lock state".to_string()))),
+        ),
         (host("m3"), Err("ssh failed".to_string())),
-        (Host::local(), Ok(scan(true))),
+        (Host::local(), Ok(scan(Ok(Some(true))))),
     ]);
     let lines: Vec<String> = found.iter().map(|advice| advice.line()).collect();
-    assert_eq!(lines.len(), 2);
+    assert_eq!(lines.len(), 3, "{lines:?}");
     assert!(
         lines[0].starts_with("host m1 has its screen locked"),
         "{lines:?}"
     );
     assert!(
-        lines[1].starts_with("this Mac has its screen locked"),
+        lines[1].starts_with("health could not tell whether the screen is locked on host m5"),
+        "{lines:?}"
+    );
+    assert!(
+        lines[2].starts_with("this Mac has its screen locked"),
         "{lines:?}"
     );
 }
 
 /// The lane waits while the host reports a locked screen, names the host
-/// once, and goes on when it unlocks.
+/// once, blocks on the host's unlock between readings, and goes on when it
+/// unlocks.
 #[test]
 fn the_lane_holds_a_host_whose_screen_is_locked_until_it_unlocks() {
     let readings = RefCell::new(vec![Ok(true), Ok(true), Ok(false)].into_iter());
     let said = RefCell::new(Vec::new());
-    let pauses = Cell::new(0);
+    let waits = Cell::new(0);
     let unlocked = wait_until_unlocked(
         "m1",
         &|| readings.borrow_mut().next().unwrap(),
         &|words| said.borrow_mut().push(words.to_string()),
-        &|| false,
-        &|| pauses.set(pauses.get() + 1),
+        &|| {
+            waits.set(waits.get() + 1);
+            Ok(Ran::Finished)
+        },
     )
     .unwrap();
     assert!(unlocked);
-    assert_eq!(pauses.get(), 2);
+    assert_eq!(waits.get(), 2);
     let said = said.into_inner();
     assert_eq!(said.len(), 2, "{said:?}");
     assert!(
@@ -95,8 +113,7 @@ fn an_unlocked_host_waits_for_nothing() {
         "m1",
         &|| Ok(false),
         &|words| said.borrow_mut().push(words.to_string()),
-        &|| false,
-        &|| panic!("no pause"),
+        &|| panic!("no wait"),
     )
     .unwrap();
     assert!(unlocked);
@@ -107,15 +124,11 @@ fn an_unlocked_host_waits_for_nothing() {
 /// fails it.
 #[test]
 fn a_takeover_ends_the_wait_and_a_failed_reading_fails_it() {
-    let unlocked = wait_until_unlocked("m1", &|| Ok(true), &|_| {}, &|| true, &|| {}).unwrap();
+    let unlocked = wait_until_unlocked("m1", &|| Ok(true), &|_| {}, &|| Ok(Ran::Stopped)).unwrap();
     assert!(!unlocked);
-    let error = wait_until_unlocked(
-        "m1",
-        &|| Err("ssh failed".to_string()),
-        &|_| {},
-        &|| false,
-        &|| {},
-    )
+    let error = wait_until_unlocked("m1", &|| Err("ssh failed".to_string()), &|_| {}, &|| {
+        Ok(Ran::Finished)
+    })
     .unwrap_err();
     assert!(error.text().contains("ssh failed"));
 }

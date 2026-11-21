@@ -828,6 +828,18 @@ pub fn read_remote(places: &Places) -> Result<Vec<Host>> {
     Ok(read_file(places)?.remote)
 }
 
+/// The recorded host <name>, which <entry> (an app checkout, `m1:mac-1`) is
+/// on; fails when `builds host list` has no such host.
+pub fn remote_named(places: &Places, entry: &str, name: &str) -> Result<Host> {
+    match read_remote(places)?
+        .into_iter()
+        .find(|host| host.name == name)
+    {
+        Some(host) => Ok(host),
+        None => fail!("{entry} is on host {name}, which `builds host list` does not have"),
+    }
+}
+
 /// Reads the hosts file; a file that is not there holds nothing.
 pub fn read_file(places: &Places) -> Result<HostsFile> {
     let file = hosts_file(places);

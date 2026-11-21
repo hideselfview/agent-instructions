@@ -295,23 +295,13 @@ impl Held {
     /// (host_screen_lock.rs). None when a takeover or an install stopped this
     /// build while it waited.
     pub fn take_window(&self, step: &str) -> Result<Option<crate::window_lock::Window>> {
-        self.take_window_polling(step, crate::host_screen_lock::POLL)
-    }
-
-    /// `take_window`, reading a locked screen again after each <poll>.
-    pub fn take_window_polling(
-        &self,
-        step: &str,
-        poll: Duration,
-    ) -> Result<Option<crate::window_lock::Window>> {
         let host_name = host_of(&self.checkout);
-        let stopped = || STOPPED.load(Ordering::SeqCst);
         let Some(window) = crate::window_lock::take(
             &self.places,
             host_name,
             &format!("{}'s {}, step {step}", self.repo, self.checkout),
             &|words| note(words),
-            &stopped,
+            &|| STOPPED.load(Ordering::SeqCst),
         )?
         else {
             return Ok(None);
@@ -319,21 +309,12 @@ impl Held {
         if !self.lane.uses_xcode() || host_name == host::LOCAL {
             return Ok(Some(window));
         }
-        let Some(host) = host::read_remote(&self.places)?
-            .into_iter()
-            .find(|host| host.name == host_name)
-        else {
-            fail!(
-                "{} is on host {host_name}, which `builds host list` does not have",
-                self.checkout
-            );
-        };
+        let host = host::remote_named(&self.places, &self.checkout, host_name)?;
         let unlocked = crate::host_screen_lock::wait_until_unlocked(
             host_name,
             &|| crate::host_screen_lock::read(&self.ssh, &host),
             &|words| note(words),
-            &stopped,
-            &|| std::thread::sleep(poll),
+            &|| crate::host_screen_lock::wait(&self.ssh, &host),
         )?;
         Ok(unlocked.then_some(window))
     }

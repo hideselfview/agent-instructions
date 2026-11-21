@@ -1063,11 +1063,12 @@ Runs of UI tests and every other step ignore the lid.
 A locked screen keeps every window of a mac lane step from rendering, so a mac
 lane step that opens windows never starts on a host whose screen is locked.
 After it takes the host's window lock, the lane reads the host's screen
-(`ioreg`: IOConsoleLocked and CGSSessionScreenIsLocked) every 5 seconds, prints
-"waiting for host <name>'s screen to unlock" once while the screen is locked,
-and starts the step when it unlocks. A takeover ends the wait. While the step
-runs on the host, it runs under `caffeinate -d -u`, which holds a display
-assertion there, so the display neither sleeps nor locks during the step.
+(`ioreg`: IOConsoleLocked and CGSSessionScreenIsLocked). While the screen is
+locked, the lane prints "waiting for host <name>'s screen to unlock" once and
+waits on the host's own com.apple.screenIsUnlocked notification (`notifyutil`),
+then starts the step. A takeover ends the wait. While the step runs on the
+host, it runs under `caffeinate -d -u`, which holds a display assertion there,
+so the display neither sleeps nor locks during the step.
 `builds health` lists each Mac whose screen is locked (HEALTH CHECK in `builds
 help workflow`).
 
