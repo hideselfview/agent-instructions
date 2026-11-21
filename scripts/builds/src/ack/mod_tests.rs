@@ -52,6 +52,17 @@ fn world(name: &str) -> World {
     }
 }
 
+/// The blanked words of each part of the reading <agent> started, from
+/// project <project>'s store: the answers no output of `builds ack` holds.
+fn stored_words(places: &Places, project: &str, agent: &str) -> Vec<Vec<String>> {
+    let store = Store::named(places, project).unwrap();
+    let db = db::open_reader(&store.database()).unwrap().unwrap();
+    record::reading(&db, SESSION_ID, agent)
+        .unwrap()
+        .unwrap()
+        .words
+}
+
 fn message<T: std::fmt::Debug>(result: Result<T>) -> String {
     match result.unwrap_err() {
         fail::Fail::Message(message) => message,
@@ -89,13 +100,13 @@ impl World {
     }
 
     /// Reads every part as <agent> does and returns the version and every
-    /// check word, in order.
+    /// blanked word, in order.
     fn read_all_as(&self, agent: &str, now: i64) -> (String, Vec<String>) {
         self.read_all_in(&self.checkout, agent, now)
     }
 
     /// Reads every part as <agent> does in <cwd> and returns the version and
-    /// every check word, in order.
+    /// every blanked word, in order.
     fn read_all_in(&self, cwd: &Path, agent: &str, now: i64) -> (String, Vec<String>) {
         let started = self.ack_in(cwd, agent, &[], now).unwrap();
         let version = started
@@ -107,16 +118,10 @@ impl World {
             .unwrap()
             .to_string();
         let count = started.matches("  builds ack ").count() - 1;
-        let mut words = Vec::new();
         for part in 1..=count {
-            let shown = self.ack_in(cwd, agent, &[&part.to_string()], now).unwrap();
-            for line in shown.lines() {
-                if let Some((_, word)) = line.split_once(&format!("IN PART {part}: ")) {
-                    words.push(word.to_string());
-                }
-            }
+            self.ack_in(cwd, agent, &[&part.to_string()], now).unwrap();
         }
-        (version, words)
+        (version, stored_words(&self.places, "bae", agent).concat())
     }
 
     fn read_all(&self, now: i64) -> (String, Vec<String>) {
@@ -181,7 +186,7 @@ fn a_wrong_or_missing_word_is_refused_naming_its_part() {
     words.truncate(words.len() - 1);
     let mut args = vec![version.as_str()];
     args.extend(words.iter().map(String::as_str));
-    let last = words.len() / 3 + 1;
+    let last = stored_words(&world.places, "bae", AGENT).len();
     let refusal = message(world.ack(&args, NOON));
     assert!(
         refusal.contains(&format!("part 1, {last} are missing or wrong")),
@@ -563,15 +568,10 @@ fn project_names_the_store_in_a_checkout_of_a_repo_two_projects_hold() {
         .unwrap()
         .to_string();
     let count = started.matches("  builds ack ").count() - 1;
-    let mut words = Vec::new();
     for part in 1..=count {
-        let shown = ack_naming_bae(&world, &[&part.to_string()]).unwrap();
-        for line in shown.lines() {
-            if let Some((_, word)) = line.split_once(&format!("IN PART {part}: ")) {
-                words.push(word.to_string());
-            }
-        }
+        ack_naming_bae(&world, &[&part.to_string()]).unwrap();
     }
+    let words = stored_words(&world.places, "bae", AGENT).concat();
     // The flags follow the version and the words, as the listing prints them.
     let mut args = vec![version.as_str()];
     args.extend(words.iter().map(String::as_str));

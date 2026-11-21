@@ -6,7 +6,9 @@
 //! edit of any of them changes the text's version.
 //!
 //! `builds ack` prints the text in parts of at most `PART_BYTES` bytes each,
-//! with check words at the start, middle and end of each part. Claude Code
+//! with one word blanked in each third of each part: the agent answers with
+//! the words it reads from the text around each blank, and no line of output
+//! holds an answer. Claude Code
 //! shows only the first 2 KB of a command's output when the output passes
 //! about 30 KB, so each part stays well under that.
 
@@ -18,11 +20,11 @@ use crate::fail::{Context, Result};
 use crate::places::Places;
 use crate::review::rules;
 
-/// The most bytes of the text one part holds. Its first line, its check
-/// words and its last line add about 300 bytes more.
+/// The most bytes of the text one part holds. Its first and last line add
+/// about 300 bytes more.
 pub const PART_BYTES: usize = 20_000;
 
-/// The check words in each part: at its start, its middle and its end.
+/// The blanked words in each part: one in each third of its lines.
 pub const WORDS_PER_PART: usize = 3;
 
 /// One file or help of the text.
@@ -195,9 +197,95 @@ fn read_if_there(path: &Path) -> Result<Option<String>> {
     }
 }
 
+/// The shortest words a part blanks, tried in this order.
+const BLANK_LENGTHS: [usize; 3] = [7, 5, 3];
+
+/// A word of a part that the part can blank: a lowercase word of at least
+/// `min` letters in running prose, not part of a name, path or code, that
+/// occurs once in the whole part, so that blanking it leaves no copy to read.
+fn blankable(lines: &[String], min: usize) -> Vec<(usize, String)> {
+    let mut counts = std::collections::HashMap::<String, usize>::new();
+    for line in lines {
+        for (_, word) in letter_runs(line) {
+            *counts.entry(word.to_ascii_lowercase()).or_default() += 1;
+        }
+    }
+    let mut found = Vec::new();
+    for (at, line) in lines.iter().enumerate() {
+        if line.starts_with("=====") {
+            continue;
+        }
+        let bytes = line.as_bytes();
+        for (start, word) in letter_runs(line) {
+            let before = start.checked_sub(1).map(|i| bytes[i]);
+            let after = bytes.get(start + word.len()).copied();
+            if word.len() >= min
+                && word.bytes().all(|b| b.is_ascii_lowercase())
+                && counts[word] == 1
+                && before.is_none_or(|b| b" (\"".contains(&b))
+                && after.is_none_or(|b| b" ,;:).\"?!".contains(&b))
+            {
+                found.push((at, word.to_string()));
+            }
+        }
+    }
+    found
+}
+
+/// The maximal runs of ASCII letters in <line>, each with its byte offset.
+fn letter_runs(line: &str) -> Vec<(usize, &str)> {
+    let mut runs = Vec::new();
+    let mut start = None;
+    for (at, byte) in line.bytes().chain(std::iter::once(b' ')).enumerate() {
+        match (start, byte.is_ascii_alphabetic()) {
+            (None, true) => start = Some(at),
+            (Some(from), false) => {
+                runs.push((from, &line[from..at]));
+                start = None;
+            }
+            _ => {}
+        }
+    }
+    runs
+}
+
+/// The words to blank in a part with <lines>: from each third of its lines, a
+/// blankable word of the most letters among 7, 5 and 3 that the third has,
+/// picked with <random>. The words come in the order the part shows them.
+pub fn pick_blanks(lines: &[String], random: &mut dyn FnMut() -> usize) -> Vec<String> {
+    let thirds = WORDS_PER_PART;
+    let mut picked: Vec<(usize, String)> = Vec::new();
+    for third in 0..thirds {
+        let range = lines.len() * third / thirds..lines.len() * (third + 1) / thirds;
+        for min in BLANK_LENGTHS {
+            let options: Vec<(usize, String)> = blankable(lines, min)
+                .into_iter()
+                .filter(|(at, _)| range.contains(at))
+                .collect();
+            if !options.is_empty() {
+                picked.push(options[random() % options.len()].clone());
+                break;
+            }
+        }
+    }
+    picked.into_iter().map(|(_, word)| word).collect()
+}
+
+/// <line> with the word that starts at byte <start> and has <len> bytes
+/// replaced by its first letter and underscores for the rest.
+fn blanked(line: &str, start: usize, len: usize) -> String {
+    format!(
+        "{}{}{}{}",
+        &line[..start],
+        &line[start..start + 1],
+        "_".repeat(len - 1),
+        &line[start + len..]
+    )
+}
+
 /// Part <number> of <count> of version <version> as `builds ack N` prints it:
-/// its lines with <words> on lines of their own at its start, its middle and
-/// its end.
+/// its lines, with each of <words> (blankable words that occur once in the
+/// part) replaced by its first letter and underscores for the rest.
 pub fn show_part(
     lines: &[String],
     number: usize,
@@ -205,52 +293,36 @@ pub fn show_part(
     version: &str,
     words: &[String],
 ) -> String {
-    let word_line = |position: usize| {
-        format!(
-            "CHECK WORD {} OF {} IN PART {number}: {}",
-            position + 1,
-            words.len(),
-            words[position]
-        )
-    };
-    let middle = lines.len() / 2;
+    let mut shown: Vec<String> = lines.to_vec();
+    for word in words {
+        for line in shown.iter_mut() {
+            let found = letter_runs(line)
+                .into_iter()
+                .find(|(_, run)| run == word)
+                .map(|(start, _)| start);
+            if let Some(start) = found {
+                *line = blanked(line, start, word.len());
+                break;
+            }
+        }
+    }
     let mut out = vec![format!(
-        "builds ack: part {number} of {count} of version {version}. Read every line of it."
+        "builds ack: part {number} of {count} of version {version}. Read every line of it. {} words in it are blanked: each shows its first letter and an underscore for every other letter. Acknowledge with the blanked words of every part, in the order they appear.",
+        words.len()
     )];
-    out.push(word_line(0));
-    out.extend(lines[..middle].iter().cloned());
-    out.push(word_line(1));
-    out.extend(lines[middle..].iter().cloned());
-    out.push(word_line(2));
+    out.extend(shown);
     out.push(format!("builds ack: the end of part {number} of {count}."));
     out.join("\n") + "\n"
 }
 
-/// A part's `WORDS_PER_PART` new check words, drawn from the system's random
-/// source. Each word has three syllables, and each syllable is a consonant
-/// and then a vowel.
-pub fn new_words() -> Result<Vec<String>> {
+/// A random number from the system's random source.
+pub fn random() -> Result<usize> {
     use std::io::Read;
-    const CONSONANTS: &[u8] = b"bdfgklmnprstvz";
-    const VOWELS: &[u8] = b"aeiou";
-    let mut bytes = vec![0u8; WORDS_PER_PART * 6];
+    let mut bytes = [0u8; 8];
     std::fs::File::open("/dev/urandom")
         .and_then(|mut file| file.read_exact(&mut bytes))
         .context(|| "reading /dev/urandom".to_string())?;
-    Ok(bytes
-        .chunks(6)
-        .map(|chunk| {
-            chunk
-                .chunks(2)
-                .flat_map(|pair| {
-                    [
-                        CONSONANTS[pair[0] as usize % CONSONANTS.len()] as char,
-                        VOWELS[pair[1] as usize % VOWELS.len()] as char,
-                    ]
-                })
-                .collect()
-        })
-        .collect())
+    Ok(u64::from_le_bytes(bytes) as usize)
 }
 
 #[cfg(test)]

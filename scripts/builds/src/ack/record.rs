@@ -25,7 +25,7 @@ pub struct Reading {
     /// The names of the sections the reading holds, in the order its parts
     /// show them.
     pub sections: Vec<String>,
-    /// Each part's check words, in order, part 1 first.
+    /// Each part's blanked words, in order, part 1 first.
     pub words: Vec<Vec<String>>,
 }
 
@@ -95,7 +95,7 @@ pub fn kept_sections(db: &Connection, version: &str) -> Result<Option<Vec<(Strin
 
 /// Starts the reading of version <version> by <agent> in <session> at <at>,
 /// which holds the sections named <sections> in that order, with each part's
-/// check words, in place of the reading it had.
+/// blanked words, in place of the reading it had.
 pub fn start_reading(
     db: &Connection,
     session: &str,

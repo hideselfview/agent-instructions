@@ -129,26 +129,102 @@ fn the_parts_hold_only_the_sections_the_caller_names() {
     assert_eq!(parts[0][0], "===== second (section 1 of 1) =====");
 }
 
-#[test]
-fn a_part_shows_its_words_at_its_start_middle_and_end() {
-    let lines: Vec<String> = (0..10).map(|n| format!("line {n}")).collect();
-    let words = vec!["kama".to_string(), "tobi".to_string(), "rusa".to_string()];
-    let shown = show_part(&lines, 2, 5, "abcd1234", &words);
-    let shown: Vec<&str> = shown.lines().collect();
-    assert_eq!(shown[1], "CHECK WORD 1 OF 3 IN PART 2: kama");
-    assert_eq!(shown[7], "CHECK WORD 2 OF 3 IN PART 2: tobi");
-    assert_eq!(shown[shown.len() - 2], "CHECK WORD 3 OF 3 IN PART 2: rusa");
-    assert!(shown[0].contains("part 2 of 5 of version abcd1234"));
+fn prose(count: usize) -> Vec<String> {
+    let spelled = |n: usize| -> String {
+        n.to_string()
+            .bytes()
+            .map(|digit| (b'a' + digit - b'0') as char)
+            .collect()
+    };
+    (0..count)
+        .map(|n| {
+            format!(
+                "The reader checks tokens{} and also considers elephants{} carefully.",
+                spelled(n),
+                spelled(n)
+            )
+        })
+        .collect()
 }
 
 #[test]
-fn new_words_differ_on_each_draw_and_hold_only_lowercase_letters() {
-    let first = new_words().unwrap();
-    assert_eq!(first.len(), WORDS_PER_PART);
-    assert!(
-        first
+fn a_part_shows_each_blanked_word_as_its_first_letter_and_underscores() {
+    let lines = vec![
+        "Nothing here is blanked.".to_string(),
+        "A reader considers elephants carefully.".to_string(),
+    ];
+    let shown = show_part(&lines, 2, 5, "abcd1234", &["elephants".to_string()]);
+    let shown: Vec<&str> = shown.lines().collect();
+    assert!(shown[0].contains("part 2 of 5 of version abcd1234"));
+    assert!(shown[0].contains("1 words in it are blanked"));
+    assert_eq!(shown[1], lines[0]);
+    assert_eq!(shown[2], "A reader considers e________ carefully.");
+    assert_eq!(shown[3], "builds ack: the end of part 2 of 5.");
+}
+
+#[test]
+fn blanks_come_one_from_each_third_in_order_and_appear_nowhere_in_the_output() {
+    let lines = prose(30);
+    let mut next = 0;
+    let mut random = || {
+        next += 1;
+        next
+    };
+    let words = pick_blanks(&lines, &mut random);
+    assert_eq!(words.len(), WORDS_PER_PART);
+    let at = |word: &String| {
+        lines
             .iter()
-            .all(|word| word.len() == 6 && word.chars().all(|c| c.is_ascii_lowercase()))
-    );
-    assert_ne!(first, new_words().unwrap());
+            .position(|line| line.contains(word.as_str()))
+            .unwrap()
+    };
+    for (third, word) in words.iter().enumerate() {
+        assert!((third * 10..(third + 1) * 10).contains(&at(word)), "{word}");
+    }
+    let shown = show_part(&lines, 1, 1, "v", &words);
+    for word in &words {
+        assert!(!shown.contains(word.as_str()), "{word}");
+    }
+}
+
+#[test]
+fn a_blank_is_a_lowercase_word_of_running_prose_that_occurs_once_in_the_part() {
+    let lines = vec![
+        "Run `scripts/cargo.sh` with Capitalized words, repeated repeated.".to_string(),
+        "A path some/dir/long-name and snake_case_names stay.".to_string(),
+    ];
+    let forbidden = [
+        "scripts",
+        "cargo",
+        "capitalized",
+        "repeated",
+        "dir",
+        "long",
+        "name",
+        "snake",
+        "case",
+        "names",
+    ];
+    for start in 0..6 {
+        let mut draws = start..;
+        for word in pick_blanks(&lines, &mut || draws.next().unwrap()) {
+            assert!(!forbidden.contains(&word.as_str()), "{word}");
+        }
+    }
+}
+
+#[test]
+fn a_part_with_only_short_words_blanks_the_longest_it_has() {
+    let lines = vec![
+        "Add the big red cat.".to_string(),
+        "Now all of us run.".to_string(),
+    ];
+    let words = pick_blanks(&lines, &mut || 0);
+    assert!(!words.is_empty());
+    assert!(words.iter().all(|word| word.len() == 3));
+}
+
+#[test]
+fn random_numbers_differ_on_each_draw() {
+    assert_ne!(random().unwrap(), random().unwrap());
 }

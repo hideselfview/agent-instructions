@@ -38,7 +38,7 @@ use crate::lists::args::{Args, current_dir};
 use crate::lists::store::{Store, project_of, stores};
 use crate::places::Places;
 use crate::text::{local_minute, shell_word};
-use text::{Text, WORDS_PER_PART, new_words, show_part};
+use text::{Text, WORDS_PER_PART, pick_blanks, random, show_part};
 
 /// The variable that holds the Claude Code session id in an agent's shell.
 pub const SESSION: &str = "CLAUDE_CODE_SESSION_ID";
@@ -233,7 +233,7 @@ fn scope_of(store: &Store, text: &Text, last: Option<record::Ack>, now: i64) -> 
         return Ok(Scope::Whole(Whole::NotKept(ack)));
     };
     let sections = text.changed_since(&kept);
-    // A reading of no parts has no check words to give.
+    // A reading of no parts has no blanked words to give.
     if sections.is_empty() {
         return Ok(Scope::Whole(Whole::NoTextChanged(ack)));
     }
@@ -421,8 +421,13 @@ fn start(agent: &Agent, text: &Text, now: i64) -> Result<String> {
     let shown = scope.sections(text);
     let parts = text.parts(&shown);
     let mut words = Vec::new();
-    for _ in &parts {
-        words.push(new_words()?);
+    for lines in &parts {
+        let mut draws = Vec::new();
+        for _ in 0..WORDS_PER_PART {
+            draws.push(random()?);
+        }
+        let mut draws = draws.into_iter();
+        words.push(pick_blanks(lines, &mut || draws.next().unwrap_or(0)));
     }
     let version = text.version();
     let mut db = db::open(&agent.store.database(), Make::Never)?;
@@ -456,14 +461,12 @@ fn start(agent: &Agent, text: &Text, now: i64) -> Result<String> {
             sections.join(", ")
         );
     }
-    out += &format!(
-        "\nRead each part in full, one command each, and note its {WORDS_PER_PART} check words:\n\n"
-    );
+    out += "\nRead each part in full, one command each, and note the words it blanks, one in each third of it:\n\n";
     for number in 1..=parts.len() {
         out += &format!("  builds ack {number}{}\n", agent.flags);
     }
     out += &format!(
-        "\nThen acknowledge the text with every check word of every part, in order:\n\n  builds ack {version} WORD...{}\n\nRunning `builds ack` again draws new words.\n",
+        "\nThen acknowledge the text with the blanked words of every part, in the order they appear:\n\n  builds ack {version} WORD...{}\n\nRunning `builds ack` again blanks other words.\n",
         agent.flags
     );
     Ok(out)
@@ -478,7 +481,7 @@ fn reading_of(agent: &Agent, text: &Text) -> Result<record::Reading> {
     };
     let Some(reading) = reading else {
         fail!(
-            "{} has no reading; run `builds ack{}` first, which draws each part's check words",
+            "{} has no reading; run `builds ack{}` first, which blanks the words of each part",
             agent.name(),
             agent.flags
         );
@@ -511,7 +514,7 @@ fn part_of(agent: &Agent, text: &Text, part: &str) -> Result<String> {
     ))
 }
 
-/// Records the acknowledgement of <version> with <words>, every check word of
+/// Records the acknowledgement of <version> with <words>, the blanked words of
 /// every part in order; refuses a missing or wrong word, naming its part.
 fn acknowledge(
     agent: &Agent,
@@ -528,10 +531,12 @@ fn acknowledge(
             reading.version
         );
     }
+    let words: Vec<String> = words.iter().map(|word| word.to_lowercase()).collect();
+    let words = &words[..];
     let expected: usize = reading.words.iter().map(Vec::len).sum();
     if words.len() > expected {
         fail!(
-            "you gave {} check words, and the {} parts hold {expected}",
+            "you gave {} words, and the {} parts blank {expected}",
             words.len(),
             reading.words.len()
         );
@@ -544,7 +549,7 @@ fn acknowledge(
             .map(|part| format!("`builds ack {part}{}`", agent.flags))
             .collect();
         fail!(
-            "the check words of part {} are missing or wrong; read {} again, then acknowledge with every check word of every part, in order",
+            "the blanked words of part {} are missing or wrong; read {} again, then acknowledge with the blanked words of every part, in order",
             numbers.join(", "),
             commands.join(", ")
         );
@@ -569,7 +574,7 @@ fn acknowledge(
     ))
 }
 
-/// The parts, counted from 1, whose check words in <given> are missing or
+/// The parts, counted from 1, whose blanked words in <given> are missing or
 /// differ from <expected>, each part's words in order.
 fn wrong_parts(expected: &[Vec<String>], given: &[String]) -> Vec<usize> {
     let mut given = given.iter();
