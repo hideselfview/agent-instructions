@@ -253,22 +253,52 @@ pub struct TextSpecimen {
     pub words: String,
 }
 
-/// The themes of the tokens in <json>, the text of a tokens.json, and the
-/// name of each color, in the file's order. Fails when the tokens name no
-/// theme.
-pub fn color_names(json: &str) -> Result<(Vec<Theme>, Vec<String>)> {
+/// The colors of a tokens.json: its themes, each color with its value in
+/// each theme, and the value of each token of the other families, such as an
+/// opacity.
+#[derive(Debug)]
+pub struct ColorValues {
+    pub themes: Vec<Theme>,
+    /// Each color's name and its value in each theme, in the themes' order,
+    /// in the file's order.
+    pub colors: Vec<(String, Vec<String>)>,
+    /// The other families' tokens, by name.
+    pub scalars: std::collections::BTreeMap<String, String>,
+}
+
+/// The colors of the tokens in <json>, the text of a tokens.json. Fails when
+/// the tokens name no theme, or a color has no value for one.
+pub fn color_values(json: &str) -> Result<ColorValues> {
     let tokens = parse(json)?;
     if tokens.color.themes.is_empty() {
         fail!("the tokens name no color theme");
     }
-    let themes = tokens.color.themes;
-    let names = tokens
-        .color
-        .tokens
-        .into_iter()
-        .map(|token| token.name)
-        .collect();
-    Ok((themes, names))
+    let mut colors = Vec::new();
+    for token in &tokens.color.tokens {
+        let values = tokens
+            .color
+            .themes
+            .iter()
+            .map(|theme| Ok(token.value_in(&theme.id)?.to_string()))
+            .collect::<Result<Vec<_>>>()?;
+        colors.push((token.name.clone(), values));
+    }
+    let mut scalars = std::collections::BTreeMap::new();
+    for (name, body) in &tokens.rest.0 {
+        if NOT_FAMILIES.contains(&name.as_str()) {
+            continue;
+        }
+        let family =
+            Family::deserialize(body).context(|| format!("reading the tokens of family {name}"))?;
+        for token in family.tokens {
+            scalars.insert(token.name, token.value.to_string());
+        }
+    }
+    Ok(ColorValues {
+        themes: tokens.color.themes,
+        colors,
+        scalars,
+    })
 }
 
 /// The specimen of the text styles in <json>, the text of a tokens.json.

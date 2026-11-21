@@ -129,7 +129,12 @@ fn the_page_has_each_page_of_the_index_with_its_boards_at_their_canvas_places_at
     );
     assert_eq!(
         data["colors"],
-        json!({ "groups": [{ "name": "Surfaces", "about": "Behind everything.", "colors": ["bg"] }] })
+        json!({
+            "themes": [{ "id": "dark", "name": "Dark" }, { "id": "light", "name": "Light" }],
+            "switches": [],
+            "comparison": null,
+            "groups": [{ "name": "Surfaces", "about": "Behind everything.", "colors": ["bg"] }],
+        })
     );
     assert_eq!(
         data["components"],

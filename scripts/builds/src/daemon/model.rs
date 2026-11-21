@@ -1190,6 +1190,18 @@ impl Model {
         }))
     }
 
+    /// Project <project>'s colors' comparison at <commit>, as a frame of the
+    /// Designs page loads it.
+    pub fn designs_colors_comparison(
+        &self,
+        project: &str,
+        commit: &str,
+    ) -> Option<crate::fail::Result<String>> {
+        Some(self.design_checkout(project)?.and_then(|repo| {
+            super::designs::color_comparison(&repo, commit, &self.places.design_system_cache())
+        }))
+    }
+
     /// Component <name>'s preview of project <project>'s design system at
     /// <commit>, as a frame of the Designs page loads it.
     pub fn designs_preview(

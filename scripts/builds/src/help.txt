@@ -2602,16 +2602,23 @@ STATUS, HEALTH AND THE DASHBOARD
                               it first comes into view, and a board that
                               canvas.json gives no size or no place shows
                               as that problem above the canvas. The Design
-                              system tab shows the design system's colors
-                              in the groups of their roles that
+                              system tab shows the design system's colors in
+                              the groups of their roles that
                               design/system/colors.json lists, each under
                               its line: the group's swatches, one part per
-                              theme, and its scene (colors/<scene>.html)
-                              in every theme, with a chip and a line to
-                              each element that names a color
-                              (data-color). A color in no group or in two,
-                              or a name that is no color, shows as that
-                              problem. Then the tab shows its text styles,
+                              theme, and its scene (colors/<scene>.html),
+                              with a chip and a line to each element that
+                              names a color (data-color). Above the groups,
+                              the comparison draws one scene once for each
+                              option of a switch, with its own switches for
+                              the theme and the other switches. A table that
+                              names a switch, such as one row per accent,
+                              gives the groups one switch, and one more
+                              picks the theme: each redraws every group and
+                              scene in the tone, accent or theme it picks. A
+                              color in no group or in two, or a name that is
+                              no color, shows as that problem. Then the tab
+                              shows its text styles,
                               and its components in the groups and
                               subgroups that
                               design/system/groups.json lists, in that

@@ -1,17 +1,21 @@
-//! A frame of the Designs page's Colors section
-//! (`/designs/<project>/<commit>/colors/<n>`): the <n>th group of the
-//! design system's colors.json (`boards::colors`), drawn with the commit's
+//! A frame of the Designs page's Colors section: the <n>th group of the
+//! design system's colors.json (`boards::colors`,
+//! `/designs/<project>/<commit>/colors/<n>`), or its comparison
+//! (`.../colors/comparison`), drawn with the commit's
 //! own tokens.css, bundle.css and bundle.js, and React. A scene draws a
 //! component of the design system with an element that names it by its
 //! global name and gives its props as JSON
 //! (`data-component="Bae.StatusGlyph" data-props='{"tone": "danger"}'`),
-//! which the script mounts before it places the chips. The frame shows the group's swatches, each
-//! split into one part per theme of the tokens and laid over the colors'
-//! ground, and the group's scene once per theme. Its script
-//! (`color_group.js`) puts a swatch chip for each element of the first
-//! theme's scene that names a color (`data-color`) in a column at the left,
+//! which the script mounts before it places the chips. A group's frame shows
+//! its swatches, each split into one part per theme of the tokens and laid
+//! over the colors' ground, and its scene. The comparison's frame shows its
+//! scene once for each option of its switch, under the option's name. Its
+//! script (`color_group.js`) puts a swatch chip for each element of a
+//! group's scene that names a color (`data-color`) in a column at the left,
 //! draws a line from the chip to the element, and tells the page the height
-//! the frame takes.
+//! the frame takes. The page sends the frame the CSS of the options its
+//! switches pick and the theme the scenes draw in, and the script redraws
+//! with them.
 //!
 //! The dashboard's palette comes after the design system's stylesheets, so
 //! the frame's own words and lines keep the dashboard's colors on `:root`,
@@ -44,14 +48,70 @@ pub fn frame(from: Source, n: usize, cache: &Path) -> Result<String> {
             palette.colors.groups.len()
         );
     };
-    let [tokens_css, bundle_css, bundle_js] = from.design_system(cache)?;
     let scene = match &group.scene {
         None => String::new(),
         Some(scene) => match scene_html(&from, &palette, scene) {
             Ok(html) => in_use(&palette, &html),
-            Err(problem) => format!("<div class=\"cg-problem\">{}</div>", escape(&problem)),
+            Err(problem) => problem_html(&problem),
         },
     };
+    page(&from, &palette, &swatches(&palette, group), &scene, cache)
+}
+
+/// The frame of the comparison of the colors of <from>: its scene once for
+/// each option of its switch, each drawn in the option's colors; a commit's
+/// design system is generated into <cache>. Fails when the color groups
+/// cannot be read or have no comparison. A scene that cannot be read shows
+/// as that problem in its place.
+pub fn comparison(from: Source, cache: &Path) -> Result<String> {
+    from.check()?;
+    let palette = colors::read(&from)?;
+    let Some(comparison) = &palette.colors.comparison else {
+        fail!("{} has no comparison", from.label(colors::COLORS_JSON));
+    };
+    let switch = palette
+        .switches
+        .iter()
+        .find(|switch| switch.name == comparison.switch)
+        .expect("colors::palette checks that the comparison names a switch");
+    let scenes = match scene_html(&from, &palette, &comparison.scene) {
+        Err(problem) => problem_html(&problem),
+        Ok(html) => {
+            let theme = palette.themes.first().map_or("", |theme| theme.id.as_str());
+            let mut css = String::new();
+            let mut drawn = String::new();
+            for (at, option) in switch.options.iter().enumerate() {
+                for (theme, declarations) in palette.themes.iter().zip(&option.declarations) {
+                    css.push_str(&format!(
+                        ".cg-scene.cg-opt-{at}[data-theme=\"{}\"] {{ {declarations} }}\n",
+                        theme.id
+                    ));
+                }
+                drawn.push_str(&format!(
+                    "<div><div class=\"cg-label\">{}</div><div class=\"cg-scene cg-opt-{at}\" data-theme=\"{}\">{html}</div></div>",
+                    escape(&option.label),
+                    escape(theme)
+                ));
+            }
+            format!("<style>{css}</style><div class=\"cg-row\">{drawn}</div>")
+        }
+    };
+    page(&from, &palette, "", &scenes, cache)
+}
+
+fn problem_html(problem: &str) -> String {
+    format!("<div class=\"cg-problem\">{}</div>", escape(problem))
+}
+
+/// The frame's page, with <swatches> and <scene> in it.
+fn page(
+    from: &Source,
+    palette: &Palette,
+    swatches: &str,
+    scene: &str,
+    cache: &Path,
+) -> Result<String> {
+    let [tokens_css, bundle_css, bundle_js] = from.design_system(cache)?;
     let themes: Vec<&str> = palette
         .themes
         .iter()
@@ -67,8 +127,8 @@ pub fn frame(from: Source, n: usize, cache: &Path) -> Result<String> {
             ("PALETTE", super::designs::PALETTE),
             ("THEMES", &escape(&themes.join(" "))),
             ("GROUND", &escape(&palette.colors.ground)),
-            ("SWATCHES", &swatches(&palette, group)),
-            ("USE", &scene),
+            ("SWATCHES", swatches),
+            ("USE", scene),
             ("SCRIPT", FRAME_SCRIPT),
         ],
     ))
@@ -184,21 +244,14 @@ fn halves(palette: &Palette, name: &str, text: bool) -> String {
         .collect()
 }
 
-/// The scene <html> drawn once per theme, each under the theme's name,
-/// beside the column the script puts the chips in.
+/// The scene <html>, in the first theme until the page picks one, beside
+/// the column the script puts the chips in.
 fn in_use(palette: &Palette, html: &str) -> String {
-    let themes: String = palette
-        .themes
-        .iter()
-        .map(|theme| {
-            format!(
-                "<div class=\"cg-theme\"><div class=\"cg-label\">{}</div><div class=\"cg-scene\" data-theme=\"{}\">{html}</div></div>",
-                escape(&theme.name),
-                escape(&theme.id)
-            )
-        })
-        .collect();
-    format!("<div class=\"cg-use\"><div class=\"cg-gutter\"></div>{themes}</div>")
+    let theme = palette.themes.first().map_or("", |theme| theme.id.as_str());
+    format!(
+        "<div class=\"cg-use\"><div class=\"cg-gutter\"></div><div class=\"cg-scene\" data-theme=\"{}\">{html}</div></div>",
+        escape(theme)
+    )
 }
 
 #[cfg(test)]

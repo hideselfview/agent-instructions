@@ -100,10 +100,10 @@ fn the_specimen_gives_each_style_with_its_font_stack() {
 }
 
 #[test]
-fn the_color_names_are_the_themes_and_each_color_in_the_file_order() {
-    let (themes, names) = color_names(TOKENS).unwrap();
+fn the_color_values_are_the_themes_each_color_in_the_file_order_and_the_other_tokens() {
+    let values = color_values(TOKENS).unwrap();
     assert_eq!(
-        themes,
+        values.themes,
         [
             Theme {
                 id: "dark".into(),
@@ -115,13 +115,20 @@ fn the_color_names_are_the_themes_and_each_color_in_the_file_order() {
             },
         ]
     );
+    let names: Vec<&str> = values
+        .colors
+        .iter()
+        .map(|(name, _)| name.as_str())
+        .collect();
     assert_eq!(names, ["background", "danger"]);
+    assert_eq!(values.colors[1].1, ["#FF0000", "#FF0000"]);
+    assert_eq!(values.scalars["radius-card"], "12px");
     let no_theme = TOKENS.replace(
         r#"[{ "id": "dark", "name": "Dark" }, { "id": "light", "name": "Light" }]"#,
         "[]",
     );
     assert_eq!(
-        color_names(&no_theme).unwrap_err().text(),
+        color_values(&no_theme).unwrap_err().text(),
         "the tokens name no color theme"
     );
 }

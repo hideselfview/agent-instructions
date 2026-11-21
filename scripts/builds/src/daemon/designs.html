@@ -45,6 +45,14 @@ body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 var
 .ds-sec { display: flex; flex-direction: column; gap: 10px; }
 .ds-sec h2 { margin: 0; font: 600 15px var(--sans); }
 .ds-colors { display: block; width: 100%; height: 120px; border: 0; }
+.ds-switches { display: flex; flex-wrap: wrap; gap: 8px 28px; align-items: center; padding: 6px 0; }
+.ds-switches.ds-main { padding-top: 14px; border-top: 1px solid var(--line); }
+.ds-switch { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.ds-switch > span { margin-right: 4px; font-size: 12px; color: var(--muted); }
+.ds-switch button { display: inline-flex; align-items: center; gap: 6px; font: 12px var(--sans); color: var(--text-2); background: none; border: 1px solid var(--line); border-radius: 6px; padding: 3px 9px; cursor: pointer; }
+.ds-switch button[aria-pressed="true"] { color: var(--text); background: var(--surface); border-color: var(--muted-2); }
+.ds-switch button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.ds-switch i { width: 10px; height: 10px; border-radius: 50%; outline: 1px solid var(--line); }
 .ds-k { font: 500 11px var(--mono); color: var(--text-2); overflow-wrap: anywhere; }
 .ds-type { display: flex; flex-direction: column; gap: 6px; }
 .ds-type div { display: flex; align-items: baseline; gap: 16px; min-width: 0; }
@@ -245,8 +253,14 @@ function pageView(page) {
 // The design system: its colors in the groups its colors.json lists, its
 // text styles, and its components in the groups and subgroups its
 // groups.json lists, each group under the line that introduces it. Each
-// group of colors is a frame that draws its swatches and its scene in every
-// theme (color_group.rs), as wide as the tab, and tells the page its height. Each component's frame draws its
+// group of colors is a frame that draws its swatches and its scene
+// (color_group.rs), as wide as the tab, and tells the page its height. The
+// colors' comparison, above the groups, is a frame that draws its scene once
+// for each option of one switch, and has a switch of its own for each other
+// switch and for the theme. Below it, one switch for each table that names
+// one and one for the theme pick what every group's frame draws: when a
+// frame asks, and each time a switch changes, the page sends the frame the
+// CSS of the options its switches pick and the theme its scenes draw in. Each component's frame draws its
 // preview at the preview's own size: the page sends the frame the width it
 // has room for when the frame loads and when the preview says it is ready,
 // and the frame answers with the size the preview takes (preview_fit.js). The Filter field in the toolbar hides the groups of
@@ -280,10 +294,67 @@ function sendRoom(frame) {
   const row = frame.closest(".ds-cards");
   if (row && frame.contentWindow) frame.contentWindow.postMessage({previewWidth: row.clientWidth - 2}, "*");
 }
+// What the switches pick: for the groups, and for the comparison, which
+// has no switch of its own for the switch it compares.
+const picks = {groups: {theme: 0}, comparison: {theme: 0}};
+if (data.colors.switches) for (const s of data.colors.switches) {
+  picks.groups[s.name] = s.chosen;
+  if (!data.colors.comparison || s.name !== data.colors.comparison.switch) picks.comparison[s.name] = s.chosen;
+}
+// The CSS of the options <pick> names, one rule per theme, the first
+// theme's on :root too, as tokens.css writes them.
+function pickedCss(pick) {
+  const c = data.colors;
+  return c.themes.map((theme, t) => {
+    const declarations = c.switches.filter(s => s.name in pick).map(s => s.options[pick[s.name]].declarations[t]).join("; ");
+    return (t ? "" : ":root, ") + "[data-theme=\"" + theme.id + "\"] { " + declarations + " }";
+  }).join("\n");
+}
+function sendPick(frame) {
+  const pick = picks[frame.dataset.pick];
+  if (frame.contentWindow) frame.contentWindow.postMessage({colorSwitch: {css: pickedCss(pick), theme: data.colors.themes[pick.theme].id}}, "*");
+}
+// A row of switches that set <pick>: one for each name in <names>, and one
+// for the theme; <kind> is the comparison's own row (ds-own) or the row over
+// the groups (ds-main).
+function switchesView(pick, names, kind) {
+  const bar = h("div", {class: "ds-switches " + kind});
+  const group = (label, key, options) => {
+    const buttons = options.map((option, n) => {
+      const button = h("button", {type: "button", "aria-pressed": String(pick[key] === n)},
+        option.dot ? h("i", {style: "background: " + option.dot}) : null, option.label);
+      button.addEventListener("click", () => {
+        pick[key] = n;
+        buttons.forEach((b, m) => b.setAttribute("aria-pressed", String(m === n)));
+        document.querySelectorAll("iframe.ds-colors").forEach(sendPick);
+      });
+      return button;
+    });
+    return h("div", {class: "ds-switch"}, h("span", {}, label), buttons);
+  };
+  for (const s of data.colors.switches) if (names.includes(s.name)) bar.append(group(s.name, s.name, s.options));
+  bar.append(group("Theme", "theme", data.colors.themes.map(theme => ({label: theme.name}))));
+  return bar;
+}
+function colorsView(colors) {
+  const frame = (pick, title, src) => h("iframe", {class: "ds-colors", sandbox: "allow-scripts", loading: "lazy", title, src, "data-pick": pick});
+  const groupNames = colors.switches.map(s => s.name);
+  const c = colors.comparison;
+  return h("section", {class: "ds-sec"}, h("h2", {}, "Colors"),
+    c ? h("section", {class: "ds-group"}, h("h3", {}, c.name), h("p", {class: "ds-about"}, c.about),
+      switchesView(picks.comparison, groupNames.filter(name => name !== c.switch), "ds-own"),
+      h("div", {"data-name": c.name}, frame("comparison", c.name, data.base + "/colors/comparison"))) : null,
+    switchesView(picks.groups, groupNames, "ds-main"),
+    h("div", {class: "ds-groups"}, colors.groups.map((group, n) => h("section", {class: "ds-group"},
+      h("h3", {}, group.name), h("p", {class: "ds-about"}, group.about),
+      h("div", {"data-name": [group.name, ...group.colors].join(" ")},
+        frame("groups", group.name, data.base + "/colors/" + n))))));
+}
 window.addEventListener("message", e => {
   if (!e.data) return;
   const colors = [...document.querySelectorAll("iframe.ds-colors")].find(f => f.contentWindow === e.source);
   if (colors) {
+    if (e.data.colorsReady) sendPick(colors);
     if (e.data.previewSize) colors.style.height = e.data.previewSize.h + "px";
     return;
   }
@@ -315,12 +386,7 @@ function systemView() {
   const s = data.system;
   const colors = data.colors;
   if (colors.error) out.push(h("section", {class: "ds-sec"}, h("h2", {}, "Colors"), h("div", {class: "problem"}, colors.error)));
-  else if (colors.groups.length) out.push(h("section", {class: "ds-sec"}, h("h2", {}, "Colors"),
-    h("div", {class: "ds-groups"}, colors.groups.map((group, n) => h("section", {class: "ds-group"},
-      h("h3", {}, group.name), h("p", {class: "ds-about"}, group.about),
-      h("div", {"data-name": [group.name, ...group.colors].join(" ")},
-        h("iframe", {class: "ds-colors", sandbox: "allow-scripts", loading: "lazy", title: group.name,
-          src: data.base + "/colors/" + n})))))));
+  else if (colors.groups.length) out.push(colorsView(colors));
   if (s.error) out.push(h("div", {class: "problem"}, s.error));
   else {
     if (s.styles.length) out.push(h("section", {class: "ds-sec"}, h("h2", {}, "Type"),

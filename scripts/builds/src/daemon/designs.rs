@@ -14,7 +14,9 @@
 //! The Design system tab shows the colors in the groups of their roles that
 //! the design system's `colors.json` lists, each group under its line and
 //! in a frame of its own that draws its swatches and its scene
-//! (`color_group.rs`).
+//! (`color_group.rs`). Above the groups it shows the comparison, with its own
+//! switches, then one switch for each table that names one and one for the
+//! theme, which redraw every group's frame.
 //!
 //! The Design system tab shows the components in the groups and subgroups
 //! that the design system's `groups.json` lists, each under the line that
@@ -130,6 +132,13 @@ pub fn page(
     };
     let colors = match colors::read(&from) {
         Ok(palette) => json!({
+            "themes": palette.themes.iter().map(|theme| json!({ "id": theme.id, "name": theme.name })).collect::<Vec<_>>(),
+            "switches": palette.switches,
+            "comparison": palette.colors.comparison.as_ref().map(|comparison| json!({
+                "name": comparison.name,
+                "about": comparison.about,
+                "switch": comparison.switch,
+            })),
             "groups": palette.colors.groups.iter().map(|group| json!({
                 "name": group.name,
                 "about": group.about,
@@ -258,6 +267,12 @@ pub fn board(repo: &Path, commit: &str, name: &str, cache: &Path) -> Result<Stri
 /// the Designs page's frame loads it (`color_group::frame`).
 pub fn color_group(repo: &Path, commit: &str, n: usize, cache: &Path) -> Result<String> {
     super::color_group::frame(Source::Commit { repo, rev: commit }, n, cache)
+}
+
+/// The colors' comparison at commit <commit> of the repo <repo> is in, as
+/// the Designs page's frame loads it (`color_group::comparison`).
+pub fn color_comparison(repo: &Path, commit: &str, cache: &Path) -> Result<String> {
+    super::color_group::comparison(Source::Commit { repo, rev: commit }, cache)
 }
 
 /// Component <name>'s preview at commit <commit> of the repo <repo> is in,

@@ -2,14 +2,18 @@
 // It first mounts each component a scene names (data-component, a global
 // name such as Bae.StatusGlyph, with its props as JSON in data-props), and
 // an element names a component that the page lacks shows that problem in
-// its place. Then, for each element of the first theme's scene that names a color
+// its place. Then, for each element of a group's scene that names a color
 // (data-color), the script puts a chip in the column at the left of the
-// scenes: the color's name and a small swatch with one part per theme. It
+// scene: the color's name and a small swatch with one part per theme. It
 // draws a line from the chip to the element: to the element's left edge, or
 // under a word when the element says data-point="below". The chips keep the
 // order of their elements from the top, each at its element's height or
 // under the chip above it. The script tells the page the height the frame
-// takes ({previewSize: {w, h}}) each time it changes.
+// takes ({previewSize: {w, h}}) each time it changes. It asks the page for
+// the switches' choices ({colorsReady: true}), and the page answers with the
+// CSS of the options they pick and the theme the scenes draw in
+// ({colorSwitch: {css, theme}}): the script puts the CSS last on the page and
+// redraws every scene in that theme.
 (function () {
   const GAP = 22, SVG = "http://www.w3.org/2000/svg";
   const body = document.body;
@@ -100,6 +104,17 @@
     lines.setAttribute("width", use.offsetWidth);
     lines.setAttribute("height", use.offsetHeight);
   }
+
+  const picked = document.createElement("style");
+  body.append(picked);
+  window.addEventListener("message", e => {
+    const choice = e.source === parent && e.data && e.data.colorSwitch;
+    if (!choice) return;
+    picked.textContent = choice.css;
+    for (const scene of document.querySelectorAll(".cg-scene")) scene.dataset.theme = choice.theme;
+    redraw();
+  });
+  parent.postMessage({colorsReady: true}, "*");
 
   let sent = "";
   function tell() {
