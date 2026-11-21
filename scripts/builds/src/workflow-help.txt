@@ -799,7 +799,9 @@ whose caller is gone. The lines below are what remains to act on.
   - A claimed worktree with no change and no build for an hour, which health
     releases itself once it has had none for 2 hours and holds nothing
     origin/main lacks: ask its agent what it waits on, or land and release it. A claim kept on purpose gets
-    `builds note <worktree> --state held "<why, and until when>"`.
+    `builds note <worktree> --state held "<why, and until when>"`. A `builds
+    land` that runs or waits for another landing there counts as a build:
+    health prints no land command for that worktree.
   - A held worktree whose wait closed: restart its work and clear the hold.
   - An item that keeps a worktree and has every wait met (the line names the
     worktree, its commits that origin/main lacks and what met the waits): land

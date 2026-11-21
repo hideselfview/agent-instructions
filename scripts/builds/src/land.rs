@@ -390,7 +390,7 @@ fn git_ok(dir: &Path, args: &[&str]) -> bool {
 }
 
 /// What the git command printed, without trailing newlines, or nothing when it failed.
-fn git_text(dir: &Path, args: &[&str]) -> Option<String> {
+pub fn git_text(dir: &Path, args: &[&str]) -> Option<String> {
     let output = git(dir)
         .args(args)
         .stdin(Stdio::null())
@@ -448,7 +448,7 @@ fn lock_worktree(worktree: &Path, args: &[String], out: &mut dyn Write) -> Resul
     let git_dir = git_text(worktree, &["rev-parse", "--absolute-git-dir"])
         .ok_or_else(|| Fail::Message(format!("{} is not a git worktree", worktree.display())))?;
     take_turn(
-        &PathBuf::from(git_dir).join("land.lock"),
+        &PathBuf::from(git_dir).join(WORKTREE_TURN_FILE),
         &format!("the landing in {}", worktree.display()),
         &format!(
             "process {} landing {}",
@@ -459,9 +459,13 @@ fn lock_worktree(worktree: &Path, args: &[String], out: &mut dyn Write) -> Resul
     )
 }
 
+/// The file in a worktree's git folder whose lock a landing in the worktree
+/// holds (`lock_worktree`).
+pub const WORKTREE_TURN_FILE: &str = "land.lock";
+
 /// The file in a repo's git folder whose lock a landing that changes the
 /// repo's apps holds from before its fetch until its push.
-const APP_TURN_FILE: &str = "land-apps.lock";
+pub const APP_TURN_FILE: &str = "land-apps.lock";
 
 /// What a landing was asked for, from the arguments after the worktree.
 struct Request {

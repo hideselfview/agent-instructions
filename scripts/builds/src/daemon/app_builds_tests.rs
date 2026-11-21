@@ -36,6 +36,7 @@ fn checkout(name: &str, lane: Option<&'static str>, branch: Option<&str>) -> Che
         activity: Activity::default(),
         words: Default::default(),
         stalled: false,
+        landings: Vec::new(),
         errors: Vec::new(),
     }
 }

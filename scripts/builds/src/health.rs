@@ -232,6 +232,9 @@ pub struct WorktreeHealth {
     /// The `builds app-build` requests that build for it
     /// (`AppBuildRun::builds_for`).
     pub app_builds: Vec<AppBuildRun>,
+    /// The `builds land` processes that land in it, running or waiting for
+    /// another landing.
+    pub landings: Vec<LandingRun>,
     /// The holder of an app lock building for this worktree in the app
     /// checkout (`Holder::builds_for`).
     pub app_build: Option<i32>,
@@ -337,6 +340,19 @@ pub struct AppBuildRun {
     pub started_from: Option<String>,
 }
 
+/// A `builds land` process that lands in a worktree: running, or waiting for
+/// the turn of another landing (land_turns.rs).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct LandingRun {
+    pub pid: i32,
+    /// Index into the places it was placed among.
+    #[serde(skip)]
+    pub place: usize,
+    /// The landing that this one waits for, from the turn files; None when
+    /// no other landing holds a turn it takes.
+    pub waits_for: Option<String>,
+}
+
 impl AppBuildRun {
     /// Does it build for the worktree <label> of <repo>, which has <branch>
     /// checked out? When it builds that branch, or it was run from there.
@@ -397,6 +413,9 @@ pub struct Machine {
     pub remote_runs: Vec<RemoteRun>,
     /// The `builds app-build` requests that run.
     pub app_builds: Vec<AppBuildRun>,
+    /// The `builds land` processes that run, including those that wait for
+    /// another landing.
+    pub landings: Vec<LandingRun>,
     /// What builds could not read of the processes it needed, one line each.
     pub unread: Vec<String>,
     /// The `git commit`s that run, which keep their worktree from being free.
@@ -452,29 +471,39 @@ pub fn sample(
     let processes = Processes::read()?;
     let builds = build_processes(&processes, places, &BUILD_NAMES);
     let (remote_runs, mut unread) = crate::cargo_place::remote_runs(&processes, places, hosts);
-    let app_builds = processes
-        .list
-        .iter()
-        .filter(|process| process.name == "builds")
-        .filter_map(|process| {
-            let argv = match live_args(process.pid) {
-                Ok(argv) => argv?,
-                Err(error) => {
-                    unread.push(format!(
-                        "{error}, so health cannot tell whether it is a `builds app-build` request"
-                    ));
-                    return None;
-                }
-            };
-            let (repo, reference) = crate::app_build::requested(&argv)?;
-            Some(AppBuildRun {
+    let mut app_builds = Vec::new();
+    let mut landings = Vec::new();
+    for process in processes.list.iter().filter(|p| p.name == "builds") {
+        let argv = match live_args(process.pid) {
+            Ok(Some(argv)) => argv,
+            Ok(None) => continue,
+            Err(error) => {
+                unread.push(format!(
+                    "{error}, so health cannot tell whether it is a `builds app-build` request or a landing"
+                ));
+                continue;
+            }
+        };
+        if let Some((repo, reference)) = crate::app_build::requested(&argv) {
+            app_builds.push(AppBuildRun {
                 pid: process.pid,
                 repo: repo.to_string(),
                 reference: reference.to_string(),
                 started_from: started_from(places, process.pid),
-            })
-        })
-        .collect();
+            });
+        } else if let Some(worktree) = crate::land_turns::requested(&argv) {
+            let worktree = crate::procs::cwd(process.pid).map(|dir| dir.join(worktree));
+            if let Some(worktree) = worktree
+                && let Some(place) = crate::procs::place_of(places, &worktree)
+            {
+                landings.push(LandingRun {
+                    pid: process.pid,
+                    place,
+                    waits_for: crate::land_turns::waits_for(&worktree, process.pid),
+                });
+            }
+        }
+    }
     let mut waiting = Vec::new();
     for process in &processes.list {
         if process.name != "sccache" || minutes_since(now, process.started) < CLIENT_MINUTES {
@@ -655,6 +684,7 @@ pub fn sample(
         builds,
         remote_runs,
         app_builds,
+        landings,
         unread,
         commits: crate::procs::git_commits(&processes),
         sccache: SccacheHealth {
@@ -888,6 +918,12 @@ pub fn assess(
             .filter(|run| run.builds_for(&label, &places[place].repo, branch.as_deref()))
             .cloned()
             .collect();
+        let landings: Vec<LandingRun> = machine
+            .landings
+            .iter()
+            .filter(|run| run.place == place)
+            .cloned()
+            .collect();
         let activity = git.as_ref().ok().and_then(SideRead::activity);
         let quiet_minutes = activity.map(|when| minutes_since(now, when));
         // A worktree claimed a few minutes ago is not idle, even when its
@@ -929,6 +965,7 @@ pub fn assess(
             && building.is_empty()
             && remote_runs.is_empty()
             && app_builds.is_empty()
+            && landings.is_empty()
             && app_build.is_none()
             && in_line.is_empty()
             && idle_minutes >= QUIET_MINUTES;
@@ -960,6 +997,7 @@ pub fn assess(
             building,
             remote_runs,
             app_builds,
+            landings,
             app_build,
             in_line,
         });
@@ -1352,6 +1390,15 @@ fn builds_line(w: &WorktreeHealth) -> String {
             "builds app-build of {} (pid {})",
             run.reference, run.pid
         ));
+    }
+    for landing in &w.landings {
+        parts.push(match &landing.waits_for {
+            Some(whose) => format!(
+                "builds land waits for another landing (pid {}; {whose})",
+                landing.pid
+            ),
+            None => format!("builds land runs (pid {})", landing.pid),
+        });
     }
     if let Some(pid) = w.app_build {
         parts.push(format!("building in the app checkout (pid {pid})"));
@@ -1875,6 +1922,7 @@ mod tests {
             builds: Vec::new(),
             remote_runs: Vec::new(),
             app_builds: Vec::new(),
+            landings: Vec::new(),
             unread: Vec::new(),
             commits: Default::default(),
             sccache: SccacheHealth {
@@ -1959,6 +2007,7 @@ mod tests {
             builds: Vec::new(),
             remote_runs: Vec::new(),
             app_builds: Vec::new(),
+            landings: Vec::new(),
             unread: Vec::new(),
             commits: Default::default(),
             sccache: SccacheHealth {
@@ -2061,6 +2110,7 @@ mod tests {
                 builds: Vec::new(),
                 remote_runs: Vec::new(),
                 app_builds: Vec::new(),
+                landings: Vec::new(),
                 unread: Vec::new(),
                 commits: Default::default(),
                 sccache: SccacheHealth {
@@ -2173,6 +2223,7 @@ mod tests {
             builds: Vec::new(),
             remote_runs: Vec::new(),
             app_builds: Vec::new(),
+            landings: Vec::new(),
             unread: Vec::new(),
             commits: Default::default(),
             sccache: SccacheHealth {
@@ -2259,6 +2310,7 @@ mod tests {
                 command: "cargo".to_string(),
             }],
             app_builds: Vec::new(),
+            landings: Vec::new(),
             unread: Vec::new(),
             commits: Default::default(),
             sccache: SccacheHealth {
@@ -2340,6 +2392,7 @@ mod tests {
                 builds: Vec::new(),
                 remote_runs: Vec::new(),
                 app_builds,
+                landings: Vec::new(),
                 unread: Vec::new(),
                 commits: Default::default(),
                 sccache: SccacheHealth {
@@ -2403,6 +2456,113 @@ mod tests {
         assert_eq!(judge(vec![run("other")]).findings.len(), 1);
     }
 
+    /// A claimed worktree with no change for hours has work running while a
+    /// `builds land` runs there, including one that waits for the landing of
+    /// another worktree: health prints no land command for it and says what
+    /// the landing waits for, and the dashboard's stalled mark follows.
+    #[test]
+    fn a_quiet_worktree_whose_landing_waits_for_another_landing_is_not_idle() {
+        let now = 1_800_000_000;
+        let judge = |landings: Vec<LandingRun>| {
+            let machine = Machine {
+                at: now,
+                load: [1.0; 3],
+                cores: 8,
+                builds: Vec::new(),
+                remote_runs: Vec::new(),
+                app_builds: Vec::new(),
+                landings,
+                unread: Vec::new(),
+                commits: Default::default(),
+                sccache: SccacheHealth {
+                    server: SccacheServer::Read {
+                        executed: 1,
+                        compared: None,
+                    },
+                    waiting: Vec::new(),
+                },
+                shells: Shells::default(),
+                locks: Vec::new(),
+                queues: Vec::new(),
+            };
+            let place = Place {
+                label: "demo/side-1".to_string(),
+                repo: "demo".to_string(),
+                top: PathBuf::from("/demo-worktrees/side-1"),
+                root: PathBuf::from("/volume/demo/side-1"),
+            };
+            let claimed = Claimed {
+                place: 0,
+                claim: Claim {
+                    who: "agent 1".to_string(),
+                    since: now - 5 * 3600,
+                    note: None,
+                },
+                branch: Some("work".to_string()),
+                git: Ok(SideRead {
+                    head: None,
+                    ahead: Vec::new(),
+                    main: "0".repeat(40),
+                    uncommitted: 0,
+                    last_write: Some(now - 2 * 3600),
+                }),
+                awaiting_review: false,
+                landing: Some(Advice::run(
+                    "nothing blocks landing: run".to_string(),
+                    "builds land /demo-worktrees/side-1 --done 7 abc".to_string(),
+                )),
+            };
+            assess(
+                now,
+                DiskSpace {
+                    free_kib: 100 << 20,
+                    floor_kib: 30 << 20,
+                    hard_floor_kib: 10 << 20,
+                },
+                machine,
+                &[place],
+                vec![claimed],
+                LeftBehind::default(),
+                Vec::new(),
+            )
+        };
+        let waiting = judge(vec![LandingRun {
+            pid: 5151,
+            place: 0,
+            waits_for: Some(
+                "the landing that changes the apps, process 36208 landing --done 1276 abc"
+                    .to_string(),
+            ),
+        }]);
+        assert!(waiting.findings.is_empty(), "{:?}", waiting.findings);
+        assert!(!waiting.worktrees[0].stalled);
+        let shown = lines(&waiting);
+        assert!(
+            shown.iter().any(|line| line.contains(
+                "builds land waits for another landing (pid 5151; the landing that changes the apps, process 36208 landing --done 1276 abc)"
+            )),
+            "{shown:?}"
+        );
+        assert!(
+            shown.iter().all(|line| !line.contains("run `builds land")),
+            "{shown:?}"
+        );
+        let running = judge(vec![LandingRun {
+            pid: 5151,
+            place: 0,
+            waits_for: None,
+        }]);
+        assert!(running.findings.is_empty(), "{:?}", running.findings);
+        assert!(
+            lines(&running)
+                .iter()
+                .any(|line| line.contains("builds land runs (pid 5151)"))
+        );
+        let none = judge(Vec::new());
+        assert_eq!(none.findings.len(), 1);
+        assert!(none.worktrees[0].stalled);
+    }
+
     /// A claimed worktree with no change for hours is building while an app
     /// build of one of its commits waits in a lane's queue, wherever the
     /// build was run from, and health shows its place in line; a queued build
@@ -2433,6 +2593,7 @@ mod tests {
                 builds: Vec::new(),
                 remote_runs: Vec::new(),
                 app_builds: Vec::new(),
+                landings: Vec::new(),
                 unread: Vec::new(),
                 commits: Default::default(),
                 sccache: SccacheHealth {
@@ -2514,6 +2675,7 @@ mod tests {
             builds: Vec::new(),
             remote_runs: Vec::new(),
             app_builds: Vec::new(),
+            landings: Vec::new(),
             unread: vec![line.to_string()],
             commits: Default::default(),
             sccache: SccacheHealth {
@@ -2563,6 +2725,7 @@ mod tests {
             builds: Vec::new(),
             remote_runs: Vec::new(),
             app_builds: Vec::new(),
+            landings: Vec::new(),
             unread: Vec::new(),
             commits: Default::default(),
             sccache: SccacheHealth {
@@ -2621,6 +2784,7 @@ mod tests {
             builds: Vec::new(),
             remote_runs: Vec::new(),
             app_builds: Vec::new(),
+            landings: Vec::new(),
             unread: Vec::new(),
             commits: Default::default(),
             sccache: SccacheHealth {
