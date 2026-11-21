@@ -36,6 +36,10 @@ pub(crate) const PREVIEW_FRAME: Frame = Frame { w: 1000, h: 800 };
 /// into the page's root.
 const PREVIEW_MOUNTED: &str = "#root > *";
 
+/// The class the page's `<body>` carries on the android lane, which the design
+/// system's preview styles key Android drawings on.
+const ANDROID_CLASS: &str = "bae-preview-android";
+
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum PreviewError {
     #[error(transparent)]
@@ -99,7 +103,9 @@ pub(crate) struct Row {
 /// Loads the preview at `url` and draws the row of `state`, at `scale` pixels
 /// per point: the picture of its cell and the elements inside it, measured
 /// from the cell's top-left, read as `platform`'s boards are. `marks` are the
-/// selectors of the page's rows.
+/// selectors of the page's rows. The android lane's page body gets the class
+/// `bae-preview-android` before the rows are measured, so a row both lanes
+/// shoot draws on each platform's own surface.
 pub(crate) async fn render_row(
     page: &Page,
     component: &str,
@@ -110,6 +116,15 @@ pub(crate) async fn render_row(
     marks: &Preview,
 ) -> Result<Row, PreviewError> {
     board::load(page, component, url, PREVIEW_FRAME, scale, PREVIEW_MOUNTED).await?;
+    if platform == Platform::Android {
+        // The class is CSS only: the rows measure and draw after it applies.
+        page.evaluate(format!(
+            "document.body.classList.add({}); document.fonts.ready.then(() => true)",
+            js(ANDROID_CLASS)
+        ))
+        .await
+        .map_err(board::protocol)?;
+    }
     let names: Vec<String> = page
         .evaluate(row_names(marks))
         .await

@@ -135,3 +135,31 @@ async fn a_row_reads_as_the_state_it_names() {
         (row.size.width * 2.0, row.size.height * 2.0)
     );
 }
+
+#[tokio::test]
+async fn a_shared_row_gets_the_android_class_on_the_android_lane_only() {
+    let root = fixture::tree(&[]);
+    let page_html = PREVIEW.replace(
+        "</style>",
+        "body.bae-preview-android .row-cell{width:400px}</style>",
+    );
+    fixture::write(
+        root.path(),
+        "design/system/components/MacRow/preview.html",
+        &page_html,
+    );
+    let (mac, android) = fixture::with_browser(root.path(), async |server, chrome| {
+        let url = server.preview_url("MacRow");
+        let mut widths = Vec::new();
+        for platform in [Platform::Mac, Platform::Android] {
+            let page = chrome.new_page().await.unwrap();
+            let row = render_row(&page, "MacRow", "label", &url, 1.0, platform, &marks())
+                .await
+                .unwrap();
+            widths.push(row.size.width);
+        }
+        (widths[0], widths[1])
+    })
+    .await;
+    assert_eq!((mac, android), (900.0, 400.0));
+}
