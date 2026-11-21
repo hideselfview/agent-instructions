@@ -42,11 +42,37 @@ const B: &str = "design/mocks/B.dc.html";
 const TOKENS: &str = "design/system/tokens.json";
 const CANVAS: &str = "design/mocks/canvas.json";
 
+/// The text of <path>: for canvas.json, JSON that names a design system or
+/// not, with <text> in it; for another file, <text>.
+fn canvas_or(path: &str, design_system: bool, text: &str) -> String {
+    if path != CANVAS {
+        return text.to_string();
+    }
+    let systems = if design_system {
+        r#""designSystems": [{"namespace": "demo"}],"#
+    } else {
+        ""
+    };
+    format!(r#"{{{systems} "v": "{text}"}}"#)
+}
+
 /// Two commits, `before` and `after`, where `after` rewrites <changed>, and
 /// each sameness of <held> places and <sources> over <paths>, as <renders>
 /// draws them.
 fn between(
     renders: &Says,
+    changed: &[&str],
+    held: &[&str],
+    sources: &[&str],
+    paths: &[&str],
+) -> Sameness {
+    between_in(renders, true, changed, held, sources, paths)
+}
+
+/// `between`, in a repo whose canvas.json names a design system or not.
+fn between_in(
+    renders: &Says,
+    design_system: bool,
     changed: &[&str],
     held: &[&str],
     sources: &[&str],
@@ -58,12 +84,12 @@ fn between(
     for path in [A, B, TOKENS, CANVAS] {
         let file = dir.join(path);
         std::fs::create_dir_all(file.parent().unwrap()).unwrap();
-        std::fs::write(&file, "one").unwrap();
+        std::fs::write(&file, canvas_or(path, design_system, "one")).unwrap();
         git(&dir, &["add", path]);
     }
     git(&dir, &["commit", "-q", "-m", "before"]);
     for path in changed {
-        std::fs::write(dir.join(path), "two").unwrap();
+        std::fs::write(dir.join(path), canvas_or(path, design_system, "two")).unwrap();
         git(&dir, &["add", path]);
     }
     git(&dir, &["commit", "-q", "--allow-empty", "-m", "after"]);
@@ -119,6 +145,15 @@ fn a_shared_file_is_the_same_only_when_every_board_of_the_change_draws_alike() {
     );
     assert!(!one.path(TOKENS) && !one.path(CANVAS));
     assert!(one.path(A) && one.path(B), "their bytes did not change");
+}
+
+#[test]
+fn a_repo_whose_canvas_names_no_design_system_is_judged_by_bytes_and_draws_nothing() {
+    let renders = says(&[A, B]);
+    let same = between_in(&renders, false, &[A, CANVAS], &[A, B], &[], &[A, B, CANVAS]);
+    assert!(!same.path(A) && !same.path(CANVAS));
+    assert!(same.path(B), "its bytes did not change");
+    assert_eq!(renders.asked.load(Ordering::SeqCst), 0);
 }
 
 #[test]

@@ -28,6 +28,16 @@ fn world(name: &str) -> World {
     let scratch = Scratch::new(name);
     let dir = scratch.dir.join("bae");
     repo(&dir, "target 1\n");
+    // The canvas the boards load a design system from, so the shots checker
+    // can draw them.
+    std::fs::create_dir_all(dir.join("design/mocks")).unwrap();
+    std::fs::write(
+        dir.join("design/mocks/canvas.json"),
+        r#"{"designSystems": [{"namespace": "demo"}], "boards": {}}"#,
+    )
+    .unwrap();
+    git(&dir, &["add", "design/mocks/canvas.json"]);
+    git(&dir, &["commit", "-q", "--amend", "--no-edit"]);
     git(&dir, &["tag", "base"]);
     // The repo's main as its origin has it: what a branch's commits and its
     // rules review are read past.

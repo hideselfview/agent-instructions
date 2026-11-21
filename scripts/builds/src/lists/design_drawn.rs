@@ -13,7 +13,9 @@
 //! shared file (`canvas.json`, a design-system source) is the same when every
 //! place of the change draws alike, because such a file draws nothing alone.
 //! A change that holds no board or preview has no drawing to compare, so a
-//! shared file that differs is never the same for it.
+//! shared file that differs is never the same for it. A repo whose
+//! canvas.json names no design system has no boards the checker can draw, so
+//! its files' bytes decide and nothing is drawn.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -131,6 +133,24 @@ impl Renders for NeverAlike {
     }
 }
 
+/// Does the canvas.json at commit <rev> of the checkout at <top> name the
+/// design system the boards load? A repo whose canvas names none (or has no
+/// canvas.json) has no boards the shots checker can draw, so its drawings are
+/// judged by their files' bytes alone.
+fn names_design_system(top: &Path, rev: &str) -> Result<bool> {
+    if !boards::exists_in(top, rev, boards::CANVAS)? {
+        return Ok(false);
+    }
+    let text = boards::git_text(
+        boards::git(top).args(["show", &format!("{rev}:{}", boards::CANVAS)]),
+        &format!("read {} at {rev}", boards::CANVAS),
+    )?;
+    let canvas: serde_json::Value = serde_json::from_str(&text).map_err(|e| {
+        crate::fail::Fail::Message(format!("{} at {rev} is not JSON: {e}", boards::CANVAS))
+    })?;
+    Ok(boards::design_namespace(&canvas).is_ok())
+}
+
 /// Whether each path a design change shows draws the same at two commits.
 #[derive(Debug, Default)]
 pub struct Sameness {
@@ -170,7 +190,10 @@ impl Sameness {
             .map(|path| path.to_string())
             .collect();
         let mut drawn = BTreeMap::new();
-        if identical.len() < paths.len() {
+        if identical.len() < paths.len()
+            && names_design_system(top, before.0)?
+            && names_design_system(top, after.0)?
+        {
             let places: BTreeSet<String> = held
                 .iter()
                 .filter(|place| {
