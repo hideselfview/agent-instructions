@@ -394,6 +394,21 @@ pub(crate) async fn elements(page: &Page, platform: Platform) -> Result<Vec<Elem
     build(&gather(page).await?, platform)
 }
 
+/// The boxes of the elements <selector> matches, measured from `origin`.
+async fn boxes(page: &Page, selector: &str, origin: (f64, f64)) -> Result<Vec<Bounds>, ReadError> {
+    let selector = serde_json::to_string(selector).expect("a string serializes");
+    page.evaluate(format!(
+        "[...document.querySelectorAll({selector})].map(e => {{ \
+           const r = e.getBoundingClientRect(); \
+           return {{x: r.x - {}, y: r.y - {}, width: r.width, height: r.height}}; }})",
+        origin.0, origin.1
+    ))
+    .await
+    .map_err(protocol)?
+    .into_value()
+    .map_err(protocol)
+}
+
 /// The boxes of the parts of a board that the app draws no counterpart for,
 /// such as an on-screen keyboard: the elements each of <selectors> (the
 /// app's `shots-unshot` line) matches. Such a part is hidden from the
@@ -402,18 +417,7 @@ pub(crate) async fn unshot(page: &Page, selectors: &[String]) -> Result<Vec<Boun
     if selectors.is_empty() {
         return Ok(Vec::new());
     }
-    let selector = serde_json::to_string(&selectors.join(", ")).expect("a string serializes");
-    let boxes: Vec<Bounds> = page
-        .evaluate(format!(
-            "[...document.querySelectorAll({selector})].map(e => {{ \
-               const r = e.getBoundingClientRect(); \
-               return {{x: r.x, y: r.y, width: r.width, height: r.height}}; }})"
-        ))
-        .await
-        .map_err(protocol)?
-        .into_value()
-        .map_err(protocol)?;
-    Ok(boxes)
+    boxes(page, &selectors.join(", "), (0.0, 0.0)).await
 }
 
 /// The class of the dashed stand-in a container's preview holds for its
@@ -423,19 +427,7 @@ const SLOT_CLASS: &str = "bae-preview-slot";
 /// The boxes of the board's preview slots, measured from `origin`. The
 /// comparison leaves out what either side draws inside them (compare.rs).
 pub(crate) async fn slots(page: &Page, origin: (f64, f64)) -> Result<Vec<Bounds>, ReadError> {
-    let boxes: Vec<Bounds> = page
-        .evaluate(format!(
-            "[...document.querySelectorAll('.{SLOT_CLASS}')].map(e => {{ \
-               const r = e.getBoundingClientRect(); \
-               return {{x: r.x - {}, y: r.y - {}, \
-                        width: r.width, height: r.height}}; }})",
-            origin.0, origin.1
-        ))
-        .await
-        .map_err(protocol)?
-        .into_value()
-        .map_err(protocol)?;
-    Ok(boxes)
+    boxes(page, &format!(".{SLOT_CLASS}"), origin).await
 }
 
 /// The elements under the DOM node `backend`, in reading order, with boxes
