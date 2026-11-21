@@ -107,6 +107,30 @@ fn a_pair_the_base_never_rendered_lists_its_findings_and_fails_nothing() {
 }
 
 #[test]
+fn the_run_of_the_merge_base_lists_every_finding_and_fails_no_pair() {
+    let outcome = outcome(vec![
+        pair_with_finding(Some(Against::Base)),
+        pair_with_finding(Some(Against::Base)),
+    ]);
+    assert!(
+        outcome.passed(),
+        "a run with no base fails no pair for lack of one"
+    );
+    assert_eq!(outcome.failing().count(), 0);
+    assert_eq!(outcome.listed().count(), 2);
+    assert_eq!(mark(Some(Against::Base)), " (the merge base's own run)");
+    let without = pair_with_finding(None);
+    assert!(
+        !outcome_of(without).passed(),
+        "a run with no base and no --base fails each pair with a finding"
+    );
+}
+
+fn outcome_of(pair: Checked) -> Outcome {
+    outcome(vec![pair])
+}
+
+#[test]
 fn a_problem_fails_a_run_whose_pairs_hold() {
     let mut outcome = outcome(vec![pair_with_finding(Some(Against::Held))]);
     outcome.problems.push(Problem {

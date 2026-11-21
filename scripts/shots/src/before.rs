@@ -32,6 +32,10 @@ use std::path::Path;
 /// Where a pair stands against the before run.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Against {
+    /// The run is the merge base's own (`run --base`): it compares with no
+    /// run and fails no pair, since its findings are what the branch's run
+    /// compares with.
+    Base,
     /// The before run did not check the scene.
     New,
     /// The before run tried the scene and its capture wrote no usable shot,

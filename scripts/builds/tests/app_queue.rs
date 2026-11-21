@@ -1270,7 +1270,9 @@ fn app_build_with_no_step_named_builds_both_lanes_and_runs_each_class_and_shots_
             .collect();
         assert_eq!(runs.len(), 2, "{log:?}\n{said}");
         assert!(!runs[0].contains("--before"), "{log:?}");
+        assert!(runs[0].contains("--base"), "{log:?}");
         assert!(runs[1].contains("--before"), "{log:?}");
+        assert!(!runs[1].contains("--base"), "{log:?}");
     }
 }
 

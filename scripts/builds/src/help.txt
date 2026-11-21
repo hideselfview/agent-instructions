@@ -1251,11 +1251,13 @@ merge base in the same lane, by the same shots versions, whose prefix starts
 the run's own (a run of mac. stands in for a run of mac.welcome.), and whose
 report holds findings.json. When builds has none cached, `builds app-build` builds
 the merge base first in the lane, with the lane's `needs` steps, and runs the
-same prefixes there. That run compares with nothing, so it fails on every
-pair with findings, and builds caches its findings all the same and runs
-every other prefix the build names; only a step or a shots run that fails
-without failing pairs, as when it cannot render, stops it. A run of a
-commit on origin/main compares with nothing. A lane's process (`--lane`)
+same prefixes there with `--base`. That run is the merge base's own: it
+compares with nothing and fails no pair with findings, since those findings
+are what the branch's run compares with, and it lists them as such. Its
+findings are cached, and the branch's run starts only after they are; only a
+step or a shots run that fails without failing pairs, as when it cannot
+render, stops the build. A run of a commit on origin/main compares with
+nothing, so its pairs' findings fail it. A lane's process (`--lane`)
 builds no merge base: it fails, naming the command that makes the run it
 lacks. A shots check's "before" side is read from the cached runs, never
 built again.

@@ -47,6 +47,10 @@ pub(crate) struct Verification<'a> {
     /// worse against it fail the run; with none, every pair with a finding
     /// does.
     pub(crate) before: Option<&'a Before>,
+    /// This is the run of the branch's merge base (`run --base`), which makes
+    /// the run that the branch's run compares with: it has no before run, and
+    /// no pair with a finding fails it.
+    pub(crate) base_run: bool,
     /// The folder of the board pictures earlier runs drew (pictures.rs):
     /// with one, the run draws only the boards it lacks and keeps each new
     /// drawing there; with none, it draws every board.
@@ -98,10 +102,14 @@ pub(crate) struct Outcome {
 impl Outcome {
     /// Whether the pair's findings fail the run: it has findings, and the run
     /// has no before run, or the pair is new or worse against it. A pair the
-    /// before run never rendered has no picture to be worse than.
+    /// before run never rendered has no picture to be worse than, and the
+    /// merge base's own run fails no pair.
     fn gated(pair: &Checked) -> bool {
         !pair.findings.is_empty()
-            && !matches!(pair.against, Some(Against::Held | Against::Unrendered))
+            && !matches!(
+                pair.against,
+                Some(Against::Held | Against::Unrendered | Against::Base)
+            )
     }
 
     /// The pairs whose findings fail the run.
@@ -267,9 +275,12 @@ pub(crate) fn verify(job: &Verification) -> Result<Outcome, String> {
             &shots[name],
             (job.shots_for)(name.platform()).join(name.file_name("png")),
         );
-        pair.against = job
-            .before
-            .map(|before| before.against(&name.to_string(), &pair.whats()));
+        pair.against = if job.base_run {
+            Some(Against::Base)
+        } else {
+            job.before
+                .map(|before| before.against(&name.to_string(), &pair.whats()))
+        };
         checked.push(pair);
     }
     let ready = design::ready_boards(root).map_err(|e| e.to_string())?;
@@ -324,6 +335,7 @@ pub(crate) fn note(against: Option<Against>) -> &'static str {
         Some(Against::New) => "new against the base",
         Some(Against::Worse) => "worse than the base",
         Some(Against::Unrendered) => "the base never rendered it",
+        Some(Against::Base) => "the merge base's own run",
         Some(Against::Held) | None => "",
     }
 }
@@ -402,7 +414,12 @@ fn summarize(outcome: &Outcome) {
         .collect();
     let listed: Vec<&Name> = outcome
         .listed()
-        .filter(|c| c.against != Some(Against::Unrendered))
+        .filter(|c| !matches!(c.against, Some(Against::Unrendered | Against::Base)))
+        .map(|c| &c.name)
+        .collect();
+    let base_own: Vec<&Name> = outcome
+        .listed()
+        .filter(|c| c.against == Some(Against::Base))
         .map(|c| &c.name)
         .collect();
     if !failing.is_empty() {
@@ -423,6 +440,13 @@ fn summarize(outcome: &Outcome) {
             "{} pair(s) have findings that are only listed (the base has each of them too): {}",
             listed.len(),
             names_of(listed.iter().copied())
+        ));
+    }
+    if !base_own.is_empty() {
+        crate::log::note(format_args!(
+            "{} pair(s) have findings that fail nothing, since this is the run of the merge base, which the branch's run compares with: {}",
+            base_own.len(),
+            names_of(base_own.iter().copied())
         ));
     }
     let unrendered: Vec<&Checked> = outcome.unrendered().collect();

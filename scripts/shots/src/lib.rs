@@ -462,6 +462,7 @@ fn run(checker: &Checker, action: Action) -> Result<bool, String> {
                 shots_for: &|p| shots.join(p.word()),
                 out: &shots,
                 before: before.as_ref(),
+                base_run: selection.base,
                 pictures: pictures.as_ref(),
             })?;
             let base = before.as_ref().map(|b| b.commit().to_string());
@@ -522,6 +523,7 @@ fn run(checker: &Checker, action: Action) -> Result<bool, String> {
                 shots_for: &|_| shots.clone(),
                 out: &out,
                 before: None,
+                base_run: false,
                 pictures: None,
             })?;
             let header = header(checker, sha, None, &outcome);
