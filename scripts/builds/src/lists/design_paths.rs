@@ -39,12 +39,29 @@ use crate::glob::{Question, segments_match};
 use crate::lists::Lists;
 use boards::{git, git_text};
 
-/// A repo's globs: its design places, its shared sources and its spec files.
+/// A repo's globs: its design places, its shared sources and its spec files,
+/// and the folders of its screenshot capture files.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Globs {
     pub places: Vec<String>,
     pub sources: Vec<String>,
     pub spec: Vec<String>,
+    /// The repo's `shots-declared` folders (`capture_folders`), relative to
+    /// the repo's top: every file below one is a capture file. Empty until
+    /// `with_capture_folders` reads them from a checkout.
+    pub capture: Vec<String>,
+}
+
+/// A kind of file that only the rules marked for it judge: a design file by
+/// `design: true`, a capture file by `capture: true`. A file of no kind is
+/// code, which every rule whose paths match judges.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FileKind {
+    /// A board, a design-system file or canvas.json (`holds_design_file`).
+    Design,
+    /// A file under a `shots-declared` folder: it declares which views the
+    /// shots capture, and the shots run checks it.
+    Capture,
 }
 
 impl Globs {
@@ -81,6 +98,34 @@ impl Globs {
             places: get(places),
             sources: get(sources),
             spec: get(spec),
+            capture: Vec::new(),
+        }
+    }
+
+    /// These globs with the capture folders that the `.app-build` of the
+    /// checkout at <top> declares; none when it has no `.app-build`.
+    pub fn with_capture_folders(mut self, top: &Path) -> Result<Globs> {
+        let file = top.join(".app-build");
+        self.capture = match std::fs::read_to_string(&file) {
+            Ok(text) => capture_folders(&text),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+            Err(error) => fail!("reading {}: {error}", file.display()),
+        };
+        Ok(self)
+    }
+
+    /// The kind of file <path> is, or None for code. A design file wins over
+    /// a capture file: no repo puts one under the other.
+    pub fn kind_of(&self, path: &str) -> Option<FileKind> {
+        if self.holds_design_file(path) {
+            Some(FileKind::Design)
+        } else if self.capture.iter().any(|folder| {
+            path.strip_prefix(folder.as_str())
+                .is_some_and(|rest| rest.starts_with('/'))
+        }) {
+            Some(FileKind::Capture)
+        } else {
+            None
         }
     }
 
@@ -115,6 +160,23 @@ impl Globs {
             .map(|glob| Glob::parse(glob).root().unwrap_or_default())
             .collect()
     }
+}
+
+/// The folders of the `shots-declared <platform> <folder>` lines of an
+/// `.app-build` file's <text>, each without a trailing `/`.
+pub fn capture_folders(text: &str) -> Vec<String> {
+    let mut folders: Vec<String> = text
+        .lines()
+        .filter_map(|line| {
+            let mut words = line.split_whitespace();
+            (words.next() == Some("shots-declared")).then_some(())?;
+            words
+                .nth(1)
+                .map(|folder| folder.trim_end_matches('/').to_string())
+        })
+        .collect();
+    folders.dedup();
+    folders
 }
 
 /// What a place is, read from how its key is written.

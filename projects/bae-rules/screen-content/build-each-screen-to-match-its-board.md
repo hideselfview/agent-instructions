@@ -8,6 +8,7 @@ paths:
   - plans/**
 blocking: true
 design: true
+capture: true
 ---
 
 ## Build each screen to match its board

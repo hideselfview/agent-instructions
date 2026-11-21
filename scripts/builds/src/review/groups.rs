@@ -174,17 +174,17 @@ impl Groups {
         faults
     }
 
-    /// The groups a review of a change to <changed>, in a repo whose design
-    /// files <design> names, runs, each with its rules that exist in <rules>
+    /// The groups a review of a change to <changed>, in a repo whose design and capture
+    /// files <files> name, runs, each with its rules that exist in <rules>
     /// (the project's): a group that reviews no copy runs when at least one of
     /// those rules is reviewable and covers a changed path (`Rule::matches`).
     pub fn pick<'a>(
         &'a self,
         rules: &'a [Rule],
         changed: &[String],
-        design: &Globs,
+        files: &Globs,
     ) -> Vec<(&'a Group, Vec<&'a Rule>)> {
-        self.covering(rules, changed, design, false)
+        self.covering(rules, changed, files, false)
     }
 
     /// The copy groups (`Group::copy`) a copy review of a change to
@@ -193,9 +193,9 @@ impl Groups {
         &'a self,
         rules: &'a [Rule],
         changed: &[String],
-        design: &Globs,
+        files: &Globs,
     ) -> Vec<(&'a Group, Vec<&'a Rule>)> {
-        self.covering(rules, changed, design, true)
+        self.covering(rules, changed, files, true)
     }
 
     /// The groups whose `copy` is <copy> and whose reviewable rules of
@@ -204,12 +204,12 @@ impl Groups {
         &'a self,
         rules: &'a [Rule],
         changed: &[String],
-        design: &Globs,
+        files: &Globs,
         copy: bool,
     ) -> Vec<(&'a Group, Vec<&'a Rule>)> {
         self.with_members(rules)
             .filter(|(group, members)| {
-                group.copy == copy && members.iter().any(|rule| rule.matches(changed, design))
+                group.copy == copy && members.iter().any(|rule| rule.matches(changed, files))
             })
             .collect()
     }

@@ -1326,7 +1326,10 @@ built again.
                               that both platforms share has a capture file
                               on each platform. The
                               file declares one shot for each row of the
-                              component's preview. builds-shots reads the
+                              component's preview. `builds review` reads
+                              every file below a shots-declared folder
+                              only against the rules marked `capture: true`
+                              (REVIEW). builds-shots reads the
                               shots in the Components folder as it reads the
                               shots-declared folder's own files, and fails
                               when two files declare one shot.
@@ -2759,6 +2762,18 @@ builds drops a finding of a rule without `design: true` on a design file, and
 records it as dropped with that reason. The copy review, audits and replays
 follow the same rule, with the design files of the change's repo.
 
+The review checks screenshot capture files the same way, only against the
+rules about shots, never against the rules about code (decision #397). The
+capture files of a repo are the files below each folder that a `shots-declared`
+line of its .app-build names, which the checkout holds. A rule that judges
+capture files says so in its front matter with `capture: true`. Every other
+rule covers no capture file, whatever its paths match, and builds drops a
+finding of such a rule on a capture file and records it as dropped with that
+reason. Groups run and read capture files as they do design files. The shots
+run checks that a moved shot gives the findings it gave before. `builds review
+groups --changed` and `builds review replay` know no checkout of the repo, so
+they treat no file as a capture file.
+
 Before an agent starts on a brief, `builds item take` checks the brief against
 the product spec with the same reviewer runner, in each worktree the take names
 whose repo has spec files (`builds lists design-globs --spec-files`). The
@@ -2858,7 +2873,8 @@ checks this, and so does builds' test. The group.toml fields are top-level keys:
 
 A group runs when at least one of its rules covers a path that a commit of
 the change adds, changes or deletes: a path the rule's paths match that is no
-design file, or a design file when the rule judges design files. Its reviewer
+design or capture file, or such a file when the rule judges files of its
+kind (`design: true`, `capture: true`). Its reviewer
 reads the full body of every rule in the group, the project's always-loaded
 instructions (projects/<project>.md), the diff and the landing's brief, and
 answers for every rule. No group reviews the test cases in the review/cases folder: a

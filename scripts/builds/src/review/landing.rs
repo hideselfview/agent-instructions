@@ -594,7 +594,7 @@ impl Asked {
     fn scope(&self) -> Scope<'_> {
         Scope {
             material: &self.material,
-            design: &self.design,
+            files: &self.design,
         }
     }
 }
@@ -617,10 +617,10 @@ fn ask(tool: &Tool, args: &Args) -> Result<Asked> {
     let root = super::rules_root(args)?;
     let material = Material::load(&root, project)?;
     let repo = checkout.repo();
-    let design = Globs::read(&conn, &repo)?;
+    let design = Globs::read(&conn, &repo)?.with_capture_folders(&checkout.top)?;
     let scope = Scope {
         material: &material,
-        design: &design,
+        files: &design,
     };
     let needs = needs(&checkout.top, shas.to_vec(), |paths| {
         scope.group_names(paths)

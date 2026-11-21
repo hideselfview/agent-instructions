@@ -69,7 +69,8 @@ pub fn replay(inputs: &Inputs) -> Result<Replayed> {
         let row = record::landing(&conn, landing)?;
         let key = row.key;
         // The design files of the landing's repo.
-        let design = crate::lists::design_paths::Globs::read(&conn, &row.repo)?;
+        let design = crate::lists::design_paths::Globs::read(&conn, &row.repo)?
+            .with_capture_folders(inputs.repo_dir)?;
         let runs = record::runs_of_landing(&conn, landing)?;
         let calls = record::calls_of_landing(&conn, landing)?;
         let verdicts = record::verdicts_of_landing(&conn, landing)?;
@@ -117,7 +118,7 @@ pub fn replay(inputs: &Inputs) -> Result<Replayed> {
             let diff = &change.diff;
             let scope = run::Scope {
                 material: &material,
-                design: &design,
+                files: &design,
             };
             let picked: Vec<_> = scope
                 .pick(&diff.changed)

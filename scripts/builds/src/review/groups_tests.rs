@@ -205,6 +205,7 @@ fn a_review_of_bae_design_files_asks_only_the_rules_that_judge_design_files() {
             "design/system/tokens.json".into(),
         ],
         spec: vec!["spec/bae.md".into()],
+        capture: Vec::new(),
     };
     let changed = vec![
         "design/mocks/mac.album.dc.html".to_string(),
@@ -232,4 +233,36 @@ fn a_review_of_bae_design_files_asks_only_the_rules_that_judge_design_files() {
         assert!(!slugs.contains(&slug), "{slug}: {slugs:?}");
     }
     assert!(asked.iter().all(|rule| rule.design), "{slugs:?}");
+}
+
+/// A change to a repo's capture files asks only the rules that judge capture
+/// files (decision #397), never the rules about code.
+#[test]
+fn a_review_of_capture_files_asks_only_the_rules_that_judge_capture_files() {
+    let root = checkout();
+    let groups = Groups::load(&root).unwrap();
+    let rules = rules::load(&root, Some("bae")).unwrap();
+    let files = Globs {
+        capture: vec!["bae-macos/bae/baeShots".into()],
+        ..Globs::default()
+    };
+    let changed = vec!["bae-macos/bae/baeShots/Components/MacRow.swift".to_string()];
+    let picked = groups.pick(&rules, &changed, &files);
+    let asked: Vec<&Rule> = picked
+        .iter()
+        .flat_map(|(_, members)| members.iter().copied())
+        .filter(|rule| rule.matches(&changed, &files))
+        .collect();
+    let slugs: Vec<&str> = asked.iter().map(|rule| rule.slug.as_str()).collect();
+    assert!(
+        slugs.contains(&"tests-capture-views-with-animation-off"),
+        "{slugs:?}"
+    );
+    assert!(asked.iter().all(|rule| rule.capture), "{slugs:?}");
+    // No group of code rules runs.
+    assert!(!picked.iter().any(|(_, members)| {
+        members
+            .iter()
+            .any(|rule| rule.slug == "write-only-what-is-needed-today")
+    }),);
 }

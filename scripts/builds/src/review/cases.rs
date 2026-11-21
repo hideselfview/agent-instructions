@@ -527,7 +527,10 @@ pub fn replay_all(
             .iter()
             .find(|(project, _)| *project == case.project)
             .expect("loaded above");
-        let scope = Scope { material, design };
+        let scope = Scope {
+            material,
+            files: design,
+        };
         results.push(replay_case(scope, reviewer, case, source_repo));
     }
     Ok(results)

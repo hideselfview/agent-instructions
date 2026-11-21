@@ -48,7 +48,8 @@ pub struct Checked {
 /// change touches, with the project's rules, and records the run.
 pub fn check(inputs: &Inputs) -> Result<Checked> {
     let material = run::Material::load(inputs.root, inputs.project)?;
-    let design = Globs::read(&*inputs.store.open_existing()?, inputs.repo)?;
+    let design = Globs::read(&*inputs.store.open_existing()?, inputs.repo)?
+        .with_capture_folders(inputs.worktree)?;
     let change = run::diff_of(inputs.worktree, inputs.base)?;
     if change.diff.text.trim().is_empty() {
         return Ok(Checked {
@@ -71,7 +72,7 @@ pub fn check(inputs: &Inputs) -> Result<Checked> {
     }
     let scope = run::Scope {
         material: &material,
-        design: &design,
+        files: &design,
     };
     let asked = run::ask_groups(scope, inputs.reviewer, &picked, &change.diff, None, &[]);
     let stamp = inputs.stamp;

@@ -59,6 +59,20 @@ pub fn design_rule_file(root: &Path, dir: &str, slug: &str, glob: &str, body: &s
     );
 }
 
+/// Writes rule <slug> in folder <dir>, a blocking rule covering the paths
+/// <glob> matches, capture files among them: its front matter says it judges
+/// capture files.
+pub fn capture_rule_file(root: &Path, dir: &str, slug: &str, glob: &str, body: &str) {
+    write_rule(
+        root,
+        dir,
+        slug,
+        glob,
+        "blocking: true\ncapture: true\n",
+        body,
+    );
+}
+
 /// Writes rule <slug> in folder <dir>, covering the paths <glob> matches,
 /// with the lines <front> in its front matter after its paths.
 fn write_rule(root: &Path, dir: &str, slug: &str, glob: &str, front: &str, body: &str) {

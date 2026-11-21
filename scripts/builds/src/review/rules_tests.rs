@@ -62,3 +62,24 @@ fn a_rule_covers_a_design_file_only_when_its_front_matter_says_it_judges_design_
     // A repo with no design globs has no design files.
     assert!(code.matches(&board, &Globs::default()));
 }
+
+#[test]
+fn a_rule_covers_a_capture_file_only_when_its_front_matter_says_it_judges_capture_files() {
+    let files = Globs {
+        places: vec!["design/*.html".into()],
+        capture: vec!["app/shots".into()],
+        ..Globs::default()
+    };
+    let code = Rule::parse("c", "---\npaths:\n  - '**/*'\n---\nbody\n");
+    let looks = Rule::parse("l", "---\npaths:\n  - '**/*'\ndesign: true\n---\nbody\n");
+    let shots = Rule::parse("s", "---\npaths:\n  - '**/*'\ncapture: true\n---\nbody\n");
+    assert!(!code.capture && !looks.capture && shots.capture && !shots.design);
+    let shot = ["app/shots/Components/Row.swift".to_string()];
+    assert!(!code.matches(&shot, &files) && !looks.matches(&shot, &files));
+    assert!(shots.matches(&shot, &files));
+    // A capture rule judges no board.
+    let board = ["design/a.html".to_string()];
+    assert!(!shots.matches(&board, &files) && looks.matches(&board, &files));
+    // A repo with no capture folders has no capture files.
+    assert!(code.matches(&shot, &Globs::default()));
+}

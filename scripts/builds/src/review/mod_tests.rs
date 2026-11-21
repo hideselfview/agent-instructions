@@ -2,8 +2,8 @@ use super::*;
 use crate::lists::fixtures::NOON;
 use crate::lists::item_fixtures::{Demo, demo};
 use crate::review::fakes::{
-    Fake, Raised, commit_text_group, design_rule_file, fake, group_file, looks_group, rule_file,
-    style_group, style_site, ten_lines,
+    Fake, Raised, capture_rule_file, commit_text_group, design_rule_file, fake, group_file,
+    looks_group, rule_file, style_group, style_site, ten_lines,
 };
 
 fn stamp() -> Stamp {
@@ -1698,7 +1698,7 @@ fn a_group_whose_rules_judge_no_design_file_reads_no_design_file() {
     let design = crate::lists::design_paths::Globs::read(&conn, "demo").unwrap();
     let scope = run::Scope {
         material: &material,
-        design: &design,
+        files: &design,
     };
     let shas = commits::in_range(&side, "main", "HEAD").unwrap();
     let needs = landing::needs(&side, shas, |paths| scope.group_names(paths)).unwrap();
@@ -1784,6 +1784,54 @@ fn a_finding_on_a_design_file_of_a_rule_that_judges_none_is_dropped() {
             "rule-a".to_string(),
             Some(
                 "it is on design file design/board.rs, and rule rule-a judges no design file"
+                    .to_string()
+            )
+        )]
+    );
+}
+
+#[test]
+fn a_finding_on_a_capture_file_of_a_rule_that_judges_none_is_dropped() {
+    let demo = demo("review-capture-drop");
+    let fake = fake(&demo.scratch.dir);
+    capture_rule_file(
+        &fake.root,
+        "alpha",
+        "rule-c",
+        "shots/**",
+        "**Rule C.** A shot turns animation off.",
+    );
+    let side = demo.add_side(1, "agent", "work");
+    std::fs::write(side.join(".app-build"), "shots-declared mac shots\n").unwrap();
+    std::fs::create_dir_all(side.join("shots")).unwrap();
+    demo.commit(&side, "shots/Row.rs");
+    fake.answer(
+        "alpha",
+        &[
+            (
+                "rule-a",
+                Some((
+                    BAD.0,
+                    "shots/Row.rs",
+                    1,
+                    "shots/Row.rs",
+                    "The shot does the bad thing.",
+                )),
+            ),
+            ("rule-c", None),
+        ],
+    );
+    let reported = run_review(&demo, &fake, &side, "k");
+    let found: Vec<(String, Option<String>)> = findings_of(&demo, reported.landing.unwrap())
+        .into_iter()
+        .map(|f| (f.rule, f.check_failed))
+        .collect();
+    assert_eq!(
+        found,
+        [(
+            "rule-a".to_string(),
+            Some(
+                "it is on capture file shots/Row.rs, and rule rule-a judges no capture file"
                     .to_string()
             )
         )]

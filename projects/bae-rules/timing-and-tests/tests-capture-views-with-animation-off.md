@@ -4,6 +4,7 @@ paths:
   - bae-macos/**
   - bae-android/**
 blocking: true
+capture: true
 ---
 
 ## Tests capture views with animation off

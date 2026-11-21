@@ -341,7 +341,10 @@ run. The review checks design files (the boards, the design system and
 canvas.json, by the project's design globs) only against the rules about how a
 screen, board or component looks, never against the rules about code (decision
 #364). Each such rule says so in its front matter (`design: true`), and no
-other rule reads a design file (`builds help`, LANDING AND REVIEW).
+other rule reads a design file. Screenshot capture files (the files below each
+`shots-declared` folder of the repo's .app-build) are checked the same way,
+only against the rules marked `capture: true`, because the shots run checks
+them (decision #397; `builds help`, LANDING AND REVIEW).
 
   1. The agent runs `builds review <worktree> --item N` on its branch, which
      gives the reviewers the item's brief. The first review reads the

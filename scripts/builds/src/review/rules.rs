@@ -2,7 +2,8 @@
 //! project's `projects/<project>-rules/` of an agent-instructions checkout
 //! (each in its group's folder), with the
 //! front matter `scripts/rules_review/matching_rules.py` reads (`paths`,
-//! `blocking`, `review`), whether the rule judges design files (`design`),
+//! `blocking`, `review`), whether the rule judges design files (`design`) or capture files
+//! (`capture`),
 //! and the full body.
 
 use std::path::{Path, PathBuf};
@@ -10,7 +11,7 @@ use std::path::{Path, PathBuf};
 use crate::fail;
 use crate::fail::{Context, Result};
 use crate::glob::{Question, segments_match};
-use crate::lists::design_paths::Globs;
+use crate::lists::design_paths::{FileKind, Globs};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Rule {
@@ -30,6 +31,10 @@ pub struct Rule {
     /// or component looks: it judges the design files its globs match. Every
     /// other rule judges no design file, whatever its globs match.
     pub design: bool,
+    /// True for a rule marked `capture: true`, which judges screenshot capture
+    /// files: it judges the capture files its globs match. Every other rule
+    /// judges no capture file, whatever its globs match.
+    pub capture: bool,
     /// The whole file, front matter included, which a reviewer reads.
     pub text: String,
 }
@@ -53,7 +58,16 @@ impl Rule {
             reviewable: !value("review")
                 .is_some_and(|v| ["false", "no", "off"].contains(&v.to_ascii_lowercase().as_str())),
             design: value("design").is_some_and(|v| v.eq_ignore_ascii_case("true")),
+            capture: value("capture").is_some_and(|v| v.eq_ignore_ascii_case("true")),
             text: text.to_string(),
+        }
+    }
+
+    /// Does the rule judge files of <kind>? Only a rule marked for the kind.
+    pub fn judges(&self, kind: FileKind) -> bool {
+        match kind {
+            FileKind::Design => self.design,
+            FileKind::Capture => self.capture,
         }
     }
 
@@ -69,20 +83,20 @@ impl Rule {
     }
 
     /// Whether the rule covers at least one of <changed>, in a repo whose
-    /// design files <design> names: a path its globs match, which is no
-    /// design file unless the rule judges design files.
-    pub fn matches(&self, changed: &[String], design: &Globs) -> bool {
-        changed.iter().any(|path| self.covers(path, design))
+    /// design and capture files <files> names: a path its globs match, which
+    /// is neither unless the rule judges files of that kind.
+    pub fn matches(&self, changed: &[String], files: &Globs) -> bool {
+        changed.iter().any(|path| self.covers(path, files))
     }
 
-    /// Whether the rule covers <path>, in a repo whose design files <design>
-    /// names.
-    fn covers(&self, path: &str, design: &Globs) -> bool {
+    /// Whether the rule covers <path>, in a repo whose design and capture
+    /// files <files> names.
+    fn covers(&self, path: &str, files: &Globs) -> bool {
         let matched = match &self.paths {
             None => true,
             Some(globs) => globs.iter().any(|glob| glob_matches(glob, path)),
         };
-        matched && (self.design || !design.holds_design_file(path))
+        matched && files.kind_of(path).is_none_or(|kind| self.judges(kind))
     }
 }
 

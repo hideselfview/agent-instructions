@@ -57,10 +57,10 @@ pub fn landing(
     let store = Store::named(places, project)?;
     let conn = store.open_existing()?;
     let material = Material::load(rules_root, project)?;
-    let design = Globs::read(&conn, repo)?;
+    let design = Globs::read(&conn, repo)?.with_capture_folders(top)?;
     let scope = Scope {
         material: &material,
-        design: &design,
+        files: &design,
     };
     let needs = landing::needs(top, ahead.to_vec(), |paths| scope.group_names(paths))?;
     let key = super::default_key(top)?;

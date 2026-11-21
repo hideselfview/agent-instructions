@@ -123,6 +123,7 @@ fn the_design_files_sit_in_the_folders_their_place_and_source_globs_start_in() {
         places: vec!["web/design/*.html".into(), "app/boards/*/x.html".into()],
         sources: vec!["*.css".into()],
         spec: vec!["spec/*.md".into()],
+        ..Globs::default()
     };
     assert_eq!(g.folders(), set(&["", "app/boards", "web/design"]));
     assert!(Globs::default().folders().is_empty());
@@ -453,4 +454,44 @@ fn a_glob_builds_cannot_match_is_refused() {
     assert!(mixed.contains("design/a**b/*.html"), "{mixed}");
     let folder = glob_fault("design/**/").unwrap();
     assert!(folder.contains("design/**/"), "{folder}");
+}
+
+#[test]
+fn the_capture_folders_are_the_folders_of_the_shots_declared_lines() {
+    let text = "step a mac x\nshots-declared mac bae-macos/bae/baeShots\n\
+                shots-declared android bae-android/shots/\nshots-capture mac run\n";
+    assert_eq!(
+        capture_folders(text),
+        ["bae-macos/bae/baeShots", "bae-android/shots"]
+    );
+    assert!(capture_folders("shots-capture mac run\n").is_empty());
+}
+
+#[test]
+fn a_file_below_a_capture_folder_is_a_capture_file_and_a_design_file_stays_a_design_file() {
+    let g = Globs {
+        capture: vec!["app/shots".into()],
+        ..full_globs()
+    };
+    assert_eq!(
+        g.kind_of("app/shots/Components/Row.swift"),
+        Some(FileKind::Capture)
+    );
+    assert_eq!(g.kind_of("design/mocks/A.dc.html"), Some(FileKind::Design));
+    assert_eq!(g.kind_of("app/shotsOther/A.swift"), None);
+    assert_eq!(g.kind_of("app/Views/A.swift"), None);
+    assert_eq!(Globs::default().kind_of("app/shots/A.swift"), None);
+}
+
+#[test]
+fn a_checkout_gives_its_capture_folders_and_one_without_an_app_build_gives_none() {
+    let scratch = Scratch::new("design-paths-capture");
+    let with = scratch.dir.join("with");
+    let without = scratch.dir.join("without");
+    std::fs::create_dir_all(&with).unwrap();
+    std::fs::create_dir_all(&without).unwrap();
+    std::fs::write(with.join(".app-build"), "shots-declared mac app/shots\n").unwrap();
+    let read = |top: &std::path::Path| Globs::default().with_capture_folders(top).unwrap();
+    assert_eq!(read(&with).capture, ["app/shots"]);
+    assert!(read(&without).capture.is_empty());
 }

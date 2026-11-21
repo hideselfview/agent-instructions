@@ -9,7 +9,7 @@ use serde_json::json;
 
 use crate::fail;
 use crate::fail::{Context, Result};
-use crate::lists::design_paths::Globs;
+use crate::lists::design_paths::{FileKind, Globs};
 use crate::review::call;
 use crate::review::check::reviewers_map;
 use crate::review::check::{
@@ -93,12 +93,12 @@ impl Material {
 
 /// What decides which rules read which files of a change in one repo: the
 /// project's groups and rules, and the repo's design files (`builds lists
-/// design-globs`), which only the rules that judge design files read
-/// (`Rule::design`).
+/// design-globs`) and capture files (its `shots-declared` folders), which only
+/// the rules that judge files of their kind read (`Rule::judges`).
 #[derive(Clone, Copy)]
 pub struct Scope<'a> {
     pub material: &'a Material,
-    pub design: &'a Globs,
+    pub files: &'a Globs,
 }
 
 impl Scope<'_> {
@@ -107,7 +107,7 @@ impl Scope<'_> {
     pub fn pick(&self, changed: &[String]) -> Vec<(&Group, Vec<&Rule>)> {
         self.material
             .groups
-            .pick(&self.material.rules, changed, self.design)
+            .pick(&self.material.rules, changed, self.files)
     }
 
     /// The names of the groups whose rules cover one of <changed>.
@@ -477,7 +477,7 @@ fn units_of<'a>(
     members: &'a [&'a Rule],
     at: usize,
     diff: &Diff,
-    design: &Globs,
+    files: &Globs,
     open: &[Finding],
 ) -> Vec<Unit<'a>> {
     let unit = |file| Unit {
@@ -496,7 +496,7 @@ fn units_of<'a>(
             holds
                 || members
                     .iter()
-                    .any(|rule| rule.matches(&file.paths(), design))
+                    .any(|rule| rule.matches(&file.paths(), files))
         })
         .map(|file| unit(Some(file)))
         .collect();
@@ -509,16 +509,17 @@ fn units_of<'a>(
     units
 }
 
-/// The design files of <diff> that no rule of <members> covers, by <design>:
-/// a group reads a design file only when one of its rules judges design files
-/// and covers it, whether or not the group holds open findings.
-fn unjudged(members: &[&Rule], diff: &Diff, design: &Globs) -> Vec<String> {
+/// The design and capture files of <diff> that no rule of <members> covers,
+/// by <files>: a group reads such a file only when one of its rules judges
+/// files of its kind and covers it, whether or not the group holds open
+/// findings.
+fn unjudged(members: &[&Rule], diff: &Diff, files: &Globs) -> Vec<String> {
     files::split(&diff.text)
         .into_iter()
         .filter(|file| {
             let paths = file.paths();
-            paths.iter().any(|path| design.holds_design_file(path))
-                && !members.iter().any(|rule| rule.matches(&paths, design))
+            paths.iter().any(|path| files.kind_of(path).is_some())
+                && !members.iter().any(|rule| rule.matches(&paths, files))
         })
         .map(|file| file.path)
         .collect()
@@ -552,8 +553,8 @@ fn not_read(
 /// Asks the reviewers of <picked> and checks what comes back: one per group,
 /// except that a group that lists sites gets one per changed file its rule
 /// covers by either path of a rename, each given that file's diff and its new
-/// text around the hunks. No group reads a design file of <scope>'s repo
-/// unless one of its rules judges design files and covers it (`unjudged`).
+/// text around the hunks. No group reads a design or capture file of <scope>'s repo
+/// unless one of its rules judges files of its kind and covers it (`unjudged`).
 /// Each call also gets the findings of <open> in its group's rules, and
 /// closes each one whose problem the code no longer has. A group that holds
 /// findings of <open> reads every other file of <diff>, so that it sees a fix
@@ -569,12 +570,12 @@ pub fn ask_groups(
     brief: Option<&crate::lists::spec_check::Brief>,
     open: &[Finding],
 ) -> Asked {
-    let (material, design) = (scope.material, scope.design);
-    // Each group's view of the change: the diff without the design files the
+    let (material, files) = (scope.material, scope.files);
+    // Each group's view of the change: the diff without the design and capture files the
     // group does not judge.
     let unjudged: Vec<Vec<String>> = picked
         .iter()
-        .map(|(_, members)| unjudged(members, diff, design))
+        .map(|(_, members)| unjudged(members, diff, files))
         .collect();
     let views: Vec<Diff> = unjudged.iter().map(|paths| diff.without(paths)).collect();
     // The units a first review asks, and the files of each group's units that
@@ -583,7 +584,7 @@ pub fn ask_groups(
     let first: Vec<Vec<Unit>> = picked
         .iter()
         .enumerate()
-        .map(|(at, (group, members))| units_of(group, members, at, &views[at], design, open))
+        .map(|(at, (group, members))| units_of(group, members, at, &views[at], files, open))
         .collect();
     let not_read: Vec<Vec<String>> = first
         .iter()
@@ -931,8 +932,8 @@ fn merge(held: &mut NewCall, more: NewCall) {
 
 /// The call as the store holds it: builds keeps with the reason it dropped
 /// it each finding whose clause is not in its rule, that is on the commit
-/// messages when <group> does not read them, that is on a design file of
-/// <scope>'s repo when its rule judges no design file, whose code is not in
+/// messages when <group> does not read them, that is on a design or capture file of
+/// <scope>'s repo when its rule judges none of its kind, whose code is not in
 /// <quotes>, or whose code sits only on comment lines when its rule's group
 /// judges no code comment.
 fn checked(
@@ -943,7 +944,7 @@ fn checked(
     setup: String,
     output: call::Output,
 ) -> NewCall {
-    let (material, design) = (scope.material, scope.design);
+    let (material, files) = (scope.material, scope.files);
     let mut call = NewCall {
         group: group.name.clone(),
         model: group.model.clone(),
@@ -972,16 +973,16 @@ fn checked(
     call.verdicts = answer.verdicts;
     call.sites = answer.sites;
     for raw in answer.findings {
-        // The project facts judge no design file: they are about the code
-        // and the spec.
-        let (rule_text, blocking, judges_design) = if raw.rule == PROJECT_FACTS {
-            (material.project_text.as_str(), false, false)
+        // The project facts judge no design or capture file: they are about
+        // the code and the spec.
+        let (rule_text, blocking, rule) = if raw.rule == PROJECT_FACTS {
+            (material.project_text.as_str(), false, None)
         } else {
             let rule = members
                 .iter()
                 .find(|r| r.slug == raw.rule)
                 .expect("the answer's rules were checked against the group's");
-            (rule.text.as_str(), rule.blocking, rule.design)
+            (rule.text.as_str(), rule.blocking, Some(*rule))
         };
         let check_failed = if !clause_in(&raw.clause, rule_text) {
             Some("its clause is not in the rule's text".to_string())
@@ -991,9 +992,16 @@ fn checked(
                 files::COMMIT_MESSAGE,
                 group.name
             ))
-        } else if !judges_design && design.holds_design_file(&raw.file) {
+        } else if let Some(kind) = files
+            .kind_of(&raw.file)
+            .filter(|kind| !rule.is_some_and(|rule| rule.judges(*kind)))
+        {
+            let kind = match kind {
+                FileKind::Design => "design",
+                FileKind::Capture => "capture",
+            };
             Some(format!(
-                "it is on design file {}, and rule {} judges no design file",
+                "it is on {kind} file {}, and rule {} judges no {kind} file",
                 raw.file, raw.rule
             ))
         } else if let Err(why) = code_in(quotes, &raw.file, &raw.code) {

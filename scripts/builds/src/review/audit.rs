@@ -260,7 +260,8 @@ pub fn audit(inputs: &Inputs) -> Result<String> {
     let row = record::landing(&conn, inputs.landing)?;
     let key = row.key;
     // The design files of the landing's repo.
-    let design = crate::lists::design_paths::Globs::read(&conn, &row.repo)?;
+    let design = crate::lists::design_paths::Globs::read(&conn, &row.repo)?
+        .with_capture_folders(inputs.repo_dir)?;
     let Some(last) = landed_run(&conn, inputs.landing)? else {
         crate::fail!(
             "landing {} ({key}) has not landed, so there is nothing to audit",
@@ -329,7 +330,7 @@ pub fn audit(inputs: &Inputs) -> Result<String> {
             .collect();
         let scope = run::Scope {
             material: &material,
-            design: &design,
+            files: &design,
         };
         run::ask_groups(scope, inputs.reviewer, &picked, &diff, None, &[]).calls
     };

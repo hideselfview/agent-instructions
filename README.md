@@ -32,6 +32,10 @@ them into `~/.claude/` and `~/.codex/`, so both tools read the same files.
     component looks. `builds review` checks a project's design files (its
     boards, design system and canvas.json) only against these rules, and against
     no other rule, whatever its `paths` match.
+  - `capture: true` (optional): marks a rule about screenshot capture files.
+    `builds review` checks a repo's capture files (the files below each
+    `shots-declared` folder of its `.app-build`) only against these rules, and
+    against no other rule, whatever its `paths` match.
 - `projects/<name>.md` holds a project's always-loaded instructions.
 - `projects/<name>-rules/<group>/*.md` holds a project's rules, with the same
   frontmatter as `rules/`.

@@ -277,10 +277,12 @@ impl Reads {
         let conn = store.open_existing().map_err(Fail::text)?;
         // The store's version is part of the tip a judgment is kept for, so a
         // change to the repo's design globs judges the worktree again.
-        let design = Globs::read(&conn, worktree.repo).map_err(Fail::text)?;
+        let design = Globs::read(&conn, worktree.repo)
+            .and_then(|files| files.with_capture_folders(worktree.top))
+            .map_err(Fail::text)?;
         let scope = Scope {
             material,
-            design: &design,
+            files: &design,
         };
         let needs: Vec<Need> = shas
             .iter()

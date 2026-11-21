@@ -92,10 +92,10 @@ pub fn read(
     if !covers {
         return Ok(Standing::Uncovered);
     }
-    let design_files = Globs::of(lists, &design.repo);
+    let design_files = Globs::of(lists, &design.repo).with_capture_folders(top)?;
     let scope = Scope {
         material,
-        design: &design_files,
+        files: &design_files,
     };
     let needs = landing::needs(top, ahead, |paths| scope.group_names(paths))?;
     let key = super::default_key(top)?;

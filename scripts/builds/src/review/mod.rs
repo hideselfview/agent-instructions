@@ -45,8 +45,9 @@
 //! a run, none reads a file where a group of the run holds open findings,
 //! and each reads every other changed file its rules cover
 //! (`run::ask_groups`). No group reads a design file of the repo (`builds
-//! lists design-globs`) unless one of its rules judges design files
-//! (`rules::Rule::design`): the rest judge code. `landing::Coverage`
+//! lists design-globs`) or a capture file (below a `shots-declared` folder)
+//! unless one of its rules judges files of that kind (`rules::Rule::judges`):
+//! the rest judge code. `landing::Coverage`
 //! says what the review read, for this run and for `builds land`. The run
 //! refuses when the review lacks nothing and no confirmed finding is open.
 //!
@@ -354,10 +355,10 @@ pub fn review(inputs: &Inputs) -> Result<Reported> {
     }
     let shas = commits::in_range(inputs.worktree, &change.base, &change.head)?;
     let material = run::Material::load(inputs.root, inputs.project)?;
-    let design = Globs::read(&conn, inputs.repo)?;
+    let design = Globs::read(&conn, inputs.repo)?.with_capture_folders(inputs.worktree)?;
     let scope = run::Scope {
         material: &material,
-        design: &design,
+        files: &design,
     };
     if scope.group_names(&change.diff.changed).is_empty() {
         return Ok(Reported {
