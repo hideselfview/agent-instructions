@@ -1092,7 +1092,7 @@ fn held_for(holder: &Holder) -> String {
 /// marks the worktrees whose design change waits on the person's review,
 /// which a change that waits on their approval does once the rules review
 /// takes the worktree's commits, so <claimed> is judged with that known. Both read the worktrees' design
-/// commits through <designs>.
+/// commits through <reads>.
 pub fn lists_findings(
     places_in: &crate::places::Places,
     integrity: Vec<String>,
@@ -1100,14 +1100,15 @@ pub fn lists_findings(
     places: &[Place],
     claimed: &mut [Claimed],
     worktrees: &[crate::lists::held::Worktree],
-    designs: &crate::lists::design_reads::DesignReads,
+    reads: WorktreeReads,
 ) -> Result<Vec<Advice>> {
+    let WorktreeReads { designs, reviews } = reads;
     let approving = crate::lists::held::awaiting_approval(loaded, worktrees, designs);
     for one in claimed.iter_mut() {
         let landing = worktrees
             .iter()
             .find(|worktree| worktree.label == places[one.place].label)
-            .and_then(|worktree| worktree.landing(places_in, loaded));
+            .and_then(|worktree| worktree.landing(places_in, loaded, reviews));
         one.awaiting_review = approving.contains(&places[one.place].label)
             && matches!(landing, Some(Ok(crate::review::idle::Landing::Free(_))));
         one.landing = landing.map(|landing| match landing {
@@ -1126,6 +1127,14 @@ pub fn lists_findings(
         loaded,
     ));
     Ok(lists)
+}
+
+/// What the reading of the worktrees' commits keeps between readings: their
+/// design commits and the verdict on each one's landing.
+#[derive(Clone, Copy)]
+pub struct WorktreeReads<'a> {
+    pub designs: &'a crate::lists::design_reads::DesignReads,
+    pub reviews: &'a crate::daemon::review_cards::Reads,
 }
 
 /// Gathers the machine's health now, reading everything itself.
@@ -1187,18 +1196,20 @@ pub fn health(tool: &Tool) -> Result<Health> {
     let mut judged = Vec::new();
     let mut held_worktrees = Vec::new();
     for ((place, checkout, claim), git) in claimed.into_iter().zip(gits) {
+        let branch = checkout.branch()?;
         held_worktrees.push(crate::lists::held::Worktree::read(
             &tool.places,
             places[place].label.clone(),
             checkout,
             &claim,
+            branch.clone(),
             &git,
             &machine.commits,
         )?);
         judged.push(Claimed {
             place,
             claim,
-            branch: checkout.branch()?,
+            branch,
             git,
             awaiting_review: false,
             landing: None,
@@ -1211,7 +1222,12 @@ pub fn health(tool: &Tool) -> Result<Health> {
         &places,
         &mut judged,
         &held_worktrees,
-        &Default::default(),
+        WorktreeReads {
+            designs: &Default::default(),
+            reviews: &crate::daemon::review_cards::Reads::with_root(Ok(
+                crate::review::installed_rules_root(&tool.places.home),
+            )),
+        },
     )?;
     let mut loose = Vec::new();
     for main in mains_of(&roots) {

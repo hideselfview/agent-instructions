@@ -348,3 +348,32 @@ fn the_rules_are_read_once_and_again_only_after_their_files_change() {
         "{said}"
     );
 }
+
+#[test]
+fn health_and_the_card_share_the_verdict_kept_for_a_tip() {
+    let demo = demo("review-cards-shared-verdict");
+    let fake = fake(&demo.scratch.dir);
+    let reads = Reads::with_root(Ok(fake.root.clone()));
+    let side = demo.add_side(1, "agent", "work");
+    demo.commit(&side, "a.rs");
+    let git = read_git(&side, ahead(&side));
+    let lists = demo.store.load().unwrap();
+    let worktree = Worktree {
+        repo: "demo",
+        top: &side,
+        branch: Some("work"),
+        git: &git,
+    };
+    let first = reads
+        .verdict_of(&demo.tool.places, &lists, &worktree)
+        .unwrap();
+    // With its git folder gone, only the verdict kept for the tip answers.
+    let dot_git = side.join(".git");
+    let away = demo.scratch.dir.join("dot-git");
+    std::fs::rename(&dot_git, &away).unwrap();
+    let again = reads
+        .verdict_of(&demo.tool.places, &lists, &worktree)
+        .unwrap();
+    assert!(Arc::ptr_eq(&first, &again), "the same tip is judged once");
+    std::fs::rename(&away, &dot_git).unwrap();
+}

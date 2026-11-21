@@ -811,11 +811,7 @@ fn idle_says(
 ) -> (Vec<String>, crate::health::Advice) {
     let (verdict, _) = verdict_of(demo, fake, side, shas);
     let lists = demo.store.load().unwrap();
-    let advice =
-        crate::review::idle::landing(&demo.tool.places, &lists, side, "demo", shas, &fake.root)
-            .unwrap()
-            .unwrap()
-            .advice();
+    let advice = crate::review::idle::landing(&verdict, &lists, side, shas).advice();
     (blockers(&verdict), advice)
 }
 

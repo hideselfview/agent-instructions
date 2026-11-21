@@ -828,7 +828,10 @@ impl Model {
             &places,
             &mut claimed,
             &held,
-            &self.design_reads,
+            crate::health::WorktreeReads {
+                designs: &self.design_reads,
+                reviews: &self.review_reads,
+            },
         )?;
         let mut loose: Vec<crate::unlanded::LooseBranch> = Vec::new();
         let mut unread: Vec<crate::health::Finding> = Vec::new();
@@ -1927,6 +1930,7 @@ fn claimed_of(
             places[place].label.clone(),
             checkout,
             claim,
+            branch.clone(),
             git,
             commits,
         )?);

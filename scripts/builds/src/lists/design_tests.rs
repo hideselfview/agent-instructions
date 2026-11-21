@@ -809,6 +809,7 @@ fn health_of(w: &World, range: &str) -> Vec<String> {
         label: "bae/side-1".into(),
         top: w.dir.clone(),
         repo: "bae".into(),
+        branch: None,
         claim: crate::claim::Claim {
             who: "agent".into(),
             since: NOON,

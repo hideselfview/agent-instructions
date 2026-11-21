@@ -190,6 +190,7 @@ pub fn release_idle_claims(tool: &Tool) -> Result<Vec<String>> {
             top.clone(),
             checkout,
             &claim,
+            checkout.branch()?,
             &crate::side_git::read(&checkout.top),
             &commits,
         )?;

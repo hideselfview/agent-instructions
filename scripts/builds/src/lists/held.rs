@@ -9,6 +9,7 @@ use std::path::PathBuf;
 
 use crate::checkout::Checkout;
 use crate::claim::Claim;
+use crate::daemon::review_cards::Reads;
 use crate::fail;
 use crate::fail::Result;
 use crate::health::Advice;
@@ -148,6 +149,8 @@ pub struct Worktree {
     pub label: String,
     pub top: PathBuf,
     pub repo: String,
+    /// The branch HEAD is on; None when HEAD is detached.
+    pub branch: Option<String>,
     pub claim: Claim,
     /// The project the claim names (`builds claim --project`), or None when
     /// the claim names none.
@@ -170,6 +173,7 @@ impl Worktree {
         label: String,
         checkout: &Checkout,
         claim: &Claim,
+        branch: Option<String>,
         git: &std::result::Result<SideRead, String>,
         commits: &crate::procs::GitCommits,
     ) -> Result<Worktree> {
@@ -177,6 +181,7 @@ impl Worktree {
             label,
             top: checkout.top.clone(),
             repo: checkout.repo(),
+            branch,
             claim: claim.clone(),
             project: checkout.claimed_project()?,
             app_checkout: places
@@ -213,16 +218,25 @@ impl Worktree {
         &self,
         places: &Places,
         loaded: &std::result::Result<Vec<Loaded>, String>,
+        reviews: &Reads,
     ) -> Option<std::result::Result<crate::review::idle::Landing, String>> {
         if self.app_checkout || self.claim.is_held() {
             return None;
         }
-        let ahead = self.git.as_ref().ok()?.ahead_oldest_first();
+        let git = self.git.as_ref().ok()?;
+        if git.ahead.is_empty() {
+            return None;
+        }
         let lists = self.lists(loaded).ok()??;
-        let root = crate::review::installed_rules_root(&places.home);
-        crate::review::idle::landing(places, lists, &self.top, &self.repo, &ahead, &root)
-            .map_err(|fault| fault.text())
-            .transpose()
+        let reviewed = crate::daemon::review_cards::Worktree {
+            repo: &self.repo,
+            top: &self.top,
+            branch: self.branch.as_deref(),
+            git,
+        };
+        Some(reviews.verdict_of(places, lists, &reviewed).map(|verdict| {
+            crate::review::idle::landing(&verdict, lists, &self.top, &git.ahead_oldest_first())
+        }))
     }
 
     /// The lists of the project its work is in (`store::lists_of`).

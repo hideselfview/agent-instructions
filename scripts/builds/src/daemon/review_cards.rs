@@ -19,8 +19,10 @@ use std::sync::{Arc, Mutex};
 
 use super::cards::{ItemWait, ReviewWait, Settler};
 use crate::fail::Fail;
+use crate::lists::Lists;
 use crate::lists::design_paths::Globs;
 use crate::lists::store::Store;
+use crate::places::Places;
 use crate::review::commits;
 use crate::review::landing::{self, CodeCheck, Need, Verdict};
 use crate::review::record::Change;
@@ -61,6 +63,18 @@ struct Tip {
     store: u64,
 }
 
+impl Tip {
+    /// <worktree>'s tip against a store at <version>.
+    fn of(worktree: &Worktree, version: u64) -> Tip {
+        Tip {
+            branch: worktree.branch.map(str::to_string),
+            head: worktree.git.head.as_ref().map(|head| head.full.clone()),
+            main: worktree.git.main.clone(),
+            store: version,
+        }
+    }
+}
+
 /// What the review's records and the branch's net change say of a
 /// worktree's commits.
 #[derive(Clone, Copy)]
@@ -80,11 +94,32 @@ enum Judgment {
     Open(usize),
 }
 
-/// A worktree's judgment and what it was judged from.
+impl Judgment {
+    /// What <verdict> says of the commits, as a card shows it.
+    fn of(verdict: &Verdict) -> Judgment {
+        match verdict {
+            Verdict::NotNeeded => Judgment::NotNeeded,
+            Verdict::Takes(_) | Verdict::OverCap(_) => Judgment::Takes,
+            Verdict::NoRun => Judgment::NotRun,
+            Verdict::Unfinished(_, unfinished) if !unfinished.unsettled.is_empty() => {
+                Judgment::ToSettle(unfinished.unsettled.len())
+            }
+            Verdict::Unfinished(_, unfinished) if !unfinished.unanswered.is_empty() => {
+                Judgment::NotRun
+            }
+            Verdict::Unfinished(_, unfinished) if !unfinished.unreviewed.is_empty() => {
+                Judgment::Unreviewed(unfinished.unreviewed.len())
+            }
+            Verdict::Unfinished(_, unfinished) => Judgment::Open(unfinished.open.len()),
+        }
+    }
+}
+
+/// A worktree's verdict and what it was judged from.
 struct Judged {
     tip: Tip,
     rules: Arc<Material>,
-    judgment: Judgment,
+    verdict: Arc<Verdict>,
 }
 
 /// What git said of each worktree's commits, kept until they differ, the
@@ -207,13 +242,9 @@ impl Reads {
             return Ok(None);
         };
         let rules = self.rules(&store.project)?;
-        let tip = Tip {
-            branch: worktree.branch.map(str::to_string),
-            head: worktree.git.head.as_ref().map(|head| head.full.clone()),
-            main: worktree.git.main.clone(),
-            store: version,
-        };
-        let wait = match self.judgment(store, worktree, tip, rules)? {
+        let tip = Tip::of(worktree, version);
+        let verdict = self.verdict(store, worktree, tip, rules)?;
+        let wait = match Judgment::of(&verdict) {
             Judgment::NotNeeded => return Ok(None),
             _ if crate::review::is_running(&store.dir, &newest.full) => ReviewWait::Running,
             Judgment::Takes => return Ok(None),
@@ -233,35 +264,48 @@ impl Reads {
         Ok(Some(ItemWait::RulesReview(wait)))
     }
 
-    /// The judgment of <worktree>'s commits at <tip> against <rules>: the
+    /// The verdict on <worktree>'s commits at <tip> against <rules>: the
     /// one kept for the worktree when it was judged at the same tip against
-    /// the same rules, else judged now. Reads keeps only a judgment that
+    /// the same rules, else judged now. Reads keeps only a verdict that
     /// succeeded, so the next page build judges again after a failure.
-    fn judgment(
+    fn verdict(
         &self,
         store: &Store,
         worktree: &Worktree,
         tip: Tip,
         rules: Arc<Material>,
-    ) -> Result<Judgment, String> {
+    ) -> Result<Arc<Verdict>, String> {
         // Held while judging, so builds that ask at once judge once.
         let mut judged = self.judged.lock().expect("no panic holding it");
         if let Some(kept) = judged.get(worktree.top)
             && kept.tip == tip
             && Arc::ptr_eq(&kept.rules, &rules)
         {
-            return Ok(kept.judgment);
+            return Ok(kept.verdict.clone());
         }
-        let judgment = self.judge(store, worktree, &rules)?;
+        let verdict = Arc::new(self.judge(store, worktree, &rules)?);
         judged.insert(
             worktree.top.to_path_buf(),
             Judged {
                 tip,
                 rules,
-                judgment,
+                verdict: verdict.clone(),
             },
         );
-        Ok(judgment)
+        Ok(verdict)
+    }
+
+    /// The verdict on the commits of <worktree>, a worktree of <lists>'
+    /// project, at the tip and rules `standing` keeps it for.
+    pub fn verdict_of(
+        &self,
+        places: &Places,
+        lists: &Lists,
+        worktree: &Worktree,
+    ) -> Result<Arc<Verdict>, String> {
+        let store = Store::named(places, &lists.project).map_err(Fail::text)?;
+        let rules = self.rules(&lists.project)?;
+        self.verdict(&store, worktree, Tip::of(worktree, lists.version), rules)
     }
 
     /// Judges <worktree>'s commits the way `builds land` does, against the
@@ -271,11 +315,11 @@ impl Reads {
         store: &Store,
         worktree: &Worktree,
         material: &Material,
-    ) -> Result<Judgment, String> {
+    ) -> Result<Verdict, String> {
         let shas = worktree.git.ahead_oldest_first();
         let paths = self.commits(worktree.top, &shas)?;
         let conn = store.open_existing().map_err(Fail::text)?;
-        // The store's version is part of the tip a judgment is kept for, so a
+        // The store's version is part of the tip a verdict is kept for, so a
         // change to the repo's design globs judges the worktree again.
         let design = Globs::read(&conn, worktree.repo)
             .and_then(|files| files.with_capture_folders(worktree.top))
@@ -293,34 +337,20 @@ impl Reads {
                 groups: scope.group_names(paths),
             })
             .collect();
-        if needs.iter().all(|n| n.groups.is_empty()) {
-            return Ok(Judgment::NotNeeded);
-        }
         let key = crate::review::default_key(worktree.top).map_err(Fail::text)?;
         let change = Change {
             repo: worktree.repo,
             key: &key,
         };
-        let check = CodeCheck::Branch("HEAD");
-        Ok(
-            match landing::judge(&conn, change, worktree.top, &needs, check, scope)
-                .map_err(Fail::text)?
-            {
-                Verdict::NotNeeded => Judgment::NotNeeded,
-                Verdict::Takes(_) | Verdict::OverCap(_) => Judgment::Takes,
-                Verdict::NoRun => Judgment::NotRun,
-                Verdict::Unfinished(_, unfinished) if !unfinished.unsettled.is_empty() => {
-                    Judgment::ToSettle(unfinished.unsettled.len())
-                }
-                Verdict::Unfinished(_, unfinished) if !unfinished.unanswered.is_empty() => {
-                    Judgment::NotRun
-                }
-                Verdict::Unfinished(_, unfinished) if !unfinished.unreviewed.is_empty() => {
-                    Judgment::Unreviewed(unfinished.unreviewed.len())
-                }
-                Verdict::Unfinished(_, unfinished) => Judgment::Open(unfinished.open.len()),
-            },
+        landing::judge(
+            &conn,
+            change,
+            worktree.top,
+            &needs,
+            CodeCheck::Branch("HEAD"),
+            scope,
         )
+        .map_err(Fail::text)
     }
 }
 

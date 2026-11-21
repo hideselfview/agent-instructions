@@ -165,6 +165,7 @@ fn worktree(top: &std::path::Path, who: &str, state: Option<&str>, ahead: Vec<St
         label: "demo/side-1".into(),
         top: top.to_path_buf(),
         repo: "demo".into(),
+        branch: None,
         claim: Claim {
             who: who.into(),
             since: 1_790_000_000,
