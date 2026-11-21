@@ -22,11 +22,11 @@ pub struct Tool {
     pub now: i64,
     /// The reviewer the commands that check text before they write it ask.
     pub reviewer: Reviewer,
-    /// The builds program `builds design record` and `amend` run as `builds
+    /// This builds program (`crate::this_program`), which `builds install`
+    /// copies, and which `builds design record` and `amend` run as `builds
     /// shots states` to find the component states a design change adds
-    /// (`shots_program::require_states_shown`): this program
-    /// (`crate::this_program`).
-    pub shots: PathBuf,
+    /// (`shots_program::require_states_shown`).
+    pub program: PathBuf,
     /// Sizes measured ahead, for `status`, which reads every folder once.
     measured: HashMap<PathBuf, Measure>,
     /// A question to the daemon took longer than `DAEMON_SLOW` (or got no
@@ -40,15 +40,15 @@ pub struct Tool {
 const DAEMON_SLOW: Duration = Duration::from_secs(3);
 
 impl Tool {
-    /// A tool that runs the builds at <shots> as `builds shots states`.
-    pub fn new(places: Places, rules: Rules, shots: PathBuf) -> Tool {
+    /// A tool whose builds program is <program>.
+    pub fn new(places: Places, rules: Rules, program: PathBuf) -> Tool {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .expect("the clock is after 1970")
             .as_secs() as i64;
         Tool {
             reviewer: Reviewer::installed(&places.home),
-            shots,
+            program,
             places,
             rules,
             now,

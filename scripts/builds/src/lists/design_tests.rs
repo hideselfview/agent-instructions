@@ -382,8 +382,8 @@ fn record_and_amend_refuse_a_change_that_adds_a_component_state_no_preview_row_s
     let board = "design/mocks/A.dc.html";
     let first = w.commit(&[board]);
     let tip = w.commit(&["design/mocks/B.dc.html"]);
-    let shown = w.tool.shots.clone();
-    w.tool.shots = w.scratch.script(
+    let shown = w.tool.program.clone();
+    w.tool.program = w.scratch.script(
         "states-added",
         "echo \"asked: $*\" >&2; echo \"in: $(pwd -P)\" >&2; echo 'MacButton tinted: mac.a' >&2; exit 1",
     );
@@ -405,10 +405,10 @@ fn record_and_amend_refuse_a_change_that_adds_a_component_state_no_preview_row_s
     assert!(refused.contains("add each state as a row"), "{refused}");
     assert_eq!(w.bytes(), before);
 
-    w.tool.shots = shown.clone();
+    w.tool.program = shown.clone();
     w.request(request.clone()).unwrap();
     let recorded = w.bytes();
-    w.tool.shots = w.scratch.dir.join("states-added");
+    w.tool.program = w.scratch.dir.join("states-added");
     let refused = message(w.amend(1, request));
     assert!(refused.contains("MacButton tinted: mac.a"), "{refused}");
     assert_eq!(w.bytes(), recorded);

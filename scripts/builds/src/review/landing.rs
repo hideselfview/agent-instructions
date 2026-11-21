@@ -801,7 +801,7 @@ fn start_audit(asked: &Asked, landing: i64, roll: f64) -> Result<()> {
     )? {
         return Ok(());
     }
-    let program = std::env::current_exe().context(|| "finding this program".to_string())?;
+    let program = crate::this_program()?;
     // The audit keeps running after this command exits, so this command
     // removes BUILDS_USE from the audit's environment, and the audit takes
     // its own use of the stores.

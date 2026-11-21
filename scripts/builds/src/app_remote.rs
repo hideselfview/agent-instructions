@@ -331,7 +331,7 @@ impl RemoteApp {
     /// stopped as a step here is: a `builds remote step` process.
     pub fn step_command(&mut self, command: &[String]) -> Result<Command> {
         let worktree = self.locate()?;
-        let exe = std::env::current_exe().context(|| "finding the builds program".to_string())?;
+        let exe = crate::this_program()?;
         let mut start = Command::new(exe);
         start
             .args(["remote", "step", &self.host.name, &worktree, "--"])

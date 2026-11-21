@@ -171,7 +171,7 @@ const USAGE: &str = "usage: builds land <worktree> [--project P] [--done N]... [
 const ATTEMPTS: usize = 5;
 
 pub fn cmd_land(places: &crate::places::Places, args: &[String]) -> Result<()> {
-    let program = std::env::current_exe().context(|| "finding this program".to_string())?;
+    let program = crate::this_program()?;
     let stores = hold_stores()?;
     let stdout = std::io::stdout();
     land_recorded(places, &program, args, &mut stdout.lock(), stores)

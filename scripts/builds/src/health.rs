@@ -1675,7 +1675,7 @@ pub fn cmd_health(tool: &Tool, args: &[String]) -> Result<()> {
                 let os = crate::host::probe_target(&ssh, target)?.platform.os;
                 // Health runs with no person at a terminal, so a sudo step
                 // that setup still lacks fails and says what to run.
-                crate::host_setup::setup_host(&tool.places, &ssh, host, os, false)
+                crate::host_setup::setup_host(&tool.places, &ssh, host, os, false, &tool.program)
                     .map(|set_up| set_up.speed)
                     .map_err(|fault| fault.text())
             },

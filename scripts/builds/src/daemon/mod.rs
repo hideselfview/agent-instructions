@@ -208,7 +208,7 @@ pub fn cmd_dashboard(tool: &Tool, args: &[String]) -> Result<()> {
     log_to_file(&tool.places.daemon_log())?;
     let tracker = Tracker::start(&root, &tool.places.daemon_dir())
         .context(|| format!("following {}", root.display()))?;
-    let exe = std::env::current_exe().context(|| "finding this program".to_string())?;
+    let exe = crate::this_program()?;
     let runs = Runs::start(
         tool.places.clone(),
         vec![exe.to_string_lossy().into_owned()],

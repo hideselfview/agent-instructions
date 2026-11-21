@@ -29,8 +29,8 @@ pub struct SetUp {
 
 /// Sets <host>, which runs <os>, up to take jobs: on Linux installs what
 /// its builds need first (`host_linux::prepare`, whose sudo steps need a
-/// person at this terminal, <at_terminal>), installs this program there
-/// (`install_on_host`) and records the host's core speed against this Mac's
+/// person at this terminal, <at_terminal>), installs <builds>, this
+/// program, there (`install_on_host`) and records the host's core speed against this Mac's
 /// (`core_speed`) in the hosts file, timing the same compile there with
 /// `builds host speed-here` and here.
 pub fn setup_host(
@@ -39,12 +39,13 @@ pub fn setup_host(
     host: &Host,
     os: Os,
     at_terminal: bool,
+    builds: &Path,
 ) -> Result<SetUp> {
     let mut said = Vec::new();
     if os == Os::Linux {
         said = crate::host_linux::prepare(places, ssh, host, at_terminal)?;
     }
-    let (root, installed) = install_on_host(places, ssh, host, os, &crate::this_program()?)?;
+    let (root, installed) = install_on_host(places, ssh, host, os, builds)?;
     said.push(installed);
     let said = said.join("\n");
     let printed = run_builds_there(places, ssh, host, "host speed-here", "timing a compile")?;
@@ -228,7 +229,7 @@ pub fn cmd_setup(tool: &Tool, ssh: &Ssh, name: &str) -> Result<()> {
         },
     };
     if host.target.is_some() {
-        let set_up = setup_host(&tool.places, ssh, &host, os, at_terminal)?;
+        let set_up = setup_host(&tool.places, ssh, &host, os, at_terminal, &tool.program)?;
         for line in set_up.said.lines() {
             println!("host {name}: {line}");
         }

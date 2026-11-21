@@ -36,12 +36,12 @@ fn cache(places: &Places) -> PathBuf {
 /// the listing at <base> does not hold (`builds shots states --at <tip>
 /// --against <base>`), or when the checker cannot tell.
 pub fn require_states_shown(tool: &Tool, top: &Path, tip: &str, base: &str) -> Result<()> {
-    let ran = Command::new(&tool.shots)
+    let ran = Command::new(&tool.program)
         .args(["shots", "states", "--at", tip, "--against", base])
         .current_dir(top)
         .stdin(std::process::Stdio::null())
         .output()
-        .context(|| format!("running {} shots states", tool.shots.display()))?;
+        .context(|| format!("running {} shots states", tool.program.display()))?;
     if !ran.status.success() {
         fail!(
             "the shots checker refuses the change ({}):\n{}",

@@ -174,14 +174,14 @@ fn put_in(bin: &Path, program: &Path, name: &str) -> Result<()> {
     Ok(())
 }
 
-/// Copies this program to ~/.local/bin. Returns whether it replaced the
-/// binary, which it always does: running from the installed binary fails.
-fn put_on_path(home: &Path) -> Result<bool> {
+/// Copies <builds>, this program, to ~/.local/bin. Returns whether it
+/// replaced the binary, which it always does: running from the installed
+/// binary fails.
+fn put_on_path(home: &Path, builds: &Path) -> Result<bool> {
     let bin = crate::links::bin(home);
     std::fs::create_dir_all(&bin).context(|| format!("creating {}", bin.display()))?;
-    let builds = crate::this_program()?;
-    require_new_build(&builds, &bin.join("builds"))?;
-    put_in(&bin, &builds, "builds")?;
+    require_new_build(builds, &bin.join("builds"))?;
+    put_in(&bin, builds, "builds")?;
     for link in crate::links::LINKS {
         link_to_builds(home, link.name)?;
     }
@@ -501,7 +501,7 @@ pub fn cmd_install(tool: &Tool, args: &[String]) -> Result<()> {
         &tool.places,
         tool.now,
         std::env::var_os(crate::install_gate::VARIABLE),
-        || put_on_path(home),
+        || put_on_path(home, &tool.program),
         &mut |line| note(line),
     )?;
     tool.places.require_volume()?;
@@ -560,11 +560,7 @@ pub fn cmd_install(tool: &Tool, args: &[String]) -> Result<()> {
             error.text()
         )),
     }
-    install_on_hosts(
-        &tool.places,
-        &crate::host::Ssh::from_env(),
-        &crate::this_program()?,
-    )
+    install_on_hosts(&tool.places, &crate::host::Ssh::from_env(), &tool.program)
 }
 
 /// Installs <builds>, this build, on every recorded host
