@@ -33,6 +33,7 @@ mod checkout;
 mod checks;
 mod checks_run;
 mod claim;
+mod claimed_branch;
 mod claude_sessions;
 mod clock;
 #[cfg(target_os = "macos")]
@@ -194,6 +195,9 @@ fn main() -> ExitCode {
         Err(fail) => return exit_code(fail),
     };
     if let Err(fail) = Places::from_env().and_then(|places| ack::gate(&places, command, rest)) {
+        return exit_code(fail);
+    }
+    if let Err(fail) = claimed_branch::gate(command) {
         return exit_code(fail);
     }
     match run(command, rest) {

@@ -81,6 +81,15 @@ branch, not the worktree, is the unit of work.
     idle ones whose work has all landed. An agent works in the worktree its
     brief names, or one it gets from `builds new --for`, never a side-N it
     picked by hand.
+  - A claimed side worktree takes an agent's commands only on the branch of
+    the item running in it. `builds app-build`, `review`, `land`, `cargo`,
+    `checks` and `item` refuse when an agent (`--agent` or BUILDS_AGENT) runs
+    them there on another branch or a detached HEAD, and name the claim's
+    holder and branch. A rebase or cherry-pick in progress passes. An agent
+    that finds this refusal in a worktree it used before has lost that
+    worktree to another agent: it works nothing there and gets its own from
+    `builds new --for`. A claim whose item has not started has no branch, and
+    the commands run.
   - App checkouts keep the app builds built, and agents take turns in them
     through `builds app-build`; every other side worktree builds host Rust
     output only (`builds help`, APP BUILDS). Each repo's app builds have a
