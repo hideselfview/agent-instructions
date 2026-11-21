@@ -24,8 +24,4 @@ impl Raw {
     ) -> Result<Raw, String> {
         Err("FSEvents is macOS's, and this machine runs Linux".to_string())
     }
-
-    pub fn flush(&self) {
-        match *self {}
-    }
 }

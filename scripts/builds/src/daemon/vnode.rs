@@ -6,9 +6,9 @@
 //! made after `Watch::start` returns is always reported, however late the
 //! thread that reads the kqueue runs. FSEvents gives no such bound: on a
 //! loaded machine it delivered a folder's change from 0.1 s to over 30 s
-//! late, and in a test run reported none of a rename for two minutes. The
-//! tracker learns that its root was replaced or came back from this watch
-//! on the root's parent, so it can not wait on FSEvents for that.
+//! late, and in a test run reported none of a rename for two minutes. A
+//! caller that must learn of a folder's change in time uses this watch, not
+//! FSEvents.
 
 use std::ffi::CString;
 use std::io;

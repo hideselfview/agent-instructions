@@ -209,7 +209,8 @@ pub fn send(ssh: &Ssh, host: &Host, name: &str, bytes: &[u8], script: &str) -> R
 /// `builds host setup <name>`: runs `setup_host` on the OS a probe finds
 /// there, and on a Mac then turns on the settings that UI tests need
 /// (`ui_test_settings::set_up`) and turns off Spotlight's indexing of the
-/// build volume (`spotlight::set_up`). A sudo command runs only when a person
+/// build volume (`spotlight::set_up`) and of its file events
+/// (`fsevents_log::set_up`). A sudo command runs only when a person
 /// is at this terminal. For this Mac (`local`), the command only does the
 /// sudo steps, because `builds install` sets up everything else.
 pub fn cmd_setup(tool: &Tool, ssh: &Ssh, name: &str) -> Result<()> {
@@ -242,6 +243,8 @@ pub fn cmd_setup(tool: &Tool, ssh: &Ssh, name: &str) -> Result<()> {
         let said = crate::ui_test_settings::set_up(&tool.places, ssh, &host, at_terminal)?;
         println!("host {name}: {said}");
         let said = crate::spotlight::set_up(&tool.places, ssh, &host, at_terminal)?;
+        println!("host {name}: {said}");
+        let said = crate::fsevents_log::set_up(&tool.places, ssh, &host, at_terminal)?;
         println!("host {name}: {said}");
     }
     Ok(())

@@ -1,6 +1,7 @@
 //! The daemon: `builds dashboard` runs it in the foreground until it is
-//! killed. It follows the build volume (tracker.rs) and every checkout
-//! (model.rs), serves the page (http.rs) on 127.0.0.1, and answers commands'
+//! killed. It follows every checkout (model.rs), reads the sizes that commands
+//! record for the build volume's folders (sizes.rs) and never watches the
+//! volume, serves the page (http.rs) on 127.0.0.1, and answers commands'
 //! questions on <root>/.builds-daemon/socket, one daemon per root.
 //!
 //! A question is one JSON line, a `Question`; the answer one JSON line, a
@@ -19,14 +20,12 @@ pub mod effect;
 pub mod fsevents;
 pub mod hosts;
 pub mod http;
-pub mod index;
 pub mod lists;
 pub mod live;
 pub mod model;
 pub mod review_cards;
 pub mod runs;
 pub mod scratch_view;
-pub mod tracker;
 #[cfg(target_os = "macos")]
 pub mod vnode;
 #[cfg(target_os = "linux")]
@@ -45,18 +44,15 @@ use crate::health::Health;
 use crate::places::DASHBOARD_PORT;
 use crate::text::note;
 use crate::tool::Tool;
-use crate::usage::Measure;
 use model::Model;
 use runs::Runs;
-use tracker::Tracker;
 
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Question {
-    /// Each path's size and newest write. <fresh>: count every write made
-    /// before the question (a deciding command measuring after its own
-    /// deletions), at the cost of waiting for FSEvents to deliver them.
-    Measure { paths: Vec<PathBuf>, fresh: bool },
+    /// A command wrote these build roots: it measured each one's folders and
+    /// recorded the sizes (sizes.rs), or it made or removed the root.
+    Wrote { roots: Vec<PathBuf> },
     /// Health, as the daemon's last reading of the processes judged it.
     Health,
 }
@@ -65,7 +61,7 @@ impl Question {
     /// What the question asks for, for messages naming it.
     fn about(&self) -> &'static str {
         match self {
-            Question::Measure { .. } => "sizes",
+            Question::Wrote { .. } => "what a command wrote",
             Question::Health => "health",
         }
     }
@@ -74,8 +70,8 @@ impl Question {
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Reply {
-    /// Per path, None for one the daemon can't answer for.
-    Measure(Vec<Option<Measure>>),
+    /// The daemon marked what the command wrote to read again.
+    Done,
     Health(Box<Health>),
     Failed(String),
 }
@@ -128,22 +124,15 @@ fn log_to_file(log: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Answers one question. Paths may name the root as the commands' places
-/// do (<given>, which may pass through a link) or resolved.
-fn answer(model: &Model, given: &Path, stream: UnixStream) -> std::io::Result<()> {
+/// Answers one question.
+fn answer(model: &Model, stream: UnixStream) -> std::io::Result<()> {
     let mut reader = BufReader::new(stream.try_clone()?);
     let mut line = String::new();
     reader.read_line(&mut line)?;
     let reply = match serde_json::from_str(&line)? {
-        Question::Measure { paths, fresh } => {
-            let paths: Vec<PathBuf> = paths
-                .into_iter()
-                .map(|path| match path.strip_prefix(given) {
-                    Ok(rest) => model.tracker.root.join(rest),
-                    Err(_) => path,
-                })
-                .collect();
-            Reply::Measure(model.tracker.measure(&paths, fresh))
+        Question::Wrote { roots } => {
+            model.wrote(&roots);
+            Reply::Done
         }
         Question::Health => match model.health_now() {
             Ok(Some(health)) => Reply::Health(Box::new(health)),
@@ -160,7 +149,7 @@ fn answer(model: &Model, given: &Path, stream: UnixStream) -> std::io::Result<()
 pub fn cmd_dashboard(tool: &Tool, args: &[String]) -> Result<()> {
     if !cfg!(target_os = "macos") {
         fail!(
-            "the dashboard follows the build volume through macOS's FSEvents, so it runs only on a Mac"
+            "the dashboard follows the checkouts through macOS's FSEvents, so it runs only on a Mac"
         );
     }
     let mut port = DASHBOARD_PORT;
@@ -186,8 +175,6 @@ pub fn cmd_dashboard(tool: &Tool, args: &[String]) -> Result<()> {
         }
     }
     tool.places.require_volume()?;
-    let root = std::fs::canonicalize(&tool.places.root)
-        .context(|| format!("resolving {}", tool.places.root.display()))?;
     let web = match std::net::TcpListener::bind(("127.0.0.1", port)) {
         Ok(web) => web,
         Err(error) => fail!("dashboard: can't listen on 127.0.0.1:{port}: {error}"),
@@ -206,8 +193,6 @@ pub fn cmd_dashboard(tool: &Tool, args: &[String]) -> Result<()> {
     let names: std::sync::Arc<[String]> = names.into();
     let (socket, _claim) = bind(tool)?;
     log_to_file(&tool.places.daemon_log())?;
-    let tracker = Tracker::start(&root, &tool.places.daemon_dir())
-        .context(|| format!("following {}", root.display()))?;
     let exe = tool.program.clone();
     let runs = Runs::start(
         tool.places.clone(),
@@ -216,19 +201,17 @@ pub fn cmd_dashboard(tool: &Tool, args: &[String]) -> Result<()> {
     crate::prune_schedule::start(tool.places.clone(), exe)?;
     crate::rust_stable::start(tool.places.clone())?;
     crate::host_sample::start(tool.places.clone())?;
-    let model = Model::start(tool.places.clone(), tool.rules.clone(), tracker, runs);
+    let model = Model::start(tool.places.clone(), tool.rules.clone(), runs);
     card_recorder::start(model.clone())?;
     let questions = model.clone();
-    let given = tool.places.root.clone();
     std::thread::Builder::new()
         .name("builds-questions".into())
         .spawn(move || {
             for stream in socket.incoming() {
                 let Ok(stream) = stream else { continue };
                 let model = questions.clone();
-                let given = given.clone();
                 std::thread::spawn(move || {
-                    if let Err(error) = answer(&model, &given, stream) {
+                    if let Err(error) = answer(&model, stream) {
                         note(format!("answering a question: {error}"));
                     }
                 });

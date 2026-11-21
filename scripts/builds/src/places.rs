@@ -41,22 +41,8 @@ pub const MACOS_ENTRIES: [&str; 8] = [
     ".com.apple.timemachine.donotpresent",
 ];
 
-/// Is <name>, an entry at the volume's root, one the daemon doesn't follow?
-/// macOS's own entries, and the trash with its lock and the folders it is
-/// emptied through, which hold only folders being deleted: following it would apply each of their files' deletions, 100k
-/// for one cargo folder, to answer questions nobody asks.
-pub fn unfollowed(name: &str) -> bool {
-    MACOS_ENTRIES.contains(&name) || is_trash_entry(name)
-}
-
 /// The start of a folder the trash is renamed to while it is emptied.
 pub const EMPTYING_PREFIX: &str = ".trash-emptying.";
-
-/// The trash, its lock, and a folder being emptied: entries at the volume's
-/// root that are the tool's own, not a repo's.
-pub fn is_trash_entry(name: &str) -> bool {
-    name == ".trash" || name == ".trash.lock" || name.starts_with(EMPTYING_PREFIX)
-}
 
 /// The record of the build that holds <checkout>'s lock, in the lane's locks
 /// folder <locks_dir>.
@@ -339,8 +325,8 @@ impl Places {
         self.home.join(".claude/sessions")
     }
 
-    /// The daemon's own folder: its socket, and the marks it writes to know
-    /// FSEvents has delivered everything before a question.
+    /// The daemon's own folder: its socket, its log, its run records and the
+    /// sizes that commands record (sizes.rs).
     pub fn daemon_dir(&self) -> PathBuf {
         self.root.join(".builds-daemon")
     }
@@ -352,7 +338,7 @@ impl Places {
     }
 
     /// Where the daemon writes what it would print to a terminal: lost
-    /// events, rescans, slow marks. Appended to across restarts.
+    /// events and refused streams. Appended to across restarts.
     pub fn daemon_log(&self) -> PathBuf {
         self.daemon_dir().join("log")
     }

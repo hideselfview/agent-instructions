@@ -5,17 +5,15 @@ use std::sync::Arc;
 fn model_in(scratch: &Scratch) -> Arc<Model> {
     let tool = scratch.tool(0);
     let places = tool.places.clone();
-    let root = std::fs::canonicalize(&places.root).unwrap();
-    let tracker = Tracker::start(&root, &places.daemon_dir()).unwrap();
     let runs = Runs::start(places.clone(), vec!["/usr/bin/false".to_string()]).unwrap();
-    Model::start(places, tool.rules.clone(), tracker, runs)
+    Model::start(places, tool.rules.clone(), runs)
 }
 
 /// The reply `answer` writes for <question>.
-fn ask(model: &Model, given: &Path, question: &Question) -> Reply {
+fn ask(model: &Model, question: &Question) -> Reply {
     let (client, server) = UnixStream::pair().unwrap();
     writeln!(&client, "{}", serde_json::to_string(question).unwrap()).unwrap();
-    answer(model, given, server).unwrap();
+    answer(model, server).unwrap();
     let mut line = String::new();
     BufReader::new(client).read_line(&mut line).unwrap();
     serde_json::from_str(&line).unwrap()
@@ -33,10 +31,24 @@ fn health_answers_from_the_reading_the_daemon_holds() {
     model.sample_now().unwrap();
     let places = scratch.places();
     std::fs::rename(&places.root, scratch.dir.join("volume-away")).unwrap();
-    match ask(&model, &places.root, &Question::Health) {
+    match ask(&model, &Question::Health) {
         Reply::Health(_) => {}
         Reply::Failed(message) => panic!("answered a failure: {message}"),
-        Reply::Measure(_) => panic!("answered sizes to a health question"),
+        Reply::Done => panic!("answered a note of writes to a health question"),
+    }
+}
+
+/// A command that wrote build roots tells the daemon, which answers at once
+/// and reads those roots again without watching the volume.
+#[test]
+fn a_note_of_what_a_command_wrote_is_answered_with_no_work() {
+    let scratch = Scratch::new("wrote-note");
+    let model = model_in(&scratch);
+    let root = scratch.places().root.join("demo").join("side-1");
+    match ask(&model, &Question::Wrote { roots: vec![root] }) {
+        Reply::Done => {}
+        Reply::Failed(message) => panic!("answered a failure: {message}"),
+        Reply::Health(_) => panic!("answered health to a note of writes"),
     }
 }
 
@@ -91,13 +103,9 @@ fn a_health_answer_holds_a_claim_written_after_the_last_reading() {
             worktree.claim.state().map(str::to_string)
         }
         Reply::Failed(message) => panic!("answered a failure: {message}"),
-        Reply::Measure(_) => panic!("answered sizes to a health question"),
+        Reply::Done => panic!("answered a note of writes to a health question"),
     };
-    let places = scratch.places();
-    assert_eq!(
-        note_state(ask(&model, &places.root, &Question::Health)),
-        None
-    );
+    assert_eq!(note_state(ask(&model, &Question::Health)), None);
     crate::claim::write_claim(
         &checkout,
         "agent A",
@@ -108,7 +116,7 @@ fn a_health_answer_holds_a_claim_written_after_the_last_reading() {
     )
     .unwrap();
     assert_eq!(
-        note_state(ask(&model, &places.root, &Question::Health)),
+        note_state(ask(&model, &Question::Health)),
         Some("held".to_string()),
         "the answer missed the hold written after the last reading"
     );

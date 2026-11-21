@@ -1,5 +1,6 @@
-//! Asking the daemon for sizes. A command never depends on it: with no
-//! daemon, or one that doesn't answer in time, the command measures itself.
+//! Asking the daemon for health and telling it what a command wrote. A
+//! command never depends on it: with no daemon, or one that doesn't answer in
+//! time, the command does its work itself.
 
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
@@ -10,38 +11,24 @@ use super::{Question, Reply, live};
 use crate::health::Health;
 use crate::places::Places;
 use crate::text::note;
-use crate::usage::Measure;
 
-/// How long a command waits for the daemon's answer before measuring
-/// itself: a fresh answer waits for FSEvents to deliver the last writes,
-/// about a second under load, and is still far less than a walk of a build
-/// folder.
-const PATIENCE: Duration = Duration::from_secs(5);
+/// How long a command waits for the daemon to take a note of what it wrote:
+/// the daemon only marks the roots to read again.
+const PATIENCE: Duration = Duration::from_secs(2);
 
-/// The daemon's answer for each of <paths> (None for a path it can't answer
-/// for), or None when no daemon answers. <fresh>: see `Question`.
-pub fn measure(places: &Places, paths: &[PathBuf], fresh: bool) -> Option<Vec<Option<Measure>>> {
+/// Tells the daemon that <roots> were written (their folders' sizes, or the
+/// roots themselves, changed) and their records are current. No daemon, or
+/// one that doesn't answer, is no failure: the dashboard reads the records
+/// when it starts.
+pub fn wrote(places: &Places, roots: &[PathBuf]) {
     match ask(
         places,
-        &Question::Measure {
-            paths: paths.to_vec(),
-            fresh,
+        &Question::Wrote {
+            roots: roots.to_vec(),
         },
-    )? {
-        Reply::Measure(answers) if answers.len() == paths.len() => Some(answers),
-        Reply::Measure(answers) => {
-            note(format!(
-                "the daemon at {} answered {} of {} paths; measuring here",
-                places.daemon_socket().display(),
-                answers.len(),
-                paths.len()
-            ));
-            None
-        }
-        other => {
-            unexpected(places, &other);
-            None
-        }
+    ) {
+        Some(Reply::Done) | None => {}
+        Some(other) => unexpected(places, &other),
     }
 }
 
@@ -59,7 +46,7 @@ pub fn health(places: &Places) -> Option<Health> {
 fn unexpected(places: &Places, reply: &Reply) {
     let what = match reply {
         Reply::Failed(message) => message.clone(),
-        Reply::Measure(_) => "sizes".to_string(),
+        Reply::Done => "done".to_string(),
         Reply::Health(_) => "health".to_string(),
     };
     note(format!(
@@ -112,7 +99,7 @@ fn ask_within(
         }
         Err(error) => {
             return Err(format!(
-                "asking the daemon at {}: {error}; measuring here",
+                "asking the daemon at {}: {error}; doing it here",
                 socket.display()
             ));
         }

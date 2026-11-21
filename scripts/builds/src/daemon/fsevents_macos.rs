@@ -66,7 +66,6 @@ unsafe extern "C" {
     fn FSEventStreamSetDispatchQueue(stream: FSEventStreamRef, queue: DispatchQueue);
     fn FSEventStreamSetExclusionPaths(stream: FSEventStreamRef, paths: CFArrayRef) -> bool;
     fn FSEventStreamStart(stream: FSEventStreamRef) -> bool;
-    fn FSEventStreamFlushSync(stream: FSEventStreamRef);
     fn FSEventStreamStop(stream: FSEventStreamRef);
     fn FSEventStreamInvalidate(stream: FSEventStreamRef);
     fn FSEventStreamRelease(stream: FSEventStreamRef);
@@ -106,7 +105,7 @@ extern "C" fn deliver(
     count: usize,
     paths: *mut c_void,
     flags: *const FSEventStreamEventFlags,
-    ids: *const FSEventStreamEventId,
+    _ids: *const FSEventStreamEventId,
 ) {
     let handler = unsafe { &*(info as *const Handler) };
     let paths = paths as *const *const c_char;
@@ -116,8 +115,7 @@ extern "C" fn deliver(
         let path = PathBuf::from(std::ffi::OsStr::from_bytes(path.to_bytes()));
         let flags = unsafe { *flags.add(i) };
         if flags & self::flags::HISTORY_DONE == 0 {
-            let id = unsafe { *ids.add(i) };
-            events.push(Event { path, flags, id });
+            events.push(Event { path, flags });
         }
     }
     if !events.is_empty() {
@@ -288,10 +286,6 @@ impl Raw {
             queue,
             handler,
         })
-    }
-
-    pub fn flush(&self) {
-        unsafe { FSEventStreamFlushSync(self.stream) };
     }
 }
 

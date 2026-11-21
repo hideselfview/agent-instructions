@@ -34,8 +34,6 @@ pub mod flags {
     pub const EVENT_IDS_WRAPPED: u32 = 0x8;
     /// Marks the end of the replayed history; its path is not a change.
     pub const HISTORY_DONE: u32 = 0x10;
-    pub const ROOT_CHANGED: u32 = 0x20;
-    pub const UNMOUNT: u32 = 0x80;
     /// The item was cloned: a copy on APFS read it, which changed nothing
     /// in it.
     pub const ITEM_CLONED: u32 = 0x40_0000;
@@ -49,9 +47,6 @@ pub mod flags {
 pub struct Event {
     pub path: PathBuf,
     pub flags: u32,
-    /// The stream's id for the event: later events have higher ids, and a
-    /// stream started from an id replays every event after it.
-    pub id: u64,
 }
 
 pub type Handler = Box<dyn Fn(Vec<Event>) + Send + Sync>;
@@ -64,7 +59,6 @@ const BACKOFF_MAX: std::time::Duration = std::time::Duration::from_secs(30);
 #[derive(Default)]
 struct Wanted {
     stop: bool,
-    restart: Option<String>,
 }
 
 struct Shared {
@@ -155,7 +149,6 @@ impl Stream {
                 handler(vec![Event {
                     path: folder.clone(),
                     flags: flags::EVENT_IDS_WRAPPED,
-                    id: 0,
                 }]);
             }
         };
@@ -165,33 +158,11 @@ impl Stream {
             .expect("a thread");
         Stream { shared }
     }
-
-    /// Hands the handler, now, the events the stream holds back for its
-    /// latency. Events still on their way from the kernel come after.
-    pub fn flush(&self) {
-        if let Some(raw) = self
-            .shared
-            .current
-            .lock()
-            .expect("no panic holding it")
-            .as_ref()
-        {
-            raw.flush();
-        }
-    }
-
-    /// Makes the stream again, because the owner found it delivering nothing
-    /// it should have (<why> goes to the log).
-    pub fn restart(&self, why: &str) {
-        let mut wanted = self.shared.wanted.lock().expect("no panic holding it");
-        wanted.restart = Some(why.to_string());
-        self.shared.wake.notify_all();
-    }
 }
 
 /// Keeps <shared>'s stream open until it is dropped: opens it when there is
 /// none (waiting longer after each refusal), and makes it again when
-/// fseventsd is found restarted or the owner asks. <opened>: the first stream
+/// fseventsd is found restarted. <opened>: the first stream
 /// is already open. <open> opens a stream from an event id; <wrapped> tells
 /// the handler every followed folder needs reading again.
 fn supervise(
@@ -237,30 +208,27 @@ fn supervise(
                 }
             }
         }
-        let why = {
+        {
             let wanted = shared.wanted.lock().expect("no panic holding it");
-            let (mut wanted, _) = shared
+            let (wanted, _) = shared
                 .wake
-                .wait_timeout_while(wanted, WATCH, |w| !w.stop && w.restart.is_none())
+                .wait_timeout_while(wanted, WATCH, |w| !w.stop)
                 .expect("no panic holding it");
             if wanted.stop {
                 *shared.current.lock().expect("no panic holding it") = None;
                 return;
             }
-            wanted.restart.take()
-        };
+        }
         let current = system::current_event_id();
-        let why = why.or_else(|| {
-            if current == 0 {
-                Some("fseventsd does not answer".to_string())
-            } else if current < seen_id {
-                Some(format!(
-                    "fseventsd's event id went back from {seen_id} to {current}: it restarted"
-                ))
-            } else {
-                None
-            }
-        });
+        let why = if current == 0 {
+            Some("fseventsd does not answer".to_string())
+        } else if current < seen_id {
+            Some(format!(
+                "fseventsd's event id went back from {seen_id} to {current}: it restarted"
+            ))
+        } else {
+            None
+        };
         match why {
             Some(why) => {
                 eprintln!(
@@ -377,46 +345,6 @@ mod tests {
     }
 
     #[test]
-    fn a_stream_made_again_reports_every_followed_folder_as_needing_a_read() {
-        let scratch = crate::testing::Scratch::new("fsevents-restart");
-        let root = scratch.dir.clone();
-        let (told, heard) = mpsc::channel();
-        let stream = Stream::start(
-            &[root.as_path()],
-            &[],
-            0.0,
-            Box::new(move |events| {
-                let _ = told.send(events);
-            }),
-        );
-        stream.restart("a test asked");
-        loop {
-            let events = heard
-                .recv_timeout(HANG_GUARD)
-                .expect("no report after the stream was made again");
-            if events
-                .iter()
-                .any(|e| e.path == root && e.flags & flags::EVENT_IDS_WRAPPED != 0)
-            {
-                break;
-            }
-        }
-        // The new stream follows: a write after it is reported.
-        std::fs::write(root.join("after"), b"x").expect("a write");
-        loop {
-            let events = heard
-                .recv_timeout(HANG_GUARD)
-                .expect("the stream made again reports nothing");
-            if events
-                .iter()
-                .any(|e| e.flags & flags::EVENT_IDS_WRAPPED == 0)
-            {
-                return;
-            }
-        }
-    }
-
-    #[test]
     fn a_stream_the_system_refuses_is_kept_and_stops_when_dropped() {
         let scratch = crate::testing::Scratch::new("fsevents-refused");
         let root = scratch.dir.clone();
@@ -424,7 +352,6 @@ mod tests {
         let excluded: Vec<PathBuf> = (0..9).map(|n| root.join(format!("x{n}"))).collect();
         let refs: Vec<&Path> = excluded.iter().map(PathBuf::as_path).collect();
         let stream = Stream::start(&[root.as_path()], &refs, 0.0, Box::new(|_| {}));
-        stream.restart("a test asked");
         drop(stream);
     }
 }

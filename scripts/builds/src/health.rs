@@ -101,6 +101,8 @@ pub enum FindingKind {
     Waits,
     /// A process whose caller is gone (orphans.rs).
     Orphan,
+    /// The build volume's file events are recorded (fsevents_log.rs).
+    EventLog,
     /// A repo's cached shots runs that branches waiting to land need take
     /// more than the cache's cap (shots_cache.rs).
     ShotsCache,
@@ -1838,6 +1840,10 @@ pub fn cmd_health(tool: &Tool, args: &[String]) -> Result<()> {
             .map(|advice| Finding::new(FindingKind::Prune, advice)),
     );
     health.findings.extend(shots_cache_findings(tool));
+    health.findings.extend(
+        crate::fsevents_log::finding(&tool.places)
+            .map(|advice| Finding::new(FindingKind::EventLog, advice)),
+    );
     let loaded = crate::lists::store::load_all(&tool.places);
     let ready = crate::host_load::ready_items(&loaded);
     let probed: Vec<_> = hosts.iter().cloned().zip(probes).collect();

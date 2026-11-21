@@ -1,6 +1,5 @@
 use super::*;
 use crate::daemon::runs::{Phase, RunPage, Runs};
-use crate::daemon::tracker::Tracker;
 use crate::testing::Scratch;
 use std::net::TcpListener;
 
@@ -35,8 +34,6 @@ fn server_with(name: &str, prepare: impl FnOnce(&Scratch, &crate::places::Places
     prepare(&scratch, &places);
     std::fs::create_dir_all(places.root.join("demo")).unwrap();
     std::fs::write(places.root.join("demo/app-checkouts"), "side-1\n").unwrap();
-    let root = std::fs::canonicalize(&places.root).unwrap();
-    let tracker = Tracker::start(&root, &places.daemon_dir()).unwrap();
     let gate = scratch.dir.join("gate");
     let program = vec![
         "/bin/sh".to_string(),
@@ -45,7 +42,7 @@ fn server_with(name: &str, prepare: impl FnOnce(&Scratch, &crate::places::Places
         gate.to_string_lossy().into_owned(),
     ];
     let runs = Runs::start(places.clone(), program).unwrap();
-    let model = Model::start(places, tool.rules.clone(), tracker, runs);
+    let model = Model::start(places, tool.rules.clone(), runs);
     let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
     let port = listener.local_addr().unwrap().port();
     let serving = model.clone();

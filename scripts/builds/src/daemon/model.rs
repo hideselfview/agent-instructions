@@ -5,7 +5,7 @@
 //! moves `version`, which the page's streams wait on.
 
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
@@ -19,7 +19,6 @@ use super::cards::{CardState, ItemWait, KeptCard, ReviewWait, RunningItem};
 use super::fsevents::{Stream, flags};
 use super::lists::{Feed, compose, running_worktrees};
 use super::runs::{RunPage, Runs};
-use super::tracker::Tracker;
 use crate::checkout::{Checkout, Root, absolute_link_target, all_roots, parallel_map};
 use crate::claim::Claim;
 use crate::health::{
@@ -149,7 +148,6 @@ enum BranchReading {
 pub struct Model {
     pub places: Places,
     rules: Rules,
-    pub tracker: Arc<Tracker>,
     state: Mutex<State>,
     changed: Condvar,
     dirty: Mutex<Dirty>,
@@ -194,16 +192,10 @@ pub(super) fn now_seconds() -> i64 {
 }
 
 impl Model {
-    pub fn start(
-        places: Places,
-        rules: Rules,
-        tracker: Arc<Tracker>,
-        runs: Arc<Runs>,
-    ) -> Arc<Model> {
+    pub fn start(places: Places, rules: Rules, runs: Arc<Runs>) -> Arc<Model> {
         let model = Arc::new(Model {
             places: places.clone(),
             rules,
-            tracker: tracker.clone(),
             state: Mutex::new(State::default()),
             changed: Condvar::new(),
             dirty: Mutex::new(Dirty {
@@ -224,12 +216,6 @@ impl Model {
             runs,
             served: Mutex::new(None),
         });
-        let weak = Arc::downgrade(&model);
-        tracker.listen(Box::new(move |paths| {
-            if let Some(model) = weak.upgrade() {
-                model.volume_changed(paths);
-            }
-        }));
         let weak = Arc::downgrade(&model);
         model.lists.listen(Box::new(move || {
             if let Some(model) = weak.upgrade() {
@@ -267,37 +253,25 @@ impl Model {
         self.wake.notify_all();
     }
 
-    /// The tracker handled writes under <paths>.
-    fn volume_changed(&self, paths: &[PathBuf]) {
-        let volume = &self.tracker.root;
+    /// A command wrote <roots>, the build roots whose folders it measured
+    /// (sizes.rs), or made or removed. A root the daemon does not list, or
+    /// that no longer has its marker, changes the layout; the sizes of each
+    /// are read again.
+    pub fn wrote(&self, roots: &[PathBuf]) {
+        let known: HashSet<PathBuf> = self
+            .state
+            .lock()
+            .expect("no panic holding it")
+            .roots
+            .iter()
+            .map(|root| root.path.clone())
+            .collect();
         self.mark(|dirty| {
-            for path in paths {
-                let Ok(rest) = path.strip_prefix(volume) else {
-                    continue;
-                };
-                let parts: Vec<String> = rest
-                    .components()
-                    .filter_map(|c| match c {
-                        Component::Normal(part) => Some(part.to_string_lossy().into_owned()),
-                        _ => None,
-                    })
-                    .collect();
-                if parts.is_empty() {
-                    // A whole walk: everything may have changed.
-                    dirty.layout = true;
-                    continue;
-                }
-                if parts.len() <= 2
-                    || parts.get(2).is_some_and(|p| p == ".checkout")
-                    || parts.get(1).is_some_and(|p| crate::lane::is_lane_file(p))
-                {
+            for root in roots {
+                if known.contains(root) != root.join(".checkout").is_file() {
                     dirty.layout = true;
                 }
-                if parts.len() >= 2 {
-                    dirty
-                        .sizes
-                        .insert(self.places.root.join(&parts[0]).join(&parts[1]));
-                }
+                dirty.sizes.insert(root.clone());
             }
         });
     }
@@ -598,7 +572,8 @@ impl Model {
                 .loose
                 .insert(main, reading);
         }
-        // Sizes, from the tracker's index: no disk is walked.
+        // Sizes, from the records the commands that wrote the folders left
+        // (sizes.rs); only a folder with no record is walked, once.
         for root in roots.iter().filter(|r| dirty.sizes.contains(&r.path)) {
             let manifest = self
                 .state
@@ -610,19 +585,18 @@ impl Model {
             let (folders, gone_kib) = match (&root.live, manifest) {
                 (Some(checkout), Some(manifest)) => {
                     let lane = root.app_lane(&self.places)?;
-                    let paths: Vec<PathBuf> =
-                        manifest.iter().map(|e| root.path.join(&e.path)).collect();
-                    let answers = self.tracker.measure(&paths, false);
+                    let keys: Vec<String> = manifest.iter().map(|e| e.path.clone()).collect();
+                    let answers = crate::sizes::known(&self.places, root, &keys)?;
                     let folders = manifest
                         .iter()
-                        .zip(paths.iter().zip(answers))
-                        .map(|(entry, (folder, answer))| {
+                        .zip(answers)
+                        .map(|(entry, answer)| {
                             folder_facts(
                                 entry,
                                 entry.is_app_in(lane),
-                                folder,
+                                &root.path.join(&entry.path),
                                 &checkout.top.join(&entry.path),
-                                answer,
+                                Some(answer),
                             )
                         })
                         .collect();
@@ -630,11 +604,9 @@ impl Model {
                 }
                 (Some(_), None) => continue,
                 (None, _) => {
-                    let answer = self
-                        .tracker
-                        .measure(std::slice::from_ref(&root.path), false)
-                        .remove(0);
-                    (Vec::new(), answer.map(|m| m.kib))
+                    let answer =
+                        crate::sizes::known(&self.places, root, &[String::new()])?.remove(0);
+                    (Vec::new(), Some(answer.kib))
                 }
             };
             let mut state = self.state.lock().expect("no panic holding it");
@@ -685,7 +657,11 @@ impl Model {
             }
             // Pacing: the processes are read at a rate, not on an event. A
             // page that starts watching ends the wait.
-            let pace = if self.viewers.load(Ordering::SeqCst) > 0 {
+            let watched = self.viewers.load(Ordering::SeqCst) > 0;
+            if watched {
+                self.runs.watched();
+            }
+            let pace = if watched {
                 SAMPLE_EVERY
             } else {
                 IDLE_SAMPLE_EVERY
@@ -1407,7 +1383,6 @@ impl Model {
     /// The whole state, as the page reads it.
     pub fn page(&self) -> crate::fail::Result<Page> {
         let space = volume_space(&self.places.root)?;
-        let (entries, memory) = self.tracker.size();
         let (_, snapshot) = self.lists.current();
         let state = self.state.lock().expect("no panic holding it");
         let machine = state.sample.as_ref().map(|sample| &sample.machine);
@@ -1592,10 +1567,6 @@ impl Model {
                 cores: m.cores,
                 history: state.load.iter().copied().collect(),
             }),
-            daemon: DaemonPage {
-                entries,
-                memory_bytes: memory as u64,
-            },
             health: state.health.clone().map(|mut health| {
                 health.findings.extend(state.host_findings.iter().cloned());
                 health
@@ -2079,7 +2050,6 @@ pub struct Page {
     pub root: String,
     pub volume: VolumePage,
     pub load: Option<LoadPage>,
-    pub daemon: DaemonPage,
     /// The last health reading, with the hosts' findings after its own: the
     /// list `builds health` prints under "needs action".
     pub health: Option<Health>,
@@ -2101,12 +2071,6 @@ pub struct LoadPage {
     pub cores: usize,
     /// (seconds since 1970, 1-minute load) for the last ten minutes.
     pub history: Vec<(i64, f64)>,
-}
-
-#[derive(Serialize)]
-pub struct DaemonPage {
-    pub entries: usize,
-    pub memory_bytes: u64,
 }
 
 #[derive(Serialize)]

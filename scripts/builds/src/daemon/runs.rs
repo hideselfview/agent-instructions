@@ -15,7 +15,9 @@
 //! when they took any. The
 //! child writes the log itself, not through the daemon, so a daemon that goes
 //! away neither breaks the build's output nor stops it: the build runs on and
-//! installs its app.
+//! installs its app. The volume has no file events, so while a page watches
+//! and a run has not ended, the page reads the log again at each reading of
+//! the processes (`Runs::watched`).
 //!
 //! A daemon that starts finds the record of a run it did not see end. What
 //! the record says then is read from the process, never written: the build is
@@ -35,7 +37,6 @@ use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
 
-use super::fsevents::Stream;
 use super::model::now_seconds;
 use crate::fail::{Context, Result};
 use crate::lane::Lane;
@@ -147,7 +148,6 @@ pub struct Runs {
     program: Vec<String>,
     state: Mutex<HashMap<RunKey, Run>>,
     listener: Mutex<Option<Box<dyn Fn() + Send + Sync>>>,
-    stream: Mutex<Option<Stream>>,
 }
 
 /// Is <pid> a running `builds <command>`? A process alive under that pid
@@ -226,13 +226,11 @@ fn plain_name(repo: &str) -> bool {
 }
 
 impl Runs {
-    /// Reads the records left by earlier daemons and follows the folder the
-    /// logs grow in. <program> is what runs `build-app` (this binary).
+    /// Reads the records left by earlier daemons. <program> is what runs
+    /// `build-app` (this binary).
     pub fn start(places: Places, program: Vec<String>) -> Result<Arc<Runs>> {
         let dir = places.daemon_dir().join("runs");
         std::fs::create_dir_all(&dir).context(|| format!("creating {}", dir.display()))?;
-        // Taken before the records are read: a write after it is reported.
-        let since = Stream::current_event_id();
         let mut state = HashMap::new();
         for entry in std::fs::read_dir(&dir).context(|| format!("listing {}", dir.display()))? {
             let path = entry
@@ -259,27 +257,28 @@ impl Runs {
             program,
             state: Mutex::new(state),
             listener: Mutex::new(None),
-            stream: Mutex::new(None),
         });
-        let weak = Arc::downgrade(&runs);
-        let started = Stream::start_since(
-            since,
-            &[dir.as_path()],
-            &[],
-            0.2,
-            Box::new(move |_| {
-                if let Some(runs) = weak.upgrade() {
-                    runs.notify();
-                }
-            }),
-        );
-        *runs.stream.lock().expect("no panic holding it") = Some(started);
         Ok(runs)
     }
 
     /// Calls <listener> when a run starts, prints or ends.
     pub fn listen(&self, listener: Box<dyn Fn() + Send + Sync>) {
         *self.listener.lock().expect("no panic holding it") = Some(listener);
+    }
+
+    /// A page watches: each run that has not ended may have printed since the
+    /// last time, so the listener hears of it. The build volume has no file
+    /// events to say so (the log is on it).
+    pub fn watched(&self) {
+        let busy = self
+            .state
+            .lock()
+            .expect("no panic holding it")
+            .values()
+            .any(Run::busy);
+        if busy {
+            self.notify();
+        }
     }
 
     fn notify(&self) {

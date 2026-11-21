@@ -3,16 +3,11 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::Duration;
 
 use crate::checkout::{Root, all_roots};
-use crate::clock::Moment;
-use crate::daemon::client;
 use crate::fail::Result;
 use crate::places::{DiskSpace, Places, Rules};
 use crate::review::Reviewer;
-use crate::text::note;
 use crate::usage::{Measure, measure_many};
 
 pub struct Tool {
@@ -29,15 +24,7 @@ pub struct Tool {
     pub program: PathBuf,
     /// Sizes measured ahead, for `status`, which reads every folder once.
     measured: HashMap<PathBuf, Measure>,
-    /// A question to the daemon took longer than `DAEMON_SLOW` (or got no
-    /// answer): the rest of the command measures here instead of waiting that
-    /// long again for each question.
-    daemon_slow: AtomicBool,
 }
-
-/// The longest one question to the daemon may take before the command stops
-/// asking it. Measuring a few folders here takes about as long.
-const DAEMON_SLOW: Duration = Duration::from_secs(3);
 
 impl Tool {
     /// A tool whose builds program is <program>.
@@ -53,19 +40,17 @@ impl Tool {
             rules,
             now,
             measured: HashMap::new(),
-            daemon_slow: AtomicBool::new(false),
         }
     }
 
     /// <path>'s size and newest write, counting every write made before
-    /// the call: measured ahead, else the daemon's answer, else measured now.
+    /// the call: measured ahead, else measured now.
     pub fn measure(&self, path: &Path) -> Result<Measure> {
         Ok(self.measure_all(&[path.to_path_buf()])?.remove(0))
     }
 
     /// Each of <paths>' size and newest write, counting every write made
-    /// before the call: measured ahead, else the daemon's answers, asked
-    /// together, else measured now, several at a time. Deciding commands
+    /// before the call: measured ahead, else measured now, several at a time. Deciding commands
     /// never measure ahead, so a size after their own deletions is fresh.
     pub fn measure_all(&self, paths: &[PathBuf]) -> Result<Vec<Measure>> {
         let wanted: Vec<PathBuf> = paths
@@ -73,7 +58,7 @@ impl Tool {
             .filter(|p| !self.measured.contains_key(*p))
             .cloned()
             .collect();
-        let learned = self.learn(&wanted, true)?;
+        let learned = self.learn(&wanted)?;
         Ok(paths
             .iter()
             .map(|path| match self.measured.get(path) {
@@ -83,52 +68,33 @@ impl Tool {
             .collect())
     }
 
-    /// <paths>' sizes from the daemon (<fresh>: see `Question`), the rest
-    /// measured here.
-    fn learn(&self, paths: &[PathBuf], fresh: bool) -> Result<Vec<Measure>> {
+    /// <paths>' sizes measured now.
+    fn learn(&self, paths: &[PathBuf]) -> Result<Vec<Measure>> {
         if paths.is_empty() {
             return Ok(Vec::new());
         }
-        let started = Moment::now();
-        let asked = if self.daemon_slow.load(Ordering::Relaxed) {
-            None
-        } else {
-            client::measure(&self.places, paths, fresh)
-        };
-        if !self.daemon_slow.load(Ordering::Relaxed) {
-            if started.elapsed() >= DAEMON_SLOW {
-                note(format!(
-                    "the daemon took {:.1}s over a question about {} paths; measuring the rest here",
-                    started.elapsed().as_secs_f64(),
-                    paths.len()
-                ));
-            }
-            if asked.is_none() || started.elapsed() >= DAEMON_SLOW {
-                self.daemon_slow.store(true, Ordering::Relaxed);
-            }
-        }
-        let answers = asked.unwrap_or_else(|| paths.iter().map(|_| None).collect());
-        let unanswered: Vec<PathBuf> = paths
-            .iter()
-            .zip(&answers)
-            .filter(|(_, a)| a.is_none())
-            .map(|(p, _)| p.clone())
-            .collect();
-        let mut measured = measure_many(&unanswered)?.into_iter();
-        Ok(answers
-            .into_iter()
-            .map(|answer| {
-                answer.unwrap_or_else(|| measured.next().expect("one measure per unanswered path"))
-            })
-            .collect())
+        measure_many(paths)
     }
 
     /// Learns every one of <paths> now, for `measure` to answer from: the
-    /// daemon's answers without waiting for the last second's writes (status
-    /// shows them; nothing decides on them), the rest measured.
+    /// sizes the last command that wrote each folder recorded (sizes.rs;
+    /// status shows them, nothing decides on them), the rest measured.
     pub fn measure_ahead(&mut self, paths: Vec<PathBuf>) -> Result<()> {
-        let learned = self.learn(&paths, false)?;
-        self.measured.extend(paths.into_iter().zip(learned));
+        let recorded = crate::sizes::recorded(&self.places, &paths);
+        let unrecorded: Vec<PathBuf> = paths
+            .iter()
+            .zip(&recorded)
+            .filter(|(_, size)| size.is_none())
+            .map(|(path, _)| path.clone())
+            .collect();
+        let mut measured = self.learn(&unrecorded)?.into_iter();
+        for (path, size) in paths.into_iter().zip(recorded) {
+            let size = match size {
+                Some(size) => size,
+                None => measured.next().expect("one measure per unrecorded path"),
+            };
+            self.measured.insert(path, size);
+        }
         Ok(())
     }
 

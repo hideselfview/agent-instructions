@@ -262,7 +262,6 @@ fn a_batch_that_only_says_a_copy_read_files_changes_nothing() {
     let event = |flags| Event {
         path: PathBuf::from("/wt/design/system/"),
         flags,
-        id: 1,
     };
     let cloned = flags::ITEM_CLONED;
     let modified = 0x1000;

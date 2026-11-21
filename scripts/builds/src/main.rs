@@ -61,6 +61,7 @@ mod fail;
 mod flock;
 mod floor;
 mod free_worktrees;
+mod fsevents_log;
 mod glob;
 mod handed_runs;
 mod health;
@@ -138,6 +139,7 @@ mod shots_cache;
 mod shots_in_use;
 mod shots_program;
 mod side_git;
+mod sizes;
 mod sleeps;
 mod spotlight;
 mod sql_shape;
@@ -211,7 +213,13 @@ fn main() -> ExitCode {
     if let Err(fail) = claimed_branch::gate(command, nested) {
         return exit_code(fail);
     }
-    match run(command, rest) {
+    let result = run(command, rest);
+    // The command's folders are measured whether it succeeded or not: a
+    // failed build left what it wrote.
+    if let Ok(places) = Places::from_env() {
+        sizes::record_after(&places, command, rest);
+    }
+    match result {
         Ok(()) => ExitCode::SUCCESS,
         Err(fail) => exit_code(fail),
     }
