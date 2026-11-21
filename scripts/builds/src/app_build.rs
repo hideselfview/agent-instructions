@@ -849,6 +849,11 @@ const CACHED_SHOTS: &str = "--cached-shots";
 /// runs take every shot again and replace the pictures in the picture folder.
 const FRESH: &str = "--fresh";
 
+/// What a lane's process is given first when it runs the merge base of a
+/// build, to cache the run that build compares with: its shots runs take no
+/// shot for a prefix that starts no declared shot (`builds shots run --base`).
+const BASE_RUN: &str = "--base-run";
+
 /// The lanes of <lanes> that build nothing for <picks>: each lane whose picks
 /// are all shots, which no path <changed> names in an `on` line of the lane,
 /// and whose every shots prefix the picture folder of <repo> caches for the
@@ -923,6 +928,9 @@ struct ShotsCache {
     /// The run has `--fresh`: its shots runs take every selected shot again
     /// and replace the folder's pictures (`builds shots run --retake`).
     retake: bool,
+    /// The lane runs the merge base of a build (`BASE_RUN`): its shots runs
+    /// pass `--base`.
+    base_run: bool,
 }
 
 impl ShotsCache {
@@ -944,6 +952,7 @@ impl ShotsCache {
         picks: &[Pick],
         cached_shots: bool,
         retake: bool,
+        base_run: bool,
     ) -> Result<ShotsCache> {
         let version = crate::shots_program::VERSION.to_string();
         let mut befores = Vec::new();
@@ -975,6 +984,7 @@ impl ShotsCache {
             app_tree: crate::app_tree::of(source, commit, config, lane)?,
             no_capture: cached_shots,
             retake,
+            base_run,
         })
     }
 
@@ -1016,6 +1026,9 @@ impl ShotsCache {
         }
         if self.retake {
             command.push("--retake".to_string());
+        }
+        if self.base_run {
+            command.push("--base".to_string());
         }
         command
     }
@@ -1321,6 +1334,8 @@ struct LaneRequest<'a> {
     cached_shots: bool,
     /// The run has `--fresh` (`FRESH`).
     fresh: bool,
+    /// The lane runs the merge base of a build (`BASE_RUN`).
+    base_run: bool,
 }
 
 fn build_lane(
@@ -1339,6 +1354,7 @@ fn build_lane(
         picks,
         cached_shots,
         fresh,
+        base_run,
     } = request;
     note(format!(
         "waiting for {repo}'s {} app lock, then building {commit}",
@@ -1438,6 +1454,7 @@ fn build_lane(
             picks,
             cached_shots,
             fresh,
+            base_run,
         )?;
         let with = |results| StepsWith {
             results,
@@ -1612,7 +1629,7 @@ pub fn ensure_before_runs(
     ));
     let config = config_at(places, repo, &base)?;
     let lanes = crate::derive::plan(&config, &[], &wanted);
-    let built = run_lanes(pinned, repo, &base, &lanes, &wanted, &[], false);
+    let built = run_lanes(pinned, repo, &base, &lanes, &wanted, &[], false, true);
     if PASSED_ON.load(Ordering::SeqCst) != 0 {
         return built;
     }
@@ -1736,6 +1753,7 @@ pub fn pin(places: &Places) -> Result<Pinned> {
 /// Runs the lanes in <lanes> at the same time, each as a process of its own
 /// from the folder <pinned>; fails, naming the lanes, if any does. A stop signal goes on to each lane,
 /// and the command, once they have ended, fails saying it stopped.
+#[allow(clippy::too_many_arguments)]
 pub fn run_lanes(
     pinned: &Pinned,
     repo: &str,
@@ -1744,6 +1762,7 @@ pub fn run_lanes(
     picks: &[Pick],
     cached: &[Lane],
     fresh: bool,
+    base_run: bool,
 ) -> Result<()> {
     unsafe {
         for signal in lock::STOP_SIGNALS {
@@ -1757,6 +1776,7 @@ pub fn run_lanes(
             .args(["app-build", repo, "--lane", lane.word(), commit])
             .args(cached.contains(lane).then_some(CACHED_SHOTS))
             .args(fresh.then_some(FRESH))
+            .args(base_run.then_some(BASE_RUN))
             .args(names)
             .args(
                 picks
@@ -1953,6 +1973,7 @@ pub fn cmd_app_build(tool: &Tool, args: &[String]) -> Result<()> {
     {
         let (cached_shots, names) = strip_leading(names, CACHED_SHOTS);
         let (fresh, names) = strip_leading(names, FRESH);
+        let (base_run, names) = strip_leading(names, BASE_RUN);
         let (names, picks) = split_picks(names)?;
         let lane = Lane::parse_or_fail(word)?;
         // A lane that its build started runs from the build's folder, which
@@ -1967,6 +1988,7 @@ pub fn cmd_app_build(tool: &Tool, args: &[String]) -> Result<()> {
             picks: &picks,
             cached_shots,
             fresh,
+            base_run,
         };
         return match run_lane(tool, repo, lane, request, &pinned) {
             Err(Fail::Exit(code)) => {
@@ -2031,7 +2053,7 @@ pub fn cmd_app_build(tool: &Tool, args: &[String]) -> Result<()> {
     if lanes.is_empty() {
         fail!("{CONFIG} names no step");
     }
-    run_lanes(&pinned, repo, commit, &lanes, &picks, &[], fresh)
+    run_lanes(&pinned, repo, commit, &lanes, &picks, &[], fresh, false)
 }
 
 /// Whether <names> start with the flag <flag>, and <names> without it.

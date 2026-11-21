@@ -937,7 +937,26 @@ fn a_store(places: &Places) -> ShotsCache {
         app_tree: "0123456789abcdef".to_string(),
         no_capture: false,
         retake: false,
+        base_run: false,
     }
+}
+
+#[test]
+fn only_the_run_of_a_merge_base_passes_base_to_the_shots_program() {
+    let scratch = crate::testing::Scratch::new("app-build-base-flag");
+    let step = fake("shots-mac", &["builds", "shots", "run"], None);
+    let mut store = any_store(&scratch);
+    assert!(
+        !store
+            .command(&step, None, "pictures")
+            .contains(&"--base".to_string())
+    );
+    store.base_run = true;
+    assert!(
+        store
+            .command(&step, None, "pictures")
+            .contains(&"--base".to_string())
+    );
 }
 
 /// The key of a run of <prefix> on the Mac lane of repo `demo` at <commit>,
@@ -1175,6 +1194,7 @@ fn a_lanes_shots_runs_compare_with_the_cached_run_of_the_merge_base_and_a_run_of
             commit,
             &config,
             &a_screens(),
+            false,
             false,
             false,
         )

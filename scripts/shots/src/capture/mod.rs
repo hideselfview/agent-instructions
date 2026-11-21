@@ -55,14 +55,18 @@ pub(crate) enum CaptureError {
 }
 
 /// The declared shots of `platform` a run takes: all of them when no prefix is
-/// given, else those a prefix of that platform starts.
+/// given, else those a prefix of that platform starts. A prefix that starts no
+/// declared shot fails the run, except in the run of a merge base (<base>),
+/// where the branch may add the shots the prefix names: there it selects
+/// none, and the run has no pairs.
 pub(crate) fn selected(
     declared: &[Name],
     platform: Platform,
     prefixes: &[Prefix],
+    base: bool,
 ) -> Result<Vec<Name>, CaptureError> {
     for prefix in prefixes {
-        if !declared.iter().any(|name| prefix.matches(name)) {
+        if !base && !declared.iter().any(|name| prefix.matches(name)) {
             return Err(CaptureError::UnknownPrefix(prefix.as_str().to_string()));
         }
     }
@@ -72,7 +76,7 @@ pub(crate) fn selected(
         .filter(|name| prefixes.is_empty() || prefixes.iter().any(|p| p.matches(name)))
         .cloned()
         .collect();
-    if selected.is_empty() {
+    if selected.is_empty() && !base {
         return Err(CaptureError::NothingSelected(platform));
     }
     Ok(selected)
@@ -113,9 +117,10 @@ pub(crate) fn taken(
     platform: Platform,
     prefixes: &[Prefix],
     windows: bool,
+    base: bool,
 ) -> Result<Taken, CaptureError> {
     let all: Vec<Name> = declared.iter().map(|d| d.name.clone()).collect();
-    let (names, not_taken) = selected(&all, platform, prefixes)?
+    let (names, not_taken) = selected(&all, platform, prefixes, base)?
         .into_iter()
         .partition(|name| windows || !declared.iter().any(|d| &d.name == name && d.needs_window));
     Ok(Taken {
@@ -165,6 +170,7 @@ pub(crate) struct Target<'a> {
 /// `board-sizes.json` in `target.out` (the module's doc). Returns the shots taken, those the
 /// harness wrote no usable shot of (a failed shot does not fail the capture
 /// itself) and those left out.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn capture(
     root: &Path,
     command: &[String],
@@ -172,10 +178,11 @@ pub(crate) fn capture(
     platform: Platform,
     prefixes: &[Prefix],
     windows: bool,
+    base: bool,
     target: &Target,
 ) -> Result<Taken, CaptureError> {
     let Target { out, measure } = *target;
-    let taken = taken(declared, platform, prefixes, windows)?;
+    let taken = taken(declared, platform, prefixes, windows, base)?;
     for name in &taken.not_taken {
         crate::log::note(format_args!("{name}: {NEEDS_WINDOW}"));
     }

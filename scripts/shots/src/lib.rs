@@ -156,6 +156,12 @@ struct Selection {
     /// front and take the focus.
     #[arg(long)]
     windows: bool,
+    /// This is the run of the branch's merge base: a --select prefix that
+    /// starts no declared shot selects none, because the branch adds those
+    /// shots, and the run has no pairs for them. Without it, such a prefix
+    /// fails the run.
+    #[arg(long)]
+    base: bool,
 }
 
 fn parse_platform(text: &str) -> Result<Platform, String> {
@@ -207,8 +213,14 @@ fn capture(
             retake,
         }) = kept
         {
-            let taken = capture::taken(declared, platform, &selection.prefixes, selection.windows)
-                .map_err(|e| e.to_string())?;
+            let taken = capture::taken(
+                declared,
+                platform,
+                &selection.prefixes,
+                selection.windows,
+                selection.base,
+            )
+            .map_err(|e| e.to_string())?;
             capture::clear(&out, platform).map_err(|e| e.to_string())?;
             if !retake && pictures.take_shots(platform, tree, &taken.names, &out)? {
                 crate::log::note(format_args!(
@@ -246,6 +258,7 @@ fn capture(
             platform,
             &selection.prefixes,
             selection.windows,
+            selection.base,
             &capture::Target {
                 out: &out,
                 measure: &|names| board_sizes::measure(root, checker, settings, names),

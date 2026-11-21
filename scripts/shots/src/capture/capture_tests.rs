@@ -11,28 +11,49 @@ fn prefix(text: &str) -> Prefix {
 #[test]
 fn no_prefix_selects_every_shot_of_the_platform() {
     let declared = names(&["mac.welcome.a", "mac.settings.b", "android.welcome.a"]);
-    let chosen = selected(&declared, Platform::Mac, &[]).unwrap();
+    let chosen = selected(&declared, Platform::Mac, &[], false).unwrap();
     assert_eq!(chosen, names(&["mac.welcome.a", "mac.settings.b"]));
 }
 
 #[test]
 fn a_prefix_selects_the_shots_it_starts() {
     let declared = names(&["mac.welcome.a", "mac.settings.b", "android.welcome.a"]);
-    let chosen = selected(&declared, Platform::Mac, &[prefix("mac.welcome.")]).unwrap();
+    let chosen = selected(&declared, Platform::Mac, &[prefix("mac.welcome.")], false).unwrap();
     assert_eq!(chosen, names(&["mac.welcome.a"]));
 }
 
 #[test]
 fn a_prefix_that_starts_no_declared_shot_fails() {
     let declared = names(&["mac.welcome.a"]);
-    let error = selected(&declared, Platform::Mac, &[prefix("mac.welcom.")]).unwrap_err();
+    let error = selected(&declared, Platform::Mac, &[prefix("mac.welcom.")], false).unwrap_err();
     assert!(matches!(error, CaptureError::UnknownPrefix(p) if p == "mac.welcom."));
+}
+
+#[test]
+fn the_run_of_a_merge_base_takes_no_shot_for_a_prefix_that_starts_none() {
+    let declared = names(&["mac.welcome.a"]);
+    let none = selected(&declared, Platform::Mac, &[prefix("mac.stepper.")], true).unwrap();
+    assert!(none.is_empty());
+    let some = selected(
+        &declared,
+        Platform::Mac,
+        &[prefix("mac.stepper."), prefix("mac.welcome.")],
+        true,
+    )
+    .unwrap();
+    assert_eq!(some, names(&["mac.welcome.a"]));
 }
 
 #[test]
 fn a_platform_with_no_selected_shot_fails() {
     let declared = names(&["mac.welcome.a", "android.welcome.a"]);
-    let error = selected(&declared, Platform::Android, &[prefix("mac.welcome.")]).unwrap_err();
+    let error = selected(
+        &declared,
+        Platform::Android,
+        &[prefix("mac.welcome.")],
+        false,
+    )
+    .unwrap_err();
     assert!(matches!(
         error,
         CaptureError::NothingSelected(Platform::Android)
@@ -187,10 +208,10 @@ fn declared(texts: &[(&str, bool)]) -> Vec<Declared> {
 #[test]
 fn a_window_shot_is_not_taken_without_windows_and_taken_with_them() {
     let all = declared(&[("mac.welcome.a", false), ("mac.settings.toolbar", true)]);
-    let without = taken(&all, Platform::Mac, &[], false).unwrap();
+    let without = taken(&all, Platform::Mac, &[], false, false).unwrap();
     assert_eq!(without.names, names(&["mac.welcome.a"]));
     assert_eq!(without.not_taken, names(&["mac.settings.toolbar"]));
-    let with = taken(&all, Platform::Mac, &[], true).unwrap();
+    let with = taken(&all, Platform::Mac, &[], true, false).unwrap();
     assert_eq!(
         with.names,
         names(&["mac.welcome.a", "mac.settings.toolbar"])
@@ -201,7 +222,14 @@ fn a_window_shot_is_not_taken_without_windows_and_taken_with_them() {
 #[test]
 fn a_selection_of_only_window_shots_is_all_not_taken_without_windows() {
     let all = declared(&[("mac.welcome.a", false), ("mac.settings.toolbar", true)]);
-    let chosen = taken(&all, Platform::Mac, &[prefix("mac.settings.")], false).unwrap();
+    let chosen = taken(
+        &all,
+        Platform::Mac,
+        &[prefix("mac.settings.")],
+        false,
+        false,
+    )
+    .unwrap();
     assert!(chosen.names.is_empty());
     assert_eq!(chosen.not_taken, names(&["mac.settings.toolbar"]));
 }
@@ -211,7 +239,7 @@ fn the_completeness_check_passes_without_a_window_shot_when_it_was_not_taken() {
     let out = tempfile::tempdir().unwrap();
     write_shot(out.path(), "mac.welcome.a");
     let all = declared(&[("mac.welcome.a", false), ("mac.settings.toolbar", true)]);
-    let chosen = taken(&all, Platform::Mac, &[], false).unwrap();
+    let chosen = taken(&all, Platform::Mac, &[], false, false).unwrap();
     let declared: Vec<Name> = all.iter().map(|d| d.name.clone()).collect();
     check_complete(out.path(), Platform::Mac, &chosen.names, &declared).unwrap();
 }
@@ -221,7 +249,7 @@ fn the_completeness_check_reports_a_window_shot_missing_when_windows_were_given(
     let out = tempfile::tempdir().unwrap();
     write_shot(out.path(), "mac.welcome.a");
     let all = declared(&[("mac.welcome.a", false), ("mac.settings.toolbar", true)]);
-    let chosen = taken(&all, Platform::Mac, &[], true).unwrap();
+    let chosen = taken(&all, Platform::Mac, &[], true, false).unwrap();
     let declared: Vec<Name> = all.iter().map(|d| d.name.clone()).collect();
     let CaptureError::Incomplete(problems) =
         check_complete(out.path(), Platform::Mac, &chosen.names, &declared).unwrap_err()
@@ -267,6 +295,7 @@ fn a_capture_runs_the_apps_command_with_the_variables_and_checks_what_it_wrote()
         Platform::Mac,
         &[prefix("mac.welcome.")],
         false,
+        false,
         &Target {
             out: out.path(),
             measure: &|_| Ok(BTreeMap::new()),
@@ -307,6 +336,7 @@ fn a_capture_command_that_fails_before_any_shot_fails_the_capture() {
             Platform::Android,
             &[],
             true,
+            false,
             &Target {
                 out: out.path(),
                 measure: &|_| Ok(BTreeMap::new()),
@@ -352,6 +382,7 @@ fn the_board_sizes_file_is_written_whole_before_the_command_starts() {
         Platform::Mac,
         &[],
         false,
+        false,
         &Target {
             out: out.path(),
             measure: &|taken| {
@@ -379,6 +410,7 @@ fn a_run_that_cannot_measure_the_boards_does_not_start_the_command() {
         &declared(&[("mac.checkbox.default", false)]),
         Platform::Mac,
         &[],
+        false,
         false,
         &Target {
             out: out.path(),
@@ -414,6 +446,7 @@ fn one_failed_scene_among_several_leaves_the_others_taken_and_names_it() {
         &shots,
         Platform::Mac,
         &[],
+        false,
         false,
         &Target {
             out: out.path(),
