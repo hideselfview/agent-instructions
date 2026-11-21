@@ -372,6 +372,46 @@ fn record_stores_each_changed_place_with_no_app_work() {
     assert_eq!(design.places[b], None);
 }
 
+/// Record and amend run builds-shots on the change's commits against the
+/// parent of its first, in its worktree, and refuse the change, writing
+/// nothing, when builds-shots lists a component state that no preview row
+/// shows.
+#[test]
+fn record_and_amend_refuse_a_change_that_adds_a_component_state_no_preview_row_shows() {
+    let mut w = world("design-record-states");
+    let board = "design/mocks/A.dc.html";
+    let first = w.commit(&[board]);
+    let tip = w.commit(&["design/mocks/B.dc.html"]);
+    let shown = w.tool.shots.clone();
+    w.tool.shots = w.scratch.shots_stand_in(
+        "states-added",
+        "echo \"asked: $*\" >&2; echo \"in: $(pwd -P)\" >&2; echo 'MacButton tinted: mac.a' >&2; exit 1",
+    );
+    let before = w.bytes();
+    let request = base_request(&w, json!({ board: null, "design/mocks/B.dc.html": null }));
+    let refused = message(w.request(request.clone()));
+    assert!(
+        refused.contains(&format!("asked: states --at {tip} --against {first}^")),
+        "{refused}"
+    );
+    let top = std::fs::canonicalize(&w.dir).unwrap();
+    assert!(
+        refused.contains(&format!("in: {}", top.display())),
+        "{refused}"
+    );
+    assert!(refused.contains("MacButton tinted: mac.a"), "{refused}");
+    assert!(refused.contains("add each state as a row"), "{refused}");
+    assert_eq!(w.bytes(), before);
+
+    w.tool.shots = shown.clone();
+    w.request(request.clone()).unwrap();
+    let recorded = w.bytes();
+    w.tool.shots = w.scratch.dir.join("states-added");
+    let refused = message(w.amend(1, request));
+    assert!(refused.contains("MacButton tinted: mac.a"), "{refused}");
+    assert_eq!(w.bytes(), recorded);
+}
+
 /// Landing needs each place to name its app work: the design session gives
 /// it after the person approves, and giving it keeps the approval.
 #[test]

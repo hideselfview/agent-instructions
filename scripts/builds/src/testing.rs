@@ -104,7 +104,24 @@ impl Scratch {
             },
         );
         tool.reviewer = self.no_rulings_reviewer();
+        tool.shots = self.shots_stand_in("states-shown", "exit 0");
         tool
+    }
+
+    /// A builds-shots stand-in named <name> in the scratch folder: a shell
+    /// script whose body is <body>, whatever it is asked. The program is
+    /// written to another name and moved into place, so no test runs it
+    /// while it is still open for writing.
+    pub fn shots_stand_in(&self, name: &str, body: &str) -> PathBuf {
+        use std::os::unix::fs::PermissionsExt;
+        let program = self.dir.join(name);
+        let writing = self.dir.join(format!("{name}.writing"));
+        std::fs::write(&writing, format!("#!/bin/sh\n{body}\n"))
+            .expect("the scratch folder is writable");
+        std::fs::set_permissions(&writing, std::fs::Permissions::from_mode(0o755))
+            .expect("the scratch folder is writable");
+        std::fs::rename(&writing, &program).expect("the scratch folder is writable");
+        program
     }
 
     /// A reviewer stand-in that answers every rulings check with no claim,

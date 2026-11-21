@@ -659,6 +659,14 @@ sent again.
       the dashboard lists the change under Design changes in review, and
       `builds design show N` says what the review lacks. builds stores none
       of this: it reads the review's records and the branch each time.
+      Record and amend refuse a change, and write nothing, when its boards draw
+      a component state that no row of the component's preview shows, unless
+      the boards before its first commit already drew that state with no row
+      (decision #391), or when builds-shots cannot tell: they run `builds shots
+      states --at` the range's last commit `--against` the parent of its first
+      commit in the change's worktree, and print what it lists. Add each state
+      it lists as a row of the component's preview in the same change, so that
+      the component's own shot covers it.
       Record stores every design place the range changes (a board, a
       component folder, a spec section) with no app work, and `places` is
       optional: no app work item exists for a change before the person

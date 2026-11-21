@@ -22,6 +22,11 @@ pub struct Tool {
     pub now: i64,
     /// The reviewer the commands that check text before they write it ask.
     pub reviewer: Reviewer,
+    /// The builds-shots program `builds design record` and `amend` run to
+    /// find the component states a design change adds
+    /// (`shots_program::require_states_shown`): the one `builds install`
+    /// copies beside builds into ~/.local/bin, found on PATH.
+    pub shots: PathBuf,
     /// Sizes measured ahead, for `status`, which reads every folder once.
     measured: HashMap<PathBuf, Measure>,
     /// A question to the daemon took longer than `DAEMON_SLOW` (or got no
@@ -42,6 +47,7 @@ impl Tool {
             .as_secs() as i64;
         Tool {
             reviewer: Reviewer::installed(&places.home),
+            shots: PathBuf::from(crate::shots_program::PROGRAM),
             places,
             rules,
             now,

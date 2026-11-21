@@ -94,6 +94,8 @@ struct Scope {
     globs: Globs,
     /// The last of the commits: what the checkout's files are looked up in.
     tip: String,
+    /// The parent of the first of the commits: what they change.
+    base: String,
     changes: Changes,
 }
 
@@ -121,17 +123,23 @@ fn open_store(tool: &Tool, args: &Args, checkout: &Checkout) -> Result<(Store, L
     Ok((store, lists))
 }
 
+/// The scope of <shas>, at least one commit, oldest first.
 fn scope(tool: &Tool, args: &Args, checkout: Checkout, shas: Vec<String>) -> Result<Scope> {
+    let (Some(first), Some(tip)) = (shas.first(), shas.last()) else {
+        fail!("{USAGE}")
+    };
+    let base = format!("{first}^");
+    let tip = tip.clone();
     let (store, lists) = open_store(tool, args, &checkout)?;
     let globs = Globs::of(&lists, &checkout.repo());
     let changes = design_paths::changes_of(&checkout.top, &globs, &shas)?;
-    let tip = shas.last().cloned().unwrap_or_default();
     Ok(Scope {
         checkout,
         store,
         lists,
         globs,
         tip,
+        base,
         changes,
     })
 }
@@ -316,6 +324,20 @@ fn require_drafts(tool: &Tool, scope: &Scope, request: &DesignRequest) -> Result
     )
 }
 
+/// Refuses a change whose boards draw a component state that no preview row
+/// shows, unless its base already drew that state with no row (decision
+/// #391): the change adds each as a row of its component's preview, so that
+/// the component's own shot covers it.
+fn require_states_shown(tool: &Tool, scope: &Scope) -> Result<()> {
+    crate::shots_program::require_states_shown(tool, &scope.checkout.top, &scope.tip, &scope.base)
+        .map_err(|error| {
+            crate::fail::Fail::Message(format!(
+                "the change draws a component state that no preview row shows, or builds-shots cannot tell; add each state as a row of its component's preview in the change:\n{}",
+                error.text()
+            ))
+        })
+}
+
 /// Where a recorded or amended change stands with the person's review.
 enum Review {
     /// A fix that changes no design, which builds approves when it records
@@ -390,6 +412,7 @@ fn record(
     let cited = require_drafts(tool, &scope, &request)?;
     require_review_boards(&scope, &request)?;
     let affected = affected_components(&scope, &request)?;
+    require_states_shown(tool, &scope)?;
     let stamp = Stamp::resolve(tool.now, &args, cwd)?;
     let repo = scope.checkout.repo();
     let worktree = scope.checkout.top.display().to_string();
@@ -477,6 +500,7 @@ fn amend(
     let cited = require_drafts(tool, &scope, &request)?;
     require_review_boards(&scope, &request)?;
     let affected = affected_components(&scope, &request)?;
+    require_states_shown(tool, &scope)?;
     let stamp = Stamp::resolve(tool.now, &args, cwd)?;
     let repo = scope.checkout.repo();
     let worktree = scope.checkout.top.display().to_string();

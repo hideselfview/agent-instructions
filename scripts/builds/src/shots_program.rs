@@ -13,6 +13,7 @@ use std::process::Command;
 use crate::fail;
 use crate::fail::{Context, Result};
 use crate::places::Places;
+use crate::tool::Tool;
 
 /// The program's name, beside `builds` in the folder install.sh builds into
 /// and in ~/.local/bin.
@@ -33,6 +34,29 @@ pub fn beside(builds: &Path) -> PathBuf {
 /// The cache folder builds gives the program.
 fn cache(places: &Places) -> PathBuf {
     places.caches().join(PROGRAM)
+}
+
+/// Fails, with what builds-shots printed, when the boards at <tip> of the
+/// repo at <top> draw a component state that no preview row shows and that
+/// the listing at <base> does not hold (`builds-shots states --at <tip>
+/// --against <base>`), or when builds-shots cannot tell.
+pub fn require_states_shown(tool: &Tool, top: &Path, tip: &str, base: &str) -> Result<()> {
+    tool.places.require_volume()?;
+    let ran = Command::new(&tool.shots)
+        .args(["states", "--at", tip, "--against", base])
+        .current_dir(top)
+        .env("BUILDS_SHOTS_CACHE", cache(&tool.places))
+        .stdin(std::process::Stdio::null())
+        .output()
+        .context(|| format!("running {}", tool.shots.display()))?;
+    if !ran.status.success() {
+        fail!(
+            "builds-shots refuses the change ({}):\n{}",
+            ran.status,
+            String::from_utf8_lossy(&ran.stderr).trim_end()
+        );
+    }
+    Ok(())
 }
 
 pub fn cmd_shots(places: &Places, args: &[String]) -> Result<()> {
