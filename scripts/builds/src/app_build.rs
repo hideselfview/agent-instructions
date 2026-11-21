@@ -1951,10 +1951,8 @@ pub fn cmd_app_build(tool: &Tool, args: &[String]) -> Result<()> {
         && flag == "--lane"
         && !commit.starts_with('-')
     {
-        let cached_shots = names.first().is_some_and(|arg| arg == CACHED_SHOTS);
-        let names = if cached_shots { &names[1..] } else { names };
-        let fresh = names.first().is_some_and(|arg| arg == FRESH);
-        let names = if fresh { &names[1..] } else { names };
+        let (cached_shots, names) = strip_leading(names, CACHED_SHOTS);
+        let (fresh, names) = strip_leading(names, FRESH);
         let (names, picks) = split_picks(names)?;
         let lane = Lane::parse_or_fail(word)?;
         // A lane that its build started runs from the build's folder, which
@@ -2034,6 +2032,14 @@ pub fn cmd_app_build(tool: &Tool, args: &[String]) -> Result<()> {
         fail!("{CONFIG} names no step");
     }
     run_lanes(&pinned, repo, commit, &lanes, &picks, &[], fresh)
+}
+
+/// Whether <names> start with the flag <flag>, and <names> without it.
+fn strip_leading<'a>(names: &'a [String], flag: &str) -> (bool, &'a [String]) {
+    match names.split_first() {
+        Some((first, rest)) if first == flag => (true, rest),
+        _ => (false, names),
+    }
 }
 
 #[cfg(test)]
