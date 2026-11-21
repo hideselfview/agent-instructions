@@ -96,13 +96,19 @@ fn branches_left(top: &Path, since: i64) -> Result<Vec<String>> {
 pub fn holders(checkout: &Checkout, items: &[String]) -> Result<Vec<String>> {
     let top = &checkout.top;
     let own = checkout.branch()?;
-    let here = std::fs::canonicalize(top).unwrap_or_else(|_| top.clone());
-    let elsewhere = crate::checkout::worktree_list(top)?
-        .into_iter()
-        .filter(|listed| std::fs::canonicalize(&listed.top).unwrap_or(listed.top.clone()) != here)
-        .filter_map(|listed| listed.branch);
+    let canonical = |path: &Path| {
+        std::fs::canonicalize(path)
+            .map_err(|error| fail::Fail::Message(format!("resolving {}: {error}", path.display())))
+    };
+    let here = canonical(top)?;
+    let mut elsewhere = Vec::new();
+    for listed in crate::checkout::worktree_list(top)? {
+        if canonical(&listed.top)? != here {
+            elsewhere.extend(listed.branch);
+        }
+    }
     let mut holders: Vec<String> = Vec::new();
-    for name in elsewhere.chain(items.iter().cloned()) {
+    for name in elsewhere.into_iter().chain(items.iter().cloned()) {
         if Some(&name) != own.as_ref()
             && !holders.contains(&name)
             && crate::checkout::branch_exists(top, &name)?
@@ -115,9 +121,12 @@ pub fn holders(checkout: &Checkout, items: &[String]) -> Result<Vec<String>> {
 
 /// The branches open items of <every> run or keep in the repo of
 /// <checkout>.
-pub fn item_branches(every: &[crate::lists::Lists], checkout: &Checkout) -> Vec<String> {
+pub fn item_branches<'a>(
+    every: impl Iterator<Item = &'a crate::lists::Lists>,
+    checkout: &Checkout,
+) -> Vec<String> {
     let repo = checkout.repo();
-    named_branches(every.iter())
+    named_branches(every)
         .into_iter()
         .filter(|(named_repo, _)| *named_repo == repo)
         .map(|(_, branch)| branch)

@@ -172,6 +172,7 @@ pub fn stop_orphans(
 /// released.
 pub fn release_idle_claims(tool: &Tool) -> Result<Vec<String>> {
     let every = crate::lists::store::every_lists(&tool.places)?;
+    let loaded = crate::lists::store::load_all(&tool.places);
     let commits = crate::procs::git_commits(&crate::procs::Processes::read()?);
     let mut lines = Vec::new();
     for root in tool.roots()? {
@@ -192,14 +193,19 @@ pub fn release_idle_claims(tool: &Tool) -> Result<Vec<String>> {
             &claim,
             checkout.branch()?,
             &crate::side_git::read(&checkout.top),
-            &commits,
+            &crate::lists::held::Readings {
+                commits: &commits,
+                loaded: &loaded,
+            },
         )?;
         let nothing_runs = crate::lists::running::running_in_any(&every, &top).is_empty();
         if worktree.claim_is_idle(nothing_runs)
             && let Some(claim) = crate::claim::forget(checkout)?
         {
-            let holders: std::collections::BTreeSet<String> =
-                worktree.copied.values().cloned().collect();
+            let holders: std::collections::BTreeSet<String> = worktree.git.as_ref().map_or_else(
+                |_| Default::default(),
+                |read| read.copied.values().cloned().collect(),
+            );
             lines.push(format!(
                 "released {top}, which nothing held (was {}){}",
                 claim.text(),

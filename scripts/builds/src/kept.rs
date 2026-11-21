@@ -91,7 +91,7 @@ pub fn read(
         })
         .collect();
     let unheld = if keeping.is_empty() {
-        let held = crate::unlanded::item_branches(every, checkout);
+        let held = crate::unlanded::item_branches(every.iter(), checkout);
         crate::unlanded::in_worktree(checkout, window_start(checkout)?, &held, commits)?
     } else {
         Held::default()

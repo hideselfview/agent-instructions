@@ -144,21 +144,23 @@ pub fn record_hold(
 }
 
 /// The commits of <read>'s `ahead` that a branch another worktree checks
-/// out, or an open item holds, has a copy of: each full hash with that
-/// branch. A store that fails its check names no branch, so the commits it
-/// would have covered count as work (`builds health` names such a store).
+/// out, or an open item of <loaded> holds, has a copy of: each full hash with
+/// that branch. A store that fails its check names no branch, so the commits
+/// it would have covered count as work (`builds health` names such a store).
 fn copies_of(
-    places: &Places,
+    loaded: &std::result::Result<Vec<Loaded>, String>,
     checkout: &Checkout,
     read: &SideRead,
 ) -> Result<std::collections::BTreeMap<String, String>> {
-    let every: Vec<Lists> = crate::lists::store::load_all(places)
-        .map_err(fail::Fail::Message)?
-        .into_iter()
-        .filter_map(|loaded| loaded.lists.ok())
-        .collect();
-    let holders =
-        crate::unlanded::holders(checkout, &crate::unlanded::item_branches(&every, checkout))?;
+    let items = crate::unlanded::item_branches(
+        loaded
+            .as_deref()
+            .unwrap_or_default()
+            .iter()
+            .filter_map(|project| project.lists.as_ref().ok()),
+        checkout,
+    );
+    let holders = crate::unlanded::holders(checkout, &items)?;
     let split = crate::side_git::split_held(&checkout.top, "HEAD", read.ahead.clone(), &holders)
         .map_err(fail::Fail::Message)?;
     Ok(split
@@ -166,6 +168,17 @@ fn copies_of(
         .into_iter()
         .map(|(commit, holder)| (commit.full, holder))
         .collect())
+}
+
+/// What git said of a worktree that it read: the read itself, and the
+/// commits among its `ahead` that another branch holds a copy of
+/// (`unlanded::in_worktree` judges release by the same copies).
+#[derive(Debug, Clone)]
+pub struct Read {
+    pub side: SideRead,
+    /// Each such commit's full hash, with the branch that holds it. Such a
+    /// commit is no work the worktree keeps.
+    pub copied: std::collections::BTreeMap<String, String>,
 }
 
 /// A claimed worktree as `builds health` read it.
@@ -183,21 +196,26 @@ pub struct Worktree {
     /// Is it one of the repo's recorded app checkouts?
     pub app_checkout: bool,
     /// What git said of it, or what git said when it could not read it.
-    pub git: std::result::Result<SideRead, String>,
+    pub git: std::result::Result<Read, String>,
     /// The pids of the `git commit`s that run in it, or why builds cannot
     /// tell.
     pub committing: std::result::Result<Vec<i32>, String>,
-    /// The commits among `git`'s `ahead` that another branch holds a copy of
-    /// (`unlanded::in_worktree` judges release by the same copies), each
-    /// full hash with the branch that holds it. Such a commit is no work the
-    /// worktree keeps.
-    pub copied: std::collections::BTreeMap<String, String>,
+}
+
+/// What health read of the machine and the lists before it reads the
+/// claimed worktrees.
+pub struct Readings<'a> {
+    /// The `git commit`s that run.
+    pub commits: &'a crate::procs::GitCommits,
+    /// Every project's lists, or why builds cannot read them.
+    pub loaded: &'a std::result::Result<Vec<Loaded>, String>,
 }
 
 impl Worktree {
     /// The claimed worktree <checkout>, labelled <label>, with its <claim>,
     /// what git says of it (<git>) and the `git commit`s that run
-    /// (<commits>).
+    /// (<read>'s commits). <read>'s lists hold the open items whose branches
+    /// hold copies of its commits.
     pub fn read(
         places: &Places,
         label: String,
@@ -205,11 +223,18 @@ impl Worktree {
         claim: &Claim,
         branch: Option<String>,
         git: &std::result::Result<SideRead, String>,
-        commits: &crate::procs::GitCommits,
+        read: &Readings,
     ) -> Result<Worktree> {
-        let copied = match git {
-            Ok(read) if !read.ahead.is_empty() => copies_of(places, checkout, read)?,
-            _ => Default::default(),
+        let git = match git {
+            Ok(side) => Ok(Read {
+                copied: if side.ahead.is_empty() {
+                    Default::default()
+                } else {
+                    copies_of(read.loaded, checkout, side)?
+                },
+                side: side.clone(),
+            }),
+            Err(error) => Err(error.clone()),
         };
         Ok(Worktree {
             label,
@@ -221,9 +246,8 @@ impl Worktree {
             app_checkout: places
                 .app_lane_of(&checkout.repo(), &checkout.name())?
                 .is_some(),
-            git: git.clone(),
-            committing: crate::procs::commits_in(commits, &checkout.top),
-            copied,
+            git,
+            committing: crate::procs::commits_in(read.commits, &checkout.top),
         })
     }
 
@@ -238,7 +262,12 @@ impl Worktree {
             && !self.claim.is_held()
             && !self.claim.is_starting()
             && self.git.as_ref().is_ok_and(|git| {
-                git.uncommitted == 0 && git.ahead.iter().all(|c| self.copied.contains_key(&c.full))
+                git.side.uncommitted == 0
+                    && git
+                        .side
+                        .ahead
+                        .iter()
+                        .all(|c| git.copied.contains_key(&c.full))
             })
             && self.committing.as_ref().is_ok_and(|pids| pids.is_empty())
             && nothing_runs
@@ -257,7 +286,7 @@ impl Worktree {
         if self.app_checkout || self.claim.is_held() {
             return None;
         }
-        let git = self.git.as_ref().ok()?;
+        let git = &self.git.as_ref().ok()?.side;
         if git.ahead.is_empty() {
             return None;
         }
@@ -302,7 +331,7 @@ pub fn awaiting_approval(
             };
             // `findings` names a worktree whose commits or design files
             // health can't read.
-            let Ok(git) = &worktree.git else {
+            let Ok(Read { side: git, .. }) = &worktree.git else {
                 return false;
             };
             let Ok(commits) = reads.of(lists, &worktree.repo, &worktree.top, git) else {
@@ -388,7 +417,7 @@ pub fn findings(
             }
         };
         let git = match &worktree.git {
-            Ok(git) => git,
+            Ok(read) => &read.side,
             Err(error) => {
                 found.push(Advice::said(format!(
                     "lists: could not read the commits of {}, so health can't tell whether a design change covers them: {error}",

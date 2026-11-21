@@ -173,8 +173,15 @@ fn worktree(top: &std::path::Path, who: &str, state: Option<&str>, ahead: Vec<St
         },
         project: None,
         app_checkout: false,
-        git: Ok(side_read(&ahead)),
+        git: Ok(read_of(side_read(&ahead))),
         committing: Ok(Vec::new()),
+    }
+}
+
+/// <side> with no commit copied on another branch.
+fn read_of(side: SideRead) -> crate::lists::held::Read {
+    crate::lists::held::Read {
+        side,
         copied: Default::default(),
     }
 }
@@ -539,9 +546,9 @@ fn health_names_a_claimed_worktree_whose_items_closed_and_has_nothing_to_land() 
         Some("builds release /w/bae-worktrees/side-1")
     );
     let mut waiting = bae_worktree(None);
-    waiting.git = Ok(side_read(&["abc".into()]));
+    waiting.git = Ok(read_of(side_read(&["abc".into()])));
     let mut editing = bae_worktree(None);
-    editing.git.as_mut().unwrap().uncommitted = 1;
+    editing.git.as_mut().unwrap().side.uncommitted = 1;
     let mut committing = bae_worktree(None);
     committing.committing = Ok(vec![4242]);
     let mut unknown = bae_worktree(None);
@@ -632,7 +639,7 @@ fn a_claim_is_idle_only_when_nothing_holds_the_worktree() {
     assert!(!worktree(top, "a", Some("starting"), Vec::new()).claim_is_idle(true));
     assert!(!worktree(top, "a", None, vec!["abc".into()]).claim_is_idle(true));
     let mut dirty = worktree(top, "a", None, Vec::new());
-    dirty.git.as_mut().unwrap().uncommitted = 2;
+    dirty.git.as_mut().unwrap().side.uncommitted = 2;
     assert!(!dirty.claim_is_idle(true));
     let mut committing = worktree(top, "a", None, Vec::new());
     committing.committing = Ok(vec![7]);

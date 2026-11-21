@@ -1238,7 +1238,10 @@ pub fn health(tool: &Tool) -> Result<Health> {
             &claim,
             branch.clone(),
             &git,
-            &machine.commits,
+            &crate::lists::held::Readings {
+                commits: &machine.commits,
+                loaded: &loaded,
+            },
         )?);
         judged.push(Claimed {
             place,
