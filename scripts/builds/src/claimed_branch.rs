@@ -31,7 +31,7 @@ const GUARDED: [&str; 6] = ["app-build", "review", "land", "cargo", "checks", "i
 /// that `builds land` runs inside the landing, after it detached HEAD itself,
 /// inherits the mark and passes. The caller reads it before `ack::gate` sets it.
 pub fn gate(command: &str, nested: bool) -> Result<()> {
-    if !applies(command, nested) || Caller::from_env()?.is_none() {
+    if !applies(command, nested) {
         return Ok(());
     }
     require_claimed_branch(&crate::lists::args::current_dir()?)
@@ -55,6 +55,11 @@ fn require_claimed_branch(dir: &Path) -> Result<()> {
     let Some(claim) = Claim::read(&checkout.claim_file())? else {
         return Ok(());
     };
+    // Only a side worktree's claim needs to know who runs the command, so a
+    // commit hook in a main checkout runs with a session and no agent id.
+    if Caller::from_env()?.is_none() {
+        return Ok(());
+    }
     let places = Places::from_env()?;
     let every = crate::lists::store::every_lists(&places)?;
     let path = checkout.top.display().to_string();
