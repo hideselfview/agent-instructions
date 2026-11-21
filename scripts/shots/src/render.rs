@@ -4,6 +4,7 @@ pub(crate) mod board;
 pub(crate) mod chrome;
 #[cfg(test)]
 mod fixture;
+pub(crate) mod instances;
 pub(crate) mod preview;
 pub(crate) mod read;
 pub(crate) mod runtime;
@@ -34,30 +35,31 @@ pub(crate) fn boards(
         return Ok(());
     }
     std::fs::create_dir_all(out).map_err(|e| format!("cannot prepare {}: {e}", out.display()))?;
+    with_browser(tree, cache, async |server, chrome| {
+        draw_with(tree.root, settings, previews, names, out, server, chrome).await
+    })
+}
+
+/// Runs <work> on a runtime of its own with <tree> served and the pinned
+/// Chrome, kept in the program's cache folder <cache>, started.
+pub(crate) fn with_browser<T>(
+    tree: Tree<'_>,
+    cache: &Path,
+    work: impl AsyncFnOnce(&serve::Server, &chrome::Chrome) -> Result<T, String>,
+) -> Result<T, String> {
     tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
         .map_err(|e| e.to_string())?
-        .block_on(draw(tree, settings, previews, cache, names, out))
-}
-
-async fn draw(
-    tree: Tree<'_>,
-    settings: &Settings,
-    previews: &names::Previews,
-    cache: &Path,
-    names: &[Name],
-    out: &Path,
-) -> Result<(), String> {
-    serve::with_server(tree, async |server| {
-        chrome::with_chrome(cache, async |chrome| {
-            draw_with(tree.root, settings, previews, names, out, server, chrome).await
+        .block_on(async {
+            serve::with_server(tree, async |server| {
+                chrome::with_chrome(cache, async |chrome| work(server, chrome).await)
+                    .await
+                    .map_err(|e| e.to_string())?
+            })
+            .await
+            .map_err(|e| e.to_string())?
         })
-        .await
-        .map_err(|e| e.to_string())?
-    })
-    .await
-    .map_err(|e| e.to_string())?
 }
 
 /// One board drawn: its picture, size and elements.
@@ -79,27 +81,17 @@ async fn draw_with(
 ) -> Result<(), String> {
     for name in names {
         let board = name.to_string();
-        let page = chrome.new_page().await.map_err(|e| e.to_string())?;
-        let drawn = match name {
-            Name::Screen(_) => {
-                draw_screen(root, settings, &board, &page, server, name.platform()).await
-            }
-            Name::Component(component) => {
-                draw_component(
-                    settings,
-                    previews,
-                    component,
-                    &page,
-                    server,
-                    name.platform(),
-                )
-                .await
-            }
-        };
-        if let Err(error) = page.close().await {
-            crate::log::note(format_args!("closing a page failed: {error}"));
-        }
-        let drawn = drawn?;
+        let drawn = chrome
+            .with_page(async |page| match name {
+                Name::Screen(_) => {
+                    draw_screen(root, settings, &board, page, server, name.platform()).await
+                }
+                Name::Component(component) => {
+                    draw_component(settings, previews, component, page, server, name.platform())
+                        .await
+                }
+            })
+            .await?;
         let file = out.join(format!("{board}.png"));
         std::fs::write(&file, &drawn.png)
             .map_err(|e| format!("cannot write {}: {e}", file.display()))?;

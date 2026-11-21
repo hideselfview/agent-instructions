@@ -23,7 +23,7 @@ pub const PROGRAM: &str = "builds-shots";
 /// prints and each run's findings.json names.
 pub const VERSION: &str = env!("SHOTS_SOURCE");
 
-const USAGE: &str = "usage: builds shots findings <repo> <ref> mac|android <prefix> [--by-cause] | builds shots run|capture|check|lint|runtime|components|version [<argument>...] (builds shots <command> --help)";
+const USAGE: &str = "usage: builds shots findings <repo> <ref> mac|android <prefix> [--by-cause] | builds shots run|capture|check|lint|runtime|components|states|version [<argument>...] (builds shots <command> --help)";
 
 /// The builds-shots beside the `builds` program at <builds>.
 pub fn beside(builds: &Path) -> PathBuf {

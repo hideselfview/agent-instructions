@@ -30,7 +30,7 @@ pub(crate) const REACT_DOM: &str = include_str!("../../canvas/react-dom.producti
 
 /// The page the previews are loaded in, in points; a row draws at its own
 /// size inside it.
-const PREVIEW_FRAME: Frame = Frame { w: 1000, h: 800 };
+pub(crate) const PREVIEW_FRAME: Frame = Frame { w: 1000, h: 800 };
 
 /// The element that says a preview page is drawn: the first row React drew
 /// into the page's root.

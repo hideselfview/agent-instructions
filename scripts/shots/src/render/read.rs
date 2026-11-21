@@ -263,36 +263,13 @@ struct Geometry {
 }
 
 const GEOMETRY: &str = r#"function() {
-  // The design system's components by their values: each function or
-  // memo/forwardRef object that a global the page's scripts added holds
-  // (`Bae.MacButton` is MacButton). React's globals, and the double-underscore
-  // ones of the runtime and of this program, hold none.
-  const components = () => {
-    const shots = window.__buildsShots;
-    if (shots.components) return shots.components;
-    const found = new Map();
-    for (const name of Object.getOwnPropertyNames(window)) {
-      if (shots.globals.has(name) || name.startsWith('__')
-        || name === 'React' || name === 'ReactDOM') continue;
-      const holder = window[name];
-      if (!holder || typeof holder !== 'object') continue;
-      for (const [key, value] of Object.entries(holder)) {
-        const component = typeof value === 'function'
-          || (value && typeof value === 'object' && value.$$typeof
-            && ('render' in value || 'type' in value));
-        if (component && !found.has(value)) found.set(value, key);
-      }
-    }
-    shots.components = found;
-    return found;
-  };
   // The nearest component above a DOM node in React's tree: the first fiber
   // up from the node's own (or its nearest ancestor's) whose type is one.
   const componentOf = (node) => {
     for (let dom = node; dom; dom = dom.parentNode) {
       const key = Object.keys(dom).find((k) => k.startsWith('__reactFiber$'));
       if (!key) continue;
-      const known = components();
+      const known = window.__buildsShots.components();
       for (let fiber = dom[key]; fiber; fiber = fiber.return) {
         const name = known.get(fiber.elementType) || known.get(fiber.type);
         if (name) return name;

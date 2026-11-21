@@ -1207,7 +1207,7 @@ built again.
                               findings.json (one whose report builds could
                               not copy) fails, naming the command that runs
                               the shots again
-  builds shots run|capture|check|lint|runtime|components|version [<argument>...]
+  builds shots run|capture|check|lint|runtime|components|states|version [<argument>...]
                               run builds-shots, which checks the shots of the
                               repo it runs in against the repo's boards, with
                               these arguments; builds gives it a cache folder
@@ -1229,7 +1229,9 @@ built again.
                               names the canvas runtime copy that draws the
                               boards; `components [<Component>...]` lists the
                               gaps in the components' capture files (below)
-                              and fails nothing. A component shot is
+                              and fails nothing; `states` lists the component
+                              states that boards draw and no preview row shows
+                              (below). A component shot is
                               named <platform>.component.<thing>.<state> and
                               draws the component <Platform><Thing>, whose
                               name after its platform spells the thing's
@@ -1266,6 +1268,37 @@ built again.
                               that declares its shot. `run` and `check` print
                               how many gaps the listing has and put the
                               listing in the report, and a gap fails neither.
+                              `states [--at <rev>] [--against <rev>]` draws
+                              every board and every component's preview, as the
+                              working tree holds them or as they are at <rev>,
+                              and lists each component state that a board draws
+                              and no row of the component's preview shows, with
+                              the boards that draw it, so that the design
+                              session adds the state as a row of the preview
+                              and the component's own shot covers it. A prop is
+                              part of a component's state when it is true, or
+                              when it holds a code word (a string that starts
+                              with a lower-case letter and holds only letters,
+                              digits, - and _, such as primary or moveFailed)
+                              and the component draws it as words on no board
+                              or preview. Children, callbacks, numbers and
+                              words are not state: words are the strings a
+                              component draws as text, an accessible name, a
+                              title, a placeholder, alt text or a field's
+                              value, and every string that is no code word. A
+                              preview row changes one prop of the preview's
+                              example, so a component on a board shows in the
+                              preview when each prop of its state has its
+                              value, or is unset, on the component in one of
+                              the preview's rows, and a false prop counts as
+                              unset. `states` lists each value that no row
+                              shows, and each component whose preview draws it
+                              in no row; a component with no preview has no
+                              component shot, and `states` leaves it out. With
+                              --against <rev>, it lists only the states that
+                              the listing at <rev> does not hold, and fails
+                              when it lists one; without --against, it fails
+                              nothing.
                               A web shot is a fixture file that declares one
                               shot by its name, so web has no capture files.
                               `run` and

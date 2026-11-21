@@ -76,15 +76,25 @@ pub(crate) fn ready_boards(root: &Path) -> Result<Vec<String>, DesignError> {
         .collect())
 }
 
-/// The board's frame from `canvas.json`.
-pub(crate) fn frame(root: &Path, name: &str) -> Result<Frame, DesignError> {
+/// Every board's frame from `canvas.json`, by board name.
+pub(crate) fn frames(root: &Path) -> Result<BTreeMap<String, Frame>, DesignError> {
     let path = root.join(boards::CANVAS);
     let canvas: Canvas = serde_json::from_slice(&read(&path)?)
         .map_err(|e| DesignError::BadCanvas(path, e.to_string()))?;
-    canvas
+    Ok(canvas
         .boards
-        .get(&format!("{name}{}", boards::BOARD_SUFFIX))
-        .copied()
+        .into_iter()
+        .filter_map(|(file, frame)| {
+            file.strip_suffix(boards::BOARD_SUFFIX)
+                .map(|name| (name.to_string(), frame))
+        })
+        .collect())
+}
+
+/// The board's frame from `canvas.json`.
+pub(crate) fn frame(root: &Path, name: &str) -> Result<Frame, DesignError> {
+    frames(root)?
+        .remove(name)
         .ok_or_else(|| DesignError::NoFrame(name.to_string()))
 }
 

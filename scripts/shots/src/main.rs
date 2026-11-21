@@ -18,6 +18,7 @@ mod render;
 mod report;
 mod settings;
 mod shots;
+mod states;
 mod verify;
 
 use crate::declared::Declared;
@@ -83,6 +84,24 @@ enum Action {
     /// capture file (Components/<Component>.<extension> under the platform's
     /// declare folder) does not declare, and each capture file with no
     /// preview. The listing fails nothing.
+    /// List each design-system component state that a board draws and no row
+    /// of the component's preview shows: a value of a state prop, or a
+    /// component no preview row draws, with the boards that draw it. A prop
+    /// is part of a state when it is true, or a code word (a lower-case
+    /// letter, then letters, digits, - and _) that the component never draws
+    /// as words; children, callbacks, numbers and words are not. With
+    /// --against, list only the states that the listing at that revision
+    /// does not hold, and fail when there is one.
+    States {
+        /// Draw the boards and previews as they are at this revision, not as
+        /// the working tree holds them.
+        #[arg(long)]
+        at: Option<String>,
+        /// List only the states that the listing at this revision does not
+        /// hold, and fail when there is one.
+        #[arg(long)]
+        against: Option<String>,
+    },
     Components {
         /// A component to show with every row, such as MacRow; repeat for
         /// several. With none, every component with a row its capture file
@@ -324,6 +343,18 @@ fn run(action: Action) -> Result<bool, String> {
                 crate::log::outcome(line);
             }
             Ok(true)
+        }
+        Action::States { at, against } => {
+            let cache = cache_dir()?;
+            let now = states::read(&root, at.as_deref(), &cache)?;
+            let listed = match &against {
+                Some(rev) => states::added(now, &states::read(&root, Some(rev), &cache)?),
+                None => now,
+            };
+            for line in states::lines(&listed, against.as_deref()) {
+                crate::log::outcome(line);
+            }
+            Ok(against.is_none() || listed.is_empty())
         }
         Action::Version => unreachable!("main prints the version before it reads a repo"),
         Action::Runtime => {

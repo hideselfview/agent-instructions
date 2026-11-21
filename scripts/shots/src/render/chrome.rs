@@ -173,6 +173,20 @@ impl Chrome {
             .await
             .map_err(|e| ChromeError::Protocol(e.to_string()))
     }
+
+    /// Runs <work> on a new page and closes the page after it, whatever
+    /// <work> returns; a page that fails to close is noted.
+    pub(crate) async fn with_page<T>(
+        &self,
+        work: impl AsyncFnOnce(&Page) -> Result<T, String>,
+    ) -> Result<T, String> {
+        let page = self.new_page().await.map_err(|e| e.to_string())?;
+        let out = work(&page).await;
+        if let Err(error) = page.close().await {
+            crate::log::note(format_args!("closing a page failed: {error}"));
+        }
+        out
+    }
 }
 
 /// Fetches the pinned build into the program's cache folder <cache> when it

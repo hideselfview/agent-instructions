@@ -80,9 +80,10 @@ async fn grant(page: &Page, budget: f64) -> Result<(), BoardError> {
 /// The script a page runs before its own: it records in
 /// `window.__buildsShots.state` how far the page got toward drawn, waiting on
 /// the element <mounted> selects to appear and then on the page's fonts, and
-/// in `globals` the names the window holds before the page's scripts run, so
-/// that the board's reader tells the design system's global from the
-/// browser's own (read.rs).
+/// in `globals` the names the window holds before the page's scripts run. Its
+/// `components()` gives the design system's components by their values,
+/// which the board's reader (read.rs) and the reader of the components a page
+/// draws (instances.rs) look React's fibers up in.
 fn watch_script(mounted: &str) -> String {
     let selector = serde_json::to_string(mounted).expect("a string serializes");
     format!(
@@ -90,6 +91,30 @@ fn watch_script(mounted: &str) -> String {
   const watch = {{
     state: 'nothing matches ' + {selector},
     globals: new Set(Object.getOwnPropertyNames(window)),
+  }};
+  // The design system's components by their values: each function or
+  // memo/forwardRef object that a global the page's scripts added holds
+  // (`Bae.MacButton` is MacButton). React's globals, and the double-underscore
+  // ones of the runtime and of this program, hold none. Read once, after the
+  // page's scripts ran.
+  let found = null;
+  watch.components = () => {{
+    if (found) return found;
+    const map = new Map();
+    for (const name of Object.getOwnPropertyNames(window)) {{
+      if (watch.globals.has(name) || name.startsWith('__')
+        || name === 'React' || name === 'ReactDOM') continue;
+      const holder = window[name];
+      if (!holder || typeof holder !== 'object') continue;
+      for (const [key, value] of Object.entries(holder)) {{
+        const component = typeof value === 'function'
+          || (value && typeof value === 'object' && value.$$typeof
+            && ('render' in value || 'type' in value));
+        if (component && !map.has(value)) map.set(value, key);
+      }}
+    }}
+    found = map;
+    return map;
   }};
   window.__buildsShots = watch;
   new Promise((resolve) => {{
