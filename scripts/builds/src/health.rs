@@ -1659,39 +1659,51 @@ pub fn host_findings(
             "sccache: health could not judge the hosts' compile caches: {error}"
         ))],
     };
-    crate::long_waits::findings(&scanned.scans, &scanned.install, &checkout, scanned.now)
-        .into_iter()
-        .map(|advice| Finding::new(FindingKind::Waits, advice))
-        .chain(
-            scanned
-                .orphans
-                .iter()
-                .map(|orphan| Finding::new(FindingKind::Orphan, orphan.finding())),
-        )
-        .chain(
-            caches
-                .into_iter()
-                .map(|advice| Finding::new(FindingKind::Sccache, advice)),
-        )
-        .chain(
-            crate::stuck::findings(busy)
-                .into_iter()
-                .map(|advice| Finding::new(FindingKind::Busy, advice)),
-        )
-        .chain(
-            refusals
-                .iter()
-                // ui_test_settings::findings writes these with the host's
-                // settings.
-                .filter(|refusal| refusal.refused != crate::host::Refused::UiAutomation)
-                .map(crate::host::refusal_finding)
-                .chain(crate::host_installed::installed_findings(installed))
-                .chain(crate::ui_test_settings::findings(refusals, installed))
-                .chain(crate::host_front_app::findings(&scanned.scans))
-                .chain(crate::host_screen_lock::findings(&scanned.scans))
-                .map(|advice| Finding::new(FindingKind::Host, advice)),
-        )
-        .collect()
+    let landing_wait = |pid: i32| {
+        let argv = crate::procs::args(pid)?;
+        let worktree = crate::land_turns::requested(&argv)?;
+        let worktree = crate::procs::cwd(pid)?.join(worktree);
+        crate::land_turns::waits_for(&worktree, pid).ok().flatten()
+    };
+    crate::long_waits::findings(
+        &scanned.scans,
+        &scanned.install,
+        &checkout,
+        &landing_wait,
+        scanned.now,
+    )
+    .into_iter()
+    .map(|advice| Finding::new(FindingKind::Waits, advice))
+    .chain(
+        scanned
+            .orphans
+            .iter()
+            .map(|orphan| Finding::new(FindingKind::Orphan, orphan.finding())),
+    )
+    .chain(
+        caches
+            .into_iter()
+            .map(|advice| Finding::new(FindingKind::Sccache, advice)),
+    )
+    .chain(
+        crate::stuck::findings(busy)
+            .into_iter()
+            .map(|advice| Finding::new(FindingKind::Busy, advice)),
+    )
+    .chain(
+        refusals
+            .iter()
+            // ui_test_settings::findings writes these with the host's
+            // settings.
+            .filter(|refusal| refusal.refused != crate::host::Refused::UiAutomation)
+            .map(crate::host::refusal_finding)
+            .chain(crate::host_installed::installed_findings(installed))
+            .chain(crate::ui_test_settings::findings(refusals, installed))
+            .chain(crate::host_front_app::findings(&scanned.scans))
+            .chain(crate::host_screen_lock::findings(&scanned.scans))
+            .map(|advice| Finding::new(FindingKind::Host, advice)),
+    )
+    .collect()
 }
 
 /// The finding when no dashboard runs (<dashboard> is its pid): the person

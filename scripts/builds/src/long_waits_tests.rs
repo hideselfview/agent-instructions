@@ -71,7 +71,7 @@ fn lines(
     scans: &[(Host, std::result::Result<Scan, String>)],
     install: std::result::Result<Option<Waiting>, String>,
 ) -> Vec<String> {
-    findings(scans, &install, &side_3, NOW)
+    findings(scans, &install, &side_3, &|_| None, NOW)
         .iter()
         .map(Advice::line)
         .collect()
@@ -219,5 +219,40 @@ fn a_job_whose_run_id_does_not_read_is_a_finding() {
             "hook run: builds checks run (pid 200, in bae/side-3) has run 22m, longer than 10m; it waits on builds cargo clippy --all-targets (pid 210, in bae/side-3)",
             "job: host m1 runs a job in bae/mac-1 whose run id \"step-7\" is not <pid>-<nanoseconds>, so health cannot tell which builds command here runs it or how long it has run",
         ]
+    );
+}
+
+/// A landing past its limit that waits for the apps turn names the landing
+/// that holds it, with its worktree and how long it has run, instead of
+/// saying that nothing runs under it.
+#[test]
+fn a_long_landing_names_the_landing_that_holds_its_turn() {
+    let here = rows(
+        "300 1 501 0.0 0:01.00 31:00 S builds --agent a1 land /w/side-8 --done 1322 abc\n\
+         400 1 501 0.0 0:01.00 40:00 S builds land . --done 1253 def\n",
+    );
+    let checkout = |pid: i32| match pid {
+        300 => Some("bae/side-8".to_string()),
+        400 => Some("bae/side-13".to_string()),
+        _ => None,
+    };
+    let waits = |pid: i32| {
+        (pid == 300).then(|| {
+            "the landing that changes the apps, process 400 landing --done 1253 def".to_string()
+        })
+    };
+    let lines: Vec<String> = findings(
+        &[(Host::local(), scan(here, Vec::new()))],
+        &Ok(None),
+        &checkout,
+        &waits,
+        NOW,
+    )
+    .iter()
+    .map(Advice::line)
+    .collect();
+    assert_eq!(
+        lines[1],
+        "landing: builds land /w/side-8 --done 1322 abc (pid 300, in bae/side-8) has run 31m, longer than 30m; it waits for the landing that changes the apps: builds land . --done 1253 def (pid 400, in bae/side-13), which has run 40m"
     );
 }
