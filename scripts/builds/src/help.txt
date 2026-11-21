@@ -757,14 +757,14 @@ until the child execs, so a test that takes a lock without waiting can find it
 held and fail only in a run with other tests.
 
 One sccache server serves every checkout. launchd runs it
-(local.sccache-server) on sccache's default port, 4226, with the system's
-TMPDIR and no idle timeout; its cache is caches/sccache, capped in
+(local.sccache-server) on sccache's default port, 4226, with
+TMPDIR=<build volume>/.sccache-tmp and no idle timeout; its cache is caches/sccache, capped in
 ~/Library/Application Support/Mozilla.sccache/config. `builds install` writes
 both here and on every host, `builds host setup` writes them on a host (whose
 cache is sccache's default folder, ~/Library/Caches/Mozilla.sccache on a Mac
 and ~/.cache/sccache on Linux). On a Linux host the user's systemd runs the
 server from the unit ~/.config/systemd/user/local.sccache-server.service, with
-/tmp as its TMPDIR, and its config is ~/.config/sccache/config. `builds status`
+TMPDIR=<builds root>/.sccache-tmp, and its config is ~/.config/sccache/config. `builds status`
 flags a config that no longer holds builds' cap, and `builds health` names each
 host whose server launchd or systemd does not run, whose config does not hold
 builds' cap, or
