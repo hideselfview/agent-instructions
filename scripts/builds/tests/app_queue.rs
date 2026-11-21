@@ -10,6 +10,8 @@ use std::time::{Duration, Instant};
 
 mod common;
 use common::pruned_now;
+mod programs;
+use programs::programs_folder;
 
 const BUILDS: &str = env!("CARGO_BIN_EXE_builds");
 const PATIENCE: Duration = Duration::from_secs(30);
@@ -52,6 +54,7 @@ impl Volume {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("volume/demo")).unwrap();
         std::fs::write(dir.join("volume/demo/app-checkouts"), "side-1\n").unwrap();
+        programs_folder(&dir.join("home"));
         Volume {
             dir,
             started: Vec::new(),

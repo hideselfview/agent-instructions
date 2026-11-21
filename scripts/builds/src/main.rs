@@ -105,6 +105,7 @@ mod places;
 mod proc_limit;
 mod process_readings;
 mod procs;
+mod programs;
 mod prune;
 mod prune_schedule;
 mod queue;
@@ -313,6 +314,7 @@ fn run(command: &str, args: &[String]) -> Result<()> {
             println!("{}", version());
             return Ok(());
         }
+        "programs" => return programs::cmd_programs(&Places::from_env()?.home, args),
         "checks" => return checks_run::cmd_checks(args),
         "waits" => return waits::cmd_waits(args),
         "install-hook" => return install_hook::cmd_install_hook(args),

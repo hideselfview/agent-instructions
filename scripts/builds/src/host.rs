@@ -1353,6 +1353,7 @@ pub fn cmd_host(tool: &Tool, ssh: &Ssh, args: &[String]) -> Result<()> {
         [word, name] if word == "setup" => crate::host_setup::cmd_setup(tool, ssh, name),
         [word] if word == "setup-here" => {
             tool.places.mark_host()?;
+            crate::programs::remove_others(&tool.places.home)?;
             crate::cargo_program::install_all(&tool.places.home)?;
             crate::install::run_sccache_server(&tool.places.home, tool.places.uid)
         }

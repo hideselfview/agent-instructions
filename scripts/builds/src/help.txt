@@ -1059,6 +1059,24 @@ beside the file `hosts` and runs the lane again on another host in the same
 way, until `builds host setup <name>` finds the settings on and removes the
 record.
 
+An app build runs the builds and builds-shots it started with from its
+start to its end, here and on each host, whatever an install puts on PATH
+meanwhile, so its merge base's shots runs and its own come from one version
+of builds-shots; the next build uses the installed programs. Each version
+keeps both programs in ~/.local/lib/builds/<version>/, named by `builds
+version`'s hash. The first app build of a version copies the programs it
+started from into that folder, once each copy says that version (when an
+install replaced a program before the build copied it, the build copies
+nothing and runs the installed builds in its place). The build holds the
+folder while it runs, starts its lanes from the folder's builds and puts the
+folder first on PATH, so `builds shots run` in a `shots` line runs the
+folder's programs. Before each step on a host, the lane copies the folder
+to the same place on the host when the host lacks it, and runs the step
+under `<folder>/builds programs hold`, which holds the host's folder and
+puts it first on PATH there. `builds install`, here and on each host,
+removes each other version's folder that no build holds and that no build
+used in the last hour.
+
 builds keeps each --shots and --all-shots run on the build volume, in
 /Volumes/Builds/shots/<repo>/runs/<commit>/<lane>/<prefix>/<version>/, so
 the next run in the checkout cannot overwrite it: run.json (when the run
@@ -3352,7 +3370,9 @@ INSTALLING
                               running compile; `builds install` fails, with
                               what launchd and the server's log say, unless
                               launchd's server then listens on the port),
-                              point Xcode's default DerivedData at the
+                              remove each other version's folder of programs
+                              that no app build uses (APP BUILDS), point
+                              Xcode's default DerivedData at the
                               volume, restart a running dashboard so it runs
                               the new code, and copy the same builds and
                               builds-shots to every recorded Mac host (HOSTS),

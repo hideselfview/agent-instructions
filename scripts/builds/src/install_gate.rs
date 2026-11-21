@@ -77,9 +77,9 @@ pub const VARIABLE: &str = "BUILDS_USE";
 /// The commands that take no use of the stores: install, which closes the
 /// gates and moves the stores, the dashboard, which install restarts, the
 /// help, `agent`, which registers an agent outside the stores
-/// (ack/agent.rs), and `version`, which prints only what the program was
-/// built from.
-pub const STORELESS: [&str; 7] = [
+/// (ack/agent.rs), `version`, which prints only what the program was built
+/// from, and `programs`, which runs a lane's step on a host (programs.rs).
+pub const STORELESS: [&str; 8] = [
     "install",
     "dashboard",
     "help",
@@ -87,6 +87,7 @@ pub const STORELESS: [&str; 7] = [
     "--help",
     "agent",
     "version",
+    "programs",
 ];
 
 /// Runs the program at this program's path with this process's arguments in

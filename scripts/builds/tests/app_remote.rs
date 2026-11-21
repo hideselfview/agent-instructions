@@ -11,6 +11,8 @@ use std::sync::mpsc::{Receiver, channel};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+mod programs;
+
 const BUILDS: &str = env!("CARGO_BIN_EXE_builds");
 
 const APP_BUILD: &str = "step mac xcode ./xcode.sh\nstep mac quick ./hello.sh\nstep android hello ./hello.sh\nstep android hang ./hang.sh\nstep android signed ./hello.sh\nhere signed\nlimit hang 1s\ntest android ./t.sh {class}\ntest mac ./t.sh {class}\nopens-windows mac\nresults android out\nmac build ./t.sh Sleepy\nmac app out.app\nmac bundle demo.test\n";
@@ -60,6 +62,7 @@ impl World {
             script(&home.join(".local/bin/builds"), "#!/bin/sh\n");
         }
         std::fs::create_dir_all(dir.join("home")).unwrap();
+        programs::programs_folder(&dir.join("home"));
         std::fs::create_dir_all(dir.join("bin")).unwrap();
         std::fs::create_dir_all(dir.join("volume/demo")).unwrap();
         run(&source, &["init", "-q", "-b", "main"]);

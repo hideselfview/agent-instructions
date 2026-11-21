@@ -775,7 +775,8 @@ fn run_remote_step(
         (Some(store), Some(there)) => store.command(step, placed.as_deref(), there),
         _ => step.command.clone(),
     };
-    let start = remote.step_command(&command)?;
+    let held = remote.with_programs(&command)?;
+    let start = remote.step_command(&held)?;
     let kept = lock::Captured::default();
     let keep = keep_for(kind, &kept, fault, read);
     let ran = lock::run_in_group_keeping(start, &command[0], Some(step.limit()), keep);
@@ -1564,7 +1565,7 @@ pub fn ensure_before_runs(
     ));
     let config = config_at(places, repo, &base)?;
     let lanes = crate::derive::plan(&config, &[], &wanted);
-    let built = run_lanes(repo, &base, &lanes, &wanted, &[]);
+    let built = run_lanes(places, repo, &base, &lanes, &wanted, &[]);
     if PASSED_ON.load(Ordering::SeqCst) != 0 {
         return built;
     }
@@ -1670,17 +1671,37 @@ fn copy_lines(
     let _ = done.send(());
 }
 
+/// The folder of this build's programs, which this process holds from its
+/// first call to its end (programs.rs). The build's lanes run its builds,
+/// with the folder first on PATH, so an install that puts other programs on
+/// PATH meanwhile changes nothing the build runs. When an install replaced
+/// this program after it started and before it copied it, this process has
+/// started nothing yet, and runs the installed builds in its place.
+fn pinned(places: &Places) -> Result<&'static crate::programs::Pinned> {
+    static PINNED: std::sync::OnceLock<crate::programs::Pinned> = std::sync::OnceLock::new();
+    if let Some(pinned) = PINNED.get() {
+        return Ok(pinned);
+    }
+    match crate::programs::pin_this(&places.home)? {
+        crate::programs::Pin::Pinned(pinned) => Ok(PINNED.get_or_init(|| pinned)),
+        crate::programs::Pin::Replaced(why) => Err(install_gate::run_installed(&format!(
+            "{why}, so this build runs the installed builds program in its place"
+        ))),
+    }
+}
+
 /// Runs the lanes in <lanes> at the same time, each as a process of its own;
 /// fails, naming the lanes, if any does. A stop signal goes on to each lane,
 /// and the command, once they have ended, fails saying it stopped.
 pub fn run_lanes(
+    places: &Places,
     repo: &str,
     commit: &str,
     lanes: &[(Lane, Vec<String>)],
     picks: &[Pick],
     kept: &[Lane],
 ) -> Result<()> {
-    let exe = std::env::current_exe().context(|| "finding the builds program".to_string())?;
+    let pinned = pinned(places)?;
     unsafe {
         for signal in lock::STOP_SIGNALS {
             libc::signal(signal, pass_to_lanes as *const () as libc::sighandler_t);
@@ -1688,7 +1709,7 @@ pub fn run_lanes(
     }
     let mut running = Vec::new();
     for (at, (lane, names)) in lanes.iter().enumerate() {
-        let mut command = Command::new(&exe);
+        let mut command = Command::new(pinned.builds());
         command
             .args(["app-build", repo, "--lane", lane.word(), commit])
             .args(kept.contains(lane).then_some(KEPT_SHOTS))
@@ -1700,6 +1721,7 @@ pub fn run_lanes(
                     .flat_map(pick_words),
             )
             .env(PREFIXED, "1")
+            .env("PATH", pinned.path(std::env::var_os("PATH").as_deref()))
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
@@ -1889,6 +1911,10 @@ pub fn cmd_app_build(tool: &Tool, args: &[String]) -> Result<()> {
         let names = if kept_shots { &names[1..] } else { names };
         let (names, picks) = split_picks(names)?;
         let lane = Lane::parse_or_fail(word)?;
+        // A lane that its build started runs from the build's folder, which
+        // holds its programs already; a lane run by hand pins them here, for
+        // the steps it runs on a host.
+        pinned(places)?;
         // A lane's process always says why it ended badly: a bare exit status
         // from a path that noted nothing would reach the parent as no output.
         let request = LaneRequest {
@@ -1959,7 +1985,7 @@ pub fn cmd_app_build(tool: &Tool, args: &[String]) -> Result<()> {
     if lanes.is_empty() {
         fail!("{CONFIG} names no step");
     }
-    run_lanes(repo, commit, &lanes, &picks, &[])
+    run_lanes(places, repo, commit, &lanes, &picks, &[])
 }
 
 #[cfg(test)]

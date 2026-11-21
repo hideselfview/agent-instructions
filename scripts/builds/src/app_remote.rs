@@ -339,6 +339,63 @@ impl RemoteApp {
         Ok(start)
     }
 
+    /// <command>, run under this builds' programs on the host: `<folder>/builds
+    /// programs hold -- <command>`, where <folder> is the host's folder of this
+    /// builds' version (programs.rs). The function marks the folder used and,
+    /// when the host lacks a program there, copies it from this Mac's folder
+    /// of the version, which this lane's build holds.
+    pub fn with_programs(&mut self, command: &[String]) -> Result<Vec<String>> {
+        let version = env!("BUILDS_SOURCE");
+        let said = self.transport().capture(
+            &format!(
+                r#"dir="$HOME/{folder}/{version}"
+mkdir -p "$dir" && touch "$dir/{in_use}"
+if [ -x "$dir/builds" ] && [ -x "$dir/{shots}" ]; then echo "present=$dir"; else echo "absent=$dir"; fi"#,
+                folder = crate::programs::FOLDER,
+                in_use = crate::programs::IN_USE,
+                shots = crate::shots_program::PROGRAM,
+            ),
+            "finding this builds' programs",
+        )?;
+        let (present, there) = match said.lines().find_map(|line| {
+            line.strip_prefix("present=")
+                .map(|dir| (true, dir))
+                .or_else(|| line.strip_prefix("absent=").map(|dir| (false, dir)))
+        }) {
+            Some((present, dir)) => (present, dir.to_string()),
+            None => fail!(
+                "host {} did not say where this builds' programs are: {said}",
+                self.host.name
+            ),
+        };
+        if !present {
+            let local = crate::programs::folder(&self.places.home, version);
+            for name in ["builds", crate::shots_program::PROGRAM] {
+                let mut cat = Command::new("cat");
+                cat.arg(local.join(name));
+                let into = format!("{there}/{name}");
+                let staged = format!("{there}/.{name}.{}", crate::text::staged_suffix());
+                crate::remote::pipe(
+                    cat,
+                    self.transport().command(&format!(
+                        "cat > {staged} && chmod 755 {staged} && mv -f {staged} {into}",
+                        staged = sh_quote(&staged),
+                        into = sh_quote(&into),
+                    )),
+                    &format!("{} to host {}", local.join(name).display(), self.host.name),
+                )?;
+            }
+        }
+        let mut held = vec![
+            format!("{there}/builds"),
+            "programs".to_string(),
+            "hold".to_string(),
+            "--".to_string(),
+        ];
+        held.extend(command.iter().cloned());
+        Ok(held)
+    }
+
     /// Copies the file <local> here to a new temporary file on the host and
     /// returns its path there; `remove_temporary` deletes it.
     pub fn put_temporary(&mut self, local: &Path) -> Result<String> {

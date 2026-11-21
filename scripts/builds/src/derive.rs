@@ -349,7 +349,7 @@ pub fn derive_and_run(places: &Places, args: &[String]) -> Result<()> {
             }
         ));
     }
-    app_build::run_lanes(repo, &commit, &lanes, &picks, &kept)
+    app_build::run_lanes(places, repo, &commit, &lanes, &picks, &kept)
 }
 
 #[cfg(test)]

@@ -395,3 +395,59 @@ fn a_picture_folders_parts_go_to_a_temporary_folder_on_the_host_and_come_back() 
     app.remove_temporary(&there).unwrap();
     assert!(!there_path.exists());
 }
+
+/// A lane's step on a host runs this build's programs there: the first step
+/// copies this version's folder to the host, each step marks it used, and
+/// the step runs under `builds programs hold` from that folder.
+#[test]
+fn a_step_on_a_host_runs_under_this_builds_programs_there() {
+    let s = setup("remote-app-programs");
+    let version = env!("BUILDS_SOURCE");
+    let local = crate::programs::folder(&s.places.home, version);
+    std::fs::create_dir_all(&local).unwrap();
+    std::fs::write(local.join("builds"), "builds of this version").unwrap();
+    std::fs::write(local.join(crate::shots_program::PROGRAM), "its shots").unwrap();
+    for name in ["builds", crate::shots_program::PROGRAM] {
+        std::fs::set_permissions(local.join(name), std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    let mut app = remote_app(&s, Lane::Mac);
+    let there = s.home.join(crate::programs::FOLDER).join(version);
+    let words = |words: &[&str]| words.iter().map(|w| w.to_string()).collect::<Vec<_>>();
+    let held = app
+        .with_programs(&words(&["builds", "shots", "run"]))
+        .unwrap();
+    assert_eq!(
+        held,
+        words(&[
+            &there.join("builds").display().to_string(),
+            "programs",
+            "hold",
+            "--",
+            "builds",
+            "shots",
+            "run"
+        ])
+    );
+    assert_eq!(
+        std::fs::read_to_string(there.join("builds")).unwrap(),
+        "builds of this version"
+    );
+    assert_eq!(
+        std::fs::read_to_string(there.join(crate::shots_program::PROGRAM)).unwrap(),
+        "its shots"
+    );
+    // The next step finds the folder there and copies nothing, but marks it
+    // used.
+    std::fs::write(there.join("builds"), "kept").unwrap();
+    crate::testing::age(&there.join(crate::programs::IN_USE), 2);
+    app.with_programs(&words(&["true"])).unwrap();
+    assert_eq!(
+        std::fs::read_to_string(there.join("builds")).unwrap(),
+        "kept"
+    );
+    let used = std::fs::metadata(there.join(crate::programs::IN_USE))
+        .unwrap()
+        .modified()
+        .unwrap();
+    assert!(used.elapsed().unwrap() < crate::programs::IDLE);
+}
