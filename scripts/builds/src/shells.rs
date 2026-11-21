@@ -539,11 +539,7 @@ fn loops_as(argv: &[String]) -> Option<String> {
                 .iter()
                 .filter(|a| a.contains(char::is_whitespace))
                 .flat_map(|script| commands(script))
-                .any(|inner| {
-                    inner.first().is_some_and(|w| basename(w) == "sleep")
-                        || waits_as(&inner).is_some()
-                        || loops_as(&inner).is_some()
-                }))
+                .any(|inner| waits_as(&inner).is_some() || loops_as(&inner).is_some()))
         .then(|| "timeout around a sleep".to_string()),
         "until" => Some("an until loop".to_string()),
         "while"

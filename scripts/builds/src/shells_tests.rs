@@ -664,7 +664,7 @@ fn a_read_with_a_timeout_or_a_timeout_around_a_sleep_is_a_wait() {
 
 #[test]
 fn a_perl_ruby_or_python_sleep_is_a_wait_with_its_agent() {
-    // The form an agent used to hide a sleep loop: perl's four-argument select.
+    // perl's four-argument select sleeps for its last argument's seconds.
     let forms: [(&str, &[&str], &str); 6] = [
         (
             "perl -e 'select(undef,undef,undef,170)'; tail -15 out",
