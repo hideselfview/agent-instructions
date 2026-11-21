@@ -44,6 +44,15 @@ pub struct Versions {
     pub comparison: String,
 }
 
+/// The name of each shot the harnesses declare under <root>, a repo's files
+/// as they are at one commit, in name order. <config> is the text of the
+/// repo's `.app-build` at that commit, which names the declare folders.
+pub fn declared_names(root: &Path, config: &str) -> Result<Vec<String>, String> {
+    let settings = Settings::parse(config).map_err(|e| e.to_string())?;
+    let declared = declared::read(root, &settings.declared).map_err(|e| e.to_string())?;
+    Ok(declared.iter().map(|d| d.name.to_string()).collect())
+}
+
 /// What builds runs the checker with.
 pub struct Checker<'a> {
     /// The checker's versions, which builds computes (builds' build.rs).

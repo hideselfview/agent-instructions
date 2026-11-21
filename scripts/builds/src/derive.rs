@@ -11,7 +11,9 @@
 //! A `--test <Class>` run goes to the lane whose `sources` folders declare the
 //! class at <ref>; a `--shots <prefix>` run goes to the lane its prefix starts
 //! with (`mac.welcome.`), and app-build refuses a prefix that selects every
-//! shot of the lane (`mac.`). `--all-shots <lane>` runs that whole set in the
+//! shot of the lane (`mac.`) and a prefix that starts no shot the harnesses
+//! declare at <ref> (shots_declared.rs), both before the build joins a queue.
+//! `--all-shots <lane>` runs that whole set in the
 //! lane. A lane with such a run builds
 //! what its changed paths need, or, when they need nothing in that lane, what
 //! its `needs` line names, so the run has a build of <ref> to run against. A
@@ -316,6 +318,7 @@ pub fn derive_and_run(places: &Places, args: &[String]) -> Result<()> {
             return Ok(());
         }
     }
+    crate::shots_declared::refuse_undeclared(&top, &commit, &picks)?;
     let pinned = app_build::pin(places)?;
     app_build::ensure_before_runs(places, &pinned, repo, &commit, &picks)?;
     let changed = changed_paths(&top, &commit)?;

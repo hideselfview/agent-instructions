@@ -873,7 +873,10 @@ An app build runs only the test classes and the shots of the screens a change
 touches: name each class with --test, and each screen's shots with --shots and
 a prefix (mac.welcome. for the Mac welcome screens). CI runs the full suites.
 `builds app-build` refuses a --shots prefix that selects every shot of a lane
-(mac. or android.) and a step that a `ci-only` line names, and says why.
+(mac. or android.) and a step that a `ci-only` line names, and says why. It
+also refuses, before the build joins a lane's queue, a --shots prefix that
+starts no shot the harnesses declare at the branch's commit, and names the
+nearest declared prefixes.
 
 To run every shot of one lane, pass `--all-shots mac` or `--all-shots android`.
 An app build runs the installed shots program, so --all-shots never checks a

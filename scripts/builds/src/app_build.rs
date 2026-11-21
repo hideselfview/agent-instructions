@@ -2163,6 +2163,8 @@ pub fn cmd_app_build(tool: &Tool, args: &[String]) -> Result<()> {
             return Ok(());
         }
     }
+    let top = fetched_local_source(places, repo)?;
+    crate::shots_declared::refuse_undeclared(&top, &resolve(&top, commit)?, &picks)?;
     let pinned = pin(places)?;
     ensure_before_runs(places, &pinned, repo, commit, &picks)?;
     // The lanes the steps or picks are in: those with a step named, or with
