@@ -1361,10 +1361,12 @@ fn all_shots_runs_the_lanes_shots_line_for_every_shot_of_the_lane() {
     let built = volume.run(&["app-build", "demo", "main", "--all-shots", "mac"]);
     let said = String::from_utf8_lossy(&built.stderr).into_owned();
     assert!(built.status.success(), "{said}");
-    assert_eq!(
-        volume.log(),
-        lines(&["start one", "end one", "shots --select mac."]),
-        "{said}"
+    let log = volume.log();
+    assert_eq!(log[..2], lines(&["start one", "end one"]), "{said}");
+    assert_eq!(log.len(), 3, "{log:?}");
+    assert!(
+        log[2].starts_with("shots --select mac. --pictures "),
+        "{log:?}"
     );
 }
 
