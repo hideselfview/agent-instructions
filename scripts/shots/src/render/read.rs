@@ -11,7 +11,7 @@
 //! computed font.
 
 use crate::names::Platform;
-use crate::shots::{Bounds, Element, Role, TextStyle, words};
+use crate::shots::{Bounds, Element, Role, Size, TextStyle, words};
 use chromiumoxide::Page;
 use chromiumoxide::cdp::browser_protocol::accessibility::{
     AxNode, AxNodeId, AxPropertyName, EnableParams, GetFullAxTreeParams,
@@ -434,7 +434,7 @@ const SLOT_CLASS: &str = "bae-preview-slot";
 pub(crate) async fn slots(
     page: &Page,
     origin: (f64, f64),
-    frame: (f64, f64),
+    frame: Size,
 ) -> Result<Vec<Bounds>, ReadError> {
     let found = boxes(page, &format!(".{SLOT_CLASS}"), origin).await?;
     Ok(found
@@ -445,7 +445,7 @@ pub(crate) async fn slots(
 
 /// `slot`, grown without end past each edge of the `frame` it reaches, to the
 /// edge tolerance.
-fn reach_past_frame(slot: Bounds, frame: (f64, f64)) -> Bounds {
+fn reach_past_frame(slot: Bounds, frame: Size) -> Bounds {
     let past = |start: f64, len: f64, edge: f64| {
         if start + len >= edge - crate::compare::EDGE_TOLERANCE {
             f64::from(f32::MAX)
@@ -454,8 +454,8 @@ fn reach_past_frame(slot: Bounds, frame: (f64, f64)) -> Bounds {
         }
     };
     Bounds {
-        width: past(slot.x, slot.width, frame.0),
-        height: past(slot.y, slot.height, frame.1),
+        width: past(slot.x, slot.width, frame.width),
+        height: past(slot.y, slot.height, frame.height),
         ..slot
     }
 }

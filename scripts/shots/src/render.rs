@@ -189,9 +189,16 @@ async fn draw_screen(
     let unshot = read::unshot(page, &settings.unshot)
         .await
         .map_err(|e| e.to_string())?;
-    let slots = read::slots(page, (0.0, 0.0), (f64::from(frame.w), f64::from(frame.h)))
-        .await
-        .map_err(|e| e.to_string())?;
+    let slots = read::slots(
+        page,
+        (0.0, 0.0),
+        Size {
+            width: f64::from(frame.w),
+            height: f64::from(frame.h),
+        },
+    )
+    .await
+    .map_err(|e| e.to_string())?;
     Ok(Drawn {
         png: rendered.png,
         size: Size {

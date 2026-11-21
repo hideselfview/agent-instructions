@@ -202,7 +202,15 @@ pub(crate) async fn render_row(
         platform,
     )
     .await?;
-    let slots = read::slots(page, (rect.x, rect.y), (rect.width, rect.height)).await?;
+    let slots = read::slots(
+        page,
+        (rect.x, rect.y),
+        Size {
+            width: rect.width,
+            height: rect.height,
+        },
+    )
+    .await?;
     Ok(Row {
         png,
         size: Size {

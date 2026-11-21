@@ -491,8 +491,23 @@ fn a_slot_that_reaches_the_frames_edge_goes_on_past_it() {
         width: 512.0,
         height: 412.0,
     };
-    let grown = reach_past_frame(slot, (1000.0, 420.0));
+    let grown = reach_past_frame(
+        slot,
+        Size {
+            width: 1000.0,
+            height: 420.0,
+        },
+    );
     assert_eq!((grown.x, grown.y, grown.width), (480.0, 8.0, 512.0));
     assert!(grown.height > 10_000.0);
-    assert_eq!(reach_past_frame(slot, (1000.0, 500.0)), slot);
+    assert_eq!(
+        reach_past_frame(
+            slot,
+            Size {
+                width: 1000.0,
+                height: 500.0,
+            },
+        ),
+        slot
+    );
 }
