@@ -418,16 +418,9 @@ impl World {
 
     /// `builds ack <args> --project second` as the agent runs it in <cwd>.
     fn ack_second(&self, cwd: &Path, args: &[&str]) -> Result<String> {
-        let mut args: Vec<String> = args.iter().map(|arg| arg.to_string()).collect();
-        args.extend(["--project", "second"].map(String::from));
-        ack(
-            &self.places,
-            SESSION_ID,
-            Some(AGENT),
-            &Args::parse(&args, &[], &[]).unwrap(),
-            cwd,
-            NOON,
-        )
+        let mut args = args.to_vec();
+        args.extend(["--project", "second"]);
+        self.ack_in(cwd, AGENT, &args, NOON)
     }
 
     fn check_second(&self, cwd: &Path) -> Result<Option<String>> {
@@ -823,4 +816,13 @@ fn a_compaction_of_another_agent_leaves_the_opening_of_this_one_as_it_was() {
     agent::register(&world.places, SESSION_ID, "a2").unwrap();
     world.compact(Some("a2")).unwrap();
     assert!(!world.ack(&[], NOON).unwrap().contains("compacted you"));
+}
+
+#[test]
+fn a_reading_whose_sections_changed_before_a_part_is_refused_even_with_the_same_part_count() {
+    let world = world("ack-reading-changed");
+    let started = world.ack(&[], NOON).unwrap();
+    world.edit_rule("Write plain, literal sentences.");
+    let refusal = message(world.ack(&["part", "1", &next_command(&started)[2]], NOON));
+    assert!(refusal.contains("changed since"), "{refusal}");
 }

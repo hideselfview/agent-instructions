@@ -430,7 +430,7 @@ fn start(places: &Places, agent: &Agent, text: &Text, now: i64) -> Result<String
             &text.hashes(),
         )?;
         tx.commit().sql()?;
-        agent::clear_compacted(places, &agent.session, &agent.id)?;
+        agent::set_compacted(places, &agent.session, &agent.id, false)?;
         return Ok(format!(
             "builds: {} has acknowledged every section of version {version} in this session, so there is nothing to read.\n",
             agent.name()
@@ -441,7 +441,15 @@ fn start(places: &Places, agent: &Agent, text: &Text, now: i64) -> Result<String
     for _ in 0..=parts.len() {
         tokens.push(token()?);
     }
-    record::start_reading(&tx, &agent.session, &agent.id, &version, now, &tokens)?;
+    let reading_version = unread.version();
+    record::start_reading(
+        &tx,
+        &agent.session,
+        &agent.id,
+        &reading_version,
+        now,
+        &tokens,
+    )?;
     tx.commit().sql()?;
     let skipped: Vec<&str> = text
         .sections
@@ -463,7 +471,7 @@ fn start(places: &Places, agent: &Agent, text: &Text, now: i64) -> Result<String
         String::new()
     };
     Ok(format!(
-        "{WHY_SENTENCE}\n{compacted}builds ack: the text is version {version}, in {} parts.\n{skipped}  builds ack part 1 {}{}\n",
+        "{WHY_SENTENCE}\n{compacted}builds ack: the text is version {reading_version}, in {} parts.\n{skipped}  builds ack part 1 {}{}\n",
         parts.len(),
         tokens[0],
         agent.flags
@@ -482,9 +490,9 @@ fn token() -> Result<String> {
     Ok(format!("{:016x}", random()?))
 }
 
-/// The agent's reading, refused when it has none or the text changed since
-/// it started.
-fn reading_of(agent: &Agent, text: &Text) -> Result<record::Reading> {
+/// The agent's reading of <unread>, the sections it has not acknowledged,
+/// refused when it has none or when those sections changed since it started.
+fn reading_of(agent: &Agent, unread: &Text) -> Result<record::Reading> {
     let reading = match db::open_reader(&agent.store.database())? {
         Some(db) => record::reading(&db, &agent.session, &agent.id)?,
         None => None,
@@ -496,9 +504,9 @@ fn reading_of(agent: &Agent, text: &Text) -> Result<record::Reading> {
             agent.flags
         );
     };
-    if reading.version != text.version() {
+    if reading.version != unread.version() {
         fail!(
-            "the text changed since {} ran `builds ack`; run `builds ack{}` again",
+            "the sections {} has not acknowledged changed since it ran `builds ack`; run `builds ack{}` again",
             agent.name(),
             agent.flags
         );
@@ -509,16 +517,10 @@ fn reading_of(agent: &Agent, text: &Text) -> Result<record::Reading> {
 /// Part <part> of the agent's reading, for the agent that gives <token>, the
 /// token of the part before it (the opening output's for part 1).
 fn part_of(places: &Places, agent: &Agent, text: &Text, part: &str, token: &str) -> Result<String> {
-    let reading = reading_of(agent, text)?;
-    let parts = text.unread(&agent.known(places)?).parts();
+    let unread = text.unread(&agent.known(places)?);
+    let reading = reading_of(agent, &unread)?;
+    let parts = unread.parts();
     let count = parts.len();
-    if reading.tokens.len() != count + 1 {
-        fail!(
-            "the sections that {} has not acknowledged changed since it ran `builds ack`; run `builds ack{}` again",
-            agent.name(),
-            agent.flags
-        );
-    }
     let number = match part.parse::<usize>() {
         Ok(number) if (1..=count).contains(&number) => number,
         _ => fail!("there are parts 1 to {count}; {part} is none of them\n{USAGE}"),
@@ -565,7 +567,7 @@ fn acknowledge(
     token: &str,
     now: i64,
 ) -> Result<String> {
-    let reading = reading_of(agent, text)?;
+    let reading = reading_of(agent, &text.unread(&agent.known(places)?))?;
     if version != reading.version {
         fail!(
             "{} reads version {}, not {version}",
@@ -583,9 +585,16 @@ fn acknowledge(
     let tx = db
         .transaction_with_behavior(TransactionBehavior::Immediate)
         .sql()?;
-    record::acknowledge(&tx, &agent.session, &agent.id, version, now, &text.hashes())?;
+    record::acknowledge(
+        &tx,
+        &agent.session,
+        &agent.id,
+        &text.version(),
+        now,
+        &text.hashes(),
+    )?;
     tx.commit().sql()?;
-    agent::clear_compacted(places, &agent.session, &agent.id)?;
+    agent::set_compacted(places, &agent.session, &agent.id, false)?;
     Ok(format!(
         "builds: {} acknowledged version {version}. The acknowledgement holds until Claude Code compacts this agent. When the text changes, builds prints the changed sections once before a command's output, and the command runs.\n",
         agent.name()
@@ -613,7 +622,7 @@ fn compacted(places: &Places, hook: agent::HookInput) -> Result<String> {
             hook.session_id
         );
     }
-    agent::mark_compacted(places, &hook.session_id, id)?;
+    agent::set_compacted(places, &hook.session_id, id, true)?;
     for store in stores(places)? {
         let mut db = db::open(&store.database(), Make::Never)?;
         let tx = db

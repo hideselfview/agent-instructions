@@ -64,21 +64,10 @@ pub fn acknowledged_sections(
     session: &str,
     agent: &str,
 ) -> Result<Vec<(String, String)>> {
-    let mut statement = db
-        .prepare(
-            "SELECT s.name, s.hash FROM ack a
-             JOIN ack_version_section s ON s.version = a.version
-             WHERE a.session = ?1 AND a.agent = ?2
-             ORDER BY s.name",
-        )
-        .sql()?;
-    statement
-        .query_map(params![session, agent], |row| {
-            Ok((row.get(0)?, row.get(1)?))
-        })
-        .sql()?
-        .collect::<rusqlite::Result<Vec<(String, String)>>>()
-        .sql()
+    match last(db, session, agent)? {
+        Some(version) => Ok(kept_sections(db, &version)?.unwrap_or_default()),
+        None => Ok(Vec::new()),
+    }
 }
 
 /// Starts the reading of version <version> by <agent> in <session> at <at>,

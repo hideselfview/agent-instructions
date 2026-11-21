@@ -12,7 +12,7 @@
 //! `<lists' parent>/agents/<session>/<agent>`, beside the projects' stores,
 //! so that the gate of every project reads the same agents. The file is empty,
 //! except after Claude Code compacts the agent, until the agent acknowledges
-//! the text again (`mark_compacted`).
+//! the text again (`set_compacted`).
 
 use std::path::PathBuf;
 
@@ -84,11 +84,14 @@ pub fn register(places: &Places, session: &str, agent: &str) -> Result<()> {
 /// acknowledges the text again.
 const COMPACTED: &str = "compacted\n";
 
-/// Records that Claude Code compacted agent <agent> of <session>, which the
-/// agent's next reading tells it. Fails for an agent builds did not register.
-pub fn mark_compacted(places: &Places, session: &str, agent: &str) -> Result<()> {
+/// Records whether Claude Code compacted agent <agent> of <session> since it
+/// last acknowledged the text: `set_compacted` records it, and the agent's
+/// acknowledgement ends it. The agent's next reading tells it. Fails for an
+/// agent builds did not register.
+pub fn set_compacted(places: &Places, session: &str, agent: &str, compacted: bool) -> Result<()> {
     let path = file(places, session, agent)?;
-    std::fs::write(&path, COMPACTED).context(|| format!("writing {}", path.display()))
+    let held = if compacted { COMPACTED } else { "" };
+    std::fs::write(&path, held).context(|| format!("writing {}", path.display()))
 }
 
 /// Whether Claude Code compacted agent <agent> of <session> since it last
@@ -97,13 +100,6 @@ pub fn was_compacted(places: &Places, session: &str, agent: &str) -> Result<bool
     let path = file(places, session, agent)?;
     let held = std::fs::read_to_string(&path).context(|| format!("reading {}", path.display()))?;
     Ok(held == COMPACTED)
-}
-
-/// Records that agent <agent> of <session> acknowledged the text since Claude
-/// Code compacted it.
-pub fn clear_compacted(places: &Places, session: &str, agent: &str) -> Result<()> {
-    let path = file(places, session, agent)?;
-    std::fs::write(&path, "").context(|| format!("writing {}", path.display()))
 }
 
 /// Whether builds registered agent <agent> of <session>.
