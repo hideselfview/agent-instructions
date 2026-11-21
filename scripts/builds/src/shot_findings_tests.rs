@@ -120,7 +120,7 @@ fn a_run_grouped_by_cause_reads_the_records_its_cached_report_holds() {
     std::fs::create_dir_all(cached.report()).unwrap();
     std::fs::write(
         cached.findings_json(),
-        r#"{"findings": [{"scene": "mac.a", "component": "MacRow", "kind": "region", "sentence": "s"}], "scenes": ["mac.a"]}"#,
+        r#"{"findings": [{"scene": "mac.a", "level": "warning", "component": "MacRow", "kind": "region", "sentence": "s"}], "scenes": ["mac.a"]}"#,
     )
     .unwrap();
     let text = by_cause(&cached, "main").unwrap();

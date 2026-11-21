@@ -27,8 +27,8 @@ use crate::text::plural;
 /// The file's name in the report's folder, as the shots program writes it.
 pub const FILE: &str = "findings.json";
 
-/// The parts of a run's findings.json that the grouping reads. The file also
-/// names the program's version and the commit, which builds leaves unread.
+/// The parts of a run's findings.json that builds reads. The file also names
+/// the program's version and the commit, which builds leaves unread.
 #[derive(Debug, Deserialize)]
 pub struct Run {
     /// Every scene the run checked.
@@ -40,6 +40,10 @@ pub struct Run {
 #[derive(Debug, Deserialize)]
 pub struct Record {
     pub scene: String,
+    /// `finding`, which can fail a run, or `warning`, which never does.
+    pub level: String,
+    /// The sentence the shots program printed for the record.
+    pub sentence: String,
     /// The design-system component that draws the board element the record
     /// is about; none when it is about no board element or no component
     /// draws it.
@@ -50,8 +54,8 @@ pub struct Record {
 }
 
 /// What a record says: its kind, with the fields of it that the grouping
-/// reads. The file holds more (each record's sentence, the element it names,
-/// its lengths and colour differences), which builds leaves unread. A frame
+/// reads. The file holds more (the element it names, its lengths and colour
+/// differences), which builds leaves unread. A frame
 /// offset is in points; a positive dx is right and a positive dy down, in the
 /// shot against the board.
 #[derive(Debug, Deserialize)]

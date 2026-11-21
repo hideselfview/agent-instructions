@@ -12,13 +12,13 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-use serde::Deserialize;
-
+use crate::checkout::Checkout;
 use crate::fail;
 use crate::fail::{Context, Result};
 use crate::lane::Lane;
 use crate::places::Places;
-use crate::shot_findings::{self, how_to_make};
+use crate::shot_causes::{self, Run};
+use crate::shot_findings;
 use crate::shots_cache::Cached;
 use crate::text::{note, plural};
 
@@ -30,21 +30,6 @@ const PROGRAM: &str = "scripts/builds/target/release/builds";
 
 /// The folder of the checkout's builds program, where cargo runs.
 const PROGRAM_CRATE: &str = "scripts/builds";
-
-/// The parts of a findings.json that the comparison reads: the scenes and
-/// each finding or warning with its sentence.
-#[derive(Deserialize)]
-struct Records {
-    scenes: Vec<String>,
-    findings: Vec<Record>,
-}
-
-#[derive(Deserialize)]
-struct Record {
-    scene: String,
-    level: String,
-    sentence: String,
-}
 
 /// What the compared program made of a scene's findings that the cached run
 /// did not, and what it no longer makes.
@@ -58,8 +43,8 @@ struct Change {
 
 /// The scenes whose records differ between <cached> and <program>, with how.
 /// A scene's records count each sentence as many times as it appears.
-fn changes(cached: &Records, program: &Records) -> BTreeMap<String, Change> {
-    fn count(records: &Records) -> BTreeMap<(&str, String), usize> {
+fn changes(cached: &Run, program: &Run) -> BTreeMap<String, Change> {
+    fn count(records: &Run) -> BTreeMap<(&str, String), usize> {
         let mut counts = BTreeMap::new();
         for record in &records.findings {
             let line = format!("{}: {}", record.level, record.sentence);
@@ -93,7 +78,7 @@ fn changes(cached: &Records, program: &Records) -> BTreeMap<String, Change> {
 }
 
 /// The text that says, scene by scene, what the program clears and adds.
-fn text(cached: &Records, program: &Records) -> String {
+fn text(cached: &Run, program: &Run) -> String {
     let changes = changes(cached, program);
     let mut out = String::new();
     for (scene, change) in &changes {
@@ -113,11 +98,6 @@ fn text(cached: &Records, program: &Records) -> String {
         plural(cached.scenes.len(), "scene"),
     ));
     out
-}
-
-fn read(path: &Path) -> Result<Records> {
-    let text = std::fs::read_to_string(path).context(|| format!("reading {}", path.display()))?;
-    serde_json::from_str(&text).context(|| format!("{} holds no findings", path.display()))
 }
 
 /// Runs <program>, a builds program, as `builds shots recheck` over the
@@ -143,10 +123,8 @@ fn recheck(program: &Path, cached: &Cached) -> Result<String> {
 /// The text that compares the findings of the cached run with those that
 /// <program> makes of the same pictures and element lists.
 fn compare(cached: &Cached, program: &Path) -> Result<String> {
-    let before = read(&cached.findings_json())?;
-    let made = recheck(program, cached)?;
-    let after: Records = serde_json::from_str(&made)
-        .context(|| format!("{} shots recheck printed no findings", program.display()))?;
+    let before = shot_causes::read(&cached.report())?;
+    let after = shot_causes::parse(&recheck(program, cached)?)?;
     Ok(text(&before, &after))
 }
 
@@ -172,15 +150,10 @@ fn build(top: &Path) -> Result<PathBuf> {
 
 /// The top folder of the git checkout that holds <folder>.
 fn top_of(folder: &Path) -> Result<PathBuf> {
-    let ran = Command::new("git")
-        .args(["rev-parse", "--show-toplevel"])
-        .current_dir(folder)
-        .output()
-        .context(|| "running git".to_string())?;
-    if !ran.status.success() {
-        fail!("{} is in no git checkout", folder.display());
+    match Checkout::at(folder)? {
+        Some(checkout) => Ok(checkout.top),
+        None => fail!("{} is in no git checkout", folder.display()),
     }
-    Ok(PathBuf::from(String::from_utf8_lossy(&ran.stdout).trim()))
 }
 
 /// `builds shots check-program`, given the arguments after it.
@@ -211,14 +184,7 @@ pub fn cmd(places: &Places, args: &[String]) -> Result<()> {
         );
     }
     let program = build(&top)?;
-    let report = match compare(&cached, &program) {
-        Ok(report) => report,
-        Err(error) => fail!(
-            "{}\nThe cached run's report may predate the element lists that the comparison reads; `{} --fresh` runs it again",
-            error.text(),
-            how_to_make(repo, git_ref, lane, prefix)
-        ),
-    };
+    let report = compare(&cached, &program)?;
     note(format!(
         "{repo} {} {} {prefix}: findings of the cached run (shots program version {}) beside those of the program built in {}",
         &cached.key.commit[..cached.key.commit.len().min(12)],

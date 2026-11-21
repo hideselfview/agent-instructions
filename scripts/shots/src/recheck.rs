@@ -2,7 +2,9 @@
 //! version of it, wrote, with this checker's comparison. The report holds each
 //! pair's two pictures and element lists (report.rs), so the command takes no
 //! shot, draws no board and reads no repo: it shows what a change to the
-//! comparison clears and adds on a run that has already been made.
+//! comparison clears and adds on a run that has already been made. It prints
+//! only what it compared again, the scenes and their findings, and none of
+//! the run's failed captures or component listing, which it does not read.
 
 use crate::findings_file::{self, FILE};
 use crate::names::Name;
@@ -19,7 +21,7 @@ struct Named {
     scenes: Vec<String>,
 }
 
-/// The findings.json that this checker, version <version>, makes of the pairs
+/// The scenes and findings (findings_file.rs `rechecked`) that this checker, version <version>, makes of the pairs
 /// the report in <report> holds.
 pub(crate) fn text(report: &Path, version: &str) -> Result<String, String> {
     let file = report.join(FILE);
@@ -31,37 +33,20 @@ pub(crate) fn text(report: &Path, version: &str) -> Result<String, String> {
     let mut checked = Vec::new();
     for scene in &named.scenes {
         let name = Name::parse(scene).map_err(|e| format!("{}: {e}", file.display()))?;
-        let load = |path: String| {
-            let path = report.join(path);
-            if path.is_file() {
-                Ok(path)
-            } else {
-                Err(format!(
-                    "the report holds no {}: the run that made it kept no element lists",
-                    path.display()
-                ))
-            }
-        };
-        let board_png = load(board_picture(scene))?;
-        let shot_png = load(shot_picture(scene))?;
+        let board_png = report.join(board_picture(scene));
+        let shot_png = report.join(shot_picture(scene));
         let board = Drawn {
-            list: ElementList::load(&load(board_list(scene))?).map_err(|e| e.to_string())?,
+            list: ElementList::load(&report.join(board_list(scene))).map_err(|e| e.to_string())?,
             picture: decode(&board_png)?,
             png: board_png,
         };
         let shot = Shot {
-            list: ElementList::load(&load(shot_list(scene))?).map_err(|e| e.to_string())?,
+            list: ElementList::load(&report.join(shot_list(scene))).map_err(|e| e.to_string())?,
             picture: decode(&shot_png)?,
         };
         checked.push(verify::compare_pair(&name, board, &shot, shot_png));
     }
-    Ok(findings_file::text(
-        version,
-        &named.commit,
-        &checked,
-        &[],
-        &Default::default(),
-    ))
+    Ok(findings_file::rechecked(version, &named.commit, &checked))
 }
 
 fn decode(path: &Path) -> Result<Picture, String> {

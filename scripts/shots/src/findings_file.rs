@@ -276,15 +276,9 @@ fn board_entry(finding: &Finding) -> Option<&Entry> {
     }
 }
 
-/// The file's text for the pairs a run of <commit> by the checker of
-/// <version> checked, the scenes <failed>, and the components' preview rows that <listing> holds.
-pub(crate) fn text(
-    version: &str,
-    commit: &str,
-    checked: &[Checked],
-    failed: &[Failed],
-    listing: &Listing,
-) -> String {
+/// The records of the findings and warnings of <checked>, pair by pair, each
+/// pair's findings before its warnings.
+fn records(checked: &[Checked]) -> Vec<Record> {
     let mut findings = Vec::new();
     for pair in checked {
         let scene = pair.name.to_string();
@@ -310,6 +304,40 @@ pub(crate) fn text(
             });
         }
     }
+    findings
+}
+
+/// What `recheck` prints: the scenes it compared again and the records it made
+/// of them, which are the parts of a findings.json that builds compares.
+#[derive(Serialize)]
+struct Rechecked<'a> {
+    version: &'a str,
+    commit: &'a str,
+    scenes: Vec<String>,
+    findings: Vec<Record>,
+}
+
+/// The text `recheck` prints for the pairs <checked>, which the checker of
+/// <version> compared again from a run of <commit>.
+pub(crate) fn rechecked(version: &str, commit: &str, checked: &[Checked]) -> String {
+    let file = Rechecked {
+        version,
+        commit,
+        scenes: checked.iter().map(|pair| pair.name.to_string()).collect(),
+        findings: records(checked),
+    };
+    serde_json::to_string(&file).expect("the records are plain data")
+}
+
+/// The file's text for the pairs a run of <commit> by the checker of
+/// <version> checked, the scenes <failed>, and the components' preview rows that <listing> holds.
+pub(crate) fn text(
+    version: &str,
+    commit: &str,
+    checked: &[Checked],
+    failed: &[Failed],
+    listing: &Listing,
+) -> String {
     let file = File {
         version,
         commit,
@@ -344,7 +372,7 @@ pub(crate) fn text(
                     .collect(),
             })
             .collect(),
-        findings,
+        findings: records(checked),
     };
     serde_json::to_string(&file).expect("the records are plain data")
 }

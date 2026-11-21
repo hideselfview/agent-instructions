@@ -24,7 +24,7 @@ fn element() -> Value {
 
 /// A record of <kind> in <scene>, drawn by <component> when one is given.
 fn record(scene: &str, component: Option<&str>, kind: &str, fields: Value) -> Value {
-    let mut record = json!({"scene": scene, "kind": kind, "sentence": "s"});
+    let mut record = json!({"scene": scene, "level": "warning", "kind": kind, "sentence": "s"});
     if let Some(component) = component {
         record["component"] = json!(component);
     }
@@ -273,7 +273,9 @@ fn every_kind_the_shots_program_writes_is_read() {
 
 #[test]
 fn a_file_the_shots_program_did_not_write_is_refused_with_its_reason() {
-    let error = parse("{\"findings\": [{\"scene\": \"mac.a\", \"kind\": \"glow\"}]}")
+    let error = parse(
+        "{\"findings\": [{\"scene\": \"mac.a\", \"level\": \"warning\", \"sentence\": \"s\", \"kind\": \"glow\"}]}",
+    )
         .expect_err("refused")
         .text();
     assert!(error.contains("glow"), "{error}");

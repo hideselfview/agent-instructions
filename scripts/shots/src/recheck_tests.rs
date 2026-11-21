@@ -76,6 +76,10 @@ fn a_report_is_compared_again_to_the_findings_it_holds_under_the_new_version() {
     let file: serde_json::Value = serde_json::from_str(&again).unwrap();
     assert_eq!(file["version"], "new");
     assert_eq!(file["commit"], "abc123def");
+    assert!(
+        file.get("failed").is_none() && file.get("components").is_none(),
+        "the recheck states nothing of the run's failed scenes or components"
+    );
 }
 
 #[test]
