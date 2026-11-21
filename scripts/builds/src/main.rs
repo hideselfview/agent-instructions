@@ -62,6 +62,7 @@ mod flock;
 mod floor;
 mod free_worktrees;
 mod glob;
+mod handed_runs;
 mod health;
 mod health_fix;
 mod help;
@@ -229,9 +230,10 @@ fn exit_code(fail: Fail) -> ExitCode {
 /// (install_gate.rs): it writes a store after long work, with what it measured
 /// since it started. Every other command writes in short transactions, or
 /// runs under a holder's use: `builds cargo` records a run only for a hook
-/// check, under the hook run's use. An app build records its run after long
-/// work too, so it holds a use from its start (while it waits in a lane's
-/// queue too): its lanes run under that use. A landing records its run after
+/// check, under the hook run's use. An app build's lane records its run
+/// after long work too, but holds no use, so that an install never waits for
+/// its steps: it hands its run to the installed builds when an install moved
+/// the stores meanwhile (handed_runs.rs). A landing records its run after
 /// long work, and
 /// holds its use from its start until it has written that record, then ends
 /// it before it fast-forwards the main checkout, whose post-merge hook may run
@@ -263,13 +265,6 @@ fn holds_for_life(command: &str, rest: &[String]) -> bool {
                     | "case"
             )
         ),
-        // The build itself, which records its run when its lanes end. The
-        // forms that take a flag first (`--landing-build`, `--drop-shots`)
-        // and `--list` read or write in one transaction.
-        "app-build" => {
-            !rest.first().is_some_and(|first| first.starts_with("--"))
-                && rest.get(1).is_none_or(|second| second != "--list")
-        }
         _ => false,
     }
 }
@@ -408,7 +403,3 @@ fn run(command: &str, args: &[String]) -> Result<()> {
         ),
     }
 }
-
-#[cfg(test)]
-#[path = "main_tests.rs"]
-mod tests;

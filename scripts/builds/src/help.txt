@@ -3472,20 +3472,23 @@ INSTALLING
                               builds command will write a store with the
                               schema it started with, naming each and when it
                               started. Wait for every hook run (`checks
-                              run`), review that asks reviewers, app build
-                              (`app-build`, from its start, so also while it
-                              waits in a lane's queue) and landing (`land`)
-                              until it records its run, each of which records
-                              after long work, except a landing that waits for
-                              the app landing lock or runs the app build of
-                              its result, which holds no use meanwhile (the
-                              build holds its own); then for every other
-                              command's open store connection, which lasts one
-                              transaction. Install stops no app build: each
-                              lane builds to its end, and the build records its
-                              run in a store that no install has moved. While
-                              install waits, hook runs, reviews, app builds and
-                              landings that start wait for it and then run the
+                              run`), review that asks reviewers, and landing
+                              (`land`) until it records its run, each of which
+                              records after long work, except a landing that
+                              waits for the app landing lock or runs the app
+                              build of its result, which holds no use
+                              meanwhile; then for every other command's open
+                              store connection, which lasts one transaction.
+                              Install neither stops nor waits for an app
+                              build: each lane builds to its end on the
+                              programs its build started with, and writes its
+                              run once, when it ends. A lane whose store an
+                              install moved meanwhile writes its run to a new
+                              store of its own schema and runs the installed
+                              builds, which moves that store to its schema and
+                              records the run in the project's store. While
+                              install waits, hook runs, reviews and landings
+                              that start wait for it and then run the
                               installed builds; other commands keep working. A
                               builds command started by a hook run, review or
                               landing runs under it, and an install that would

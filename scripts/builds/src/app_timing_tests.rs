@@ -471,6 +471,60 @@ fn a_repo_in_a_project_has_that_projects_database_and_a_repo_in_none_has_none() 
     assert_eq!(database_of(&places, "web").unwrap(), None);
 }
 
+/// A run reads back as it was recorded: its load, the commit it built, and
+/// each step with its result and what a failed or timed-out step said.
+#[test]
+fn a_recorded_run_reads_back_whole() {
+    let scratch = Scratch::new("timing-read-back");
+    let path = store(&scratch);
+    let said = |excerpt: &str, shots: &[&str]| {
+        crate::step_failure::StepFailure::new(
+            Some(excerpt.to_string()),
+            shots.iter().map(|shot| shot.to_string()),
+        )
+    };
+    let mut built = run(
+        NOW,
+        Lane::Android,
+        3_000,
+        RunEnd::Failed,
+        vec![
+            step("android", StepKind::Step, NOW, 9_000, StepResult::Passed),
+            step(
+                "shots android.a.",
+                StepKind::Shots,
+                NOW + 9,
+                4_000,
+                StepResult::Failed(said("2 pairs failed", &["android.a.one"])),
+            ),
+            step(
+                "test Foo",
+                StepKind::Test,
+                NOW + 13,
+                600_000,
+                StepResult::TimedOut(said("hung", &[])),
+            ),
+            step(
+                "android",
+                StepKind::Step,
+                NOW + 20,
+                10,
+                StepResult::TakenOver,
+            ),
+            step("android", StepKind::Step, NOW + 30, 10, StepResult::Stopped),
+        ],
+    );
+    built.built_commit = Some("0123456789abcdef0123456789abcdef01234567".to_string());
+    built.load = Some(crate::host::Load {
+        cores: 8,
+        one_minute: 2.5,
+    });
+    let bare = run(NOW + 60, Lane::Mac, 0, RunEnd::Stopped, Vec::new());
+    record(&path, &built).unwrap();
+    record(&path, &bare).unwrap();
+    assert_eq!(read_runs(&path).unwrap(), vec![built, bare]);
+}
+
 /// The shots prefixes a branch's app builds ran come back once each, whatever
 /// the run's outcome and whether the step passed or failed; a step a signal
 /// stopped, runs of another ref, lane or repo, and runs before the branch's
