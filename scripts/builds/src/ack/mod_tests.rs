@@ -116,14 +116,7 @@ impl World {
     /// token the acknowledging command holds.
     fn read_all_in(&self, cwd: &Path, agent: &str, now: i64) -> (String, String) {
         let mut shown = self.ack_in(cwd, agent, &[], now).unwrap();
-        let version = shown
-            .split("The text is version ")
-            .nth(1)
-            .unwrap()
-            .split(',')
-            .next()
-            .unwrap()
-            .to_string();
+        let version = next_command_version(&shown);
         loop {
             let command = next_command(&shown);
             if command[0] != "part" {
