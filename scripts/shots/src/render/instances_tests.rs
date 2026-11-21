@@ -179,3 +179,42 @@ class Component extends DCLogic { renderVals() { return {}; } }
     );
     assert_eq!(found[1].words, ["value"], "a bare string is words");
 }
+
+#[tokio::test]
+async fn a_child_a_component_copies_with_an_added_prop_keeps_the_pages_props() {
+    let root = fixture::tree(&[]);
+    fixture::write(
+        root.path(),
+        "design/system/components/Frame/preview.html",
+        r#"<!doctype html><html><head><meta charset="utf-8"></head>
+<body><div id="root"></div><script>
+const h = React.createElement;
+ReactDOM.createRoot(document.getElementById('root')).render(
+  h(Demo.Frame, null, h(Demo.Box, {kind: 'given'})));
+</script></body></html>"#,
+    );
+    let found = fixture::with_browser(root.path(), async |server, chrome| {
+        let page = chrome.new_page().await.unwrap();
+        let url = server.preview_url("Frame");
+        load(
+            &page,
+            "Frame",
+            &url,
+            Frame { w: 300, h: 200 },
+            1.0,
+            "#root > *",
+        )
+        .await
+        .unwrap();
+        instances(&page, None).await
+    })
+    .await
+    .unwrap();
+    let boxed = found.iter().find(|i| i.component == "Box").unwrap();
+    assert!(boxed.by_page);
+    assert_eq!(
+        boxed.props,
+        props(json!({"kind": "given"})),
+        "place is Frame's"
+    );
+}

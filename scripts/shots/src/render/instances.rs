@@ -34,7 +34,8 @@ pub(crate) struct Instance {
     pub(crate) draws: bool,
     /// Whether the page sets the instance's props: no component draws it, or
     /// the outermost component that draws it received it from the page, as
-    /// a child or in a prop. False for a component that another component draws
+    /// a child or in a prop, possibly copied with props of its own added (then
+    /// `props` holds only the page's). False for a component that another component draws
     /// with props of its own, which are the design system's code.
     pub(crate) by_page: bool,
 }
@@ -73,15 +74,24 @@ fn script(rows: Option<&str>) -> String {
     const first = nodes[0] instanceof Element ? nodes[0] : nodes[0].parentElement;
     return first !== null && first.closest(rowSelector) !== null;
   }};
-  // Does <value>, a prop's value, hold the React element whose props are
-  // <target>: the element itself, or one inside an array, an object or
-  // another element's props?
-  const holds = (value, target, seen) => {{
-    if (value === null || typeof value !== 'object' || seen.has(value)) return false;
+  // The props of the React element of <type> that <value>, a prop's value,
+  // holds and that <actual>, the props a fiber drew with, contain: the
+  // element itself, or one inside an array, an object or another element's
+  // props. A component that copies the element with props of its own added
+  // (cloneElement) leaves the page's props among <actual>; null when none.
+  const held = (value, type, actual, seen) => {{
+    if (value === null || typeof value !== 'object' || seen.has(value)) return null;
     seen.add(value);
-    if (value.props === target) return true;
+    if (value.$$typeof !== undefined && value.type === type && value.props
+        && Object.keys(value.props).every((key) => Object.is(value.props[key], actual[key]))) {{
+      return value.props;
+    }}
     const inside = value.$$typeof !== undefined ? [value.props] : Object.values(value);
-    return inside.some((inner) => holds(inner, target, seen));
+    for (const inner of inside) {{
+      const found = held(inner, type, actual, seen);
+      if (found !== null) return found;
+    }}
+    return null;
   }};
   const plain = (text) => text.replace(/\s+/g, ' ').trim();
   const ATTRIBUTES = ['aria-label', 'title', 'placeholder', 'alt', 'value'];
@@ -130,17 +140,25 @@ fn script(rows: Option<&str>) -> String {
       const [fiber, drawers] = pending.pop();
       const component = known.get(fiber.elementType) || known.get(fiber.type);
       if (component) {{
-        const props = kept(fiber.memoizedProps);
+        // The page hands its elements to the outermost component that
+        // holds them; elements a component makes for itself are in no
+        // props of that component. Props the component added to a copy
+        // of the page's element are its own, not the page's.
+        const outermost = drawers[drawers.length - 1];
+        const actual = fiber.memoizedProps || {{}};
+        let given = null;
+        if (outermost !== undefined) {{
+          for (const v of Object.values(outermost.memoizedProps || {{}})) {{
+            given = held(v, fiber.type, actual, new Set());
+            if (given !== null) break;
+          }}
+        }}
+        const by_page = outermost === undefined || given !== null;
+        const props = kept(given === null ? actual : given);
         const nodes = nodesOf(fiber);
         const strings = Object.entries(props).filter(([, v]) => typeof v === 'string' && plain(v));
         const shown = strings.length ? wordsOf(nodes) : new Set();
         const words = strings.filter(([, v]) => shown.has(plain(v))).map(([k]) => k);
-        // The page hands its elements to the outermost component that
-        // holds them; elements a component makes for itself are in no
-        // props of that component.
-        const outermost = drawers[drawers.length - 1];
-        const by_page = outermost === undefined
-          || Object.values(outermost.memoizedProps || {{}}).some((v) => holds(v, fiber.memoizedProps, new Set()));
         found.push({{ component, props, words, in_row: inRow(nodes), draws: nodes.length > 0, by_page }});
       }}
       const below = component ? [fiber, ...drawers] : drawers;
