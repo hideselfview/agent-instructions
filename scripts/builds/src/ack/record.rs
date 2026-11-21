@@ -10,14 +10,6 @@ use crate::fail::Result;
 /// most recently.
 pub const KEPT_VERSIONS: i64 = 20;
 
-/// An agent's last acknowledgement of the text, as the gate reads it.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Ack {
-    pub version: String,
-    /// Seconds since 1970.
-    pub at: i64,
-}
-
 /// The reading an agent started with `builds ack`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Reading {
@@ -30,17 +22,12 @@ pub struct Reading {
     pub tokens: Vec<String>,
 }
 
-/// The last acknowledgement by <agent> in <session> of the text.
-pub fn last(db: &Connection, session: &str, agent: &str) -> Result<Option<Ack>> {
+/// The version of the text that <agent> in <session> last acknowledged.
+pub fn last(db: &Connection, session: &str, agent: &str) -> Result<Option<String>> {
     db.query_row(
-        "SELECT version, at FROM ack WHERE session = ?1 AND agent = ?2",
+        "SELECT version FROM ack WHERE session = ?1 AND agent = ?2",
         params![session, agent],
-        |row| {
-            Ok(Ack {
-                version: row.get(0)?,
-                at: row.get(1)?,
-            })
-        },
+        |row| row.get(0),
     )
     .optional()
     .sql()

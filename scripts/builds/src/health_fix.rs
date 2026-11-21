@@ -209,8 +209,8 @@ pub fn release_idle_claims(tool: &Tool) -> Result<Vec<String>> {
 
 /// Tells each project's judge again of each finding that waits and that no
 /// running builds process is telling the judge's session of,
-/// tells each judge whose acknowledgement of the text is out of date to
-/// acknowledge again (review/judge_ack.rs), and forgets each judge whose session ended, so that the coordinator
+/// tells each judge that has not acknowledged the text to acknowledge it
+/// (review/judge_ack.rs), and forgets each judge whose session ended, so that the coordinator
 /// settles the findings that wait (review/judge_told.rs). Returns one line
 /// for each message it sent, each judge it forgot and each store it could not
 /// read or send for.
@@ -229,9 +229,7 @@ pub fn tell_judges(tool: &Tool) -> Result<Vec<String>> {
                 crate::review::judge_told::tell_waiting(&store, &stamp, &sessions)
             })
             .and_then(|mut told| {
-                told.extend(crate::review::judge_ack::tell_outdated(
-                    tool, &store, &sessions,
-                )?);
+                told.extend(crate::review::judge_ack::tell_outdated(&store, &sessions)?);
                 Ok(told)
             });
         match done {

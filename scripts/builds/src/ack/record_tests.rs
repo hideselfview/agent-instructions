@@ -67,13 +67,7 @@ fn an_acknowledgement_replaces_the_last_one_keeps_its_version_and_ends_the_readi
     )
     .unwrap();
     acknowledge(&db, "s1", "agent", "v2", 12, &sections()).unwrap();
-    assert_eq!(
-        last(&db, "s1", "agent").unwrap(),
-        Some(Ack {
-            version: "v2".to_string(),
-            at: 12,
-        })
-    );
+    assert_eq!(last(&db, "s1", "agent").unwrap(), Some("v2".to_string()));
     assert_eq!(kept_sections(&db, "v2").unwrap(), Some(sections()));
     assert_eq!(kept_sections(&db, "v1").unwrap(), Some(Vec::new()));
     assert_eq!(kept_sections(&db, "v3").unwrap(), None);

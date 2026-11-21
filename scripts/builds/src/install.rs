@@ -551,15 +551,6 @@ pub fn cmd_install(tool: &Tool, args: &[String]) -> Result<()> {
     if replaced {
         restart_dashboards(home)?;
     }
-    // The installed rules and help are the text every agent acknowledges, so a
-    // judge told now acknowledges the new text at once.
-    match crate::health_fix::tell_judges(tool) {
-        Ok(lines) => lines.iter().for_each(note),
-        Err(error) => note(format!(
-            "could not tell the judges of the changed text: {}",
-            error.text()
-        )),
-    }
     install_on_hosts(&tool.places, &crate::host::Ssh::from_env(), &tool.program)
 }
 

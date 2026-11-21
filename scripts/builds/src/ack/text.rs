@@ -31,7 +31,7 @@ pub struct Section {
 
 impl Section {
     /// The hash of the section's text, which builds keeps with each version
-    /// an agent acknowledged, so that a later reading holds only the
+    /// an agent acknowledged, so that the notice of a change names only the
     /// sections that changed.
     pub fn hash(&self) -> String {
         format!("{:08x}", crate::text::fnv1a(&self.text))
@@ -106,6 +106,17 @@ impl Text {
             .collect()
     }
 
+    /// The names of the sections that <acknowledged> (each section's name and
+    /// hash as an acknowledgement kept them) holds and this text lacks, in
+    /// the order of the names.
+    pub fn removed_since(&self, acknowledged: &[(String, String)]) -> Vec<String> {
+        acknowledged
+            .iter()
+            .filter(|(name, _)| !self.sections.iter().any(|section| section.name == *name))
+            .map(|(name, _)| name.clone())
+            .collect()
+    }
+
     /// Splits the lines of the sections named <shown>, in the text's order,
     /// into parts of at most `PART_BYTES` bytes. Each section starts with a
     /// line that names it, and a part that starts inside a section says so
@@ -150,6 +161,20 @@ impl Text {
     }
 }
 
+/// The command or path that prints the section named <name>: `builds help`
+/// for the two helps, and the file of a rule in the checkout that install.sh
+/// links.
+pub fn how_to_read(places: &Places, name: &str) -> String {
+    match name {
+        "builds help workflow" => "builds help workflow".to_string(),
+        "builds help lists overview" => "builds help lists".to_string(),
+        rule => crate::review::installed_rules_root(&places.home)
+            .join(rule)
+            .display()
+            .to_string(),
+    }
+}
+
 /// Whether <rule>'s paths cover every file: it names no paths, or one of its
 /// globs is `**/*` or `**`.
 fn covers_every_file(rule: &rules::Rule) -> bool {
@@ -172,7 +197,7 @@ pub fn show_part(
     next: &str,
 ) -> String {
     let mut out = vec![format!(
-        "builds ack: part {number} of {count} of version {version}. Read every line of it; its last line gives the command for the next step."
+        "builds ack: part {number} of {count} of version {version}."
     )];
     out.extend(lines.iter().cloned());
     out.push(format!("builds ack: the end of part {number} of {count}."));

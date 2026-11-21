@@ -10,7 +10,7 @@ fn a_listening_judge_with_no_acknowledgement_is_told_to_acknowledge() {
     running_session(&r.demo.tool.places, "s-judge");
     let received = FakeInbox::listen(Path::new(inbox.socket()));
     let sessions = r.demo.tool.places.claude_sessions();
-    let line = tell_outdated(&r.demo.tool, &r.demo.store, &sessions)
+    let line = tell_outdated(&r.demo.store, &sessions)
         .unwrap()
         .expect("the judge is told");
     let lines = received.received();
@@ -20,15 +20,12 @@ fn a_listening_judge_with_no_acknowledgement_is_told_to_acknowledge() {
         told.contains("builds ack --agent s-judge --project demo"),
         "{told}"
     );
-    assert!(line.contains("to acknowledge the text again"), "{line}");
+    assert!(line.contains("to acknowledge the text"), "{line}");
 }
 
 #[test]
 fn nobody_is_told_when_no_judge_listens() {
     let r = reviewed("judge-ack-none", None);
     let sessions = r.demo.tool.places.claude_sessions();
-    assert_eq!(
-        tell_outdated(&r.demo.tool, &r.demo.store, &sessions).unwrap(),
-        None
-    );
+    assert_eq!(tell_outdated(&r.demo.store, &sessions).unwrap(), None);
 }

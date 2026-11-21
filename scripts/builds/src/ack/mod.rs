@@ -14,11 +14,13 @@
 //! builds keeps the acknowledgement in the store of the project whose repo
 //! the command runs in, else of the project `--project` names. The text holds
 //! no CLAUDE.md: Claude Code loads ~/.claude/CLAUDE.md and the repo's
-//! CLAUDE.md into every agent's context itself. builds refuses an agent
-//! whose acknowledgement of the text there is missing, is of another version
-//! of the text, or is more than `HOURS` hours old. After Claude Code compacts
-//! an agent, its SessionStart hook runs `builds ack --compacted`, which
-//! deletes every acknowledgement of that agent (`compacted`).
+//! CLAUDE.md into every agent's context itself. builds refuses an agent that
+//! has no acknowledgement of the text. An acknowledgement lasts until Claude
+//! Code compacts the agent: its SessionStart hook then runs `builds ack
+//! --compacted`, which deletes every acknowledgement of that agent
+//! (`compacted`). When the text changed since the agent acknowledged it, the
+//! gate prints a notice of the changed sections once, records the agent as
+//! having had it, and passes the command (`catch_up`).
 
 pub mod agent;
 pub mod record;
@@ -36,7 +38,7 @@ use crate::install_gate;
 use crate::lists::args::{Args, current_dir};
 use crate::lists::store::{Store, project_of, stores};
 use crate::places::Places;
-use crate::text::{local_minute, shell_word};
+use crate::text::shell_word;
 use text::{Text, random, show_part};
 
 /// The variable that holds the Claude Code session id in an agent's shell.
@@ -47,13 +49,11 @@ pub const SESSION: &str = "CLAUDE_CODE_SESSION_ID";
 /// too.
 pub const PASSED: &str = "BUILDS_ACKNOWLEDGED";
 
-/// How many hours an acknowledgement holds.
-pub const HOURS: i64 = 12;
-
 const USAGE: &str = "usage: builds ack [--agent ID] [--project P]\n       builds ack part PART TOKEN [--agent ID] [--project P]\n       builds ack VERSION TOKEN [--agent ID] [--project P]\n       builds ack --compacted";
 
-/// Refuses `builds <command> <args>` when an agent runs it without a current
-/// acknowledgement. Passes the person's commands, `ack`, which records the
+/// Refuses `builds <command> <args>` when an agent runs it with no
+/// acknowledgement, and prints the notice of a change of the text once
+/// (`check`). Passes the person's commands, `ack`, which records the
 /// acknowledgement, `status --json --no-folders` (`lists_checkouts`), and the commands a builds command that passed runs. The
 /// gate also passes the commands that do not use the stores
 /// (`install_gate::STORELESS`): the gate reads a store, and install must run
@@ -72,14 +72,16 @@ pub fn gate(places: &Places, command: &str, args: &[String]) -> Result<()> {
     let Some(session) = session() else {
         return Ok(());
     };
-    check(
+    if let Some(notice) = check(
         places,
         &session,
         agent::from_env()?.as_deref(),
         flag(args, "project"),
         &current_dir()?,
         crate::app_timing::now(),
-    )?;
+    )? {
+        eprint!("{notice}");
+    }
     // SAFETY: no other thread runs yet, so none reads the environment while
     // set_var writes it.
     unsafe { std::env::set_var(PASSED, "1") };
@@ -193,95 +195,113 @@ impl Agent {
         Text::read(places, &self.store.project)
     }
 
-    /// The agent's last acknowledgement of the text.
-    fn last(&self) -> Result<Option<record::Ack>> {
+    /// The version of the text the agent last acknowledged.
+    fn last(&self) -> Result<Option<String>> {
         match db::open_reader(&self.store.database())? {
             Some(db) => record::last(&db, &self.session, &self.id),
             None => Ok(None),
         }
     }
 
-    /// What the agent's reading of <text> at <now> holds.
-    fn scope(&self, text: &Text, now: i64) -> Result<Scope> {
-        scope_of(&self.store, text, self.last()?, now)
+    /// Where the agent stands with <text>: not acknowledged, up to date, or
+    /// acknowledged an older version, which this call replaces with the
+    /// current one so that the change is told once.
+    fn standing(&self, text: &Text, now: i64) -> Result<Standing> {
+        let version = text.version();
+        match self.last()? {
+            None => return Ok(Standing::NotAcknowledged),
+            Some(last) if last == version => return Ok(Standing::Current),
+            Some(_) => {}
+        }
+        let mut db = db::open(&self.store.database(), Make::Never)?;
+        let tx = db
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .sql()?;
+        let Some(last) = record::last(&tx, &self.session, &self.id)? else {
+            return Ok(Standing::NotAcknowledged);
+        };
+        if last == version {
+            return Ok(Standing::Current);
+        }
+        let changes = match record::kept_sections(&tx, &last)? {
+            Some(kept) => Changes::since(text, &kept),
+            None => Changes::NotKept {
+                sections: text.sections.iter().map(|s| s.name.clone()).collect(),
+            },
+        };
+        record::acknowledge(&tx, &self.session, &self.id, &version, now, &text.hashes())?;
+        tx.commit().sql()?;
+        Ok(Standing::Changed(changes))
     }
 }
 
-/// What a reading of <text> at <now> holds for an agent whose last
-/// acknowledgement of that text is <last>, kept in <store>.
-fn scope_of(store: &Store, text: &Text, last: Option<record::Ack>, now: i64) -> Result<Scope> {
-    let Some(ack) = last else {
-        return Ok(Scope::Whole(Whole::NotAcknowledged));
-    };
-    if now - ack.at > HOURS * 3600 {
-        return Ok(Scope::Whole(Whole::TooOld(ack)));
-    }
-    if ack.version == text.version() {
-        return Ok(Scope::Whole(Whole::Current));
-    }
-    let Some(db) = db::open_reader(&store.database())? else {
-        fail!(
-            "builds read an acknowledgement from {}, and the file is gone now",
-            store.database().display()
-        );
-    };
-    let Some(kept) = record::kept_sections(&db, &ack.version)? else {
-        return Ok(Scope::Whole(Whole::NotKept(ack)));
-    };
-    let sections = text.changed_since(&kept);
-    // A reading of no parts has no made-up words to give.
-    if sections.is_empty() {
-        return Ok(Scope::Whole(Whole::NoTextChanged(ack)));
-    }
-    Ok(Scope::Changed {
-        since: ack,
-        sections,
-    })
-}
-
-/// What a reading holds.
-enum Scope {
-    /// Every section of the text, for the reason the `Whole` gives.
-    Whole(Whole),
-    /// Only <sections>, those that changed since the agent's last
-    /// acknowledgement <since>, of a version builds keeps.
-    Changed {
-        since: record::Ack,
-        sections: Vec<String>,
-    },
-}
-
-/// Why a reading holds every section of the text, with the agent's last
-/// acknowledgement where it has one.
-enum Whole {
-    /// The agent has not acknowledged the text in this session.
+/// Where an agent stands with the current text.
+enum Standing {
+    /// The agent has no acknowledgement of the text in this session.
     NotAcknowledged,
-    /// The agent acknowledged the text more than `HOURS` hours ago.
-    TooOld(record::Ack),
-    /// The agent acknowledged the current version at most `HOURS` hours ago,
-    /// and reads the text again.
+    /// The agent acknowledged the current version.
     Current,
-    /// builds no longer keeps the version the agent acknowledged.
-    NotKept(record::Ack),
-    /// The version changed, but no section's text did: sections moved, or
-    /// a section left the text.
-    NoTextChanged(record::Ack),
+    /// The text changed since the agent acknowledged it, and builds has now
+    /// recorded the agent as told.
+    Changed(Changes),
 }
 
-impl Scope {
-    /// The names of the sections a reading of <text> holds, in the text's
-    /// order.
-    fn sections(&self, text: &Text) -> Vec<String> {
-        match self {
-            Scope::Whole(_) => text.sections.iter().map(|s| s.name.clone()).collect(),
-            Scope::Changed { sections, .. } => sections.clone(),
+/// What changed in the text since an agent acknowledged it.
+enum Changes {
+    /// The sections whose text differs, and the sections that left the text.
+    Since {
+        changed: Vec<String>,
+        removed: Vec<String>,
+    },
+    /// builds no longer keeps the version the agent acknowledged, so it lists
+    /// every section.
+    NotKept { sections: Vec<String> },
+}
+
+impl Changes {
+    fn since(text: &Text, kept: &[(String, String)]) -> Changes {
+        Changes::Since {
+            changed: text.changed_since(kept),
+            removed: text.removed_since(kept),
         }
     }
+
+    /// The notice that tells the agent what changed and how to read it, or
+    /// None when only the order of the sections changed.
+    fn notice(&self, places: &Places) -> Option<String> {
+        let (changed, removed, intro) = match self {
+            Changes::Since { changed, removed } => (
+                changed.as_slice(),
+                removed.as_slice(),
+                "builds: the text every agent reads changed since you acknowledged it. This command runs as usual.",
+            ),
+            Changes::NotKept { sections } => (
+                sections.as_slice(),
+                &[][..],
+                "builds: the text every agent reads changed since you acknowledged it, and builds no longer keeps the version you acknowledged, so it cannot tell which sections changed and lists every section. This command runs as usual.",
+            ),
+        };
+        if changed.is_empty() && removed.is_empty() {
+            return None;
+        }
+        let mut out = format!("{intro}\n");
+        if !changed.is_empty() {
+            out += "Read these sections:\n";
+            for name in changed {
+                out += &format!("  {}\n", text::how_to_read(places, name));
+            }
+        }
+        if !removed.is_empty() {
+            out += &format!("Sections removed: {}\n", removed.join(", "));
+        }
+        Some(out)
+    }
 }
 
-/// Refuses the agent of <session> that runs a command in <cwd> with `--by`
-/// <by> and `--project` <project> at <now>, unless its acknowledgement is of
-/// the current version of the text and at most `HOURS` hours old.
+/// Refuses the agent of <session> that runs a command in <cwd> with
+/// `--project` <project> at <now> when it has no acknowledgement of the text.
+/// Returns the notice to print once when the text changed since the agent
+/// acknowledged it (`Agent::standing`).
 fn check(
     places: &Places,
     session: &str,
@@ -289,78 +309,32 @@ fn check(
     project: Option<&str>,
     cwd: &Path,
     now: i64,
-) -> Result<()> {
+) -> Result<Option<String>> {
     let agent = Agent::resolve(places, session, id, project, cwd)?;
     let text = agent.text(places)?;
-    let who = agent.name();
-    let why = match agent.scope(&text, now)? {
-        Scope::Whole(Whole::Current) => return Ok(()),
-        Scope::Whole(Whole::NotAcknowledged) => {
-            format!("{who} has not acknowledged it in this Claude Code session")
-        }
-        Scope::Whole(Whole::TooOld(ack)) => format!(
-            "{who} acknowledged it at {}, more than {HOURS} hours ago, so `builds ack` shows the whole text",
-            local_minute(ack.at)
+    match agent.standing(&text, now)? {
+        Standing::Current => Ok(None),
+        Standing::Changed(changes) => Ok(changes.notice(places)),
+        Standing::NotAcknowledged => fail!(
+            "builds refuses this command until you read the text every agent reads before it works, and acknowledge it: {} has not acknowledged it in this Claude Code session. Run `builds ack{}`, read every part it lists, and acknowledge them; then run this command again.",
+            agent.name(),
+            agent.flags
         ),
-        Scope::Whole(Whole::NotKept(ack)) => format!(
-            "the text changed since {who} acknowledged version {} at {}, and builds no longer keeps that version, so `builds ack` shows the whole text",
-            ack.version,
-            local_minute(ack.at)
-        ),
-        Scope::Whole(Whole::NoTextChanged(ack)) => format!(
-            "the text changed since {who} acknowledged version {} at {}, but no section's text changed: sections moved or left the text, so `builds ack` shows the whole text",
-            ack.version,
-            local_minute(ack.at)
-        ),
-        Scope::Changed { since, sections } => format!(
-            "the text changed since {who} acknowledged it at {}: {} changed, and `builds ack` shows only those sections",
-            local_minute(since.at),
-            sections.join(", ")
-        ),
-    };
-    fail!(
-        "builds refuses this command until you read the text every agent reads before it works, and acknowledge it: {why}. Run `builds ack{}`, read every part it lists, and acknowledge them; then run this command again.",
-        agent.flags
-    )
+    }
 }
 
 /// Why the main agent of <session>, which `builds judge listen` keeps as the
-/// judge, must acknowledge the text of <store>'s project again, or None when
-/// its acknowledgement is at most `HOURS` hours old and the text has not
-/// changed since. The check classifies the acknowledgement as the gate does
-/// (`scope_of`).
-pub fn outdated(places: &Places, store: &Store, session: &str, now: i64) -> Result<Option<String>> {
-    let who = format!("agent {session}");
+/// judge, must acknowledge the text of <store>'s project, or None when it
+/// has acknowledged it. A change of the text since needs no message: the
+/// judge's next command prints the notice of it.
+pub fn outdated(store: &Store, session: &str) -> Result<Option<String>> {
     let last = match db::open_reader(&store.database())? {
         Some(db) => record::last(&db, session, session)?,
         None => None,
     };
-    let text = Text::read(places, &store.project)?;
-    Ok(match scope_of(store, &text, last, now)? {
-        Scope::Whole(Whole::Current) => None,
-        Scope::Whole(Whole::NotAcknowledged) => {
-            Some(format!("{who} has no acknowledgement of the text"))
-        }
-        Scope::Whole(Whole::TooOld(ack)) => Some(format!(
-            "{who} acknowledged it at {}, more than {HOURS} hours ago",
-            local_minute(ack.at)
-        )),
-        Scope::Whole(Whole::NotKept(ack)) => Some(format!(
-            "{who} acknowledged version {} at {}, which builds no longer keeps",
-            ack.version,
-            local_minute(ack.at)
-        )),
-        Scope::Whole(Whole::NoTextChanged(ack)) => Some(format!(
-            "{who} acknowledged version {} at {}, and sections of the text moved or left it since",
-            ack.version,
-            local_minute(ack.at)
-        )),
-        Scope::Changed { since, sections } => Some(format!(
-            "the text changed since {who} acknowledged it at {}: {} changed",
-            local_minute(since.at),
-            sections.join(", ")
-        )),
-    })
+    Ok(last
+        .is_none()
+        .then(|| format!("agent {session} has no acknowledgement of the text")))
 }
 
 /// `builds ack`.
@@ -409,11 +383,10 @@ fn ack(
     }
 }
 
-/// Starts a reading: picks the sections it holds, draws the tokens of its
-/// parts, and says what the text is and how to fetch part 1.
+/// Starts a reading of the whole text: draws the tokens of its parts, and
+/// gives the command for part 1.
 fn start(agent: &Agent, text: &Text, now: i64) -> Result<String> {
-    let scope = agent.scope(text, now)?;
-    let shown = scope.sections(text);
+    let shown: Vec<String> = text.sections.iter().map(|s| s.name.clone()).collect();
     let parts = text.parts(&shown);
     let mut tokens = Vec::new();
     for _ in 0..=parts.len() {
@@ -434,28 +407,12 @@ fn start(agent: &Agent, text: &Text, now: i64) -> Result<String> {
         &tokens,
     )?;
     tx.commit().sql()?;
-    let names: Vec<&str> = text.sections.iter().map(|s| s.name.as_str()).collect();
-    let mut out = format!(
-        "builds asks every agent to read this text in full before it runs any other builds command: {}.\n\nThe text is version {version}, in {} parts.\n",
-        names.join(", "),
-        parts.len()
-    );
-    if let Scope::Changed { since, sections } = &scope {
-        out += &format!(
-            "Since {} acknowledged version {} at {}, {} of the text's {} sections changed: {}. The reading holds only those sections, each in full.\n",
-            agent.name(),
-            since.version,
-            local_minute(since.at),
-            sections.len(),
-            text.sections.len(),
-            sections.join(", ")
-        );
-    }
-    out += &format!(
-        "\nRead each part in full. Each part's last line gives the command for the next part, and the last part's last line gives the command that acknowledges the text. Start with part 1:\n\n  builds ack part 1 {}{}\n",
-        tokens[0], agent.flags
-    );
-    Ok(out)
+    Ok(format!(
+        "builds ack: the text is version {version}, in {} parts.\n  builds ack part 1 {}{}\n",
+        parts.len(),
+        tokens[0],
+        agent.flags
+    ))
 }
 
 /// A token for a reading: 16 hex digits from the system's random source.
@@ -553,7 +510,7 @@ fn acknowledge(agent: &Agent, text: &Text, version: &str, token: &str, now: i64)
     record::acknowledge(&tx, &agent.session, &agent.id, version, now, &text.hashes())?;
     tx.commit().sql()?;
     Ok(format!(
-        "builds: {} acknowledged version {version}. The acknowledgement holds for {HOURS} hours, until the text changes or Claude Code compacts this agent.\n",
+        "builds: {} acknowledged version {version}. The acknowledgement holds until Claude Code compacts this agent. When the text changes, builds prints the changed sections once before a command's output, and the command runs.\n",
         agent.name()
     ))
 }

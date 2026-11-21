@@ -73,6 +73,16 @@ fn an_edit_of_a_rule_changes_the_version_and_names_that_rule() {
         vec!["rules/text/plain.md"]
     );
     assert!(after.changed_since(&after.hashes()).is_empty());
+    assert!(after.removed_since(&after.hashes()).is_empty());
+}
+
+#[test]
+fn a_section_the_text_lost_is_removed_and_not_changed() {
+    let text = long_text();
+    let mut acknowledged = text.hashes();
+    acknowledged.push(("gone".to_string(), "00".to_string()));
+    assert_eq!(text.removed_since(&acknowledged), vec!["gone"]);
+    assert!(text.changed_since(&acknowledged).is_empty());
 }
 
 fn long_text() -> Text {
@@ -126,7 +136,7 @@ fn a_part_shows_its_lines_unchanged_between_its_two_marker_lines_and_ends_with_t
     ];
     let shown = show_part(&lines, 2, 3, "v1", "  builds ack part 3 tok");
     let shown: Vec<&str> = shown.lines().collect();
-    assert!(shown[0].starts_with("builds ack: part 2 of 3 of version v1."));
+    assert_eq!(shown[0], "builds ack: part 2 of 3 of version v1.");
     assert_eq!(&shown[1..3], &lines[..]);
     assert_eq!(shown[3], "builds ack: the end of part 2 of 3.");
     assert_eq!(shown[4], "  builds ack part 3 tok");

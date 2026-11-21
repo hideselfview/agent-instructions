@@ -92,16 +92,16 @@ impl World {
         ack(&self.places, SESSION_ID, Some(agent), &args, cwd, now)
     }
 
-    fn check(&self, now: i64) -> Result<()> {
+    fn check(&self, now: i64) -> Result<Option<String>> {
         self.check_as(AGENT, now)
     }
 
-    fn check_as(&self, agent: &str, now: i64) -> Result<()> {
+    fn check_as(&self, agent: &str, now: i64) -> Result<Option<String>> {
         self.check_in(&self.checkout, agent, now)
     }
 
     /// The gate for a command <agent> runs in <cwd>.
-    fn check_in(&self, cwd: &Path, agent: &str, now: i64) -> Result<()> {
+    fn check_in(&self, cwd: &Path, agent: &str, now: i64) -> Result<Option<String>> {
         check(&self.places, SESSION_ID, Some(agent), None, cwd, now)
     }
 
@@ -270,15 +270,6 @@ fn every_part_stays_well_under_the_size_claude_code_shows_whole() {
     assert!(part >= 2);
 }
 
-#[test]
-fn an_acknowledgement_older_than_twelve_hours_is_refused() {
-    let world = world("ack-old");
-    world.acknowledge(NOON);
-    world.check(NOON + HOURS * 3600).unwrap();
-    let refusal = message(world.check(NOON + HOURS * 3600 + 1));
-    assert!(refusal.contains("more than 12 hours ago"), "{refusal}");
-}
-
 impl World {
     /// Edits the rule for every file, so the text gets a new version.
     fn edit_rule(&self, body: &str) {
@@ -302,38 +293,50 @@ impl World {
     }
 }
 
+/// The notice for an agent whose text changed: the check passes and returns it
+/// once.
 #[test]
-fn an_edit_of_a_rule_refuses_the_agent_naming_the_rule_and_its_reading_holds_only_that_rule() {
+fn an_edit_of_a_rule_passes_the_command_with_one_notice_naming_the_changed_section() {
     let world = world("ack-edited");
     world.acknowledge(NOON);
+    assert_eq!(world.check(NOON + 60).unwrap(), None);
     world.edit_rule("Write plain, literal sentences.");
-    let refusal = message(world.check(NOON + 60));
+    let notice = world.check(NOON + 120).unwrap().expect("the text changed");
+    let rule = world
+        .places
+        .home
+        .join(".codex/agent-instructions/rules/text/plain.md");
     assert!(
-        refusal.contains("rules/text/plain.md changed, and `builds ack` shows only those sections"),
-        "{refusal}"
+        notice.contains("changed since you acknowledged it. This command runs as usual."),
+        "{notice}"
     );
-    let started = world.ack(&[], NOON + 60).unwrap();
     assert!(
-        started.contains("1 of the text's 3 sections changed: rules/text/plain.md"),
-        "{started}"
+        notice.contains(&format!("  {}\n", rule.display())),
+        "{notice}"
     );
-    let only = world
-        .ack(&["part", "1", &next_command(&started)[2]], NOON + 60)
-        .unwrap();
-    assert!(
-        only.contains("===== rules/text/plain.md (section 1 of 1) ====="),
-        "{only}"
-    );
-    assert!(only.contains("part 1 of 1"), "{only}");
-    world.acknowledge(NOON + 60);
-    world.check(NOON + 120).unwrap();
+    assert!(!notice.contains("builds help workflow"), "{notice}");
+    assert_eq!(world.check(NOON + 180).unwrap(), None);
+    world.edit_rule("Write plain, literal, active sentences.");
+    assert!(world.check(NOON + 240).unwrap().is_some());
 }
 
 #[test]
-fn a_reader_whose_version_builds_no_longer_keeps_reads_the_whole_text() {
+fn the_notice_gives_the_help_command_of_a_changed_help() {
+    let places = world("ack-how-to-read").places;
+    assert_eq!(
+        text::how_to_read(&places, "builds help workflow"),
+        "builds help workflow"
+    );
+    assert_eq!(
+        text::how_to_read(&places, "builds help lists overview"),
+        "builds help lists"
+    );
+}
+
+#[test]
+fn an_agent_whose_version_builds_no_longer_keeps_gets_a_notice_listing_every_section() {
     let world = world("ack-not-kept");
     world.acknowledge(NOON);
-    let whole = world.parts(NOON);
     {
         let checkout = Checkout::at(&world.checkout).unwrap().unwrap();
         let store = project_of(&world.places, &checkout, None).unwrap().unwrap();
@@ -347,16 +350,19 @@ fn a_reader_whose_version_builds_no_longer_keeps_reads_the_whole_text() {
         }
     }
     world.edit_rule("Write plain, literal sentences.");
-    let refusal = message(world.check(NOON + 60));
+    let notice = world.check(NOON + 60).unwrap().expect("the text changed");
     assert!(
-        refusal.contains("builds no longer keeps that version"),
-        "{refusal}"
+        notice.contains("builds no longer keeps the version you acknowledged"),
+        "{notice}"
     );
-    assert_eq!(world.parts(NOON + 60), whole);
+    assert!(notice.contains("builds help workflow"), "{notice}");
+    assert!(notice.contains("builds help lists"), "{notice}");
+    assert!(notice.contains("plain.md"), "{notice}");
+    assert_eq!(world.check(NOON + 120).unwrap(), None);
 }
 
 #[test]
-fn a_reader_whose_text_lost_a_section_and_changed_no_other_reads_the_whole_text() {
+fn a_section_that_left_the_text_is_named_as_removed() {
     let world = world("ack-section-left");
     world.acknowledge(NOON);
     std::fs::remove_file(
@@ -366,22 +372,34 @@ fn a_reader_whose_text_lost_a_section_and_changed_no_other_reads_the_whole_text(
             .join("agent-instructions/rules/text/plain.md"),
     )
     .unwrap();
-    let refusal = message(world.check(NOON + 60));
+    let notice = world.check(NOON + 60).unwrap().expect("a section left");
     assert!(
-        refusal.contains("no section's text changed: sections moved or left the text"),
-        "{refusal}"
+        notice.contains("Sections removed: rules/text/plain.md"),
+        "{notice}"
     );
-    let started = world.ack(&[], NOON + 60).unwrap();
-    assert!(!started.contains("sections changed"), "{started}");
+    assert!(!notice.contains("Read these sections"), "{notice}");
+    assert_eq!(world.check(NOON + 120).unwrap(), None);
 }
 
 #[test]
-fn a_reader_whose_acknowledgement_is_older_than_twelve_hours_reads_the_whole_text() {
-    let world = world("ack-old-whole");
+fn an_acknowledgement_never_expires() {
+    let world = world("ack-never-expires");
+    world.acknowledge(NOON);
+    world.check(NOON + 365 * 24 * 3600).unwrap();
+}
+
+#[test]
+fn an_acknowledgement_after_a_change_reads_the_whole_text() {
+    let world = world("ack-whole-after-change");
     world.acknowledge(NOON);
     let whole = world.parts(NOON);
     world.edit_rule("Write plain, literal sentences.");
-    assert_eq!(world.parts(NOON + HOURS * 3600 + 1), whole);
+    let started = world.ack(&[], NOON + 60).unwrap();
+    assert!(started.contains(&format!("in {whole} parts")), "{started}");
+    let first = world
+        .ack(&["part", "1", &next_command(&started)[2]], NOON + 60)
+        .unwrap();
+    assert!(first.contains("builds help workflow"), "{first}");
 }
 
 #[test]
@@ -649,69 +667,36 @@ fn judge_world(name: &str) -> World {
     world
 }
 
-fn outdated_at(world: &World, now: i64) -> Option<String> {
+fn outdated_at(world: &World) -> Option<String> {
     let store = Store::named(&world.places, "bae").unwrap();
-    outdated(&world.places, &store, SESSION_ID, now).unwrap()
+    outdated(&store, SESSION_ID).unwrap()
 }
 
 #[test]
 fn a_judge_that_acknowledged_the_current_text_has_nothing_to_acknowledge() {
     let world = judge_world("ack-judge-current");
     world.acknowledge_as(SESSION_ID, NOON);
-    assert_eq!(outdated_at(&world, NOON + 60), None);
+    assert_eq!(outdated_at(&world), None);
 }
 
 #[test]
 fn a_judge_with_no_acknowledgement_is_told_so() {
     let world = judge_world("ack-judge-none");
-    let why = outdated_at(&world, NOON).expect("it has acknowledged nothing");
+    let why = outdated_at(&world).expect("it has acknowledged nothing");
     assert!(why.contains("has no acknowledgement"), "{why}");
 }
 
 #[test]
-fn a_judge_is_told_when_its_acknowledgement_passes_its_hours() {
-    let world = judge_world("ack-judge-old");
-    world.acknowledge_as(SESSION_ID, NOON);
-    let why = outdated_at(&world, NOON + HOURS * 3600 + 1).expect("the hours passed");
-    assert!(why.contains("more than 12 hours ago"), "{why}");
-}
-
-#[test]
-fn a_judge_is_told_when_the_text_changed_and_which_section() {
+fn a_judge_whose_acknowledged_text_changed_has_nothing_to_acknowledge() {
     let world = judge_world("ack-judge-changed");
     world.acknowledge_as(SESSION_ID, NOON);
-    std::fs::write(
-        world
-            .scratch
-            .dir
-            .join("agent-instructions/rules/text/plain.md"),
-        "---\npaths:\n  - '**/*'\n---\n\nWrite plain, literal sentences.\n",
-    )
-    .unwrap();
-    let why = outdated_at(&world, NOON + 60).expect("the text changed");
-    assert!(why.contains("rules/text/plain.md"), "{why}");
-    world.acknowledge_as(SESSION_ID, NOON + 120);
-    assert_eq!(outdated_at(&world, NOON + 180), None);
-}
-
-#[test]
-fn a_judge_whose_text_lost_a_section_and_changed_no_other_is_told_so() {
-    let world = judge_world("ack-judge-section-left");
-    world.acknowledge_as(SESSION_ID, NOON);
-    std::fs::remove_file(
-        world
-            .scratch
-            .dir
-            .join("agent-instructions/rules/text/plain.md"),
-    )
-    .unwrap();
-    let why = outdated_at(&world, NOON + 60).expect("a section left the text");
-    assert!(why.contains("moved or left"), "{why}");
+    world.edit_rule("Write plain, literal sentences.");
+    assert_eq!(outdated_at(&world), None);
 }
 
 fn next_command_version(started: &str) -> String {
     started
-        .split("The text is version ")
+        .split("the text is version ")
         .nth(1)
         .unwrap()
         .split(',')

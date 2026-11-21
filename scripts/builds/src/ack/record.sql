@@ -15,7 +15,7 @@ CREATE TABLE ack (
 ) STRICT, WITHOUT ROWID;
 
 -- The versions of the text that agents acknowledged most recently, so that
--- the reading of an agent whose last acknowledged version is here holds only
+-- the notice to an agent whose last acknowledged version is here names only
 -- the sections that changed since. builds keeps `KEPT_VERSIONS` of them
 -- (record.rs) and deletes the rest, so an `ack` row may name a version this
 -- table no longer holds.
