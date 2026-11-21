@@ -138,12 +138,16 @@ fn a_value_that_is_no_number_counts_as_farther_than_a_number() {
         "components": [],
         "findings": [{"scene": "s", "level": "finding", "kind": "state-differs",
             "element": {"role": "field", "words": "Name"}, "aspect": "value",
-            "board": "a", "shot": "b", "sentence": "x"}],
+            "board": "35", "shot": "34", "sentence": "x"}],
     })
     .to_string();
     let before = Before::parse(&text, "before.json", "v1").unwrap();
     assert_eq!(before.against("s", &[state("a", "c")]), Against::Held);
-    assert_eq!(before.against("s", &[state("1", "2")]), Against::Held);
+    assert_eq!(
+        before.against("s", &[state("35", "10")]),
+        Against::Held,
+        "a field's text is no measured number, even when it parses as one"
+    );
 }
 
 #[test]

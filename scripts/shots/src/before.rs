@@ -17,7 +17,8 @@
 //! file whose `version` is not this checker's is refused.
 
 use crate::compare::Aspect;
-use crate::findings_file::{Level, What};
+use crate::findings_file::{Element, Level, What};
+use crate::shots::Role;
 use serde::Deserialize;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
@@ -72,7 +73,7 @@ pub(crate) struct Before {
 }
 
 /// How far the shot is from the board in a finding. A difference between two
-/// numbers (a slider's value) is measured; any other difference (an element
+/// numbers (a slider's or progress bar's value) is measured; any other difference (an element
 /// the shot lacks, a toggle that is off, a field's other text) is not, and
 /// counts as farther than every measured one, so a measured finding never
 /// covers it.
@@ -117,10 +118,14 @@ impl What {
         let number = |text: &str| text.parse::<f64>().ok().filter(|n| n.is_finite());
         match self {
             Self::StateDiffers {
+                element:
+                    Element {
+                        role: Role::Slider | Role::Progress,
+                        ..
+                    },
                 aspect: Aspect::Value,
                 board,
                 shot,
-                ..
             } => match (number(board), number(shot)) {
                 (Some(board), Some(shot)) => Size::Measured((shot - board).abs()),
                 _ => Size::Unmeasured,

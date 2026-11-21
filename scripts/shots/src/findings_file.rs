@@ -99,7 +99,7 @@ struct Record {
 /// An element as a record names it.
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub(crate) struct Element {
-    role: Role,
+    pub(crate) role: Role,
     words: String,
 }
 
