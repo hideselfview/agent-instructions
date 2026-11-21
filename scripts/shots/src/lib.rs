@@ -461,8 +461,14 @@ fn run(checker: &Checker, action: Action) -> Result<bool, String> {
                 declared: &declared,
                 shots_for: &|p| shots.join(p.word()),
                 out: &shots,
-                before: before.as_ref(),
-                base_run: selection.base,
+                comparison: match (&before, selection.base) {
+                    (Some(_), true) => {
+                        return Err("--base and --before name two runs to compare with".to_string());
+                    }
+                    (Some(before), false) => verify::Comparison::Before(before),
+                    (None, true) => verify::Comparison::Base,
+                    (None, false) => verify::Comparison::Nothing,
+                },
                 pictures: pictures.as_ref(),
             })?;
             let base = before.as_ref().map(|b| b.commit().to_string());
@@ -522,8 +528,7 @@ fn run(checker: &Checker, action: Action) -> Result<bool, String> {
                 declared: &declared,
                 shots_for: &|_| shots.clone(),
                 out: &out,
-                before: None,
-                base_run: false,
+                comparison: verify::Comparison::Nothing,
                 pictures: None,
             })?;
             let header = header(checker, sha, None, &outcome);

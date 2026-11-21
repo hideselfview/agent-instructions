@@ -22,6 +22,19 @@ use crate::shots::{ElementList, Picture, Shot};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
+/// What a run's pairs are compared with.
+#[derive(Clone, Copy)]
+pub(crate) enum Comparison<'a> {
+    /// No run: every pair with a finding fails the run.
+    Nothing,
+    /// The run of the branch's merge base (`run --base`), which makes the run
+    /// that the branch's run compares with: it has no before run, and no pair
+    /// with a finding fails it.
+    Base,
+    /// A before run: only the pairs new or worse against it fail the run.
+    Before(&'a Before),
+}
+
 /// What a verification looks at and may write.
 pub(crate) struct Verification<'a> {
     pub(crate) root: &'a Path,
@@ -43,14 +56,8 @@ pub(crate) struct Verification<'a> {
     pub(crate) shots_for: &'a dyn Fn(Platform) -> PathBuf,
     /// Where the boards are rendered, in `boards/`.
     pub(crate) out: &'a Path,
-    /// The run the pairs are compared with: with one, only the pairs new or
-    /// worse against it fail the run; with none, every pair with a finding
-    /// does.
-    pub(crate) before: Option<&'a Before>,
-    /// This is the run of the branch's merge base (`run --base`), which makes
-    /// the run that the branch's run compares with: it has no before run, and
-    /// no pair with a finding fails it.
-    pub(crate) base_run: bool,
+    /// What the pairs are compared with.
+    pub(crate) comparison: Comparison<'a>,
     /// The folder of the board pictures earlier runs drew (pictures.rs):
     /// with one, the run draws only the boards it lacks and keeps each new
     /// drawing there; with none, it draws every board.
@@ -275,11 +282,10 @@ pub(crate) fn verify(job: &Verification) -> Result<Outcome, String> {
             &shots[name],
             (job.shots_for)(name.platform()).join(name.file_name("png")),
         );
-        pair.against = if job.base_run {
-            Some(Against::Base)
-        } else {
-            job.before
-                .map(|before| before.against(&name.to_string(), &pair.whats()))
+        pair.against = match job.comparison {
+            Comparison::Nothing => None,
+            Comparison::Base => Some(Against::Base),
+            Comparison::Before(before) => Some(before.against(&name.to_string(), &pair.whats())),
         };
         checked.push(pair);
     }
