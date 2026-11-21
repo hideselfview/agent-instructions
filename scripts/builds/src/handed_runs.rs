@@ -29,10 +29,11 @@ pub fn folder(places: &Places) -> PathBuf {
 }
 
 /// Writes <run> to the store at <database>. When the store has another
-/// schema and <install_ran> says an install that moved the stores ran since
-/// this process started, writes the run to a new store of this schema in a
-/// new folder in <folder> and hands that store to <hand_off>, then deletes
-/// the folder, whether or not the hand-off succeeded.
+/// schema than this program's and <install_ran> says an install that moved
+/// the stores ran since this process started, writes the run to a new store
+/// of this schema in a new folder in <folder> and hands that store to
+/// <hand_off>, then deletes the folder, whether or not the hand-off
+/// succeeded.
 pub fn write(
     database: &Path,
     run: &RunRecord,
@@ -40,12 +41,8 @@ pub fn write(
     install_ran: &dyn Fn() -> Result<bool>,
     hand_off: &mut dyn FnMut(&Path) -> Result<()>,
 ) -> Result<()> {
-    let refused = match app_timing::record(database, run) {
-        Ok(()) => return Ok(()),
-        Err(refused) => refused,
-    };
-    if !install_ran()? {
-        return Err(refused);
+    if crate::db::stamp_at(database)? == crate::db::stamp() || !install_ran()? {
+        return app_timing::record(database, run);
     }
     let own = folder.join(crate::text::staged_suffix());
     std::fs::create_dir_all(&own).context(|| format!("creating {}", own.display()))?;

@@ -80,6 +80,21 @@ fn a_store_of_another_schema_with_no_install_fails_the_record() {
     assert!(said.contains("another builds schema"), "{said}");
 }
 
+/// A store of this program's schema takes the run, whether or not an install
+/// ran, and the lane hands nothing.
+#[test]
+fn a_store_of_this_schema_takes_the_run_after_an_install() {
+    let scratch = Scratch::new("handed-runs-same");
+    let store = scratch.dir.join(DATABASE);
+    drop(crate::db::open(&store, crate::db::Make::Allowed).unwrap());
+    let folder = scratch.dir.join("handed");
+    write(&store, &run(), &folder, &|| Ok(true), &mut |_: &Path| {
+        panic!("the store has this schema, so the lane hands nothing")
+    })
+    .unwrap();
+    assert_eq!(read_runs(&store).unwrap(), vec![run()]);
+}
+
 /// When the installed builds cannot record the handed run, the record fails
 /// with what it said, and the lane still deletes the store it handed.
 #[test]
