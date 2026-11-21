@@ -229,13 +229,17 @@ const BEFORE_APP_BUILD_STOPPED_STAMP: i64 = 978_764_755;
 /// volume (shot_store.rs) instead of in the store.
 const BEFORE_SHOTS_ON_VOLUME_STAMP: i64 = 1_758_641_369;
 
+/// The stamp of the schema before builds kept the review texts on the build
+/// volume (review/texts.rs) instead of in the store.
+const BEFORE_REVIEW_TEXTS_ON_VOLUME_STAMP: i64 = 1_364_416_336;
+
 /// The stamp of today's schema (`db::STAMP`). A change to the schema changes
 /// its stamp, and builds then fails to compile until the change gives it a
 /// move from this schema, since every store carries this stamp: the change
 /// adds the move, puts this stamp at the end of `STAMPS` under a name that
 /// says what the schema lacked, and sets this to the new schema's stamp, which
 /// the compiler's error names.
-const SCHEMA_STAMP: i64 = 1_364_416_336;
+const SCHEMA_STAMP: i64 = 332_045_652;
 
 // The compiler refuses a schema whose stamp is not SCHEMA_STAMP. A const
 // assert could not print the new stamp, so the check compares two array
@@ -245,7 +249,7 @@ const _: [(); SCHEMA_STAMP as usize] = [(); db::STAMP as usize];
 
 /// Every stamp a store can carry that `move_store` moves, oldest schema first.
 /// A new move adds the stamp of the schema before it at the end.
-const STAMPS: [i64; 25] = [
+const STAMPS: [i64; 26] = [
     BEFORE_CONDITION_ENDERS_STAMP,
     BEFORE_ITEM_EVENT_STAMP,
     BEFORE_LAND_RUN_STAMP,
@@ -271,6 +275,7 @@ const STAMPS: [i64; 25] = [
     BEFORE_REVIEW_BOARD_SHOW_NOW_STAMP,
     BEFORE_APP_BUILD_STOPPED_STAMP,
     BEFORE_SHOTS_ON_VOLUME_STAMP,
+    BEFORE_REVIEW_TEXTS_ON_VOLUME_STAMP,
 ];
 
 /// Whether a store stamped <found> comes before the move that follows the
@@ -296,11 +301,12 @@ fn before(found: i64, stamp: i64) -> bool {
 /// the crates the cargo runs named and the judge; every store from before
 /// builds found a review's landing by its repo and key gets the indexes that
 /// find it so, one of which refuses two open landings of one change; and
-/// every store from before the review's texts sat in a table with row ids
-/// gets that table, with its texts; every store from before builds kept the
-/// shots runs on the build volume loses the shot findings' table, and once
-/// the move commits, the table's pages (a vacuum) and the folder of reports
-/// beside the database. The moves
+/// every store from before builds kept the shots runs on the build volume
+/// loses the shot findings' table, and once the move commits, the folder of
+/// reports beside the database; every store from before builds kept the
+/// review texts on the build volume writes them there, loses their table and
+/// holds the hash of each reviewer's answer in place of the answer, and once
+/// the move commits, the freed pages (a vacuum). The moves
 /// run in one transaction, the
 /// store is stamped as today's schema, and it must then equal a fresh
 /// database's schema or the transaction rolls back. A store already at
@@ -308,7 +314,7 @@ fn before(found: i64, stamp: i64) -> bool {
 /// refused, and the refusal names it.
 pub fn migrate_stores(places: &Places, now: i64) -> Result<()> {
     for store in crate::lists::store::database_paths(places)? {
-        move_store(&store, now)?;
+        move_store(places, &store, now)?;
     }
     Ok(())
 }
@@ -333,7 +339,7 @@ pub fn every_store_has_this_schema(places: &Places) -> Result<bool> {
     Ok(any)
 }
 
-fn move_store(path: &Path, now: i64) -> Result<()> {
+fn move_store(places: &Places, path: &Path, now: i64) -> Result<()> {
     if !path.is_file() {
         return Ok(());
     }
@@ -423,12 +429,6 @@ fn move_store(path: &Path, now: i64) -> Result<()> {
         tx.execute_batch(db::CARGO_RUN_COMMIT_PART).sql()?;
         tx.execute_batch(db::APP_BUILD_COMMIT_PART).sql()?;
     }
-    // Every store from before the review's texts sat in a table with row ids
-    // gets that table, with its texts: without row ids, a lookup by hash read
-    // whole texts.
-    if before(found, BEFORE_REVIEW_TEXT_ROWID_STAMP) {
-        crate::review::record::move_texts_to_table_with_row_ids(&tx)?;
-    }
     // Every store from before the failed hook checks' words gets their empty
     // tables: the checks it holds have none.
     if before(found, BEFORE_HOOK_CHECK_FAILURE_STAMP) {
@@ -499,6 +499,19 @@ fn move_store(path: &Path, now: i64) -> Result<()> {
     if before(found, BEFORE_SHOTS_ON_VOLUME_STAMP) {
         tx.execute_batch("DROP TABLE shot_findings;").sql()?;
     }
+    // Every store from before builds kept the review texts on the build
+    // volume writes them there, and holds hashes in their place.
+    if before(found, BEFORE_REVIEW_TEXTS_ON_VOLUME_STAMP) {
+        let project = path
+            .parent()
+            .and_then(Path::file_name)
+            .expect("a store's database is in its project's folder")
+            .to_string_lossy();
+        crate::review::record::move_texts_to_volume(
+            &tx,
+            &crate::review::texts::Texts::of(places, &project),
+        )?;
+    }
     tx.pragma_update(None, "user_version", db::stamp()).sql()?;
     let broken: Option<String> = tx
         .query_row("PRAGMA foreign_key_check", [], |row| row.get(0))
@@ -517,12 +530,14 @@ fn move_store(path: &Path, now: i64) -> Result<()> {
         );
     }
     tx.commit().sql()?;
-    if before(found, BEFORE_SHOTS_ON_VOLUME_STAMP) {
-        // The dropped table's pages stay in the file as free pages until a
+    if before(found, BEFORE_REVIEW_TEXTS_ON_VOLUME_STAMP) {
+        // The dropped tables' pages stay in the file as free pages until a
         // vacuum gives them back to the disk; in a store of a few hundred MB
         // they were most of it.
         conn.execute_batch("VACUUM; PRAGMA wal_checkpoint(TRUNCATE);")
             .sql()?;
+    }
+    if before(found, BEFORE_SHOTS_ON_VOLUME_STAMP) {
         remove_kept_reports(path)?;
     }
     crate::text::note(format!("moved {} to today's schema", path.display()));
@@ -536,7 +551,7 @@ fn remove_kept_reports(path: &Path) -> Result<()> {
         .parent()
         .expect("a store's database is in its store's folder")
         .join("shots");
-    crate::shot_store::remove_all(&reports)
+    crate::capped_store::remove_all(&reports)
 }
 
 #[cfg(test)]

@@ -89,6 +89,7 @@ mod rerun;
 pub mod rules;
 pub mod run;
 mod score;
+pub mod texts;
 
 use std::path::{Path, PathBuf};
 
@@ -455,6 +456,7 @@ pub fn review(inputs: &Inputs) -> Result<Reported> {
             for (ask, asked) in asks.iter().zip(&answers) {
                 let (run_id, _) = record::add_run(
                     db,
+                    &inputs.store.texts,
                     &record::NewRun {
                         landing: Some(landing),
                         kind: Kind::Review {
@@ -1326,6 +1328,7 @@ fn replay(tool: &Tool, args: &[String]) -> Result<()> {
             store.write(&stamp, &format!("review replay {}", case.name), |db| {
                 record::add_run(
                     db,
+                    &store.texts,
                     &cases::run_of(case, stamp.at, &rules_version),
                     &result.calls,
                 )

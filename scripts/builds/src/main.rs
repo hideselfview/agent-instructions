@@ -15,6 +15,7 @@ mod app_tree;
 mod awake;
 mod build_app;
 mod built_tools;
+mod capped_store;
 mod card_profile;
 mod card_state;
 mod cargo_mutants;

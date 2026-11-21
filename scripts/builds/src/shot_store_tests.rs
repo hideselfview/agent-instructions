@@ -212,14 +212,14 @@ fn a_staging_folder_goes_once_no_run_stores_its_output_and_stays_while_one_does(
     let tool = scratch.tool(0);
     let filling = stage(&places, &key("mac.a.")).unwrap();
     std::fs::create_dir_all(filling.report()).unwrap();
-    let left = filling.dir.parent().unwrap().join(".staging-v-1-2");
+    let left = filling.inner.dir().parent().unwrap().join(".staging-v-1-2");
     std::fs::create_dir_all(left.join("report")).unwrap();
     prune_runs(&tool, Run::Real, CAP_KIB).unwrap();
     assert!(
-        left.exists() && filling.dir.exists(),
+        left.exists() && filling.inner.dir().exists(),
         "a run is storing its output"
     );
-    let dir = filling.dir.clone();
+    let dir = filling.inner.dir().to_path_buf();
     drop(filling);
     assert!(!dir.exists());
     prune_runs(&tool, Run::Real, CAP_KIB).unwrap();

@@ -279,16 +279,55 @@ pub fn with_shot_findings(schema: String) -> String {
     }
 }
 
+/// The table of the review's texts, which every schema held between the
+/// review's calls and exchanges until builds kept the texts on the build volume
+/// (review/texts.rs).
+#[cfg(test)]
+const REVIEW_TEXT_TABLE: &str = "CREATE TABLE review_text (
+    hash TEXT PRIMARY KEY,
+    text TEXT NOT NULL
+) STRICT;
+";
+
+/// <schema> as it was before builds kept the review texts on the build
+/// volume: with the texts' table, the references to it, and each exchange's
+/// answer in place of its hash. A schema with no review tables is returned as
+/// it is.
+#[cfg(test)]
+pub fn with_review_texts(schema: String) -> String {
+    const EXCHANGE: &str = "CREATE TABLE review_exchange (";
+    const HASHES: &str = "    system_hash TEXT NOT NULL,\n    message_hash TEXT NOT NULL,\n    output_hash TEXT NOT NULL,\n";
+    const PROMPT: &str = "    prompt TEXT NOT NULL,\n";
+    if !schema.contains(EXCHANGE) {
+        return schema;
+    }
+    assert_eq!(schema.matches(HASHES).count(), 1);
+    assert_eq!(schema.matches(PROMPT).count(), 1);
+    schema
+        .replacen(
+            HASHES,
+            "    system_hash TEXT NOT NULL REFERENCES review_text (hash),\n    message_hash TEXT NOT NULL REFERENCES review_text (hash),\n    output TEXT NOT NULL,\n",
+            1,
+        )
+        .replacen(
+            PROMPT,
+            "    prompt TEXT NOT NULL REFERENCES review_text (hash),\n",
+            1,
+        )
+        .replacen(EXCHANGE, &format!("{REVIEW_TEXT_TABLE}{EXCHANGE}"), 1)
+}
+
 /// The schema as it was before <part> joined it: the parts of
 /// `SCHEMA_PARTS` before <part>, with a newline between each two, and the
-/// shot findings' table, which every such schema held.
+/// shot findings' table and the review texts' table and references, which
+/// every such schema held.
 #[cfg(test)]
 fn schema_before(part: &str) -> String {
     let at = SCHEMA_PARTS
         .iter()
         .position(|known| *known == part)
         .expect("the part is one of the schema's parts");
-    with_shot_findings(SCHEMA_PARTS[..at].join("\n"))
+    with_review_texts(with_shot_findings(SCHEMA_PARTS[..at].join("\n")))
 }
 
 /// The schema as it was before the branches over the review's cap joined it,

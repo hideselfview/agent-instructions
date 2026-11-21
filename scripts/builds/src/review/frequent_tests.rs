@@ -71,7 +71,13 @@ fn store(branches: &[Vec<Vec<&str>>]) -> rusqlite::Connection {
                 since: None,
                 rules_version: "",
             };
-            let (_, ids) = add_run(&db, &run, &[call(clauses)]).unwrap();
+            let (_, ids) = add_run(
+                &db,
+                &crate::review::texts::scratch(),
+                &run,
+                &[call(clauses)],
+            )
+            .unwrap();
             for id in ids.concat() {
                 settle(&db, id, "confirmed", "real", at as i64, "tester").unwrap();
             }

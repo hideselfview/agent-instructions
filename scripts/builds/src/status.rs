@@ -101,6 +101,7 @@ pub fn repos(places: &Places) -> Result<Vec<Repo>> {
             || dir == places.derived_data()
             || dir == places.caches()
             || dir == crate::shot_store::root(places)
+            || dir == crate::review::texts::root(places)
         {
             continue;
         }
@@ -440,6 +441,24 @@ fn shots_lines(tool: &Tool, dir: &Path, out: &mut Vec<String>) -> Result<()> {
     Ok(())
 }
 
+/// The line for the capped store (capped_store.rs) at <dir>, which <what>
+/// names: its size against <cap_kib> and its last write.
+fn capped_line(tool: &Tool, dir: &Path, what: &str, cap_kib: u64) -> Result<String> {
+    let measured = tool.measure(dir)?;
+    let over = if measured.kib > cap_kib {
+        "OVER CAP: prune deletes the units least recently used"
+    } else {
+        ""
+    };
+    Ok(format!(
+        "{:<38} {:>8} / {:<6}  last write {}  {over}",
+        what,
+        human(measured.kib),
+        human(cap_kib),
+        last_write(measured.newest)
+    ))
+}
+
 /// `sccache: ...` lines from a running server, or the line that says why
 /// lsof could not tell whether one listens.
 fn sccache_lines(out: &mut Vec<String>) {
@@ -579,6 +598,13 @@ pub fn cmd_status(tool: &mut Tool, ssh: &Ssh, args: &[String]) -> Result<()> {
             caches_lines(tool, &mut out)?;
         } else if entry == crate::shot_store::root(&tool.places) && entry.is_dir() {
             shots_lines(tool, &entry, &mut out)?;
+        } else if entry == crate::review::texts::root(&tool.places) && entry.is_dir() {
+            out.push(capped_line(
+                tool,
+                &entry,
+                "review-texts (the reviews' texts)",
+                crate::review::texts::CAP_KIB,
+            )?);
         } else if let Some(repo) = repos.iter().find(|repo| repo.dir == entry) {
             for item in &repo.entries {
                 match item {

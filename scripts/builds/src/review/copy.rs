@@ -81,6 +81,7 @@ pub fn check(inputs: &Inputs) -> Result<Checked> {
             .write(stamp, &format!("review copy {}", inputs.label), |db| {
                 let (run, _) = record::add_run(
                     db,
+                    &inputs.store.texts,
                     &NewRun {
                         landing: None,
                         kind: Kind::Copy,

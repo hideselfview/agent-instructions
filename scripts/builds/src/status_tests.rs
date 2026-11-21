@@ -48,3 +48,18 @@ fn a_lists_folder_with_no_parent_has_no_place_for_the_host_marker() {
     assert!(refusal.contains("no parent folder"), "{refusal}");
     assert!(places.mark_host().is_err());
 }
+
+#[test]
+fn a_capped_store_shows_its_size_against_its_cap_and_says_when_it_is_over() {
+    let scratch = crate::testing::Scratch::new("status-capped");
+    let tool = scratch.tool(0);
+    let dir = scratch.dir.join("store");
+    crate::testing::fill(&dir.join("a/data"), 400);
+    let line = capped_line(&tool, &dir, "demo (a store)", 1000).unwrap();
+    assert!(
+        line.starts_with("demo (a store)") && !line.contains("OVER CAP"),
+        "{line}"
+    );
+    let line = capped_line(&tool, &dir, "demo (a store)", 100).unwrap();
+    assert!(line.contains("OVER CAP"), "{line}");
+}

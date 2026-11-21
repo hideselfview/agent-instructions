@@ -177,11 +177,13 @@ fn landed_card(scratch: &Scratch) -> (crate::lists::store::Store, Id) {
             };
             crate::review::record::add_run(
                 db,
+                &crate::review::texts::scratch(),
                 &run(T0 + 330),
                 &[call("Errors", T0 + 331, 59_000, 2)],
             )?;
             crate::review::record::add_run(
                 db,
+                &crate::review::texts::scratch(),
                 &run(T0 + 450),
                 &[call("Errors", T0 + 451, 20_000, 0)],
             )?;

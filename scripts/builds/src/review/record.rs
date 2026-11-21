@@ -13,6 +13,7 @@ use rusqlite::{Connection, OptionalExtension, params};
 use crate::db::Sql;
 use crate::fail;
 use crate::fail::Result;
+use crate::review::texts::{self, Texts};
 
 /// A finding a reviewer raised, as it goes into the store.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -230,7 +231,7 @@ pub struct Call {
     pub kind: String,
     pub group: String,
     pub model: String,
-    /// The hash its prompt is kept under in `review_text`.
+    /// The hash its prompt is kept under (texts.rs).
     pub prompt: String,
     /// The rule slugs it answers for.
     pub rules: Vec<String>,
@@ -330,49 +331,112 @@ pub struct NewRun<'a> {
     pub rules_version: &'a str,
 }
 
-/// The hash <text> is kept under: its FNV-1a hash and its length.
-pub fn text_hash(text: &str) -> String {
-    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
-    for byte in text.bytes() {
-        hash ^= u64::from(byte);
-        hash = hash.wrapping_mul(0x0100_0000_01b3);
+/// Moves a store's review texts to <texts>, for a store from before builds
+/// kept them there: keeps each run's texts, makes `review_call` and
+/// `review_exchange` again as record.sql writes them, with each answer's hash
+/// in place of the answer, and drops `review_text`. migrate.rs runs it with the
+/// foreign keys off. A text the store has no row for fails the move.
+pub fn move_texts_to_volume(db: &Connection, texts: &Texts) -> Result<()> {
+    let runs: Vec<i64> = db
+        .prepare("SELECT id FROM review_run ORDER BY id")
+        .sql()?
+        .query_map([], |row| row.get(0))
+        .sql()?
+        .collect::<rusqlite::Result<_>>()
+        .sql()?;
+    for run in runs {
+        let mut held = db
+            .prepare(
+                "SELECT t.text FROM review_call c JOIN review_text t ON t.hash = c.prompt WHERE c.run_id = ?1
+                 UNION ALL
+                 SELECT t.text FROM review_exchange e JOIN review_call c ON c.id = e.call_id JOIN review_text t ON t.hash IN (e.system_hash, e.message_hash) WHERE c.run_id = ?1
+                 UNION ALL
+                 SELECT e.output FROM review_exchange e JOIN review_call c ON c.id = e.call_id WHERE c.run_id = ?1",
+            )
+            .sql()?;
+        let held: Vec<String> = held
+            .query_map(params![run], |row| row.get(0))
+            .sql()?
+            .collect::<rusqlite::Result<_>>()
+            .sql()?;
+        texts.keep_run(run, held.iter().map(String::as_str))?;
     }
-    format!("{hash:016x}-{}", text.len())
-}
-
-/// Keeps <text> once under its hash and returns the hash.
-fn keep_text(db: &Connection, text: &str) -> Result<String> {
-    let hash = text_hash(text);
-    db.execute(
-        "INSERT OR IGNORE INTO review_text (hash, text) VALUES (?1, ?2)",
-        params![hash, text],
-    )
-    .sql()?;
-    Ok(hash)
-}
-
-/// Makes `review_text` again as a table with row ids, as record.sql writes
-/// it, with every text. A store from before kept the texts without row ids,
-/// where each lookup by hash read whole texts.
-pub fn move_texts_to_table_with_row_ids(db: &Connection) -> Result<()> {
     crate::db::remake_table(
         db,
-        "review_text",
-        crate::db::statement(crate::db::REVIEW_PART, "CREATE TABLE review_text", ";"),
+        "review_call",
+        crate::db::statement(
+            crate::db::REVIEW_PART,
+            "CREATE TABLE review_call",
+            ") STRICT;",
+        ),
         |db| {
-            db.execute_batch(
-                "INSERT INTO review_text (hash, text) SELECT hash, text FROM review_text_old",
-            )
-            .sql()
+            db.execute_batch("INSERT INTO review_call SELECT * FROM review_call_old")
+                .sql()
         },
-        &[],
-    )
+        &[crate::db::statement(
+            crate::db::REVIEW_PART,
+            "CREATE INDEX review_call_run",
+            ";",
+        )],
+    )?;
+    crate::db::remake_table(
+        db,
+        "review_exchange",
+        crate::db::statement(
+            crate::db::REVIEW_PART,
+            "CREATE TABLE review_exchange",
+            ") STRICT;",
+        ),
+        |db| {
+            let mut old = db
+                .prepare(
+                    "SELECT id, call_id, model, unit, pass, system_hash, message_hash, output, tokens_in, tokens_out, tokens_cached, tokens_written FROM review_exchange_old",
+                )
+                .sql()?;
+            let mut rows = old.query([]).sql()?;
+            while let Some(row) = rows.next().sql()? {
+                let output: String = row.get(7).sql()?;
+                db.execute(
+                    "INSERT INTO review_exchange (id, call_id, model, unit, pass, system_hash, message_hash, output_hash, tokens_in, tokens_out, tokens_cached, tokens_written) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+                    params![
+                        row.get::<_, i64>(0).sql()?,
+                        row.get::<_, i64>(1).sql()?,
+                        row.get::<_, String>(2).sql()?,
+                        row.get::<_, String>(3).sql()?,
+                        row.get::<_, i64>(4).sql()?,
+                        row.get::<_, String>(5).sql()?,
+                        row.get::<_, String>(6).sql()?,
+                        texts::hash(&output),
+                        row.get::<_, i64>(8).sql()?,
+                        row.get::<_, i64>(9).sql()?,
+                        row.get::<_, i64>(10).sql()?,
+                        row.get::<_, i64>(11).sql()?,
+                    ],
+                )
+                .sql()?;
+            }
+            Ok(())
+        },
+        &[crate::db::statement(
+            crate::db::REVIEW_PART,
+            "CREATE INDEX review_exchange_call",
+            ";",
+        )],
+    )?;
+    db.execute_batch("DROP TABLE review_text;").sql()
 }
 
 /// Writes a run with its calls, verdicts and findings, and closes each
-/// finding a call closes. Returns the run's id and, per call in order, the
-/// ids its findings got.
-pub fn add_run(db: &Connection, run: &NewRun, calls: &[NewCall]) -> Result<(i64, Vec<Vec<i64>>)> {
+/// finding a call closes, and keeps the run's texts in <texts>. Returns the
+/// run's id and, per call in order, the ids its findings got. The texts are
+/// kept after the rows, so a failure to keep them fails the write, which the
+/// caller's transaction then rolls back.
+pub fn add_run(
+    db: &Connection,
+    texts: &Texts,
+    run: &NewRun,
+    calls: &[NewCall],
+) -> Result<(i64, Vec<Vec<i64>>)> {
     let changed_lines = match run.kind {
         Kind::Review { changed_lines } => Some(changed_lines),
         Kind::Replay | Kind::Audit | Kind::Copy => None,
@@ -383,7 +447,18 @@ pub fn add_run(db: &Connection, run: &NewRun, calls: &[NewCall]) -> Result<(i64,
     )
     .sql()?;
     let run_id = db.last_insert_rowid();
-    Ok((run_id, add_calls(db, run_id, run.landing, calls)?))
+    let ids = add_calls(db, run_id, run.landing, calls)?;
+    texts.keep_run(
+        run_id,
+        calls.iter().flat_map(|call| {
+            std::iter::once(call.prompt.as_str()).chain(
+                call.exchanges
+                    .iter()
+                    .flat_map(|e| [e.system.as_str(), e.message.as_str(), e.output.as_str()]),
+            )
+        }),
+    )?;
+    Ok((run_id, ids))
 }
 
 /// Writes <calls> of run <run_id>, a run of <landing>, with their verdicts,
@@ -398,7 +473,7 @@ pub fn add_calls(
     let mut ids = Vec::new();
     for call in calls {
         let rules = serde_json::to_string(&call.rules).expect("strings serialize");
-        let prompt = keep_text(db, &call.prompt)?;
+        let prompt = texts::hash(&call.prompt);
         db.execute(
             "INSERT INTO review_call (run_id, group_name, model, prompt, rules, tokens_in, tokens_out, tokens_cached, tokens_written, cost_microdollars, sites, failure) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
             params![run_id, call.group, call.model, prompt, rules, call.tokens_in, call.tokens_out, call.tokens_cached, call.tokens_written, call.cost_microdollars, call.sites, call.failure],
@@ -413,11 +488,12 @@ pub fn add_calls(
             .sql()?;
         }
         for exchange in &call.exchanges {
-            let system_hash = keep_text(db, &exchange.system)?;
-            let message_hash = keep_text(db, &exchange.message)?;
+            let system_hash = texts::hash(&exchange.system);
+            let message_hash = texts::hash(&exchange.message);
+            let output_hash = texts::hash(&exchange.output);
             db.execute(
-                "INSERT INTO review_exchange (call_id, model, unit, pass, system_hash, message_hash, output, tokens_in, tokens_out, tokens_cached, tokens_written) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
-                params![call_id, exchange.model, exchange.unit, exchange.pass, system_hash, message_hash, exchange.output, exchange.tokens_in, exchange.tokens_out, exchange.tokens_cached, exchange.tokens_written],
+                "INSERT INTO review_exchange (call_id, model, unit, pass, system_hash, message_hash, output_hash, tokens_in, tokens_out, tokens_cached, tokens_written) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+                params![call_id, exchange.model, exchange.unit, exchange.pass, system_hash, message_hash, output_hash, exchange.tokens_in, exchange.tokens_out, exchange.tokens_cached, exchange.tokens_written],
             )
             .sql()?;
             crate::review::exchange_time::record(
@@ -639,17 +715,25 @@ pub fn calls_of_run(db: &Connection, run: i64) -> Result<Vec<Call>> {
 }
 
 /// The messages builds sent to each process of the call of <group> in <run>,
-/// in the order it sent them.
-pub fn messages_of_call(db: &Connection, run: i64, group: &str) -> Result<Vec<String>> {
+/// in the order it sent them, read from <texts>. Fails when the cap deleted
+/// the run's texts.
+pub fn messages_of_call(
+    db: &Connection,
+    texts: &Texts,
+    run: i64,
+    group: &str,
+) -> Result<Vec<String>> {
     let mut statement = db
         .prepare(
-            "SELECT t.text FROM review_exchange e JOIN review_call c ON c.id = e.call_id JOIN review_text t ON t.hash = e.message_hash WHERE c.run_id = ?1 AND c.group_name = ?2 ORDER BY e.id",
+            "SELECT e.message_hash FROM review_exchange e JOIN review_call c ON c.id = e.call_id WHERE c.run_id = ?1 AND c.group_name = ?2 ORDER BY e.id",
         )
         .sql()?;
-    let rows = statement
-        .query_map(params![run, group], |row| row.get(0))
+    let hashes = statement
+        .query_map(params![run, group], |row| row.get::<_, String>(0))
+        .sql()?
+        .collect::<rusqlite::Result<Vec<String>>>()
         .sql()?;
-    rows.collect::<rusqlite::Result<Vec<String>>>().sql()
+    hashes.iter().map(|hash| texts.read(run, hash)).collect()
 }
 
 /// The calls of every run of <kind> (`review`, `replay` or `audit`).

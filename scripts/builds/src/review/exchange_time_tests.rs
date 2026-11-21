@@ -53,6 +53,7 @@ fn each_exchange_a_run_stores_keeps_its_start_and_its_time() {
     .unwrap();
     add_run(
         &db,
+        &crate::review::texts::scratch(),
         &NewRun {
             landing: Some(landing),
             kind: Kind::Review { changed_lines: 3 },
@@ -102,6 +103,7 @@ fn the_table_refuses_a_second_time_for_one_exchange() {
     .unwrap();
     add_run(
         &db,
+        &crate::review::texts::scratch(),
         &NewRun {
             landing: Some(landing),
             kind: Kind::Review { changed_lines: 3 },

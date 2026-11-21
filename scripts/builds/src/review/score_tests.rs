@@ -439,7 +439,13 @@ fn a_finding_settled_again_counts_as_dropped_and_a_closed_or_allowed_one_as_conf
         since: None,
         rules_version: "",
     };
-    let (_, ids) = record::add_run(&db, &new_run, std::slice::from_ref(&call)).unwrap();
+    let (_, ids) = record::add_run(
+        &db,
+        &crate::review::texts::scratch(),
+        &new_run,
+        std::slice::from_ref(&call),
+    )
+    .unwrap();
     let (wrong, gone, allowed) = (ids[0][0], ids[0][1], ids[0][2]);
     for id in [wrong, gone, allowed] {
         record::settle(&db, id, "confirmed", "real", 7, "me").unwrap();
@@ -455,6 +461,7 @@ fn a_finding_settled_again_counts_as_dropped_and_a_closed_or_allowed_one_as_conf
     };
     record::add_run(
         &db,
+        &crate::review::texts::scratch(),
         &record::NewRun {
             head: "h2",
             ..new_run
@@ -561,7 +568,8 @@ fn a_first_review_records_its_changed_lines_and_its_groups_confirmed_findings() 
         call("words", vec![raised.clone(), raised.clone()]),
         call("code", Vec::new()),
     ];
-    let (_, ids) = record::add_run(&db, &new_run, &calls).unwrap();
+    let (_, ids) =
+        record::add_run(&db, &crate::review::texts::scratch(), &new_run, &calls).unwrap();
     record::settle(&db, ids[0][0], "confirmed", "real", 7, "me").unwrap();
     record::settle(&db, ids[0][1], "dropped", "wrong", 7, "me").unwrap();
     let later = record::NewRun {
@@ -569,8 +577,13 @@ fn a_first_review_records_its_changed_lines_and_its_groups_confirmed_findings() 
         kind: Kind::Review { changed_lines: 5 },
         ..new_run
     };
-    let (_, later_ids) =
-        record::add_run(&db, &later, &[call("words", vec![raised.clone()])]).unwrap();
+    let (_, later_ids) = record::add_run(
+        &db,
+        &crate::review::texts::scratch(),
+        &later,
+        &[call("words", vec![raised.clone()])],
+    )
+    .unwrap();
     record::settle(&db, later_ids[0][0], "confirmed", "real", 8, "me").unwrap();
     let reviews = record::first_reviews(&db).unwrap();
     assert_eq!(reviews.len(), 1, "{reviews:?}");

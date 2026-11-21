@@ -30,6 +30,8 @@ use crate::places::Places;
 pub struct Store {
     pub project: String,
     pub dir: PathBuf,
+    /// Where the project's reviews keep their texts (review/texts.rs).
+    pub texts: crate::review::texts::Texts,
 }
 
 impl Store {
@@ -41,6 +43,7 @@ impl Store {
         Ok(Store {
             project: project.to_string(),
             dir: places.lists.join(project),
+            texts: crate::review::texts::Texts::of(places, project),
         })
     }
 

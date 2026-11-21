@@ -146,6 +146,9 @@ on it:
                         the board pictures shots runs drew, by board hash,
                         and the shots the apps took, by app source tree (APP
                         BUILDS)
+  review-texts/<project>/<run>/
+                        the texts of each review run (DISK), one file per
+                        text, named for the text's hash
   .trash/               folders being deleted in the background
   .trash.lock           taken shared by each deletion into .trash, and
                         exclusive only by the floor and prune, to rename
@@ -1860,6 +1863,16 @@ which a step on this Mac does while it runs and a step on a host does while
 builds copies a before run and pictures to the host and the new pictures
 back. `status` shows each repo's folder's
 size against the cap.
+
+Review texts. The folder review-texts holds what each review run sent its
+reviewers and what they answered, one folder per run, with a cap of 2 GiB; the
+project's store holds only the findings, verdicts and settles, and the hash of
+each text. `setup` and `prune` delete whole runs' texts while the folder is
+over its cap, least recently used first, as they do shots runs: a run's last
+use is when it was recorded or when builds last read a text of it, and a run
+used in the last 30 minutes stays. Once a run's texts are gone, a command that
+needs one (`builds review audit`, `propose`) says so and goes on to the next.
+`status` shows the folder's size against its cap.
 
 When xcodebuild fails with "Couldn't check out revision" or "file not found" on
 a SwiftPM dependency (often Sparkle), its cache is corrupt: disconnect any VPN

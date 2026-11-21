@@ -404,7 +404,7 @@ fn misses(inputs: &Inputs, conn: &rusqlite::Connection) -> Result<String> {
             let Some(first) = of_run.first() else {
                 continue;
             };
-            let diff = match diff_read(conn, first) {
+            let diff = match diff_read(conn, &inputs.store.texts, first) {
                 Ok(diff) => diff,
                 Err(why) => {
                     text.push_str(&format!(

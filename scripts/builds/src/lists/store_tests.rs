@@ -375,6 +375,7 @@ fn two_process_child() {
     let store = Store {
         project: "demo".into(),
         dir: PathBuf::from(dir),
+        texts: crate::review::texts::scratch(),
     };
     let started = std::time::Instant::now();
     while !Path::new(&go).exists() {

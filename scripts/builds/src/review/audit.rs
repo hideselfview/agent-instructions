@@ -27,6 +27,7 @@ use crate::review::record::{self, Finding, Kind, NewRun};
 use crate::review::render;
 use crate::review::rules::Rule;
 use crate::review::run::{self, Diff, Material};
+use crate::review::texts::Texts;
 
 /// The share of landings audited when nothing says to audit more.
 pub const BASE_CHANCE: f64 = 0.05;
@@ -346,6 +347,7 @@ pub fn audit(inputs: &Inputs) -> Result<String> {
                 ] {
                     let (id, _) = record::add_run(
                         db,
+                        &inputs.store.texts,
                         &NewRun {
                             landing: Some(inputs.landing),
                             kind: Kind::Audit,
@@ -462,9 +464,13 @@ pub fn open_misses(db: &Connection) -> Result<Vec<(i64, Finding)>> {
 
 /// The diff the audit reviewer that raised <miss> read, from the message the
 /// store keeps; the commits it read may be gone from every repo.
-pub(super) fn diff_read(db: &Connection, miss: &Finding) -> std::result::Result<Diff, String> {
+pub(super) fn diff_read(
+    db: &Connection,
+    texts: &Texts,
+    miss: &Finding,
+) -> std::result::Result<Diff, String> {
     let messages =
-        record::messages_of_call(db, miss.run_id, &miss.group).map_err(|why| why.text())?;
+        record::messages_of_call(db, texts, miss.run_id, &miss.group).map_err(|why| why.text())?;
     let text = messages
         .first()
         .and_then(|message| prompt::diff_of_message(message))
@@ -490,7 +496,7 @@ pub fn check_open_misses(inputs: &OpenMisses) -> Result<(String, bool)> {
     let open = open_misses(&conn)?;
     let mut asked: Vec<(&Finding, Diff)> = Vec::new();
     for (_, miss) in &open {
-        match diff_read(&conn, miss) {
+        match diff_read(&conn, &inputs.store.texts, miss) {
             Ok(diff) => asked.push((miss, diff)),
             Err(why) => {
                 failed = true;

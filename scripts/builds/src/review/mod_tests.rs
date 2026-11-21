@@ -481,6 +481,7 @@ fn a_run_that_read_a_stretch_of_commits_is_not_the_last_review() {
         .write(&stamp, "stretch", |db| {
             record::add_run(
                 db,
+                &crate::review::texts::scratch(),
                 &record::NewRun {
                     landing: Some(landing),
                     kind: Kind::Review { changed_lines: 0 },
@@ -1551,9 +1552,16 @@ fn a_review_of_a_given_head_reads_a_copy_and_keeps_what_each_reviewer_was_sent_a
     let conn = demo.store.open_existing().unwrap();
     let (system, message, output, tokens): (String, String, String, i64) = conn
         .query_row(
-            "SELECT s.text, m.text, e.output, e.tokens_in FROM review_exchange e JOIN review_text s ON s.hash = e.system_hash JOIN review_text m ON m.hash = e.message_hash",
+            "SELECT run_id, system_hash, message_hash, output_hash, e.tokens_in FROM review_exchange e JOIN review_call c ON c.id = e.call_id",
             [],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            |row| {
+                let run: i64 = row.get(0)?;
+                let read = |index: usize| -> rusqlite::Result<String> {
+                    let hash: String = row.get(index)?;
+                    Ok(demo.store.texts.read(run, &hash).unwrap())
+                };
+                Ok((read(1)?, read(2)?, read(3)?, row.get(4)?))
+            },
         )
         .unwrap();
     assert!(

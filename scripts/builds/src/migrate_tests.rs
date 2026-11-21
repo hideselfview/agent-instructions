@@ -1174,7 +1174,7 @@ fn a_store_from_before_the_over_cap_table_gains_it_and_equals_a_fresh_schema() {
 fn the_review_section_heading_only_stamp_is_the_schema_before_it() {
     assert_eq!(
         stamp_before_show_now(before_land_app_steps(with_review_section_words(
-            with_design_variants(db::with_shot_findings(db::schema()))
+            with_design_variants(db::with_review_texts(db::with_shot_findings(db::schema())))
         ))),
         BEFORE_REVIEW_SECTION_HEADING_ONLY_STAMP
     );
@@ -1192,7 +1192,7 @@ fn a_store_from_before_the_review_section_kept_only_its_heading_keeps_each_headi
     {
         let conn = Connection::open(&path).unwrap();
         conn.execute_batch(&before_app_build_stopped(with_review_section_words(
-            with_design_variants(db::with_shot_findings(db::schema())),
+            with_design_variants(db::with_review_texts(db::with_shot_findings(db::schema()))),
         )))
         .unwrap();
         conn.pragma_update(
@@ -1257,7 +1257,7 @@ fn a_store_from_before_the_review_section_kept_only_its_heading_keeps_each_headi
 fn the_design_variants_left_stamp_is_the_schema_before_it() {
     assert_eq!(
         stamp_before_show_now(before_land_app_steps(with_design_variants(
-            db::with_shot_findings(db::schema())
+            db::with_review_texts(db::with_shot_findings(db::schema()))
         ))),
         BEFORE_DESIGN_VARIANTS_LEFT_STAMP
     );
@@ -1276,7 +1276,7 @@ fn a_store_from_before_the_design_variants_left_loses_their_tables() {
     {
         let conn = Connection::open(&path).unwrap();
         conn.execute_batch(&before_app_build_stopped(with_design_variants(
-            db::with_shot_findings(db::schema()),
+            db::with_review_texts(db::with_shot_findings(db::schema())),
         )))
         .unwrap();
         conn.pragma_update(None, "user_version", BEFORE_DESIGN_VARIANTS_LEFT_STAMP)
@@ -1332,7 +1332,9 @@ INSERT INTO design_variant (design_id, position, props) VALUES (1, 0, '{{}}');",
 #[test]
 fn the_land_app_steps_stamp_is_the_schema_before_it() {
     assert_eq!(
-        stamp_before_show_now(before_land_app_steps(db::with_shot_findings(db::schema()))),
+        stamp_before_show_now(before_land_app_steps(db::with_review_texts(
+            db::with_shot_findings(db::schema())
+        ))),
         BEFORE_LAND_APP_STEPS_STAMP
     );
 }
@@ -1370,7 +1372,7 @@ fn a_store_from_before_the_app_landing_steps_keeps_its_steps_and_takes_them() {
     {
         let mut conn = Connection::open(&path).unwrap();
         conn.execute_batch(&before_app_build_stopped(before_land_app_steps(
-            db::with_shot_findings(db::schema()),
+            db::with_review_texts(db::with_shot_findings(db::schema())),
         )))
         .unwrap();
         conn.pragma_update(None, "user_version", BEFORE_LAND_APP_STEPS_STAMP)
@@ -1398,7 +1400,7 @@ fn a_store_from_before_the_app_landing_steps_keeps_its_steps_and_takes_them() {
 fn the_review_board_show_now_stamp_is_the_schema_before_it() {
     assert_eq!(
         db::stamp_of_text(&before_review_board_show_now(before_app_build_stopped(
-            db::with_shot_findings(db::schema())
+            db::with_review_texts(db::with_shot_findings(db::schema()))
         ))),
         BEFORE_REVIEW_BOARD_SHOW_NOW_STAMP
     );
@@ -1417,7 +1419,7 @@ fn a_store_from_before_the_review_boards_show_now_keeps_each_board_with_its_now(
     {
         let conn = Connection::open(&path).unwrap();
         conn.execute_batch(&before_app_build_stopped(before_review_board_show_now(
-            db::with_shot_findings(db::schema()),
+            db::with_review_texts(db::with_shot_findings(db::schema())),
         )))
         .unwrap();
         conn.pragma_update(None, "user_version", BEFORE_REVIEW_BOARD_SHOW_NOW_STAMP)
@@ -1500,8 +1502,8 @@ fn a_store_from_before_the_review_boards_show_now_keeps_each_board_with_its_now(
 #[test]
 fn the_app_build_stopped_stamp_is_the_schema_before_it() {
     assert_eq!(
-        db::stamp_of_text(&before_app_build_stopped(db::with_shot_findings(
-            db::schema()
+        db::stamp_of_text(&before_app_build_stopped(db::with_review_texts(
+            db::with_shot_findings(db::schema())
         ))),
         BEFORE_APP_BUILD_STOPPED_STAMP
     );
@@ -1519,8 +1521,8 @@ fn a_store_from_before_stopped_app_builds_keeps_each_run_with_how_it_ended() {
     let path = dir.join(DATABASE);
     {
         let conn = Connection::open(&path).unwrap();
-        conn.execute_batch(&before_app_build_stopped(db::with_shot_findings(
-            db::schema(),
+        conn.execute_batch(&before_app_build_stopped(db::with_review_texts(
+            db::with_shot_findings(db::schema()),
         )))
         .unwrap();
         conn.pragma_update(None, "user_version", BEFORE_APP_BUILD_STOPPED_STAMP)
@@ -1585,7 +1587,7 @@ INSERT INTO app_build_steps (run_id, position, name, kind, started_at, wall_ms, 
 #[test]
 fn the_shots_on_volume_stamp_is_the_schema_before_it() {
     assert_eq!(
-        db::stamp_of_text(&db::with_shot_findings(db::schema())),
+        db::stamp_of_text(&db::with_review_texts(db::with_shot_findings(db::schema()))),
         BEFORE_SHOTS_ON_VOLUME_STAMP
     );
 }
@@ -1604,7 +1606,7 @@ fn a_store_from_before_the_shots_runs_left_it_loses_their_table_and_reports() {
     let path = dir.join(DATABASE);
     {
         let conn = Connection::open(&path).unwrap();
-        conn.execute_batch(&db::with_shot_findings(db::schema()))
+        conn.execute_batch(&db::with_review_texts(db::with_shot_findings(db::schema())))
             .unwrap();
         conn.pragma_update(None, "user_version", BEFORE_SHOTS_ON_VOLUME_STAMP)
             .unwrap();
@@ -1638,7 +1640,7 @@ fn a_store_from_before_the_shots_runs_left_it_shrinks_by_what_their_table_held()
     let path = dir.join(DATABASE);
     {
         let conn = Connection::open(&path).unwrap();
-        conn.execute_batch(&db::with_shot_findings(db::schema()))
+        conn.execute_batch(&db::with_review_texts(db::with_shot_findings(db::schema())))
             .unwrap();
         conn.pragma_update(None, "user_version", BEFORE_SHOTS_ON_VOLUME_STAMP)
             .unwrap();
@@ -1653,4 +1655,71 @@ fn a_store_from_before_the_shots_runs_left_it_shrinks_by_what_their_table_held()
     assert!(before > 2_000_000, "{before}");
     migrate_stores(&places, 0).unwrap();
     assert!(size(&path) < 1_000_000, "{} after the move", size(&path));
+}
+
+#[test]
+fn the_review_texts_on_volume_stamp_is_the_schema_before_it() {
+    assert_eq!(
+        db::stamp_of_text(&db::with_review_texts(db::schema())),
+        BEFORE_REVIEW_TEXTS_ON_VOLUME_STAMP
+    );
+}
+
+/// A store from before builds kept the review texts on the build volume
+/// writes each run's texts there, holds the hash of each answer in place of
+/// the answer, loses the texts' table, keeps every record, and equals a fresh
+/// schema.
+#[test]
+fn a_store_from_before_the_review_texts_left_it_keeps_them_on_the_volume_and_holds_hashes() {
+    use crate::review::texts::{Texts, hash};
+    let scratch = Scratch::new("move-review-texts");
+    let places = scratch.places();
+    let dir = places.lists.join("bae");
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join(DATABASE);
+    {
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(&db::with_review_texts(db::schema()))
+            .unwrap();
+        conn.pragma_update(None, "user_version", BEFORE_REVIEW_TEXTS_ON_VOLUME_STAMP)
+            .unwrap();
+        conn.execute_batch(&format!(
+            "INSERT INTO review_run (id, kind, at, base, head, rules_version) VALUES (4, 'replay', 5, 'b', 'h', '');
+INSERT INTO review_text (hash, text) VALUES ('{prompt}', 'the prompt'), ('{system}', 'the system'), ('{message}', 'the message');
+INSERT INTO review_call (id, run_id, group_name, model, prompt, rules, tokens_in, tokens_out, tokens_cached, tokens_written) VALUES (9, 4, 'g', 'm', '{prompt}', '[]', 1, 1, 0, 0);
+INSERT INTO review_exchange (id, call_id, model, unit, pass, system_hash, message_hash, output, tokens_in, tokens_out, tokens_cached, tokens_written) VALUES (6, 9, 'm', 'f', 0, '{system}', '{message}', 'the answer', 1, 1, 0, 0);
+INSERT INTO review_exchange_time (exchange_id, started_at, ms) VALUES (6, 5, 7);",
+            prompt = hash("the prompt"),
+            system = hash("the system"),
+            message = hash("the message"),
+        ))
+        .unwrap();
+    }
+    migrate_stores(&places, 0).unwrap();
+    let conn = db::open(&path, db::Make::Never).unwrap();
+    assert_eq!(
+        db::schema_rows(&conn).unwrap(),
+        db::schema_rows(&db::memory()).unwrap()
+    );
+    let (prompt, output_hash): (String, String) = conn
+        .query_row(
+            "SELECT c.prompt, e.output_hash FROM review_exchange e JOIN review_call c ON c.id = e.call_id WHERE e.id = 6",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!(output_hash, hash("the answer"));
+    let texts = Texts::of(&places, "bae");
+    for (hash, text) in [
+        (prompt.as_str(), "the prompt"),
+        (output_hash.as_str(), "the answer"),
+    ] {
+        assert_eq!(texts.read(4, hash).unwrap(), text);
+    }
+    let times: i64 = conn
+        .query_row("SELECT count(*) FROM review_exchange_time", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    assert_eq!(times, 1);
 }

@@ -145,6 +145,7 @@ pub fn replay(inputs: &Inputs) -> Result<Replayed> {
                     .write(stamp, &format!("review replay {label}"), |db| {
                         let (id, _) = record::add_run(
                             db,
+                            &inputs.store.texts,
                             &NewRun {
                                 landing: None,
                                 kind: Kind::Replay,

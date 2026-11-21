@@ -69,9 +69,9 @@ CREATE TABLE review_call (
     -- The group's prompt without what each review brings (the change, the
     -- project's instructions and the brief): the system prompt's opening, the
     -- group's question, how to answer, its rules' text, its passes and the
-    -- answer schema (prompt::setup). Calls with the same model and prompt ran
-    -- the same setup.
-    prompt TEXT NOT NULL REFERENCES review_text (hash),
+    -- answer schema (prompt::setup), as the hash its text is kept under
+    -- (texts.rs). Calls with the same model and prompt ran the same setup.
+    prompt TEXT NOT NULL,
     -- The rule slugs the reviewer answers for, as a JSON array.
     rules TEXT NOT NULL,
     -- All input tokens: uncached, read from the cache and written to it.
@@ -91,20 +91,11 @@ CREATE TABLE review_call (
 ) STRICT;
 CREATE INDEX review_call_run ON review_call (run_id);
 
--- The texts a reviewer was sent (each exchange's system prompt and message)
--- and each call's prompt, kept once each by its hash (an FNV-1a hash and the
--- length). A table with row ids: the hash's own index holds the hashes alone,
--- so a lookup by hash, such as each foreign key check of the rows that point
--- here, reads no text. Without row ids, the texts sit in the tree a lookup
--- descends, and each step reads a whole text.
-CREATE TABLE review_text (
-    hash TEXT PRIMARY KEY,
-    text TEXT NOT NULL
-) STRICT;
-
 -- One `claude -p` process of a call: a group asks once for each changed file
 -- it reads and once for each of its passes. The system prompt and the message
 -- are what it was sent; the output is its JSON answer, or why it gave none.
+-- The three are kept as the hashes of their texts, which builds keeps on the
+-- build volume for a while (texts.rs).
 CREATE TABLE review_exchange (
     id INTEGER PRIMARY KEY,
     call_id INTEGER NOT NULL REFERENCES review_call (id),
@@ -112,9 +103,9 @@ CREATE TABLE review_exchange (
     -- The file the exchange read, empty for a whole diff.
     unit TEXT NOT NULL,
     pass INTEGER NOT NULL,
-    system_hash TEXT NOT NULL REFERENCES review_text (hash),
-    message_hash TEXT NOT NULL REFERENCES review_text (hash),
-    output TEXT NOT NULL,
+    system_hash TEXT NOT NULL,
+    message_hash TEXT NOT NULL,
+    output_hash TEXT NOT NULL,
     tokens_in INTEGER NOT NULL CONSTRAINT review_exchange_tokens_in_not_negative CHECK (tokens_in >= 0),
     tokens_out INTEGER NOT NULL CONSTRAINT review_exchange_tokens_out_not_negative CHECK (tokens_out >= 0),
     tokens_cached INTEGER NOT NULL CONSTRAINT review_exchange_tokens_cached_not_negative CHECK (tokens_cached >= 0),

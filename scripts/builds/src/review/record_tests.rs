@@ -80,6 +80,7 @@ fn a_landing_stays_open_until_it_lands_and_names_its_last_review() {
     assert_eq!(open_landing(&db, k).unwrap(), Some(landing));
     let (run_id, _) = add_run(
         &db,
+        &crate::review::texts::scratch(),
         &run(Some(landing), 6, "base", "head"),
         &[call("g1", None)],
     )
@@ -114,6 +115,7 @@ fn a_finding_builds_dropped_cannot_be_settled_and_a_settled_one_cannot_be_settle
     let landing = add_landing(&db, k, 5).unwrap();
     let (_, ids) = add_run(
         &db,
+        &crate::review::texts::scratch(),
         &run(Some(landing), 6, "b", "h"),
         &[
             call("g1", Some(("r", true, Some("gone")))),
@@ -143,6 +145,7 @@ fn settling_again_drops_a_confirmed_finding_and_keeps_both_settles() {
     let landing = add_landing(&db, k, 5).unwrap();
     let (_, ids) = add_run(
         &db,
+        &crate::review::texts::scratch(),
         &run(Some(landing), 6, "b", "h"),
         &[
             call("g1", Some(("r", true, None))),
@@ -200,6 +203,7 @@ fn a_later_run_closes_an_open_confirmed_finding_once_and_a_closed_one_stays_conf
     let landing = add_landing(&db, k, 5).unwrap();
     let (_, ids) = add_run(
         &db,
+        &crate::review::texts::scratch(),
         &run(Some(landing), 6, "b", "h"),
         &[call("g1", Some(("r", true, None)))],
     )
@@ -210,6 +214,7 @@ fn a_later_run_closes_an_open_confirmed_finding_once_and_a_closed_one_stays_conf
     assert!(
         add_run(
             &db,
+            &crate::review::texts::scratch(),
             &run(Some(landing), 7, "b", "h2"),
             std::slice::from_ref(&closing)
         )
@@ -231,6 +236,7 @@ fn a_later_run_closes_an_open_confirmed_finding_once_and_a_closed_one_stays_conf
     assert!(
         add_run(
             &db,
+            &crate::review::texts::scratch(),
             &run(Some(other), 8, "b", "h2"),
             std::slice::from_ref(&closing)
         )
@@ -238,7 +244,13 @@ fn a_later_run_closes_an_open_confirmed_finding_once_and_a_closed_one_stays_conf
         .text()
         .contains("not a finding of the landing")
     );
-    let (closer, _) = add_run(&db, &run(Some(landing), 8, "b", "h2"), &[closing]).unwrap();
+    let (closer, _) = add_run(
+        &db,
+        &crate::review::texts::scratch(),
+        &run(Some(landing), 8, "b", "h2"),
+        &[closing],
+    )
+    .unwrap();
     let found = finding_of(&db, finding).unwrap();
     assert_eq!(found.closed_by, Some(closer));
     assert!(!found.is_open() && found.settled_as("confirmed"));
@@ -267,6 +279,7 @@ fn the_person_allows_an_open_confirmed_finding_which_stays_confirmed_and_is_no_l
     let landing = add_landing(&db, k, 5).unwrap();
     let (_, ids) = add_run(
         &db,
+        &crate::review::texts::scratch(),
         &run(Some(landing), 6, "b", "h"),
         &[
             call("g1", Some(("r", true, None))),
@@ -332,12 +345,22 @@ fn the_person_allows_an_open_confirmed_finding_which_stays_confirmed_and_is_no_l
 #[test]
 fn a_review_run_needs_a_landing() {
     let db = db();
-    assert!(add_run(&db, &run(None, 1, "b", "h"), &[]).is_err());
+    assert!(
+        add_run(
+            &db,
+            &crate::review::texts::scratch(),
+            &run(None, 1, "b", "h"),
+            &[]
+        )
+        .is_err()
+    );
 }
 
 #[test]
-fn every_exchange_of_a_call_is_kept_with_its_texts_once_each() {
+fn every_exchange_of_a_call_is_kept_with_the_hashes_of_its_texts_and_the_run_keeps_the_texts_once_each()
+ {
     let db = db();
+    let texts = crate::review::texts::scratch();
     let repo = first_repo(&db);
     let k = Change {
         repo: &repo,
@@ -350,7 +373,7 @@ fn every_exchange_of_a_call_is_kept_with_its_texts_once_each() {
     second.message = "another message".to_string();
     second.output = "no answer: boom".to_string();
     one.exchanges.push(second);
-    let (run, _) = add_run(&db, &run(Some(landing), 6, "b", "h"), &[one]).unwrap();
+    let (run, _) = add_run(&db, &texts, &run(Some(landing), 6, "b", "h"), &[one]).unwrap();
     let exchanges: i64 = db
         .query_row(
             "SELECT COUNT(*) FROM review_exchange e JOIN review_call c ON c.id = e.call_id WHERE c.run_id = ?1",
@@ -359,21 +382,43 @@ fn every_exchange_of_a_call_is_kept_with_its_texts_once_each() {
         )
         .unwrap();
     assert_eq!(exchanges, 2);
-    let texts: i64 = db
-        .query_row("SELECT COUNT(*) FROM review_text", [], |row| row.get(0))
-        .unwrap();
-    assert_eq!(
-        texts, 4,
-        "the shared system prompt is kept once, beside the two messages and the call's prompt"
-    );
-    let kept: String = db
+    let hash: String = db
         .query_row(
-            "SELECT t.text FROM review_exchange e JOIN review_text t ON t.hash = e.message_hash WHERE e.unit = 'other'",
+            "SELECT message_hash FROM review_exchange WHERE unit = 'other'",
             [],
             |row| row.get(0),
         )
         .unwrap();
-    assert_eq!(kept, "another message");
+    assert_eq!(texts.read(run, &hash).unwrap(), "another message");
+    assert_eq!(
+        messages_of_call(&db, &texts, run, "g").unwrap(),
+        ["message", "another message"]
+    );
+}
+
+#[test]
+fn a_run_whose_texts_the_cap_deleted_keeps_its_records_and_refuses_to_read_its_messages() {
+    let db = db();
+    let texts = crate::review::texts::scratch();
+    let repo = first_repo(&db);
+    let k = Change {
+        repo: &repo,
+        key: "k",
+    };
+    let landing = add_landing(&db, k, 5).unwrap();
+    let (run, _) = add_run(
+        &db,
+        &texts,
+        &run(Some(landing), 6, "b", "h"),
+        &[call("g", Some(("r", true, None)))],
+    )
+    .unwrap();
+    // A run of another id that holds no texts stands for the deleted ones.
+    let why = messages_of_call(&db, &crate::review::texts::scratch(), run, "g")
+        .unwrap_err()
+        .text();
+    assert!(why.contains("keeps no text"), "{why}");
+    assert_eq!(findings_of_run(&db, run).unwrap().len(), 1);
 }
 
 #[test]
@@ -394,32 +439,4 @@ fn branches_of_one_name_in_two_repos_are_two_changes_and_a_change_opens_one_land
     assert_eq!(open_landing(&db, bae).unwrap(), Some(in_bae));
     assert_eq!(open_landing(&db, coven).unwrap(), Some(in_coven));
     assert!(add_landing(&db, bae, 7).is_err());
-}
-
-/// A store from before the review's texts sat in a table with row ids gets
-/// that table with every text, and its schema then equals a fresh one's, so
-/// the tables that point at the texts still name them.
-#[test]
-fn the_move_to_a_table_with_row_ids_keeps_every_text() {
-    let db = Connection::open_in_memory().unwrap();
-    db.execute_batch(&crate::migrate::tests::before_review_text_rowid(
-        crate::db::schema(),
-    ))
-    .unwrap();
-    let hash = keep_text(&db, "the system prompt").unwrap();
-    // As migrate.rs runs a move.
-    db.pragma_update(None, "foreign_keys", false).unwrap();
-    move_texts_to_table_with_row_ids(&db).unwrap();
-    assert_eq!(
-        crate::db::schema_rows(&db).unwrap(),
-        crate::db::schema_rows(&crate::db::memory()).unwrap()
-    );
-    let text: String = db
-        .query_row(
-            "SELECT text FROM review_text WHERE hash = ?1",
-            [&hash],
-            |row| row.get(0),
-        )
-        .unwrap();
-    assert_eq!(text, "the system prompt");
 }

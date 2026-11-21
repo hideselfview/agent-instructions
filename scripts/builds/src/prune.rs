@@ -824,6 +824,7 @@ pub fn cmd_prune(tool: &Tool, args: &[String]) -> Result<()> {
     prune_derived_data(tool, run, derived_idle)?;
     prune_caches(tool, run)?;
     crate::shot_store::prune(tool, run)?;
+    crate::review::texts::prune(tool, run)?;
     prune_test_temps(tool, run)?;
     prune_temp_builds(tool, run)?;
     prune_scratchpads(tool, run)?;
