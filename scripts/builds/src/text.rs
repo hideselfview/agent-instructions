@@ -8,6 +8,11 @@ use std::path::Path;
 
 use crate::fail::{Context, Result};
 
+/// <bytes> as lowercase hex digits, two to a byte.
+pub fn hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
+}
+
 /// <count> and <word>, with an `s` unless the count is one: `1 file`,
 /// `3 files`.
 pub fn plural(count: usize, word: &str) -> String {

@@ -31,7 +31,6 @@ fn checked(name: &str, findings: Vec<Finding>, warnings: Vec<Warning>) -> Checke
         shot: ElementList::parse(LIST).unwrap(),
         pairs: Vec::new(),
         offset: (0.0, 0.0),
-        board_hash: "h".to_string(),
         board_png: "board.png".into(),
         shot_png: "shot.png".into(),
     }
@@ -93,12 +92,11 @@ fn each_finding_and_warning_is_a_record_with_its_kind_component_element_and_numb
             ],
         ),
     ];
-    let json: serde_json::Value = serde_json::from_str(&text("abc123", None, &checked)).unwrap();
+    let json: serde_json::Value = serde_json::from_str(&text("abc123", &checked)).unwrap();
     let expected = serde_json::json!({
         "version": crate::VERSION,
         "commit": "abc123",
         "scenes": ["mac.welcome.a", "mac.welcome.b"],
-        "boards": {"mac.welcome.a": "h", "mac.welcome.b": "h"},
         "findings": [
             {"scene": "mac.welcome.a", "level": "finding", "kind": "missing", "component": "MacRow",
              "element": {"role": "button", "words": "Set up"},
@@ -135,7 +133,7 @@ fn the_file_is_written_beside_the_report() {
         vec![Finding::Extra(entry("Beta", Role::Text))],
         Vec::new(),
     )];
-    write(dir.path(), "abc123", Some("tree1"), &checked).unwrap();
+    write(dir.path(), "abc123", &checked).unwrap();
     let json: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(dir.path().join(FILE)).unwrap()).unwrap();
     assert_eq!(json["findings"][0]["kind"], "extra");
@@ -145,7 +143,6 @@ fn the_file_is_written_beside_the_report() {
         "an element only the shot has has no component"
     );
     assert_eq!(json["scenes"], serde_json::json!(["mac.welcome.a"]));
-    assert_eq!(json["app_tree"], "tree1");
 }
 
 #[test]
@@ -156,12 +153,9 @@ fn a_later_run_compares_with_the_file_as_its_before_run() {
         vec![beta.clone()],
         vec![Warning::FrameOffset { dx: 1.0, dy: 0.0 }],
     )];
-    let before = crate::before::Before::parse(
-        &text("abc123", None, &checked),
-        "findings.json",
-        crate::VERSION,
-    )
-    .unwrap();
+    let before =
+        crate::before::Before::parse(&text("abc123", &checked), "findings.json", crate::VERSION)
+            .unwrap();
     assert_eq!(before.commit(), "abc123");
     let against = |findings: &[Finding]| {
         let sentences: Vec<String> = findings.iter().map(Finding::sentence).collect();

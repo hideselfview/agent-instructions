@@ -90,7 +90,7 @@ pub fn read(export: &Path) -> Result<(BTreeMap<String, String>, Vec<Upload>)> {
                     name,
                     size: bytes.len() as u64,
                     media_type: media_type.to_string(),
-                    sha256: hex(&Sha256::digest(&bytes)),
+                    sha256: crate::text::hex(&Sha256::digest(&bytes)),
                 };
                 uploads.push((asset, bytes));
             } else {
@@ -109,10 +109,6 @@ pub fn extension(name: &str) -> String {
     name.rsplit_once('.')
         .map(|(_, extension)| extension.to_ascii_lowercase())
         .unwrap_or_default()
-}
-
-fn hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
 /// The key of the record of the upload <name> in its group's `files`: the

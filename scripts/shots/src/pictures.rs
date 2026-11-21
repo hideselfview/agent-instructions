@@ -19,14 +19,26 @@ use std::path::{Path, PathBuf};
 /// A picture folder.
 pub(crate) struct Pictures {
     dir: PathBuf,
+    /// The time the run marks each picture it takes used: one time, read as
+    /// the run starts.
+    now: std::time::SystemTime,
 }
 
 /// The folder of the board pictures in a picture folder.
 const BOARDS: &str = "boards";
 
 impl Pictures {
-    pub(crate) fn new(dir: PathBuf) -> Self {
-        Self { dir }
+    pub(crate) fn new(dir: PathBuf, now: std::time::SystemTime) -> Self {
+        Self { dir, now }
+    }
+
+    /// Marks the picture <png> used at the run's time.
+    fn mark_used(&self, png: &Path) -> Result<(), String> {
+        std::fs::File::options()
+            .write(true)
+            .open(png)
+            .and_then(|file| file.set_modified(self.now))
+            .map_err(|e| format!("cannot mark {} used: {e}", png.display()))
     }
 
     /// The picture and element list kept for the board hash <hash>.
@@ -66,11 +78,7 @@ impl Pictures {
                 }
             }
         }
-        std::fs::File::options()
-            .write(true)
-            .open(&png)
-            .and_then(|file| file.set_modified(std::time::SystemTime::now()))
-            .map_err(|e| format!("cannot mark {} used: {e}", png.display()))?;
+        self.mark_used(&png)?;
         Ok(true)
     }
 
@@ -117,12 +125,7 @@ impl Pictures {
             copy(&dir.join(file), &out.join(file))?;
         }
         for name in names {
-            let png = dir.join(name.file_name("png"));
-            std::fs::File::options()
-                .write(true)
-                .open(&png)
-                .and_then(|file| file.set_modified(std::time::SystemTime::now()))
-                .map_err(|e| format!("cannot mark {} used: {e}", png.display()))?;
+            self.mark_used(&dir.join(name.file_name("png")))?;
         }
         Ok(true)
     }

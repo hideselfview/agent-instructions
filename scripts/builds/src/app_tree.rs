@@ -3,16 +3,16 @@
 //! picture folder) and a commit that changes none of it takes none again.
 //!
 //! The paths the lane's app build reads are those the `.app-build` `on`
-//! lines name for the lane's steps. The app tree is a hash of the git object
-//! of each such path at the commit (a folder's tree, a file's blob, or each
-//! file a `*<ending>` pattern matches) and of the `.app-build` itself, which
-//! holds the capture commands.
+//! lines name for the lane's steps (`Rule::matches`). The app tree is a hash
+//! of the git object of each file at the commit that such a line matches,
+//! with its path, and of the `.app-build` itself, which holds the capture
+//! commands.
 
 use std::path::Path;
 
 use sha2::{Digest, Sha256};
 
-use crate::app_config::{CONFIG, Config, run_git};
+use crate::app_config::{CONFIG, Config, Rule, run_git};
 use crate::fail::Result;
 use crate::lane::Lane;
 
@@ -25,7 +25,7 @@ pub fn of(top: &Path, commit: &str, config: &Config, lane: Lane) -> Result<Strin
         .filter(|step| step.lane == lane)
         .map(|step| step.name.as_str())
         .collect();
-    let mut patterns: Vec<&str> = config
+    let rules: Vec<&Rule> = config
         .rules
         .iter()
         .filter(|rule| {
@@ -33,39 +33,20 @@ pub fn of(top: &Path, commit: &str, config: &Config, lane: Lane) -> Result<Strin
                 .iter()
                 .any(|step| lane_steps.contains(&step.as_str()))
         })
-        .map(|rule| rule.pattern.as_str())
         .collect();
-    patterns.push(CONFIG);
-    patterns.sort();
-    patterns.dedup();
+    // Each line is `<mode> <type> <object>\t<path>`, sorted by path.
+    let listing = run_git(top, &["ls-tree", "-r", "--full-tree", commit])?;
     let mut hasher = Sha256::new();
-    let mut listing: Option<String> = None;
-    for pattern in patterns {
-        let objects = match pattern.strip_prefix('*') {
-            Some(ending) => {
-                let files = match &listing {
-                    Some(files) => files,
-                    None => listing.insert(run_git(top, &["ls-tree", "-r", commit])?),
-                };
-                files
-                    .lines()
-                    .filter(|line| line.ends_with(ending))
-                    .map(str::to_string)
-                    .collect::<Vec<_>>()
-                    .join("\n")
-            }
-            None => {
-                let path = pattern.trim_end_matches('/');
-                run_git(top, &["ls-tree", commit, "--", path])?
-            }
+    for line in listing.lines() {
+        let Some((_, path)) = line.split_once('\t') else {
+            continue;
         };
-        hasher.update(pattern.as_bytes());
-        hasher.update([0]);
-        hasher.update(objects.trim().as_bytes());
-        hasher.update([0]);
+        if path == CONFIG || rules.iter().any(|rule| rule.matches(path)) {
+            hasher.update(line.as_bytes());
+            hasher.update([b'\n']);
+        }
     }
-    let digest = hasher.finalize();
-    Ok(digest[..8].iter().map(|b| format!("{b:02x}")).collect())
+    Ok(crate::text::hex(&hasher.finalize()[..8]))
 }
 
 #[cfg(test)]

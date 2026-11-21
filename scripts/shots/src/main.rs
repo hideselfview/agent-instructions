@@ -89,9 +89,6 @@ enum Action {
         /// The commit the shots were taken at, for the report.
         #[arg(long)]
         sha: String,
-        /// The folder of the board pictures earlier runs drew, as for `run`.
-        #[arg(long)]
-        pictures: Option<PathBuf>,
     },
     /// Fail when a declared shot has no board.
     Lint,
@@ -257,16 +254,10 @@ fn repository_root() -> Result<PathBuf, String> {
     Ok(PathBuf::from(top.trim()))
 }
 
-fn header(
-    commit: String,
-    base: Option<String>,
-    app_tree: Option<String>,
-    outcome: &verify::Outcome,
-) -> report::Header {
+fn header(commit: String, base: Option<String>, outcome: &verify::Outcome) -> report::Header {
     report::Header {
         commit,
         base,
-        app_tree,
         runtime: outcome.runtime.clone(),
         chrome: format!("Chrome for Testing {}", render::chrome::PINNED),
     }
@@ -309,7 +300,9 @@ fn run(action: Action) -> Result<bool, String> {
             pictures,
             app_tree,
         } => {
-            let pictures = pictures.map(pictures::Pictures::new);
+            // The one time the run marks each picture it takes used.
+            let now = std::time::SystemTime::now();
+            let pictures = pictures.map(|dir| pictures::Pictures::new(dir, now));
             let before = before
                 .map(|path| {
                     let before = before::Before::load(&path)?;
@@ -341,7 +334,7 @@ fn run(action: Action) -> Result<bool, String> {
                 pictures: pictures.as_ref(),
             })?;
             let base = before.as_ref().map(|b| b.commit().to_string());
-            let header = header(commit(&root)?, base, app_tree, &outcome);
+            let header = header(commit(&root)?, base, &outcome);
             finish(&outcome, &header, &shots.join("report"))
         }
         Action::Capture { selection, out } => {
@@ -351,12 +344,7 @@ fn run(action: Action) -> Result<bool, String> {
             })?;
             Ok(true)
         }
-        Action::Check {
-            shots,
-            out,
-            sha,
-            pictures,
-        } => {
+        Action::Check { shots, out, sha } => {
             let declared = read_declared()?;
             let names: Vec<Name> = declared.iter().map(|d| d.name.clone()).collect();
             for platform in settings.platforms() {
@@ -379,9 +367,9 @@ fn run(action: Action) -> Result<bool, String> {
                 shots_for: &|_| shots.clone(),
                 out: &out,
                 before: None,
-                pictures: pictures.map(pictures::Pictures::new).as_ref(),
+                pictures: None,
             })?;
-            let header = header(sha, None, None, &outcome);
+            let header = header(sha, None, &outcome);
             finish(&outcome, &header, &out)
         }
         Action::Lint => {

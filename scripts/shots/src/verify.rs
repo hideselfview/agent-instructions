@@ -56,8 +56,6 @@ pub(crate) struct Checked {
     pub(crate) pairs: Vec<(usize, usize)>,
     /// How far the shot's frame sits right and down of the board's.
     pub(crate) offset: (f64, f64),
-    /// The hash of everything the board's picture depends on (design.rs).
-    pub(crate) board_hash: String,
     pub(crate) board_png: PathBuf,
     pub(crate) shot_png: PathBuf,
     pub(crate) findings: Vec<Finding>,
@@ -189,7 +187,6 @@ pub(crate) fn verify(job: &Verification) -> Result<Outcome, String> {
                 .collect(),
             board: list,
             shot: shot.list.clone(),
-            board_hash: hashes[name].clone(),
             board_png: picture_file,
             shot_png: (job.shots_for)(name.platform()).join(name.file_name("png")),
             findings: result.findings,

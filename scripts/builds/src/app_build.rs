@@ -515,8 +515,8 @@ fn keep_for<'a>(
 /// compares with its before run, read where the store <shots> keeps it,
 /// takes the board pictures earlier runs drew from the store's picture
 /// folder, and keeps the findings it printed. While the shots program runs,
-/// the step holds the shared lock that keeps the prune from deleting what
-/// it writes to the picture folder (shot_store.rs).
+/// the step holds the shared lock that keeps the prune from deleting what it
+/// reads or writes in the folder `shots` (shot_store.rs).
 fn run_local_step(
     top: &Path,
     step: &Step,
@@ -748,7 +748,12 @@ fn run_remote_step(
     read: &lock::EachLine,
 ) -> Result<Within> {
     let placed = match (kind, shots.before_of(step)) {
-        (StepKind::Shots, Some(findings)) => Some(remote.put_temporary(findings)?),
+        (StepKind::Shots, Some(findings)) => {
+            // Held while the copy reads the before run, which the prune
+            // then leaves.
+            let _reading = shots.writing()?;
+            Some(remote.put_temporary(findings)?)
+        }
         _ => None,
     };
     let command = match &placed {
@@ -875,8 +880,8 @@ impl ShotsStore {
         })
     }
 
-    /// The shared lock a shots run on this Mac holds while the shots program
-    /// writes to the picture folder (shot_store.rs `writing`).
+    /// The shared lock a shots step holds while it reads a before run or the
+    /// picture folder, or writes to the folder (shot_store.rs `writing`).
     fn writing(&self) -> Result<std::fs::File> {
         shot_store::writing(&self.places)
     }

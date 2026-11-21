@@ -54,7 +54,11 @@ fn assets_are_uploads_or_text_files_by_their_kind() {
             },
             &Asset {
                 media_type: "image/png".to_string(),
-                ..asset("Logos", "parts/ear.PNG", &hex(&Sha256::digest(b"png")))
+                ..asset(
+                    "Logos",
+                    "parts/ear.PNG",
+                    &crate::text::hex(&Sha256::digest(b"png"))
+                )
             },
         ]
     );

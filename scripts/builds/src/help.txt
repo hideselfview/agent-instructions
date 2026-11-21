@@ -1248,7 +1248,7 @@ built again.
                               a finding whose sentence its findings for the
                               pair lack. Without --before, `run` fails on
                               every pair with findings. With --pictures
-                              <folder>, `run` and `check` draw only the
+                              <folder>, `run` draws only the
                               boards whose board hash the folder lacks
                               (APP BUILDS) and add each new drawing; with
                               --app-tree <id> as well, `run` takes a
@@ -1338,10 +1338,8 @@ built again.
                               `run` and
                               `check` write the report: index.html, the
                               pictures, and findings.json, which names the
-                              program's version, the commit, the app source
-                              tree when the run was given one, every pair the
-                              run checked and each pair's board hash, and
-                              holds each finding and
+                              program's version, the commit and every pair
+                              the run checked, and holds each finding and
                               warning as a record of its scene, its level
                               (finding or warning), its kind, the board
                               element it names, the design-system component
@@ -1840,11 +1838,13 @@ first. A run's last use is when it ended or when builds last read it (to
 print its findings or to compare a branch's run with it). A board picture's
 is when a run last drew or took it. An app source tree's shots of one
 platform go together, and their last use is when a run last captured or took
-one of them. Whatever a run used in the last 30 minutes stays. While no
-shots run is writing to the folder, `setup` and `prune` also delete each
-staging folder and half-written picture file that a run which died left
-behind, and each folder the deleted runs left empty. `status` shows each
-repo's folder's size against the cap.
+one of them. Whatever a run used in the last 30 minutes stays. `setup` and
+`prune` also delete each staging folder and half-written picture file that a
+run which died left behind, and each folder the deleted runs left empty.
+They delete nothing in the folder while a shots step reads or writes it,
+which a step on this Mac does while it runs and a step on a host does while
+builds copies a before run to the host. `status` shows each repo's folder's
+size against the cap.
 
 When xcodebuild fails with "Couldn't check out revision" or "file not found" on
 a SwiftPM dependency (often Sparkle), its cache is corrupt: disconnect any VPN

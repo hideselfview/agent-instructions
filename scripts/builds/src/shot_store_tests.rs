@@ -227,7 +227,8 @@ fn a_staging_folder_goes_once_no_run_stores_its_output_and_stays_while_one_does(
 }
 
 #[test]
-fn the_folders_deleted_runs_leave_empty_go_unless_a_run_stores_its_output() {
+fn the_prune_deletes_nothing_while_a_run_uses_the_folder_and_then_the_folders_deleted_runs_leave_empty()
+ {
     let scratch = Scratch::new("shot-store-empty");
     let places = scratch.places();
     let tool = scratch.tool(0);
@@ -243,11 +244,10 @@ fn the_folders_deleted_runs_leave_empty_go_unless_a_run_stores_its_output() {
     )
     .unwrap();
     prune_runs(&tool, Run::Real, 100).unwrap();
-    assert!(!stored.folder.exists());
-    let prefix = stored.folder.parent().unwrap().to_path_buf();
-    assert!(prefix.exists(), "a run may be about to make a folder in it");
+    assert!(stored.folder.exists(), "a run may be reading it");
     other.discard().unwrap();
     prune_runs(&tool, Run::Real, 100).unwrap();
+    assert!(!stored.folder.exists());
     assert!(!root(&places).join("demo").exists());
     assert!(root(&places).exists());
 }

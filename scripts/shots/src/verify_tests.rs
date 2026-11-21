@@ -56,7 +56,6 @@ fn pair_with_finding(against: Option<Against>) -> Checked {
         shot: list,
         pairs: Vec::new(),
         offset: (0.0, 0.0),
-        board_hash: String::new(),
         board_png: PathBuf::new(),
         shot_png: PathBuf::new(),
         findings: vec![finding],
@@ -132,7 +131,7 @@ fn the_run_draws_only_the_boards_the_picture_folder_lacks() {
     std::fs::create_dir_all(&drawn).unwrap();
     std::fs::write(drawn.join("mac.a.b.png"), "png").unwrap();
     std::fs::write(drawn.join("mac.a.b.json"), "{}").unwrap();
-    let pictures = Pictures::new(dir.path().join("pictures"));
+    let pictures = Pictures::new(dir.path().join("pictures"), std::time::SystemTime::now());
     pictures.keep_board("kept", "mac.a.b", &drawn).unwrap();
     assert_eq!(
         take_pictures(Some(&pictures), &hashes, &names, &boards).unwrap(),

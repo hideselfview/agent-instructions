@@ -3,7 +3,7 @@ use super::*;
 #[test]
 fn a_kept_board_picture_is_taken_by_its_hash_under_any_shots_name() {
     let dir = tempfile::tempdir().unwrap();
-    let pictures = Pictures::new(dir.path().join("pictures"));
+    let pictures = Pictures::new(dir.path().join("pictures"), std::time::SystemTime::now());
     let drawn = dir.path().join("drawn");
     std::fs::create_dir_all(&drawn).unwrap();
     std::fs::write(drawn.join("mac.a.b.png"), "png").unwrap();
@@ -31,7 +31,7 @@ fn a_kept_board_picture_is_taken_by_its_hash_under_any_shots_name() {
 #[test]
 fn a_picture_whose_element_list_is_missing_is_not_taken() {
     let dir = tempfile::tempdir().unwrap();
-    let pictures = Pictures::new(dir.path().to_path_buf());
+    let pictures = Pictures::new(dir.path().to_path_buf(), std::time::SystemTime::now());
     std::fs::create_dir_all(dir.path().join("boards")).unwrap();
     std::fs::write(dir.path().join("boards/h1.png"), "png").unwrap();
     assert!(
@@ -42,9 +42,10 @@ fn a_picture_whose_element_list_is_missing_is_not_taken() {
 }
 
 #[test]
-fn taking_a_picture_marks_it_used() {
+fn taking_a_picture_marks_it_used_at_the_runs_time() {
     let dir = tempfile::tempdir().unwrap();
-    let pictures = Pictures::new(dir.path().to_path_buf());
+    let run_time = std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_800_000_000);
+    let pictures = Pictures::new(dir.path().to_path_buf(), run_time);
     std::fs::create_dir_all(dir.path().join("boards")).unwrap();
     let png = dir.path().join("boards/h1.png");
     std::fs::write(&png, "png").unwrap();
@@ -59,7 +60,10 @@ fn taking_a_picture_marks_it_used() {
     pictures
         .take_board("h1", "mac.a.b", &dir.path().join("out"))
         .unwrap();
-    assert!(std::fs::metadata(&png).unwrap().modified().unwrap() > old);
+    assert_eq!(
+        std::fs::metadata(&png).unwrap().modified().unwrap(),
+        run_time
+    );
 }
 
 fn shot(text: &str) -> Name {
@@ -69,7 +73,7 @@ fn shot(text: &str) -> Name {
 #[test]
 fn an_app_trees_shots_are_taken_only_when_the_folder_keeps_every_selected_one() {
     let dir = tempfile::tempdir().unwrap();
-    let pictures = Pictures::new(dir.path().join("pictures"));
+    let pictures = Pictures::new(dir.path().join("pictures"), std::time::SystemTime::now());
     let names = [shot("mac.a.b"), shot("mac.a.c")];
     let taken = dir.path().join("taken");
     std::fs::create_dir_all(&taken).unwrap();

@@ -38,11 +38,11 @@
 //!
 //! A run that stores its output holds a shared lock on `shots/.writing`
 //! (`WRITING`) from before it makes its folders until its run is in place,
-//! and app-build holds it while the shots program writes to the picture
-//! folder. The prune deletes staging folders, the picture files a run left
-//! half written and the folders deleted runs leave empty only while it holds
-//! that lock exclusively: then no run is writing any of them or about to make
-//! a folder in one it would remove.
+//! and app-build holds it while a shots step reads a before run or the
+//! picture folder or writes to it. The prune deletes anything in the folder
+//! `shots` only while it holds that lock exclusively: then no run reads what
+//! it deletes, writes a staging folder or half-written picture file, or is
+//! about to make a folder in one it removes.
 
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
@@ -173,8 +173,8 @@ pub struct Staging {
     _writing: std::fs::File,
 }
 
-/// Takes the shared lock on `WRITING` that a run holds while it writes to
-/// the folder `shots`, waiting while a prune holds it exclusively; the lock
+/// Takes the shared lock on `WRITING` that a run holds while it reads or
+/// writes the folder `shots`, waiting while a prune holds it exclusively; the lock
 /// lasts as long as the file it returns.
 pub fn writing(places: &Places) -> Result<std::fs::File> {
     let shots = root(places);
@@ -386,6 +386,17 @@ enum Unit {
     Shots(PathBuf),
 }
 
+impl Unit {
+    /// What the unit is, for the reason its deletion gives.
+    fn what(&self) -> &'static str {
+        match self {
+            Unit::Run(_) => "a shots run",
+            Unit::Picture { .. } => "a board picture",
+            Unit::Shots(_) => "an app source tree's shots",
+        }
+    }
+}
+
 /// What a repo's folder in `shots` holds, as the cap sees it.
 #[derive(Default)]
 struct Held {
@@ -492,39 +503,40 @@ pub fn prune(tool: &Tool, run: Run) -> Result<()> {
     prune_runs(tool, run, CAP_KIB)
 }
 
-/// Deletes, in each repo's folder in `shots`, each staging folder and loose
-/// picture file when no run writes to the folder `shots` (the runs that
+/// Deletes, when no run reads or writes the folder `shots`, in each repo's
+/// folder there each staging folder and loose picture file (the runs that
 /// wrote them ended), then, while the repo's folder holds more than
-/// <cap_kib>, whole runs and board pictures, least recently used first. A
+/// <cap_kib>, whole runs, board pictures and app source trees' shots, least
+/// recently used first, and last the folders the deletions left empty. A
 /// run or picture used in the last FLOOR_IDLE_MINUTES stays: an agent may be
-/// reading it. Last, when no run writes to the folder, it removes the folders
-/// the deletions left empty.
+/// reading its report. While a run reads or writes the folder, which a shots
+/// run on this Mac does from its first read of a before run or picture until
+/// its run is in place, the prune deletes nothing there.
 pub fn prune_runs(tool: &Tool, run: Run, cap_kib: u64) -> Result<()> {
     let shots = root(&tool.places);
     if !shots.is_dir() {
         return Ok(());
     }
-    // Held to the end, so that no run makes a folder while the prune removes
-    // empty ones; None while a run writes to the folder.
-    let alone = crate::evict::try_lock_creating(&shots.join(WRITING))?;
-    if alone.is_none() {
+    // Held to the end: no run reads or writes the folder meanwhile.
+    let Some(_alone) = crate::evict::try_lock_creating(&shots.join(WRITING))? else {
         note(format!(
-            "a shots run is writing to {}, so prune leaves its staging folders, half-written picture files and empty folders",
+            "a shots run is reading or writing {}, so prune deletes nothing in it",
             shots.display()
         ));
-    }
+        return Ok(());
+    };
     for (repo, _) in folders_in(&shots)? {
-        prune_repo(tool, run, cap_kib, &repo, alone.is_some())?;
+        prune_repo(tool, run, cap_kib, &repo)?;
     }
-    if alone.is_some() && !run.dry() {
+    if !run.dry() {
         remove_empty(tool)?;
     }
     Ok(())
 }
 
-/// `prune_runs` for the folder of <repo>, which deletes leftovers only when
-/// no run writes to the folder `shots` (<alone>).
-fn prune_repo(tool: &Tool, run: Run, cap_kib: u64, repo: &str, alone: bool) -> Result<()> {
+/// `prune_runs` for the folder of <repo>, while the prune holds `WRITING`
+/// exclusively.
+fn prune_repo(tool: &Tool, run: Run, cap_kib: u64, repo: &str) -> Result<()> {
     let shots = root(&tool.places).join(repo);
     let held = held(&tool.places, repo)?;
     let mut paths = vec![shots.clone()];
@@ -534,9 +546,6 @@ fn prune_repo(tool: &Tool, run: Run, cap_kib: u64, repo: &str, alone: bool) -> R
     let mut measures = tool.measure_all(&paths)?.into_iter();
     let mut total = measures.next().expect("the folder was measured").kib;
     for (folder, measured) in held.stagings.iter().zip(measures.by_ref()) {
-        if !alone {
-            continue;
-        }
         let reason = format!(
             "{}, the staging folder of a shots run that ended",
             human(measured.kib)
@@ -553,7 +562,7 @@ fn prune_repo(tool: &Tool, run: Run, cap_kib: u64, repo: &str, alone: bool) -> R
             total = total.saturating_sub(measured.kib);
         }
     }
-    for file in held.loose.iter().filter(|_| alone) {
+    for file in &held.loose {
         let kib = file_kib(file)?;
         let reason = format!(
             "{}, a picture file that a shots run which ended left half written",
@@ -572,10 +581,14 @@ fn prune_repo(tool: &Tool, run: Run, cap_kib: u64, repo: &str, alone: bool) -> R
         ));
     }
     for (folder, measured) in held.shots.into_iter().zip(measures) {
-        // None: a run deleted the folder since `held` listed it.
-        if let Some(newest) = measured.newest {
-            units.push((newest, measured.kib, Unit::Shots(folder)));
-        }
+        let Some(newest) = measured.newest else {
+            fail!(
+                "{} went while the prune held {} exclusively, and only the prune deletes it",
+                folder.display(),
+                WRITING
+            );
+        };
+        units.push((newest, measured.kib, Unit::Shots(folder)));
     }
     for (png, json) in held.pictures {
         units.push((
@@ -593,36 +606,25 @@ fn prune_repo(tool: &Tool, run: Run, cap_kib: u64, repo: &str, alone: bool) -> R
         if used >= recent {
             continue;
         }
-        let over = format!(
-            "{} is {} > {}",
+        let reason = format!(
+            "{}, {}; {} is {} > {}",
+            human(kib),
+            unit.what(),
             shots.display(),
             human(total),
             human(cap_kib)
         );
         let deleted = match &unit {
-            Unit::Run(folder) => delete_folder(
+            Unit::Run(folder) | Unit::Shots(folder) => delete_folder(
                 tool,
                 folder,
                 run,
-                &format!("{}, a shots run; {over}", human(kib)),
+                &reason,
                 Recreate::No,
                 Removal::Background,
                 "",
             )?,
-            Unit::Shots(folder) => delete_folder(
-                tool,
-                folder,
-                run,
-                &format!("{}, an app source tree's shots; {over}", human(kib)),
-                Recreate::No,
-                Removal::Background,
-                "",
-            )?,
-            Unit::Picture { png, json } => delete_files(
-                run,
-                &[png, json],
-                &format!("{}, a board picture; {over}", human(kib)),
-            )?,
+            Unit::Picture { png, json } => delete_files(run, &[png, json], &reason)?,
         };
         if deleted {
             total = total.saturating_sub(kib);
