@@ -390,7 +390,7 @@ fn git_ok(dir: &Path, args: &[&str]) -> bool {
 }
 
 /// What the git command printed, without trailing newlines, or nothing when it failed.
-pub fn git_text(dir: &Path, args: &[&str]) -> Option<String> {
+fn git_text(dir: &Path, args: &[&str]) -> Option<String> {
     let output = git(dir)
         .args(args)
         .stdin(Stdio::null())

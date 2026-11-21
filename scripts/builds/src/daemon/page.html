@@ -690,7 +690,10 @@ function cardFoot(c) {
         c.stalled ? h("span", {class: "stalled", title: "Stalled: an agent claims this worktree, but no file in it has changed and no build has run there for an hour."}, "stalled") : null)),
     h("div", {class: "r"}, h("span", {class: "wt", title: detachedAt(c)}, h("span", {class: "br"}, detachedAt(c))),
       h("span", {class: "right"},
-        (c.landings || []).map(l => h("span", {title: "builds land (pid " + l.pid + ")" + (l.waits_for ? " waits for another landing: " + l.waits_for : " runs here")}, l.waits_for ? "landing waits" : "landing runs")),
+        (c.landings || []).map(l => {
+          const waits = l.waits.For ? "waits for another landing: " + l.waits.For : l.waits === "Unread" ? "runs here, and builds could not tell whether it waits" : "runs here";
+          return h("span", {title: "builds land (pid " + l.pid + ") " + waits}, l.waits.For ? "landing waits" : "landing runs");
+        }),
         b && b.over.length ? h("span", {class: "bad", title: b.over.join("; ")}, "build over cap") : null,
         b && b.links.length ? h("span", {class: "bad", title: b.links.join("; ")}, plural(b.links.length, "build folder", "build folders") + " not linked here") : null,
         files ? h("span", {title: files.title}, files.text) : null,

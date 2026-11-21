@@ -4,8 +4,8 @@
 use std::path::{Path, PathBuf};
 
 use crate::fail;
-use crate::fail::{Fail, Result};
-use crate::land::{APP_TURN_FILE, WORKTREE_TURN_FILE, git_text, read_holder, record_pid};
+use crate::fail::Result;
+use crate::land::{APP_TURN_FILE, WORKTREE_TURN_FILE, read_holder, record_pid};
 
 /// Returns the worktree that the command line <argv> of a running `builds
 /// land <worktree> ...` lands in. Returns None for any other command.
@@ -26,13 +26,7 @@ pub fn requested(argv: &[String]) -> Option<&str> {
 /// turn before its fetch.
 pub fn waits_for(worktree: &Path, pid: i32) -> Result<Option<String>> {
     let git = |args: &[&str]| {
-        git_text(worktree, args).ok_or_else(|| {
-            Fail::Message(format!(
-                "git {} failed in {}",
-                args.join(" "),
-                worktree.display()
-            ))
-        })
+        crate::review::commits::git_text(worktree, args).map(|text| text.trim().to_string())
     };
     let git_dir = git(&["rev-parse", "--absolute-git-dir"])?;
     let common = git(&["rev-parse", "--path-format=absolute", "--git-common-dir"])?;

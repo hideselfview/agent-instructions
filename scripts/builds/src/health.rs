@@ -348,9 +348,18 @@ pub struct LandingRun {
     /// Index into the places it was placed among.
     #[serde(skip)]
     pub place: usize,
-    /// The landing that this one waits for, from the turn files; None when
-    /// no other landing holds a turn it takes.
-    pub waits_for: Option<String>,
+    pub waits: LandingWait,
+}
+
+/// Whether a landing waits for another, from the turn files (land_turns.rs).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub enum LandingWait {
+    /// No other landing holds a turn it takes.
+    Nothing,
+    /// The landing that holds the turn it takes.
+    For(String),
+    /// Builds could not read the turn files, and `Machine::unread` says why.
+    Unread,
 }
 
 impl AppBuildRun {
@@ -501,19 +510,22 @@ pub fn sample(
             };
             let worktree = dir.join(worktree);
             if let Some(place) = crate::procs::place_of(places, &worktree) {
-                let waits_for = crate::land_turns::waits_for(&worktree, process.pid)
-                    .unwrap_or_else(|error| {
+                let waits = match crate::land_turns::waits_for(&worktree, process.pid) {
+                    Ok(None) => LandingWait::Nothing,
+                    Ok(Some(whose)) => LandingWait::For(whose),
+                    Err(error) => {
                         unread.push(format!(
                             "{}, so health cannot tell whether the landing of process {} waits for another",
                             error.text(),
                             process.pid
                         ));
-                        None
-                    });
+                        LandingWait::Unread
+                    }
+                };
                 landings.push(LandingRun {
                     pid: process.pid,
                     place,
-                    waits_for,
+                    waits,
                 });
             }
         }
@@ -1406,12 +1418,16 @@ fn builds_line(w: &WorktreeHealth) -> String {
         ));
     }
     for landing in &w.landings {
-        parts.push(match &landing.waits_for {
-            Some(whose) => format!(
+        parts.push(match &landing.waits {
+            LandingWait::For(whose) => format!(
                 "builds land waits for another landing (pid {}; {whose})",
                 landing.pid
             ),
-            None => format!("builds land runs (pid {})", landing.pid),
+            LandingWait::Nothing => format!("builds land runs (pid {})", landing.pid),
+            LandingWait::Unread => format!(
+                "builds land runs (pid {}), and builds could not tell whether it waits",
+                landing.pid
+            ),
         });
     }
     if let Some(pid) = w.app_build {
@@ -2543,7 +2559,7 @@ mod tests {
         let waiting = judge(vec![LandingRun {
             pid: 5151,
             place: 0,
-            waits_for: Some(
+            waits: LandingWait::For(
                 "the landing that changes the apps, process 36208 landing --done 1276 abc"
                     .to_string(),
             ),
@@ -2564,7 +2580,7 @@ mod tests {
         let running = judge(vec![LandingRun {
             pid: 5151,
             place: 0,
-            waits_for: None,
+            waits: LandingWait::Nothing,
         }]);
         assert!(running.findings.is_empty(), "{:?}", running.findings);
         assert!(
