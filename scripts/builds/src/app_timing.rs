@@ -48,13 +48,12 @@ pub enum StepKind {
 }
 
 impl StepKind {
-    /// The kind `word` names, as the store holds it (its CHECK allows no other).
-    pub fn from_word(word: &str) -> StepKind {
-        match word {
-            "test" => StepKind::Test,
-            "shots" => StepKind::Shots,
-            _ => StepKind::Step,
-        }
+    /// The kind `word` names, as the store holds it, or None for a word that
+    /// is no kind's.
+    pub fn from_word(word: &str) -> Option<StepKind> {
+        [StepKind::Step, StepKind::Test, StepKind::Shots]
+            .into_iter()
+            .find(|kind| kind.word() == word)
     }
 
     pub fn word(self) -> &'static str {
@@ -87,6 +86,24 @@ impl StepResult {
             StepResult::TakenOver => "taken over",
             StepResult::Stopped => "stopped",
         }
+    }
+
+    /// The result `word` names, as the store holds it. A step that failed or
+    /// ran past its limit carries <failure>, what the store kept of what it
+    /// said; a store with none for such a step is damaged.
+    pub fn from_word(word: &str, failure: Option<StepFailure>) -> Result<StepResult> {
+        let said = || match failure.clone() {
+            Some(failure) => Ok(failure),
+            None => fail!("a step that {word} has no failure row"),
+        };
+        Ok(match word {
+            "passed" => StepResult::Passed,
+            "failed" => StepResult::Failed(said()?),
+            "timed out" => StepResult::TimedOut(said()?),
+            "taken over" => StepResult::TakenOver,
+            "stopped" => StepResult::Stopped,
+            other => fail!("a step ended {other:?}"),
+        })
     }
 
     /// What a step that failed or ran past its limit said.
@@ -244,129 +261,127 @@ pub fn record(path: &Path, run: &RunRecord) -> Result<()> {
     tx.commit().context(what)
 }
 
-/// Every run the database at <path> records, oldest first, each as `record`
-/// wrote it: what a lane's run hands the installed builds when an install
-/// moved the stores while the run built (handed_runs.rs).
-pub fn read_runs(path: &Path) -> Result<Vec<RunRecord>> {
+/// The one run the database at <path> records, as `record` wrote it: what a
+/// lane's run hands the installed builds when an install moved the stores
+/// while the run built (handed_runs.rs). Fails when the store holds none or
+/// more than one.
+pub fn read_run(path: &Path) -> Result<RunRecord> {
     let Some(conn) = crate::db::open_reader(path)? else {
         fail!("{} does not exist", path.display());
     };
     let what = || format!("reading {}", path.display());
-    let mut runs = conn
+    let row = |row: &rusqlite::Row| {
+        Ok((
+            row.get::<_, i64>(0)?,
+            row.get::<_, i64>(1)?,
+            row.get::<_, String>(2)?,
+            row.get::<_, String>(3)?,
+            row.get::<_, String>(4)?,
+            row.get::<_, String>(5)?,
+            row.get::<_, Option<String>>(6)?,
+            row.get::<_, Option<String>>(7)?,
+            row.get::<_, i64>(8)?,
+            row.get::<_, String>(9)?,
+            row.get::<_, Option<i64>>(10)?,
+            row.get::<_, Option<f64>>(11)?,
+        ))
+    };
+    let mut found = conn
         .prepare(
             "SELECT r.id, r.started_at, r.repo, r.lane, r.checkout, r.built_ref, c.built_commit, r.who, r.wait_ms, r.outcome, r.cores, r.load
              FROM app_build_runs r LEFT JOIN app_build_run_commit c ON c.run_id = r.id
              ORDER BY r.id",
         )
+        .context(what)?
+        .query_map([], row)
+        .context(what)?
+        .collect::<std::result::Result<Vec<_>, _>>()
         .context(what)?;
-    let mut steps = conn
+    let (
+        id,
+        started_at,
+        repo,
+        lane,
+        checkout,
+        built_ref,
+        built_commit,
+        who,
+        wait_ms,
+        outcome,
+        cores,
+        load,
+    ) = match (found.pop(), found.is_empty()) {
+        (Some(one), true) => one,
+        _ => fail!("{} does not hold exactly one run", path.display()),
+    };
+    let mut run = RunRecord {
+        started_at,
+        repo,
+        lane: Lane::parse_or_fail(&lane)?,
+        checkout,
+        built_ref,
+        built_commit,
+        who,
+        wait_ms: wait_ms as u64,
+        outcome: match RunEnd::from_word(&outcome) {
+            Some(outcome) => outcome,
+            None => fail!("{}: run {id} ended {outcome:?}", path.display()),
+        },
+        load: cores
+            .zip(load)
+            .map(|(cores, one_minute)| crate::host::Load {
+                cores: cores as u32,
+                one_minute,
+            }),
+        steps: Vec::new(),
+    };
+    let mut said = crate::app_build_step_failure::read(&conn, id)?;
+    let steps: Vec<(String, String, i64, i64, i64, String)> = conn
         .prepare(
             "SELECT name, kind, started_at, wall_ms, cpu_ms, result FROM app_build_steps
              WHERE run_id = ?1 ORDER BY position",
         )
-        .context(what)?;
-    /// A run's row: its id, its fields as the table holds them, and its
-    /// commit.
-    struct Row {
-        id: i64,
-        started_at: i64,
-        repo: String,
-        lane: String,
-        checkout: String,
-        built_ref: String,
-        built_commit: Option<String>,
-        who: Option<String>,
-        wait_ms: i64,
-        outcome: String,
-        cores: Option<i64>,
-        load: Option<f64>,
-    }
-    let found: Vec<Row> = runs
-        .query_map([], |row| {
-            Ok(Row {
-                id: row.get(0)?,
-                started_at: row.get(1)?,
-                repo: row.get(2)?,
-                lane: row.get(3)?,
-                checkout: row.get(4)?,
-                built_ref: row.get(5)?,
-                built_commit: row.get(6)?,
-                who: row.get(7)?,
-                wait_ms: row.get(8)?,
-                outcome: row.get(9)?,
-                cores: row.get(10)?,
-                load: row.get(11)?,
-            })
+        .context(what)?
+        .query_map([id], |row| {
+            Ok((
+                row.get(0)?,
+                row.get(1)?,
+                row.get(2)?,
+                row.get(3)?,
+                row.get(4)?,
+                row.get(5)?,
+            ))
         })
         .context(what)?
         .collect::<std::result::Result<_, _>>()
         .context(what)?;
-    let mut read = Vec::new();
-    for found in found {
-        let id = found.id;
-        let mut run = RunRecord {
-            started_at: found.started_at,
-            repo: found.repo,
-            lane: Lane::parse_or_fail(&found.lane)?,
-            checkout: found.checkout,
-            built_ref: found.built_ref,
-            built_commit: found.built_commit,
-            who: found.who,
-            wait_ms: found.wait_ms as u64,
-            outcome: match found.outcome.as_str() {
-                "passed" => RunEnd::Passed,
-                "failed" => RunEnd::Failed,
-                "stopped" => RunEnd::Stopped,
-                other => fail!("{}: run {id} ended {other:?}", path.display()),
-            },
-            load: found
-                .cores
-                .zip(found.load)
-                .map(|(cores, one_minute)| crate::host::Load {
-                    cores: cores as u32,
-                    one_minute,
-                }),
-            steps: Vec::new(),
+    for (position, (name, kind, started_at, wall_ms, cpu_ms, result)) in
+        steps.into_iter().enumerate()
+    {
+        let Some(kind) = StepKind::from_word(&kind) else {
+            fail!(
+                "{}: step {name} of run {id} is of kind {kind:?}",
+                path.display()
+            );
         };
-        let mut said = crate::app_build_step_failure::read(&conn, id)?;
-        let rows: Vec<(String, String, i64, i64, i64, String)> = steps
-            .query_map([id], |row| {
-                Ok((
-                    row.get(0)?,
-                    row.get(1)?,
-                    row.get(2)?,
-                    row.get(3)?,
-                    row.get(4)?,
-                    row.get(5)?,
+        let result =
+            StepResult::from_word(&result, said.remove(&(position as u32))).map_err(|error| {
+                crate::fail::Fail::Message(format!(
+                    "{}: step {name} of run {id}: {}",
+                    path.display(),
+                    error.text()
                 ))
-            })
-            .context(what)?
-            .collect::<std::result::Result<_, _>>()
-            .context(what)?;
-        for (position, (name, kind, started_at, wall_ms, cpu_ms, result)) in
-            rows.into_iter().enumerate()
-        {
-            let mut failure = || said.remove(&(position as u32)).unwrap_or_default();
-            let result = match result.as_str() {
-                "passed" => StepResult::Passed,
-                "failed" => StepResult::Failed(failure()),
-                "timed out" => StepResult::TimedOut(failure()),
-                "taken over" => StepResult::TakenOver,
-                "stopped" => StepResult::Stopped,
-                other => fail!("{}: a step of run {id} ended {other:?}", path.display()),
-            };
-            run.steps.push(StepRecord {
-                name,
-                kind: StepKind::from_word(&kind),
-                started_at,
-                wall_ms: wall_ms as u64,
-                cpu_ms: cpu_ms as u64,
-                result,
-            });
-        }
-        read.push(run);
+            })?;
+        run.steps.push(StepRecord {
+            name,
+            kind,
+            started_at,
+            wall_ms: wall_ms as u64,
+            cpu_ms: cpu_ms as u64,
+            result,
+        });
     }
-    Ok(read)
+    Ok(run)
 }
 
 /// Moves a store from before an app build run could end stopped: makes the
@@ -708,21 +723,23 @@ fn repo_stats(conn: &Connection, repo: &str, since: i64, path: &Path) -> Result<
         }
         let mut steps: Vec<StepStats> = groups
             .into_iter()
-            .map(|(name, kind, mut times)| {
-                let kind = StepKind::from_word(&kind);
+            .map(|(name, kind, mut times)| -> Result<StepStats> {
+                let Some(kind) = StepKind::from_word(&kind) else {
+                    fail!("{}: a step is of kind {kind:?}", path.display());
+                };
                 let ran = times.len() as u32;
                 let slowest_ms = times.iter().copied().max().unwrap_or(0);
                 let median_ms = median_of(&mut times);
-                StepStats {
+                Ok(StepStats {
                     name: step_word(&name, kind),
                     kind,
                     ran,
                     median_ms,
                     slowest_ms,
                     total_ms: u64::from(ran) * median_ms,
-                }
+                })
             })
-            .collect();
+            .collect::<Result<_>>()?;
         steps.sort_by(|a, b| b.total_ms.cmp(&a.total_ms).then(a.name.cmp(&b.name)));
         let runs = waits.len() as u32;
         let mut sorted = waits.clone();

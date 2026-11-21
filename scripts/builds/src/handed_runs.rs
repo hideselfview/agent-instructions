@@ -75,18 +75,15 @@ pub fn hand_to(installed: &Path, repo: &str, store: &Path) -> Result<()> {
 }
 
 /// `builds app-build --record-handed <repo> <store>`: moves the handed store
-/// <store> to this program's schema and records each run it holds in the
+/// <store> to this program's schema and records the run it holds in the
 /// store of <repo>'s project, at <now>.
 pub fn receive(places: &Places, repo: &str, store: &Path, now: i64) -> Result<()> {
     crate::migrate::move_store(places, store, now)?;
-    let runs = app_timing::read_runs(store)?;
+    let run = app_timing::read_run(store)?;
     let Some(database) = app_timing::database_of(places, repo)? else {
         fail!("repo {repo} is in no project, so its runs have no store to go to");
     };
-    for run in &runs {
-        app_timing::record(&database, run)?;
-    }
-    Ok(())
+    app_timing::record(&database, &run)
 }
 
 /// `builds app-build --record-handed` with its arguments <args>.

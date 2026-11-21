@@ -521,8 +521,41 @@ fn a_recorded_run_reads_back_whole() {
     });
     let bare = run(NOW + 60, Lane::Mac, 0, RunEnd::Stopped, Vec::new());
     record(&path, &built).unwrap();
-    record(&path, &bare).unwrap();
-    assert_eq!(read_runs(&path).unwrap(), vec![built, bare]);
+    assert_eq!(read_run(&path).unwrap(), built);
+    let other = scratch.dir.join("other.sqlite");
+    drop(crate::db::open(&other, crate::db::Make::Allowed).unwrap());
+    record(&other, &bare).unwrap();
+    assert_eq!(read_run(&other).unwrap(), bare);
+}
+
+/// A failed step whose failure row the store lacks is a damaged store: reading
+/// the run fails and names the step, and records no empty failure.
+#[test]
+fn a_failed_step_with_no_failure_row_fails_the_read() {
+    let scratch = Scratch::new("timing-read-damaged");
+    let path = store(&scratch);
+    let failed = step(
+        "android",
+        StepKind::Step,
+        NOW,
+        9_000,
+        StepResult::Failed(crate::step_failure::StepFailure::new(
+            Some("boom".to_string()),
+            Vec::<String>::new(),
+        )),
+    );
+    record(
+        &path,
+        &run(NOW, Lane::Android, 0, RunEnd::Failed, vec![failed]),
+    )
+    .unwrap();
+    rusqlite::Connection::open(&path)
+        .unwrap()
+        .execute("DELETE FROM app_build_step_failure", [])
+        .unwrap();
+    let said = read_run(&path).unwrap_err().text();
+    assert!(said.contains("step android"), "{said}");
+    assert!(said.contains("no failure row"), "{said}");
 }
 
 /// The shots prefixes a branch's app builds ran come back once each, whatever

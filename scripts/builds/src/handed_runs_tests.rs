@@ -1,5 +1,5 @@
 use super::*;
-use crate::app_timing::{DATABASE, RunRecord, StepKind, StepRecord, StepResult, read_runs};
+use crate::app_timing::{DATABASE, RunRecord, StepKind, StepRecord, StepResult, read_run};
 use crate::lane::Lane;
 use crate::run_end::RunEnd;
 use crate::testing::Scratch;
@@ -52,14 +52,14 @@ fn a_run_whose_store_an_install_moved_goes_to_the_installed_builds() {
         &folder,
         &|| Ok(true),
         &mut |store: &Path| {
-            handed.push((store.to_path_buf(), read_runs(store).unwrap()));
+            handed.push((store.to_path_buf(), read_run(store).unwrap()));
             Ok(())
         },
     )
     .unwrap();
     assert_eq!(handed.len(), 1, "the lane hands one store");
     let (store, runs) = &handed[0];
-    assert_eq!(runs, &vec![run()], "the handed store holds the run");
+    assert_eq!(runs, &run(), "the handed store holds the run");
     assert!(store.starts_with(&folder), "{}", store.display());
     assert!(!store.exists(), "the lane deletes the store it handed");
 }
@@ -92,7 +92,7 @@ fn a_store_of_this_schema_takes_the_run_after_an_install() {
         panic!("the store has this schema, so the lane hands nothing")
     })
     .unwrap();
-    assert_eq!(read_runs(&store).unwrap(), vec![run()]);
+    assert_eq!(read_run(&store).unwrap(), run());
 }
 
 /// When the installed builds cannot record the handed run, the record fails
@@ -120,10 +120,10 @@ fn a_hand_off_that_fails_fails_the_record_and_leaves_no_store() {
     assert!(!store.unwrap().exists());
 }
 
-/// The installed builds moves a handed store to its schema and records each
+/// The installed builds moves a handed store to its schema and records the
 /// run it holds in the store of the repo's project.
 #[test]
-fn the_installed_builds_records_the_runs_of_a_handed_store() {
+fn the_installed_builds_records_the_run_of_a_handed_store() {
     let scratch = Scratch::new("handed-runs-receive");
     let places = scratch.places();
     let project = crate::lists::fixtures::make_store(&places, &["bae"]);
@@ -132,5 +132,5 @@ fn the_installed_builds_records_the_runs_of_a_handed_store() {
     drop(crate::db::open(&handed, crate::db::Make::Allowed).unwrap());
     crate::app_timing::record(&handed, &run()).unwrap();
     receive(&places, "bae", &handed, 1_000_100).unwrap();
-    assert_eq!(read_runs(&project.dir.join(DATABASE)).unwrap(), vec![run()]);
+    assert_eq!(read_run(&project.dir.join(DATABASE)).unwrap(), run());
 }

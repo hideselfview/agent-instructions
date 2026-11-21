@@ -23,6 +23,14 @@ impl RunEnd {
         }
     }
 
+    /// The end `word` names, as a store holds it, or None for a word that is
+    /// no end's.
+    pub fn from_word(word: &str) -> Option<RunEnd> {
+        [RunEnd::Passed, RunEnd::Failed, RunEnd::Stopped]
+            .into_iter()
+            .find(|end| end.word() == word)
+    }
+
     /// How a run whose program exited with <code> ended: a code above 128 is
     /// a signal's (`fail::exit_code`).
     pub fn of_code(code: i32) -> RunEnd {
