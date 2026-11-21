@@ -18,15 +18,19 @@ pub(crate) fn write(root: &Path, path: &str, text: &str) {
     std::fs::write(path, text).unwrap();
 }
 
-/// The design system the fixture's boards load: `Demo.Box`, and `Demo.Card`,
-/// which draws a heading and a `Demo.Box`.
+/// The design system the fixture's boards load: `Demo.Box`; `Demo.Card`,
+/// which draws a heading, a `Demo.Box` with props of its own and its
+/// children; `Demo.Nothing`, which draws nothing; and `Demo.Word`, which
+/// returns its `value` as a bare string.
 pub(crate) fn design() -> DesignSystem {
     DesignSystem {
         namespace: "demo".to_string(),
         tokens_css: ":root{--text-primary:#fff}".to_string(),
         bundle_css: String::new(),
         bundle_js: "window.Demo={Box:function(){return React.createElement('div',{id:'inner'},'hello')},\
-Card:function(){return React.createElement('section',null,React.createElement('h3',null,'Card title'),React.createElement(window.Demo.Box))}};"
+Card:function(p){return React.createElement('section',null,React.createElement('h3',null,'Card title'),React.createElement(window.Demo.Box,{kind:'inner'}),p.children)},\
+Nothing:function(){return null},\
+Word:function(p){return p.value}};"
             .to_string(),
     }
 }

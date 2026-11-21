@@ -133,3 +133,49 @@ async fn every_instance_of_a_preview_with_no_rows_draws_its_one_state() {
     assert_eq!(found.len(), 2);
     assert!(found.iter().all(|i| i.in_row));
 }
+
+#[tokio::test]
+async fn an_instance_says_whether_it_draws_a_node_and_whether_the_page_sets_its_props() {
+    let board = r#"<x-dc>
+<x-import component-from-global-scope="Demo.Nothing"></x-import>
+<x-import component-from-global-scope="Demo.Word" value="reissue"></x-import>
+<x-import component-from-global-scope="Demo.Card"><x-import component-from-global-scope="Demo.Box" kind="given"></x-import></x-import>
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic { renderVals() { return {}; } }
+</script>"#;
+    let root = fixture::tree(&[("fixture.draws", board)]);
+    let found = fixture::with_browser(root.path(), async |server, chrome| {
+        let page = chrome.new_page().await.unwrap();
+        let url = server.board_url("fixture.draws");
+        load(
+            &page,
+            "fixture.draws",
+            &url,
+            Frame { w: 300, h: 200 },
+            1.0,
+            BOARD_MOUNTED,
+        )
+        .await
+        .unwrap();
+        instances(&page, None).await
+    })
+    .await
+    .unwrap();
+    let seen: Vec<(&str, bool, bool)> = found
+        .iter()
+        .map(|i| (i.component.as_str(), i.draws, i.by_page))
+        .collect();
+    assert_eq!(
+        seen,
+        [
+            ("Nothing", false, true),
+            ("Word", true, true),
+            ("Card", true, true),
+            ("Box", true, false),
+            ("Box", true, true),
+        ],
+        "Card draws the first Box with props of its own, and the page gives it the second"
+    );
+    assert_eq!(found[1].words, ["value"], "a bare string is words");
+}

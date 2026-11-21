@@ -11,6 +11,12 @@
 //!   `expand_more`), for a prop the component never draws as words on any
 //!   page read.
 //!
+//! Only an instance that draws a node counts, and only the props its page
+//! sets: a component that draws nothing for a state has no row to show, and
+//! the props a component gives to a component it draws are the design
+//! system's code. A component that returns a bare string draws a text node,
+//! which counts as words.
+//!
 //! The other props are not state: `children`, callbacks and every prop that
 //! holds a React element, an array or an object; numbers, which measure;
 //! words, the strings a component draws as text, an accessible name, a
@@ -125,6 +131,14 @@ fn every_instance(drawn: &Drawn) -> impl Iterator<Item = &Instance> {
         .flat_map(|(_, found)| found)
 }
 
+/// Does <instance> count toward the states? It must draw a node, because a
+/// preview row of a component that draws nothing is an empty shot, and the
+/// page must set its props: the props that a component gives to a component
+/// it draws are the design system's code, not a choice a board makes.
+fn counts(instance: &Instance) -> bool {
+    instance.draws && instance.by_page
+}
+
 /// Is <prop> a class name, which styles an element from outside, or an
 /// icon's name (`icon`, `name`, or a name that ends in `Icon`), which picks a
 /// picture as words do? Neither is a state of the component.
@@ -169,7 +183,7 @@ pub(crate) fn uncovered(drawn: &Drawn) -> Vec<Uncovered> {
         shown.entry(component).or_default().extend(
             found
                 .iter()
-                .filter(|i| i.in_row && &i.component == component)
+                .filter(|i| counts(i) && i.in_row && &i.component == component)
                 .map(|i| state(i, &words)),
         );
     }
@@ -177,6 +191,7 @@ pub(crate) fn uncovered(drawn: &Drawn) -> Vec<Uncovered> {
         .boards
         .iter()
         .flat_map(|(board, found)| found.iter().map(move |i| (board.as_str(), i)))
+        .filter(|(_, i)| counts(i))
         .map(|(board, i)| (board, i, state(i, &words)))
         .collect();
     // Each component's state props: those any instance of it sets.

@@ -7,6 +7,8 @@ fn instance(component: &str, props: serde_json::Value) -> Instance {
         props: serde_json::from_value(props).unwrap(),
         words: Vec::new(),
         in_row: false,
+        draws: true,
+        by_page: true,
     }
 }
 
@@ -255,6 +257,32 @@ fn a_class_name_and_an_icon_name_are_no_state() {
             "Button",
             json!({"kind": "primary", "className": "bae-accent", "icon": "copy", "leadingIcon": "add", "name": "check"}),
         )],
+    )];
+    assert_eq!(listed(&drawn(boards, previews)), Vec::<String>::new());
+}
+
+#[test]
+fn an_instance_that_draws_nothing_is_no_state() {
+    let previews = vec![("Button", vec![row("Button", json!({}))])];
+    let boards = vec![(
+        "mac.one",
+        vec![Instance {
+            draws: false,
+            ..instance("Button", json!({"kind": "primary"}))
+        }],
+    )];
+    assert_eq!(listed(&drawn(boards, previews)), Vec::<String>::new());
+}
+
+#[test]
+fn props_a_component_gives_to_a_component_it_draws_are_no_state() {
+    let previews = vec![("Chip", vec![row("Chip", json!({}))])];
+    let boards = vec![(
+        "mac.one",
+        vec![Instance {
+            by_page: false,
+            ..instance("Chip", json!({"tone": "accent"}))
+        }],
     )];
     assert_eq!(listed(&drawn(boards, previews)), Vec::<String>::new());
 }
