@@ -136,7 +136,15 @@ pub fn without_flag<T: AsRef<str>>(words: &[T]) -> Vec<&str> {
 /// `without_flag` over words that borrow from something longer lived than
 /// the list that holds them.
 pub fn without_flag_of<'a>(words: impl IntoIterator<Item = &'a str>) -> Vec<&'a str> {
+    walk(words).0
+}
+
+/// The one walk over a command line's words: the words without each `--agent
+/// ID`, and for each `--agent` the ID after it, None when no word follows.
+/// Everything after a `--` is kept as it is.
+fn walk<'a>(words: impl IntoIterator<Item = &'a str>) -> (Vec<&'a str>, Vec<Option<&'a str>>) {
     let mut kept = Vec::new();
+    let mut ids = Vec::new();
     let mut items = words.into_iter();
     while let Some(word) = items.next() {
         if word == "--" {
@@ -145,39 +153,29 @@ pub fn without_flag_of<'a>(words: impl IntoIterator<Item = &'a str>) -> Vec<&'a 
             break;
         }
         if word == "--agent" {
-            items.next();
+            ids.push(items.next());
         } else {
             kept.push(word);
         }
     }
-    kept
+    (kept, ids)
 }
 
 /// <args> without `--agent ID`, which may come anywhere before a `--`, and
 /// the ID. Fails when `--agent` has no value or comes twice.
 fn split_flag(args: &[String]) -> Result<(Vec<String>, Option<String>)> {
-    let mut rest = Vec::with_capacity(args.len());
-    let mut given: Option<String> = None;
-    let mut items = args.iter();
-    while let Some(arg) = items.next() {
-        if arg == "--" {
-            rest.push(arg.clone());
-            rest.extend(items.by_ref().cloned());
-            break;
-        }
-        if arg != "--agent" {
-            rest.push(arg.clone());
-            continue;
-        }
-        let Some(id) = items.next() else {
+    let (rest, ids) = walk(args.iter().map(String::as_str));
+    let mut given = None;
+    for id in ids {
+        let Some(id) = id else {
             fail!("--agent needs a value: your builds agent id");
         };
         if given.is_some() {
             fail!("--agent comes twice; pass it once");
         }
-        given = Some(id.clone());
+        given = Some(id.to_string());
     }
-    Ok((rest, given))
+    Ok((rest.into_iter().map(str::to_string).collect(), given))
 }
 
 /// The agent that runs a command given `--agent` <flag> and `BUILDS_AGENT`
