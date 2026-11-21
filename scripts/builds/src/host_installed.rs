@@ -1,5 +1,5 @@
 //! What each host, this Mac included, has set up for builds' jobs: the
-//! `builds` and `builds-shots` programs its jobs run, whether its service
+//! `builds` program its jobs run, whether its service
 //! manager (launchd or systemd, sccache_service.rs) runs its sccache server,
 //! whether its sccache config holds builds' cap, and the settings that UI
 //! tests need on the host (ui_test_settings.rs). `builds
@@ -45,9 +45,6 @@ pub struct Installed {
 /// What a Mac host has of what app builds need.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MacInstalled {
-    /// The SHA-256 of the host's ~/.local/bin/builds-shots, which `builds
-    /// shots` runs there; None when the host has none.
-    pub shots: Option<String>,
     /// The settings that UI tests need on this host, which `builds host
     /// setup` turns on.
     pub ui_tests: crate::ui_test_settings::UiTestSettings,
@@ -55,7 +52,7 @@ pub struct MacInstalled {
 
 /// Runs on a host, and on this Mac, to print what `parse_installed` reads:
 /// the host's platform, what its builds says with `builds version`, on a Mac
-/// the builds-shots digest and the settings that UI tests need, whether the
+/// the settings that UI tests need, whether the
 /// file of the sccache server's job is there, each line of the sccache config
 /// after `sccache_config:`, the processes listening on sccache's port, and
 /// last, after `job=loaded`, what the
@@ -77,7 +74,6 @@ fn installed_script() -> String {
 if [ -e "$HOME/.local/bin/builds" ]; then echo "builds=$("$HOME/.local/bin/builds" version 2>&1 | tr '\n' ' ')"; else echo builds=missing; fi
 case "$os" in
 Darwin)
-  if [ -e "$HOME/.local/bin/{shots}" ]; then echo "shots=$(shasum -a 256 "$HOME/.local/bin/{shots}" | cut -d ' ' -f 1)"; else echo shots=missing; fi
   {mac_files}
 {ui_tests}
   ;;
@@ -91,7 +87,6 @@ Darwin) {mac_job} ;;
 *) {linux_job} ;;
 esac"#,
         platform = crate::host_platform::SCRIPT,
-        shots = crate::shots_program::PROGRAM,
         mac_files = files(Os::Mac),
         linux_files = files(Os::Linux),
         listener = crate::sccache::listener_script(),
@@ -118,18 +113,9 @@ pub fn parse_installed(text: &str) -> Result<Installed> {
     let os = crate::host_platform::Platform::parse(text)?.os;
     let mac = match os {
         crate::host_platform::Os::Linux => None,
-        crate::host_platform::Os::Mac => {
-            let shots = match value("shots") {
-                Some("missing") => None,
-                Some("") => fail!("shasum printed nothing for the host's builds-shots: {text:?}"),
-                Some(digest) => Some(digest.to_string()),
-                None => fail!("the host's answer has no shots line: {text:?}"),
-            };
-            Some(MacInstalled {
-                shots,
-                ui_tests: crate::ui_test_settings::parse(text)?,
-            })
-        }
+        crate::host_platform::Os::Mac => Some(MacInstalled {
+            ui_tests: crate::ui_test_settings::parse(text)?,
+        }),
     };
     let manager = crate::sccache_service::Manager(os);
     let job_file = match value("job_file") {
@@ -256,20 +242,6 @@ pub fn installed_findings(reads: &[HostInstalled]) -> Vec<crate::health::Advice>
                 Some(said) => format!(
                     "host {name} runs a different version of builds than this Mac (its ~/.local/bin/builds says {said:?}, and this Mac's says {:?}), so its jobs can behave differently from this Mac's. Install this Mac's builds there with",
                     local.builds.as_deref().unwrap_or("nothing")
-                ),
-            };
-            out.push(crate::health::Advice::run(text, setup.clone()));
-        }
-        let shots = |installed: &Installed| installed.mac.as_ref().map(|mac| mac.shots.clone());
-        if let (Some(theirs), Some(mine)) = (shots(installed), shots(local))
-            && theirs != mine
-        {
-            let text = match theirs {
-                None => format!(
-                    "host {name} has no builds-shots at ~/.local/bin/builds-shots, so `builds shots` fails in its jobs. Install this Mac's builds-shots there with"
-                ),
-                Some(_) => format!(
-                    "host {name} runs a different version of builds-shots than this Mac (its ~/.local/bin/builds-shots differs), so its shots checks can find other differences than this Mac's. Install this Mac's builds-shots there with"
                 ),
             };
             out.push(crate::health::Advice::run(text, setup.clone()));

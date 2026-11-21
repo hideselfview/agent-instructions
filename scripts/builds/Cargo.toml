@@ -17,6 +17,7 @@ toml = "1.1.8"
 
 [build-dependencies]
 sha2 = "0.10"
+toml = "1.1.8"
 
 [profile.release]
 debug = "line-tables-only"

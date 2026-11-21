@@ -372,9 +372,9 @@ fn record_stores_each_changed_place_with_no_app_work() {
     assert_eq!(design.places[b], None);
 }
 
-/// Record and amend run builds-shots on the change's commits against the
-/// parent of its first, in its worktree, and refuse the change, writing
-/// nothing, when builds-shots lists a component state that no preview row
+/// Record and amend run `builds shots states` on the change's commits
+/// against the parent of its first, in its worktree, and refuse the change,
+/// writing nothing, when it lists a component state that no preview row
 /// shows.
 #[test]
 fn record_and_amend_refuse_a_change_that_adds_a_component_state_no_preview_row_shows() {
@@ -391,7 +391,9 @@ fn record_and_amend_refuse_a_change_that_adds_a_component_state_no_preview_row_s
     let request = base_request(&w, json!({ board: null, "design/mocks/B.dc.html": null }));
     let refused = message(w.request(request.clone()));
     assert!(
-        refused.contains(&format!("asked: states --at {tip} --against {first}^")),
+        refused.contains(&format!(
+            "asked: shots states --at {tip} --against {first}^"
+        )),
         "{refused}"
     );
     let top = std::fs::canonicalize(&w.dir).unwrap();

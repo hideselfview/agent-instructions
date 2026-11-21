@@ -28,12 +28,12 @@
 //! adds the flags. A `shots <lane> <command>` line is the same for a
 //! selection of screenshots, `{select}` standing for the prefix of their
 //! names: `--shots <lane> <prefix>` runs it, once for each prefix. The line
-//! runs builds-shots' `run` (`builds shots run`): builds adds `--before
+//! runs the shots checker's `run` (`builds shots run`): builds adds `--before
 //! <findings.json>` to it when it compares the run with another
 //! (shot_findings.rs).
 //!
 //! Every line whose keyword starts with `shots-` holds a screenshot
-//! setting for builds-shots, the program `builds shots` runs, which reads
+//! setting for the shots checker that `builds shots` runs, which reads
 //! those lines itself (scripts/shots/src/settings.rs): this parser skips them.
 //! A `results <lane> <path>...` line names folders of the lane's app checkout
 //! (relative to it) that a run of tests or screenshots writes and agents read:

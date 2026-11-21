@@ -332,7 +332,7 @@ fn require_states_shown(tool: &Tool, scope: &Scope) -> Result<()> {
     crate::shots_program::require_states_shown(tool, &scope.checkout.top, &scope.tip, &scope.base)
         .map_err(|error| {
             crate::fail::Fail::Message(format!(
-                "the change draws a component state that no preview row shows, or builds-shots cannot tell; add each state as a row of its component's preview in the change:\n{}",
+                "the change draws a component state that no preview row shows, or the shots checker cannot tell; add each state as a row of its component's preview in the change:\n{}",
                 error.text()
             ))
         })

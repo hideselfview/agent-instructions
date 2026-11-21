@@ -662,7 +662,7 @@ sent again.
       Record and amend refuse a change, and write nothing, when its boards draw
       a component state that no row of the component's preview shows, unless
       the boards before its first commit already drew that state with no row
-      (decision #391), or when builds-shots cannot tell: they run `builds shots
+      (decision #391), or when the shots checker cannot tell: they run `builds shots
       states --at` the range's last commit `--against` the parent of its first
       commit in the change's worktree, and print what it lists. Add each state
       it lists as a row of the component's preview in the same change, so that

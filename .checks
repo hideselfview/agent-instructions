@@ -12,10 +12,10 @@
 # Markdown; width and the other options come from .mdformat.toml
 fix mdformat *.md mdformat {files}
 
-# builds' Rust, the boards library and the shots checker; the edition is the
-# crates' (rustfmt alone assumes 2015). builds compiles both libraries and the
-# shots checker compiles the boards library, so a change to a library checks
-# each crate that compiles it.
+# builds' Rust and the libraries it is built with, the boards library and the
+# shots checker; the edition is the crates' (rustfmt alone assumes 2015).
+# builds compiles both libraries and the shots checker compiles the boards
+# library, so a change to a library checks each crate that compiles it.
 fix rustfmt scripts/builds/**/*.rs,scripts/boards/**/*.rs,scripts/shots/**/*.rs rustfmt --edition 2024 {files}
 check clippy scripts/builds/**/*.rs,scripts/builds/**/*.sql,scripts/builds/Cargo.toml,scripts/builds/Cargo.lock,scripts/boards/**/*.rs,scripts/boards/Cargo.toml,scripts/shots/**/*.rs,scripts/shots/Cargo.toml,scripts/shots/canvas/* cargo clippy --manifest-path scripts/builds/Cargo.toml --all-targets -- -D warnings
 check clippy-boards scripts/boards/**/*.rs,scripts/boards/Cargo.toml,scripts/boards/Cargo.lock,scripts/boards/runtime/* cargo clippy --manifest-path scripts/boards/Cargo.toml --all-targets -- -D warnings

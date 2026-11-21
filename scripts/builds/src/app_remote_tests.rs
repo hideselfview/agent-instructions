@@ -423,12 +423,10 @@ fn a_step_on_a_host_runs_under_this_builds_programs_there() {
             "run"
         ])
     );
-    for name in ["builds", crate::shots_program::PROGRAM] {
-        assert_eq!(
-            std::fs::read(there.join(name)).unwrap(),
-            std::fs::read(bin.join(name)).unwrap()
-        );
-    }
+    assert_eq!(
+        std::fs::read(there.join("builds")).unwrap(),
+        std::fs::read(bin.join("builds")).unwrap()
+    );
     // The next step finds the folder there and copies nothing.
     std::fs::write(there.join("builds"), "kept").unwrap();
     app.with_programs(&pinned, &words(&["true"])).unwrap();

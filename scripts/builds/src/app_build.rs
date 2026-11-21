@@ -891,7 +891,7 @@ pub fn kept_shots_lanes(
 }
 
 /// <command>, a run of a `shots` line, comparing with the findings.json at
-/// <file>: builds-shots' `run --before`.
+/// <file>: `builds shots run --before`.
 fn with_before(command: &[String], file: &str) -> Vec<String> {
     let mut command = command.to_vec();
     command.extend(["--before".to_string(), file.to_string()]);
@@ -904,8 +904,8 @@ struct ShotsStore {
     places: Places,
     repo: String,
     lane: Lane,
-    /// The version of builds-shots the store keys the runs on: the one
-    /// installed beside this builds.
+    /// The version of the shots checker the store keys the runs on: the one
+    /// this builds is built with.
     version: String,
     /// The findings.json of the run each shots prefix of the lane compares
     /// with, by its prefix.
@@ -914,7 +914,7 @@ struct ShotsStore {
     /// the shots the app takes in the picture folder.
     app_tree: String,
     /// The lane built no app, so a shots run fails instead of capturing
-    /// (builds-shots' `run --no-capture`).
+    /// (`builds shots run --no-capture`).
     no_capture: bool,
 }
 
@@ -950,7 +950,7 @@ impl ShotsStore {
             match shot_store::before_run(places, repo, &base, lane, prefix, &version)? {
                 Some(before) => befores.push((prefix.clone(), before.findings_json())),
                 None => fail!(
-                    "builds holds no run of {prefix} on {} for {}, the merge base of {} with origin/main, by builds-shots {version}, so the run has nothing to compare with; `{}` makes one",
+                    "builds holds no run of {prefix} on {} for {}, the merge base of {} with origin/main, by shots checker {version}, so the run has nothing to compare with; `{}` makes one",
                     lane.word(),
                     &base[..base.len().min(12)],
                     &commit[..commit.len().min(12)],
@@ -979,7 +979,7 @@ impl ShotsStore {
     /// line, comparing with its before run when its prefix has one, and
     /// taking the board pictures earlier runs drew and the shots earlier
     /// runs of the lane's app tree took from the picture folder
-    /// (builds-shots' `run --pictures --app-tree`).
+    /// (`builds shots run --pictures --app-tree`).
     fn local_command(&self, step: &Step) -> Vec<String> {
         let before = self
             .before_of(step)
@@ -1054,8 +1054,8 @@ impl ShotsStore {
     /// Keeps a run of <prefix> that exited <exit> and printed <output> as the
     /// run of the commit the site is on: what the shots program printed and
     /// the report it names, copied from the site (shot_findings.rs). A run
-    /// whose report's findings.json names another version of builds-shots
-    /// than the store's is not kept, since no lookup of this builds would
+    /// whose report's findings.json names another version of the shots
+    /// checker than the store's is not kept, since no lookup of this builds would
     /// find it under its own version. A run that printed no findings, or a
     /// write or copy that fails, is said and changes nothing about the
     /// build's result; a report that fails to copy leaves the run kept
@@ -1138,14 +1138,14 @@ impl ShotsStore {
     }
 
     /// Whether the findings.json in the report folder <folder> names the
-    /// store's version of builds-shots; why not, when it names another.
+    /// store's version of the shots checker; why not, when it names another.
     fn same_version(&self, folder: &Path) -> std::result::Result<(), String> {
         let named = shot_findings::version_in(folder).map_err(|error| error.text())?;
         if named == self.version {
             return Ok(());
         }
         Err(format!(
-            "the run's findings.json names builds-shots {named}, and this builds keeps the runs of builds-shots {}: the checkout's host runs another builds-shots, which `builds install` or `builds host setup <name>` replaces with this Mac's",
+            "the run's findings.json names shots checker {named}, and this builds keeps the runs of shots checker {}: the run's `builds shots` was another builds than this one",
             self.version
         ))
     }
@@ -1531,7 +1531,7 @@ pub fn serve_stored(
 
 /// Makes the store hold the run each `--shots` pick of <picks> compares
 /// with: the run of <git_ref>'s merge base with origin/main, by the
-/// builds-shots this builds keys runs on (shot_store.rs). For the picks
+/// shots checker this builds keys runs on (shot_store.rs). For the picks
 /// with none, it builds the merge base first in their lanes, with each lane's
 /// `needs` steps, and runs the picks there, which keeps their runs; the run
 /// of a commit on origin/main compares with none, so its pairs' findings
@@ -1580,7 +1580,7 @@ pub fn ensure_before_runs(
         return Ok(());
     }
     note(format!(
-        "builds keeps no run of {} for {short}, the merge base with origin/main, by builds-shots {version}: building {short} and running them first, to compare with",
+        "builds keeps no run of {} for {short}, the merge base with origin/main, by shots checker {version}: building {short} and running them first, to compare with",
         wanted
             .iter()
             .map(|(_, _, prefix)| prefix.as_str())

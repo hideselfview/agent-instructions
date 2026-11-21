@@ -6,7 +6,7 @@
 //! commit's findings reads what an earlier run printed.
 //!
 //! A run is kept under the repo, the full commit id, the platform, the prefix
-//! the run was given and the version of builds-shots (`VERSION` in
+//! the run was given and the version of the shots checker (`VERSION` in
 //! shots_program.rs: a hash of its sources, which each run's findings.json
 //! names). A run by another version of the checker has another key, so its
 //! findings never stand in for these, and builds keeps no run whose
@@ -184,7 +184,7 @@ pub fn has_findings(exit: i64, findings: &str) -> bool {
 }
 
 /// The key of a run of <prefix> on <lane> for <repo> at <git_ref> by this
-/// builds' builds-shots: the commit is read from the repo's app checkout.
+/// builds' shots checker: the commit is read from the repo's app checkout.
 pub fn key_for(
     places: &Places,
     repo: &str,
@@ -202,7 +202,7 @@ pub fn key_for(
     })
 }
 
-/// The version of builds-shots that the findings.json in the report folder
+/// The version of the shots checker that the findings.json in the report folder
 /// <folder> names.
 pub fn version_in(folder: &Path) -> Result<String> {
     #[derive(serde::Deserialize)]
@@ -212,7 +212,7 @@ pub fn version_in(folder: &Path) -> Result<String> {
     let file = folder.join(shot_causes::FILE);
     let text = std::fs::read_to_string(&file).context(|| format!("reading {}", file.display()))?;
     let named: Named = serde_json::from_str(&text)
-        .context(|| format!("{} names no builds-shots version", file.display()))?;
+        .context(|| format!("{} names no shots checker version", file.display()))?;
     Ok(named.version)
 }
 

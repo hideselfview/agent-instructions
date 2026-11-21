@@ -1,16 +1,16 @@
-//! The programs an app build runs: the builds and builds-shots it started
-//! with, from start to end, whatever an install puts on PATH meanwhile.
+//! The program an app build runs: the builds it started with, from start to
+//! end, whatever an install puts on PATH meanwhile.
 //!
-//! Each version of builds keeps its two programs in a folder of its own,
+//! Each version of builds keeps its program in a folder of its own,
 //! `~/.local/lib/builds/<version>/`, named by `builds version`'s hash, which
-//! covers builds-shots' sources too (build.rs). An app build copies the
-//! programs it started from into its version's folder when the folder lacks
-//! them, after it checks that each copy says this version (an install that
-//! replaced a program after this build started puts another version there).
-//! It holds a shared lock on the folder's `.in-use` for its life, starts its
-//! lanes from the folder's builds, and puts the folder first on PATH, so every
-//! `builds` its steps run, `builds shots run` among them, and the
-//! builds-shots that runs, are this version's. A lane's steps on a host run
+//! covers the shots checker's sources too (build.rs). An app build copies the
+//! builds it started from into its version's folder when the folder lacks
+//! it, after it checks that the copy says this version (an install that
+//! replaced the program after this build started puts another version
+//! there). It holds a shared lock on the folder's `.in-use` for its life,
+//! starts its lanes from the folder's builds, and puts the folder first on
+//! PATH, so every `builds` its steps run, `builds shots run` among them, is
+//! this version's. A lane's steps on a host run
 //! the same way: the lane copies the folder to the host's
 //! `~/.local/lib/builds/<version>/` when the host lacks it, and runs each step
 //! under `<folder>/builds programs hold`, which holds the host's folder and
@@ -42,19 +42,9 @@ pub fn root(home: &Path) -> PathBuf {
     home.join(FOLDER)
 }
 
-/// The folder of <version>'s programs in <home>.
+/// The folder of <version>'s builds in <home>.
 pub fn folder(home: &Path, version: &str) -> PathBuf {
     root(home).join(version)
-}
-
-/// The programs a build started from, and the versions they must say.
-pub struct Sources<'a> {
-    pub builds: &'a Path,
-    pub shots: &'a Path,
-    /// What `builds version` says after `builds `.
-    pub version: &'a str,
-    /// What `builds-shots version` says.
-    pub shots_version: &'a str,
 }
 
 /// A version's folder that this process holds.
@@ -113,7 +103,7 @@ impl Pinned {
 /// What `pin` found.
 pub enum Pin {
     Pinned(Pinned),
-    /// A program where this build started from says another version: an
+    /// The program this build started from says another version: an
     /// install replaced it after this build started. Why, for the caller,
     /// which runs the installed builds in its place.
     Replaced(String),
@@ -138,11 +128,12 @@ fn says(program: &Path) -> Result<String> {
     Ok(String::from_utf8_lossy(&ran.stdout).trim().to_string())
 }
 
-/// Holds the folder of <sources>' version in <home>, and copies each program
-/// the folder lacks from <sources> first. Returns `Replaced`, and copies
-/// nothing more, when a program at <sources> says another version.
-pub fn pin(home: &Path, sources: &Sources) -> Result<Pin> {
-    let dir = folder(home, sources.version);
+/// Holds the folder of <version> in <home>, and copies <builds>, the builds
+/// this build started from, into it first when the folder lacks it. Returns
+/// `Replaced`, and copies nothing, when <builds> says another version than
+/// `builds <version>`.
+pub fn pin(home: &Path, builds: &Path, version: &str) -> Result<Pin> {
+    let dir = folder(home, version);
     let in_use_path = dir.join(IN_USE);
     let in_use = loop {
         std::fs::create_dir_all(&dir).context(|| format!("creating {}", dir.display()))?;
@@ -157,28 +148,14 @@ pub fn pin(home: &Path, sources: &Sources) -> Result<Pin> {
             break file;
         }
     };
-    let wanted = [
-        (
-            "builds",
-            sources.builds,
-            format!("builds {}", sources.version),
-        ),
-        (
-            crate::shots_program::PROGRAM,
-            sources.shots,
-            sources.shots_version.to_string(),
-        ),
-    ];
-    for (name, source, version) in wanted {
-        let into = dir.join(name);
-        if into.is_file() {
-            continue;
-        }
-        let staged = dir.join(format!(".{name}.{}", crate::text::staged_suffix()));
-        std::fs::copy(source, &staged)
-            .context(|| format!("copying {} to {}", source.display(), staged.display()))?;
+    let into = dir.join("builds");
+    if !into.is_file() {
+        let wanted = format!("builds {version}");
+        let staged = dir.join(format!(".builds.{}", crate::text::staged_suffix()));
+        std::fs::copy(builds, &staged)
+            .context(|| format!("copying {} to {}", builds.display(), staged.display()))?;
         let said = match says(&staged) {
-            Ok(said) if said == version => None,
+            Ok(said) if said == wanted => None,
             Ok(said) => Some(Ok(said)),
             Err(error) => Some(Err(error)),
         };
@@ -187,34 +164,24 @@ pub fn pin(home: &Path, sources: &Sources) -> Result<Pin> {
                 std::fs::remove_file(&staged).context(|| format!("removing {}", staged.display()));
             let said = crate::fail::with_cleanup(said, removed)?;
             return Ok(Pin::Replaced(format!(
-                "{} says {said:?}, not {version:?}: builds install replaced it after this build started",
-                source.display()
+                "{} says {said:?}, not {wanted:?}: builds install replaced it after this build started",
+                builds.display()
             )));
         }
         std::fs::rename(&staged, &into)
             .context(|| format!("moving {} to {}", staged.display(), into.display()))?;
     }
     Ok(Pin::Pinned(Pinned {
-        version: sources.version.to_string(),
+        version: version.to_string(),
         dir,
         in_use,
     }))
 }
 
-/// `pin` with this program and the builds-shots beside it, of this
-/// program's version.
+/// `pin` with this program, of this program's version.
 pub fn pin_this(home: &Path) -> Result<Pin> {
     let builds = std::env::current_exe().context(|| "finding this program".to_string())?;
-    let shots = crate::shots_program::beside(&builds);
-    pin(
-        home,
-        &Sources {
-            builds: &builds,
-            shots: &shots,
-            version: env!("BUILDS_SOURCE"),
-            shots_version: crate::shots_program::VERSION,
-        },
-    )
+    pin(home, &builds, env!("BUILDS_SOURCE"))
 }
 
 /// The versions whose folders <home> holds, in the order of their names.

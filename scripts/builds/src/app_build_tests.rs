@@ -940,7 +940,7 @@ fn a_store(places: &Places) -> ShotsStore {
 }
 
 /// The key of a run of <prefix> on the Mac lane of repo `demo` at <commit>,
-/// by this builds' builds-shots.
+/// by this builds' shots checker.
 fn shots_key(commit: &str, prefix: &str) -> shot_store::Key {
     shot_store::Key {
         repo: "demo".to_string(),
@@ -1052,7 +1052,7 @@ fn app_build_with_only_a_shots_pick_prints_a_stored_run_and_takes_no_lane() {
 }
 
 /// A shots run that writes a report, with a findings.json that names
-/// builds-shots <version>, and says where it is.
+/// shots checker <version>, and says where it is.
 fn report_run(version: &str) -> String {
     format!(
         "mkdir -p shots/report/img; echo png > shots/report/img/a.png; echo stale > shots/report/img/old.png; echo \"<img src=\\\"img/a.png\\\">\" > shots/report/index.html; echo '{{\"version\": \"{version}\", \"commit\": \"c\", \"scenes\": [], \"findings\": []}}' > shots/report/findings.json; echo '    Running `target/debug/builds-shots run`' >&2; echo 'builds shots: report at '\"$PWD\"'/shots/report/index.html' >&2; exit 0"
@@ -1093,7 +1093,7 @@ fn a_shots_run_keeps_its_report_and_the_pictures_it_shows_under_its_key_in_the_s
 }
 
 #[test]
-fn a_report_whose_findings_name_another_builds_shots_keeps_nothing() {
+fn a_report_whose_findings_name_another_shots_checker_keeps_nothing() {
     let scratch = crate::testing::Scratch::new("shots-version");
     let held = held_in(&scratch);
     let places = scratch.places();

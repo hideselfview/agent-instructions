@@ -71,14 +71,10 @@ impl Scratch {
         }
     }
 
-    /// The programs builds installs: this test program as builds, and a
-    /// file of the words "shots" as builds-shots.
-    /// A `builds` program that says `builds test` with `builds version`, and
-    /// a `builds-shots` file, to install on a host.
-    pub fn programs(&self) -> crate::install::Programs {
+    /// A `builds` program that says `builds test` with `builds version`, to
+    /// install on a host.
+    pub fn builds_program(&self) -> PathBuf {
         use std::os::unix::fs::PermissionsExt;
-        let shots = self.dir.join(crate::shots_program::PROGRAM);
-        std::fs::write(&shots, "shots").expect("the scratch folder is writable");
         let builds = self.dir.join("builds");
         std::fs::write(
             &builds,
@@ -87,7 +83,7 @@ impl Scratch {
         .expect("the scratch folder is writable");
         std::fs::set_permissions(&builds, std::fs::Permissions::from_mode(0o755))
             .expect("the scratch folder is writable");
-        crate::install::Programs { builds, shots }
+        builds
     }
 
     /// A tool whose places are in the scratch folder, and whose reviewer
@@ -102,7 +98,8 @@ impl Scratch {
                 unused_days: 3,
                 incremental_hours: 6,
             },
-            // A builds-shots that finds no component state a change adds.
+            // A builds whose `shots states` finds no component state a change
+            // adds.
             self.script("states-shown", "exit 0"),
         );
         tool.reviewer = self.no_rulings_reviewer();
@@ -382,13 +379,12 @@ pub fn version_program(path: &Path, said: &str) {
         .expect("the scratch folder is writable");
 }
 
-/// The programs a build started from, in <dir>: a builds that says `builds
-/// <builds>` and a builds-shots that says <shots> (programs.rs).
-pub fn started_programs(dir: &Path, builds: &str, shots: &str) -> (PathBuf, PathBuf) {
-    let (b, s) = (dir.join("builds"), dir.join(crate::shots_program::PROGRAM));
-    version_program(&b, &format!("builds {builds}"));
-    version_program(&s, shots);
-    (b, s)
+/// The builds a build started from, in <dir>, which says `builds <version>`
+/// (programs.rs).
+pub fn started_builds(dir: &Path, version: &str) -> PathBuf {
+    let builds = dir.join("builds");
+    version_program(&builds, &format!("builds {version}"));
+    builds
 }
 
 /// The folder a pin holds.
@@ -399,17 +395,10 @@ pub fn pinned(pin: crate::programs::Pin) -> crate::programs::Pinned {
     }
 }
 
-/// The folder of this builds' version of the programs in <home>, which the
-/// value returned holds, made from programs in <bin> that say this builds'
-/// versions.
+/// The folder of this builds' version in <home>, which the value returned
+/// holds, made from a builds in <bin> that says this builds' version.
 pub fn pinned_programs(bin: &Path, home: &Path) -> crate::programs::Pinned {
     let version = env!("BUILDS_SOURCE");
-    let (builds, shots) = started_programs(bin, version, crate::shots_program::VERSION);
-    let sources = crate::programs::Sources {
-        builds: &builds,
-        shots: &shots,
-        version,
-        shots_version: crate::shots_program::VERSION,
-    };
-    pinned(crate::programs::pin(home, &sources).expect("the scratch folder is writable"))
+    let builds = started_builds(bin, version);
+    pinned(crate::programs::pin(home, &builds, version).expect("the scratch folder is writable"))
 }

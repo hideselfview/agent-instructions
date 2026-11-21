@@ -149,6 +149,6 @@ fn a_reports_findings_name_the_version_that_made_them() {
         version_in(&scratch.dir)
             .unwrap_err()
             .text()
-            .contains("names no builds-shots version")
+            .contains("names no shots checker version")
     );
 }

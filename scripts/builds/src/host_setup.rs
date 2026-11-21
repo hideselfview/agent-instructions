@@ -1,5 +1,5 @@
 //! Setting a host up to take jobs (`builds host setup`): putting builds
-//! there (a Mac gets this Mac's `builds` and `builds-shots` programs; a Linux
+//! there (a Mac gets this Mac's `builds` program; a Linux
 //! host first gets what its builds need and then builds builds from this
 //! program's sources, host_linux.rs), running the host's sccache server under
 //! its service manager, measuring the speed of its cores against this Mac's,
@@ -14,7 +14,6 @@ use crate::fail;
 use crate::fail::{Context, Result};
 use crate::host::{self, Host, LOCAL, Ssh, sh_quote};
 use crate::host_platform::Os;
-use crate::install::Programs;
 use crate::places::Places;
 use crate::tool::Tool;
 
@@ -45,7 +44,8 @@ pub fn setup_host(
     if os == Os::Linux {
         said = crate::host_linux::prepare(places, ssh, host, at_terminal)?;
     }
-    let (root, installed) = install_on_host(places, ssh, host, os, Programs::of_this)?;
+    let (root, installed) =
+        install_on_host(places, ssh, host, os, &crate::install::this_binary()?)?;
     said.push(installed);
     let said = said.join("\n");
     let printed = run_builds_there(places, ssh, host, "host speed-here", "timing a compile")?;
@@ -96,8 +96,8 @@ pub fn ask_builds_there(
     crate::remote::Transport { places, ssh, host }.ask(&script, doing)
 }
 
-/// Installs builds on <host>, which runs <os>: the programs <programs>
-/// gives, this Mac's, on a Mac (`install_program`), or a build of this program's sources on Linux
+/// Installs builds on <host>, which runs <os>: <builds>, this Mac's, on a
+/// Mac (`install_program`), or a build of this program's sources on Linux
 /// (`host_linux::install_builds`). Then it has that builds run `builds host
 /// setup-here` there with the versions whose programs this Mac keeps, which
 /// removes the host's folder of each other version that no step holds
@@ -111,10 +111,10 @@ pub fn install_on_host(
     ssh: &Ssh,
     host: &Host,
     os: Os,
-    programs: impl FnOnce() -> Result<Programs>,
+    builds: &Path,
 ) -> Result<(String, String)> {
     let root = match os {
-        Os::Mac => install_program(ssh, host, &programs()?)?,
+        Os::Mac => install_program(ssh, host, builds)?,
         Os::Linux => crate::host_linux::install_builds(ssh, host)?,
     };
     // The host keeps the folder of each version of the programs that this
@@ -129,34 +129,21 @@ pub fn install_on_host(
     Ok((root, said))
 }
 
-/// Copies <programs>, this Mac's, to `~/.local/bin` on <host>, builds-shots
-/// first, and creates the host's builds root, which it returns. Each install
-/// writes a program and the links of `links::LINKS` under names of its own and renames
+/// Copies <builds>, this Mac's, to `~/.local/bin` on <host>, and creates the
+/// host's builds root, which it returns. Each install writes the program and
+/// the links of `links::LINKS` under names of its own and renames
 /// them into place, so installs that run at the same time on one host, as two
-/// landings' do, each leave whole programs. The repo's own
+/// landings' do, each leave a whole program. The repo's own
 /// `scripts/build-layout.sh` and `scripts/cargo.sh` find builds there, so a
 /// repo's hooks and scripts work on the host as they do here. Every Mac
-/// host runs arm64 macOS, as this Mac does, so the same programs run on each.
-pub fn install_program(ssh: &Ssh, host: &Host, programs: &Programs) -> Result<String> {
-    let shots = crate::shots_program::PROGRAM;
-    let read = |program: &Path| {
-        std::fs::read(program).context(|| format!("reading {}", program.display()))
-    };
-    send(
-        ssh,
-        host,
-        shots,
-        &read(&programs.shots)?,
-        &format!(
-            "bin=\"$HOME/.local/bin\" && mkdir -p \"$bin\" && part=$(mktemp \"$bin/{shots}.XXXXXX\") && trap 'rm -f \"$part\"' EXIT && cat > \"$part\" && chmod 755 \"$part\" && mv \"$part\" \"$bin/{shots}\""
-        ),
-    )?;
+/// host runs arm64 macOS, as this Mac does, so the same program runs on each.
+pub fn install_program(ssh: &Ssh, host: &Host, builds: &Path) -> Result<String> {
     let links = link_steps();
     send(
         ssh,
         host,
         "builds",
-        &read(&programs.builds)?,
+        &std::fs::read(builds).context(|| format!("reading {}", builds.display()))?,
         &format!(
             "{root}bin=\"$HOME/.local/bin\" && mkdir -p \"$bin\" \"$BUILDS_ROOT\" && part=$(mktemp \"$bin/builds.XXXXXX\") && links= && trap 'rm -f \"$part\" $links' EXIT && cat > \"$part\" && chmod 755 \"$part\" && mv \"$part\" \"$bin/builds\"{links} && echo \"$BUILDS_ROOT\"",
             root = crate::remote::root_script(host)

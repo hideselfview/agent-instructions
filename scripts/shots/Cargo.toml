@@ -5,10 +5,6 @@ edition = "2024"
 publish = false
 description = "Checks an app's screenshots against its design boards; builds runs it as `builds shots`."
 
-[[bin]]
-name = "builds-shots"
-path = "src/bin/builds-shots.rs"
-
 [dependencies]
 boards = { path = "../boards" }
 chromiumoxide = "0.9"
@@ -24,9 +20,6 @@ thiserror = "2"
 tokio = { version = "1.0", features = ["rt-multi-thread", "macros", "net", "io-util", "time", "fs"] }
 toml = "1.1.8"
 unicode-normalization = "0.1"
-
-[build-dependencies]
-sha2 = "0.10"
 
 [lints.rust]
 # A `pub` item silences dead_code, so every item is `pub(crate)` or narrower.

@@ -339,10 +339,11 @@ impl RemoteApp {
         Ok(start)
     }
 
-    /// <command>, run under the build's programs <pinned> on the host:
+    /// <command>, run under the build's builds <pinned> on the host:
     /// `<folder>/builds programs hold -- <command>`, where <folder> is the
-    /// host's folder of their version (programs.rs). The function copies each
-    /// program the host's folder lacks from this Mac's folder of the version.
+    /// host's folder of its version (programs.rs). The function copies the
+    /// builds of this Mac's folder of the version when the host's folder
+    /// lacks it.
     pub fn with_programs(
         &mut self,
         pinned: &crate::programs::Pinned,
@@ -353,9 +354,8 @@ impl RemoteApp {
             &format!(
                 r#"dir="$HOME/{folder}/{version}"
 mkdir -p "$dir"
-if [ -x "$dir/builds" ] && [ -x "$dir/{shots}" ]; then echo "present=$dir"; else echo "absent=$dir"; fi"#,
+if [ -x "$dir/builds" ]; then echo "present=$dir"; else echo "absent=$dir"; fi"#,
                 folder = crate::programs::FOLDER,
-                shots = crate::shots_program::PROGRAM,
             ),
             "finding this builds' programs",
         )?;
@@ -371,21 +371,23 @@ if [ -x "$dir/builds" ] && [ -x "$dir/{shots}" ]; then echo "present=$dir"; else
             ),
         };
         if !present {
-            for name in ["builds", crate::shots_program::PROGRAM] {
-                let mut cat = Command::new("cat");
-                cat.arg(local.join(name));
-                let into = format!("{there}/{name}");
-                let staged = format!("{there}/.{name}.{}", crate::text::staged_suffix());
-                crate::remote::pipe(
-                    cat,
-                    self.transport().command(&format!(
-                        "cat > {staged} && chmod 755 {staged} && mv -f {staged} {into}",
-                        staged = sh_quote(&staged),
-                        into = sh_quote(&into),
-                    )),
-                    &format!("{} to host {}", local.join(name).display(), self.host.name),
-                )?;
-            }
+            let mut cat = Command::new("cat");
+            cat.arg(local.join("builds"));
+            let into = format!("{there}/builds");
+            let staged = format!("{there}/.builds.{}", crate::text::staged_suffix());
+            crate::remote::pipe(
+                cat,
+                self.transport().command(&format!(
+                    "cat > {staged} && chmod 755 {staged} && mv -f {staged} {into}",
+                    staged = sh_quote(&staged),
+                    into = sh_quote(&into),
+                )),
+                &format!(
+                    "{} to host {}",
+                    local.join("builds").display(),
+                    self.host.name
+                ),
+            )?;
         }
         let mut held = vec![
             format!("{there}/builds"),

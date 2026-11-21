@@ -1,8 +1,7 @@
 //! The shots checker: checks an app's shots against its design boards.
-//! builds runs it as `builds shots …` (`main`), in the builds program, and
-//! the builds-shots program (bin/builds-shots.rs) runs it for `builds design
-//! record` and `amend`. It reads the repo it runs in, its design files and the `shots-`
-//! lines of its `.app-build` (settings.rs), and names no app.
+//! builds runs it as `builds shots …` (`main`), in the builds program; it
+//! reads the repo it runs in, its design files and the `shots-` lines of its
+//! `.app-build` (settings.rs), and names no app.
 
 mod before;
 mod capture;
@@ -32,9 +31,9 @@ use std::path::{Path, PathBuf};
 
 /// What builds runs the checker with.
 pub struct Checker<'a> {
-    /// The version of the checker: a hash of its code (version.rs). A run's
-    /// findings.json names it, and a run compares only with a run of its own
-    /// version (before.rs).
+    /// The version of the checker: a hash of its code, which builds computes
+    /// (builds' build.rs). A run's findings.json names it, and a run compares
+    /// only with a run of its own version (before.rs).
     pub version: &'a str,
     /// The cache folder, which builds keeps on its build volume. It holds
     /// pinned Chrome and the scratch folders the design system is built in.

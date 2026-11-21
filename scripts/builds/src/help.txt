@@ -15,9 +15,10 @@ More help:
 
 builds is a Rust program in agent-instructions (scripts/builds).
 agent-instructions' install.sh builds it from the main checkout's committed
-HEAD, never from the working tree, with builds-shots, the program `builds
-shots` runs (scripts/shots), and runs `builds install`, which puts both on
-PATH as ~/.local/bin/builds and ~/.local/bin/builds-shots. Agents change
+HEAD, never from the working tree, with the libraries it is built with: the
+shots checker, which `builds shots` runs (scripts/shots), and the boards
+library (scripts/boards). install.sh then runs `builds install`, which puts
+builds on PATH as ~/.local/bin/builds. Agents change
 agent-instructions the way they change bae and coven: on a branch in a side
 worktree from `builds new ~/dev/agent-instructions --for <who> --project
 builds` (or `--project bae` for bae's rules and project file), reviewed and
@@ -936,8 +937,9 @@ A repo's `.app-build` at its root says what its app builds run, one line each:
                     builds adds --before <findings.json> when the run
                     compares with another (below)
   shots-<setting> ...
-                    a setting of builds-shots (`builds shots`), which reads
-                    these lines itself: builds skips them
+                    a setting of the shots checker (`builds shots`), which
+                    reads these lines itself: the parser of the other lines
+                    skips them
   results <lane> <path>...
                     the folders a --test or --shots run on another host
                     copies back to this Mac
@@ -1059,18 +1061,17 @@ beside the file `hosts` and runs the lane again on another host in the same
 way, until `builds host setup <name>` finds the settings on and removes the
 record.
 
-An app build runs the builds and builds-shots it started with from its
-start to its end, here and on each host, whatever an install puts on PATH
-meanwhile, so its merge base's shots runs and its own come from one version
-of builds-shots; the next build uses the installed programs. Each version
-keeps both programs in ~/.local/lib/builds/<version>/, named by `builds
-version`'s hash. The first app build of a version copies the programs it
-started from into that folder, once each copy says that version (when an
-install replaced a program before the build copied it, the build copies
-nothing and runs the installed builds in its place). The build holds the
-folder while it runs, starts its lanes from the folder's builds and puts the
-folder first on PATH, so `builds shots run` in a `shots` line runs the
-folder's programs. Before each step on a host, the lane copies the folder
+An app build runs the builds it started with from its start to its end,
+here and on each host, whatever an install puts on PATH meanwhile, so its
+merge base's shots runs and its own come from one version of the shots
+checker; the next build uses the installed builds. Each version keeps its
+builds in ~/.local/lib/builds/<version>/, named by `builds version`'s hash.
+The first app build of a version copies the builds it started from into
+that folder, once the copy says that version (when an install replaced the
+program before the build copied it, the build copies nothing and runs the
+installed builds in its place). The build holds the folder while it runs,
+starts its lanes from the folder's builds and puts the folder first on PATH,
+so `builds shots run` in a `shots` line runs the folder's builds. Before each step on a host, the lane copies the folder
 to the same place on the host when the host lacks it, and runs the step
 under `<folder>/builds programs hold`, which holds the host's folder and
 puts it first on PATH there. `builds install` removes each other version's
@@ -1086,10 +1087,12 @@ and report/ (the report's index.html, the pictures it shows and
 findings.json, the findings as records). The folder's path is the run's
 key: the repo, the full commit, the lane, the prefix and the shots version.
 A later run of the same key replaces the folder whole. The shots version is
-the version of the builds-shots that install puts beside builds (`builds
-shots version`), which each run's findings.json names; builds keeps no run
-whose findings.json names another version, as a run on a host with another
-builds-shots does. A run that died before it made findings keeps nothing.
+the version of the shots checker that builds is built with (`builds shots
+version`): a hash of the checker's sources, the boards library's and the
+versions of the packages they use, so a change to builds alone keeps every
+stored run. Each run's findings.json names the version, and builds keeps no
+run whose findings.json names another version. A run that died before it
+made findings keeps nothing.
 builds keeps each repo's folder in shots under its cap and deletes the runs
 and pictures that agents used least recently first (DISK).
 
@@ -1099,7 +1102,7 @@ element list <board hash>.json. A board hash is the hash of everything the
 board's picture depends on: the board's file and the parts it mounts (for a
 component shot, the preview page and the shot's name), its frame on the
 canvas, the design system's built files, the canvas runtime copy, the copies
-of React, the pinned Chrome, the version of builds-shots, and the
+of React, the pinned Chrome, the version of the shots checker, and the
 shots-unshot and shots-preview lines. app-build passes the folder to each shots run
 on this Mac (`run --pictures`), and the run draws only the boards whose hash
 the folder lacks and adds each new drawing to it, so builds draws a board
@@ -1117,7 +1120,7 @@ app-build passes the lane's app tree to each shots run on this Mac (`run
 tree, the run takes the shots from it and runs no capture command;
 otherwise it captures them and keeps them there. A commit that changes no
 path of the lane's app takes no shot again. Once a run has kept every shot
-a prefix selects, builds-shots marks the prefix taken for the tree (and
+a prefix selects, the shots checker marks the prefix taken for the tree (and
 whether the run took the shots shown in a window). When an app-build asks a
 lane only for shots, no changed path needs a step of the lane, and the
 folder holds a mark for each prefix (a mark of mac. covers mac.welcome.),
@@ -1289,15 +1292,20 @@ built again.
                               not copy) fails, naming the command that runs
                               the shots again
   builds shots run|capture|check|lint|runtime|components|states|version [<argument>...]
-                              run builds-shots, which checks the shots of the
-                              repo it runs in against the repo's boards, with
-                              these arguments; builds gives it a cache folder
-                              in the build volume's caches for the Chrome it
-                              pins. `builds shots <command> --help` lists a
+                              run the shots checker, which checks the shots
+                              of the repo it runs in against the repo's
+                              boards, with these arguments; builds gives it
+                              a cache folder in the build volume's caches
+                              for the Chrome it pins. On a machine with no
+                              build volume, such as a CI runner, set
+                              BUILDS_ROOT to a folder, which takes the
+                              volume's place. These commands read and write
+                              no store of builds. `builds shots <command>
+                              --help` lists a
                               command's arguments. `run` takes the selected
                               shots into shots/ and checks them; with
                               --before <findings.json>, the findings.json of
-                              a run by the same version of builds-shots, it
+                              a run by the same version of the checker, it
                               fails only on the pairs new or worse against
                               that run: a pair it did not check, or one with
                               a finding whose sentence its findings for the
@@ -1346,7 +1354,7 @@ built again.
                               component's preview. `builds review` reads
                               every file below a shots-declared folder
                               only against the rules marked `capture: true`
-                              (REVIEW). builds-shots reads the
+                              (REVIEW). The checker reads the
                               shots in the Components folder as it reads the
                               shots-declared folder's own files, and fails
                               when two files declare one shot.
@@ -1424,7 +1432,7 @@ built again.
                               <function>...` the functions that name a
                               preview's rows, and `shots-unshot
                               <selector>...` the parts of a board that the
-                              app draws nothing for. builds-shots runs a
+                              app draws nothing for. The checker runs a
                               capture command from the repo's top with
                               BUILDS_SHOTS_OUT (the folder to write each
                               <name>@<platform>.png and .json into),
@@ -1632,8 +1640,8 @@ indexes the build root.
                               to 1.25 times its cores. `band` takes the host
                               name `band` for itself, so `add` refuses it.
                               `setup` on a Mac host copies this Mac's builds
-                              and builds-shots programs to ~/.local/bin on
-                              the host (all the Macs run arm64 macOS). On a Linux
+                              to ~/.local/bin on the host (all the Macs run
+                              arm64 macOS). On a Linux
                               host, setup first installs, through sudo, the
                               Debian packages builds needs (a C compiler and
                               linker, pkg-config, git, curl, lsof and rsync)
@@ -1692,8 +1700,7 @@ indexes the build root.
                               this Mac's build volume; `builds install` does
                               the rest of this Mac's setup.
                               `builds install` puts builds on every host the
-                              same way, with builds-shots on each Mac host,
-                              and runs `builds host setup-here` there, without
+                              same way, and runs `builds host setup-here` there, without
                               the packages, the timing or the settings.
                               `list` asks every host for its OS and processor,
                               its load average per core,
@@ -2246,10 +2253,8 @@ STATUS, HEALTH AND THE DASHBOARD
                               that refuses jobs (HOSTS), with what the host
                               said and what to fix; a build host whose
                               ~/.local/bin/builds is missing or names other
-                              sources than this Mac's (`builds version`), or,
-                              on a Mac host, whose ~/.local/bin/builds-shots
-                              is missing or differs from this Mac's (`builds
-                              host setup <name>`); a
+                              sources than this Mac's (`builds version`,
+                              `builds host setup <name>`); a
                               build host, or this Mac, whose sccache server
                               launchd or systemd does not run from builds'
                               plist or unit, or whose
@@ -3430,11 +3435,9 @@ INSTALLING
                               refuses to compile when its schema's stamp
                               differs from the one migrate.rs records, so each
                               schema change records the new stamp beside its
-                              move from the schema before), copy
-                              builds-shots and then builds onto PATH, each in
-                              one rename (a failed build leaves the installed
-                              ones; install fails when no builds-shots sits
-                              beside this builds), link
+                              move from the schema before), copy builds onto
+                              PATH in one rename (a failed build leaves the
+                              installed one), link
                               ~/.local/bin/builds-linker and
                               ~/.local/bin/builds-rustc to it, and let the
                               waiting commands start. Then create the
@@ -3450,16 +3453,16 @@ INSTALLING
                               running compile; `builds install` fails, with
                               what launchd and the server's log say, unless
                               launchd's server then listens on the port),
-                              remove each other version's folder of programs
-                              that no app build holds (APP BUILDS), point
+                              remove each other version's folder that no app
+                              build holds (APP BUILDS), point
                               Xcode's default DerivedData at the
                               volume, restart a running dashboard so it runs
-                              the new code, and copy the same builds and
-                              builds-shots to every recorded Mac host (HOSTS),
+                              the new code, and copy the same builds to every
+                              recorded Mac host (HOSTS),
                               build builds on every Linux host from the
                               sources this builds was built from, and run
                               `builds host setup-here` on each host, naming
-                              the versions whose programs this Mac keeps,
+                              the versions whose folders this Mac keeps,
                               to remove the host's folders of the other
                               versions that no step holds, write the
                               sccache config and run the server under
@@ -3468,8 +3471,7 @@ INSTALLING
                               installs on every other host first, then fails
                               the install and names that host, and `builds
                               health` lists it until its builds names this
-                              Mac's sources (`builds version`), a Mac host's
-                              builds-shots matches this Mac's, and its config
+                              Mac's sources (`builds version`) and its config
                               holds builds' cap. Run it from
                               a fresh build (install.sh does), never from the
                               installed binary, which can't copy itself onto

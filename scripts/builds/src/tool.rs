@@ -22,10 +22,9 @@ pub struct Tool {
     pub now: i64,
     /// The reviewer the commands that check text before they write it ask.
     pub reviewer: Reviewer,
-    /// The builds-shots program `builds design record` and `amend` run to
-    /// find the component states a design change adds
-    /// (`shots_program::require_states_shown`): the one beside this
-    /// program, as `builds shots` runs it.
+    /// The builds program `builds design record` and `amend` run as `builds
+    /// shots states` to find the component states a design change adds
+    /// (`shots_program::require_states_shown`): this program.
     pub shots: PathBuf,
     /// Sizes measured ahead, for `status`, which reads every folder once.
     measured: HashMap<PathBuf, Measure>,
@@ -40,7 +39,7 @@ pub struct Tool {
 const DAEMON_SLOW: Duration = Duration::from_secs(3);
 
 impl Tool {
-    /// A tool that runs the builds-shots at <shots>.
+    /// A tool that runs the builds at <shots> as `builds shots states`.
     pub fn new(places: Places, rules: Rules, shots: PathBuf) -> Tool {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)

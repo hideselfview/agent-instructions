@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Re-runs the main checkout's install.sh when the commits in <range> touch
 # anything it consumes, including the builds, boards and shots sources that
-# it builds into the installed builds and builds-shots, so generated
+# it builds into the installed builds, so generated
 # instruction files, symlinks and the installed tools stay current without a
 # manual install. Only for what reaches main: install.sh
 # links the main checkout's files as the live config and builds builds from

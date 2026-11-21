@@ -1276,7 +1276,7 @@ fn app_build_with_no_step_named_builds_both_lanes_and_runs_each_class_and_shots_
 
 /// Writes shot.sh in <top> and commits it: a shots program that logs its
 /// arguments and writes a report, outside the checkout, whose findings.json
-/// names the builds-shots this builds keeps runs of, so builds keeps each
+/// names the shots checker this builds keeps runs of, so builds keeps each
 /// run.
 fn reporting_shots(top: &Path) {
     let shot = top.join("shot.sh");

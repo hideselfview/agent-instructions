@@ -326,7 +326,7 @@ fn run(command: &str, args: &[String]) -> Result<()> {
                 &Tool::new(
                     Places::from_env()?,
                     Rules::from_env()?,
-                    shots_program::beside_this()?,
+                    shots_program::this_program()?,
                 ),
                 args,
             );
@@ -357,7 +357,7 @@ fn run(command: &str, args: &[String]) -> Result<()> {
     let mut tool = Tool::new(
         Places::from_env()?,
         Rules::from_env()?,
-        shots_program::beside_this()?,
+        shots_program::this_program()?,
     );
     match command {
         "setup" => setup::cmd_setup(&tool, &host::Ssh::from_env(), args),

@@ -5,7 +5,7 @@
 //! whose name starts with none (`Artwork`) is every platform's. The thing is
 //! the rest of the name in lower-case words joined by `-`, a run of capitals
 //! being one word: `MacQRScanner` is mac's `qr-scanner`, `StatusChip` the
-//! shared `status-chip`. builds-shots names each row's shot from it, and
+//! shared `status-chip`. The shots checker names each row's shot from it, and
 //! builds finds the shots of a component by it.
 
 use crate::app_build::Platform;

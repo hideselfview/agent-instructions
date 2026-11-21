@@ -1,5 +1,5 @@
 //! The `shots-declared <platform> <folder>` lines of a repo's `.app-build`,
-//! which builds and builds-shots both read: the folder below which a
+//! which builds and its shots checker both read: the folder below which a
 //! platform's shots are declared.
 
 /// A platform a `shots-` line can name.
