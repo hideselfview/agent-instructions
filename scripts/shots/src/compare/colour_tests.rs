@@ -156,7 +156,7 @@ fn labelled(words: &str, colour: Option<&str>) -> crate::shots::Element {
 
 fn warn(board: (&Picture, Option<&str>), shot: (&Picture, Option<&str>)) -> Vec<String> {
     let (b, s) = ([labelled("Word", board.1)], [labelled("Word", shot.1)]);
-    let found = crate::compare::compare(&b, &s, &[]);
+    let found = crate::compare::compare(&b, &s, crate::compare::Slots::NONE);
     pairs(&side(&b, board.0), &side(&s, shot.0), &found.pairs)
         .iter()
         .map(Warning::sentence)

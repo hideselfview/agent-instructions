@@ -6,7 +6,7 @@
 use crate::Checker;
 use crate::before::{Against, Before};
 use crate::capture::Failed;
-use crate::compare::{self, Finding, Side, Warning};
+use crate::compare::{self, Finding, Side, Slots, Warning};
 use crate::component_files::{self, Listing};
 use crate::declared::Declared;
 use crate::design::{self, DesignSystem};
@@ -178,10 +178,19 @@ pub(crate) fn verify(job: &Verification) -> Result<Outcome, String> {
             .map_err(|e| format!("cannot read {}: {e}", picture_file.display()))?;
         let picture =
             Picture::decode(&picture).map_err(|e| format!("{}: {e}", picture_file.display()))?;
-        let result = compare::compare(&list.elements, &shot.list.elements, &list.slots);
+        let result = compare::compare(
+            &list.elements,
+            &shot.list.elements,
+            Slots::new(&list.slots, list.size),
+        );
         // The board's slots are areas its picture draws a stand-in for; the
         // picture check leaves them out like the board's unshot parts.
-        let board_unshot: Vec<_> = list.unshot.iter().chain(&list.slots).copied().collect();
+        let board_unshot: Vec<_> = list
+            .unshot
+            .iter()
+            .copied()
+            .chain(Slots::new(&list.slots, list.size).covered())
+            .collect();
         let warnings = compare::warnings(
             &Side {
                 elements: &list.elements,

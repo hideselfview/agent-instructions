@@ -11,7 +11,7 @@
 //! computed font.
 
 use crate::names::Platform;
-use crate::shots::{Bounds, Element, Role, Size, TextStyle, words};
+use crate::shots::{Bounds, Element, Role, TextStyle, words};
 use chromiumoxide::Page;
 use chromiumoxide::cdp::browser_protocol::accessibility::{
     AxNode, AxNodeId, AxPropertyName, EnableParams, GetFullAxTreeParams,
@@ -426,38 +426,8 @@ const SLOT_CLASS: &str = "bae-preview-slot";
 
 /// The boxes of the board's preview slots, measured from `origin`. The
 /// comparison leaves out what either side draws inside them (compare.rs).
-///
-/// The real view a slot stands in for can run past the frame the board is
-/// drawn in (a pane that scrolls), and the shot lists what runs past. A slot
-/// that reaches the frame's right or bottom edge, `frame` points from
-/// `origin`, therefore goes on past that edge.
-pub(crate) async fn slots(
-    page: &Page,
-    origin: (f64, f64),
-    frame: Size,
-) -> Result<Vec<Bounds>, ReadError> {
-    let found = boxes(page, &format!(".{SLOT_CLASS}"), origin).await?;
-    Ok(found
-        .into_iter()
-        .map(|b| reach_past_frame(b, frame))
-        .collect())
-}
-
-/// `slot`, grown without end past each edge of the `frame` it reaches, to the
-/// edge tolerance.
-fn reach_past_frame(slot: Bounds, frame: Size) -> Bounds {
-    let past = |start: f64, len: f64, edge: f64| {
-        if start + len >= edge - crate::compare::EDGE_TOLERANCE {
-            f64::from(f32::MAX)
-        } else {
-            len
-        }
-    };
-    Bounds {
-        width: past(slot.x, slot.width, frame.width),
-        height: past(slot.y, slot.height, frame.height),
-        ..slot
-    }
+pub(crate) async fn slots(page: &Page, origin: (f64, f64)) -> Result<Vec<Bounds>, ReadError> {
+    boxes(page, &format!(".{SLOT_CLASS}"), origin).await
 }
 
 /// The elements under the DOM node `backend`, in reading order, with boxes

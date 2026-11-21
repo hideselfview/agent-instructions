@@ -8,7 +8,7 @@ pub(crate) mod geometry;
 pub(crate) mod normalize;
 pub(crate) mod regions;
 
-use crate::shots::{Bounds, Element, Picture};
+use crate::shots::{Bounds, Element, Picture, Size};
 use align::Step;
 use colour::{Rgb, hex};
 use normalize::{Entry, entries, fold_merged};
@@ -88,21 +88,62 @@ pub(crate) struct Comparison {
     pub(crate) findings: Vec<Finding>,
 }
 
+/// The board's preview slots: the boxes of its `bae-preview-slot` stand-ins,
+/// where the app draws its real content, and the board's frame. The real view
+/// can run past the frame (a pane that scrolls) and the shot lists what runs
+/// past, so a slot that reaches the frame's right or bottom edge goes on past
+/// it. This is the one place that decides what a slot covers.
+#[derive(Clone, Copy)]
+pub(crate) struct Slots<'a> {
+    boxes: &'a [Bounds],
+    frame: Size,
+}
+
+impl<'a> Slots<'a> {
+    /// A board with no slots, for tests.
+    #[cfg(test)]
+    pub(crate) const NONE: Slots<'static> = Slots {
+        boxes: &[],
+        frame: Size {
+            width: 0.0,
+            height: 0.0,
+        },
+    };
+
+    pub(crate) fn new(boxes: &'a [Bounds], frame: Size) -> Self {
+        Self { boxes, frame }
+    }
+
+    /// The areas the slots cover in the board's frame.
+    pub(crate) fn covered(&self) -> Vec<Bounds> {
+        let past = |start: f64, len: f64, edge: f64| {
+            if start + len >= edge - EDGE_TOLERANCE {
+                f64::from(f32::MAX)
+            } else {
+                len
+            }
+        };
+        self.boxes
+            .iter()
+            .map(|b| Bounds {
+                width: past(b.x, b.width, self.frame.width),
+                height: past(b.y, b.height, self.frame.height),
+                ..*b
+            })
+            .collect()
+    }
+}
+
 /// Compares the board's list with the shot's, leaving out what either draws
-/// inside a preview slot of the board: <slots> are the boxes of the board's
-/// `bae-preview-slot` stand-ins, which the app draws its real content in. An
-/// element is inside a slot when the middle of its box lies in the slot's;
-/// that drops the slot's own element too. The shot's frame may sit
-/// off the board's, so the shot's slots are the board's moved by the offset
-/// the pairs outside the slots give. This is the one place slots filter the
-/// element comparison.
-pub(crate) fn compare<'a>(
-    boards: &'a [Element],
-    shot: &'a [Element],
-    slots: &[Bounds],
-) -> Comparison {
+/// inside a preview slot of the board. An element is inside a slot when the
+/// middle of its box lies in the slot's; that drops the slot's own element
+/// too. The shot's frame may sit off the board's, so the shot's slots are the
+/// board's moved by the offset the pairs outside the slots give. This is the
+/// one place slots filter the element comparison.
+pub(crate) fn compare<'a>(boards: &'a [Element], shot: &'a [Element], slots: Slots) -> Comparison {
+    let covered = slots.covered();
     let outside = |list: &'a [Element], shift: (f64, f64)| {
-        let slots: Vec<Bounds> = slots
+        let slots: Vec<Bounds> = covered
             .iter()
             .map(|s| Bounds {
                 x: s.x + shift.0,
@@ -115,7 +156,7 @@ pub(crate) fn compare<'a>(
             !slots.iter().any(|s| within(at, *s))
         }
     };
-    if slots.is_empty() {
+    if covered.is_empty() {
         return compare_kept(boards, shot, |_| true, |_| true);
     }
     let rough = compare_kept(boards, shot, outside(boards, (0.0, 0.0)), |_| true);

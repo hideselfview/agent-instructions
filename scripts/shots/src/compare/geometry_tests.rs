@@ -1,4 +1,5 @@
 use super::*;
+use crate::compare::Slots;
 use crate::compare::compare;
 use crate::compare::normalize::tests::element;
 use crate::shots::TextStyle;
@@ -24,7 +25,7 @@ fn board() -> Vec<Element> {
 }
 
 fn warnings(board: &[Element], shot: &[Element]) -> Vec<Warning> {
-    let pairs = compare(board, shot, &[]).pairs;
+    let pairs = compare(board, shot, Slots::NONE).pairs;
     let offset = frame_offset(board, shot, &pairs);
     let mut all = boxes(board, shot, &pairs, offset);
     all.extend(fonts(board, shot, &pairs));
@@ -46,7 +47,7 @@ fn shifted(list: &[Element], dx: f64, dy: f64) -> Vec<Element> {
 fn an_offset_frame_is_one_offset_and_no_element_moves() {
     let board = board();
     let shot = shifted(&board, 6.0, -3.0);
-    let pairs = compare(&board, &shot, &[]).pairs;
+    let pairs = compare(&board, &shot, Slots::NONE).pairs;
     assert_eq!(frame_offset(&board, &shot, &pairs), (6.0, -3.0));
     assert!(warnings(&board, &shot).is_empty());
 }
@@ -172,12 +173,12 @@ fn a_folded_run_is_compared_by_the_union_of_its_boxes() {
         boxed(Role::Text, "Artist", 10.0, 26.0, 40.0, 14.0),
     ];
     let shot = vec![boxed(Role::Text, "Title Artist", 10.0, 10.0, 60.0, 30.0)];
-    let pairs = compare(&board, &shot, &[]).pairs;
+    let pairs = compare(&board, &shot, Slots::NONE).pairs;
     assert_eq!(pairs.len(), 1);
     assert!(boxes(&board, &shot, &pairs, (0.0, 0.0)).is_empty());
     assert_eq!(frame_offset(&board, &shot, &pairs), (0.0, 0.0));
     // A shot text that is taller than the run still warns.
     let tall = vec![boxed(Role::Text, "Title Artist", 10.0, 10.0, 60.0, 50.0)];
-    let pairs = compare(&board, &tall, &[]).pairs;
+    let pairs = compare(&board, &tall, Slots::NONE).pairs;
     assert_eq!(boxes(&board, &tall, &pairs, (0.0, 0.0)).len(), 1);
 }
