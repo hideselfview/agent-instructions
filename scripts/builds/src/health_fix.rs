@@ -220,9 +220,10 @@ pub fn release_stalled_claims(tool: &Tool, health: &crate::health::Health) -> Re
     let commits = crate::procs::git_commits(&crate::procs::Processes::read()?);
     let mut lines = Vec::new();
     for worktree in health.worktrees.iter().filter(|w| w.stalled) {
-        let Some(idle) = worktree.idle_minutes.filter(|idle| *idle >= idle_minutes) else {
+        let idle = worktree.idle_minutes;
+        if idle < idle_minutes {
             continue;
-        };
+        }
         let checkout = crate::checkout::Checkout::find(&worktree.path)?;
         let top = checkout.top.display().to_string();
         if !checkout.is_side()

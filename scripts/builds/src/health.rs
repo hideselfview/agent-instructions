@@ -220,8 +220,8 @@ pub struct WorktreeHealth {
     pub quiet_minutes: Option<i64>,
     /// Minutes since the newest of HEAD's commit, the newest uncommitted
     /// write and the start of the claim: the time `stalled` and the release
-    /// of an idle claim (health_fix.rs) judge. None when git cannot tell.
-    pub idle_minutes: Option<i64>,
+    /// of an idle claim (health_fix.rs) judge.
+    pub idle_minutes: i64,
     /// No change and no build for QUIET_MINUTES, and not held or waiting on
     /// the person's review: health lists it under needs action, and the
     /// dashboard's card says it stalled.
@@ -892,9 +892,10 @@ pub fn assess(
         let quiet_minutes = activity.map(|when| minutes_since(now, when));
         // A worktree claimed a few minutes ago is not idle, even when its
         // files have not changed for hours.
-        let idle_minutes = activity
-            .max(Some(claim.since))
-            .map(|when| minutes_since(now, when));
+        let idle_minutes = minutes_since(
+            now,
+            activity.map_or(claim.since, |when| when.max(claim.since)),
+        );
         let app_build = machine
             .locks
             .iter()
@@ -930,14 +931,11 @@ pub fn assess(
             && app_builds.is_empty()
             && app_build.is_none()
             && in_line.is_empty()
-            && idle_minutes.is_none_or(|m| m >= QUIET_MINUTES);
+            && idle_minutes >= QUIET_MINUTES;
         if stalled {
             let quiet = format!(
-                "worktree: {label} ({}) has had no change for {} and no build runs there",
-                claim.who,
-                idle_minutes
-                    .map(|m| format!("{m}m"))
-                    .unwrap_or_else(|| "as long as git can tell".to_string())
+                "worktree: {label} ({}) has had no change for {idle_minutes}m and no build runs there",
+                claim.who
             );
             findings.push(Finding::new(
                 FindingKind::Quiet,
