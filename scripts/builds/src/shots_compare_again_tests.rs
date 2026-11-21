@@ -117,7 +117,10 @@ fn a_change_to_the_comparison_alone_compares_the_cached_pictures_again_and_takes
         "{}",
         again.findings
     );
-    assert_eq!(again.exit_code, 1);
+    assert_eq!(
+        again.exit_code, 0,
+        "the new findings hold only a warning, whatever the old run exited"
+    );
     // The cached run is found by the lookup that serves a branch's run and the
     // one that finds its base run.
     let served = shots_cache::before_run(

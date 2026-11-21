@@ -92,7 +92,10 @@ fn compare_again_with(places: &Places, key: &Key, program: &Path) -> Result<Opti
         short(&key.capture_version),
         shot_causes::text(&run)
     );
-    let cached = staging.finish(source.exit_code, &text)?;
+    // With no base run to compare with, every finding fails the run, as a run
+    // with no `--before` does.
+    let exit_code = i64::from(run.findings.iter().any(|record| record.level == "finding"));
+    let cached = staging.finish(exit_code, &text)?;
     note(format!(
         "compared the pictures of the cached run of {} {} {} again with comparison version {}: no app build and no shot",
         &key.commit[..key.commit.len().min(12)],
