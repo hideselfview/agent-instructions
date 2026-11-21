@@ -2,43 +2,63 @@
 //! which builds and builds-shots both read: the folder below which a
 //! platform's shots are declared.
 
-use crate::Error;
+/// The platforms a `shots-` line can name.
+pub const PLATFORMS: [&str; 3] = ["mac", "android", "web"];
 
-/// The folder a `shots-declared` line gives in <value>, the words after its
-/// platform, or why the line is wrong.
-pub fn declared_folder(value: &[String]) -> Result<&str, &'static str> {
-    let [folder] = value else {
-        return Err("gives more than one declare folder");
-    };
-    if folder.starts_with('/') || folder.split('/').any(|part| part == "..") {
-        return Err("names a folder outside the repo");
-    }
-    Ok(folder)
+/// A `shots-declared` line that is wrong, and why.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LineError {
+    pub line: String,
+    pub why: &'static str,
 }
 
-/// The folder of each `shots-declared` line of <text>, an `.app-build` file,
-/// in the order written, each without a trailing `/`. A line that
-/// `declared_folder` refuses, or that names no platform or no folder, is an
-/// error.
-pub fn declared_folders(text: &str) -> Result<Vec<String>, Error> {
-    let mut folders = Vec::new();
+impl LineError {
+    /// The sentence that names the file, the line and what is wrong.
+    pub fn text(&self) -> String {
+        format!(".app-build: the line {:?} {}", self.line, self.why)
+    }
+}
+
+/// The platform and folder of each `shots-declared` line of <text>, an
+/// `.app-build` file, in the order written, each folder without a trailing
+/// `/`. A line is wrong when it names no platform, a platform other than
+/// `PLATFORMS`, no folder or more than one, a folder outside the repo, or a
+/// platform that an earlier line declared.
+pub fn declared(text: &str) -> Result<Vec<(String, String)>, LineError> {
+    let mut declared: Vec<(String, String)> = Vec::new();
     for line in text.lines().map(str::trim) {
         let mut words = line.split_whitespace();
         if words.next() != Some("shots-declared") {
             continue;
         }
-        let bad = |why: &str| Error::new(format!(".app-build: the line {line:?} {why}"));
-        let rest: Vec<String> = words.map(str::to_string).collect();
-        let [_platform, value @ ..] = rest.as_slice() else {
+        let bad = |why| LineError {
+            line: line.to_string(),
+            why,
+        };
+        let rest: Vec<&str> = words.collect();
+        let [platform, value @ ..] = rest.as_slice() else {
             return Err(bad("names no platform"));
         };
-        if value.is_empty() {
-            return Err(bad("names its platform and nothing else"));
+        if !PLATFORMS.contains(platform) {
+            return Err(bad("names a platform other than mac, android or web"));
         }
-        let folder = declared_folder(value).map_err(bad)?;
-        folders.push(folder.trim_end_matches('/').to_string());
+        let folder = match value {
+            [] => return Err(bad("names its platform and nothing else")),
+            [folder] => *folder,
+            _ => return Err(bad("gives more than one declare folder")),
+        };
+        if folder.starts_with('/') || folder.split('/').any(|part| part == "..") {
+            return Err(bad("names a folder outside the repo"));
+        }
+        if declared.iter().any(|(p, _)| p == platform) {
+            return Err(bad("gives a platform a second declare folder"));
+        }
+        declared.push((
+            platform.to_string(),
+            folder.trim_end_matches('/').to_string(),
+        ));
     }
-    Ok(folders)
+    Ok(declared)
 }
 
 #[cfg(test)]

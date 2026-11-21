@@ -107,8 +107,11 @@ impl Globs {
     pub fn with_capture_folders(mut self, top: &Path) -> Result<Globs> {
         let file = top.join(".app-build");
         self.capture = match std::fs::read_to_string(&file) {
-            Ok(text) => boards::app_build::declared_folders(&text)
-                .map_err(|e| fail::Fail::Message(e.text()))?,
+            Ok(text) => boards::app_build::declared(&text)
+                .map_err(|e| fail::Fail::Message(e.text()))?
+                .into_iter()
+                .map(|(_, folder)| folder)
+                .collect(),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => Vec::new(),
             Err(error) => fail!("reading {}: {error}", file.display()),
         };

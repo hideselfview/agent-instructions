@@ -77,6 +77,16 @@ impl Settings {
 
     pub(crate) fn parse(text: &str) -> Result<Self, SettingsError> {
         let mut settings = Self::default();
+        let declared =
+            boards::app_build::declared(text).map_err(|e| SettingsError::Line(e.line, e.why))?;
+        settings.declared = declared
+            .into_iter()
+            .map(|(platform, folder)| {
+                let platform = Platform::parse(&platform)
+                    .expect("boards::app_build::PLATFORMS are the platforms Platform parses");
+                (platform, folder)
+            })
+            .collect();
         for line in text.lines().map(str::trim) {
             let mut words = line.split_whitespace();
             let Some(keyword) = words.next() else {
@@ -88,7 +98,7 @@ impl Settings {
             let bad = |why| SettingsError::Line(line.to_string(), why);
             let rest: Vec<String> = words.map(str::to_string).collect();
             match keyword {
-                "shots-capture" | "shots-declared" => {
+                "shots-capture" => {
                     let [platform, value @ ..] = rest.as_slice() else {
                         return Err(bad("names no platform"));
                     };
@@ -97,19 +107,13 @@ impl Settings {
                     if value.is_empty() {
                         return Err(bad("names its platform and nothing else"));
                     }
-                    if keyword == "shots-capture" {
-                        if settings.capture.iter().any(|(p, _)| *p == platform) {
-                            return Err(bad("gives a platform a second capture command"));
-                        }
-                        settings.capture.push((platform, value.to_vec()));
-                    } else {
-                        let folder = boards::app_build::declared_folder(value).map_err(bad)?;
-                        if settings.declared.iter().any(|(p, _)| *p == platform) {
-                            return Err(bad("gives a platform a second declare folder"));
-                        }
-                        settings.declared.push((platform, folder.to_string()));
+                    if settings.capture.iter().any(|(p, _)| *p == platform) {
+                        return Err(bad("gives a platform a second capture command"));
                     }
+                    settings.capture.push((platform, value.to_vec()));
                 }
+                // boards::app_build reads these lines, as builds does.
+                "shots-declared" => {}
                 "shots-preview" => {
                     let [row, name, cell] = rest.as_slice() else {
                         return Err(bad("needs the selectors of a row, its name and its cell"));
