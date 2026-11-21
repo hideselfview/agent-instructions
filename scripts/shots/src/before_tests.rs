@@ -10,6 +10,8 @@ fn before() -> Before {
         "version": "v1",
         "commit": "abc",
         "scenes": ["mac.a.b", "mac.a.c"],
+        "sizes": {},
+        "components": [],
         "findings": [
             {"scene": "mac.a.b", "level": "finding", "kind": "missing",
              "element": {"role": "button", "words": "Set up"}, "sentence": MISSING},
@@ -63,7 +65,7 @@ fn a_pair_with_a_finding_the_before_run_lacks_is_worse() {
 
 #[test]
 fn a_file_of_another_version_is_refused() {
-    let text = r#"{"version": "v2", "commit": "abc", "scenes": [], "findings": []}"#;
+    let text = r#"{"version": "v2", "commit": "abc", "scenes": [], "sizes": {}, "components": [], "findings": []}"#;
     let error = Before::parse(text, "before.json", "v1").unwrap_err();
     assert!(error.contains("builds-shots version v2"), "{error}");
     assert!(error.contains("this is version v1"), "{error}");

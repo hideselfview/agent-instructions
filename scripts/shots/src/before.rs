@@ -36,6 +36,12 @@ struct File {
     version: String,
     commit: String,
     scenes: Vec<String>,
+    /// The pairs' sizes and the components' preview rows, which the
+    /// comparison leaves unread.
+    #[serde(rename = "sizes")]
+    _sizes: serde::de::IgnoredAny,
+    #[serde(rename = "components")]
+    _components: serde::de::IgnoredAny,
     findings: Vec<Record>,
 }
 

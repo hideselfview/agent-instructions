@@ -1,7 +1,8 @@
 use super::*;
 use crate::compare::normalize::Entry;
 use crate::compare::{Aspect, Finding, Part, Warning};
-use crate::names::Name;
+use crate::component_files::{Component, Listing, Place, Row};
+use crate::names::{Name, Platform};
 use crate::shots::tests::LIST;
 use crate::shots::{Bounds, ElementList, Role};
 use crate::verify::Checked;
@@ -92,11 +93,17 @@ fn each_finding_and_warning_is_a_record_with_its_kind_component_element_and_numb
             ],
         ),
     ];
-    let json: serde_json::Value = serde_json::from_str(&text("abc123", &checked)).unwrap();
+    let json: serde_json::Value =
+        serde_json::from_str(&text("abc123", &checked, &Listing::default())).unwrap();
     let expected = serde_json::json!({
         "version": crate::VERSION,
         "commit": "abc123",
         "scenes": ["mac.welcome.a", "mac.welcome.b"],
+        "sizes": {
+            "mac.welcome.a": {"board": checked[0].board.size, "shot": checked[0].shot.size},
+            "mac.welcome.b": {"board": checked[1].board.size, "shot": checked[1].shot.size},
+        },
+        "components": [],
         "findings": [
             {"scene": "mac.welcome.a", "level": "finding", "kind": "missing", "component": "MacRow",
              "element": {"role": "button", "words": "Set up"},
@@ -133,7 +140,7 @@ fn the_file_is_written_beside_the_report() {
         vec![Finding::Extra(entry("Beta", Role::Text))],
         Vec::new(),
     )];
-    write(dir.path(), "abc123", &checked).unwrap();
+    write(dir.path(), "abc123", &checked, &Listing::default()).unwrap();
     let json: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(dir.path().join(FILE)).unwrap()).unwrap();
     assert_eq!(json["findings"][0]["kind"], "extra");
@@ -153,9 +160,12 @@ fn a_later_run_compares_with_the_file_as_its_before_run() {
         vec![beta.clone()],
         vec![Warning::FrameOffset { dx: 1.0, dy: 0.0 }],
     )];
-    let before =
-        crate::before::Before::parse(&text("abc123", &checked), "findings.json", crate::VERSION)
-            .unwrap();
+    let before = crate::before::Before::parse(
+        &text("abc123", &checked, &Listing::default()),
+        "findings.json",
+        crate::VERSION,
+    )
+    .unwrap();
     assert_eq!(before.commit(), "abc123");
     let against = |findings: &[Finding]| {
         let sentences: Vec<String> = findings.iter().map(Finding::sentence).collect();
@@ -165,5 +175,57 @@ fn a_later_run_compares_with_the_file_as_its_before_run() {
     assert_eq!(
         against(&[Finding::Missing(entry("Set up", Role::Button))]),
         crate::before::Against::Worse
+    );
+}
+
+#[test]
+fn the_file_names_each_component_s_preview_rows_by_their_shots_in_the_preview_s_order() {
+    let row = |name: &str, place| Row {
+        shot: Name::parse(name).unwrap(),
+        place,
+    };
+    let listing = Listing {
+        components: vec![Component {
+            name: "MacCheckbox".to_string(),
+            platform: Platform::Mac,
+            file: "baeShots/Components/MacCheckbox.swift".into(),
+            file_exists: false,
+            rows: vec![
+                row(
+                    "mac.component.checkbox.on",
+                    Place::Elsewhere("baeShots/Settings.swift".into()),
+                ),
+                row("mac.component.checkbox.off", Place::Nowhere),
+            ],
+        }],
+        strays: Vec::new(),
+        unnamed: Vec::new(),
+    };
+    let json: serde_json::Value = serde_json::from_str(&text("abc123", &[], &listing)).unwrap();
+    assert_eq!(
+        json["components"],
+        serde_json::json!([{
+            "name": "MacCheckbox",
+            "platform": "mac",
+            "rows": ["mac.component.checkbox.on", "mac.component.checkbox.off"],
+        }])
+    );
+}
+
+#[test]
+fn the_file_gives_each_pair_s_board_and_shot_sizes_in_points() {
+    let mut pair = checked("mac.welcome.a", Vec::new(), Vec::new());
+    pair.board.size.width = 110.5;
+    pair.board.size.height = 16.0;
+    pair.shot.size.width = 396.0;
+    pair.shot.size.height = 40.0;
+    let json: serde_json::Value =
+        serde_json::from_str(&text("abc123", &[pair], &Listing::default())).unwrap();
+    assert_eq!(
+        json["sizes"],
+        serde_json::json!({"mac.welcome.a": {
+            "board": {"width": 110.5, "height": 16.0},
+            "shot": {"width": 396.0, "height": 40.0},
+        }})
     );
 }

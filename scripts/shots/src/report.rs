@@ -430,7 +430,7 @@ pub(crate) fn write(dir: &Path, outcome: &Outcome, header: &Header) -> Result<()
     let index = dir.join("index.html");
     std::fs::write(&index, page(outcome, header))
         .map_err(|e| format!("cannot write {}: {e}", index.display()))?;
-    crate::findings_file::write(dir, &header.commit, &outcome.checked)
+    crate::findings_file::write(dir, &header.commit, &outcome.checked, &outcome.components)
 }
 
 #[cfg(test)]

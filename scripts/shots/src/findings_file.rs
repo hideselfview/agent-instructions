@@ -6,9 +6,15 @@
 //!
 //! The file is one object: `version`, the version of the program that wrote
 //! it (`builds-shots version`); `commit`, the commit the run checked;
-//! `scenes`, every pair the run checked; and `findings`, the records pair by
-//! pair, each pair's findings before its warnings. A later run compares its
-//! pairs with the file (before.rs).
+//! `scenes`, every pair the run checked; `sizes`, each pair's board and shot
+//! sizes in points, by scene, at which a reader shows the report's pictures
+//! side by side; `components`, each design-system
+//! component with a preview, once for each platform that draws it, with the
+//! shots of its preview's rows in the preview's order, whether or not the run
+//! checked them, so that a reader shows a component's rows and which of them
+//! the run has a pair for (the dashboard's component page); and `findings`,
+//! the records pair by pair, each pair's findings before its warnings. A later
+//! run compares its pairs with the file (before.rs).
 //!
 //! A record holds the pair's name (`scene`), its `level` (`finding`, which
 //! can fail a run, or `warning`), its `kind`, the sentence the run printed,
@@ -21,9 +27,11 @@
 use crate::compare::colour::hex;
 use crate::compare::normalize::Entry;
 use crate::compare::{Aspect, Finding, Part, Warning};
-use crate::shots::Role;
+use crate::component_files::Listing;
+use crate::shots::{Role, Size};
 use crate::verify::Checked;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::path::Path;
 
 /// The file's name in the report's folder.
@@ -34,7 +42,24 @@ struct File<'a> {
     version: &'a str,
     commit: &'a str,
     scenes: Vec<String>,
+    sizes: BTreeMap<String, Sizes>,
+    components: Vec<Component>,
     findings: Vec<Record>,
+}
+
+/// A pair's board and shot sizes, in points.
+#[derive(Serialize)]
+struct Sizes {
+    board: Size,
+    shot: Size,
+}
+
+/// A component on one platform, and the shot of each row of its preview.
+#[derive(Serialize)]
+struct Component {
+    name: String,
+    platform: &'static str,
+    rows: Vec<String>,
 }
 
 /// Whether a record is a finding, which can fail a run, or a warning, which
@@ -238,8 +263,9 @@ fn board_entry(finding: &Finding) -> Option<&Entry> {
     }
 }
 
-/// The file's text for the pairs a run of <commit> checked.
-pub(crate) fn text(commit: &str, checked: &[Checked]) -> String {
+/// The file's text for the pairs a run of <commit> checked, and the
+/// components' preview rows that <listing> holds.
+pub(crate) fn text(commit: &str, checked: &[Checked], listing: &Listing) -> String {
     let mut findings = Vec::new();
     for pair in checked {
         let scene = pair.name.to_string();
@@ -269,16 +295,44 @@ pub(crate) fn text(commit: &str, checked: &[Checked]) -> String {
         version: crate::VERSION,
         commit,
         scenes: checked.iter().map(|pair| pair.name.to_string()).collect(),
+        sizes: checked
+            .iter()
+            .map(|pair| {
+                let sizes = Sizes {
+                    board: pair.board.size,
+                    shot: pair.shot.size,
+                };
+                (pair.name.to_string(), sizes)
+            })
+            .collect(),
+        components: listing
+            .components
+            .iter()
+            .map(|component| Component {
+                name: component.name.clone(),
+                platform: component.platform.word(),
+                rows: component
+                    .rows
+                    .iter()
+                    .map(|row| row.shot.to_string())
+                    .collect(),
+            })
+            .collect(),
         findings,
     };
     serde_json::to_string(&file).expect("the records are plain data")
 }
 
-/// Writes the file for the pairs a run of <commit> checked into the report's
-/// folder `dir`.
-pub(crate) fn write(dir: &Path, commit: &str, checked: &[Checked]) -> Result<(), String> {
+/// Writes the file for the pairs a run of <commit> checked, and the
+/// components' rows <listing> holds, into the report's folder `dir`.
+pub(crate) fn write(
+    dir: &Path,
+    commit: &str,
+    checked: &[Checked],
+    listing: &Listing,
+) -> Result<(), String> {
     let path = dir.join(FILE);
-    std::fs::write(&path, text(commit, checked))
+    std::fs::write(&path, text(commit, checked, listing))
         .map_err(|e| format!("cannot write {}: {e}", path.display()))
 }
 
