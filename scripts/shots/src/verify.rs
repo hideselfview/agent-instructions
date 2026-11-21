@@ -287,9 +287,7 @@ pub(crate) fn print(outcome: &Outcome) {
     for problem in &outcome.problems {
         crate::log::outcome(&problem.sentence);
     }
-    for failed in &outcome.failed {
-        crate::log::outcome(format_args!("FAIL {}: {}", failed.name, failed.why));
-    }
+    crate::capture::print_failed(&outcome.failed);
     for (label, pairs) in [
         ("FAIL ", outcome.failing().collect::<Vec<_>>()),
         (

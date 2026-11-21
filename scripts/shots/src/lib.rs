@@ -435,9 +435,7 @@ fn run(checker: &Checker, action: Action) -> Result<bool, String> {
                 None,
                 |_| out.clone(),
             )?;
-            for failed in &taken.failed {
-                crate::log::outcome(format_args!("FAIL {}: {}", failed.name, failed.why));
-            }
+            capture::print_failed(&taken.failed);
             Ok(taken.failed.is_empty())
         }
         Action::Check { shots, out, sha } => {

@@ -94,6 +94,13 @@ pub(crate) struct Taken {
     pub(crate) failed: Vec<Failed>,
 }
 
+/// Prints a line for each of the shots <failed>.
+pub(crate) fn print_failed(failed: &[Failed]) {
+    for failed in failed {
+        crate::log::outcome(format_args!("FAIL {}: {}", failed.name, failed.why));
+    }
+}
+
 /// A selected shot a capture wrote no usable files of.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Failed {
