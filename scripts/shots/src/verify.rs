@@ -5,6 +5,7 @@
 
 use crate::Checker;
 use crate::before::{Against, Before};
+use crate::capture::Failed;
 use crate::compare::{self, Finding, Side, Warning};
 use crate::component_files::{self, Listing};
 use crate::declared::Declared;
@@ -32,6 +33,9 @@ pub(crate) struct Verification<'a> {
     pub(crate) names: &'a [Name],
     /// Declared shots this run left out because they need a window.
     pub(crate) not_taken: &'a [Name],
+    /// Selected shots the capture wrote no usable shot of; each fails the
+    /// run.
+    pub(crate) failed: &'a [Failed],
     /// Every shot the harnesses declare.
     pub(crate) declared: &'a [Declared],
     /// Where each platform's captured files are.
@@ -75,6 +79,9 @@ pub(crate) struct Outcome {
     /// Declared shots the run was not given the means to take (they need a
     /// window); neither checked nor failing.
     pub(crate) not_taken: Vec<Name>,
+    /// Selected shots the capture wrote no usable shot of, with why; each
+    /// fails the run and has no pair.
+    pub(crate) failed: Vec<Failed>,
     /// Each component's capture file and its gaps, which fail nothing.
     pub(crate) components: Listing,
 }
@@ -98,9 +105,10 @@ impl Outcome {
             .filter(|c| !c.findings.is_empty() && !Self::gated(c))
     }
 
-    /// Whether nothing fails: no gated finding and no shot without a board.
+    /// Whether nothing fails: no gated finding, no shot without a board and no
+    /// shot the capture failed.
     pub(crate) fn passed(&self) -> bool {
-        self.problems.is_empty() && self.failing().next().is_none()
+        self.problems.is_empty() && self.failed.is_empty() && self.failing().next().is_none()
     }
 }
 
@@ -219,6 +227,7 @@ pub(crate) fn verify(job: &Verification) -> Result<Outcome, String> {
         problems,
         lists,
         not_taken: job.not_taken.to_vec(),
+        failed: job.failed.to_vec(),
         components,
     })
 }
@@ -278,6 +287,9 @@ pub(crate) fn print(outcome: &Outcome) {
     for problem in &outcome.problems {
         crate::log::outcome(&problem.sentence);
     }
+    for failed in &outcome.failed {
+        crate::log::outcome(format_args!("FAIL {}: {}", failed.name, failed.why));
+    }
     for (label, pairs) in [
         ("FAIL ", outcome.failing().collect::<Vec<_>>()),
         (
@@ -330,7 +342,11 @@ fn names_of<'a>(pairs: impl Iterator<Item = &'a Name>) -> String {
 /// Says plainly which pairs fail the run and which have findings that are
 /// only listed.
 fn summarize(outcome: &Outcome) {
-    let failing: Vec<&Name> = outcome.failing().map(|c| &c.name).collect();
+    let failing: Vec<&Name> = outcome
+        .failing()
+        .map(|c| &c.name)
+        .chain(outcome.failed.iter().map(|f| &f.name))
+        .collect();
     let listed: Vec<&Name> = outcome.listed().map(|c| &c.name).collect();
     if !failing.is_empty() {
         crate::log::note(format_args!(

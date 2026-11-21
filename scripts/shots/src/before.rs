@@ -29,7 +29,9 @@ pub(crate) enum Against {
     Held,
 }
 
-/// The parts of a findings.json that the comparison reads.
+/// The parts of a findings.json that the comparison reads. A scene the run
+/// failed to capture is in `failed` and not in `scenes`, so it reads as a
+/// scene the run did not check.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct File {
@@ -38,6 +40,8 @@ struct File {
     scenes: Vec<String>,
     /// The pairs' sizes and the components' preview rows, which the
     /// comparison leaves unread.
+    #[serde(default, rename = "failed")]
+    _failed: serde::de::IgnoredAny,
     #[serde(rename = "sizes")]
     _sizes: serde::de::IgnoredAny,
     #[serde(rename = "components")]

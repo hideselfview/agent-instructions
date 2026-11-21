@@ -86,8 +86,19 @@ pub(crate) const NEEDS_WINDOW: &str = "not taken here (needs a window)";
 /// run was not given `--windows`.
 #[derive(Debug)]
 pub(crate) struct Taken {
+    /// The shots the run took: for a capture, those that wrote a usable shot.
     pub(crate) names: Vec<Name>,
     pub(crate) not_taken: Vec<Name>,
+    /// The shots the harness was to write and wrote no usable shot of, with
+    /// why; each fails the run, and the run still checks `names`.
+    pub(crate) failed: Vec<Failed>,
+}
+
+/// A selected shot a capture wrote no usable files of.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Failed {
+    pub(crate) name: Name,
+    pub(crate) why: String,
 }
 
 pub(crate) fn taken(
@@ -100,7 +111,11 @@ pub(crate) fn taken(
     let (names, not_taken) = selected(&all, platform, prefixes)?
         .into_iter()
         .partition(|name| windows || !declared.iter().any(|d| &d.name == name && d.needs_window));
-    Ok(Taken { names, not_taken })
+    Ok(Taken {
+        names,
+        not_taken,
+        failed: Vec::new(),
+    })
 }
 
 const EXTENSIONS: [&str; 2] = ["png", "json"];
@@ -140,8 +155,9 @@ pub(crate) struct Target<'a> {
 /// gives, run from `root`. Without `windows`, a shot shown in its window is
 /// left out and said on stderr. Before the command starts, `target.measure`
 /// gives the board size of each shot the run takes, and the run writes them to
-/// `board-sizes.json` in `target.out` (the module's doc). Returns the shots taken and
-/// those left out.
+/// `board-sizes.json` in `target.out` (the module's doc). Returns the shots taken, those the
+/// harness wrote no usable shot of (a failed shot does not fail the capture
+/// itself) and those left out.
 pub(crate) fn capture(
     root: &Path,
     command: &[String],
@@ -181,16 +197,38 @@ pub(crate) fn capture(
             step: step.clone(),
             source,
         })?;
-    if !status.success() {
-        return Err(CaptureError::Failed { step, status });
-    }
     let declared_here: Vec<Name> = declared
         .iter()
         .map(|d| d.name.clone())
         .filter(|n| n.platform() == platform)
         .collect();
-    check_complete(out, platform, &taken.names, &declared_here)?;
-    Ok(taken)
+    let stray = undeclared_problems(out, platform, &declared_here)?;
+    if !stray.is_empty() {
+        return Err(CaptureError::Incomplete(stray));
+    }
+    let mut failed = Vec::new();
+    let mut names = Vec::new();
+    for name in taken.names {
+        let problems = scene_problems(out, &name);
+        if problems.is_empty() {
+            names.push(name);
+        } else {
+            let why = if status.success() {
+                problems.join("; ")
+            } else {
+                format!("{step} failed ({status}): {}", problems.join("; "))
+            };
+            failed.push(Failed { name, why });
+        }
+    }
+    if failed.is_empty() && !status.success() {
+        return Err(CaptureError::Failed { step, status });
+    }
+    Ok(Taken {
+        names,
+        not_taken: taken.not_taken,
+        failed,
+    })
 }
 
 /// The prefixes the harness is given: those of `platform` that start a shot
@@ -268,28 +306,50 @@ pub(crate) fn check_complete(
     selected: &[Name],
     declared: &[Name],
 ) -> Result<(), CaptureError> {
+    let mut problems: Vec<String> = selected
+        .iter()
+        .flat_map(|name| scene_problems(out, name))
+        .collect();
+    problems.extend(undeclared_problems(out, platform, declared)?);
+    problems.sort();
+    if problems.is_empty() {
+        Ok(())
+    } else {
+        Err(CaptureError::Incomplete(problems))
+    }
+}
+
+/// What is wrong with the files `name`'s shot wrote into `out`: a file
+/// missing, or files that do not read back or disagree.
+fn scene_problems(out: &Path, name: &Name) -> Vec<String> {
     let mut problems = Vec::new();
-    for name in selected {
-        let mut written = true;
-        for extension in EXTENSIONS {
-            let file = name.file_name(extension);
-            if !out.join(&file).is_file() {
-                problems.push(format!("missing: the harness wrote no {file}"));
-                written = false;
-            }
-        }
-        if !written {
-            continue;
-        }
-        match Shot::load(out, name) {
-            Ok(shot) => problems.extend(
-                shot.problems(name)
-                    .into_iter()
-                    .map(|problem| format!("inconsistent: {name}: {problem}")),
-            ),
-            Err(e) => problems.push(format!("unreadable: {name}: {e}")),
+    for extension in EXTENSIONS {
+        let file = name.file_name(extension);
+        if !out.join(&file).is_file() {
+            problems.push(format!("missing: the harness wrote no {file}"));
         }
     }
+    if !problems.is_empty() {
+        return problems;
+    }
+    match Shot::load(out, name) {
+        Ok(shot) => problems.extend(
+            shot.problems(name)
+                .into_iter()
+                .map(|problem| format!("inconsistent: {name}: {problem}")),
+        ),
+        Err(e) => problems.push(format!("unreadable: {name}: {e}")),
+    }
+    problems
+}
+
+/// The shot files of `platform` in `out` that no harness declares.
+fn undeclared_problems(
+    out: &Path,
+    platform: Platform,
+    declared: &[Name],
+) -> Result<Vec<String>, CaptureError> {
+    let mut problems = Vec::new();
     let entries =
         std::fs::read_dir(out).map_err(|e| CaptureError::Directory(out.to_path_buf(), e))?;
     for entry in entries {
@@ -302,11 +362,7 @@ pub(crate) fn check_complete(
         }
     }
     problems.sort();
-    if problems.is_empty() {
-        Ok(())
-    } else {
-        Err(CaptureError::Incomplete(problems))
-    }
+    Ok(problems)
 }
 
 #[cfg(test)]

@@ -196,6 +196,7 @@ fn capture(
     let mut all = capture::Taken {
         names: Vec::new(),
         not_taken: Vec::new(),
+        failed: Vec::new(),
     };
     for platform in selection.platforms(settings) {
         let out = std::path::absolute(out_for(platform)).map_err(|e| e.to_string())?;
@@ -253,15 +254,20 @@ fn capture(
         .map_err(|e| e.to_string())?;
         if let Some(Kept { pictures, tree, .. }) = kept {
             pictures.keep_shots(platform, tree, &taken.names, &out)?;
-            pictures.mark_taken(
-                platform,
-                tree,
-                &taken_prefixes(platform, &selection.prefixes),
-                selection.windows,
-            )?;
+            // The mark says the folder keeps every shot the prefixes select,
+            // which a failed shot makes untrue.
+            if taken.failed.is_empty() {
+                pictures.mark_taken(
+                    platform,
+                    tree,
+                    &taken_prefixes(platform, &selection.prefixes),
+                    selection.windows,
+                )?;
+            }
         }
         all.names.extend(taken.names);
         all.not_taken.extend(taken.not_taken);
+        all.failed.extend(taken.failed);
     }
     Ok(all)
 }
@@ -407,6 +413,7 @@ fn run(checker: &Checker, action: Action) -> Result<bool, String> {
                 checker,
                 names: &taken.names,
                 not_taken: &taken.not_taken,
+                failed: &taken.failed,
                 declared: &declared,
                 shots_for: &|p| shots.join(p.word()),
                 out: &shots,
@@ -448,6 +455,7 @@ fn run(checker: &Checker, action: Action) -> Result<bool, String> {
                 checker,
                 names: &names,
                 not_taken: &[],
+                failed: &[],
                 declared: &declared,
                 shots_for: &|_| shots.clone(),
                 out: &out,

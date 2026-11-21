@@ -6,7 +6,8 @@
 //!
 //! The file is one object: `version`, the version of the checker that wrote
 //! it (`builds shots version`); `commit`, the commit the run checked;
-//! `scenes`, every pair the run checked; `sizes`, each pair's board and shot
+//! `scenes`, every pair the run checked; `failed`, each selected scene the
+//! capture wrote no usable shot of, with its `error`; `sizes`, each pair's board and shot
 //! sizes in points, by scene, at which a reader shows the report's pictures
 //! side by side; `components`, each design-system
 //! component with a preview, once for each platform that draws it, with the
@@ -24,6 +25,7 @@
 //! rounded to a tenth as the sentence writes them. A positive `dx` is right and a positive `dy` is down, in the shot
 //! against the board.
 
+use crate::capture::Failed;
 use crate::compare::colour::hex;
 use crate::compare::normalize::Entry;
 use crate::compare::{Aspect, Finding, Part, Warning};
@@ -42,9 +44,18 @@ struct File<'a> {
     version: &'a str,
     commit: &'a str,
     scenes: Vec<String>,
+    failed: Vec<FailedScene>,
     sizes: BTreeMap<String, Sizes>,
     components: Vec<Component>,
     findings: Vec<Record>,
+}
+
+/// A selected scene the capture wrote no usable shot of, and why. It is in no
+/// pair, so a later run compares it as a scene the run did not check.
+#[derive(Serialize)]
+struct FailedScene {
+    scene: String,
+    error: String,
 }
 
 /// A pair's board and shot sizes, in points.
@@ -264,8 +275,14 @@ fn board_entry(finding: &Finding) -> Option<&Entry> {
 }
 
 /// The file's text for the pairs a run of <commit> by the checker of
-/// <version> checked, and the components' preview rows that <listing> holds.
-pub(crate) fn text(version: &str, commit: &str, checked: &[Checked], listing: &Listing) -> String {
+/// <version> checked, the scenes <failed>, and the components' preview rows that <listing> holds.
+pub(crate) fn text(
+    version: &str,
+    commit: &str,
+    checked: &[Checked],
+    failed: &[Failed],
+    listing: &Listing,
+) -> String {
     let mut findings = Vec::new();
     for pair in checked {
         let scene = pair.name.to_string();
@@ -295,6 +312,13 @@ pub(crate) fn text(version: &str, commit: &str, checked: &[Checked], listing: &L
         version,
         commit,
         scenes: checked.iter().map(|pair| pair.name.to_string()).collect(),
+        failed: failed
+            .iter()
+            .map(|f| FailedScene {
+                scene: f.name.to_string(),
+                error: f.why.clone(),
+            })
+            .collect(),
         sizes: checked
             .iter()
             .map(|pair| {
@@ -324,17 +348,18 @@ pub(crate) fn text(version: &str, commit: &str, checked: &[Checked], listing: &L
 }
 
 /// Writes the file for the pairs a run of <commit> by the checker of
-/// <version> checked, and the components' rows <listing> holds, into the
+/// <version> checked, the scenes that <failed>, and the components' rows <listing> holds, into the
 /// report's folder `dir`.
 pub(crate) fn write(
     dir: &Path,
     version: &str,
     commit: &str,
     checked: &[Checked],
+    failed: &[Failed],
     listing: &Listing,
 ) -> Result<(), String> {
     let path = dir.join(FILE);
-    std::fs::write(&path, text(version, commit, checked, listing))
+    std::fs::write(&path, text(version, commit, checked, failed, listing))
         .map_err(|e| format!("cannot write {}: {e}", path.display()))
 }
 

@@ -103,6 +103,7 @@ fn outcome(dir: &Path, words: &str) -> Outcome {
             to_delete: vec!["mac.welcome.gone".to_string()],
         },
         not_taken: vec![Name::parse("mac.settings.toolbar").unwrap()],
+        failed: Vec::new(),
         components: component_gaps(),
     }
 }

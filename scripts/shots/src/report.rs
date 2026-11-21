@@ -264,22 +264,30 @@ pub(crate) fn page(outcome: &Outcome, header: &Header) -> String {
     put!(
         html,
         "<dt>Pairs</dt><dd>{} failing, {} with warnings, {} confirmed</dd></dl>",
-        failing.len() + outcome.problems.len(),
+        failing.len() + outcome.problems.len() + outcome.failed.len(),
         warned.len(),
         clean.len()
     );
     put!(
         html,
         "<section><h2>Failures ({})</h2>",
-        failing.len() + outcome.problems.len()
+        failing.len() + outcome.problems.len() + outcome.failed.len()
     );
-    if failing.is_empty() && outcome.problems.is_empty() {
+    if failing.is_empty() && outcome.problems.is_empty() && outcome.failed.is_empty() {
         html.push_str("<p>None.</p>");
     }
-    if !outcome.problems.is_empty() {
+    if !outcome.problems.is_empty() || !outcome.failed.is_empty() {
         html.push_str("<ul class=\"findings\">");
         for problem in &outcome.problems {
             put!(html, "<li>{}</li>", esc(&problem.sentence));
+        }
+        for failed in &outcome.failed {
+            put!(
+                html,
+                "<li><code>{}</code>: the capture failed: {}</li>",
+                esc(&failed.name.to_string()),
+                esc(&failed.why)
+            );
         }
         html.push_str("</ul>");
     }
@@ -365,16 +373,24 @@ pub(crate) fn summary(outcome: &Outcome, header: &Header) -> String {
     put!(
         text,
         ". {} failing, {} with warnings, {} confirmed. Runtime: {}; Chrome {}.\n\n",
-        failing + outcome.problems.len(),
+        failing + outcome.problems.len() + outcome.failed.len(),
         warned,
         confirmed,
         header.runtime,
         header.chrome
     );
-    if failing + outcome.problems.len() > 0 {
+    if failing + outcome.problems.len() + outcome.failed.len() > 0 {
         text.push_str("### Failures\n\n");
         for problem in &outcome.problems {
             putln!(text, "- {}", problem.sentence);
+        }
+        for failed in &outcome.failed {
+            putln!(
+                text,
+                "- `{}`: the capture failed: {}",
+                failed.name,
+                failed.why
+            );
         }
         for pair in outcome.checked.iter().filter(|c| !c.findings.is_empty()) {
             let note = crate::verify::mark(pair.against);
@@ -437,6 +453,7 @@ pub(crate) fn write(dir: &Path, outcome: &Outcome, header: &Header) -> Result<()
         &header.version,
         &header.commit,
         &outcome.checked,
+        &outcome.failed,
         &outcome.components,
     )
 }

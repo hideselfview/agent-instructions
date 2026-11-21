@@ -97,11 +97,12 @@ fn each_finding_and_warning_is_a_record_with_its_kind_component_element_and_numb
         ),
     ];
     let json: serde_json::Value =
-        serde_json::from_str(&text(VERSION, "abc123", &checked, &Listing::default())).unwrap();
+        serde_json::from_str(&text(VERSION, "abc123", &checked, &[], &Listing::default())).unwrap();
     let expected = serde_json::json!({
         "version": VERSION,
         "commit": "abc123",
         "scenes": ["mac.welcome.a", "mac.welcome.b"],
+        "failed": [],
         "sizes": {
             "mac.welcome.a": {"board": checked[0].board.size, "shot": checked[0].shot.size},
             "mac.welcome.b": {"board": checked[1].board.size, "shot": checked[1].shot.size},
@@ -143,7 +144,15 @@ fn the_file_is_written_beside_the_report() {
         vec![Finding::Extra(entry("Beta", Role::Text))],
         Vec::new(),
     )];
-    write(dir.path(), VERSION, "abc123", &checked, &Listing::default()).unwrap();
+    write(
+        dir.path(),
+        VERSION,
+        "abc123",
+        &checked,
+        &[],
+        &Listing::default(),
+    )
+    .unwrap();
     let json: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(dir.path().join(FILE)).unwrap()).unwrap();
     assert_eq!(json["findings"][0]["kind"], "extra");
@@ -164,7 +173,7 @@ fn a_later_run_compares_with_the_file_as_its_before_run() {
         vec![Warning::FrameOffset { dx: 1.0, dy: 0.0 }],
     )];
     let before = crate::before::Before::parse(
-        &text(VERSION, "abc123", &checked, &Listing::default()),
+        &text(VERSION, "abc123", &checked, &[], &Listing::default()),
         "findings.json",
         VERSION,
     )
@@ -205,7 +214,7 @@ fn the_file_names_each_component_s_preview_rows_by_their_shots_in_the_preview_s_
         unnamed: Vec::new(),
     };
     let json: serde_json::Value =
-        serde_json::from_str(&text(VERSION, "abc123", &[], &listing)).unwrap();
+        serde_json::from_str(&text(VERSION, "abc123", &[], &[], &listing)).unwrap();
     assert_eq!(
         json["components"],
         serde_json::json!([{
@@ -224,7 +233,7 @@ fn the_file_gives_each_pair_s_board_and_shot_sizes_in_points() {
     pair.shot.size.width = 396.0;
     pair.shot.size.height = 40.0;
     let json: serde_json::Value =
-        serde_json::from_str(&text(VERSION, "abc123", &[pair], &Listing::default())).unwrap();
+        serde_json::from_str(&text(VERSION, "abc123", &[pair], &[], &Listing::default())).unwrap();
     assert_eq!(
         json["sizes"],
         serde_json::json!({"mac.welcome.a": {

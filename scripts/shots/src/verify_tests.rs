@@ -11,6 +11,7 @@ fn outcome(checked: Vec<Checked>) -> Outcome {
         problems: Vec::new(),
         lists: Lists::default(),
         not_taken: Vec::new(),
+        failed: Vec::new(),
         components: crate::component_files::Listing::default(),
     }
 }

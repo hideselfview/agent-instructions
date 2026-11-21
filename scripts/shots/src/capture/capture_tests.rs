@@ -294,7 +294,7 @@ fn a_capture_runs_the_apps_command_with_the_variables_and_checks_what_it_wrote()
 }
 
 #[test]
-fn a_capture_command_that_fails_or_writes_too_little_fails_the_capture() {
+fn a_capture_command_that_fails_before_any_shot_fails_the_capture() {
     let empty = tempfile::tempdir().unwrap();
     let out = tempfile::tempdir().unwrap();
     let shots = declared(&[("android.welcome.a", false)]);
@@ -313,8 +313,11 @@ fn a_capture_command_that_fails_or_writes_too_little_fails_the_capture() {
             },
         )
     };
-    assert!(matches!(run(&["false"]), Err(CaptureError::Failed { .. })));
-    assert!(matches!(run(&["true"]), Err(CaptureError::Incomplete(_))));
+    let failed = run(&["false"]).unwrap();
+    assert_eq!(failed.failed.len(), 1);
+    let wrote_nothing = run(&["true"]).unwrap();
+    assert!(wrote_nothing.names.is_empty());
+    assert_eq!(wrote_nothing.failed.len(), 1);
     assert!(matches!(run(&[]), Err(CaptureError::NoCommand("android"))));
 }
 
@@ -383,4 +386,44 @@ fn a_run_that_cannot_measure_the_boards_does_not_start_the_command() {
         },
     );
     assert!(matches!(result, Err(CaptureError::Measure(_))));
+}
+
+#[test]
+fn one_failed_scene_among_several_leaves_the_others_taken_and_names_it() {
+    let ready = tempfile::tempdir().unwrap();
+    write_shot(ready.path(), "mac.welcome.a");
+    write_shot(ready.path(), "mac.welcome.c");
+    let out = tempfile::tempdir().unwrap();
+    let shots = declared(&[
+        ("mac.welcome.a", false),
+        ("mac.welcome.b", false),
+        ("mac.welcome.c", false),
+    ]);
+    // The harness writes the shots it could take, then exits 1.
+    let command = vec![
+        "sh".to_string(),
+        "-c".to_string(),
+        format!(
+            "cp '{}'/* \"$BUILDS_SHOTS_OUT\"; exit 1",
+            ready.path().display()
+        ),
+    ];
+    let taken = capture(
+        ready.path(),
+        &command,
+        &shots,
+        Platform::Mac,
+        &[],
+        false,
+        &Target {
+            out: out.path(),
+            measure: &|_| Ok(BTreeMap::new()),
+        },
+    )
+    .unwrap();
+    assert_eq!(taken.names, names(&["mac.welcome.a", "mac.welcome.c"]));
+    assert_eq!(taken.failed.len(), 1);
+    assert_eq!(taken.failed[0].name, names(&["mac.welcome.b"])[0]);
+    assert!(taken.failed[0].why.contains("failed"));
+    assert!(taken.failed[0].why.contains("mac.welcome.b@macos.png"));
 }
