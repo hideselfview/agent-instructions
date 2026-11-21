@@ -40,7 +40,7 @@ struct File {
     scenes: Vec<String>,
     /// The pairs' sizes and the components' preview rows, which the
     /// comparison leaves unread.
-    #[serde(default, rename = "failed")]
+    #[serde(rename = "failed")]
     _failed: serde::de::IgnoredAny,
     #[serde(rename = "sizes")]
     _sizes: serde::de::IgnoredAny,

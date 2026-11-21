@@ -426,7 +426,7 @@ fn run(checker: &Checker, action: Action) -> Result<bool, String> {
         }
         Action::Capture { selection, out } => {
             let declared = read_declared()?;
-            capture(
+            let taken = capture(
                 &root,
                 checker,
                 &settings,
@@ -435,7 +435,10 @@ fn run(checker: &Checker, action: Action) -> Result<bool, String> {
                 None,
                 |_| out.clone(),
             )?;
-            Ok(true)
+            for failed in &taken.failed {
+                crate::log::outcome(format_args!("FAIL {}: {}", failed.name, failed.why));
+            }
+            Ok(taken.failed.is_empty())
         }
         Action::Check { shots, out, sha } => {
             let declared = read_declared()?;
