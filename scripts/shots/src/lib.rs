@@ -79,6 +79,12 @@ enum Action {
         /// shot of the app tree: builds passes it when it built no app.
         #[arg(long, requires = "app_tree")]
         no_capture: bool,
+        /// Take every selected shot again, even when the picture folder keeps
+        /// it for the app tree, and replace the kept pictures with the new
+        /// ones. A shot taken before its window had loaded stays wrong in the
+        /// folder until a run takes it again.
+        #[arg(long, requires = "app_tree", conflicts_with = "no_capture")]
+        retake: bool,
     },
     /// Take the shots into a directory.
     Capture {
@@ -195,12 +201,13 @@ fn capture(
             pictures,
             tree,
             no_capture,
+            retake,
         }) = kept
         {
             let taken = capture::taken(declared, platform, &selection.prefixes, selection.windows)
                 .map_err(|e| e.to_string())?;
             capture::clear(&out, platform).map_err(|e| e.to_string())?;
-            if pictures.take_shots(platform, tree, &taken.names, &out)? {
+            if !retake && pictures.take_shots(platform, tree, &taken.names, &out)? {
                 crate::log::note(format_args!(
                     "took the {} {} shots of app tree {tree} from the picture folder; capturing none",
                     taken.names.len(),
@@ -261,6 +268,9 @@ struct Kept<'a> {
     tree: &'a str,
     /// Fail instead of capturing when the folder lacks a selected shot.
     no_capture: bool,
+    /// Capture every selected shot, whether or not the folder keeps it, and
+    /// replace the kept pictures.
+    retake: bool,
 }
 
 /// The prefixes of <platform> a run of <prefixes> takes every shot of: those
@@ -350,6 +360,7 @@ fn run(checker: &Checker, action: Action) -> Result<bool, String> {
             pictures,
             app_tree,
             no_capture,
+            retake,
         } => {
             // The one time the run marks each picture it takes used.
             let now = std::time::SystemTime::now();
@@ -374,6 +385,7 @@ fn run(checker: &Checker, action: Action) -> Result<bool, String> {
                     pictures,
                     tree,
                     no_capture,
+                    retake,
                 });
             let taken = capture(&root, &settings, &declared, &selection, kept, |p| {
                 shots.join(p.word())

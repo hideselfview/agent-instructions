@@ -107,6 +107,40 @@ fn an_app_trees_shots_are_taken_only_when_the_folder_keeps_every_selected_one() 
 }
 
 #[test]
+fn keeping_a_shot_again_replaces_its_kept_picture_and_element_list_whole() {
+    let dir = tempfile::tempdir().unwrap();
+    let pictures = Pictures::new(dir.path().join("pictures"), std::time::SystemTime::now());
+    let names = [shot("mac.a.b")];
+    let taken = dir.path().join("taken");
+    std::fs::create_dir_all(&taken).unwrap();
+    let file = |extension| taken.join(names[0].file_name(extension));
+    std::fs::write(file("png"), "early").unwrap();
+    std::fs::write(file("json"), "[1]").unwrap();
+    pictures
+        .keep_shots(Platform::Mac, "tree1", &names, &taken)
+        .unwrap();
+    std::fs::write(file("png"), "loaded").unwrap();
+    std::fs::write(file("json"), "[2]").unwrap();
+    pictures
+        .keep_shots(Platform::Mac, "tree1", &names, &taken)
+        .unwrap();
+    let kept = dir.path().join("pictures/mac/tree1");
+    assert_eq!(
+        std::fs::read_to_string(kept.join(names[0].file_name("png"))).unwrap(),
+        "loaded"
+    );
+    assert_eq!(
+        std::fs::read_to_string(kept.join(names[0].file_name("json"))).unwrap(),
+        "[2]"
+    );
+    assert_eq!(
+        std::fs::read_dir(&kept).unwrap().count(),
+        2,
+        "only the picture and its element list: no temporary file stays"
+    );
+}
+
+#[test]
 fn a_taken_prefix_is_marked_with_whether_the_run_took_the_window_shots() {
     let dir = tempfile::tempdir().unwrap();
     let pictures = Pictures::new(dir.path().to_path_buf(), std::time::SystemTime::now());

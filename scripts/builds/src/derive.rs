@@ -16,7 +16,8 @@
 //! what its changed paths need, or, when they need nothing in that lane, what
 //! its `needs` line names, so the run has a build of <ref> to run against. A
 //! `--shots` or `--all-shots` run whose findings for <ref> are already cached
-//! prints them instead of running, unless `--fresh`.
+//! prints them instead of running, unless `--fresh`, which also builds the
+//! app and takes the shots again, replacing their pictures in the folder.
 //!
 //! The lane's process (app_build.rs) then picks the checkout: the free one on
 //! the less loaded host, `here`-only steps staying on this Mac (lock.rs).
@@ -324,9 +325,14 @@ pub fn derive_and_run(places: &Places, args: &[String]) -> Result<()> {
         ));
         return Ok(());
     }
-    let kept = app_build::cached_shots_lanes(
-        places, repo, &top, &commit, &config, &changed, &lanes, &picks,
-    )?;
+    // --fresh takes the shots again, so no lane may skip its build for them.
+    let kept = if fresh {
+        Vec::new()
+    } else {
+        app_build::cached_shots_lanes(
+            places, repo, &top, &commit, &config, &changed, &lanes, &picks,
+        )?
+    };
     let lanes: Vec<(Lane, Vec<String>)> = lanes
         .into_iter()
         .map(|(lane, names)| {
@@ -350,7 +356,7 @@ pub fn derive_and_run(places: &Places, args: &[String]) -> Result<()> {
             }
         ));
     }
-    app_build::run_lanes(&pinned, repo, &commit, &lanes, &picks, &kept)
+    app_build::run_lanes(&pinned, repo, &commit, &lanes, &picks, &kept, fresh)
 }
 
 #[cfg(test)]

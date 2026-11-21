@@ -936,6 +936,7 @@ fn a_store(places: &Places) -> ShotsCache {
         befores: Vec::new(),
         app_tree: "0123456789abcdef".to_string(),
         no_capture: false,
+        retake: false,
     }
 }
 
@@ -1175,6 +1176,7 @@ fn a_lanes_shots_runs_compare_with_the_cached_run_of_the_merge_base_and_a_run_of
             &config,
             &a_screens(),
             false,
+            false,
         )
     };
     let on_main = of(&main).unwrap();
@@ -1300,6 +1302,18 @@ fn a_shots_run_of_a_lane_that_built_no_app_captures_none() {
     let step = fake("shots mac.a.", &["true"], None);
     let command = cached.local_command(&step);
     assert_eq!(command.last().map(String::as_str), Some("--no-capture"));
+}
+
+#[test]
+fn a_shots_run_of_a_fresh_build_takes_every_shot_again() {
+    let scratch = crate::testing::Scratch::new("shots-retake");
+    let places = scratch.places();
+    let top = scratch.dir.join("repo");
+    let mut fresh = shots_cache(&top, &places);
+    fresh.retake = true;
+    let step = fake("shots mac.a.", &["true"], None);
+    let command = fresh.local_command(&step);
+    assert_eq!(command.last().map(String::as_str), Some("--retake"));
 }
 
 #[test]
