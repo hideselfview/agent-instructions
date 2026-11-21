@@ -58,8 +58,12 @@ change of the text refuses no command. The rest of this help, and of `builds hel
 `builds help briefs`, is for looking up what a command does.
 
   builds ack [--agent ID] [--project P]
-      Start a reading: say which files the text holds, its version and how
-      many parts it comes in, and give the command for part 1, which holds
+      Start a reading. Its first line says why builds asks agents to read the
+      text: agents that skip it work in the person's checkout, push main and
+      poll for builds. For an agent that Claude Code compacted since its last
+      acknowledgement, the next line says the text is no longer in its
+      context. Then it says the version and how many parts the reading comes
+      in, and give the command for part 1, which holds
       a token that only this output shows. The reading holds only the
       sections whose current text the agent has not acknowledged in this
       session, in any project, and names the ones it leaves out. When the
@@ -85,7 +89,8 @@ change of the text refuses no command. The rest of this help, and of `builds hel
       Claude Code's SessionStart hook runs this after Claude Code compacts
       an agent (claude/settings.json in agent-instructions). builds deletes
       every acknowledgement and the reading of that agent in every project's
-      store, and tells the agent its id again, so the agent reads the text
+      store, records that Claude Code compacted the agent, and tells the
+      agent its id again, so the agent reads the text
       again before its next builds command and every other agent keeps its
       acknowledgements. builds refuses an agent no hook registered, and
       deletes nothing.

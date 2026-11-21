@@ -788,3 +788,39 @@ fn next_command_version(started: &str) -> String {
         .unwrap()
         .to_string()
 }
+
+#[test]
+fn every_reading_opens_with_why_builds_asks_for_it() {
+    let world = world("ack-why");
+    let started = world.ack(&[], NOON).unwrap();
+    assert_eq!(
+        started.lines().next().unwrap(),
+        "builds asks every agent to read this text first, because agents that skip it work in the person's checkout, push main and poll for builds."
+    );
+    assert!(!started.contains("compacted you"), "{started}");
+}
+
+#[test]
+fn a_reading_after_a_compaction_says_the_text_left_the_agents_context_until_it_acknowledges() {
+    let world = world("ack-compacted-opening");
+    world.acknowledge(NOON);
+    world.compact(Some(AGENT)).unwrap();
+    let started = world.ack(&[], NOON + 60).unwrap();
+    let lines: Vec<&str> = started.lines().collect();
+    assert_eq!(
+        lines[1],
+        "Claude Code compacted you, so this text is no longer in your context."
+    );
+    world.acknowledge(NOON + 120);
+    world.edit_rule("Write plain, literal sentences.");
+    let again = world.ack(&[], NOON + 180).unwrap();
+    assert!(!again.contains("compacted you"), "{again}");
+}
+
+#[test]
+fn a_compaction_of_another_agent_leaves_the_opening_of_this_one_as_it_was() {
+    let world = world("ack-compacted-other");
+    agent::register(&world.places, SESSION_ID, "a2").unwrap();
+    world.compact(Some("a2")).unwrap();
+    assert!(!world.ack(&[], NOON).unwrap().contains("compacted you"));
+}

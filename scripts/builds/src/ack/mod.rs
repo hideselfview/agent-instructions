@@ -402,7 +402,7 @@ fn ack(
     match args.positional() {
         [] => start(places, &agent, &text, now),
         [word, part, token] if word == "part" => part_of(places, &agent, &text, part, token),
-        [version, token] => acknowledge(&agent, &text, version, token, now),
+        [version, token] => acknowledge(places, &agent, &text, version, token, now),
         _ => fail!("{USAGE}"),
     }
 }
@@ -430,6 +430,7 @@ fn start(places: &Places, agent: &Agent, text: &Text, now: i64) -> Result<String
             &text.hashes(),
         )?;
         tx.commit().sql()?;
+        agent::clear_compacted(places, &agent.session, &agent.id)?;
         return Ok(format!(
             "builds: {} has acknowledged every section of version {version} in this session, so there is nothing to read.\n",
             agent.name()
@@ -456,13 +457,25 @@ fn start(places: &Places, agent: &Agent, text: &Text, now: i64) -> Result<String
             skipped.join(", ")
         )
     };
+    let compacted = if agent::was_compacted(places, &agent.session, &agent.id)? {
+        format!("{COMPACTED_SENTENCE}\n")
+    } else {
+        String::new()
+    };
     Ok(format!(
-        "builds ack: the text is version {version}, in {} parts.\n{skipped}  builds ack part 1 {}{}\n",
+        "{WHY_SENTENCE}\n{compacted}builds ack: the text is version {version}, in {} parts.\n{skipped}  builds ack part 1 {}{}\n",
         parts.len(),
         tokens[0],
         agent.flags
     ))
 }
+
+/// The first line of every reading: why builds asks for it.
+const WHY_SENTENCE: &str = "builds asks every agent to read this text first, because agents that skip it work in the person's checkout, push main and poll for builds.";
+
+/// The line after it for an agent that Claude Code compacted.
+const COMPACTED_SENTENCE: &str =
+    "Claude Code compacted you, so this text is no longer in your context.";
 
 /// A token for a reading: 16 hex digits from the system's random source.
 fn token() -> Result<String> {
@@ -544,7 +557,14 @@ fn part_of(places: &Places, agent: &Agent, text: &Text, part: &str, token: &str)
 
 /// Records the acknowledgement of <version> for the agent that gives <token>,
 /// the token of the last part; refuses a wrong token.
-fn acknowledge(agent: &Agent, text: &Text, version: &str, token: &str, now: i64) -> Result<String> {
+fn acknowledge(
+    places: &Places,
+    agent: &Agent,
+    text: &Text,
+    version: &str,
+    token: &str,
+    now: i64,
+) -> Result<String> {
     let reading = reading_of(agent, text)?;
     if version != reading.version {
         fail!(
@@ -565,6 +585,7 @@ fn acknowledge(agent: &Agent, text: &Text, version: &str, token: &str, now: i64)
         .sql()?;
     record::acknowledge(&tx, &agent.session, &agent.id, version, now, &text.hashes())?;
     tx.commit().sql()?;
+    agent::clear_compacted(places, &agent.session, &agent.id)?;
     Ok(format!(
         "builds: {} acknowledged version {version}. The acknowledgement holds until Claude Code compacts this agent. When the text changes, builds prints the changed sections once before a command's output, and the command runs.\n",
         agent.name()
@@ -592,6 +613,7 @@ fn compacted(places: &Places, hook: agent::HookInput) -> Result<String> {
             hook.session_id
         );
     }
+    agent::mark_compacted(places, &hook.session_id, id)?;
     for store in stores(places)? {
         let mut db = db::open(&store.database(), Make::Never)?;
         let tx = db

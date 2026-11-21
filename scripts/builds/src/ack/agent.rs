@@ -8,9 +8,11 @@
 //! the agent its id. The agent then passes `--agent ID` to every builds
 //! command, or sets `BUILDS_AGENT` for a script that runs builds.
 //!
-//! builds keeps one empty file per registered agent, at
+//! builds keeps one file per registered agent, at
 //! `<lists' parent>/agents/<session>/<agent>`, beside the projects' stores,
-//! so that the gate of every project reads the same agents.
+//! so that the gate of every project reads the same agents. The file is empty,
+//! except after Claude Code compacts the agent, until the agent acknowledges
+//! the text again (`mark_compacted`).
 
 use std::path::PathBuf;
 
@@ -75,6 +77,32 @@ pub fn register(places: &Places, session: &str, agent: &str) -> Result<()> {
     let path = file(places, session, agent)?;
     let folder = path.parent().expect("an agent's file has a folder");
     std::fs::create_dir_all(folder).context(|| format!("creating {}", folder.display()))?;
+    std::fs::write(&path, "").context(|| format!("writing {}", path.display()))
+}
+
+/// What the file of an agent that Claude Code compacted holds, until the agent
+/// acknowledges the text again.
+const COMPACTED: &str = "compacted\n";
+
+/// Records that Claude Code compacted agent <agent> of <session>, which the
+/// agent's next reading tells it. Fails for an agent builds did not register.
+pub fn mark_compacted(places: &Places, session: &str, agent: &str) -> Result<()> {
+    let path = file(places, session, agent)?;
+    std::fs::write(&path, COMPACTED).context(|| format!("writing {}", path.display()))
+}
+
+/// Whether Claude Code compacted agent <agent> of <session> since it last
+/// acknowledged the text.
+pub fn was_compacted(places: &Places, session: &str, agent: &str) -> Result<bool> {
+    let path = file(places, session, agent)?;
+    let held = std::fs::read_to_string(&path).context(|| format!("reading {}", path.display()))?;
+    Ok(held == COMPACTED)
+}
+
+/// Records that agent <agent> of <session> acknowledged the text since Claude
+/// Code compacted it.
+pub fn clear_compacted(places: &Places, session: &str, agent: &str) -> Result<()> {
+    let path = file(places, session, agent)?;
     std::fs::write(&path, "").context(|| format!("writing {}", path.display()))
 }
 
