@@ -42,12 +42,11 @@
 //! writes to it, so the prune deletes nothing a run reads or writes.
 
 use std::path::{Path, PathBuf};
-use std::time::SystemTime;
 
 use serde::{Deserialize, Serialize};
 
 use crate::app_timing::now;
-use crate::capped_store::{self, Group, Kept, Use};
+use crate::capped_store::{self, Group, Kept, Use, entries_in, folders_in};
 use crate::fail;
 use crate::fail::{Context, Result};
 use crate::lane::Lane;
@@ -345,22 +344,12 @@ fn read(folder: &Path, key: &Key) -> Result<Option<Stored>> {
     }))
 }
 
-/// Marks <stored> used now, so the cap keeps it longer.
-fn mark_used(stored: &Stored) -> Result<()> {
-    let run_file = stored.folder.join(RUN_FILE);
-    std::fs::File::options()
-        .write(true)
-        .open(&run_file)
-        .and_then(|file| file.set_modified(SystemTime::now()))
-        .context(|| format!("marking {} used", run_file.display()))
-}
-
 /// The run stored under <key>, if any; reading it marks it used.
 pub fn lookup(places: &Places, key: &Key) -> Result<Option<Stored>> {
     check_prefix(&key.prefix)?;
     let found = read(&run_folder(places, key), key)?;
     if let Some(stored) = &found {
-        mark_used(stored)?;
+        capped_store::mark_used(&stored.folder.join(RUN_FILE))?;
     }
     Ok(found)
 }
@@ -406,37 +395,9 @@ pub fn before_run(
     }
     let newest = found.into_iter().max_by_key(|stored| stored.recorded_at);
     if let Some(stored) = &newest {
-        mark_used(stored)?;
+        capped_store::mark_used(&stored.folder.join(RUN_FILE))?;
     }
     Ok(newest)
-}
-
-/// The folders <dir> holds, with their names; nothing when <dir> is gone.
-fn folders_in(dir: &Path) -> Result<Vec<(String, PathBuf)>> {
-    Ok(entries_in(dir)?
-        .into_iter()
-        .filter(|(_, path)| path.is_dir() && !path.is_symlink())
-        .collect())
-}
-
-/// The entries <dir> holds, with their names, sorted; nothing when <dir> is
-/// gone.
-fn entries_in(dir: &Path) -> Result<Vec<(String, PathBuf)>> {
-    let entries = match std::fs::read_dir(dir) {
-        Ok(entries) => entries,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
-        Err(error) => fail!("listing {}: {error}", dir.display()),
-    };
-    let mut found = Vec::new();
-    for entry in entries {
-        let entry = entry.context(|| format!("listing {}", dir.display()))?;
-        found.push((
-            entry.file_name().to_string_lossy().into_owned(),
-            entry.path(),
-        ));
-    }
-    found.sort();
-    Ok(found)
 }
 
 /// What the folder of <repo> in `shots` holds, as the cap sees it: its

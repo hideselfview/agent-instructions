@@ -12,9 +12,9 @@
 //! the runs that agents still read. A run whose texts the cap deleted shows
 //! no text: a read says so.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
-use crate::capped_store::{self, Group, Kept, Use};
+use crate::capped_store::{self, Group, Kept, Use, folders_in};
 use crate::fail;
 use crate::fail::{Context, Result};
 use crate::places::Places;
@@ -97,19 +97,9 @@ impl Texts {
             ),
             Err(error) => fail!("reading {}: {error}", file.display()),
         };
-        mark_used(&folder)?;
+        capped_store::mark_used(&folder.join(USED))?;
         Ok(text)
     }
-}
-
-/// Marks the run folder <folder> used now.
-fn mark_used(folder: &Path) -> Result<()> {
-    let used = folder.join(USED);
-    std::fs::File::options()
-        .write(true)
-        .open(&used)
-        .and_then(|file| file.set_modified(std::time::SystemTime::now()))
-        .context(|| format!("marking {} used", used.display()))
 }
 
 /// The review texts as the cap sees them: one group, every project's run
@@ -117,8 +107,8 @@ fn mark_used(folder: &Path) -> Result<()> {
 fn group(places: &Places) -> Result<Group> {
     use std::os::unix::fs::MetadataExt;
     let mut kept = Vec::new();
-    for project in folders_in(&root(places))? {
-        for folder in folders_in(&project)? {
+    for (_, project) in folders_in(&root(places))? {
+        for (_, folder) in folders_in(&project)? {
             let name = folder.file_name().expect("a folder has a name");
             if capped_store::is_staging(&name.to_string_lossy()) {
                 kept.push(Kept::Staging { folder });
@@ -139,27 +129,6 @@ fn group(places: &Places) -> Result<Group> {
         folder: root(places),
         kept,
     })
-}
-
-/// The folders <dir> holds, staging folders too, sorted; nothing when <dir>
-/// is gone.
-fn folders_in(dir: &Path) -> Result<Vec<PathBuf>> {
-    let entries = match std::fs::read_dir(dir) {
-        Ok(entries) => entries,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
-        Err(error) => fail!("listing {}: {error}", dir.display()),
-    };
-    let mut found = Vec::new();
-    for entry in entries {
-        let path = entry
-            .context(|| format!("listing {}", dir.display()))?
-            .path();
-        if path.is_dir() && !path.is_symlink() {
-            found.push(path);
-        }
-    }
-    found.sort();
-    Ok(found)
 }
 
 /// Deletes the oldest runs' texts that keep the folder over `CAP_KIB`

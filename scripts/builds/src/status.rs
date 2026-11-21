@@ -421,22 +421,13 @@ fn caches_lines(tool: &Tool, out: &mut Vec<String>) -> Result<()> {
 /// repo's folder, with its size against its cap and its last write.
 fn shots_lines(tool: &Tool, dir: &Path, out: &mut Vec<String>) -> Result<()> {
     out.push("shots  (the shots runs and board pictures of each repo)".to_string());
-    let cap = crate::shot_store::CAP_KIB;
     for name in glob_names(dir)? {
-        let folder = dir.join(&name);
-        let measured = tool.measure(&folder)?;
-        let over = if measured.kib > cap {
-            "OVER CAP: prune deletes the runs and pictures least recently used"
-        } else {
-            ""
-        };
-        out.push(format!(
-            "    {:<34} {:>8} / {:<6}  last write {}  {over}",
-            name.to_string_lossy(),
-            human(measured.kib),
-            human(cap),
-            last_write(measured.newest)
-        ));
+        out.push(capped_line(
+            tool,
+            &dir.join(&name),
+            &format!("    {}", name.to_string_lossy()),
+            crate::shot_store::CAP_KIB,
+        )?);
     }
     Ok(())
 }

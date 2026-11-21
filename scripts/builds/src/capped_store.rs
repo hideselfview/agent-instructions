@@ -97,6 +97,45 @@ impl Staging {
     }
 }
 
+/// The entries <dir> holds, with their names, sorted; nothing when <dir> is
+/// gone.
+pub fn entries_in(dir: &Path) -> Result<Vec<(String, PathBuf)>> {
+    let entries = match std::fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => fail!("listing {}: {error}", dir.display()),
+    };
+    let mut found = Vec::new();
+    for entry in entries {
+        let entry = entry.context(|| format!("listing {}", dir.display()))?;
+        found.push((
+            entry.file_name().to_string_lossy().into_owned(),
+            entry.path(),
+        ));
+    }
+    found.sort();
+    Ok(found)
+}
+
+/// The folders <dir> holds, with their names, sorted; nothing when <dir> is
+/// gone.
+pub fn folders_in(dir: &Path) -> Result<Vec<(String, PathBuf)>> {
+    Ok(entries_in(dir)?
+        .into_iter()
+        .filter(|(_, path)| path.is_dir() && !path.is_symlink())
+        .collect())
+}
+
+/// Sets the time of <file> to now: marks the unit it is in used, so the cap
+/// keeps it longer.
+pub fn mark_used(file: &Path) -> Result<()> {
+    std::fs::File::options()
+        .write(true)
+        .open(file)
+        .and_then(|file| file.set_modified(std::time::SystemTime::now()))
+        .context(|| format!("marking {} used", file.display()))
+}
+
 /// Deletes <dir> and what it holds, if it is there.
 pub fn remove_all(dir: &Path) -> Result<()> {
     match std::fs::remove_dir_all(dir) {

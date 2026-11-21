@@ -17,7 +17,13 @@ fn group(root: &Path) -> Group {
     let mut kept = Vec::new();
     for outer in std::fs::read_dir(root).unwrap() {
         let outer = outer.unwrap().path();
-        if !outer.is_dir() || outer.file_name().unwrap().to_string_lossy().starts_with('.') {
+        if !outer.is_dir()
+            || outer
+                .file_name()
+                .unwrap()
+                .to_string_lossy()
+                .starts_with('.')
+        {
             continue;
         }
         for unit in std::fs::read_dir(&outer).unwrap() {
@@ -177,10 +183,13 @@ fn files_and_loose_files_go_in_order_and_each_group_has_its_own_cap() {
             ],
         });
     }
-    // Only the first group is over its cap of 300 KiB.
+    // Only the first group, with 501 KiB, is over the cap of 450 KiB.
     fill(&root.join("x").join("more"), 100);
     prune(&tool, Run::Real, &root, 450, groups).unwrap();
     let (x, y) = (&files[0], &files[1]);
     assert!(!x.0.exists() && !x.0.with_extension("json").exists() && !x.1.exists());
-    assert!(y.0.exists() && !y.1.exists(), "the loose file went, the unit stayed under its cap");
+    assert!(
+        y.0.exists() && !y.1.exists(),
+        "the loose file went, the unit stayed under its cap"
+    );
 }
