@@ -122,13 +122,13 @@ impl Text {
             .collect()
     }
 
-    /// How to read the section named <name>, or None when the text has no
-    /// such section.
-    pub fn how_to_read(&self, name: &str) -> Option<&str> {
+    /// How to read the section named <name>, which this text holds.
+    pub fn how_to_read(&self, name: &str) -> &str {
         self.sections
             .iter()
             .find(|section| section.name == name)
             .map(|section| section.how_to_read.as_str())
+            .unwrap_or_else(|| panic!("the text has no section named {name}"))
     }
 
     /// Splits the lines of every section, in the text's order,

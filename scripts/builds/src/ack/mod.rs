@@ -288,7 +288,7 @@ impl Changes {
         if !changed.is_empty() {
             out += "Read these sections:\n";
             for name in changed {
-                let how = text.how_to_read(name).unwrap_or(name);
+                let how = text.how_to_read(name);
                 out += &format!("  {how}\n");
             }
         }

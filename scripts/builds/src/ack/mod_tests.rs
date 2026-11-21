@@ -325,13 +325,12 @@ fn each_section_says_how_to_read_it() {
     let text = Text::read(&world.places, "bae").unwrap();
     assert_eq!(
         text.how_to_read("builds help workflow"),
-        Some("builds help workflow")
+        "builds help workflow"
     );
     assert_eq!(
         text.how_to_read("builds help lists overview"),
-        Some("builds help lists")
+        "builds help lists"
     );
-    assert_eq!(text.how_to_read("rules/gone.md"), None);
 }
 
 #[test]
