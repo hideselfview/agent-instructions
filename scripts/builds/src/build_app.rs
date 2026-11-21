@@ -289,8 +289,8 @@ fn build_app(tool: &Tool, args: &[String]) -> Result<()> {
         lock::refuse_when_stopped(&format!("built {commit}'s {} app", platform.word()))?;
         match ran? {
             Within::Ran(lock::Ran::Finished) => break (config, site),
-            // Only a takeover stops it: an install waits for the
-            // build's use of the stores and never stops it.
+            // Only a takeover stops it: it holds no use of the stores, so
+            // install never stops it.
             Within::Ran(lock::Ran::Stopped) => {
                 note(format!(
                     "the build was stopped for a takeover; building {commit} again after it"

@@ -183,8 +183,8 @@ pub fn cmd_lock(places: &Places, args: &[String]) -> Result<()> {
         refuse_when_stopped(&format!("ran {command}"))?;
         match ran? {
             Ran::Finished => return Ok(()),
-            // Only a takeover stops it: an install waits for the
-            // build's use of the stores and never stops it.
+            // Only a takeover stops it: it holds no use of the stores, so
+            // install never stops it.
             Ran::Stopped => {
                 note(format!(
                     "{command} was stopped for a takeover; it runs again after it"
