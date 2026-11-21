@@ -13,7 +13,7 @@ fn key(prefix: &str) -> Key {
 
 /// Stores a run of <key> that exited <exit> and printed <findings>, with a
 /// report folder holding a findings.json when <records> is set.
-fn store_run(places: &Places, key: &Key, exit: i64, findings: &str, records: bool) -> Stored {
+fn cache_run(places: &Places, key: &Key, exit: i64, findings: &str, records: bool) -> Cached {
     let staging = stage(places, key).unwrap();
     if records {
         std::fs::create_dir_all(staging.report()).unwrap();
@@ -23,30 +23,30 @@ fn store_run(places: &Places, key: &Key, exit: i64, findings: &str, records: boo
 }
 
 #[test]
-fn a_run_is_kept_on_the_build_volume_under_its_repo_commit_lane_prefix_and_version() {
+fn a_run_is_cached_on_the_build_volume_under_its_repo_commit_lane_prefix_and_version() {
     let scratch = Scratch::new("shot-store-place");
     let places = scratch.places();
-    let stored = store_run(&places, &key("mac.welcome."), 1, "FAIL x\n", true);
+    let cached = cache_run(&places, &key("mac.welcome."), 1, "FAIL x\n", true);
     assert_eq!(
-        stored.folder,
+        cached.folder,
         places.root.join(format!(
             "shots/demo/runs/{}/mac/mac.welcome./0123456789abcdef",
             "a".repeat(40)
         ))
     );
-    assert!(stored.findings_json().is_file());
-    assert!(stored.findings_json().starts_with(stored.report()));
+    assert!(cached.findings_json().is_file());
+    assert!(cached.findings_json().starts_with(cached.report()));
 }
 
 #[test]
-fn a_stored_run_is_found_by_its_whole_key_and_a_later_run_of_the_key_replaces_it() {
+fn a_cached_run_is_found_by_its_whole_key_and_a_later_run_of_the_key_replaces_it() {
     let scratch = Scratch::new("shot-store-key");
     let places = scratch.places();
     let key = key("mac.a.");
     assert!(lookup(&places, &key).unwrap().is_none());
-    store_run(&places, &key, 1, "first\n", true);
-    store_run(&places, &key, 0, "second\n", false);
-    let found = lookup(&places, &key).unwrap().expect("stored");
+    cache_run(&places, &key, 1, "first\n", true);
+    cache_run(&places, &key, 0, "second\n", false);
+    let found = lookup(&places, &key).unwrap().expect("cached");
     assert_eq!((found.exit_code, found.findings.as_str()), (0, "second\n"));
     assert!(
         !found.findings_json().exists(),
@@ -136,15 +136,15 @@ fn the_before_run_is_the_newest_run_of_the_version_whose_prefix_starts_the_runs_
             .map(|before| before.key.prefix)
     };
     assert_eq!(find("mac.welcome."), None);
-    store_run(&places, &key("mac.welcome.", "v2"), 1, "x\n", true);
-    store_run(&places, &key("mac.settings.", "v1"), 1, "x\n", true);
-    store_run(&places, &key("mac.welcome.a.", "v1"), 1, "x\n", true);
+    cache_run(&places, &key("mac.welcome.", "v2"), 1, "x\n", true);
+    cache_run(&places, &key("mac.settings.", "v1"), 1, "x\n", true);
+    cache_run(&places, &key("mac.welcome.a.", "v1"), 1, "x\n", true);
     assert_eq!(
         find("mac.welcome."),
         None,
         "another version's run, another screen's and a narrower prefix's do not stand in"
     );
-    let all = store_run(&places, &key("mac.", "v1"), 1, "x\n", true);
+    let all = cache_run(&places, &key("mac.", "v1"), 1, "x\n", true);
     assert_eq!(find("mac.welcome."), Some("mac.".to_string()));
     let before = before_run(&places, "demo", &base, Lane::Mac, "mac.welcome.", "v1")
         .unwrap()
@@ -153,9 +153,9 @@ fn the_before_run_is_the_newest_run_of_the_version_whose_prefix_starts_the_runs_
     // A run kept later wins; one whose report keeps no findings.json does
     // not count. The run of mac. ended ten seconds before the runs below.
     ended_earlier(&all.folder, 10);
-    store_run(&places, &key("mac.welcome.", "v1"), 1, "x\n", false);
+    cache_run(&places, &key("mac.welcome.", "v1"), 1, "x\n", false);
     assert_eq!(find("mac.welcome."), Some("mac.".to_string()));
-    store_run(&places, &key("mac.welcome.", "v1"), 1, "x\n", true);
+    cache_run(&places, &key("mac.welcome.", "v1"), 1, "x\n", true);
     assert_eq!(find("mac.welcome."), Some("mac.welcome.".to_string()));
     assert_eq!(
         before_run(&places, "demo", &base, Lane::Android, "android.", "v1").unwrap(),
@@ -167,8 +167,8 @@ fn the_before_run_is_the_newest_run_of_the_version_whose_prefix_starts_the_runs_
 fn the_run_that_covers_a_prefix_is_found_without_marking_it_used() {
     let scratch = Scratch::new("shot-store-covering");
     let places = scratch.places();
-    let stored = store_run(&places, &key("mac.component."), 1, "x\n", true);
-    let file = stored.folder.join(RUN_FILE);
+    let cached = cache_run(&places, &key("mac.component."), 1, "x\n", true);
+    let file = cached.folder.join(RUN_FILE);
     age(&file, 48);
     let aged = std::fs::metadata(&file).unwrap().modified().unwrap();
     let found = covering_run(
@@ -181,7 +181,7 @@ fn the_run_that_covers_a_prefix_is_found_without_marking_it_used() {
     )
     .unwrap()
     .expect("the run of mac.component. covers the component");
-    assert_eq!(found.folder, stored.folder);
+    assert_eq!(found.folder, cached.folder);
     assert_eq!(
         std::fs::metadata(&file).unwrap().modified().unwrap(),
         aged,
@@ -196,11 +196,11 @@ fn a_read_marks_the_run_used() {
     let scratch = Scratch::new("shot-store-used");
     let places = scratch.places();
     let key = key("mac.a.");
-    let stored = store_run(&places, &key, 0, "ok\n", true);
-    let file = stored.folder.join(RUN_FILE);
+    let cached = cache_run(&places, &key, 0, "ok\n", true);
+    let file = cached.folder.join(RUN_FILE);
     age(&file, 48);
     let aged = std::fs::metadata(&file).unwrap().modified().unwrap();
-    lookup(&places, &key).unwrap().expect("stored");
+    lookup(&places, &key).unwrap().expect("cached");
     assert!(std::fs::metadata(&file).unwrap().modified().unwrap() > aged);
 }
 
@@ -212,10 +212,10 @@ fn over_the_cap_the_least_recently_used_runs_go_first_until_the_store_fits() {
     let mut folders = Vec::new();
     for (n, hours) in [(0, 30), (1, 10), (2, 20), (3, 1)] {
         let key = key(&format!("mac.p{n}."));
-        let stored = store_run(&places, &key, 0, "ok\n", true);
-        fill(&stored.report().join("img/a.png"), 400);
-        age(&stored.folder.join(RUN_FILE), hours);
-        folders.push(stored.folder);
+        let cached = cache_run(&places, &key, 0, "ok\n", true);
+        fill(&cached.report().join("img/a.png"), 400);
+        age(&cached.folder.join(RUN_FILE), hours);
+        folders.push(cached.folder);
     }
     prune_runs(&tool, Run::Dry, 1000).unwrap();
     assert!(
@@ -236,10 +236,10 @@ fn a_run_used_in_the_last_half_hour_stays_over_the_cap() {
     let scratch = Scratch::new("shot-store-recent");
     let places = scratch.places();
     let tool = scratch.tool(0);
-    let stored = store_run(&places, &key("mac.a."), 0, "ok\n", true);
-    fill(&stored.report().join("img/a.png"), 400);
+    let cached = cache_run(&places, &key("mac.a."), 0, "ok\n", true);
+    fill(&cached.report().join("img/a.png"), 400);
     prune_runs(&tool, Run::Real, 100).unwrap();
-    assert!(stored.folder.exists());
+    assert!(cached.folder.exists());
 }
 
 #[test]
@@ -269,8 +269,8 @@ fn the_prune_deletes_nothing_while_a_run_uses_the_folder_and_then_the_folders_de
     let scratch = Scratch::new("shot-store-empty");
     let places = scratch.places();
     let tool = scratch.tool(0);
-    let stored = store_run(&places, &key("mac.a."), 0, "ok\n", true);
-    fill(&stored.report().join("img/a.png"), 400);
+    let cached = cache_run(&places, &key("mac.a."), 0, "ok\n", true);
+    fill(&cached.report().join("img/a.png"), 400);
     crate::testing::age_all(&root(&places), 2);
     let other = stage(
         &places,
@@ -281,10 +281,10 @@ fn the_prune_deletes_nothing_while_a_run_uses_the_folder_and_then_the_folders_de
     )
     .unwrap();
     prune_runs(&tool, Run::Real, 100).unwrap();
-    assert!(stored.folder.exists(), "a run may be reading it");
+    assert!(cached.folder.exists(), "a run may be reading it");
     other.discard().unwrap();
     prune_runs(&tool, Run::Real, 100).unwrap();
-    assert!(!stored.folder.exists());
+    assert!(!cached.folder.exists());
     assert!(!root(&places).join("demo").exists());
     assert!(root(&places).exists());
 }
@@ -308,13 +308,13 @@ fn the_cap_deletes_board_pictures_and_runs_together_least_recently_used_first() 
     let tool = scratch.tool(0);
     let old_picture = keep_picture(&places, "demo", "old", 400, 30);
     let new_picture = keep_picture(&places, "demo", "new", 400, 2);
-    let stored = store_run(&places, &key("mac.a."), 0, "ok\n", true);
-    fill(&stored.report().join("img/a.png"), 400);
-    age(&stored.folder.join(RUN_FILE), 20);
+    let cached = cache_run(&places, &key("mac.a."), 0, "ok\n", true);
+    fill(&cached.report().join("img/a.png"), 400);
+    age(&cached.folder.join(RUN_FILE), 20);
     prune_runs(&tool, Run::Real, 500).unwrap();
     assert!(!old_picture.exists() && !old_picture.with_extension("json").exists());
     assert!(
-        !stored.folder.exists(),
+        !cached.folder.exists(),
         "used 20h ago, before the newer picture"
     );
     assert!(new_picture.exists() && new_picture.with_extension("json").exists());
@@ -344,7 +344,7 @@ fn a_loose_picture_file_goes_once_no_run_writes_to_the_folder() {
 }
 
 #[test]
-fn each_repo_keeps_its_own_runs_and_pictures_under_the_cap() {
+fn each_repo_caches_its_own_runs_and_pictures_under_the_cap() {
     let scratch = Scratch::new("shot-store-per-repo");
     let places = scratch.places();
     let tool = scratch.tool(0);
@@ -376,7 +376,7 @@ fn the_cap_deletes_an_app_source_trees_shots_whole_when_they_are_used_least_rece
 }
 
 #[test]
-fn pictures_a_host_made_move_into_place_and_kept_ones_stay() {
+fn pictures_a_host_made_move_into_place_and_cached_ones_stay() {
     let scratch = Scratch::new("shot-store-merge");
     let places = scratch.places();
     let folder = pictures(&places, "demo");
@@ -415,13 +415,13 @@ fn pictures_a_host_made_move_into_place_and_kept_ones_stay() {
 }
 
 #[test]
-fn a_prefix_is_kept_when_a_taken_mark_starts_it_and_took_the_window_shots_it_asks_for() {
+fn a_prefix_is_cached_when_a_taken_mark_starts_it_and_took_the_window_shots_it_asks_for() {
     let scratch = Scratch::new("shot-store-taken");
     let places = scratch.places();
     let taken = pictures(&places, "demo").join("mac/tree1").join(TAKEN);
     std::fs::create_dir_all(&taken).unwrap();
     let kept = |prefix: &str, windows: bool| {
-        shots_kept(&places, "demo", Lane::Mac, "tree1", prefix, windows).unwrap()
+        shots_cached(&places, "demo", Lane::Mac, "tree1", prefix, windows).unwrap()
     };
     assert!(!kept("mac.a.", false));
     std::fs::write(taken.join("mac.a.@no-windows"), "").unwrap();
@@ -433,11 +433,11 @@ fn a_prefix_is_kept_when_a_taken_mark_starts_it_and_took_the_window_shots_it_ask
     );
     std::fs::write(taken.join("mac.@windows"), "").unwrap();
     assert!(kept("mac.", true) && kept("mac.b.", false));
-    assert!(!shots_kept(&places, "demo", Lane::Mac, "tree2", "mac.a.", false).unwrap());
+    assert!(!shots_cached(&places, "demo", Lane::Mac, "tree2", "mac.a.", false).unwrap());
     let other = pictures(&places, "demo").join("mac/tree3").join(TAKEN);
     std::fs::create_dir_all(&other).unwrap();
     std::fs::write(other.join("mac.c."), "").unwrap();
-    let error = shots_kept(&places, "demo", Lane::Mac, "tree3", "mac.c.", false)
+    let error = shots_cached(&places, "demo", Lane::Mac, "tree3", "mac.c.", false)
         .expect_err("a mark the shots program never writes fails")
         .text();
     assert!(error.contains("mac.c."), "{error}");

@@ -1,39 +1,39 @@
 //! The findings of `--shots` runs: what builds reads from a shots run's
-//! output to keep it in the shot store (shot_store.rs), and the commands that
-//! print a kept run. A branch's run compares with its before run, the kept
-//! run of its merge base with origin/main (`shot_store::before_run`), so that
-//! run is read from the store and not built again, and an agent that wants a
+//! output to cache it in the shots cache (shots_cache.rs), and the commands that
+//! print a cached run. A branch's run compares with its before run, the cached
+//! run of its merge base with origin/main (`shots_cache::before_run`), so that
+//! run is read from the cache and not built again, and an agent that wants a
 //! commit's findings reads what an earlier run printed.
 //!
-//! A run is kept under the repo, the full commit id, the platform, the prefix
+//! A run is cached under the repo, the full commit id, the platform, the prefix
 //! the run was given and the version of the shots checker (`VERSION` in
 //! shots_program.rs: a hash of its sources, which each run's findings.json
 //! names). A run by another version of the checker has another key, so its
-//! findings never stand in for these, and builds keeps no run whose
+//! findings never stand in for these, and builds caches no run whose
 //! findings.json names another version than its own.
 //!
-//! A run is kept when the shots command exits 0, or exits another status
+//! A run is cached when the shots command exits 0, or exits another status
 //! after printing that pairs fail the run; a command that died on an error
 //! (a build that failed, a simulator that did not start) has no findings and
-//! keeps nothing. What is kept is what the shots program printed, from the
+//! caches nothing. What is cached is what the shots program printed, from the
 //! line that starts it (cargo's `Running` line) to the end, whole.
 //!
-//! The run's report and pictures are kept with the findings, so the next run
+//! The run's report and pictures are cached with the findings, so the next run
 //! in the same app checkout (which rewrites the checkout's `shots/` folder)
 //! cannot take them. When the shots program prints `<its name>: report at
 //! <folder>/index.html`, the run copies that `index.html`, the files it names
 //! (`img/...`) and the findings as records (`findings.json`, which
 //! shot_causes.rs reads) from the checkout, or from a host's checkout, into
-//! the run's folder in the store. The run prints the local path of the report
+//! the run's folder in the cache. The run prints the local path of the report
 //! when it ends, and `builds shots findings` prints it again.
 //!
-//! `builds shots findings <repo> <ref> <platform> <prefix>` prints a kept
+//! `builds shots findings <repo> <ref> <platform> <prefix>` prints a cached
 //! run, and with `--by-cause` its findings grouped by cause, from the records
 //! its report holds (shot_causes.rs). `builds app-build <repo> <ref>
 //! --shots <prefix>` (or, in its lane form, `--shots <platform> <prefix>` with
 //! no build step) prints it too, in place of taking the lane's lock, unless
 //! the command has `--fresh`. A run of
-//! a platform's full set of shots (`--all-shots <platform>`) is kept under the
+//! a platform's full set of shots (`--all-shots <platform>`) is cached under the
 //! prefix every shot of the platform starts with (`mac.`).
 
 use std::path::Path;
@@ -46,7 +46,7 @@ use crate::host::sh_quote;
 use crate::lane::Lane;
 use crate::places::Places;
 use crate::shot_causes;
-use crate::shot_store::{self, Key, Stored};
+use crate::shots_cache::{self, Cached, Key};
 use crate::text::note;
 
 /// The line the shots program's own output starts after: cargo's, for the
@@ -133,13 +133,13 @@ pub fn report_copy_script(dir: &str, files: &[String]) -> String {
     )
 }
 
-/// Says where <stored>'s report is, when the run kept one.
-pub fn note_report(stored: &Stored) {
-    let page = stored.report().join("index.html");
+/// Says where <cached>'s report is, when the run cached one.
+pub fn note_report(cached: &Cached) {
+    let page = cached.report().join("index.html");
     if page.exists() {
         note(format!(
             "shots report for {}: {}",
-            stored.key.prefix,
+            cached.key.prefix,
             page.display()
         ));
     }
@@ -216,46 +216,46 @@ pub fn version_in(folder: &Path) -> Result<String> {
     Ok(named.version)
 }
 
-/// Prints <stored>: a line to say which run it is, then its text.
-pub fn print(stored: &Stored) {
-    note_run(stored);
-    print!("{}", stored.findings);
+/// Prints <cached>: a line to say which run it is, then its text.
+pub fn print(cached: &Cached) {
+    note_run(cached);
+    print!("{}", cached.findings);
 }
 
-/// Says on stderr which run <stored> is: its commit, lane and prefix, how old
+/// Says on stderr which run <cached> is: its commit, lane and prefix, how old
 /// it is, the shots program's version and the exit status.
-fn note_run(stored: &Stored) {
+fn note_run(cached: &Cached) {
     let Key {
         repo,
         commit,
         lane,
         prefix,
         version,
-    } = &stored.key;
+    } = &cached.key;
     note(format!(
         "{repo} {} {} {prefix}: findings of a run that ended {} ago (shots program version {}), which exited {}",
         &commit[..commit.len().min(12)],
         lane.word(),
-        age(now() - stored.recorded_at),
+        age(now() - cached.recorded_at),
         &version[..version.len().min(12)],
-        stored.exit_code
+        cached.exit_code
     ));
 }
 
-/// The findings of the kept run <stored> grouped by cause, from the records
-/// its report holds. Fails when the run kept no such records, naming the
+/// The findings of the cached run <cached> grouped by cause, from the records
+/// its report holds. Fails when the run cached no such records, naming the
 /// command that runs it again for <git_ref>.
-pub fn by_cause(stored: &Stored, git_ref: &str) -> Result<String> {
-    match shot_causes::read(&stored.report()) {
+pub fn by_cause(cached: &Cached, git_ref: &str) -> Result<String> {
+    match shot_causes::read(&cached.report()) {
         Ok(run) => Ok(shot_causes::text(&run)),
         Err(error) => fail!(
-            "{}. The shots program writes its findings as records beside its report, which builds keeps with the run; `{} --fresh` runs this one again",
+            "{}. The shots program writes its findings as records beside its report, which builds caches with the run; `{} --fresh` runs this one again",
             error.text(),
             how_to_make(
-                &stored.key.repo,
+                &cached.key.repo,
                 git_ref,
-                stored.key.lane,
-                &stored.key.prefix
+                cached.key.lane,
+                &cached.key.prefix
             )
         ),
     }
@@ -296,21 +296,21 @@ pub fn cmd_findings(places: &Places, args: &[String]) -> Result<()> {
     };
     let lane = Lane::parse_or_fail(lane)?;
     let key = key_for(places, repo, git_ref, lane, prefix)?;
-    match shot_store::lookup(places, &key)? {
-        Some(stored) if grouped => {
-            let text = by_cause(&stored, git_ref)?;
-            note_run(&stored);
+    match shots_cache::lookup(places, &key)? {
+        Some(cached) if grouped => {
+            let text = by_cause(&cached, git_ref)?;
+            note_run(&cached);
             print!("{text}");
-            note_report(&stored);
+            note_report(&cached);
             Ok(())
         }
-        Some(stored) => {
-            print(&stored);
-            note_report(&stored);
+        Some(cached) => {
+            print(&cached);
+            note_report(&cached);
             Ok(())
         }
         None => fail!(
-            "no run of {prefix} on {} is stored for {repo} at {} (shots program version {}); `{}` makes one",
+            "no run of {prefix} on {} is cached for {repo} at {} (shots program version {}); `{}` makes one",
             lane.word(),
             &key.commit[..12.min(key.commit.len())],
             &key.version[..12.min(key.version.len())],

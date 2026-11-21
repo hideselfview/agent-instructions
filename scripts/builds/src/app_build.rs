@@ -36,7 +36,7 @@
 //! that a `ci-only` line names (app_config.rs); CI runs the full suites.
 //! `--all-shots <lane>` is how a caller asks for a lane's full set of shots,
 //! as CI's screenshot workflow takes them: the run of the lane's `shots` line
-//! with the prefix every shot of the lane starts with, kept like any other
+//! with the prefix every shot of the lane starts with, cached like any other
 //! shots run under that prefix.
 //!
 //! A run of picks with no step named tests what the checkout holds, so it
@@ -107,7 +107,7 @@ use crate::places::Places;
 use crate::programs::Pinned;
 use crate::run_end::RunEnd;
 use crate::shot_findings;
-use crate::shot_store;
+use crate::shots_cache;
 use crate::text::note;
 use crate::tool::Tool;
 
@@ -301,7 +301,7 @@ struct PickRun<'a> {
 /// None, and each program runs all of its classes in one invocation, placed
 /// in the order of its first class: each start of Gradle or xcodebuild takes
 /// seconds before any test runs. Each shots prefix runs on its own, since
-/// builds keeps the findings of each prefix's run.
+/// builds caches the findings of each prefix's run.
 fn lane_steps(
     config: &Config,
     lane: Lane,
@@ -492,7 +492,7 @@ fn refused_after(said: &str) -> Refused {
 }
 
 /// What a step's run keeps of its output: all of it for a shots run, whose
-/// findings the shots store keeps (<all>), the first line saying the host
+/// findings the shots cache holds (<all>), the first line saying the host
 /// failed the step when the lane watches for one (<fault>), and each line
 /// for <read>.
 fn keep_for<'a>(
@@ -510,16 +510,16 @@ fn keep_for<'a>(
 
 /// Runs <step> (of <kind>) in the checkout <top>, watching for a line of
 /// `HOST_FAULTS` in <fault> and giving each line to <read>; a shots run
-/// compares with its before run, read where the store <shots> keeps it,
-/// takes the board pictures earlier runs drew from the store's picture
-/// folder, and keeps the findings it printed. While the shots program runs,
+/// compares with its before run, read where the cache <shots> holds it,
+/// takes the board pictures earlier runs drew from the cache's picture
+/// folder, and caches the findings it printed. While the shots program runs,
 /// the step holds the shared lock that keeps the prune from deleting what it
-/// reads or writes in the folder `shots` (shot_store.rs).
+/// reads or writes in the folder `shots` (shots_cache.rs).
 fn run_local_step(
     top: &Path,
     step: &Step,
     kind: StepKind,
-    shots: &ShotsStore,
+    shots: &ShotsCache,
     fault: Option<&Found>,
     read: &lock::EachLine,
 ) -> Result<Within> {
@@ -531,7 +531,7 @@ fn run_local_step(
     };
     let outcome = run_command_keeping(top, &command, Some(step.limit()), keep);
     if kind == StepKind::Shots {
-        shots.keep_of(&outcome, &kept, step, &mut LocalRun(top));
+        shots.cache_of(&outcome, &kept, step, &mut LocalRun(top));
     }
     outcome
 }
@@ -542,7 +542,7 @@ fn run_steps(
     held: &lock::Held,
     steps: &[Step],
     log: &mut Vec<StepRecord>,
-    shots: &ShotsStore,
+    shots: &ShotsCache,
     watch: bool,
 ) -> Result<Ended> {
     run_steps_with(held, steps, log, watch, &mut |step, kind, fault, read| {
@@ -642,7 +642,7 @@ fn run_steps_with(
                     return Err(Fail::Exit(code));
                 }
                 note(format!(
-                    "{} kept its findings, so the lane runs its other steps",
+                    "{} cached its findings, so the lane runs its other steps",
                     step.name
                 ));
                 pairs_failed = pairs_failed.or(Some(code));
@@ -747,8 +747,8 @@ impl Site {
 struct StepsWith<'a> {
     /// The folders a step on a host copies back here after it runs.
     results: &'a [String],
-    /// Where a shots run keeps its findings here.
-    shots: &'a ShotsStore,
+    /// Where a shots run caches its findings here.
+    shots: &'a ShotsCache,
     /// The build's programs, which a step on a host runs under, copied there
     /// (programs.rs).
     programs: &'a Pinned,
@@ -803,7 +803,7 @@ fn run_remote_step(
     }
     if let (Some(store), Some(there)) = (store, &pictures) {
         store.bring_back_pictures(remote, there);
-        store.keep_of(&ran, &kept, step, remote);
+        store.cache_of(&ran, &kept, step, remote);
     }
     if results.is_empty() || matches!(ran, Ok(Within::Ran(Ran::Stopped))) {
         return ran;
@@ -840,18 +840,18 @@ fn shots_prefix(step: &Step) -> &str {
         .unwrap_or(&step.name)
 }
 
-/// What a lane's process is given first when the picture folder keeps every
+/// What a lane's process is given first when the picture folder caches every
 /// shot its shots picks take for its app tree, so it builds nothing
-/// (`kept_shots_lanes`).
-const KEPT_SHOTS: &str = "--kept-shots";
+/// (`cached_shots_lanes`).
+const CACHED_SHOTS: &str = "--cached-shots";
 
 /// The lanes of <lanes> that build nothing for <picks>: each lane whose picks
 /// are all shots, which no path <changed> names in an `on` line of the lane,
-/// and whose every shots prefix the picture folder of <repo> keeps for the
-/// lane's app tree at <commit> (shot_store.rs). Such a lane's steps would
-/// only build the app for shots the folder already keeps.
+/// and whose every shots prefix the picture folder of <repo> caches for the
+/// lane's app tree at <commit> (shots_cache.rs). Such a lane's steps would
+/// only build the app for shots the folder already caches.
 #[allow(clippy::too_many_arguments)]
-pub fn kept_shots_lanes(
+pub fn cached_shots_lanes(
     places: &Places,
     repo: &str,
     top: &Path,
@@ -881,7 +881,7 @@ pub fn kept_shots_lanes(
         let tree = crate::app_tree::of(top, commit, config, *lane)?;
         let mut every = true;
         for (_, _, prefix) in &own {
-            every &= shot_store::shots_kept(places, repo, *lane, &tree, prefix, windows)?;
+            every &= shots_cache::shots_cached(places, repo, *lane, &tree, prefix, windows)?;
         }
         if every {
             kept.push(*lane);
@@ -898,9 +898,9 @@ fn with_before(command: &[String], file: &str) -> Vec<String> {
     command
 }
 
-/// Where a lane's run keeps its `--shots` runs (shot_store.rs), and the kept
+/// Where a lane's run caches its `--shots` runs (shots_cache.rs), and the cached
 /// runs they compare with.
-struct ShotsStore {
+struct ShotsCache {
     places: Places,
     repo: String,
     lane: Lane,
@@ -918,11 +918,11 @@ struct ShotsStore {
     no_capture: bool,
 }
 
-impl ShotsStore {
+impl ShotsCache {
     /// The store for <repo>'s <lane> run of the full commit <commit>, whose
     /// commits <source> holds, with the before run of each shots pick of
     /// <picks> in the lane: the run of <commit>'s merge base with origin/main
-    /// (shot_store.rs). A commit on origin/main is its own merge base and has
+    /// (shots_cache.rs). A commit on origin/main is its own merge base and has
     /// none. Fails when the store holds no before run for a pick, naming the
     /// command that makes one: `builds app-build` with no lane named makes
     /// them first.
@@ -935,8 +935,8 @@ impl ShotsStore {
         commit: &str,
         config: &Config,
         picks: &[Pick],
-        kept_shots: bool,
-    ) -> Result<ShotsStore> {
+        cached_shots: bool,
+    ) -> Result<ShotsCache> {
         let version = crate::shots_program::VERSION.to_string();
         let mut befores = Vec::new();
         for (_, _, prefix) in picks
@@ -947,7 +947,7 @@ impl ShotsStore {
             if base == commit {
                 continue;
             }
-            match shot_store::before_run(places, repo, &base, lane, prefix, &version)? {
+            match shots_cache::before_run(places, repo, &base, lane, prefix, &version)? {
                 Some(before) => befores.push((prefix.clone(), before.findings_json())),
                 None => fail!(
                     "builds holds no run of {prefix} on {} for {}, the merge base of {} with origin/main, by shots checker {version}, so the run has nothing to compare with; `{}` makes one",
@@ -958,21 +958,21 @@ impl ShotsStore {
                 ),
             }
         }
-        Ok(ShotsStore {
+        Ok(ShotsCache {
             places: places.clone(),
             repo: repo.to_string(),
             lane,
             version,
             befores,
             app_tree: crate::app_tree::of(source, commit, config, lane)?,
-            no_capture: kept_shots,
+            no_capture: cached_shots,
         })
     }
 
     /// The shared lock a shots step holds while it reads a before run or the
-    /// picture folder, or writes to the folder (shot_store.rs `writing`).
+    /// picture folder, or writes to the folder (shots_cache.rs `writing`).
     fn writing(&self) -> Result<std::fs::File> {
-        shot_store::writing(&self.places)
+        shots_cache::writing(&self.places)
     }
 
     /// The command of the shots run <step> in a checkout on this Mac: its
@@ -1010,14 +1010,14 @@ impl ShotsStore {
 
     /// The repo's picture folder on this Mac.
     fn pictures(&self) -> std::path::PathBuf {
-        shot_store::pictures(&self.places, &self.repo)
+        shots_cache::pictures(&self.places, &self.repo)
     }
 
     /// The parts of the picture folder a run on a host reads: the board
-    /// pictures and the shots kept for the lane's app tree.
+    /// pictures and the shots cached for the lane's app tree.
     fn picture_parts(&self) -> Vec<String> {
         vec![
-            shot_store::BOARD_PICTURES.to_string(),
+            shots_cache::BOARD_PICTURES.to_string(),
             format!("{}/{}", self.lane.word(), self.app_tree),
         ]
     }
@@ -1032,10 +1032,10 @@ impl ShotsStore {
             .map(|(_, findings)| findings.as_path())
     }
 
-    /// Keeps what the shots run <step> printed (<kept>), when it ended
+    /// Caches what the shots run <step> printed (<cached>), when it ended
     /// (<outcome>) with an exit status, as the run of the commit the site is
     /// on.
-    fn keep_of(
+    fn cache_of(
         &self,
         outcome: &Result<Within>,
         kept: &lock::Captured,
@@ -1048,40 +1048,40 @@ impl ShotsStore {
             _ => return,
         };
         let text = String::from_utf8_lossy(&kept.lock().expect("no panic holding it")).into_owned();
-        self.keep(site, shots_prefix(step), exit, &text);
+        self.cache(site, shots_prefix(step), exit, &text);
     }
 
-    /// Keeps a run of <prefix> that exited <exit> and printed <output> as the
+    /// Caches a run of <prefix> that exited <exit> and printed <output> as the
     /// run of the commit the site is on: what the shots program printed and
     /// the report it names, copied from the site (shot_findings.rs). A run
     /// whose report's findings.json names another version of the shots
-    /// checker than the store's is not kept, since no lookup of this builds would
+    /// checker than the cache's is not cached, since no lookup of this builds would
     /// find it under its own version. A run that printed no findings, or a
     /// write or copy that fails, is said and changes nothing about the
-    /// build's result; a report that fails to copy leaves the run kept
+    /// build's result; a report that fails to copy leaves the run cached
     /// without one.
-    fn keep(&self, site: &mut dyn RunSite, prefix: &str, exit: i64, output: &str) {
+    fn cache(&self, site: &mut dyn RunSite, prefix: &str, exit: i64, output: &str) {
         let findings = shot_findings::findings_of(output);
         if !shot_findings::has_findings(exit, findings) {
             note(format!(
-                "the shots run of {prefix} exited {exit} without findings, so none were kept"
+                "the shots run of {prefix} exited {exit} without findings, so none were cached"
             ));
             return;
         }
         let staged = site.commit().and_then(|commit| {
-            let key = shot_store::Key {
+            let key = shots_cache::Key {
                 repo: self.repo.clone(),
                 version: self.version.clone(),
                 commit,
                 lane: self.lane,
                 prefix: prefix.to_string(),
             };
-            shot_store::stage(&self.places, &key)
+            shots_cache::stage(&self.places, &key)
         });
         let staging = match staged {
             Ok(staging) => staging,
             Err(error) => {
-                note(format!("the shots run was not kept: {}", error.text()));
+                note(format!("the shots run was not cached: {}", error.text()));
                 return;
             }
         };
@@ -1089,13 +1089,13 @@ impl ShotsStore {
         match shot_findings::report_dir_in(output) {
             Some(dir) => {
                 if let Err(error) = site.fetch_report(&dir, &report) {
-                    note(format!("the shots report was not kept: {}", error.text()));
+                    note(format!("the shots report was not cached: {}", error.text()));
                     if let Err(error) = staging.discard_report() {
                         note(error.text());
                         return;
                     }
                 } else if let Err(why) = self.same_version(&report) {
-                    note(format!("the shots run was not kept: {why}"));
+                    note(format!("the shots run was not cached: {why}"));
                     if let Err(error) = staging.discard() {
                         note(error.text());
                     }
@@ -1103,12 +1103,12 @@ impl ShotsStore {
                 }
             }
             None => note(format!(
-                "the shots run of {prefix} printed no report path, so no report was kept"
+                "the shots run of {prefix} printed no report path, so no report was cached"
             )),
         }
         match staging.finish(exit, findings) {
-            Ok(stored) => shot_findings::note_report(&stored),
-            Err(error) => note(format!("the shots run was not kept: {}", error.text())),
+            Ok(cached) => shot_findings::note_report(&cached),
+            Err(error) => note(format!("the shots run was not cached: {}", error.text())),
         }
     }
 
@@ -1118,16 +1118,16 @@ impl ShotsStore {
     /// build's result.
     fn bring_back_pictures(&self, remote: &mut RemoteApp, there: &str) {
         let pictures = self.pictures();
-        let incoming = shot_store::incoming(&pictures);
+        let incoming = shots_cache::incoming(&pictures);
         // The lock keeps the prune from deleting the incoming folder while
         // the copy fills it.
         let brought = self.writing().and_then(|_writing| {
             remote.fetch_folder(there, &incoming)?;
-            shot_store::merge_pictures(&incoming, &pictures)
+            shots_cache::merge_pictures(&incoming, &pictures)
         });
         if let Err(error) = brought {
             note(format!(
-                "the pictures of the run on host {} were not kept: {}",
+                "the pictures of the run on host {} were not cached: {}",
                 remote.host.name,
                 error.text()
             ));
@@ -1145,13 +1145,13 @@ impl ShotsStore {
             return Ok(());
         }
         Err(format!(
-            "the run's findings.json names shots checker {named}, and this builds keeps the runs of shots checker {}: the run's `builds shots` was another builds than this one",
+            "the run's findings.json names shots checker {named}, and this builds caches the runs of shots checker {}: the run's `builds shots` was another builds than this one",
             self.version
         ))
     }
 }
 
-/// Where a shots run ran: what `ShotsStore::keep` asks of it.
+/// Where a shots run ran: what `ShotsCache::cache` asks of it.
 trait RunSite {
     /// The commit the checkout is on.
     fn commit(&mut self) -> Result<String>;
@@ -1303,10 +1303,10 @@ struct LaneRequest<'a> {
     commit: &'a str,
     names: &'a [String],
     picks: &'a [Pick],
-    /// The picture folder keeps every shot of the shots picks for the
-    /// lane's app tree (`KEPT_SHOTS`): the lane builds nothing, and its shots
+    /// The picture folder caches every shot of the shots picks for the
+    /// lane's app tree (`CACHED_SHOTS`): the lane builds nothing, and its shots
     /// runs capture none.
-    kept_shots: bool,
+    cached_shots: bool,
 }
 
 fn build_lane(
@@ -1323,7 +1323,7 @@ fn build_lane(
         commit,
         names,
         picks,
-        kept_shots,
+        cached_shots,
     } = request;
     note(format!(
         "waiting for {repo}'s {} app lock, then building {commit}",
@@ -1376,9 +1376,9 @@ fn build_lane(
             std::fs::create_dir_all(&folder)
                 .context(|| format!("creating {}", folder.display()))?;
         }
-        if kept_shots {
+        if cached_shots {
             note(
-                "the picture folder keeps every shot these runs take for the lane's app tree, so the lane builds nothing and takes the shots from it",
+                "the picture folder caches every shot these runs take for the lane's app tree, so the lane builds nothing and takes the shots from it",
             );
             Built::clear(&built_file)?;
         } else if names.is_empty() && !picks.is_empty() {
@@ -1413,8 +1413,15 @@ fn build_lane(
         let (tests, builds): (Vec<Step>, Vec<Step>) = steps
             .into_iter()
             .partition(|step| pick_kind_of(&step.name).is_some());
-        let shots = ShotsStore::of(
-            places, &source, repo, lane, &sha, &config, picks, kept_shots,
+        let shots = ShotsCache::of(
+            places,
+            &source,
+            repo,
+            lane,
+            &sha,
+            &config,
+            picks,
+            cached_shots,
         )?;
         let with = |results| StepsWith {
             results,
@@ -1495,12 +1502,12 @@ fn left_unchanged(site: &mut Site, built_file: &Path, ran: Result<Ended>) -> Res
     }
 }
 
-/// Prints the stored findings of each `--shots` pick in <picks> that has a
-/// run stored for <git_ref>'s commit, and returns the picks left to run: the
-/// `--test` picks, and the `--shots` picks with no stored run. A run of picks
-/// with no step builds nothing, so a stored run is printed in place of taking
+/// Prints the cached findings of each `--shots` pick in <picks> that has a
+/// run cached for <git_ref>'s commit, and returns the picks left to run: the
+/// `--test` picks, and the `--shots` picks with no cached run. A run of picks
+/// with no step builds nothing, so a cached run is printed in place of taking
 /// the lane.
-pub fn serve_stored(
+pub fn serve_cached(
     places: &Places,
     repo: &str,
     git_ref: &str,
@@ -1517,11 +1524,11 @@ pub fn serve_stored(
             continue;
         }
         let key = shot_findings::key_for(places, repo, git_ref, *lane, prefix)?;
-        match shot_store::lookup(places, &key)? {
-            Some(stored) => {
-                note("printing the stored findings instead of running (--fresh runs)");
-                shot_findings::print(&stored);
-                shot_findings::note_report(&stored);
+        match shots_cache::lookup(places, &key)? {
+            Some(cached) => {
+                note("printing the cached findings instead of running (--fresh runs)");
+                shot_findings::print(&cached);
+                shot_findings::note_report(&cached);
             }
             None => left.push(pick),
         }
@@ -1531,9 +1538,9 @@ pub fn serve_stored(
 
 /// Makes the store hold the run each `--shots` pick of <picks> compares
 /// with: the run of <git_ref>'s merge base with origin/main, by the
-/// shots checker this builds keys runs on (shot_store.rs). For the picks
+/// shots checker this builds keys runs on (shots_cache.rs). For the picks
 /// with none, it builds the merge base first in their lanes, with each lane's
-/// `needs` steps, and runs the picks there, which keeps their runs; the run
+/// `needs` steps, and runs the picks there, which caches their runs; the run
 /// of a commit on origin/main compares with none, so its pairs' findings
 /// fail it, and that failure stops nothing here. Fails when a pick still
 /// has no run to compare with, or a stop signal ended the build. A commit on
@@ -1565,7 +1572,7 @@ pub fn ensure_before_runs(
         let mut missing = Vec::new();
         for pick in picks {
             let (lane, _, prefix) = pick;
-            if shot_store::before_run(places, repo, &base, *lane, prefix, version)?.is_none() {
+            if shots_cache::before_run(places, repo, &base, *lane, prefix, version)?.is_none() {
                 missing.push(pick.clone());
             }
         }
@@ -1575,12 +1582,12 @@ pub fn ensure_before_runs(
     let wanted = missing(&shots)?;
     if wanted.is_empty() {
         note(format!(
-            "the shots runs compare with the runs of {short}, the merge base with origin/main, that builds keeps"
+            "the shots runs compare with the runs of {short}, the merge base with origin/main, that builds has cached"
         ));
         return Ok(());
     }
     note(format!(
-        "builds keeps no run of {} for {short}, the merge base with origin/main, by shots checker {version}: building {short} and running them first, to compare with",
+        "builds has no cached run of {} for {short}, the merge base with origin/main, by shots checker {version}: building {short} and running them first, to compare with",
         wanted
             .iter()
             .map(|(_, _, prefix)| prefix.as_str())
@@ -1597,7 +1604,7 @@ pub fn ensure_before_runs(
     if let Some((lane, _, prefix)) = still.first() {
         let why = match built {
             Err(error) => error.text(),
-            Ok(()) => "it kept no findings".to_string(),
+            Ok(()) => "it cached no findings".to_string(),
         };
         fail!(
             "the run of {prefix} on {} for {short}, the merge base with origin/main, gave nothing to compare with: {why}",
@@ -1606,7 +1613,7 @@ pub fn ensure_before_runs(
     }
     if let Err(error) = built {
         note(format!(
-            "the build of {short} failed ({}), and builds kept the findings of its shots runs, which the runs of {git_ref} compare with",
+            "the build of {short} failed ({}), and builds cached the findings of its shots runs, which the runs of {git_ref} compare with",
             error.text()
         ));
     }
@@ -1646,7 +1653,7 @@ impl Tail {
         if text.is_empty() {
             return;
         }
-        if text.contains("builds: ") && !text.contains("kept ") {
+        if text.contains("builds: ") && !text.contains("cached its findings") {
             self.last_note = text.to_string();
         }
         if self.lines.len() == TAIL_LINES {
@@ -1719,7 +1726,7 @@ pub fn run_lanes(
     commit: &str,
     lanes: &[(Lane, Vec<String>)],
     picks: &[Pick],
-    kept: &[Lane],
+    cached: &[Lane],
 ) -> Result<()> {
     unsafe {
         for signal in lock::STOP_SIGNALS {
@@ -1731,7 +1738,7 @@ pub fn run_lanes(
         let mut command = Command::new(pinned.builds());
         command
             .args(["app-build", repo, "--lane", lane.word(), commit])
-            .args(kept.contains(lane).then_some(KEPT_SHOTS))
+            .args(cached.contains(lane).then_some(CACHED_SHOTS))
             .args(names)
             .args(
                 picks
@@ -1926,8 +1933,8 @@ pub fn cmd_app_build(tool: &Tool, args: &[String]) -> Result<()> {
         && flag == "--lane"
         && !commit.starts_with('-')
     {
-        let kept_shots = names.first().is_some_and(|arg| arg == KEPT_SHOTS);
-        let names = if kept_shots { &names[1..] } else { names };
+        let cached_shots = names.first().is_some_and(|arg| arg == CACHED_SHOTS);
+        let names = if cached_shots { &names[1..] } else { names };
         let (names, picks) = split_picks(names)?;
         let lane = Lane::parse_or_fail(word)?;
         // A lane that its build started runs from the build's folder, which
@@ -1940,7 +1947,7 @@ pub fn cmd_app_build(tool: &Tool, args: &[String]) -> Result<()> {
             commit,
             names: &names,
             picks: &picks,
-            kept_shots,
+            cached_shots,
         };
         return match run_lane(tool, repo, lane, request, &pinned) {
             Err(Fail::Exit(code)) => {
@@ -1981,7 +1988,7 @@ pub fn cmd_app_build(tool: &Tool, args: &[String]) -> Result<()> {
         }
     }
     if names.is_empty() && !picks.is_empty() && !fresh {
-        picks = serve_stored(places, repo, commit, picks)?;
+        picks = serve_cached(places, repo, commit, picks)?;
         if picks.is_empty() {
             return Ok(());
         }

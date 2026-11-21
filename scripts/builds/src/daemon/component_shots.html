@@ -43,7 +43,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 var
 <body>
 <div class="cs">
   <div class="cs-head"><h1 id="title"></h1><span class="cs-sub" id="at"></span><a id="back"></a></div>
-  <div id="main"><div class="cs-sub">Reading the shots builds keeps…</div></div>
+  <div id="main"><div class="cs-sub">Reading the cached shots…</div></div>
 </div>
 <script type="application/json" id="data">@@DATA@@</script>
 <script>
@@ -93,7 +93,7 @@ function captureView(p) {
   const of = c.ref === data.commit ? "this commit" : "commit " + c.ref.slice(0, 7);
   const line = ended
     ? "builds took the shots of " + p.prefix + " for " + of + " at " + minute(c.started_at) + ", and the run " + PHASES[c.phase]
-      + (c.exit_code !== null ? " with exit status " + c.exit_code : "") + " without keeping its findings."
+      + (c.exit_code !== null ? " with exit status " + c.exit_code : "") + " without caching its findings."
     : "builds started taking the shots of " + p.prefix + " for " + of + " at " + minute(c.started_at) + ", and the run " + PHASES[c.phase] + "."
       + (c.ref === data.commit ? "" : " The page takes this commit's shots once it ends.");
   const parts = [h("div", {class: ended ? "problem" : "cs-meta"}, line)];
@@ -113,8 +113,8 @@ function laneView(p) {
     if (!p.run.rows.length) out.push(h("div", {class: "cs-none"}, "The run lists no preview row of " + data.component + " on this platform."));
     out.push(p.run.rows.map(row => rowView(p.lane, row)));
   } else if (p.capture) out.push(captureView(p));
-  else if (data.here) out.push(h("div", {class: "cs-meta"}, "builds keeps no shots of " + p.prefix + " for this commit, so the page asks it to take them."));
-  else out.push(h("div", {class: "cs-meta"}, "builds keeps no shots of " + p.prefix + " for this commit. The dashboard takes them when someone opens this page on its Mac."));
+  else if (data.here) out.push(h("div", {class: "cs-meta"}, "builds has no cached shots of " + p.prefix + " for this commit, so the page asks it to take them."));
+  else out.push(h("div", {class: "cs-meta"}, "builds has no cached shots of " + p.prefix + " for this commit. The dashboard takes them when someone opens this page on its Mac."));
   return h("section", {class: "cs-lane"}, out);
 }
 
@@ -130,7 +130,7 @@ function render(state) {
 }
 
 // Asks the daemon to take the component's shots of this commit on each lane
-// where builds keeps none and no run takes them. The page asks once on its
+// where builds has none cached and no run takes them. The page asks once on its
 // own, when it first finds a lane with neither; the person asks again with
 // the button of a run that ended without findings.
 let state = null, asked = false;

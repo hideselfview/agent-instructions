@@ -1,5 +1,5 @@
 //! A lane's app source tree: what the app a lane builds is made from at a
-//! commit, so that the shots the app takes are kept by it (shot_store.rs's
+//! commit, so that the shots the app takes are cached by it (shots_cache.rs's
 //! picture folder) and a commit that changes none of it takes none again.
 //!
 //! The paths the lane's app build reads are those the `.app-build` `on`

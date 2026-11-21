@@ -100,7 +100,7 @@ pub fn repos(places: &Places) -> Result<Vec<Repo>> {
             || is_emptying(&dir)
             || dir == places.derived_data()
             || dir == places.caches()
-            || dir == crate::shot_store::root(places)
+            || dir == crate::shots_cache::root(places)
             || dir == crate::review::texts::root(places)
         {
             continue;
@@ -417,7 +417,7 @@ fn caches_lines(tool: &Tool, out: &mut Vec<String>) -> Result<()> {
     Ok(())
 }
 
-/// The lines for the folder of the shots runs (shot_store.rs) at <dir>: each
+/// The lines for the folder of the shots runs (shots_cache.rs) at <dir>: each
 /// repo's folder, with its size against its cap and its last write.
 fn shots_lines(tool: &Tool, dir: &Path, out: &mut Vec<String>) -> Result<()> {
     out.push("shots  (the shots runs and board pictures of each repo)".to_string());
@@ -426,7 +426,7 @@ fn shots_lines(tool: &Tool, dir: &Path, out: &mut Vec<String>) -> Result<()> {
             tool,
             &dir.join(&name),
             &format!("    {}", name.to_string_lossy()),
-            crate::shot_store::CAP_KIB,
+            crate::shots_cache::CAP_KIB,
         )?);
     }
     Ok(())
@@ -587,7 +587,7 @@ pub fn cmd_status(tool: &mut Tool, ssh: &Ssh, args: &[String]) -> Result<()> {
             derived_data_lines(tool, &mut out)?;
         } else if entry == tool.places.caches() && entry.is_dir() {
             caches_lines(tool, &mut out)?;
-        } else if entry == crate::shot_store::root(&tool.places) && entry.is_dir() {
+        } else if entry == crate::shots_cache::root(&tool.places) && entry.is_dir() {
             shots_lines(tool, &entry, &mut out)?;
         } else if entry == crate::review::texts::root(&tool.places) && entry.is_dir() {
             out.push(capped_line(

@@ -1225,7 +1225,7 @@ impl Model {
     }
 
     /// Takes component <name>'s shots of <commit> of project <project>'s
-    /// repo where builds keeps none (`component_shots::start`).
+    /// repo where builds has none cached (`component_shots::start`).
     pub fn capture_component(
         &self,
         project: &str,

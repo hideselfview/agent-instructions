@@ -24,7 +24,7 @@ fn a_run_has_findings_when_it_passed_or_said_that_pairs_fail_it() {
 }
 
 #[test]
-fn a_long_run_is_kept_whole() {
+fn a_long_run_is_cached_whole() {
     let long = format!(
         "{}\nbae-shots: no pair fails the run\n",
         "é".repeat(1 << 21)
@@ -79,7 +79,7 @@ fn a_report_is_copied_with_its_pictures_and_its_findings_records_when_it_has_the
 }
 
 #[test]
-fn a_run_grouped_by_cause_reads_the_records_its_kept_report_holds() {
+fn a_run_grouped_by_cause_reads_the_records_its_cached_report_holds() {
     let scratch = crate::testing::Scratch::new("shots-causes");
     let places = scratch.places();
     let key = Key {
@@ -89,22 +89,22 @@ fn a_run_grouped_by_cause_reads_the_records_its_kept_report_holds() {
         prefix: "mac.".to_string(),
         version: "b".repeat(16),
     };
-    let stored = shot_store::stage(&places, &key)
+    let cached = shots_cache::stage(&places, &key)
         .unwrap()
         .finish(1, "FAIL x\n")
         .unwrap();
-    let missing = by_cause(&stored, "main").expect_err("refused").text();
+    let missing = by_cause(&cached, "main").expect_err("refused").text();
     assert!(
         missing.contains("builds app-build demo main --all-shots mac --fresh"),
         "{missing}"
     );
-    std::fs::create_dir_all(stored.report()).unwrap();
+    std::fs::create_dir_all(cached.report()).unwrap();
     std::fs::write(
-        stored.findings_json(),
+        cached.findings_json(),
         r#"{"findings": [{"scene": "mac.a", "component": "MacRow", "kind": "region", "sentence": "s"}], "scenes": ["mac.a"]}"#,
     )
     .unwrap();
-    let text = by_cause(&stored, "main").unwrap();
+    let text = by_cause(&cached, "main").unwrap();
     assert!(
         text.starts_with("1 finding in 1 of the 1 scene the run checked, grouped by cause"),
         "{text}"

@@ -1,6 +1,6 @@
-//! Where builds keeps the output of each `--shots` and `--all-shots` run: on
+//! The cache of the output of each `--shots` and `--all-shots` run: on
 //! the build volume, never in a project's lists store. A run is build output,
-//! kept so the next agent that wants the run of a commit, or the before side
+//! cached so the next agent that wants the run of a commit, or the before side
 //! of a branch's run, reads it instead of building.
 //!
 //! Each run has one folder, found by what made it:
@@ -16,19 +16,19 @@
 //! version of the shots program that made it. A later run of the same key
 //! replaces the folder whole: a run fills a staging folder at the top of
 //! `shots` and moves it into place only when it is complete, so a reader
-//! finds either the old run or the new one, and a run that stops or keeps
+//! finds either the old run or the new one, and a run that stops or caches
 //! nothing leaves no folder under `runs` (capped_store.rs).
 //!
 //! Beside the runs, each repo has a picture folder,
 //! `<volume>/shots/<repo>/pictures/`, which app-build passes to the shots
-//! program (`run --pictures`): the program keeps each board picture it draws
+//! program (`run --pictures`): the program caches each board picture it draws
 //! there as `boards/<board hash>.png` and `.json`, the hash of everything the
 //! picture depends on, and draws only the boards whose hash the folder lacks;
-//! and it keeps each shot the app takes as
+//! and it caches each shot the app takes as
 //! `<platform>/<app source tree>/<shot>.png` and `.json` (app_tree.rs), and
-//! takes no shot again when the folder keeps every one the run selects.
+//! takes no shot again when the folder caches every one the run selects.
 //!
-//! builds keeps each repo's folder in `shots` under `CAP_KIB`: `setup` and
+//! builds holds each repo's folder in `shots` under `CAP_KIB`: `setup` and
 //! `prune` delete the repo's whole runs, board pictures and app source
 //! trees' shots, least recently used first, while it is over (prune.rs calls
 //! `prune`). A run's last use is the time of its run.json, which the run
@@ -38,7 +38,7 @@
 //! agents keep using stays.
 //!
 //! The folder `shots` is a capped store (capped_store.rs): its lock on
-//! `shots/.writing` is held by each run that stores its output, and by
+//! `shots/.writing` is held by each run that caches its output, and by
 //! app-build while a shots step reads a before run or the picture folder or
 //! writes to it, so the prune deletes nothing a run reads or writes.
 
@@ -60,7 +60,7 @@ use crate::tool::Tool;
 pub const FOLDER: &str = "shots";
 
 /// How much each repo's folder in `shots` may hold, its runs and its picture
-/// folder together. A run of a lane's every shot keeps about 10 MB of
+/// folder together. A run of a lane's every shot takes about 10 MB of
 /// report, so the cap holds main's runs and many branch runs.
 pub const CAP_KIB: u64 = 2 * 1024 * 1024;
 
@@ -79,7 +79,7 @@ const TAKEN: &str = ".taken";
 /// the pictures a run on a host made while builds moves them into place.
 const INCOMING: &str = ".incoming-";
 
-/// What a stored run is found by.
+/// What a cached run is found by.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Key {
     pub repo: String,
@@ -99,9 +99,9 @@ struct Ending {
     exit_code: i64,
 }
 
-/// A stored run.
+/// A cached run.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Stored {
+pub struct Cached {
     pub key: Key,
     pub recorded_at: i64,
     pub exit_code: i64,
@@ -110,7 +110,7 @@ pub struct Stored {
     pub folder: PathBuf,
 }
 
-impl Stored {
+impl Cached {
     /// The folder that holds the run's report.
     pub fn report(&self) -> PathBuf {
         self.folder.join(REPORT)
@@ -142,11 +142,11 @@ pub fn pictures(places: &Places, repo: &str) -> PathBuf {
     root(places).join(repo).join("pictures")
 }
 
-/// Whether <repo>'s picture folder keeps every shot a run of <prefix> takes
+/// Whether <repo>'s picture folder caches every shot a run of <prefix> takes
 /// for <lane>'s app source tree <tree>: the shots program marked taken, for
 /// that tree, a prefix that starts <prefix>, by a run that took the shots
 /// shown in a window when <windows> asks for them.
-pub fn shots_kept(
+pub fn shots_cached(
     places: &Places,
     repo: &str,
     lane: Lane,
@@ -184,7 +184,7 @@ pub fn incoming(pictures: &Path) -> PathBuf {
 /// lacks to the same place in <pictures>, and deletes <incoming>. Element
 /// lists go before pictures, so that the shots program never finds a picture
 /// without its element list, and marks go last, so that builds never finds a
-/// mark before the shots it says are kept. A file <pictures> already has
+/// mark before the shots it says are cached. A file <pictures> already has
 /// stays as it is: its key names the same inputs. A hidden file outside a
 /// marks folder is one the shots program left half written: it stays out,
 /// and the merge says so.
@@ -264,7 +264,7 @@ pub fn writing(places: &Places) -> Result<std::fs::File> {
     capped_store::writing(&root(places))
 }
 
-/// Starts storing a run of <key>: an empty staging folder that the run's
+/// Starts caching a run of <key>: an empty staging folder that the run's
 /// report goes into (`Staging::report`) before `Staging::finish` puts it in
 /// place.
 pub fn stage(places: &Places, key: &Key) -> Result<Staging> {
@@ -286,7 +286,7 @@ impl Staging {
     /// Writes how the run ended, with exit status <exit_code>, and what the
     /// shots program printed (<findings>), and puts the folder in place of
     /// any earlier run of the key.
-    pub fn finish(self, exit_code: i64, findings: &str) -> Result<Stored> {
+    pub fn finish(self, exit_code: i64, findings: &str) -> Result<Cached> {
         let recorded_at = now();
         let ending = Ending {
             recorded_at,
@@ -301,7 +301,7 @@ impl Staging {
         let output = self.inner.dir().join(OUTPUT_FILE);
         std::fs::write(&output, findings).context(|| format!("writing {}", output.display()))?;
         self.inner.place()?;
-        Ok(Stored {
+        Ok(Cached {
             key: self.key,
             recorded_at,
             exit_code,
@@ -310,21 +310,21 @@ impl Staging {
         })
     }
 
-    /// Deletes the report a copy left half made, so the run is kept without
+    /// Deletes the report a copy left half made, so the run is cached without
     /// one.
     pub fn discard_report(&self) -> Result<()> {
         capped_store::remove_all(&self.report())
     }
 
-    /// Deletes the staging folder and what it holds: the run is not kept.
+    /// Deletes the staging folder and what it holds: the run is not cached.
     pub fn discard(self) -> Result<()> {
         self.inner.discard()
     }
 }
 
-/// The run in <folder>, stored under <key>; None when the folder holds no
+/// The run in <folder>, cached under <key>; None when the folder holds no
 /// finished run.
-fn read(folder: &Path, key: &Key) -> Result<Option<Stored>> {
+fn read(folder: &Path, key: &Key) -> Result<Option<Cached>> {
     let run_file = folder.join(RUN_FILE);
     let text = match std::fs::read_to_string(&run_file) {
         Ok(text) => text,
@@ -336,7 +336,7 @@ fn read(folder: &Path, key: &Key) -> Result<Option<Stored>> {
     let output = folder.join(OUTPUT_FILE);
     let findings =
         std::fs::read_to_string(&output).context(|| format!("reading {}", output.display()))?;
-    Ok(Some(Stored {
+    Ok(Some(Cached {
         key: key.clone(),
         recorded_at: ending.recorded_at,
         exit_code: ending.exit_code,
@@ -345,17 +345,17 @@ fn read(folder: &Path, key: &Key) -> Result<Option<Stored>> {
     }))
 }
 
-/// Marks <stored> used now, so the cap keeps it longer.
-pub fn mark_used(stored: &Stored) -> Result<()> {
-    capped_store::mark_used(&stored.folder.join(RUN_FILE))
+/// Marks <cached> used now, so the cap deletes it later.
+pub fn mark_used(cached: &Cached) -> Result<()> {
+    capped_store::mark_used(&cached.folder.join(RUN_FILE))
 }
 
-/// The run stored under <key>, if any; reading it marks it used.
-pub fn lookup(places: &Places, key: &Key) -> Result<Option<Stored>> {
+/// The run cached under <key>, if any; reading it marks it used.
+pub fn lookup(places: &Places, key: &Key) -> Result<Option<Cached>> {
     check_prefix(&key.prefix)?;
     let found = read(&run_folder(places, key), key)?;
-    if let Some(stored) = &found {
-        mark_used(stored)?;
+    if let Some(cached) = &found {
+        mark_used(cached)?;
     }
     Ok(found)
 }
@@ -369,15 +369,15 @@ pub fn before_run(
     lane: Lane,
     prefix: &str,
     version: &str,
-) -> Result<Option<Stored>> {
+) -> Result<Option<Cached>> {
     let found = covering_run(places, repo, commit, lane, prefix, version)?;
-    if let Some(stored) = &found {
-        mark_used(stored)?;
+    if let Some(cached) = &found {
+        mark_used(cached)?;
     }
     Ok(found)
 }
 
-/// The newest stored run of <repo>'s <commit> on <lane>, by shots program
+/// The newest cached run of <repo>'s <commit> on <lane>, by shots program
 /// <version>, whose prefix starts <prefix> (a run of `mac.` stands in for one
 /// of `mac.welcome.`) and whose report holds findings.json. Finding it writes
 /// nothing: a caller that uses the run marks it used (`mark_used`).
@@ -388,14 +388,14 @@ pub fn covering_run(
     lane: Lane,
     prefix: &str,
     version: &str,
-) -> Result<Option<Stored>> {
+) -> Result<Option<Cached>> {
     let folder = prefixes_folder(places, repo, commit, lane);
     let names = match std::fs::read_dir(&folder) {
         Ok(entries) => entries,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(error) => fail!("listing {}: {error}", folder.display()),
     };
-    let mut found: Vec<Stored> = Vec::new();
+    let mut found: Vec<Cached> = Vec::new();
     for entry in names {
         let entry = entry.context(|| format!("listing {}", folder.display()))?;
         let name = entry.file_name().to_string_lossy().into_owned();
@@ -409,13 +409,13 @@ pub fn covering_run(
             prefix: name,
             version: version.to_string(),
         };
-        if let Some(stored) = read(&run_folder(places, &key), &key)?
-            && stored.findings_json().is_file()
+        if let Some(cached) = read(&run_folder(places, &key), &key)?
+            && cached.findings_json().is_file()
         {
-            found.push(stored);
+            found.push(cached);
         }
     }
-    Ok(found.into_iter().max_by_key(|stored| stored.recorded_at))
+    Ok(found.into_iter().max_by_key(|cached| cached.recorded_at))
 }
 
 /// What the folder of <repo> in `shots` holds, as the cap sees it: its
@@ -481,7 +481,7 @@ fn written_at(path: &Path) -> Result<i64> {
         .context(|| format!("reading the time of {}", path.display()))
 }
 
-/// Deletes the runs, board pictures and app source trees' shots that keep a
+/// Deletes the runs, board pictures and app source trees' shots that hold a
 /// repo's folder in `shots` over `CAP_KIB` (prune.rs).
 pub fn prune(tool: &Tool, run: Run) -> Result<()> {
     prune_runs(tool, run, CAP_KIB)
@@ -501,5 +501,5 @@ pub fn prune_runs(tool: &Tool, run: Run, cap_kib: u64) -> Result<()> {
 }
 
 #[cfg(test)]
-#[path = "shot_store_tests.rs"]
+#[path = "shots_cache_tests.rs"]
 mod tests;

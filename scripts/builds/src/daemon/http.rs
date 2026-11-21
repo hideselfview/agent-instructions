@@ -77,9 +77,9 @@
 //!                   changes
 //!     POST /designs/<project>/<commit>/shots/<name>/capture  takes the
 //!                   component's shots of that commit on each lane where
-//!                   builds keeps none; only from this Mac
+//!                   builds has none cached; only from this Mac
 //!     /designs/<project>/<commit>/shot/<lane>/<shot>/board.png and /shot.png
-//!                   a pair's pictures in the run builds keeps of the commit
+//!                   a pair's pictures in the cached run of the commit
 //!     /events       `state` events: the whole state on connect and each time
 //!                   it changes, at most four a second; `lists` events: the
 //!                   lists JSON on connect and each time it changes, never
@@ -332,7 +332,7 @@ fn handle(mut stream: TcpStream, names: &[String], model: &Model) -> std::io::Re
                         &mut stream,
                         "404 Not Found",
                         "text/plain; charset=utf-8",
-                        b"builds keeps no such picture of that commit\n",
+                        b"builds has no cached picture of that commit\n",
                     ),
                 };
             }
@@ -415,7 +415,7 @@ enum DesignsRoute<'a> {
     Component(&'a str, &'a str, &'a str),
     /// The page of component <name>'s shots.
     ComponentShots(&'a str, &'a str),
-    /// A picture of the pair <shot> on the lane, in the run builds keeps of
+    /// A picture of the pair <shot> on the lane, in the cached run of
     /// the commit.
     Picture(&'a str, &'a str, Lane, &'a str, PictureSide),
 }
@@ -564,7 +564,7 @@ fn changes_state(method: &str) -> bool {
 enum ShotsAsk {
     /// The stream of what the component page shows.
     Events,
-    /// Taking the component's shots where builds keeps none.
+    /// Taking the component's shots where builds has none cached.
     Capture,
 }
 

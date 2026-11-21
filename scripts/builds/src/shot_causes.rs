@@ -1,10 +1,10 @@
-//! `builds shots findings ... --by-cause`: a stored run's findings grouped by
+//! `builds shots findings ... --by-cause`: a cached run's findings grouped by
 //! cause across every scene, so that an agent fixes a cause once instead of
 //! one scene at a time.
 //!
 //! The shots program writes each finding and warning of a run as a record in
 //! `findings.json`, beside its report (scripts/shots/src/findings_file.rs),
-//! and builds keeps the file with the report (shot_store.rs). Each record
+//! and builds caches the file with the report (shots_cache.rs). Each record
 //! names the design-system component that draws the board element it is
 //! about, when one does. This module reads the file and groups the records:
 //! first by component, each with the kinds of finding it makes; the findings

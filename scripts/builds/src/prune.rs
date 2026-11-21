@@ -1,5 +1,5 @@
 //! Bounding what builds leave behind: each checkout's unused build copies and
-//! caps, DerivedData, the shared caches, the shots runs (shot_store.rs),
+//! caps, DerivedData, the shared caches, the shots runs (shots_cache.rs),
 //! build output in the temporary folders, tests' temporary folders, Claude
 //! Code scratch folders, cargo's git checkouts, and the tool versions a repo's scripts install that no
 //! checkout runs. `setup` runs these for its checkout, `prune` for every one.
@@ -823,7 +823,7 @@ pub fn cmd_prune(tool: &Tool, args: &[String]) -> Result<()> {
     };
     prune_derived_data(tool, run, derived_idle)?;
     prune_caches(tool, run)?;
-    crate::shot_store::prune(tool, run)?;
+    crate::shots_cache::prune(tool, run)?;
     crate::review::texts::prune(tool, run)?;
     prune_test_temps(tool, run)?;
     prune_temp_builds(tool, run)?;

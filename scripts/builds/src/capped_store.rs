@@ -1,5 +1,5 @@
 //! A folder on the build volume that holds build output builds can make
-//! again, bounded by a size cap: the shots runs (shot_store.rs) and the
+//! again, bounded by a size cap: the shots runs (shots_cache.rs) and the
 //! review texts (review/texts.rs) are two of them. The folder holds units,
 //! each one folder that a writer fills whole and that the cap deletes whole.
 //!

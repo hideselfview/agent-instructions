@@ -261,7 +261,7 @@ pub fn schema() -> String {
 
 /// The table of the `--shots` runs' findings, which every schema held
 /// between the design changes' recording sessions and the review's tables
-/// until builds kept the runs on the build volume (shot_store.rs).
+/// until builds kept the runs on the build volume (shots_cache.rs).
 #[cfg(test)]
 pub const SHOT_FINDINGS_TABLE: &str = "CREATE TABLE IF NOT EXISTS shot_findings (
     repo TEXT NOT NULL CHECK (repo <> ''),

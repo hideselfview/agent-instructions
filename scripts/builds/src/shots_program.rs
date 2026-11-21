@@ -1,5 +1,5 @@
-//! `builds shots`: `builds shots findings` reads the runs builds keeps
-//! (shot_findings.rs, shot_store.rs), and every other subcommand runs the
+//! `builds shots`: `builds shots findings` reads the cached runs
+//! (shot_findings.rs, shots_cache.rs), and every other subcommand runs the
 //! shots checker, which checks an app's shots against its design boards
 //! (scripts/shots, a library this program is built with), with the same
 //! arguments. builds gives the checker a cache folder in the build volume's

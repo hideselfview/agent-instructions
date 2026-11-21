@@ -3,15 +3,15 @@
 //! build: one `builds build-app <repo> <lane> [<ref>]` per click of a lane's
 //! Build item, and one `builds app-build <repo> <commit> --shots <prefix>`
 //! for each lane of a component whose shots of a commit the component page
-//! shows and builds keeps none of (a shots run, component_shots.rs).
+//! shows and builds has none cached of (a shots run, component_shots.rs).
 //!
 //! Each repo's lane keeps its latest build-app run, in memory and in two
 //! files under `<daemon dir>/runs/`: `<repo>.<lane>.json` (who started it,
 //! which process, how it ended) and `<repo>.<lane>.log` (everything the build
-//! printed). A shots run is kept the same way by its prefix, in
+//! printed). A shots run is cached the same way by its prefix, in
 //! `<repo>.shots.<prefix>json` and `.log`, and a lane keeps the ended shots
 //! runs of one prefix at a time: a new shots run in the lane deletes the
-//! ended runs of its other prefixes, whose findings the shot store holds
+//! ended runs of its other prefixes, whose findings the shots cache holds
 //! when they took any. The
 //! child writes the log itself, not through the daemon, so a daemon that goes
 //! away neither breaks the build's output nor stops it: the build runs on and

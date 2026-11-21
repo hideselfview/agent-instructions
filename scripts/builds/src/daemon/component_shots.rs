@@ -4,21 +4,21 @@
 //! app's shot of that state, and the findings under them, on each platform
 //! that draws the component.
 //!
-//! The page reads the runs builds keeps (shot_store.rs): on each lane, the
+//! The page reads the cached runs (shots_cache.rs): on each lane, the
 //! newest run of the commit by this builds' shots version whose prefix
 //! starts the component's (`mac.component.checkbox.`, so a run of
 //! `mac.component.` or `mac.` serves too). The run's findings.json lists the
 //! component's rows in the preview's order and the size of each pair it
-//! checked, and its report holds the pair's pictures. When builds keeps no
-//! such run on a lane, the page asks this Mac's daemon to take the
+//! checked, and its report holds the pair's pictures. When builds has no
+//! cached run on a lane, the page asks this Mac's daemon to take the
 //! component's shots there (`start`): one `builds app-build <repo> <commit>
 //! --shots <prefix>` per lane (runs.rs), whose progress the page shows until
-//! the run is kept.
+//! the run is cached.
 //!
 //! The component's name gives its platform and the prefix of its shots
 //! (`boards::component_key`): a component of one platform has that
 //! platform's lane, and one both platforms share has both lanes. builds
-//! keeps no web shots, so a web component has no lane.
+//! caches no web shots, so a web component has no lane.
 
 use std::path::Path;
 
@@ -34,7 +34,7 @@ use crate::fail;
 use crate::fail::{Context, Fail, Result};
 use crate::lane::Lane;
 use crate::places::Places;
-use crate::shot_store::{self, Stored};
+use crate::shots_cache::{self, Cached};
 use crate::shots_program::VERSION;
 
 const PAGE: &str = include_str!("component_shots.html");
@@ -54,14 +54,14 @@ pub struct Platform {
     pub lane: &'static str,
     /// The start of the names of the component's shots on the lane.
     pub prefix: String,
-    /// The kept run that holds them; none when builds keeps none.
+    /// The cached run that holds them; none when builds has none cached.
     pub run: Option<Run>,
     /// The shots run the dashboard started for the prefix, while it runs or
     /// once it ended for this commit.
     pub capture: Option<RunPage>,
 }
 
-/// A kept run, as the page shows the component's part of it.
+/// A cached run, as the page shows the component's part of it.
 #[derive(Debug, Serialize)]
 pub struct Run {
     /// The prefix the run took.
@@ -170,7 +170,7 @@ pub fn lanes(component: &str) -> Result<Vec<(Lane, String)>> {
 }
 
 /// What the page shows of <component> at <repo>'s <commit>: on each of its
-/// lanes, the run builds keeps and the shots run <capture> gives for the
+/// lanes, the cached run and the shots run <capture> gives for the
 /// lane and prefix, if it runs or ended for <commit>. Reads write nothing,
 /// so the page's stream reads again on each change of the dashboard.
 pub fn shots(
@@ -182,8 +182,8 @@ pub fn shots(
 ) -> Result<Shots> {
     let mut platforms = Vec::new();
     for (lane, prefix) in lanes(component)? {
-        let run = match shot_store::covering_run(places, repo, commit, lane, &prefix, VERSION)? {
-            Some(stored) => Some(read_run(&stored, component, lane, &prefix)?),
+        let run = match shots_cache::covering_run(places, repo, commit, lane, &prefix, VERSION)? {
+            Some(cached) => Some(read_run(&cached, component, lane, &prefix)?),
             None => None,
         };
         let capture = capture(lane, &prefix).filter(|run| {
@@ -204,13 +204,13 @@ pub fn shots(
     })
 }
 
-/// <component>'s rows on <lane> in the kept run <stored>: the rows its
+/// <component>'s rows on <lane> in the cached run <cached>: the rows its
 /// findings.json lists for the component, with the pairs it checked. A run by
 /// this shots version lists each component with a preview, so a run that
 /// lists none of <component>, or a row of it whose shot does not start with
 /// <prefix>, fails the read.
-fn read_run(stored: &Stored, component: &str, lane: Lane, prefix: &str) -> Result<Run> {
-    let path = stored.findings_json();
+fn read_run(cached: &Cached, component: &str, lane: Lane, prefix: &str) -> Result<Run> {
+    let path = cached.findings_json();
     let text = std::fs::read_to_string(&path).context(|| format!("reading {}", path.display()))?;
     let file: File = serde_json::from_str(&text)
         .map_err(|error| Fail::Message(format!("{}: {error}", path.display())))?;
@@ -246,14 +246,14 @@ fn read_run(stored: &Stored, component: &str, lane: Lane, prefix: &str) -> Resul
         });
     }
     Ok(Run {
-        prefix: stored.key.prefix.clone(),
-        recorded_at: stored.recorded_at,
+        prefix: cached.key.prefix.clone(),
+        recorded_at: cached.recorded_at,
         rows,
     })
 }
 
 /// Takes <component>'s shots of <repo>'s <commit> on each of its lanes where
-/// builds keeps no run of them and no shots run of its prefix runs (runs.rs).
+/// builds has no cached run of them and no shots run of its prefix runs (runs.rs).
 pub fn start(
     places: &Places,
     runs: &std::sync::Arc<Runs>,
@@ -262,7 +262,7 @@ pub fn start(
     component: &str,
 ) -> Result<()> {
     for (lane, prefix) in lanes(component)? {
-        if shot_store::covering_run(places, repo, commit, lane, &prefix, VERSION)?.is_some() {
+        if shots_cache::covering_run(places, repo, commit, lane, &prefix, VERSION)?.is_some() {
             continue;
         }
         match runs.start_shots(repo, lane, commit, &prefix) {
@@ -273,8 +273,8 @@ pub fn start(
     Ok(())
 }
 
-/// The <side> picture of the pair <scene> in the run builds keeps of
-/// <repo>'s <commit> on <lane>; none when it keeps no run or picture of it.
+/// The <side> picture of the pair <scene> in the cached run of
+/// <repo>'s <commit> on <lane>; none when it has no cached run or picture of it.
 /// Fails when <scene> is no shot's name.
 pub fn picture(
     places: &Places,
@@ -295,10 +295,11 @@ pub fn picture(
     if !scene.starts_with(&format!("{}.", lane.word())) {
         return Ok(None);
     }
-    let Some(stored) = shot_store::covering_run(places, repo, commit, lane, scene, VERSION)? else {
+    let Some(cached) = shots_cache::covering_run(places, repo, commit, lane, scene, VERSION)?
+    else {
         return Ok(None);
     };
-    let file = stored
+    let file = cached
         .report()
         .join("img")
         .join(format!("{scene}.{}.png", side.word()));
@@ -311,7 +312,7 @@ pub fn picture(
 
 /// The page of <component>'s shots in project <project>, whose design files
 /// are in <repo> (named <repo_name>), at the commit origin/main names there.
-/// Opening the page marks each kept run it shows used. <here> says whether
+/// Opening the page marks each cached run it shows used. <here> says whether
 /// the page is asked for on this Mac, where it can start a shots run.
 pub fn page(
     places: &Places,
@@ -330,10 +331,10 @@ pub fn page(
         fail!("commit {commit} has no {}", preview_path(component));
     }
     for (lane, prefix) in &lanes {
-        if let Some(stored) =
-            shot_store::covering_run(places, repo_name, &commit, *lane, prefix, VERSION)?
+        if let Some(cached) =
+            shots_cache::covering_run(places, repo_name, &commit, *lane, prefix, VERSION)?
         {
-            shot_store::mark_used(&stored)?;
+            shots_cache::mark_used(&cached)?;
         }
     }
     let data = json!({

@@ -226,7 +226,7 @@ const BEFORE_REVIEW_BOARD_SHOW_NOW_STAMP: i64 = 716_196_970;
 const BEFORE_APP_BUILD_STOPPED_STAMP: i64 = 978_764_755;
 
 /// The stamp of the schema before builds kept the shots runs on the build
-/// volume (shot_store.rs) instead of in the store.
+/// volume (shots_cache.rs) instead of in the store.
 const BEFORE_SHOTS_ON_VOLUME_STAMP: i64 = 1_758_641_369;
 
 /// The stamp of the schema before builds kept the review texts on the build

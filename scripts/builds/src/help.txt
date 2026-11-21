@@ -836,7 +836,7 @@ change to screens, name their prefixes with --shots instead. builds runs the
 lane's `shots` line once, with the prefix that every shot of the lane starts
 with (mac.), so the run goes where any --shots run of the lane goes: it waits in
 the lane's queue, holds a lock of the lane, and takes a free app checkout (for
-a `shots` line that passes --windows, only one on a host, as below). builds keeps its findings and report
+a `shots` line that passes --windows, only one on a host, as below). builds caches its findings and report
 under that prefix like any other shots run's (below), and `builds shots
 findings <repo> <ref> mac mac.` prints them again. The shots program takes a
 window's shot on the display of the host it runs on, whose size may differ
@@ -1079,7 +1079,7 @@ folder here that no build holds, then has each host remove each version's
 folder there that no step holds and that this Mac no longer keeps, so a
 host keeps the folder of every build that runs here.
 
-builds keeps each --shots and --all-shots run on the build volume, in
+builds caches each --shots and --all-shots run on the build volume, in
 /Volumes/Builds/shots/<repo>/runs/<commit>/<lane>/<prefix>/<version>/, so
 the next run in the checkout cannot overwrite it: run.json (when the run
 ended and its exit status), output.txt (all that the shots program printed)
@@ -1090,13 +1090,14 @@ A later run of the same key replaces the folder whole. The shots version is
 the version of the shots checker that builds is built with (`builds shots
 version`): a hash of the checker's sources, the boards library's and the
 versions of the packages they use, so a change to builds alone keeps every
-stored run. Each run's findings.json names the version, and builds keeps no
+cached run. Each run's findings.json names the version, and builds caches no
 run whose findings.json names another version. A run that died before it
-made findings keeps nothing.
-builds keeps each repo's folder in shots under its cap and deletes the runs
-and pictures that agents used least recently first (DISK).
+made findings caches nothing.
+The cache is build output on the build volume: builds holds each repo's folder
+in shots under its cap, deletes the runs and pictures that agents used least
+recently first (DISK), and makes a deleted run again when an agent asks for it.
 
-Beside the runs, builds keeps each repo's board pictures in
+Beside the runs, builds caches each repo's board pictures in
 /Volumes/Builds/shots/<repo>/pictures/boards/, as <board hash>.png with its
 element list <board hash>.json. A board hash is the hash of everything the
 board's picture depends on: the board's file and the parts it mounts (for a
@@ -1108,7 +1109,7 @@ on this Mac (`run --pictures`), and the run draws only the boards whose hash
 the folder lacks and adds each new drawing to it, so builds draws a board
 once for its inputs.
 
-The same folder keeps the app's shots by the lane's app source tree, in
+The same folder caches the app's shots by the lane's app source tree, in
 pictures/<platform>/<app tree>/: a hash of the git objects, at the commit,
 of each path the `on` lines name for a step of the lane, of .app-build, and
 of the Rust the app builds from: every file of each crate whose folder an
@@ -1116,10 +1117,10 @@ of the Rust the app builds from: every file of each crate whose folder an
 <crate>`, of every workspace crate those depend on (from the manifests at
 the commit), and of Cargo.toml, Cargo.lock, rust-toolchain(.toml) and .cargo/.
 app-build passes the lane's app tree to each shots run on this Mac (`run
---app-tree`). When the folder keeps every shot the run selects for that
+--app-tree`). When the folder caches every shot the run selects for that
 tree, the run takes the shots from it and runs no capture command;
-otherwise it captures them and keeps them there. A commit that changes no
-path of the lane's app takes no shot again. Once a run has kept every shot
+otherwise it captures them and caches them there. A commit that changes no
+path of the lane's app takes no shot again. Once a run has cached every shot
 a prefix selects, the shots checker marks the prefix taken for the tree (and
 whether the run took the shots shown in a window). When an app-build asks a
 lane only for shots, no changed path needs a step of the lane, and the
@@ -1128,7 +1129,7 @@ the lane runs no step: it checks out the commit and runs the shots line with
 --no-capture, which takes every shot from the folder and fails rather than
 capture from an app nobody built. The output says which lanes build nothing
 and why. For a shots run on a host,
-app-build copies the board pictures and the shots kept for the lane's app
+app-build copies the board pictures and the shots cached for the lane's app
 tree to a temporary folder on the host, passes that folder to the run, and
 afterwards moves the pictures the run added into the folder here.
 
@@ -1150,18 +1151,18 @@ merge base with origin/main: builds passes the findings.json of that run to
 the `shots` line as --before, and the run fails only on the pairs it makes
 new or worse, a pair the merge base's run did not check or one with a
 finding that run lacks for it, and lists the pairs whose findings the merge
-base's run has too. The run it compares with is the newest stored run of the
+base's run has too. The run it compares with is the newest cached run of the
 merge base in the same lane, by the same shots version, whose prefix starts
 the run's own (a run of mac. stands in for a run of mac.welcome.), and whose
-report holds findings.json. When builds keeps none, `builds app-build` builds
+report holds findings.json. When builds has none cached, `builds app-build` builds
 the merge base first in the lane, with the lane's `needs` steps, and runs the
 same prefixes there. That run compares with nothing, so it fails on every
-pair with findings, and builds keeps its findings all the same and runs
+pair with findings, and builds caches its findings all the same and runs
 every other prefix the build names; only a step or a shots run that fails
 without failing pairs, as when it cannot render, stops it. A run of a
 commit on origin/main compares with nothing. A lane's process (`--lane`)
 builds no merge base: it fails, naming the command that makes the run it
-lacks. A shots check's "before" side is read from the kept runs, never
+lacks. A shots check's "before" side is read from the cached runs, never
 built again.
 
   builds app-build <repo> <ref> [--test <Class>]... [--shots <prefix>]... [--all-shots mac|android]... [--fresh]
@@ -1180,7 +1181,7 @@ built again.
                               steps; each lane takes the free app checkout on
                               the less loaded host (only a host's for a test
                               line that opens windows). A --shots or
-                              --all-shots pick whose run builds already keeps
+                              --all-shots pick whose run builds has already cached
                               prints its findings and takes no lock; --fresh
                               runs it anyway
   builds app-build <repo> <ref> <step>... [--test mac|android <Class>]... [--shots mac|android <prefix>]... [--all-shots mac|android]... [--fresh]
@@ -1193,7 +1194,7 @@ built again.
                               --shots prefix and once for each --all-shots
                               lane (in any order, after
                               the steps; the lane must have the line). A
-                              shots run whose pairs fail it kept its findings,
+                              shots run whose pairs fail it cached its findings,
                               so the lane goes on to its other runs and fails
                               once they end; any other failure stops the lane
                               at once. A class
@@ -1269,7 +1270,7 @@ built again.
                               build, whatever projects hold its repo, and
                               neither does a repo in no project
   builds shots findings <repo> <ref> mac|android <prefix> [--by-cause]
-                              print the findings of the run builds keeps for
+                              print the findings of the run builds has cached for
                               <ref>'s commit, the lane and the prefix, with a
                               line on stderr that says how old they are, which
                               shots version made them and where the run's
@@ -1315,9 +1316,9 @@ built again.
                               boards whose board hash the folder lacks
                               (APP BUILDS) and add each new drawing; with
                               --app-tree <id> as well, `run` takes a
-                              platform's shots from the folder when it keeps
+                              platform's shots from the folder when it caches
                               every selected one for that app source tree,
-                              and otherwise captures them and keeps them
+                              and otherwise captures them and caches them
                               there; with --no-capture as well, `run`
                               fails instead of capturing `capture` takes the
                               shots into a folder; `check` checks shots
@@ -1902,7 +1903,7 @@ NuGet.Config). Nothing else deletes one: every checkout would download it all
 again, and a SwiftPM fetch cut off halfway corrupts its cache. sccache keeps
 its own cache under its cap; builds only shows it.
 
-Shots runs. The folder shots holds each repo's shots runs, board pictures
+Shots runs. The folder shots caches each repo's shots runs, board pictures
 and app shots (APP BUILDS), with a cap of 2 GiB for each repo's folder.
 `setup` and `prune` delete a repo's whole runs, board pictures and app
 source trees' shots while its folder is over the cap, least recently used
@@ -2423,26 +2424,26 @@ STATUS, HEALTH AND THE DASHBOARD
                               its preview with the row's board beside the
                               app's shot of that state, each at its size in
                               points, and the findings and warnings under
-                              them. The page reads the newest run builds
-                              keeps of that commit on the lane, by its shots
+                              them. The page reads the newest cached run of
+                              that commit on the lane, by its shots
                               version, whose prefix starts the component's
                               (mac.component.checkbox., or mac.component. or
                               mac. for a wider run), and that run's
                               findings.json and report pictures (APP BUILDS).
-                              When builds keeps no such run on a lane, the
+                              When builds has no cached run on a lane, the
                               page asks the dashboard on this Mac to take
                               the component's shots of the commit: it starts
                               `builds app-build <repo> <commit> --shots
                               <prefix>` for the lane, as the lane's Build
                               item starts build-app, and the page shows the
                               run's progress and the end of what it prints
-                              until builds keeps its findings, or why it
+                              until builds caches its findings, or why it
                               ended without them, with a button that takes
                               the shots again. A lane takes one such run of
                               a prefix at a time, and a new run in the lane
                               deletes the record and output of the ended runs
                               of its other prefixes. On another address the
-                              page shows what builds keeps and starts no
+                              page shows what builds has cached and starts no
                               run. For a project
                               whose design places are in several repos, the
                               page says that it draws the boards of one. For

@@ -15,7 +15,7 @@
 //! lane, as CI's screenshot workflow takes it. A lane with such a run builds
 //! what its changed paths need, or, when they need nothing in that lane, what
 //! its `needs` line names, so the run has a build of <ref> to run against. A
-//! `--shots` or `--all-shots` run whose findings for <ref> are already stored
+//! `--shots` or `--all-shots` run whose findings for <ref> are already cached
 //! prints them instead of running, unless `--fresh`.
 //!
 //! The lane's process (app_build.rs) then picks the checkout: the free one on
@@ -309,7 +309,7 @@ pub fn derive_and_run(places: &Places, args: &[String]) -> Result<()> {
         }
     }
     if !picks.is_empty() && !fresh {
-        picks = app_build::serve_stored(places, repo, &commit, picks)?;
+        picks = app_build::serve_cached(places, repo, &commit, picks)?;
         if picks.is_empty() {
             return Ok(());
         }
@@ -324,7 +324,7 @@ pub fn derive_and_run(places: &Places, args: &[String]) -> Result<()> {
         ));
         return Ok(());
     }
-    let kept = app_build::kept_shots_lanes(
+    let kept = app_build::cached_shots_lanes(
         places, repo, &top, &commit, &config, &changed, &lanes, &picks,
     )?;
     let lanes: Vec<(Lane, Vec<String>)> = lanes
@@ -342,7 +342,7 @@ pub fn derive_and_run(places: &Places, args: &[String]) -> Result<()> {
             "{} lane: {}",
             lane.word(),
             if kept.contains(lane) {
-                "no build: the picture folder keeps every shot the runs take for the lane's app tree".to_string()
+                "no build: the picture folder holds every shot the runs take for the lane's app tree".to_string()
             } else if names.is_empty() {
                 "no build, only the runs asked for".to_string()
             } else {

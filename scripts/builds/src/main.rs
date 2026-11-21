@@ -124,7 +124,7 @@ mod setup;
 mod shells;
 mod shot_causes;
 mod shot_findings;
-mod shot_store;
+mod shots_cache;
 mod shots_program;
 mod side_git;
 mod sleeps;

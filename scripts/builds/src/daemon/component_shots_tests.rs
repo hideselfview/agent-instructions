@@ -1,5 +1,5 @@
 use super::*;
-use crate::shot_store::{Key, stage};
+use crate::shots_cache::{Key, stage};
 use crate::testing::Scratch;
 
 const COMMIT: &str = "0123456789abcdef0123456789abcdef01234567";
@@ -7,7 +7,7 @@ const COMMIT: &str = "0123456789abcdef0123456789abcdef01234567";
 /// Keeps a run of the demo repo's COMMIT on <lane> under <prefix>, by this
 /// builds' shots version, whose report holds <findings> as its
 /// findings.json and a board picture and shot of each of <pictures>.
-fn keep_run(places: &Places, lane: Lane, prefix: &str, findings: Value, pictures: &[&str]) {
+fn cache_run(places: &Places, lane: Lane, prefix: &str, findings: Value, pictures: &[&str]) {
     let staging = stage(
         places,
         &Key {
@@ -74,10 +74,10 @@ fn no_capture(_: Lane, _: &str) -> Option<RunPage> {
 }
 
 #[test]
-fn a_component_s_rows_show_the_kept_run_s_pairs_and_findings_in_the_preview_s_order() {
+fn a_component_s_rows_show_the_cached_run_s_pairs_and_findings_in_the_preview_s_order() {
     let scratch = Scratch::new("component-shots-rows");
     let places = scratch.places();
-    keep_run(
+    cache_run(
         &places,
         Lane::Mac,
         "mac.component.",
@@ -131,7 +131,7 @@ fn a_component_both_platforms_share_has_a_platform_for_each_lane() {
 fn a_run_of_another_commit_or_shots_version_shows_no_run() {
     let scratch = Scratch::new("component-shots-other");
     let places = scratch.places();
-    keep_run(
+    cache_run(
         &places,
         Lane::Mac,
         "mac.component.checkbox.",
@@ -178,10 +178,10 @@ fn a_shots_run_shows_while_it_runs_and_once_it_ended_for_the_page_s_commit_only(
 }
 
 #[test]
-fn a_kept_run_s_board_and_shot_pictures_are_read_by_scene() {
+fn a_cached_run_s_board_and_shot_pictures_are_read_by_scene() {
     let scratch = Scratch::new("component-shots-pictures");
     let places = scratch.places();
-    keep_run(
+    cache_run(
         &places,
         Lane::Mac,
         "mac.component.",
@@ -266,12 +266,12 @@ fn the_page_names_the_component_and_the_commit_origin_main_names() {
 }
 
 #[test]
-fn a_kept_run_that_lists_no_rows_of_the_component_fails_the_read() {
+fn a_cached_run_that_lists_no_rows_of_the_component_fails_the_read() {
     let scratch = Scratch::new("component-shots-unlisted");
     let places = scratch.places();
     let mut findings = checkbox_findings();
     findings["components"] = json!([]);
-    keep_run(&places, Lane::Mac, "mac.component.", findings, &[]);
+    cache_run(&places, Lane::Mac, "mac.component.", findings, &[]);
     let error = shots(&places, "demo", COMMIT, "MacCheckbox", &no_capture)
         .unwrap_err()
         .text();
@@ -287,7 +287,7 @@ fn a_listed_row_whose_shot_is_not_the_component_s_fails_the_read() {
     let places = scratch.places();
     let mut findings = checkbox_findings();
     findings["components"][0]["rows"] = json!(["mac.component.row.plain"]);
-    keep_run(&places, Lane::Mac, "mac.component.", findings, &[]);
+    cache_run(&places, Lane::Mac, "mac.component.", findings, &[]);
     let error = shots(&places, "demo", COMMIT, "MacCheckbox", &no_capture)
         .unwrap_err()
         .text();
