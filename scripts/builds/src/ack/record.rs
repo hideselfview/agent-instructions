@@ -3,7 +3,6 @@
 
 use rusqlite::{Connection, OptionalExtension, params};
 
-use super::text::MadeUp;
 use crate::db::Sql;
 use crate::fail::Result;
 
@@ -26,9 +25,9 @@ pub struct Reading {
     /// The names of the sections the reading holds, in the order its parts
     /// show them.
     pub sections: Vec<String>,
-    /// Each part's made-up words, in the order the part shows them, part 1
-    /// first.
-    pub words: Vec<Vec<MadeUp>>,
+    /// The tokens, the opening output's first, then each part's (sql file).
+    /// One more than the reading has parts.
+    pub tokens: Vec<String>,
 }
 
 /// The last acknowledgement by <agent> in <session> of the text.
@@ -74,8 +73,8 @@ pub fn kept_sections(db: &Connection, version: &str) -> Result<Option<Vec<(Strin
 }
 
 /// Starts the reading of version <version> by <agent> in <session> at <at>,
-/// which holds the sections named <sections> in that order, with each part's
-/// made-up words <words>, in place of the reading it had.
+/// which holds the sections named <sections> in that order, with <tokens>, in
+/// place of the reading it had.
 pub fn start_reading(
     db: &Connection,
     session: &str,
@@ -83,7 +82,7 @@ pub fn start_reading(
     version: &str,
     at: i64,
     sections: &[String],
-    words: &[Vec<MadeUp>],
+    tokens: &[String],
 ) -> Result<()> {
     db.execute(
         "DELETE FROM ack_reading WHERE session = ?1 AND agent = ?2",
@@ -102,20 +101,12 @@ pub fn start_reading(
         )
         .sql()?;
     }
-    for (part, part_words) in words.iter().enumerate() {
-        for made in part_words {
-            db.execute(
-                "INSERT INTO ack_word (session, agent, part, position, word) VALUES (?1, ?2, ?3, ?4, ?5)",
-                params![
-                    session,
-                    agent,
-                    part as i64 + 1,
-                    made.place as i64 + 1,
-                    made.word
-                ],
-            )
-            .sql()?;
-        }
+    for (part, token) in tokens.iter().enumerate() {
+        db.execute(
+            "INSERT INTO ack_token (session, agent, part, token) VALUES (?1, ?2, ?3, ?4)",
+            params![session, agent, part as i64, token],
+        )
+        .sql()?;
     }
     Ok(())
 }
@@ -144,35 +135,17 @@ pub fn reading(db: &Connection, session: &str, agent: &str) -> Result<Option<Rea
         .collect::<rusqlite::Result<Vec<String>>>()
         .sql()?;
     let mut statement = db
-        .prepare(
-            "SELECT part, position, word FROM ack_word WHERE session = ?1 AND agent = ?2 ORDER BY part, position",
-        )
+        .prepare("SELECT token FROM ack_token WHERE session = ?1 AND agent = ?2 ORDER BY part")
         .sql()?;
-    let rows = statement
-        .query_map(params![session, agent], |row| {
-            Ok((
-                row.get::<_, i64>(0)?,
-                row.get::<_, i64>(1)?,
-                row.get::<_, String>(2)?,
-            ))
-        })
+    let tokens = statement
+        .query_map(params![session, agent], |row| row.get(0))
         .sql()?
-        .collect::<rusqlite::Result<Vec<(i64, i64, String)>>>()
+        .collect::<rusqlite::Result<Vec<String>>>()
         .sql()?;
-    let mut words: Vec<Vec<MadeUp>> = Vec::new();
-    for (part, position, word) in rows {
-        while words.len() < part as usize {
-            words.push(Vec::new());
-        }
-        words[part as usize - 1].push(MadeUp {
-            place: position as usize - 1,
-            word,
-        });
-    }
     Ok(Some(Reading {
         version,
         sections,
-        words,
+        tokens,
     }))
 }
 
@@ -260,6 +233,25 @@ pub fn drop_repo(db: &Connection) -> Result<()> {
         |_| Ok(()),
         &[],
     )
+}
+
+/// Deletes every reading, which held made-up words, and replaces the table of
+/// the words with the table of the tokens, for a store move. migrate.rs runs
+/// a move with the foreign keys off, so this deletes the readings' rows of
+/// each table that points at them.
+pub fn replace_words_with_tokens(db: &Connection) -> Result<()> {
+    db.execute_batch(
+        "DROP TABLE ack_word;
+         DELETE FROM ack_reading_section;
+         DELETE FROM ack_reading;",
+    )
+    .sql()?;
+    db.execute_batch(crate::db::statement(
+        include_str!("record.sql"),
+        "CREATE TABLE ack_token (",
+        ") STRICT, WITHOUT ROWID;",
+    ))
+    .sql()
 }
 
 #[cfg(test)]

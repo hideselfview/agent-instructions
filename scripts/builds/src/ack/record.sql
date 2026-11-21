@@ -57,16 +57,16 @@ CREATE TABLE ack_reading_section (
     FOREIGN KEY (session, agent) REFERENCES ack_reading (session, agent) ON DELETE CASCADE
 ) STRICT, WITHOUT ROWID;
 
--- The made-up words that builds put into each part of a reading, each at its
--- place: `position` counts, from 1, the places in the part where builds can
--- put a made-up word (text.rs, `places`), so the words come in the order the
--- part shows them. The acknowledgement must give every one of them, in order.
-CREATE TABLE ack_word (
+-- The tokens of a reading. Part N's token is in the last line of part N's
+-- output, in the command for the next step, and part 0's token is in the
+-- opening output, in the command for part 1. Fetching part N needs the token
+-- of part N - 1, and the acknowledgement needs the token of the last part, so
+-- an acknowledgement shows that the agent fetched every part, in order.
+CREATE TABLE ack_token (
     session TEXT NOT NULL,
     agent TEXT NOT NULL,
-    part INTEGER NOT NULL CONSTRAINT ack_word_part_counts_from_one CHECK (part >= 1),
-    position INTEGER NOT NULL CONSTRAINT ack_word_position_counts_from_one CHECK (position >= 1),
-    word TEXT NOT NULL CONSTRAINT ack_word_is_a_word CHECK (word <> '' AND word NOT GLOB '*[^a-z]*'),
-    PRIMARY KEY (session, agent, part, position),
+    part INTEGER NOT NULL CONSTRAINT ack_token_part_counts_from_zero CHECK (part >= 0),
+    token TEXT NOT NULL CONSTRAINT ack_token_is_named CHECK (token <> ''),
+    PRIMARY KEY (session, agent, part),
     FOREIGN KEY (session, agent) REFERENCES ack_reading (session, agent) ON DELETE CASCADE
 ) STRICT, WITHOUT ROWID;

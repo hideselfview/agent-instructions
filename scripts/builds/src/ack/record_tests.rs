@@ -1,19 +1,7 @@
 use super::*;
 
-/// Each part's made-up words, at the places 0, 1, 2 and on of their part.
-fn words(parts: &[&[&str]]) -> Vec<Vec<MadeUp>> {
-    parts
-        .iter()
-        .map(|part| {
-            part.iter()
-                .enumerate()
-                .map(|(place, word)| MadeUp {
-                    place,
-                    word: word.to_string(),
-                })
-                .collect()
-        })
-        .collect()
+fn tokens(tokens: &[&str]) -> Vec<String> {
+    tokens.iter().map(|token| token.to_string()).collect()
 }
 
 fn names(names: &[&str]) -> Vec<String> {
@@ -28,7 +16,7 @@ fn sections() -> Vec<(String, String)> {
 }
 
 #[test]
-fn a_reading_keeps_its_sections_and_each_parts_words_until_the_next_reading_replaces_them() {
+fn a_reading_keeps_its_sections_and_each_parts_tokens_until_the_next_reading_replaces_them() {
     let db = crate::db::memory();
     start_reading(
         &db,
@@ -37,7 +25,7 @@ fn a_reading_keeps_its_sections_and_each_parts_words_until_the_next_reading_repl
         "v1",
         10,
         &names(&["builds help lists", "builds help"]),
-        &words(&[&["ka", "mo"], &["ti"]]),
+        &tokens(&["t0", "t1", "t2"]),
     )
     .unwrap();
     assert_eq!(
@@ -45,7 +33,7 @@ fn a_reading_keeps_its_sections_and_each_parts_words_until_the_next_reading_repl
         Some(Reading {
             version: "v1".to_string(),
             sections: names(&["builds help lists", "builds help"]),
-            words: words(&[&["ka", "mo"], &["ti"]]),
+            tokens: tokens(&["t0", "t1", "t2"]),
         })
     );
     start_reading(
@@ -55,12 +43,12 @@ fn a_reading_keeps_its_sections_and_each_parts_words_until_the_next_reading_repl
         "v2",
         11,
         &names(&["builds help"]),
-        &words(&[&["ru"]]),
+        &tokens(&["u0", "u1"]),
     )
     .unwrap();
     let replaced = reading(&db, "s1", "agent").unwrap().unwrap();
     assert_eq!(replaced.sections, names(&["builds help"]));
-    assert_eq!(replaced.words, words(&[&["ru"]]));
+    assert_eq!(replaced.tokens, tokens(&["u0", "u1"]));
     assert_eq!(reading(&db, "s1", "other").unwrap(), None);
 }
 
@@ -75,7 +63,7 @@ fn an_acknowledgement_replaces_the_last_one_keeps_its_version_and_ends_the_readi
         "v2",
         10,
         &names(&["builds help"]),
-        &words(&[&["ka"]]),
+        &tokens(&["k0", "k1"]),
     )
     .unwrap();
     acknowledge(&db, "s1", "agent", "v2", 12, &sections()).unwrap();
@@ -126,7 +114,7 @@ fn forgetting_an_agent_deletes_its_acknowledgement_and_reading_only() {
         "v2",
         8,
         &names(&["builds help"]),
-        &words(&[&["ka"]]),
+        &tokens(&["k0", "k1"]),
     )
     .unwrap();
     forget(&db, "s1", "a1").unwrap();
@@ -136,7 +124,7 @@ fn forgetting_an_agent_deletes_its_acknowledgement_and_reading_only() {
 }
 
 #[test]
-fn a_made_up_word_holds_only_lowercase_letters() {
+fn a_token_is_not_empty() {
     let db = crate::db::memory();
     assert!(
         start_reading(
@@ -146,7 +134,7 @@ fn a_made_up_word_holds_only_lowercase_letters() {
             "v1",
             8,
             &names(&["builds help"]),
-            &words(&[&["Ka1"]])
+            &tokens(&[""])
         )
         .is_err()
     );

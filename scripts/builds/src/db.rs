@@ -329,6 +329,38 @@ pub fn with_review_texts(schema: String) -> String {
         .replacen(EXCHANGE, &format!("{REVIEW_TEXT_TABLE}{EXCHANGE}"), 1)
 }
 
+/// The table of a reading's made-up words as it was before a reading's parts
+/// were chained by tokens.
+#[cfg(test)]
+const ACK_WORD_TABLE: &str = "CREATE TABLE ack_word (
+    session TEXT NOT NULL,
+    agent TEXT NOT NULL,
+    part INTEGER NOT NULL CONSTRAINT ack_word_part_counts_from_one CHECK (part >= 1),
+    position INTEGER NOT NULL CONSTRAINT ack_word_position_counts_from_one CHECK (position >= 1),
+    word TEXT NOT NULL CONSTRAINT ack_word_is_a_word CHECK (word <> '' AND word NOT GLOB '*[^a-z]*'),
+    PRIMARY KEY (session, agent, part, position),
+    FOREIGN KEY (session, agent) REFERENCES ack_reading (session, agent) ON DELETE CASCADE
+) STRICT, WITHOUT ROWID;";
+
+/// <schema> as it was before a reading's parts were chained by tokens: with
+/// the made-up words' table in place of the tokens' table. A schema with no
+/// such table is returned as it is.
+#[cfg(test)]
+pub fn with_ack_words(schema: String) -> String {
+    const START: &str = "CREATE TABLE ack_token (";
+    if !schema.contains(START) {
+        return schema;
+    }
+    let table = statement(&schema, START, ") STRICT, WITHOUT ROWID;").to_string();
+    schema.replacen(&table, ACK_WORD_TABLE, 1)
+}
+
+/// The schema as it was before a reading's parts were chained by tokens.
+#[cfg(test)]
+pub fn schema_before_ack_tokens() -> String {
+    with_ack_words(SCHEMA.to_string())
+}
+
 /// The table of the agents' acknowledgements as it was before the text left
 /// out the CLAUDE.md files: keyed by the repo whose CLAUDE.md the text held,
 /// with an index for the text of each repo and one for the text of none.
@@ -344,10 +376,11 @@ CREATE UNIQUE INDEX ack_of_repo ON ack (session, agent, repo) WHERE repo IS NOT 
 CREATE UNIQUE INDEX ack_of_no_repo ON ack (session, agent) WHERE repo IS NULL;";
 
 /// <schema> as it was before the text left out the CLAUDE.md files: with the
-/// acknowledgements' table keyed by repo. A schema with no such table is
-/// returned as it is.
+/// acknowledgements' table keyed by repo, and the made-up words' table (which
+/// that schema held). A schema with no such table is returned as it is.
 #[cfg(test)]
 pub fn with_ack_repo(schema: String) -> String {
+    let schema = with_ack_words(schema);
     const START: &str = "CREATE TABLE ack (";
     if !schema.contains(START) {
         return schema;

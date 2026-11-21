@@ -37,7 +37,7 @@ use crate::lists::args::{Args, current_dir};
 use crate::lists::store::{Store, project_of, stores};
 use crate::places::Places;
 use crate::text::{local_minute, shell_word};
-use text::{Text, pick_made_up, random, show_part};
+use text::{Text, random, show_part};
 
 /// The variable that holds the Claude Code session id in an agent's shell.
 pub const SESSION: &str = "CLAUDE_CODE_SESSION_ID";
@@ -50,7 +50,7 @@ pub const PASSED: &str = "BUILDS_ACKNOWLEDGED";
 /// How many hours an acknowledgement holds.
 pub const HOURS: i64 = 12;
 
-const USAGE: &str = "usage: builds ack [--agent ID] [--project P]\n       builds ack PART [--agent ID] [--project P]\n       builds ack VERSION WORD... [--agent ID] [--project P]\n       builds ack --compacted";
+const USAGE: &str = "usage: builds ack [--agent ID] [--project P]\n       builds ack part PART TOKEN [--agent ID] [--project P]\n       builds ack VERSION TOKEN [--agent ID] [--project P]\n       builds ack --compacted";
 
 /// Refuses `builds <command> <args>` when an agent runs it without a current
 /// acknowledgement. Passes the person's commands, `ack`, which records the
@@ -403,21 +403,21 @@ fn ack(
     let text = agent.text(places)?;
     match args.positional() {
         [] => start(&agent, &text, now),
-        [part] => part_of(&agent, &text, part),
-        [version, words @ ..] => acknowledge(&agent, &text, version, words, now),
+        [word, part, token] if word == "part" => part_of(&agent, &text, part, token),
+        [version, token] => acknowledge(&agent, &text, version, token, now),
+        _ => fail!("{USAGE}"),
     }
 }
 
-/// Starts a reading: picks the sections it holds, draws each part's made-up
-/// words and their places, and says how to read the parts and acknowledge
-/// them.
+/// Starts a reading: picks the sections it holds, draws the tokens of its
+/// parts, and says what the text is and how to fetch part 1.
 fn start(agent: &Agent, text: &Text, now: i64) -> Result<String> {
     let scope = agent.scope(text, now)?;
     let shown = scope.sections(text);
     let parts = text.parts(&shown);
-    let mut words = Vec::new();
-    for lines in &parts {
-        words.push(pick_made_up(lines, &mut random)?);
+    let mut tokens = Vec::new();
+    for _ in 0..=parts.len() {
+        tokens.push(token()?);
     }
     let version = text.version();
     let mut db = db::open(&agent.store.database(), Make::Never)?;
@@ -431,7 +431,7 @@ fn start(agent: &Agent, text: &Text, now: i64) -> Result<String> {
         &version,
         now,
         &shown,
-        &words,
+        &tokens,
     )?;
     tx.commit().sql()?;
     let names: Vec<&str> = text.sections.iter().map(|s| s.name.as_str()).collect();
@@ -451,15 +451,16 @@ fn start(agent: &Agent, text: &Text, now: i64) -> Result<String> {
             sections.join(", ")
         );
     }
-    out += "\nRead each part in full, one command each. builds put one made-up word, such as kodamir, into a sentence in each third of each part: note each one as you read.\n\n";
-    for number in 1..=parts.len() {
-        out += &format!("  builds ack {number}{}\n", agent.flags);
-    }
     out += &format!(
-        "\nThen acknowledge the text with the made-up words of every part, in the order they appear:\n\n  builds ack {version} WORD...{}\n\nRunning `builds ack` again puts other made-up words in other places.\n",
-        agent.flags
+        "\nRead each part in full. Each part's last line gives the command for the next part, and the last part's last line gives the command that acknowledges the text. Start with part 1:\n\n  builds ack part 1 {}{}\n",
+        tokens[0], agent.flags
     );
     Ok(out)
+}
+
+/// A token for a reading: 16 hex digits from the system's random source.
+fn token() -> Result<String> {
+    Ok(format!("{:016x}", random()?))
 }
 
 /// The agent's reading, refused when it has none or the text changed since
@@ -471,7 +472,7 @@ fn reading_of(agent: &Agent, text: &Text) -> Result<record::Reading> {
     };
     let Some(reading) = reading else {
         fail!(
-            "{} has no reading; run `builds ack{}` first, which puts made-up words into each part",
+            "{} has no reading; run `builds ack{}` first, which gives the command for part 1",
             agent.name(),
             agent.flags
         );
@@ -486,8 +487,9 @@ fn reading_of(agent: &Agent, text: &Text) -> Result<record::Reading> {
     Ok(reading)
 }
 
-/// Part <part> of the agent's reading.
-fn part_of(agent: &Agent, text: &Text, part: &str) -> Result<String> {
+/// Part <part> of the agent's reading, for the agent that gives <token>, the
+/// token of the part before it (the opening output's for part 1).
+fn part_of(agent: &Agent, text: &Text, part: &str, token: &str) -> Result<String> {
     let reading = reading_of(agent, text)?;
     let parts = text.parts(&reading.sections);
     let count = parts.len();
@@ -495,24 +497,41 @@ fn part_of(agent: &Agent, text: &Text, part: &str) -> Result<String> {
         Ok(number) if (1..=count).contains(&number) => number,
         _ => fail!("there are parts 1 to {count}; {part} is none of them\n{USAGE}"),
     };
-    show_part(
+    if reading.tokens[number - 1] != token {
+        fail!(
+            "the token is not the one that part {number} needs: the last line of {} gives it",
+            if number == 1 {
+                "the output of `builds ack`".to_string()
+            } else {
+                format!("part {} (`builds ack part {}`)", number - 1, number - 1)
+            }
+        );
+    }
+    let next = if number == count {
+        format!(
+            "  builds ack {} {}{}",
+            reading.version, reading.tokens[number], agent.flags
+        )
+    } else {
+        format!(
+            "  builds ack part {} {}{}",
+            number + 1,
+            reading.tokens[number],
+            agent.flags
+        )
+    };
+    Ok(show_part(
         &parts[number - 1],
         number,
         count,
         &reading.version,
-        &reading.words[number - 1],
-    )
+        &next,
+    ))
 }
 
-/// Records the acknowledgement of <version> with <words>, the made-up words
-/// of every part in order; refuses a missing or wrong word, naming its part.
-fn acknowledge(
-    agent: &Agent,
-    text: &Text,
-    version: &str,
-    words: &[String],
-    now: i64,
-) -> Result<String> {
+/// Records the acknowledgement of <version> for the agent that gives <token>,
+/// the token of the last part; refuses a wrong token.
+fn acknowledge(agent: &Agent, text: &Text, version: &str, token: &str, now: i64) -> Result<String> {
     let reading = reading_of(agent, text)?;
     if version != reading.version {
         fail!(
@@ -521,32 +540,10 @@ fn acknowledge(
             reading.version
         );
     }
-    let words: Vec<String> = words.iter().map(|word| word.to_lowercase()).collect();
-    let words = &words[..];
-    let expected: Vec<Vec<String>> = reading
-        .words
-        .iter()
-        .map(|part| part.iter().map(|made| made.word.clone()).collect())
-        .collect();
-    let count: usize = expected.iter().map(Vec::len).sum();
-    if words.len() > count {
+    let count = reading.tokens.len() - 1;
+    if reading.tokens[count] != token {
         fail!(
-            "you gave {} words, and the {} parts hold {count} made-up words",
-            words.len(),
-            expected.len()
-        );
-    }
-    let wrong = wrong_parts(&expected, words);
-    if !wrong.is_empty() {
-        let numbers: Vec<String> = wrong.iter().map(usize::to_string).collect();
-        let commands: Vec<String> = wrong
-            .iter()
-            .map(|part| format!("`builds ack {part}{}`", agent.flags))
-            .collect();
-        fail!(
-            "the made-up words of part {} are missing or wrong; read {} again, then acknowledge with the made-up words of every part, in order",
-            numbers.join(", "),
-            commands.join(", ")
+            "the token is not the one that acknowledges the text: the last line of part {count} (`builds ack part {count}`) gives it, and each part needs the token of the part before it"
         );
     }
     let mut db = db::open(&agent.store.database(), Make::Never)?;
@@ -559,26 +556,6 @@ fn acknowledge(
         "builds: {} acknowledged version {version}. The acknowledgement holds for {HOURS} hours, until the text changes or Claude Code compacts this agent.\n",
         agent.name()
     ))
-}
-
-/// The parts, counted from 1, whose made-up words in <given> are missing or
-/// differ from <expected>, each part's words in order.
-fn wrong_parts(expected: &[Vec<String>], given: &[String]) -> Vec<usize> {
-    let mut given = given.iter();
-    expected
-        .iter()
-        .enumerate()
-        .filter(|(_, words)| {
-            let mut wrong = false;
-            for word in words.iter() {
-                if given.next() != Some(word) {
-                    wrong = true;
-                }
-            }
-            wrong
-        })
-        .map(|(index, _)| index + 1)
-        .collect()
 }
 
 /// What `builds ack --compacted` does with the input <hook> Claude Code's

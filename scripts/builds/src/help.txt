@@ -51,25 +51,26 @@ compacts the agent. The rest of this help, and of `builds help lists` and
 `builds help briefs`, is for looking up what a command does.
 
   builds ack [--agent ID] [--project P]
-      Start a reading: say the text's version and how many parts it comes
-      in, and draw the made-up words of every part and their places. builds keeps the
+      Start a reading: say which files the text holds, its version and how
+      many parts it comes in, and give the command for part 1, which holds
+      a token that only this output shows. builds keeps the
       sections of the 20 versions of the text that agents acknowledged most
       recently. When builds keeps the version of the text that the
       agent last acknowledged, and the agent acknowledged it at most 12
       hours ago, the reading holds only the sections that changed since,
       each in full, and says which ones changed. Otherwise the reading holds
       the whole text.
-  builds ack PART [--agent ID] [--project P]
-      Print part PART of the reading. builds puts one made-up word of three
-      syllables, such as kodamir, in front of a word of running prose in each
-      third of the part. No line marks a made-up word, so the agent finds the
-      made-up words by reading every line. An answer holds only words that
-      the part shows and the text lacks, so the agent copies no word of the
-      text. Reading a part again shows the same words in the same places.
-  builds ack VERSION WORD... [--agent ID] [--project P]
-      Acknowledge version VERSION, giving the made-up words of every part,
-      in the order they appear. When a word is missing or wrong, builds
-      refuses the acknowledgement and names the parts to read again.
+  builds ack part PART TOKEN [--agent ID] [--project P]
+      Print part PART of the reading, with no word added to the text. The
+      part's last line gives the command for the next part, with a token that
+      only this part's output shows, and the last part's last line gives the
+      acknowledging command with its token. Fetching part N needs the token
+      of part N - 1 (part 1 needs the one in the output of `builds ack`), so
+      the agent fetches every part in order. Reading a part again shows it
+      again with the same token.
+  builds ack VERSION TOKEN [--agent ID] [--project P]
+      Acknowledge version VERSION, giving the token from the last part's last
+      line. builds refuses a wrong token and says which part gives it.
   builds ack --compacted
       Claude Code's SessionStart hook runs this after Claude Code compacts
       an agent (claude/settings.json in agent-instructions). builds deletes

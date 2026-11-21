@@ -52,25 +52,28 @@ fn world(name: &str) -> World {
     }
 }
 
-/// The made-up words of each part of the reading <agent> started, from
-/// project <project>'s store.
-fn stored_words(places: &Places, project: &str, agent: &str) -> Vec<Vec<String>> {
-    let store = Store::named(places, project).unwrap();
-    let db = db::open_reader(&store.database()).unwrap().unwrap();
-    record::reading(&db, SESSION_ID, agent)
-        .unwrap()
-        .unwrap()
-        .words
-        .into_iter()
-        .map(|part| part.into_iter().map(|made| made.word).collect())
-        .collect()
-}
-
 fn message<T: std::fmt::Debug>(result: Result<T>) -> String {
     match result.unwrap_err() {
         fail::Fail::Message(message) => message,
         fail::Fail::Exit(code) => panic!("exit {code}"),
     }
+}
+
+/// The arguments of the command in the last line of <shown>, without its
+/// flags.
+fn next_command(shown: &str) -> Vec<String> {
+    let line = shown
+        .lines()
+        .rev()
+        .find(|line| line.trim_start().starts_with("builds ack "))
+        .unwrap();
+    line.trim_start()
+        .strip_prefix("builds ack ")
+        .unwrap()
+        .split_whitespace()
+        .take_while(|word| !word.starts_with("--"))
+        .map(str::to_string)
+        .collect()
 }
 
 impl World {
@@ -102,17 +105,18 @@ impl World {
         check(&self.places, SESSION_ID, Some(agent), None, cwd, now)
     }
 
-    /// Reads every part as <agent> does and returns the version and every
-    /// made-up word, in order.
-    fn read_all_as(&self, agent: &str, now: i64) -> (String, Vec<String>) {
+    /// Reads every part as <agent> does and returns the version and the
+    /// last part's token.
+    fn read_all_as(&self, agent: &str, now: i64) -> (String, String) {
         self.read_all_in(&self.checkout, agent, now)
     }
 
-    /// Reads every part as <agent> does in <cwd> and returns the version and
-    /// every made-up word, in order.
-    fn read_all_in(&self, cwd: &Path, agent: &str, now: i64) -> (String, Vec<String>) {
-        let started = self.ack_in(cwd, agent, &[], now).unwrap();
-        let version = started
+    /// Reads every part as <agent> does in <cwd>, running each command the
+    /// last line of the output before gives, and returns the version and the
+    /// token the acknowledging command holds.
+    fn read_all_in(&self, cwd: &Path, agent: &str, now: i64) -> (String, String) {
+        let mut shown = self.ack_in(cwd, agent, &[], now).unwrap();
+        let version = shown
             .split("The text is version ")
             .nth(1)
             .unwrap()
@@ -120,14 +124,18 @@ impl World {
             .next()
             .unwrap()
             .to_string();
-        let count = started.matches("  builds ack ").count() - 1;
-        for part in 1..=count {
-            self.ack_in(cwd, agent, &[&part.to_string()], now).unwrap();
+        loop {
+            let command = next_command(&shown);
+            if command[0] != "part" {
+                assert_eq!(command[0], version);
+                return (version, command[1].clone());
+            }
+            let args: Vec<&str> = command.iter().map(String::as_str).collect();
+            shown = self.ack_in(cwd, agent, &args, now).unwrap();
         }
-        (version, stored_words(&self.places, "bae", agent).concat())
     }
 
-    fn read_all(&self, now: i64) -> (String, Vec<String>) {
+    fn read_all(&self, now: i64) -> (String, String) {
         self.read_all_as(AGENT, now)
     }
 
@@ -141,10 +149,8 @@ impl World {
 
     /// Reads every part as <agent> does in <cwd>, and acknowledges the text.
     fn acknowledge_in(&self, cwd: &Path, agent: &str, now: i64) {
-        let (version, words) = self.read_all_in(cwd, agent, now);
-        let mut args = vec![version.as_str()];
-        args.extend(words.iter().map(String::as_str));
-        self.ack_in(cwd, agent, &args, now).unwrap();
+        let (version, token) = self.read_all_in(cwd, agent, now);
+        self.ack_in(cwd, agent, &[&version, &token], now).unwrap();
     }
 
     /// What `builds ack --compacted` returns for the SessionStart input of a
@@ -174,105 +180,101 @@ fn an_agent_that_has_not_acknowledged_is_refused_with_the_ack_command() {
 }
 
 #[test]
-fn an_agent_that_read_every_part_and_gave_every_word_passes() {
+fn an_agent_that_fetched_every_part_in_order_and_gave_the_last_token_passes() {
     let world = world("ack-passes");
     world.acknowledge(NOON);
     world.check(NOON + 60).unwrap();
 }
 
-/// The words of the lines of <parts>, as `builds ack` prints them with no
-/// made-up word.
-fn words_of_parts(parts: &[Vec<String>]) -> std::collections::HashSet<String> {
-    parts
-        .iter()
-        .flatten()
-        .flat_map(|line| line.split(|c: char| !c.is_ascii_alphabetic()))
-        .filter(|word| !word.is_empty())
-        .map(str::to_string)
-        .collect()
-}
-
-/// A reader passes: the words a part shows that the text lacks are the part's
-/// made-up words, in order, and the part shows every line of the text with
-/// nothing else changed, so the answer copies no word of the text.
+/// The opening output says what the text is and gives part 1's command; each
+/// part shows every line of the text unchanged, then ends with the command for
+/// the next step, with a token only that part's output holds.
 #[test]
-fn the_words_a_part_shows_that_the_text_lacks_are_its_made_up_words() {
-    let world = world("ack-made-up");
-    world.ack(&[], NOON).unwrap();
+fn each_part_shows_the_text_unchanged_and_ends_with_the_next_commands_token() {
+    let world = world("ack-chain");
+    let started = world.ack(&[], NOON).unwrap();
     let text = Text::read(&world.places, "bae").unwrap();
-    let stored = stored_words(&world.places, "bae", AGENT);
-    let parts = text.parts(
-        &text
-            .sections
-            .iter()
-            .map(|s| s.name.clone())
-            .collect::<Vec<_>>(),
-    );
-    let known = words_of_parts(&parts);
+    let names: Vec<String> = text.sections.iter().map(|s| s.name.clone()).collect();
+    let parts = text.parts(&names);
     assert!(parts.len() >= 2, "the workflow alone fills two parts");
-    for (index, lines) in parts.iter().enumerate() {
-        let shown = world.ack(&[&(index + 1).to_string()], NOON).unwrap();
-        let body: Vec<&str> = shown.lines().skip(1).take(lines.len()).collect();
-        let unknown: Vec<String> = body
-            .iter()
-            .flat_map(|line| line.split(|c: char| !c.is_ascii_alphabetic()))
-            .filter(|word| !word.is_empty() && !known.contains(*word))
-            .map(str::to_string)
-            .collect();
-        assert_eq!(unknown, stored[index], "part {}", index + 1);
-        let mut plain: Vec<String> = body.iter().map(|line| line.to_string()).collect();
-        for word in &stored[index] {
-            let line = plain
-                .iter_mut()
-                .find(|line| line.contains(word.as_str()))
-                .unwrap();
-            *line = line.replacen(&format!("{word} "), "", 1);
-        }
-        assert_eq!(&plain, lines, "part {}", index + 1);
-    }
-}
-
-#[test]
-fn a_wrong_or_missing_word_is_refused_naming_its_part() {
-    let world = world("ack-wrong-word");
-    let (version, mut words) = world.read_all(NOON);
-    assert!(words.len() >= 3 * 2, "the workflow alone fills two parts");
-    words[1] = "wrongword".to_string();
-    words.truncate(words.len() - 1);
-    let mut args = vec![version.as_str()];
-    args.extend(words.iter().map(String::as_str));
-    let last = stored_words(&world.places, "bae", AGENT).len();
-    let refusal = message(world.ack(&args, NOON));
     assert!(
-        refusal.contains(&format!("part 1, {last} are missing or wrong")),
-        "{refusal}"
+        started.contains(&format!("in {} parts", parts.len())),
+        "{started}"
     );
-    assert!(message(world.check(NOON)).contains("has not acknowledged"));
+    let mut command = next_command(&started);
+    let mut tokens = vec![command[2].clone()];
+    for (index, lines) in parts.iter().enumerate() {
+        assert_eq!(command[..2], ["part", &(index + 1).to_string()]);
+        let args: Vec<&str> = command.iter().map(String::as_str).collect();
+        let shown = world.ack(&args, NOON).unwrap();
+        let body: Vec<&str> = shown.lines().skip(1).take(lines.len()).collect();
+        assert_eq!(body, *lines, "part {}", index + 1);
+        command = next_command(&shown);
+        let token = command.last().unwrap().clone();
+        assert!(!tokens.contains(&token), "part {}", index + 1);
+        assert_eq!(shown.matches(&token).count(), 1);
+        tokens.push(token);
+    }
+    assert_eq!(command[0], text.version());
 }
 
 #[test]
-fn reading_a_part_twice_keeps_its_words_and_a_new_reading_draws_new_ones() {
-    let world = world("ack-words-kept");
-    world.ack(&[], NOON).unwrap();
-    let first = world.ack(&["1"], NOON).unwrap();
-    assert_eq!(world.ack(&["1"], NOON).unwrap(), first);
-    world.ack(&[], NOON).unwrap();
-    assert_ne!(world.ack(&["1"], NOON).unwrap(), first);
+fn a_part_needs_the_token_of_the_part_before_it() {
+    let world = world("ack-order");
+    let started = world.ack(&[], NOON).unwrap();
+    let first = next_command(&started);
+    let refusal = message(world.ack(&["part", "2", &first[2]], NOON));
+    assert!(refusal.contains("part 2 needs"), "{refusal}");
+    let refusal = message(world.ack(&["part", "1", "wrong"], NOON));
+    assert!(refusal.contains("part 1 needs"), "{refusal}");
+    world.ack(&["part", "1", &first[2]], NOON).unwrap();
+}
+
+#[test]
+fn the_acknowledgement_needs_the_last_parts_token() {
+    let world = world("ack-wrong-token");
+    let started = world.ack(&[], NOON).unwrap();
+    let version = next_command_version(&started);
+    let (_, token) = world.read_all(NOON);
+    let refusal = message(world.ack(&[&version, "wrong"], NOON));
+    assert!(refusal.contains("the last line of part"), "{refusal}");
+    assert!(message(world.check(NOON)).contains("has not acknowledged"));
+    // A reading's first token does not acknowledge either.
+    let first = next_command(&world.ack(&[], NOON).unwrap())[2].clone();
+    assert_ne!(first, token);
+    assert!(world.ack(&[&version, &first], NOON).is_err());
+}
+
+#[test]
+fn reading_a_part_twice_shows_it_again_and_a_new_reading_draws_new_tokens() {
+    let world = world("ack-tokens-kept");
+    let started = world.ack(&[], NOON).unwrap();
+    let first = next_command(&started);
+    let args: Vec<&str> = first.iter().map(String::as_str).collect();
+    let shown = world.ack(&args, NOON).unwrap();
+    assert_eq!(world.ack(&args, NOON).unwrap(), shown);
+    let again = world.ack(&[], NOON).unwrap();
+    assert_ne!(next_command(&again)[2], first[2]);
+    assert!(world.ack(&args, NOON).is_err());
 }
 
 #[test]
 fn every_part_stays_well_under_the_size_claude_code_shows_whole() {
     let world = world("ack-part-size");
-    let started = world.ack(&[], NOON).unwrap();
-    let count = started.matches("  builds ack ").count() - 1;
-    for part in 1..=count {
-        let shown = world.ack(&[&part.to_string()], NOON).unwrap();
+    let mut shown = world.ack(&[], NOON).unwrap();
+    let mut part = 0;
+    while next_command(&shown)[0] == "part" {
+        part += 1;
+        let command = next_command(&shown);
+        let args: Vec<&str> = command.iter().map(String::as_str).collect();
+        shown = world.ack(&args, NOON).unwrap();
         assert!(
             shown.len() < 25_000,
             "part {part} has {} bytes",
             shown.len()
         );
     }
+    assert!(part >= 2);
 }
 
 #[test]
@@ -298,7 +300,12 @@ impl World {
 
     /// The number of parts in the reading that `builds ack` starts at <now>.
     fn parts(&self, now: i64) -> usize {
-        self.ack(&[], now).unwrap().matches("  builds ack ").count() - 1
+        let started = self.ack(&[], now).unwrap();
+        started
+            .split("in ")
+            .filter_map(|piece| piece.split(" parts").next()?.parse().ok())
+            .next()
+            .unwrap()
     }
 }
 
@@ -317,7 +324,9 @@ fn an_edit_of_a_rule_refuses_the_agent_naming_the_rule_and_its_reading_holds_onl
         started.contains("1 of the text's 3 sections changed: rules/text/plain.md"),
         "{started}"
     );
-    let only = world.ack(&["1"], NOON + 60).unwrap();
+    let only = world
+        .ack(&["part", "1", &next_command(&started)[2]], NOON + 60)
+        .unwrap();
     assert!(
         only.contains("===== rules/text/plain.md (section 1 of 1) ====="),
         "{only}"
@@ -529,7 +538,7 @@ fn an_agent_outside_a_checkout_names_the_project_with_project() {
     )
     .unwrap();
     assert!(
-        started.contains("builds ack 1 --agent a1 --project bae"),
+        started.contains("builds ack part 1 ") && started.contains(" --agent a1 --project bae"),
         "{started}"
     );
     let refused = message(check(
@@ -594,26 +603,21 @@ fn project_names_the_store_in_a_checkout_of_a_repo_two_projects_hold() {
     make_store_named(&world.places, "second", &["bae"]);
     let started = ack_naming_bae(&world, &[]).unwrap();
     assert!(
-        started.contains("builds ack 1 --agent a1 --project bae"),
+        started.contains("builds ack part 1 ") && started.contains(" --agent a1 --project bae"),
         "{started}"
     );
-    let version = started
-        .split("The text is version ")
-        .nth(1)
-        .unwrap()
-        .split(',')
-        .next()
-        .unwrap()
-        .to_string();
-    let count = started.matches("  builds ack ").count() - 1;
-    for part in 1..=count {
-        ack_naming_bae(&world, &[&part.to_string()]).unwrap();
-    }
-    let words = stored_words(&world.places, "bae", AGENT).concat();
-    // The flags follow the version and the words, as the listing prints them.
-    let mut args = vec![version.as_str()];
-    args.extend(words.iter().map(String::as_str));
-    ack_naming_bae(&world, &args).unwrap();
+    let mut shown = started;
+    let version = loop {
+        let command = next_command(&shown);
+        if command[0] != "part" {
+            // The flags follow the version and the token, as the output
+            // prints them.
+            ack_naming_bae(&world, &[&command[0], &command[1]]).unwrap();
+            break command[0].clone();
+        }
+        shown = ack_naming_bae(&world, &[&command[0], &command[1], &command[2]]).unwrap();
+    };
+    assert!(!version.is_empty());
     check(
         &world.places,
         SESSION_ID,
@@ -710,4 +714,15 @@ fn a_judge_whose_text_lost_a_section_and_changed_no_other_is_told_so() {
     .unwrap();
     let why = outdated_at(&world, NOON + 60).expect("a section left the text");
     assert!(why.contains("moved or left"), "{why}");
+}
+
+fn next_command_version(started: &str) -> String {
+    started
+        .split("The text is version ")
+        .nth(1)
+        .unwrap()
+        .split(',')
+        .next()
+        .unwrap()
+        .to_string()
 }
