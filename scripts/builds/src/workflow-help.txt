@@ -218,7 +218,10 @@ WHAT AN IMPLEMENTING AGENT DOES
      the decision's id as its `decision` (DESIGN CHANGES), and amend the
      change with the same `decision` after any later commit that changes the
      board again.
-  8. Once the work is committed, review the branch (REVIEW): run `builds
+  8. Once the work is committed, review the branch (REVIEW) with `--kind`:
+     `--kind mechanical --checked-by TEXT` when it only moves or renames
+     code, regenerates files or applies a codemod, never split into parts
+     for a review, then land it; otherwise `--kind code`: run `builds
      review <worktree> --item N` as a background task, then, when it tells
      the judge or the coordinator of findings, `builds review wait <landing>`
      as a background task, which ends once no finding waits for a settle. Fix
@@ -283,6 +286,11 @@ DISPATCH
     with --spec-decided N, the decision or question that records the choice.
     When take prints a behavior the spec doesn't state, tell the agent to add
     it to the spec in its commit.
+  - Brief a mechanical change (moved or renamed code, generated files, a
+    codemod) as one change, never in parts to fit the review cap, and tell
+    the agent to review it with `--kind mechanical --checked-by TEXT` and land
+    it on the compiler, the hook and its machine check. Judges and
+    coordinators spend review usage only on code people wrote (REVIEW).
   - Read-only agents (planners, audits) read origin/main through `git show`
     and `git grep`, never a checkout.
   - Dead code, code that nothing outside tests calls, is never a question
@@ -345,6 +353,20 @@ other rule reads a design file. Screenshot capture files (the files below each
 `shots-declared` folder of the repo's .app-build) are checked the same way,
 only against the rules marked `capture: true`, because the shots run checks
 them (decision #397; `builds help`, LANDING AND REVIEW).
+
+Spend review usage only where a review can find something (decision #401).
+`builds review` takes a required `--kind code|mechanical`. `--kind code` runs
+the reviewers. `--kind mechanical --checked-by TEXT` starts no reviewer: the
+agent calls the change mechanical, one that only moves or renames code,
+regenerates files or applies a codemod, and names the check that covers it
+(the compiler, the hook, a shots run for capture files, the states check for
+boards). Such a change is one change: nobody splits it into parts to get under
+the review cap. `builds land` records who made the call and the check, takes
+the branch whole with no review while its net change keeps its patch id, and
+says both. A branch
+that mixes a mechanical move with code someone wrote is two branches. With no
+--kind, builds refuses, except for a pure rename, a design-only change and a
+change of capture files only, which it already knows. Reviews are for code people wrote.
 
   1. The agent runs `builds review <worktree> --item N` on its branch, which
      gives the reviewers the item's brief. The first review reads the

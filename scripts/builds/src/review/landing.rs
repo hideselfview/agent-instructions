@@ -48,7 +48,6 @@ use crate::lists::store::{Store, resolve_by};
 use crate::review::check;
 use crate::review::commits;
 use crate::review::files;
-use crate::review::mechanical::Mechanical;
 use crate::review::over_cap;
 use crate::review::record::{self, Change, LandingRow};
 use crate::review::render;
@@ -141,7 +140,7 @@ impl Unfinished {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct OverCap {
     pub added: i64,
-    pub why: Mechanical,
+    pub why: over_cap::Needs,
     pub patch_id: String,
 }
 
@@ -394,12 +393,20 @@ pub fn judge(
 }
 
 /// A branch over the review's cap as `builds review` recorded it: how many
-/// lines its net change adds, the patch id of that change, and where the
-/// branch stands (`over_cap::standing`).
+/// lines its net change adds and where the branch stands (`over_cap::standing`).
 struct OverTheCap {
     added: i64,
-    patch_id: String,
     standing: Option<over_cap::Standing>,
+}
+
+/// The lines the net change of the branch at <head> adds past origin/main,
+/// and its patch id.
+fn net_of(dir: &Path, head: &str) -> Result<(i64, String)> {
+    let net = run::diff_between(dir, BRANCH_BASE, head)?;
+    Ok((
+        check::added_lines(&net.diff.text),
+        over_cap::patch_id(&net.diff.text)?,
+    ))
 }
 
 /// The branch <change> at <head> in the checkout at <dir>, when its net change
@@ -411,22 +418,16 @@ fn over_the_cap(
     dir: &Path,
     head: &str,
 ) -> Result<Option<OverTheCap>> {
-    let net = run::diff_between(dir, BRANCH_BASE, head)?;
-    let added = check::added_lines(&net.diff.text);
+    let (added, patch_id) = net_of(dir, head)?;
     if added <= check::MAX_ADDED_LINES {
         return Ok(None);
     }
-    let patch_id = over_cap::patch_id(&net.diff.text)?;
     let branch = over_cap::Branch {
         change,
         patch_id: &patch_id,
     };
     let standing = over_cap::standing(db, branch)?;
-    Ok(Some(OverTheCap {
-        added,
-        patch_id,
-        standing,
-    }))
+    Ok(Some(OverTheCap { added, standing }))
 }
 
 /// The branch <change> at <head> when its net change is over the review's cap
@@ -437,18 +438,27 @@ fn over_cap_needs_none(
     dir: &Path,
     head: &str,
 ) -> Result<Option<OverCap>> {
-    Ok(match over_the_cap(db, change, dir, head)? {
-        Some(OverTheCap {
-            added,
-            patch_id,
-            standing: Some(over_cap::Standing::Waiting(over_cap::Waiting::Mechanical(why))),
-        }) => Some(OverCap {
-            added,
-            why,
-            patch_id,
-        }),
-        _ => None,
-    })
+    let (added, patch_id) = net_of(dir, head)?;
+    let branch = over_cap::Branch {
+        change,
+        patch_id: &patch_id,
+    };
+    // An agent's call of mechanical work holds at any size.
+    let why = if let Some(call) = over_cap::call_of(db, branch)? {
+        over_cap::Needs::Called(call)
+    } else if added > check::MAX_ADDED_LINES
+        && let Some(over_cap::Standing::Waiting(over_cap::Waiting::Mechanical(why))) =
+            over_cap::standing(db, branch)?
+    {
+        over_cap::Needs::Mechanical(why)
+    } else {
+        return Ok(None);
+    };
+    Ok(Some(OverCap {
+        added,
+        why,
+        patch_id,
+    }))
 }
 
 /// Why <verdict> does not let the commits of <needs> land, in words; None
@@ -685,7 +695,7 @@ pub fn taken(verdict: &Verdict) -> String {
             "review landing {} ({}), last reviewed by run {}, takes these commits: nothing changed since the last review, and no confirmed finding is open",
             covered.landing.id, covered.landing.key, covered.run
         ),
-        Verdict::OverCap(over) => over_cap::taken_text(over.added, over.why, &over.patch_id),
+        Verdict::OverCap(over) => over_cap::taken_text(over.added, &over.why, &over.patch_id),
         _ => "no group's rules cover the changed paths: the landing needs no review".to_string(),
     }
 }

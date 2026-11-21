@@ -1837,3 +1837,67 @@ fn a_finding_on_a_capture_file_of_a_rule_that_judges_none_is_dropped() {
         )]
     );
 }
+
+#[test]
+fn a_branch_called_mechanical_starts_no_reviewer_and_asks_no_one() {
+    let demo = demo("review-over-cap-called");
+    let fake = fake(&demo.scratch.dir);
+    let side = demo.add_side(1, "agent", "work");
+    big_commit(&side, "big.rs", "let x = 1;\n");
+    let said = call(&demo, &side).unwrap();
+    assert!(said.contains("checked by the compiler"), "{said}");
+    assert!(fake.prompts().is_empty());
+    assert!(demo.store.load().unwrap().questions.is_empty());
+}
+
+#[test]
+fn a_call_of_mechanical_work_does_not_replace_a_question_to_the_person() {
+    let demo = demo("review-over-cap-call-refused");
+    let fake = fake(&demo.scratch.dir);
+    let side = demo.add_side(1, "agent", "work");
+    big_commit(&side, "big.rs", "let x = 1;\n");
+    assert!(run_review(&demo, &fake, &side, "k").refusal.is_some());
+    let failed = call(&demo, &side).unwrap_err().text();
+    assert!(failed.contains("question"), "{failed}");
+}
+
+fn call(demo: &Demo, side: &Path) -> Result<String> {
+    over_cap::call_mechanical(
+        &demo.store,
+        "demo",
+        side,
+        "main",
+        "k",
+        ("agent-1", "the compiler"),
+        &stamp(),
+    )
+}
+
+#[test]
+fn a_review_needs_its_kind_unless_builds_knows_the_answer() {
+    let demo = demo("review-kind");
+    let side = demo.add_side(1, "agent", "work");
+    big_commit(&side, "big.rs", "let x = 1;\n");
+    let wt = side.to_str().unwrap().to_string();
+    let run = |extra: &[&str]| {
+        let mut args = vec!["run".to_string(), wt.clone(), "main".to_string()];
+        args.extend(extra.iter().map(|word| word.to_string()));
+        cmd_review(&demo.tool, &args).map_err(|error| error.text())
+    };
+    assert!(run(&[]).unwrap_err().contains("--kind"));
+    assert!(
+        run(&["--kind", "mechanical"])
+            .unwrap_err()
+            .contains("--checked-by")
+    );
+    assert!(
+        run(&["--kind", "code", "--checked-by", "x"])
+            .unwrap_err()
+            .contains("mechanical only")
+    );
+    assert!(
+        run(&["--kind", "other"])
+            .unwrap_err()
+            .contains("code or mechanical")
+    );
+}

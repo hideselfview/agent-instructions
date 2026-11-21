@@ -1000,3 +1000,33 @@ fn a_branch_over_the_cap_that_waits_on_the_person_does_not_land() {
     };
     assert!(said.contains("Question"), "{said}");
 }
+
+#[test]
+fn a_branch_called_mechanical_lands_under_the_cap_with_land_saying_who_and_why() {
+    let demo = demo("landing-over-cap-marked");
+    let fake = fake(&demo.scratch.dir);
+    let side = demo.add_side(1, "agent", "work");
+    std::fs::write(side.join("a.rs"), "let x = 1;\n").unwrap();
+    crate::testing::git(&side, &["add", "a.rs"]);
+    crate::testing::git(&side, &["commit", "-q", "-m", "a"]);
+    let code = crate::testing::git_out(&side, &["rev-parse", "HEAD"]);
+    let key = crate::review::default_key(&side).unwrap();
+    over_cap::call_mechanical(
+        &demo.store,
+        "demo",
+        &side,
+        "origin/main",
+        &key,
+        ("agent-1", "the compiler"),
+        &stamp(),
+    )
+    .unwrap();
+    let (verdict, refusal) = verdict_of(&demo, &fake, &side, std::slice::from_ref(&code));
+    assert!(matches!(verdict, Verdict::OverCap(_)), "{verdict:?}");
+    assert_eq!(refusal, None);
+    let said = taken(&verdict);
+    assert!(
+        said.contains("agent-1 called it mechanical, and the compiler covers it"),
+        "{said}"
+    );
+}

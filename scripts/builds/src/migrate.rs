@@ -233,13 +233,17 @@ const BEFORE_SHOTS_ON_VOLUME_STAMP: i64 = 1_758_641_369;
 /// volume (review/texts.rs) instead of in the store.
 const BEFORE_REVIEW_TEXTS_ON_VOLUME_STAMP: i64 = 1_364_416_336;
 
+/// The stamp of the schema before the branches the coordinator marked as
+/// mechanical.
+const BEFORE_MARKED_MECHANICAL_STAMP: i64 = 332_045_652;
+
 /// The stamp of today's schema (`db::STAMP`). A change to the schema changes
 /// its stamp, and builds then fails to compile until the change gives it a
 /// move from this schema, since every store carries this stamp: the change
 /// adds the move, puts this stamp at the end of `STAMPS` under a name that
 /// says what the schema lacked, and sets this to the new schema's stamp, which
 /// the compiler's error names.
-const SCHEMA_STAMP: i64 = 332_045_652;
+const SCHEMA_STAMP: i64 = 1_544_708_784;
 
 // The compiler refuses a schema whose stamp is not SCHEMA_STAMP. A const
 // assert could not print the new stamp, so the check compares two array
@@ -249,7 +253,7 @@ const _: [(); SCHEMA_STAMP as usize] = [(); db::STAMP as usize];
 
 /// Every stamp a store can carry that `move_store` moves, oldest schema first.
 /// A new move adds the stamp of the schema before it at the end.
-const STAMPS: [i64; 26] = [
+const STAMPS: [i64; 27] = [
     BEFORE_CONDITION_ENDERS_STAMP,
     BEFORE_ITEM_EVENT_STAMP,
     BEFORE_LAND_RUN_STAMP,
@@ -276,6 +280,7 @@ const STAMPS: [i64; 26] = [
     BEFORE_APP_BUILD_STOPPED_STAMP,
     BEFORE_SHOTS_ON_VOLUME_STAMP,
     BEFORE_REVIEW_TEXTS_ON_VOLUME_STAMP,
+    BEFORE_MARKED_MECHANICAL_STAMP,
 ];
 
 /// Whether a store stamped <found> comes before the move that follows the
@@ -514,6 +519,11 @@ pub fn move_store(places: &Places, path: &Path, now: i64) -> Result<()> {
             &tx,
             &crate::review::texts::Texts::of(places, &project),
         )?;
+    }
+    // Every store from before the coordinator could mark a branch as
+    // mechanical gets the empty table: none was marked yet.
+    if before(found, BEFORE_MARKED_MECHANICAL_STAMP) {
+        tx.execute_batch(db::MARKED_MECHANICAL_PART).sql()?;
     }
     tx.pragma_update(None, "user_version", db::stamp()).sql()?;
     let broken: Option<String> = tx

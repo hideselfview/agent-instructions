@@ -3,7 +3,7 @@
 //! every review in the project's store.
 //!
 //! ```text
-//! builds review [run] WORKTREE [BASE] [--landing KEY] [--item N]... [--head SHA] [--rules-root DIR] [--reviewer PROGRAM]
+//! builds review [run] WORKTREE [BASE] --kind code|mechanical [--checked-by TEXT] [--landing KEY] [--item N]... [--head SHA] [--rules-root DIR] [--reviewer PROGRAM]
 //! builds review copy WORKTREE [BASE] [--rules-root DIR] [--reviewer PROGRAM]
 //! builds review wait LANDING
 //! builds review settle FINDING confirmed|dropped --why TEXT
@@ -109,7 +109,7 @@ use rusqlite::Connection;
 
 use record::Kind;
 
-const USAGE: &str = "usage: builds review [run] WORKTREE [BASE] [--landing KEY] [--item N]... [--head SHA] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review copy WORKTREE [BASE] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review wait LANDING\n       builds review settle FINDING confirmed|dropped --why TEXT\n       builds review settle FINDING --again --why TEXT\n       builds review settle FINDING allowed --by-person --why TEXT\n       builds review dispute FINDING --why TEXT\n       builds review keep FINDING --why TEXT\n       builds review show LANDING\n       builds review check-landing DIR --project P SHA... [--landing KEY] [--rules-root DIR]\n       builds review landed DIR --project P SHA... [--landing KEY] [--more-to-land] [--rules-root DIR]\n       builds review groups [--rules-root DIR] [--project P --repo R --changed PATH...]\n       builds review replay [--case NAME]... [--source REPO] [--model opus|sonnet|haiku] [--rules-root DIR] [--compare] [--reviewer PROGRAM]\n       builds review replay --landing N... --repo-dir DIR [--group NAME]... [--model opus|sonnet|haiku] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review audit LANDING --repo-dir DIR [--rules-root DIR] [--reviewer PROGRAM]\n       builds review misses [--check [--model opus|sonnet|haiku] [--rules-root DIR] [--reviewer PROGRAM]]\n       builds review rates [--rules-root DIR]\n       builds review scores\n       builds review case propose --repo-dir DIR --rules-root DIR [--per-group N] [--model opus|sonnet|haiku] [--reviewer PROGRAM]\n       builds review case add LANDING FINDING --repo-dir DIR --rules-root DIR [--name NAME]\n       builds review case add --rule SLUG --file PATH --commits BASE..HEAD --project P --name NAME --repo-dir DIR --rules-root DIR\n       builds review case add --clean-for SLUG --commits BASE..HEAD --project P --name NAME --repo-dir DIR --rules-root DIR";
+const USAGE: &str = "usage: builds review [run] WORKTREE [BASE] --kind code|mechanical [--checked-by TEXT] [--landing KEY] [--item N]... [--head SHA] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review copy WORKTREE [BASE] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review wait LANDING\n       builds review settle FINDING confirmed|dropped --why TEXT\n       builds review settle FINDING --again --why TEXT\n       builds review settle FINDING allowed --by-person --why TEXT\n       builds review dispute FINDING --why TEXT\n       builds review keep FINDING --why TEXT\n       builds review show LANDING\n       builds review check-landing DIR --project P SHA... [--landing KEY] [--rules-root DIR]\n       builds review landed DIR --project P SHA... [--landing KEY] [--more-to-land] [--rules-root DIR]\n       builds review groups [--rules-root DIR] [--project P --repo R --changed PATH...]\n       builds review replay [--case NAME]... [--source REPO] [--model opus|sonnet|haiku] [--rules-root DIR] [--compare] [--reviewer PROGRAM]\n       builds review replay --landing N... --repo-dir DIR [--group NAME]... [--model opus|sonnet|haiku] [--rules-root DIR] [--reviewer PROGRAM]\n       builds review audit LANDING --repo-dir DIR [--rules-root DIR] [--reviewer PROGRAM]\n       builds review misses [--check [--model opus|sonnet|haiku] [--rules-root DIR] [--reviewer PROGRAM]]\n       builds review rates [--rules-root DIR]\n       builds review scores\n       builds review case propose --repo-dir DIR --rules-root DIR [--per-group N] [--model opus|sonnet|haiku] [--reviewer PROGRAM]\n       builds review case add LANDING FINDING --repo-dir DIR --rules-root DIR [--name NAME]\n       builds review case add --rule SLUG --file PATH --commits BASE..HEAD --project P --name NAME --repo-dir DIR --rules-root DIR\n       builds review case add --clean-for SLUG --commits BASE..HEAD --project P --name NAME --repo-dir DIR --rules-root DIR";
 
 /// The checkout the rules and groups are read from: `--rules-root`, else the
 /// one `install.sh` links at ~/.codex/agent-instructions.
@@ -766,13 +766,125 @@ pub fn short(rev: &str) -> &str {
     &rev[..rev.len().min(10)]
 }
 
+/// What a review run says of its kind: code, which the reviewers read, or
+/// mechanical work that the agent names the check of.
+enum ReviewKind {
+    Code,
+    Mechanical { checked_by: String },
+}
+
+/// The kind `--kind` names. With none, builds knows the answer of a pure
+/// rename, of a design-only change and of a capture-files-only change, which
+/// need no `--kind`, and refuses the rest.
+fn kind_of(tool: &Tool, args: &Args) -> Result<Option<ReviewKind>> {
+    let checked_by = args.value("checked-by")?;
+    match (args.value("kind")?, checked_by) {
+        (Some("code"), None) => Ok(Some(ReviewKind::Code)),
+        (Some("code"), Some(_)) => fail!("--checked-by goes with --kind mechanical only"),
+        (Some("mechanical"), Some(check)) if !check.trim().is_empty() => {
+            Ok(Some(ReviewKind::Mechanical {
+                checked_by: check.trim().to_string(),
+            }))
+        }
+        (Some("mechanical"), _) => fail!(
+            "--kind mechanical needs --checked-by TEXT naming the check that covers the change, such as \"compiler\" or \"shots run\""
+        ),
+        (Some(other), _) => fail!("--kind is code or mechanical, not {other}"),
+        (None, _) => {
+            let (worktree, base) = worktree_and_base(args)?;
+            let checkout = Checkout::find(worktree)?;
+            if known_answer(tool, args, &checkout, base)? {
+                return Ok(None);
+            }
+            fail!(
+                "builds review needs --kind code, which runs the reviewers, or --kind mechanical --checked-by TEXT, for a change that only moves or renames code, regenerates files or applies a codemod and that a check covers (REVIEW in builds help workflow). Only a pure rename, a design-only change and a change of capture files only need no --kind."
+            )
+        }
+    }
+}
+
+/// Whether the net change of <checkout> past <base> is one whose kind builds
+/// knows: only renamed identifiers, design files only, or capture files only.
+fn known_answer(tool: &Tool, args: &Args, checkout: &Checkout, base: &str) -> Result<bool> {
+    let net = run::diff_between(&checkout.top, base, "HEAD")?;
+    if mechanical::only_renames(&net.diff.text) {
+        return Ok(true);
+    }
+    let Some(project) = project_given(tool, args, checkout)? else {
+        return Ok(false);
+    };
+    let store = Store::named(&tool.places, &project)?;
+    let globs = Globs::read(&*store.open_existing()?, &checkout.repo())?
+        .with_capture_folders(&checkout.top)?;
+    if !net.diff.changed.is_empty()
+        && net
+            .diff
+            .changed
+            .iter()
+            .all(|path| globs.kind_of(path) == Some(crate::lists::design_paths::FileKind::Capture))
+    {
+        return Ok(true);
+    }
+    let shas = commits::in_range(&checkout.top, &net.base, &net.head)?;
+    crate::lists::change_is_design_only(&store, &checkout.top, &checkout.repo(), &shas)
+}
+
+/// Records the call of mechanical work that `--kind mechanical` makes, and
+/// starts no reviewer.
+fn call_mechanical(
+    tool: &Tool,
+    args: &Args,
+    checked_by: &str,
+    runner: Option<&Caller>,
+) -> Result<()> {
+    let (worktree, base) = worktree_and_base(args)?;
+    let checkout = Checkout::find(worktree)?;
+    let Some(project) = project_given(tool, args, &checkout)? else {
+        fail!(
+            "repo {} is in no project of the lists, so there is no store to record the call in; say which with --project",
+            checkout.repo()
+        )
+    };
+    let store = Store::named(&tool.places, &project)?;
+    let key = match args.value("landing")? {
+        Some(key) => key.to_string(),
+        None => default_key(&checkout.top)?,
+    };
+    let stamp = Stamp::resolve(tool.now, args, &checkout.top)?;
+    let by = runner.map_or("the person", |caller| caller.id.as_str());
+    print!(
+        "{}",
+        over_cap::call_mechanical(
+            &store,
+            &checkout.repo(),
+            &checkout.top,
+            base,
+            &key,
+            (by, checked_by),
+            &stamp,
+        )?
+    );
+    Ok(())
+}
+
 fn run_command(tool: &Tool, args: &[String]) -> Result<()> {
     let args = Args::parse(
         args,
-        &["landing", "item", "rules-root", "reviewer", "head"],
+        &[
+            "landing",
+            "item",
+            "rules-root",
+            "reviewer",
+            "head",
+            "kind",
+            "checked-by",
+        ],
         &[],
     )?;
     let caller = Caller::from_env()?;
+    if let Some(ReviewKind::Mechanical { checked_by }) = kind_of(tool, &args)? {
+        return call_mechanical(tool, &args, &checked_by, caller.as_ref());
+    }
     let (reported, to_settle) = run_review(tool, &args, caller.as_ref())?;
     print!("{}", reported.text);
     if let Some(refusal) = &reported.refusal {

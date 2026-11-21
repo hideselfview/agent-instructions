@@ -3020,7 +3020,7 @@ run `review replay --rules-root` on it.
                               checkout, says why and gives the command to run;
                               the landing still succeeds, with the commits on
                               origin/main and the records written
-  builds review [run] <worktree> [<base>] [--landing <key>] [--item N]... [--head SHA] [--rules-root DIR] [--reviewer PROGRAM]
+  builds review [run] <worktree> [<base>] --kind code|mechanical [--checked-by TEXT] [--landing <key>] [--item N]... [--head SHA] [--rules-root DIR] [--reviewer PROGRAM]
                               review the worktree's net change past <base>
                               (default origin/main) against the rules in
                               --rules-root (default the agent-instructions
@@ -3041,6 +3041,16 @@ run `review replay --rules-root` on it.
                               branch's head), with no reviewer's answer, and a
                               run with nothing else to read runs for that
                               alone.
+                              --kind is required: code runs the reviewers;
+                              mechanical (--checked-by TEXT names the check
+                              that covers the change) starts no reviewer,
+                              records who made the call and the check, and
+                              lets `builds land` take the branch whole, of any
+                              size, while its net change keeps its patch id,
+                              and say both. Without --kind builds refuses,
+                              except for a pure rename, a design-only change
+                              and a change of capture files only, which it
+                              already knows.
                               A branch whose diffs add more than 2,000
                               lines (the cap: in bae's last 200 main
                               commits, a commit added a median of 27

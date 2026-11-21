@@ -10,14 +10,20 @@ changes since the last review, and nothing else.
 
 `builds land` refuses a branch in a repo of a project with lists while it has
 unreviewed changes, a finding nobody has settled or an open confirmed finding.
-Commits whose changed paths no rule group covers need no review. The agent that
-did the work reviews its branch and lands it; the judge, a standing session,
-settles the findings (`builds help workflow`, REVIEW). Review each branch this
-way:
+Commits whose changed paths no rule group covers need no review. A branch that
+only moves or renames code, regenerates files or applies a codemod is one
+change, never split into parts to fit the review cap: the compiler, the hook and
+its machine check cover it. Review it with
+`builds review <worktree> --kind mechanical --checked-by <check>`, which starts
+no reviewer, records who made the call and the check, and lets `builds land`
+take it with no review. Spend review usage only where a review can find
+something. The agent that did the work reviews its branch and lands it; the
+judge, a standing session, settles the findings (`builds help workflow`,
+REVIEW). Review each branch this way:
 
-- Run `builds review <worktree> [<base>] --item N` as a background task, once,
-  when the branch's work is committed, to review the worktree's net change past
-  `<base>` (default `origin/main`).
+- Run `builds review <worktree> [<base>] --kind code --item N` as a background
+  task, once, when the branch's work is committed, to review the worktree's net
+  change past `<base>` (default `origin/main`).
   - It runs one reviewer per group of rules (a folder of `rules/` each, in
     agent-instructions) and prints the findings by group, then a total line.
   - `--item N` gives the reviewers that work item's brief; `builds help` lists
