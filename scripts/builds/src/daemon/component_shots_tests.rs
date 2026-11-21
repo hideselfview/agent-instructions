@@ -158,6 +158,7 @@ fn a_shots_run_shows_while_it_runs_and_once_it_ended_for_the_page_s_commit_only(
         signal: None,
         output: "waiting for a mac app checkout\n".to_string(),
         output_cut: false,
+        output_stale: None,
     };
     let other = "f".repeat(40);
     let shown = |reference: &str, phase| {

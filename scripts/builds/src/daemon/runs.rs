@@ -90,6 +90,9 @@ struct Run {
     /// not ended. The volume has no file events, so a kqueue watch on the log
     /// file (vnode.rs) says so.
     log_watch: Option<Watch>,
+    /// Why the log can't be watched, which the page says: until the run ends,
+    /// its output shows what it was when the page read it.
+    watch_error: Option<String>,
 }
 
 /// Where a run is, as the page shows it.
@@ -124,6 +127,8 @@ pub struct RunPage {
     pub output: String,
     /// The output starts before this: the page shows only its end.
     pub output_cut: bool,
+    /// Why the output of a run that has not ended no longer updates.
+    pub output_stale: Option<String>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -253,6 +258,7 @@ impl Runs {
                     record,
                     owned: false,
                     log_watch: None,
+                    watch_error: None,
                 },
             );
         }
@@ -267,7 +273,8 @@ impl Runs {
             let mut state = runs.state.lock().expect("no panic holding it");
             for ((repo, lane, shots), run) in state.iter_mut() {
                 if run.busy() {
-                    run.log_watch = runs.watch_log(repo, *lane, shots.as_deref());
+                    (run.log_watch, run.watch_error) =
+                        runs.watch_log(repo, *lane, shots.as_deref());
                 }
             }
         }
@@ -275,8 +282,13 @@ impl Runs {
     }
 
     /// A watch that calls the listener each time the log of <repo>'s <lane>
-    /// run with <shots> is written; None, said, when the log can't be watched.
-    fn watch_log(self: &Arc<Self>, repo: &str, lane: Lane, shots: Option<&str>) -> Option<Watch> {
+    /// run with <shots> is written, or why the log can't be watched.
+    fn watch_log(
+        self: &Arc<Self>,
+        repo: &str,
+        lane: Lane,
+        shots: Option<&str>,
+    ) -> (Option<Watch>, Option<String>) {
         let log = log_file(&self.dir, repo, lane, shots);
         let weak = Arc::downgrade(self);
         match Watch::start(&log, move || {
@@ -284,10 +296,11 @@ impl Runs {
                 runs.notify();
             }
         }) {
-            Ok(watch) => Some(watch),
+            Ok(watch) => (Some(watch), None),
             Err(error) => {
-                eprintln!("builds: watching {}: {error}", log.display());
-                None
+                let why = format!("watching {}: {error}", log.display());
+                eprintln!("builds: {why}");
+                (None, Some(why))
             }
         }
     }
@@ -475,8 +488,10 @@ impl Runs {
                 runs.ended(&waiting, lane, status);
             })
             .context(|| "starting a thread".to_string())?;
+        let (log_watch, watch_error) = self.watch_log(repo, lane, shots);
         Ok(Run {
-            log_watch: self.watch_log(repo, lane, shots),
+            log_watch,
+            watch_error,
             record,
             owned: true,
         })
@@ -511,6 +526,7 @@ impl Runs {
             {
                 run.record.ended = Some(ended);
                 run.log_watch = None;
+                run.watch_error = None;
                 // The run shows as ended here either way; a record that
                 // can't be written is said, and a restart then shows this
                 // run as one whose end wasn't seen.
@@ -564,6 +580,7 @@ impl Runs {
             signal: ended.and_then(|e| e.signal),
             output,
             output_cut,
+            output_stale: run.watch_error.clone(),
         }
     }
 }

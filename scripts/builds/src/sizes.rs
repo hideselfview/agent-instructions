@@ -15,6 +15,7 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
+use crate::capped_store::entries_in;
 use crate::checkout::Root;
 use crate::fail::{Context, Result};
 use crate::manifest::build_dirs;
@@ -198,39 +199,24 @@ pub fn record_after(places: &Places, command: &str, args: &[String]) {
 /// record behind.
 fn forget_unrooted(places: &Places) -> Result<()> {
     let base = places.daemon_dir().join("sizes");
-    for repo in entries(&base)? {
-        for record in entries(&repo)? {
-            let name = record.file_name().unwrap_or_default().to_string_lossy();
+    for (repo, folder) in entries_in(&base)? {
+        for (name, record) in entries_in(&folder)? {
             let Some(checkout) = name.strip_suffix(".json") else {
                 continue;
             };
-            let root = places
+            if !places
                 .root
-                .join(repo.file_name().unwrap_or_default())
-                .join(checkout);
-            if !root.join(".checkout").is_file() {
+                .join(&repo)
+                .join(checkout)
+                .join(".checkout")
+                .is_file()
+            {
                 std::fs::remove_file(&record)
                     .context(|| format!("removing {}", record.display()))?;
             }
         }
     }
     Ok(())
-}
-
-/// The entries of <dir>; none when <dir> does not exist.
-fn entries(dir: &Path) -> Result<Vec<PathBuf>> {
-    let listing = match std::fs::read_dir(dir) {
-        Ok(listing) => listing,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
-        Err(error) => crate::fail!("listing {}: {error}", dir.display()),
-    };
-    listing
-        .map(|entry| {
-            entry
-                .map(|entry| entry.path())
-                .context(|| format!("listing {}", dir.display()))
-        })
-        .collect()
 }
 
 /// Measures each of <roots> and tells the dashboard about all of them.

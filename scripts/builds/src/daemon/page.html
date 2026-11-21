@@ -475,13 +475,13 @@ function built(c) {
   for (const f of c.folders) {
     if (!f.exists) continue;
     if (f.last_write && f.last_write > out.newest) out.newest = f.last_write;
-    const over = f.kib !== null && f.kib > f.cap_kib;
+    const over = f.kib > f.cap_kib;
     if (over) out.over.push(f.path + " " + size(f.kib) + " over its " + size(f.cap_kib) + " cap");
     if (f.link !== "linked") out.links.push(f.path + (f.link === "elsewhere" ? " links elsewhere" : " not linked"));
     // A folder under 1M shows as 0M: no build output worth a chip.
-    if (f.kib === null || f.kib >= 1024) out.chips.push({path: f.path, kib: f.kib, over});
+    if (f.kib >= 1024) out.chips.push({path: f.path, kib: f.kib, over});
   }
-  out.chips.sort((a, b) => (b.kib || 0) - (a.kib || 0));
+  out.chips.sort((a, b) => b.kib - a.kib);
   return out;
 }
 
@@ -627,7 +627,7 @@ function updateBuildPanel(panel, repo, lane) {
   panel.output.hidden = !shown;
   panel.status.textContent = shown ? phaseLine(run) : "";
   panel.status.className = "bstatus" + (shown && (run.phase === "failed" || run.phase === "lost") ? " failed" : "");
-  const text = shown ? (run.output_cut ? "…\n" : "") + run.output : "";
+  const text = shown ? (run.output_stale ? "(this output no longer updates: " + run.output_stale + ")\n" : "") + (run.output_cut ? "…\n" : "") + run.output : "";
   if (panel.output.textContent !== text) {
     const atEnd = panel.output.scrollTop + panel.output.clientHeight >= panel.output.scrollHeight - 4;
     panel.output.textContent = text;

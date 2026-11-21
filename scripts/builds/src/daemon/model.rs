@@ -91,8 +91,7 @@ pub struct FolderFacts {
     pub path: String,
     pub cap_kib: u64,
     pub exists: bool,
-    /// None while the daemon is still walking it.
-    pub kib: Option<u64>,
+    pub kib: u64,
     pub last_write: Option<i64>,
     pub link: &'static str,
 }
@@ -1437,14 +1436,12 @@ impl Model {
             };
             let mut checkout = match &root.live {
                 Some(live) => {
-                    let total = facts.folders.as_ref().and_then(|folders| {
-                        folders.iter().try_fold(0u64, |sum, f| {
-                            if f.exists {
-                                f.kib.map(|k| sum + k)
-                            } else {
-                                Some(sum)
-                            }
-                        })
+                    let total = facts.folders.as_ref().map(|folders| {
+                        folders
+                            .iter()
+                            .filter(|f| f.exists)
+                            .map(|f| f.kib)
+                            .sum::<u64>()
                     });
                     CheckoutPage {
                         name: root.name(),
@@ -1893,7 +1890,7 @@ fn folder_facts(
         path: entry.path.clone(),
         cap_kib: entry.cap_kib(app),
         exists,
-        kib: Some(if exists { answer.kib } else { 0 }),
+        kib: if exists { answer.kib } else { 0 },
         last_write: answer.newest,
         link: link_state,
     }
