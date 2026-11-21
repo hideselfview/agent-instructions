@@ -140,6 +140,13 @@ impl World {
     fn worktree(&self) -> String {
         self.dir.display().to_string()
     }
+
+    /// Makes the shots checker of this world's builds program say that every
+    /// board and component preview asked about draws as <verdict> (`alike` or
+    /// `differs`), whatever the files' bytes.
+    fn draws(&mut self, verdict: &str) {
+        self.tool.program = self.scratch.shots_script("draws", verdict);
+    }
 }
 
 fn draft(title: &str) -> serde_json::Value {
@@ -961,6 +968,119 @@ fn an_amend_whose_boards_come_out_the_same_keeps_the_approval() {
     let amended = w.amend(1, request).unwrap();
     assert!(amended.contains("approval is cleared"), "{amended}");
     assert!(w.state().designs[0].approved.is_none());
+}
+
+/// A rebase that merges unrelated lines into a board changes its bytes and
+/// not its drawing: the amend keeps the person's approval. A board that draws
+/// differently clears it, whatever its bytes.
+#[test]
+fn an_amend_keeps_the_approval_when_the_board_files_differ_and_draw_alike() {
+    let mut w = world("design-amend-alike");
+    let a = "design/mocks/A.dc.html";
+    w.commit(&[a]);
+    w.request(base_request(&w, json!({ a: { "matches": "x" } })))
+        .unwrap();
+    w.approve(1);
+    let approved = w.state().designs[0].approved.clone();
+    let request = json!({ "worktree": w.worktree(), "range": "base..HEAD", "places": {} });
+
+    w.draws("alike");
+    w.commit(&[a]);
+    let amended = w.amend(1, request.clone()).unwrap();
+    assert!(
+        amended.contains("approval stays") && !amended.contains("waits on the person's review"),
+        "{amended}"
+    );
+    assert_eq!(w.state().designs[0].approved, approved);
+    assert_eq!(w.state().designs[0].tip, Some(w.sha("HEAD")));
+
+    w.draws("differs");
+    w.commit(&[a]);
+    let amended = w.amend(1, request).unwrap();
+    assert!(amended.contains("approval is cleared"), "{amended}");
+    assert!(w.state().designs[0].approved.is_none());
+}
+
+/// A changed `canvas.json` or design-system source draws nothing alone: the
+/// amend keeps the approval when every board of the change draws alike, and
+/// clears it when one does not.
+#[test]
+fn an_amend_judges_a_changed_shared_file_by_what_the_changes_boards_draw() {
+    let mut w = world("design-amend-shared");
+    let (a, tokens) = ("design/mocks/A.dc.html", "design/system/tokens.json");
+    w.commit(&[a, tokens]);
+    let mut first = base_request(&w, json!({ a: { "matches": "x" } }));
+    first["no_app_place"] = json!("the design system has no components");
+    w.request(first).unwrap();
+    w.approve(1);
+    let request = json!({ "worktree": w.worktree(), "range": "base..HEAD", "places": {} });
+
+    w.draws("alike");
+    w.commit(&[tokens]);
+    let amended = w.amend(1, request.clone()).unwrap();
+    assert!(amended.contains("approval stays"), "{amended}");
+
+    w.draws("differs");
+    w.commit(&[tokens]);
+    let amended = w.amend(1, request).unwrap();
+    assert!(amended.contains("approval is cleared"), "{amended}");
+}
+
+/// Health and land's check cover commits whose board files differ from the
+/// change's in bytes only, and stop covering them once a board draws
+/// differently.
+#[test]
+fn health_and_check_cover_commits_whose_boards_differ_in_bytes_and_draw_alike() {
+    let mut w = world("design-covers-alike");
+    let a = "design/mocks/A.dc.html";
+    w.commit(&[a]);
+    w.request(base_request(&w, json!({ a: { "matches": "x" } })))
+        .unwrap();
+    w.approve(1);
+    let check = format!("check 1 {} base..HEAD", w.worktree());
+
+    w.draws("alike");
+    w.commit(&[a]);
+    let health = |w: &World| {
+        let tree = crate::lists::held::Worktree {
+            label: "bae/side-1".into(),
+            top: w.dir.clone(),
+            repo: "bae".into(),
+            branch: None,
+            claim: crate::claim::Claim {
+                who: "agent".into(),
+                since: NOON,
+                note: None,
+            },
+            project: Some("demo".into()),
+            app_checkout: false,
+            git: Ok(crate::lists::held::Read {
+                side: side_read_of(w, "base..HEAD"),
+                copied: Default::default(),
+            }),
+            committing: Ok(Vec::new()),
+        };
+        let loaded = Ok(vec![crate::lists::store::Loaded {
+            project: "demo".into(),
+            lists: Ok(w.state()),
+        }]);
+        let reads = crate::lists::design_reads::DesignReads::with_program(w.tool.program.clone());
+        crate::lists::held::findings(&loaded, &[tree], &reads)
+            .into_iter()
+            .map(|advice| advice.text)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(health(&w), Vec::<String>::new());
+    let out = w.run(&check).unwrap();
+    assert!(out.contains("resolves every place"), "{out}");
+
+    w.draws("differs");
+    assert_eq!(health(&w).len(), 1);
+    let refused = message(w.run(&check));
+    assert!(
+        refused.contains(&format!("design change #1 drew {a}")),
+        "{refused}"
+    );
 }
 
 #[test]

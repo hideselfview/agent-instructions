@@ -33,6 +33,7 @@ pub mod derive;
 pub mod design;
 pub mod design_circle_box;
 pub(crate) mod design_command;
+pub mod design_drawn;
 pub use design_command::change_is_design_only;
 pub mod design_paths;
 pub mod design_reads;

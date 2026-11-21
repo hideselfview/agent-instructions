@@ -299,27 +299,10 @@ pub(crate) fn read(root: &Path, at: Option<&str>, cache: &Path) -> Result<Vec<Un
         let settings = Settings::load(root).map_err(|e| e.to_string())?;
         return Ok(uncovered(&draw(root, &settings, cache)?));
     };
-    let source = boards::Source::Commit { repo: root, rev };
-    source.check().map_err(|e| e.text())?;
-    let mut paths = vec!["design".to_string()];
-    paths.extend(
-        source
-            .design_system_inputs()
-            .map_err(|e| e.text())?
-            .into_iter()
-            .filter(|p| p != "design" && !p.starts_with("design/")),
-    );
-    if boards::exists_in(root, rev, crate::settings::FILE).map_err(|e| e.text())? {
-        paths.push(crate::settings::FILE.to_string());
-    }
-    boards::in_scratch(cache, |work| {
-        boards::export(root, rev, &paths, work, "the design files")?;
-        let settings = Settings::load(work).map_err(|e| boards::Error::new(e.to_string()))?;
-        draw(work, &settings, cache)
-            .map(|drawn| uncovered(&drawn))
-            .map_err(boards::Error::new)
+    design::at_revision(root, rev, cache, |work| {
+        let settings = Settings::load(work).map_err(|e| e.to_string())?;
+        draw(work, &settings, cache).map(|drawn| uncovered(&drawn))
     })
-    .map_err(|e| format!("{rev}: {}", e.text()))
 }
 
 /// Draws every board and every preview of the repo at <root> and reads the

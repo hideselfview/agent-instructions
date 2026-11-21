@@ -708,9 +708,13 @@ already matches (`places`, `builds help lists`).
      it, circles on each side the elements the selectors find there, lists
      the change's other boards by name, and draws it again on each load. To change
      the boards again, commit and run `builds design amend`, which clears an
-     approval unless every board comes out byte-identical. A rebase onto a
-     moved main needs no amend: health and land compare the boards' files,
-     not commit hashes. The record names no app work: no item exists for a
+     approval unless every board and preview of the change draws the same as
+     in the commit the person approved. builds judges what each draws (its
+     picture and element boxes, which `builds shots draws` compares), not the
+     files' bytes, so a rebase that only merges unrelated lines into a board
+     file, canvas.json or a component's source keeps the approval. A rebase
+     onto a moved main needs no amend: health and land compare what the
+     boards draw, not commit hashes. The record names no app work: no item exists for a
      change before the person approves it (decision #304).
      A change whose boards draw a component state that no row of the
      component's preview shows, unless the boards before the change already

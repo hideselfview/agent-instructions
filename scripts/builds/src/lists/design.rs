@@ -19,7 +19,8 @@ use crate::fail;
 use crate::fail::Result;
 use crate::lists::derive::{self, ItemState};
 use crate::lists::design_circle_box;
-use crate::lists::design_paths::{Changes, Drawing, Globs, PlaceKind, changes_of, drawing_at};
+use crate::lists::design_drawn::{Renders, Sameness};
+use crate::lists::design_paths::{Changes, Globs, PlaceKind, changes_of, drawing_at};
 use crate::lists::design_session::{self, SessionState};
 use crate::lists::item::{ItemDraft, RecordWait, add_item};
 use crate::lists::record;
@@ -937,7 +938,7 @@ pub struct Drawn<'a> {
     /// The last commit of the range the boards are drawn at.
     pub tip: &'a str,
     /// For an amend, the change's last commit before it, when `tip` draws
-    /// every place of the change byte for byte as that commit does; None
+    /// every place of the change as that commit does (`Sameness`); None
     /// when `tip` draws a place differently, and for a record.
     pub same_as: Option<&'a str>,
 }
@@ -1053,7 +1054,7 @@ fn open_design_of<'a>(lists: &'a Lists, id: Id, repo: &str) -> Result<&'a Design
 /// of <request> are added, and a stored place the range no longer changes
 /// leaves with its board and its place on the review page. The person's
 /// approval stays only when what they approved stays: the same places,
-/// deleted boards and review page, every place drawn byte for byte as the
+/// deleted boards and review page, every place drawn the same as the
 /// last commit they approved draws it (`Drawn::same_as`), and no fix turned
 /// into a change that needs their review. Otherwise the amend clears it.
 pub fn amend(
@@ -1151,49 +1152,71 @@ pub fn open_named<'a>(lists: &'a Lists, ids: &[Id], repo: &str) -> Result<Vec<&'
     Ok(designs)
 }
 
-/// A design change and how its last commit draws the paths of the commits
-/// that `covers` checks it against (`Changes::drawn`, `drawn_by`).
+/// A design change and whether each path of the commits that `covers` checks
+/// it against (`Changes::drawn`) draws at the commits' last commit as it
+/// does at the change's own last commit.
 pub struct DrawnChange<'a> {
     pub design: &'a DesignChange,
-    pub drawing: Drawing,
+    pub same: Sameness,
 }
 
 /// What `covers` compares: design changes, each with how its last commit
-/// draws some paths, and how the commits' last commit draws them.
+/// draws some paths against how the commits' last commit draws them.
 pub struct Drawings<'a> {
     pub changes: Vec<DrawnChange<'a>>,
-    pub now: Drawing,
 }
 
 impl<'a> Drawings<'a> {
-    /// How each of <designs> and commit <last>, in the checkout at <top>,
-    /// draw <paths>.
+    /// How each of <designs>, in the checkout at <top>, draws <paths> at its
+    /// last commit against commit <last>. <sources> are the shared
+    /// design-system sources among <paths>. <renders> draws the boards of a
+    /// change when some file of <paths> differs between the two commits.
     pub fn read(
         top: &Path,
         last: &str,
         designs: impl IntoIterator<Item = &'a DesignChange>,
         paths: &BTreeSet<&String>,
+        sources: &BTreeSet<String>,
+        renders: &dyn Renders,
     ) -> Result<Drawings<'a>> {
+        let now = drawing_at(top, last, paths.iter().copied())?;
         let mut changes = Vec::new();
         for design in designs {
-            changes.push(DrawnChange {
-                design,
-                drawing: drawn_by(top, design, paths.iter().copied())?,
-            });
+            let same = match &design.tip {
+                Some(tip) => {
+                    let before = drawing_at(top, tip, paths.iter().copied())?;
+                    let held = design
+                        .places
+                        .keys()
+                        .filter(|place| PlaceKind::of(place) != PlaceKind::Spec)
+                        .cloned()
+                        .collect();
+                    Sameness::between(
+                        renders,
+                        top,
+                        (tip, &before),
+                        (last, &now),
+                        &held,
+                        sources,
+                        paths,
+                    )?
+                }
+                None => Sameness::never(),
+            };
+            changes.push(DrawnChange { design, same });
         }
-        let now = drawing_at(top, last, paths.iter().copied())?;
-        Ok(Drawings { changes, now })
+        Ok(Drawings { changes })
     }
 }
 
-/// Do <designs> together cover <changes>, the design files of commits whose
-/// last commit draws them as <now>? Each place the commits change must be a
-/// place of one of the changes. The person reviews each board as its
-/// change's last commit draws it, so every changed path a drawing shows must
-/// hold the same bytes there as in the commits: a board or component place in
-/// a change that holds it, a shared design-system source in any of the
-/// changes. The comparison reads files, not commit hashes, so commits rebased
-/// onto a moved main stay covered while they draw the same boards. One of the
+/// Do <designs> together cover <changes>, the design files of commits? Each
+/// place the commits change must be a place of one of the changes. The
+/// person reviews each board as its change's last commit draws it, so every
+/// changed path a drawing shows must draw the same at the commits' last
+/// commit (`Sameness`): a board or component place in a change that holds
+/// it, a shared design-system source in any of the changes. The comparison
+/// judges what the boards draw, not commit hashes or file bytes, so commits
+/// rebased onto a moved main stay covered while they draw the same boards. One of the
 /// changes answers for the shared files and sources (`needs_answer`), and
 /// each change resolves or answers for something the commits change: landing
 /// closes every change it names, so one that takes no part would close with
@@ -1201,7 +1224,7 @@ impl<'a> Drawings<'a> {
 /// covers. `builds design
 /// check`, which land runs, and health's search for design commits that no
 /// change covers both decide coverage here.
-pub fn covers(designs: &[DrawnChange], changes: &Changes, now: &Drawing) -> Result<()> {
+pub fn covers(designs: &[DrawnChange], changes: &Changes) -> Result<()> {
     let ids: Vec<Id> = designs.iter().map(|d| d.design.id).collect();
     let named = named(&ids);
     let holds = |d: &DrawnChange, place: &str| d.design.places.contains_key(place);
@@ -1223,9 +1246,9 @@ pub fn covers(designs: &[DrawnChange], changes: &Changes, now: &Drawing) -> Resu
         .drawn()
         .map(String::as_str)
         .filter(|path| {
-            !designs.iter().any(|d| {
-                (changes.sources.contains(*path) || holds(d, path)) && d.drawing.same(now, path)
-            })
+            !designs
+                .iter()
+                .any(|d| (changes.sources.contains(*path) || holds(d, path)) && d.same.path(path))
         })
         .collect();
     if !redrawn.is_empty() {
@@ -1260,7 +1283,7 @@ pub fn covers(designs: &[DrawnChange], changes: &Changes, now: &Drawing) -> Resu
 /// Do the open design changes <designs> cover <changes> (`covers`), has the
 /// person approved each, and does each place name its app work? `builds design check` runs this check, and
 /// builds land runs that command before it lands design changes.
-pub fn check_changes(designs: &[DrawnChange], changes: &Changes, now: &Drawing) -> Result<()> {
+pub fn check_changes(designs: &[DrawnChange], changes: &Changes) -> Result<()> {
     if !changes.is_design_change() {
         let ids: Vec<Id> = designs.iter().map(|d| d.design.id).collect();
         fail!(
@@ -1268,7 +1291,7 @@ pub fn check_changes(designs: &[DrawnChange], changes: &Changes, now: &Drawing) 
             named(&ids)
         );
     }
-    covers(designs, changes, now)?;
+    covers(designs, changes)?;
     for DrawnChange { design, .. } in designs {
         let id = design.id;
         if design.approved.is_none() {
@@ -1292,20 +1315,6 @@ pub fn check_changes(designs: &[DrawnChange], changes: &Changes, now: &Drawing) 
         }
     }
     Ok(())
-}
-
-/// How design change <design> draws <paths>: as its last commit has them,
-/// or not at all for a change that builds recorded before it began to keep
-/// a change's last commit.
-fn drawn_by<'a>(
-    top: &Path,
-    design: &DesignChange,
-    paths: impl IntoIterator<Item = &'a String>,
-) -> Result<Drawing> {
-    match &design.tip {
-        Some(tip) => drawing_at(top, tip, paths),
-        None => Ok(Drawing::default()),
-    }
 }
 
 /// One commit past origin/main that changes design files, and the id of the
@@ -1335,9 +1344,10 @@ impl DesignCommit {
 /// design change of the repo that covers it, approved or waiting on the
 /// person's review. A change covers a commit as `covers` decides it
 /// for `builds design check`, which land runs: it holds every place the
-/// commit changes, and draws each changed path a drawing shows byte for byte
-/// as the last of <ahead> does. The comparison reads files, so a change
-/// still covers its commits after an agent rebases them onto a moved main.
+/// commit changes, and draws each changed path a drawing shows the same as the
+/// last of <ahead> does (`Sameness`, which <renders> draws when files differ),
+/// so a change still covers its commits after an agent rebases them onto a
+/// moved main.
 /// Health and the dashboard's design card both read coverage here. Empty
 /// when the lists name no design globs for the repo.
 pub fn design_commits(
@@ -1345,6 +1355,7 @@ pub fn design_commits(
     repo: &str,
     top: &Path,
     ahead: &[String],
+    renders: &dyn Renders,
 ) -> Result<Vec<DesignCommit>> {
     let globs = Globs::of(lists, repo);
     if globs.places.is_empty() && globs.sources.is_empty() {
@@ -1364,15 +1375,26 @@ pub fn design_commits(
         .iter()
         .flat_map(|(_, changes)| changes.drawn())
         .collect();
+    let sources: BTreeSet<String> = commits
+        .iter()
+        .flat_map(|(_, changes)| changes.sources.iter().cloned())
+        .collect();
     let last = ahead.last().expect("it holds the design commits");
-    let drawings = Drawings::read(top, last, open_designs(lists, repo), &drawn)?;
+    let drawings = Drawings::read(
+        top,
+        last,
+        open_designs(lists, repo),
+        &drawn,
+        &sources,
+        renders,
+    )?;
     Ok(commits
         .into_iter()
         .map(|(sha, changes)| {
             let covered_by = drawings
                 .changes
                 .iter()
-                .find(|drawn| covers(std::slice::from_ref(*drawn), &changes, &drawings.now).is_ok())
+                .find(|drawn| covers(std::slice::from_ref(*drawn), &changes).is_ok())
                 .map(|drawn| drawn.design.id);
             DesignCommit {
                 sha: sha.clone(),

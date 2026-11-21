@@ -1327,7 +1327,7 @@ pub fn health(tool: &Tool) -> Result<Health> {
         &mut judged,
         &held_worktrees,
         WorktreeReads {
-            designs: &Default::default(),
+            designs: &crate::lists::design_reads::DesignReads::with_program(tool.program.clone()),
             reviews: &crate::review::verdicts::Reads::with_root(Ok(
                 crate::review::installed_rules_root(&tool.places.home),
             )),

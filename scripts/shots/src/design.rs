@@ -86,6 +86,35 @@ impl DesignSystem {
     }
 }
 
+/// Runs <use_it> over the design files of the repo at <root> as they are at
+/// revision <rev>, written into a scratch folder of <cache> (the design
+/// system's inputs and the repo's `.app-build` included).
+pub(crate) fn at_revision<T>(
+    root: &Path,
+    rev: &str,
+    cache: &Path,
+    use_it: impl FnOnce(&Path) -> Result<T, String>,
+) -> Result<T, String> {
+    let source = boards::Source::Commit { repo: root, rev };
+    source.check().map_err(|e| e.text())?;
+    let mut paths = vec!["design".to_string()];
+    paths.extend(
+        source
+            .design_system_inputs()
+            .map_err(|e| e.text())?
+            .into_iter()
+            .filter(|p| p != "design" && !p.starts_with("design/")),
+    );
+    if boards::exists_in(root, rev, crate::settings::FILE).map_err(|e| e.text())? {
+        paths.push(crate::settings::FILE.to_string());
+    }
+    boards::in_scratch(cache, |work| {
+        boards::export(root, rev, &paths, work, "the design files")?;
+        use_it(work).map_err(boards::Error::new)
+    })
+    .map_err(|e| format!("{rev}: {}", e.text()))
+}
+
 fn read(path: &Path) -> Result<Vec<u8>, DesignError> {
     std::fs::read(path).map_err(|e| DesignError::Unreadable {
         path: path.to_path_buf(),

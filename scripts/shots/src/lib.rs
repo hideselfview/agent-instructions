@@ -10,6 +10,7 @@ mod compare;
 mod component_files;
 mod declared;
 mod design;
+mod draws;
 mod findings_file;
 mod hex;
 mod lint;
@@ -170,6 +171,24 @@ enum Action {
         /// hold, and fail when there is one.
         #[arg(long)]
         against: Option<String>,
+    },
+    /// Print `alike <what>` or `differs <what>` for each board and component
+    /// preview named, by whether it draws the same at the two revisions
+    /// (picture and element boxes, not file bytes). It fails only when it
+    /// cannot draw one.
+    Draws {
+        /// The first revision.
+        #[arg(long)]
+        at: String,
+        /// The revision to compare with.
+        #[arg(long)]
+        against: String,
+        /// A board's name (`design/mocks/<name>.dc.html`); repeat for several.
+        #[arg(long = "board")]
+        boards: Vec<String>,
+        /// A component's name, whose preview page is drawn; repeat for several.
+        #[arg(long = "component")]
+        components: Vec<String>,
     },
     Components {
         /// A component to show with every row, such as MacRow; repeat for
@@ -570,6 +589,18 @@ fn run(checker: &Checker, action: Action) -> Result<bool, String> {
                 crate::log::outcome(line);
             }
             Ok(against.is_none() || listed.is_empty())
+        }
+        Action::Draws {
+            at,
+            against,
+            boards,
+            components,
+        } => {
+            let lines = draws::lines(&root, &at, &against, &boards, &components, checker.cache)?;
+            for line in lines {
+                println!("{line}");
+            }
+            Ok(true)
         }
         Action::Version | Action::Recheck { .. } => {
             unreachable!("`main` runs these before it reads a repo")

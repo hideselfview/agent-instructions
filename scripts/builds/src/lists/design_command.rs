@@ -17,6 +17,7 @@ use crate::fail::{Context, Result};
 use crate::inbox::Messaging;
 use crate::lists::args::{Args, read_request};
 use crate::lists::design::{self, DesignRequest, Drawn, Landed, PlaceAnswer, Settlement, Shown};
+use crate::lists::design_drawn::{ProgramRenders, Renders, Sameness};
 use crate::lists::design_paths::{self, Changes, Globs, PlaceKind};
 use crate::lists::design_session;
 use crate::lists::rulings::{self, Source};
@@ -401,7 +402,7 @@ fn recorded_words(verb: &str, recorded: &design::Recorded, title: &str, review: 
             id.0
         )),
         Review::Kept => out.push_str(&format!(
-            "the person's approval stays: every board is byte for byte as they approved it; builds land --design {} can land it\n",
+            "the person's approval stays: every board draws as they approved it; builds land --design {} can land it\n",
             id.0
         )),
         Review::Cleared => {
@@ -525,7 +526,7 @@ fn amend(
     let stamp = Stamp::resolve(tool.now, &args, cwd)?;
     let repo = scope.checkout.repo();
     let worktree = scope.checkout.top.display().to_string();
-    let same_as = drawn_the_same(&scope, id)?;
+    let same_as = drawn_the_same(&scope, id, &ProgramRenders(tool.program.clone()))?;
     let (recorded, title, review) =
         scope
             .store
@@ -569,11 +570,12 @@ fn amend(
 
 /// The last commit of open change <id> of the scope's repo, when the range's
 /// last commit draws every board and component place of the change, and
-/// every path the range changes that a drawing shows (`Changes::drawn`),
-/// byte for byte as that commit does; None when the range's last commit
-/// draws one of these paths differently, or the change keeps no last commit. An amend keeps the person's approval
-/// only then (`design::amend`).
-fn drawn_the_same(scope: &Scope, id: Id) -> Result<Option<String>> {
+/// every path the range changes that a drawing shows (`Changes::drawn`), the
+/// same as that commit does (`Sameness`, which <renders> draws when files
+/// differ); None when the range's last commit draws one of these paths
+/// differently, or the change keeps no last commit. An amend keeps the
+/// person's approval only then (`design::amend`).
+fn drawn_the_same(scope: &Scope, id: Id, renders: &dyn Renders) -> Result<Option<String>> {
     let Some(design) = scope.lists.design(id) else {
         return Ok(None);
     };
@@ -583,16 +585,29 @@ fn drawn_the_same(scope: &Scope, id: Id) -> Result<Option<String>> {
     if design.repo != scope.checkout.repo() {
         return Ok(None);
     }
-    let paths: BTreeSet<&String> = design
+    let held: BTreeSet<String> = design
         .places
         .keys()
         .filter(|place| PlaceKind::of(place) != PlaceKind::Spec)
-        .chain(scope.changes.drawn())
+        .cloned()
         .collect();
+    let paths: BTreeSet<&String> = held.iter().chain(scope.changes.drawn()).collect();
     let top = &scope.checkout.top;
     let before = design_paths::drawing_at(top, tip, paths.iter().copied())?;
     let after = design_paths::drawing_at(top, &scope.tip, paths.iter().copied())?;
-    Ok((before == after).then(|| tip.clone()))
+    let same = Sameness::between(
+        renders,
+        top,
+        (tip, &before),
+        (&scope.tip, &after),
+        &held,
+        &scope.changes.sources,
+        &paths,
+    )?;
+    Ok(paths
+        .iter()
+        .all(|path| same.path(path))
+        .then(|| tip.clone()))
 }
 
 /// `approve N --by-person`: the person's review of the boards, said by
@@ -641,8 +656,15 @@ fn check(tool: &Tool, args: &[String]) -> Result<String> {
     let top = &scope.checkout.top;
     let drawn: BTreeSet<&String> = scope.changes.drawn().collect();
     let designs = design::open_named(&scope.lists, &ids, &scope.checkout.repo())?;
-    let drawings = design::Drawings::read(top, &scope.tip, designs, &drawn)?;
-    design::check_changes(&drawings.changes, &scope.changes, &drawings.now)?;
+    let drawings = design::Drawings::read(
+        top,
+        &scope.tip,
+        designs,
+        &drawn,
+        &scope.changes.sources,
+        &ProgramRenders(tool.program.clone()),
+    )?;
+    design::check_changes(&drawings.changes, &scope.changes)?;
     let named = design::named(&ids);
     Ok(match ids.as_slice() {
         [_] => format!("{named} resolves every place the commits change and is approved\n"),
@@ -732,7 +754,15 @@ fn show(tool: &Tool, args: &[String], cwd: &Path) -> Result<String> {
     if let Some(design) = lists.design(id).filter(|d| d.awaits_approval()) {
         let standing =
             crate::review::run::Material::load(&tool.reviewer.rules_root, &lists.project).and_then(
-                |material| crate::review::design_review::read(&store, &lists, design, &material),
+                |material| {
+                    crate::review::design_review::read(
+                        &store,
+                        &lists,
+                        design,
+                        &material,
+                        &ProgramRenders(tool.program.clone()),
+                    )
+                },
             );
         out.push_str(&match standing {
             Ok(standing) => standing.line(id, &design.worktree),

@@ -191,7 +191,12 @@ pub(super) fn now_seconds() -> i64 {
 }
 
 impl Model {
-    pub fn start(places: Places, rules: Rules, runs: Arc<Runs>) -> Arc<Model> {
+    pub fn start(
+        places: Places,
+        rules: Rules,
+        runs: Arc<Runs>,
+        program: std::path::PathBuf,
+    ) -> Arc<Model> {
         let model = Arc::new(Model {
             places: places.clone(),
             rules,
@@ -210,7 +215,7 @@ impl Model {
             git_stream: Mutex::new(None),
             rules_stream: Mutex::new(None),
             lists: Feed::start(places),
-            design_reads: Default::default(),
+            design_reads: crate::lists::design_reads::DesignReads::with_program(program),
             review_reads: Default::default(),
             runs,
             served: Mutex::new(None),

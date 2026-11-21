@@ -12,6 +12,7 @@ use std::sync::{Arc, Mutex};
 use crate::fail::Result;
 use crate::lists::Lists;
 use crate::lists::design::{DesignCommit, design_commits};
+use crate::lists::design_drawn::{ProgramRenders, Renders};
 use crate::side_git::SideRead;
 
 /// What a worktree's design commits are read from besides the files of its
@@ -32,12 +33,36 @@ struct Tip {
 type Read = (Tip, Arc<Vec<DesignCommit>>);
 
 /// Each worktree's design commits, by the worktree's folder.
-#[derive(Default)]
 pub struct DesignReads {
     read: Mutex<HashMap<PathBuf, Read>>,
+    /// Draws the boards of a change when a commit's files differ from the
+    /// change's (`Sameness`).
+    renders: Box<dyn Renders>,
+}
+
+/// Reads whose files' bytes alone decide, for the tests that make no
+/// drawings.
+#[cfg(test)]
+impl Default for DesignReads {
+    fn default() -> Self {
+        Self::new(Box::new(crate::lists::design_drawn::NeverAlike))
+    }
 }
 
 impl DesignReads {
+    /// Reads that draw boards with <renders>.
+    pub fn new(renders: Box<dyn Renders>) -> Self {
+        Self {
+            read: Mutex::default(),
+            renders,
+        }
+    }
+
+    /// Reads that draw boards with the builds program at <program>.
+    pub fn with_program(program: PathBuf) -> Self {
+        Self::new(Box::new(ProgramRenders(program)))
+    }
+
     /// The design commits in the worktree at <top> of <repo>, whose side
     /// read is <git>, against the design globs and open design changes of
     /// <lists>: the ones
@@ -63,7 +88,13 @@ impl DesignReads {
         {
             return Ok(commits.clone());
         }
-        let commits = Arc::new(design_commits(lists, repo, top, &tip.ahead)?);
+        let commits = Arc::new(design_commits(
+            lists,
+            repo,
+            top,
+            &tip.ahead,
+            self.renders.as_ref(),
+        )?);
         read.insert(top.to_path_buf(), (tip, commits.clone()));
         Ok(commits)
     }

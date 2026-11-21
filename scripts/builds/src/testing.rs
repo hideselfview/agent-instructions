@@ -100,11 +100,33 @@ impl Scratch {
                 idle_claim_hours: 2,
             },
             // A builds whose `shots states` finds no component state a change
-            // adds.
-            self.script("states-shown", "exit 0"),
+            // adds, and whose `shots draws` finds every board it is asked
+            // about drawn differently.
+            self.shots_script("states-shown", "differs"),
         );
         tool.reviewer = self.no_rulings_reviewer();
         tool
+    }
+
+    /// A builds program <name> in the scratch folder: its `shots states`
+    /// finds no state, and its `shots draws` says each board and component it
+    /// is asked about is <verdict>, `alike` or `differs`.
+    pub fn shots_script(&self, name: &str, verdict: &str) -> PathBuf {
+        self.script(
+            name,
+            &format!(
+                r#"if [ "$2" = draws ]; then
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --board) echo "{verdict} board $2"; shift;;
+      --component) echo "{verdict} component $2"; shift;;
+    esac
+    shift
+  done
+fi
+exit 0"#
+            ),
+        )
     }
 
     /// The shell script <name> in the scratch folder, whose body is <body>.

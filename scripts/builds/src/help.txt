@@ -2400,8 +2400,8 @@ STATUS, HEALTH AND THE DASHBOARD
                               design change covers, approved or waiting (a
                               change covers a commit as `builds design check`
                               decides it: its places hold every place the
-                              commit changes, and its last commit holds the
-                              same bytes as the worktree's last commit for
+                              commit changes, and its last commit draws
+                              the same as the worktree's last commit for
                               each changed board, component and source, so a
                               rebase keeps it covered; a worktree whose
                               open design change waits on the person's review

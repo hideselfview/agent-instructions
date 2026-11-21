@@ -16,6 +16,7 @@ use crate::ack::agent::Caller;
 use crate::fail::{Fail, Result};
 use crate::inbox::Messaging;
 use crate::lists::design::design_commits;
+use crate::lists::design_drawn::{ProgramRenders, Renders};
 use crate::lists::design_paths::Globs;
 use crate::lists::store::Store;
 use crate::lists::{DesignChange, Id, Lists, Stamp};
@@ -75,18 +76,20 @@ impl Standing {
 /// Where the rules review of open design change <design> stands, from the
 /// commits that its worktree's HEAD holds past origin/main, the review's
 /// records in <store>, the groups of <material> and the design files of the
-/// change's repo, which <lists> gives.
+/// change's repo, which <lists> gives. <renders> draws the change's boards
+/// when the commits' files differ from the change's (`Sameness`).
 pub fn read(
     store: &Store,
     lists: &Lists,
     design: &DesignChange,
     material: &Material,
+    renders: &dyn Renders,
 ) -> Result<Standing> {
     let top = Path::new(&design.worktree);
     let ahead = crate::side_git::read(top)
         .map_err(Fail::Message)?
         .ahead_oldest_first();
-    let covers = design_commits(lists, &design.repo, top, &ahead)?
+    let covers = design_commits(lists, &design.repo, top, &ahead, renders)?
         .iter()
         .any(|commit| commit.covered_by == Some(design.id));
     if !covers {
@@ -130,7 +133,13 @@ pub fn start(
     let Some(design) = lists.design(id) else {
         crate::fail!("{id} is no open design change");
     };
-    let mut standing = read(store, &lists, design, &material)?;
+    let mut standing = read(
+        store,
+        &lists,
+        design,
+        &material,
+        &ProgramRenders(tool.program.clone()),
+    )?;
     let mut out = String::new();
     if standing.lacks_a_read() {
         let worktree = Path::new(&design.worktree);
@@ -143,7 +152,13 @@ pub fn start(
             runner()?.as_ref(),
             own,
         )?);
-        standing = read(store, &store.load()?, design, &material)?;
+        standing = read(
+            store,
+            &store.load()?,
+            design,
+            &material,
+            &ProgramRenders(tool.program.clone()),
+        )?;
     }
     out.push_str(&standing.line(id, &design.worktree));
     Ok(out)

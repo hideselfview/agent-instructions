@@ -101,7 +101,14 @@ fn record(demo: &Demo, side: &Path, id: Option<Id>) -> String {
 fn standing(demo: &Demo, fake: &Fake) -> Standing {
     let lists = demo.store.load().unwrap();
     let material = Material::load(&fake.root, "demo").unwrap();
-    read(&demo.store, &lists, lists.design(Id(1)).unwrap(), &material).unwrap()
+    read(
+        &demo.store,
+        &lists,
+        lists.design(Id(1)).unwrap(),
+        &material,
+        &crate::lists::design_drawn::NeverAlike,
+    )
+    .unwrap()
 }
 
 fn findings(demo: &Demo) -> Vec<crate::review::record::Finding> {

@@ -202,7 +202,12 @@ pub fn cmd_dashboard(tool: &Tool, args: &[String]) -> Result<()> {
     crate::prune_schedule::start(tool.places.clone(), exe)?;
     crate::rust_stable::start(tool.places.clone())?;
     crate::host_sample::start(tool.places.clone())?;
-    let model = Model::start(tool.places.clone(), tool.rules.clone(), runs);
+    let model = Model::start(
+        tool.places.clone(),
+        tool.rules.clone(),
+        runs,
+        tool.program.clone(),
+    );
     card_recorder::start(model.clone())?;
     let questions = model.clone();
     std::thread::Builder::new()

@@ -577,9 +577,13 @@ segment.
 Other changed files under design/ are shared design files. Commands that read
 git take a worktree DIR and find the project from its repo (or --project).
 You may rebase the commits: builds compares a design change with commits by
-the paths they change and by the bytes of the boards, components and sources
-at the change's last commit and at the commits' last one, never by commit
-hash.
+the paths they change and by what the change's boards and component previews
+draw at the change's last commit and at the commits' last one, never by commit
+hash or file bytes. Files that hold the same bytes draw the same; when a file
+differs, builds draws the change's boards and previews at both commits
+(`builds shots draws`) and compares their pictures and element boxes. A
+changed canvas.json or design-system source draws the same when every board
+and preview of the change does.
 
 The review page shows the change's details and the boards the recorder put on
 it (decision #369), in frames the person can zoom (never an image): proposed,
@@ -782,10 +786,12 @@ sent again.
       whole page (left out, the page stays). The amend stores the new last commit and clears the
       record that builds sent the recording session the approval message.
       The amend keeps the person's approval when the change keeps its
-      places, deleted boards and review page, and the new last commit holds
-      every board, component and changed source byte for byte as the commit
-      they approved did, as after a rebase onto a moved main that changed
-      none of them. Naming the app work of places changes none of these, so
+      places, deleted boards and review page, and the new last commit draws
+      every board and component of the change, and each changed source, the
+      same as the commit they approved did (as drawn by `builds shots draws`,
+      never by file bytes), as after a rebase onto a moved main that merged
+      lines into a board file, canvas.json or a component's source and
+      changed no drawing. Naming the app work of places changes none of these, so
       the design session gives it after approval and the approval stays.
       Otherwise the amend clears the approval, since the person
       approved the boards the session drew before; an amend of a fix without
@@ -800,8 +806,8 @@ sent again.
   builds design check N[,N...] DIR REV...
       Succeeds when one of the open changes N resolves each place the
       commits change; one change that holds each changed board or component
-      (any of them, for a changed source) holds the same bytes for it at its
-      last commit as the commits' last commit does; one of them answers for
+      (any of them, for a changed source) draws the same at its last commit
+      as the commits' last commit does (`builds shots draws`); one of them answers for
       the shared files and sources; each change resolves or answers for
       something the commits change; the person has approved each; and each
       place names its app work. Otherwise it names what does not hold. builds land runs it once with

@@ -42,7 +42,7 @@ fn server_with(name: &str, prepare: impl FnOnce(&Scratch, &crate::places::Places
         gate.to_string_lossy().into_owned(),
     ];
     let runs = Runs::start(places.clone(), program).unwrap();
-    let model = Model::start(places, tool.rules.clone(), runs);
+    let model = Model::start(places, tool.rules.clone(), runs, tool.program.clone());
     let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
     let port = listener.local_addr().unwrap().port();
     let serving = model.clone();
