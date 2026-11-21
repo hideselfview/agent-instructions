@@ -148,9 +148,14 @@ fn names_design_system(top: &Path, rev: &str) -> Result<bool> {
     let canvas: serde_json::Value = serde_json::from_str(&text).map_err(|e| {
         crate::fail::Fail::Message(format!("{} at {rev} is not JSON: {e}", boards::CANVAS))
     })?;
-    let named = canvas["designSystems"].as_array().map_or(0, Vec::len);
-    if named == 0 {
-        return Ok(false);
+    match &canvas["designSystems"] {
+        serde_json::Value::Null => return Ok(false),
+        serde_json::Value::Array(systems) if systems.is_empty() => return Ok(false),
+        serde_json::Value::Array(_) => {}
+        _ => fail!(
+            "{} at {rev}: designSystems is no list, so it names no design system the boards load",
+            boards::CANVAS
+        ),
     }
     // Two systems, or a namespace that is no folder name, is a broken canvas.
     boards::design_namespace(&canvas).map_err(|e| {

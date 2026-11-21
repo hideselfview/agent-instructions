@@ -212,23 +212,63 @@ fn a_program_that_leaves_a_place_unanswered_or_fails_is_an_error() {
     );
 }
 
-#[test]
-fn a_broken_canvas_is_an_error_not_a_repo_with_no_design_system() {
-    let scratch = Scratch::new("design-drawn-broken");
+/// What `names_design_system` answers for a repo whose canvas.json holds
+/// <canvas>, or has none when it is None.
+fn names(canvas: Option<&str>) -> Result<bool> {
+    let scratch = Scratch::new("design-drawn-canvas");
     let dir = scratch.dir.join("repo");
     repo(&dir, "target 1\n");
-    let file = dir.join(CANVAS);
-    std::fs::create_dir_all(file.parent().unwrap()).unwrap();
-    std::fs::write(
-        &file,
-        r#"{"designSystems": [{"namespace": "a"}, {"namespace": "b"}]}"#,
-    )
-    .unwrap();
-    git(&dir, &["add", CANVAS]);
-    git(&dir, &["commit", "-q", "-m", "two systems"]);
-    let error = names_design_system(&dir, "HEAD").unwrap_err();
+    if let Some(text) = canvas {
+        let file = dir.join(CANVAS);
+        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+        std::fs::write(&file, text).unwrap();
+        git(&dir, &["add", CANVAS]);
+        git(&dir, &["commit", "-q", "-m", "canvas"]);
+    }
+    names_design_system(&dir, "HEAD")
+}
+
+fn refused(canvas: &str, words: &str) {
+    let error = names(Some(canvas)).unwrap_err();
     assert!(
-        matches!(&error, crate::fail::Fail::Message(m) if m.contains("more than one")),
-        "{error:?}"
+        matches!(&error, crate::fail::Fail::Message(m) if m.contains(CANVAS) && m.contains(words)),
+        "{canvas}: {error:?}"
     );
+}
+
+#[test]
+fn only_a_canvas_that_names_no_design_system_answers_false() {
+    assert!(!names(None).unwrap(), "no canvas.json");
+    assert!(
+        !names(Some(r#"{"boards": {}}"#)).unwrap(),
+        "no designSystems"
+    );
+    assert!(
+        !names(Some(r#"{"designSystems": []}"#)).unwrap(),
+        "an empty list"
+    );
+    assert!(names(Some(r#"{"designSystems": [{"namespace": "demo"}]}"#)).unwrap());
+}
+
+#[test]
+fn every_malformed_canvas_is_an_error_that_names_the_file() {
+    refused("not json", "not JSON");
+    for wrong in [r#""demo""#, "5", r#"{"namespace": "demo"}"#, "true"] {
+        refused(&format!(r#"{{"designSystems": {wrong}}}"#), "is no list");
+    }
+    refused(
+        r#"{"designSystems": [{"namespace": "a"}, {"namespace": "b"}]}"#,
+        "more than one",
+    );
+    for entry in [
+        r#"{"namespace": "Bad Name"}"#,
+        r#"{"namespace": ""}"#,
+        "{}",
+        r#""demo""#,
+    ] {
+        refused(
+            &format!(r#"{{"designSystems": [{entry}]}}"#),
+            "design system",
+        );
+    }
 }
