@@ -392,6 +392,6 @@ fn a_picture_folders_parts_go_to_a_temporary_folder_on_the_host_and_come_back() 
     let back = s.places.root.join("back");
     app.fetch_folder(&there, &back).unwrap();
     assert!(back.join("mac/tree1/s.png").is_file() && back.join("boards/h.png").is_file());
-    app.remove_temporary_folder(&there).unwrap();
+    app.remove_temporary(&there).unwrap();
     assert!(!there_path.exists());
 }

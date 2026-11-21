@@ -351,6 +351,8 @@ fn pictures_a_host_made_move_into_place_and_kept_ones_stay() {
         ("boards/new.png", "png"),
         ("boards/new.json", "{}"),
         ("mac/tree1/mac.a.b@macos.png", "shot"),
+        ("mac/tree1/.taken/mac.a.@no-windows", ""),
+        ("boards/.half.png.123", "half"),
     ] {
         let file = incoming.join(path);
         std::fs::create_dir_all(file.parent().unwrap()).unwrap();
@@ -367,6 +369,11 @@ fn pictures_a_host_made_move_into_place_and_kept_ones_stay() {
     );
     assert!(folder.join("boards/new.json").is_file());
     assert!(folder.join("mac/tree1/mac.a.b@macos.png").is_file());
+    assert!(
+        folder.join("mac/tree1/.taken/mac.a.@no-windows").is_file(),
+        "the host run's marks come too"
+    );
+    assert!(!folder.join("boards/.half.png.123").exists());
     assert!(!incoming.exists());
 }
 
@@ -390,4 +397,11 @@ fn a_prefix_is_kept_when_a_taken_mark_starts_it_and_took_the_window_shots_it_ask
     std::fs::write(taken.join("mac.@windows"), "").unwrap();
     assert!(kept("mac.", true) && kept("mac.b.", false));
     assert!(!shots_kept(&places, "demo", Lane::Mac, "tree2", "mac.a.", false).unwrap());
+    let other = pictures(&places, "demo").join("mac/tree3").join(TAKEN);
+    std::fs::create_dir_all(&other).unwrap();
+    std::fs::write(other.join("mac.c."), "").unwrap();
+    let error = shots_kept(&places, "demo", Lane::Mac, "tree3", "mac.c.", false)
+        .expect_err("a mark the shots program never writes fails")
+        .text();
+    assert!(error.contains("mac.c."), "{error}");
 }

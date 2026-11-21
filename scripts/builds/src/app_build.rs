@@ -846,9 +846,10 @@ pub fn kept_shots_lanes(
         {
             continue;
         }
-        let windows = config
-            .picker(*lane, PickKind::Shots)
-            .is_some_and(|picker| picker.command.iter().any(|word| word == "--windows"));
+        let Some(picker) = config.picker(*lane, PickKind::Shots) else {
+            return Err(missing_line(*lane, PickKind::Shots, &own[0].2));
+        };
+        let windows = picker.command.iter().any(|word| word == "--windows");
         let tree = crate::app_tree::of(top, commit, config, *lane)?;
         let mut every = true;
         for (_, _, prefix) in &own {
@@ -1103,7 +1104,7 @@ impl ShotsStore {
                 error.text()
             ));
         }
-        if let Err(error) = remote.remove_temporary_folder(there) {
+        if let Err(error) = remote.remove_temporary(there) {
             note(error.text());
         }
     }

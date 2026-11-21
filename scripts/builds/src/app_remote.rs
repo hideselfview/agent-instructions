@@ -397,24 +397,13 @@ impl RemoteApp {
         )
     }
 
-    /// Deletes the temporary folder <there> that `put_folder` made on the
-    /// host.
-    pub fn remove_temporary_folder(&mut self, there: &str) -> Result<()> {
-        self.transport()
-            .capture(
-                &format!("rm -rf {}", sh_quote(there)),
-                "deleting a temporary folder",
-            )
-            .map(|_| ())
-    }
-
-    /// Deletes the temporary file <there> that `put_temporary` made on the
-    /// host.
+    /// Deletes the temporary file or folder <there> that `put_temporary` or
+    /// `put_folder` made on the host.
     pub fn remove_temporary(&mut self, there: &str) -> Result<()> {
         self.transport()
             .capture(
-                &format!("rm -f {}", sh_quote(there)),
-                "deleting a temporary file",
+                &format!("rm -rf {}", sh_quote(there)),
+                &format!("deleting {there}"),
             )
             .map(|_| ())
     }

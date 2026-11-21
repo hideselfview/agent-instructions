@@ -167,11 +167,16 @@ pub fn shots_kept(
         .join(lane.word())
         .join(tree)
         .join(TAKEN);
-    for (name, _) in entries_in(&taken)? {
-        let Some((marked, how)) = name.rsplit_once('@') else {
-            continue;
+    for (name, path) in entries_in(&taken)? {
+        let (marked, took_windows) = match name.rsplit_once('@') {
+            Some((marked, "windows")) => (marked, true),
+            Some((marked, "no-windows")) => (marked, false),
+            _ => fail!(
+                "{} is no mark the shots program writes (<prefix>@windows or <prefix>@no-windows)",
+                path.display()
+            ),
         };
-        if prefix.starts_with(marked) && (how == "windows" || !windows) {
+        if prefix.starts_with(marked) && (took_windows || !windows) {
             return Ok(true);
         }
     }
@@ -184,32 +189,41 @@ pub fn incoming(pictures: &Path) -> PathBuf {
     pictures.join(format!("{INCOMING}{}-{}", std::process::id(), now()))
 }
 
-/// Moves each picture file in <incoming> that <pictures> lacks to the same
-/// place in <pictures>, element lists before pictures, so that the shots
-/// program never finds a picture without its element list, and deletes
-/// <incoming>. A file <pictures> already has stays as it is: its key names
-/// the same inputs.
+/// Moves each picture file and taken mark in <incoming> that <pictures>
+/// lacks to the same place in <pictures>, and deletes <incoming>. Element
+/// lists go before pictures, so that the shots program never finds a picture
+/// without its element list, and marks go last, so that builds never finds a
+/// mark before the shots it says are kept. A file <pictures> already has
+/// stays as it is: its key names the same inputs. A hidden file outside a
+/// marks folder is one the shots program left half written: it stays out,
+/// and the merge says so.
 pub fn merge_pictures(incoming: &Path, pictures: &Path) -> Result<()> {
     let mut files = Vec::new();
     let mut folders = vec![incoming.to_path_buf()];
     while let Some(folder) = folders.pop() {
         for (name, path) in entries_in(&folder)? {
-            if name.starts_with('.') {
-                continue;
-            }
             if path.is_dir() {
                 folders.push(path);
+            } else if name.starts_with('.') {
+                note(format!(
+                    "left out {}, a picture file the run on the host left half written",
+                    path.display()
+                ));
             } else {
                 files.push(path);
             }
         }
     }
-    files.sort_by_key(|file| {
-        (
-            file.extension().is_some_and(|ext| ext == "png"),
-            file.clone(),
-        )
-    });
+    let order = |file: &PathBuf| {
+        if file.parent().is_some_and(|parent| parent.ends_with(TAKEN)) {
+            2
+        } else if file.extension().is_some_and(|ext| ext == "png") {
+            1
+        } else {
+            0
+        }
+    };
+    files.sort_by_key(|file| (order(file), file.clone()));
     for file in files {
         let relative = file
             .strip_prefix(incoming)
