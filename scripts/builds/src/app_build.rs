@@ -554,7 +554,10 @@ fn run_steps(
 type RunStep<'a> =
     dyn FnMut(&Step, StepKind, Option<&Found>, &lock::EachLine) -> Result<Within> + 'a;
 
-/// Runs <steps> in order, each by <run>, stopping at the first that fails.
+/// Runs <steps> in order, each by <run>, stopping at the first that fails,
+/// except a shots run whose output names the pairs that fail it: that run
+/// did its work, so the steps after it run, and once they pass the run fails
+/// with the first such run's status.
 /// `run_steps_with` records each step as it starts in the record <held>
 /// keeps beside its lock (holder_run.rs), and times each step it starts into
 /// <log> (app_timing.rs), with what a step that failed or ran past its limit
@@ -570,6 +573,8 @@ fn run_steps_with(
     watch: bool,
     run: &mut RunStep,
 ) -> Result<Ended> {
+    // The status of the first shots run whose pairs failed it.
+    let mut pairs_failed = None;
     for step in steps {
         // A step that opens windows holds its host's display alone.
         let _window = if step.place == lock::Where::Hosts {
@@ -592,6 +597,7 @@ fn run_steps_with(
         let found = Found::default();
         let read = StepRead::default();
         let outcome = run(step, kind, watch.then_some(&found), &read.each_line());
+        let failed_pairs = kind == StepKind::Shots && !read.failure().failed.is_empty();
         let stopped_by = lock::stop_signal();
         let result = match &outcome {
             Ok(Within::Ran(Ran::Finished)) => StepResult::Passed,
@@ -631,12 +637,22 @@ fn run_steps_with(
                 if let Some(said) = found.lock().expect("no thread panicked holding it").take() {
                     return Ok(Ended::HostFault(refused_after(&said), said));
                 }
-                return Err(Fail::Exit(code));
+                if !failed_pairs {
+                    return Err(Fail::Exit(code));
+                }
+                note(format!(
+                    "{} kept its findings, so the lane runs its other steps",
+                    step.name
+                ));
+                pairs_failed = pairs_failed.or(Some(code));
             }
             Err(other) => return Err(other),
         }
     }
-    Ok(Ended::Finished)
+    match pairs_failed {
+        Some(code) => Err(Fail::Exit(code)),
+        None => Ok(Ended::Finished),
+    }
 }
 
 /// The repo's `.app-build` at <commit>, read without touching a checkout's

@@ -662,6 +662,62 @@ fn running_fake_steps_times_each_one_with_its_kind_and_result() {
     assert!(log.iter().all(|s| s.started_at > 0));
 }
 
+/// A shots run whose pairs fail it has done its work: its findings are what
+/// it was run for, and a merge base's runs, which compare with nothing, fail
+/// on every pair with findings. So the lane runs every other shots prefix
+/// and test class it was asked for, and fails at its end with the shots
+/// run's status. A shots run that fails without failing pairs, as when it
+/// cannot render, stops the lane as any failed step does.
+#[test]
+fn a_shots_run_whose_pairs_fail_lets_the_lane_run_the_rest() {
+    let scratch = Scratch::new("shots-fail-goes-on");
+    let held = held_in(&scratch);
+    let pairs_fail = "echo 'builds shots: 1 pair(s) fail the run: mac.a.one' >&2; exit 1";
+    let steps = [
+        fake("shots mac.a.", &["sh", "-c", pairs_fail], None),
+        fake("shots mac.b.", &["true"], None),
+        fake("shots mac.c.", &["sh", "-c", "exit 2"], None),
+        fake("test Never", &["true"], None),
+    ];
+    let mut log = Vec::new();
+    let ran = run_steps(
+        &scratch.dir,
+        &held,
+        &steps,
+        &mut log,
+        &any_store(&scratch),
+        false,
+    );
+    assert!(matches!(ran, Err(Fail::Exit(2))), "{ran:?}");
+    let seen: Vec<(&str, &str)> = log
+        .iter()
+        .map(|s| (s.name.as_str(), s.result.word()))
+        .collect();
+    assert_eq!(
+        seen,
+        vec![
+            ("shots mac.a.", "failed"),
+            ("shots mac.b.", "passed"),
+            ("shots mac.c.", "failed"),
+        ]
+    );
+    let steps = [
+        fake("shots mac.a.", &["sh", "-c", pairs_fail], None),
+        fake("test Foo", &["true"], None),
+    ];
+    let mut log = Vec::new();
+    let ran = run_steps(
+        &scratch.dir,
+        &held,
+        &steps,
+        &mut log,
+        &any_store(&scratch),
+        false,
+    );
+    assert!(matches!(ran, Err(Fail::Exit(1))), "{ran:?}");
+    assert_eq!(log.len(), 2, "the test class ran after the shots run");
+}
+
 /// A step that fails keeps its excerpt and the shots its output says fail
 /// the run; a step that passed keeps nothing.
 #[test]

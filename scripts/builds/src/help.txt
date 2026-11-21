@@ -1117,7 +1117,9 @@ the run's own (a run of mac. stands in for a run of mac.welcome.), and whose
 report holds findings.json. When builds keeps none, `builds app-build` builds
 the merge base first in the lane, with the lane's `needs` steps, and runs the
 same prefixes there. That run compares with nothing, so it fails on every
-pair with findings, and builds keeps its findings all the same. A run of a
+pair with findings, and builds keeps its findings all the same and runs
+every other prefix the build names; only a step or a shots run that fails
+without failing pairs, as when it cannot render, stops it. A run of a
 commit on origin/main compares with nothing. A lane's process (`--lane`)
 builds no merge base: it fails, naming the command that makes the run it
 lacks. A shots check's "before" side is read from the kept runs, never
@@ -1151,7 +1153,11 @@ built again.
                               --test classes and its `shots` line once per
                               --shots prefix and once for each --all-shots
                               lane (in any order, after
-                              the steps; the lane must have the line). A class
+                              the steps; the lane must have the line). A
+                              shots run whose pairs fail it kept its findings,
+                              so the lane goes on to its other runs and fails
+                              once they end; any other failure stops the lane
+                              at once. A class
                               or prefix is one argument, never read by a
                               shell. app-build refuses a prefix that selects
                               every shot of the lane, and a step that a
