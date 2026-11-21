@@ -91,8 +91,8 @@ pub(crate) struct Comparison {
 /// Compares the board's list with the shot's, leaving out what either draws
 /// inside a preview slot of the board: <slots> are the boxes of the board's
 /// `bae-preview-slot` stand-ins, which the app draws its real content in. An
-/// element is inside a slot when its box lies within the slot's, to the edge
-/// tolerance; that drops the slot's own element too. The shot's frame may sit
+/// element is inside a slot when the middle of its box lies in the slot's;
+/// that drops the slot's own element too. The shot's frame may sit
 /// off the board's, so the shot's slots are the board's moved by the offset
 /// the pairs outside the slots give. This is the one place slots filter the
 /// element comparison.
@@ -128,12 +128,12 @@ pub(crate) fn compare<'a>(
     )
 }
 
-/// Whether `inner` lies within `outer`, each edge to the edge tolerance.
+/// Whether the middle of `inner` lies within `outer`. A shot's real content
+/// can reach past the slot's box (a pane taller than the board's frame), so
+/// the middle decides, not the whole box.
 fn within(inner: Bounds, outer: Bounds) -> bool {
-    inner.x >= outer.x - EDGE_TOLERANCE
-        && inner.y >= outer.y - EDGE_TOLERANCE
-        && inner.x + inner.width <= outer.x + outer.width + EDGE_TOLERANCE
-        && inner.y + inner.height <= outer.y + outer.height + EDGE_TOLERANCE
+    let (x, y) = (inner.x + inner.width / 2.0, inner.y + inner.height / 2.0);
+    x >= outer.x && x <= outer.x + outer.width && y >= outer.y && y <= outer.y + outer.height
 }
 
 /// Compares the entries of the two lists that `keep_board` and `keep_shot`

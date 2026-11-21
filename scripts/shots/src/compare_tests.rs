@@ -461,3 +461,23 @@ fn a_difference_outside_a_preview_slot_is_still_found() {
     let found = compare(&board, &shot, &[slot]);
     assert_eq!(found.findings.len(), 2);
 }
+
+#[test]
+fn a_shot_element_that_runs_past_a_preview_slot_is_left_out() {
+    // The slot reaches the frame's bottom edge; the real pane scrolls on
+    // below it, and a button straddles the slot's top edge.
+    let slot = crate::shots::Bounds {
+        x: 100.0,
+        y: 50.0,
+        width: 300.0,
+        height: 1.0e9,
+    };
+    let board = [boxed(text("Container"), 10.0, 10.0, 80.0, 20.0)];
+    let shot = [
+        boxed(text("Container"), 10.0, 10.0, 80.0, 20.0),
+        boxed(button("Reveal"), 120.0, 44.0, 40.0, 20.0),
+        boxed(text("Track"), 120.0, 900.0, 40.0, 20.0),
+    ];
+    let found = compare(&board, &shot, &[slot]);
+    assert!(found.findings.is_empty(), "{:?}", found.findings);
+}
