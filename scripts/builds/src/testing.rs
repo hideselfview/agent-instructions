@@ -97,6 +97,7 @@ impl Scratch {
                 hard_floor_kib: 0,
                 unused_days: 3,
                 incremental_hours: 6,
+                idle_claim_hours: 2,
             },
             // A builds whose `shots states` finds no component state a change
             // adds.

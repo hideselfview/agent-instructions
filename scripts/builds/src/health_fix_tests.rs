@@ -293,3 +293,142 @@ fn stops_the_orphans_health_stops_and_lists_the_rest() {
     );
     assert_eq!(left, [orphan(1, false), orphan(3, true), orphan(4, true)]);
 }
+
+mod stalled_claims {
+    use super::*;
+    use crate::checkout::Checkout;
+    use crate::lists::fixtures::NOON;
+    use crate::lists::item_fixtures::{Demo, demo, words};
+
+    /// Health's reading hours after the claim, with the demo's clock moved
+    /// past the commit times git recorded.
+    fn hours_later(demo: &mut Demo, hours: i64) {
+        let real = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
+        demo.tool.now = real + hours * 3600;
+    }
+
+    fn item(demo: &Demo, args: &[&str]) {
+        crate::lists::cmd_item(&demo.tool, &words(args)).unwrap();
+    }
+
+    fn take_in(demo: &Demo, side: &std::path::Path) {
+        let details = demo.brief("details.txt");
+        item(
+            demo,
+            &[
+                "add",
+                "--title",
+                "Do the first thing now",
+                "--area",
+                "Alpha",
+                "--details-file",
+                &details,
+            ],
+        );
+        let brief = demo.brief("b.md");
+        item(
+            demo,
+            &[
+                "take",
+                "1",
+                "--worktree",
+                &side.display().to_string(),
+                "--branch",
+                "work",
+                "--brief",
+                &brief,
+            ],
+        );
+    }
+
+    fn side(demo: &Demo) -> (std::path::PathBuf, Checkout) {
+        let side = demo.add_side(1, "agent A", "work");
+        let checkout = Checkout::find(&side.display().to_string()).unwrap();
+        crate::setup::setup(&demo.tool, &crate::testing::no_ssh(), &checkout).unwrap();
+        crate::claim::write_claim(
+            &checkout,
+            "agent A",
+            NOON,
+            Some(crate::claim::Note::Starting),
+        )
+        .unwrap();
+        (side, checkout)
+    }
+
+    fn fix(demo: &Demo) -> Vec<String> {
+        let health = crate::health::health(&demo.tool).unwrap();
+        release_stalled_claims(&demo.tool, &health).unwrap()
+    }
+
+    fn has_claim(checkout: &Checkout) -> bool {
+        Claim::read(&checkout.claim_file()).unwrap().is_some()
+    }
+
+    /// A claim that waits for an item that never started, with nothing in its
+    /// worktree and no change for hours, is released.
+    #[test]
+    fn an_empty_claim_with_no_change_for_hours_is_released() {
+        let mut demo = demo("stalled-empty");
+        let (_, checkout) = side(&demo);
+        hours_later(&mut demo, 3);
+        let lines = fix(&demo);
+        assert_eq!(lines.len(), 1, "{lines:?}");
+        assert!(
+            lines[0].starts_with("released ") && lines[0].contains("had no change for"),
+            "{lines:?}"
+        );
+        assert!(!has_claim(&checkout));
+    }
+
+    /// An item marked running in such a worktree is stopped, back in the
+    /// queue, and then the claim is released.
+    #[test]
+    fn an_item_running_in_an_empty_idle_worktree_is_stopped_and_the_claim_released() {
+        let mut demo = demo("stalled-item");
+        let (side, checkout) = side(&demo);
+        take_in(&demo, &side);
+        hours_later(&mut demo, 3);
+        let lines = fix(&demo);
+        assert_eq!(lines.len(), 2, "{lines:?}");
+        assert!(
+            lines[0].starts_with("stopped item 1, marked running in "),
+            "{lines:?}"
+        );
+        assert!(lines[1].starts_with("released "), "{lines:?}");
+        assert!(!has_claim(&checkout));
+        let lists = demo.store.load().unwrap();
+        assert!(lists.items[0].running.is_empty());
+        assert!(lists.items[0].kept.is_empty());
+    }
+
+    /// A worktree with a commit origin/main lacks keeps its claim and its
+    /// running item.
+    #[test]
+    fn a_worktree_with_unlanded_work_keeps_its_claim_and_item() {
+        let mut demo = demo("stalled-work");
+        let (side, checkout) = side(&demo);
+        take_in(&demo, &side);
+        demo.commit(&side, "unlanded");
+        hours_later(&mut demo, 3);
+        assert!(fix(&demo).is_empty());
+        assert!(has_claim(&checkout));
+        assert_eq!(demo.store.load().unwrap().items[0].running.len(), 1);
+    }
+
+    /// A claim younger than the setting's hours stays, whatever its worktree
+    /// holds.
+    #[test]
+    fn a_claim_idle_for_less_than_the_hours_stays() {
+        let mut demo = demo("stalled-young");
+        let (side, checkout) = side(&demo);
+        take_in(&demo, &side);
+        hours_later(&mut demo, 1);
+        crate::claim::write_claim(&checkout, "agent A", demo.tool.now - 600, None).unwrap();
+        assert!(fix(&demo).is_empty());
+        assert!(has_claim(&checkout));
+        assert_eq!(demo.store.load().unwrap().items[0].running.len(), 1);
+    }
+}

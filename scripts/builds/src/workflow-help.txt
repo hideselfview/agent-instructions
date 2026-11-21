@@ -771,7 +771,9 @@ call, and prints one line for each fix: it prunes a host under the free-disk
 floor and probes it again, measures the core speed of a host that has none,
 stops the Gradle daemon, the Kotlin compile daemon and the booted simulators
 that no build has used for an hour on a host under memory pressure and probes
-it again, releases a claim on a worktree that nothing holds, sends the judge
+it again, releases a claim on a worktree that nothing holds, releases a claim on a
+worktree that holds nothing origin/main lacks and has had no change and no build for
+2 hours (BUILDS_IDLE_CLAIM_HOURS) and stops an item marked running there, sends the judge
 again each finding that waits for a settle and that no running builds
 process is telling the judge's session of, forgets a judge whose session ended so that the
 coordinator settles, and stops each
@@ -791,8 +793,9 @@ whose caller is gone. The lines below are what remains to act on.
     hold (BUILDS says what changes sccache's key).
   - Junk shells: run `builds health --stop-junk`. When one agent keeps
     leaving polling shells, tell it to wait for notifications instead.
-  - A claimed worktree with no change and no build for an hour: ask its agent
-    what it waits on, or land and release it. A claim kept on purpose gets
+  - A claimed worktree with no change and no build for an hour, which health
+    releases itself once it has had none for 2 hours and holds nothing
+    origin/main lacks: ask its agent what it waits on, or land and release it. A claim kept on purpose gets
     `builds note <worktree> --state held "<why, and until when>"`.
   - A held worktree whose wait closed: restart its work and clear the hold.
   - An item that keeps a worktree and has every wait met (the line names the

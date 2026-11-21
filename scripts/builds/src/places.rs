@@ -497,6 +497,10 @@ pub struct Rules {
     /// unwritten for two hours. Losing one costs an incremental rebuild of its
     /// crate.
     pub incremental_hours: u64,
+    /// `builds health` releases the claim of a worktree that holds nothing
+    /// origin/main lacks, runs no item and had no change and no build for
+    /// this many hours, and stops an item marked running there.
+    pub idle_claim_hours: u64,
 }
 
 impl Rules {
@@ -522,6 +526,7 @@ impl Rules {
             hard_floor_kib: gib_from_env("BUILDS_HARD_FLOOR_GIB", 10)? * 1024 * 1024,
             unused_days: whole_from_env("BUILDS_UNUSED_DAYS", 3, "days")?,
             incremental_hours: whole_from_env("BUILDS_INCREMENTAL_HOURS", 6, "hours")?,
+            idle_claim_hours: whole_from_env("BUILDS_IDLE_CLAIM_HOURS", 2, "hours")?,
         })
     }
 }

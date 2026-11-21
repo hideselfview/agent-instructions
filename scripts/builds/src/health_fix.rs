@@ -207,6 +207,95 @@ pub fn release_idle_claims(tool: &Tool) -> Result<Vec<String>> {
     Ok(lines)
 }
 
+/// Releases the claim of each worktree health lists as stalled (`stalled` in
+/// <health>) that has had no change and no build for `idle_claim_hours` and
+/// holds no work origin/main lacks, and stops each item marked running there
+/// so it goes back to the queue. The work check is the one `builds release`
+/// makes (`kept::read`), read again here. A worktree with such work keeps its
+/// claim and its finding. Returns one line for each item it stopped and each
+/// claim it released.
+pub fn release_stalled_claims(tool: &Tool, health: &crate::health::Health) -> Result<Vec<String>> {
+    let idle_minutes = (tool.rules.idle_claim_hours * 60) as i64;
+    let every = crate::lists::store::every_lists(&tool.places)?;
+    let commits = crate::procs::git_commits(&crate::procs::Processes::read()?);
+    let mut lines = Vec::new();
+    for worktree in health.worktrees.iter().filter(|w| w.stalled) {
+        // The claim's start counts as a change, as in health's own test.
+        let idle = worktree
+            .quiet_minutes
+            .unwrap_or(i64::MAX)
+            .min(crate::text::minutes_since(tool.now, worktree.claim.since));
+        if idle < idle_minutes {
+            continue;
+        }
+        let checkout = crate::checkout::Checkout::find(&worktree.path)?;
+        let top = checkout.top.display().to_string();
+        if !checkout.is_side()
+            || tool
+                .places
+                .app_lane_of(&checkout.repo(), &checkout.name())?
+                .is_some()
+            || Claim::read(&checkout.claim_file())?.as_ref() != Some(&worktree.claim)
+        {
+            continue;
+        }
+        let kept = crate::kept::read(&every, &checkout, &commits)?;
+        if !kept.unheld.is_empty() {
+            continue;
+        }
+        let mut stopped = true;
+        for (lists, item) in crate::lists::running::running_in_any(&every, &top) {
+            let id = item.id.0.to_string();
+            let why = format!(
+                "{top} holds nothing origin/main lacks and has had no change for {}",
+                crate::text::duration(idle * 60)
+            );
+            let said = crate::lists::cmd_item(
+                tool,
+                &[
+                    "stop".to_string(),
+                    id.clone(),
+                    "--why".to_string(),
+                    why,
+                    "--project".to_string(),
+                    lists.project.clone(),
+                    "--by".to_string(),
+                    "health".to_string(),
+                ],
+            );
+            match said {
+                Ok(()) => lines.push(format!(
+                    "stopped item {id}, marked running in {top}, which holds nothing origin/main lacks and had no change for {}",
+                    crate::text::duration(idle * 60)
+                )),
+                Err(error) => {
+                    stopped = false;
+                    lines.push(format!("stopping item {id} in {top} failed: {}", error.text()));
+                }
+            }
+        }
+        // Read again: the stop, or an agent, may have left work there.
+        if !stopped
+            || !crate::kept::read(
+                &crate::lists::store::every_lists(&tool.places)?,
+                &checkout,
+                &commits,
+            )?
+            .is_leavable()
+        {
+            continue;
+        }
+        if let Some(claim) = crate::claim::forget(&checkout)? {
+            lines.push(format!(
+                "released {top}, which holds nothing origin/main lacks and had no change for {} (was {})",
+                crate::text::duration(idle * 60),
+                claim.text()
+            ));
+        }
+    }
+    Ok(lines)
+}
+
 /// Tells each project's judge again of each finding that waits and that no
 /// running builds process is telling the judge's session of,
 /// tells each judge that has not acknowledged the text to acknowledge it

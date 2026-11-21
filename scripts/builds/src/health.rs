@@ -1671,6 +1671,19 @@ pub fn cmd_health(tool: &Tool, args: &[String]) -> Result<()> {
         Some(health) => health,
         None => health(tool)?,
     };
+    // A stalled claim that holds no work is released, and its item stopped,
+    // from this reading; health reads again so the lists show what is left.
+    match crate::health_fix::release_stalled_claims(tool, &health) {
+        Ok(lines) if lines.is_empty() => {}
+        Ok(lines) => {
+            lines.iter().for_each(crate::text::note);
+            health = self::health(tool)?;
+        }
+        Err(error) => crate::text::note(format!(
+            "could not check which stalled claims hold nothing: {}",
+            error.text()
+        )),
+    }
     // builds health reads the busy processes itself: the daemon's health
     // holds none, and builds health prints every busy process, not only the
     // ones stuck.rs judges stuck.
